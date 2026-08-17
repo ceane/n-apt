@@ -436,9 +436,7 @@ mod tests {
   fn mock_apt_emits_a_centered_dc_spike() {
     let mut device = MockAptDevice::new_with_seed(0xDC);
     device.initialize().expect("mock APT initialization");
-    let samples = device
-      .read_samples(32_768)
-      .expect("mock APT frame");
+    let samples = device.read_samples(32_768).expect("mock APT frame");
     let spectrum = fft_spectrum_dbm(&samples.data, samples.sample_rate as f64);
     // The backend emits ordinary (unshifted) FFT order. The UI centers this
     // bin when it prepares the display spectrum.

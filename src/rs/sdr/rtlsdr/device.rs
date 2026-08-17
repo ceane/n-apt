@@ -14,6 +14,7 @@ use std::sync::{
   Arc,
 };
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use super::ffi;
 use crate::sdr::audio_iq_tap::{AudioIqBlock, AudioIqTap};
@@ -147,11 +148,30 @@ impl RtlSdrDevice {
     true
   }
 
+  /// Cancel the native reader and wait until its libusb transfers have
+  /// actually unwound. Public lifecycle operations such as standby and
+  /// cleanup are completion boundaries, not cancellation requests.
+  fn stop_async_reader_and_wait(&mut self, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+      if self.stop_async_reader() {
+        return true;
+      }
+      if Instant::now() >= deadline {
+        return false;
+      }
+      thread::sleep(Duration::from_millis(5));
+    }
+  }
+
   fn start_async_reader(&mut self) -> Result<()> {
     self.start_async_reader_with_probe(true)
   }
 
-  fn start_async_reader_with_probe(&mut self, probe_startup: bool) -> Result<()> {
+  fn start_async_reader_with_probe(
+    &mut self,
+    probe_startup: bool,
+  ) -> Result<()> {
     if let Some(done) = &self.reader_stop_pending {
       if !done.load(Ordering::Acquire) {
         return Err(anyhow!("RTL-SDR async reader is still stopping"));
@@ -685,7 +705,10 @@ impl RtlSdrDevice {
   /// `buf` should be a multiple of 512 bytes for best performance.
   pub fn read_sync_into(&self, buf: &mut [u8]) -> Result<usize> {
     if buf.len() > c_int::MAX as usize {
-      return Err(anyhow!("Synchronous read length is too large: {}", buf.len()));
+      return Err(anyhow!(
+        "Synchronous read length is too large: {}",
+        buf.len()
+      ));
     }
     let mut n_read: c_int = 0;
     let ret = unsafe {
@@ -809,19 +832,16 @@ impl SdrDevice for RtlSdrDevice {
     // or dead but the join handle has not yet observed it, cancel the old
     // stream and start a fresh one instead of treating the device as already
     // initialized.
-    if !self.stop_async_reader() {
+    if !self.stop_async_reader_and_wait(Duration::from_secs(2)) {
       return Err(anyhow!("RTL-SDR async reader is still stopping"));
     }
     self.start_async_reader()
   }
 
   fn enter_standby(&mut self) -> Result<()> {
-    if !self.stop_async_reader() {
-      return Err(anyhow!("RTL-SDR async reader is still stopping"));
-    }
-    self.iq_overflow.clear();
-    self.audio_tap.clear();
-    Ok(())
+    Err(anyhow!(
+      "RTL-SDR is receive-only and cannot enter the pre-Tx standby state"
+    ))
   }
 
   fn is_ready(&self) -> bool {
@@ -921,7 +941,9 @@ impl SdrDevice for RtlSdrDevice {
 
   fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
     if enabled {
-      self.audio_tap.set_capacity_for_sample_rate(self.get_sample_rate());
+      self
+        .audio_tap
+        .set_capacity_for_sample_rate(self.get_sample_rate());
     }
     self.audio_tap.set_enabled(enabled);
   }
@@ -961,7 +983,9 @@ impl SdrDevice for RtlSdrDevice {
       // librtlsdr's control thread is designed to retune while the async
       // reader is active. Stopping/restarting the reader here inserted a
       // visible gap for every VFO gesture and made hardware appear to freeze.
-      CenterFrequencyRetunePlan::ApplyWhileStreaming => self.set_center_freq(freq),
+      CenterFrequencyRetunePlan::ApplyWhileStreaming => {
+        self.set_center_freq(freq)
+      }
     }
   }
 
@@ -1035,7 +1059,9 @@ impl SdrDevice for RtlSdrDevice {
   }
 
   fn cleanup(&mut self) -> Result<()> {
-    if self.stop_async_reader() {
+    if self.stop_async_reader_and_wait(Duration::from_secs(2)) {
+      self.iq_overflow.clear();
+      self.audio_tap.clear();
       Ok(())
     } else {
       Err(anyhow!("RTL-SDR async reader is still stopping"))
@@ -1202,8 +1228,8 @@ mod tests {
     assert!(device.async_thread.is_none());
     assert!(!SdrDevice::is_healthy(&*device));
     assert!(
-      SdrDevice::cleanup(&mut *device).is_err(),
-      "cleanup must not report the USB handle reusable while the reader is pending"
+      SdrDevice::cleanup(&mut *device).is_ok(),
+      "cleanup must wait until the USB handle is reusable"
     );
     let deadline = std::time::Instant::now() + Duration::from_millis(500);
     while device
@@ -1216,5 +1242,54 @@ mod tests {
       thread::yield_now();
     }
     assert!(SdrDevice::cleanup(&mut *device).is_ok());
+  }
+
+  #[test]
+  fn cleanup_waits_for_async_reader_to_finish() {
+    let handle = thread::spawn(|| {
+      thread::sleep(Duration::from_millis(20));
+      0
+    });
+
+    let mut device = ManuallyDrop::new(RtlSdrDevice {
+      dev: std::ptr::null_mut(),
+      device_index: 0,
+      rx_queue: None,
+      async_thread: Some(handle),
+      reader_stop_pending: None,
+      iq_overflow: vec![1, 2],
+      audio_tap: AudioIqTap::new(),
+      max_sample_rate_cache: None,
+      last_error: None,
+      usb_serial: String::new(),
+      usb_manufacturer: String::new(),
+      usb_product: String::new(),
+    });
+
+    assert!(SdrDevice::cleanup(&mut *device).is_ok());
+    assert!(device.reader_stop_pending.is_none());
+    assert!(device.iq_overflow.is_empty());
+  }
+
+  #[test]
+  fn receive_only_rtl_sdr_rejects_tx_standby_state() {
+    let mut device = ManuallyDrop::new(RtlSdrDevice {
+      dev: std::ptr::null_mut(),
+      device_index: 0,
+      rx_queue: None,
+      async_thread: None,
+      reader_stop_pending: None,
+      iq_overflow: Vec::new(),
+      audio_tap: AudioIqTap::new(),
+      max_sample_rate_cache: None,
+      last_error: None,
+      usb_serial: String::new(),
+      usb_manufacturer: String::new(),
+      usb_product: String::new(),
+    });
+
+    let error = SdrDevice::enter_standby(&mut *device)
+      .expect_err("RTL-SDR must not enter the pre-Tx standby state");
+    assert!(error.to_string().contains("receive-only"));
   }
 }

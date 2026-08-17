@@ -10,6 +10,7 @@ import {
   pinFastRecordingOptions,
   renderSpectrumSnapshotCanvas,
   renderWaterfallSnapshotCanvas,
+  renderStatsRowCanvas,
   useSnapshot,
 } from "@n-apt/capture/hooks/useSnapshot";
 import { fmtFreq } from "@n-apt/layout/rendering/formatters";
@@ -910,5 +911,71 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines[5]).toBe("Gain: Auto | PPM: 0");
+  });
+});
+
+describe("renderStatsRowCanvas", () => {
+  it("leaves six pixels of vertical breathing room between metadata rows", () => {
+    clearCanvasCalls();
+    renderStatsRowCanvas(
+      ["left one", "left two", "right one", "right two"],
+      800,
+      {
+        bg: "#000",
+        grid: "#333",
+        line: "#0ff",
+        shadow: "#000",
+        text: "#777",
+        hwLine: "#999",
+        hwText: "#aaa",
+        cfText: "#fff",
+      },
+    );
+
+    const textYPositions: number[] = Array.from(
+      new Set<number>(
+        (global as any).__CANVAS_CALLS__
+          .filter((call: any) => call.name === "fillText" && call.args[0] !== "-")
+          .map((call: any) => call.args[2] as number),
+      ),
+    );
+
+    expect(textYPositions[1] - textYPositions[0]).toBeCloseTo(30, 5);
+  });
+
+  it("adds a separate top gap before the full-width location row", () => {
+    clearCanvasCalls();
+    renderStatsRowCanvas(
+      [
+        "left one",
+        "left two",
+        "right one",
+        "right two",
+        "left three",
+        "right three",
+        "Location: 37.774900, -122.419400 – San Francisco, California",
+      ],
+      800,
+      {
+        bg: "#000",
+        grid: "#333",
+        line: "#0ff",
+        shadow: "#000",
+        text: "#777",
+        hwLine: "#999",
+        hwText: "#aaa",
+        cfText: "#fff",
+      },
+    );
+
+    const textYPositions: number[] = Array.from(
+      new Set<number>(
+        (global as any).__CANVAS_CALLS__
+          .filter((call: any) => call.name === "fillText" && call.args[0] !== "-")
+          .map((call: any) => call.args[2] as number),
+      ),
+    );
+
+    expect(textYPositions[3] - textYPositions[2]).toBeCloseTo(36, 5);
   });
 });

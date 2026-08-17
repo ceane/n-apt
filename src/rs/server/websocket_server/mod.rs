@@ -39,6 +39,8 @@ use source_lifecycle::{
   prepare_selected_source_for_rx, should_cache_swapped_source,
   should_restore_warm_source, source_phase_on_select, warmable_source_ids,
 };
+#[cfg(test)]
+use source_lifecycle::source_phase_on_switch_away;
 
 // Re-export key symbols for tests and other modules
 pub use broadcasting::{
@@ -54,8 +56,8 @@ pub use source_lifecycle::SourceLifecyclePhase;
 pub use sources::{
   active_source_id, apply_stream_keys, build_device_profile,
   build_signals_defaults_snapshot, build_source_info_snapshot,
-  open_device_for_source_id, resolve_source_selection,
-  resolve_stream_key_source_id,
+  enumerate_inventory_source_ids, open_device_for_source_id,
+  resolve_source_selection, resolve_stream_key_source_id,
 };
 
 pub(crate) const MOCK_TX_SOURCE_ID: &str = "mock-tx";
@@ -398,10 +400,9 @@ impl SourceLifecycleModel {
   }
 
   fn switch_away(&mut self, source_id: &str) -> SourceLifecyclePhase {
-    self
-      .phases
-      .insert(source_id.to_string(), SourceLifecyclePhase::Standby);
-    SourceLifecyclePhase::Standby
+    let phase = source_phase_on_switch_away(source_id);
+    self.phases.insert(source_id.to_string(), phase);
+    phase
   }
 }
 
@@ -744,7 +745,10 @@ mod tests {
       lifecycle.first_frame("rtl"),
       SourceLifecyclePhase::Streaming
     );
-    assert_eq!(lifecycle.switch_away("rtl"), SourceLifecyclePhase::Standby);
+    assert_eq!(
+      lifecycle.switch_away("rtl"),
+      SourceLifecyclePhase::Connected
+    );
 
     assert_eq!(
       lifecycle.select("hackrf", false),
@@ -764,7 +768,10 @@ mod tests {
         lifecycle.select("rtl", true),
         SourceLifecyclePhase::Streaming
       );
-      assert_eq!(lifecycle.switch_away("rtl"), SourceLifecyclePhase::Standby);
+      assert_eq!(
+        lifecycle.switch_away("rtl"),
+        SourceLifecyclePhase::Connected
+      );
       assert_eq!(
         lifecycle.select("hackrf", true),
         SourceLifecyclePhase::Streaming
@@ -1055,6 +1062,31 @@ impl WebSocketServer {
       )
       .await;
 
+    // Pre-open every connected peer into the warm pool so switching devices
+    // never pays a cold USB open + full async-reader swap latency. Failures
+    // are logged and skipped: a failed peer stays cold and is retried on
+    // selection, without blocking the active source's stream.
+    {
+      let active_id = active_source_id(&shared_state);
+      for source_id in enumerate_inventory_source_ids(&shared_state) {
+        if source_id == active_id || warm_devices.contains_key(&source_id) {
+          continue;
+        }
+        match open_device_for_source_id(&shared_state, &source_id) {
+          Ok(device) => {
+            info!("Warming source {} for instant switching", source_id);
+            warm_devices.insert(source_id, device);
+          }
+          Err(error) => {
+            warn!(
+              "Skipping warm-open of source {} (will open cold on selection): {}",
+              source_id, error
+            );
+          }
+        }
+      }
+    }
+
     loop {
       if shared_state.shutdown.load(Ordering::Relaxed) {
         info!("Shutdown flag observed, stopping SDR streaming thread");
@@ -1090,10 +1122,13 @@ impl WebSocketServer {
         };
         match cmd {
           crate::server::types::SdrCommand::RequestNextFrame => {
-            if tx_worker.try_publish_standby_preview() {
-              allow_next_paused_frame = false;
-            } else {
-              allow_next_paused_frame = true;
+            match tx_worker.try_publish_standby_preview() {
+              crate::tx::monitor::StandbyPreviewOutcome::Published => {
+                allow_next_paused_frame = false;
+              }
+              crate::tx::monitor::StandbyPreviewOutcome::NoRequest => {
+                allow_next_paused_frame = true;
+              }
             }
           }
           crate::server::types::SdrCommand::SetActiveSource {

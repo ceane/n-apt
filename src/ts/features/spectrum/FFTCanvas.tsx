@@ -4963,6 +4963,7 @@ const FFTCanvas = memo(
         lastProcessedDataRef.current = null;
         lastProcessedFrameSignatureRef.current = null;
         lastRenderableFrameRef.current = null;
+        lastPausedFrameSourceIdRef.current = null;
         frameBufferRef.current = [];
         fullChannelWaveformRef.current = null;
         fullChannelRangeRef.current = null;

@@ -99,20 +99,34 @@ describe("resolveMockTxMonitorSampleRateForView", () => {
 });
 
 describe("resolveLiveDevicePlaceholderState", () => {
-  it.each(["loading", "stale"])(
-    "dismisses a %s placeholder when current-source I/Q is already renderable",
-    (deviceState) => {
-      expect(
-        resolveLiveDevicePlaceholderState({
-          deviceState,
-          sourceLabel: "RTL-SDR v4",
-          hasRenderableCurrentFrame: true,
-        } as Parameters<typeof resolveLiveDevicePlaceholderState>[0] & {
-          hasRenderableCurrentFrame: boolean;
-        }),
-      ).toBeNull();
-    },
-  );
+  it("dismisses a stale placeholder when current-source I/Q is already renderable", () => {
+    // `stale` with a genuinely valid current-source frame is a live stream:
+    // the placeholder is dismissed.
+    expect(
+      resolveLiveDevicePlaceholderState({
+        deviceState: "stale",
+        sourceLabel: "RTL-SDR v4",
+        hasRenderableCurrentFrame: true,
+      } as Parameters<typeof resolveLiveDevicePlaceholderState>[0] & {
+        hasRenderableCurrentFrame: boolean;
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a loading placeholder even when a renderable frame exists", () => {
+    // A device still opening has no veritable stream; a stale renderable
+    // frame must not suppress the loading placeholder or the canvas can show
+    // a blank/black area on a loading HackRF after Resume.
+    expect(
+      resolveLiveDevicePlaceholderState({
+        deviceState: "loading",
+        sourceLabel: "RTL-SDR v4",
+        hasRenderableCurrentFrame: true,
+      } as Parameters<typeof resolveLiveDevicePlaceholderState>[0] & {
+        hasRenderableCurrentFrame: boolean;
+      }),
+    ).toMatchObject({ kind: "loading" });
+  });
 
   it("keeps an explicit disconnect blocking even when a frame is buffered", () => {
     expect(

@@ -629,6 +629,31 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toMatchObject({ phase: "ready", placeholder: null });
   });
 
+  test("loading wins over a stale renderable frame so a loading HackRF never shows a blank canvas", () => {
+    // A stale frame (previous source / earlier epoch) must not flip the
+    // lifecycle to `ready` while the selected source is still `loading` —
+    // that suppresses the loading placeholder and leaves a blank/black FFT
+    // after Resume. Loading keeps the placeholder until a fresh frame lands.
+    const devicePlaceholder = resolveLiveDevicePlaceholderState({
+      deviceState: "loading",
+      sourceLabel: "HackRF One",
+      hasRenderableCurrentFrame: true,
+    });
+    expect(devicePlaceholder?.kind).toBe("loading");
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "hackrf-1",
+        activeSourceId: "hackrf-1",
+        transportSourceId: "hackrf-1",
+        transportPhase: "ready",
+        hasValidFrame: true,
+        deviceStatus: "loading",
+        devicePlaceholder,
+        handoffPlaceholder,
+      }),
+    ).toMatchObject({ phase: "recovering", placeholder: { kind: "loading" } });
+  });
+
   test("keeps an active Mock Tx standby overlay after its preview frame renders", () => {
     const standbyPlaceholder = {
       kind: "top-bar" as const,

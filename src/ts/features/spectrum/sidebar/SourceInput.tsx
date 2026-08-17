@@ -538,11 +538,35 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const hasConnectedHardwareSource = sourceDevicesRaw.some(
     (device) => !isMockDeviceLocal(device) && isDeviceConnected(device),
   );
+  // The mock fallback must stay visible while it is the actual active stream
+  // (the backend fell back to it after a hardware unplug) so the pill list
+  // matches what is really on screen. It is dropped whenever a real hardware
+  // source is present and streaming/transmitting — the mock is then not the
+  // active fallback, and the "hardware replaces mock" rule applies.
+  const activeHardwareStreaming = sourceDevicesRaw.some(
+    (device) =>
+      !isMockDeviceLocal(device) &&
+      (device.status?.label?.toLowerCase?.() === "receiving" ||
+        device.status?.label?.toLowerCase?.() === "streaming" ||
+        device.status?.label?.toLowerCase?.() === "transmitting"),
+  );
+  const activeMockFallbackDevice =
+    sourceMode === "live" && !activeHardwareStreaming
+      ? (sourceDevicesRaw.find(
+          (device) =>
+            isMockDeviceLocal(device) &&
+            device.id === selectedDeviceId &&
+            (device.status?.label?.toLowerCase?.() === "receiving" ||
+              device.status?.label?.toLowerCase?.() === "streaming"),
+        ) ?? null)
+      : null;
   const sourceDevices = hasConnectedHardwareSource
     ? sourceDevicesRaw.filter(
         (device) =>
           !isMockDeviceLocal(device) ||
-          device.status?.label?.toLowerCase?.() === "transmitting",
+          device.status?.label?.toLowerCase?.() === "transmitting" ||
+          (activeMockFallbackDevice !== null &&
+            device.id === activeMockFallbackDevice.id),
       )
     : sourceDevicesRaw;
   const isHalfDuplexDevice = (device: (typeof sourceDevices)[number]) =>
@@ -822,10 +846,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   </DevicePillMeta>
                 </DevicePillMain>
                 <DeviceActions>
-                  {device.status?.loading &&
-                  !isHalfDuplex &&
-                  !onToggleDeviceTxMode &&
-                  !device.status?.onAction ? (
+                  {device.status?.loading && !isHalfDuplex ? (
                     <DeviceLoadingState
                       role="status"
                       aria-label={
@@ -846,19 +867,28 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       $muted={
                         isTransmittingDevice ||
                         isTxPreviewingDevice ||
-                        isTxModeDevice(device)
+                        isTxModeDevice(device) ||
+                        !!device.status?.loading
                       }
                       $opacity={fileModeOpacity}
-                      disabled={sourcePillsDimmed}
+                      disabled={sourcePillsDimmed || !!device.status?.loading}
                       onClick={(event) => {
                         event.stopPropagation();
                         onToggleDeviceRxPause(device.id);
                       }}
                       title={
-                        isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"
+                        device.status?.loading
+                          ? "Device is loading"
+                          : isHalfDuplexRxActive(device)
+                            ? "Pause Rx"
+                            : "Resume Rx"
                       }
                     >
-                      {isHalfDuplexRxActive(device) ? "Pause Rx" : "Resume Rx"}
+                      {device.status?.loading
+                        ? "Loading…"
+                        : isHalfDuplexRxActive(device)
+                          ? "Pause Rx"
+                          : "Resume Rx"}
                       {isOnscreenStreaming && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
                   ) : !isHalfDuplex &&

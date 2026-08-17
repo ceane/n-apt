@@ -27,7 +27,12 @@ fn should_retire_device_synchronously(device_type: &str) -> bool {
   device_type.contains("rtl") || device_type.contains("hackrf")
 }
 
-fn stop_warm_device(device: &mut dyn SdrDevice) -> Result<()> {
+/// Quiesce a warm device without conflating receive-only teardown with the
+/// HackRF pre-Tx standby state. Reused by the source lifecycle warm pool.
+pub(crate) fn stop_warm_device(device: &mut dyn SdrDevice) -> Result<()> {
+  if device.device_type().to_ascii_lowercase().contains("rtl") {
+    return device.cleanup();
+  }
   let retry_until = Instant::now() + std::time::Duration::from_secs(2);
   loop {
     match device.enter_standby() {
@@ -510,6 +515,7 @@ impl SdrProcessor {
       ppm: Some(sdr_settings.ppm as u32),
       tuner_agc: Some(sdr_settings.gain.tuner_agc),
       rtl_agc: Some(sdr_settings.gain.rtl_agc),
+      tuner_bandwidth: sdr_settings.gain.tuner_bandwidth,
       ..Default::default()
     })?;
 
@@ -588,12 +594,15 @@ impl SdrProcessor {
     let settings = crate::server::utils::load_sdr_settings();
     let swap_result = (|| -> Result<()> {
       self.apply_settings(crate::server::types::SdrProcessorSettings {
-      sample_rate: Some(requested_sample_rate.unwrap_or(settings.sample_rate)),
-      gain: Some(settings.gain.tuner_gain),
-      ppm: Some(settings.ppm as u32),
-      tuner_agc: Some(settings.gain.tuner_agc),
-      rtl_agc: Some(settings.gain.rtl_agc),
-      ..Default::default()
+        sample_rate: Some(
+          requested_sample_rate.unwrap_or(settings.sample_rate),
+        ),
+        gain: Some(settings.gain.tuner_gain),
+        ppm: Some(settings.ppm as u32),
+        tuner_agc: Some(settings.gain.tuner_agc),
+        rtl_agc: Some(settings.gain.rtl_agc),
+        tuner_bandwidth: settings.gain.tuner_bandwidth,
+        ..Default::default()
       })?;
       self.set_center_frequency(settings.center_frequency)?;
 
@@ -608,7 +617,9 @@ impl SdrProcessor {
         if self.device.device_type().contains("Mock") {
           None
         } else {
-          Some(std::time::Instant::now() + std::time::Duration::from_millis(500))
+          Some(
+            std::time::Instant::now() + std::time::Duration::from_millis(500),
+          )
         };
       self.frame.post_retune_discard_frames =
         self.post_retune_discard_frame_count();
@@ -621,7 +632,8 @@ impl SdrProcessor {
       // streaming. The replacement may have claimed USB or started a reader
       // before configuration failed, so clean it up while it is still owned,
       // then restore the original device and its processor bookkeeping.
-      let mut failed_device = std::mem::replace(&mut self.device, previous_device);
+      let mut failed_device =
+        std::mem::replace(&mut self.device, previous_device);
       if let Err(cleanup_error) = failed_device.cleanup() {
         warn!(
           "Failed to clean up replacement SDR after transactional swap failure: {}",
@@ -661,7 +673,7 @@ impl SdrProcessor {
       let deadline =
         std::time::Instant::now() + std::time::Duration::from_secs(2);
       loop {
-        match self.device.enter_standby() {
+        match stop_warm_device(self.device.as_mut()) {
           Ok(()) => break,
           Err(e) if std::time::Instant::now() < deadline => {
             log::debug!(
@@ -722,6 +734,7 @@ impl SdrProcessor {
       ppm: Some(settings.ppm as u32),
       tuner_agc: Some(settings.gain.tuner_agc),
       rtl_agc: Some(settings.gain.rtl_agc),
+      tuner_bandwidth: settings.gain.tuner_bandwidth,
       ..Default::default()
     })?;
     self.set_center_frequency(settings.center_frequency)?;
@@ -1017,8 +1030,7 @@ impl SdrProcessor {
         metrics.increment(crate::performance::CounterKind::Copies, 2);
         metrics.increment(
           crate::performance::CounterKind::CopiedBytes,
-          (display_samples.data.len()
-            + std::mem::size_of_val(spectrum)) as u64,
+          (display_samples.data.len() + std::mem::size_of_val(spectrum)) as u64,
         );
       }
       self.capture_actual_frames += 1;
@@ -1085,7 +1097,8 @@ impl SdrProcessor {
     let frame_rate = settings.frame_rate;
     if let Some(max_rate) = settings.max_frame_rate {
       self.max_frame_rate = max_rate.max(1);
-      self.display_frame_rate = self.display_frame_rate.min(self.max_frame_rate);
+      self.display_frame_rate =
+        self.display_frame_rate.min(self.max_frame_rate);
     }
     let sample_rate = settings.sample_rate;
     let gain = settings.gain;
@@ -1183,8 +1196,9 @@ impl SdrProcessor {
 
     // Frame rate
     if let Some(requested_rate) = frame_rate {
-      let max_rate = Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate)
-        .min(self.max_frame_rate);
+      let max_rate =
+        Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate)
+          .min(self.max_frame_rate);
       let requested_rate = if is_hackrf && requested_rate == 1 && max_rate > 1 {
         max_rate
       } else {
@@ -2508,6 +2522,47 @@ mod hackrf_settings_tests {
   }
 
   #[test]
+  fn warm_swap_reapplies_the_baseband_filter_with_the_whole_channel_rate() {
+    let first = RecordingDevice {
+      sample_rate: 3_200_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    let replacement = RecordingDevice {
+      sample_rate: 2_000_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+
+    processor
+      .swap_device_keep_warm_with_sample_rate(
+        Box::new(replacement),
+        Some(4_372_000),
+      )
+      .expect("warm swap");
+
+    let calls = replacement_calls.lock().unwrap();
+    // Changing the sample rate must re-arm the HackRF analog baseband filter
+    // to the same window so the filter does not stay at the previous rate.
+    assert!(calls.contains(&"sample_rate:4372000".to_string()));
+    if let Some(bandwidth_index) = calls
+      .iter()
+      .position(|call| call.starts_with("tuner_bandwidth:"))
+    {
+      let sample_rate_index = calls
+        .iter()
+        .position(|call| call.starts_with("sample_rate:"));
+      assert!(
+        sample_rate_index < Some(bandwidth_index),
+        "baseband filter must be applied after the sample rate change"
+      );
+    }
+  }
+
+  #[test]
   fn cold_swap_preserves_the_runtime_sample_rate_for_mock_fallback() {
     let first = RecordingDevice {
       sample_rate: 3_200_000,
@@ -2585,7 +2640,7 @@ mod hackrf_settings_tests {
   #[test]
   fn failed_usb_standby_keeps_the_current_device_for_retry() {
     let current = RecordingDevice {
-      kind: Some("rtl-sdr"),
+      kind: Some("hackrf_one"),
       standby_error: true,
       ..Default::default()
     };
@@ -2595,7 +2650,7 @@ mod hackrf_settings_tests {
     let result = processor.swap_device(Box::new(RecordingDevice::default()));
 
     assert!(result.is_err());
-    assert_eq!(processor.device_type(), "rtl-sdr");
+    assert_eq!(processor.device_type(), "hackrf_one");
   }
 
   #[test]

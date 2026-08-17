@@ -124,6 +124,9 @@ export interface SpectrumState {
   hackrfVgaGain: number;
   hackrfAmpEnabled: boolean;
   hackrfBasebandBandwidth: number | null;
+  /** True once the user pins a custom baseband-filter value; auto-tracking
+   * resumes when the field is cleared and blurred. */
+  basebandFilterPinned: boolean;
   ppm: number;
   tunerAGC: boolean;
   rtlAGC: boolean;
@@ -244,6 +247,7 @@ const initialState: SpectrumState = {
   hackrfVgaGain: 30.0,
   hackrfAmpEnabled: false,
   hackrfBasebandBandwidth: 3_200_000,
+  basebandFilterPinned: false,
   ppm: 1,
   tunerAGC: false,
   rtlAGC: false,
@@ -648,6 +652,13 @@ const spectrumSlice = createSlice({
       Object.assign(state, cleanPayload);
     },
 
+    setBasebandFilterPinned: (
+      state,
+      action: PayloadAction<boolean>,
+    ) => {
+      state.basebandFilterPinned = action.payload;
+    },
+
     setDeviceKind: (state, action: PayloadAction<string | null>) => {
       state.deviceKind = action.payload;
     },
@@ -877,6 +888,7 @@ export const {
   setSampleRate,
   setMinReceiveSampleRate,
   setSdrSettingsBundle,
+  setBasebandFilterPinned,
   setVisualizerPaused,
   setDetectedFrameRate,
   clearWaterfall,

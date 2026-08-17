@@ -4,10 +4,10 @@ use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::sdr::audio_iq_tap::AudioIqBlock;
 use crate::sdr::processor::SdrProcessor;
 use crate::server::shared_state::SharedState;
 use crate::server::types::PowerScale;
-use crate::sdr::audio_iq_tap::AudioIqBlock;
 
 /// A contiguous IQ block tagged with the source epoch that produced it.
 ///
@@ -319,10 +319,7 @@ impl FramePublicationGate {
 #[cfg(test)]
 mod tests {
   use super::{
-    resolve_display_iq,
-    AcquisitionFrame,
-    FramePublicationGate,
-    ProcessedFrame,
+    resolve_display_iq, AcquisitionFrame, FramePublicationGate, ProcessedFrame,
   };
   use crate::server::types::PowerScale;
 

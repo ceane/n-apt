@@ -464,15 +464,28 @@ export const resolveLiveSourceLifecycle = ({
     );
   }
 
+  // A source still in `loading`/`initializing` has no veritable stream yet:
+  // a stale frame from the previous source or an earlier epoch must not flip
+  // the lifecycle to `ready` (which suppresses the loading placeholder and
+  // leaves a blank/black canvas on a HackRF that is still opening). Loading
+  // wins until a fresh frame for the current source/epoch arrives or the
+  // status transitions to receiving. `stale` is different: a genuinely valid
+  // current-source frame proves the stream is live, so it still wins.
+  if (
+    deviceStatus === "loading" ||
+    deviceStatus === "initializing" ||
+    devicePlaceholder
+  ) {
+    return result("recovering", devicePlaceholder);
+  }
+
   if (hasValidFrame) return result("ready", null);
 
-  if (RECOVERY_STATUSES.has(deviceStatus ?? "") || devicePlaceholder) {
+  if (RECOVERY_STATUSES.has(deviceStatus ?? "")) {
     return result("recovering", devicePlaceholder);
   }
   return result("awaiting-frame", handoffPlaceholder);
 };
-
-/** True while the selected source must not consume the previous source frame. */
 export const isLiveSourceHandoffPending = (
   lifecycle: LiveSourceLifecycle,
 ): boolean =>

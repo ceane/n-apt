@@ -43,6 +43,20 @@ describe("frame presentation policy", () => {
     ).toBeNull();
   });
 
+  it("does not repaint a cleared cache while paused during a source handoff", () => {
+    // FFTCanvas nulls its lastRenderableFrameRef at the source boundary. The
+    // paused 15 FPS repaint must not resurrect the previous device's frame.
+    expect(
+      selectFrameForPresentation({
+        incomingFrame: null,
+        isPaused: true,
+        isStandby: false,
+        pauseSnapshotEnabled: true,
+        cachedFrame: null,
+      }),
+    ).toBeNull();
+  });
+
   it("rejects a frame owned by a different source", () => {
     const decision = resolveFramePresentation({
       currentFrame: {

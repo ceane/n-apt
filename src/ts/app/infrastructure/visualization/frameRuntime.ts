@@ -140,8 +140,14 @@ export const getLiveFrameRefForSource = (
     // boundary while switching back to the source.
     const slot = presentationController.getSlot(sourceId, effectiveMode);
     if (slot) {
-      if (slot.frozenFrame) {
-        return { current: slot.frozenFrame.frame };
+      const frozenIsCurrent =
+        slot.frozenFrame !== null &&
+        slot.frozenFrame.sourceId === sourceId &&
+        (slot.frozenFrame.streamEpoch === null ||
+          slot.streamEpoch === null ||
+          slot.frozenFrame.streamEpoch === slot.streamEpoch);
+      if (frozenIsCurrent) {
+        return { current: slot.frozenFrame!.frame };
       }
       return slot.liveFrameRef;
     }

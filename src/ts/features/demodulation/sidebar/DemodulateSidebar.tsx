@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import {
   useAppSelector,
@@ -14,6 +14,7 @@ import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { SourceSidebar } from "@n-apt/spectrum";
 import {
+  setSourceBinding,
   setSourceBindings,
   setSourceSelectionMode,
 } from "@n-apt/redux/slices/sourceRoutingSlice";
@@ -140,6 +141,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   );
   const sourceMode = useAppSelector(selectSourceMode);
   const selectedFiles = useAppSelector(selectSelectedFiles);
+  const [txPreviewSourceId, setTxPreviewSourceId] = useState<string | null>(
+    null,
+  );
 
   const handleToggleTransmit = useCallback(
     (id: string) => {
@@ -152,9 +156,18 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           nextEnabled: !transmitting,
           sourceId: id,
           txBindingSourceId: txSuiteSourceId,
+          txPreviewSourceId,
         })
       ) {
         return;
+      }
+      if (
+        !transmitting &&
+        source.duplex_mode?.toLowerCase?.() === "half-duplex"
+      ) {
+        // HackRF cannot receive and transmit simultaneously. Stop RX first so
+        // the backend can switch the device cleanly into TX standby/active mode.
+        wsConnection.sendPauseCommand?.(true, id);
       }
       wsConnection.sendTransmitStatus?.(!transmitting, source.name ?? id, {
         serialNumber: source.serial_number?.trim() || id,
@@ -175,7 +188,33 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         txHopRateHz: tx.txHopRateHz,
       });
     },
-    [sources, tx, txSuiteSourceId, wsConnection.sendTransmitStatus],
+    [
+      sources,
+      tx,
+      txPreviewSourceId,
+      txSuiteSourceId,
+      wsConnection.sendTransmitStatus,
+    ],
+  );
+
+  const handlePreviewTx = useCallback(
+    (id: string) => {
+      const source = sources.find((entry) => entry.id === id);
+      if (!source) return;
+      // Stop the live Rx stream first; otherwise its next frame replaces the
+      // one-shot Tx preview immediately.
+      wsConnection.sendPauseCommand?.(true, id);
+      setTxPreviewSourceId(id);
+      dispatch(
+        setSourceBinding({
+          group: "tx-suite",
+          role: "tx",
+          sourceId: id,
+        }),
+      );
+      dispatch({ type: "txSuite/requestPreview" });
+    },
+    [dispatch, sources, wsConnection.sendPauseCommand],
   );
 
   const handleFlowSelect = useCallback(
@@ -585,6 +624,9 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
         spaceBoundDeviceId={selectedSourceId || null}
         onToggleDeviceRxPause={(id) => toggleVisualizerPause(id)}
         onToggleDeviceTxMode={handleToggleTransmit}
+        onPreviewDeviceTx={handlePreviewTx}
+        txBindingSourceId={txSuiteSourceId}
+        txPreviewSourceId={txPreviewSourceId}
         selectedFilesCount={selectedFiles.length}
         onFileAction={handleFileAction}
         onFilesSelected={handleSourceFilesSelected}

@@ -289,19 +289,31 @@ export const useSdrSettings = ({
         sdrSettings,
       );
       if (deviceType === "hackrf_one") {
-        const nextHackrfBasebandBandwidth =
-          stateRef.current.hackrfBasebandBandwidth === 0 ? 0 : sampleRate;
+        // Auto-tracking follows the sample rate unless the user pinned a
+        // custom baseband-filter value. While pinned, keep the bandwidth
+        // fixed and only change the rate.
+        const basebandIsPinned = stateRef.current.basebandFilterPinned;
+        const nextHackrfBasebandBandwidth = basebandIsPinned
+          ? stateRef.current.hackrfBasebandBandwidth
+          : stateRef.current.hackrfBasebandBandwidth === 0
+            ? 0
+            : sampleRate;
         dispatch(
           setSdrSettingsBundle({
             sampleRateHz: sampleRate,
-            hackrfBasebandBandwidth: nextHackrfBasebandBandwidth,
+            ...(nextHackrfBasebandBandwidth !== null
+              ? { hackrfBasebandBandwidth: nextHackrfBasebandBandwidth }
+              : {}),
             fftFrameRate: nextFrameRate,
           }),
         );
         sendCurrentSettings({
           sampleRate,
           frameRate: nextFrameRate,
-          tunerBandwidth: nextHackrfBasebandBandwidth,
+          ...(nextHackrfBasebandBandwidth !== null &&
+          nextHackrfBasebandBandwidth !== undefined
+            ? { tunerBandwidth: nextHackrfBasebandBandwidth }
+            : {}),
         });
       } else {
         dispatch(

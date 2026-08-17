@@ -36,6 +36,16 @@ pub struct TxStatusRequest {
   pub ppm: Option<u32>,
 }
 
+/// Outcome of a request-only standby preview attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandbyPreviewOutcome {
+  /// A standby preview frame was published for the requesting source.
+  Published,
+  /// No standby request is armed at all; the general paused-frame path may
+  /// wake normally.
+  NoRequest,
+}
+
 /// Publishes the latest TX monitor frame without entering the RX acquisition
 /// loop. Display consumers are allowed to skip frames; physical TX remains
 /// controlled by `TxWorker::apply_status` and the safety gates.
@@ -146,33 +156,72 @@ impl TxWorker {
     }
   }
 
-  /// Fulfill a request-only Mock TX standby preview without waking RX.
-  pub fn try_publish_standby_preview(&self) -> bool {
+  /// Fulfill a request-only standby preview without waking RX.
+  ///
+  /// Mock Tx synthesizes its preview here. A half-duplex hardware source
+  /// (HackRF in Tx standby while a separate Rx source remains active) is
+  /// served from the payload `TxWorker::apply_status` already stored on the
+  /// stream manager — the same bytes handed to the transmitter, so the
+  /// preview matches what a transmission would produce. The request owner
+  /// decides which source's Tx stream receives the frame; a bound half-duplex
+  /// source may not be the active SDR source.
+  pub fn try_publish_standby_preview(&self) -> StandbyPreviewOutcome {
     let tx_is_active = crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
-    let active_source = active_source_id(&self.shared_state);
-    let preview_armed = self
-      .shared_state
-      .paused_frame_request_for_source(
-        crate::server::websocket_server::MOCK_TX_SOURCE_ID,
-      )
-      .is_some();
-    if tx_is_active
-      || (!preview_armed
-        && active_source != crate::server::websocket_server::MOCK_TX_SOURCE_ID)
-    {
-      return false;
+    if tx_is_active {
+      return StandbyPreviewOutcome::NoRequest;
+    }
+    let Some(request_owner) = self.shared_state.paused_frame_request_owner()
+    else {
+      return StandbyPreviewOutcome::NoRequest;
+    };
+
+    // Mock Tx path — synthesize the preview exactly as the monitor worker does.
+    if request_owner == crate::server::websocket_server::MOCK_TX_SOURCE_ID {
+      let frame =
+        crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
+          &self.shared_state,
+        );
+      let tx_key = StreamKey::new(
+        crate::server::websocket_server::MOCK_TX_SOURCE_ID.to_string(),
+        StreamMode::Tx,
+      );
+      let _ = self.stream_manager.publish_iq_frame_with_metadata(
+        &tx_key,
+        frame.timestamp,
+        frame.center_frequency_hz.map(|frequency| frequency as u64),
+        frame.sample_rate.unwrap_or(1),
+        Arc::new(frame.iq_data.clone()),
+      );
+      let _ = self.spectrum_tx.send(Arc::new(frame));
+      self.shared_state.clear_paused_frame_request();
+      return StandbyPreviewOutcome::Published;
     }
 
+    // Half-duplex hardware path — publish a standby preview so the requested
+    // source gets its frame even though the general SDR loop is reading a
+    // different (Rx) source. Prefer the stored transmit payload (the exact
+    // bytes handed to the transmitter) when one exists; otherwise synthesize
+    // from the TX globals set by the preview request, mirroring the source-I/Q
+    // socket behavior for an inactive tx-capable device.
+    let hardware_tx_key = StreamKey::new(request_owner.clone(), StreamMode::Tx);
     let frame =
-      crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
-        &self.shared_state,
-      );
-    let tx_key = StreamKey::new(
-      crate::server::websocket_server::MOCK_TX_SOURCE_ID.to_string(),
-      StreamMode::Tx,
-    );
+      if let Some(payload) = self.stream_manager.tx_payload(&hardware_tx_key) {
+        crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
+          &self.shared_state,
+          &request_owner,
+          payload.center_frequency_hz as f64,
+          payload.sample_rate_hz,
+          (*payload.iq_data).clone(),
+          true,
+        )
+      } else {
+        crate::server::websocket_handlers::build_tx_preview_frame(
+          &self.shared_state,
+          &request_owner,
+        )
+      };
     let _ = self.stream_manager.publish_iq_frame_with_metadata(
-      &tx_key,
+      &hardware_tx_key,
       frame.timestamp,
       frame.center_frequency_hz.map(|frequency| frequency as u64),
       frame.sample_rate.unwrap_or(1),
@@ -180,7 +229,7 @@ impl TxWorker {
     );
     let _ = self.spectrum_tx.send(Arc::new(frame));
     self.shared_state.clear_paused_frame_request();
-    true
+    StandbyPreviewOutcome::Published
   }
 
   pub async fn apply_status(
@@ -327,10 +376,8 @@ impl TxWorker {
           crate::performance::CounterKind::Samples,
           (iq.len() / 2) as u64,
         );
-        metrics.increment(
-          crate::performance::CounterKind::Bytes,
-          iq.len() as u64,
-        );
+        metrics
+          .increment(crate::performance::CounterKind::Bytes, iq.len() as u64);
         {
           let _span = crate::performance::ProfilingSpan::start(
             metrics,
@@ -339,8 +386,17 @@ impl TxWorker {
           processor.transmit_iq(Some(&iq))?;
         }
         metrics.increment(crate::performance::CounterKind::FramesConsumed, 1);
+        // Store the payload under the source that owns the armed standby
+        // preview when one exists. A half-duplex HackRF in Tx mode may be a
+        // bound Tx-suite source rather than the active SDR source; the preview
+        // request and its frame must be keyed to that source so the Tx stream
+        // delivers the standby graph to the bound device.
+        let payload_source = self
+          .shared_state
+          .paused_frame_request_owner()
+          .unwrap_or_else(|| active_source_id.clone());
         self.stream_manager.set_tx_payload(
-          StreamKey::new(active_source_id.clone(), StreamMode::Tx),
+          StreamKey::new(payload_source, StreamMode::Tx),
           center_hz.min(u32::MAX as f64) as u64,
           sample_rate,
           iq,
@@ -351,6 +407,13 @@ impl TxWorker {
           active_source_id.clone(),
           StreamMode::Tx,
         ));
+        if let Some(request_owner) =
+          self.shared_state.paused_frame_request_owner()
+        {
+          self
+            .stream_manager
+            .clear_tx_payload(&StreamKey::new(request_owner, StreamMode::Tx));
+        }
       }
     }
 

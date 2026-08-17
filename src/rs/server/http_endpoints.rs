@@ -49,10 +49,7 @@ pub async fn hardware_simulation_handler(
     ))
     .is_err()
   {
-    return (
-      StatusCode::SERVICE_UNAVAILABLE,
-      "SDR worker is unavailable",
-    )
+    return (StatusCode::SERVICE_UNAVAILABLE, "SDR worker is unavailable")
       .into_response();
   }
 
@@ -1154,11 +1151,15 @@ pub async fn execute_webmcp_tool_handler(
   Json(result).into_response()
 }
 
-async fn handle_get_device_status(state: &Arc<super::AppState>) -> WebMCPToolResponse {
+async fn handle_get_device_status(
+  state: &Arc<super::AppState>,
+) -> WebMCPToolResponse {
   let status = build_source_info_snapshot(&state.shared);
   WebMCPToolResponse {
     success: true,
-    result: Some(serde_json::to_value(status).unwrap_or_else(|_| serde_json::json!({}))),
+    result: Some(
+      serde_json::to_value(status).unwrap_or_else(|_| serde_json::json!({})),
+    ),
     error: None,
     tool: "getDeviceStatus".to_string(),
   }

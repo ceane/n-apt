@@ -177,15 +177,15 @@ describe("selectLiveSampleRateForSync", () => {
     ).toBe(3_200_000);
   });
 
-  it("uses the confirmed backend rate over a stale local whole-channel rate", () => {
+  it("keeps the selected Whole Channel rate over a stale backend 3.2MHz report", () => {
     expect(
       resolveEffectiveLiveSampleRateHz({
         localSampleRateHz: 4_372_000,
         websocketSampleRateHz: 3_200_000,
         sdrSettingsSampleRateHz: 3_200_000,
-        maxSampleRateHz: 3_200_000,
+        maxSampleRateHz: 20_000_000,
       }),
-    ).toBe(3_200_000);
+    ).toBe(4_372_000);
   });
 
   it("keeps RTL-SDR whole-channel state from inheriting a stale connected rate", () => {

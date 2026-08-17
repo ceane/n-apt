@@ -200,7 +200,11 @@ mod tests {
     tap.push(&[1, 2, 3, 4, 5, 6, 7]);
 
     assert_eq!(tap.dropped_bytes(), 2);
-    assert_eq!(tap.take(), vec![3, 4, 5, 6], "must resume on a pair boundary");
+    assert_eq!(
+      tap.take(),
+      vec![3, 4, 5, 6],
+      "must resume on a pair boundary"
+    );
   }
 
   #[test]

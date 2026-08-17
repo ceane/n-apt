@@ -56,6 +56,17 @@ pub(super) fn source_phase_on_select(
   }
 }
 
+#[cfg(test)]
+pub(super) fn source_phase_on_switch_away(
+  source_id: &str,
+) -> SourceLifecyclePhase {
+  if source_id.contains("hackrf") || source_id == "mock-tx" {
+    SourceLifecyclePhase::Standby
+  } else {
+    SourceLifecyclePhase::Connected
+  }
+}
+
 /// Opens a selected source's RX gate and publishes genuine setup work.
 pub(crate) fn prepare_selected_source_for_rx(
   shared: &SharedState,
@@ -143,11 +154,19 @@ pub(crate) async fn activate_source(
           "Warm SDR source {} did not resume; reopening once",
           source_id
         );
-        swap_result = open_device_for_source_id(shared_state, &source_id)
-          .and_then(|device| {
-            processor
-              .swap_device_keep_warm_with_sample_rate(device, sample_rate)
-          });
+        match open_device_for_source_id(shared_state, &source_id) {
+          Ok(replacement) => {
+            swap_result = processor
+              .swap_device_keep_warm_with_sample_rate(replacement, sample_rate);
+          }
+          Err(error) => {
+            // The failed swap is transactional: the warm handle was already
+            // cleaned up and the previous source restored, so there is no
+            // warm device left to return to the pool. Surface the reopen
+            // error so the caller falls back to the previous source.
+            swap_result = Err(error);
+          }
+        }
       }
 
       match swap_result {
@@ -186,7 +205,9 @@ pub(crate) async fn activate_source(
 
           if should_cache_swapped_source(&current_source_id) {
             if !previous_source_is_transmitting {
-              if let Err(error) = previous_device.enter_standby() {
+              if let Err(error) = crate::sdr::processor::stop_warm_device(
+                previous_device.as_mut(),
+              ) {
                 warn!(
                   "Failed to pause previous source {} before caching: {}",
                   current_source_id, error

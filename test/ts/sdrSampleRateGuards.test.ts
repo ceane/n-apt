@@ -21,6 +21,46 @@ describe("resolveDisplaySampleRateHz", () => {
     ).toBe(4_372_000);
   });
 
+  it("keeps the active Whole Channel rate ahead of a stale frame rate for HackRF", () => {
+    expect(
+      resolveCanonicalDisplaySampleRateHz({
+        activeSampleRateHz: 4_372_000,
+        frameSampleRateHz: 3_200_000,
+        configuredSampleRateHz: 3_200_000,
+        derivedSampleRateHz: 3_200_000,
+        maxSampleRateHz: 20_000_000,
+        deviceKind: "hackrf_one",
+      }),
+    ).toBe(4_372_000);
+  });
+
+  it("lets a wider accepted frame rate win for HackRF when no active rate is selected", () => {
+    expect(
+      resolveCanonicalDisplaySampleRateHz({
+        activeSampleRateHz: null,
+        frameSampleRateHz: 4_372_000,
+        configuredSampleRateHz: 3_200_000,
+        derivedSampleRateHz: 3_200_000,
+        maxSampleRateHz: 20_000_000,
+        deviceKind: "hackrf_one",
+      }),
+    ).toBe(4_372_000);
+  });
+
+  it("keeps RTL-SDR frame-first safety even when an active rate is set", () => {
+    expect(
+      resolveCanonicalDisplaySampleRateHz({
+        activeSampleRateHz: 4_372_000,
+        frameSampleRateHz: 3_200_000,
+        configuredSampleRateHz: 3_200_000,
+        derivedSampleRateHz: 3_200_000,
+        maxSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+        isRtlSdr: true,
+      }),
+    ).toBe(3_200_000);
+  });
+
   it("uses the configured RTL-SDR rate instead of a wider rendered frame rate", () => {
     expect(
       resolveDisplaySampleRateHz({

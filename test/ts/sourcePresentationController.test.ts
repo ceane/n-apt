@@ -450,6 +450,21 @@ describe("SourcePresentationController", () => {
       expect(prevSlot?.frozenFrame).not.toBeNull();
     });
 
+    it("does not serve the previous source's frame after a switch", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+      ctrl.acceptFrame(makeRxFrame("hackrf-1", { sequence: 1 }));
+      ctrl.setPaused("hackrf-1", "rx", true);
+
+      ctrl.selectSource("mock-apt");
+      ctrl.commitActiveSource("mock-apt");
+
+      // The active presentation ref must not return the old device's frozen
+      // frame while the new source is still warming up.
+      expect(ctrl.getPresentationRef("rx").current).toBeNull();
+    });
+
     it("canvas key changes on source switch", () => {
       const ctrl = createController();
       ctrl.selectSource("hackrf-1");

@@ -55,6 +55,7 @@ import {
   setPowerScale,
   setSampleRate as setSampleRateAction,
   setSdrSettingsBundle,
+  setBasebandFilterPinned as setBasebandFilterPinnedAction,
   resetLiveControls as resetLiveControlsAction,
   setStitchSourceSettings as setStitchSourceSettingsAction,
   setCaptureStatus,
@@ -556,6 +557,7 @@ const EMPTY_SELECTED_SOURCE_DERIVED = {
   sampleRateOptions: [] as number[],
   sampleRateHz: null,
   sdrSettings: null,
+  supportsBasebandFilter: false,
 };
 
 export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
@@ -598,7 +600,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceProfile: liveDeviceProfile,
   } = useSpectrumStore();
   const spectrumTransport = useSpectrumTransport();
-  const lastSampleRateRef = useRef<number | null>(null);
   const initializedSampleRateKeyRef = useRef<string | null>(null);
   const lastTxToggleTimeRef = useRef(0);
   const pendingTxStopSourceIdRef = useRef<string | null>(null);
@@ -829,6 +830,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     : undefined;
   const gainLimits = activeDeviceConfig?.gain_limits;
   const liveSampleRateOptions = selectedSourceDerived.sampleRateOptions;
+  const supportsBasebandFilter =
+    selectedSourceDerived.supportsBasebandFilter ??
+    wsConnection.supportsBasebandFilter ??
+    false;
+  const basebandFilterPinned = useAppSelector(
+    (s) => s.spectrum.basebandFilterPinned,
+  );
   const maxSampleRateHz =
     selectedSourceDerived.maxSampleRateHz ?? wsConnection.maxSampleRateHz;
   const deviceIdentity = useMemo(
@@ -1162,13 +1170,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         !isHackrfForBaseband ||
         sourceMode !== "live" ||
         !Number.isFinite(rate) ||
-        rate <= 0
+        rate <= 0 ||
+        basebandFilterPinned
       ) {
         return;
       }
       setHackrfBasebandBandwidth(Math.round(rate));
     },
-    [isHackrfForBaseband, setHackrfBasebandBandwidth, sourceMode],
+    [isHackrfForBaseband, setHackrfBasebandBandwidth, sourceMode, basebandFilterPinned],
   );
 
   const {
@@ -1310,46 +1319,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       liveState.sampleRateHz,
     ],
   );
-
-  const hackrfBasebandCurrentSampleRate = resolveHackrfBasebandSampleRateHz({
-    isHackrfOne: isHackrfForBaseband,
-    sourceMode,
-    isWholeChannelMode:
-      isWholeChannelMode ||
-      (typeof hackrfWholeChannelSampleRate === "number" &&
-        typeof sampleRateHzLocal === "number" &&
-        Math.round(hackrfWholeChannelSampleRate) ===
-          Math.round(sampleRateHzLocal)),
-    wholeChannelSampleRate: hackrfWholeChannelSampleRate,
-    sampleRateHz: sampleRateHzLocal,
-  });
-
-  useEffect(() => {
-    if (
-      !isHackrfForBaseband ||
-      sourceMode !== "live" ||
-      typeof hackrfBasebandCurrentSampleRate !== "number" ||
-      !Number.isFinite(hackrfBasebandCurrentSampleRate) ||
-      hackrfBasebandCurrentSampleRate <= 0 ||
-      liveState.hackrfBasebandBandwidth === 0
-    ) {
-      return;
-    }
-
-    const nextBandwidth = Math.round(hackrfBasebandCurrentSampleRate);
-    if (lastSampleRateRef.current !== nextBandwidth) {
-      lastSampleRateRef.current = nextBandwidth;
-      setHackrfBasebandBandwidth(nextBandwidth);
-    }
-  }, [
-    hackrfBasebandCurrentSampleRate,
-    hackrfWholeChannelSampleRate,
-    isHackrfForBaseband,
-    isWholeChannelMode,
-    setHackrfBasebandBandwidth,
-    sourceMode,
-    liveState.hackrfBasebandBandwidth,
-  ]);
 
   useEffect(() => {
     if (!liveSdrSettingsToUse) return;
@@ -1952,11 +1921,17 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       const supportsTx =
         source.capability === "tx" || source.capability === "tx_rx";
       const isMockSource = source.capability === "mock";
+      const isLoading =
+        source.status === "loading" || source.status === "initializing";
+      // A loading source has no veritable stream yet: it must not accept
+      // Pause/Resume (the pill shows a spinner instead) and switching to it
+      // must not be treated as live-connected.
       const isLiveConnected =
-        source.status === "connected" ||
-        source.status === "paused" ||
-        isStreaming ||
-        isMockSource;
+        !isLoading &&
+        (source.status === "connected" ||
+          source.status === "paused" ||
+          isStreaming ||
+          isMockSource);
       const canToggleStreaming = isLiveConnected;
       const actionLabel =
         isTransmitting || supportsTx
@@ -3302,6 +3277,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             hackrfBasebandBandwidth={liveState.hackrfBasebandBandwidth}
             hackrfCurrentSampleRate={
               sampleRateHzEffective ?? liveState.sampleRateHz
+            }
+            supportsBasebandFilter={supportsBasebandFilter}
+            basebandFilterPinned={basebandFilterPinned}
+            onBasebandFilterPinnedChange={(pinned) =>
+              dispatch(setBasebandFilterPinnedAction(pinned))
             }
             frequencyRangeMin={
               frequencyRange?.min ?? activeSignalAreaBounds?.min

@@ -592,6 +592,68 @@ describe("useSdrSettings", () => {
     );
   });
 
+  it("keeps a pinned HackRF baseband filter fixed when the sample rate changes", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 16384,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 2_400_000,
+        basebandFilterPinned: true,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    let hookApi: ReturnType<typeof useSdrSettings> | null = null;
+
+    const Harness = () => {
+      hookApi = useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    expect(hookApi).not.toBeNull();
+
+    act(() => {
+      hookApi!.setSampleRate(4_372_000);
+    });
+
+    // Pinned: the baseband value stays at the user's custom setting.
+    expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(2_400_000);
+    expect(store.getState().spectrum.sampleRateHz).toBe(4_372_000);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sampleRate: 4_372_000,
+        tunerBandwidth: 2_400_000,
+      }),
+    );
+  });
+
   it("does not let stale backend bandwidth clobber the local Baseband setting", async () => {
     localStorage.clear();
     sessionStorage.clear();

@@ -140,6 +140,34 @@ pub fn open_device_for_source_id(
   }
 }
 
+/// Every source id that can be opened from the current inventory.
+///
+/// This drives the startup warm-open pass so switching between connected
+/// devices never pays a cold USB open + full-swap latency. The two mock
+/// sources are deliberately included: they stay warm so a fallback or Mock Tx
+/// handoff reuses the generator/reader instead of recreating it.
+pub fn enumerate_inventory_source_ids(shared: &SharedState) -> Vec<String> {
+  let mut source_ids = Vec::new();
+  source_ids.push("mock-apt".to_string());
+  source_ids.push("mock-tx".to_string());
+  for device in shared.rtl_sdr_inventory_snapshot() {
+    source_ids.push(source_id_for_device(
+      "rtl-sdr",
+      Some(&device.serial_number),
+      device.index as usize,
+    ));
+  }
+  #[cfg(has_hackrf)]
+  for device in shared.hackrf_inventory.lock().unwrap().iter() {
+    source_ids.push(source_id_for_device(
+      "hackrf_one",
+      Some(&device.serial_number),
+      device.index,
+    ));
+  }
+  source_ids
+}
+
 fn source_capability_for_kind(kind: &str) -> &'static str {
   match kind {
     "mock_apt" | "mock_apt_metal" => "mock",
@@ -512,11 +540,17 @@ fn build_source_payload(
     source_capability_for_kind_and_duplex(kind, duplex_mode);
   let can_receive = matches!(source_capability, "rx" | "tx_rx" | "mock");
   let can_transmit = matches!(source_capability, "tx" | "tx_rx");
+  let device_config =
+    sdr_settings.devices.get(device_config_key(&device_profile));
+  let supports_baseband_filter = device_config
+    .and_then(|device_cfg| device_cfg.baseband_filter)
+    .unwrap_or(false);
   let supported_controls = [
     ("gain", can_receive),
     ("ppm", can_receive),
     ("sample_rate", can_receive || can_transmit),
     ("frequency", can_receive || can_transmit),
+    ("baseband_filter", supports_baseband_filter),
     ("tx_power_dbm", can_transmit),
   ]
   .into_iter()
@@ -1017,6 +1051,36 @@ pub fn active_source_id(shared: &SharedState) -> String {
 #[cfg(test)]
 mod stable_source_order_tests {
   use super::*;
+
+  #[test]
+  fn inventory_source_ids_include_mocks_and_every_cached_peer() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.set_rtl_sdr_inventory(vec![
+      crate::server::shared_state::RtlSdrInventoryDevice {
+        index: 0,
+        serial_number: "00000001".to_string(),
+        manufacturer: "Realtek".to_string(),
+        product: "RTL-SDR Blog V4".to_string(),
+        device_name: "RTL-SDR Blog V4".to_string(),
+      },
+    ]);
+    #[cfg(has_hackrf)]
+    shared.hackrf_inventory.lock().unwrap().push(
+      crate::server::shared_state::HackRfInventoryDevice {
+        serial_number: "ABC123".to_string(),
+        index: 0,
+      },
+    );
+
+    let ids = enumerate_inventory_source_ids(&shared);
+
+    assert!(ids.contains(&"mock-apt".to_string()));
+    assert!(ids.contains(&"mock-tx".to_string()));
+    assert!(ids.contains(&"rtl-sdr-00000001".to_string()));
+    #[cfg(has_hackrf)]
+    assert!(ids.contains(&"hackrf_one-ABC123".to_string()));
+  }
 
   #[test]
   fn source_inventory_advertises_versioned_iq_lifecycle_metadata() {

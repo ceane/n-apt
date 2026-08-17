@@ -565,7 +565,9 @@ describe("SourceInput", () => {
               name: "Mock APT SDR",
               backend: "mock_apt",
               capability: "mock",
-              status: { label: "streaming" },
+              // Idle mock: not the active fallback, so it drops once a
+              // connected hardware peer is available.
+              status: { label: "connected" },
             },
             {
               id: "rtl-1",
@@ -967,12 +969,87 @@ describe("SourceInput", () => {
     const deviceRow = screen
       .getByText("HackRF One")
       .closest('[role="button"]') as HTMLElement;
-    expect(
-      within(deviceRow).getByRole("button", { name: /resume rx/i }),
-    ).toBeInTheDocument();
+    // While loading, the Rx button is present but disabled and must not
+    // toggle pause/resume before a veritable stream runs.
+    const rxButton = within(deviceRow).getByRole("button", {
+      name: /loading/i,
+    }) as HTMLButtonElement;
+    expect(rxButton).toBeDisabled();
     expect(
       within(deviceRow).getByRole("button", { name: /start tx/i }),
     ).toBeInTheDocument();
+  });
+
+  it("shows a spinner instead of a Resume action while a non-half-duplex device loads", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "rtl-1",
+              name: "RTL-SDR v4",
+              backend: "rtl-sdr",
+              capability: "rx",
+              duplex_mode: "Simplex",
+              status: {
+                label: "loading",
+                loading: true,
+                loadingLabel: "Loading RTL-SDR v4…",
+                paused: false,
+                actionLabel: "Resume",
+                onAction: jest.fn(),
+              },
+            },
+          ]}
+          selectedDeviceId="rtl-1"
+          onSelectedDeviceChange={jest.fn()}
+          onToggleDeviceRxPause={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const deviceRow = screen
+      .getByText("RTL-SDR v4")
+      .closest('[role="button"]') as HTMLElement;
+    expect(
+      within(deviceRow).getByRole("status", { name: /loading/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(deviceRow).queryByRole("button", { name: /resume/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the mock fallback pill visible while it is the streaming active source", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              backend: "mock_apt",
+              capability: "mock",
+              status: { label: "streaming" },
+            },
+            {
+              id: "rtl-1",
+              name: "RTL-SDR v4",
+              backend: "rtl-sdr",
+              capability: "rx",
+              status: { label: "stale" },
+            },
+          ]}
+          selectedDeviceId="mock-apt"
+          onSelectedDeviceChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Mock APT SDR")).toBeInTheDocument();
   });
 
   it("switches half-duplex devices into Tx standby with one click", () => {

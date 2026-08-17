@@ -28,9 +28,8 @@ use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
   active_source_id, broadcast_device_status, broadcast_signal_display_settings,
-  build_channels_snapshot, build_source_info_snapshot, complex_baseband,
-  build_signals_defaults_snapshot,
-  resolve_stream_key_source_id,
+  build_channels_snapshot, build_signals_defaults_snapshot,
+  build_source_info_snapshot, complex_baseband, resolve_stream_key_source_id,
 };
 use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
 
@@ -413,7 +412,10 @@ fn stream_source_capabilities(
   })
 }
 
-fn clamp_sample_rate_to_source(requested: u32, max_sample_rate: Option<u32>) -> u32 {
+fn clamp_sample_rate_to_source(
+  requested: u32,
+  max_sample_rate: Option<u32>,
+) -> u32 {
   requested.min(max_sample_rate.unwrap_or(u32::MAX).max(1))
 }
 
@@ -1539,7 +1541,18 @@ pub fn handle_message(
       let is_pending_target =
         pending_switch.as_deref() == Some(source_id.as_str());
       let is_mock_tx_standby = source_id == MOCK_TX_SOURCE_ID;
-      if !is_active && !is_pending_target && !is_mock_tx_standby {
+      // A bound half-duplex Tx source (e.g. HackRF in Tx standby while a
+      // separate Rx source remains active) is a valid preview target even
+      // though it is not the active streaming source. The Tx monitor owns its
+      // synthesized payload, so route the one-shot through RequestNextFrame
+      // exactly like the active-source path.
+      let snapshot = build_source_info_snapshot(shared);
+      let is_tx_capable_source = is_tx_preview_source(&snapshot, &source_id);
+      if !is_active
+        && !is_pending_target
+        && !is_mock_tx_standby
+        && !is_tx_capable_source
+      {
         debug!(
           "Ignoring request_next_frame for inactive source: requested={}, active={}, pending={:?}",
           source_id, active_source, pending_switch
@@ -1552,7 +1565,7 @@ pub fn handle_message(
         // select_source; other pending targets still wake after SetActiveSource.
         apply_tx_preview_settings(&message);
         shared.mark_paused_frame_requested(&source_id);
-        if is_active || is_mock_tx_standby {
+        if is_active || is_mock_tx_standby || is_tx_capable_source {
           let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
         }
       }
@@ -1563,6 +1576,25 @@ pub fn handle_message(
           .source_id
           .clone()
           .unwrap_or_else(|| active_source_id(shared));
+        // A resume must not change state before a veritable stream can run.
+        // The source is still opening (device loading or the per-source
+        // loading phase); clearing the pause bit here would let the frame
+        // loop race a healthy-locked device and keep the UI in a "loading but
+        // resumed" limbo. Ignore the resume and let the first committed frame
+        // (or the source status broadcast) re-open the stream.
+        if !paused {
+          let device_state = shared.device_state.lock().unwrap().clone();
+          let is_active = source_id == active_source_id(shared);
+          if is_active
+            && matches!(device_state.as_str(), "loading" | "initializing")
+          {
+            debug!(
+              "Ignoring resume for source {} while device state is {}",
+              source_id, device_state
+            );
+            return;
+          }
+        }
         shared.set_source_pause_state(&source_id, paused);
         if source_id == active_source_id(shared) {
           shared.is_paused.store(paused, Ordering::SeqCst);
@@ -3013,7 +3045,54 @@ mod tests {
       cmd_rx.recv_timeout(Duration::from_millis(50)).is_err(),
       "an inactive non-Mock-Tx preview must not wake the active SDR loop"
     );
-    assert!(shared.paused_frame_request_for_source("rtl-sdr-1").is_none());
+    assert!(shared
+      .paused_frame_request_for_source("rtl-sdr-1")
+      .is_none());
+  }
+
+  #[test]
+  #[serial]
+  #[cfg(has_hackrf)]
+  fn request_next_frame_wakes_tx_capable_half_duplex_source() {
+    let shared = test_shared_state();
+    let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
+    assert_eq!(active_source_id(&shared), "mock-apt");
+
+    // A physical HackRF in half-duplex mode advertises tx_rx capability even
+    // when a separate Rx source is active. A standby preview request for it
+    // must be honored so the Tx monitor can publish the synthesized payload.
+    shared.hackrf_inventory.lock().unwrap().push(
+      crate::server::shared_state::HackRfInventoryDevice {
+        serial_number: "00000001".to_string(),
+        index: 0,
+      },
+    );
+
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"request_next_frame",
+        "source_id":"hackrf_one-00000001",
+        "centerFrequencyHz":137100000,
+        "sample_rate":2400000
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let cmd = cmd_rx
+      .recv_timeout(Duration::from_millis(100))
+      .expect("tx-capable half-duplex preview should wake standby publish");
+    match cmd {
+      SdrCommand::RequestNextFrame => {}
+      other => panic!("unexpected command: {:?}", other),
+    }
+    assert!(
+      shared
+        .paused_frame_request_for_source("hackrf_one-00000001")
+        .is_some(),
+      "half-duplex Tx preview should arm even when the source is not active"
+    );
   }
 
   #[test]
@@ -3606,5 +3685,51 @@ mod tests {
 
     assert!(shared.is_source_paused("mock-apt"));
     assert!(shared.is_paused.load(std::sync::atomic::Ordering::SeqCst));
+  }
+
+  #[test]
+  #[serial]
+  fn resume_is_ignored_while_the_active_device_is_still_loading() {
+    let shared = test_shared_state();
+    shared.update_device_status(
+      false,
+      "Mock APT SDR".to_string(),
+      crate::server::websocket_server::build_device_profile("mock_apt"),
+    );
+    shared.update_device_usb_strings(
+      "mock-apt".to_string(),
+      "N-APT".to_string(),
+      "Mock APT SDR".to_string(),
+    );
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+
+    // The active source is already paused.
+    shared.set_active_source_pause_state("mock-apt", true);
+    assert!(shared.is_source_paused("mock-apt"));
+    assert!(shared.is_paused.load(std::sync::atomic::Ordering::SeqCst));
+
+    // Enter the loading state: a resume must not clear the pause bit before
+    // a veritable stream can run.
+    shared.set_device_state("loading", Some("connect"));
+
+    let resume: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"pause",
+        "paused":false,
+        "source_id":"mock-apt"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, resume);
+
+    assert!(
+      shared.is_source_paused("mock-apt"),
+      "resume during loading must not clear the source pause state"
+    );
+    assert!(
+      shared.is_paused.load(std::sync::atomic::Ordering::SeqCst),
+      "resume during loading must not clear the streaming pause gate"
+    );
   }
 }

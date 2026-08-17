@@ -190,15 +190,13 @@ fn test_checksum_integrity_and_corruption() {
 
   // 1. Corrupt the file (flip a bit in the encrypted payload)
   let mut file_bytes = fs::read(&artifact.path).expect("Read failed");
-  let header_json: serde_json::Value = serde_json::from_str(
-    String::from_utf8_lossy(&file_bytes[..4096]).trim(),
-  )
-  .expect("Header parse failed");
-  let binary_length = header_json["metadata"]["sections"]["binary"][
-    "length_bytes"
-  ]
-  .as_u64()
-  .expect("binary section length missing") as usize;
+  let header_json: serde_json::Value =
+    serde_json::from_str(String::from_utf8_lossy(&file_bytes[..4096]).trim())
+      .expect("Header parse failed");
+  let binary_length = header_json["metadata"]["sections"]["binary"]
+    ["length_bytes"]
+    .as_u64()
+    .expect("binary section length missing") as usize;
   let corruption_idx = 4096 + binary_length - 1;
   file_bytes[corruption_idx] ^= 0x01;
   fs::write(&artifact.path, &file_bytes).expect("Write failed");

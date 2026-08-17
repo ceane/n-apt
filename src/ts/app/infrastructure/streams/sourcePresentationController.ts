@@ -34,6 +34,8 @@ export type SourceModeKey = {
 export type FrozenFrame = {
   frame: IqRawFrame;
   frozenAt: number;
+  /** Source that owned the frozen frame, for stale-freeze rejection. */
+  sourceId: string;
   streamEpoch: number | null;
   sequence: number | null;
   centerFrequencyHz: number | null;
@@ -139,6 +141,7 @@ const buildCanvasKey = (
 const freezeFrame = (frame: IqRawFrame, slot: SourceModeSlot): FrozenFrame => ({
   frame,
   frozenAt: Date.now(),
+  sourceId: extractFrameSourceId(frame) ?? slot.key.sourceId,
   streamEpoch: slot.streamEpoch,
   sequence: slot.lastSequence,
   centerFrequencyHz:
@@ -363,6 +366,10 @@ export const createSourcePresentationController = (
   // Restore a frozen frame from session storage for a slot
   const restoreFrozenFrame = (slot: SourceModeSlot): FrozenFrame | null => {
     if (!persistSnapshots) return null;
+    // A snapshot written before this slot started a fresh stream epoch must
+    // not be replayed over the new device's warm-up. Only restore when the
+    // slot has not yet accepted a frame for the current epoch.
+    if (slot.streamEpoch !== null && slot.lastSequence !== null) return null;
     try {
       const snapshot = readPauseSnapshot(snapshotScopeForSlot(slot.key));
       if (!snapshot.iqData) return null;
@@ -376,6 +383,7 @@ export const createSourcePresentationController = (
       return {
         frame: restoredFrame,
         frozenAt: Date.now(),
+        sourceId: slot.key.sourceId,
         streamEpoch: slot.streamEpoch,
         sequence: slot.lastSequence,
         centerFrequencyHz: null,
@@ -528,18 +536,15 @@ export const createSourcePresentationController = (
 
     if (active.sourceId === sourceId && active.mode === effectiveMode) return;
 
-    // If there's already an active source, mark its slot as switching
+    // If there's already an active source, mark its slot as paused. The
+    // leaving slot retains its frozen frame for when the user switches back,
+    // but getPresentationRef gates it by source identity so the active
+    // presentation never serves the previous device's frame during warm-up.
     if (active.sourceId) {
       const currentSlot = slots.get(
         slotKeyString({ sourceId: active.sourceId, mode: active.mode }),
       );
       if (currentSlot && STREAMING_PHASES.has(currentSlot.phase)) {
-        // Freeze the current frame before switching
-        const currentFrame = currentSlot.liveFrameRef.current;
-        if (currentFrame) {
-          currentSlot.frozenFrame = freezeFrame(currentFrame, currentSlot);
-          currentSlot.metrics.frozen += 1;
-        }
         transitionPhase(currentSlot, "paused");
       }
     }
@@ -657,15 +662,25 @@ export const createSourcePresentationController = (
       const slot = getActiveSlot(mode);
       if (!slot) return { current: null };
 
+      // A frozen frame is only valid when it belongs to the active source.
+      // The same physical device can switch modes, but a different source's
+      // paused frame must never be served during warm-up (stale-frame flash).
+      const frozenFrameIsCurrent =
+        slot.frozenFrame !== null &&
+        slot.frozenFrame.sourceId === slot.key.sourceId &&
+        (slot.frozenFrame.streamEpoch === null ||
+          slot.streamEpoch === null ||
+          slot.frozenFrame.streamEpoch === slot.streamEpoch);
+
       // Prefer a frozen preview whenever live is empty. Switching/warming must
       // still show the last Mock Tx standby graph instead of a black canvas.
-      if (slot.frozenFrame && !slot.liveFrameRef.current) {
-        return { current: slot.frozenFrame.frame };
+      if (frozenFrameIsCurrent && !slot.liveFrameRef.current) {
+        return { current: slot.frozenFrame!.frame };
       }
 
       // In frozen phases, return the frozen frame even if a stale live ref lingers.
-      if (FROZEN_PHASES.has(slot.phase) && slot.frozenFrame) {
-        return { current: slot.frozenFrame.frame };
+      if (frozenFrameIsCurrent && FROZEN_PHASES.has(slot.phase)) {
+        return { current: slot.frozenFrame!.frame };
       }
 
       return slot.liveFrameRef;

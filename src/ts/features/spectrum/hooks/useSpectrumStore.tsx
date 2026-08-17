@@ -1210,6 +1210,11 @@ export const resolveEffectiveLiveSampleRateHz = ({
     deviceName,
     isRtlSdr,
   });
+  // Whole-channel capable sources (HackRF, Mock APT, ...) can widen their
+  // acquisition window beyond the last backend-reported rate. The frontend
+  // is authoritative for sample-rate changes after user interaction, so the
+  // local whole-channel selection must win over a stale backend snapshot
+  // (e.g. a 3.2 MHz report while Whole Channel 4.372 MHz is selected).
   const candidates = isRtlDevice
     ? [
         minReceiveSampleRateHz,
@@ -1219,9 +1224,9 @@ export const resolveEffectiveLiveSampleRateHz = ({
         websocketSampleRateHz,
       ]
     : [
+        localSampleRateHz,
         websocketSampleRateHz,
         sdrSettingsSampleRateHz,
-        localSampleRateHz,
         maxSampleRateHz,
       ];
 
@@ -1514,6 +1519,7 @@ export type SpectrumStoreContextValue = {
     sampleRateOptions: number[];
     sampleRateHz: number | null;
     sdrSettings: Partial<SdrSettingsConfig> | SourceSdrSettings | null;
+    supportsBasebandFilter?: boolean;
   };
   effectiveFrames: SpectrumFrame[];
   effectiveSdrSettings:
@@ -1537,6 +1543,7 @@ export type SpectrumStoreContextValue = {
     maxSampleRateHz: number | null;
     sampleRateOptions: number[];
     sampleRateHz: number | null;
+    supportsBasebandFilter?: boolean;
     sdrSettings: Partial<SdrSettingsConfig> | SourceSdrSettings | null;
     sdrLimitMarkers: Array<{
       kind: string;
@@ -2476,6 +2483,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         maxSampleRateHz: activeSourceDerived.maxSampleRateHz,
         sampleRateOptions: activeSourceDerived.sampleRateOptions,
         sampleRateHz: activeSourceDerived.sampleRateHz,
+        supportsBasebandFilter: activeSourceDerived.supportsBasebandFilter,
         sdrSettings: activeSourceDerived.sdrSettings,
         sdrLimitMarkers: activeSource?.sdr.fft_display.markers ?? [],
         dataRef,

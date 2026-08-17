@@ -960,6 +960,11 @@ pub struct SdrDeviceConfig {
   pub gain_limits: Option<DeviceGainLimits>,
   #[serde(default)]
   pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
+  /// Declares a hardware analog baseband filter that can track the active
+  /// sample rate (e.g. the HackRF MAX2837 LPF). Driving the UI off this
+  /// capability keeps the frontend independent of device-kind heuristics.
+  #[serde(default)]
+  pub baseband_filter: Option<bool>,
   #[serde(
     rename = "_tx_power_mapping",
     default,
@@ -1093,10 +1098,18 @@ pub struct SdrGainConfig {
 
 pub const MAX_LOGICAL_FRAME_RATE: u32 = u32::MAX;
 
-fn default_fft_size() -> usize { 2048 }
-fn default_max_fft_size() -> usize { 262_144 }
-fn default_fft_frame_rate() -> u32 { 60 }
-fn default_max_logical_frame_rate() -> u32 { MAX_LOGICAL_FRAME_RATE }
+fn default_fft_size() -> usize {
+  2048
+}
+fn default_max_fft_size() -> usize {
+  262_144
+}
+fn default_fft_frame_rate() -> u32 {
+  60
+}
+fn default_max_logical_frame_rate() -> u32 {
+  MAX_LOGICAL_FRAME_RATE
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

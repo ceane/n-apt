@@ -114,11 +114,34 @@ export const resolveCanonicalDisplaySampleRateHz = ({
     activeSampleRateHz > 0
       ? activeSampleRateHz
       : null;
-  return resolveDisplaySampleRateHz({
-    ...input,
-    derivedSampleRateHz:
-      activeRate ?? input.derivedSampleRateHz,
-    configuredSampleRateHz: activeRate ?? input.configuredSampleRateHz ?? null,
+  const deviceKind = input.deviceKind;
+  const backend = input.backend;
+  const deviceName = input.deviceName;
+  const isRtlSdr = isRtlSdrDevice({
+    deviceKind,
+    backend,
+    deviceName,
+    isRtlSdr: input.isRtlSdr,
+  });
+  if (activeRate === null || isRtlSdr) {
+    // RTL-SDR keeps the frame-first safety behavior: the accepted I/Q frame
+    // rate is authoritative and the configured floor guards stale metadata.
+    return resolveDisplaySampleRateHz({
+      ...input,
+      derivedSampleRateHz:
+        activeRate ?? input.derivedSampleRateHz,
+      configuredSampleRateHz:
+        activeRate ?? input.configuredSampleRateHz ?? null,
+    });
+  }
+  // Whole-channel capable sources (HackRF, Mock APT, ...) can legally widen
+  // their acquisition window beyond the last frame's sample rate. The active
+  // live-control rate is the user's explicit selection (e.g. Whole Channel
+  // 4.372 MHz) and must win over a stale frame whose metadata still reports
+  // the previous 3.2 MHz window.
+  return resolveSourceSampleRateHz({
+    candidates: [activeRate, input.frameSampleRateHz, input.configuredSampleRateHz, input.derivedSampleRateHz],
+    maxSampleRateHz: input.maxSampleRateHz,
   });
 };
 

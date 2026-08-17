@@ -2028,7 +2028,7 @@ export function renderStatsRowCanvas(
   const padY = 12;
   const fontBoost = aspectRatio && aspectRatio !== "default" ? 5 : 0;
   const baseFontSize = 17 + fontBoost;
-  const lh = 24 + fontBoost;
+  const lh = 30 + fontBoost;
   const lastLine = statsLines[statsLines.length - 1] ?? "";
   const hasFullWidthLocation =
     /^(?:Location:\s*)?[-+]?\d+(?:\.\d+)?,\s*[-+]?\d+(?:\.\d+)?(?:\s+–\s+.*)?$/.test(
@@ -2043,8 +2043,9 @@ export function renderStatsRowCanvas(
   const rightLines = columnLines.slice(splitIndex);
   const columnRowCount = Math.max(leftLines.length, rightLines.length);
   const rowCount = columnRowCount + (locationLine ? 1 : 0);
+  const locationTopGap = locationLine ? 6 : 0;
   const dividerH = 1;
-  const boxH = rowCount * lh + padY * 2 + dividerH;
+  const boxH = rowCount * lh + padY * 2 + dividerH + locationTopGap;
 
   const canvas = acquireCanvas(pool, "statsRow", width, boxH);
   const ctx = canvas.getContext("2d");
@@ -2090,7 +2091,7 @@ export function renderStatsRowCanvas(
   }
 
   if (locationLine) {
-    const y = padY + (columnRowCount + 0.8) * lh;
+    const y = padY + (columnRowCount + 0.8) * lh + locationTopGap;
     drawLine(locationLine, leftColumnX, y);
   }
 

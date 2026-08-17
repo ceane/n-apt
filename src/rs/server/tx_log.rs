@@ -302,9 +302,10 @@ fn validate_log_path(path: &Path) -> io::Result<PathBuf> {
       "transaction log path must name a file",
     ));
   }
-  if path.components().any(|component| {
-    matches!(component, std::path::Component::ParentDir)
-  }) {
+  if path
+    .components()
+    .any(|component| matches!(component, std::path::Component::ParentDir))
+  {
     return Err(io::Error::new(
       io::ErrorKind::InvalidInput,
       "transaction log path cannot contain parent traversal",
@@ -318,7 +319,9 @@ fn validate_log_path(path: &Path) -> io::Result<PathBuf> {
   };
   let allowed_roots = [std::env::temp_dir(), PathBuf::from("/tmp/n-apt")];
   let is_under_allowed_root = |candidate: &Path| {
-    allowed_roots.iter().any(|root| candidate == root || candidate.starts_with(root))
+    allowed_roots
+      .iter()
+      .any(|root| candidate == root || candidate.starts_with(root))
   };
   if !is_under_allowed_root(&absolute) {
     return Err(io::Error::new(
@@ -334,10 +337,9 @@ fn validate_log_path(path: &Path) -> io::Result<PathBuf> {
       .iter()
       .filter_map(|root| std::fs::canonicalize(root).ok())
       .collect::<Vec<_>>();
-    if !canonical_roots
-      .iter()
-      .any(|root| canonical_parent == *root || canonical_parent.starts_with(root))
-    {
+    if !canonical_roots.iter().any(|root| {
+      canonical_parent == *root || canonical_parent.starts_with(root)
+    }) {
       return Err(io::Error::new(
         io::ErrorKind::PermissionDenied,
         "transaction log parent resolves outside a temporary log directory",

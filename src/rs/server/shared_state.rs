@@ -364,6 +364,15 @@ impl SharedState {
     ))
   }
 
+  /// The source that currently owns the armed paused-frame request, if any.
+  pub fn paused_frame_request_owner(&self) -> Option<String> {
+    let owns_request = self.allow_next_paused_frame.load(Ordering::SeqCst);
+    if !owns_request {
+      return None;
+    }
+    self.paused_frame_request_source_id.lock().unwrap().clone()
+  }
+
   /// Clear the source ownership associated with a consumed or cancelled request.
   pub fn clear_paused_frame_request(&self) {
     self.allow_next_paused_frame.store(false, Ordering::SeqCst);

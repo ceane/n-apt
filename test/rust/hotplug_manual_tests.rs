@@ -541,9 +541,15 @@ fn stateful_attached_devices_resume_after_repeated_standby_switches() {
         panic!("{kind} did not stream in cycle {cycle}: {error}")
       });
       assert!(!samples.data.is_empty(), "{kind} returned an empty frame");
-      device
-        .enter_standby()
-        .unwrap_or_else(|error| panic!("{kind} standby failed: {error}"));
+      if kind == "rtl-sdr" {
+        device.cleanup().unwrap_or_else(|error| {
+          panic!("{kind} reader cleanup failed: {error}")
+        });
+      } else {
+        device
+          .enter_standby()
+          .unwrap_or_else(|error| panic!("{kind} standby failed: {error}"));
+      }
       device
         .initialize()
         .unwrap_or_else(|error| panic!("{kind} warm resume failed: {error}"));
@@ -1667,11 +1673,12 @@ async fn source_lifecycle_updates_app_source_state_through_loading_and_receiving
     if kind == "hackrf_one" {
       eprintln!("Rx inactive (Rx light off HackRF One)");
     }
-    eprintln!(
-      "Source lifecycle status: {} for {}",
-      SourceLifecyclePhase::Standby,
-      kind
-    );
+    let inactive_phase = if kind == "hackrf_one" {
+      SourceLifecyclePhase::Standby
+    } else {
+      SourceLifecyclePhase::Connected
+    };
+    eprintln!("Source lifecycle status: {} for {}", inactive_phase, kind);
   }
 }
 

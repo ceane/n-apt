@@ -266,6 +266,7 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
       fftSizeOptions: [] as number[],
       sampleRateHz: null,
       sdrSettings: null,
+      supportsBasebandFilter: false,
     };
   }
 
@@ -285,6 +286,9 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
     fftSizeOptions: source.capabilities?.fft?.sizes ?? [],
     sampleRateHz: source.sdr.settings.sample_rate ?? null,
     sdrSettings: source.sdr.settings,
+    supportsBasebandFilter:
+      source.capabilities?.supported_controls?.includes("baseband_filter") ??
+      false,
   };
 };
 

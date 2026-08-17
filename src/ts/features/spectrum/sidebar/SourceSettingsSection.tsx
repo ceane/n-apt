@@ -236,6 +236,11 @@ interface SourceSettingsSectionProps {
   hackrfAmpEnabled?: boolean;
   hackrfBasebandBandwidth?: number | null;
   hackrfCurrentSampleRate?: number;
+  /** Source capability flag: the device exposes a hardware baseband filter. */
+  supportsBasebandFilter?: boolean;
+  /** True once the user pinned a custom baseband-filter value. */
+  basebandFilterPinned?: boolean;
+  onBasebandFilterPinnedChange?: (pinned: boolean) => void;
   tunerAGC: boolean;
   rtlAGC: boolean;
   stitchSourceSettings: { gain: number; ppm: number };
@@ -271,6 +276,9 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   hackrfAmpEnabled = false,
   hackrfBasebandBandwidth,
   hackrfCurrentSampleRate = 0,
+  supportsBasebandFilter = false,
+  basebandFilterPinned = false,
+  onBasebandFilterPinnedChange,
   tunerAGC,
   rtlAGC,
   stitchSourceSettings,
@@ -291,6 +299,30 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   onAgcModeChange,
 }) => {
   const isHackrfLive = sourceMode === "live" && deviceType === "hackrf_one";
+  /** True when the source declares a hardware analog baseband filter. */
+  const hasBasebandFilter =
+    sourceMode === "live" && (supportsBasebandFilter || isHackrfLive);
+
+  // Silently keep the hardware baseband filter in step with the active sample
+  // rate unless the user has pinned a custom value. The pin clears when the
+  // field is emptied (0) and blurred, resuming automatic tracking.
+  React.useEffect(() => {
+    if (!hasBasebandFilter || basebandFilterPinned) return;
+    const nextBandwidth = Math.round(hackrfCurrentSampleRate || 0);
+    if (
+      nextBandwidth > 0 &&
+      onHackrfBasebandBandwidthChange &&
+      hackrfBasebandBandwidth !== nextBandwidth
+    ) {
+      onHackrfBasebandBandwidthChange(nextBandwidth);
+    }
+  }, [
+    hasBasebandFilter,
+    basebandFilterPinned,
+    hackrfCurrentSampleRate,
+    hackrfBasebandBandwidth,
+    onHackrfBasebandBandwidthChange,
+  ]);
   /** True when the spectrum view includes sub-10 MHz frequencies */
   const isLowFrequency =
     typeof frequencyRangeMin === "number" && frequencyRangeMin < 10_000_000;
@@ -624,45 +656,52 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
               <ToggleSwitchSlider $disabled={!isConnected} />
             </ToggleSwitch>
           </Row>
-          <Row
-            label={
-              <>
-                Baseband filter
-                {showBasebandWarning && <BasebandWarning />}
-              </>
-            }
-            tooltipTitle="HackRF Baseband Filter"
-            tooltip={
-              "Analog Low-Pass Baseband Filter.<br/><br/>" +
-              "Controls the internal hardware low-pass filter (LPF) of the MAX2837 transceiver before the signal is digitized.<br/><br/>" +
-              "<strong>Effect on signal:</strong><br/>" +
-              "• Limits the frequency spectrum width reaching the ADC, filtering out out-of-band signals.<br/>" +
-              "• Prevents strong out-of-band noise or signals from aliasing into your view or saturating the receiver.<br/>" +
-              "• <strong>Note:</strong> When enabled, it automatically scales with the active sample rate. If set narrower than the sample rate, frequencies near the edges will be attenuated, causing a 'scrunched' center mound."
-            }
-          >
-            <InputGroup>
-              <ToggleSwitch $disabled={!isConnected}>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={isHackrfBasebandEnabled}
-                  onChange={(e) => handleHackrfBasebandToggle(e.target.checked)}
-                  disabled={!isConnected}
-                />
-                <ToggleSwitchSlider $disabled={!isConnected} />
-              </ToggleSwitch>
-              {isHackrfBasebandEnabled && (
-                <CompactFrequencyInput
-                  valueHz={basebandBandwidthVal}
-                  onChangeHz={(val) => onHackrfBasebandBandwidthChange?.(val)}
-                  disabled={!isConnected}
-                  minHz={0}
-                  maxHz={20000000}
-                />
-              )}
-            </InputGroup>
-          </Row>
         </>
+      )}
+      {hasBasebandFilter && (
+        <Row
+          label={
+            <>
+              Baseband filter
+              {showBasebandWarning && <BasebandWarning />}
+            </>
+          }
+          tooltipTitle="HackRF Baseband Filter"
+          tooltip={
+            "Analog Low-Pass Baseband Filter.<br/><br/>" +
+            "Controls the internal hardware low-pass filter (LPF) of the MAX2837 transceiver before the signal is digitized.<br/><br/>" +
+            "<strong>Effect on signal:</strong><br/>" +
+            "• Limits the frequency spectrum width reaching the ADC, filtering out out-of-band signals.<br/>" +
+            "• Prevents strong out-of-band noise or signals from aliasing into your view or saturating the receiver.<br/>" +
+            "• <strong>Note:</strong> By default it automatically scales with the active sample rate. Once you type a custom value it stays fixed until you clear it; clearing the field and leaving it resumes automatic tracking."
+          }
+        >
+          <InputGroup>
+            <ToggleSwitch $disabled={!isConnected}>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={isHackrfBasebandEnabled}
+                onChange={(e) => handleHackrfBasebandToggle(e.target.checked)}
+                disabled={!isConnected}
+              />
+              <ToggleSwitchSlider $disabled={!isConnected} />
+            </ToggleSwitch>
+            {isHackrfBasebandEnabled && (
+              <CompactFrequencyInput
+                valueHz={basebandBandwidthVal}
+                onChangeHz={(val) => {
+                  // Typing a custom value pins the filter; clearing it to 0
+                  // resumes automatic tracking (the toggle below re-enables it).
+                  onBasebandFilterPinnedChange?.(val !== 0);
+                  onHackrfBasebandBandwidthChange?.(val);
+                }}
+                disabled={!isConnected}
+                minHz={0}
+                maxHz={20000000}
+              />
+            )}
+          </InputGroup>
+        </Row>
       )}
       {isRtlSdrLive && (
         <>

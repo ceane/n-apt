@@ -1159,10 +1159,22 @@ export const resolveManagedTxSourceId = (state: any): string | null => {
     );
   };
 
+  const isStandbyHardwareTxSource = (
+    source: SourceInfo | undefined,
+  ): boolean => {
+    if (!isTxCapable(source)) return false;
+    if (source!.kind === "mock_tx" || source!.id === "mock-tx") return false;
+    const status = sourceStatuses[source!.id] ?? source!.status;
+    return status === "standby" && isSourceStreamAvailable(status);
+  };
+
   const boundSourceId = state.sourceRouting?.bindings?.["tx-suite:tx"];
   if (typeof boundSourceId === "string" && boundSourceId.length > 0) {
     const boundSource = sources.find((source) => source.id === boundSourceId);
-    if (isTransmittingTxSource(boundSource)) {
+    if (
+      isTransmittingTxSource(boundSource) ||
+      isStandbyHardwareTxSource(boundSource)
+    ) {
       return boundSourceId;
     }
   }

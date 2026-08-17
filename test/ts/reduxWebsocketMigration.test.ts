@@ -154,6 +154,75 @@ describe("managed stream option synchronization", () => {
       }),
     ).toBe("mock-tx");
   });
+
+  it("opens a managed Tx stream for a bound half-duplex hardware standby source", () => {
+    // A physical HackRF bound as the Tx-suite source is in standby while a
+    // separate Rx source stays active. The Tx stream must subscribe so the
+    // request_next_frame preview is delivered to the bound device.
+    expect(
+      resolveManagedTxSourceId({
+        activeSourceId: "rtl-sdr-1",
+        sources: [
+          {
+            id: "rtl-sdr-1",
+            name: "RTL-SDR",
+            kind: "rtl-sdr",
+            capability: "rx",
+            status: "receiving",
+          },
+          {
+            id: "hackrf_one-00000001",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            duplex_mode: "half_duplex",
+            status: "standby",
+          },
+        ],
+        sourceStatuses: {
+          "rtl-sdr-1": "receiving",
+          "hackrf_one-00000001": "standby",
+        },
+        sourceSelection: { selectedSourceId: "rtl-sdr-1" },
+        sourceRouting: {
+          bindings: { "tx-suite:tx": "hackrf_one-00000001" },
+        },
+      }),
+    ).toBe("hackrf_one-00000001");
+  });
+
+  it("does not open a Tx stream for an unbound idle hardware source", () => {
+    // Without a Tx-suite binding or an active/selected standby state, a
+    // half-duplex device must not hold a Tx subscription open.
+    expect(
+      resolveManagedTxSourceId({
+        activeSourceId: "rtl-sdr-1",
+        sources: [
+          {
+            id: "rtl-sdr-1",
+            name: "RTL-SDR",
+            kind: "rtl-sdr",
+            capability: "rx",
+            status: "receiving",
+          },
+          {
+            id: "hackrf_one-00000001",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            duplex_mode: "half_duplex",
+            status: "standby",
+          },
+        ],
+        sourceStatuses: {
+          "rtl-sdr-1": "receiving",
+          "hackrf_one-00000001": "standby",
+        },
+        sourceSelection: { selectedSourceId: "rtl-sdr-1" },
+        sourceRouting: { bindings: {} },
+      }),
+    ).toBeNull();
+  });
 });
 
 const decodeIqFrameEnvelope = (

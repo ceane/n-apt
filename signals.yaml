@@ -156,6 +156,7 @@ signals:
           step: 1.0
       hackrf_one:
         duplex_mode: "Half-duplex"
+        baseband_filter: true
         sample_rate: !clamp
           value: !channel sample_rate
           min: !floor sample_rate

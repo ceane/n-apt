@@ -10,6 +10,7 @@ import settingsSlice from "@n-apt/redux/slices/settingsSlice";
 import websocketSlice from "@n-apt/redux/slices/websocketSlice";
 import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
 import demodSlice from "@n-apt/redux/slices/demodSlice";
+import sourceRoutingSlice from "@n-apt/redux/slices/sourceRoutingSlice";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 
@@ -32,6 +33,7 @@ export function createTestStore(preloadedState?: any) {
       websocket: websocketSlice,
       snapshot: snapshotSlice,
       demod: demodSlice,
+      sourceRouting: sourceRoutingSlice,
     },
     middleware: (getDefaultMiddleware: any) =>
       getDefaultMiddleware({

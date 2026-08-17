@@ -9,6 +9,7 @@ use std::sync::RwLock;
 
 use super::types::{AvailableSpectrumConfig, CaptureArtifact, ChannelSpec};
 use super::types::{DeviceProfile, SdrConfig, SpectrumFrameConfig};
+use crate::server::websocket_server::complex_baseband::MOCK_TX_DISPLAY_NAME;
 
 pub static RE_SAFE_ID: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
@@ -587,10 +588,9 @@ pub fn resolve_fft_config(
       }
     });
 
-  let default_frame_rate =
-    *size_to_frame_rate
-      .get(&default_size)
-      .unwrap_or(&configured_max_frame_rate);
+  let default_frame_rate = *size_to_frame_rate
+    .get(&default_size)
+    .unwrap_or(&configured_max_frame_rate);
 
   let max_frame_rate = *size_to_frame_rate
     .values()
@@ -736,15 +736,6 @@ pub fn reconcile_device_state(
     (false, _) => "disconnected".to_string(),
     _ => device_state.to_string(),
   }
-}
-
-pub fn mock_apt_device_name(device_info: &str) -> String {
-  device_info
-    .split(" - ")
-    .next()
-    .unwrap_or("Mock APT SDR")
-    .trim()
-    .to_string()
 }
 
 pub fn mock_apt_backend_label(device_info: &str) -> &'static str {
@@ -907,14 +898,26 @@ pub fn status_device_name(
   device_info: &str,
   device_profile: &super::types::DeviceProfile,
 ) -> String {
-  if !device_connected {
-    return mock_apt_device_name(device_info);
-  }
-
+  // A disconnected hardware source must keep its real display name so the UI
+  // can show "HackRF One · Stale/Disconnected" instead of silently swapping
+  // to the Mock APT name while the device is unplugged. Mock profiles still
+  // use the fallback name when not connected.
   match device_profile.kind.as_str() {
     "rtl-sdr" | "rtl_sdr" => normalize_rtl_sdr_device_name(device_info),
     "hackrf_one" => "HackRF One".to_string(),
-    "mock_tx" => "Mock Tx SDR".to_string(),
+    "mock_tx" => MOCK_TX_DISPLAY_NAME.to_string(),
+    kind if kind.starts_with("mock_apt") => {
+      if device_connected {
+        device_info
+          .split(" - ")
+          .next()
+          .unwrap_or("Mock APT SDR")
+          .trim()
+          .to_string()
+      } else {
+        "Mock APT SDR".to_string()
+      }
+    }
     _ => device_info
       .split(" - ")
       .next()
@@ -1016,6 +1019,45 @@ mod tests {
     };
 
     assert_eq!(device_config_key(&profile), "mock_tx");
+  }
+
+  #[test]
+  fn disconnected_hardware_keeps_its_real_display_name() {
+    let hackrf_profile = DeviceProfile {
+      kind: "hackrf_one".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
+    };
+    // A disconnected HackRF must keep "HackRF One" so the pill can show
+    // "HackRF One · Stale/Disconnected" instead of the Mock APT fallback name.
+    assert_eq!(
+      status_device_name(false, "anything", &hackrf_profile),
+      "HackRF One"
+    );
+
+    let rtl_profile = DeviceProfile {
+      kind: "rtl-sdr".to_string(),
+      is_rtl_sdr: true,
+      supports_approx_dbm: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
+    };
+    assert_eq!(
+      status_device_name(false, "RTL-SDR Blog V4", &rtl_profile),
+      "RTL-SDR v4"
+    );
+
+    // A disconnected mock still resolves to the Mock APT name.
+    let mock_profile = DeviceProfile {
+      kind: "mock_apt".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
+    };
+    assert_eq!(
+      status_device_name(false, "Mock APT SDR", &mock_profile),
+      "Mock APT SDR"
+    );
   }
 
   #[test]

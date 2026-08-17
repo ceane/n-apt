@@ -209,20 +209,23 @@ fn filter_supported_usb_device_snapshots(
 }
 
 pub fn scan_supported_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
-  let mut devices =
-    filter_supported_usb_device_snapshots(scan_usb_device_snapshots()?);
-  if simulated_hardware_present()
-    && !devices.iter().any(|device| device.device_type == "rtl-sdr")
-  {
-    devices.push(UsbDeviceSnapshot {
-      device_type: "rtl-sdr".to_string(),
-      vendor_id: 0x0bda,
-      product_id: 0x2838,
-      bus_number: 99,
-      address: 1,
+  if hardware_simulation_enabled() {
+    return Ok(if simulated_hardware_present() {
+      vec![UsbDeviceSnapshot {
+        device_type: "rtl-sdr".to_string(),
+        vendor_id: 0x0bda,
+        product_id: 0x2838,
+        bus_number: 99,
+        address: 1,
+      }]
+    } else {
+      Vec::new()
     });
   }
-  Ok(devices)
+
+  Ok(filter_supported_usb_device_snapshots(
+    scan_usb_device_snapshots()?,
+  ))
 }
 
 fn should_clear_rtl_sdr_inventory(
@@ -322,15 +325,29 @@ pub(crate) fn active_device_present(
     return !shared_state.hackrf_inventory.lock().unwrap().is_empty();
   }
   scan_supported_usb_device_snapshots()
-    .map(|devices| {
-      devices.iter().any(|device| {
-        let detected = device.device_type.to_ascii_lowercase();
-        detected == normalized
-          || (normalized.contains("rtl") && detected.contains("rtl"))
-          || (normalized.contains("hackrf") && detected.contains("hackrf"))
-      })
-    })
+    .map(|devices| snapshots_contain_device_type(&devices, &normalized))
     .unwrap_or(false)
+}
+
+fn snapshots_contain_device_type(
+  devices: &[UsbDeviceSnapshot],
+  device_type: &str,
+) -> bool {
+  let normalized = device_type.to_ascii_lowercase();
+  devices.iter().any(|device| {
+    let detected = device.device_type.to_ascii_lowercase();
+    detected == normalized
+      || (normalized.contains("rtl") && detected.contains("rtl"))
+      || (normalized.contains("hackrf") && detected.contains("hackrf"))
+  })
+}
+
+fn active_hardware_missing(
+  processor_is_mock: bool,
+  device_type: &str,
+  devices: &[UsbDeviceSnapshot],
+) -> bool {
+  !processor_is_mock && !snapshots_contain_device_type(devices, device_type)
 }
 
 #[cfg(all(test, has_hackrf))]
@@ -504,13 +521,18 @@ pub async fn drain_hotplug_events(
     .usb_inventory_known
     .store(true, Ordering::Release);
   let current_state = shared_state.device_state.lock().unwrap().clone();
+  let active_hardware_missing = active_hardware_missing(
+    processor.is_mock(),
+    processor.device_type(),
+    &usb_devices,
+  );
   let should_reconcile = should_reconcile_hotplug_state(
     current_count,
     state.last_seen_device_count,
     processor.is_mock(),
     &current_state,
   );
-  if should_reconcile {
+  if should_reconcile || active_hardware_missing {
     let previous_count = state.last_seen_device_count;
     if current_count != previous_count {
       info!(
@@ -523,7 +545,7 @@ pub async fn drain_hotplug_events(
       );
     }
     state.last_seen_device_count = current_count;
-    if current_count == 0 && !processor.is_mock() {
+    if active_hardware_missing {
       let _ =
         disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
       state.missing_since = None;
@@ -799,12 +821,6 @@ async fn disconnect_to_mock(
     // fallback snapshot is broadcast. Otherwise the frontend can observe
     // Mock APT as active while still seeing the old RTL source and retrying it.
     shared_state.set_rtl_sdr_inventory(Vec::new());
-    shared_state
-      .supported_usb_device_count
-      .store(0, Ordering::Relaxed);
-    shared_state
-      .usb_inventory_known
-      .store(true, Ordering::Release);
   }
   shared_state.set_device_state("disconnected", None);
   if previous_device_type == "hackrf_one" {
@@ -1167,6 +1183,21 @@ mod tests {
   fn stale_real_source_reconciles_even_when_usb_count_is_unchanged() {
     assert!(should_reconcile_hotplug_state(1, 1, false, "stale"));
     assert!(!should_reconcile_hotplug_state(1, 1, false, "connected"));
+  }
+
+  #[test]
+  fn active_source_absence_reconciles_when_another_radio_remains() {
+    let snapshots = vec![UsbDeviceSnapshot {
+      device_type: "rtl-sdr".to_string(),
+      vendor_id: 0x0bda,
+      product_id: 0x2838,
+      bus_number: 1,
+      address: 2,
+    }];
+
+    assert!(active_hardware_missing(false, "hackrf_one", &snapshots));
+    assert!(!active_hardware_missing(false, "RTL-SDR", &snapshots));
+    assert!(!active_hardware_missing(true, "Mock APT SDR", &snapshots));
   }
 
   #[test]

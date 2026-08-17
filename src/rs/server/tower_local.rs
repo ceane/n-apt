@@ -743,9 +743,7 @@ async fn load_towers_direct(
 
   local_database
     .query::<(), _>("DEL", |command| {
-      command
-        .arg(&cache_key)
-        .arg(format!("{cache_key}:data"));
+      command.arg(&cache_key).arg(format!("{cache_key}:data"));
     })
     .await?;
 
@@ -767,10 +765,7 @@ async fn load_towers_direct(
 
     local_database
       .query::<(), _>("SETEX", |command| {
-        command
-          .arg(&tower.id)
-          .arg(6 * 3600)
-          .arg(full_tower_data);
+        command.arg(&tower.id).arg(6 * 3600).arg(full_tower_data);
       })
       .await?;
 

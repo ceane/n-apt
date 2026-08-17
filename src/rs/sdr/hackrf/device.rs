@@ -462,7 +462,9 @@ impl SdrDevice for HackRfDevice {
 
   fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
     if enabled {
-      self.audio_tap.set_capacity_for_sample_rate(self.sample_rate);
+      self
+        .audio_tap
+        .set_capacity_for_sample_rate(self.sample_rate);
     }
     self.audio_tap.set_enabled(enabled);
   }

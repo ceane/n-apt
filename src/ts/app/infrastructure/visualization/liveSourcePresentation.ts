@@ -228,7 +228,12 @@ export const resolveLiveDevicePlaceholderState = ({
   if (
     (hasRenderableCurrentFrame || hasPlayedAtLeastOnce) &&
     deviceState !== "disconnected" &&
-    deviceState !== "error"
+    deviceState !== "error" &&
+    // A device still opening has no veritable stream. A stale renderable
+    // frame (previous source, earlier epoch) must not suppress the loading
+    // placeholder or the canvas can show a blank/black area while the
+    // selected HackRF is still loading.
+    deviceState !== "loading"
   ) {
     return null;
   }
