@@ -24,6 +24,19 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
 
+## Real-Time Device I/O
+
+- Do not log from device I/O paths. This includes RTL-SDR/HackRF callbacks,
+  sample reads and writes, acquisition hot paths, reader startup/restart,
+  cancellation, cleanup/drop, and Tx monitor or transmission callbacks.
+- Logger formatting and logger locks can delay USB/libusb work and make the
+  hardware unstable. Use comments to document these constraints, and use
+  returned errors, state, counters, or deferred control-plane diagnostics to
+  surface failures after the I/O operation completes.
+- Keep the global Tx log disabled; do not re-enable it or add logging around
+  physical Tx operations without explicit authorization and device-safety
+  evidence.
+
 ## Mock APT SDR Rules
 
 - Preserve the established Mock APT waveform checksum unless intentionally
