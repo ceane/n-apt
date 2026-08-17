@@ -679,6 +679,43 @@ fn rtl_sdr_processor_manual_read_probe_delivers_frame() {
   }
 }
 
+/// Repeats the ownership boundary exercised by Rust hot reload: open the
+/// RTL-SDR, stream real IQ, stop its async reader completely, drop the native
+/// handle, then reopen it. Any stale reader or claimed libusb interface fails
+/// the next cycle immediately.
+#[test]
+#[serial]
+fn rtl_sdr_hot_reload_integrity_reopens_cleanly() {
+  if std::env::var("RUN_HOTPLUG_RTL_INTEGRITY").is_err() {
+    eprintln!(
+      "Skipping RTL-SDR hot-reload integrity test. Set RUN_HOTPLUG_RTL_INTEGRITY=1 to run it."
+    );
+    return;
+  }
+
+  for cycle in 0..5 {
+    let mut device =
+      open_supported_device("rtl-sdr").expect("open attached RTL-SDR");
+    device.initialize().unwrap_or_else(|error| {
+      panic!("cycle {cycle} initialize failed: {error}")
+    });
+
+    for frame_index in 0..8 {
+      let frame = device.read_samples(4096).unwrap_or_else(|error| {
+        panic!("cycle {cycle} frame {frame_index} failed: {error}")
+      });
+      assert_eq!(frame.data.len(), 8192);
+    }
+
+    device
+      .cleanup()
+      .unwrap_or_else(|error| panic!("cycle {cycle} cleanup failed: {error}"));
+    assert!(!device.is_rx_active());
+    drop(device);
+    std::thread::sleep(Duration::from_millis(50));
+  }
+}
+
 /// Runs the same control-plane and multiplexed IQ path used by the browser
 /// against an attached RTL-SDR. This is intentionally ignored and opt-in:
 /// it requires a running authenticated backend and claims the physical SDR.

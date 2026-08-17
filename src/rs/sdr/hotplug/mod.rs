@@ -992,7 +992,7 @@ pub async fn handle_real_hardware_health(
     let active_device_is_present =
       active_device_present(processor.device_type(), shared_state);
     if !active_device_is_present {
-      warn!("Supported device confirmed unplugged. Falling back to mock.");
+      info!("Supported device disconnected. Falling back to Mock APT.");
       let was_hackrf = processor.device_type() == "hackrf_one";
       shared_state.set_device_state("disconnected", None);
       if was_hackrf {

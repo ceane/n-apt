@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use crossbeam_channel::{bounded, Receiver, Sender};
-use log::{debug, info};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
@@ -218,11 +217,6 @@ impl HackRfDevice {
         let _ = ffi::hackrf_exit();
         return Err(anyhow!("Failed to open HackRF One device #{}", index));
       }
-      info!(
-        "Opened HackRF One device #{} (serial: {:?})",
-        index, serial_number
-      );
-
       let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
       Ok(Self {
         dev,
@@ -511,10 +505,6 @@ impl SdrDevice for HackRfDevice {
         corrected_freq
       ));
     }
-    debug!(
-      "HackRF center frequency set to {} Hz (requested {}, ppm {})",
-      corrected_freq, self.requested_center_frequency, self.ppm
-    );
     Ok(())
   }
 
@@ -573,15 +563,11 @@ impl SdrDevice for HackRfDevice {
 
   fn set_ppm(&mut self, ppm: u32) -> Result<()> {
     self.ppm = ppm;
-    debug!("HackRF PPM correction set to {} ppm", ppm);
     Ok(())
   }
 
-  fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
-    debug!(
-      "Ignoring tuner AGC request on HackRF One; use AMP enabled instead: {}",
-      enabled
-    );
+  fn set_tuner_agc(&mut self, _enabled: bool) -> Result<()> {
+    // HackRF has no RTL-style tuner AGC; AMP remains explicitly controlled.
     Ok(())
   }
 

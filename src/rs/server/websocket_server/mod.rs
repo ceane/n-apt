@@ -35,12 +35,12 @@ pub mod sources;
 pub mod tx_suite;
 
 #[cfg(test)]
+use source_lifecycle::source_phase_on_switch_away;
+#[cfg(test)]
 use source_lifecycle::{
   prepare_selected_source_for_rx, should_cache_swapped_source,
   should_restore_warm_source, source_phase_on_select, warmable_source_ids,
 };
-#[cfg(test)]
-use source_lifecycle::source_phase_on_switch_away;
 
 // Re-export key symbols for tests and other modules
 pub use broadcasting::{

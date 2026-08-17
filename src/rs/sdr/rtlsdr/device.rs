@@ -5,7 +5,6 @@
 
 use anyhow::{anyhow, Result};
 use crossbeam_channel::{bounded, Receiver, Sender};
-use log::{debug, info, warn};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
@@ -188,19 +187,12 @@ impl RtlSdrDevice {
     self.audio_tap.clear();
 
     let dev_ptr_val = self.dev as usize;
-    let device_index = self.device_index;
-
     let context = Box::new(AsyncContext { tx, rx });
     let ctx_ptr_val = Box::into_raw(context) as usize;
 
     let handle = thread::spawn(move || -> c_int {
       let dev_ptr = dev_ptr_val as *mut ffi::RtlSdrDev;
       let ctx_ptr = ctx_ptr_val as *mut std::os::raw::c_void;
-
-      info!(
-        "Starting RTL-SDR async read thread for device #{}",
-        device_index
-      );
 
       // macOS often fails with LIBUSB_ERROR_IO (-5) if bulk transfers are too large.
       // Using more frequent, smaller buffers (64 * 8KB) is often more stable
@@ -218,10 +210,6 @@ impl RtlSdrDevice {
         )
       };
 
-      info!(
-        "RTL-SDR async read thread for device #{} exited with code {}",
-        device_index, ret
-      );
       let _ = unsafe { Box::from_raw(ctx_ptr as *mut AsyncContext) };
       ret
     });
@@ -330,20 +318,9 @@ impl RtlSdrDevice {
       ));
     }
 
-    info!(
-      "Opened RTL-SDR device #{}: {}",
-      index,
-      Self::get_device_name(index)
-    );
-
     // Retrieve USB descriptor strings (serial, manufacturer, product)
     let (usb_serial, usb_manufacturer, usb_product) =
       Self::get_device_usb_strings(index);
-
-    info!(
-      "RTL-SDR USB strings — serial: {:?}, manufacturer: {:?}, product: {:?}",
-      usb_serial, usb_manufacturer, usb_product
-    );
 
     let device = Self {
       dev,
@@ -379,10 +356,6 @@ impl RtlSdrDevice {
     if count == 0 {
       return Err(anyhow!("No RTL-SDR devices found"));
     }
-    info!("Found {} RTL-SDR device(s)", count);
-    for i in 0..count {
-      info!("  Device #{}: {}", i, Self::get_device_name(i));
-    }
     Self::open(0)
   }
 
@@ -392,7 +365,6 @@ impl RtlSdrDevice {
     if ret != 0 {
       return Err(anyhow!("Failed to set center frequency to {} Hz", freq));
     }
-    debug!("Center frequency set to {} Hz", freq);
     Ok(())
   }
 
@@ -404,12 +376,7 @@ impl RtlSdrDevice {
   /// Set the sample rate in Hz
   pub fn set_sample_rate(&self, rate: u32) -> Result<()> {
     let target_rate = 3_200_000;
-    if rate != target_rate {
-      info!(
-        "Enforcing RTL-SDR sample rate of 3.2MHz (requested: {} Hz)",
-        rate
-      );
-    }
+    let _requested_rate = rate;
     let ret = unsafe { ffi::rtlsdr_set_sample_rate(self.dev, target_rate) };
     if ret != 0 {
       return Err(anyhow!("Failed to set sample rate to {} Hz", target_rate));
@@ -418,12 +385,11 @@ impl RtlSdrDevice {
     // Verify the rate was actually set correctly
     let actual_rate = unsafe { ffi::rtlsdr_get_sample_rate(self.dev) };
     if actual_rate != target_rate {
-      warn!(
+      return Err(anyhow!(
         "Sample rate mismatch: requested {} Hz, device reports {} Hz",
-        target_rate, actual_rate
-      );
-    } else {
-      info!("Sample rate verified: {} Hz", target_rate);
+        target_rate,
+        actual_rate
+      ));
     }
 
     Ok(())
@@ -453,7 +419,6 @@ impl RtlSdrDevice {
     if ret != 0 {
       return Err(anyhow!("Failed to set tuner gain to {} (tenths dB)", gain));
     }
-    debug!("Tuner gain set to {:.1} dB", gain as f32 / 10.0);
     Ok(())
   }
 
@@ -614,7 +579,6 @@ impl RtlSdrDevice {
     if ret != 0 {
       return Err(anyhow!("Failed to set AGC mode"));
     }
-    debug!("AGC mode {}", if enabled { "enabled" } else { "disabled" });
     Ok(())
   }
 
@@ -626,10 +590,6 @@ impl RtlSdrDevice {
     if ret != 0 {
       return Err(anyhow!("Failed to set tuner gain mode"));
     }
-    debug!(
-      "Tuner gain mode set to {}",
-      if manual { "manual" } else { "automatic" }
-    );
     Ok(())
   }
 
@@ -638,10 +598,7 @@ impl RtlSdrDevice {
     let ret =
       unsafe { ffi::rtlsdr_set_freq_correction(self.dev, ppm as c_int) };
     if ret != 0 {
-      warn!(
-        "Failed to set PPM correction to {} (may already be set)",
-        ppm
-      );
+      return Err(anyhow!("Failed to set PPM correction to {}", ppm));
     }
     Ok(())
   }
@@ -659,7 +616,6 @@ impl RtlSdrDevice {
 
   /// Reset the device buffer (call before starting reads)
   pub fn reset_buffer(&self) -> Result<()> {
-    info!("Resetting RTL-SDR device buffer...");
     let ret = unsafe { ffi::rtlsdr_reset_buffer(self.dev) };
     if ret != 0 {
       return Err(anyhow!("Failed to reset buffer"));
@@ -729,7 +685,6 @@ impl RtlSdrDevice {
   /// than the one running read_async. After this returns, the read_async
   /// call on the reader thread will unblock and return.
   pub fn cancel_async(&self) -> Result<()> {
-    info!("Cancelling async read...");
     let ret = unsafe { ffi::rtlsdr_cancel_async(self.dev) };
     if ret != 0 {
       return Err(anyhow!("Cancel async failed (error code: {})", ret));
@@ -764,8 +719,6 @@ impl RtlSdrDevice {
 impl Drop for RtlSdrDevice {
   fn drop(&mut self) {
     if !self.dev.is_null() {
-      info!("Closing RTL-SDR device #{}...", self.device_index);
-
       if !self.stop_async_reader() {
         // Drop cannot return an error.  Give the cancelled reader a bounded
         // chance to unwind before closing the handle; closing first is a
@@ -785,22 +738,13 @@ impl Drop for RtlSdrDevice {
         }
 
         if !self.stop_async_reader() {
-          warn!(
-            "RTL-SDR reader did not stop before drop; leaving device handle open"
-          );
+          // Never log from teardown: formatting and logger locks can delay the
+          // libusb callback. A wedged reader deliberately leaks this handle.
           return;
         }
       }
 
-      let ret = unsafe { ffi::rtlsdr_close(self.dev) };
-      if ret != 0 {
-        warn!(
-          "rtlsdr_close returned error code {} for device #{}",
-          ret, self.device_index
-        );
-      } else {
-        info!("RTL-SDR device #{} closed successfully", self.device_index);
-      }
+      let _ = unsafe { ffi::rtlsdr_close(self.dev) };
       self.dev = ptr::null_mut();
     }
   }

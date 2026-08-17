@@ -569,3 +569,105 @@ impl Drop for StreamSubscription {
     self.unsubscribe();
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn rx_options() -> StreamOptions {
+    StreamOptions::Rx(RxStreamOptions {
+      center_frequency_hz: 100_000_000,
+      sample_rate_hz: 2_400_000,
+      fft_size: 1024,
+      fft_window: None,
+      frame_rate: None,
+      gain: None,
+    })
+  }
+
+  fn tx_options() -> StreamOptions {
+    StreamOptions::Tx(TxStreamOptions {
+      center_frequency_hz: 100_000_000,
+      sample_rate_hz: 2_400_000,
+      bandwidth_hz: 2_400_000,
+      signal: "wifi".to_string(),
+      power_dbm: -18.0,
+      ifft_size: 1024,
+    })
+  }
+
+  fn half_duplex_manager() -> StreamingSourceModeManager {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    manager.register_source(
+      "hackrf_one-00000001",
+      SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: true,
+        full_duplex: false,
+      },
+    );
+    manager
+  }
+
+  #[test]
+  fn half_duplex_tx_subscribe_succeeds_without_rx_stream() {
+    let manager = half_duplex_manager();
+    let key = StreamKey::new("hackrf_one-00000001", StreamMode::Tx);
+
+    // The frontend releases the Rx stream before requesting a Tx preview;
+    // the Tx subscription must therefore be accepted.
+    let subscription = manager.subscribe(key.clone(), tx_options()).expect(
+      "half-duplex Tx subscribe must succeed when no Rx stream is held",
+    );
+    assert!(manager.has_stream(&key));
+    subscription.unsubscribe();
+  }
+
+  #[test]
+  fn half_duplex_tx_subscribe_is_rejected_while_rx_stream_is_held() {
+    let manager = half_duplex_manager();
+    let rx_key = StreamKey::new("hackrf_one-00000001", StreamMode::Rx);
+    let tx_key = StreamKey::new("hackrf_one-00000001", StreamMode::Tx);
+
+    let rx_subscription = manager
+      .subscribe(rx_key.clone(), rx_options())
+      .unwrap();
+    let error = match manager.subscribe(tx_key.clone(), tx_options()) {
+      Err(error) => error,
+      Ok(_) => panic!("half-duplex Tx subscribe must be rejected while Rx is held"),
+    };
+    assert!(matches!(error, StreamError::Arbitration(_)));
+
+    // Releasing the Rx stream unblocks the Tx subscribe. The removal runs on
+    // the grace timer, so this needs a runtime.
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+      rx_subscription.unsubscribe();
+      tokio::time::sleep(Duration::from_millis(30)).await;
+      manager
+        .subscribe(tx_key.clone(), tx_options())
+        .expect("releasing the half-duplex Rx stream must unblock the Tx subscribe");
+    });
+    assert!(manager.has_stream(&tx_key));
+  }
+
+  #[test]
+  fn full_duplex_source_can_hold_rx_and_tx_streams() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    manager.register_source(
+      "mock-tx",
+      SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: true,
+        full_duplex: true,
+      },
+    );
+    let rx_key = StreamKey::new("mock-tx", StreamMode::Rx);
+    let tx_key = StreamKey::new("mock-tx", StreamMode::Tx);
+
+    let _rx = manager.subscribe(rx_key, rx_options()).unwrap();
+    manager.subscribe(tx_key, tx_options()).expect(
+      "full-duplex sources may hold both streams simultaneously",
+    );
+  }
+}

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
-use log::{debug, error, info, warn};
+use log::info;
 use tokio::sync::{broadcast, Mutex};
 
 use crate::sdr::hotplug::{
@@ -156,15 +156,10 @@ impl DeviceHealthWorker {
 
     if processor.is_mock() {
       // Mock should never fail, but don't crash — just wait briefly
-      warn!("Mock SDR read error (unexpected): {}", e);
       tokio::time::sleep(Duration::from_millis(100)).await;
     } else {
       let current_state = shared_state.device_state.lock().unwrap().clone();
       if should_ignore_read_error(&current_state, &e) {
-        debug!(
-          "Ignoring read error/timeout while device is in {} state: {}",
-          current_state, e
-        );
         tokio::time::sleep(Duration::from_millis(100)).await;
         return;
       }
@@ -193,21 +188,6 @@ impl DeviceHealthWorker {
       let recovery_count =
         shared_state.recovery_attempts.load(Ordering::Relaxed);
 
-      if supported_device_present || !is_async_sample_timeout_error(&e) {
-        error!(
-          "SDR read error (streak {}/{}, recovery {}/{}): {}",
-          streak,
-          crate::server::shared_state::DISCONNECT_FAILURE_THRESHOLD,
-          recovery_count,
-          crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-          e,
-        );
-      } else {
-        warn!(
-          "RTL-SDR reader stopped after USB removal; falling back to Mock APT"
-        );
-      }
-
       // Publish the liveness snapshot on every read failure. The source
       // payload computes `receiving` from a recent successful frame, so this
       // lets clients leave Receiving as soon as that proof expires instead of
@@ -216,9 +196,6 @@ impl DeviceHealthWorker {
 
       if let Some(last_failed) = hotplug_state.last_failure_at {
         if last_failed.elapsed() < hotplug_state.retry_cooldown {
-          debug!(
-              "Skipping recovery while cooling down after repeated device failure"
-            );
           tokio::time::sleep(Duration::from_millis(250)).await;
           return;
         }
@@ -229,9 +206,6 @@ impl DeviceHealthWorker {
           streak,
           supported_device_present,
         ) {
-          warn!(
-            "Supported USB device unplugged after read error. Falling back to mock immediately."
-          );
           let was_hackrf = processor.device_type() == "hackrf_one";
           shared_state.set_device_state("disconnected", None);
           if was_hackrf {
@@ -243,7 +217,7 @@ impl DeviceHealthWorker {
 
           let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
           if let Err(swap_e) = processor.swap_device(mock_device) {
-            error!("Failed to swap to mock after early unplug: {}", swap_e);
+            shared_state.set_device_backend_error(Some(swap_e.to_string()));
           } else {
             sync_shared_sample_rate(&shared_state, &processor);
             shared_state.update_device_status(
@@ -261,21 +235,12 @@ impl DeviceHealthWorker {
             shared_state.set_active_source_pause_state("mock-apt", false);
             broadcast_device_status(&shared_state, &_broadcast_tx);
           }
-        } else if !supported_device_present && is_async_sample_timeout_error(&e)
-        {
-          debug!(
-            "Async SDR sample timeout occurred before disconnect threshold; keeping real device in recovery"
-          );
         }
 
         // Brief settle regardless
         tokio::time::sleep(Duration::from_millis(100)).await;
       } else {
         // Threshold reached: restart stalled readers before falling back.
-        warn!(
-            "Read-error threshold reached (streak={}). Supported USB device present={}.",
-            streak, supported_device_present,
-          );
         let reader_recovery_action = resolve_reader_recovery_action(
           is_async_sample_timeout_error(&e),
           processor.is_rx_active(),
@@ -294,9 +259,6 @@ impl DeviceHealthWorker {
 
           match processor.initialize() {
             Ok(()) => {
-              info!(
-                "Restarted current SDR async reader after sample timeout. Awaiting first healthy frame."
-              );
               shared_state
                 .health_failure_streak
                 .store(0, Ordering::Relaxed);
@@ -307,10 +269,6 @@ impl DeviceHealthWorker {
               hotplug_state.last_hardware_swap = Some(Instant::now());
             }
             Err(restart_e) => {
-              error!(
-                "Failed to restart current SDR async reader after sample timeout: {}",
-                restart_e
-              );
               let supported_device_present =
                 shared_state.usb_inventory_known.load(Ordering::Acquire)
                   && shared_state
@@ -318,18 +276,13 @@ impl DeviceHealthWorker {
                     .load(Ordering::Relaxed)
                     > 0;
               if !supported_device_present {
-                warn!(
-                  "USB device disappeared while restarting reader; falling back to Mock APT"
-                );
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
                 if let Err(swap_e) = processor.swap_device(
                   crate::sdr::SdrDeviceFactory::create_mock_device(),
                 ) {
-                  error!(
-                    "Failed to swap to mock after reader loss: {}",
-                    swap_e
-                  );
+                  shared_state
+                    .set_device_backend_error(Some(swap_e.to_string()));
                 } else {
                   sync_shared_sample_rate(&shared_state, &processor);
                   shared_state.update_device_status(
@@ -354,10 +307,6 @@ impl DeviceHealthWorker {
                 broadcast_device_status(&shared_state, &_broadcast_tx);
                 match processor.cleanup() {
                   Err(cleanup_e) => {
-                    warn!(
-                      "Deferring RTL-SDR reopen until the old reader stops: {}",
-                      cleanup_e
-                    );
                     shared_state.set_device_backend_error(Some(
                       format!(
                         "Async SDR sample reader restart failed; waiting for USB reader shutdown: {}",
@@ -382,7 +331,6 @@ impl DeviceHealthWorker {
                             "Failed to reopen selected SDR after reader restart failure: {}",
                             swap_e
                           );
-                          error!("{}", fallback_error);
                           if let Err(mock_swap_e) =
                             fallback_to_mock_after_recovery_failure(
                               &mut processor,
@@ -391,17 +339,14 @@ impl DeviceHealthWorker {
                               fallback_error.clone(),
                             )
                           {
-                            error!(
-                              "Failed to fall back to Mock APT after device reopen failure: {}",
-                              mock_swap_e
-                            );
-                            shared_state
-                              .set_device_backend_error(Some(fallback_error));
+                            shared_state.set_device_backend_error(Some(
+                              format!(
+                                "{}; Mock APT fallback failed: {}",
+                                fallback_error, mock_swap_e
+                              ),
+                            ));
                           }
                         } else {
-                          info!(
-                            "Reopened SDR after stale reader restart failure"
-                          );
                           shared_state
                             .recovery_attempts
                             .store(0, Ordering::Relaxed);
@@ -427,12 +372,10 @@ impl DeviceHealthWorker {
                             fallback_error.clone(),
                           )
                         {
-                          error!(
-                            "Failed to fall back to Mock APT after reader restart failure: {}",
-                            swap_e
-                          );
-                          shared_state
-                            .set_device_backend_error(Some(fallback_error));
+                          shared_state.set_device_backend_error(Some(format!(
+                            "{}; Mock APT fallback failed: {}",
+                            fallback_error, swap_e
+                          )));
                         }
                       }
                     }
@@ -457,10 +400,6 @@ impl DeviceHealthWorker {
                 // RTL async reader is still unwinding.  Retrying the
                 // open in that window is what causes claim-interface
                 // failures and the permanent loading placeholder.
-                warn!(
-                  "SDR handle is still stopping; deferring replacement: {}",
-                  cleanup_e
-                );
                 shared_state.set_device_state("loading", Some("restart"));
                 shared_state
                   .set_device_backend_error(Some(cleanup_e.to_string()));
@@ -488,7 +427,6 @@ impl DeviceHealthWorker {
                     "Failed to swap to selected SDR on read error: {}",
                     swap_e
                   );
-                  error!("{}", fallback_error);
                   if let Err(mock_swap_e) =
                     fallback_to_mock_after_recovery_failure(
                       &mut processor,
@@ -497,17 +435,13 @@ impl DeviceHealthWorker {
                       fallback_error.clone(),
                     )
                   {
-                    error!(
-                      "Failed to fall back to Mock APT after read-error swap failure: {}",
-                      mock_swap_e
-                    );
-                    shared_state.set_device_backend_error(Some(fallback_error));
+                    shared_state.set_device_backend_error(Some(format!(
+                      "{}; Mock APT fallback failed: {}",
+                      fallback_error, mock_swap_e
+                    )));
                     broadcast_device_status(&shared_state, &_broadcast_tx);
                   }
                 } else {
-                  info!(
-                    "Read-error swap succeeded. Awaiting first healthy frame."
-                  );
                   shared_state
                     .recovery_attempts
                     .fetch_add(1, Ordering::Relaxed);
@@ -519,9 +453,6 @@ impl DeviceHealthWorker {
                 }
               }
               _ => {
-                warn!(
-                  "Read-error restart did not return the selected real device while USB is still present; falling back to Mock APT"
-                );
                 let fallback_error = format!(
                   "Selected SDR could not be reopened while USB is present: {}",
                   processor
@@ -534,22 +465,16 @@ impl DeviceHealthWorker {
                   &_broadcast_tx,
                   fallback_error.clone(),
                 ) {
-                  error!(
-                    "Failed to fall back to Mock APT after read-error reopen failure: {}",
-                    swap_e
-                  );
-                  shared_state.set_device_backend_error(Some(fallback_error));
+                  shared_state.set_device_backend_error(Some(format!(
+                    "{}; Mock APT fallback failed: {}",
+                    fallback_error, swap_e
+                  )));
                   broadcast_device_status(&shared_state, &_broadcast_tx);
                 }
                 hotplug_state.last_hardware_swap = Some(Instant::now());
               }
             }
           } else {
-            warn!(
-                "Recovery attempts exhausted ({}). Holding disconnected for {:?}.",
-                crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-                hotplug_state.exhausted_recovery_cooldown
-              );
             shared_state.set_device_state("disconnected", None);
             broadcast_device_status(&shared_state, &_broadcast_tx);
             hotplug_state.last_failure_at = Some(Instant::now());
@@ -570,7 +495,7 @@ impl DeviceHealthWorker {
 
           let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
           if let Err(swap_e) = processor.swap_device(mock_device) {
-            error!("Failed to swap to mock on read error: {}", swap_e);
+            shared_state.set_device_backend_error(Some(swap_e.to_string()));
           } else {
             sync_shared_sample_rate(&shared_state, &processor);
             shared_state.update_device_status(
@@ -590,9 +515,6 @@ impl DeviceHealthWorker {
             hotplug_state.last_hardware_swap = Some(Instant::now());
           }
         } else {
-          warn!(
-            "Async SDR sample timeout reached read-error threshold without reliable USB presence; keeping real device in recovery"
-          );
           shared_state.set_device_state("loading", Some("restart"));
           shared_state.set_device_backend_error(Some(e.to_string()));
           broadcast_device_status(&shared_state, &_broadcast_tx);
@@ -691,5 +613,45 @@ impl DeviceHealthWorker {
       },
     )
     .await;
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn read_error_recovery_contains_no_logging_in_the_io_path() {
+    let source = include_str!("health.rs");
+    let start = source.find("pub async fn handle_read_error").unwrap();
+    let end = source[start..].find("  pub async fn poll").unwrap() + start;
+    let body = &source[start..end];
+
+    for forbidden in ["error!(", "warn!(", "info!(", "debug!(", "log!("] {
+      assert!(
+        !body.contains(forbidden),
+        "I/O recovery must not invoke logging macro {forbidden}"
+      );
+    }
+  }
+
+  #[test]
+  fn physical_io_modules_contain_no_logging_macros() {
+    let modules = [
+      ("RTL-SDR", include_str!("../sdr/rtlsdr/device.rs")),
+      ("HackRF", include_str!("../sdr/hackrf/device.rs")),
+      (
+        "acquisition worker",
+        include_str!("../streaming/acquisition_worker.rs"),
+      ),
+      ("Tx monitor", include_str!("../tx/monitor.rs")),
+    ];
+
+    for (name, source) in modules {
+      for forbidden in ["error!(", "warn!(", "info!(", "debug!(", "log!("] {
+        assert!(
+          !source.contains(forbidden),
+          "{name} must not invoke logging macro {forbidden}"
+        );
+      }
+    }
   }
 }

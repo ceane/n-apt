@@ -98,14 +98,9 @@ impl AcquisitionWorker {
         if pending_frequency > 0
           && pending_frequency != processor.get_center_frequency()
         {
-          if let Err(error) =
-            processor.set_center_frequency_live(pending_frequency)
-          {
-            log::warn!(
-              "Failed to apply pending frequency in acquisition worker: {}",
-              error
-            );
-          }
+          // This is the device-read hot path. The control plane observes the
+          // unchanged frequency; never acquire a logger lock from here.
+          let _ = processor.set_center_frequency_live(pending_frequency);
         }
       }
 
@@ -131,7 +126,8 @@ impl AcquisitionWorker {
           {
             return Err(error);
           }
-          log::error!("Failed to apply fast-path settings: {}", error);
+          // Non-fatal setting failures remain visible through the unchanged
+          // processor state. Logging here can stall the device reader.
         }
       }
       if processor.fft_processor.config().fft_size != old_fft_size {
@@ -143,12 +139,8 @@ impl AcquisitionWorker {
       let timestamp = chrono::Utc::now().timestamp_millis();
       if let Some(pending) = processor.frame.pending_freq.take() {
         if pending != processor.get_center_frequency() {
-          if let Err(error) = processor.set_center_frequency_live(pending) {
-            log::warn!(
-              "Failed to apply pending frequency in acquisition worker: {}",
-              error
-            );
-          }
+          // Keep device I/O free of logger formatting and synchronization.
+          let _ = processor.set_center_frequency_live(pending);
         }
       }
       let active_source_id =

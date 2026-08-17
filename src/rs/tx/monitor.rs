@@ -3,7 +3,6 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use log::info;
 use tokio::sync::{broadcast, Mutex};
 
 use crate::sdr::processor::SdrProcessor;
@@ -99,10 +98,7 @@ pub(crate) fn spawn_monitor_stream(
                 .await
                 {
                     Ok(frame) => frame,
-                    Err(error) => {
-                        log::warn!("Mock Tx monitor worker failed: {error}");
-                        continue;
-                    }
+                    Err(_) => continue,
                 }
       } else {
         let Some(payload) = stream_manager.tx_payload(&tx_key) else {
@@ -265,11 +261,6 @@ impl TxWorker {
     let is_mock_tx_device = matches!(
       device_normalized.as_str(),
       "mock tx" | "mock tx device" | "mock tx sdr"
-    );
-
-    info!(
-      "Applying transmit mode command: enabled={}, device={}",
-      enabled, device
     );
 
     if let Some(tx_signal) = tx_signal.as_deref() {
