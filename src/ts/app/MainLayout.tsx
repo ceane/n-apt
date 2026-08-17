@@ -49,6 +49,7 @@ const StyledContentArea = memo(styled(ContentArea)`
 interface MainLayoutProps {
   children: React.ReactNode;
   sidebar: React.ReactNode;
+  showRouteNavigation?: boolean;
   isSidebarOpen?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
 }
@@ -56,6 +57,7 @@ interface MainLayoutProps {
 export const MainLayout: React.FC<MainLayoutProps> = ({
   children,
   sidebar,
+  showRouteNavigation = true,
   isSidebarOpen: controlledIsSidebarOpen,
   onSidebarOpenChange,
 }) => {
@@ -90,7 +92,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               onToggleClick={() => setIsSidebarOpen(false)}
               toggleRef={sidebarToggleRef}
             />
-            <SidebarRoutesNav pathname={path} onRouteClick={handleTabClick} />
+            {showRouteNavigation ? (
+              <SidebarRoutesNav pathname={path} onRouteClick={handleTabClick} />
+            ) : null}
             <SidebarContent>{sidebar}</SidebarContent>
           </NavigationContainer>
         )}

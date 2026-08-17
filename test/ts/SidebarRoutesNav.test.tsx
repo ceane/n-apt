@@ -51,8 +51,11 @@ describe("SidebarRoutesNav", () => {
       screen.getByRole("button", { name: /demod n-apt with ml/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /^settings$/i }),
+      screen.getByRole("button", { name: /^preferences & extras$/i }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /3d human model/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows only the active route when collapsed", () => {
@@ -72,9 +75,9 @@ describe("SidebarRoutesNav", () => {
 
     await user.click(screen.getByRole("button", { name: /^routes$/i }));
 
-    expect(window.localStorage.getItem(SIDEBAR_ROUTES_EXPANDED_STORAGE_KEY)).toBe(
-      "false",
-    );
+    expect(
+      window.localStorage.getItem(SIDEBAR_ROUTES_EXPANDED_STORAGE_KEY),
+    ).toBe("false");
     expect(
       screen.queryByRole("button", { name: /demod n-apt with ml/i }),
     ).not.toBeInTheDocument();

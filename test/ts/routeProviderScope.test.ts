@@ -16,7 +16,7 @@ describe("route provider scope", () => {
     expect(getRouteProviderGroup("/3d-model")).toBe("model");
     expect(getRouteProviderGroup("/map-endpoints")).toBe("map");
     expect(getRouteProviderGroup("/draw-signal")).toBe("draw-signal");
-    expect(getRouteProviderGroup("/settings")).toBe("none");
+    expect(getRouteProviderGroup("/prefs")).toBe("none");
   });
 
   it("keeps a visible route shell while a scoped provider chunk loads", () => {

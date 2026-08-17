@@ -1,5 +1,5 @@
 import * as React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
@@ -16,7 +16,7 @@ const renderRoute = (preloadedState?: unknown) =>
   );
 
 describe("GetStartedRoute", () => {
-  it("shows the centered welcome page with eight starting points", () => {
+  it("shows the centered welcome page with one merged legal card", () => {
     renderRoute();
 
     expect(screen.getByRole("img", { name: "N-APT" })).toBeInTheDocument();
@@ -34,8 +34,27 @@ describe("GetStartedRoute", () => {
     expect(screen.getByText("Playback I/Q Captures")).toBeInTheDocument();
     expect(screen.getByText("See hardware gallery")).toBeInTheDocument();
     expect(screen.getByText("Learn more about signals")).toBeInTheDocument();
+    expect(screen.getByText("More about N-APT")).toBeInTheDocument();
     expect(screen.getByText("Terms and Conditions")).toBeInTheDocument();
     expect(screen.getByText("Privacy Policy")).toBeInTheDocument();
+    expect(
+      screen.getByText("Read the Terms of Use and license."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("How N-APT handles authentication and sessions."),
+    ).toBeInTheDocument();
+    const termsLink = screen.getByRole("link", {
+      name: /Terms and Conditions/i,
+    });
+    const privacyLink = screen.getByRole("link", { name: /Privacy Policy/i });
+    expect(termsLink).toBeInTheDocument();
+    expect(privacyLink).toBeInTheDocument();
+    expect(screen.getByText("Terms and Conditions").closest("article")).toBe(
+      screen.getByText("Privacy Policy").closest("article"),
+    );
+    const legalCard = screen.getByTestId("legal-card");
+    expect(legalCard).toHaveStyle({ overflow: "hidden" });
+    expect(within(legalCard).getAllByRole("link")).toHaveLength(2);
     expect(
       screen.getByRole("switch", { name: /Bypass Start Page Next Time/i }),
     ).toBeInTheDocument();
@@ -68,11 +87,28 @@ describe("GetStartedRoute", () => {
       screen.getByRole("link", { name: /Learn more about signals/i }),
     ).toHaveAttribute("href", "/learn");
     expect(
+      screen.getByRole("link", { name: /More about N-APT/i }),
+    ).toHaveAttribute("href", "https://ceane.github.io/n-apt");
+    expect(
       screen.getByRole("link", { name: /Terms and Conditions/i }),
     ).toHaveAttribute("href", "/terms");
     expect(
       screen.getByRole("link", { name: /Privacy Policy/i }),
     ).toHaveAttribute("href", "/privacy");
+  });
+
+  it("navigates to the terms from the upper legal half and privacy from the lower half", async () => {
+    const user = userEvent.setup();
+    renderRoute();
+
+    await user.click(
+      screen.getByRole("link", { name: /Terms and Conditions/i }),
+    );
+    expect(window.location.pathname).toBe("/terms");
+
+    window.history.replaceState({}, "", "/get-started");
+    await user.click(screen.getByRole("link", { name: /Privacy Policy/i }));
+    expect(window.location.pathname).toBe("/privacy");
   });
 
   it("opens the file dialog from the Playback I/Q Captures card", () => {
@@ -142,5 +178,46 @@ describe("GetStartedRoute", () => {
     expect(screen.getByText("Connected SDR")).toBeInTheDocument();
     expect(screen.queryByText("Mock APT")).not.toBeInTheDocument();
     expect(screen.queryByText("No SDRs connected")).not.toBeInTheDocument();
+  });
+
+  it("marks stale and erroring sources with a degraded status dot", () => {
+    renderRoute({
+      websocket: {
+        isConnected: true,
+        sources: [
+          {
+            id: "stale-sdr",
+            name: "Stale SDR",
+            kind: "rtl-sdr",
+            status: "stale",
+          },
+          {
+            id: "error-sdr",
+            name: "Error SDR",
+            kind: "hackrf_one",
+            status: "error",
+          },
+          {
+            id: "healthy-sdr",
+            name: "Healthy SDR",
+            kind: "rtl-sdr",
+            status: "receiving",
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByTestId("source-dot-stale-sdr")).toHaveAttribute(
+      "data-status",
+      "degraded",
+    );
+    expect(screen.getByTestId("source-dot-error-sdr")).toHaveAttribute(
+      "data-status",
+      "degraded",
+    );
+    expect(screen.getByTestId("source-dot-healthy-sdr")).toHaveAttribute(
+      "data-status",
+      "connected",
+    );
   });
 });

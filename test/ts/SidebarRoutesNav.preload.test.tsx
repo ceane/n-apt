@@ -51,7 +51,9 @@ describe("SidebarRoutesNav preload", () => {
     const user = userEvent.setup();
     renderNav("/settings");
 
-    await user.hover(screen.getByRole("button", { name: /^settings$/i }));
+    await user.hover(
+      screen.getByRole("button", { name: /^preferences & extras$/i }),
+    );
 
     expect(preloadDemodChunk).not.toHaveBeenCalled();
   });

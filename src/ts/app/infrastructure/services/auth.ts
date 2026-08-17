@@ -136,11 +136,11 @@ export async function fetchServerStatus(): Promise<any> {
   return res.json();
 }
 
-/** GET /logout — revoke the current session and clear site data. */
+/** GET /auth/logout — revoke the current session and clear site data. */
 export async function logoutSession(token?: string | null): Promise<void> {
   const logoutUrl = token
-    ? `${API_BASE}/logout?token=${encodeURIComponent(token)}`
-    : `${API_BASE}/logout`;
+    ? `${API_BASE}/auth/logout?token=${encodeURIComponent(token)}`
+    : `${API_BASE}/auth/logout`;
   const res = await fetch(logoutUrl, {
     method: "GET",
     credentials: "include",

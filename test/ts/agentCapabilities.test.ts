@@ -17,7 +17,7 @@ describe("agent capability manifest", () => {
   test("gives every application route an explicit coverage status", () => {
     expect(agentCapabilities.routes.length).toBeGreaterThan(10);
     expect(agentCapabilities.routes.every((route) => route.status)).toBe(true);
-    expect(getAgentRoute("/settings")?.status).toBe("authenticated");
+    expect(getAgentRoute("/prefs")?.status).toBe("authenticated");
     expect(getAgentRoute("/learn")?.status).toBe("unsupported");
   });
 

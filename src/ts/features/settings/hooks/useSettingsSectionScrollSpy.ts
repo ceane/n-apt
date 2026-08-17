@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type React from "react";
 
 const STICKY_HEADER_CLEARANCE_PX = 12;
@@ -6,6 +12,7 @@ const STICKY_HEADER_CLEARANCE_PX = 12;
 interface UseSettingsSectionScrollSpyArgs {
   containerRef: React.RefObject<HTMLElement | null>;
   sectionIds: string[];
+  requestedSectionId?: string | null;
 }
 
 interface UseSettingsSectionScrollSpyReturn {
@@ -23,9 +30,14 @@ const getSectionId = (element: Element): string | null =>
 export const useSettingsSectionScrollSpy = ({
   containerRef,
   sectionIds,
+  requestedSectionId = null,
 }: UseSettingsSectionScrollSpyArgs): UseSettingsSectionScrollSpyReturn => {
+  const initialSectionId =
+    requestedSectionId && sectionIds.includes(requestedSectionId)
+      ? requestedSectionId
+      : (sectionIds[0] ?? null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(
-    sectionIds[0] ?? null,
+    initialSectionId,
   );
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sectionIdsRef = useRef(sectionIds);
@@ -145,6 +157,18 @@ export const useSettingsSectionScrollSpy = ({
     },
     [containerRef],
   );
+
+  useEffect(() => {
+    if (
+      !container ||
+      !requestedSectionId ||
+      !sectionIds.includes(requestedSectionId)
+    ) {
+      return;
+    }
+
+    scrollToSection(requestedSectionId);
+  }, [container, requestedSectionId, scrollToSection, sectionIds]);
 
   return { activeSectionId, scrollToSection };
 };

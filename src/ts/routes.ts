@@ -35,9 +35,16 @@ export default [
       id: "demodulate",
     }),
     route("demod", "./app/routes/FullApplicationRoute.tsx", { id: "demod" }),
-    route("settings", "./app/routes/FullApplicationRoute.tsx", {
-      id: "settings",
+    route("prefs", "./app/routes/FullApplicationRoute.tsx", {
+      id: "prefs",
     }),
+    route("settings", "./app/routes/FullApplicationRoute.tsx", {
+      id: "settings-legacy",
+    }),
+    route("extras", "./app/routes/FullApplicationRoute.tsx", {
+      id: "extras-legacy",
+    }),
+    route("logout", "./app/routes/LogoutRoute.tsx", { id: "logout" }),
     route("draw-signal", "./app/routes/FullApplicationRoute.tsx", {
       id: "draw-signal",
     }),
@@ -50,9 +57,13 @@ export default [
     route("map-endpoints", "./app/routes/FullApplicationRoute.tsx", {
       id: "map-endpoints",
     }),
-    route("diagnostics/anti-aliasing", "./app/routes/FullApplicationRoute.tsx", {
-      id: "anti-aliasing",
-    }),
+    route(
+      "diagnostics/anti-aliasing",
+      "./app/routes/FullApplicationRoute.tsx",
+      {
+        id: "anti-aliasing",
+      },
+    ),
     route("pretext-demo", "./app/routes/FullApplicationRoute.tsx", {
       id: "pretext-demo",
     }),

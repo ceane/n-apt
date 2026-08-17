@@ -135,6 +135,11 @@ jest.mock("@n-apt/app/routes/pages/TransformersRoute", () => ({
   ),
 }));
 
+jest.mock("@n-apt/app/routes/pages/LogoutRoute", () => ({
+  __esModule: true,
+  LogoutRoute: () => <div data-testid="logout-route">Logout Route</div>,
+}));
+
 describe("AppRoutes auth regression", () => {
   it("renders the main app view at /auth after login", async () => {
     render(
@@ -147,5 +152,17 @@ describe("AppRoutes auth regression", () => {
 
     expect(await screen.findByTestId("spectrum-route")).toBeInTheDocument();
     expect(screen.getByTestId("spectrum-sidebar")).toBeInTheDocument();
+  });
+
+  it("resolves the logout route", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter initialEntries={["/logout"]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(await screen.findByTestId("logout-route")).toBeInTheDocument();
   });
 });

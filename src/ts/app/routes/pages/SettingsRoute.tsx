@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
+import { useLocation } from "react-router";
 import { MainLayout } from "@n-apt/app/MainLayout";
-import {
-  SettingsSidebar,
-  type SettingsSidebarSection,
-} from "@n-apt/settings/sidebar/SettingsSidebar";
+import { PreferencesSidebar } from "@n-apt/settings/sidebar/SettingsSidebar";
+import { PREFERENCES_SECTIONS } from "@n-apt/settings/settingsSections";
 import { ThemeSection } from "@n-apt/settings/sidebar/ThemeSection";
 import { Row, Toggle } from "@n-apt/ui";
 import { RowLabel, RowControl, RowContainer } from "@n-apt/ui/Row";
@@ -59,8 +58,15 @@ import {
   LinkCardItemView,
   type LinkCardItem,
 } from "@n-apt/ui/LinkCardGrid";
+import {
+  LINGO_AND_LEARN_LINK_CARD,
+  LOG_OUT_LINK_CARD,
+  MORE_ABOUT_N_APT_LINK_CARD,
+  START_PAGE_LINK_CARD,
+} from "@n-apt/app/navigationLinkCards";
 import { ContactReveal } from "@n-apt/ui/ContactReveal";
 import {
+  Box,
   Clock,
   FileSignal,
   KeyRound,
@@ -69,23 +75,13 @@ import {
   Sparkles,
   Camera,
   Zap,
-  Home,
-  Languages,
   Code2,
-  BookOpen,
   Mail,
   FileText,
+  PersonStanding,
   Shield,
   ScrollText,
 } from "lucide-react";
-
-const SETTINGS_SECTIONS: SettingsSidebarSection[] = [
-  { id: "theme", label: "Theme" },
-  { id: "sdr", label: "SDR Settings" },
-  { id: "login", label: "Login" },
-  { id: "iq-capture", label: "I/Q Capture Settings" },
-  { id: "snapshot", label: "Snapshot & Fast Snapshot" },
-];
 
 const PageContent = styled.div`
   flex: 1;
@@ -302,11 +298,10 @@ const SectionGrid = styled.div`
       props.theme.mode === "light"
         ? "rgba(0, 0, 0, 0.04)"
         : props.theme.surfaceHover};
-
   }
 `;
 
-const SettingsFooterRoot = styled.footer`
+const PreferencesExtrasRoot = styled.footer`
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -1133,18 +1128,8 @@ const SnapshotSettingsSection: React.FC = () => {
 };
 
 const FOOTER_LINK_CARDS: LinkCardItem[] = [
-  {
-    title: "Start Page",
-    description: "Return to the app's starting point.",
-    Icon: Home,
-    to: "/get-started",
-  },
-  {
-    title: "Lingo and Learn",
-    description: "Browse the FAQ to learn radio and signal-processing terms.",
-    Icon: Languages,
-    to: "/learn",
-  },
+  START_PAGE_LINK_CARD,
+  LINGO_AND_LEARN_LINK_CARD,
   {
     title: "View on GitHub",
     description: "Browse the N-APT source repository.",
@@ -1152,11 +1137,21 @@ const FOOTER_LINK_CARDS: LinkCardItem[] = [
     href: "https://github.com/ceane/n-apt",
   },
   {
-    title: "More about N-APT",
+    ...MORE_ABOUT_N_APT_LINK_CARD,
+  },
+  {
+    title: "3D Human Model",
     description:
-      "Read the article about N-APT to learn about the signal that inspired the app.",
-    Icon: BookOpen,
-    href: "https://ceane.github.io/n-apt",
+      "Explore an interactive anatomical model and its signal-mapping tools.",
+    Icon: PersonStanding,
+    to: "/3d-model",
+  },
+  {
+    title: "See hardware gallery",
+    description:
+      "Browse 3D models and gallery views of related hardware like SDRs and antennas.",
+    Icon: Box,
+    to: "/3d-model-gallery",
   },
   {
     title: "Terms and Conditions",
@@ -1182,101 +1177,106 @@ const FOOTER_LINK_CARDS: LinkCardItem[] = [
     Icon: Mail,
     footer: <ContactReveal />,
   },
+  LOG_OUT_LINK_CARD,
 ];
 
-const SettingsFooter: React.FC = () => {
+const PreferencesExtrasSection: React.FC = () => {
   return (
-    <SettingsFooterRoot>
-      <Attribution>
-        <AttributionTitle>Attribution</AttributionTitle>
-        <AttributionRow>
-          <AttributionBadge>CC BY-SA</AttributionBadge>
-          <span>
-            Tower data provided by{" "}
-            <AttributionLink
-              href="https://opencellid.org/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              OpenCelliD
-            </AttributionLink>
-            .
-          </span>
-        </AttributionRow>
-        <AttributionDetail>
-          CC BY-SA 4.0 license. Not for commercial use without proper licensing.
-        </AttributionDetail>
-        <AttributionSourceRow>
-          <AttributionBadge>SDR++</AttributionBadge>
-          <span>
-            Waterfall colormaps adapted from the{" "}
-            <AttributionLink
-              href="https://github.com/AlexandreRouma/SDRPlusPlus/tree/master/root/res/colormaps"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              SDR++ colormap collection
-            </AttributionLink>
-            .
-          </span>
-        </AttributionSourceRow>
-        <AttributionAuthorList aria-label="SDR++ waterfall colormap authors">
-          <AttributionAuthor>
-            <AttributionAuthorName>Youssef Touil</AttributionAuthorName>
-            <span> — Classic</span>
-          </AttributionAuthor>
-          <AttributionAuthor>
-            <AttributionAuthorName>Paul (PD0SWL)</AttributionAuthorName>
-            <span> — Classic Green</span>
-          </AttributionAuthor>
-          <AttributionAuthor>
-            <AttributionAuthorName>Ryzerth</AttributionAuthorName>
-            <span> — Electric, Grey Scale, WebSDR</span>
-          </AttributionAuthor>
-          <AttributionAuthor>
-            <AttributionAuthorName>csete</AttributionAuthorName>
-            <span> — GQRX</span>
-          </AttributionAuthor>
-          <AttributionAuthor>
-            <AttributionAuthorName>B.I.D.S.</AttributionAuthorName>
-            <span> — Inferno, Magma, Plasma, Viridis</span>
-          </AttributionAuthor>
-          <AttributionAuthor>
-            <AttributionAuthorName>Yaroslav Andrianov</AttributionAuthorName>
-            <span> — Smoke, Temper Colors, Vivid</span>
-          </AttributionAuthor>
-          <AttributionAuthor>
-            <AttributionAuthorName>Google AI</AttributionAuthorName>
-            <span> — Turbo</span>
-          </AttributionAuthor>
-        </AttributionAuthorList>
-      </Attribution>
+    <PreferencesExtrasRoot>
+      <SettingsSectionBlock data-settings-section="extras">
+        <SectionTitle>Extras</SectionTitle>
+        <Attribution>
+          <AttributionTitle>Attribution</AttributionTitle>
+          <AttributionRow>
+            <AttributionBadge>CC BY-SA</AttributionBadge>
+            <span>
+              Tower data provided by{" "}
+              <AttributionLink
+                href="https://opencellid.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                OpenCellID
+              </AttributionLink>
+              .
+            </span>
+          </AttributionRow>
+          <AttributionDetail>
+            CC BY-SA 4.0 license. Not for commercial use without proper
+            licensing.
+          </AttributionDetail>
+          <AttributionSourceRow>
+            <AttributionBadge>SDR++</AttributionBadge>
+            <span>
+              Waterfall colormaps adapted from the{" "}
+              <AttributionLink
+                href="https://github.com/AlexandreRouma/SDRPlusPlus/tree/master/root/res/colormaps"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                SDR++ colormap collection
+              </AttributionLink>
+              .
+            </span>
+          </AttributionSourceRow>
+          <AttributionAuthorList aria-label="SDR++ waterfall colormap authors">
+            <AttributionAuthor>
+              <AttributionAuthorName>Youssef Touil</AttributionAuthorName>
+              <span> — Classic</span>
+            </AttributionAuthor>
+            <AttributionAuthor>
+              <AttributionAuthorName>Paul (PD0SWL)</AttributionAuthorName>
+              <span> — Classic Green</span>
+            </AttributionAuthor>
+            <AttributionAuthor>
+              <AttributionAuthorName>Ryzerth</AttributionAuthorName>
+              <span> — Electric, Grey Scale, WebSDR</span>
+            </AttributionAuthor>
+            <AttributionAuthor>
+              <AttributionAuthorName>csete</AttributionAuthorName>
+              <span> — GQRX</span>
+            </AttributionAuthor>
+            <AttributionAuthor>
+              <AttributionAuthorName>B.I.D.S.</AttributionAuthorName>
+              <span> — Inferno, Magma, Plasma, Viridis</span>
+            </AttributionAuthor>
+            <AttributionAuthor>
+              <AttributionAuthorName>Yaroslav Andrianov</AttributionAuthorName>
+              <span> — Smoke, Temper Colors, Vivid</span>
+            </AttributionAuthor>
+            <AttributionAuthor>
+              <AttributionAuthorName>Google AI</AttributionAuthorName>
+              <span> — Turbo</span>
+            </AttributionAuthor>
+          </AttributionAuthorList>
+        </Attribution>
 
-      <LinkCardGrid aria-label="Useful links">
-        {FOOTER_LINK_CARDS.map((card) => (
-          <LinkCardItemView key={card.title} {...card} />
-        ))}
-      </LinkCardGrid>
-    </SettingsFooterRoot>
+        <LinkCardGrid $columns={3} data-columns="3" aria-label="Useful links">
+          {FOOTER_LINK_CARDS.map((card) => (
+            <LinkCardItemView key={card.title} {...card} />
+          ))}
+        </LinkCardGrid>
+      </SettingsSectionBlock>
+    </PreferencesExtrasRoot>
   );
 };
 
-interface SettingsRouteProps {
+interface PreferencesRouteProps {
   /**
-   * When provided, the shared app shell owns the MainLayout + SettingsSidebar
-   * (so it persists across navigation) and SettingsRoute renders only its
-   * page content, scrolling inside this container. When omitted, SettingsRoute
+   * When provided, the shared app shell owns the MainLayout + PreferencesSidebar
+   * (so it persists across navigation) and PreferencesRoute renders only its
+   * page content, scrolling inside this container. When omitted, PreferencesRoute
    * renders its own self-contained layout (used in isolation/tests).
    */
   containerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-const SettingsContent: React.FC<{
+const PreferencesContent: React.FC<{
   pageRef: React.RefObject<HTMLDivElement | null>;
 }> = ({ pageRef }) => (
   <PageContent ref={pageRef}>
     <PageInner>
-      <PageTitle>Settings</PageTitle>
+      <PageTitle>Preferences &amp; Extras</PageTitle>
       <PageSubtitle>
         App-wide preferences. I/Q Capture and Snapshot defaults are applied on
         the visualizer page.
@@ -1286,44 +1286,46 @@ const SettingsContent: React.FC<{
       <LoginSettingsSection />
       <IqCaptureSettingsSection />
       <SnapshotSettingsSection />
-      <SettingsFooter />
+      <PreferencesExtrasSection />
     </PageInner>
   </PageContent>
 );
 
-export const SettingsRoute: React.FC<SettingsRouteProps> = ({
+export const PreferencesRoute: React.FC<PreferencesRouteProps> = ({
   containerRef,
 }) => {
   // Standalone mode (no shell container provided): render the layout +
   // sidebar ourselves so the page works in isolation and in tests.
   if (containerRef === undefined) {
-    return <SettingsRouteStandalone />;
+    return <PreferencesRouteStandalone />;
   }
 
-  return <SettingsContent pageRef={containerRef} />;
+  return <PreferencesContent pageRef={containerRef} />;
 };
 
-/** Self-contained settings page: own MainLayout + sidebar + section scroll-spy. */
-const SettingsRouteStandalone: React.FC = () => {
+/** Self-contained preferences page: own MainLayout + sidebar + section scroll-spy. */
+const PreferencesRouteStandalone: React.FC = () => {
+  const location = useLocation();
   const pageRef = useRef<HTMLDivElement | null>(null);
   const { activeSectionId, scrollToSection } = useSettingsSectionScrollSpy({
     containerRef: pageRef,
-    sectionIds: SETTINGS_SECTIONS.map((s) => s.id),
+    sectionIds: PREFERENCES_SECTIONS.map((s) => s.id),
+    requestedSectionId: new URLSearchParams(location.search).get("section"),
   });
 
   return (
     <MainLayout
       sidebar={
-        <SettingsSidebar
-          sections={SETTINGS_SECTIONS}
+        <PreferencesSidebar
+          sections={PREFERENCES_SECTIONS}
           activeSectionId={activeSectionId}
           onSectionClick={scrollToSection}
         />
       }
     >
-      <SettingsContent pageRef={pageRef} />
+      <PreferencesContent pageRef={pageRef} />
     </MainLayout>
   );
 };
 
-export default SettingsRoute;
+export default PreferencesRoute;

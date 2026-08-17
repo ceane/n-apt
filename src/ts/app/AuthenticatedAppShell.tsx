@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import { useLocation } from "react-router";
+import { SourceInventoryBoundary } from "@n-apt/app/SourceInventoryBoundary";
 
 export type AuthenticatedShellKind = "onboarding" | "application";
 
@@ -45,8 +46,14 @@ export const AuthenticatedAppShell: React.FC = () => {
   const shellKind = getAuthenticatedShellKind(pathname);
 
   return (
-    <Suspense fallback={<ShellLoadingFallback />}>
-      {shellKind === "onboarding" ? <LazyGetStartedRoute /> : <LazyAppShell />}
-    </Suspense>
+    <SourceInventoryBoundary>
+      <Suspense fallback={<ShellLoadingFallback />}>
+        {shellKind === "onboarding" ? (
+          <LazyGetStartedRoute />
+        ) : (
+          <LazyAppShell />
+        )}
+      </Suspense>
+    </SourceInventoryBoundary>
   );
 };

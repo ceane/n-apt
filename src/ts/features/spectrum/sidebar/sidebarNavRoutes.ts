@@ -20,8 +20,7 @@ export const SIDEBAR_NAV_ROUTES: SidebarNavRoute[] = [
     path: "/demodulate",
     dataPath: "/demodulate",
     label: "Demod N-APT with ML",
-    isActive: (pathname) =>
-      pathname === "/demodulate" || pathname === "/demod",
+    isActive: (pathname) => pathname === "/demodulate" || pathname === "/demod",
   },
   {
     path: "/draw-signal",
@@ -30,23 +29,17 @@ export const SIDEBAR_NAV_ROUTES: SidebarNavRoute[] = [
     isActive: (pathname) => pathname === "/draw-signal",
   },
   {
-    path: "/3d-model",
-    dataPath: "/3d-model",
-    label: "3D Human Model",
-    isActive: (pathname) => pathname === "/3d-model",
-  },
-  {
     path: "/map-endpoints",
     dataPath: "/map-endpoints",
     label: "Map Endpoints",
     isActive: (pathname) => pathname === "/map-endpoints",
   },
   {
-    path: "/settings",
-    dataPath: "/settings",
-    label: "Settings",
+    path: "/prefs",
+    dataPath: "/prefs",
+    label: "Preferences & Extras",
     icon: Settings,
-    isActive: (pathname) => pathname === "/settings",
+    isActive: (pathname) => pathname === "/prefs",
   },
 ];
 

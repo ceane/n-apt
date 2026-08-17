@@ -31,7 +31,14 @@ class MockIntersectionObserver {
   }
 }
 
-const SECTION_IDS = ["theme", "sdr", "login", "iq-capture", "snapshot"];
+const SECTION_IDS = [
+  "theme",
+  "sdr",
+  "login",
+  "iq-capture",
+  "snapshot",
+  "extras",
+];
 
 const buildContainer = (): HTMLDivElement => {
   const container = document.createElement("div");
@@ -72,6 +79,27 @@ describe("useSettingsSectionScrollSpy", () => {
     );
 
     expect(result.current.activeSectionId).toBe("theme");
+  });
+
+  it("jumps to a requested section after a legacy route redirect", () => {
+    const containerRef = createRef<HTMLDivElement>();
+    const container = buildContainer();
+    (containerRef as any).current = container;
+    container.scrollTo = jest.fn();
+
+    const { result } = renderHook(() =>
+      useSettingsSectionScrollSpy({
+        containerRef,
+        sectionIds: SECTION_IDS,
+        requestedSectionId: "extras",
+      }),
+    );
+
+    expect(result.current.activeSectionId).toBe("extras");
+    expect(container.scrollTo).toHaveBeenCalledWith({
+      top: expect.any(Number),
+      behavior: "smooth",
+    });
   });
 
   it("updates active section when an observed section enters view", () => {

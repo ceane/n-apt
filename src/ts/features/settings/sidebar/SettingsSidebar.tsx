@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 
-const SettingsSidebarRoot = styled.div`
+const PreferencesSidebarRoot = styled.div`
   display: flex;
   flex-direction: column;
   gap: calc(${(props) => props.theme.spacing.xs} * 1.25);
@@ -49,25 +49,25 @@ const SectionLinkButton = styled.button<{ $isActive: boolean }>`
   }
 `;
 
-export interface SettingsSidebarSection {
+export interface PreferencesSidebarSection {
   id: string;
   label: string;
 }
 
-export interface SettingsSidebarProps {
-  sections: SettingsSidebarSection[];
+export interface PreferencesSidebarProps {
+  sections: PreferencesSidebarSection[];
   activeSectionId: string | null;
   onSectionClick: (sectionId: string) => void;
 }
 
-export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
+export const PreferencesSidebar: React.FC<PreferencesSidebarProps> = ({
   sections,
   activeSectionId,
   onSectionClick,
 }) => {
   return (
-    <SettingsSidebarRoot data-sidebar-section="settings">
-      <SectionList role="group" aria-label="Settings sections">
+    <PreferencesSidebarRoot data-sidebar-section="preferences">
+      <SectionList role="group" aria-label="Preferences sections">
         {sections.map((section) => (
           <SectionLinkButton
             key={section.id}
@@ -80,8 +80,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
           </SectionLinkButton>
         ))}
       </SectionList>
-    </SettingsSidebarRoot>
+    </PreferencesSidebarRoot>
   );
 };
 
-export default SettingsSidebar;
+export default PreferencesSidebar;

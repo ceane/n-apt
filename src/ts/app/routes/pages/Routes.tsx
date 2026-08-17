@@ -1,8 +1,9 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useCallback, useRef } from "react";
 import styled from "styled-components";
-import { Routes, Route, useLocation } from "react-router";
+import { Navigate, Routes, Route, useLocation } from "react-router";
 import { MainLayout } from "@n-apt/app/MainLayout";
+import { LogoutRoute } from "@n-apt/app/routes/pages/LogoutRoute";
 import { SpectrumSidebar } from "@n-apt/spectrum/sidebar/SpectrumSidebar";
 import type { FFTCanvasHandle } from "@n-apt/spectrum";
 
@@ -10,7 +11,7 @@ import { DrawSignalSidebar } from "@n-apt/draw-signal/sidebar/DrawSignalSidebar"
 import { MapEndpointsSidebar } from "@n-apt/maps/sidebar/MapEndpointsSidebar";
 import { Model3DSidebar } from "@n-apt/three-d/sidebar/Model3DSidebar";
 import { SDRTestSidebar } from "@n-apt/sdr-test/sidebar/SDRTestSidebar";
-import { SettingsSidebar } from "@n-apt/settings/sidebar/SettingsSidebar";
+import { PreferencesSidebar } from "@n-apt/settings/sidebar/SettingsSidebar";
 
 // Lazy load route components
 const SpectrumRoute = lazy(() =>
@@ -76,9 +77,9 @@ const GetStartedRoute = lazy(() =>
     default: m.default,
   })),
 );
-const SettingsRoute = lazy(() =>
+const PreferencesRoute = lazy(() =>
   import("@n-apt/app/routes/pages/SettingsRoute").then((m) => ({
-    default: m.SettingsRoute,
+    default: m.PreferencesRoute,
   })),
 );
 const CellularTriangulationTargetingDemoRoute = lazy(() =>
@@ -107,14 +108,7 @@ import {
 } from "@n-apt/redux";
 import { selectSourceMode } from "@n-apt/redux/selectors/performanceSelectors";
 import { useSettingsSectionScrollSpy } from "@n-apt/settings/hooks/useSettingsSectionScrollSpy";
-
-const SETTINGS_SECTIONS = [
-  { id: "theme", label: "Theme" },
-  { id: "sdr", label: "SDR Settings" },
-  { id: "login", label: "Login" },
-  { id: "iq-capture", label: "I/Q Capture Settings" },
-  { id: "snapshot", label: "Snapshot & Fast Snapshot" },
-];
+import { PREFERENCES_SECTIONS } from "@n-apt/settings/settingsSections";
 
 const TestRouteSidebar: React.FC = () => <div data-testid="route-sidebar" />;
 
@@ -172,15 +166,19 @@ const AppShellLayout: React.FC = () => {
   const fftCanvasRef = useRef<FFTCanvasHandle | null>(null);
   const [visualizerLoading, setVisualizerLoading] = useState(false);
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const path = location.pathname;
+  const isPreferences = path === "/prefs";
+  const requestedPreferencesSectionId = isPreferences
+    ? new URLSearchParams(location.search).get("section")
+    : null;
   const { activeSectionId, scrollToSection } = useSettingsSectionScrollSpy({
     containerRef: pageRef,
-    sectionIds: SETTINGS_SECTIONS.map((s) => s.id),
+    sectionIds: PREFERENCES_SECTIONS.map((s) => s.id),
+    requestedSectionId: requestedPreferencesSectionId,
   });
 
-  const path = location.pathname;
   const isSpectrum = ["/", "/auth", "/visualizer"].includes(path);
   const isDemod = path === "/demodulate" || path === "/demod";
-  const isSettings = path === "/settings";
   const is3DModel = path === "/3d-model";
   const isMap = path === "/map-endpoints";
   const isAntiAliasing = path === "/diagnostics/anti-aliasing";
@@ -213,17 +211,21 @@ const AppShellLayout: React.FC = () => {
     );
   } else if (isDemod) {
     sidebar = <LazyDemodSidebarAdapter />;
-  } else if (isSettings) {
+  } else if (isPreferences) {
     sidebar = (
-      <SettingsSidebar
-        sections={SETTINGS_SECTIONS}
+      <PreferencesSidebar
+        sections={PREFERENCES_SECTIONS}
         activeSectionId={activeSectionId}
         onSectionClick={scrollToSection}
       />
     );
   } else if (is3DModel) {
     sidebar =
-      process.env.NODE_ENV === "test" ? <TestRouteSidebar /> : <Model3DSidebar />;
+      process.env.NODE_ENV === "test" ? (
+        <TestRouteSidebar />
+      ) : (
+        <Model3DSidebar />
+      );
   } else if (isMap) {
     sidebar = <MapEndpointsSidebar />;
   } else if (isAntiAliasing) {
@@ -242,78 +244,75 @@ const AppShellLayout: React.FC = () => {
         <DemodRoute />
       ) : (
         <Routes>
-        <Route
-          path="/"
-          element={
-            <SpectrumRoute
-              activeTab="visualizer"
-              fftCanvasRef={fftCanvasRef}
-              onLoadingStateChange={setVisualizerLoading}
-            />
-          }
-        />
-        <Route
-          path="/auth"
-          element={
-            <SpectrumRoute
-              activeTab="visualizer"
-              fftCanvasRef={fftCanvasRef}
-              onLoadingStateChange={setVisualizerLoading}
-            />
-          }
-        />
-        <Route
-          path="/visualizer"
-          element={
-            <SpectrumRoute
-              activeTab="visualizer"
-              fftCanvasRef={fftCanvasRef}
-              onLoadingStateChange={setVisualizerLoading}
-            />
-          }
-        />
-        <Route path="/get-started" element={<GetStartedRoute />} />
-        <Route path="/demodulate" element={<DemodRoute />} />
-        <Route path="/demod" element={<DemodRoute />} />
-        <Route
-          path="/settings"
-          element={<SettingsRoute containerRef={pageRef} />}
-        />
-        <Route path="/draw-signal" element={<DrawSignalRoute />} />
-        <Route path="/3d-model" element={<Model3DRoute />} />
-        <Route path="/map-endpoints" element={<MapEndpointsRoute />} />
-        <Route
-          path="/diagnostics/anti-aliasing"
-          element={<AntiAliasingDiagnostics />}
-        />
-        <Route path="/3d-model-gallery" element={<Model3DGalleryRoute />} />
-        <Route path="/pretext-demo" element={<PretextDemoRoute />} />
-        <Route path="/vfo-grid-demo" element={<VFOGridDemoRoute />} />
-        <Route path="/transformers" element={<TransformersRoute />} />
-        <Route path="/terms" element={<LegalDocumentRoute />} />
-        <Route path="/privacy" element={<LegalDocumentRoute />} />
-        <Route path="/license" element={<LegalDocumentRoute />} />
-        <Route path="/responsible-use" element={<LegalDocumentRoute />} />
-        <Route
-          path="/learn"
-          element={<LearnSignalsRoute />}
-        />
-        <Route
-          path="/learn/:id"
-          element={<LearnSignalsRoute />}
-        />
-        <Route
-          path="/game"
-          element={<CellularTriangulationTargetingDemoRoute />}
-        />
-        <Route
-          path="/questionnaire"
-          element={<QuestionnaireRoute />}
-        />
-        <Route
-          path="/x-archive-formatter"
-          element={<XArchiveFormatterRoute />}
-        />
+          <Route
+            path="/"
+            element={
+              <SpectrumRoute
+                activeTab="visualizer"
+                fftCanvasRef={fftCanvasRef}
+                onLoadingStateChange={setVisualizerLoading}
+              />
+            }
+          />
+          <Route
+            path="/auth"
+            element={
+              <SpectrumRoute
+                activeTab="visualizer"
+                fftCanvasRef={fftCanvasRef}
+                onLoadingStateChange={setVisualizerLoading}
+              />
+            }
+          />
+          <Route
+            path="/visualizer"
+            element={
+              <SpectrumRoute
+                activeTab="visualizer"
+                fftCanvasRef={fftCanvasRef}
+                onLoadingStateChange={setVisualizerLoading}
+              />
+            }
+          />
+          <Route path="/get-started" element={<GetStartedRoute />} />
+          <Route path="/demodulate" element={<DemodRoute />} />
+          <Route path="/demod" element={<DemodRoute />} />
+          <Route
+            path="/prefs"
+            element={<PreferencesRoute containerRef={pageRef} />}
+          />
+          <Route path="/settings" element={<Navigate to="/prefs" replace />} />
+          <Route
+            path="/extras"
+            element={<Navigate to="/prefs?section=extras" replace />}
+          />
+          <Route path="/logout" element={<LogoutRoute />} />
+          <Route path="/draw-signal" element={<DrawSignalRoute />} />
+          <Route path="/3d-model" element={<Model3DRoute />} />
+          <Route path="/map-endpoints" element={<MapEndpointsRoute />} />
+          <Route
+            path="/diagnostics/anti-aliasing"
+            element={<AntiAliasingDiagnostics />}
+          />
+          <Route path="/3d-model-gallery" element={<Model3DGalleryRoute />} />
+          <Route path="/pretext-demo" element={<PretextDemoRoute />} />
+          <Route path="/vfo-grid-demo" element={<VFOGridDemoRoute />} />
+          <Route path="/transformers" element={<TransformersRoute />} />
+          <Route path="/terms" element={<LegalDocumentRoute />} />
+          <Route path="/privacy" element={<LegalDocumentRoute />} />
+          <Route path="/license" element={<LegalDocumentRoute />} />
+          <Route path="/responsible-use" element={<LegalDocumentRoute />} />
+          <Route path="/learn" element={<LearnSignalsRoute />} />
+          <Route path="/learn/:id" element={<LearnSignalsRoute />} />
+          <Route
+            path="/game"
+            element={<CellularTriangulationTargetingDemoRoute />}
+          />
+          <Route path="/questionnaire" element={<QuestionnaireRoute />} />
+          <Route
+            path="/x-archive-formatter"
+            element={<XArchiveFormatterRoute />}
+          />
         </Routes>
       )}
     </Suspense>
@@ -323,7 +322,11 @@ const AppShellLayout: React.FC = () => {
     return content;
   }
 
-  return <MainLayout sidebar={sidebar}>{content}</MainLayout>;
+  return (
+    <MainLayout sidebar={sidebar} showRouteNavigation={!is3DModel}>
+      {content}
+    </MainLayout>
+  );
 };
 
 const AppRoutesInner: React.FC = () => {

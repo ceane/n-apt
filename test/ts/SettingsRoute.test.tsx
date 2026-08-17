@@ -3,28 +3,28 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
-import { SettingsRoute } from "@n-apt/app/routes/pages/SettingsRoute";
+import { PreferencesRoute } from "@n-apt/app/routes/pages/SettingsRoute";
 import { TestWrapper } from "./testUtils";
 
 const renderRoute = (preloadedState?: unknown) =>
   render(
     <MemoryRouter>
       <TestWrapper preloadedState={preloadedState}>
-        <SettingsRoute />
+        <PreferencesRoute />
       </TestWrapper>
     </MemoryRouter>,
   );
 
-describe("SettingsRoute", () => {
+describe("PreferencesRoute", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
 
-  it("renders the page title and all five section headings", () => {
+  it("renders the page title and all six section headings", () => {
     renderRoute();
 
     expect(
-      screen.getByRole("heading", { name: "Settings" }),
+      screen.getByRole("heading", { name: "Preferences & Extras" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Theme" })).toBeInTheDocument();
     expect(
@@ -39,13 +39,14 @@ describe("SettingsRoute", () => {
         name: "Snapshot & Fast Snapshot",
       }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Extras" })).toBeInTheDocument();
   });
 
   it("renders the section nav in the sidebar", () => {
     renderRoute();
 
     const navGroup = screen.getByRole("group", {
-      name: "Settings sections",
+      name: "Preferences sections",
     });
     expect(navGroup).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
@@ -59,6 +60,42 @@ describe("SettingsRoute", () => {
     expect(
       screen.getByRole("button", { name: "Snapshot & Fast Snapshot" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Extras" })).toBeInTheDocument();
+  });
+
+  it("groups attribution and useful cards in the Extras section", () => {
+    renderRoute();
+
+    const miscellaneous = document.querySelector(
+      '[data-settings-section="extras"]',
+    );
+    expect(miscellaneous).not.toBeNull();
+    expect(
+      within(miscellaneous as HTMLElement).getByText("Attribution"),
+    ).toBeInTheDocument();
+    expect(
+      within(miscellaneous as HTMLElement).getByRole("link", {
+        name: /^3D Human Model/i,
+      }),
+    ).toHaveAttribute("href", "/3d-model");
+    expect(
+      within(miscellaneous as HTMLElement).getByRole("link", {
+        name: /^See hardware gallery/i,
+      }),
+    ).toHaveAttribute("href", "/3d-model-gallery");
+    expect(
+      within(miscellaneous as HTMLElement).getByRole("link", {
+        name: /^More about N-APT/i,
+      }),
+    ).toHaveAttribute("href", "https://ceane.github.io/n-apt");
+    const logoutLink = within(miscellaneous as HTMLElement).getByRole("link", {
+      name: /^Log out/i,
+    });
+    expect(logoutLink).toHaveAttribute("href", "/logout");
+    expect(logoutLink).toHaveTextContent(
+      "Logging out prevents unauthorized use of the app or access to your I/Q captures.",
+    );
+    expect(miscellaneous?.querySelector('[data-columns="3"]')).not.toBeNull();
   });
 
   it("shows YAML and editable frontend maximum frame-rate defaults", () => {

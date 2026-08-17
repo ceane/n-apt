@@ -9,6 +9,7 @@ import {
   Radio,
   Shield,
   Sparkles,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import { Logo } from "@n-apt/ui/Logo";
@@ -18,12 +19,17 @@ import { setSourceMode, setSelectedFiles } from "@n-apt/redux";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import { selectWebSocketSources } from "@n-apt/redux/selectors/performanceSelectors";
 import { isMockDevice } from "@n-apt/app/infrastructure/services/deviceCapabilities";
+import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
 import {
   getBypassStartPage,
   setBypassStartPage,
 } from "@n-apt/app/auth/bypassStartPage";
+import { MORE_ABOUT_N_APT_LINK_CARD } from "@n-apt/app/navigationLinkCards";
 
 const FILE_ACCEPT_TYPES = ".napt,.iq,.wav";
+
+const isDegradedSourceStatus = (status: SourceInfo["status"]): boolean =>
+  status === "stale" || status === "error";
 
 interface StartingPoint {
   title: string;
@@ -36,10 +42,26 @@ interface StartingPoint {
   opensFileDialog?: boolean;
 }
 
+const legalPoints = [
+  {
+    title: "Terms and Conditions",
+    description: "Read the Terms of Use and license.",
+    Icon: FileText,
+    href: "/terms",
+  },
+  {
+    title: "Privacy Policy",
+    description: "How N-APT handles authentication and sessions.",
+    Icon: Shield,
+    href: "/privacy",
+  },
+] as const;
+
 const startingPoints: StartingPoint[] = [
   {
     title: "Take an I/Q Capture",
-    description: "Record a slice of the visible radio spectrum in real-time for later analysis (SDR required).",
+    description:
+      "Record a slice of the visible radio spectrum in real-time for later analysis (SDR required).",
     Icon: FileSignal,
     href: "/?sidebarSection=iq-capture",
   },
@@ -77,18 +99,6 @@ const startingPoints: StartingPoint[] = [
     description: "Interactive lessons on how N-APT and related signals work.",
     Icon: Sparkles,
     href: "/learn",
-  },
-  {
-    title: "Terms and Conditions",
-    description: "Read the Terms of Use and license summary for N-APT.",
-    Icon: FileText,
-    href: "/terms",
-  },
-  {
-    title: "Privacy Policy",
-    description: "See how the app handles authentication, sessions, and data.",
-    Icon: Shield,
-    href: "/privacy",
   },
 ];
 
@@ -198,6 +208,56 @@ const CardLinkBody = styled(Link)`
   text-decoration: none;
 `;
 
+const LegalCard = styled(Card)`
+  gap: 0;
+  flex-direction: row;
+  padding: 0;
+  overflow: hidden;
+  min-height: clamp(180px, 26vmin, 240px);
+
+  @media (max-width: 560px) {
+    min-height: clamp(360px, 52vmin, 480px);
+    flex-direction: column;
+  }
+`;
+
+const LegalHalf = styled(Link)`
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: clamp(12px, 2vmin, 18px);
+  box-sizing: border-box;
+  padding: clamp(16px, 2.2vmin, 22px);
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.18s ease;
+
+  &:hover {
+    background: ${(props) => props.theme.surfaceHover};
+  }
+
+  & + & {
+    border-left: 1px solid ${(props) => props.theme.border};
+  }
+
+  @media (max-width: 560px) {
+    & + & {
+      border-top: 1px solid ${(props) => props.theme.border};
+      border-left: 0;
+    }
+  }
+`;
+
+const CardExternalLink = styled.a`
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+`;
+
 const CardFooter = styled.div`
   margin-top: auto;
   padding-top: clamp(8px, 1.5vmin, 12px);
@@ -244,6 +304,7 @@ const IconFrame = styled.div`
 const CardBody = styled.div`
   display: flex;
   flex: 1;
+  min-width: 0;
   flex-direction: column;
   gap: clamp(6px, 1.5vmin, 10px);
 `;
@@ -264,6 +325,15 @@ const CardDescription = styled.p`
   font-family: ${(props) => props.theme.typography.sans};
   font-size: clamp(0.78rem, 1.8vmin, 0.9rem);
   line-height: 1.45;
+`;
+
+const LegalTitle = styled(CardTitle)`
+  font-size: clamp(0.82rem, 1.8vmin, 1rem);
+`;
+
+const LegalDescription = styled(CardDescription)`
+  font-size: clamp(0.7rem, 1.35vmin, 0.8rem);
+  line-height: 1.3;
 `;
 
 const SourceLabel = styled.span`
@@ -305,12 +375,13 @@ const EmptySourceState = styled.span`
   line-height: 1;
 `;
 
-const SourceDot = styled.span`
-  width: 6px;
-  height: 6px;
+const SourceDot = styled.span<{ $degraded: boolean }>`
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
   border-radius: 50%;
-  background: ${(props) => props.theme.success};
-  box-shadow: 0 0 8px ${(props) => props.theme.success};
+  background: ${(props) =>
+    props.$degraded ? props.theme.warning : props.theme.success};
 `;
 
 const HiddenFileInput = styled.input`
@@ -332,14 +403,24 @@ export const GetStartedRoute: React.FC = () => {
   const playbackFileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = useAppSelector((state) => state.websocket.isConnected);
   const sources = useAppSelector(selectWebSocketSources);
-  const sourceNames = isConnected
+  const sourceEntries = isConnected
     ? Array.from(
-        new Set(
-          sources
-            .filter((source) => !isMockDevice(source))
-            .map((source) => source.name.trim())
-            .filter((name) => name.length > 0),
-        ),
+        sources
+          .filter((source) => !isMockDevice(source))
+          .reduce((entries, source) => {
+            const name = source.name.trim();
+            if (name.length === 0) return entries;
+            const existing = entries.get(name);
+            if (!existing || isDegradedSourceStatus(source.status)) {
+              entries.set(name, {
+                id: source.id,
+                name,
+                degraded: isDegradedSourceStatus(source.status),
+              });
+            }
+            return entries;
+          }, new Map<string, { id: string; name: string; degraded: boolean }>())
+          .values(),
       )
     : [];
 
@@ -463,11 +544,18 @@ export const GetStartedRoute: React.FC = () => {
                       <CardMeta>
                         <SourceLabel>Connected sources</SourceLabel>
                         <SourcePills aria-label="Connected SDR sources">
-                          {sourceNames.length > 0 ? (
-                            sourceNames.map((sourceName) => (
-                              <SourcePill key={sourceName}>
-                                <SourceDot aria-hidden="true" />
-                                {sourceName}
+                          {sourceEntries.length > 0 ? (
+                            sourceEntries.map(({ id, name, degraded }) => (
+                              <SourcePill key={id}>
+                                <SourceDot
+                                  aria-hidden="true"
+                                  data-status={
+                                    degraded ? "degraded" : "connected"
+                                  }
+                                  data-testid={`source-dot-${id}`}
+                                  $degraded={degraded}
+                                />
+                                {name}
                               </SourcePill>
                             ))
                           ) : (
@@ -482,6 +570,36 @@ export const GetStartedRoute: React.FC = () => {
                 </CardLink>
               ),
           )}
+          <CardExternalLink
+            href={MORE_ABOUT_N_APT_LINK_CARD.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Card>
+              <IconFrame aria-hidden="true">
+                <BookOpen size={23} strokeWidth={1.7} />
+              </IconFrame>
+              <CardBody>
+                <CardTitle>{MORE_ABOUT_N_APT_LINK_CARD.title}</CardTitle>
+                <CardDescription>
+                  {MORE_ABOUT_N_APT_LINK_CARD.description}
+                </CardDescription>
+              </CardBody>
+            </Card>
+          </CardExternalLink>
+          <LegalCard data-testid="legal-card">
+            {legalPoints.map(({ title, description, Icon, href }) => (
+              <LegalHalf key={title} to={href}>
+                <IconFrame aria-hidden="true">
+                  <Icon size={23} strokeWidth={1.7} />
+                </IconFrame>
+                <CardBody>
+                  <LegalTitle>{title}</LegalTitle>
+                  <LegalDescription>{description}</LegalDescription>
+                </CardBody>
+              </LegalHalf>
+            ))}
+          </LegalCard>
         </CardGrid>
       </Content>
     </Page>

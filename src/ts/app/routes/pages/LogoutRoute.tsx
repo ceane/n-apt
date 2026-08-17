@@ -1,66 +1,74 @@
-import React, { useEffect, useState } from "react";
-import styled from "styled-components";
+import React, { useEffect } from "react";
+import styled, { keyframes } from "styled-components";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
-import { clearSession, logoutSession } from "@n-apt/app/infrastructure/services/auth";
 
-const Page = styled.div`
+const ellipsisWave = keyframes`
+  0%, 60%, 100% {
+    opacity: 0.55;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-0.22em);
+  }
+`;
+
+const Page = styled.main`
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px;
+  box-sizing: border-box;
+  background: ${(props) => props.theme.background};
+  color: ${(props) => props.theme.textPrimary};
 `;
 
-const Panel = styled.div`
-  width: min(520px, 100%);
-  padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(12, 14, 18, 0.92);
-  color: #e8e8ea;
-  border-radius: 8px;
-  font-size: 14px;
-  line-height: 1.5;
+const Status = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  color: ${(props) => props.theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.sans};
+  font-size: clamp(2rem, 5vw, 6rem);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  text-align: center;
+`;
+
+const Ellipsis = styled.span`
+  display: inline-flex;
+  margin-left: 0.08em;
+`;
+
+const Dot = styled.span<{ $delay: number }>`
+  display: inline-block;
+  animation: ${ellipsisWave} 1.2s ease-in-out infinite;
+  animation-delay: ${(props) => props.$delay}s;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 `;
 
 export const LogoutRoute: React.FC = () => {
-  const { sessionToken } = useAuthentication();
-  const [error, setError] = useState<string | null>(null);
+  const { logout } = useAuthentication();
 
   useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      if (!sessionToken) {
-        clearSession();
-        window.location.replace("/");
-        return;
-      }
-
-      try {
-        void logoutSession(sessionToken).catch((err) => {
-          if (!cancelled) {
-            setError(err instanceof Error ? err.message : "logout failed");
-          }
-        });
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "logout failed");
-        }
-      }
-
-      clearSession();
-      window.location.replace("/");
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionToken]);
+    logout();
+  }, [logout]);
 
   return (
     <Page>
-      <Panel>{error ? error : "Logging out..."}</Panel>
+      <Status role="status" aria-live="polite">
+        Logging out
+        <Ellipsis data-testid="logout-ellipsis" aria-hidden="true">
+          <Dot $delay={0}>.</Dot>
+          <Dot $delay={0.15}>.</Dot>
+          <Dot $delay={0.3}>.</Dot>
+        </Ellipsis>
+      </Status>
     </Page>
   );
 };
