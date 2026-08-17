@@ -82,6 +82,7 @@ export const buildLiveSampleRateRange = ({
     if (sampleRateHz < channelSpan) {
       const currentSpan = Math.max(0, currentRange.max - currentRange.min);
       const currentRangeUsable =
+        startingAnchorPosition !== "center" &&
         !forceStartingAnchor &&
         Number.isFinite(currentRange.min) &&
         Number.isFinite(currentRange.max) &&
@@ -104,7 +105,10 @@ export const buildLiveSampleRateRange = ({
       );
     }
 
-    const min = Math.max(0, Math.round(channelBounds.min));
+    const min =
+      startingAnchorPosition === "center"
+        ? Math.max(0, Math.round(centerHz - requestedSpan / 2))
+        : Math.max(0, Math.round(channelBounds.min));
     return normalizeFrequencyRangeToHz({
       min,
       max: min + requestedSpan,
@@ -266,12 +270,20 @@ export const useLiveSampleRateControl = ({
         Number.isFinite(sampleRateHz) &&
         Math.round(sampleRateHz) === Math.round(wholeChannelSampleRate) &&
         Math.round(resolvedSampleRate) !== Math.round(wholeChannelSampleRate);
+      const isSelectingWholeChannel =
+        wholeChannelSampleRate !== null &&
+        Math.round(resolvedSampleRate) === Math.round(wholeChannelSampleRate);
+      const preserveCenterFrequency =
+        requestedMode !== "whole" && !isSelectingWholeChannel;
       const nextRange = buildLiveSampleRateRange({
         currentRange: frequencyRange,
         sampleRateHz: resolvedSampleRate,
         channelBounds: activeSignalAreaBounds,
-        startingAnchorPosition,
-        forceStartingAnchor: isLeavingWholeChannelMode,
+        startingAnchorPosition: preserveCenterFrequency
+          ? "center"
+          : startingAnchorPosition,
+        forceStartingAnchor:
+          isLeavingWholeChannelMode && !preserveCenterFrequency,
       });
       applyFrequencyRangeIfChanged(nextRange);
     },
@@ -432,7 +444,9 @@ export const useLiveSampleRateControl = ({
         currentRange: frequencyRange,
         sampleRateHz: targetRate,
         channelBounds: activeSignalAreaBounds,
-        startingAnchorPosition,
+        startingAnchorPosition: isWholeChannelMode
+          ? startingAnchorPosition
+          : "center",
       });
 
       if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
@@ -443,7 +457,7 @@ export const useLiveSampleRateControl = ({
         currentRange: frequencyRange,
         sampleRateHz,
         channelBounds: activeSignalAreaBounds,
-        startingAnchorPosition,
+        startingAnchorPosition: "center",
       });
 
       if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {

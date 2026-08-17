@@ -153,13 +153,6 @@ const UnitOption = styled.button<{ $active?: boolean }>`
 
 const FREQUENCY_UNITS: FrequencyUnit[] = ["Hz", "kHz", "MHz", "GHz"];
 
-const logFrequencyInputUnitEvent = (
-  eventName: string,
-  details: Record<string, unknown>,
-) => {
-  console.debug("[FrequencyInput:unit]", eventName, details);
-};
-
 interface FrequencyInputProps {
   valueHz: number;
   onChangeHz: (hz: number) => void;
@@ -407,11 +400,6 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
     const handleUnitChange = (newUnit: FrequencyUnit) => {
       if (disabled) return;
-      logFrequencyInputUnitEvent("change", {
-        from: displayUnit,
-        to: newUnit,
-        hz: hzRef.current,
-      });
       setDisplayUnit(newUnit);
       setIsUnitMenuOpen(false);
       setDisplayValue(
@@ -430,18 +418,9 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
       const nextFocus = e.relatedTarget as Node | null;
       if (nextFocus && outerContainerRef.current?.contains(nextFocus)) {
-        logFrequencyInputUnitEvent("container-blur-inside", {
-          displayUnit,
-          menuOpen: isUnitMenuOpen,
-        });
         return;
       }
 
-      logFrequencyInputUnitEvent("container-blur-outside", {
-        displayUnit,
-        menuOpen: isUnitMenuOpen,
-        commitOnBlur: !!commitOnBlur,
-      });
       setIsUnitMenuOpen(false);
       isFocusedRef.current = false;
 
@@ -525,11 +504,6 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
               aria-expanded={isUnitMenuOpen}
               aria-label="Frequency unit"
               onPointerDown={(event) => {
-                logFrequencyInputUnitEvent("button-pointerdown", {
-                  displayUnit,
-                  menuOpen: isUnitMenuOpen,
-                  disabled: !!disabled,
-                });
                 event.preventDefault();
                 event.stopPropagation();
                 if (!disabled) {
@@ -537,11 +511,6 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
                 }
               }}
               onClick={(event) => {
-                logFrequencyInputUnitEvent("button-click", {
-                  displayUnit,
-                  menuOpen: isUnitMenuOpen,
-                  disabled: !!disabled,
-                });
                 event.preventDefault();
                 event.stopPropagation();
               }}
@@ -563,19 +532,11 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
                       aria-selected={unit === displayUnit}
                       $active={unit === displayUnit}
                       onPointerDown={(event) => {
-                        logFrequencyInputUnitEvent("option-pointerdown", {
-                          displayUnit,
-                          unit,
-                        });
                         event.preventDefault();
                         event.stopPropagation();
                         handleUnitChange(unit);
                       }}
                       onClick={(event) => {
-                        logFrequencyInputUnitEvent("option-click", {
-                          displayUnit,
-                          unit,
-                        });
                         event.preventDefault();
                         event.stopPropagation();
                       }}

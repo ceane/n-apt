@@ -2132,13 +2132,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     isSelectedSourceTxStatus,
   ]);
 
-  // Retry once per lifecycle/transport fence while Mock Tx has no frame.
-  // Cold-start can publish before the Tx stream subscribes; phase/active
-  // advances must clear dedupe or Loading sticks until a manual switch.
+  // Retry once per lifecycle/transport fence while the standby preview has no
+  // frame. Mock Tx cold-start can publish before the Tx stream subscribes;
+  // hardware half-duplex previews can lose the one-shot to the Rx→Tx stream
+  // arbitration handoff. phase/active/transport advances must clear dedupe or
+  // Loading sticks until a manual switch.
   useEffect(() => {
+    const hardwareStandbyPreview =
+      isSelectedTxPreviewStandby && !isMockTxMonitorActive;
     if (
       !shouldClearMockTxPreviewRequestDedupe({
-        isMockTxMonitorActive,
+        isMockTxMonitorActive: isMockTxMonitorActive || hardwareStandbyPreview,
         selectedSourceId,
         activeSourceId,
         hasRenderableFrame: hasRenderableCurrentFrame || hasTargetFrozenFrame,
@@ -2148,7 +2152,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       })
     ) {
       if (
-        !isMockTxMonitorActive ||
+        (!isMockTxMonitorActive && !hardwareStandbyPreview) ||
         hasRenderableCurrentFrame ||
         hasTargetFrozenFrame
       ) {
@@ -2163,6 +2167,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     hasRenderableCurrentFrame,
     hasTargetFrozenFrame,
     isMockTxMonitorActive,
+    isSelectedTxPreviewStandby,
     liveSourceLifecycle.phase,
     selectedSourceId,
     sourceTransport?.phase,

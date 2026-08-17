@@ -500,6 +500,39 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
+  it("keeps the waterfall placeholder while FFT is the first pane to report a frame", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        placeholderState={{
+          kind: "loading",
+          sourceLabel: "HackRF One",
+          paneLabel: "FFT",
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      fftProps.onRenderableFrameChange(true);
+    });
+
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+    expect(waterfallProps?.placeholderState).toMatchObject({
+      kind: "loading",
+      paneLabel: "Waterfall",
+    });
+  });
+
   it("keeps standby top bars while a live frame is present", () => {
     render(
       <FFTAndWaterfall

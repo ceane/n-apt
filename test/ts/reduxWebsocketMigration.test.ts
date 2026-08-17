@@ -31,6 +31,7 @@ import {
   resolveSourceSelectionAfterBackendFallback,
   shouldSyncManagedStreamOptions,
   resolveManagedTxSourceId,
+  txStreamConflictsWithActiveRx,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -222,6 +223,43 @@ describe("managed stream option synchronization", () => {
         sourceRouting: { bindings: {} },
       }),
     ).toBeNull();
+  });
+
+  it("releases the Rx stream when an active half-duplex source wants its Tx stream", () => {
+    const hackrf = {
+      id: "hackrf_one-00000001",
+      name: "HackRF One",
+      kind: "hackrf_one",
+      capability: "tx_rx",
+      duplex_mode: "half_duplex",
+      status: "standby",
+    };
+    // Same active source + half-duplex + Tx wanted → the Rx stream must be
+    // released so the backend arbitration accepts the Tx subscription.
+    expect(
+      txStreamConflictsWithActiveRx({
+        activeSourceId: "hackrf_one-00000001",
+        txSource: hackrf,
+      }),
+    ).toBe(true);
+    // A different active source (Tx Suite with separate Rx device) does not
+    // conflict.
+    expect(
+      txStreamConflictsWithActiveRx({
+        activeSourceId: "rtl-sdr-1",
+        txSource: hackrf,
+      }),
+    ).toBe(false);
+    // Full-duplex sources never conflict.
+    expect(
+      txStreamConflictsWithActiveRx({
+        activeSourceId: "mock-tx",
+        txSource: {
+          id: "mock-tx",
+          duplex_mode: "full_duplex",
+        },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -2275,7 +2313,7 @@ describe("Redux WebSocket Migration", () => {
 
       const state = middlewareStore.getState();
       expect(state.websocket.activeSourceId).toBe("mock-apt");
-      expect(state.websocket.error).toBe("");
+      expect(state.websocket.error).toBeNull();
       expect(state.sourceSelection.selectedSourceId).toBe("mock-apt");
       expect(state.sourceSelection.pendingSourceSwitchId).toBeNull();
     });

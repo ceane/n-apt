@@ -162,8 +162,8 @@ describe("useLiveSampleRateControl", () => {
 
     expect(setSampleRate).toHaveBeenLastCalledWith(12_800_000);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 24_720_000,
-      max: 37_520_000,
+      min: 20_920_000,
+      max: 33_720_000,
     });
 
     rerender({ ...initialProps, sampleRateHz: 12_800_000 });
@@ -175,8 +175,8 @@ describe("useLiveSampleRateControl", () => {
 
     expect(setSampleRate).toHaveBeenLastCalledWith(20_000_000);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 24_720_000,
-      max: 44_720_000,
+      min: 17_320_000,
+      max: 37_320_000,
     });
 
     rerender({ ...initialProps, sampleRateHz: 20_000_000 });
@@ -189,8 +189,35 @@ describe("useLiveSampleRateControl", () => {
     expect(setSampleRate).toHaveBeenLastCalledWith(12_800_000);
     expect(setSampleRate).toHaveBeenCalledTimes(3);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 24_720_000,
-      max: 37_520_000,
+      min: 20_920_000,
+      max: 33_720_000,
+    });
+  });
+
+  it("keeps the current center frequency when a manual sample rate changes", () => {
+    const setSampleRate = jest.fn();
+    const applyFrequencyRange = jest.fn();
+
+    const { result } = renderHook(() =>
+      useLiveSampleRateControl({
+        sourceMode: "live",
+        supportsWholeChannelSampleRate: true,
+        activeChannelSampleRate: 18_250_000,
+        activeSignalAreaBounds: { min: 4_750_000, max: 23_000_000 },
+        frequencyRange: { min: 10_000_000, max: 15_200_000 },
+        sampleRateHz: 5_200_000,
+        setSampleRate,
+        applyFrequencyRange,
+      }),
+    );
+
+    act(() => {
+      result.current.handleSampleRateChange(3_200_000, "manual");
+    });
+
+    expect(applyFrequencyRange).toHaveBeenLastCalledWith({
+      min: 11_000_000,
+      max: 14_200_000,
     });
   });
 
@@ -234,13 +261,13 @@ describe("useLiveSampleRateControl", () => {
     });
     expect(setSampleRate).toHaveBeenLastCalledWith(4_000_000);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 18_000,
-      max: 4_018_000,
+      min: 204_000,
+      max: 4_204_000,
     });
 
     rerender({
       ...initialProps,
-      frequencyRange: { min: 18_000, max: 4_018_000 },
+      frequencyRange: { min: 204_000, max: 4_204_000 },
       sampleRateHz: 4_000_000,
     });
 
@@ -249,8 +276,8 @@ describe("useLiveSampleRateControl", () => {
     });
     expect(setSampleRate).toHaveBeenLastCalledWith(3_200_000);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 18_000,
-      max: 3_218_000,
+      min: 604_000,
+      max: 3_804_000,
     });
   });
 
@@ -280,8 +307,8 @@ describe("useLiveSampleRateControl", () => {
 
     expect(setSampleRate).toHaveBeenLastCalledWith(3_200_000);
     expect(applyFrequencyRange).toHaveBeenLastCalledWith({
-      min: 4_750_000,
-      max: 7_950_000,
+      min: 10_871_200,
+      max: 14_071_200,
     });
   });
 
@@ -477,8 +504,8 @@ describe("useLiveSampleRateControl", () => {
 
     expect(setSampleRate).not.toHaveBeenCalled();
     expect(applyFrequencyRange).toHaveBeenCalledWith({
-      min: 18_000,
-      max: 5_018_000,
+      min: 7_518_000,
+      max: 12_518_000,
     });
   });
 

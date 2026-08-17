@@ -27,8 +27,15 @@ describe("live Redux/source-mode stream harness", () => {
   let harness: Awaited<ReturnType<typeof createLiveReduxStreamHarness>>;
 
   beforeAll(async () => {
-    harness = await createLiveReduxStreamHarness();
+    // Keep this suite deterministic on developer machines that have a
+    // physical SDR attached. The source-inventory contract intentionally
+    // hides idle mocks while hardware owns the stream, so enter the existing
+    // simulated hardware path and disconnect it before exercising Mock APT.
+    harness = await createLiveReduxStreamHarness({
+      hardwareSimulation: "rtl-sdr",
+    });
     await harness.connect();
+    await harness.simulateHardwarePresence(false);
   });
 
   afterAll(() => {

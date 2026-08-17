@@ -651,9 +651,15 @@ export const createSourcePresentationController = (
     if (paused) {
       transitionPhase(slot, "paused");
     } else if (slot.phase === "paused") {
-      // Resume: clear frozen frame and go back to streaming
-      slot.frozenFrame = null;
+      // Resume: keep the frozen frame as the fallback while the live stream
+      // reopens. Clearing it here forces a Loading placeholder between the
+      // resume command and the first fresh frame — the switch-back churn.
+      // transitionPhase would drop the freeze when entering streaming, so
+      // restore it after; getPresentationRef prefers the live ref once a
+      // frame arrives.
+      const retainedFrozen = slot.frozenFrame;
       transitionPhase(slot, "streaming");
+      slot.frozenFrame = retainedFrozen;
     }
   };
 

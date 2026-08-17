@@ -279,4 +279,206 @@ describe("useOverlayRenderer Hook", () => {
     expect(labels).not.toContain("FFT Window: Rectangular");
     expect(labels).not.toContain("Timing: Lossless");
   });
+
+  it("draws a max-hardware-frequency alias warning in the top canvas margin", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 90_000_000, max: 110_000_000 },
+      100_000_000,
+      true,
+      2_400_000,
+      undefined,
+      false,
+      [
+        {
+          freq: 105_000_000,
+          kind: "max_hardware_frequency",
+          label: "RTL-SDR v4 upper limit rate",
+        },
+      ],
+      16_384,
+      "Rectangular",
+      "reduced",
+      false,
+    );
+
+    expect(mockCtx.fillRect).toHaveBeenCalledWith(732.5, 0, 227.5, 20);
+    expect(mockCtx.fillText).toHaveBeenCalledWith(
+      "RTL-SDR v4 upper limit rate / Signals will be aliased",
+      846.25,
+      10,
+    );
+  });
+
+  it("keeps the upper-limit warning across the viewport after the limit scrolls left", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 90_000_000, max: 110_000_000 },
+      100_000_000,
+      true,
+      2_400_000,
+      undefined,
+      false,
+      [
+        {
+          freq: 80_000_000,
+          kind: "max_hardware_frequency",
+          label: "RTL-SDR v4 upper limit rate",
+        },
+      ],
+      16_384,
+      "Rectangular",
+      "reduced",
+      false,
+    );
+
+    expect(mockCtx.fillRect).toHaveBeenCalledWith(50, 0, 910, 20);
+    expect(mockCtx.fillText).toHaveBeenCalledWith(
+      "RTL-SDR v4 upper limit rate / Signals will be aliased",
+      505,
+      10,
+    );
+  });
+
+  it("clamps the warning label inside the plot when the aliasing band is narrow", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+    mockCtx.measureText.mockReturnValue({ width: 500 });
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: 90_000_000, max: 110_000_000 },
+      100_000_000,
+      true,
+      2_400_000,
+      undefined,
+      false,
+      [
+        {
+          freq: 109_000_000,
+          kind: "max_hardware_frequency",
+          label: "RTL-SDR v4 upper limit rate",
+        },
+      ],
+      16_384,
+      "Rectangular",
+      "reduced",
+      false,
+    );
+
+    expect(mockCtx.fillText).toHaveBeenCalledWith(
+      "RTL-SDR v4 upper limit rate / Signals will be aliased",
+      708,
+      10,
+    );
+  });
+
+  it("mirrors the device-limit banner and marker on a negative display axis", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: -110_000_000, max: -90_000_000 },
+      -100_000_000,
+      true,
+      2_400_000,
+      undefined,
+      false,
+      [
+        {
+          freq: 105_000_000,
+          kind: "max_hardware_frequency",
+          label: "RTL-SDR v4 upper limit rate",
+        },
+      ],
+      16_384,
+      "Rectangular",
+      "reduced",
+      false,
+    );
+
+    expect(mockCtx.fillRect).toHaveBeenCalledWith(50, 0, 227.5, 20);
+    expect(mockCtx.moveTo).toHaveBeenCalledWith(277.5, 20);
+  });
+
+  it("keeps the negative lower-limit alias band between minus the limit and DC", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: -500_000, max: 0 },
+      -250_000,
+      true,
+      2_400_000,
+      undefined,
+      false,
+      [
+        {
+          freq: 500_000,
+          kind: "min_hardware_frequency",
+          label: "RTL-SDR v4 lower limit",
+        },
+      ],
+      16_384,
+      "Rectangular",
+      "reduced",
+      false,
+    );
+
+    expect(mockCtx.fillRect).toHaveBeenCalledWith(50, 0, 910, 20);
+  });
+
+  it("draws mirrored hardware markers and a central alias band across DC", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    result.current.drawMarkersOnContext(
+      mockCtx,
+      1000,
+      600,
+      { min: -1_000_000, max: 1_000_000 },
+      0,
+      true,
+      2_400_000,
+      undefined,
+      false,
+      [
+        {
+          freq: 500_000,
+          kind: "min_hardware_frequency",
+          label: "RTL-SDR v4 lower limit",
+        },
+      ],
+      16_384,
+      "Rectangular",
+      "reduced",
+      false,
+    );
+
+    expect(mockCtx.fillRect).toHaveBeenCalledWith(277.5, 0, 455, 20);
+    expect(mockCtx.moveTo).toHaveBeenCalledWith(277.5, 20);
+    expect(mockCtx.moveTo).toHaveBeenCalledWith(732.5, 20);
+    expect(mockCtx.fillText).toHaveBeenCalledWith(
+      "RTL-SDR v4 lower limit / Signals will be aliased",
+      expect.any(Number),
+      10,
+    );
+    expect(mockCtx.fillText).not.toHaveBeenCalledWith(
+      "RTL-SDR v4 lower limit",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
 });

@@ -1,6 +1,5 @@
 import {
   attachLiveSourceLifecyclePlaceholder,
-  buildLiveSourceLifecycleTrace,
   isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycleErrorReason,
@@ -769,27 +768,4 @@ describe("resolveLiveSourceLifecycle", () => {
     });
   });
 
-  test("assigns transition traces to one frontend owner and suppresses duplicates", () => {
-    const lifecycle = resolveLiveSourceLifecycle({
-      selectedSourceId: "mock-tx",
-      activeSourceId: "mock-apt",
-      transportSourceId: "mock-tx",
-      transportPhase: "warming",
-      hasValidFrame: false,
-      deviceStatus: "connected",
-      handoffPlaceholder,
-    });
-
-    expect(
-      buildLiveSourceLifecycleTrace(null, lifecycle, 7, "warming"),
-    ).toMatchObject({
-      owner: "SpectrumRoute/live-source-lifecycle",
-      render: 7,
-      from: null,
-      to: "warming-transport",
-    });
-    expect(
-      buildLiveSourceLifecycleTrace(lifecycle, lifecycle, 8, "warming"),
-    ).toBeNull();
-  });
 });

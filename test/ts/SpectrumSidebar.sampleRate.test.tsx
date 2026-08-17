@@ -415,6 +415,35 @@ describe("SpectrumSidebar sample rate behavior", () => {
     ).toBeTruthy();
   });
 
+  it("renders the Settings navigation cards at the bottom in order", () => {
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const startPage = screen.getByRole("link", { name: /Start Page/i });
+    const lingoAndLearn = screen.getByRole("link", {
+      name: /Lingo and Learn/i,
+    });
+
+    expect(startPage).toHaveAttribute("href", "/get-started");
+    expect(lingoAndLearn).toHaveAttribute("href", "/learn");
+    expect(
+      startPage.compareDocumentPosition(lingoAndLearn) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const startCard = startPage.closest("article");
+    expect(startCard).toHaveStyle({ width: "56%" });
+    expect(startCard).toHaveStyle({ justifySelf: "start" });
+    expect(startCard?.parentElement).toHaveStyle({ marginTop: "180px" });
+  });
+
   it("does not render Tx settings for a TX-capable source while it is receiving", () => {
     const hackrfSource = {
       id: "hackrf-rx",
@@ -1396,16 +1425,16 @@ describe("SpectrumSidebar sample rate behavior", () => {
     await waitFor(() => expect(mockLiveState.sampleRateHz).toBe(12_800_000));
     expect(mockLiveState.sampleRateHz).toBe(12_800_000);
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenLastCalledWith({
-      min: 18_000,
-      max: 12_818_000,
+      min: 0,
+      max: 12_800_000,
     });
 
     fireEvent.change(sampleRateSelect, { target: { value: "20000000" } });
     await waitFor(() => expect(mockLiveState.sampleRateHz).toBe(20_000_000));
     expect(mockLiveState.sampleRateHz).toBe(20_000_000);
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenLastCalledWith({
-      min: 18_000,
-      max: 20_018_000,
+      min: 0,
+      max: 20_000_000,
     });
 
     fireEvent.change(sampleRateSelect, { target: { value: "12800000" } });

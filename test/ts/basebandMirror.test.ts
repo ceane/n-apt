@@ -3,7 +3,10 @@ import {
   extendSpectrumBelowZero,
   getPositiveSourceRangeForDisplayRange,
   mapDisplayFrequencyToSource,
+  mapPositiveHardwareFrequencyToDisplay,
   mapSourceFrequencyToDisplay,
+  resolveMirroredHardwareMarkerFrequencies,
+  resolveHardwareLimitAliasRanges,
   normalizePositiveHardwareRange,
   resolveMirroredAcquisition,
   resolveMirroredDisplayCenter,
@@ -59,6 +62,53 @@ describe("baseband negative-frequency presentation", () => {
     expect(mapDisplayFrequencyToSource(-2_204_000)).toBe(2_204_000);
     expect(mapDisplayFrequencyToSource(2_204_000)).toBe(2_204_000);
     expect(mapSourceFrequencyToDisplay(2_204_000)).toBe(2_204_000);
+  });
+
+  it("maps positive hardware markers onto a wholly negative display axis", () => {
+    expect(
+      mapPositiveHardwareFrequencyToDisplay(105_000_000, {
+        min: -110_000_000,
+        max: -90_000_000,
+      }),
+    ).toBe(-105_000_000);
+    expect(
+      mapPositiveHardwareFrequencyToDisplay(105_000_000, {
+        min: -110_000_000,
+        max: 0,
+      }),
+    ).toBe(-105_000_000);
+  });
+
+  it("resolves hardware-limit alias bands using absolute frequency", () => {
+    expect(
+      resolveHardwareLimitAliasRanges({
+        kind: "min_hardware_frequency",
+        frequencyHz: 500_000,
+        displayRange: { min: -500_000, max: 0 },
+      }),
+    ).toEqual([{ min: -500_000, max: 0 }]);
+    expect(
+      resolveHardwareLimitAliasRanges({
+        kind: "max_hardware_frequency",
+        frequencyHz: 105_000_000,
+        displayRange: { min: -110_000_000, max: -90_000_000 },
+      }),
+    ).toEqual([{ min: -110_000_000, max: -105_000_000 }]);
+  });
+
+  it("emits mirrored hardware marker positions when the display crosses DC", () => {
+    expect(
+      resolveMirroredHardwareMarkerFrequencies(500_000, {
+        min: -1_000_000,
+        max: 1_000_000,
+      }),
+    ).toEqual([-500_000, 500_000]);
+    expect(
+      resolveMirroredHardwareMarkerFrequencies(500_000, {
+        min: -1_000_000,
+        max: 0,
+      }),
+    ).toEqual([-500_000]);
   });
 
   it("re-bases an absolute display window onto a CF ± fs/2 acquisition axis", () => {
@@ -203,7 +253,8 @@ describe("explicit tuning with the mirror on", () => {
 
     expect(hardwareRange).toEqual({ min: 0, max: 4_372_000 });
 
-    const center = (hardwareRange.min + hardwareRange.max) / 2 + panOffsetHz;
+    const center =
+      (hardwareRange.min + hardwareRange.max) / 2 + panOffsetHz;
     const half = (hardwareRange.max - hardwareRange.min) / 2;
     expect(center - half).toBeCloseTo(requested.min, 6);
     expect(center + half).toBeCloseTo(requested.max, 6);
@@ -264,8 +315,7 @@ describe("explicit tuning with the mirror on", () => {
     expect(hardwareRange.min).toBe(0);
 
     // Viewport is acquisition-sized and centred on DC — mirror fills it.
-    const center =
-      (hardwareRange.min + hardwareRange.max) / 2 + panOffsetHz;
+    const center = (hardwareRange.min + hardwareRange.max) / 2 + panOffsetHz;
     const half = (hardwareRange.max - hardwareRange.min) / 2;
     expect(center).toBeCloseTo(0, 6);
     expect(center - half).toBeCloseTo(-sampleRateHz / 2, 6);

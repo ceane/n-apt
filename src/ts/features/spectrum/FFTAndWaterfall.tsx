@@ -591,9 +591,10 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
                       kicker: "Paused",
                       title: "",
                       sourceLabel: props.placeholderSourceLabel,
-                    }
+                  }
                   : sharedPlaceholderState?.kind === "loading" &&
-                  !shouldShowLoadingPlaceholder
+                    !shouldShowLoadingPlaceholder &&
+                    !props.placeholderState
                   ? undefined
                 : sharedPlaceholderState?.kind === "loading"
                   ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }

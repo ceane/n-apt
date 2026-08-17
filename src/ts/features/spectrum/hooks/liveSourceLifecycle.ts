@@ -1,5 +1,5 @@
 import type { CanvasPlaceholderState } from "@n-apt/ui/CanvasPlaceholder";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 
 /** Transport milestones emitted only when a source socket changes lifecycle. */
 export type SourceTransportPhase = "idle" | "warming" | "ready" | "failed";
@@ -283,19 +283,6 @@ export type LiveSourceLifecycle = {
   presentation: LiveSourcePresentationPolicy;
 };
 
-/** Structured, low-frequency transition record owned by the route lifecycle. */
-export type LiveSourceLifecycleTrace = {
-  owner: "SpectrumRoute/live-source-lifecycle";
-  render: number;
-  from: LiveSourceLifecyclePhase | null;
-  to: LiveSourceLifecyclePhase;
-  selectedSourceId: string | null;
-  activeSourceId: string | null;
-  transportSourceId: string | null;
-  readinessSequence: number | null;
-  transportPhase: SourceTransportPhase;
-};
-
 const RECOVERY_STATUSES = new Set(["loading", "stale"]);
 
 /**
@@ -572,46 +559,13 @@ export const attachLiveSourceLifecyclePlaceholder = (
   return { ...lifecycle, placeholder };
 };
 
-/** Builds a trace only when the lifecycle phase or source ownership changes. */
-export const buildLiveSourceLifecycleTrace = (
-  previous: LiveSourceLifecycle | null,
-  next: LiveSourceLifecycle,
-  render: number,
-  transportPhase: SourceTransportPhase,
-): LiveSourceLifecycleTrace | null => {
-  if (
-    previous?.phase === next.phase &&
-    previous.selectedSourceId === next.selectedSourceId &&
-    previous.activeSourceId === next.activeSourceId &&
-    previous.transportSourceId === next.transportSourceId &&
-    previous.readinessSequence === next.readinessSequence
-  ) {
-    return null;
-  }
-  return {
-    owner: "SpectrumRoute/live-source-lifecycle",
-    render,
-    from: previous?.phase ?? null,
-    to: next.phase,
-    selectedSourceId: next.selectedSourceId,
-    activeSourceId: next.activeSourceId,
-    transportSourceId: next.transportSourceId,
-    readinessSequence: next.readinessSequence,
-    transportPhase,
-  };
-};
-
 /**
- * Owns the route's live-source state and emits one trace per meaningful
- * transition. The render number makes accidental transition-driven render
- * loops diagnosable without subscribing the route to individual I/Q frames.
+ * Owns the route's live-source state without subscribing the route to
+ * individual I/Q frames.
  */
 export const useLiveSourceLifecycle = (
   input: Parameters<typeof resolveLiveSourceLifecycle>[0],
 ): LiveSourceLifecycle => {
-  const renderRef = useRef(0);
-  const previousRef = useRef<LiveSourceLifecycle | null>(null);
-  renderRef.current += 1;
   const lifecycle = useMemo(
     () => resolveLiveSourceLifecycle(input),
     [
@@ -633,15 +587,5 @@ export const useLiveSourceLifecycle = (
       input.transportSourceId,
     ],
   );
-  useEffect(() => {
-    const trace = buildLiveSourceLifecycleTrace(
-      previousRef.current,
-      lifecycle,
-      renderRef.current,
-      input.transportPhase ?? "idle",
-    );
-    if (trace) console.debug("[SpectrumRoute/live-source-lifecycle]", trace);
-    previousRef.current = lifecycle;
-  }, [input.transportPhase, lifecycle]);
   return lifecycle;
 };

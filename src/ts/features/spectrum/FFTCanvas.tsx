@@ -1216,8 +1216,10 @@ export const shouldCreatePausedFallbackWaveform = (
  * handoff. The selected source label can update before its first frame, so
  * retaining the old canvas would display a foreign signal under the new name.
  */
-export const shouldDrawZoomMarkersForCanvas = (nodePreview: boolean): boolean =>
-  !nodePreview;
+export const shouldDrawZoomMarkersForCanvas = (
+  nodePreview: boolean,
+  hasBlockingPlaceholder = false,
+): boolean => !nodePreview && !hasBlockingPlaceholder;
 
 export const getCanvasPixelRatio = (
   devicePixelRatio: number,
@@ -3042,6 +3044,15 @@ const FFTCanvas = memo(
           blockingPlaceholderKind,
           shouldClearStaleStandby,
         } = framePresentation;
+        const hasBlockingPlaceholder =
+          showLoadingPlaceholder ||
+          showErrorPlaceholder ||
+          explicitPlaceholderBlocksFrame ||
+          !!(
+            currentExplicitPlaceholderState &&
+            currentExplicitPlaceholderState.kind !== "top-bar" &&
+            currentExplicitPlaceholderState.kind !== "overlay-only"
+          );
         if (
           presentationPolicy?.clearStalePresentation &&
           (hasStalePresentedSource ||
@@ -3713,12 +3724,14 @@ const FFTCanvas = memo(
               fftMax: activeScaleDbMaxRef.current,
               powerScale: effectivePowerScaleRef.current,
               nodePreview: nodePreviewRef.current,
-              gridOverlayRenderer: compact
-                ? undefined
-                : gridOverlayRendererRef.current,
-              markersOverlayRenderer: compact
-                ? undefined
-                : markersOverlayRendererRef.current,
+              gridOverlayRenderer:
+                compact || hasBlockingPlaceholder
+                  ? undefined
+                  : gridOverlayRendererRef.current,
+              markersOverlayRenderer:
+                compact || hasBlockingPlaceholder
+                  ? undefined
+                  : markersOverlayRendererRef.current,
               spikesOverlayRenderer: spikesOverlayRendererRef.current,
               overlayDirty: overlayDirtyRef.current,
               centerFrequencyHz: displayCenterFrequencyHz,
@@ -3791,7 +3804,11 @@ const FFTCanvas = memo(
           }
 
           // Render overlays to 2D HTML canvas instead of WebGPU texture
-          if (spectrumOverlayCanvas) {
+          if (hasBlockingPlaceholder) {
+            clearOverlayCanvas(spectrumOverlayCanvas);
+          }
+
+          if (spectrumOverlayCanvas && !hasBlockingPlaceholder) {
             const ctx = getCached2DContext(spectrumOverlayCanvas);
             if (ctx) {
               const dpr = getCanvasPixelRatio(
@@ -3926,7 +3943,12 @@ const FFTCanvas = memo(
                 );
               }
 
-              if (shouldDrawZoomMarkersForCanvas(nodePreview)) {
+              if (
+                shouldDrawZoomMarkersForCanvas(
+                  nodePreview,
+                  hasBlockingPlaceholder,
+                )
+              ) {
                 drawZoomMarkersOnContext(
                   ctx,
                   logicalW,

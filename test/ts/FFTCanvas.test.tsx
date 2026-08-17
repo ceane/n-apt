@@ -179,6 +179,16 @@ describe("FFTCanvas Component", () => {
     expect(shouldClearBlockingPlaceholder(2, 0)).toBe(false);
   });
 
+  it("does not draw zoom markers while a blocking placeholder is visible", () => {
+    const zoomMarkerGate = shouldDrawZoomMarkersForCanvas as unknown as (
+      nodePreview: boolean,
+      hasBlockingPlaceholder: boolean,
+    ) => boolean;
+
+    expect(zoomMarkerGate(false, true)).toBe(false);
+    expect(zoomMarkerGate(false, false)).toBe(true);
+  });
+
   it("keeps header snapshot actions enabled while paused", async () => {
     render(
       <TestWrapper>

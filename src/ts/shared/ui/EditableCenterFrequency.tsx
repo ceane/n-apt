@@ -14,13 +14,6 @@ interface EditableCenterFrequencyProps {
   allowNegativeFrequencies?: boolean;
 }
 
-const logEditableCenterFrequencyEvent = (
-  eventName: string,
-  details: Record<string, unknown>,
-) => {
-  console.debug("[EditableCenterFrequency]", eventName, details);
-};
-
 const Shell = styled.div<{ $placement: "top" | "bottom" }>`
   position: absolute;
   left: 50%;
@@ -140,13 +133,6 @@ export const EditableCenterFrequency: React.FC<
 
       const path = event.composedPath();
       const inside = path.includes(shell);
-      logEditableCenterFrequencyEvent("window-pointerdown", {
-        inside,
-        target:
-          event.target instanceof Element
-            ? event.target.tagName.toLowerCase()
-            : typeof event.target,
-      });
       if (!inside) {
         onClose();
       }

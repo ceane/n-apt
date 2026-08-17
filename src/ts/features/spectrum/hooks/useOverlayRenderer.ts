@@ -26,6 +26,11 @@ import {
 import type { SdrLimitMarker } from "@n-apt/math/sdrLimitMarkers";
 import type { SpectrumSpikeMarker } from "@n-apt/spectrum/hooks/useWasmSimdMath";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
+import {
+  isHardwareLowerLimitKind,
+  resolveHardwareLimitAliasRanges,
+  resolveMirroredHardwareMarkerFrequencies,
+} from "@n-apt/math/basebandMirror";
 
 export type Alignment = "centered" | "start" | "end";
 
@@ -183,6 +188,7 @@ const LIVE_STATUS_ROW_HEIGHT = 56;
 export const TX_SLIDER_ROW_HEIGHT = LIVE_STATUS_ROW_HEIGHT;
 const HARDWARE_LIMIT_LINE_COLOR = "rgba(255, 48, 48, 0.95)";
 const HARDWARE_LIMIT_TEXT_COLOR = "rgba(255, 48, 48, 0.98)";
+const HARDWARE_LIMIT_WARNING_FILL = "rgba(255, 48, 96, 0.3)";
 const DC_LABEL_Y_OFFSET = 28;
 
 /**
@@ -666,18 +672,62 @@ export function useOverlayRenderer() {
 
       ctx.save();
 
-      const limitMarkers = (_limitMarkers ?? []).filter(
-        (marker) =>
-          Number.isFinite(marker.freq) &&
-          marker.freq >= minFreq &&
-          marker.freq <= maxFreq,
+      const allLimitMarkers = (_limitMarkers ?? []).filter((marker) =>
+        Number.isFinite(marker.freq),
+      );
+      const displayRange = { min: minFreq, max: maxFreq };
+      const displayLimitMarkers = allLimitMarkers.flatMap((marker) =>
+        resolveMirroredHardwareMarkerFrequencies(marker.freq, displayRange).map(
+          (displayFrequency) => ({ ...marker, freq: displayFrequency }),
+        ),
+      );
+      const limitMarkers = displayLimitMarkers.filter(
+        (marker) => marker.freq >= minFreq && marker.freq <= maxFreq,
       );
 
-      if (limitMarkers.length > 0 && viewBandwidth > 0) {
+      if (allLimitMarkers.length > 0 && viewBandwidth > 0) {
         ctx.save();
         ctx.font = "11px 'JetBrains Mono', monospace";
         ctx.textBaseline = "top";
         ctx.lineWidth = Math.max(1, 1 / dpr);
+
+        for (const marker of allLimitMarkers) {
+          const label = marker.label || formatFrequency(marker.freq);
+          const aliasRanges = resolveHardwareLimitAliasRanges({
+            kind: marker.kind,
+            frequencyHz: marker.freq,
+            displayRange,
+          });
+
+          for (const aliasRange of aliasRanges) {
+            const warningLeft = freqToX(aliasRange.min);
+            const warningRight = freqToX(aliasRange.max);
+            const warningWidth = warningRight - warningLeft;
+
+            if (warningWidth > 0) {
+              const warningText = `${label} / Signals will be aliased`;
+              const warningTextWidth = ctx.measureText(warningText).width;
+              const warningTextLeft = FFT_AREA_MIN.x + warningTextWidth / 2 + 8;
+              const warningTextRight = fftAreaMax.x - warningTextWidth / 2 - 2;
+              ctx.save();
+              ctx.fillStyle = HARDWARE_LIMIT_WARNING_FILL;
+              ctx.fillRect(warningLeft, 0, warningWidth, FFT_AREA_MIN.y);
+              ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
+              ctx.font = "11px 'JetBrains Mono', monospace";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(
+                warningText,
+                Math.max(
+                  warningTextLeft,
+                  Math.min(warningTextRight, warningLeft + warningWidth / 2),
+                ),
+                FFT_AREA_MIN.y / 2,
+              );
+              ctx.restore();
+            }
+          }
+        }
 
         for (const marker of limitMarkers) {
           const x = freqToX(marker.freq);
@@ -693,11 +743,13 @@ export function useOverlayRenderer() {
           ctx.setLineDash([]);
           ctx.fillStyle = HARDWARE_LIMIT_TEXT_COLOR;
           ctx.textAlign = x > width - 160 ? "right" : "left";
-          ctx.fillText(
-            label,
-            x + (ctx.textAlign === "right" ? -6 : 6),
-            FFT_AREA_MIN.y + 45,
-          );
+          if (!(minFreq < 0 && isHardwareLowerLimitKind(marker.kind))) {
+            ctx.fillText(
+              label,
+              x + (ctx.textAlign === "right" ? -6 : 6),
+              FFT_AREA_MIN.y + 45,
+            );
+          }
         }
 
         ctx.restore();

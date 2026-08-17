@@ -125,6 +125,11 @@ import { usePrompt } from "@n-apt/ui/PromptProvider";
 import { Collapsible } from "@n-apt/ui/Collapsible";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
+import { LinkCardItemView } from "@n-apt/ui/LinkCardGrid";
+import {
+  LINGO_AND_LEARN_LINK_CARD,
+  START_PAGE_LINK_CARD,
+} from "@n-apt/app/navigationLinkCards";
 import { getSettingsDefaults } from "@n-apt/settings/public/settingsDefaults";
 import {
   buildCenteredFrequencyRange,
@@ -150,6 +155,25 @@ const SidebarContent = memo(styled.div`
   max-width: 100%;
   overflow-anchor: none;
 `);
+
+const SidebarNavigationLinkCards = memo(styled.div`
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: 180px;
+
+  & > article {
+    width: 56%;
+    justify-self: start;
+  }
+`);
+
+const SPECTRUM_NAVIGATION_LINK_CARDS = [
+  START_PAGE_LINK_CARD,
+  LINGO_AND_LEARN_LINK_CARD,
+];
 
 const Section = memo(styled.div<{ $marginBottom?: string }>`
   display: grid;
@@ -3375,6 +3399,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           <ThemeSection />
         </>
       )}
+
+      <SidebarNavigationLinkCards aria-label="More from N-APT">
+        {SPECTRUM_NAVIGATION_LINK_CARDS.map((card) => (
+          <LinkCardItemView key={card.title} {...card} />
+        ))}
+      </SidebarNavigationLinkCards>
     </SidebarContent>
   );
 };

@@ -22,9 +22,7 @@ import type {
   SourceInfo,
   DeviceActiveMode,
 } from "@n-apt/consts/schemas/websocket";
-import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { isMockDevice, isMockTxSource } from "@n-apt/app/infrastructure/services/deviceCapabilities";
-import { buildWsUrl } from "@n-apt/app/infrastructure/services/auth";
 import { useLocation } from "react-router";
 import { FRONTEND_VISUALIZER_DEFAULTS, getVisualizerDefaultDbLimits } from "@n-apt/consts/visualizerControls";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
@@ -93,8 +91,6 @@ import {
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
-  connectWebSocket,
-  disconnectWebSocket,
   sendPowerScaleCommand as sendPowerScaleCommandThunk,
   sendTrainingCommand as sendTrainingCommandThunk,
   sendFrequencyRange as sendFrequencyRangeThunk,
@@ -1655,8 +1651,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
     const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
 
-    const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
-    const wsUrl = sessionToken ? buildWsUrl(sessionToken) : "";
     const isConnected = useAppSelector((s) => s.websocket.isConnected);
     const isPaused = useAppSelector((s) => s.websocket.isPaused);
     const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
@@ -2295,19 +2289,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       },
       [reduxDispatch],
     );
-
-    useEffect(() => {
-      reduxDispatch(
-        connectWebSocket({
-          url: wsUrl,
-          aesKey,
-          enabled: isAuthenticated,
-        }),
-      );
-      return () => {
-        reduxDispatch(disconnectWebSocket());
-      };
-    }, [reduxDispatch, wsUrl, aesKey, isAuthenticated]);
 
     const sendFrequencyRangeCommand = useCallback(
       (range: FrequencyRange) => {

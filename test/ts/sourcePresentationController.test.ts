@@ -249,18 +249,25 @@ describe("SourcePresentationController", () => {
       expect(slot?.frozenFrame?.frame).toBe(frame);
     });
 
-    it("clears frozen frame on resume", () => {
+    it("keeps the frozen frame as a fallback on resume until a live frame arrives", () => {
       const ctrl = createController();
       ctrl.selectSource("hackrf-1");
       ctrl.commitActiveSource("hackrf-1");
 
-      ctrl.acceptFrame(makeRxFrame("hackrf-1", { sequence: 1 }));
+      const frame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(frame);
       ctrl.setPaused("hackrf-1", "rx", true);
       ctrl.setPaused("hackrf-1", "rx", false);
 
       const slot = ctrl.getSlot("hackrf-1", "rx");
       expect(slot?.phase).toBe("streaming");
-      expect(slot?.frozenFrame).toBeNull();
+      // The frozen frame is retained so the canvas shows the last Rx frame
+      // during the reopen instead of a Loading placeholder (switch-back churn).
+      expect(slot?.frozenFrame?.frame).toBe(frame);
+      // Once a fresh live frame arrives it replaces the frozen fallback.
+      const nextFrame = makeRxFrame("hackrf-1", { sequence: 2 });
+      ctrl.acceptFrame(nextFrame);
+      expect(ctrl.getPresentationRef("rx").current).toBe(nextFrame);
     });
 
     it("rejects live frames while paused so the frozen frame stays frozen", () => {
@@ -397,11 +404,12 @@ describe("SourcePresentationController", () => {
       ctrl.setSourceStatus("hackrf-1", "receiving");
       expect(ctrl.getSlot("hackrf-1", "rx")?.phase).toBe("paused");
 
-      // Explicit resume clears the frozen frame and returns to streaming.
+      // Explicit resume returns to streaming while keeping the frozen frame
+      // as a fallback until the first fresh live frame arrives.
       ctrl.setPaused("hackrf-1", "rx", false);
       const slot = ctrl.getSlot("hackrf-1", "rx");
       expect(slot?.phase).toBe("streaming");
-      expect(slot?.frozenFrame).toBeNull();
+      expect(slot?.frozenFrame?.frame).toBe(frame);
     });
 
     it("still honors a backend paused status after a manual pause", () => {

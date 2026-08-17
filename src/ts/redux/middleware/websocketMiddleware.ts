@@ -49,6 +49,7 @@ import {
 import { isMockTxSource } from "@n-apt/app/infrastructure/services/deviceCapabilities";
 import {
   isSourceStreamAvailable,
+  normalizeSourceDuplexMode,
   resolveSourceModeManagement,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 import { filterLiveFramesForSource } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
@@ -1129,6 +1130,21 @@ export const normalizeManagedStreamFrame = ({
  * request-driven Mock Tx standby previews. Continuous monitor playback stays
  * gated on the backend; standby only publishes when request_next_frame fires.
  */
+export const txStreamConflictsWithActiveRx = ({
+  activeSourceId,
+  txSource,
+}: {
+  activeSourceId: string | null | undefined;
+  txSource: {
+    id?: string | null;
+    duplex_mode?: string | null;
+  } | null | undefined;
+}): boolean =>
+  !!activeSourceId &&
+  !!txSource &&
+  txSource.id === activeSourceId &&
+  normalizeSourceDuplexMode(txSource.duplex_mode) === "half_duplex";
+
 export const resolveManagedTxSourceId = (state: any): string | null => {
   const sources: SourceInfo[] = state.sources ?? [];
   const sourceStatuses = state.sourceStatuses ?? {};
@@ -1159,13 +1175,20 @@ export const resolveManagedTxSourceId = (state: any): string | null => {
     );
   };
 
+  // A bound half-duplex hardware source in Tx preview is reported by the
+  // backend as `paused` (the preview pauses the Rx stream first). Both the
+  // optimistic `standby` and the authoritative `paused` must open the Tx
+  // stream so the request_next_frame preview is delivered.
   const isStandbyHardwareTxSource = (
     source: SourceInfo | undefined,
   ): boolean => {
     if (!isTxCapable(source)) return false;
     if (source!.kind === "mock_tx" || source!.id === "mock-tx") return false;
     const status = sourceStatuses[source!.id] ?? source!.status;
-    return status === "standby" && isSourceStreamAvailable(status);
+    return (
+      (status === "standby" || status === "paused") &&
+      isSourceStreamAvailable(status)
+    );
   };
 
   const boundSourceId = state.sourceRouting?.bindings?.["tx-suite:tx"];
@@ -1296,10 +1319,41 @@ const syncManagedStreamSubscriptions = (
   const activeSource = (state.sources ?? []).find(
     (source: SourceInfo) => source.id === state.activeSourceId,
   );
+  // Resolve the desired Tx source before deciding the Rx subscription: a
+  // half-duplex device (HackRF) cannot stream Rx and Tx simultaneously. When
+  // the *active* source wants its Tx stream (standby preview or transmitting),
+  // the Rx subscription must be released first or the backend arbitration
+  // (`has_conflicting_mode`) rejects the Tx subscribe. A bound Tx source that
+  // differs from the active source (Tx Suite with a separate Rx device) does
+  // not conflict, so its Rx stream stays.
+  const txSourceId = resolveManagedTxSourceId({
+    ...state,
+    sourceRouting: getState().sourceRouting,
+    sourceSelection: getState().sourceSelection,
+  });
+  const txSource = (state.sources ?? []).find(
+    (source: SourceInfo) => source.id === txSourceId,
+  );
+  const txStatus =
+    (txSourceId && state.sourceStatuses?.[txSourceId]) || txSource?.status;
+  const wantsTx =
+    !!txSource &&
+    (txSource.capability === "tx" ||
+      txSource.capability === "tx_rx" ||
+      txSource.kind === "mock_tx" ||
+      txSource.id === "mock-tx") &&
+    isSourceStreamAvailable(txStatus);
+  const txSourceConflictsWithActiveRx =
+    wantsTx &&
+    txStreamConflictsWithActiveRx({
+      activeSourceId: activeSource?.id,
+      txSource,
+    });
   const wantsRx =
     !!activeSource?.iq_format &&
     activeSource.capabilities?.can_receive !== false &&
-    isSourceStreamAvailable(activeSource.status);
+    isSourceStreamAvailable(activeSource.status) &&
+    !txSourceConflictsWithActiveRx;
   const rxSourceId = wantsRx ? activeSource.id : null;
   if (managedRxSourceId !== rxSourceId) {
     managedRxSubscription?.unsubscribe();
@@ -1358,23 +1412,6 @@ const syncManagedStreamSubscriptions = (
     publishSourceTransport(dispatch, getState, rxSourceId, "ready");
   }
 
-  const txSourceId = resolveManagedTxSourceId({
-    ...state,
-    sourceRouting: getState().sourceRouting,
-    sourceSelection: getState().sourceSelection,
-  });
-  const txSource = (state.sources ?? []).find(
-    (source: SourceInfo) => source.id === txSourceId,
-  );
-  const txStatus =
-    (txSourceId && state.sourceStatuses?.[txSourceId]) || txSource?.status;
-  const wantsTx =
-    !!txSource &&
-    (txSource.capability === "tx" ||
-      txSource.capability === "tx_rx" ||
-      txSource.kind === "mock_tx" ||
-      txSource.id === "mock-tx") &&
-    isSourceStreamAvailable(txStatus);
   if (!wantsTx || !txSourceId) {
     managedTxSubscription?.unsubscribe();
     managedTxSubscription = null;

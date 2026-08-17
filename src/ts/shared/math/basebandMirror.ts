@@ -38,6 +38,90 @@ export const mapSourceFrequencyToDisplay = (frequencyHz: number): number =>
   frequencyHz;
 
 /**
+ * Maps a positive hardware frequency marker onto the signed display axis.
+ * Hardware markers are expressed as magnitudes; a wholly non-positive view
+ * shows the mirrored coordinate instead of treating the marker as positive.
+ */
+export const mapPositiveHardwareFrequencyToDisplay = (
+  frequencyHz: number,
+  displayRange: BasebandFrequencyRange,
+): number => {
+  if (!Number.isFinite(frequencyHz)) return frequencyHz;
+  return displayRange.min < 0 && displayRange.max <= 0
+    ? -Math.abs(frequencyHz)
+    : frequencyHz;
+};
+
+/** Emits the signed display positions for a positive hardware marker. */
+export const resolveMirroredHardwareMarkerFrequencies = (
+  frequencyHz: number,
+  displayRange: BasebandFrequencyRange,
+): number[] => {
+  if (!Number.isFinite(frequencyHz)) return [];
+  const magnitude = Math.abs(frequencyHz);
+  if (displayRange.min < 0 && displayRange.max > 0) {
+    return magnitude === 0 ? [0] : [-magnitude, magnitude];
+  }
+  return [mapPositiveHardwareFrequencyToDisplay(magnitude, displayRange)];
+};
+
+export type HardwareLimitAliasRange = BasebandFrequencyRange;
+
+export const isHardwareLowerLimitKind = (kind?: string | null): boolean =>
+  kind === "lower_limit" || kind === "min_hardware_frequency";
+
+export const isHardwareUpperLimitKind = (kind?: string | null): boolean =>
+  kind === "upper_limit" || kind === "max_hardware_frequency";
+
+/**
+ * Resolves the visible signed-frequency bands that exceed a hardware limit.
+ * Device limits apply to |frequency|, so lower limits alias around DC while
+ * upper limits alias on the outer edges of the signed display.
+ */
+export const resolveHardwareLimitAliasRanges = ({
+  kind,
+  frequencyHz,
+  displayRange,
+}: {
+  kind?: string | null;
+  frequencyHz: number;
+  displayRange: BasebandFrequencyRange;
+}): HardwareLimitAliasRange[] => {
+  if (
+    !isUsableRange(displayRange) ||
+    !Number.isFinite(frequencyHz) ||
+    frequencyHz < 0
+  ) {
+    return [];
+  }
+
+  const limitHz = Math.abs(frequencyHz);
+  if (!(limitHz > 0)) return [];
+
+  const isLowerLimit = isHardwareLowerLimitKind(kind);
+  const isUpperLimit = isHardwareUpperLimitKind(kind);
+  if (!isLowerLimit && !isUpperLimit) return [];
+
+  const ranges: HardwareLimitAliasRange[] = [];
+  const addIntersection = (min: number, max: number) => {
+    const visibleMin = Math.max(displayRange.min, min);
+    const visibleMax = Math.min(displayRange.max, max);
+    if (visibleMax > visibleMin) {
+      ranges.push({ min: visibleMin, max: visibleMax });
+    }
+  };
+
+  if (isLowerLimit) {
+    addIntersection(-limitHz, limitHz);
+  } else {
+    addIntersection(displayRange.min, -limitHz);
+    addIntersection(limitHz, displayRange.max);
+  }
+
+  return ranges;
+};
+
+/**
  * Resolves the positive acquisition window for a display window. This is a
  * coordinate conversion only: it deliberately does not apply channel or
  * hardware bounds, because those are separate from the virtual negative axis.
