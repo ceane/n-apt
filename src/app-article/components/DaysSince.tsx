@@ -10,9 +10,9 @@ const START_DATE = new Date('2018-09-30T00:00:00Z');
 const ESCALATION_DATE = new Date('2023-01-01T00:00:00Z');
 
 // Default fallback rate for the raw write-to-read minimum model.
-const DEFAULT_RATE_MBS = 55.52;
+const DEFAULT_RATE_MBS = 57.784;
 
-const CHANNEL_SAMPLE_RATES_HZ = [4.372e6, 5.16e6, 18.25e6];
+const CHANNEL_SAMPLE_RATES_HZ = [4.372e6, 6.27e6, 18.25e6];
 const MIN_TARGET_HZ = 24;
 const MAX_TARGET_HZ = 60;
 

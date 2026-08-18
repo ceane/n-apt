@@ -158,7 +158,12 @@ export function resolveSampleRateSpec(
   return { rate: safeFloor, options: [safeFloor] };
 }
 
-export const MAX_SCREEN_REFRESH_RATE = Number.POSITIVE_INFINITY;
+/** Maximum frame rate accepted by the Rust WebSocket settings protocol. */
+export const MAX_WEBSOCKET_FRAME_RATE = 100;
+
+// Keep the legacy name for callers that use this as the frontend's default
+// logical ceiling. It is now deliberately aligned with the wire contract.
+export const MAX_SCREEN_REFRESH_RATE = MAX_WEBSOCKET_FRAME_RATE;
 
 export const computeMaxFrameRate = (
   maxSampleRate: number,
@@ -169,9 +174,15 @@ export const computeMaxFrameRate = (
   // Fallback calculation: floor(sample_rate / fft_size), optionally limited
   // by the mutable configured ceiling.
   const theoretical = Math.floor(maxSampleRate / fftSize);
-  const limit = maxFrameRateLimit ?? MAX_SCREEN_REFRESH_RATE;
+  const limit = Math.min(
+    maxFrameRateLimit ?? MAX_SCREEN_REFRESH_RATE,
+    MAX_WEBSOCKET_FRAME_RATE,
+  );
   return Math.max(1, Math.min(theoretical, limit));
 };
+
+export const clampFrameRateToProtocolLimit = (frameRate: number): number =>
+  Math.max(1, Math.min(Math.floor(frameRate || 1), MAX_WEBSOCKET_FRAME_RATE));
 
 /** Preserve a valid user-selected rate; only reduce a rate beyond the new limit. */
 export const clampFrameRateToLogicalMax = (

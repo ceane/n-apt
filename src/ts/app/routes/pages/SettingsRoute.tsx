@@ -846,14 +846,19 @@ const SdrSettingsSection: React.FC = () => {
             aria-label="Frontend maximum frame rate"
             type="number"
             min={1}
+            max={FRONTEND_VISUALIZER_DEFAULTS.maxFrameRate}
             value={frontendMaxFrameRate}
             onChange={(event) => {
               const value = Number(event.target.value);
               if (Number.isFinite(value) && value >= 1) {
-                setFrontendMaxFrameRate(Math.floor(value));
+                const nextMaxFrameRate = Math.min(
+                  Math.floor(value),
+                  FRONTEND_VISUALIZER_DEFAULTS.maxFrameRate,
+                );
+                setFrontendMaxFrameRate(nextMaxFrameRate);
                 dispatch(
                   sendSettings({
-                    maxFrameRate: Math.floor(value),
+                    maxFrameRate: nextMaxFrameRate,
                   }),
                 );
               }
@@ -1130,6 +1135,12 @@ const SnapshotSettingsSection: React.FC = () => {
 const FOOTER_LINK_CARDS: LinkCardItem[] = [
   START_PAGE_LINK_CARD,
   LINGO_AND_LEARN_LINK_CARD,
+  {
+    title: "Diagnostics / Anti-Aliasing",
+    description: "Test Stepwise and Interleaved (TDMS) I/Q capture stitching.",
+    Icon: Zap,
+    to: "/diagnostics/anti-aliasing",
+  },
   {
     title: "View on GitHub",
     description: "Browse the N-APT source repository.",

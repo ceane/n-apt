@@ -509,7 +509,7 @@ export const FFTDiagnosticCanvas: React.FC<FFTDiagnosticCanvasProps> = ({
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(
-          "Run Multi-Frame Capture to start",
+          "Run Multi-Frame I/Q Capture to start",
           logicalWidth / 2,
           logicalHeight / 2,
         );

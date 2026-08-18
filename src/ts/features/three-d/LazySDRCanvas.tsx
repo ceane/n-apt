@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import styled from "styled-components";
+import type { Group } from "three";
 
 /**
  * The spinning 3D SDR models pull in three.js + @react-three/fiber + drei,
@@ -17,9 +18,27 @@ const SpinningRTLSdr = lazy(() =>
   })),
 );
 
+const SpinningRTLSdrWithAntenna = lazy(() =>
+  import("@n-apt/three-d/SDRs").then((m) => ({
+    default: m.SpinningRTLSdrWithAntenna,
+  })),
+);
+
 const SpinningHackRFOne = lazy(() =>
   import("@n-apt/three-d/SDRs").then((m) => ({
     default: m.SpinningHackRFOne,
+  })),
+);
+
+const ProjectionPointReporter = lazy(() =>
+  import("@n-apt/three-d/ProjectionPointReporter").then((m) => ({
+    default: m.ProjectionPointReporter,
+  })),
+);
+
+const AntennaOrbitControls = lazy(() =>
+  import("@n-apt/three-d/AntennaOrbitControls").then((m) => ({
+    default: m.AntennaOrbitControls,
   })),
 );
 
@@ -50,19 +69,39 @@ const Placeholder = styled.div`
   text-transform: uppercase;
 `;
 
-export const LazySDRCanvas: React.FC<{ variant: "rtl" | "hackrf" }> = ({
-  variant,
-}) => {
-  const Model = variant === "rtl" ? SpinningRTLSdr : SpinningHackRFOne;
+export const LazySDRCanvas: React.FC<{
+  variant: "rtl" | "hackrf";
+  withAntenna?: boolean;
+  onProjectionPoint?: (point: { x: number; y: number }) => void;
+}> = ({ variant, withAntenna = false, onProjectionPoint }) => {
+  const Model =
+    variant === "rtl"
+      ? withAntenna
+        ? SpinningRTLSdrWithAntenna
+        : SpinningRTLSdr
+      : SpinningHackRFOne;
+  const isAntennaVariant = variant === "rtl" && withAntenna;
+  const modelRef = React.useRef<Group>(null);
+  const modelScale = variant === "rtl" ? (isAntennaVariant ? 3 : 1.2) : 0.72;
+  const modelPosition: [number, number, number] =
+    variant === "rtl"
+      ? isAntennaVariant
+        ? [0, -0.8, 0]
+        : [0, -0.2, 0]
+      : [0, -0.55, 0];
+
   return (
     <SDRPreview
-      aria-label={`${variant === "rtl" ? "RTL-SDR" : "HackRF One"} 3D model spinning`}
+      aria-label={`${variant === "rtl" ? "RTL-SDR" : "HackRF One"}${isAntennaVariant ? " with antenna" : ""} 3D model spinning`}
     >
       <Suspense fallback={<Placeholder>Loading 3D…</Placeholder>}>
         <Canvas
-          camera={{ position: [2.1, 1.2, 2.5], fov: 35 }}
+          camera={{
+            position: isAntennaVariant ? [3.2, 2.2, 4] : [2.1, 1.2, 2.5],
+            fov: isAntennaVariant ? 45 : 35,
+          }}
           dpr={[1, 1.5]}
-          frameloop="demand"
+          frameloop={isAntennaVariant ? "always" : "demand"}
         >
           <ambientLight intensity={1.2} />
           <hemisphereLight args={["#dffaff", "#07131a", 1.6]} />
@@ -80,10 +119,15 @@ export const LazySDRCanvas: React.FC<{ variant: "rtl" | "hackrf" }> = ({
           />
           <pointLight position={[-2, 1.5, 2]} intensity={5} color="#00d4ff" />
           <pointLight position={[2, 0.5, 1]} intensity={4} color="#ffffff" />
-          {variant === "rtl" ? (
-            <Model scale={1.2} position={[0, -0.2, 0]} speed={0.8} />
-          ) : (
-            <Model scale={0.72} position={[0, -0.55, 0]} speed={0.8} />
+          {isAntennaVariant && <AntennaOrbitControls />}
+          <group ref={modelRef} position={modelPosition} scale={modelScale}>
+            <Model speed={isAntennaVariant ? 0 : 0.8} />
+          </group>
+          {isAntennaVariant && onProjectionPoint && (
+            <ProjectionPointReporter
+              modelRef={modelRef}
+              onPoint={onProjectionPoint}
+            />
           )}
         </Canvas>
       </Suspense>

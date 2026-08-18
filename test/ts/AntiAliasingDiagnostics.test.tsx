@@ -131,7 +131,71 @@ describe("AntiAliasingDiagnostics", () => {
 
   it("renders initial state correctly", () => {
     renderComponent();
-    // Check for containers instead of canvas text which isn't in DOM
+    expect(
+      screen.getByRole("heading", {
+        name: "I/Q Capture Stitching & Anti-Aliasing Diagnostics",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Test how N-APT pieces together a waveform that is wider than the device sample rate\./,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: /stepwise and interleaved \(TDMS\) I\/Q capture stitching/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Stepwise I/Q capture")).toBeInTheDocument();
+    expect(
+      screen.getByText("Interleaved (TDMS) I/Q capture"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/RTL-SDR with antenna 3D model spinning/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Max")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Note: FFT size changes apply to the/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /^How it Works \/ What is being worked on/,
+      }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: /^Stitching Diagnostics/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByText(
+        /Compare raw hops and stitched output from the backend and frontend WASM pipeline\./,
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Raw Hops (A/B Overlap)")).not.toBeInTheDocument();
+  });
+
+  it("opens the diagnostic canvases accordion after closing the walkthrough", () => {
+    renderComponent();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Stitching Diagnostics/ }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /^How it Works \/ What is being worked on/,
+      }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.getByRole("button", { name: /^Stitching Diagnostics/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText(
+        /Compare raw hops and stitched output from the backend and frontend WASM pipeline\./,
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("img", {
+      name: /stepwise and interleaved \(TDMS\) I\/Q capture stitching/i,
+    })).not.toBeInTheDocument();
     expect(screen.getByText("Raw Hops (A/B Overlap)")).toBeInTheDocument();
     expect(
       screen.getByText("Stitched Magnitude Output (Backend)"),
@@ -209,7 +273,7 @@ describe("AntiAliasingDiagnostics", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Capture complete")).toBeInTheDocument();
+      expect(screen.getByText("I/Q capture complete")).toBeInTheDocument();
     });
   });
 

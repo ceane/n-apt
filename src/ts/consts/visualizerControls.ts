@@ -3,7 +3,7 @@ import { FFT_MAX_DB, FFT_MIN_DB } from "./fft";
 export type VisualizerPowerScale = "dB" | "dBm";
 
 export const FRONTEND_VISUALIZER_DEFAULTS = {
-  maxFrameRate: 120,
+  maxFrameRate: 100,
   zoom: 1,
   zoomFloor: 1,
   zoomFloorPan: 0,

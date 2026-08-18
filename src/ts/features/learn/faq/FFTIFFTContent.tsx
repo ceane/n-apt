@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import FFTIFFTCanvasGraphic from "@n-apt/learn/canvas/FFTIFFTCanvasGraphic";
+import FFTIFFTWalkthroughGraphic from "@n-apt/learn/canvas/FFTIFFTWalkthroughGraphic";
 
 const Eyebrow = styled.p`
   margin: 0 0 12px;
@@ -23,6 +23,13 @@ const Intro = styled.p`
   color: ${(props) => props.theme.textSecondary};
   font-size: 18px;
   line-height: 1.6;
+`;
+
+const WalkthroughIntro = styled.p`
+  margin: 0 0 12px;
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 15px;
+  line-height: 1.7;
 `;
 
 const Section = styled.section`
@@ -69,7 +76,20 @@ export const FFTIFFTContent: React.FC = () => (
       signals.
     </Intro>
 
-    <FFTIFFTCanvasGraphic />
+    <WalkthroughIntro>
+      An FFT is, at its heart, a way to turn a finite list of signal points into
+      a graph of frequency points. Follow one signal through sampling, bins,
+      twiddles, butterflies, and finally the magnitude plot below.
+    </WalkthroughIntro>
+    <WalkthroughIntro>
+      The sample rate determines the total frequency span. The FFT size divides
+      that span into bins, so it does not measure every individual Hz. The bin
+      width is <strong>bin width = sample rate ÷ FFT size</strong>; larger FFT
+      sizes make narrower bins and improve frequency resolution, at the cost of
+      more processing.
+    </WalkthroughIntro>
+
+    <FFTIFFTWalkthroughGraphic />
 
     <Section id="what-is-fft">
       <SectionHeading>What is FFT?</SectionHeading>

@@ -31,7 +31,9 @@ export {
   HackRFOne,
   SpinningHackRFOne,
   RTLSdr,
+  RTLSdrWithAntenna,
   SDRplay,
+  SpinningRTLSdrWithAntenna,
   Transmitters,
   type TransmitterModel,
 } from "@n-apt/three-d/SDRs";

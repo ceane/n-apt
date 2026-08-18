@@ -47,6 +47,11 @@ const PretextDemoRoute = lazy(() =>
     default: m.PretextDemoRoute,
   })),
 );
+const WebUsbExperimentRoute = lazy(() =>
+  import("@n-apt/app/routes/pages/WebUsbExperimentRoute").then((m) => ({
+    default: m.WebUsbExperimentRoute,
+  })),
+);
 const VFOGridDemoRoute = lazy(() =>
   import("@n-apt/app/routes/pages/VFOGridDemoRoute").then((m) => ({
     default: m.VFOGridDemoRoute,
@@ -288,6 +293,14 @@ const AppShellLayout: React.FC = () => {
           />
           <Route path="/logout" element={<LogoutRoute />} />
           <Route path="/draw-signal" element={<DrawSignalRoute />} />
+          <Route
+            path="/experiments/web-usb"
+            element={<WebUsbExperimentRoute />}
+          />
+          <Route
+            path="/lite"
+            element={<Navigate to="/experiments/web-usb" replace />}
+          />
           <Route path="/3d-model" element={<Model3DRoute />} />
           <Route path="/map-endpoints" element={<MapEndpointsRoute />} />
           <Route

@@ -21,10 +21,7 @@ import {
 import { SignalDisplaySection } from "@n-apt/spectrum";
 import { SignalComposition } from "@n-apt/learn";
 import { SourceSettingsSection } from "@n-apt/spectrum";
-import {
-  ConnectionStatusSection,
-  PauseButton,
-} from "@n-apt/spectrum";
+import { ConnectionStatusSection, PauseButton } from "@n-apt/spectrum";
 import { SourceInput } from "@n-apt/spectrum";
 import { Channels } from "@n-apt/spectrum";
 import { SidebarSectionTitle } from "@n-apt/ui/Collapsible";
@@ -167,9 +164,7 @@ export const SDRTestSidebar: React.FC = () => {
           sourceMode={state.sourceMode}
           backend={backend}
           deviceName={deviceName}
-          onSourceModeChange={(mode) =>
-            reduxDispatch(setSourceMode(mode))
-          }
+          onSourceModeChange={(mode) => reduxDispatch(setSourceMode(mode))}
         />
       </Section>
 
@@ -199,13 +194,13 @@ export const SDRTestSidebar: React.FC = () => {
               >
                 {state.isDiagnosticRunning ? (
                   state.diagnosticStatus || "Capturing..."
-                ) : state.diagnosticStatus === "Capture complete" ? (
+                ) : state.diagnosticStatus === "I/Q capture complete" ? (
                   <>
                     <RotateCcw size={14} />
                     Run Again
                   </>
                 ) : (
-                  "Run Multi-Frame Capture"
+                  "Run Multi-Frame I/Q Capture"
                 )}
               </MultiFrameButton>
             }

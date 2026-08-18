@@ -8,7 +8,6 @@ import {
   setFftFrameRate as setFftFrameRateAction,
 } from "@n-apt/redux";
 import {
-  MAX_SCREEN_REFRESH_RATE,
   clampFrameRateToLogicalMax,
   computeMaxFrameRate,
   getLogicalMaxFrameRate,

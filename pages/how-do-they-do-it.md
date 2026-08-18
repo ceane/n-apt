@@ -989,9 +989,23 @@ I labeled the signal with certain channels based on my what I found by poking ar
 
 There are about **3 channels**, I've found:
 
+<div data-channel-a="2col,2row">
+
 - **Channel A** from `18kHz to 4.39MHz` with a center frequency of `2.204 MHz` and bandwidth of `4.372 MHz`
-- **Channel B** from `24.72MHz to 29.88MHz` with a center frequency of `27.30 MHz` and bandwidth of `5.16 MHz`
+
+</div>
+
+<div data-channel-b="2col,2row">
+
+- **Channel B** from `24.1MHz to 30.37MHz` with a center frequency of `27.235 MHz` and bandwidth of `6.27 MHz`
+
+</div>
+
+<div data-channel-c="2col,2row">
+
 - **Channel C** from `4.75MHz to 23MHz` with a center frequency of `13.875 MHz` and bandwidth of `18.25 MHz`
+
+</div>
 
 They are specifially segmented this way because A and B are close in signal shape and bandwidth (and one would suspect function however without measurement of beats and precise power). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere with the same boundaries.
 
@@ -1048,7 +1062,11 @@ Some neuronal ensembles have smaller data throughput, where spikes and clumps ar
 <br />
 <br />
 
+<div data-channel-a="2col,2row">
+
 From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You can clearly see the APT-like spikes and valleys. The center frequency is `2.204 MHz` and bandwidth is `4.372 MHz`. In the raw `u8` I/Q model, that is approximately `8.744 MB/s`.
+
+</div>
 
 At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. 
 
@@ -1102,7 +1120,11 @@ As far as features that were present, I could only guess, but I was sure that Ch
 <br />
 <br />
 
-From about `24.72MHz to 29.88MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.30 MHz` and bandwidth is `5.16 MHz`. In the raw `u8` I/Q model, that is approximately `10.32 MB/s`.
+<div data-channel-b="2col,2row">
+
+From about `24.1MHz to 30.37MHz` is what I dub as "Channel B" of the overall N-APT signals. You can also clearly see an identical signal structure as Channel A. The center frequency is `27.235 MHz` and bandwidth is `6.27 MHz`. In the raw `u8` I/Q model, that is approximately `12.54 MB/s`.
+
+</div>
 
 I believe Channel B is identical in feature set to Channel A, except *who* it targets momentarily here and there or persistently, either the software forming a neurofence or an operator/interative poking around and scripting nearby people, both experienced.
 
@@ -1128,7 +1150,11 @@ Of course all the N-APT channels likely cannot triangulate all on their own, the
 <br />
 <br />
 
+<div data-channel-c="2col,2row">
+
 From what I could wing at, from about `4.75MHz to 23MHz` or so is "Channel C". You can see its a very large channel, way larger than the `3.2MHz/s` bandwidth my RTL-SDR can capture. The center frequency is `13.875 MHz` and bandwidth is `18.25 MHz`. In the raw `u8` I/Q model, this signal carries approximately `36.5 MB/s`, the largest of the N-APT channels!
+
+</div>
 
 It's very different from the other channels, which always have prominent spikes, these spikes are less, but much of the time I don't see them at all (possibly hardware settings due to wider beats; usually at `PPM = 1`, but this may require larger PPM to see the spikes).
 
@@ -1201,20 +1227,20 @@ Each FFT size is rounded up to the next power of two.
 
 <div data-data-estimate="network" class="table-tiny">
 
-<div class="estimated-data-table">
+<div class="estimated-data-table" data-channel-a="2col,2row" data-channel-b="2col,2row" data-channel-c="2col,2row">
 
 | Channel |    BW (2x, heterodyned)| Min FFT (`u8`, 24 Hz) | Min frame | Max FFT (`u16`, 60 Hz) | Max frame |
 |---|---:|---:|---:|---:|---:|
 | A | 4.372 MHz | 262,144 | 512 KB | 131,072 | 512 KB |
-| B | 5.16 MHz | 262,144 | 512 KB | 131,072 | 512 KB |
+| B | 6.27 MHz | 262,144 | 512 KB | 131,072 | 512 KB |
 | C | 18.25 MHz | 1,048,576 | 2 MB | 524,288 | 2 MB |
 
 </div>
 
 </div>
 
-The resulting network raw-content estimates are approximately **27.76 MB/s
-minimum** and **55.52 MB/s maximum**. The separate in-air model below uses the
+The resulting network raw-content estimates are approximately **28.892 MB/s
+minimum** and **57.784 MB/s maximum**. The separate in-air model below uses the
 heterodyned `2x` figures.
 
 The tables show each channel as one logical sample-rate stream for simplicity.
@@ -1232,12 +1258,12 @@ remains the same, while each endpoint processes only its assigned portion.
 
 ### 2x in-air via heterodyning in free space, real-world bandwidth at person
 
-<div class="estimated-data-table">
+<div class="estimated-data-table" data-channel-a="2col,2row" data-channel-b="2col,2row" data-channel-c="2col,2row">
 
 | Channel |  BW| Min FFT (`u8`, 24 Hz) | Min frame | Max FFT (`u16`, 60 Hz) | Max frame |
 |---|---:|---:|---:|---:|---:|
 | A | 8.744 MHz | 524,288 | 1 MB | 262,144 | 1 MB |
-| B | 10.32 MHz | 524,288 | 1 MB | 262,144 | 1 MB |
+| B | 12.54 MHz | 524,288 | 1 MB | 262,144 | 1 MB |
 | C | 36.5 MHz | 2,097,152 | 4 MB | 1,048,576 | 4 MB |
 
 </div>
@@ -1263,25 +1289,27 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 ### `u8` I/Q at 24 Hz (or 24fps)
 
+<div class="estimated-data-table" data-channel-a="2col,2row" data-channel-b="2col,2row" data-channel-c="2col,2row">
+
 | Channel | BW (1x, network) | Raw `u8` I/Q MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---:|---:|---:|---:|---:|---:|
-| A | 4.372 MHz | ~4.372 MB/s | ~1.31 GB | ~15.7 GB | ~47.2 GB | ~377 GB |
-| B | 5.16 MHz | ~5.16 MB/s | ~1.55 GB | ~18.6 GB | ~55.7 GB | ~446 GB |
-| C | 18.25 MHz | ~18.25 MB/s | ~5.48 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
-| **Total** | **27.76 MHz** | **~27.76 MB/s** | **~8.33 GB** | **~99.9 GB** | **~299.9 GB** | **~2.39 TB** |
+| A | 4.372 MHz | ~4.372 MB/s | ~1.31 GB | ~15.7 GB | ~47.2 GB | ~377.7 GB |
+| B | 6.27 MHz | ~6.27 MB/s | ~1.88 GB | ~22.6 GB | ~67.7 GB | ~541.7 GB |
+| C | 18.25 MHz | ~18.25 MB/s | ~5.47 GB | ~65.7 GB | ~197.1 GB | ~1.58 TB |
+| **Total** | 28.892 MHz | ~28.892 MB/s | ~8.67 GB | ~104.0 GB | ~312.0 GB | ~2.50 TB |
 
 </div>
 
 ### `u16` I/Q at 60 Hz (or 60fps)
 
-<div class="estimated-data-table">
+<div class="estimated-data-table" data-channel-a="2col,2row" data-channel-b="2col,2row" data-channel-c="2col,2row">
 
 | Channel | BW (1x, network) | Raw `u16` I/Q MB/s | 5 min | 1 hour | 3 hours | 24 hours |
 |---|---:|---:|---:|---:|---:|---:|
 | A | 4.372 MHz | ~21.86 MB/s | ~6.56 GB | ~78.7 GB | ~236.1 GB | ~1.89 TB |
-| B | 5.16 MHz | ~25.80 MB/s | ~7.74 GB | ~92.9 GB | ~278.6 GB | ~2.23 TB |
-| C | 18.25 MHz | ~91.25 MB/s | ~27.38 GB | ~328.5 GB | ~985.5 GB | ~6.57 TB |
-| **Total** | **27.76 MHz** | **~138.80 MB/s** | **~41.64 GB** | **~499.7 GB** | **~1.50 TB** | **~10.69 TB** |
+| B | 6.27 MHz | ~31.35 MB/s | ~9.40 GB | ~112.9 GB | ~338.6 GB | ~2.71 TB |
+| C | 18.25 MHz | ~91.25 MB/s | ~27.4 GB | ~328.5 GB | ~985.5 GB | ~7.88 TB |
+| **Total** | 28.892 MHz | ~144.46 MB/s | ~43.3 GB | ~520.1 GB | ~1.56 TB | ~12.48 TB |
 
 </div>
 
@@ -1300,10 +1328,10 @@ on the channel sample rate divided by 60 Hz.
 
 The resulting estimates are:
 
-- Minimum raw content: approximately `55.52 MB/s`
-- Maximum raw content: approximately `111.04 MB/s`
-- Write→read minimum: approximately `111.04 MB/s`
-- Write→read maximum: approximately `222.08 MB/s`
+- Minimum raw content: approximately `57.784 MB/s`
+- Maximum raw content: approximately `115.568 MB/s`
+- Write→read minimum: approximately `115.568 MB/s`
+- Write→read maximum: approximately `231.136 MB/s`
 
 A channel may be processed by one endpoint or split across multiple endpoints.
 Splitting changes each endpoint's share of the channel data, but the aggregate

@@ -10,8 +10,17 @@ describe("computeMaxFrameRate", () => {
   });
 
   it("uses the theoretical rate when no configured limit is provided", () => {
-    // 3.2 MHz / 2048 = 1562; the frontend ceiling is configurable.
-    expect(computeMaxFrameRate(3_200_000, 2048)).toBe(1562);
+    // The physical rate is 1562, but the WebSocket protocol permits at most 100.
+    expect(computeMaxFrameRate(3_200_000, 2048)).toBe(100);
+  });
+
+  it("caps whole-channel physical rates at the WebSocket protocol maximum", () => {
+    // 4.372 MHz / 32768 = 133.4..., which previously produced the rejected 133.
+    expect(computeMaxFrameRate(4_372_000, 32_768)).toBe(100);
+  });
+
+  it("caps an oversized configured ceiling at the WebSocket protocol maximum", () => {
+    expect(computeMaxFrameRate(20_000_000, 32_768, 120)).toBe(100);
   });
 
   it("respects explicit max frame rate limit below 60", () => {

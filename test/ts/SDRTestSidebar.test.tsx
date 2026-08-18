@@ -154,14 +154,14 @@ describe("SDRTestSidebar", () => {
   it("renders correctly", () => {
     renderComponent();
     expect(screen.getByText("Source")).toBeInTheDocument();
-    expect(screen.getByText("Run Multi-Frame Capture")).toBeInTheDocument();
+    expect(screen.getByText("Run Multi-Frame I/Q Capture")).toBeInTheDocument();
   });
 
   it("triggers diagnostic on button click", () => {
     renderComponent();
-    const button = screen.getByText("Run Multi-Frame Capture");
+    const button = screen.getByText("Run Multi-Frame I/Q Capture");
     fireEvent.click(button);
-    expect(screen.getByText("Run Multi-Frame Capture")).toBeInTheDocument();
+    expect(screen.getByText("Run Multi-Frame I/Q Capture")).toBeInTheDocument();
   });
 
   it("shows diagnostic status when running", () => {
@@ -185,7 +185,7 @@ describe("SDRTestSidebar", () => {
       ...defaultMockValue,
       state: {
         ...INITIAL_SPECTRUM_STATE,
-        diagnosticStatus: "Capture complete",
+        diagnosticStatus: "I/Q capture complete",
       },
     };
     renderComponent(completeMockValue);

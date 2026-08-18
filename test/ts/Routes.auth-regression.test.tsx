@@ -123,6 +123,13 @@ jest.mock("@n-apt/app/routes/pages/PretextDemoRoute", () => ({
   PretextDemoRoute: () => <div data-testid="pretext-route">Pretext Route</div>,
 }));
 
+jest.mock("@n-apt/app/routes/pages/WebUsbExperimentRoute", () => ({
+  __esModule: true,
+  WebUsbExperimentRoute: () => (
+    <div data-testid="web-usb-experiment-route">WebUSB Experiment Route</div>
+  ),
+}));
+
 jest.mock("@n-apt/app/routes/pages/VFOGridDemoRoute", () => ({
   __esModule: true,
   VFOGridDemoRoute: () => <div data-testid="vfo-route">VFO Route</div>,
@@ -164,5 +171,19 @@ describe("AppRoutes auth regression", () => {
     );
 
     expect(await screen.findByTestId("logout-route")).toBeInTheDocument();
+  });
+
+  it("redirects /lite to the WebUSB experiment route", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter initialEntries={["/lite"]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(
+      await screen.findByTestId("web-usb-experiment-route"),
+    ).toBeInTheDocument();
   });
 });

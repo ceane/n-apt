@@ -342,6 +342,7 @@ git clone https://github.com/ceane/n-apt.git
 cd n-apt
 npm run setup  # sets up .env.local and fetches Rust dependencies
 npm install     # installs dependencies
+npm run setup:hooks  # enables the tracked signals/article pre-commit hook
 npm run dev    # starts app
 ```
 

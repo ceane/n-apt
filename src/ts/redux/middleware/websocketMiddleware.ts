@@ -65,6 +65,7 @@ import {
 } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 import { resolveTxStandbyAnnouncement } from "@n-apt/app/infrastructure/streams/txStandbyAnnouncement";
 import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
+import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -2463,7 +2464,9 @@ const createWebSocketMiddleware =
                   typeof spectrumSettings.fftFrameRate === "number" &&
                   spectrumSettings.fftFrameRate > 0
                 ) {
-                  sdrSettingsPayload.frameRate = spectrumSettings.fftFrameRate;
+                  sdrSettingsPayload.frameRate = clampFrameRateToProtocolLimit(
+                    spectrumSettings.fftFrameRate,
+                  );
                 }
                 if (
                   typeof spectrumSettings.sampleRateHz === "number" &&
@@ -2644,6 +2647,24 @@ const createWebSocketMiddleware =
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
         let normalizedData = normalizeFrequencyRangeMessageData(type, data);
+        if (type === "settings" && normalizedData) {
+          normalizedData = { ...normalizedData };
+          for (const key of [
+            "frameRate",
+            "frame_rate",
+            "maxFrameRate",
+            "max_frame_rate",
+          ]) {
+            const value = normalizedData[key];
+            if (
+              typeof value === "number" &&
+              Number.isFinite(value) &&
+              value > 0
+            ) {
+              normalizedData[key] = clampFrameRateToProtocolLimit(value);
+            }
+          }
+        }
         if (shouldSuppressDuplicateFrequencyRangeSend(type, normalizedData)) {
           return next(action);
         }

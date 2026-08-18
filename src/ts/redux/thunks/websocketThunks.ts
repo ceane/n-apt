@@ -16,6 +16,7 @@ import {
   isHackrfDevice,
   isRtlSdrDevice,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =
@@ -350,10 +351,12 @@ export const sendSettings = createAsyncThunk(
     }
 
     if (isValidPositiveInt(settings.frameRate)) {
-      sanitized.frameRate = Math.floor(settings.frameRate!);
+      sanitized.frameRate = clampFrameRateToProtocolLimit(settings.frameRate!);
     }
     if (isValidPositiveInt(settings.maxFrameRate)) {
-      sanitized.maxFrameRate = Math.floor(settings.maxFrameRate!);
+      sanitized.maxFrameRate = clampFrameRateToProtocolLimit(
+        settings.maxFrameRate!,
+      );
     }
 
     if (isValidPositiveInt(settings.sampleRate)) {
