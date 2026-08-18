@@ -362,7 +362,7 @@ pub struct WebSocketMessage {
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "maxFrameRate")]
-  #[validate(range(min = 1))]
+  #[validate(range(min = 1, max = 100))]
   pub max_frame_rate: Option<u32>,
   #[serde(
     skip_serializing_if = "Option::is_none",
@@ -1096,7 +1096,7 @@ pub struct SdrGainConfig {
   pub tuner_bandwidth: Option<u32>,
 }
 
-pub const MAX_LOGICAL_FRAME_RATE: u32 = u32::MAX;
+pub const MAX_LOGICAL_FRAME_RATE: u32 = 100;
 
 fn default_fft_size() -> usize {
   2048

@@ -2522,6 +2522,27 @@ mod tests {
   }
 
   #[test]
+  fn validates_websocket_frame_rate_protocol_ceiling() {
+    let valid_frame_rate: WebSocketMessage =
+      serde_json::from_str(r#"{"type":"settings","frameRate":100}"#).unwrap();
+    assert!(valid_frame_rate.validate().is_ok());
+
+    let invalid_frame_rate: WebSocketMessage =
+      serde_json::from_str(r#"{"type":"settings","frameRate":101}"#).unwrap();
+    assert!(invalid_frame_rate.validate().is_err());
+
+    let valid_max_frame_rate: WebSocketMessage =
+      serde_json::from_str(r#"{"type":"settings","maxFrameRate":100}"#)
+        .unwrap();
+    assert!(valid_max_frame_rate.validate().is_ok());
+
+    let invalid_max_frame_rate: WebSocketMessage =
+      serde_json::from_str(r#"{"type":"settings","maxFrameRate":101}"#)
+        .unwrap();
+    assert!(invalid_max_frame_rate.validate().is_err());
+  }
+
+  #[test]
   #[serial]
   fn sanitizes_invalid_hackrf_gains_and_ppm_before_emitting_settings() {
     let shared = test_shared_state();

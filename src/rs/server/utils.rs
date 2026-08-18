@@ -2676,8 +2676,8 @@ mod save_tests {
     assert_eq!(mock_low.default_size, 32768);
     assert_eq!(mock_low.max_size, 262_144);
     assert_eq!(mock_low.default_frame_rate, 30);
-    assert_eq!(mock_low.max_frame_rate, 488);
-    assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&488));
+    assert_eq!(mock_low.max_frame_rate, 100);
+    assert_eq!(mock_low.size_to_frame_rate.get(&2048), Some(&100));
     assert_eq!(mock_low.size_to_frame_rate.get(&262_144), Some(&3));
 
     let mock_fallback =
@@ -2689,7 +2689,7 @@ mod save_tests {
     assert_eq!(mock_high.default_size, 32768);
     assert_eq!(mock_high.max_size, 262_144);
     assert_eq!(mock_high.default_frame_rate, 97);
-    assert_eq!(mock_high.max_frame_rate, 1562);
+    assert_eq!(mock_high.max_frame_rate, 100);
     assert_eq!(mock_high.size_to_frame_rate.get(&65536), Some(&48));
     assert_eq!(mock_high.size_to_frame_rate.get(&131_072), Some(&24));
     assert_eq!(mock_high.size_to_frame_rate.get(&262_144), Some(&12));
