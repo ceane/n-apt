@@ -32,6 +32,8 @@ import {
   shouldSyncManagedStreamOptions,
   resolveManagedTxSourceId,
   txStreamConflictsWithActiveRx,
+  handleManagedStreamEvent,
+  resolveManagedRxOptionsOverride,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -111,11 +113,285 @@ describe("hardware source transition cleanup", () => {
 import { bytesToBase64 } from "@n-apt/crypto/webcrypto";
 
 describe("managed stream option synchronization", () => {
+  it("hydrates Redux and the source snapshot when the device applies RX options", () => {
+    const dispatch = jest.fn();
+    const source = {
+      id: "mock-apt",
+      name: "Mock APT SDR",
+      kind: "mock_apt",
+      capability: "rx",
+      status: "receiving",
+      sdr: {
+        max_sample_rate: 20_000_000,
+        sample_rate_options: [2_400_000, 5_200_000],
+        fft_display: { markers: [] },
+        settings: {
+          sample_rate: 2_400_000,
+          center_frequency: 137_100_000,
+          fft_size: 1024,
+          fft_window: "Rectangular",
+          frame_rate: 30,
+          gain: 10,
+        },
+      },
+    };
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [source],
+        sampleRateHz: 2_400_000,
+        sdrSettings: null,
+      },
+      spectrum: {
+        sampleRateHz: 2_400_000,
+        fftSize: 1024,
+        fftWindow: "Rectangular",
+        fftFrameRate: 30,
+        gain: 10,
+        frequencyRange: {
+          min: 135_800_000,
+          max: 138_200_000,
+        },
+      },
+    };
+
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_options_applied",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 3,
+        optionsRevision: 2,
+        options: {
+          mode: "rx",
+          centerFrequencyHz: 138_000_000,
+          sampleRateHz: 5_200_000,
+          fftSize: 2048,
+          fftWindow: "Hann",
+          frameRate: 12,
+          gain: 18,
+        },
+      },
+      dispatch,
+      () => state,
+    );
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "websocket/updateDeviceState",
+        payload: expect.objectContaining({
+          sampleRateHz: 5_200_000,
+          sources: [
+            expect.objectContaining({
+              id: "mock-apt",
+              sdr: expect.objectContaining({
+                settings: expect.objectContaining({
+                  center_frequency: 138_000_000,
+                  sample_rate: 5_200_000,
+                  fft_size: 2048,
+                  fft_window: "Hann",
+                  frame_rate: 12,
+                  gain: 18,
+                }),
+              }),
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setSdrSettingsBundle",
+        payload: expect.objectContaining({
+          sampleRateHz: 5_200_000,
+          fftSize: 2048,
+          fftWindow: "Hann",
+          fftFrameRate: 12,
+          gain: 18,
+          frequencyRange: {
+            min: 135_400_000,
+            max: 140_600_000,
+          },
+        }),
+      }),
+    );
+
+    dispatch.mockClear();
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_opened",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 4,
+        optionsRevision: 3,
+        state: "ready",
+        options: {
+          mode: "rx",
+          centerFrequencyHz: 138_000_000,
+          sampleRateHz: 5_200_000,
+          fftSize: 2048,
+          fftWindow: "Hann",
+          frameRate: 12,
+          gain: 18,
+        },
+      },
+      dispatch,
+      () => state,
+    );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setSdrSettingsBundle" }),
+    );
+  });
+
   it("does not reconfigure the stream for a live frequency-range drag", () => {
     expect(shouldSyncManagedStreamOptions("spectrum/setFrequencyRange")).toBe(
       false,
     );
     expect(shouldSyncManagedStreamOptions("spectrum/setTxGeometry")).toBe(true);
+  });
+
+  it("keeps subscriber-local visualizer controls out of device stream options", () => {
+    expect(
+      [
+        "spectrum/setVizZoom",
+        "spectrum/setVizPan",
+        "spectrum/setFftDbLimits",
+        "spectrum/setPowerScale",
+        "spectrum/setFftAvgEnabled",
+        "spectrum/setFftSmoothEnabled",
+        "spectrum/setWfSmoothEnabled",
+      ].every((type) => !shouldSyncManagedStreamOptions(type)),
+    ).toBe(true);
+  });
+
+  it("converts device-scoped settings into managed RX option overrides", () => {
+    expect(
+      resolveManagedRxOptionsOverride({
+        sampleRate: 5_200_000,
+        fftSize: 2048,
+        fftWindow: "Hann",
+        frameRate: 12,
+        gain: 18,
+        vizZoom: 4,
+      }),
+    ).toEqual({
+      sampleRateHz: 5_200_000,
+      fftSize: 2048,
+      fftWindow: "Hann",
+      frameRate: 12,
+      gain: 18,
+    });
+  });
+
+  it("sends RX device settings through the managed stream transport", async () => {
+    const sockets: any[] = [];
+    (global.WebSocket as unknown as jest.Mock).mockImplementation(() => {
+      const socket = {
+        readyState:
+          sockets.length === 0 ? WebSocket.OPEN : WebSocket.CONNECTING,
+        close: jest.fn(),
+        send: jest.fn(),
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+        onopen: null as (() => void) | null,
+        onclose: null,
+        onerror: null,
+        onmessage: null,
+      };
+      sockets.push(socket);
+      return socket;
+    });
+
+    const middlewareStore = configureStore({
+      reducer: {
+        websocket: websocketSlice,
+        spectrum: spectrumSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          websocketMiddleware,
+        ),
+    });
+    middlewareStore.dispatch({
+      type: "websocket/connect",
+      payload: {
+        url: "ws://localhost/ws",
+        aesKey: {} as CryptoKey,
+        enabled: true,
+      },
+    });
+    sockets[0]?.onopen?.();
+    middlewareStore.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-apt",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "rx",
+            status: "receiving",
+            iq_format: {
+              element_type: "u8",
+              layout: "interleaved_iq",
+              typed_array: "Uint8Array",
+            },
+            sdr: {
+              max_sample_rate: 20_000_000,
+              sample_rate_options: [2_400_000, 5_200_000],
+              fft_display: { markers: [] },
+              settings: {
+                center_frequency: 137_100_000,
+                sample_rate: 2_400_000,
+                fft_size: 1024,
+                fft_window: "Rectangular",
+                frame_rate: 30,
+                gain: 10,
+              },
+            },
+          },
+        ],
+        sourceStatuses: { "mock-apt": "receiving" },
+      } as any),
+    );
+
+    expect(sockets.length).toBeGreaterThanOrEqual(2);
+    const streamSocket = sockets[1];
+    streamSocket.readyState = WebSocket.OPEN;
+    streamSocket.onopen?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    streamSocket.send.mockClear();
+
+    middlewareStore.dispatch({
+      type: "websocket/sendMessage",
+      payload: {
+        type: "settings",
+        data: {
+          scope: "device",
+          sampleRate: 5_200_000,
+          fftSize: 2048,
+          fftWindow: "Hann",
+          frameRate: 12,
+          gain: 18,
+        },
+      },
+    });
+
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"type":"stream_update_options"'),
+    );
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"sampleRateHz":5200000'),
+    );
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"fftSize":2048'),
+    );
   });
 
   it("opens a managed Tx stream for selected Mock Tx standby preview delivery", () => {

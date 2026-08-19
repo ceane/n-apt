@@ -3303,8 +3303,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       lastSentFrequencyRangeRef.current = null;
     }, [activeSourceId, selectedSourceViewKey]);
 
-    // Hydrate sample rate from backend once. After user interaction, the
-    // frontend is authoritative because sample-rate changes are one-way.
+    // Hydrate the initial sample rate from backend state. Subsequent managed
+    // stream option events update Redux directly, so a remote subscriber's
+    // device-scoped change reaches this view without waiting for a heartbeat.
     useEffect(() => {
       const rate = selectLiveSampleRateForSync({
         isConnected,

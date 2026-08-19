@@ -60,7 +60,6 @@ import {
   setStitchSourceSettings as setStitchSourceSettingsAction,
   setCaptureStatus,
   setDisplayMode,
-  setFftWindow as setFftWindowAction,
   setFileMetadata,
   bumpSnapshotSectionPulse,
   mergeLastKnownRanges,
@@ -1089,6 +1088,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     fftSizeOptions,
     sampleRateOptions,
     setFftSize,
+    setFftWindow,
     setFftFrameRate,
     setSampleRate,
     setGain,
@@ -3272,9 +3272,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onFftFrameRateChange={setFftFrameRate}
             onFftSizeChange={setFftSize}
             onSampleRateChange={handleSignalDisplaySampleRateChange}
-            onFftWindowChange={(win) => {
-              dispatch(setFftWindowAction(win));
-            }}
+            onFftWindowChange={setFftWindow}
             onTemporalResolutionChange={(res) => {
               dispatch(setTemporalResolution(res));
             }}
@@ -3377,9 +3375,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               onFftFrameRateChange: setFftFrameRate,
               onFftSizeChange: setFftSize,
               onSampleRateChange: handleSignalDisplaySampleRateChange,
-              onFftWindowChange: (win) => {
-                dispatch(setFftWindowAction(win));
-              },
+              onFftWindowChange: setFftWindow,
               onTemporalResolutionChange: (res) => {
                 dispatch(setTemporalResolution(res));
               },

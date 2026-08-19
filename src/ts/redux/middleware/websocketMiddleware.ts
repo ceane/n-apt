@@ -21,6 +21,7 @@ import {
 import {
   setActiveSignalArea,
   setFrequencyRange,
+  setSdrSettingsBundle,
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
@@ -220,6 +221,129 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
     },
     sdrLimitMarkers: source.sdr.fft_display.markers,
   };
+};
+
+type RxDeviceOptions = Extract<StreamOptions, { mode: "rx" }>;
+
+const resolveManagedRxFrequencyRange = ({
+  centerFrequencyHz,
+  sampleRateHz,
+}: Pick<RxDeviceOptions, "centerFrequencyHz" | "sampleRateHz">) => {
+  const span = Math.max(1, Math.round(sampleRateHz));
+  const min = Math.max(0, centerFrequencyHz - span / 2);
+  return { min, max: min + span };
+};
+
+/**
+ * Apply the backend's effective device options to the legacy source snapshot.
+ * The stream manager is the authoritative source for these values while a
+ * managed stream is active; waiting for a later source_info heartbeat leaves
+ * Signal Display and the next subscription one revision behind.
+ */
+export const resolveManagedRxDeviceOptionUpdates = ({
+  sourceId,
+  options,
+  rootState,
+}: {
+  sourceId: string;
+  options: RxDeviceOptions;
+  rootState: any;
+}): {
+  device: Record<string, unknown>;
+  spectrum: Record<string, unknown>;
+} => {
+  const websocketState = rootState.websocket ?? rootState;
+  const currentSources: SourceInfo[] = websocketState.sources ?? [];
+  const nextSources = currentSources.map((source) =>
+    source.id === sourceId
+      ? {
+          ...source,
+          sdr: {
+            ...source.sdr,
+            settings: {
+              ...source.sdr.settings,
+              center_frequency: options.centerFrequencyHz,
+              sample_rate: options.sampleRateHz,
+              fft_size: options.fftSize,
+              ...(typeof options.fftWindow === "string"
+                ? { fft_window: options.fftWindow }
+                : {}),
+              ...(typeof options.frameRate === "number"
+                ? { frame_rate: options.frameRate }
+                : {}),
+              ...(typeof options.gain === "number"
+                ? { gain: options.gain }
+                : {}),
+            },
+          },
+        }
+      : source,
+  );
+  const activeSource = nextSources.find(
+    (source) => source.id === websocketState.activeSourceId,
+  );
+  const activeSourceUpdates =
+    activeSource && activeSource.id === sourceId
+      ? deriveLegacyStateFromSource(activeSource)
+      : {};
+
+  return {
+    device: {
+      sources: nextSources,
+      ...(activeSource?.id === sourceId ? activeSourceUpdates : {}),
+    },
+    spectrum: {
+      sampleRateHz: options.sampleRateHz,
+      fftSize: options.fftSize,
+      frequencyRange: resolveManagedRxFrequencyRange(options),
+      ...(typeof options.fftWindow === "string"
+        ? { fftWindow: options.fftWindow }
+        : {}),
+      ...(typeof options.frameRate === "number"
+        ? { fftFrameRate: options.frameRate }
+        : {}),
+      ...(typeof options.gain === "number" ? { gain: options.gain } : {}),
+    },
+  };
+};
+
+export const resolveManagedRxOptionsOverride = (
+  settings: Record<string, unknown> | null | undefined,
+): Partial<Omit<RxDeviceOptions, "mode">> => {
+  if (!settings) return {};
+  const overrides: Partial<Omit<RxDeviceOptions, "mode">> = {};
+  if (
+    typeof settings.sampleRate === "number" &&
+    Number.isFinite(settings.sampleRate) &&
+    settings.sampleRate > 0
+  ) {
+    overrides.sampleRateHz = settings.sampleRate;
+  }
+  if (
+    typeof settings.fftSize === "number" &&
+    Number.isFinite(settings.fftSize) &&
+    settings.fftSize > 0
+  ) {
+    overrides.fftSize = settings.fftSize;
+  }
+  if (typeof settings.fftWindow === "string" && settings.fftWindow.length > 0) {
+    overrides.fftWindow = settings.fftWindow;
+  }
+  if (
+    typeof settings.frameRate === "number" &&
+    Number.isFinite(settings.frameRate) &&
+    settings.frameRate > 0
+  ) {
+    overrides.frameRate = settings.frameRate;
+  }
+  if (
+    typeof settings.gain === "number" &&
+    Number.isFinite(settings.gain) &&
+    settings.gain >= 0
+  ) {
+    overrides.gain = settings.gain;
+  }
+  return overrides;
 };
 
 const mapSourceStatusToDeviceState = (
@@ -1081,19 +1205,36 @@ const sourceCenterFrequencyHz = (state: any): number => {
 const buildManagedRxOptions = (
   state: any,
   source: SourceInfo,
+  overrides: Partial<Omit<RxDeviceOptions, "mode">> = {},
 ): StreamOptions => {
   const settings = source.sdr?.settings ?? {};
   return {
     mode: "rx",
-    centerFrequencyHz: sourceCenterFrequencyHz(state),
-    sampleRateHz: Number(
-      settings.sample_rate ?? state.spectrum?.sampleRateHz ?? 1,
+    centerFrequencyHz: Number(
+      overrides.centerFrequencyHz ??
+        settings.center_frequency ??
+        sourceCenterFrequencyHz(state),
     ),
-    fftSize: Number(settings.fft_size ?? state.spectrum?.fftSize ?? 1024),
-    fftWindow: settings.fft_window ?? state.spectrum?.fftWindow,
-    frameRate: settings.frame_rate ?? state.spectrum?.fftFrameRate,
+    sampleRateHz: Number(
+      overrides.sampleRateHz ??
+        settings.sample_rate ??
+        state.spectrum?.sampleRateHz ??
+        1,
+    ),
+    fftSize: Number(
+      overrides.fftSize ??
+        settings.fft_size ??
+        state.spectrum?.fftSize ??
+        1024,
+    ),
+    fftWindow:
+      overrides.fftWindow ?? settings.fft_window ?? state.spectrum?.fftWindow,
+    frameRate:
+      overrides.frameRate ?? settings.frame_rate ?? state.spectrum?.fftFrameRate,
     gain:
-      typeof settings.gain === "number"
+      typeof overrides.gain === "number"
+        ? overrides.gain
+        : typeof settings.gain === "number"
         ? settings.gain
         : settings.gain?.tuner_gain,
   };
@@ -1248,7 +1389,19 @@ const handleManagedStreamEvent = (
   dispatch: Dispatch,
   getState: () => any,
 ): void => {
-  if (event.type === "stream_frame") {
+  if (
+    mode === "rx" &&
+    (event.type === "stream_options_applied" || event.type === "stream_opened") &&
+    event.options?.mode === "rx"
+  ) {
+    const updates = resolveManagedRxDeviceOptionUpdates({
+      sourceId,
+      options: event.options,
+      rootState: getState(),
+    });
+    dispatch(updateDeviceState(updates.device as any));
+    dispatch(setSdrSettingsBundle(updates.spectrum as any));
+  } else if (event.type === "stream_frame") {
     const state = getState().websocket;
     const source = (state.sources ?? []).find(
       (candidate: SourceInfo) => candidate.id === sourceId,
@@ -1287,6 +1440,8 @@ const handleManagedStreamEvent = (
     );
   }
 };
+
+export { handleManagedStreamEvent };
 
 const isCurrentManagedRxTarget = (
   rootState: any,
@@ -1332,6 +1487,7 @@ const isCurrentManagedTxTarget = (
 const syncManagedStreamSubscriptions = (
   dispatch: Dispatch,
   getState: () => any,
+  rxOptionsOverride: Partial<Omit<RxDeviceOptions, "mode">> = {},
 ): void => {
   if (!sourceModeStreamManager) return;
   if (wsInstance.ws?.readyState !== WebSocket.OPEN) return;
@@ -1408,7 +1564,7 @@ const syncManagedStreamSubscriptions = (
     void sourceModeStreamManager
       .subscribe(
         key,
-        buildManagedRxOptions(getState(), desiredRxSource),
+        buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
         (event) =>
           handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
       )
@@ -1440,7 +1596,11 @@ const syncManagedStreamSubscriptions = (
       });
   } else if (managedRxSubscription && desiredRxSource) {
     void managedRxSubscription.updateOptions(
-      buildManagedRxOptions(getState(), desiredRxSource),
+      buildManagedRxOptions(
+        getState(),
+        desiredRxSource,
+        rxOptionsOverride,
+      ),
     );
   }
   // A source handoff can commit after the stream acknowledgement. In that
@@ -2797,6 +2957,18 @@ const createWebSocketMiddleware =
             pausedFrameRequestInFlight = true;
           }
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
+          if (type === "settings") {
+            const rxOptionsOverride = resolveManagedRxOptionsOverride(
+              normalizedData,
+            );
+            if (Object.keys(rxOptionsOverride).length > 0) {
+              syncManagedStreamSubscriptions(
+                dispatch,
+                getState,
+                rxOptionsOverride,
+              );
+            }
+          }
           const selectedSource = (getState().websocket.sources ?? []).find(
             (source: SourceInfo) => source.id === normalizedData?.source_id,
           );
