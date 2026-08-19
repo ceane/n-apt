@@ -53,6 +53,7 @@ import {
   normalizeSourceDuplexMode,
   resolveSourceModeManagement,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
+import type { StreamControlMode } from "@n-apt/app/infrastructure/streams/streamContract";
 import { filterLiveFramesForSource } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 import {
   createSourceModeStreamManager,
@@ -664,8 +665,7 @@ export const resetPausedFrameRequestGate = (): void => {
  * by the pre-echo backend snapshot.
  */
 export const isPauseCommandInFlight = (): boolean =>
-  lastExpectedPauseState !== null &&
-  Date.now() - lastPauseCommandTime < 1000;
+  lastExpectedPauseState !== null && Date.now() - lastPauseCommandTime < 1000;
 
 export const resetWebSocketMiddlewareState = (): void => {
   requestedSourceId = null;
@@ -850,7 +850,10 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
           (sourceId === activeSourceId ||
             sourceId === presentationSourceId ||
             requestedSourceId === sourceId);
-        if (!isPausedForSourcePublish && sourceVisualizationRuntime.publish(frame)) {
+        if (
+          !isPausedForSourcePublish &&
+          sourceVisualizationRuntime.publish(frame)
+        ) {
           liveDataBySourceRef.current[sourceId] =
             sourceVisualizationRuntime.getSourceRef(sourceId);
         }
@@ -858,7 +861,11 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         // A paused one-shot response must replace the frozen frame so the
         // canvas repaints at the requested center instead of holding the old
         // paused spectrum.
-        presentationController.acceptFrame(frame, undefined, isPausedOneShotFrame);
+        presentationController.acceptFrame(
+          frame,
+          undefined,
+          isPausedOneShotFrame,
+        );
       }
     }
     const presentationFrames = filterLiveFramesForSource(
@@ -870,14 +877,27 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     ).filter(
       (frame: any) => !isTxPresentationFrame(frame) || isActiveTxPresentation,
     );
-    const readinessFrame = presentationFrames.find(
-      (frame: any) =>
-        frame?.source_id === activeSourceId &&
-        typeof frame?.sequence === "number",
-    );
-    const currentReadiness = state.websocket.sourceFrameReadiness;
+    const readinessFrame = presentationFrames.find((frame: any) => {
+      const frameMode = isTxPresentationFrame(frame) ? "tx" : "rx";
+      const expectedSourceId =
+        frameMode === "tx" ? presentationSourceId : activeSourceId;
+      return (
+        frame?.source_id === expectedSourceId &&
+        typeof frame?.sequence === "number"
+      );
+    });
+    const readinessMode = readinessFrame
+      ? isTxPresentationFrame(readinessFrame)
+        ? "tx"
+        : "rx"
+      : null;
+    const currentReadiness = readinessMode
+      ? (state.websocket.sourceFrameReadinessByMode?.[readinessMode] ??
+        (readinessMode === "rx" ? state.websocket.sourceFrameReadiness : null))
+      : null;
     if (
       readinessFrame &&
+      readinessMode &&
       !isFileSource &&
       (!currentReadiness ||
         currentReadiness.sourceId !== readinessFrame.source_id ||
@@ -886,16 +906,28 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
             ? readinessFrame.stream_epoch
             : null))
     ) {
+      const nextReadiness = {
+        sourceId: readinessFrame.source_id,
+        streamEpoch:
+          typeof readinessFrame.stream_epoch === "number"
+            ? readinessFrame.stream_epoch
+            : null,
+        sequence: readinessFrame.sequence,
+      };
       dispatch(
         updateDeviceState({
-          sourceFrameReadiness: {
-            sourceId: readinessFrame.source_id,
-            streamEpoch:
-              typeof readinessFrame.stream_epoch === "number"
-                ? readinessFrame.stream_epoch
-                : null,
-            sequence: readinessFrame.sequence,
+          sourceFrameReadinessByMode: {
+            ...(state.websocket.sourceFrameReadinessByMode ?? {
+              rx: state.websocket.sourceFrameReadiness ?? null,
+              tx: null,
+            }),
+            [readinessMode]: nextReadiness,
           },
+          // Keep the old field as the RX compatibility projection. A TX
+          // preview must never make an RX canvas appear frame-ready.
+          ...(readinessMode === "rx"
+            ? { sourceFrameReadiness: nextReadiness }
+            : {}),
         }),
       );
     }
@@ -1233,21 +1265,20 @@ const buildManagedRxOptions = (
         1,
     ),
     fftSize: Number(
-      overrides.fftSize ??
-        settings.fft_size ??
-        state.spectrum?.fftSize ??
-        1024,
+      overrides.fftSize ?? settings.fft_size ?? state.spectrum?.fftSize ?? 1024,
     ),
     fftWindow:
       overrides.fftWindow ?? settings.fft_window ?? state.spectrum?.fftWindow,
     frameRate:
-      overrides.frameRate ?? settings.frame_rate ?? state.spectrum?.fftFrameRate,
+      overrides.frameRate ??
+      settings.frame_rate ??
+      state.spectrum?.fftFrameRate,
     gain:
       typeof overrides.gain === "number"
         ? overrides.gain
         : typeof settings.gain === "number"
-        ? settings.gain
-        : settings.gain?.tuner_gain,
+          ? settings.gain
+          : settings.gain?.tuner_gain,
   };
 };
 
@@ -1307,10 +1338,13 @@ export const txStreamConflictsWithActiveRx = ({
   txSource,
 }: {
   activeSourceId: string | null | undefined;
-  txSource: {
-    id?: string | null;
-    duplex_mode?: string | null;
-  } | null | undefined;
+  txSource:
+    | {
+        id?: string | null;
+        duplex_mode?: string | null;
+      }
+    | null
+    | undefined;
 }): boolean =>
   !!activeSourceId &&
   !!txSource &&
@@ -1395,14 +1429,15 @@ export const resolveManagedTxSourceId = (state: any): string | null => {
 
 const handleManagedStreamEvent = (
   sourceId: string,
-  mode: "rx" | "tx",
+  mode: StreamControlMode,
   event: import("@n-apt/app/infrastructure/streams/sourceModeStreamManager").StreamEvent,
   dispatch: Dispatch,
   getState: () => any,
 ): void => {
   if (
     mode === "rx" &&
-    (event.type === "stream_options_applied" || event.type === "stream_opened") &&
+    (event.type === "stream_options_applied" ||
+      event.type === "stream_opened") &&
     event.options?.mode === "rx"
   ) {
     const updates = resolveManagedRxDeviceOptionUpdates({
@@ -1433,11 +1468,7 @@ const handleManagedStreamEvent = (
     );
   } else if (event.type === "stream_error") {
     dispatch(setOperationalError(event.message));
-  } else if (
-    mode === "rx" &&
-    (event.type === "stream_opened" || event.type === "stream_state") &&
-    getState().websocket.activeSourceId === sourceId
-  ) {
+  } else if (event.type === "stream_opened" || event.type === "stream_state") {
     const phase =
       event.state === "unavailable"
         ? "failed"
@@ -1448,6 +1479,7 @@ const handleManagedStreamEvent = (
       dispatch,
       getState,
       sourceId,
+      mode,
       phase,
       event.reason ?? null,
       phase === "failed",
@@ -1610,11 +1642,7 @@ const syncManagedStreamSubscriptions = (
       });
   } else if (managedRxSubscription && desiredRxSource) {
     void managedRxSubscription.updateOptions(
-      buildManagedRxOptions(
-        getState(),
-        desiredRxSource,
-        rxOptionsOverride,
-      ),
+      buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
     );
   }
   // A source handoff can commit after the stream acknowledgement. In that
@@ -1625,10 +1653,10 @@ const syncManagedStreamSubscriptions = (
     managedRxSubscription &&
     activeSource?.id === rxSourceId &&
     managedRxSubscription.streamEpoch > 0 &&
-    (getState().websocket.sourceTransport?.sourceId !== rxSourceId ||
-      getState().websocket.sourceTransport?.phase !== "ready")
+    (getState().websocket.sourceTransportByMode?.rx?.sourceId !== rxSourceId ||
+      getState().websocket.sourceTransportByMode?.rx?.phase !== "ready")
   ) {
-    publishSourceTransport(dispatch, getState, rxSourceId, "ready");
+    publishSourceTransport(dispatch, getState, rxSourceId, "rx", "ready");
   }
 
   if (!wantsTx || !txSourceId) {
@@ -1685,10 +1713,10 @@ const syncManagedStreamSubscriptions = (
     managedTxSubscription &&
     activeSource?.id === txSourceId &&
     managedTxSubscription.streamEpoch > 0 &&
-    (getState().websocket.sourceTransport?.sourceId !== txSourceId ||
-      getState().websocket.sourceTransport?.phase !== "ready")
+    (getState().websocket.sourceTransportByMode?.tx?.sourceId !== txSourceId ||
+      getState().websocket.sourceTransportByMode?.tx?.phase !== "ready")
   ) {
-    publishSourceTransport(dispatch, getState, txSourceId!, "ready");
+    publishSourceTransport(dispatch, getState, txSourceId!, "tx", "ready");
   }
 };
 
@@ -1852,11 +1880,17 @@ const publishSourceTransport = (
   dispatch: Dispatch,
   getState: () => any,
   sourceId: string,
+  mode: StreamControlMode,
   phase: "warming" | "ready" | "failed",
   error: string | null = null,
   replaceFailure = false,
 ) => {
-  const current = getState().websocket.sourceTransport;
+  const websocket = getState().websocket;
+  const fallbackTransport =
+    mode === "rx"
+      ? websocket.sourceTransport
+      : { sourceId: null, phase: "idle" as const, error: null };
+  const current = websocket.sourceTransportByMode?.[mode] ?? fallbackTransport;
   if (
     !replaceFailure &&
     current?.phase === "failed" &&
@@ -1865,8 +1899,26 @@ const publishSourceTransport = (
     return;
   }
   const nextTransport = { sourceId, phase, error };
+  const sourceTransportByMode = {
+    ...(websocket.sourceTransportByMode ?? {
+      rx: websocket.sourceTransport ?? {
+        sourceId: null,
+        phase: "idle" as const,
+        error: null,
+      },
+      tx: { sourceId: null, phase: "idle" as const, error: null },
+    }),
+    [mode]: nextTransport,
+  };
   if (!equalValue(current, nextTransport)) {
-    dispatch(updateDeviceState({ sourceTransport: nextTransport }));
+    dispatch(
+      updateDeviceState({
+        sourceTransportByMode,
+        // Keep the legacy RX projection for non-route consumers. The route
+        // reads the mode-scoped slot so TX cannot disturb RX lifecycle state.
+        ...(mode === "rx" ? { sourceTransport: nextTransport } : {}),
+      }),
+    );
   }
 };
 
@@ -2016,7 +2068,8 @@ export const processWebSocketMessage = (
         previousActiveSourceId: previousActiveSourceId ?? null,
         nextActiveSourceId: parsedData.active_source,
         selectedSourceId: sourceSelection.selectedSourceId ?? null,
-        selectionIntentSourceId: sourceSelection.selectionIntentSourceId ?? null,
+        selectionIntentSourceId:
+          sourceSelection.selectionIntentSourceId ?? null,
       });
       if (parsedData.active_source !== previousActiveSourceId) {
         pendingDataUpdate = null;
@@ -2058,7 +2111,12 @@ export const processWebSocketMessage = (
         dispatch(
           updateDeviceState({
             sourceTransport: { sourceId: null, phase: "idle", error: null },
+            sourceTransportByMode: {
+              rx: { sourceId: null, phase: "idle", error: null },
+              tx: { sourceId: null, phase: "idle", error: null },
+            },
             sourceFrameReadiness: null,
+            sourceFrameReadinessByMode: { rx: null, tx: null },
           }),
         );
         dispatch(setOperationalError(""));
@@ -2106,7 +2164,10 @@ export const processWebSocketMessage = (
         sources,
         sourceStatuses,
         ...(parsedData.active_source !== previousActiveSourceId
-          ? { sourceFrameReadiness: null }
+          ? {
+              sourceFrameReadiness: null,
+              sourceFrameReadinessByMode: { rx: null, tx: null },
+            }
           : {}),
         ...derived,
       };
@@ -2183,7 +2244,10 @@ export const processWebSocketMessage = (
               : source,
         ),
         ...(parsedData.source_id !== previousActiveSourceId
-          ? { sourceFrameReadiness: null }
+          ? {
+              sourceFrameReadiness: null,
+              sourceFrameReadinessByMode: { rx: null, tx: null },
+            }
           : {}),
       };
 
@@ -2494,6 +2558,7 @@ export const processWebSocketMessage = (
         dispatch,
         getState,
         parsedData.source_id,
+        parsedData.source_id === "mock-tx" ? "tx" : "rx",
         "failed",
         parsedData.message,
         true,
@@ -2502,8 +2567,7 @@ export const processWebSocketMessage = (
         failedSourceId: parsedData.source_id,
         activeSourceId: getState().websocket.activeSourceId ?? null,
         selectedSourceId:
-          getState().sourceSelection?.selectedSourceId ??
-          parsedData.source_id,
+          getState().sourceSelection?.selectedSourceId ?? parsedData.source_id,
       });
       if (selectionFallback) {
         // A failed unplugged-device request must not remain as a durable UI
@@ -3029,11 +3093,17 @@ const createWebSocketMiddleware =
               isTx ? "tx" : "rx",
               true,
             );
-            dispatch(updateDeviceState({ sourceFrameReadiness: null }));
+            dispatch(
+              updateDeviceState({
+                sourceFrameReadiness: null,
+                sourceFrameReadinessByMode: { rx: null, tx: null },
+              }),
+            );
             publishSourceTransport(
               dispatch,
               getState,
               requestedSourceId,
+              isTx ? "tx" : "rx",
               "warming",
               null,
               true,
@@ -3054,9 +3124,8 @@ const createWebSocketMiddleware =
           }
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
           if (type === "settings") {
-            const rxOptionsOverride = resolveManagedRxOptionsOverride(
-              normalizedData,
-            );
+            const rxOptionsOverride =
+              resolveManagedRxOptionsOverride(normalizedData);
             if (Object.keys(rxOptionsOverride).length > 0) {
               syncManagedStreamSubscriptions(
                 dispatch,

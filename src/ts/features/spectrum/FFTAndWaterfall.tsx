@@ -192,6 +192,10 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         : activeSource,
       txBindingSourceId: txSuiteSourceId,
     });
+    const sourceTransport =
+      wsState.sourceTransportByMode?.[
+        sourceModeManagement.isTxMode ? "tx" : "rx"
+      ] ?? wsState.sourceTransport;
     const sourceMode = useAppSelector(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
@@ -240,7 +244,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     );
     const sourceStreamReady =
       isSourceStreamAvailable(activeSourceStatus) ||
-      wsState.sourceTransport?.phase === "ready" ||
+      sourceTransport?.phase === "ready" ||
       hasIncomingData;
     const hasFrameForLoading =
       hasPaintedFrame ||
@@ -278,7 +282,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
           sourceStreamReady,
           sourceHandoffPending:
             props.presentationPolicy?.suppressStaleFrames === true,
-          sourceTransportPhase: wsState.sourceTransport?.phase,
+          sourceTransportPhase: sourceTransport?.phase,
         })
       ) {
         return "Server down";
@@ -295,7 +299,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       wsState.cryptoCorrupted,
       sourceStreamReady,
       props.presentationPolicy?.suppressStaleFrames,
-      wsState.sourceTransport?.phase,
+      sourceTransport?.phase,
     ]);
 
     const awaitingDeviceData = useMemo(() => {
@@ -363,7 +367,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       sourceMode,
       sourceStreamReady,
       placeholderErrorReason,
-      sourceTransportPhase: wsState.sourceTransport?.phase,
+      sourceTransportPhase: sourceTransport?.phase,
     });
     const visualizerFrameState = hasRenderableFrame
       ? "rendered"
@@ -508,17 +512,16 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               rangeMax: props.frequencyRange.max,
               bounds: zoomedBounds,
             });
-        const nextPan =
-          retune?.retuned
-            ? retune.pan
-            : getStableVizPanForZoomChange({
-                currentZoom: zoom,
-                currentPan: pan,
-                nextZoom: clampedZoom,
-                rangeMin: props.frequencyRange.min,
-                rangeMax: props.frequencyRange.max,
-                allowNegativeFrequencies,
-              });
+        const nextPan = retune?.retuned
+          ? retune.pan
+          : getStableVizPanForZoomChange({
+              currentZoom: zoom,
+              currentPan: pan,
+              nextZoom: clampedZoom,
+              rangeMin: props.frequencyRange.min,
+              rangeMax: props.frequencyRange.max,
+              allowNegativeFrequencies,
+            });
         if (retune?.retuned) {
           props.onFrequencyRangeChange?.(retune.frequencyRange);
         }
@@ -586,7 +589,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             />
             {props.overlayContent ? props.overlayContent : null}
           </SpectrumStage>
-            <FIFOWaterfallCanvas
+          <FIFOWaterfallCanvas
             isPaused={props.isPaused}
             isStandby={props.isStandby}
             setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
@@ -596,26 +599,26 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
             placeholderSourceLabel={props.placeholderSourceLabel}
             placeholderPaneLabel="Waterfall"
             placeholderErrorReason={placeholderErrorReason}
-              placeholderState={
-                props.isPaused && !sharedPlaceholderState
-                  ? {
-                      kind: "top-bar",
-                      kicker: "Paused",
-                      title: "",
-                      sourceLabel: props.placeholderSourceLabel,
+            placeholderState={
+              props.isPaused && !sharedPlaceholderState
+                ? {
+                    kind: "top-bar",
+                    kicker: "Paused",
+                    title: "",
+                    sourceLabel: props.placeholderSourceLabel,
                   }
-                  : sharedPlaceholderState?.kind === "loading" &&
+                : sharedPlaceholderState?.kind === "loading" &&
                     !shouldShowLoadingPlaceholder &&
                     !props.placeholderState
                   ? undefined
-                : sharedPlaceholderState?.kind === "loading"
-                  ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }
-                  : sharedPlaceholderState
+                  : sharedPlaceholderState?.kind === "loading"
+                    ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }
+                    : sharedPlaceholderState
             }
           />
         </Left>
         <SlidersRail>
-            <VisualizerSliders
+          <VisualizerSliders
             zoom={zoom}
             maxZoom={maxVizZoom}
             dbMax={dbMax}

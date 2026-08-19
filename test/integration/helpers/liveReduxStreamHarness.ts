@@ -6,7 +6,11 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { RootState } from "@n-apt/redux/store";
 import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
-import { importAesKey, base64ToBytes, computeHmac } from "@n-apt/crypto/webcrypto";
+import {
+  importAesKey,
+  base64ToBytes,
+  computeHmac,
+} from "@n-apt/crypto/webcrypto";
 import { setFrequencyRange } from "@n-apt/redux";
 import {
   setSelectedSourceId,
@@ -17,16 +21,22 @@ import {
   isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycle,
+  selectSourceFrameReadinessForMode,
+  selectSourceTransportForMode,
   type LiveSourceLifecyclePhase,
 } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
 import type { SourcePresentationPhase } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 
 // The repository has the runtime `ws` dependency but intentionally does not
 // require its optional type package for the browser build.
-const wsModule: any = require(resolve(process.cwd(), "node_modules/ws/index.js"));
-const NodeWebSocket: any = [wsModule, wsModule.default, wsModule.WebSocket].find(
-  (candidate) => typeof candidate === "function",
+const wsModule: any = require(
+  resolve(process.cwd(), "node_modules/ws/index.js"),
 );
+const NodeWebSocket: any = [
+  wsModule,
+  wsModule.default,
+  wsModule.WebSocket,
+].find((candidate) => typeof candidate === "function");
 
 type AppStore = typeof import("@n-apt/redux/store").store;
 type AppDispatch = AppStore["dispatch"];
@@ -102,7 +112,11 @@ export type LiveReduxStreamHarness = {
   simulateHardwarePresence(present: boolean): Promise<void>;
   setFftSize(fftSize: number, timeoutMs?: number): Promise<void>;
   retuneCenterFrequency(centerHz: number): Promise<number>;
-  waitFor<T>(read: () => T, predicate: (value: T) => boolean, timeoutMs?: number): Promise<T>;
+  waitFor<T>(
+    read: () => T,
+    predicate: (value: T) => boolean,
+    timeoutMs?: number,
+  ): Promise<T>;
   snapshot(): LiveReduxStreamSnapshot;
   close(): void;
 };
@@ -110,7 +124,9 @@ export type LiveReduxStreamHarness = {
 const resolvePausePresentationMode = (
   source: SourceInfo | null | undefined,
 ): "rx" | "tx" =>
-  source?.status === "transmitting" || source?.status === "standby" ? "tx" : "rx";
+  source?.status === "transmitting" || source?.status === "standby"
+    ? "tx"
+    : "rx";
 
 const buildPauseDispatchPayload = (
   state: RootState["websocket"],
@@ -161,19 +177,19 @@ const findFreePort = async (): Promise<number> =>
     });
   });
 
-const waitForTcpPort = async (port: number, timeoutMs = 5_000): Promise<void> => {
+const waitForTcpPort = async (
+  port: number,
+  timeoutMs = 5_000,
+): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown = null;
   while (Date.now() < deadline) {
     try {
       await new Promise<void>((resolveConnect, rejectConnect) => {
-        const socket = createConnection(
-          { host: "127.0.0.1", port },
-          () => {
-            socket.destroy();
-            resolveConnect();
-          },
-        );
+        const socket = createConnection({ host: "127.0.0.1", port }, () => {
+          socket.destroy();
+          resolveConnect();
+        });
         socket.once("error", rejectConnect);
       });
       return;
@@ -182,7 +198,9 @@ const waitForTcpPort = async (port: number, timeoutMs = 5_000): Promise<void> =>
       await sleep(25);
     }
   }
-  throw new Error(`Timed out waiting for Redis on port ${port}: ${String(lastError)}`);
+  throw new Error(
+    `Timed out waiting for Redis on port ${port}: ${String(lastError)}`,
+  );
 };
 
 const requestJson = async (
@@ -192,9 +210,7 @@ const requestJson = async (
 ): Promise<{ status: number; json: any }> => {
   const parsedUrl = new URL(url);
   const serializedBody = body === undefined ? undefined : JSON.stringify(body);
-  const request = parsedUrl.protocol === "https:"
-    ? httpsRequest
-    : httpRequest;
+  const request = parsedUrl.protocol === "https:" ? httpsRequest : httpRequest;
   return new Promise((resolveRequest, rejectRequest) => {
     const requestHandle = request(
       parsedUrl,
@@ -285,10 +301,14 @@ const authenticate = async (
     nonce: string;
   };
   const hmac = await computeHmac(password, challenge.nonce);
-  const verifyResponse = await requestJson(`${backendUrl}/auth/verify`, "POST", {
-    challenge_id: challenge.challenge_id,
-    hmac,
-  });
+  const verifyResponse = await requestJson(
+    `${backendUrl}/auth/verify`,
+    "POST",
+    {
+      challenge_id: challenge.challenge_id,
+      hmac,
+    },
+  );
   if (verifyResponse.status < 200 || verifyResponse.status >= 300) {
     throw new Error(`auth verify failed: ${verifyResponse.status}`);
   }
@@ -321,26 +341,32 @@ export const createLiveReduxStreamHarness = async (
   const pollIntervalMs = options.pollIntervalMs ?? 25;
   const shouldStartBackend = options.startBackend ?? true;
   const backendBinary =
-    options.backendBinary ?? resolve(process.cwd(), "target/debug/n-apt-backend");
+    options.backendBinary ??
+    resolve(process.cwd(), "target/debug/n-apt-backend");
   let backendProcess: ChildProcess | null = null;
   let redisProcess: ChildProcess | null = null;
   let sessionToken: string | null = null;
 
   const spawnBackend = async (backendUrl: string) => {
     const redisUrl = options.redisUrl ?? process.env.REDIS_URL;
-    const effectiveRedisUrl = redisUrl ?? `redis://127.0.0.1:${await findFreePort()}`;
+    const effectiveRedisUrl =
+      redisUrl ?? `redis://127.0.0.1:${await findFreePort()}`;
     if (!redisUrl) {
       const redisPort = Number(new URL(effectiveRedisUrl).port);
-      redisProcess = spawn("redis-server", [
-        "--port",
-        String(redisPort),
-        "--save",
-        "",
-        "--appendonly",
-        "no",
-        "--loglevel",
-        "warning",
-      ], { stdio: "ignore" });
+      redisProcess = spawn(
+        "redis-server",
+        [
+          "--port",
+          String(redisPort),
+          "--save",
+          "",
+          "--appendonly",
+          "no",
+          "--loglevel",
+          "warning",
+        ],
+        { stdio: "ignore" },
+      );
       await waitForTcpPort(redisPort);
     }
     backendProcess = spawn(backendBinary, [], {
@@ -395,12 +421,21 @@ export const createLiveReduxStreamHarness = async (
     }
   }
 
-  const [{ store }, { connectWebSocket, sendSelectSource, sendFrequencyRange, sendSettings, requestNextPausedFrame }, middleware] =
-    await Promise.all([
-      import("@n-apt/redux/store"),
-      import("@n-apt/redux/thunks/websocketThunks"),
-      import("@n-apt/redux/middleware/websocketMiddleware"),
-    ]);
+  const [
+    { store },
+    {
+      connectWebSocket,
+      sendSelectSource,
+      sendFrequencyRange,
+      sendSettings,
+      requestNextPausedFrame,
+    },
+    middleware,
+  ] = await Promise.all([
+    import("@n-apt/redux/store"),
+    import("@n-apt/redux/thunks/websocketThunks"),
+    import("@n-apt/redux/middleware/websocketMiddleware"),
+  ]);
   const { getManagedStreamDebugSnapshot, liveDataRef, presentationController } =
     middleware;
   const dispatch = store.dispatch as AppDispatch;
@@ -444,7 +479,8 @@ export const createLiveReduxStreamHarness = async (
     },
 
     async selectSource(sourceId) {
-      if (!connected) throw new Error("connect() must run before selectSource()");
+      if (!connected)
+        throw new Error("connect() must run before selectSource()");
       await dispatch(sendSelectSource(sourceId));
       await harness.waitFor(
         () => store.getState().websocket,
@@ -470,9 +506,7 @@ export const createLiveReduxStreamHarness = async (
         (snapshot) =>
           snapshot.redux.isPaused === paused &&
           snapshot.sourcePause[effectiveSourceId] === paused &&
-          (paused
-            ? snapshot.presentationPhase?.phase === "paused"
-            : true),
+          (paused ? snapshot.presentationPhase?.phase === "paused" : true),
       );
     },
 
@@ -497,7 +531,8 @@ export const createLiveReduxStreamHarness = async (
     },
 
     async setTransmit(enabled, sourceId = "mock-tx") {
-      if (!connected) throw new Error("connect() must run before setTransmit()");
+      if (!connected)
+        throw new Error("connect() must run before setTransmit()");
       dispatch({
         type: "websocket/sendMessage",
         payload: {
@@ -603,7 +638,9 @@ export const createLiveReduxStreamHarness = async (
         value = read();
       }
       if (!predicate(value)) {
-        throw new Error(`Timed out waiting for live Redux state: ${JSON.stringify(value)}`);
+        throw new Error(
+          `Timed out waiting for live Redux state: ${JSON.stringify(value)}`,
+        );
       }
       return value;
     },
@@ -644,13 +681,16 @@ export const createLiveReduxStreamHarness = async (
       const trackedSourceIds = [
         ...new Set(
           [activeSourceId, managed.rx.sourceId, managed.tx.sourceId].filter(
-            (value): value is string => typeof value === "string" && value.length > 0,
+            (value): value is string =>
+              typeof value === "string" && value.length > 0,
           ),
         ),
       ];
       const sourcePause = Object.fromEntries(
         trackedSourceIds.map((sourceKey) => {
-          const source = state.sources.find((candidate) => candidate.id === sourceKey);
+          const source = state.sources.find(
+            (candidate) => candidate.id === sourceKey,
+          );
           return [
             sourceKey,
             source?.paused === true ||
@@ -661,25 +701,38 @@ export const createLiveReduxStreamHarness = async (
       const hasTargetFrozenFrame =
         !!activeSourceId &&
         (presentationController.getFrozenFrame(activeSourceId, "rx") !== null ||
-          presentationController.getFrozenFrame(activeSourceId, "tx") !== null ||
-          presentationController.getSlot(activeSourceId, "rx")?.phase === "paused" ||
-          presentationController.getSlot(activeSourceId, "tx")?.phase === "paused");
+          presentationController.getFrozenFrame(activeSourceId, "tx") !==
+            null ||
+          presentationController.getSlot(activeSourceId, "rx")?.phase ===
+            "paused" ||
+          presentationController.getSlot(activeSourceId, "tx")?.phase ===
+            "paused");
       const deviceStatus = activeSourceId
-        ? state.sourceStatuses[activeSourceId] ?? activeSource?.status ?? null
+        ? (state.sourceStatuses[activeSourceId] ?? activeSource?.status ?? null)
         : null;
       const liveFrameSnapshot = frameSnapshot(liveDataRef.current);
+      const sourceTransport = selectSourceTransportForMode(
+        presentationMode,
+        state.sourceTransportByMode,
+        state.sourceTransport,
+      );
+      const sourceReadiness = selectSourceFrameReadinessForMode(
+        presentationMode,
+        state.sourceFrameReadinessByMode,
+        state.sourceFrameReadiness,
+      );
       const lifecycleResult = resolveLiveSourceLifecycle({
         selectedSourceId: activeSourceId,
         activeSourceId,
-        transportSourceId: state.sourceTransport?.sourceId ?? null,
-        transportPhase: state.sourceTransport?.phase ?? "idle",
-        transportError: state.sourceTransport?.error ?? null,
+        transportSourceId: sourceTransport.sourceId ?? null,
+        transportPhase: sourceTransport.phase ?? "idle",
+        transportError: sourceTransport.error ?? null,
         hasValidFrame:
           hasTargetFrozenFrame ||
           isCurrentSourceFrameReady({
             selectedSourceId: activeSourceId,
             activeSourceId,
-            readiness: state.sourceFrameReadiness,
+            readiness: sourceReadiness,
           }) ||
           liveFrameSnapshot.hasFrame,
         deviceStatus,
@@ -688,8 +741,8 @@ export const createLiveReduxStreamHarness = async (
         connectionStatus: state.connectionStatus,
         hasConnectedOnce: state.hasConnectedOnce,
         isStandby: deviceStatus === "standby",
-        readinessSequence: state.sourceFrameReadiness?.sequence ?? null,
-        readiness: state.sourceFrameReadiness,
+        readinessSequence: sourceReadiness?.sequence ?? null,
+        readiness: sourceReadiness,
         presentedSourceId: liveFrameSnapshot.sourceId,
       });
       const controlPlaneUnavailable = isControlPlaneUnavailable({
@@ -731,7 +784,8 @@ export const createLiveReduxStreamHarness = async (
           sourceStatuses: state.sourceStatuses,
           error: state.error,
         },
-        selectedSourceId: store.getState().sourceSelection.selectedSourceId || null,
+        selectedSourceId:
+          store.getState().sourceSelection.selectedSourceId || null,
         managed,
         liveFrame: liveFrameSnapshot,
         rxPresentation: slotFrameSnapshot(

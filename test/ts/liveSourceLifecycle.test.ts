@@ -10,7 +10,10 @@ import {
   shouldRequestMockTxStandbyPreview,
   isCommittedStandbyPresentation,
   shouldPresentMockTxStandby,
+  selectSourceFrameReadinessForMode,
+  selectSourceTransportForMode,
 } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+import type { SourceTransportLifecycle } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
 import {
   resolveFrameReadiness,
   resolveLiveDevicePlaceholderState,
@@ -24,6 +27,58 @@ const handoffPlaceholder = {
 };
 
 describe("resolveLiveSourceLifecycle", () => {
+  test("selects transport and painted readiness for the presented mode", () => {
+    const rxTransport: SourceTransportLifecycle = {
+      sourceId: "mock-apt",
+      phase: "ready",
+      error: null,
+    };
+    const txTransport: SourceTransportLifecycle = {
+      sourceId: "mock-tx",
+      phase: "warming",
+      error: null,
+    };
+    const rxReadiness = {
+      sourceId: "mock-apt",
+      streamEpoch: 4,
+      sequence: 11,
+    };
+    const txReadiness = {
+      sourceId: "mock-tx",
+      streamEpoch: 2,
+      sequence: 3,
+    };
+
+    expect(
+      selectSourceTransportForMode(
+        "rx",
+        { rx: rxTransport, tx: txTransport },
+        txTransport,
+      ),
+    ).toBe(rxTransport);
+    expect(
+      selectSourceTransportForMode(
+        "tx",
+        { rx: rxTransport, tx: txTransport },
+        rxTransport,
+      ),
+    ).toBe(txTransport);
+    expect(
+      selectSourceFrameReadinessForMode(
+        "tx",
+        { rx: rxReadiness, tx: txReadiness },
+        rxReadiness,
+      ),
+    ).toBe(txReadiness);
+    expect(
+      selectSourceFrameReadinessForMode(
+        "tx",
+        { rx: rxReadiness, tx: null },
+        rxReadiness,
+      ),
+    ).toBeNull();
+  });
+
   test("does not synthesize an I/O error over authoritative receiving", () => {
     expect(
       resolveLiveDevicePlaceholderState({
@@ -767,5 +822,4 @@ describe("resolveLiveSourceLifecycle", () => {
       placeholder: { kind: "error", reason: "Mock Tx failed to start" },
     });
   });
-
 });

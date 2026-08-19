@@ -3,6 +3,7 @@ import { useMemo } from "react";
 
 /** Transport milestones emitted only when a source socket changes lifecycle. */
 export type SourceTransportPhase = "idle" | "warming" | "ready" | "failed";
+export type SourceStreamMode = "rx" | "tx";
 
 /** Frontend-owned lifecycle phases for a selected live source. */
 export type LiveSourceLifecyclePhase =
@@ -31,6 +32,30 @@ export type SourceFrameReadiness = {
   streamEpoch: number | null;
   sequence: number;
 };
+
+/** Selects the lifecycle slot that belongs to the currently presented mode. */
+export const selectSourceTransportForMode = <
+  T extends SourceTransportLifecycle,
+>(
+  mode: SourceStreamMode,
+  byMode: Partial<Record<SourceStreamMode, T>> | null | undefined,
+  fallback: T,
+): T =>
+  byMode && Object.prototype.hasOwnProperty.call(byMode, mode)
+    ? (byMode[mode] as T)
+    : fallback;
+
+/** Selects painted readiness without allowing another mode to satisfy it. */
+export const selectSourceFrameReadinessForMode = <
+  T extends SourceFrameReadiness,
+>(
+  mode: SourceStreamMode,
+  byMode: Partial<Record<SourceStreamMode, T | null>> | null | undefined,
+  fallback: T | null,
+): T | null =>
+  byMode && Object.prototype.hasOwnProperty.call(byMode, mode)
+    ? (byMode[mode] ?? null)
+    : fallback;
 
 /**
  * Rendering policy owned by the live-source lifecycle.
@@ -87,8 +112,7 @@ export const shouldClearPausedStandbyPresentation = ({
   readiness?: SourceFrameReadiness | null;
 }): boolean => {
   if (!isStandby || !selectedSourceId) return false;
-  const presentedFrameMatchesSelection =
-    presentedSourceId === selectedSourceId;
+  const presentedFrameMatchesSelection = presentedSourceId === selectedSourceId;
   const selectedFrameReady = readiness?.sourceId === selectedSourceId;
   return !presentedFrameMatchesSelection || !selectedFrameReady;
 };

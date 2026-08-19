@@ -103,7 +103,9 @@ export const selectSourceTransportSnapshot = createSelector(
   (websocket) => ({
     sourceStatuses: websocket.sourceStatuses,
     sourceTransport: websocket.sourceTransport,
+    sourceTransportByMode: websocket.sourceTransportByMode,
     sourceFrameReadiness: websocket.sourceFrameReadiness,
+    sourceFrameReadinessByMode: websocket.sourceFrameReadinessByMode,
   }),
 );
 

@@ -11,6 +11,7 @@ import {
   SignalsSdrDefaults,
 } from "@n-apt/consts/schemas/websocket";
 import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
+import type { StreamControlMode } from "@n-apt/app/infrastructure/streams/streamContract";
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -75,6 +76,31 @@ const equalValue = (current: unknown, next: unknown): boolean => {
   return false;
 };
 
+export type SourceTransportState = {
+  sourceId: string | null;
+  phase: "idle" | "warming" | "ready" | "failed";
+  error: string | null;
+};
+
+export type SourceFrameReadinessState = {
+  sourceId: string;
+  streamEpoch: number | null;
+  sequence: number;
+};
+
+const createSourceTransportByMode = (): Record<
+  StreamControlMode,
+  SourceTransportState
+> => ({
+  rx: { sourceId: null, phase: "idle", error: null },
+  tx: { sourceId: null, phase: "idle", error: null },
+});
+
+const createSourceFrameReadinessByMode = (): Record<
+  StreamControlMode,
+  SourceFrameReadinessState | null
+> => ({ rx: null, tx: null });
+
 export interface WebSocketState {
   // Connection state
   isConnected: boolean;
@@ -99,16 +125,15 @@ export interface WebSocketState {
   sources: SourceInfo[];
   sourceStatuses: Record<string, SourceStatus>;
   /** Low-frequency lifecycle of the raw-I/Q transport selected by the UI. */
-  sourceTransport: {
-    sourceId: string | null;
-    phase: "idle" | "warming" | "ready" | "failed";
-    error: string | null;
-  };
-  sourceFrameReadiness: {
-    sourceId: string;
-    streamEpoch: number | null;
-    sequence: number;
-  } | null;
+  sourceTransport: SourceTransportState;
+  /** Per-mode lifecycle; RX and TX events must never share a transport slot. */
+  sourceTransportByMode: Record<StreamControlMode, SourceTransportState>;
+  sourceFrameReadiness: SourceFrameReadinessState | null;
+  /** Painted-frame readiness mirrors the mode selected by the visualizer. */
+  sourceFrameReadinessByMode: Record<
+    StreamControlMode,
+    SourceFrameReadinessState | null
+  >;
   channels: SpectrumFrame[];
 
   // Device info
@@ -163,7 +188,9 @@ const initialState: WebSocketState = {
   sources: [],
   sourceStatuses: {},
   sourceTransport: { sourceId: null, phase: "idle", error: null },
+  sourceTransportByMode: createSourceTransportByMode(),
   sourceFrameReadiness: null,
+  sourceFrameReadinessByMode: createSourceFrameReadinessByMode(),
   channels: [],
 
   backend: null,
@@ -197,6 +224,7 @@ const websocketSlice = createSlice({
       state.connectionStatus = "connecting";
       state.error = null;
       state.sourceFrameReadiness = null;
+      state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
     },
 
     setConnected: (state) => {
@@ -227,7 +255,9 @@ const websocketSlice = createSlice({
       state.sources = [];
       state.sourceStatuses = {};
       state.sourceTransport = { sourceId: null, phase: "idle", error: null };
+      state.sourceTransportByMode = createSourceTransportByMode();
       state.sourceFrameReadiness = null;
+      state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
       state.channels = [];
       state.backend = null;
       state.deviceInfo = null;

@@ -143,6 +143,8 @@ import {
   resolveLiveSourceLifecycleErrorReason,
   shouldRequestMockTxStandbyPreview,
   shouldPresentMockTxStandby,
+  selectSourceFrameReadinessForMode,
+  selectSourceTransportForMode,
   useLiveSourceLifecycle,
 } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
 import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
@@ -224,8 +226,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
   const [, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
-  const [fastSnapshotMode, setFastSnapshotMode] = useState<0 | 1 | 2>(
-    () => (getSettingsDefaults().snapshot.fastSnapshotShowStats ? 1 : 0),
+  const [fastSnapshotMode, setFastSnapshotMode] = useState<0 | 1 | 2>(() =>
+    getSettingsDefaults().snapshot.fastSnapshotShowStats ? 1 : 0,
   );
   const { getLocation: getFastSnapshotLocation } = useGeolocation();
   const [fastSnapshotGeolocation, setFastSnapshotGeolocation] = useState<{
@@ -243,8 +245,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fastSnapshotShowGeolocation = fastSnapshotMode === 2;
   const showStatsSpectrum = fastSnapshotShowStats;
   const showStatsWaterfall = fastSnapshotShowStats;
-  const setShowStatsSpectrum = (show: boolean) => setFastSnapshotMode(show ? 1 : 0);
-  const setShowStatsWaterfall = (show: boolean) => setFastSnapshotMode(show ? 1 : 0);
+  const setShowStatsSpectrum = (show: boolean) =>
+    setFastSnapshotMode(show ? 1 : 0);
+  const setShowStatsWaterfall = (show: boolean) =>
+    setFastSnapshotMode(show ? 1 : 0);
 
   useEffect(() => {
     if (
@@ -304,7 +308,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             setFastSnapshotGeoUnavailable(false);
             setFastSnapshotGeolocation(geolocation);
             setFastSnapshotMode(2);
-            void reverseGeocodeSnapshotLocation(geolocation.lat, geolocation.lon)
+            void reverseGeocodeSnapshotLocation(
+              geolocation.lat,
+              geolocation.lon,
+            )
               .then((label) => {
                 if (requestId === fastSnapshotGeolocationRequestRef.current) {
                   setFastSnapshotLocationLabel(label);
@@ -372,8 +379,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (state) => state.spectrum.showTxSlider ?? true,
   );
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
-  const { sourceStatuses, sourceTransport, sourceFrameReadiness } =
-    useAppSelector(selectSourceTransportSnapshot);
+  const {
+    sourceStatuses,
+    sourceTransport: legacySourceTransport,
+    sourceTransportByMode,
+    sourceFrameReadiness: legacySourceFrameReadiness,
+    sourceFrameReadinessByMode,
+  } = useAppSelector(selectSourceTransportSnapshot);
   const connectionStatus = useAppSelector(
     (state) => state.websocket.connectionStatus,
   );
@@ -464,10 +476,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   // fallback owner for untagged binary frames until the source commit lands.
   const expectedVisualizerSourceId =
     selectedSourceId || streamingSourceId || null;
-  const expectedLegacyStreamEpoch =
-    sourceTransport?.phase === "ready"
-      ? null
-      : (streamingSource?.stream_epoch ?? null);
   const [acceptedFrameSampleRateHz, setAcceptedFrameSampleRateHz] = useState<
     number | null
   >(null);
@@ -498,6 +506,21 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txBindingSourceId: txSuiteSourceId,
   });
   const isSelectedSourceTxMode = selectedSourceModeManagement.isTxMode;
+  const selectedStreamMode = isSelectedSourceTxMode ? "tx" : "rx";
+  const sourceTransport = selectSourceTransportForMode(
+    selectedStreamMode,
+    sourceTransportByMode,
+    legacySourceTransport,
+  );
+  const sourceFrameReadiness = selectSourceFrameReadinessForMode(
+    selectedStreamMode,
+    sourceFrameReadinessByMode,
+    legacySourceFrameReadiness,
+  );
+  const expectedLegacyStreamEpoch =
+    sourceTransport?.phase === "ready"
+      ? null
+      : (streamingSource?.stream_epoch ?? null);
   const dataRef =
     wsDataRef ??
     getLiveFrameRefForSource(
@@ -803,7 +826,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         videoFormat={supportedVideoFormat}
         showStats={showStatsSpectrum}
         onShowStatsChange={setShowStatsSpectrum}
-        fastSnapshotMode={fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode}
+        fastSnapshotMode={
+          fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode
+        }
         onFastSnapshotModeChange={
           fastSnapshotGeoUnavailable ? undefined : cycleFastSnapshotMode
         }
@@ -957,7 +982,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         videoFormat={supportedVideoFormat}
         showStats={showStatsWaterfall}
         onShowStatsChange={setShowStatsWaterfall}
-        fastSnapshotMode={fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode}
+        fastSnapshotMode={
+          fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode
+        }
         onFastSnapshotModeChange={
           fastSnapshotGeoUnavailable ? undefined : cycleFastSnapshotMode
         }
@@ -1264,7 +1291,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         hardwareBounds: hardwareSpectrumBounds,
       });
       const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds ? clampFrequencyRangeToBounds(range, primaryBounds) : range,
+        primaryBounds
+          ? clampFrequencyRangeToBounds(range, primaryBounds)
+          : range,
       );
       publishFrequencyRange(clampedRange);
       applyTxMonitorForRange(clampedRange, source);
@@ -1294,11 +1323,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         : txSampleRateHz;
       if (Number.isFinite(spanHz) && spanHz > 0) {
         handleFrequencyRangeChange(
-          buildCenteredFrequencyRange(
-            centerHz,
-            spanHz,
-            0,
-          ),
+          buildCenteredFrequencyRange(centerHz, spanHz, 0),
           source,
         );
       }
@@ -1315,12 +1340,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (nextCenterFrequencyHz: number) => {
       if (!state.frequencyRange) return;
 
-      if (
-        allowNegativeFrequencies &&
-        Number.isFinite(nextCenterFrequencyHz)
-      ) {
-        const sourceSpan =
-          state.frequencyRange.max - state.frequencyRange.min;
+      if (allowNegativeFrequencies && Number.isFinite(nextCenterFrequencyHz)) {
+        const sourceSpan = state.frequencyRange.max - state.frequencyRange.min;
         const visualSpan = sourceSpan / Math.max(1, state.vizZoom);
         const mirrored = resolveMirroredDisplayCenter({
           displayCenterHz: nextCenterFrequencyHz,
@@ -1363,11 +1384,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
       const spanHz = state.frequencyRange.max - state.frequencyRange.min;
       handleFrequencyRangeChange(
-        buildCenteredFrequencyRange(
-          nextCenterFrequencyHz,
-          spanHz,
-          0,
-        ),
+        buildCenteredFrequencyRange(nextCenterFrequencyHz, spanHz, 0),
         "user-pan",
       );
     },
