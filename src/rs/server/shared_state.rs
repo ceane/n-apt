@@ -120,6 +120,12 @@ pub struct SharedState {
   pub encryption_key: [u8; 32],
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
+  /// Device-scoped channel selected by the control plane. This is kept apart
+  /// from subscriber-local playback state so every client can hydrate the
+  /// same channel highlight and viewport.
+  pub active_signal_area: Mutex<Option<String>>,
+  /// Device-scoped viewport selected by the control plane.
+  pub active_frequency_range: Mutex<Option<(f64, f64)>>,
   /// SDR settings loaded from signals.yaml
   pub sdr_settings: Mutex<super::types::SdrConfig>,
   /// Available spectrum bounds loaded from signals.yaml
@@ -158,8 +164,11 @@ pub struct SharedState {
   pub tx_hop_channels: Mutex<Vec<String>>,
   pub tx_hop_rate_hz: Mutex<f64>,
   pub mock_tx_phase_accumulator: Mutex<f64>,
-  /// Last broadcast status payload, used to suppress duplicate snapshots.
+  /// Last status/settings payload, used to suppress duplicate snapshots.
   pub last_broadcast_status: Mutex<Option<String>>,
+  /// Last channels payload, kept separate so status/settings traffic cannot
+  /// make an unchanged channel snapshot look new to subscribers.
+  pub last_broadcast_channels: Mutex<Option<String>>,
   /// HackRF inventory populated by the hardware monitor. Source/status
   /// snapshots must read this cache rather than enumerate the native library.
   pub hackrf_inventory: Mutex<Vec<HackRfInventoryDevice>>,
@@ -190,6 +199,10 @@ impl SharedState {
         )
       }
     };
+
+    let channels = load_channels();
+    let initial_signal_area =
+      channels.first().map(|channel| channel.label.clone());
 
     Arc::new(SharedState {
       readiness: AtomicU8::new(ReadinessState::Starting as u8),
@@ -228,7 +241,9 @@ impl SharedState {
       device_loading_reason: Mutex::new(None),
       device_state: Mutex::new("disconnected".to_string()),
       encryption_key,
-      channels: Mutex::new(load_channels()),
+      channels: Mutex::new(channels),
+      active_signal_area: Mutex::new(initial_signal_area),
+      active_frequency_range: Mutex::new(None),
       sdr_settings: Mutex::new(sdr_settings.clone()),
       available_spectrum: load_available_spectrum()
         .map(|range| (range.min_freq, range.max_freq)),
@@ -240,6 +255,7 @@ impl SharedState {
       last_successful_read: Mutex::new(None),
       pending_fast_settings: Mutex::new(Vec::new()),
       last_broadcast_status: Mutex::new(None),
+      last_broadcast_channels: Mutex::new(None),
       hackrf_inventory: Mutex::new(Vec::new()),
       rtl_sdr_inventory: Mutex::new(Vec::new()),
       mock_tx_transmitting: AtomicBool::new(false),
@@ -281,6 +297,39 @@ impl SharedState {
       .pending_center_freq_dirty
       .store(true, Ordering::Release);
     self.pending_center_freq_notify.notify_one();
+  }
+
+  /// Store the latest device-scoped channel selection and viewport.
+  pub fn set_channel_selection(
+    &self,
+    signal_area: Option<String>,
+    frequency_range: (f64, f64),
+  ) {
+    if let Some(area) = signal_area {
+      let canonical_area = if area.eq_ignore_ascii_case("manual") {
+        Some("manual".to_string())
+      } else {
+        self
+          .channels
+          .lock()
+          .unwrap()
+          .iter()
+          .find(|channel| channel.label.eq_ignore_ascii_case(&area))
+          .map(|channel| channel.label.clone())
+      };
+      if canonical_area.is_some() {
+        *self.active_signal_area.lock().unwrap() = canonical_area;
+      }
+    }
+    *self.active_frequency_range.lock().unwrap() = Some(frequency_range);
+  }
+
+  pub fn active_signal_area(&self) -> Option<String> {
+    self.active_signal_area.lock().unwrap().clone()
+  }
+
+  pub fn active_frequency_range(&self) -> Option<(f64, f64)> {
+    *self.active_frequency_range.lock().unwrap()
   }
 
   /// Return the current source-scoped I/Q lifecycle generation.
@@ -417,6 +466,7 @@ impl SharedState {
       self.allow_next_paused_frame.store(true, Ordering::SeqCst);
     }
     *self.last_broadcast_status.lock().unwrap() = None;
+    *self.last_broadcast_channels.lock().unwrap() = None;
   }
 
   /// Store or clear pause for a specific source.
@@ -525,6 +575,7 @@ impl SharedState {
       Ordering::Relaxed,
     );
     *self.last_broadcast_status.lock().unwrap() = None;
+    *self.last_broadcast_channels.lock().unwrap() = None;
   }
 
   /// Record a successful read, resetting the failure streak.

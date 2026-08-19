@@ -153,6 +153,8 @@ export type ChannelsMessage = {
   source_id: string;
   channels: SpectrumFrame[];
   active_signal_area?: string | null;
+  frequency_range?: { min: number; max: number } | null;
+  sample_rate?: number;
   error?: string | null;
 };
 
@@ -453,6 +455,7 @@ export type WebSocketMessage =
       max_hz: number;
       center_frequency?: number;
       bandwidth_center_frequency?: number;
+      signal_area?: string;
     }
   | ChannelsMessage
   | {

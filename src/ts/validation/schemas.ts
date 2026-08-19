@@ -400,6 +400,11 @@ export const ChannelsMessageSchema = z.object({
   source_id: z.string(),
   channels: z.array(SpectrumFrameSchema),
   active_signal_area: z.string().nullable().optional(),
+  frequency_range: z
+    .object({ min: z.number(), max: z.number() })
+    .nullable()
+    .optional(),
+  sample_rate: z.number().positive().optional(),
   error: z.string().nullable().optional(),
 });
 
@@ -468,6 +473,7 @@ export const WebSocketMessageSchema = z.union([
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
     bandwidth_center_frequency: z.number().int().optional(),
+    signal_area: z.string().optional(),
   }),
   z.object({
     type: z.literal("set_frequency_range"),
@@ -476,6 +482,7 @@ export const WebSocketMessageSchema = z.union([
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
     bandwidth_center_frequency: z.number().int().optional(),
+    signal_area: z.string().optional(),
   }),
   z.object({
     type: z.literal("pause"),

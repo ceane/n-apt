@@ -142,6 +142,7 @@ export const sendFrequencyRange = createAsyncThunk(
     const state = getState() as RootState;
     const tunedRange = buildTunedFrequencyPayload(state, range);
     if (state.websocket.isConnected) {
+      const activeSignalArea = state.spectrum?.activeSignalArea;
       dispatch({
         type: "websocket/sendMessage",
         payload: {
@@ -152,6 +153,10 @@ export const sendFrequencyRange = createAsyncThunk(
             bandwidth_center_frequency: optionalIntegerHz(
               (state as any).demod?.bandwidthCenterFreqHz,
             ),
+            ...(typeof activeSignalArea === "string" &&
+            activeSignalArea.trim().length > 0
+              ? { signal_area: activeSignalArea }
+              : {}),
           },
         },
       });
@@ -294,11 +299,19 @@ export const sendCenterFrequency = createAsyncThunk(
       }),
     };
     if (state.websocket.isConnected) {
+      const activeSignalArea = state.spectrum?.activeSignalArea;
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "frequency_range",
-          data: { ...data, scope: DEVICE_CONTROL_SCOPE },
+          data: {
+            ...data,
+            scope: DEVICE_CONTROL_SCOPE,
+            ...(typeof activeSignalArea === "string" &&
+            activeSignalArea.trim().length > 0
+              ? { signal_area: activeSignalArea }
+              : {}),
+          },
         },
       });
     }

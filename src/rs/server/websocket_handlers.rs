@@ -30,7 +30,7 @@ use super::types::{PowerScale, SpectrumData};
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
-  active_source_id, broadcast_signal_display_settings,
+  active_source_id, broadcast_channels, broadcast_signal_display_settings,
   build_channels_snapshot, build_signals_defaults_snapshot,
   build_source_info_snapshot, complex_baseband, resolve_stream_key_source_id,
 };
@@ -1510,6 +1510,7 @@ pub async fn handle_ws_connection(
               || plaintext_json.contains("\"type\":\"source_info\"")
               || plaintext_json.contains("\"type\":\"signals_defaults\"")
               || plaintext_json.contains("\"type\":\"capture_status\"")
+              || plaintext_json.contains("\"type\":\"channels\"")
               // A source-switch failure must reach the initiating browser;
               // otherwise its local selection waits forever for an active
               // source confirmation that will never arrive.
@@ -1639,6 +1640,19 @@ pub fn handle_message(
           _max_freq,
           message.center_frequency,
         );
+
+        shared.set_channel_selection(
+          message.signal_area.clone(),
+          (min_freq, _max_freq),
+        );
+        {
+          let mut sdr_settings = shared.sdr_settings.lock().unwrap();
+          sdr_settings.center_frequency = center_freq;
+        }
+        // The control command is device-scoped. Echo the authoritative
+        // selection to every subscriber and include it in the next client's
+        // initial channels snapshot for hydration.
+        broadcast_channels(shared, broadcast_tx);
 
         // Retunes are the highest-frequency control path. Publish the latest
         // value atomically and wake the frame loop; do not enqueue one mutex-
@@ -2571,6 +2585,45 @@ mod tests {
     .unwrap();
 
     assert_eq!(msg.bandwidth_center_frequency, Some(2_204_500));
+  }
+
+  #[test]
+  #[serial]
+  fn frequency_range_selection_is_device_scoped_and_broadcast_for_hydration() {
+    let shared = test_shared_state();
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+    let mut broadcast_rx = broadcast_tx.subscribe();
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"frequency_range",
+        "scope":"device",
+        "min_hz":24100000,
+        "max_hz":30370000,
+        "center_frequency":27235000,
+        "signalArea":"B"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    assert_eq!(shared.active_signal_area(), Some("B".to_string()));
+    assert_eq!(
+      shared.active_frequency_range(),
+      Some((24_100_000.0, 30_370_000.0))
+    );
+    assert_eq!(
+      shared.sdr_settings.lock().unwrap().center_frequency,
+      27_235_000
+    );
+
+    let snapshot: serde_json::Value =
+      serde_json::from_str(&broadcast_rx.try_recv().unwrap()).unwrap();
+    assert_eq!(snapshot["type"], "channels");
+    assert_eq!(snapshot["active_signal_area"], "B");
+    assert_eq!(snapshot["frequency_range"]["min"], 24_100_000.0);
+    assert_eq!(snapshot["frequency_range"]["max"], 30_370_000.0);
+    assert!(snapshot["sample_rate"].as_u64().is_some());
   }
 
   #[test]

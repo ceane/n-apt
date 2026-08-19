@@ -19,8 +19,7 @@ import {
   setPendingSourceSwitchId,
 } from "../slices/sourceSelectionSlice";
 import {
-  setActiveSignalArea,
-  setFrequencyRange,
+  setSignalAreaAndRange,
   setSdrSettingsBundle,
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
@@ -1910,7 +1909,7 @@ const announceTxStandbyForSource = (
 };
 
 // WebSocket message processing
-const processMessage = (
+export const processWebSocketMessage = (
   dispatch: Dispatch,
   getState: () => any,
   parsedData: any,
@@ -2205,7 +2204,18 @@ const processMessage = (
         min: firstChannel.min_hz,
         max: firstChannel.max_hz,
       };
-      const currentRange = getState().spectrum?.frequencyRange;
+      const incomingRange = parsedData.frequency_range;
+      const hasAuthoritativeSelection =
+        incomingRange &&
+        Number.isFinite(incomingRange.min) &&
+        Number.isFinite(incomingRange.max) &&
+        incomingRange.max >= incomingRange.min;
+      const selectedRange = hasAuthoritativeSelection
+        ? incomingRange
+        : resolveIncomingChannelsFrequencyRange(
+            getState().spectrum?.frequencyRange,
+            nextRange,
+          );
       const currentSignalArea = getState().spectrum?.activeSignalArea;
       const targetSourceId =
         parsedData.source_id || getState().websocket.activeSourceId;
@@ -2215,23 +2225,71 @@ const processMessage = (
       const inManualMode =
         currentSignalArea === "manual" || persistedArea === "manual";
 
-      if (!inManualMode) {
+      if (!inManualMode || hasAuthoritativeSelection) {
         dispatch(
-          setActiveSignalArea(
-            parsedData.active_signal_area ?? firstChannel.label ?? "A",
-          ),
-        );
-        dispatch(
-          setFrequencyRange(
-            resolveIncomingChannelsFrequencyRange(currentRange, nextRange),
-          ),
+          setSignalAreaAndRange({
+            area: parsedData.active_signal_area ?? firstChannel.label ?? "A",
+            range: selectedRange,
+          }),
         );
       }
+      const incomingSampleRate =
+        typeof parsedData.sample_rate === "number" &&
+        Number.isFinite(parsedData.sample_rate) &&
+        parsedData.sample_rate > 0
+          ? parsedData.sample_rate
+          : null;
+      const targetSourceIdForState =
+        parsedData.source_id || getState().websocket.activeSourceId;
+      const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
+      const centerFrequency =
+        typeof selectedRange?.min === "number" &&
+        typeof selectedRange?.max === "number"
+          ? (selectedRange.min + selectedRange.max) / 2
+          : null;
+      const nextSources =
+        incomingSampleRate !== null || centerFrequency !== null
+          ? currentSources.map((source) =>
+              source.id === targetSourceIdForState
+                ? {
+                    ...source,
+                    sdr: {
+                      ...source.sdr,
+                      settings: {
+                        ...source.sdr.settings,
+                        ...(incomingSampleRate !== null
+                          ? { sample_rate: incomingSampleRate }
+                          : {}),
+                        ...(centerFrequency !== null
+                          ? { center_frequency: centerFrequency }
+                          : {}),
+                      },
+                    },
+                  }
+                : source,
+            )
+          : currentSources;
       dispatch(
         updateDeviceState({
           channels,
+          ...(incomingSampleRate !== null
+            ? { sampleRateHz: incomingSampleRate }
+            : {}),
+          ...(nextSources.length > 0 ? { sources: nextSources } : {}),
         }),
       );
+      if (incomingSampleRate !== null || hasAuthoritativeSelection) {
+        dispatch(
+          setSdrSettingsBundle({
+            ...(incomingSampleRate !== null
+              ? { sampleRateHz: incomingSampleRate }
+              : {}),
+            ...(hasAuthoritativeSelection
+              ? { frequencyRange: selectedRange }
+              : {}),
+          }),
+        );
+      }
       if (parsedData.error) {
         dispatch(setOperationalError(`Error: ${parsedData.error}`));
       }
@@ -2651,6 +2709,7 @@ const createWebSocketMiddleware =
               // Re-sync current settings and frequency range to the newly established connection
               const currentRange = state.spectrum?.frequencyRange;
               if (currentRange) {
+                const activeSignalArea = state.spectrum?.activeSignalArea;
                 ws.send(
                   JSON.stringify({
                     type: "frequency_range",
@@ -2658,6 +2717,10 @@ const createWebSocketMiddleware =
                     min_hz: currentRange.min,
                     max_hz: currentRange.max,
                     center_frequency: (currentRange.min + currentRange.max) / 2,
+                    ...(typeof activeSignalArea === "string" &&
+                    activeSignalArea.trim().length > 0
+                      ? { signal_area: activeSignalArea }
+                      : {}),
                   }),
                 );
               }
@@ -2732,7 +2795,7 @@ const createWebSocketMiddleware =
                 parsed?.type === "status" ||
                 parsed?.type === "capture_status"
               ) {
-                processMessage(dispatch, getState, parsed);
+                processWebSocketMessage(dispatch, getState, parsed);
                 return;
               }
 
@@ -2775,7 +2838,7 @@ const createWebSocketMiddleware =
               }
 
               // Process status and control messages
-              processMessage(dispatch, getState, parsed);
+              processWebSocketMessage(dispatch, getState, parsed);
             };
 
             ws.onclose = () => {

@@ -34,6 +34,7 @@ import {
   txStreamConflictsWithActiveRx,
   handleManagedStreamEvent,
   resolveManagedRxOptionsOverride,
+  processWebSocketMessage,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -815,6 +816,73 @@ describe("Redux WebSocket Migration", () => {
     expect(
       resolveIncomingChannelsFrequencyRange(null, backendDefaultRange),
     ).toEqual(backendDefaultRange);
+  });
+
+  it("hydrates an authoritative channel selection into Redux for a new subscriber", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [
+          {
+            id: "mock-apt",
+            sdr: {
+              settings: {
+                center_frequency: 20_000_000,
+                sample_rate: 4_372_000,
+              },
+            },
+          },
+        ],
+      },
+      spectrum: {
+        activeSignalArea: "A",
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+      },
+    };
+
+    processWebSocketMessage(
+      dispatch,
+      () => state,
+      {
+        type: "channels",
+        source_id: "mock-apt",
+        channels: [
+          {
+            id: "a",
+            label: "A",
+            min_hz: 18_000,
+            max_hz: 4_390_000,
+            description: "APT A",
+          },
+          {
+            id: "b",
+            label: "B",
+            min_hz: 24_100_000,
+            max_hz: 30_370_000,
+            description: "APT B",
+          },
+        ],
+        active_signal_area: "B",
+        frequency_range: { min: 24_100_000, max: 30_370_000 },
+        sample_rate: 6_270_000,
+      },
+    );
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "spectrum/setSignalAreaAndRange",
+      payload: {
+        area: "B",
+        range: { min: 24_100_000, max: 30_370_000 },
+      },
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "spectrum/setSdrSettingsBundle",
+      payload: {
+        sampleRateHz: 6_270_000,
+        frequencyRange: { min: 24_100_000, max: 30_370_000 },
+      },
+    });
   });
 
   it("treats a live server-selected source as resumed", () => {
@@ -3314,7 +3382,7 @@ describe("Redux WebSocket Migration", () => {
         ({
           websocket: { isConnected: true },
           demod: {},
-          spectrum: {},
+          spectrum: { activeSignalArea: "B" },
         }) as any;
 
       await (
@@ -3333,6 +3401,7 @@ describe("Redux WebSocket Migration", () => {
             min_hz: 18_000,
             max_hz: 20_018_000,
             center_frequency: 10_018_000,
+            signal_area: "B",
             bandwidth_center_frequency: undefined,
           },
         },

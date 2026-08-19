@@ -65,7 +65,7 @@ pub fn broadcast_channels(
 ) {
   let payload = build_channels_snapshot(shared);
   let payload = payload.to_string();
-  let mut last_payload = shared.last_broadcast_status.lock().unwrap();
+  let mut last_payload = shared.last_broadcast_channels.lock().unwrap();
   if last_payload.as_ref() == Some(&payload) {
     return;
   }
@@ -75,13 +75,20 @@ pub fn broadcast_channels(
 
 pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
   let channels = shared.channels.lock().unwrap().clone();
-  let active_signal_area =
-    channels.first().map(|channel| channel.label.clone());
+  let active_signal_area = shared
+    .active_signal_area()
+    .or_else(|| channels.first().map(|channel| channel.label.clone()));
+  let frequency_range = shared
+    .active_frequency_range()
+    .map(|(min, max)| serde_json::json!({ "min": min, "max": max }));
+  let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
   serde_json::json!({
     "type": "channels",
     "source_id": active_source_id(shared),
     "channels": channels,
     "active_signal_area": active_signal_area,
+    "frequency_range": frequency_range,
+    "sample_rate": sample_rate,
     "error": serde_json::Value::Null,
   })
 }
@@ -180,6 +187,7 @@ pub fn broadcast_signals_defaults(broadcast_tx: &broadcast::Sender<String>) {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use serial_test::serial;
 
   #[test]
   fn targeted_loading_status_names_the_source_being_opened() {
@@ -188,6 +196,23 @@ mod tests {
     assert_eq!(payload["source_id"], "hackrf_one-serial");
     assert_eq!(payload["status"], "loading");
     assert_eq!(payload["stream_epoch"], 7);
+  }
+
+  #[test]
+  #[serial]
+  fn unchanged_channels_snapshot_is_not_rebroadcast_after_status_snapshot() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1/");
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+    broadcast_channels(&shared, &broadcast_tx);
+    let _ = broadcast_rx.try_recv().expect("initial channels snapshot");
+
+    broadcast_source_status(&shared, &broadcast_tx, "connected");
+    let _ = broadcast_rx.try_recv().expect("status snapshot");
+
+    broadcast_channels(&shared, &broadcast_tx);
+    assert!(broadcast_rx.try_recv().is_err());
   }
 }
 // Hot-reload verification edit 1.
