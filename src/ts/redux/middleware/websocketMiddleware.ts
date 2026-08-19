@@ -1436,8 +1436,8 @@ const handleManagedStreamEvent = (
 ): void => {
   if (
     mode === "rx" &&
-    (event.type === "stream_options_applied" ||
-      event.type === "stream_opened") &&
+    (event.type === "stream_opened" ||
+      (event.type === "stream_options_applied" && event.origin !== "local")) &&
     event.options?.mode === "rx"
   ) {
     const updates = resolveManagedRxDeviceOptionUpdates({

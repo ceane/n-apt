@@ -116,6 +116,34 @@ describe("hardware source transition cleanup", () => {
 import { bytesToBase64 } from "@n-apt/crypto/webcrypto";
 
 describe("managed stream option synchronization", () => {
+  it("does not hydrate Redux from a local stream option echo", () => {
+    const dispatch = jest.fn();
+    const options = {
+      mode: "rx" as const,
+      centerFrequencyHz: 138_000_000,
+      sampleRateHz: 5_200_000,
+      fftSize: 2048,
+    };
+
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_options_applied",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 3,
+        optionsRevision: 2,
+        origin: "local",
+        options,
+      },
+      dispatch,
+      () => ({ websocket: {}, spectrum: {} }),
+    );
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("records managed RX readiness before the source commit arrives", () => {
     const dispatch = jest.fn();
     const state = {

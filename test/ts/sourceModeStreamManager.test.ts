@@ -233,6 +233,7 @@ describe("SourceModeStreamManager", () => {
     expect(first).toContainEqual(
       expect.objectContaining({
         type: "stream_options_applied",
+        origin: "local",
         optionsRevision: 2,
         options: expect.objectContaining({ centerFrequencyHz: 101_000_000 }),
       }),

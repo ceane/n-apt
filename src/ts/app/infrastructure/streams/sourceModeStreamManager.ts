@@ -68,6 +68,8 @@ export type StreamOptionsAppliedEvent = {
   streamEpoch: number;
   optionsRevision: number;
   options: StreamOptions;
+  /** Identifies an optimistic local echo before backend acknowledgement. */
+  origin?: "local" | "backend";
 };
 
 export type StreamErrorEvent = {
@@ -230,6 +232,7 @@ export const createSourceModeStreamManager = ({
           mode: entry.key.mode,
           streamEpoch: entry.streamEpoch,
           optionsRevision: entry.optionsRevision,
+          origin: "local",
           options: cloneOptions(entry.options),
         });
       }
@@ -254,6 +257,7 @@ export const createSourceModeStreamManager = ({
         mode: entry.key.mode,
         streamEpoch: entry.streamEpoch,
         optionsRevision: entry.optionsRevision,
+        origin: "local",
         options: cloneOptions(entry.options),
       });
     }
