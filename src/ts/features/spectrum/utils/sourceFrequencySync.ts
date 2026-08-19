@@ -3,6 +3,14 @@ export type FrequencyRange = {
   max: number;
 };
 
+export const shouldSkipDeviceFrequencyRangeEcho = ({
+  deviceRangeRevision,
+  lastHandledDeviceRangeRevision,
+}: {
+  deviceRangeRevision: number;
+  lastHandledDeviceRangeRevision: number;
+}): boolean => deviceRangeRevision > lastHandledDeviceRangeRevision;
+
 type SourceFrequencyRangeSyncInput = {
   connected: boolean;
   selectedSourceId: string;

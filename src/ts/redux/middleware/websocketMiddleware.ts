@@ -19,7 +19,8 @@ import {
   setPendingSourceSwitchId,
 } from "../slices/sourceSelectionSlice";
 import {
-  setSignalAreaAndRange,
+  setDeviceSignalAreaAndRange,
+  setDeviceSdrSettingsBundle,
   setSdrSettingsBundle,
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
@@ -285,6 +286,16 @@ export const resolveManagedRxDeviceOptionUpdates = ({
     activeSource && activeSource.id === sourceId
       ? deriveLegacyStateFromSource(activeSource)
       : {};
+  const activeSignalArea =
+    websocketState.spectrum?.activeSignalArea === "manual"
+      ? undefined
+      : (websocketState.channels ?? []).find(
+          (channel: SpectrumFrame) =>
+            Number.isFinite(channel.min_hz) &&
+            Number.isFinite(channel.max_hz) &&
+            options.centerFrequencyHz >= channel.min_hz &&
+            options.centerFrequencyHz <= channel.max_hz,
+        )?.label;
 
   return {
     device: {
@@ -295,6 +306,7 @@ export const resolveManagedRxDeviceOptionUpdates = ({
       sampleRateHz: options.sampleRateHz,
       fftSize: options.fftSize,
       frequencyRange: resolveManagedRxFrequencyRange(options),
+      ...(activeSignalArea ? { activeSignalArea } : {}),
       ...(typeof options.fftWindow === "string"
         ? { fftWindow: options.fftWindow }
         : {}),
@@ -1398,8 +1410,11 @@ const handleManagedStreamEvent = (
       options: event.options,
       rootState: getState(),
     });
-    dispatch(updateDeviceState(updates.device as any));
-    dispatch(setSdrSettingsBundle(updates.spectrum as any));
+    dispatch({
+      ...updateDeviceState(updates.device as any),
+      meta: { origin: "managed-stream-hydration" },
+    });
+    dispatch(setDeviceSdrSettingsBundle(updates.spectrum as any));
   } else if (event.type === "stream_frame") {
     const state = getState().websocket;
     const source = (state.sources ?? []).find(
@@ -1678,6 +1693,8 @@ const syncManagedStreamSubscriptions = (
 };
 
 const MANAGED_STREAM_OPTION_ACTIONS = new Set([
+  "spectrum/setFrequencyRange",
+  "spectrum/setSignalAreaAndRange",
   "spectrum/setTxGeometry",
   "spectrum/setTxCenterFrequencyHz",
   "spectrum/setTxSampleRateHz",
@@ -1691,6 +1708,22 @@ const MANAGED_STREAM_OPTION_ACTIONS = new Set([
 
 export const shouldSyncManagedStreamOptions = (type: string): boolean =>
   MANAGED_STREAM_OPTION_ACTIONS.has(type);
+
+const LOCAL_RX_TUNING_ACTIONS = new Set([
+  "spectrum/setFrequencyRange",
+  "spectrum/setSignalAreaAndRange",
+]);
+
+export const resolveLocalRxTuningOverride = (
+  type: string,
+  state: any,
+): Partial<Omit<RxDeviceOptions, "mode">> => {
+  if (!LOCAL_RX_TUNING_ACTIONS.has(type)) return {};
+  const centerFrequencyHz = sourceCenterFrequencyHz(state);
+  return Number.isFinite(centerFrequencyHz) && centerFrequencyHz > 0
+    ? { centerFrequencyHz }
+    : {};
+};
 
 const sameAesKeyReference = (
   current: CryptoKey | null,
@@ -2227,7 +2260,7 @@ export const processWebSocketMessage = (
 
       if (!inManualMode || hasAuthoritativeSelection) {
         dispatch(
-          setSignalAreaAndRange({
+          setDeviceSignalAreaAndRange({
             area: parsedData.active_signal_area ?? firstChannel.label ?? "A",
             range: selectedRange,
           }),
@@ -3095,6 +3128,8 @@ const createWebSocketMiddleware =
         const previousActiveSourceId = previousState.activeSourceId;
         const result = next(action);
         const nextState = getState().websocket;
+        const isManagedStreamHydration =
+          action.meta?.origin === "managed-stream-hydration";
         const activeSourceChanged =
           typeof nextState.activeSourceId === "string" &&
           nextState.activeSourceId !== previousActiveSourceId;
@@ -3107,7 +3142,7 @@ const createWebSocketMiddleware =
         if (activeSourceChanged) {
           syncManagedStreamSubscriptions(dispatch, getState);
         }
-        if (sourceModeStreamManager) {
+        if (sourceModeStreamManager && !isManagedStreamHydration) {
           syncManagedStreamSubscriptions(dispatch, getState);
         }
         return result;
@@ -3164,7 +3199,11 @@ const createWebSocketMiddleware =
           sourceModeStreamManager &&
           (shouldSyncManagedStreamOptions(action.type) || isSourceBindingAction)
         ) {
-          syncManagedStreamSubscriptions(dispatch, getState);
+          syncManagedStreamSubscriptions(
+            dispatch,
+            getState,
+            resolveLocalRxTuningOverride(action.type, getState()),
+          );
         }
         if (
           isSourceBindingAction &&

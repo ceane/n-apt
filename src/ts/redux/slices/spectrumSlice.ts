@@ -74,6 +74,8 @@ export interface SpectrumState {
   activeSignalArea: string;
   frequencyRange: FrequencyRange | null;
   lastKnownRanges: Record<string, { min: number; max: number }>;
+  /** Monotonic marker for device-scoped range hydrations from other subscribers. */
+  deviceFrequencyRangeRevision: number;
 
   // Display settings
   displayTemporalResolution: TemporalResolution;
@@ -200,6 +202,7 @@ const initialState: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
   lastKnownRanges: {},
+  deviceFrequencyRangeRevision: 0,
 
   displayTemporalResolution: "reduced",
   powerScale: "dB",
@@ -327,6 +330,20 @@ const spectrumSlice = createSlice({
         state.lastKnownRanges = {};
       }
       state.lastKnownRanges[action.payload.area] = action.payload.range;
+    },
+
+    setDeviceSignalAreaAndRange: (
+      state,
+      action: PayloadAction<{ area: string; range: FrequencyRange }>,
+    ) => {
+      state.activeSignalArea = action.payload.area;
+      state.frequencyRange = action.payload.range;
+      state.vizPanOffset = 0;
+      if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
+        state.lastKnownRanges = {};
+      }
+      state.lastKnownRanges[action.payload.area] = action.payload.range;
+      state.deviceFrequencyRangeRevision += 1;
     },
 
     tuneToChannels: (
@@ -652,6 +669,35 @@ const spectrumSlice = createSlice({
       Object.assign(state, cleanPayload);
     },
 
+    setDeviceSdrSettingsBundle: (
+      state,
+      action: PayloadAction<Partial<SpectrumState>>,
+    ) => {
+      const cleanPayload: Partial<SpectrumState> = {};
+      for (const [key, val] of Object.entries(action.payload)) {
+        if (typeof val === "number" && !Number.isFinite(val)) {
+          continue;
+        }
+        (cleanPayload as any)[key] = val;
+      }
+      Object.assign(state, cleanPayload);
+      if (action.payload.frequencyRange !== undefined) {
+        const frequencyRange = action.payload.frequencyRange;
+        const area =
+          typeof action.payload.activeSignalArea === "string" &&
+          action.payload.activeSignalArea.length > 0
+            ? action.payload.activeSignalArea
+            : state.activeSignalArea;
+        if (area && frequencyRange) {
+          if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
+            state.lastKnownRanges = {};
+          }
+          state.lastKnownRanges[area] = frequencyRange;
+        }
+        state.deviceFrequencyRangeRevision += 1;
+      }
+    },
+
     setBasebandFilterPinned: (
       state,
       action: PayloadAction<boolean>,
@@ -836,6 +882,7 @@ export const {
   setActiveSignalArea,
   setFrequencyRange,
   setSignalAreaAndRange,
+  setDeviceSignalAreaAndRange,
   tuneToChannels,
   mergeLastKnownRanges,
   setTemporalResolution,
@@ -888,6 +935,7 @@ export const {
   setSampleRate,
   setMinReceiveSampleRate,
   setSdrSettingsBundle,
+  setDeviceSdrSettingsBundle,
   setBasebandFilterPinned,
   setVisualizerPaused,
   setDetectedFrameRate,

@@ -1,4 +1,5 @@
 import {
+  shouldSkipDeviceFrequencyRangeEcho,
   resolveSourceFrequencyRangeSync,
   type FrequencyRange,
 } from "@n-apt/spectrum/utils/sourceFrequencySync";
@@ -7,6 +8,21 @@ const channelARange: FrequencyRange = { min: 18_000, max: 4_390_000 };
 const mockAptRange: FrequencyRange = { min: 134_914_000, max: 139_286_000 };
 
 describe("resolveSourceFrequencyRangeSync", () => {
+  it("skips re-sending a newer device-hydrated range", () => {
+    expect(
+      shouldSkipDeviceFrequencyRangeEcho({
+        deviceRangeRevision: 4,
+        lastHandledDeviceRangeRevision: 3,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipDeviceFrequencyRangeEcho({
+        deviceRangeRevision: 4,
+        lastHandledDeviceRangeRevision: 4,
+      }),
+    ).toBe(false);
+  });
+
   it("never forwards Mock Tx's backing display range to the receiver", () => {
     expect(
       resolveSourceFrequencyRangeSync({

@@ -34,6 +34,7 @@ import {
   txStreamConflictsWithActiveRx,
   handleManagedStreamEvent,
   resolveManagedRxOptionsOverride,
+  resolveLocalRxTuningOverride,
   processWebSocketMessage,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
@@ -45,6 +46,7 @@ import {
 } from "@n-apt/redux/thunks/websocketThunks";
 import { tuneDemod } from "@n-apt/redux/thunks/demodThunks";
 import spectrumSlice, {
+  setDeviceSdrSettingsBundle,
   setTxGeometry,
 } from "@n-apt/redux/slices/spectrumSlice";
 import sourceRoutingSlice, {
@@ -140,6 +142,10 @@ describe("managed stream option synchronization", () => {
       websocket: {
         activeSourceId: "mock-apt",
         sources: [source],
+        channels: [
+          { label: "A", min_hz: 100_000_000, max_hz: 120_000_000 },
+          { label: "C", min_hz: 135_000_000, max_hz: 140_000_000 },
+        ],
         sampleRateHz: 2_400_000,
         sdrSettings: null,
       },
@@ -204,8 +210,9 @@ describe("managed stream option synchronization", () => {
     );
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "spectrum/setSdrSettingsBundle",
+        type: "spectrum/setDeviceSdrSettingsBundle",
         payload: expect.objectContaining({
+          activeSignalArea: "C",
           sampleRateHz: 5_200_000,
           fftSize: 2048,
           fftWindow: "Hann",
@@ -244,15 +251,35 @@ describe("managed stream option synchronization", () => {
       () => state,
     );
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "spectrum/setSdrSettingsBundle" }),
+      expect.objectContaining({ type: "spectrum/setDeviceSdrSettingsBundle" }),
     );
   });
 
-  it("does not reconfigure the stream for a live frequency-range drag", () => {
+  it("publishes local RX tuning changes as device-scoped stream options", () => {
     expect(shouldSyncManagedStreamOptions("spectrum/setFrequencyRange")).toBe(
-      false,
+      true,
     );
+    expect(
+      shouldSyncManagedStreamOptions("spectrum/setSignalAreaAndRange"),
+    ).toBe(true);
+    expect(
+      shouldSyncManagedStreamOptions("spectrum/setDeviceSignalAreaAndRange"),
+    ).toBe(false);
     expect(shouldSyncManagedStreamOptions("spectrum/setTxGeometry")).toBe(true);
+    expect(
+      resolveLocalRxTuningOverride("spectrum/setSignalAreaAndRange", {
+        spectrum: {
+          frequencyRange: { min: 24_100_000, max: 30_370_000 },
+        },
+      }),
+    ).toEqual({ centerFrequencyHz: 27_235_000 });
+    expect(
+      resolveLocalRxTuningOverride("spectrum/setDeviceSignalAreaAndRange", {
+        spectrum: {
+          frequencyRange: { min: 24_100_000, max: 30_370_000 },
+        },
+      }),
+    ).toEqual({});
   });
 
   it("keeps subscriber-local visualizer controls out of device stream options", () => {
@@ -870,7 +897,7 @@ describe("Redux WebSocket Migration", () => {
     );
 
     expect(dispatch).toHaveBeenCalledWith({
-      type: "spectrum/setSignalAreaAndRange",
+      type: "spectrum/setDeviceSignalAreaAndRange",
       payload: {
         area: "B",
         range: { min: 24_100_000, max: 30_370_000 },
@@ -882,6 +909,26 @@ describe("Redux WebSocket Migration", () => {
         sampleRateHz: 6_270_000,
         frequencyRange: { min: 24_100_000, max: 30_370_000 },
       },
+    });
+  });
+
+  it("marks managed device option acknowledgements as remote range hydration", () => {
+    const initialState = spectrumSlice(undefined, { type: "@@init" });
+    const nextState = spectrumSlice(
+      initialState,
+      setDeviceSdrSettingsBundle({
+        activeSignalArea: "C",
+        sampleRateHz: 6_270_000,
+        frequencyRange: { min: 24_100_000, max: 30_370_000 },
+      }),
+    );
+
+    expect(nextState.deviceFrequencyRangeRevision).toBe(
+      initialState.deviceFrequencyRangeRevision + 1,
+    );
+    expect(nextState.lastKnownRanges.C).toEqual({
+      min: 24_100_000,
+      max: 30_370_000,
     });
   });
 

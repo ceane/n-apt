@@ -126,7 +126,10 @@ import {
   isRtlSdrDevice,
   resolveSourceSampleRateHz,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
-import { resolveSourceFrequencyRangeSync } from "@n-apt/spectrum/utils/sourceFrequencySync";
+import {
+  resolveSourceFrequencyRangeSync,
+  shouldSkipDeviceFrequencyRangeEcho,
+} from "@n-apt/spectrum/utils/sourceFrequencySync";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 import { resolveSourceModeManagement } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 import {
@@ -3450,6 +3453,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
     const previousFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
+    const lastHandledDeviceFrequencyRangeRevisionRef = useRef(0);
 
     useEffect(() => {
       if (!isConnected || deviceState !== "connected") {
@@ -3624,6 +3628,23 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       const currentRange = mergedState.frequencyRange;
       const range = currentRange ? clampLiveFrequencyRange(currentRange) : null;
+      const deviceRangeRevision =
+        reduxSpectrumState.deviceFrequencyRangeRevision;
+      if (
+        shouldSkipDeviceFrequencyRangeEcho({
+          deviceRangeRevision,
+          lastHandledDeviceRangeRevision:
+            lastHandledDeviceFrequencyRangeRevisionRef.current,
+        })
+      ) {
+        lastHandledDeviceFrequencyRangeRevisionRef.current =
+          deviceRangeRevision;
+        previousFrequencyRangeSyncSourceIdRef.current = activeSourceId || null;
+        if (range) {
+          lastSentFrequencyRangeRef.current = range;
+        }
+        return;
+      }
       const isRestoringSourceView =
         !!activeSourceId &&
         deferredFrequencyRangeSyncSourceIdRef.current === activeSourceId;
@@ -3663,6 +3684,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       mergedState.frequencyRange,
       clampLiveFrequencyRange,
       reduxDispatch,
+      reduxSpectrumState.deviceFrequencyRangeRevision,
       wsConnection.sendFrequencyRange,
     ]);
 
