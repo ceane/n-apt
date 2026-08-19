@@ -199,7 +199,7 @@ const markdownForAgentsPlugin = () => ({
 export default defineConfig(({ mode }) => {
   const useFrameworkViteRoot = process.env.NAPT_REACT_ROUTER === "1";
   const backendProxyTarget =
-    process.env.NAPT_BACKEND_PROXY_URL ?? "http://localhost:8765";
+    process.env.NAPT_BACKEND_PROXY_URL ?? "http://127.0.0.1:8765";
   const backendWebSocketProxyTarget = backendProxyTarget.replace(
     /^http:/,
     "ws:",

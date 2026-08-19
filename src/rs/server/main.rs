@@ -307,6 +307,10 @@ impl websocket_server::WebSocketServer {
         get(http_endpoints::pipeline_performance_handler),
       )
       .route(
+        "/api/debug/stream-performance",
+        get(http_endpoints::stream_performance_handler),
+      )
+      .route(
         "/api/capture/download",
         get(http_endpoints::capture_download_handler),
       )

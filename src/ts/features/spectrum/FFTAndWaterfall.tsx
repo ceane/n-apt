@@ -207,14 +207,25 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
+    const [hasPaintedFrame, setHasPaintedFrame] = useState(false);
     const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
       useState(true);
     const handleRenderableFrameChange = useCallback(
       (hasFrame: boolean) => {
         setHasRenderableFrame(hasFrame);
+        if (!hasFrame) {
+          setHasPaintedFrame(false);
+        }
         props.onRenderableFrameChange?.(hasFrame);
       },
       [props.onRenderableFrameChange],
+    );
+    const handleCanvasLoadingChange = useCallback(
+      (isLoading: boolean) => {
+        setHasPaintedFrame(!isLoading);
+        props.onCanvasLoadingChange?.(isLoading);
+      },
+      [props.onCanvasLoadingChange],
     );
     const awaitingFreshFrameRef = useRef(false);
     const loadingPlaceholderTimeoutRef = useRef<number | null>(null);
@@ -231,14 +242,13 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       isSourceStreamAvailable(activeSourceStatus) ||
       wsState.sourceTransport?.phase === "ready" ||
       hasIncomingData;
-    const hasLiveFrame =
-      hasRenderableFrame ||
-      // A source/mode slot can already contain the cached target frame while
-      // the canvas is waiting for its first repaint after a handoff. Treat it
-      // as live so the shared loading state does not erase that presentation.
-      (hasIncomingData &&
-        (props.presentationPolicy?.suppressStaleFrames === true ||
-          props.presentationPolicy?.preserveMatchingPresentation === true));
+    const hasFrameForLoading =
+      hasPaintedFrame ||
+      // TX standby intentionally preserves a cached preview beneath its
+      // top-bar prompt; live RX must wait for a confirmed paint instead.
+      (props.isStandby &&
+        hasIncomingData &&
+        props.presentationPolicy?.preserveMatchingPresentation === true);
     // When SpectrumRoute supplies a presentationPolicy, liveSourceLifecycle is
     // the placeholder authority. Canvas layers only render that decision.
     const lifecycleOwnsPlaceholders = props.presentationPolicy != null;
@@ -313,16 +323,16 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       awaitingDeviceData ||
       placeholderErrorReason ||
       (props.placeholderState && props.placeholderState.kind !== "top-bar") ||
-      // Standby top-bar is not a full-canvas cover. If there is no live frame
-      // yet, still treat the visualizer as loading so we never sit on black.
-      (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
+      // Standby top-bar is not a full-canvas cover. Cached data is not enough
+      // here: both panes must stay covered until one pane confirms a paint.
+      (sourceMode === "live" && !props.isPaused && !hasFrameForLoading)
     );
 
     const sharedAwaitingDeviceData = shouldShowLoadingPlaceholder
       ? placeholderErrorReason
         ? false
         : awaitingDeviceData ||
-          (sourceMode === "live" && !props.isPaused && !hasLiveFrame)
+          (sourceMode === "live" && !props.isPaused && !hasFrameForLoading)
       : false;
 
     const sharedPlaceholderState = useMemo(() => {
@@ -385,6 +395,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
 
       awaitingFreshFrameRef.current = true;
       setHasRenderableFrame(false);
+      setHasPaintedFrame(false);
 
       loadingPlaceholderTimeoutRef.current = window.setTimeout(() => {
         setShouldShowLoadingPlaceholder(true);
@@ -400,12 +411,12 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     }, [isGlobalLoading, props.loadingPlaceholderDelayMs]);
 
     useEffect(() => {
-      if (!hasRenderableFrame || !awaitingFreshFrameRef.current) {
+      if (!hasPaintedFrame || !awaitingFreshFrameRef.current) {
         return;
       }
       awaitingFreshFrameRef.current = false;
       setShouldShowLoadingPlaceholder(false);
-    }, [hasRenderableFrame]);
+    }, [hasPaintedFrame]);
 
     useEffect(() => {
       props.onLoadingStateChange?.(shouldShowLoadingPlaceholder);
@@ -570,6 +581,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
                     : sharedPlaceholderState
               }
               onRenderableFrameChange={handleRenderableFrameChange}
+              onCanvasLoadingChange={handleCanvasLoadingChange}
               waterfallCanvasBindings={waterfallCanvasBindings}
             />
             {props.overlayContent ? props.overlayContent : null}

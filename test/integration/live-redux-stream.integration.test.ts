@@ -17,6 +17,7 @@ const waitForMockAptStreaming = async (
       snapshot.managed.rx.hasSubscription &&
       snapshot.rxPresentation.hasFrame &&
       snapshot.rxPresentation.sourceId === MOCK_APT_SOURCE_ID &&
+      snapshot.lifecycle.phase === "ready" &&
       snapshot.presentationPhase?.phase === "streaming",
     20_000,
   );
@@ -33,6 +34,7 @@ describe("live Redux/source-mode stream harness", () => {
     // simulated hardware path and disconnect it before exercising Mock APT.
     harness = await createLiveReduxStreamHarness({
       hardwareSimulation: "rtl-sdr",
+      autoSelectInitialSource: false,
     });
     await harness.connect();
     await harness.simulateHardwarePresence(false);
@@ -50,6 +52,14 @@ describe("live Redux/source-mode stream harness", () => {
       expect.arrayContaining([MOCK_APT_SOURCE_ID, MOCK_TX_SOURCE_ID]),
     );
     expect(snapshot.redux.error).toBeNull();
+  });
+
+  test("starts the active Mock APT stream without reselection", async () => {
+    const snapshot = await waitForMockAptStreaming(harness);
+
+    expect(snapshot.redux.activeSourceId).toBe(MOCK_APT_SOURCE_ID);
+    expect(snapshot.lifecycle.phase).toBe("ready");
+    expect(snapshot.lifecycle.placeholderReason).toBeNull();
   });
 
   test("selects Mock APT, opens RX transport, and reaches first-frame streaming", async () => {

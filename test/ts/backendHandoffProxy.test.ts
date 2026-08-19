@@ -66,6 +66,19 @@ describe("backend handoff target store", () => {
     expect(fs.existsSync(`${targetFile}.tmp`)).toBe(false);
   });
 
+  it("uses the IPv4 loopback endpoint for the default handoff proxy", () => {
+    const { getDefaultBackendProxyUrl } = require("../../scripts/build/backend-handoff-proxy");
+
+    expect(getDefaultBackendProxyUrl()).toBe("http://127.0.0.1:8765");
+  });
+
+  it("keeps Vite on the IPv4 handoff proxy during backend cutover", () => {
+    const viteConfig = fs.readFileSync(path.resolve("vite.config.js"), "utf8");
+
+    expect(viteConfig).toContain('?? "http://127.0.0.1:8765"');
+    expect(viteConfig).not.toContain('?? "http://localhost:8765"');
+  });
+
   it("switches HTTP traffic to the replacement backend", async () => {
     const { createBackendHandoffProxy, writeBackendTarget } = require("../../scripts/build/backend-handoff-proxy");
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "n-apt-handoff-"));

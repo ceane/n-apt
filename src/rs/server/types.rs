@@ -263,6 +263,11 @@ pub struct ChannelSpec {
 pub struct WebSocketMessage {
   #[serde(rename = "type")]
   pub message_type: String,
+  /// Ownership of the control. Missing scope is accepted for legacy clients;
+  /// new clients must send `subscriber` for local RX playback or `device` for
+  /// controls that mutate shared source/transmitter state.
+  #[serde(skip_serializing_if = "Option::is_none", default)]
+  pub scope: Option<crate::server::stream_contract::StreamControlScope>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,

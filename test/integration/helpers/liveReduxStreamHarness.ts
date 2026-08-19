@@ -42,6 +42,7 @@ export type LiveReduxStreamHarnessOptions = {
   backendBinary?: string;
   pollIntervalMs?: number;
   hardwareSimulation?: "rtl-sdr";
+  autoSelectInitialSource?: boolean;
 };
 
 export type LiveFrameSnapshot = {
@@ -436,7 +437,9 @@ export const createLiveReduxStreamHarness = async (
           (!options.hardwareSimulation ||
             state.sources.some((source) => source.id === "rtl-sdr-00000001")),
       );
-      await autoSelectCurrentSource();
+      if (options.autoSelectInitialSource !== false) {
+        await autoSelectCurrentSource();
+      }
       connected = true;
     },
 
@@ -539,7 +542,9 @@ export const createLiveReduxStreamHarness = async (
           state.activeSourceId === (present ? "rtl-sdr-00000001" : "mock-apt"),
         30_000,
       );
-      await autoSelectCurrentSource();
+      if (options.autoSelectInitialSource !== false) {
+        await autoSelectCurrentSource();
+      }
     },
 
     async setFftSize(fftSize, timeoutMs = 15_000) {

@@ -2072,6 +2072,101 @@ describe("Redux WebSocket Migration", () => {
       });
     });
 
+    it("queues the requested Rx stream before the backend confirms the source switch", async () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const source = (id: string, kind: string, status: string) => ({
+        id,
+        name: id,
+        kind,
+        capability: kind === "mock_apt" ? "mock" : "rx",
+        status,
+        loading_attempt: 0,
+        loading_attempt_max: 2,
+        supports_approx_dbm: true,
+        iq_format: {
+          element_type: "u8",
+          layout: "interleaved_iq",
+          typed_array: "Uint8Array",
+        },
+        stream_key: id,
+        stream_key_kind: "source_id",
+        sdr: {
+          max_sample_rate: 2_400_000,
+          sample_rate_options: [2_400_000],
+          fft_display: { markers: [] },
+          settings: { sample_rate: 2_400_000, center_frequency: 1_000_000 },
+        },
+      });
+      const middlewareStore = configureStore({
+        reducer: { websocket: websocketSlice, spectrum: spectrumSlice },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+      sockets[0].onopen?.();
+      const control = sockets[0];
+      const mock = source("mock-apt", "mock_apt", "streaming");
+      const rtl = source("rtl-sdr-v4", "rtl-sdr", "connected");
+      control.onmessage?.({
+        data: JSON.stringify({
+          type: "source_info",
+          active_source: mock.id,
+          active_source_mode: "live",
+          sources: [mock, rtl],
+        }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const streamSocket = sockets[1];
+      streamSocket.onopen?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      streamSocket.send.mockClear();
+
+      middlewareStore.dispatch({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "select_source",
+          data: { source_id: rtl.id },
+        },
+      });
+
+      expect(middlewareStore.getState().websocket.activeSourceId).toBe(mock.id);
+      expect(streamSocket.send).toHaveBeenCalledWith(
+        expect.stringContaining(`"sourceId":"${rtl.id}"`),
+      );
+    });
+
     it("connects hardware through loading to streaming, then falls back cleanly on disconnect", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(
@@ -2739,7 +2834,7 @@ describe("Redux WebSocket Migration", () => {
       ).toBe(false);
     });
 
-    it("sends pause messages with mode metadata", () => {
+    it("does not send a global pause command for a subscriber pause", () => {
       const send = jest.fn();
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
         readyState: WebSocket.OPEN,
@@ -2784,7 +2879,7 @@ describe("Redux WebSocket Migration", () => {
         },
       });
 
-      expect(send).toHaveBeenCalledWith(
+      expect(send).not.toHaveBeenCalledWith(
         JSON.stringify({
           type: "pause",
           paused: true,
@@ -2792,6 +2887,61 @@ describe("Redux WebSocket Migration", () => {
           duplex_mode: "half_duplex",
         }),
       );
+    });
+
+    it("tracks pause commands as in flight until the middleware resets", () => {
+      const send = jest.fn();
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
+        readyState: WebSocket.OPEN,
+        close: jest.fn(),
+        send,
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+        onopen: null,
+        onclose: null,
+        onerror: null,
+        onmessage: null,
+      }));
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({
+            serializableCheck: false,
+          }).concat(websocketMiddleware),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws",
+          aesKey: null,
+          enabled: true,
+        },
+      });
+
+      expect(websocketMiddlewareExports.isPauseCommandInFlight()).toBe(false);
+
+      middlewareStore.dispatch({
+        type: "websocket/setPaused",
+        payload: {
+          isPaused: true,
+          sourceId: "mock-apt",
+          duplexMode: "half_duplex",
+          activeMode: "rx",
+        },
+      });
+
+      // A just-issued pause is awaiting backend confirmation, so the store
+      // must not release its manual-pause latch on the pre-echo snapshot.
+      expect(websocketMiddlewareExports.isPauseCommandInFlight()).toBe(true);
+
+      resetWebSocketMiddlewareState();
+      expect(websocketMiddlewareExports.isPauseCommandInFlight()).toBe(false);
     });
 
     it("sends transmit status messages", () => {
@@ -2872,6 +3022,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "frequency_range",
           data: {
+            scope: "device",
             min_hz: 929_130,
             max_hz: 4_129_130,
             center_frequency: 2_529_130,
@@ -2902,6 +3053,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "frequency_range",
           data: {
+            scope: "device",
             min_hz: 18_000,
             max_hz: 20_018_000,
             center_frequency: 10_018_000,
@@ -2932,6 +3084,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "frequency_range",
           data: {
+            scope: "device",
             min_hz: 2_204_000,
             max_hz: 2_204_001,
             center_frequency: 2_204_001,
@@ -3052,6 +3205,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "frequency_range",
           data: {
+            scope: "device",
             min_hz: 99_800_000,
             max_hz: 102_200_000,
             center_frequency: 101_000_000,
@@ -3076,6 +3230,7 @@ describe("Redux WebSocket Migration", () => {
         payload: {
           type: "frequency_range",
           data: {
+            scope: "device",
             min_hz: 0,
             max_hz: 1_228_629,
             center_frequency: 614_315,
@@ -3452,6 +3607,11 @@ describe("Redux WebSocket Migration", () => {
       expect(shouldAcceptPausedFrameRequest()).toBe(false);
       resetPausedFrameRequestGate();
       expect(shouldAcceptPausedFrameRequest()).toBe(true);
+    });
+
+    it("reports no pause command in flight after a middleware state reset", () => {
+      resetWebSocketMiddlewareState();
+      expect(websocketMiddlewareExports.isPauseCommandInFlight()).toBe(false);
     });
   });
 

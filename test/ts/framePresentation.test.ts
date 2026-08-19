@@ -148,4 +148,26 @@ describe("frame presentation policy", () => {
     expect(decision.preservePresentationDuringGap).toBe(true);
     expect(decision.shouldClearStaleStandby).toBe(false);
   });
+
+  it("treats a visible loading placeholder as blocking even with a current frame", () => {
+    const decision = resolveFramePresentation({
+      currentFrame: {
+        source_id: "source-a",
+        waveform: new Float32Array([1, 2]),
+      },
+      expectedSourceId: "source-a",
+      lastPresentedSourceId: "source-a",
+      lastRenderableFrame: null,
+      isStandby: false,
+      awaitingDeviceData: false,
+      isLoadingPlaceholder: true,
+      isDeviceConnected: true,
+      placeholderErrorReason: null,
+      explicitPlaceholderState: null,
+      hasPresentedSpectrumFrame: true,
+    });
+
+    expect(decision.showLoadingPlaceholder).toBe(false);
+    expect(decision.hasBlockingVisualPlaceholder).toBe(true);
+  });
 });

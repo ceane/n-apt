@@ -95,6 +95,7 @@ pub(crate) fn fallback_to_mock_after_recovery_failure(
   broadcast_tx: &broadcast::Sender<String>,
   error_message: String,
 ) -> Result<()> {
+  let failed_source_id = active_source_id(shared_state);
   processor.swap_device(crate::sdr::SdrDeviceFactory::create_mock_device())?;
   sync_shared_sample_rate(shared_state, processor);
   shared_state.update_device_status(
@@ -103,6 +104,7 @@ pub(crate) fn fallback_to_mock_after_recovery_failure(
     build_device_profile(processor.device_type()),
   );
   shared_state.set_active_source_pause_state("mock-apt", false);
+  shared_state.clear_pending_source_switch(&failed_source_id);
   shared_state.set_device_backend_error(Some(error_message));
   broadcast_device_status(shared_state, broadcast_tx);
   Ok(())
@@ -658,6 +660,29 @@ mod tests {
     assert!(!shared.is_source_paused("hackrf-one"));
     assert!(!shared.is_paused.load(Ordering::SeqCst));
     assert_eq!(&*shared.device_state.lock().unwrap(), "loading");
+  }
+
+  #[test]
+  fn mock_fallback_releases_pending_source_switch_fence() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    *shared.device_profile.lock().unwrap() = build_device_profile("rtl_sdr");
+    let failed_source_id = active_source_id(&shared);
+    shared.request_source_switch(&failed_source_id);
+    let mut processor =
+      SdrProcessor::new_mock_apt().expect("mock apt processor");
+    let (broadcast_tx, _) = broadcast::channel(1);
+
+    fallback_to_mock_after_recovery_failure(
+      &mut processor,
+      &shared,
+      &broadcast_tx,
+      "recovery failed".to_string(),
+    )
+    .expect("mock fallback should succeed");
+
+    assert_eq!(active_source_id(&shared), "mock-apt");
+    assert_eq!(shared.pending_source_switch(), None);
   }
 
   #[test]
@@ -1303,6 +1328,11 @@ impl WebSocketServer {
         continue;
       }
       let requested_single_frame = allow_next_paused_frame;
+      let all_managed_subscribers_paused = stream_manager
+        .all_subscribers_paused(&StreamKey::new(
+          active_source_for_pause.clone(),
+          StreamMode::Rx,
+        ));
       let tx_is_active_for_gate =
         crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
       if should_delegate_tx_monitor(
@@ -1322,6 +1352,16 @@ impl WebSocketServer {
         tx_is_active_for_gate,
         requested_single_frame,
       ) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        continue;
+      }
+      // Subscriber pause is local presentation state. Only the unanimous
+      // aggregate is allowed to idle acquisition as a power optimization;
+      // this does not mutate the source's global paused/receiving status.
+      if all_managed_subscribers_paused
+        && !requested_single_frame
+        && !should_stream_while_tx_active
+      {
         tokio::time::sleep(Duration::from_millis(100)).await;
         continue;
       }

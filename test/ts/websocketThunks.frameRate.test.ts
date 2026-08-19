@@ -15,6 +15,7 @@ describe("sendSettings frame-rate protocol boundary", () => {
       payload: {
         type: "settings",
         data: {
+          scope: "device",
           frameRate: 100,
           maxFrameRate: 100,
         },

@@ -47,7 +47,7 @@ export const getEnvVar = (key: string): string | undefined => {
 
 export const APP_URL = getEnvVar("VITE_APP_URL") ?? "http://localhost:5173";
 export const BACKEND_HTTP_URL =
-  getEnvVar("VITE_BACKEND_URL") ?? "http://localhost:8765";
+  getEnvVar("VITE_BACKEND_URL") ?? "http://127.0.0.1:8765";
 export const WS_URL =
   getEnvVar("VITE_WS_URL") ?? BACKEND_HTTP_URL.replace(/^http/, "ws");
 export const SESSION_KEY =

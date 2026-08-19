@@ -32,6 +32,15 @@ pub async fn pipeline_performance_handler() -> impl IntoResponse {
   Json(crate::performance::pipeline_metrics().snapshot())
 }
 
+/// Read-only snapshot of logical stream registration and delivery state.
+/// This distinguishes a producer that is generating frames from a stream
+/// whose subscriber is actually receiving them.
+pub async fn stream_performance_handler(
+  State(state): State<Arc<super::AppState>>,
+) -> impl IntoResponse {
+  Json(state.stream_manager.metrics_snapshot())
+}
+
 /// Test-only hardware transition hook. It is available only when the backend
 /// was explicitly started with N_APT_TEST_HARDWARE_SIMULATION=rtl-sdr.
 pub async fn hardware_simulation_handler(

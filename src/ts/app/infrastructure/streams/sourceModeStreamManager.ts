@@ -1,4 +1,9 @@
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import {
+  STREAM_CONTROL_CONTRACT,
+  type StreamSubscriberContract,
+  type StreamControlScopes,
+} from "./streamContract";
 
 export type StreamMode = "rx" | "tx";
 
@@ -51,6 +56,9 @@ export type StreamStateEvent = {
   optionsRevision: number;
   state?: "opening" | "ready" | "stopping" | "unavailable" | "error";
   reason?: string;
+  /** Authoritative device-owned settings returned during subscription hydration. */
+  options?: StreamOptions;
+  controlScopes?: StreamControlScopes;
 };
 
 export type StreamOptionsAppliedEvent = {
@@ -80,6 +88,7 @@ export type StreamEvent =
 
 export type StreamSubscribeCommand = {
   type: "stream_subscribe";
+  scope: "subscriber";
   subscriptionId: string;
   stream: StreamKey;
   options: StreamOptions;
@@ -87,6 +96,7 @@ export type StreamSubscribeCommand = {
 
 export type StreamUpdateOptionsCommand = {
   type: "stream_update_options";
+  scope: "device";
   subscriptionId: string;
   stream: StreamKey;
   options: StreamOptions;
@@ -94,14 +104,24 @@ export type StreamUpdateOptionsCommand = {
 
 export type StreamUnsubscribeCommand = {
   type: "stream_unsubscribe";
+  scope: "subscriber";
   subscriptionId: string;
   stream: StreamKey;
+};
+
+export type StreamSetPausedCommand = {
+  type: "stream_set_paused";
+  scope: "subscriber";
+  subscriptionId: string;
+  stream: StreamKey;
+  paused: boolean;
 };
 
 export type StreamCommand =
   | StreamSubscribeCommand
   | StreamUpdateOptionsCommand
-  | StreamUnsubscribeCommand;
+  | StreamUnsubscribeCommand
+  | StreamSetPausedCommand;
 
 export type StreamMessage = StreamEvent | StreamCommand;
 
@@ -124,8 +144,13 @@ export type StreamSubscription = {
   stream: StreamKey;
   readonly effectiveOptions: StreamOptions;
   readonly streamEpoch: number;
+  setPaused(paused: boolean): void;
   unsubscribe(): void;
   updateOptions(options: StreamOptions): Promise<void>;
+};
+
+type StreamSubscriber = StreamSubscriberContract & {
+  handler: (event: StreamEvent) => void;
 };
 
 type StreamEntry = {
@@ -135,7 +160,7 @@ type StreamEntry = {
   optionsRevision: number;
   lastSequence: number | null;
   transport: StreamTransport;
-  subscribers: Map<string, (event: StreamEvent) => void>;
+  subscribers: Map<string, StreamSubscriber>;
   metrics: StreamMetrics;
   localOptionsRevision: number | null;
   transportReady: boolean;
@@ -173,7 +198,10 @@ export const createSourceModeStreamManager = ({
   let nextSubscriptionId = 1;
 
   const notify = (entry: StreamEntry, event: StreamEvent): void => {
-    for (const handler of entry.subscribers.values()) handler(event);
+    for (const subscriber of entry.subscribers.values()) {
+      if (event.type === "stream_frame" && subscriber.paused) continue;
+      subscriber.handler(event);
+    }
   };
 
   const applyOptions = (
@@ -190,6 +218,7 @@ export const createSourceModeStreamManager = ({
       entry.options = cloneOptions(options);
       entry.transport.send({
         type: "stream_subscribe",
+        scope: "subscriber",
         subscriptionId: entry.transportSubscriptionId,
         stream: entry.key,
         options: cloneOptions(options),
@@ -213,6 +242,7 @@ export const createSourceModeStreamManager = ({
     entry.localOptionsRevision = entry.optionsRevision;
     entry.transport.send({
       type: "stream_update_options",
+      scope: STREAM_CONTROL_CONTRACT[entry.key.mode].settings,
       subscriptionId: entry.transportSubscriptionId,
       stream: entry.key,
       options: cloneOptions(options),
@@ -227,6 +257,35 @@ export const createSourceModeStreamManager = ({
         options: cloneOptions(entry.options),
       });
     }
+  };
+
+  const aggregatePausedState = (entry: StreamEntry): boolean | null => {
+    if (entry.subscribers.size === 0) return null;
+    return [...entry.subscribers.values()].every(
+      (subscriber) => subscriber.paused,
+    );
+  };
+
+  const syncAggregatePausedState = (
+    entry: StreamEntry,
+    previousAggregate: boolean | null,
+  ): void => {
+    const nextAggregate = aggregatePausedState(entry);
+    if (
+      previousAggregate === null ||
+      previousAggregate === nextAggregate ||
+      nextAggregate === null ||
+      entry.key.mode !== "rx"
+    ) {
+      return;
+    }
+    entry.transport.send({
+      type: "stream_set_paused",
+      scope: "subscriber",
+      subscriptionId: entry.transportSubscriptionId,
+      stream: entry.key,
+      paused: nextAggregate,
+    });
   };
 
   const handleEvent = (entry: StreamEntry, event: StreamEvent): void => {
@@ -287,6 +346,11 @@ export const createSourceModeStreamManager = ({
 
     if (event.type === "stream_opened") {
       entry.transportReady = true;
+      if (event.options) {
+        // The device snapshot wins over the options a subscriber requested.
+        // This is the hydration path for late subscribers and reconnects.
+        entry.options = cloneOptions(event.options);
+      }
       if (event.streamEpoch > 0) {
         // A reconnect starts a fresh physical stream. The server's subscribe
         // response is authoritative for its epoch and revision.
@@ -307,6 +371,7 @@ export const createSourceModeStreamManager = ({
     if (!entry || entry.subscribers.size > 0) return;
     entry.transport.send({
       type: "stream_unsubscribe",
+      scope: "subscriber",
       subscriptionId: entry.transportSubscriptionId,
       stream: entry.key,
     });
@@ -352,17 +417,22 @@ export const createSourceModeStreamManager = ({
       streams.set(entryKey, entry);
       entry.transport.send({
         type: "stream_subscribe",
+        scope: "subscriber",
         subscriptionId: entry.transportSubscriptionId,
         stream: entry.key,
         options: cloneOptions(options),
       });
     } else {
-      applyOptions(entry, options, true);
+      // Subscribe is a read/hydration operation once the shared stream
+      // exists. Device-scoped changes must use updateOptions; otherwise a
+      // late subscriber's stale local settings could overwrite every client.
     }
 
     const subscriptionId = `stream-subscription-${nextSubscriptionId++}`;
-    entry.subscribers.set(subscriptionId, handler);
+    const previousAggregate = aggregatePausedState(entry);
+    entry.subscribers.set(subscriptionId, { handler, paused: false });
     entry.metrics.subscribers = entry.subscribers.size;
+    syncAggregatePausedState(entry, previousAggregate);
     let active = true;
     const subscription: StreamSubscription = {
       subscriptionId,
@@ -373,11 +443,21 @@ export const createSourceModeStreamManager = ({
       get streamEpoch() {
         return entry!.streamEpoch;
       },
+      setPaused: (paused) => {
+        if (!active) return;
+        const subscriber = entry!.subscribers.get(subscriptionId);
+        if (!subscriber || subscriber.paused === paused) return;
+        const previousAggregate = aggregatePausedState(entry!);
+        subscriber.paused = paused;
+        syncAggregatePausedState(entry!, previousAggregate);
+      },
       unsubscribe: () => {
         if (!active) return;
         active = false;
+        const previousAggregate = aggregatePausedState(entry!);
         entry!.subscribers.delete(subscriptionId);
         entry!.metrics.subscribers = entry!.subscribers.size;
+        syncAggregatePausedState(entry!, previousAggregate);
         if (entry!.subscribers.size === 0) {
           const timer = setTimeout(() => {
             pendingCloseTimers.delete(entryKey);
@@ -409,6 +489,7 @@ export const createSourceModeStreamManager = ({
       for (const entry of streams.values()) {
         entry.transport.send({
           type: "stream_unsubscribe",
+          scope: "subscriber",
           subscriptionId: entry.transportSubscriptionId,
           stream: entry.key,
         });

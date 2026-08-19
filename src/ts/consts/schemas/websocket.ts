@@ -448,6 +448,7 @@ export type WebSocketMessage =
   | TxSafetyResult
   | {
       type: "frequency_range" | "set_frequency_range";
+      scope?: "device";
       min_hz: number;
       max_hz: number;
       center_frequency?: number;
@@ -456,12 +457,14 @@ export type WebSocketMessage =
   | ChannelsMessage
   | {
       type: "pause";
+      scope?: "subscriber";
       paused: boolean;
       source_id: string;
       duplex_mode?: DeviceDuplexMode;
     }
   | {
       type: "status";
+      scope?: "device";
       status: "standby" | "transmitting";
       txDevice?: string;
       serialNumber?: string;
@@ -486,14 +489,15 @@ export type WebSocketMessage =
       txHopChannels?: string[];
       txHopRateHz?: number;
     }
-  | { type: "gain"; gain: number }
-  | { type: "ppm"; ppm: number }
-  | ({ type: "settings" } & SDRSettings)
+  | { type: "gain"; scope?: "device"; gain: number }
+  | { type: "ppm"; scope?: "device"; ppm: number }
+  | ({ type: "settings"; scope?: "device" } & SDRSettings)
   | SignalDisplaySettingsMessage
   | SignalsDefaultsMessage
-  | { type: "restart_device" }
+  | { type: "restart_device"; scope?: "device" }
   | {
       type: "select_source";
+      scope?: "device";
       source_id: string;
       sample_rate?: number;
     }

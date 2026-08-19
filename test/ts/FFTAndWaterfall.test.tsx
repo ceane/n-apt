@@ -174,7 +174,7 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
-  it("treats a cached target frame as live during a source handoff", () => {
+  it("keeps both panes loading until a cached target frame paints", () => {
     render(
       <FFTAndWaterfall
         dataRef={{
@@ -199,9 +199,15 @@ describe("FFTAndWaterfall", () => {
 
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
-    expect(fftProps?.interactionDisabled).toBe(false);
-    expect(fftProps?.awaitingDeviceData).toBe(false);
+    expect(fftProps?.interactionDisabled).toBe(true);
+    expect(fftProps?.awaitingDeviceData).toBe(true);
     expect(fftProps?.placeholderState).toBeNull();
+
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+    expect(waterfallProps?.awaitingDeviceData).toBe(true);
   });
 
   it("keeps the Tx slider available for half-duplex Tx standby", () => {
@@ -346,6 +352,7 @@ describe("FFTAndWaterfall", () => {
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     act(() => {
       fftProps.onRenderableFrameChange(true);
+      fftProps.onCanvasLoadingChange(false);
     });
     expect(onRenderableFrameChange).toHaveBeenCalledWith(true);
 
@@ -421,8 +428,9 @@ describe("FFTAndWaterfall", () => {
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     act(() => {
       runningFftProps.onRenderableFrameChange(true);
+      runningFftProps.onCanvasLoadingChange(false);
     });
-    expect(runningFftProps.onCanvasLoadingChange).toBeUndefined();
+    expect(runningFftProps.onCanvasLoadingChange).toEqual(expect.any(Function));
 
     rerender(
       <FFTAndWaterfall
@@ -636,6 +644,7 @@ describe("FFTAndWaterfall", () => {
       const initialProps =
         fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
       initialProps?.onRenderableFrameChange?.(true);
+      initialProps?.onCanvasLoadingChange?.(false);
     });
 
     rerender(

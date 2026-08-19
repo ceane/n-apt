@@ -19,6 +19,7 @@ import {
   resolvePauseTargetSourceId,
   shouldReplayManualPauseOnSourceActivation,
   shouldCarryManualPauseToSelectedSource,
+  shouldReleaseSourcePauseLatch,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 describe("source selection and switch lifecycle", () => {
@@ -553,6 +554,25 @@ describe("source selection and switch lifecycle", () => {
         localPaused: undefined,
         manuallyPaused: true,
         autoPaused: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not release a subscriber pause from a live backend source snapshot", () => {
+    expect(
+      shouldReleaseSourcePauseLatch({
+        backendPaused: false,
+        manuallyPaused: true,
+        restoredManualPause: false,
+        pauseCommandInFlight: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReleaseSourcePauseLatch({
+        backendPaused: false,
+        manuallyPaused: false,
+        restoredManualPause: false,
+        pauseCommandInFlight: false,
       }),
     ).toBe(true);
   });

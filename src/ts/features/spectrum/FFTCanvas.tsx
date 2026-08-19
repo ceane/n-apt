@@ -3041,18 +3041,10 @@ const FFTCanvas = memo(
           preservePresentationDuringGap,
           isExplicitStandbyPlaceholder,
           explicitPlaceholderBlocksFrame,
+          hasBlockingVisualPlaceholder,
           blockingPlaceholderKind,
           shouldClearStaleStandby,
         } = framePresentation;
-        const hasBlockingPlaceholder =
-          showLoadingPlaceholder ||
-          showErrorPlaceholder ||
-          explicitPlaceholderBlocksFrame ||
-          !!(
-            currentExplicitPlaceholderState &&
-            currentExplicitPlaceholderState.kind !== "top-bar" &&
-            currentExplicitPlaceholderState.kind !== "overlay-only"
-          );
         if (
           presentationPolicy?.clearStalePresentation &&
           (hasStalePresentedSource ||
@@ -3725,11 +3717,11 @@ const FFTCanvas = memo(
               powerScale: effectivePowerScaleRef.current,
               nodePreview: nodePreviewRef.current,
               gridOverlayRenderer:
-                compact || hasBlockingPlaceholder
+                compact || hasBlockingVisualPlaceholder
                   ? undefined
                   : gridOverlayRendererRef.current,
               markersOverlayRenderer:
-                compact || hasBlockingPlaceholder
+                compact || hasBlockingVisualPlaceholder
                   ? undefined
                   : markersOverlayRendererRef.current,
               spikesOverlayRenderer: spikesOverlayRendererRef.current,
@@ -3804,11 +3796,11 @@ const FFTCanvas = memo(
           }
 
           // Render overlays to 2D HTML canvas instead of WebGPU texture
-          if (hasBlockingPlaceholder) {
+          if (hasBlockingVisualPlaceholder) {
             clearOverlayCanvas(spectrumOverlayCanvas);
           }
 
-          if (spectrumOverlayCanvas && !hasBlockingPlaceholder) {
+          if (spectrumOverlayCanvas && !hasBlockingVisualPlaceholder) {
             const ctx = getCached2DContext(spectrumOverlayCanvas);
             if (ctx) {
               const dpr = getCanvasPixelRatio(
@@ -3946,7 +3938,7 @@ const FFTCanvas = memo(
               if (
                 shouldDrawZoomMarkersForCanvas(
                   nodePreview,
-                  hasBlockingPlaceholder,
+                  hasBlockingVisualPlaceholder,
                 )
               ) {
                 drawZoomMarkersOnContext(

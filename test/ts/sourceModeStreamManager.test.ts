@@ -121,6 +121,83 @@ describe("SourceModeStreamManager", () => {
     expect(transports[0].closed).toBe(true);
   });
 
+  it("does not let a late subscriber overwrite device-owned options", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+
+    const firstSubscription = await manager.subscribe(key, rxOptions(), () => {
+      // no-op
+    });
+    const secondSubscription = await manager.subscribe(
+      key,
+      rxOptions(101_000_000),
+      () => {
+        // no-op
+      },
+    );
+
+    expect(transports[0].sent).toHaveLength(1);
+    expect(secondSubscription.effectiveOptions).toEqual(rxOptions());
+    expect(firstSubscription.effectiveOptions).toEqual(rxOptions());
+  });
+
+  it("pauses one subscriber without pausing another subscriber", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const first: StreamEvent[] = [];
+    const second: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+
+    const firstSubscription = await manager.subscribe(
+      key,
+      rxOptions(),
+      (event) => first.push(event),
+    );
+    await manager.subscribe(key, rxOptions(), (event) => second.push(event));
+
+    firstSubscription.setPaused(true);
+    transports[0].onEvent(
+      streamFrame("source-a", "rx", 8, new Uint8Array([130, 131])),
+    );
+
+    expect(first).toHaveLength(0);
+    expect(second).toHaveLength(1);
+    expect(second[0]).toEqual(expect.objectContaining({ sequence: 8 }));
+  });
+
+  it("pauses the physical stream only when every logical subscriber is paused", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+
+    const firstSubscription = await manager.subscribe(key, rxOptions(), () => {
+      // no-op
+    });
+    const secondSubscription = await manager.subscribe(key, rxOptions(), () => {
+      // no-op
+    });
+
+    firstSubscription.setPaused(true);
+    expect(transports[0].sent).not.toContainEqual(
+      expect.objectContaining({ type: "stream_set_paused", paused: true }),
+    );
+
+    secondSubscription.setPaused(true);
+    expect(transports[0].sent).toContainEqual({
+      type: "stream_set_paused",
+      scope: "subscriber",
+      subscriptionId: "transport-subscription-1",
+      stream: key,
+      paused: true,
+    });
+
+    firstSubscription.setPaused(false);
+    expect(transports[0].sent).toContainEqual(
+      expect.objectContaining({ type: "stream_set_paused", paused: false }),
+    );
+  });
+
   it("reconfigures the shared stream and notifies all subscribers", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });
@@ -149,6 +226,7 @@ describe("SourceModeStreamManager", () => {
     expect(transports[0].sent).toContainEqual(
       expect.objectContaining({
         type: "stream_update_options",
+        scope: "device",
         options: expect.objectContaining({ centerFrequencyHz: 101_000_000 }),
       }),
     );
@@ -163,6 +241,36 @@ describe("SourceModeStreamManager", () => {
       expect.objectContaining({
         type: "stream_options_applied",
         optionsRevision: 2,
+      }),
+    );
+  });
+
+  it("hydrates a late subscriber from the device-owned effective options", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const events: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), (event) =>
+      events.push(event),
+    );
+    const effectiveOptions = rxOptions(101_000_000);
+
+    transports[0].onEvent({
+      type: "stream_opened",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 7,
+      optionsRevision: 4,
+      state: "ready",
+      options: effectiveOptions,
+    });
+
+    expect(subscription.effectiveOptions).toEqual(effectiveOptions);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stream_opened",
+        options: effectiveOptions,
+        optionsRevision: 4,
       }),
     );
   });

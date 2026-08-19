@@ -472,6 +472,25 @@ describe("resolveLiveSpectrumPaintContract", () => {
     expect(getZoomedData).not.toHaveBeenCalled();
   });
 
+  it("does not widen a cold-start capped frame back to the channel span", () => {
+    const sourceFrequencyRange = { min: 0, max: 4_372_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      // The persisted channel selection can still be present for the first
+      // frame while the live source has only accepted its sample-rate window.
+      requestedViewRange: { min: 0, max: 20_000_000 },
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+      frameCenterHz: 2_186_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    expect(contract.displayRange).toEqual(sourceFrequencyRange);
+    expect(contract.zoom).toBe(1);
+    expect(contract.panOffsetHz).toBe(0);
+  });
+
   it("mirrors below DC on the acquisition axis after re-base", () => {
     const acquisition = { min: 0, max: 8 };
     const contract = resolveLiveSpectrumPaintContract({

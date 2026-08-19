@@ -240,6 +240,7 @@ const createLocalStorageMiddleware =
         action.type === "websocket/reset"
       ) {
         safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
+        safeRemoveItem(STORAGE_KEYS.VISUALIZER_PAUSE);
       }
 
       // Cache SDR settings from WebSocket

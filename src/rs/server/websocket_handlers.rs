@@ -18,16 +18,19 @@ use validator::Validate;
 use crate::crypto;
 
 use super::shared_state::SharedState;
+use super::stream_contract::{
+  stream_control_scope, StreamControlAction, StreamControlScope,
+};
 use super::stream_manager::{
-  SourceStreamCapabilities, StreamEvent, StreamKey, StreamOptions, StreamState,
-  StreamingSourceModeManager,
+  SourceStreamCapabilities, StreamEvent, StreamKey, StreamMode, StreamOptions,
+  StreamState, StreamingSourceModeManager,
 };
 use super::tx_log::{write_global, TxLogEntry};
 use super::types::{PowerScale, SpectrumData};
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
-  active_source_id, broadcast_device_status, broadcast_signal_display_settings,
+  active_source_id, broadcast_signal_display_settings,
   build_channels_snapshot, build_signals_defaults_snapshot,
   build_source_info_snapshot, complex_baseband, resolve_stream_key_source_id,
 };
@@ -35,8 +38,12 @@ use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 const WS_MAX_MESSAGE_BYTES: usize = 64 * 1024;
-const WS_MAX_FRAME_BYTES: usize = 64 * 1024;
-const WS_MAX_WRITE_BUFFER_BYTES: usize = 256 * 1024;
+// A maximum-size RX frame is 262,144 complex samples = 524,288 interleaved
+// I/Q bytes. The multiplexed stream envelope encrypts and base64-encodes that
+// payload, producing roughly 700 KiB of JSON. Keep control messages bounded,
+// but size the WebSocket frame/write limits for the documented FFT ceiling.
+const WS_MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
+const WS_MAX_WRITE_BUFFER_BYTES: usize = 2 * 1024 * 1024;
 
 fn harden_websocket(ws: WebSocketUpgrade) -> WebSocketUpgrade {
   ws.max_message_size(WS_MAX_MESSAGE_BYTES)
@@ -373,6 +380,8 @@ pub async fn source_iq_ws_upgrade_handler(
 enum StreamCommand {
   #[serde(rename = "stream_subscribe")]
   Subscribe {
+    #[serde(default = "default_subscriber_scope")]
+    scope: StreamControlScope,
     #[serde(rename = "subscriptionId")]
     subscription_id: String,
     stream: StreamKey,
@@ -380,6 +389,8 @@ enum StreamCommand {
   },
   #[serde(rename = "stream_update_options")]
   UpdateOptions {
+    #[serde(default = "default_device_scope")]
+    scope: StreamControlScope,
     #[serde(rename = "subscriptionId")]
     subscription_id: String,
     stream: StreamKey,
@@ -387,10 +398,38 @@ enum StreamCommand {
   },
   #[serde(rename = "stream_unsubscribe")]
   Unsubscribe {
+    #[serde(default = "default_subscriber_scope")]
+    scope: StreamControlScope,
     #[serde(rename = "subscriptionId")]
     subscription_id: String,
     stream: StreamKey,
   },
+  #[serde(rename = "stream_set_paused")]
+  SetPaused {
+    #[serde(default = "default_subscriber_scope")]
+    scope: StreamControlScope,
+    #[serde(rename = "subscriptionId")]
+    subscription_id: String,
+    stream: StreamKey,
+    paused: bool,
+  },
+}
+
+fn default_subscriber_scope() -> StreamControlScope {
+  StreamControlScope::Subscriber
+}
+
+fn default_device_scope() -> StreamControlScope {
+  StreamControlScope::Device
+}
+
+fn stream_control_scopes(mode: StreamMode) -> serde_json::Value {
+  serde_json::json!({
+    "pause": stream_control_scope(mode, StreamControlAction::Pause),
+    "stop": stream_control_scope(mode, StreamControlAction::Stop),
+    "settings": stream_control_scope(mode, StreamControlAction::Settings),
+    "tune": stream_control_scope(mode, StreamControlAction::Tune),
+  })
 }
 
 fn stream_source_capabilities(
@@ -474,6 +513,7 @@ fn stream_event_json(
     } => {
       let mut value = base(key, *stream_epoch, *options_revision);
       value["type"] = serde_json::json!("stream_opened");
+      value["scope"] = serde_json::json!("device");
       value["options"] =
         serde_json::to_value(options).map_err(|e| e.to_string())?;
       Ok(value)
@@ -486,6 +526,7 @@ fn stream_event_json(
     } => {
       let mut value = base(key, *stream_epoch, *options_revision);
       value["type"] = serde_json::json!("stream_options_applied");
+      value["scope"] = serde_json::json!("device");
       value["options"] =
         serde_json::to_value(options).map_err(|e| e.to_string())?;
       Ok(value)
@@ -591,7 +632,7 @@ async fn handle_stream_connection(
 ) {
   let (mut sender, mut receiver) = socket.split();
   let (event_tx, mut event_rx) = mpsc::channel::<StreamEvent>(32);
-  let mut subscriptions: HashMap<String, (StreamKey, JoinHandle<()>)> =
+  let mut subscriptions: HashMap<String, (StreamKey, u64, JoinHandle<()>)> =
     HashMap::new();
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
@@ -621,7 +662,12 @@ async fn handle_stream_connection(
           continue;
         };
         match command {
-          StreamCommand::Subscribe { subscription_id, stream, options } => {
+          StreamCommand::Subscribe { scope, subscription_id, stream, options } => {
+            if scope != StreamControlScope::Subscriber {
+              let error = stream_error_json(&subscription_id, &stream, "scope", "stream subscriptions are subscriber-scoped");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
             if subscriptions.contains_key(&subscription_id) {
               let error = stream_error_json(&subscription_id, &stream, "protocol", "subscription id is already active");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
@@ -660,6 +706,7 @@ async fn handle_stream_connection(
               }
             };
             let metrics = manager.metrics(&stream).expect("new stream has metrics");
+            let manager_subscription_id = subscription.subscription_id();
             let response = serde_json::json!({
               "type": "stream_subscribed",
               "subscriptionId": subscription_id,
@@ -669,6 +716,7 @@ async fn handle_stream_connection(
               "optionsRevision": metrics.options_revision,
               "effectiveOptions": manager.options(&stream),
               "state": stream_state,
+              "controlScopes": stream_control_scopes(stream.mode),
             });
             let event_tx_for_task = event_tx.clone();
             let event_key = stream.clone();
@@ -692,7 +740,7 @@ async fn handle_stream_connection(
                 }
               }
             });
-            subscriptions.insert(subscription_id, (stream, task));
+            subscriptions.insert(subscription_id, (stream, manager_subscription_id, task));
             // Register the subscription before acknowledging it. The client
             // treats stream_subscribed as permission to immediately apply
             // effective options; sending the acknowledgement first creates a
@@ -701,8 +749,13 @@ async fn handle_stream_connection(
               break;
             }
           }
-          StreamCommand::UpdateOptions { subscription_id, stream, options } => {
-            let Some((active_stream, _)) = subscriptions.get(&subscription_id) else {
+          StreamCommand::UpdateOptions { scope, subscription_id, stream, options } => {
+            if scope != StreamControlScope::Device {
+              let error = stream_error_json(&subscription_id, &stream, "scope", "stream options are device-scoped");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            let Some((active_stream, _, _)) = subscriptions.get(&subscription_id) else {
               let error = stream_error_json(&subscription_id, &stream, "missing_stream", "subscription is not active");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
@@ -717,8 +770,46 @@ async fn handle_stream_connection(
               let _ = sender.send(Message::Text(response.to_string().into())).await;
             }
           }
-          StreamCommand::Unsubscribe { subscription_id, stream } => {
-            let Some((active_stream, task)) = subscriptions.remove(&subscription_id) else {
+          StreamCommand::SetPaused { scope, subscription_id, stream, paused } => {
+            if scope != StreamControlScope::Subscriber
+              || stream_control_scope(stream.mode, StreamControlAction::Pause)
+                != StreamControlScope::Subscriber
+            {
+              let error = stream_error_json(&subscription_id, &stream, "scope", "stream pause is subscriber-scoped");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            let Some((active_stream, manager_subscription_id, _)) = subscriptions.get(&subscription_id) else {
+              let error = stream_error_json(&subscription_id, &stream, "missing_stream", "subscription is not active");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            };
+            if active_stream != &stream {
+              let error = stream_error_json(&subscription_id, &stream, "protocol", "subscription stream does not match");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            if let Err(error) = manager.set_subscriber_paused(
+              &stream,
+              *manager_subscription_id,
+              paused,
+            ) {
+              let response = stream_error_json(
+                &subscription_id,
+                &stream,
+                error.code(),
+                &error.to_string(),
+              );
+              let _ = sender.send(Message::Text(response.to_string().into())).await;
+            }
+          }
+          StreamCommand::Unsubscribe { scope, subscription_id, stream } => {
+            if scope != StreamControlScope::Subscriber {
+              let error = stream_error_json(&subscription_id, &stream, "scope", "stream unsubscribe is subscriber-scoped");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            let Some((active_stream, _, task)) = subscriptions.remove(&subscription_id) else {
               let error = stream_error_json(&subscription_id, &stream, "missing_stream", "subscription is not active");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
@@ -739,7 +830,7 @@ async fn handle_stream_connection(
     }
   }
 
-  for (_, (_, task)) in subscriptions {
+  for (_, (_, _, task)) in subscriptions {
     task.abort();
   }
   shared.client_count.fetch_sub(1, Ordering::Relaxed);
@@ -1493,12 +1584,37 @@ pub async fn handle_ws_connection(
 
 /// Handle incoming WebSocket messages from clients.
 /// Sends commands to the dedicated I/O thread via mpsc channel — never blocks.
+fn is_device_scoped_control(message: &WebSocketMessage) -> bool {
+  match message.message_type.as_str() {
+    "frequency_range"
+    | "set_frequency_range"
+    | "demod_tune"
+    | "gain"
+    | "ppm"
+    | "settings"
+    | "restart_device"
+    | "select_source" => true,
+    "status" => message.source_id.is_none(),
+    _ => false,
+  }
+}
+
 pub fn handle_message(
   cmd_tx: &std::sync::mpsc::Sender<super::types::SdrCommand>,
   shared: &Arc<SharedState>,
   broadcast_tx: &tokio::sync::broadcast::Sender<String>,
   message: WebSocketMessage,
 ) {
+  if is_device_scoped_control(&message)
+    && message.scope == Some(StreamControlScope::Subscriber)
+  {
+    warn!(
+      "Ignoring subscriber-scoped device control: type={}",
+      message.message_type
+    );
+    return;
+  }
+
   match message.message_type.as_str() {
     "frequency_range" | "set_frequency_range" | "demod_tune" => {
       if let (Some(min_freq), Some(_max_freq)) =
@@ -1571,37 +1687,11 @@ pub fn handle_message(
       }
     }
     "pause" => {
-      if let Some(paused) = message.paused {
-        let source_id = message
-          .source_id
-          .clone()
-          .unwrap_or_else(|| active_source_id(shared));
-        // A resume must not change state before a veritable stream can run.
-        // The source is still opening (device loading or the per-source
-        // loading phase); clearing the pause bit here would let the frame
-        // loop race a healthy-locked device and keep the UI in a "loading but
-        // resumed" limbo. Ignore the resume and let the first committed frame
-        // (or the source status broadcast) re-open the stream.
-        if !paused {
-          let device_state = shared.device_state.lock().unwrap().clone();
-          let is_active = source_id == active_source_id(shared);
-          if is_active
-            && matches!(device_state.as_str(), "loading" | "initializing")
-          {
-            debug!(
-              "Ignoring resume for source {} while device state is {}",
-              source_id, device_state
-            );
-            return;
-          }
-        }
-        shared.set_source_pause_state(&source_id, paused);
-        if source_id == active_source_id(shared) {
-          shared.is_paused.store(paused, Ordering::SeqCst);
-          shared.clear_paused_frame_request();
-        }
-        broadcast_device_status(&shared, &broadcast_tx);
-      }
+      // RX playback is presentation state owned by the logical stream
+      // subscriber. The legacy control socket has no subscriber identity, so
+      // it cannot safely pause one view without pausing every other client.
+      // The multiplexed stream subscription applies this locally instead.
+      warn!("Ignoring legacy pause control; pause is subscriber-scoped");
     }
     "gain" => {
       if let Some(gain) = message.gain {
@@ -2382,8 +2472,9 @@ mod tests {
     should_send_source_iq_frame, source_iq_frame_matches_source,
     source_iq_subscription_matches_active_source,
     source_iq_v2_frame_matches_source, take_source_owned_paused_frame_request,
-    IqFrameStatus, IqStreamProtocol,
+    stream_event_json, IqFrameStatus, IqStreamProtocol,
   };
+  use crate::server::stream_manager::{StreamEvent, StreamKey, StreamMode};
   use crate::sdr::processor::SdrProcessor;
   use crate::server::shared_state::SharedState;
   use crate::server::types::{
@@ -3495,6 +3586,30 @@ mod tests {
   }
 
   #[test]
+  fn max_fft_stream_frame_fits_the_multiplexed_websocket_write_budget() {
+    let event = StreamEvent::Frame(crate::server::stream_manager::StreamFrame {
+      key: StreamKey::new("mock-apt", StreamMode::Rx),
+      stream_epoch: 1,
+      options_revision: 1,
+      sequence: 1,
+      timestamp: 1234,
+      center_frequency_hz: Some(1_600_000),
+      sample_rate_hz: 3_200_000,
+      iq_data: Arc::new(vec![128; 262_144 * 2]),
+    });
+
+    let encoded = stream_event_json(&event, &[7u8; 32])
+      .expect("maximum-size stream frame should encode");
+    let encoded_bytes = serde_json::to_vec(&encoded).unwrap();
+    assert!(
+      encoded_bytes.len() <= super::WS_MAX_WRITE_BUFFER_BYTES,
+      "encoded stream frame is {} bytes but websocket write budget is {}",
+      encoded_bytes.len(),
+      super::WS_MAX_WRITE_BUFFER_BYTES,
+    );
+  }
+
+  #[test]
   fn v2_source_filter_requires_exact_frame_ownership() {
     assert!(source_iq_v2_frame_matches_source("rtl-sdr-1", "rtl-sdr-1"));
     assert!(!source_iq_v2_frame_matches_source("rtl-sdr-1", "rtl-sdr-2"));
@@ -3663,7 +3778,7 @@ mod tests {
 
   #[test]
   #[serial]
-  fn pause_commands_are_scoped_to_their_source() {
+  fn legacy_pause_commands_do_not_mutate_shared_source_state() {
     let shared = test_shared_state();
     shared.update_device_status(
       false,
@@ -3682,30 +3797,16 @@ mod tests {
         "type":"pause",
         "paused":true,
         "source_id":"other-source",
-        "duplex_mode":"half_duplex"
+        "duplex_mode":"half_duplex",
+        "scope":"subscriber"
       }"#,
     )
     .unwrap();
 
     handle_message(&cmd_tx, &shared, &broadcast_tx, message);
 
-    assert!(shared.is_source_paused("other-source"));
+    assert!(!shared.is_source_paused("other-source"));
     assert!(!shared.is_paused.load(std::sync::atomic::Ordering::SeqCst));
-
-    let active_pause: WebSocketMessage = serde_json::from_str(
-      r#"{
-        "type":"pause",
-        "paused":true,
-        "source_id":"mock-apt",
-        "duplex_mode":"half_duplex"
-      }"#,
-    )
-    .unwrap();
-
-    handle_message(&cmd_tx, &shared, &broadcast_tx, active_pause);
-
-    assert!(shared.is_source_paused("mock-apt"));
-    assert!(shared.is_paused.load(std::sync::atomic::Ordering::SeqCst));
   }
 
   #[test]

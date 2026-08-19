@@ -25,6 +25,7 @@ export type FramePresentationDecision = {
   preservePresentationDuringGap: boolean;
   isExplicitStandbyPlaceholder: boolean;
   explicitPlaceholderBlocksFrame: boolean;
+  hasBlockingVisualPlaceholder: boolean;
   blockingPlaceholderKind: BlockingPlaceholderKind;
   shouldClearStaleStandby: boolean;
 };
@@ -105,6 +106,11 @@ export const resolveFramePresentation = ({
     !!currentExplicitPlaceholderState &&
     currentExplicitPlaceholderState.kind !== "top-bar" &&
     currentExplicitPlaceholderState.kind !== "overlay-only";
+  const hasBlockingVisualPlaceholder =
+    isLoadingPlaceholder ||
+    !!awaitingDeviceData ||
+    showErrorPlaceholder ||
+    hasBlockingExplicitPlaceholder;
   const preservePresentationDuringGap =
     shouldPreservePresentationDuringFrameGap({
       hasPresentedFrame: hasPresentedSpectrumFrame,
@@ -146,6 +152,7 @@ export const resolveFramePresentation = ({
     preservePresentationDuringGap,
     isExplicitStandbyPlaceholder,
     explicitPlaceholderBlocksFrame,
+    hasBlockingVisualPlaceholder,
     blockingPlaceholderKind,
     // Never clear the painted graph without a replacement frame. Black FFT /
     // waterfall under standby or Start Tx is worse than a brief stale graph.

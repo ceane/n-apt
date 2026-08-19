@@ -17,6 +17,7 @@ import {
   isRtlSdrDevice,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
+import { DEVICE_CONTROL_SCOPE } from "@n-apt/app/infrastructure/streams/streamContract";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =
@@ -146,6 +147,7 @@ export const sendFrequencyRange = createAsyncThunk(
         payload: {
           type: "frequency_range",
           data: {
+            scope: DEVICE_CONTROL_SCOPE,
             ...tunedRange,
             bandwidth_center_frequency: optionalIntegerHz(
               (state as any).demod?.bandwidthCenterFreqHz,
@@ -296,7 +298,7 @@ export const sendCenterFrequency = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "frequency_range",
-          data,
+          data: { ...data, scope: DEVICE_CONTROL_SCOPE },
         },
       });
     }
@@ -317,7 +319,11 @@ export const sendPauseCommand = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "pause",
-          data: { paused: payload.isPaused, source_id: payload.sourceId },
+          data: {
+            scope: "subscriber",
+            paused: payload.isPaused,
+            source_id: payload.sourceId,
+          },
         },
       });
     }
@@ -408,7 +414,7 @@ export const sendSettings = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "settings",
-          data: sanitized,
+          data: { ...sanitized, scope: DEVICE_CONTROL_SCOPE },
         },
       });
     }
@@ -427,7 +433,7 @@ export const sendRestartDevice = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "restart_device",
-          data: {},
+          data: { scope: DEVICE_CONTROL_SCOPE },
         },
       });
     }
@@ -465,6 +471,7 @@ export const sendSelectSource = createAsyncThunk(
         payload: {
           type: "select_source",
           data: {
+            scope: DEVICE_CONTROL_SCOPE,
             source_id: sourceId,
             ...(requestedSampleRate !== null
               ? { sample_rate: requestedSampleRate }

@@ -399,6 +399,7 @@ let managedTxSubscription: StreamSubscription | null = null;
 let managedRxSourceId: string | null = null;
 let managedTxSourceId: string | null = null;
 let managedRxSubscribePending = false;
+let managedRxSubscribePendingSourceId: string | null = null;
 let managedTxSubscribePending = false;
 let pendingManagedTxOptions: StreamOptions | null = null;
 
@@ -430,6 +431,9 @@ let pendingStatusUpdates: any = null;
 let pausedFrameRequestInFlight = false;
 let lastPauseCommandTime = 0;
 let lastExpectedPauseState: boolean | null = null;
+// Visualizer pause is a subscriber concern. Keep it separate from the
+// backend's source pause bit so one browser window cannot pause another.
+const subscriberPausedBySource = new Map<string, boolean>();
 const MAX_RETAINED_LIVE_FRAMES = 1;
 const DISCONNECT_GRACE_MS = 150;
 const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
@@ -517,6 +521,17 @@ export const resetPausedFrameRequestGate = (): void => {
   pausedFrameRequestInFlight = false;
 };
 
+/**
+ * Whether a client pause/resume command is still awaiting backend
+ * confirmation. The store uses this to reconcile its optimistic manual-pause
+ * latch: a source the backend reports as unpaused should only release when no
+ * pause command is in flight, otherwise a just-clicked pause would be undone
+ * by the pre-echo backend snapshot.
+ */
+export const isPauseCommandInFlight = (): boolean =>
+  lastExpectedPauseState !== null &&
+  Date.now() - lastPauseCommandTime < 1000;
+
 export const resetWebSocketMiddlewareState = (): void => {
   requestedSourceId = null;
   lastSettingsRequest = null;
@@ -537,6 +552,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   managedRxSourceId = null;
   managedTxSourceId = null;
   managedRxSubscribePending = false;
+  managedRxSubscribePendingSourceId = null;
   managedTxSubscribePending = false;
   pendingManagedTxOptions = null;
   sourceModeStreamManager?.dispose();
@@ -544,6 +560,9 @@ export const resetWebSocketMiddlewareState = (): void => {
   multiplexedStreamTransport?.dispose();
   multiplexedStreamTransport = null;
   resetPausedFrameRequestGate();
+  lastPauseCommandTime = 0;
+  lastExpectedPauseState = null;
+  subscriberPausedBySource.clear();
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
@@ -1278,10 +1297,10 @@ const isCurrentManagedRxTarget = (
     (candidate: SourceInfo) => candidate.id === sourceId,
   );
   return (
-    state.activeSourceId === sourceId &&
+    (state.activeSourceId === sourceId || requestedSourceId === sourceId) &&
     source.capabilities?.can_receive !== false &&
     !!source?.iq_format &&
-    isSourceStreamAvailable(source.status)
+    isSourceStreamAvailable(state.sourceStatuses?.[sourceId] ?? source.status)
   );
 };
 
@@ -1320,6 +1339,20 @@ const syncManagedStreamSubscriptions = (
   const activeSource = (state.sources ?? []).find(
     (source: SourceInfo) => source.id === state.activeSourceId,
   );
+  const requestedSource = requestedSourceId
+    ? (state.sources ?? []).find(
+        (source: SourceInfo) => source.id === requestedSourceId,
+      )
+    : null;
+  const requestedSourceIsRxCapable =
+    !!requestedSource &&
+    requestedSource.capability !== "tx" &&
+    requestedSource.kind !== "mock_tx" &&
+    requestedSource.capabilities?.can_receive !== false;
+  const desiredRxSource =
+    requestedSourceIsRxCapable && requestedSource.id !== state.activeSourceId
+      ? requestedSource
+      : activeSource;
   // Resolve the desired Tx source before deciding the Rx subscription: a
   // half-duplex device (HackRF) cannot stream Rx and Tx simultaneously. When
   // the *active* source wants its Tx stream (standby preview or transmitting),
@@ -1347,15 +1380,17 @@ const syncManagedStreamSubscriptions = (
   const txSourceConflictsWithActiveRx =
     wantsTx &&
     txStreamConflictsWithActiveRx({
-      activeSourceId: activeSource?.id,
+      activeSourceId: desiredRxSource?.id,
       txSource,
     });
   const wantsRx =
-    !!activeSource?.iq_format &&
-    activeSource.capabilities?.can_receive !== false &&
-    isSourceStreamAvailable(activeSource.status) &&
+    !!desiredRxSource?.iq_format &&
+    desiredRxSource.capabilities?.can_receive !== false &&
+    isSourceStreamAvailable(
+      state.sourceStatuses?.[desiredRxSource.id] ?? desiredRxSource.status,
+    ) &&
     !txSourceConflictsWithActiveRx;
-  const rxSourceId = wantsRx ? activeSource.id : null;
+  const rxSourceId = wantsRx ? desiredRxSource.id : null;
   if (managedRxSourceId !== rxSourceId) {
     managedRxSubscription?.unsubscribe();
     managedRxSubscription = null;
@@ -1363,40 +1398,49 @@ const syncManagedStreamSubscriptions = (
   }
   if (
     rxSourceId &&
-    activeSource &&
+    desiredRxSource &&
     !managedRxSubscription &&
-    !managedRxSubscribePending
+    managedRxSubscribePendingSourceId !== rxSourceId
   ) {
     managedRxSubscribePending = true;
+    managedRxSubscribePendingSourceId = rxSourceId;
     const key = { sourceId: rxSourceId, mode: "rx" as const };
     void sourceModeStreamManager
       .subscribe(
         key,
-        buildManagedRxOptions(getState(), activeSource),
+        buildManagedRxOptions(getState(), desiredRxSource),
         (event) =>
           handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
       )
       .then((subscription) => {
-        managedRxSubscribePending = false;
+        if (managedRxSubscribePendingSourceId === rxSourceId) {
+          managedRxSubscribePending = false;
+          managedRxSubscribePendingSourceId = null;
+        }
         if (!isCurrentManagedRxTarget(getState(), rxSourceId)) {
           subscription.unsubscribe();
           return;
         }
         managedRxSubscription = subscription;
         managedRxSourceId = rxSourceId;
+        const paused = subscriberPausedBySource.get(rxSourceId);
+        if (paused !== undefined) subscription.setPaused(paused);
         syncManagedStreamSubscriptions(dispatch, getState);
       })
       .catch((error: unknown) => {
-        managedRxSubscribePending = false;
+        if (managedRxSubscribePendingSourceId === rxSourceId) {
+          managedRxSubscribePending = false;
+          managedRxSubscribePendingSourceId = null;
+        }
         dispatch(
           setOperationalError(
             error instanceof Error ? error.message : String(error),
           ),
         );
       });
-  } else if (managedRxSubscription && activeSource) {
+  } else if (managedRxSubscription && desiredRxSource) {
     void managedRxSubscription.updateOptions(
-      buildManagedRxOptions(getState(), activeSource),
+      buildManagedRxOptions(getState(), desiredRxSource),
     );
   }
   // A source handoff can commit after the stream acknowledgement. In that
@@ -1444,6 +1488,8 @@ const syncManagedStreamSubscriptions = (
         }
         managedTxSubscription = subscription;
         managedTxSourceId = txSourceId;
+        const paused = subscriberPausedBySource.get(txSourceId);
+        if (paused !== undefined) subscription.setPaused(paused);
         pendingManagedTxOptions = null;
         syncManagedStreamSubscriptions(dispatch, getState);
       })
@@ -1500,6 +1546,7 @@ const resetManagedStreamPipeline = (recreate: boolean): void => {
   managedRxSourceId = null;
   managedTxSourceId = null;
   managedRxSubscribePending = false;
+  managedRxSubscribePendingSourceId = null;
   managedTxSubscribePending = false;
   sourceModeStreamManager?.dispose();
   sourceModeStreamManager = null;
@@ -1696,6 +1743,7 @@ const announceTxStandbyForSource = (
   wsInstance.ws.send(
     JSON.stringify({
       type: "status",
+      scope: "device",
       ...resolveTxStandbyAnnouncement(source),
     }),
   );
@@ -1845,14 +1893,19 @@ const processMessage = (
         requestedSourceId = null;
       }
       const serverIsPaused = isSourceModePaused(parsedData.active_source_mode);
-      let targetIsPaused = serverIsPaused;
-      if (
-        lastExpectedPauseState !== null &&
-        Date.now() - lastPauseCommandTime < 1000
-      ) {
-        targetIsPaused = lastExpectedPauseState;
-      } else {
-        lastExpectedPauseState = null;
+      const subscriberPause = subscriberPausedBySource.get(
+        parsedData.active_source,
+      );
+      let targetIsPaused = subscriberPause ?? serverIsPaused;
+      if (subscriberPause === undefined) {
+        if (
+          lastExpectedPauseState !== null &&
+          Date.now() - lastPauseCommandTime < 1000
+        ) {
+          targetIsPaused = lastExpectedPauseState;
+        } else {
+          lastExpectedPauseState = null;
+        }
       }
       const updates: any = {
         activeSourceId: parsedData.active_source,
@@ -1912,14 +1965,19 @@ const processMessage = (
         requestedSourceId = null;
       }
       const serverIsPaused = isSourceModePaused(parsedData.source_mode);
-      let targetIsPaused = serverIsPaused;
-      if (
-        lastExpectedPauseState !== null &&
-        Date.now() - lastPauseCommandTime < 1000
-      ) {
-        targetIsPaused = lastExpectedPauseState;
-      } else {
-        lastExpectedPauseState = null;
+      const subscriberPause = subscriberPausedBySource.get(
+        parsedData.source_id,
+      );
+      let targetIsPaused = subscriberPause ?? serverIsPaused;
+      if (subscriberPause === undefined) {
+        if (
+          lastExpectedPauseState !== null &&
+          Date.now() - lastPauseCommandTime < 1000
+        ) {
+          targetIsPaused = lastExpectedPauseState;
+        } else {
+          lastExpectedPauseState = null;
+        }
       }
       const updates: any = {
         activeSourceId: parsedData.source_id,
@@ -2436,6 +2494,7 @@ const createWebSocketMiddleware =
                 ws.send(
                   JSON.stringify({
                     type: "frequency_range",
+                    scope: "device",
                     min_hz: currentRange.min,
                     max_hz: currentRange.max,
                     center_frequency: (currentRange.min + currentRange.max) / 2,
@@ -2447,6 +2506,7 @@ const createWebSocketMiddleware =
               if (spectrumSettings) {
                 const sdrSettingsPayload: Record<string, any> = {
                   type: "settings",
+                  scope: "device",
                 };
                 if (
                   typeof spectrumSettings.fftSize === "number" &&
@@ -2693,32 +2753,6 @@ const createWebSocketMiddleware =
         }
 
         if (type === "select_source") {
-          const previousActiveSourceId = getState().websocket.activeSourceId;
-          const previousActiveSource = (
-            getState().websocket.sources ?? []
-          ).find((source: SourceInfo) => source.id === previousActiveSourceId);
-          const previousSourceIsTransmitting =
-            previousActiveSource?.status === "transmitting" ||
-            getState().websocket.sourceStatuses?.[previousActiveSourceId] ===
-              "transmitting";
-          // Fence the old receiver immediately. The backend also enforces this
-          // during the device swap, but sending the per-source pause first
-          // keeps the source card and any already-open stream consistent while
-          // that blocking handoff is in flight.
-          if (
-            previousActiveSourceId &&
-            previousActiveSourceId !== normalizedData?.source_id &&
-            !previousSourceIsTransmitting &&
-            wsInstance.ws?.readyState === WebSocket.OPEN
-          ) {
-            wsInstance.ws.send(
-              JSON.stringify({
-                type: "pause",
-                paused: true,
-                source_id: previousActiveSourceId,
-              }),
-            );
-          }
           // Source selection is a hard presentation ownership boundary. The
           // old source may be paused, but its frame must not remain in the
           // shared legacy ref while React and the replacement transport catch
@@ -2806,24 +2840,13 @@ const createWebSocketMiddleware =
           const duplexMode = getPauseDuplexMode(action.payload);
           const activeMode = getPauseActiveMode(action.payload);
           const mode = duplexMode === "tx" || activeMode === "tx" ? "tx" : "rx";
+          subscriberPausedBySource.set(sourceId, isPaused);
           presentationController.setPaused(sourceId, mode, isPaused);
-        }
-
-        if (
-          sourceId &&
-          wsInstance.ws &&
-          wsInstance.ws.readyState === WebSocket.OPEN
-        ) {
-          const pausePayload: Record<string, unknown> = {
-            type: "pause",
-            paused: isPaused,
-            source_id: sourceId,
-          };
-          const duplexMode = getPauseDuplexMode(action.payload);
-          if (duplexMode) {
-            pausePayload.duplex_mode = duplexMode;
+          const managedSubscription =
+            mode === "tx" ? managedTxSubscription : managedRxSubscription;
+          if (managedSubscription?.stream.sourceId === sourceId) {
+            managedSubscription.setPaused(isPaused);
           }
-          wsInstance.ws.send(JSON.stringify(pausePayload));
         }
 
         return next({

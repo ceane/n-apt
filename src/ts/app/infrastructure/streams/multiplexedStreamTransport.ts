@@ -13,6 +13,7 @@ type StreamConnection = {
   onEvent: (event: StreamEvent) => void;
   subscriptionId: string;
   options: StreamOptions;
+  paused: boolean;
 };
 
 type MultiplexedStreamTransportOptions = {
@@ -32,6 +33,27 @@ const toBytes = (base64: string): Uint8Array => {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+};
+
+const isStreamOptionsForMode = (
+  value: unknown,
+  mode: StreamKey["mode"],
+): value is StreamOptions => {
+  if (!value || typeof value !== "object") return false;
+  const options = value as Record<string, unknown>;
+  if (
+    options.mode !== mode ||
+    typeof options.centerFrequencyHz !== "number" ||
+    typeof options.sampleRateHz !== "number"
+  ) {
+    return false;
+  }
+  return mode === "rx"
+    ? typeof options.fftSize === "number"
+    : typeof options.bandwidthHz === "number" &&
+        typeof options.ifftSize === "number" &&
+        typeof options.signal === "string" &&
+        typeof options.powerDbm === "number";
 };
 
 const streamUrl = (controlUrl: string): string => {
@@ -117,10 +139,20 @@ export const createMultiplexedStreamTransport = ({
     for (const connection of connections.values()) {
       send({
         type: "stream_subscribe",
+        scope: "subscriber",
         subscriptionId: connection.subscriptionId,
         stream: connection.key,
         options: connection.options,
       });
+      if (connection.paused && connection.key.mode === "rx") {
+        send({
+          type: "stream_set_paused",
+          scope: "subscriber",
+          subscriptionId: connection.subscriptionId,
+          stream: connection.key,
+          paused: true,
+        });
+      }
     }
   };
 
@@ -173,6 +205,12 @@ export const createMultiplexedStreamTransport = ({
       const connection = connections.get(key);
       if (!connection) return;
       if (message.type === "stream_subscribed") {
+        const effectiveOptions = isStreamOptionsForMode(
+          message.effectiveOptions,
+          connection.key.mode,
+        )
+          ? message.effectiveOptions
+          : undefined;
         connection.onEvent({
           type: "stream_opened",
           sourceId: connection.key.sourceId,
@@ -183,6 +221,9 @@ export const createMultiplexedStreamTransport = ({
             message.state === "unavailable" || message.state === "opening"
               ? message.state
               : "ready",
+          options: effectiveOptions,
+          controlScopes:
+            message.controlScopes as import("./streamContract").StreamControlScopes,
         });
         return;
       }
@@ -235,6 +276,7 @@ export const createMultiplexedStreamTransport = ({
       onEvent,
       subscriptionId: `transport-${keyFor(key)}`,
       options: { mode: key.mode } as StreamOptions,
+      paused: false,
     };
     connections.set(keyFor(key), entry);
     connect();
@@ -246,6 +288,8 @@ export const createMultiplexedStreamTransport = ({
           entry.options = message.options;
         } else if (message.type === "stream_update_options") {
           entry.options = message.options;
+        } else if (message.type === "stream_set_paused") {
+          entry.paused = message.paused;
         }
         send(message);
       },

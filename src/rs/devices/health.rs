@@ -215,6 +215,7 @@ impl DeviceHealthWorker {
           }
           broadcast_device_status(&shared_state, &_broadcast_tx);
 
+          let failed_source_id = active_source_id(&shared_state);
           let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
           if let Err(swap_e) = processor.swap_device(mock_device) {
             shared_state.set_device_backend_error(Some(swap_e.to_string()));
@@ -233,6 +234,7 @@ impl DeviceHealthWorker {
               shared_state.set_device_backend_error(processor.get_error());
             }
             shared_state.set_active_source_pause_state("mock-apt", false);
+            shared_state.clear_pending_source_switch(&failed_source_id);
             broadcast_device_status(&shared_state, &_broadcast_tx);
           }
         }
@@ -278,6 +280,7 @@ impl DeviceHealthWorker {
               if !supported_device_present {
                 shared_state.set_device_state("disconnected", None);
                 broadcast_device_status(&shared_state, &_broadcast_tx);
+                let failed_source_id = active_source_id(&shared_state);
                 if let Err(swap_e) = processor.swap_device(
                   crate::sdr::SdrDeviceFactory::create_mock_device(),
                 ) {
@@ -291,6 +294,7 @@ impl DeviceHealthWorker {
                     build_device_profile(processor.device_type()),
                   );
                   shared_state.set_active_source_pause_state("mock-apt", false);
+                  shared_state.clear_pending_source_switch(&failed_source_id);
                 }
                 shared_state.set_device_backend_error(Some(format!(
                   "Async SDR sample reader restart failed after USB removal: {}",
@@ -493,6 +497,7 @@ impl DeviceHealthWorker {
           }
           broadcast_device_status(&shared_state, &_broadcast_tx);
 
+          let failed_source_id = active_source_id(&shared_state);
           let mock_device = crate::sdr::SdrDeviceFactory::create_mock_device();
           if let Err(swap_e) = processor.swap_device(mock_device) {
             shared_state.set_device_backend_error(Some(swap_e.to_string()));
@@ -511,6 +516,7 @@ impl DeviceHealthWorker {
               shared_state.set_device_backend_error(processor.get_error());
             }
             shared_state.set_active_source_pause_state("mock-apt", false);
+            shared_state.clear_pending_source_switch(&failed_source_id);
             broadcast_device_status(&shared_state, &_broadcast_tx);
             hotplug_state.last_hardware_swap = Some(Instant::now());
           }

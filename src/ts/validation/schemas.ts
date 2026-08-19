@@ -463,6 +463,7 @@ export const WebSocketMessageSchema = z.union([
   TxSafetyResultSchema,
   z.object({
     type: z.literal("frequency_range"),
+    scope: z.literal("device").optional(),
     min_hz: z.number().int(),
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
@@ -470,6 +471,7 @@ export const WebSocketMessageSchema = z.union([
   }),
   z.object({
     type: z.literal("set_frequency_range"),
+    scope: z.literal("device").optional(),
     min_hz: z.number().int(),
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
@@ -477,12 +479,14 @@ export const WebSocketMessageSchema = z.union([
   }),
   z.object({
     type: z.literal("pause"),
+    scope: z.literal("subscriber").optional(),
     paused: z.boolean(),
     source_id: z.string(),
     duplex_mode: DeviceDuplexModeSchema.optional(),
   }),
   z.object({
     type: z.literal("status"),
+    scope: z.literal("device").optional(),
     status: z.enum(["standby", "transmitting"]),
     txDevice: z.string().optional(),
     serialNumber: z.string().optional(),
@@ -509,10 +513,12 @@ export const WebSocketMessageSchema = z.union([
   }),
   z.object({
     type: z.literal("gain"),
+    scope: z.literal("device").optional(),
     gain: z.number(),
   }),
   z.object({
     type: z.literal("ppm"),
+    scope: z.literal("device").optional(),
     ppm: z.number().int().nonnegative(),
   }),
   z.object({
@@ -524,6 +530,7 @@ export const WebSocketMessageSchema = z.union([
   }),
   z.object({
     type: z.literal("settings"),
+    scope: z.literal("device").optional(),
     fftSize: z.number().optional(),
     fftWindow: z.string().optional(),
     frameRate: z.number().optional(),
@@ -539,9 +546,11 @@ export const WebSocketMessageSchema = z.union([
   }),
   z.object({
     type: z.literal("restart_device"),
+    scope: z.literal("device").optional(),
   }),
   z.object({
     type: z.literal("select_source"),
+    scope: z.literal("device").optional(),
     source_id: z.string(),
     sample_rate: z.number().positive().optional(),
   }),

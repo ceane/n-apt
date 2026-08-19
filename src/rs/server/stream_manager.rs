@@ -142,6 +142,16 @@ pub struct StreamMetrics {
   pub options_revision: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct StreamMetricsSnapshot {
+  pub key: StreamKey,
+  pub subscriber_count: usize,
+  pub accepted_frames: u64,
+  pub sequence: u64,
+  pub stream_epoch: u64,
+  pub options_revision: u64,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum StreamError {
   InvalidOptions,
@@ -183,9 +193,17 @@ struct StreamEntry {
   options_revision: u64,
   sequence: u64,
   accepted_frames: u64,
-  subscribers: usize,
+  subscribers: HashMap<u64, SubscriberContract>,
   close_generation: u64,
   sender: broadcast::Sender<StreamEvent>,
+}
+
+/// Per-connection subscriber state. This is deliberately separate from the
+/// source/device state: the backend may use unanimity across these contracts
+/// to idle acquisition, but it must not turn one subscriber's pause into a
+/// global pause visible to the other subscribers.
+struct SubscriberContract {
+  paused: Arc<AtomicBool>,
 }
 
 struct ManagerInner {
@@ -208,6 +226,7 @@ pub struct StreamSubscription {
   subscription_id: u64,
   receiver: broadcast::Receiver<StreamEvent>,
   active: Arc<AtomicBool>,
+  paused: Arc<AtomicBool>,
 }
 
 impl StreamingSourceModeManager {
@@ -260,25 +279,39 @@ impl StreamingSourceModeManager {
       }
       entry.close_generation = entry.close_generation.wrapping_add(1);
       let receiver = entry.sender.subscribe();
-      if entry.options != options {
-        entry.options = options.clone();
-        entry.options_revision += 1;
-        entry.stream_epoch = self.next_epoch();
-        entry.sequence = 0;
-        let _ = entry.sender.send(StreamEvent::OptionsApplied {
-          key: key.clone(),
-          stream_epoch: entry.stream_epoch,
-          options_revision: entry.options_revision,
-          options,
-        });
-      }
-      entry.subscribers += 1;
-      return Ok(self.make_subscription(key, receiver, entry.subscribers));
+      // A second subscriber hydrates from the existing device-owned stream.
+      // It must not turn its stale local request into a global reconfiguration;
+      // callers use update_options for an intentional device-scoped change.
+      let subscription_id = self.next_subscription();
+      let paused = Arc::new(AtomicBool::new(false));
+      entry
+        .subscribers
+        .insert(
+          subscription_id,
+          SubscriberContract {
+            paused: paused.clone(),
+          },
+        );
+      return Ok(self.make_subscription(
+        key,
+        receiver,
+        subscription_id,
+        paused,
+      ));
     }
 
     let (sender, receiver) = broadcast::channel(32);
     let stream_epoch = self.next_epoch();
     let options_revision = 1;
+    let subscription_id = self.next_subscription();
+    let paused = Arc::new(AtomicBool::new(false));
+    let mut subscribers = HashMap::new();
+    subscribers.insert(
+      subscription_id,
+      SubscriberContract {
+        paused: paused.clone(),
+      },
+    );
     streams.insert(
       key.clone(),
       StreamEntry {
@@ -287,29 +320,28 @@ impl StreamingSourceModeManager {
         options_revision,
         sequence: 0,
         accepted_frames: 0,
-        subscribers: 1,
+        subscribers,
         close_generation: 0,
         sender,
       },
     );
-    Ok(self.make_subscription(key, receiver, 1))
+    Ok(self.make_subscription(key, receiver, subscription_id, paused))
   }
 
   fn make_subscription(
     &self,
     key: StreamKey,
     receiver: broadcast::Receiver<StreamEvent>,
-    _subscriber_count: usize,
+    subscription_id: u64,
+    paused: Arc<AtomicBool>,
   ) -> StreamSubscription {
     StreamSubscription {
       manager: Arc::downgrade(&self.inner),
       key,
-      subscription_id: self
-        .inner
-        .next_subscription
-        .fetch_add(1, Ordering::Relaxed),
+      subscription_id,
       receiver,
       active: Arc::new(AtomicBool::new(true)),
+      paused,
     }
   }
 
@@ -369,6 +401,10 @@ impl StreamingSourceModeManager {
     self.inner.next_epoch.fetch_add(1, Ordering::Relaxed)
   }
 
+  fn next_subscription(&self) -> u64 {
+    self.inner.next_subscription.fetch_add(1, Ordering::Relaxed)
+  }
+
   pub fn publish_iq_frame(
     &self,
     key: &StreamKey,
@@ -421,6 +457,48 @@ impl StreamingSourceModeManager {
       .map(|entry| entry.options.clone())
   }
 
+  /// Returns true only when there is at least one subscriber and every
+  /// subscriber has opted into the backend's universal idle optimization.
+  /// A missing stream or a stream with no subscribers must keep producing so a
+  /// new subscriber can still attach and receive its first frame.
+  pub fn all_subscribers_paused(&self, key: &StreamKey) -> bool {
+    let streams = self.inner.streams.lock().unwrap();
+    let Some(entry) = streams.get(key) else {
+      return false;
+    };
+    !entry.subscribers.is_empty()
+      && entry
+        .subscribers
+        .values()
+        .all(|subscriber| subscriber.paused.load(Ordering::Acquire))
+  }
+
+  /// Update one subscriber's local pause contract and return whether all
+  /// subscribers are now paused. The aggregate is an optimization only; the
+  /// subscriber flag itself remains local and is never broadcast as device
+  /// state.
+  pub fn set_subscriber_paused(
+    &self,
+    key: &StreamKey,
+    subscription_id: u64,
+    paused: bool,
+  ) -> Result<bool, StreamError> {
+    let streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get(key).ok_or(StreamError::MissingStream)?;
+    let subscriber = entry
+      .subscribers
+      .get(&subscription_id)
+      .ok_or(StreamError::MissingStream)?;
+    subscriber.paused.store(paused, Ordering::Release);
+    Ok(
+      !entry.subscribers.is_empty()
+        && entry
+          .subscribers
+          .values()
+          .all(|subscriber| subscriber.paused.load(Ordering::Acquire)),
+    )
+  }
+
   pub fn metrics(&self, key: &StreamKey) -> Option<StreamMetrics> {
     self
       .inner
@@ -429,12 +507,30 @@ impl StreamingSourceModeManager {
       .unwrap()
       .get(key)
       .map(|entry| StreamMetrics {
-        subscriber_count: entry.subscribers,
+        subscriber_count: entry.subscribers.len(),
         accepted_frames: entry.accepted_frames,
         sequence: entry.sequence,
         stream_epoch: entry.stream_epoch,
         options_revision: entry.options_revision,
       })
+  }
+
+  pub fn metrics_snapshot(&self) -> Vec<StreamMetricsSnapshot> {
+    self
+      .inner
+      .streams
+      .lock()
+      .unwrap()
+      .iter()
+      .map(|(key, entry)| StreamMetricsSnapshot {
+        key: key.clone(),
+        subscriber_count: entry.subscribers.len(),
+        accepted_frames: entry.accepted_frames,
+        sequence: entry.sequence,
+        stream_epoch: entry.stream_epoch,
+        options_revision: entry.options_revision,
+      })
+      .collect()
   }
 
   pub fn has_stream(&self, key: &StreamKey) -> bool {
@@ -500,12 +596,11 @@ impl StreamingSourceModeManager {
     let Some(entry) = streams.get_mut(key) else {
       return;
     };
-    if entry.subscribers == 0 {
+    if entry.subscribers.remove(&subscription_id).is_none() {
       return;
     }
-    entry.subscribers -= 1;
     entry.close_generation = entry.close_generation.wrapping_add(1);
-    if entry.subscribers > 0 {
+    if !entry.subscribers.is_empty() {
       return;
     }
 
@@ -527,7 +622,8 @@ impl StreamingSourceModeManager {
         };
         let mut streams = inner.streams.lock().unwrap();
         let should_remove = streams.get(&key).is_some_and(|entry| {
-          entry.subscribers == 0 && entry.close_generation == close_generation
+          entry.subscribers.is_empty()
+            && entry.close_generation == close_generation
         });
         if should_remove {
           streams.remove(&key);
@@ -538,10 +634,28 @@ impl StreamingSourceModeManager {
 }
 
 impl StreamSubscription {
+  pub fn subscription_id(&self) -> u64 {
+    self.subscription_id
+  }
+
   pub async fn recv(
     &mut self,
   ) -> Result<StreamEvent, broadcast::error::RecvError> {
-    self.receiver.recv().await
+    loop {
+      let event = self.receiver.recv().await?;
+      if self.paused.load(Ordering::Acquire)
+        && matches!(&event, StreamEvent::Frame(_))
+      {
+        continue;
+      }
+      return Ok(event);
+    }
+  }
+
+  pub fn set_paused(&self, paused: bool) -> Result<bool, StreamError> {
+    let manager = self.manager.upgrade().ok_or(StreamError::MissingStream)?;
+    let manager = StreamingSourceModeManager { inner: manager };
+    manager.set_subscriber_paused(&self.key, self.subscription_id, paused)
   }
 
   pub fn update_options(
@@ -573,6 +687,9 @@ impl Drop for StreamSubscription {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::server::stream_contract::{
+    stream_control_scope, StreamControlAction, StreamControlScope,
+  };
 
   fn rx_options() -> StreamOptions {
     StreamOptions::Rx(RxStreamOptions {
@@ -668,6 +785,79 @@ mod tests {
     let _rx = manager.subscribe(rx_key, rx_options()).unwrap();
     manager.subscribe(tx_key, tx_options()).expect(
       "full-duplex sources may hold both streams simultaneously",
+    );
+  }
+
+  #[test]
+  fn metrics_snapshot_exposes_live_subscriber_delivery_state() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let subscription = manager.subscribe(key.clone(), rx_options()).unwrap();
+
+    manager
+      .publish_iq_frame(&key, 123, 2_400_000, Arc::new(vec![1, 2, 3]))
+      .expect("published frame should be accepted by the active stream");
+
+    let snapshot = manager.metrics_snapshot();
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].key, key);
+    assert_eq!(snapshot[0].subscriber_count, 1);
+    assert_eq!(snapshot[0].accepted_frames, 1);
+
+    subscription.unsubscribe();
+  }
+
+  #[test]
+  fn late_subscriber_cannot_overwrite_device_owned_options() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let first = manager.subscribe(key.clone(), rx_options()).unwrap();
+    let second_options = StreamOptions::Rx(RxStreamOptions {
+      center_frequency_hz: 101_000_000,
+      sample_rate_hz: 2_400_000,
+      fft_size: 4096,
+      fft_window: None,
+      frame_rate: None,
+      gain: None,
+    });
+
+    let second = manager.subscribe(key.clone(), second_options).unwrap();
+
+    assert_eq!(manager.options(&key), Some(rx_options()));
+    assert_eq!(manager.metrics(&key).unwrap().options_revision, 1);
+    first.unsubscribe();
+    second.unsubscribe();
+  }
+
+  #[test]
+  fn stream_contract_scopes_rx_pause_and_device_controls() {
+    assert_eq!(
+      stream_control_scope(StreamMode::Rx, StreamControlAction::Pause),
+      StreamControlScope::Subscriber
+    );
+    assert_eq!(
+      stream_control_scope(StreamMode::Rx, StreamControlAction::Settings),
+      StreamControlScope::Device
+    );
+    assert_eq!(
+      stream_control_scope(StreamMode::Rx, StreamControlAction::Tune),
+      StreamControlScope::Device
+    );
+  }
+
+  #[test]
+  fn stream_contract_scopes_tx_stop_and_settings_to_the_device() {
+    assert_eq!(
+      stream_control_scope(StreamMode::Tx, StreamControlAction::Stop),
+      StreamControlScope::Device
+    );
+    assert_eq!(
+      stream_control_scope(StreamMode::Tx, StreamControlAction::Pause),
+      StreamControlScope::Device
+    );
+    assert_eq!(
+      stream_control_scope(StreamMode::Tx, StreamControlAction::Settings),
+      StreamControlScope::Device
     );
   }
 }

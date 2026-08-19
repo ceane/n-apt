@@ -56,6 +56,63 @@ async fn one_source_mode_fans_identical_frames_to_multiple_subscribers() {
 }
 
 #[tokio::test]
+async fn backend_pauses_only_when_all_subscribers_are_paused() {
+  let manager = StreamingSourceModeManager::new(Duration::from_millis(250));
+  let key = StreamKey::new("source-a", StreamMode::Rx);
+  let first = manager
+    .subscribe(key.clone(), rx_options(100_000_000))
+    .unwrap();
+  let second = manager
+    .subscribe(key.clone(), rx_options(100_000_000))
+    .unwrap();
+
+  assert!(!manager.all_subscribers_paused(&key));
+  assert!(!manager
+    .set_subscriber_paused(&key, first.subscription_id(), true)
+    .unwrap());
+  assert!(!manager.all_subscribers_paused(&key));
+
+  assert!(manager
+    .set_subscriber_paused(&key, second.subscription_id(), true)
+    .unwrap());
+  assert!(manager.all_subscribers_paused(&key));
+
+  assert!(!manager
+    .set_subscriber_paused(&key, first.subscription_id(), false)
+    .unwrap());
+  assert!(!manager.all_subscribers_paused(&key));
+}
+
+#[tokio::test]
+async fn paused_subscribers_are_drained_without_receiving_frames() {
+  let manager = StreamingSourceModeManager::new(Duration::from_millis(250));
+  let key = StreamKey::new("source-a", StreamMode::Rx);
+  let mut paused = manager
+    .subscribe(key.clone(), rx_options(100_000_000))
+    .unwrap();
+  let mut active = manager
+    .subscribe(key.clone(), rx_options(100_000_000))
+    .unwrap();
+
+  manager
+    .set_subscriber_paused(&key, paused.subscription_id(), true)
+    .unwrap();
+  manager
+    .publish_iq_frame(&key, 42, 2_400_000, Arc::from(vec![128_u8, 129]))
+    .unwrap();
+
+  assert!(matches!(
+    active.recv().await.unwrap(),
+    StreamEvent::Frame(_)
+  ));
+  assert!(
+    tokio::time::timeout(Duration::from_millis(20), paused.recv())
+      .await
+      .is_err()
+  );
+}
+
+#[tokio::test]
 async fn option_updates_are_shared_and_advance_the_revision() {
   let manager = StreamingSourceModeManager::new(Duration::from_millis(250));
   let key = StreamKey::new("source-a", StreamMode::Rx);

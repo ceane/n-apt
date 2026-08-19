@@ -87,6 +87,7 @@ import {
   liveDataRef,
   presentationController,
   sourceVisualizationRuntime,
+  isPauseCommandInFlight,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
@@ -143,6 +144,40 @@ export type SelectedFile = { id: string; name: string; downloadUrl?: string };
 
 const MANUAL_VISUALIZER_PAUSE_KEY = "napt-visualizer-manual-paused";
 const VISUALIZER_FRAME_RATE_KEY = "napt-visualizer-frame-rate";
+
+export const persistManualVisualizerPaused = (paused: boolean): void => {
+  if (typeof window === "undefined") return;
+  try {
+    // Pause is presentation state owned by this browser session. localStorage
+    // is shared by windows/tabs and would make one subscriber pause another.
+    window.sessionStorage.setItem(
+      MANUAL_VISUALIZER_PAUSE_KEY,
+      JSON.stringify(paused),
+    );
+  } catch {
+    /* ignore */
+  }
+};
+
+export const loadPersistedManualVisualizerPaused = (): boolean | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(MANUAL_VISUALIZER_PAUSE_KEY);
+    if (raw === null) return null;
+    return JSON.parse(raw) === true;
+  } catch {
+    return null;
+  }
+};
+
+export const updateLocalSourcePauseOverride = (
+  current: Record<string, boolean>,
+  sourceId: string,
+  paused: boolean,
+): Record<string, boolean> => {
+  if (current[sourceId] === paused) return current;
+  return { ...current, [sourceId]: paused };
+};
 
 const getPersistedNumber = (key: string): number | null => {
   if (typeof window === "undefined") return null;
@@ -670,6 +705,22 @@ export const resolveEffectiveSourcePaused = ({
   if (manuallyPaused || autoPaused) return true;
   return localPaused ?? backendPaused ?? false;
 };
+
+export const shouldReleaseSourcePauseLatch = ({
+  backendPaused,
+  manuallyPaused,
+  restoredManualPause,
+  pauseCommandInFlight,
+}: {
+  backendPaused?: boolean;
+  manuallyPaused: boolean;
+  restoredManualPause: boolean;
+  pauseCommandInFlight: boolean;
+}): boolean =>
+  backendPaused === false &&
+  !manuallyPaused &&
+  !restoredManualPause &&
+  !pauseCommandInFlight;
 
 /** Pause the playing stream unless the caller named a specific source. */
 export const resolvePauseTargetSourceId = ({
@@ -2425,6 +2476,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           payload: {
             type: "status",
             data: {
+              scope: "device",
               status: enabled ? "transmitting" : "standby",
               txDevice: device,
               txSafetyEnabled: reduxSpectrumState.txSafetyEnabled,
@@ -2510,8 +2562,24 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       ],
     );
 
-    // Track active spectrum route globally
-    const [manualVisualizerPaused, setManualVisualizerPaused] = useState(false);
+    // Track active spectrum route globally. Restore a persisted manual pause
+    // so hot reload / full reload keeps the visualizer paused when the user
+    // left it paused.
+    const [manualVisualizerPaused, setManualVisualizerPaused] = useState(
+      () => loadPersistedManualVisualizerPaused() ?? false,
+    );
+    const restoredManualPauseRef = useRef(manualVisualizerPaused);
+    useEffect(() => {
+      persistManualVisualizerPaused(manualVisualizerPaused);
+    }, [manualVisualizerPaused]);
+    // Seed the manual-pause latch from the restored persisted state so the
+    // source-activation replay below re-asserts the pause to a backend that
+    // reset its own pause state on reconnect (hot reload auto-play fix).
+    useEffect(() => {
+      if (!manualVisualizerPaused || !selectedSourceId) return;
+      manualPausedSourceIdsRef.current.add(selectedSourceId);
+      autoPausedSourceIdsRef.current.delete(selectedSourceId);
+    }, [manualVisualizerPaused, selectedSourceId]);
     const previousDeviceStateRef = useRef<DeviceState | null>(null);
 
     // Track if we've already synced backend connection settings
@@ -2552,23 +2620,55 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const syncSelectedSourcePauseState = useCallback(
       (sourceId: string | null | undefined) => {
-        const sourcePaused = sourceId
+        const rawSource = sourceId
+          ? websocketSources.find((source) => source.id === sourceId)
+          : undefined;
+        const backendPaused = rawSource?.paused;
+        const effectivePaused = sourceId
           ? effectiveWebsocketSources.find((source) => source.id === sourceId)
               ?.paused
           : undefined;
+        // The backend is authoritative for display. When it explicitly reports
+        // the source as unpaused, release any stale manual/auto latch so the
+        // UI cannot stay stuck on "Resume" while the stream plays — but only
+        // once no pause command is in flight, otherwise a just-clicked pause
+        // would be undone by the pre-echo backend snapshot. A pause restored
+        // from persistence is an explicit user intent that must survive until
+        // the user resumes it.
+        if (
+          shouldReleaseSourcePauseLatch({
+            backendPaused,
+            manuallyPaused: manualPausedSourceIdsRef.current.has(sourceId!),
+            restoredManualPause: restoredManualPauseRef.current,
+            pauseCommandInFlight: isPauseCommandInFlight(),
+          })
+        ) {
+          manualPausedSourceIdsRef.current.delete(sourceId!);
+          autoPausedSourceIdsRef.current.delete(sourceId!);
+          setLocalSourcePauseOverrides((current) =>
+            updateLocalSourcePauseOverride(current, sourceId!, false),
+          );
+        }
         const nextPaused =
           !!sourceId &&
-          (sourcePaused !== undefined
-            ? sourcePaused
-            : manualPausedSourceIdsRef.current.has(sourceId) ||
-              autoPausedSourceIdsRef.current.has(sourceId));
+          (effectivePaused !== undefined
+            ? effectivePaused
+            : backendPaused !== undefined
+              ? backendPaused
+              : manualPausedSourceIdsRef.current.has(sourceId) ||
+                autoPausedSourceIdsRef.current.has(sourceId));
         if (manualVisualizerPaused === nextPaused) {
           return;
         }
         setManualVisualizerPaused(nextPaused);
         reduxDispatch(setVisualizerPausedAction(nextPaused));
       },
-      [effectiveWebsocketSources, manualVisualizerPaused, storeDispatch],
+      [
+        effectiveWebsocketSources,
+        manualVisualizerPaused,
+        storeDispatch,
+        websocketSources,
+      ],
     );
 
     useEffect(() => {
@@ -2599,10 +2699,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           !previouslyAutoPaused
         ) {
           autoPausedSourceIdsRef.current.add(previousSelectedSourceId);
-          setLocalSourcePauseOverrides((current) => ({
-            ...current,
-            [previousSelectedSourceId]: true,
-          }));
+          setLocalSourcePauseOverrides((current) =>
+            updateLocalSourcePauseOverride(
+              current,
+              previousSelectedSourceId,
+              true,
+            ),
+          );
           wsConnection.sendPauseCommand(true, previousSelectedSourceId);
         }
       }
@@ -2615,10 +2718,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         )
       ) {
         autoPausedSourceIdsRef.current.delete(selectedSourceId);
-        setLocalSourcePauseOverrides((current) => ({
-          ...current,
-          [selectedSourceId]: false,
-        }));
+        setLocalSourcePauseOverrides((current) =>
+          updateLocalSourcePauseOverride(current, selectedSourceId, false),
+        );
         wsConnection.sendPauseCommand(false, selectedSourceId);
         syncSelectedSourcePauseState(selectedSourceId);
         return;
@@ -2634,10 +2736,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         !manualPausedSourceIdsRef.current.has(selectedSourceId)
       ) {
         autoPausedSourceIdsRef.current.delete(selectedSourceId);
-        setLocalSourcePauseOverrides((current) => ({
-          ...current,
-          [selectedSourceId]: false,
-        }));
+        setLocalSourcePauseOverrides((current) =>
+          updateLocalSourcePauseOverride(current, selectedSourceId, false),
+        );
         wsConnection.sendPauseCommand(false, selectedSourceId);
       }
 
@@ -2727,10 +2828,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
 
       autoPausedSourceIdsRef.current.delete(selectedSourceId);
-      setLocalSourcePauseOverrides((current) => ({
-        ...current,
-        [selectedSourceId]: false,
-      }));
+      setLocalSourcePauseOverrides((current) =>
+        updateLocalSourcePauseOverride(current, selectedSourceId, false),
+      );
       wsConnection.sendPauseCommand(false, selectedSourceId);
       syncSelectedSourcePauseState(selectedSourceId);
     }, [
@@ -2761,10 +2861,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         }
 
         autoPausedSourceIdsRef.current.add(selectedSourceId);
-        setLocalSourcePauseOverrides((current) => ({
-          ...current,
-          [selectedSourceId]: true,
-        }));
+        setLocalSourcePauseOverrides((current) =>
+          updateLocalSourcePauseOverride(current, selectedSourceId, true),
+        );
         wsConnection.sendPauseCommand(true, selectedSourceId);
         syncSelectedSourcePauseState(selectedSourceId);
         return;
@@ -2777,10 +2876,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         }
 
         autoPausedSourceIdsRef.current.delete(selectedSourceId);
-        setLocalSourcePauseOverrides((current) => ({
-          ...current,
-          [selectedSourceId]: false,
-        }));
+        setLocalSourcePauseOverrides((current) =>
+          updateLocalSourcePauseOverride(current, selectedSourceId, false),
+        );
         wsConnection.sendPauseCommand(false, selectedSourceId);
         syncSelectedSourcePauseState(selectedSourceId);
       }
@@ -3629,10 +3727,17 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           manualPausedSourceIdsRef.current.delete(pauseTargetSourceId);
           autoPausedSourceIdsRef.current.delete(pauseTargetSourceId);
         }
-        setLocalSourcePauseOverrides((current) => ({
-          ...current,
-          [pauseTargetSourceId]: nextPaused,
-        }));
+        // An explicit toggle takes ownership of the pause away from the
+        // persisted-restore latch, so later backend-driven resume can release
+        // it normally.
+        restoredManualPauseRef.current = false;
+        setLocalSourcePauseOverrides((current) =>
+          updateLocalSourcePauseOverride(
+            current,
+            pauseTargetSourceId,
+            nextPaused,
+          ),
+        );
 
         if (
           shouldCarryManualPauseToSelectedSource({
@@ -3643,10 +3748,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         ) {
           manualPausedSourceIdsRef.current.add(selectedSourceId);
           autoPausedSourceIdsRef.current.delete(selectedSourceId);
-          setLocalSourcePauseOverrides((current) => ({
-            ...current,
-            [selectedSourceId]: true,
-          }));
+          setLocalSourcePauseOverrides((current) =>
+            updateLocalSourcePauseOverride(current, selectedSourceId, true),
+          );
           setManualVisualizerPaused(true);
           reduxDispatch(setVisualizerPausedAction(true));
         }

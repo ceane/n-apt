@@ -291,7 +291,22 @@ export const resolveLiveSpectrumPaintContract = ({
     panOffsetHz,
     mirrorEnabled,
   });
-  const displayRange = gestureView.displayRange;
+  const requestedDisplaySpan =
+    gestureView.displayRange.max - gestureView.displayRange.min;
+  const sourceSpan = sourceFrequencyRange.max - sourceFrequencyRange.min;
+  // During cold start Redux can still expose a persisted whole-channel span
+  // while the first live frame only covers the accepted sample-rate window.
+  // Letting that wider range reach the GPU makes the frame occupy one island
+  // inside a channel-sized viewport. The frame axis is the only complete row
+  // available until the range state catches up, so keep the initial paint
+  // source-sized. Normal zoom/pan requests have a span no wider than source.
+  const displayRange =
+    Number.isFinite(requestedDisplaySpan) &&
+    Number.isFinite(sourceSpan) &&
+    sourceSpan > 0 &&
+    requestedDisplaySpan > sourceSpan + 1
+      ? sourceFrequencyRange
+      : gestureView.displayRange;
   const rebased = resolvePanZoomForDisplayRange({
     hardwareRange: sourceFrequencyRange,
     displayRange,

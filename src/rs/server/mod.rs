@@ -7,6 +7,7 @@ pub mod http_endpoints;
 pub mod iq_format;
 pub mod main;
 pub mod shared_state;
+pub mod stream_contract;
 pub mod stream_manager;
 pub mod tower_local;
 pub mod tx_log;
