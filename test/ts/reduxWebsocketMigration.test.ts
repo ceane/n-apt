@@ -33,6 +33,7 @@ import {
   resolveManagedTxSourceId,
   txStreamConflictsWithActiveRx,
   handleManagedStreamEvent,
+  resolveManagedRxDeviceOptionUpdates,
   resolveManagedRxOptionsOverride,
   resolveLocalRxTuningOverride,
   processWebSocketMessage,
@@ -1124,6 +1125,48 @@ describe("Redux WebSocket Migration", () => {
       min: 24_100_000,
       max: 30_370_000,
     });
+  });
+
+  it("preserves a mirrored subscriber's absolute frequency across remote range hydration", () => {
+    const updates = resolveManagedRxDeviceOptionUpdates({
+      sourceId: "mock-apt",
+      options: {
+        mode: "rx",
+        centerFrequencyHz: 4_000_000,
+        sampleRateHz: 4_000_000,
+        fftSize: 1024,
+      },
+      rootState: {
+        websocket: {
+          activeSourceId: null,
+          sources: [
+            {
+              id: "mock-apt",
+              sdr: { settings: {} },
+            },
+          ],
+          channels: [],
+        },
+        spectrum: {
+          frequencyRange: { min: 0, max: 4_000_000 },
+          vizPanOffset: -4_000_000,
+          activeSignalArea: "A",
+        },
+        settings: {
+          mirrorIqBasebandBelowZero: true,
+        },
+      },
+    });
+
+    expect(updates.spectrum).toEqual(
+      expect.objectContaining({
+        frequencyRange: { min: 2_000_000, max: 6_000_000 },
+        // Keep the local mirrored view on the negative side while adopting
+        // the new device center: -4 MHz here is the mirrored presentation of
+        // the other subscriber's +4 MHz absolute tune.
+        vizPanOffset: -8_000_000,
+      }),
+    );
   });
 
   it("treats a live server-selected source as resumed", () => {
@@ -3648,6 +3691,37 @@ describe("Redux WebSocket Migration", () => {
             max_hz: 20_018_000,
             center_frequency: 10_018_000,
             signal_area: "B",
+            bandwidth_center_frequency: undefined,
+          },
+        },
+      });
+    });
+
+    it("sendFrequencyRange keeps mirrored display coordinates out of the device payload", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          demod: {},
+          spectrum: {},
+        }) as any;
+
+      await (
+        sendFrequencyRange({
+          min: -614_314,
+          max: 614_315,
+        }) as any
+      )(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            scope: "device",
+            min_hz: 0,
+            max_hz: 1_228_629,
+            center_frequency: 614_315,
             bandwidth_center_frequency: undefined,
           },
         },

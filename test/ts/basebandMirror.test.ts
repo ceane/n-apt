@@ -9,11 +9,13 @@ import {
   resolveHardwareLimitAliasRanges,
   normalizePositiveHardwareRange,
   resolveMirroredAcquisition,
+  resolveMirroredDevicePanOffset,
   resolveMirroredDisplayCenter,
   resolveMirroredRetune,
   resolveMirroredTuning,
   resolveDisplayRangeForPanOffset,
   resolvePanZoomForDisplayRange,
+  sourceCoversMirroredDisplay,
 } from "@n-apt/math/basebandMirror";
 import { prepareSpectrumRenderData, resolveLiveSpectrumPaintContract } from "@n-apt/spectrum/fft/frameProcessing";
 import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom";
@@ -626,6 +628,46 @@ describe("mirrored spectrum render pipeline", () => {
 });
 
 describe("re-anchoring the viewport across a retune", () => {
+  it("keeps a mirrored subscriber on the new absolute device center", () => {
+    const nextHardwareRange = { min: 2, max: 6 };
+    const panOffsetHz = resolveMirroredDevicePanOffset({
+      previousHardwareRange: { min: 0, max: 4 },
+      nextHardwareRange,
+      previousPanOffsetHz: -3,
+      mirrorEnabled: true,
+    });
+
+    expect(panOffsetHz).toBe(-8);
+    const displayRange = resolveDisplayRangeForPanOffset({
+      hardwareRange: nextHardwareRange,
+      zoom: 1,
+      panOffsetHz: panOffsetHz ?? 0,
+    });
+    expect(displayRange).toEqual({ min: -6, max: -2 });
+    expect(sourceCoversMirroredDisplay(nextHardwareRange, displayRange)).toBe(
+      true,
+    );
+  });
+
+  it("does not rewrite subscriber-local pan without a device-range change", () => {
+    expect(
+      resolveMirroredDevicePanOffset({
+        previousHardwareRange: { min: 0, max: 4 },
+        nextHardwareRange: { min: 0, max: 4 },
+        previousPanOffsetHz: -3,
+        mirrorEnabled: true,
+      }),
+    ).toBeNull();
+    expect(
+      resolveMirroredDevicePanOffset({
+        previousHardwareRange: { min: 0, max: 4 },
+        nextHardwareRange: { min: 2, max: 6 },
+        previousPanOffsetHz: -3,
+        mirrorEnabled: false,
+      }),
+    ).toBeNull();
+  });
+
   it("does not retune a wholly negative viewport the acquisition already covers", () => {
     const sourceRange = { min: 3_005_000, max: 6_205_000 };
     expect(

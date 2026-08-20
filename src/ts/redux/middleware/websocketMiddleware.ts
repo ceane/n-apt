@@ -68,6 +68,7 @@ import {
 import { resolveTxStandbyAnnouncement } from "@n-apt/app/infrastructure/streams/txStandbyAnnouncement";
 import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
+import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -254,6 +255,8 @@ export const resolveManagedRxDeviceOptionUpdates = ({
   spectrum: Record<string, unknown>;
 } => {
   const websocketState = rootState.websocket ?? rootState;
+  const spectrumState = rootState.spectrum ?? websocketState.spectrum ?? {};
+  const settingsState = rootState.settings ?? websocketState.settings ?? {};
   const currentSources: SourceInfo[] = websocketState.sources ?? [];
   const nextSources = currentSources.map((source) =>
     source.id === sourceId
@@ -288,7 +291,7 @@ export const resolveManagedRxDeviceOptionUpdates = ({
       ? deriveLegacyStateFromSource(activeSource)
       : {};
   const activeSignalArea =
-    websocketState.spectrum?.activeSignalArea === "manual"
+    spectrumState.activeSignalArea === "manual"
       ? undefined
       : (websocketState.channels ?? []).find(
           (channel: SpectrumFrame) =>
@@ -297,6 +300,14 @@ export const resolveManagedRxDeviceOptionUpdates = ({
             options.centerFrequencyHz >= channel.min_hz &&
             options.centerFrequencyHz <= channel.max_hz,
         )?.label;
+  const frequencyRange = resolveManagedRxFrequencyRange(options);
+  const mirroredPanOffset = resolveMirroredDevicePanOffset({
+    previousHardwareRange: spectrumState.frequencyRange,
+    nextHardwareRange: frequencyRange,
+    previousPanOffsetHz: Number(spectrumState.vizPanOffset ?? 0),
+    previousZoom: Number(spectrumState.vizZoom ?? 1),
+    mirrorEnabled: settingsState.mirrorIqBasebandBelowZero === true,
+  });
 
   return {
     device: {
@@ -306,7 +317,10 @@ export const resolveManagedRxDeviceOptionUpdates = ({
     spectrum: {
       sampleRateHz: options.sampleRateHz,
       fftSize: options.fftSize,
-      frequencyRange: resolveManagedRxFrequencyRange(options),
+      frequencyRange,
+      ...(mirroredPanOffset === null
+        ? {}
+        : { vizPanOffset: mirroredPanOffset }),
       ...(activeSignalArea ? { activeSignalArea } : {}),
       ...(typeof options.fftWindow === "string"
         ? { fftWindow: options.fftWindow }

@@ -216,6 +216,57 @@ export const resolveDisplayRangeForPanOffset = ({
 };
 
 /**
+ * Re-anchors a subscriber-local mirrored view after the device changes its
+ * positive acquisition window. The device center is shared in absolute Hz;
+ * only the signed presentation side is local. Returning null means that the
+ * caller should leave its local pan untouched (for example when mirroring is
+ * disabled or there is no previous hardware window to compare).
+ */
+export const resolveMirroredDevicePanOffset = ({
+  previousHardwareRange,
+  nextHardwareRange,
+  previousPanOffsetHz,
+  previousZoom = 1,
+  mirrorEnabled,
+  toleranceHz = 1,
+}: {
+  previousHardwareRange: BasebandFrequencyRange | null | undefined;
+  nextHardwareRange: BasebandFrequencyRange;
+  previousPanOffsetHz: number;
+  previousZoom?: number;
+  mirrorEnabled: boolean;
+  toleranceHz?: number;
+}): number | null => {
+  if (
+    !mirrorEnabled ||
+    !isUsableRange(previousHardwareRange ?? { min: 0, max: 0 }) ||
+    !isUsableRange(nextHardwareRange) ||
+    !Number.isFinite(previousPanOffsetHz)
+  ) {
+    return null;
+  }
+
+  const rangeChanged =
+    Math.abs(nextHardwareRange.min - previousHardwareRange!.min) > toleranceHz ||
+    Math.abs(nextHardwareRange.max - previousHardwareRange!.max) > toleranceHz;
+  if (!rangeChanged) return null;
+
+  const previousDisplayRange = resolveDisplayRangeForPanOffset({
+    hardwareRange: previousHardwareRange!,
+    zoom: previousZoom,
+    panOffsetHz: previousPanOffsetHz,
+  });
+  const nextHardwareCenter =
+    (nextHardwareRange.min + nextHardwareRange.max) / 2;
+  const nextDisplayCenter =
+    previousDisplayRange.min < -toleranceHz
+      ? -nextHardwareCenter
+      : nextHardwareCenter;
+
+  return nextDisplayCenter - nextHardwareCenter;
+};
+
+/**
  * Pan/zoom against `hardwareRange` that realises an absolute display window.
  *
  * Used when Redux still measures pan against a start-anchored request while the
