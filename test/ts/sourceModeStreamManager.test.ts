@@ -142,6 +142,50 @@ describe("SourceModeStreamManager", () => {
     expect(firstSubscription.effectiveOptions).toEqual(rxOptions());
   });
 
+  it("requests latest delivery and can upgrade only one logical subscriber", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+
+    const firstSubscription = await manager.subscribe(
+      key,
+      rxOptions(),
+      () => {
+        // no-op
+      },
+      { deliveryPolicy: "latest" },
+    );
+    const secondSubscription = await manager.subscribe(
+      key,
+      rxOptions(),
+      () => {
+        // no-op
+      },
+      { deliveryPolicy: "latest" },
+    );
+
+    expect(transports[0].sent[0]).toEqual(
+      expect.objectContaining({
+        type: "stream_subscribe",
+        deliveryPolicy: "latest",
+      }),
+    );
+    expect(firstSubscription.deliveryPolicy).toBe("latest");
+    expect(secondSubscription.deliveryPolicy).toBe("latest");
+
+    secondSubscription.setDeliveryPolicy("lossless");
+
+    expect(transports[0].sent).toContainEqual(
+      expect.objectContaining({
+        type: "stream_set_delivery",
+        subscriptionId: "transport-subscription-1",
+        deliveryPolicy: "lossless",
+      }),
+    );
+    expect(firstSubscription.deliveryPolicy).toBe("latest");
+    expect(secondSubscription.deliveryPolicy).toBe("lossless");
+  });
+
   it("pauses one subscriber without pausing another subscriber", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });

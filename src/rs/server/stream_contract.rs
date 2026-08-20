@@ -15,6 +15,14 @@ pub enum StreamControlScope {
   Device,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StreamDeliveryPolicy {
+  Latest,
+  #[default]
+  Lossless,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StreamControlAction {
   Pause,

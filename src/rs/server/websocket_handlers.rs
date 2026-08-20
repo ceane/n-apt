@@ -20,6 +20,7 @@ use crate::crypto;
 use super::shared_state::SharedState;
 use super::stream_contract::{
   stream_control_scope, StreamControlAction, StreamControlScope,
+  StreamDeliveryPolicy,
 };
 use super::stream_manager::{
   SourceStreamCapabilities, StreamEvent, StreamKey, StreamMode, StreamOptions,
@@ -386,6 +387,8 @@ enum StreamCommand {
     subscription_id: String,
     stream: StreamKey,
     options: StreamOptions,
+    #[serde(default)]
+    delivery_policy: StreamDeliveryPolicy,
   },
   #[serde(rename = "stream_update_options")]
   UpdateOptions {
@@ -412,6 +415,16 @@ enum StreamCommand {
     subscription_id: String,
     stream: StreamKey,
     paused: bool,
+  },
+  #[serde(rename = "stream_set_delivery")]
+  SetDelivery {
+    #[serde(default = "default_subscriber_scope")]
+    scope: StreamControlScope,
+    #[serde(rename = "subscriptionId")]
+    subscription_id: String,
+    stream: StreamKey,
+    #[serde(rename = "deliveryPolicy")]
+    delivery_policy: StreamDeliveryPolicy,
   },
 }
 
@@ -662,7 +675,7 @@ async fn handle_stream_connection(
           continue;
         };
         match command {
-          StreamCommand::Subscribe { scope, subscription_id, stream, options } => {
+          StreamCommand::Subscribe { scope, subscription_id, stream, options, delivery_policy } => {
             if scope != StreamControlScope::Subscriber {
               let error = stream_error_json(&subscription_id, &stream, "scope", "stream subscriptions are subscriber-scoped");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
@@ -697,7 +710,11 @@ async fn handle_stream_connection(
               "loading" | "initializing" => "opening",
               _ => "unavailable",
             };
-            let subscription = match manager.subscribe(stream.clone(), options) {
+            let subscription = match manager.subscribe_with_policy(
+              stream.clone(),
+              options,
+              delivery_policy,
+            ) {
               Ok(subscription) => subscription,
               Err(error) => {
                 let response = stream_error_json(&subscription_id, &stream, error.code(), &error.to_string());
@@ -715,6 +732,7 @@ async fn handle_stream_connection(
               "streamEpoch": metrics.stream_epoch,
               "optionsRevision": metrics.options_revision,
               "effectiveOptions": manager.options(&stream),
+              "deliveryPolicy": subscription.delivery_policy(),
               "state": stream_state,
               "controlScopes": stream_control_scopes(stream.mode),
             });
@@ -793,6 +811,36 @@ async fn handle_stream_connection(
               &stream,
               *manager_subscription_id,
               paused,
+            ) {
+              let response = stream_error_json(
+                &subscription_id,
+                &stream,
+                error.code(),
+                &error.to_string(),
+              );
+              let _ = sender.send(Message::Text(response.to_string().into())).await;
+            }
+          }
+          StreamCommand::SetDelivery { scope, subscription_id, stream, delivery_policy } => {
+            if scope != StreamControlScope::Subscriber {
+              let error = stream_error_json(&subscription_id, &stream, "scope", "stream delivery policy is subscriber-scoped");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            let Some((active_stream, manager_subscription_id, _)) = subscriptions.get(&subscription_id) else {
+              let error = stream_error_json(&subscription_id, &stream, "missing_stream", "subscription is not active");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            };
+            if active_stream != &stream {
+              let error = stream_error_json(&subscription_id, &stream, "protocol", "subscription stream does not match");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            if let Err(error) = manager.set_subscriber_delivery_policy(
+              &stream,
+              *manager_subscription_id,
+              delivery_policy,
             ) {
               let response = stream_error_json(
                 &subscription_id,

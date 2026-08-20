@@ -3,6 +3,7 @@ import {
   STREAM_CONTROL_CONTRACT,
   type StreamSubscriberContract,
   type StreamControlScopes,
+  type StreamDeliveryPolicy,
 } from "./streamContract";
 
 export type StreamMode = "rx" | "tx";
@@ -59,6 +60,7 @@ export type StreamStateEvent = {
   /** Authoritative device-owned settings returned during subscription hydration. */
   options?: StreamOptions;
   controlScopes?: StreamControlScopes;
+  deliveryPolicy?: StreamDeliveryPolicy;
 };
 
 export type StreamOptionsAppliedEvent = {
@@ -94,6 +96,7 @@ export type StreamSubscribeCommand = {
   subscriptionId: string;
   stream: StreamKey;
   options: StreamOptions;
+  deliveryPolicy?: StreamDeliveryPolicy;
 };
 
 export type StreamUpdateOptionsCommand = {
@@ -119,11 +122,20 @@ export type StreamSetPausedCommand = {
   paused: boolean;
 };
 
+export type StreamSetDeliveryCommand = {
+  type: "stream_set_delivery";
+  scope: "subscriber";
+  subscriptionId: string;
+  stream: StreamKey;
+  deliveryPolicy: StreamDeliveryPolicy;
+};
+
 export type StreamCommand =
   | StreamSubscribeCommand
   | StreamUpdateOptionsCommand
   | StreamUnsubscribeCommand
-  | StreamSetPausedCommand;
+  | StreamSetPausedCommand
+  | StreamSetDeliveryCommand;
 
 export type StreamMessage = StreamEvent | StreamCommand;
 
@@ -146,7 +158,9 @@ export type StreamSubscription = {
   stream: StreamKey;
   readonly effectiveOptions: StreamOptions;
   readonly streamEpoch: number;
+  readonly deliveryPolicy: StreamDeliveryPolicy;
   setPaused(paused: boolean): void;
+  setDeliveryPolicy(policy: StreamDeliveryPolicy): void;
   unsubscribe(): void;
   updateOptions(options: StreamOptions): Promise<void>;
 };
@@ -167,6 +181,7 @@ type StreamEntry = {
   localOptionsRevision: number | null;
   transportReady: boolean;
   transportSubscriptionId: string;
+  transportDeliveryPolicy: StreamDeliveryPolicy;
 };
 
 type SourceModeStreamManagerOptions = {
@@ -292,6 +307,28 @@ export const createSourceModeStreamManager = ({
     });
   };
 
+  const aggregateDeliveryPolicy = (
+    entry: StreamEntry,
+  ): StreamDeliveryPolicy =>
+    [...entry.subscribers.values()].some(
+      (subscriber) => subscriber.deliveryPolicy === "lossless",
+    )
+      ? "lossless"
+      : "latest";
+
+  const syncDeliveryPolicy = (entry: StreamEntry): void => {
+    const nextPolicy = aggregateDeliveryPolicy(entry);
+    if (nextPolicy === entry.transportDeliveryPolicy) return;
+    entry.transportDeliveryPolicy = nextPolicy;
+    entry.transport.send({
+      type: "stream_set_delivery",
+      scope: "subscriber",
+      subscriptionId: entry.transportSubscriptionId,
+      stream: entry.key,
+      deliveryPolicy: nextPolicy,
+    });
+  };
+
   const handleEvent = (entry: StreamEntry, event: StreamEvent): void => {
     if (!isOwnedBy(event, entry.key)) return;
 
@@ -387,11 +424,13 @@ export const createSourceModeStreamManager = ({
     key: StreamKey,
     options: StreamOptions,
     handler: (event: StreamEvent) => void,
+    subscriberOptions: { deliveryPolicy?: StreamDeliveryPolicy } = {},
   ): Promise<StreamSubscription> => {
     if (key.mode !== options.mode) {
       throw new Error("Stream key mode must match stream options mode");
     }
     if (!key.sourceId.trim()) throw new Error("Stream sourceId is required");
+    const deliveryPolicy = subscriberOptions.deliveryPolicy ?? "latest";
 
     const entryKey = keyFor(key);
     const pendingClose = pendingCloseTimers.get(entryKey);
@@ -414,6 +453,7 @@ export const createSourceModeStreamManager = ({
         localOptionsRevision: null,
         transportReady: false,
         transportSubscriptionId: `transport-subscription-${nextSubscriptionId}`,
+        transportDeliveryPolicy: deliveryPolicy,
       };
       entry.transport = transportFactory(entry.key, (event) =>
         handleEvent(entry!, event),
@@ -425,6 +465,7 @@ export const createSourceModeStreamManager = ({
         subscriptionId: entry.transportSubscriptionId,
         stream: entry.key,
         options: cloneOptions(options),
+        deliveryPolicy,
       });
     } else {
       // Subscribe is a read/hydration operation once the shared stream
@@ -434,9 +475,14 @@ export const createSourceModeStreamManager = ({
 
     const subscriptionId = `stream-subscription-${nextSubscriptionId++}`;
     const previousAggregate = aggregatePausedState(entry);
-    entry.subscribers.set(subscriptionId, { handler, paused: false });
+    entry.subscribers.set(subscriptionId, {
+      handler,
+      paused: false,
+      deliveryPolicy,
+    });
     entry.metrics.subscribers = entry.subscribers.size;
     syncAggregatePausedState(entry, previousAggregate);
+    syncDeliveryPolicy(entry);
     let active = true;
     const subscription: StreamSubscription = {
       subscriptionId,
@@ -447,6 +493,9 @@ export const createSourceModeStreamManager = ({
       get streamEpoch() {
         return entry!.streamEpoch;
       },
+      get deliveryPolicy() {
+        return entry!.subscribers.get(subscriptionId)?.deliveryPolicy ?? deliveryPolicy;
+      },
       setPaused: (paused) => {
         if (!active) return;
         const subscriber = entry!.subscribers.get(subscriptionId);
@@ -455,6 +504,13 @@ export const createSourceModeStreamManager = ({
         subscriber.paused = paused;
         syncAggregatePausedState(entry!, previousAggregate);
       },
+      setDeliveryPolicy: (nextPolicy) => {
+        if (!active) return;
+        const subscriber = entry!.subscribers.get(subscriptionId);
+        if (!subscriber || subscriber.deliveryPolicy === nextPolicy) return;
+        subscriber.deliveryPolicy = nextPolicy;
+        syncDeliveryPolicy(entry!);
+      },
       unsubscribe: () => {
         if (!active) return;
         active = false;
@@ -462,6 +518,7 @@ export const createSourceModeStreamManager = ({
         entry!.subscribers.delete(subscriptionId);
         entry!.metrics.subscribers = entry!.subscribers.size;
         syncAggregatePausedState(entry!, previousAggregate);
+        syncDeliveryPolicy(entry!);
         if (entry!.subscribers.size === 0) {
           const timer = setTimeout(() => {
             pendingCloseTimers.delete(entryKey);

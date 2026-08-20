@@ -27,6 +27,7 @@ import {
   liveFrameRuntime,
   subscribeFrameRuntime,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { acquireStreamDeliveryDemand } from "@n-apt/app/infrastructure/streams/streamDeliveryDemand";
 import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
@@ -193,6 +194,26 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+
+  useEffect(() => {
+    if (
+      isPaused ||
+      !demodState.isListening ||
+      !demodState.centerFreqHz ||
+      !activeSourceId
+    ) {
+      return;
+    }
+    return acquireStreamDeliveryDemand(
+      { sourceId: activeSourceId, mode: "rx" },
+      "lossless",
+    );
+  }, [
+    activeSourceId,
+    demodState.centerFreqHz,
+    demodState.isListening,
+    isPaused,
+  ]);
 
   // React Flow state moved to context for global access (e.g. sidebar templates)
   const initialFlow = useMemo(

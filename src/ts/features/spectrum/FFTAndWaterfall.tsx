@@ -214,8 +214,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const [hasPaintedFrame, setHasPaintedFrame] = useState(false);
     const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
       useState(true);
+    const renderabilityRef = useRef(false);
     const handleRenderableFrameChange = useCallback(
       (hasFrame: boolean) => {
+        if (renderabilityRef.current === hasFrame) return;
+        renderabilityRef.current = hasFrame;
         setHasRenderableFrame(hasFrame);
         if (!hasFrame) {
           setHasPaintedFrame(false);

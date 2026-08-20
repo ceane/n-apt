@@ -54,12 +54,20 @@ import {
   resolveSourceModeManagement,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 import type { StreamControlMode } from "@n-apt/app/infrastructure/streams/streamContract";
+import {
+  getStreamDeliveryDemandPolicy,
+  subscribeStreamDeliveryDemand,
+} from "@n-apt/app/infrastructure/streams/streamDeliveryDemand";
 import { filterLiveFramesForSource } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 import {
   createSourceModeStreamManager,
   type StreamSubscription,
   type StreamOptions,
 } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
+import {
+  createDeviceOptionScheduler,
+  type DeviceOptionPublishMode,
+} from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
 import { createMultiplexedStreamTransport } from "@n-apt/app/infrastructure/streams/multiplexedStreamTransport";
 import {
   createSourcePresentationController,
@@ -67,6 +75,7 @@ import {
 } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 import { resolveTxStandbyAnnouncement } from "@n-apt/app/infrastructure/streams/txStandbyAnnouncement";
 import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
+import { notifyFrameArrival } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
 
@@ -556,6 +565,34 @@ let managedRxSubscribePending = false;
 let managedRxSubscribePendingSourceId: string | null = null;
 let managedTxSubscribePending = false;
 let pendingManagedTxOptions: StreamOptions | null = null;
+let unsubscribeDeliveryDemandListener: (() => void) | null = null;
+const managedRxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
+  publish: (options) => {
+    void managedRxSubscription?.updateOptions(options).catch(() => undefined);
+  },
+  equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+});
+const managedTxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
+  publish: (options) => {
+    void managedTxSubscription?.updateOptions(options).catch(() => undefined);
+  },
+  equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+});
+
+const installDeliveryDemandListener = (): void => {
+  unsubscribeDeliveryDemandListener?.();
+  unsubscribeDeliveryDemandListener = subscribeStreamDeliveryDemand(
+    (key, policy) => {
+      if (
+        key.mode === "rx" &&
+        key.sourceId === managedRxSourceId &&
+        managedRxSubscription
+      ) {
+        managedRxSubscription.setDeliveryPolicy(policy);
+      }
+    },
+  );
+};
 
 /**
  * Runtime-only stream ownership snapshot for integration diagnostics. This
@@ -708,6 +745,10 @@ export const resetWebSocketMiddlewareState = (): void => {
   managedRxSubscribePendingSourceId = null;
   managedTxSubscribePending = false;
   pendingManagedTxOptions = null;
+  managedRxOptionsScheduler.cancel();
+  managedTxOptionsScheduler.cancel();
+  unsubscribeDeliveryDemandListener?.();
+  unsubscribeDeliveryDemandListener = null;
   sourceModeStreamManager?.dispose();
   sourceModeStreamManager = null;
   multiplexedStreamTransport?.dispose();
@@ -752,6 +793,7 @@ export const resetWebSocketMiddlewareState = (): void => {
 // The presentation controller shadows all frame acceptance decisions; the legacy
 // liveDataRef path is preserved until canvas consumers migrate in Phase 5.
 const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
+  const hadPendingData = pendingDataUpdate !== null;
   if (pendingDataUpdate !== null) {
     const state = getState();
     const isPaused = state.websocket.isPaused;
@@ -1012,6 +1054,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     pendingDataUpdate = null;
   }
   dataBatchFrame = null;
+  if (hadPendingData) notifyFrameArrival();
 };
 
 const processBatchedStatus = (dispatch: Dispatch, getState: () => any) => {
@@ -1454,6 +1497,15 @@ const handleManagedStreamEvent = (
 ): void => {
   if (
     mode === "rx" &&
+    event.type === "stream_options_applied" &&
+    event.origin !== "local"
+  ) {
+    // A device revision from another subscriber supersedes any locally queued
+    // gesture value. Never replay an older write after authoritative hydration.
+    managedRxOptionsScheduler.cancel();
+  }
+  if (
+    mode === "rx" &&
     (event.type === "stream_opened" ||
       (event.type === "stream_options_applied" && event.origin !== "local")) &&
     event.options?.mode === "rx"
@@ -1554,6 +1606,7 @@ const syncManagedStreamSubscriptions = (
   dispatch: Dispatch,
   getState: () => any,
   rxOptionsOverride: Partial<Omit<RxDeviceOptions, "mode">> = {},
+  publishMode: DeviceOptionPublishMode = "immediate",
 ): void => {
   if (!sourceModeStreamManager) return;
   if (wsInstance.ws?.readyState !== WebSocket.OPEN) return;
@@ -1614,6 +1667,7 @@ const syncManagedStreamSubscriptions = (
     !txSourceConflictsWithActiveRx;
   const rxSourceId = wantsRx ? desiredRxSource.id : null;
   if (managedRxSourceId !== rxSourceId) {
+    managedRxOptionsScheduler.cancel();
     managedRxSubscription?.unsubscribe();
     managedRxSubscription = null;
     managedRxSourceId = null;
@@ -1645,6 +1699,9 @@ const syncManagedStreamSubscriptions = (
         }
         managedRxSubscription = subscription;
         managedRxSourceId = rxSourceId;
+        subscription.setDeliveryPolicy(
+          getStreamDeliveryDemandPolicy({ sourceId: rxSourceId, mode: "rx" }),
+        );
         const paused = subscriberPausedBySource.get(rxSourceId);
         if (paused !== undefined) subscription.setPaused(paused);
         syncManagedStreamSubscriptions(dispatch, getState);
@@ -1661,8 +1718,9 @@ const syncManagedStreamSubscriptions = (
         );
       });
   } else if (managedRxSubscription && desiredRxSource) {
-    void managedRxSubscription.updateOptions(
+    managedRxOptionsScheduler.submit(
       buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
+      publishMode,
     );
   }
   // A source handoff can commit after the stream acknowledgement. In that
@@ -1680,10 +1738,12 @@ const syncManagedStreamSubscriptions = (
   }
 
   if (!wantsTx || !txSourceId) {
+    managedTxOptionsScheduler.cancel();
     managedTxSubscription?.unsubscribe();
     managedTxSubscription = null;
     managedTxSourceId = null;
   } else if (managedTxSourceId !== txSourceId) {
+    managedTxOptionsScheduler.cancel();
     managedTxSubscription?.unsubscribe();
     managedTxSubscription = null;
     managedTxSourceId = null;
@@ -1724,8 +1784,9 @@ const syncManagedStreamSubscriptions = (
         );
       });
   } else if (managedTxSubscription) {
-    void managedTxSubscription.updateOptions(
+    managedTxOptionsScheduler.submit(
       pendingManagedTxOptions ?? buildManagedTxOptions(getState()),
+      publishMode,
     );
     pendingManagedTxOptions = null;
   }
@@ -1779,6 +1840,10 @@ const sameAesKeyReference = (
 ): boolean => current === next;
 
 const resetManagedStreamPipeline = (recreate: boolean): void => {
+  managedRxOptionsScheduler.cancel();
+  managedTxOptionsScheduler.cancel();
+  unsubscribeDeliveryDemandListener?.();
+  unsubscribeDeliveryDemandListener = null;
   managedRxSubscription?.unsubscribe();
   managedTxSubscription?.unsubscribe();
   managedRxSubscription = null;
@@ -1802,6 +1867,7 @@ const resetManagedStreamPipeline = (recreate: boolean): void => {
     sourceModeStreamManager = createSourceModeStreamManager({
       transportFactory: multiplexedStreamTransport.transportFactory,
     });
+    installDeliveryDemandListener();
   }
 };
 
@@ -2784,6 +2850,7 @@ const createWebSocketMiddleware =
         sourceModeStreamManager = createSourceModeStreamManager({
           transportFactory: multiplexedStreamTransport.transportFactory,
         });
+        installDeliveryDemandListener();
 
         const connect = () => {
           if (wsInstance.disposed) return;
@@ -3292,6 +3359,10 @@ const createWebSocketMiddleware =
             dispatch,
             getState,
             resolveLocalRxTuningOverride(action.type, getState()),
+            action.type === "spectrum/setFrequencyRange" ||
+              action.type === "spectrum/setSignalAreaAndRange"
+              ? "gesture"
+              : "immediate",
           );
         }
         if (

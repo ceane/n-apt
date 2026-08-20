@@ -52,6 +52,10 @@ import {
   isRtlSdrDevice,
   resolveRenderableFrequencyRange,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import {
+  subscribeFrameArrivals,
+} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { createDeviceOptionScheduler } from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
 // New hooks
 import { useCanvasNodes } from "@n-apt/spectrum/hooks/useCanvasState";
 import { useWaterfallBuffers } from "@n-apt/spectrum/hooks/useWaterfallBufferPool";
@@ -1436,6 +1440,15 @@ const FFTCanvas = memo(
       onSelectionChange,
       autoZoomStability = false,
     } = props;
+    const renderabilityNotifiedRef = useRef(false);
+    const notifyRenderableFrame = useCallback(
+      (hasRenderableFrame: boolean) => {
+        if (renderabilityNotifiedRef.current === hasRenderableFrame) return;
+        renderabilityNotifiedRef.current = hasRenderableFrame;
+        onRenderableFrameChange?.(hasRenderableFrame);
+      },
+      [onRenderableFrameChange],
+    );
     const limitMarkers = resolveLimitMarkers(limitMarkersProp);
     const canRestoreVisualizerSession = shouldRestoreWebGpuStreamState(
       webGpuStreamResetEpoch,
@@ -2072,6 +2085,20 @@ const FFTCanvas = memo(
     const mirrorPanLastPublishedRef = useRef(vizPanOffset);
     const lastPaintedMirrorPanRef = useRef(vizPanOffset);
     const lastPaintedZoomRef = useRef(currentVizZoom);
+
+    const vizPanScheduler = useMemo(
+      () =>
+        createDeviceOptionScheduler<number>({
+          publish: (pan) => {
+            mirrorPanPendingPublishRef.current = false;
+            mirrorPanLastPublishedRef.current = pan;
+            setVizPanOffset(pan);
+          },
+        }),
+      [setVizPanOffset],
+    );
+
+    useEffect(() => () => vizPanScheduler.dispose(), [vizPanScheduler]);
     const previousPowerScaleRef = useRef(effectivePowerScale);
     const previousRemoveDcSpikeRef = useRef(removeDcSpike);
     const previousFftSizeRef = useRef(effectiveFftSize);
@@ -2583,17 +2610,11 @@ const FFTCanvas = memo(
     // paused overlays responsive, but never synchronously force a full FFT
     // render once per pointer event while the user is panning/retuning.
     const dragRepaintFrameRef = useRef<number | null>(null);
-    const vizPanPublishFrameRef = useRef<number | null>(null);
-
     useEffect(
       () => () => {
         if (dragRepaintFrameRef.current !== null) {
           window.cancelAnimationFrame(dragRepaintFrameRef.current);
           dragRepaintFrameRef.current = null;
-        }
-        if (vizPanPublishFrameRef.current !== null) {
-          window.cancelAnimationFrame(vizPanPublishFrameRef.current);
-          vizPanPublishFrameRef.current = null;
         }
       },
       [],
@@ -2618,15 +2639,8 @@ const FFTCanvas = memo(
     );
 
     const flushMirrorPanToRedux = useCallback(() => {
-      if (vizPanPublishFrameRef.current !== null) {
-        window.cancelAnimationFrame(vizPanPublishFrameRef.current);
-        vizPanPublishFrameRef.current = null;
-      }
-      if (!mirrorPanPendingPublishRef.current) return;
-      mirrorPanPendingPublishRef.current = false;
-      mirrorPanLastPublishedRef.current = vizPanOffsetRef.current;
-      setVizPanOffset(vizPanOffsetRef.current);
-    }, [setVizPanOffset]);
+      vizPanScheduler.flush();
+    }, [vizPanScheduler]);
 
     const handleVizPanChange = useCallback(
       (pan: number) => {
@@ -2637,16 +2651,10 @@ const FFTCanvas = memo(
         overlayDirtyRef.current.grid = true;
         overlayDirtyRef.current.markers = true;
         // Keep the ref ahead of Redux so live FFT frames cannot rewind the
-        // gesture. Publish at most once per animation frame so wheel inertia
-        // cannot stall the main thread with a Redux render per tick.
+        // gesture. Publish the subscriber-local snapshot at the shared 20 Hz
+        // cadence; the scheduler also flushes wheel inactivity and pointerup.
         mirrorPanPendingPublishRef.current = true;
-        mirrorPanLastPublishedRef.current = pan;
-        if (vizPanPublishFrameRef.current === null) {
-          vizPanPublishFrameRef.current = window.requestAnimationFrame(() => {
-            vizPanPublishFrameRef.current = null;
-            setVizPanOffset(vizPanOffsetRef.current);
-          });
-        }
+        vizPanScheduler.submit(pan, "gesture");
         if (isPaused && dragRepaintFrameRef.current === null) {
           // Pointer events can outpace the paused render cadence by orders of
           // magnitude. Coalesce them into one repaint instead of restarting
@@ -2657,7 +2665,7 @@ const FFTCanvas = memo(
           });
         }
       },
-      [isPaused, setVizPanOffset],
+      [isPaused, vizPanScheduler],
     );
 
     // Grab-pan ends on pointerup — clear the pending-ref guard so
@@ -2739,9 +2747,9 @@ const FFTCanvas = memo(
     useEffect(() => {
       if (awaitingDeviceData || placeholderErrorReason) {
         setHasRenderedSpectrumFrame(false);
-        onRenderableFrameChange?.(false);
+        notifyRenderableFrame(false);
       }
-    }, [awaitingDeviceData, onRenderableFrameChange, placeholderErrorReason]);
+    }, [awaitingDeviceData, notifyRenderableFrame, placeholderErrorReason]);
 
     useLayoutEffect(() => {
       // Loading / standby chrome must cover the last painted graph — never wipe
@@ -2755,7 +2763,7 @@ const FFTCanvas = memo(
       }
 
       setHasRenderedSpectrumFrame(false);
-      onRenderableFrameChange?.(false);
+      notifyRenderableFrame(false);
       lastProcessedDataRef.current = null;
       lastProcessedFrameSignatureRef.current = null;
       hasPresentedSpectrumFrameRef.current = false;
@@ -2772,7 +2780,7 @@ const FFTCanvas = memo(
       clearSpectrumBackbuffer,
       explicitPlaceholderState,
       isInitializingWebGPU,
-      onRenderableFrameChange,
+      notifyRenderableFrame,
       placeholderErrorReason,
       resetTemporalAveragingState,
       webGpuStreamResetEpoch,
@@ -3107,7 +3115,7 @@ const FFTCanvas = memo(
         // can deadlock the first live frame until Pause/Resume forces a new
         // render pass.
         if (hasRenderableFrame) {
-          onRenderableFrameChange?.(true);
+          notifyRenderableFrame(true);
         }
 
         if (hasRenderableFrame && currentFrame) {
@@ -3791,7 +3799,7 @@ const FFTCanvas = memo(
             if (!hasRenderedSpectrumFrame) {
               hasPresentedSpectrumFrameRef.current = true;
               setHasRenderedSpectrumFrame(true);
-              onRenderableFrameChange?.(true);
+              notifyRenderableFrame(true);
             }
           }
 
@@ -4338,7 +4346,7 @@ const FFTCanvas = memo(
         isLoadingPlaceholder,
         hasRenderedSpectrumFrame,
         frontendFftSize,
-        onRenderableFrameChange,
+        notifyRenderableFrame,
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
         fftFrameRate,
@@ -4636,13 +4644,13 @@ const FFTCanvas = memo(
       lastIncomingFrameRef.current = null;
       setHasRenderedSpectrumFrame(false);
       hasPresentedSpectrumFrameRef.current = false;
-      onRenderableFrameChange?.(false);
+      notifyRenderableFrame(false);
       clearSpectrumBackbuffer();
       forceRenderRef.current?.();
     }, [
       clearLocalVisualizerSession,
       clearSpectrumBackbuffer,
-      onRenderableFrameChange,
+      notifyRenderableFrame,
       visualizerMachine,
       visualizerSessionKey,
       webGpuStreamResetEpoch,
@@ -4711,13 +4719,13 @@ const FFTCanvas = memo(
     ]);
 
     // Effect: Tracks when new data frames arrive while paused.
-    // Uses a polling interval instead of dataFrameCounter to avoid triggering
-    // React re-renders of the entire FFTCanvas component on every WebSocket frame.
-    // The live (non-paused) case is already handled by useFFTAnimation's rAF loop.
+    // Frame arrival is an imperative notification; the live (non-paused) case
+    // is already handled by useFFTAnimation's rAF loop. This avoids a polling
+    // timer and keeps the update outside React state.
     useEffect(() => {
       if (!isPaused) return;
 
-      const id = setInterval(() => {
+      return subscribeFrameArrivals(() => {
         const currentData = dataRef.current;
         const currentFrame = getLatestLiveFrame(currentData);
         const hasData = !!(
@@ -4731,13 +4739,7 @@ const FFTCanvas = memo(
           lastIncomingFrameRef.current = currentFrame;
           forceRender();
         }
-
-        if (!hasData) {
-          lastIncomingFrameRef.current = null;
-        }
-      }, 100); // Check 10x/sec during pause — plenty fast for manual frame stepping
-
-      return () => clearInterval(id);
+      });
     }, [dataRef, isPaused, forceRender]);
 
     // Effect: Manages canvas dimensions, DPR scaling, and overlay dirty flags on resize.

@@ -363,6 +363,32 @@ describe("FFTAndWaterfall", () => {
     expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
   });
 
+  it("forwards renderability changes only when the state changes", () => {
+    const onRenderableFrameChange = jest.fn();
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: { waveform: new Float32Array([1, 2, 3]) } }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        onRenderableFrameChange={onRenderableFrameChange}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      fftProps.onRenderableFrameChange(true);
+      fftProps.onRenderableFrameChange(true);
+      fftProps.onRenderableFrameChange(false);
+      fftProps.onRenderableFrameChange(false);
+    });
+
+    expect(onRenderableFrameChange.mock.calls).toEqual([[true], [false]]);
+  });
+
   it("keeps the rendered frame and controls available when pausing", () => {
     const dataRef = { current: { waveform: new Float32Array([1, 2, 3]) } };
     const { rerender } = render(

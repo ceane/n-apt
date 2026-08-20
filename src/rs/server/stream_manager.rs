@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::sync::broadcast;
+
+use super::stream_contract::StreamDeliveryPolicy;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -204,6 +206,7 @@ struct StreamEntry {
 /// global pause visible to the other subscribers.
 struct SubscriberContract {
   paused: Arc<AtomicBool>,
+  delivery_policy: Arc<AtomicU8>,
 }
 
 struct ManagerInner {
@@ -227,6 +230,23 @@ pub struct StreamSubscription {
   receiver: broadcast::Receiver<StreamEvent>,
   active: Arc<AtomicBool>,
   paused: Arc<AtomicBool>,
+  delivery_policy: Arc<AtomicU8>,
+  pending_event: Option<StreamEvent>,
+}
+
+fn delivery_policy_to_u8(policy: StreamDeliveryPolicy) -> u8 {
+  match policy {
+    StreamDeliveryPolicy::Latest => 0,
+    StreamDeliveryPolicy::Lossless => 1,
+  }
+}
+
+fn delivery_policy_from_u8(value: u8) -> StreamDeliveryPolicy {
+  if value == delivery_policy_to_u8(StreamDeliveryPolicy::Latest) {
+    StreamDeliveryPolicy::Latest
+  } else {
+    StreamDeliveryPolicy::Lossless
+  }
 }
 
 impl StreamingSourceModeManager {
@@ -261,6 +281,15 @@ impl StreamingSourceModeManager {
     key: StreamKey,
     options: StreamOptions,
   ) -> Result<StreamSubscription, StreamError> {
+    self.subscribe_with_policy(key, options, StreamDeliveryPolicy::Lossless)
+  }
+
+  pub fn subscribe_with_policy(
+    &self,
+    key: StreamKey,
+    options: StreamOptions,
+    delivery_policy: StreamDeliveryPolicy,
+  ) -> Result<StreamSubscription, StreamError> {
     if key.source_id.trim().is_empty() || options.mode() != key.mode {
       return Err(StreamError::InvalidOptions);
     }
@@ -284,12 +313,14 @@ impl StreamingSourceModeManager {
       // callers use update_options for an intentional device-scoped change.
       let subscription_id = self.next_subscription();
       let paused = Arc::new(AtomicBool::new(false));
+      let delivery_policy = Arc::new(AtomicU8::new(delivery_policy_to_u8(delivery_policy)));
       entry
         .subscribers
         .insert(
           subscription_id,
           SubscriberContract {
             paused: paused.clone(),
+            delivery_policy: delivery_policy.clone(),
           },
         );
       return Ok(self.make_subscription(
@@ -297,6 +328,7 @@ impl StreamingSourceModeManager {
         receiver,
         subscription_id,
         paused,
+        delivery_policy,
       ));
     }
 
@@ -305,11 +337,13 @@ impl StreamingSourceModeManager {
     let options_revision = 1;
     let subscription_id = self.next_subscription();
     let paused = Arc::new(AtomicBool::new(false));
+    let delivery_policy = Arc::new(AtomicU8::new(delivery_policy_to_u8(delivery_policy)));
     let mut subscribers = HashMap::new();
     subscribers.insert(
       subscription_id,
       SubscriberContract {
         paused: paused.clone(),
+        delivery_policy: delivery_policy.clone(),
       },
     );
     streams.insert(
@@ -325,7 +359,13 @@ impl StreamingSourceModeManager {
         sender,
       },
     );
-    Ok(self.make_subscription(key, receiver, subscription_id, paused))
+    Ok(self.make_subscription(
+      key,
+      receiver,
+      subscription_id,
+      paused,
+      delivery_policy,
+    ))
   }
 
   fn make_subscription(
@@ -334,6 +374,7 @@ impl StreamingSourceModeManager {
     receiver: broadcast::Receiver<StreamEvent>,
     subscription_id: u64,
     paused: Arc<AtomicBool>,
+    delivery_policy: Arc<AtomicU8>,
   ) -> StreamSubscription {
     StreamSubscription {
       manager: Arc::downgrade(&self.inner),
@@ -342,6 +383,8 @@ impl StreamingSourceModeManager {
       receiver,
       active: Arc::new(AtomicBool::new(true)),
       paused,
+      delivery_policy,
+      pending_event: None,
     }
   }
 
@@ -499,6 +542,24 @@ impl StreamingSourceModeManager {
     )
   }
 
+  pub fn set_subscriber_delivery_policy(
+    &self,
+    key: &StreamKey,
+    subscription_id: u64,
+    delivery_policy: StreamDeliveryPolicy,
+  ) -> Result<StreamDeliveryPolicy, StreamError> {
+    let streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get(key).ok_or(StreamError::MissingStream)?;
+    let subscriber = entry
+      .subscribers
+      .get(&subscription_id)
+      .ok_or(StreamError::MissingStream)?;
+    subscriber
+      .delivery_policy
+      .store(delivery_policy_to_u8(delivery_policy), Ordering::Release);
+    Ok(delivery_policy)
+  }
+
   pub fn metrics(&self, key: &StreamKey) -> Option<StreamMetrics> {
     self
       .inner
@@ -642,14 +703,67 @@ impl StreamSubscription {
     &mut self,
   ) -> Result<StreamEvent, broadcast::error::RecvError> {
     loop {
-      let event = self.receiver.recv().await?;
+      let event = if let Some(pending) = self.pending_event.take() {
+        pending
+      } else {
+        match self.receiver.recv().await {
+          Ok(event) => event,
+          Err(broadcast::error::RecvError::Lagged(_))
+            if delivery_policy_from_u8(self.delivery_policy.load(Ordering::Acquire))
+              == StreamDeliveryPolicy::Latest => continue,
+          Err(error) => return Err(error),
+        }
+      };
       if self.paused.load(Ordering::Acquire)
         && matches!(&event, StreamEvent::Frame(_))
       {
         continue;
       }
+
+      if delivery_policy_from_u8(self.delivery_policy.load(Ordering::Acquire))
+        == StreamDeliveryPolicy::Latest
+        && matches!(&event, StreamEvent::Frame(_))
+      {
+        let mut latest = event;
+        loop {
+          match self.receiver.try_recv() {
+            Ok(next @ StreamEvent::Frame(_)) => {
+              if !self.paused.load(Ordering::Acquire) {
+                latest = next;
+              }
+            }
+            Ok(control) => {
+              self.pending_event = Some(control);
+              break;
+            }
+            Err(broadcast::error::TryRecvError::Empty) => break,
+            // A latest-only consumer is explicitly allowed to drop stale
+            // frames. Keep draining until the next control event.
+            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+            Err(broadcast::error::TryRecvError::Closed) => break,
+          }
+        }
+        return Ok(latest);
+      }
       return Ok(event);
     }
+  }
+
+  pub fn delivery_policy(&self) -> StreamDeliveryPolicy {
+    delivery_policy_from_u8(self.delivery_policy.load(Ordering::Acquire))
+  }
+
+  pub fn set_delivery_policy(
+    &self,
+    delivery_policy: StreamDeliveryPolicy,
+  ) -> Result<StreamDeliveryPolicy, StreamError> {
+    let manager = self.manager.upgrade().ok_or(StreamError::MissingStream)?;
+    let manager = StreamingSourceModeManager { inner: manager };
+    manager.set_subscriber_delivery_policy(
+      &self.key,
+      self.subscription_id,
+      delivery_policy,
+    )
   }
 
   pub fn set_paused(&self, paused: bool) -> Result<bool, StreamError> {
@@ -827,6 +941,65 @@ mod tests {
     assert_eq!(manager.metrics(&key).unwrap().options_revision, 1);
     first.unsubscribe();
     second.unsubscribe();
+  }
+
+  #[tokio::test]
+  async fn latest_subscriber_drains_frames_without_crossing_control_events() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let mut subscription = manager
+      .subscribe_with_policy(
+        key.clone(),
+        rx_options(),
+        StreamDeliveryPolicy::Latest,
+      )
+      .unwrap();
+
+    for sequence in 1..=3 {
+      manager
+        .publish_iq_frame(&key, sequence as i64, 2_400_000, Arc::new(vec![sequence as u8]))
+        .unwrap();
+    }
+
+    let latest = subscription.recv().await.unwrap();
+    assert!(matches!(latest, StreamEvent::Frame(frame) if frame.sequence == 3));
+
+    manager
+      .update_options(&key, StreamOptions::Rx(RxStreamOptions {
+        center_frequency_hz: 101_000_000,
+        sample_rate_hz: 2_400_000,
+        fft_size: 1024,
+        fft_window: None,
+        frame_rate: None,
+        gain: None,
+      }))
+      .unwrap();
+    manager
+      .publish_iq_frame(&key, 4, 2_400_000, Arc::new(vec![4]))
+      .unwrap();
+
+    let frame_before_control = subscription.recv().await.unwrap();
+    assert!(matches!(frame_before_control, StreamEvent::OptionsApplied { .. }));
+    let frame_after_control = subscription.recv().await.unwrap();
+    assert!(matches!(frame_after_control, StreamEvent::Frame(frame) if frame.sequence == 1));
+  }
+
+  #[tokio::test]
+  async fn latest_subscriber_recovers_from_bounded_broadcast_lag() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let mut subscription = manager
+      .subscribe_with_policy(key.clone(), rx_options(), StreamDeliveryPolicy::Latest)
+      .unwrap();
+
+    for sequence in 1..=64 {
+      manager
+        .publish_iq_frame(&key, sequence, 2_400_000, Arc::new(vec![sequence as u8]))
+        .unwrap();
+    }
+
+    let latest = subscription.recv().await.unwrap();
+    assert!(matches!(latest, StreamEvent::Frame(frame) if frame.sequence == 64));
   }
 
   #[test]

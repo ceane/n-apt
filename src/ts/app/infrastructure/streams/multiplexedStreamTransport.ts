@@ -7,6 +7,7 @@ import {
   type StreamOptions,
   type StreamTransport,
 } from "./sourceModeStreamManager";
+import type { StreamDeliveryPolicy } from "./streamContract";
 
 type StreamConnection = {
   key: StreamKey;
@@ -14,6 +15,7 @@ type StreamConnection = {
   subscriptionId: string;
   options: StreamOptions;
   paused: boolean;
+  deliveryPolicy: StreamDeliveryPolicy;
 };
 
 type MultiplexedStreamTransportOptions = {
@@ -143,6 +145,7 @@ export const createMultiplexedStreamTransport = ({
         subscriptionId: connection.subscriptionId,
         stream: connection.key,
         options: connection.options,
+        deliveryPolicy: connection.deliveryPolicy,
       });
       if (connection.paused && connection.key.mode === "rx") {
         send({
@@ -224,6 +227,8 @@ export const createMultiplexedStreamTransport = ({
           options: effectiveOptions,
           controlScopes:
             message.controlScopes as import("./streamContract").StreamControlScopes,
+          deliveryPolicy:
+            message.deliveryPolicy === "lossless" ? "lossless" : "latest",
         });
         return;
       }
@@ -277,6 +282,7 @@ export const createMultiplexedStreamTransport = ({
       subscriptionId: `transport-${keyFor(key)}`,
       options: { mode: key.mode } as StreamOptions,
       paused: false,
+      deliveryPolicy: "latest",
     };
     connections.set(keyFor(key), entry);
     connect();
@@ -290,6 +296,8 @@ export const createMultiplexedStreamTransport = ({
           entry.options = message.options;
         } else if (message.type === "stream_set_paused") {
           entry.paused = message.paused;
+        } else if (message.type === "stream_set_delivery") {
+          entry.deliveryPolicy = message.deliveryPolicy;
         }
         send(message);
       },

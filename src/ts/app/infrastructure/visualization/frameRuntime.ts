@@ -27,6 +27,20 @@ type FrameRuntimeSubscription = {
 
 const frameRuntimeSubscribers = new Set<FrameRuntimeSubscription>();
 let frameRuntimeClock: number | null = null;
+const frameArrivalSubscribers = new Set<FrameRuntimeListener>();
+
+/** Notify imperative consumers after the latest live frame slot is populated. */
+export const notifyFrameArrival = (): void => {
+  for (const listener of frameArrivalSubscribers) listener();
+};
+
+/** Subscribe to frame arrivals without creating a polling timer. */
+export const subscribeFrameArrivals = (listener: FrameRuntimeListener) => {
+  frameArrivalSubscribers.add(listener);
+  return () => {
+    frameArrivalSubscribers.delete(listener);
+  };
+};
 
 /**
  * Shared low-frequency clock for consumers that only need to observe the

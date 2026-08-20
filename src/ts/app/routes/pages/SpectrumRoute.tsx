@@ -37,6 +37,7 @@ import {
   resolveWebGpuStreamTransition,
 } from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
 import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
+import { createDeviceOptionScheduler } from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
 import { calculateCenterFrequency } from "@n-apt/math/centerFrequency";
 import {
   useSnapshotListener,
@@ -455,14 +456,34 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sampleRateHzEffective,
     toggleVisualizerPause,
   } = useSpectrumStore();
-  const publishFrequencyRange = useCallback(
-    (range: FrequencyRange) =>
-      publishFrequencyRangeImmediately(
-        range,
-        (nextRange) => reduxDispatch(setFrequencyRange(nextRange)),
-        sendFrequencyRange,
-      ),
+  const frequencyRangeScheduler = useMemo(
+    () =>
+      createDeviceOptionScheduler<FrequencyRange>({
+        publish: (range) =>
+          publishFrequencyRangeImmediately(
+            range,
+            (nextRange) => reduxDispatch(setFrequencyRange(nextRange)),
+            sendFrequencyRange,
+          ),
+        equals: (left, right) =>
+          left.min === right.min && left.max === right.max,
+      }),
     [reduxDispatch, sendFrequencyRange],
+  );
+  useEffect(
+    () => () => frequencyRangeScheduler.dispose(),
+    [frequencyRangeScheduler],
+  );
+  const publishFrequencyRange = useCallback(
+    (
+      range: FrequencyRange,
+      source: "user-pan" | "mode-enter" | "typed" = "user-pan",
+    ) =>
+      frequencyRangeScheduler.submit(
+        range,
+        source === "user-pan" ? "gesture" : "immediate",
+      ),
+    [frequencyRangeScheduler],
   );
   const streamingSource = useMemo(
     () =>
@@ -1279,7 +1300,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         if (range.min < 0) {
           setVizPanOffset(panOffsetHz);
         }
-        publishFrequencyRange(nextRange);
+        publishFrequencyRange(nextRange, source);
         applyTxMonitorForRange(nextRange, source);
         return;
       }
@@ -1295,7 +1316,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           ? clampFrequencyRangeToBounds(range, primaryBounds)
           : range,
       );
-      publishFrequencyRange(clampedRange);
+      publishFrequencyRange(clampedRange, source);
       applyTxMonitorForRange(clampedRange, source);
     },
     [

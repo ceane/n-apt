@@ -6,6 +6,7 @@
 export type StreamControlScope = "subscriber" | "device";
 export type StreamControlMode = "rx" | "tx";
 export type StreamControlAction = "pause" | "stop" | "settings" | "tune";
+export type StreamDeliveryPolicy = "latest" | "lossless";
 
 /**
  * State owned by one logical subscriber. The stream manager may derive an
@@ -14,6 +15,7 @@ export type StreamControlAction = "pause" | "stop" | "settings" | "tune";
  */
 export type StreamSubscriberContract = {
   paused: boolean;
+  deliveryPolicy: StreamDeliveryPolicy;
 };
 
 export type StreamControlScopes = Record<

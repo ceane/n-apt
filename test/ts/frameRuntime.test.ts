@@ -2,6 +2,8 @@ import {
   createFrameRuntime,
   createSourceFrameRuntime,
   getLiveFrameRefForSource,
+  notifyFrameArrival,
+  subscribeFrameArrivals,
   subscribeFrameRuntime,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
@@ -31,6 +33,17 @@ describe("frame runtime", () => {
 
     unsubscribeFast();
     unsubscribeSlow();
+  });
+
+  test("notifies frame arrivals without starting a polling clock", () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeFrameArrivals(listener);
+
+    notifyFrameArrival();
+    notifyFrameArrival();
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    unsubscribe();
   });
 
   test("reads and clears an imperative frame slot without React state", () => {
