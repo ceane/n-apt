@@ -145,6 +145,52 @@ describe("managed stream option synchronization", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  it("does not re-anchor a local mirrored view during stream startup hydration", () => {
+    const dispatch = jest.fn();
+
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_opened",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 4,
+        optionsRevision: 1,
+        state: "ready",
+        options: {
+          mode: "rx",
+          centerFrequencyHz: 4_000_000,
+          sampleRateHz: 4_000_000,
+          fftSize: 1024,
+        },
+      },
+      dispatch,
+      () => ({
+        websocket: {
+          activeSourceId: null,
+          sources: [{ id: "mock-apt", sdr: { settings: {} } }],
+          channels: [],
+        },
+        spectrum: {
+          frequencyRange: { min: 0, max: 4_000_000 },
+          vizPanOffset: -4_000_000,
+          activeSignalArea: "A",
+        },
+        settings: { mirrorIqBasebandBelowZero: true },
+      }),
+    );
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSdrSettingsBundle",
+        payload: expect.not.objectContaining({
+          vizPanOffset: expect.any(Number),
+        }),
+      }),
+    );
+  });
+
   it("records managed RX readiness before the source commit arrives", () => {
     const dispatch = jest.fn();
     const state = {
@@ -1136,6 +1182,7 @@ describe("Redux WebSocket Migration", () => {
         sampleRateHz: 4_000_000,
         fftSize: 1024,
       },
+      reanchorMirroredView: true,
       rootState: {
         websocket: {
           activeSourceId: null,

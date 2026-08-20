@@ -246,10 +246,12 @@ export const resolveManagedRxDeviceOptionUpdates = ({
   sourceId,
   options,
   rootState,
+  reanchorMirroredView = false,
 }: {
   sourceId: string;
   options: RxDeviceOptions;
   rootState: any;
+  reanchorMirroredView?: boolean;
 }): {
   device: Record<string, unknown>;
   spectrum: Record<string, unknown>;
@@ -301,13 +303,15 @@ export const resolveManagedRxDeviceOptionUpdates = ({
             options.centerFrequencyHz <= channel.max_hz,
         )?.label;
   const frequencyRange = resolveManagedRxFrequencyRange(options);
-  const mirroredPanOffset = resolveMirroredDevicePanOffset({
-    previousHardwareRange: spectrumState.frequencyRange,
-    nextHardwareRange: frequencyRange,
-    previousPanOffsetHz: Number(spectrumState.vizPanOffset ?? 0),
-    previousZoom: Number(spectrumState.vizZoom ?? 1),
-    mirrorEnabled: settingsState.mirrorIqBasebandBelowZero === true,
-  });
+  const mirroredPanOffset = reanchorMirroredView
+    ? resolveMirroredDevicePanOffset({
+        previousHardwareRange: spectrumState.frequencyRange,
+        nextHardwareRange: frequencyRange,
+        previousPanOffsetHz: Number(spectrumState.vizPanOffset ?? 0),
+        previousZoom: Number(spectrumState.vizZoom ?? 1),
+        mirrorEnabled: settingsState.mirrorIqBasebandBelowZero === true,
+      })
+    : null;
 
   return {
     device: {
@@ -1458,6 +1462,8 @@ const handleManagedStreamEvent = (
       sourceId,
       options: event.options,
       rootState: getState(),
+      reanchorMirroredView:
+        event.type === "stream_options_applied" && event.origin !== "local",
     });
     dispatch({
       ...updateDeviceState(updates.device as any),
