@@ -75,7 +75,7 @@ import {
 } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 import { resolveTxStandbyAnnouncement } from "@n-apt/app/infrastructure/streams/txStandbyAnnouncement";
 import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
-import { notifyFrameArrival } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { notifyFrameArrival } from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
 
