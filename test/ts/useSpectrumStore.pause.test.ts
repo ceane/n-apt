@@ -13,6 +13,14 @@ describe("local source pause overrides", () => {
     );
   });
 
+  it("does not materialize a false override when none exists", () => {
+    const state = {};
+
+    expect(updateLocalSourcePauseOverride(state, "mock-apt", false)).toBe(
+      state,
+    );
+  });
+
   it("returns a new state object when the override changes", () => {
     const state = { "mock-apt": true };
 

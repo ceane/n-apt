@@ -178,7 +178,12 @@ export const updateLocalSourcePauseOverride = (
   sourceId: string,
   paused: boolean,
 ): Record<string, boolean> => {
-  if (current[sourceId] === paused) return current;
+  if (
+    current[sourceId] === paused ||
+    (paused === false && current[sourceId] === undefined)
+  ) {
+    return current;
+  }
   return { ...current, [sourceId]: paused };
 };
 
