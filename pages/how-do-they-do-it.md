@@ -37,6 +37,13 @@ This article is my own **technical and scientific-oriented dive and timeline** (
 
 *To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov/reports/) for legal research (2016 is the best one with relevant info) if you are thinking of filing a [FOIA](https://www.foia.gov/how-to.html).*
 
+<div class="street-sign-collage" role="group" aria-label="Street signs photographed in San Francisco and Maryland">
+<img src="/images/meade-st.jpeg" alt="Meade Street sign above a tow-away sign" loading="eager" decoding="async">
+<img src="/images/maryland-st.jpeg" alt="Maryland Street sign beside a bridge" loading="eager" decoding="async">
+<img src="/images/signal-rd.jpeg" alt="Signal Road street sign against a blue sky" loading="eager" decoding="async">
+<img src="/images/communications-hill-blvd.jpeg" alt="Communications Hill Boulevard street sign above a yield sign" loading="eager" decoding="async">
+</div>
+
 ### ⠿ Table of Contents <a id="table-of-contents"></a>
 
 - [Theory #1](#theory-1)

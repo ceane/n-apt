@@ -654,6 +654,31 @@ const ArticleContent = styled.article`
     }
   }
 
+  .street-sign-collage {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    margin: 2rem 0 2.75rem;
+    border: 10px solid #ffffff;
+
+    figure {
+      margin: 0;
+      min-width: 0;
+      overflow: hidden;
+      border: 5px solid #ffffff;
+      border-radius: 0;
+      background: rgba(10, 12, 30, 0.28);
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      border-radius: 0;
+    }
+  }
+
   hr {
     border: none;
     height: 1px;
