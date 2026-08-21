@@ -9,6 +9,17 @@ import {
 } from "./sourceModeStreamManager";
 import type { StreamDeliveryPolicy } from "./streamContract";
 
+type StreamInboundItem =
+  | {
+      kind: "frame";
+      message: Record<string, unknown>;
+      deliveryPolicy: StreamDeliveryPolicy;
+    }
+  | {
+      kind: "control";
+      message: Record<string, unknown>;
+    };
+
 type StreamConnection = {
   key: StreamKey;
   onEvent: (event: StreamEvent) => void;
@@ -16,6 +27,9 @@ type StreamConnection = {
   options: StreamOptions;
   paused: boolean;
   deliveryPolicy: StreamDeliveryPolicy;
+  inboundQueue: StreamInboundItem[];
+  inboundItemInFlight: boolean;
+  losslessLagReported: boolean;
 };
 
 type MultiplexedStreamTransportOptions = {
@@ -112,6 +126,111 @@ const makeFrame = async (
     iqData,
     frame,
   };
+};
+
+const MAX_PENDING_LOSSLESS_FRAMES = 32;
+
+const drainInbound = (
+  connection: StreamConnection,
+  aesKey: CryptoKey,
+): void => {
+  if (connection.inboundItemInFlight) return;
+
+  const nextItem = connection.inboundQueue.shift();
+  if (!nextItem) return;
+  if (nextItem.kind === "control") {
+    connection.onEvent(nextItem.message as unknown as StreamEvent);
+    drainInbound(connection, aesKey);
+    return;
+  }
+  connection.inboundItemInFlight = true;
+
+  void makeFrame(nextItem.message, aesKey)
+    .then((frame) => {
+      connection.onEvent(frame);
+    })
+    .catch(() => {
+      connection.onEvent({
+        type: "stream_error",
+        sourceId: connection.key.sourceId,
+        mode: connection.key.mode,
+        streamEpoch: 0,
+        optionsRevision: 0,
+        code: "transport",
+        message: "failed to decrypt stream frame",
+      });
+    })
+    .finally(() => {
+      connection.inboundItemInFlight = false;
+      const queuedLosslessFrames = connection.inboundQueue.filter(
+        (item) =>
+          item.kind === "frame" && item.deliveryPolicy === "lossless",
+      ).length;
+      if (queuedLosslessFrames < MAX_PENDING_LOSSLESS_FRAMES) {
+        connection.losslessLagReported = false;
+      }
+      drainInbound(connection, aesKey);
+    });
+};
+
+const enqueueFrame = (
+  connection: StreamConnection,
+  message: Record<string, unknown>,
+  aesKey: CryptoKey,
+): void => {
+  if (connection.deliveryPolicy === "lossless") {
+    const queuedLosslessFrames = connection.inboundQueue.filter(
+      (item) => item.kind === "frame" && item.deliveryPolicy === "lossless",
+    ).length;
+    if (queuedLosslessFrames >= MAX_PENDING_LOSSLESS_FRAMES) {
+      if (!connection.losslessLagReported) {
+        connection.losslessLagReported = true;
+        connection.onEvent({
+          type: "stream_error",
+          sourceId: connection.key.sourceId,
+          mode: connection.key.mode,
+          streamEpoch: 0,
+          optionsRevision: 0,
+          code: "lagged",
+          message: `lossless subscriber decode queue exceeded ${MAX_PENDING_LOSSLESS_FRAMES} frames`,
+        });
+      }
+      return;
+    }
+    connection.inboundQueue.push({
+      kind: "frame",
+      message,
+      deliveryPolicy: "lossless",
+    });
+  } else {
+    // Decryption is asynchronous. Keep one frame in flight and replace the
+    // queued frame while it is pending so a slow browser cannot accumulate
+    // crypto work for frames that the visualizer will never paint.
+    const lastItem = connection.inboundQueue[connection.inboundQueue.length - 1];
+    if (
+      lastItem?.kind === "frame" &&
+      lastItem.deliveryPolicy === "latest"
+    ) {
+      lastItem.message = message;
+    } else {
+      connection.inboundQueue.push({
+        kind: "frame",
+        message,
+        deliveryPolicy: "latest",
+      });
+    }
+  }
+
+  drainInbound(connection, aesKey);
+};
+
+const enqueueControl = (
+  connection: StreamConnection,
+  message: Record<string, unknown>,
+  aesKey: CryptoKey,
+): void => {
+  connection.inboundQueue.push({ kind: "control", message });
+  drainInbound(connection, aesKey);
 };
 
 /**
@@ -214,7 +333,10 @@ export const createMultiplexedStreamTransport = ({
         )
           ? message.effectiveOptions
           : undefined;
-        connection.onEvent({
+        const effectiveDeliveryPolicy: StreamDeliveryPolicy =
+          message.deliveryPolicy === "latest" ? "latest" : "lossless";
+        connection.deliveryPolicy = effectiveDeliveryPolicy;
+        enqueueControl(connection, {
           type: "stream_opened",
           sourceId: connection.key.sourceId,
           mode: connection.key.mode,
@@ -227,31 +349,16 @@ export const createMultiplexedStreamTransport = ({
           options: effectiveOptions,
           controlScopes:
             message.controlScopes as import("./streamContract").StreamControlScopes,
-          deliveryPolicy:
-            message.deliveryPolicy === "lossless" ? "lossless" : "latest",
-        });
+          deliveryPolicy: effectiveDeliveryPolicy,
+        }, aesKey);
         return;
       }
       if (message.type === "stream_unsubscribe") return;
       if (message.type === "stream_frame") {
-        void makeFrame(message, aesKey)
-          .then((frame) => {
-            connection.onEvent(frame);
-          })
-          .catch((error) => {
-            connection.onEvent({
-              type: "stream_error",
-              sourceId: connection.key.sourceId,
-              mode: connection.key.mode,
-              streamEpoch: 0,
-              optionsRevision: 0,
-              code: "transport",
-              message: "failed to decrypt stream frame",
-            });
-          });
+        enqueueFrame(connection, message, aesKey);
         return;
       }
-      connection.onEvent(message as unknown as StreamEvent);
+      enqueueControl(connection, message, aesKey);
     };
     nextSocket.onerror = () => nextSocket.close();
     nextSocket.onclose = () => {
@@ -282,7 +389,10 @@ export const createMultiplexedStreamTransport = ({
       subscriptionId: `transport-${keyFor(key)}`,
       options: { mode: key.mode } as StreamOptions,
       paused: false,
-      deliveryPolicy: "latest",
+      deliveryPolicy: "lossless",
+      inboundQueue: [],
+      inboundItemInFlight: false,
+      losslessLagReported: false,
     };
     connections.set(keyFor(key), entry);
     connect();
@@ -292,6 +402,7 @@ export const createMultiplexedStreamTransport = ({
         if (message.type === "stream_subscribe") {
           entry.subscriptionId = message.subscriptionId;
           entry.options = message.options;
+          entry.deliveryPolicy = message.deliveryPolicy ?? "lossless";
         } else if (message.type === "stream_update_options") {
           entry.options = message.options;
         } else if (message.type === "stream_set_paused") {
