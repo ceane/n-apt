@@ -28,6 +28,26 @@ pub const DISCONNECT_FAILURE_THRESHOLD: u32 = 5;
 /// before giving up and falling back to mock.
 pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 
+/// Lifetime cap on reader-restart recoveries that report success. A stalled
+/// reader whose handle reopens fine would otherwise reset both recovery
+/// counters on every restart and loop loading→restart forever with a dead
+/// stream; past this budget the terminal fallback path runs instead.
+pub const MAX_READER_RESTARTS: u32 = 8;
+
+/// Subscriber viewport metadata that must follow the shared device tune when
+/// mirrored baseband presentation is enabled. The device range remains
+/// positive RF Hz; this state describes the signed display coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DisplayViewport {
+  pub min_hz: f64,
+  pub max_hz: f64,
+  pub pan_hz: f64,
+  pub zoom: f64,
+  pub crosses_dc: bool,
+  pub direction_negative: bool,
+  pub mirror_below_zero: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HackRfInventoryDevice {
   pub serial_number: String,
@@ -126,6 +146,8 @@ pub struct SharedState {
   pub active_signal_area: Mutex<Option<String>>,
   /// Device-scoped viewport selected by the control plane.
   pub active_frequency_range: Mutex<Option<(f64, f64)>>,
+  /// Signed presentation viewport selected by a mirror-enabled subscriber.
+  pub active_display_viewport: Mutex<Option<DisplayViewport>>,
   /// SDR settings loaded from signals.yaml
   pub sdr_settings: Mutex<super::types::SdrConfig>,
   /// Available spectrum bounds loaded from signals.yaml
@@ -145,14 +167,28 @@ pub struct SharedState {
   /// Number of recovery attempts (re-init) made during the current failure
   /// episode. Reset when the device recovers or is swapped to mock.
   pub recovery_attempts: AtomicU32,
+  /// Lifetime count of reader-restart recoveries that reported success.
+  /// Unlike `recovery_attempts`, this is never reset by the restart path, so
+  /// a reader that reopens cleanly but keeps timing out cannot oscillate
+  /// loading→restart forever; once `MAX_READER_RESTARTS` is reached the
+  /// terminal hardware-swap / mock-fallback path takes over.
+  pub reader_restart_count: AtomicU32,
   /// Timestamp of the last successful frame read from real hardware.
   /// Used to detect stale streams.
   pub last_successful_read: Mutex<Option<Instant>>,
+  /// Monotonic counter for legacy-WebSocket connection ids.
+  connection_counter: AtomicU64,
+  /// The connection that armed the currently active capture, as
+  /// (job_id, connection id). Lets socket teardown stop only captures the
+  /// disconnecting client owns.
+  capture_owner_connection: Mutex<Option<(String, u64)>>,
 
   /// Fast-path settings slot: written by the command handler WITHOUT the
   /// processor lock, read and applied by the blocking frame loop BEFORE
   /// the slow device read. This lets FFT size changes take effect
-  /// immediately instead of waiting for the current frame to finish.
+  /// immediately instead of waiting for the current frame to finish. The
+  /// slot is coalesced field-wise so rapid writes from a disconnected or
+  /// slow subscriber cannot replay stale device revisions.
   pub pending_fast_settings: Mutex<Vec<SdrProcessorSettings>>,
   pub mock_tx_transmitting: AtomicBool,
   pub tx_safety_enabled: AtomicBool,
@@ -244,6 +280,7 @@ impl SharedState {
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),
+      active_display_viewport: Mutex::new(None),
       sdr_settings: Mutex::new(sdr_settings.clone()),
       available_spectrum: load_available_spectrum()
         .map(|range| (range.min_freq, range.max_freq)),
@@ -252,7 +289,10 @@ impl SharedState {
       redis_readiness: AtomicU8::new(redis_readiness as u8),
       health_failure_streak: AtomicU32::new(0),
       recovery_attempts: AtomicU32::new(0),
+      reader_restart_count: AtomicU32::new(0),
       last_successful_read: Mutex::new(None),
+      connection_counter: AtomicU64::new(0),
+      capture_owner_connection: Mutex::new(None),
       pending_fast_settings: Mutex::new(Vec::new()),
       last_broadcast_status: Mutex::new(None),
       last_broadcast_channels: Mutex::new(None),
@@ -299,6 +339,24 @@ impl SharedState {
     self.pending_center_freq_notify.notify_one();
   }
 
+  /// Queue the newest value for every device-scoped setting without allowing
+  /// a burst of partial updates to become a FIFO replay at the next frame.
+  /// Independent fields are preserved, while a later value for the same
+  /// field supersedes the older one.
+  pub fn enqueue_pending_fast_settings(&self, next: SdrProcessorSettings) {
+    let mut pending = self.pending_fast_settings.lock().unwrap();
+    if let Some(current) = pending.last_mut() {
+      merge_pending_fast_settings(current, next);
+    } else {
+      pending.push(next);
+    }
+  }
+
+  /// Take the coalesced device settings at a frame boundary.
+  pub fn take_pending_fast_settings(&self) -> Vec<SdrProcessorSettings> {
+    std::mem::take(&mut *self.pending_fast_settings.lock().unwrap())
+  }
+
   /// Store the latest device-scoped channel selection and viewport.
   pub fn set_channel_selection(
     &self,
@@ -330,6 +388,15 @@ impl SharedState {
 
   pub fn active_frequency_range(&self) -> Option<(f64, f64)> {
     *self.active_frequency_range.lock().unwrap()
+  }
+
+  pub fn set_display_viewport(&self, viewport: Option<DisplayViewport>) {
+    *self.active_display_viewport.lock().unwrap() = viewport;
+    *self.last_broadcast_channels.lock().unwrap() = None;
+  }
+
+  pub fn active_display_viewport(&self) -> Option<DisplayViewport> {
+    *self.active_display_viewport.lock().unwrap()
   }
 
   /// Return the current source-scoped I/Q lifecycle generation.
@@ -576,6 +643,16 @@ impl SharedState {
     );
     *self.last_broadcast_status.lock().unwrap() = None;
     *self.last_broadcast_channels.lock().unwrap() = None;
+    if state == "disconnected" {
+      // Hardware sources are gone; their pause records would otherwise
+      // accumulate a stale entry per ever-seen serial for the process
+      // lifetime. Mock source ids are unaffected.
+      self.source_pause_states.lock().unwrap().retain(|source_id, _| {
+        !(source_id.starts_with("hackrf_one-")
+          || source_id.starts_with("rtl-sdr")
+          || source_id.starts_with("rtl_sdr"))
+      });
+    }
   }
 
   /// Record a successful read, resetting the failure streak.
@@ -584,9 +661,99 @@ impl SharedState {
     *self.last_successful_read.lock().unwrap() = Some(Instant::now());
   }
 
+  /// Allocate a unique legacy-WebSocket connection id.
+  pub fn next_connection_id(&self) -> u64 {
+    self.connection_counter.fetch_add(1, Ordering::Relaxed)
+  }
+
+  /// Record the connection that armed the currently active capture job. Only
+  /// one capture can run at a time, so this is a single slot: the most recent
+  /// starter owns it.
+  pub fn register_capture_owner(&self, job_id: &str, connection_id: u64) {
+    *self.capture_owner_connection.lock().unwrap() =
+      Some((job_id.to_string(), connection_id));
+  }
+
+  /// Forget ownership of `job_id` (capture stopped or completed).
+  pub fn clear_capture_owner_if(&self, job_id: &str) {
+    let mut owner = self.capture_owner_connection.lock().unwrap();
+    if owner.as_ref().is_some_and(|(owned, _)| owned == job_id) {
+      *owner = None;
+    }
+  }
+
+  /// Return the active capture's job_id only when this connection started
+  /// it — used on socket teardown so one client disconnecting cannot abort
+  /// another client's in-flight capture.
+  pub fn take_owned_capture_for_connection(
+    &self,
+    connection_id: u64,
+  ) -> Option<String> {
+    let mut owner = self.capture_owner_connection.lock().unwrap();
+    if owner
+      .as_ref()
+      .is_some_and(|(_, id)| *id == connection_id)
+    {
+      owner.take().map(|(job_id, _)| job_id)
+    } else {
+      None
+    }
+  }
+
   /// Increment the failure streak and return the new count.
   pub fn record_health_failure(&self) -> u32 {
     self.health_failure_streak.fetch_add(1, Ordering::Relaxed) + 1
+  }
+}
+
+fn merge_pending_fast_settings(
+  current: &mut SdrProcessorSettings,
+  next: SdrProcessorSettings,
+) {
+  if next.fft_size.is_some() {
+    current.fft_size = next.fft_size;
+  }
+  if next.fft_window.is_some() {
+    current.fft_window = next.fft_window;
+  }
+  if next.frame_rate.is_some() {
+    current.frame_rate = next.frame_rate;
+  }
+  if next.max_frame_rate.is_some() {
+    current.max_frame_rate = next.max_frame_rate;
+  }
+  if next.sample_rate.is_some() {
+    current.sample_rate = next.sample_rate;
+  }
+  if next.gain.is_some() {
+    current.gain = next.gain;
+  }
+  if next.hackrf_lna_gain.is_some() {
+    current.hackrf_lna_gain = next.hackrf_lna_gain;
+  }
+  if next.hackrf_vga_gain.is_some() {
+    current.hackrf_vga_gain = next.hackrf_vga_gain;
+  }
+  if next.hackrf_amp_enable.is_some() {
+    current.hackrf_amp_enable = next.hackrf_amp_enable;
+  }
+  if next.ppm.is_some() {
+    current.ppm = next.ppm;
+  }
+  if next.tuner_agc.is_some() {
+    current.tuner_agc = next.tuner_agc;
+  }
+  if next.rtl_agc.is_some() {
+    current.rtl_agc = next.rtl_agc;
+  }
+  if next.offset_tuning.is_some() {
+    current.offset_tuning = next.offset_tuning;
+  }
+  if next.direct_sampling.is_some() {
+    current.direct_sampling = next.direct_sampling;
+  }
+  if next.tuner_bandwidth.is_some() {
+    current.tuner_bandwidth = next.tuner_bandwidth;
   }
 }
 
@@ -602,6 +769,7 @@ fn unsafe_local_user_password() -> String {
 #[cfg(test)]
 mod tests {
   use super::{unsafe_local_user_password, SharedState};
+  use crate::server::types::SdrProcessorSettings;
   use serial_test::serial;
   use std::sync::atomic::Ordering;
 
@@ -665,6 +833,33 @@ mod tests {
 
   #[test]
   #[serial]
+  fn coalesces_pending_device_settings_by_field() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    shared.enqueue_pending_fast_settings(SdrProcessorSettings {
+      sample_rate: Some(2_400_000),
+      fft_size: Some(1024),
+      ..Default::default()
+    });
+    shared.enqueue_pending_fast_settings(SdrProcessorSettings {
+      sample_rate: Some(4_372_000),
+      ..Default::default()
+    });
+    shared.enqueue_pending_fast_settings(SdrProcessorSettings {
+      gain: Some(46.9),
+      ..Default::default()
+    });
+
+    let pending = shared.take_pending_fast_settings();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].sample_rate, Some(4_372_000));
+    assert_eq!(pending[0].fft_size, Some(1024));
+    assert_eq!(pending[0].gain, Some(46.9));
+  }
+
+  #[test]
+  #[serial]
   fn uses_configured_unsafe_local_user_password() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "configured-password");
 
@@ -682,6 +877,43 @@ mod tests {
     std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
 
     let _ = unsafe_local_user_password();
+  }
+
+  /// Pins the vault/auth key contract: the server's `encryption_key` is
+  /// exactly `PBKDF2-HMAC-SHA256(password, salt, 100k)`. Both the password
+  /// challenge-response (HMAC over a server nonce) and .napt capture
+  /// encryption/playback (`scripts/decrypt_napt.mjs` re-derives this same
+  /// key client-side) depend on this derivation staying byte-stable.
+  /// Changing it orphans every previously recorded capture.
+  #[test]
+  #[serial]
+  fn encryption_key_is_pbkdf2_of_configured_password() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "vault-contract-test");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    let expected = crate::crypto::derive_key("vault-contract-test");
+    assert_eq!(shared.encryption_key, expected);
+
+    // A different password must derive a different key...
+    assert_ne!(
+      shared.encryption_key,
+      crate::crypto::derive_key("other-password")
+    );
+    // ...and derivation trims deterministically (frontend parity).
+    assert_eq!(expected, crate::crypto::derive_key(" vault-contract-test "));
+
+    // End-to-end auth proof shape: a client that knows the password can HMAC
+    // a server nonce with its derived key and the server verifies it with the
+    // shared key — no plaintext password ever crosses the wire.
+    let nonce = crate::crypto::generate_nonce();
+    let client_tag = crate::crypto::compute_hmac(&expected, &nonce);
+    assert!(crate::crypto::verify_hmac(
+      &shared.encryption_key,
+      &nonce,
+      &client_tag
+    ));
+
+    std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
   }
 }
 // Hot-reload handoff probe 2.

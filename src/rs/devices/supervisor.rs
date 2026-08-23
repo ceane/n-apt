@@ -82,13 +82,18 @@ impl DeviceSupervisor {
   /// Release and recreate the active SDR device in the safe order required by
   /// USB-backed devices. Restarting the reader alone is insufficient because
   /// the old device can retain its libusb interface claim.
-  pub async fn restart(
+  ///
+  /// This is deliberately synchronous: it performs blocking USB work
+  /// (release, reopen, settle). Callers must run it on the blocking pool;
+  /// the processor lock is taken with `blocking_lock`, which is only valid
+  /// outside the async reactor threads.
+  pub fn restart(
     &self,
     shared_state: &SharedState,
     broadcast_tx: &broadcast::Sender<String>,
     hotplug_state: &mut HotplugState,
   ) {
-    let mut processor = self.processor.lock().await;
+    let mut processor = self.processor.blocking_lock();
     log::info!("Processing RestartDevice command");
     shared_state.set_device_state("loading", Some("restart"));
     broadcast_device_status(shared_state, broadcast_tx);

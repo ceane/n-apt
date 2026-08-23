@@ -18,8 +18,11 @@ use std::time::Duration;
 
 #[cfg(has_hackrf)]
 const HACKRF_OPEN_RETRY_ATTEMPTS: usize = 5;
+/// Linear backoff between HackRF open attempts. The old flat 250 ms delay
+/// serialized up to a second of dead wait into every failed open; hardware
+/// that needs the retry window is typically ready again within ~100 ms.
 #[cfg(has_hackrf)]
-const HACKRF_OPEN_RETRY_DELAY: Duration = Duration::from_millis(250);
+const HACKRF_OPEN_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 #[cfg(has_hackrf)]
 fn open_hackrf_with_retry() -> Result<Box<dyn SdrDevice>> {

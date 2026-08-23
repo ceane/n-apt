@@ -243,6 +243,13 @@ impl DeviceHealthWorker {
         tokio::time::sleep(Duration::from_millis(100)).await;
       } else {
         // Threshold reached: restart stalled readers before falling back.
+        // The restart budget is lifetime-bounded: a stalled reader whose
+        // handle reopens cleanly must not reset both recovery counters every
+        // episode and oscillate loading→restart forever.
+        let reader_restarts_used =
+          shared_state.reader_restart_count.load(Ordering::Relaxed);
+        let reader_restart_budget_available = reader_restarts_used
+          < crate::server::shared_state::MAX_READER_RESTARTS;
         let reader_recovery_action = resolve_reader_recovery_action(
           is_async_sample_timeout_error(&e),
           processor.is_rx_active(),
@@ -250,6 +257,7 @@ impl DeviceHealthWorker {
           supported_device_present,
         );
         if matches!(reader_recovery_action, ReaderRecoveryAction::RestartReader)
+          && reader_restart_budget_available
         {
           // A sample timeout means the current reader stalled; it does
           // not mean the USB device should be reopened. Keep the
@@ -264,6 +272,9 @@ impl DeviceHealthWorker {
               shared_state
                 .health_failure_streak
                 .store(0, Ordering::Relaxed);
+              shared_state
+                .reader_restart_count
+                .fetch_add(1, Ordering::Relaxed);
               let active_id = active_source_id(&shared_state);
               shared_state.set_active_source_pause_state(&active_id, false);
               shared_state.set_device_backend_error(processor.get_error());
@@ -353,6 +364,9 @@ impl DeviceHealthWorker {
                         } else {
                           shared_state
                             .recovery_attempts
+                            .store(0, Ordering::Relaxed);
+                          shared_state
+                            .reader_restart_count
                             .store(0, Ordering::Relaxed);
                           let active_id = active_source_id(&shared_state);
                           shared_state
@@ -449,6 +463,9 @@ impl DeviceHealthWorker {
                   shared_state
                     .recovery_attempts
                     .fetch_add(1, Ordering::Relaxed);
+                  shared_state
+                    .reader_restart_count
+                    .store(0, Ordering::Relaxed);
                   let active_id = active_source_id(&shared_state);
                   shared_state.set_active_source_pause_state(&active_id, false);
                   shared_state.set_device_backend_error(processor.get_error());

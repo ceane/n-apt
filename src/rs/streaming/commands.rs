@@ -172,8 +172,8 @@ mod tests {
     ));
 
     assert!(matches!(
-      into_fast_path(SdrCommand::RestartDevice),
-      Err(SdrCommand::RestartDevice)
+      into_fast_path(SdrCommand::RestartDevice { source_id: None }),
+      Err(SdrCommand::RestartDevice { source_id: None })
     ));
   }
 }

@@ -2,7 +2,7 @@
 //! Handles real-time spectrum data streaming to frontend clients
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -61,6 +61,10 @@ pub use sources::{
 };
 
 pub(crate) const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+/// Upper bound for a single blocking device open. A hung libusb open must
+/// never wedge a source switch or startup forever; the timed-out open task
+/// keeps running detached and releases its handle when it finally returns.
+pub(crate) const DEVICE_OPEN_TIMEOUT: Duration = Duration::from_secs(8);
 // Active Tx Suite monitoring is presentation-latest and bounded downstream,
 // so it can match a 60 Hz Rx view without accumulating stale monitor frames.
 // Standby remains request-only through should_hold_mock_tx_standby_stream.
@@ -944,9 +948,15 @@ impl WebSocketServer {
     let sdr_processor =
       SdrProcessor::new_mock_apt().expect("Failed to create SDR processor");
 
-    // Create broadcast channel for WebSocket clients
+    // Create broadcast channels for WebSocket clients.
+    //
+    // The spectrum channel carries Arc'd frames with up to ~512 KiB of IQ
+    // each, so a deep buffer would let one slow subscriber pin hundreds of MB
+    // of stale frames. Every consumer drains to the latest frame on Lagged
+    // anyway (nobody replays missed frames), so a small buffer preserves the
+    // behavior while bounding retained memory.
     let (broadcast_tx, _) = broadcast::channel(1000);
-    let (spectrum_tx, _) = broadcast::channel(1000);
+    let (spectrum_tx, _) = broadcast::channel(16);
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
 
@@ -1090,22 +1100,47 @@ impl WebSocketServer {
     // Pre-open every connected peer into the warm pool so switching devices
     // never pays a cold USB open + full async-reader swap latency. Failures
     // are logged and skipped: a failed peer stays cold and is retried on
-    // selection, without blocking the active source's stream.
+    // selection, without blocking the active source's stream. Opens run on
+    // the blocking pool under a timeout so one hung USB enumeration cannot
+    // stall startup or the reactor.
     {
       let active_id = active_source_id(&shared_state);
-      for source_id in enumerate_inventory_source_ids(&shared_state) {
+      let shared_for_inventory = Arc::clone(&shared_state);
+      let inventory_ids = tokio::task::spawn_blocking(move || {
+        enumerate_inventory_source_ids(&shared_for_inventory)
+      })
+      .await
+      .unwrap_or_default();
+      for source_id in inventory_ids {
         if source_id == active_id || warm_devices.contains_key(&source_id) {
           continue;
         }
-        match open_device_for_source_id(&shared_state, &source_id) {
-          Ok(device) => {
+        let shared_for_open = Arc::clone(&shared_state);
+        let id_for_open = source_id.clone();
+        let open_task = tokio::task::spawn_blocking(move || {
+          open_device_for_source_id(&shared_for_open, &id_for_open)
+        });
+        match tokio::time::timeout(DEVICE_OPEN_TIMEOUT, open_task).await {
+          Ok(Ok(Ok(device))) => {
             info!("Warming source {} for instant switching", source_id);
             warm_devices.insert(source_id, device);
           }
-          Err(error) => {
+          Ok(Ok(Err(error))) => {
             warn!(
               "Skipping warm-open of source {} (will open cold on selection): {}",
               source_id, error
+            );
+          }
+          Ok(Err(join_error)) => {
+            warn!(
+              "Warm-open task for source {} failed: {}",
+              source_id, join_error
+            );
+          }
+          Err(_) => {
+            warn!(
+              "Warm-open of source {} exceeded {:?}; leaving it cold",
+              source_id, DEVICE_OPEN_TIMEOUT
             );
           }
         }
@@ -1160,26 +1195,90 @@ impl WebSocketServer {
             source_id,
             sample_rate,
           } => {
-            let mut processor = sdr_processor.lock().await;
-            source_lifecycle::activate_source(
-              source_id,
-              sample_rate,
-              &mut processor,
-              &shared_state,
-              &_broadcast_tx,
-              &spectrum_tx,
-              &stream_manager,
-              &mut warm_devices,
+            // The whole switch is synchronous USB work (open, standby
+            // handshake, settings). Run it on the blocking pool so a slow or
+            // hung device open cannot stall the reactor: WebSocket traffic,
+            // heartbeats, and streaming keep flowing during the switch.
+            let processor_arc = sdr_processor.clone();
+            let shared_for_switch = Arc::clone(&shared_state);
+            let broadcast_for_switch = _broadcast_tx.clone();
+            let spectrum_for_switch = spectrum_tx.clone();
+            let manager_for_switch = stream_manager.clone();
+            let mut switch_warm = std::mem::take(&mut warm_devices);
+            let mut switch_hotplug = std::mem::replace(
               &mut hotplug_state,
-              &mut allow_next_paused_frame,
-            )
+              crate::sdr::hotplug::HotplugState::new(),
+            );
+            let mut switch_allow_frame = allow_next_paused_frame;
+            let join_result = tokio::task::spawn_blocking(move || {
+              let mut processor = processor_arc.blocking_lock();
+              source_lifecycle::activate_source(
+                source_id,
+                sample_rate,
+                &mut processor,
+                &shared_for_switch,
+                &broadcast_for_switch,
+                &spectrum_for_switch,
+                &manager_for_switch,
+                &mut switch_warm,
+                &mut switch_hotplug,
+                &mut switch_allow_frame,
+              );
+              (switch_warm, switch_hotplug, switch_allow_frame)
+            })
             .await;
+            match join_result {
+              Ok((warm, hotplug, allow_frame)) => {
+                warm_devices = warm;
+                hotplug_state = hotplug;
+                allow_next_paused_frame = allow_frame;
+              }
+              Err(join_error) => {
+                error!("Source switch task failed: {}", join_error);
+                warm_devices = HashMap::new();
+                hotplug_state = crate::sdr::hotplug::HotplugState::new();
+              }
+            }
           }
-          crate::server::types::SdrCommand::RestartDevice => {
-            self
-              .device_supervisor
-              .restart(&shared_state, &_broadcast_tx, &mut hotplug_state)
-              .await;
+          crate::server::types::SdrCommand::RestartDevice { source_id } => {
+            let active_id = active_source_id(&shared_state);
+            match source_id {
+              Some(id) if id != active_id => {
+                source_lifecycle::restart_source_in_place(
+                  id,
+                  &shared_state,
+                  &_broadcast_tx,
+                  &mut warm_devices,
+                )
+                .await;
+              }
+              _ => {
+                // The active-device restart releases and reopens USB
+                // handles synchronously; run it on the blocking pool.
+                let supervisor = self.device_supervisor.clone();
+                let shared_for_restart = Arc::clone(&shared_state);
+                let broadcast_for_restart = _broadcast_tx.clone();
+                let mut restart_hotplug = std::mem::replace(
+                  &mut hotplug_state,
+                  crate::sdr::hotplug::HotplugState::new(),
+                );
+                let join_result = tokio::task::spawn_blocking(move || {
+                  supervisor.restart(
+                    &shared_for_restart,
+                    &broadcast_for_restart,
+                    &mut restart_hotplug,
+                  );
+                  restart_hotplug
+                })
+                .await;
+                match join_result {
+                  Ok(hotplug) => hotplug_state = hotplug,
+                  Err(join_error) => {
+                    error!("Device restart task failed: {}", join_error);
+                  }
+                }
+              }
+            }
           }
           crate::server::types::SdrCommand::SetSimulatedHardwarePresence(
             present,

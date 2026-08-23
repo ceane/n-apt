@@ -345,9 +345,41 @@ impl RtlSdrDevice {
     // RTL-SDR Blog V4 and other R828D devices need a moment to settle their
     // I2C bridge after being powered on/opened, otherwise subsequent commands
     // may return LIBUSB_ERROR_NO_DEVICE (-4) or LIBUSB_ERROR_IO (-5).
-    thread::sleep(std::time::Duration::from_millis(250));
-
+    // Probe the tuner instead of sleeping unconditionally: a healthy device
+    // answers on the first control transfer (a few ms) while a settling
+    // bridge gets the same bounded grace period as the old blind sleep.
+    device.wait_for_i2c_bridge_settled();
     Ok(device)
+  }
+
+  /// Probe the tuner's I2C bridge until it accepts a control transfer.
+  ///
+  /// A freshly opened R828D tuner can reject its first control transfers with
+  /// LIBUSB_ERROR_NO_DEVICE (-4) or LIBUSB_ERROR_IO (-5) while its I2C bridge
+  /// settles. Each probe is a cheap `set_center_freq` at a harmless
+  /// placeholder frequency; healthy hardware passes on the first attempt, so
+  /// cold opens no longer pay the previous unconditional 250 ms sleep. The
+  /// retry budget matches that old worst case.
+  ///
+  /// Deliberately silent: physical I/O modules must not log (enforced by
+  /// devices::health tests); failures surface through `last_error` and the
+  /// processor's own diagnostics when later commands fail.
+  fn wait_for_i2c_bridge_settled(&self) {
+    const PROBE_ATTEMPTS: usize = 5;
+    const PROBE_DELAY: std::time::Duration =
+      std::time::Duration::from_millis(50);
+    const PROBE_FREQUENCY_HZ: u32 = 100_000_000;
+
+    for attempt in 0..PROBE_ATTEMPTS {
+      let ret =
+        unsafe { ffi::rtlsdr_set_center_freq(self.dev, PROBE_FREQUENCY_HZ) };
+      if ret == 0 {
+        return;
+      }
+      if attempt + 1 < PROBE_ATTEMPTS {
+        thread::sleep(PROBE_DELAY);
+      }
+    }
   }
 
   /// Try to open the first available RTL-SDR device

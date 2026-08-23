@@ -104,10 +104,7 @@ impl AcquisitionWorker {
         }
       }
 
-      let pending: Vec<_> = {
-        let mut slot = shared_state.pending_fast_settings.lock().unwrap();
-        std::mem::take(&mut *slot)
-      };
+      let pending = shared_state.take_pending_fast_settings();
       let old_fft_size = processor.fft_processor.config().fft_size;
       for settings in pending {
         if let Err(error) = processor.apply_settings(settings) {
@@ -207,7 +204,7 @@ impl AcquisitionWorker {
             current_fft_size,
             tx_ifft_size,
           );
-        let raw_iq = crate::server::websocket_server::complex_baseband::synthesize_mock_tx_monitor_iq(
+        let raw_iq = crate::server::websocket_server::complex_baseband::synthesize_mock_tx_monitor_iq_shared_phase(
           monitor_fft_size,
           center_frequency as f64,
           monitor_sample_rate,
@@ -221,7 +218,7 @@ impl AcquisitionWorker {
           tx_ifft_size,
           tx_power_dbm,
           &tx_iq_power_model,
-          &mut *shared_state.mock_tx_phase_accumulator.lock().unwrap(),
+          &shared_state.mock_tx_phase_accumulator,
         );
         (Vec::new(), raw_iq)
       } else {

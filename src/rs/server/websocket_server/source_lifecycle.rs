@@ -79,10 +79,100 @@ pub(crate) fn prepare_selected_source_for_rx(
   }
 }
 
+/// Restarts a non-active source in place: closes its warm handle, reopens the
+/// device off the reactor thread, and returns it to the warm pool without
+/// changing which source is active. Failure keeps the source out of the warm
+/// pool and re-broadcasts `stale` so the UI Restart action stays available.
+pub(crate) async fn restart_source_in_place(
+  source_id: String,
+  shared_state: &Arc<SharedState>,
+  broadcast_tx: &broadcast::Sender<String>,
+  warm_devices: &mut HashMap<String, Box<dyn SdrDevice>>,
+) {
+  info!("Restarting source in place: {}", source_id);
+  broadcast_source_status_for_id(
+    shared_state,
+    broadcast_tx,
+    &source_id,
+    "loading",
+  );
+  if let Some(mut stale_device) = warm_devices.remove(&source_id) {
+    if let Err(error) =
+      crate::sdr::processor::stop_warm_device(stale_device.as_mut())
+    {
+      warn!(
+        "Failed to release warm device {} before restart: {}",
+        source_id, error
+      );
+    }
+  }
+  let shared_for_open = Arc::clone(shared_state);
+  let id_for_open = source_id.clone();
+  let open_task = tokio::task::spawn_blocking(move || {
+    open_device_for_source_id(&shared_for_open, &id_for_open)
+  });
+  let reopened =
+    tokio::time::timeout(super::DEVICE_OPEN_TIMEOUT, open_task).await;
+  match reopened {
+    Ok(Ok(Ok(device))) => {
+      info!("Source {} restarted into the warm pool", source_id);
+      warm_devices.insert(source_id.clone(), device);
+      broadcast_source_status_for_id(
+        shared_state,
+        broadcast_tx,
+        &source_id,
+        "connected",
+      );
+    }
+    Ok(Ok(Err(error))) => {
+      warn!(
+        "In-place restart of source {} failed to reopen the device: {}",
+        source_id, error
+      );
+      broadcast_source_status_for_id(
+        shared_state,
+        broadcast_tx,
+        &source_id,
+        "stale",
+      );
+    }
+    Ok(Err(error)) => {
+      warn!(
+        "In-place restart task for source {} panicked or was cancelled: {}",
+        source_id, error
+      );
+      broadcast_source_status_for_id(
+        shared_state,
+        broadcast_tx,
+        &source_id,
+        "stale",
+      );
+    }
+    Err(_) => {
+      warn!(
+        "In-place restart of source {} exceeded {:?}; leaving it stale",
+        source_id,
+        super::DEVICE_OPEN_TIMEOUT
+      );
+      broadcast_source_status_for_id(
+        shared_state,
+        broadcast_tx,
+        &source_id,
+        "stale",
+      );
+    }
+  }
+}
+
 /// Commit a selected source and preserve the handoff invariants used by the
 /// legacy websocket loop. This owns device reuse, source epochs, pause gates,
 /// status publication, and the one-shot Mock Tx preview wake-up.
-pub(crate) async fn activate_source(
+///
+/// This is deliberately synchronous: every hardware step here (USB open,
+/// reader standby handshake, settings application) blocks, so callers must
+/// run it on the blocking pool instead of the tokio reactor.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn activate_source(
   source_id: String,
   sample_rate: Option<u32>,
   processor: &mut SdrProcessor,

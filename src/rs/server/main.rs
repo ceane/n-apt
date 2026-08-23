@@ -55,10 +55,12 @@ use super::websocket_server;
 pub struct AppState {
   pub shared: Arc<shared_state::SharedState>,
   pub credential_store: CredentialStore,
-  pub pending_passkey_registrations:
-    std::sync::Mutex<HashMap<String, PasskeyRegistration>>,
-  pub pending_passkey_authentications:
-    std::sync::Mutex<HashMap<String, PasskeyAuthentication>>,
+  pub pending_passkey_registrations: std::sync::Mutex<
+    HashMap<String, (std::time::Instant, PasskeyRegistration)>,
+  >,
+  pub pending_passkey_authentications: std::sync::Mutex<
+    HashMap<String, (std::time::Instant, PasskeyAuthentication)>,
+  >,
   pub session_store: SessionStore,
   pub webauthn: Webauthn,
   pub broadcast_tx: broadcast::Sender<String>,
@@ -346,6 +348,10 @@ impl websocket_server::WebSocketServer {
     // Standard routes that benefit from compression (JSON, text, etc.)
     let compressible_routes = Router::new()
       // Authentication endpoints
+      // SECURITY (known flaw, accepted for local deployments): these /auth/*
+      // routes are unauthenticated and have no rate limiting. N-APT targets
+      // localhost / trusted LANs; add throttling before ever exposing this
+      // server publicly.
       .route(
         "/auth/info",
         get(crate::authentication::auth_handlers::auth_info_handler),

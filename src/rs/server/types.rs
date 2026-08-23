@@ -114,7 +114,9 @@ pub enum SdrCommand {
   SetOffsetTuning(bool),
   SetDirectSampling(u8),
   RequestNextFrame,
-  RestartDevice,
+  RestartDevice {
+    source_id: Option<String>,
+  },
   SetSimulatedHardwarePresence(bool),
   SetActiveSource {
     source_id: String,
@@ -310,6 +312,28 @@ pub struct WebSocketMessage {
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub center_frequency: Option<f64>,
+  /// Signed display coordinates for mirror-enabled subscribers. These are
+  /// presentation metadata only; min_freq/max_freq remain positive RF Hz.
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayMinHz")]
+  pub display_min_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayMaxHz")]
+  pub display_max_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayPanHz")]
+  pub display_pan_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayZoom")]
+  pub display_zoom: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayCrossesDc")]
+  pub display_crosses_dc: Option<bool>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "displayDirectionNegative"
+  )]
+  pub display_direction_negative: Option<bool>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "mirrorSpectrumBelowZero"
+  )]
+  pub mirror_spectrum_below_zero: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "viewCenterHz")]
   pub view_center_hz: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
