@@ -222,34 +222,9 @@ describe("WebGPU stream reset", () => {
     ).not.toBe(getWebGpuStreamResetKey({ sourceId: "rtl-sdr-v4", epoch: 1 }));
   });
 
-  test("keeps the canvas lifecycle stable across pause status changes", () => {
-    expect(
-      getVisualizerLifecycleKey({
-        sourceId: "hackrf-one",
-        epoch: 2,
-        status: "connected",
-      }),
-    ).toBe(
-      getVisualizerLifecycleKey({
-        sourceId: "hackrf-one",
-        epoch: 2,
-        status: "paused",
-      }),
-    );
-  });
-
-  test("keeps the canvas lifecycle stable across source handoffs", () => {
-    expect(
-      getVisualizerLifecycleKey({
-        sourceId: "mock-apt",
-        epoch: 2,
-      }),
-    ).toBe(
-      getVisualizerLifecycleKey({
-        sourceId: "mock-tx",
-        epoch: 2,
-      }),
-    );
+  test("derives the canvas lifecycle key from the reset epoch alone", () => {
+    expect(getVisualizerLifecycleKey({ epoch: 2 })).toBe("live:2");
+    expect(getVisualizerLifecycleKey({ epoch: 3 })).toBe("live:3");
   });
 
   test("advances the reset epoch only for same-source reconnect boundaries", () => {

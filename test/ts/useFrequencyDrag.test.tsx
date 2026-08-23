@@ -285,6 +285,85 @@ describe("useFrequencyDrag Hook", () => {
     expect(mockOnVizPanChange).toHaveBeenCalled();
   });
 
+  it("returns from covered mirrored pan to DC before retuning positive", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 1000 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+      }),
+    );
+
+    // Enter the covered mirrored viewport: display [-4, 6].
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: -400 });
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(-4);
+
+    mockOnFrequencyRangeChange.mockClear();
+    mockOnVizPanChange.mockClear();
+
+    // Reverse the same amount. This should consume the visual pan and return
+    // to [0, 10], rather than shifting the hardware window to [4, 14].
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: 400 });
+
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("rebinds pan handlers when mirror mode hydrates after mount", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    const { rerender } = renderHook(
+      ({ mirrorEnabled }: { mirrorEnabled: boolean }) =>
+        useFrequencyDrag({
+          ...defaultOptions,
+          allowNegativeFrequencies: mirrorEnabled,
+        }),
+      { initialProps: { mirrorEnabled: false } },
+    );
+
+    // Persisted settings can arrive after the first mounted interaction
+    // effect. The native wheel handler must then use the hydrated mirror
+    // branch instead of retaining the initial mirror-off closure.
+    rerender({ mirrorEnabled: true });
+    // Keep the mirrored display inside the resident acquisition window:
+    // display [-4, 6] is covered by the reflection of [0, 10].
+    triggerWheel({ clientX: 500, clientY: 590, deltaY: -400 });
+
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenCalled();
+    expect(
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ][0],
+    ).toBeCloseTo(-4, 5);
+  });
+
+  it("uses hydrated mirror mode for VFO pointer panning", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    const { rerender } = renderHook(
+      ({ mirrorEnabled }: { mirrorEnabled: boolean }) =>
+        useFrequencyDrag({
+          ...defaultOptions,
+          allowNegativeFrequencies: mirrorEnabled,
+        }),
+      { initialProps: { mirrorEnabled: false } },
+    );
+
+    rerender({ mirrorEnabled: true });
+    triggerPointerDown(500, 550);
+    triggerPointerMove(900, 550);
+
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(-4);
+  });
+
   it("keeps unzoomed positive mirror pan on the hardware retune path", () => {
     renderHook(() =>
       useFrequencyDrag({
@@ -721,6 +800,40 @@ describe("useFrequencyDrag Hook", () => {
 
     triggerPointerUp(995, 120);
     expect(window.cancelAnimationFrame).toHaveBeenCalled();
+  });
+
+  it("cancels an interrupted edge-pan loop when a wheel gesture begins", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      });
+    jest.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        selectionMode: "range" as const,
+        selectionRange: { min: 104, max: 106 },
+        fullPlotSelection: true,
+        rangeSelectionInteraction: "edit-existing" as const,
+        selectionEdgePanMode: "frequency-range" as const,
+      }),
+    );
+
+    triggerPointerDown(500, 120);
+    triggerPointerMove(995, 120);
+    const rangeCallsBeforeWheel = mockOnFrequencyRangeChange.mock.calls.length;
+
+    triggerWheel({ clientX: 995, clientY: 120, deltaY: 100 });
+    act(() => animationFrames.shift()?.(1_200));
+
+    expect(window.cancelAnimationFrame).toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledTimes(
+      rangeCallsBeforeWheel,
+    );
   });
 
   it("creates a range from right to left without anchoring at the center", () => {
@@ -1419,6 +1532,65 @@ describe("useFrequencyDrag Hook", () => {
         mockOnVizPanChange.mock.calls.length - 1
       ]?.[0];
     expect(lastPan).toBeLessThan(-3_000_000);
+  });
+
+  it("folds a residual negative pan into the window when a VFO drag re-crosses DC", () => {
+    // Regression: with the mirror on and the VFO unzoomed, dragging the viewport
+    // below 0 Hz happens on the visual-pan path (the acquisition stays put while
+    // the negative displacement is held as pan). Reversing back through DC puts
+    // the gesture on the hardware-retune path, which shifted the window by the
+    // whole start-anchored delta and ignored the residual pan — double-counting
+    // the displacement, so the VFO snapped to the wrong frequency right at DC
+    // and the pan stuck at a non-zero offset even once the viewport was positive.
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizZoomRef.current = 1;
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useFrequencyDrag({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+        signalAreaBounds: { TEST: { min: 0, max: 100 } },
+        hardwareSpectrumBounds: { min: 0, max: 100 },
+      }),
+    );
+
+    const lastPan = (): number =>
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0] ?? 0;
+    const lastRange = (): { min: number; max: number } =>
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0] ?? frequencyRangeRef.current;
+
+    triggerPointerDown(500, 550);
+    // Drag right across DC into the mirror zone (0.2 Hz per 20px on 1000px).
+    for (const x of [520, 540, 560, 580, 600, 620, 640, 660, 680, 700]) {
+      triggerPointerMove(x, 550);
+    }
+    // The excursion must have produced a negative residual pan while the
+    // acquisition stayed DC-anchored.
+    expect(lastPan()).toBeCloseTo(-2, 1);
+    expect(lastRange().min).toBe(0);
+
+    // Drag back left through DC. The residual pan must be consumed so the
+    // display center tracks the pointer with no snap-back (the pre-fix bug
+    // stuck pan at a non-zero offset and jumped the center at the crossing).
+    let lastCenter = (lastRange().min + lastRange().max) / 2 + lastPan();
+    for (const x of [680, 660, 640, 620, 600, 580, 560, 540, 520, 500, 480, 460, 440, 420, 400]) {
+      triggerPointerMove(x, 550);
+      const pan = lastPan();
+      const range = lastRange();
+      const center = (range.min + range.max) / 2 + pan;
+      expect(center).toBeGreaterThanOrEqual(lastCenter - 1e-6);
+      lastCenter = center;
+    }
+    // The residual pan must be fully consumed (zero) and the window shifted
+    // through DC — the VFO no longer sticks at a negative offset past DC.
+    expect(lastPan()).toBe(0);
+    expect(lastRange().min).toBeGreaterThan(0);
+    triggerPointerUp(500, 550);
   });
 
   it("repaints the VFO overlay on hardware wheel ticks without waiting for a timer", () => {

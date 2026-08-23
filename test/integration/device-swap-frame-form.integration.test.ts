@@ -3,9 +3,9 @@ import websocketReducer, {
   updateDeviceState,
 } from "@n-apt/redux/slices/websocketSlice";
 import {
-  createIqFramePump,
-  type IqFramePumpLifecycle,
-} from "@n-apt/app/infrastructure/io/iqFramePump";
+  acceptsMultiplexStreamWireFrame,
+  createMultiplexStreamSequenceGate,
+} from "@n-apt/spectrum/model/multiplexStream/frameGate";
 import {
   __testQueueLiveDataForMiddleware,
   liveDataRef,
@@ -42,30 +42,24 @@ const payloadForm = (iq: Uint8Array): Form => {
   };
 };
 
-const makeV2Envelope = (
+const makeV2Frame = (
   sourceId: string,
   epoch: number,
   sequence: number,
   encryptedPayload: Uint8Array,
-): ArrayBuffer => {
-  const sourceBytes = new TextEncoder().encode(sourceId);
-  const headerLength = 56 + sourceBytes.length;
-  const bytes = new Uint8Array(headerLength + encryptedPayload.length);
-  bytes.set(new TextEncoder().encode("NAPT"));
-  const view = new DataView(bytes.buffer);
-  view.setUint8(4, 2);
-  view.setUint16(6, headerLength, true);
-  view.setUint16(8, sourceBytes.length, true);
-  view.setBigUint64(16, BigInt(epoch), true);
-  view.setBigUint64(24, BigInt(sequence), true);
-  view.setBigUint64(32, BigInt(sequence), true);
-  view.setBigUint64(40, 137_100_000n, true);
-  view.setUint32(48, 1, true);
-  view.setUint32(52, 2_400_000, true);
-  bytes.set(sourceBytes, 56);
-  bytes.set(encryptedPayload, headerLength);
-  return bytes.buffer;
-};
+) => ({
+  type: "spectrum" as const,
+  data_type: "iq_raw" as const,
+  protocol_version: 2 as const,
+  source_id: sourceId,
+  stream_epoch: epoch,
+  sequence,
+  center_frequency_hz: 137_100_000,
+  sample_rate: 2_400_000,
+  timestamp: Date.now(),
+  frame_status: "receiving" as const,
+  iq_data: encryptedPayload,
+});
 
 const frameFromRef = (): { iq_data: Uint8Array; source_id?: string } => {
   const current = liveDataRef.current;
@@ -86,19 +80,35 @@ describe("device swap payload-form integration", () => {
     }) as typeof window.requestAnimationFrame;
   });
 
-  it("executes the source handoff through the frame pump, Redux lifecycle, and pre-WebGPU queue", async () => {
+  it("executes the source handoff through the stream gate, Redux lifecycle, and pre-WebGPU queue", async () => {
     const store = configureStore({ reducer: { websocket: websocketReducer } });
-    const lifecycle: IqFramePumpLifecycle = {
-      sourceId: "mock-apt",
-      streamEpoch: 11,
+    const lifecycle = {
+      sourceId: "mock-apt" as string | null,
+      streamEpoch: 11 as number | null,
     };
     const readiness: Array<{ sourceId: string; epoch?: number }> = [];
-    const pump = createIqFramePump({
-      decrypt: async (payload) => payload,
-      getLifecycle: () => lifecycle,
-      publish: (frame) =>
-        __testQueueLiveDataForMiddleware(frame, store.dispatch, store.getState),
-      onFirstFrameAccepted: (frame) => {
+    const sequenceGate = createMultiplexStreamSequenceGate();
+
+    // Ingress under test: identity gate → first-frame boundary → middleware
+    // presentation queue. Mirrors the production multiplexed-stream path
+    // (transport decrypt → gate → publish) without socket machinery.
+    const ingest = (
+      frame: ReturnType<typeof makeV2Frame>,
+    ): boolean => {
+      if (!acceptsMultiplexStreamWireFrame(frame, lifecycle)) return false;
+      if (!sequenceGate.accept({
+        sourceId: frame.source_id,
+        streamEpoch: frame.stream_epoch,
+        sequence: frame.sequence,
+      })) {
+        return false;
+      }
+      if (
+        sequenceGate.consumeFirstFrameBoundary({
+          sourceId: frame.source_id,
+          streamEpoch: frame.stream_epoch,
+        })
+      ) {
         readiness.push({
           sourceId: frame.source_id ?? "",
           epoch: frame.stream_epoch,
@@ -112,8 +122,14 @@ describe("device swap payload-form integration", () => {
             },
           }),
         );
-      },
-    });
+      }
+      __testQueueLiveDataForMiddleware(
+        frame,
+        store.dispatch,
+        store.getState,
+      );
+      return true;
+    };
 
     const mockAptPayload = new Uint8Array([
       128, 128, 176, 76, 92, 164, 211, 45, 118, 138, 160, 96,
@@ -172,17 +188,17 @@ describe("device swap payload-form integration", () => {
         ],
       }),
     );
-    pump.enqueue(makeV2Envelope("mock-apt", 11, 1, mockAptPayload), "mock-apt");
+    ingest(makeV2Frame("mock-apt", 11, 1, mockAptPayload));
     await new Promise((resolve) => setTimeout(resolve, 100));
     const aptFrame = frameFromRef();
     const aptForm = payloadForm(aptFrame.iq_data);
 
     // This is the same handoff boundary as websocket/sendMessage(select_source):
-    // clear the old presentation, reset the source pump, and await the commit.
+    // clear the old presentation, reset the stream gate, and await the commit.
     lifecycle.sourceId = "mock-tx";
     lifecycle.streamEpoch = 12;
     liveDataRef.current = null;
-    pump.reset();
+    sequenceGate.reset();
     store.dispatch(
       updateDeviceState({
         activeSourceId: "mock-tx",
@@ -195,12 +211,14 @@ describe("device swap payload-form integration", () => {
     );
 
     // A late old-source frame follows the swap and must never reach the
-    // pre-WebGPU presentation ref.
-    pump.enqueue(makeV2Envelope("mock-apt", 11, 2, mockAptPayload), "mock-tx");
+    // pre-WebGPU presentation ref — the identity gate rejects it.
+    expect(
+      ingest(makeV2Frame("mock-apt", 11, 2, mockAptPayload)),
+    ).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(liveDataRef.current).toBeNull();
 
-    pump.enqueue(makeV2Envelope("mock-tx", 12, 1, mockTxPayload), "mock-tx");
+    ingest(makeV2Frame("mock-tx", 12, 1, mockTxPayload));
     await new Promise((resolve) => setTimeout(resolve, 100));
     const txFrame = frameFromRef();
     const txForm = payloadForm(txFrame.iq_data);

@@ -207,6 +207,7 @@ const requestJson = async (
   url: string,
   method = "GET",
   body?: Record<string, unknown>,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ status: number; json: any }> => {
   const parsedUrl = new URL(url);
   const serializedBody = body === undefined ? undefined : JSON.stringify(body);
@@ -216,12 +217,15 @@ const requestJson = async (
       parsedUrl,
       {
         method,
-        headers: serializedBody
-          ? {
-              "Content-Type": "application/json",
-              "Content-Length": Buffer.byteLength(serializedBody),
-            }
-          : undefined,
+        headers: {
+          ...extraHeaders,
+          ...(serializedBody
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(serializedBody),
+              }
+            : {}),
+        },
       },
       (response) => {
         let responseBody = "";
@@ -314,7 +318,10 @@ const authenticate = async (
   }
   const { token } = verifyResponse.json as { token: string };
   const vaultResponse = await requestJson(
-    `${backendUrl}/auth/vault-key?token=${encodeURIComponent(token)}`,
+    `${backendUrl}/auth/vault-key`,
+    "GET",
+    undefined,
+    { Authorization: `Bearer ${token}` },
   );
   if (vaultResponse.status < 200 || vaultResponse.status >= 300) {
     throw new Error(`vault key failed: ${vaultResponse.status}`);
@@ -425,6 +432,7 @@ export const createLiveReduxStreamHarness = async (
     { store },
     {
       connectWebSocket,
+      disconnectWebSocket,
       sendSelectSource,
       sendFrequencyRange,
       sendSettings,
@@ -797,17 +805,28 @@ export const createLiveReduxStreamHarness = async (
     },
 
     close() {
+      // Graceful disconnect first: routes through the middleware's cleanup
+      // path (control socket close + multiplexed-transport dispose) instead
+      // of leaving sockets open that keep the jest event loop alive after
+      // the suite finishes.
+      try {
+        store.dispatch(disconnectWebSocket());
+        // Block past the middleware's DISCONNECT_GRACE_MS (150 ms) so
+        // cleanupSocket() has run before we tear down child processes.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+      } catch {
+        // Store may already be torn down in double-invoked test lifecycles.
+      }
       middleware.resetWebSocketMiddlewareState();
       (globalThis as any).WebSocket = originalWebSocket;
       if (typeof window !== "undefined") {
         (window as any).WebSocket = originalWebSocket;
       }
-      if (backendProcess && !backendProcess.killed) {
-        backendProcess.kill();
-      }
-      if (redisProcess && !redisProcess.killed) {
-        redisProcess.kill();
-      }
+      // These are throwaway per-test processes: terminate deterministically
+      // so a slow SIGTERM shutdown can never strand a backend holding real
+      // USB handles (which stalls the next run's device enumeration).
+      backendProcess?.kill("SIGKILL");
+      redisProcess?.kill("SIGKILL");
     },
   };
 

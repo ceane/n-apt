@@ -20,6 +20,7 @@ import {
   shouldAccumulateFullChannelWaveform,
   shouldPublishProcessedSpectrumFrame,
   shouldRepaintCachedSpectrumForViewportChange,
+  createVizPanScheduler,
   invertSpectrumVertically,
   formatTxIfftSizeLabel,
 } from "@n-apt/spectrum/FFTCanvas";
@@ -34,6 +35,23 @@ import { createRef } from "react";
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
 const drawSpectrumMock = jest.fn(() => true);
+
+it("keeps the mirrored pan publisher usable after lifecycle cleanup", () => {
+  jest.useFakeTimers();
+  const publish = jest.fn();
+  try {
+    const scheduler = createVizPanScheduler(publish);
+
+    scheduler.submit(-4, "gesture");
+    scheduler.cancel();
+    scheduler.submit(-8, "gesture");
+    jest.advanceTimersByTime(50);
+
+    expect(publish).toHaveBeenLastCalledWith(-8);
+  } finally {
+    jest.useRealTimers();
+  }
+});
 
 test("inverts spectrum power values without reversing frequency order", () => {
   expect(

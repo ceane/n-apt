@@ -408,4 +408,111 @@ describe("multiplexed stream transport", () => {
     expect(events.map((event) => event.sequence)).toEqual([1, 2, 3]);
     transport.dispose();
   });
+
+  it("drops the previous lossless revision when a retune is requested", async () => {
+    let releaseDecrypt: (() => void) | null = null;
+    const decryptStarted = jest.fn();
+    (decryptPayloadBytes as jest.Mock).mockImplementation(
+      async (_key: CryptoKey, payload: string) => {
+        decryptStarted(payload);
+        if (payload === "1") {
+          await new Promise<void>((resolve) => {
+            releaseDecrypt = resolve;
+          });
+        }
+        return new Uint8Array([Number(payload)]);
+      },
+    );
+
+    const socket = {
+      readyState: WebSocket.OPEN,
+      send: jest.fn(),
+      close: jest.fn(),
+      onopen: null as (() => void) | null,
+      onclose: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      onmessage: null as ((event: MessageEvent) => void) | null,
+    };
+    const transport = createMultiplexedStreamTransport({
+      url: "ws://localhost/ws?token=test",
+      aesKey: {} as CryptoKey,
+      webSocketFactory: (() => socket) as unknown as (
+        url: string,
+      ) => WebSocket,
+    });
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const events: any[] = [];
+    const stream = transport.transportFactory(key, (event) => events.push(event));
+    const options = {
+      mode: "rx" as const,
+      centerFrequencyHz: 1,
+      sampleRateHz: 2,
+      fftSize: 4,
+    };
+    stream.send({
+      type: "stream_subscribe",
+      scope: "subscriber",
+      subscriptionId: "a",
+      stream: key,
+      options,
+      deliveryPolicy: "lossless",
+    });
+
+    for (const sequence of [1, 2]) {
+      socket.onmessage?.({
+        data: JSON.stringify({
+          type: "stream_frame",
+          sourceId: key.sourceId,
+          mode: key.mode,
+          streamEpoch: 1,
+          optionsRevision: 1,
+          sequence,
+          timestamp: sequence,
+          sampleRateHz: 2,
+          iqData: String(sequence),
+        }),
+      } as MessageEvent);
+    }
+
+    stream.send({
+      type: "stream_update_options",
+      scope: "device",
+      subscriptionId: "a",
+      stream: key,
+      options: { ...options, centerFrequencyHz: 5 },
+    });
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "stream_frame",
+        sourceId: key.sourceId,
+        mode: key.mode,
+        streamEpoch: 1,
+        optionsRevision: 2,
+        sequence: 3,
+        timestamp: 3,
+        centerFrequencyHz: 5,
+        sampleRateHz: 2,
+        iqData: "3",
+      }),
+    } as MessageEvent);
+
+    const release = releaseDecrypt as (() => void) | null;
+    release?.();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Revision 1 was the resident DC window. Once the retune is requested,
+    // neither its in-flight frame nor its queued frame may delay presentation
+    // of the first frame for revision 2.
+    expect(decryptStarted.mock.calls.map(([payload]) => payload)).toEqual([
+      "1",
+      "3",
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "stream_frame")
+        .map((event) => [event.optionsRevision, event.sequence]),
+    ).toEqual([[2, 3]]);
+    transport.dispose();
+  });
 });

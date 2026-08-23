@@ -18,6 +18,7 @@ import {
   trimLiveFrameQueue,
   normalizeFrequencyRangeMessageData,
   resolveIncomingChannelsFrequencyRange,
+  resolveIncomingChannelsActiveSignalArea,
   isSourceModePaused,
   resolveTxPreviewSourceId,
   resolveOptimisticTransmitStatus,
@@ -1090,6 +1091,22 @@ describe("Redux WebSocket Migration", () => {
     ).toEqual(backendDefaultRange);
   });
 
+  it("derives the channel label from the preserved range instead of a stale message label", () => {
+    const channels = [
+      { label: "A", min_hz: 0, max_hz: 10 },
+      { label: "C", min_hz: 20, max_hz: 30 },
+    ];
+
+    expect(
+      resolveIncomingChannelsActiveSignalArea({
+        channels,
+        currentRange: { min: 20, max: 30 },
+        incomingActiveSignalArea: "A",
+        currentActiveSignalArea: "C",
+      }),
+    ).toBe("C");
+  });
+
   it("hydrates an authoritative channel selection into Redux for a new subscriber", () => {
     const dispatch = jest.fn();
     const state = {
@@ -1150,6 +1167,57 @@ describe("Redux WebSocket Migration", () => {
         sampleRateHz: 6_270_000,
         frequencyRange: { min: 24_100_000, max: 30_370_000 },
       },
+    });
+  });
+
+  it("hydrates signed mirrored viewport state so a paused subscriber can request its next frame", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        isConnected: true,
+        hasConnectedOnce: true,
+        connectionStatus: "connected",
+        isPaused: true,
+        activeSourceId: "mock-apt",
+        sources: [],
+      },
+      settings: { mirrorIqBasebandBelowZero: true },
+      spectrum: {
+        activeSignalArea: "A",
+        frequencyRange: { min: 0, max: 4_000_000 },
+        vizPanOffset: 0,
+        vizZoom: 1,
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "channels",
+      source_id: "mock-apt",
+      channels: [
+        {
+          id: "a",
+          label: "A",
+          min_hz: 0,
+          max_hz: 4_000_000,
+          description: "APT A",
+        },
+      ],
+      active_signal_area: "A",
+      frequency_range: { min: 0, max: 4_000_000 },
+      display_range: {
+        min: -3_000_000,
+        max: 1_000_000,
+        pan_hz: -3_000_000,
+        zoom: 1,
+        crosses_dc: true,
+        direction_negative: true,
+        mirror_below_zero: true,
+      },
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "spectrum/setVizPan",
+      payload: -3_000_000,
     });
   });
 
@@ -3775,6 +3843,46 @@ describe("Redux WebSocket Migration", () => {
       });
     });
 
+    it("sends signed mirrored viewport state alongside the positive device range", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          settings: { mirrorIqBasebandBelowZero: true },
+          demod: {},
+          spectrum: {
+            frequencyRange: { min: 0, max: 4_000_000 },
+            vizZoom: 1,
+            vizPanOffset: -3_000_000,
+          },
+        }) as any;
+
+      await (
+        sendFrequencyRange({ min: 0, max: 4_000_000 }) as any
+      )(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "frequency_range",
+          data: {
+            scope: "device",
+            min_hz: 0,
+            max_hz: 4_000_000,
+            center_frequency: 2_000_000,
+            bandwidth_center_frequency: undefined,
+            display_min_hz: -3_000_000,
+            display_max_hz: 1_000_000,
+            display_pan_hz: -3_000_000,
+            display_zoom: 1,
+            display_crosses_dc: true,
+            display_direction_negative: true,
+            mirror_spectrum_below_zero: true,
+          },
+        },
+      });
+    });
+
     it("rounds fractional bandwidth center frequency before dispatch", async () => {
       const dispatch = jest.fn();
       const getState = () =>
@@ -3819,6 +3927,32 @@ describe("Redux WebSocket Migration", () => {
         max_hz: 2_204_001,
         center_frequency: 2_204_001,
         bandwidth_center_frequency: 2_204_500,
+      });
+    });
+
+    it("normalizes signed mirrored viewport coordinates without dropping direction flags", () => {
+      expect(
+        normalizeFrequencyRangeMessageData("frequency_range", {
+          min_hz: 2_204_000.4,
+          max_hz: 2_204_001.4,
+          display_min_hz: -1_000_000.6,
+          display_max_hz: 3_000_000.4,
+          display_pan_hz: -3_000_000.5,
+          display_zoom: 1.25,
+          display_crosses_dc: true,
+          display_direction_negative: true,
+          mirror_spectrum_below_zero: true,
+        }),
+      ).toEqual({
+        min_hz: 2_204_000,
+        max_hz: 2_204_001,
+        display_min_hz: -1_000_001,
+        display_max_hz: 3_000_000,
+        display_pan_hz: -3_000_000,
+        display_zoom: 1.25,
+        display_crosses_dc: true,
+        display_direction_negative: true,
+        mirror_spectrum_below_zero: true,
       });
     });
 

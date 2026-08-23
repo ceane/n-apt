@@ -10,6 +10,7 @@ import {
   isHalfDuplexSourceInfo,
   isLiveVisualizerPathname,
   resolveEffectiveSourcePaused,
+  resolveClientPauseState,
   resolveStreamingSourceForDisplay,
   resolveSelectedSourceIdForInventory,
   resolveInventorySelectionIntent,
@@ -19,7 +20,6 @@ import {
   resolvePauseTargetSourceId,
   shouldReplayManualPauseOnSourceActivation,
   shouldCarryManualPauseToSelectedSource,
-  shouldReleaseSourcePauseLatch,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 describe("source selection and switch lifecycle", () => {
@@ -558,23 +558,74 @@ describe("source selection and switch lifecycle", () => {
     ).toBe(true);
   });
 
-  it("does not release a subscriber pause from a live backend source snapshot", () => {
+  it("never lets a live backend snapshot override a client-side pause", () => {
+    // A manually-paused source stays paused even while the backend reports it
+    // live. The client owns the pause and may cut the stream locally; the
+    // backend snapshot must not flip the effective state back to unpaused.
     expect(
-      shouldReleaseSourcePauseLatch({
+      resolveEffectiveSourcePaused({
         backendPaused: false,
+        localPaused: true,
         manuallyPaused: true,
-        restoredManualPause: false,
-        pauseCommandInFlight: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldReleaseSourcePauseLatch({
-        backendPaused: false,
-        manuallyPaused: false,
-        restoredManualPause: false,
-        pauseCommandInFlight: false,
+        autoPaused: false,
       }),
     ).toBe(true);
+    expect(
+      resolveEffectiveSourcePaused({
+        backendPaused: false,
+        localPaused: false,
+        manuallyPaused: true,
+        autoPaused: false,
+      }),
+    ).toBe(true);
+    // A locally-resumed source is unpaused regardless of a stale paused
+    // backend snapshot.
+    expect(
+      resolveEffectiveSourcePaused({
+        backendPaused: true,
+        localPaused: false,
+        manuallyPaused: false,
+        autoPaused: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("drives the button state purely from the client pause latches", () => {
+    // The store syncs the button state from resolveClientPauseState. A manual
+    // or auto latch (or a local override) pauses the button regardless of the
+    // backend; once those latches are cleared, the button unpauses. This is the
+    // invariant that prevents the "shows Resume but is playing" deadlock after
+    // a restart or a source_info round trip.
+    expect(
+      resolveClientPauseState({
+        localPaused: false,
+        manuallyPaused: true,
+        autoPaused: false,
+      }),
+    ).toBe(true);
+    expect(
+      resolveClientPauseState({
+        localPaused: true,
+        manuallyPaused: false,
+        autoPaused: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveClientPauseState({
+        localPaused: false,
+        manuallyPaused: false,
+        autoPaused: true,
+      }),
+    ).toBe(true);
+    // Resume clears the latches, so the button must read unpaused even if a
+    // stale backend snapshot or effective value still reports paused.
+    expect(
+      resolveClientPauseState({
+        localPaused: false,
+        manuallyPaused: false,
+        autoPaused: false,
+      }),
+    ).toBe(false);
   });
 
   it("pauses the source that is actually streaming when selection is still in flight", () => {

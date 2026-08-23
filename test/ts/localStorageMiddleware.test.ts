@@ -8,6 +8,10 @@ import {
   loadPersistedSignalsDefaults,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
 import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddleware";
+import spectrumSlice, {
+  setSdrSettingsBundle,
+  setSignalAreaAndRange,
+} from "@n-apt/redux/slices/spectrumSlice";
 
 describe("loadPersistedSdrSettings", () => {
   beforeEach(() => {
@@ -51,6 +55,58 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.fftMaxDb).toBe(30);
     expect(parsed.powerScale).toBeUndefined();
     expect(parsed.sampleRateHz).toBeUndefined();
+  });
+
+  it("does not preload device-scoped channel state before live hydration", () => {
+    localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({
+        activeSignalArea: "C",
+        frequencyRange: { min: 24_100_000, max: 30_370_000 },
+        fftSize: 262_144,
+        gain: 42,
+        vizZoom: 2,
+      }),
+    );
+
+    const parsed = loadPersistedSdrSettings();
+
+    expect(parsed.activeSignalArea).toBeUndefined();
+    expect(parsed.frequencyRange).toBeUndefined();
+    expect(parsed.fftSize).toBeUndefined();
+    expect(parsed.gain).toBeUndefined();
+    expect(parsed.vizZoom).toBe(2);
+  });
+
+  it("does not write device-scoped channel state to the global cache", () => {
+    const store = configureStore({
+      reducer: { spectrum: spectrumSlice },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          localStorageMiddleware,
+        ),
+    });
+
+    store.dispatch(
+      setSignalAreaAndRange({
+        area: "C",
+        range: { min: 24_100_000, max: 30_370_000 },
+      }),
+    );
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 262_144,
+        gain: 42,
+      }),
+    );
+
+    const parsed = JSON.parse(
+      localStorage.getItem("napt-sdr-settings-v2") ?? "{}",
+    );
+    expect(parsed.activeSignalArea).toBeUndefined();
+    expect(parsed.frequencyRange).toBeUndefined();
+    expect(parsed.fftSize).toBeUndefined();
+    expect(parsed.gain).toBeUndefined();
   });
 
   it("restores Tx defaults when persisted spectrum state is partial", () => {
@@ -117,7 +173,7 @@ describe("loadPersistedSdrSettings", () => {
     const parsed = loadPersistedSdrSettings();
 
     expect(parsed.gain).toBeUndefined();
-    expect(parsed.fftSize).toBe(2048);
+    expect(parsed.fftSize).toBeUndefined();
   });
 
   it("removes persisted spectrum frames when the websocket disconnects", () => {

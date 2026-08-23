@@ -1,11 +1,13 @@
 /**
- * Backend-frontend integration test for the new source payload.
+ * Validation of the `source_info` payload against the schema and the
+ * Redux reducer that maps it into device state. No backend is involved;
+ * this guards the contract between the two layers.
  */
 
 import { isValidSourceInfoMessage } from "@n-apt/validation";
 import { updateDeviceState } from "@n-apt/redux/slices/websocketSlice";
 
-describe("Backend-Frontend Source Payload Integration", () => {
+describe("source_info payload validation and Redux mapping", () => {
   test("should validate and map a source_info snapshot", () => {
     const sourceInfoMessage = {
       type: "source_info",

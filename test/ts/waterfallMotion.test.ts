@@ -1,9 +1,21 @@
 import {
   getWaterfallMotion,
+  shouldAppendWaterfallFrame,
   shouldAppendWaterfallRow,
 } from "@n-apt/spectrum/utils/waterfallMotion";
 
 describe("getWaterfallMotion", () => {
+  test("appends one row for each new frame even when the viewport is uncovered", () => {
+    expect(
+      shouldAppendWaterfallFrame({
+        hasNewData: true,
+        isStandby: false,
+        isTxPreviewFrame: false,
+        coversDisplay: false,
+      }),
+    ).toBe(true);
+  });
+
   test("does not append a history row for a presentation-only pan", () => {
     expect(
       shouldAppendWaterfallRow({

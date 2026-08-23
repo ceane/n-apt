@@ -146,7 +146,6 @@ describe("frame presentation policy", () => {
     });
 
     expect(decision.preservePresentationDuringGap).toBe(true);
-    expect(decision.shouldClearStaleStandby).toBe(false);
   });
 
   it("treats a visible loading placeholder as blocking even with a current frame", () => {

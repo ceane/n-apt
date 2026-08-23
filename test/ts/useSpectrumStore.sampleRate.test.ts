@@ -1,5 +1,6 @@
 import {
   buildPersistedSourceViewState,
+  resolveInitialSourceHydrationSettings,
   resolveSourceSwitchDisplaySettings,
   resolveEffectiveLiveSampleRateHz,
   normalizePersistedSourceViewState,
@@ -21,6 +22,32 @@ describe("resolveSourceSwitchDisplaySettings", () => {
     ).toEqual(
       expect.objectContaining({ sampleRateHz: 3_200_000, fftFrameRate: 30 }),
     );
+  });
+});
+
+describe("resolveInitialSourceHydrationSettings", () => {
+  it("does not publish persisted device-scoped channel settings during page hydration", () => {
+    const restored = resolveInitialSourceHydrationSettings({
+      activeSignalArea: "C",
+      frequencyRange: { min: 20, max: 30 },
+      sampleRateHz: 3_200_000,
+      fftSize: 262_144,
+      gain: 42,
+      vizPanOffset: 0.25,
+      powerScale: "dBm",
+    } as any);
+
+    expect(restored).toEqual(
+      expect.objectContaining({
+        vizPanOffset: 0.25,
+        powerScale: "dBm",
+      }),
+    );
+    expect(restored).not.toHaveProperty("activeSignalArea");
+    expect(restored).not.toHaveProperty("frequencyRange");
+    expect(restored).not.toHaveProperty("sampleRateHz");
+    expect(restored).not.toHaveProperty("fftSize");
+    expect(restored).not.toHaveProperty("gain");
   });
 });
 
@@ -151,6 +178,24 @@ describe("buildPausedPreviewSignature", () => {
     ).not.toBe(
       buildPausedPreviewSignature({ ...base, sampleRateHz: 12_800_000 }),
     );
+  });
+
+  it("changes when a paused mirrored viewport moves through DC", () => {
+    const base = {
+      frequencyRange: { min: 0, max: 4_000_000 },
+      sampleRateHz: 4_000_000,
+      vizZoom: 1,
+      vizPanOffset: 0,
+      txCenterFrequencyHz: 137_100_000,
+      txSampleRateHz: 2_400_000,
+      txPowerDbm: -18,
+      txSignal: "wifi",
+      txIfftSize: 65_536,
+    };
+
+    expect(
+      buildPausedPreviewSignature({ ...base, vizPanOffset: -2_100_000 }),
+    ).not.toBe(buildPausedPreviewSignature(base));
   });
 });
 

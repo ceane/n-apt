@@ -937,7 +937,7 @@ describe("SourceInput", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps Rx and Tx controls visible while a half-duplex device is loading", () => {
+  it("shows a button-sized spinner instead of Rx controls while a half-duplex device loads", () => {
     render(
       <TestWrapper>
         <SourceInput
@@ -969,12 +969,18 @@ describe("SourceInput", () => {
     const deviceRow = screen
       .getByText("HackRF One")
       .closest('[role="button"]') as HTMLElement;
-    // While loading, the Rx button is present but disabled and must not
-    // toggle pause/resume before a veritable stream runs.
-    const rxButton = within(deviceRow).getByRole("button", {
-      name: /loading/i,
-    }) as HTMLButtonElement;
-    expect(rxButton).toBeDisabled();
+    // While loading, a spinner occupies the action slot instead of any
+    // Resume/Pause control; Tx mode stays available for half-duplex devices.
+    expect(
+      within(deviceRow).getByRole("status", {
+        name: /rx active · waiting for first frame/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(deviceRow).queryByRole("button", {
+        name: /pause rx|resume rx|loading/i,
+      }),
+    ).not.toBeInTheDocument();
     expect(
       within(deviceRow).getByRole("button", { name: /start tx/i }),
     ).toBeInTheDocument();
@@ -1018,6 +1024,121 @@ describe("SourceInput", () => {
     ).toBeInTheDocument();
     expect(
       within(deviceRow).queryByRole("button", { name: /resume/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a Restart action on a stale pill and invokes it without changing selection", () => {
+    const onRestart = jest.fn();
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          devices={[
+            {
+              id: "mock-rx",
+              name: "Mock APT SDR",
+              capability: "rx",
+              status: { label: "streaming" },
+            },
+            {
+              id: "rtl-1",
+              name: "RTL-SDR v4",
+              backend: "rtl-sdr",
+              capability: "rx",
+              status: {
+                label: "stale",
+                canRestart: true,
+                onRestart: onRestart,
+              },
+            },
+          ]}
+          selectedDeviceId="mock-rx"
+          onSelectedDeviceChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const staleRow = screen
+      .getByText("RTL-SDR v4")
+      .closest('[role="button"]') as HTMLElement;
+    const restartButton = within(staleRow).getByRole("button", {
+      name: /restart/i,
+    });
+    expect(restartButton).toBeEnabled();
+
+    fireEvent.click(restartButton);
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders Restarting… as a disabled button while the restart is in flight", () => {
+    const onRestart = jest.fn();
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="hackrf-1"
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              backend: "hackrf_one",
+              capability: "rx",
+              status: {
+                label: "stale",
+                canRestart: true,
+                restarting: true,
+                onRestart: onRestart,
+              },
+            },
+          ]}
+          onSelectedDeviceChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const restartingButton = screen.getByRole("button", {
+      name: "Restarting device",
+    }) as HTMLButtonElement;
+    expect(restartingButton).toBeDisabled();
+
+    fireEvent.click(restartingButton);
+    expect(onRestart).not.toHaveBeenCalled();
+  });
+
+  it("labels the loading spinner as Restarting… while a per-source restart is pending", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="rtl-1"
+          devices={[
+            {
+              id: "rtl-1",
+              name: "RTL-SDR v4",
+              backend: "rtl-sdr",
+              capability: "rx",
+              status: {
+                label: "loading",
+                loading: true,
+                restarting: true,
+                loadingLabel: "Loading RTL-SDR v4…",
+              },
+            },
+          ]}
+          onSelectedDeviceChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const deviceRow = screen
+      .getByText("RTL-SDR v4")
+      .closest('[role="button"]') as HTMLElement;
+    expect(within(deviceRow).getByText("Restarting…")).toBeInTheDocument();
+    expect(
+      within(deviceRow).queryByRole("button", { name: /resume|pause/i }),
     ).not.toBeInTheDocument();
   });
 

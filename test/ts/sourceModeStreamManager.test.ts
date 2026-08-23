@@ -290,6 +290,46 @@ describe("SourceModeStreamManager", () => {
     );
   });
 
+  it("does not re-emit its own options acknowledgement when the backend revision has advanced", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const events: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), (event) =>
+      events.push(event),
+    );
+
+    transports[0].onEvent({
+      type: "stream_opened",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 3,
+      optionsRevision: 7,
+      state: "ready",
+      options: rxOptions(),
+    });
+    events.length = 0;
+
+    await subscription.updateOptions(rxOptions(101_000_000));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual(
+      expect.objectContaining({ origin: "local", optionsRevision: 8 }),
+    );
+
+    events.length = 0;
+    transports[0].onEvent({
+      type: "stream_options_applied",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 12,
+      optionsRevision: 12,
+      options: rxOptions(101_000_000),
+    });
+
+    expect(events).toHaveLength(0);
+    expect(subscription.effectiveOptions).toEqual(rxOptions(101_000_000));
+  });
+
   it("hydrates a late subscriber from the device-owned effective options", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });
