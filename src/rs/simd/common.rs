@@ -8,6 +8,14 @@ use crate::s::fft::types::RawSamples;
 use crate::simd::arm_optimized_common::ARMOptimizedSIMD;
 use anyhow::Result;
 use rustfft::num_complex::Complex;
+use std::cell::RefCell;
+
+// Reusable per-thread deinterleave scratch. Allocating two fresh Vecs per
+// frame defeated the purpose of the SIMD fast path on every FFT tick.
+thread_local! {
+  static DEINTERLEAVE_SCRATCH: RefCell<(Vec<f32>, Vec<f32>)> =
+    const { RefCell::new((Vec::new(), Vec::new())) };
+}
 
 /// Common trait for all SIMD FFT processors
 pub trait SIMDProcessor {
@@ -46,6 +54,10 @@ pub struct WindowFunctions;
 impl WindowFunctions {
   /// Create Hanning window coefficients
   pub fn hanning(fft_size: usize) -> Vec<f32> {
+    // fft_size <= 1 would divide by zero and produce NaN coefficients.
+    if fft_size <= 1 {
+      return vec![1.0; fft_size];
+    }
     (0..fft_size)
       .map(|i| {
         0.5
@@ -58,6 +70,9 @@ impl WindowFunctions {
 
   /// Create Hamming window coefficients
   pub fn hamming(fft_size: usize) -> Vec<f32> {
+    if fft_size <= 1 {
+      return vec![1.0; fft_size];
+    }
     (0..fft_size)
       .map(|i| {
         0.54
@@ -70,6 +85,9 @@ impl WindowFunctions {
 
   /// Create Blackman window coefficients
   pub fn blackman(fft_size: usize) -> Vec<f32> {
+    if fft_size <= 1 {
+      return vec![1.0; fft_size];
+    }
     (0..fft_size)
       .map(|i| {
         let i_f = i as f32;
@@ -82,6 +100,9 @@ impl WindowFunctions {
 
   /// Create Nuttall window coefficients
   pub fn nuttall(fft_size: usize) -> Vec<f32> {
+    if fft_size <= 1 {
+      return vec![1.0; fft_size];
+    }
     (0..fft_size)
       .map(|i| {
         let i_f = i as f32;
@@ -151,18 +172,25 @@ impl PowerSpectrum {
       WindowFunctions::get_window_power_normalization(window_type, n);
     let inv_norm = 1.0 / normalization.max(1e-12);
 
-    // We split complex_buffer into real and imaginary arrays to allow SIMD processing.
+    // We split complex_buffer into real and imaginary arrays to allow SIMD
+    // processing, reusing per-thread scratch instead of allocating per frame.
     let len = complex_buffer.len().min(output.len());
-    let mut re = vec![0.0; len];
-    let mut im = vec![0.0; len];
-    for i in 0..len {
-      re[i] = complex_buffer[i].re;
-      im[i] = complex_buffer[i].im;
-    }
+    DEINTERLEAVE_SCRATCH.with(|scratch| {
+      let mut scratch = scratch.borrow_mut();
+      let (re, im) = &mut *scratch;
+      re.clear();
+      re.resize(len, 0.0);
+      im.clear();
+      im.resize(len, 0.0);
+      for i in 0..len {
+        re[i] = complex_buffer[i].re;
+        im[i] = complex_buffer[i].im;
+      }
 
-    ARMOptimizedSIMD::to_power_spectrum_db_arm_optimized(
-      &re, &im, output, inv_norm,
-    );
+      ARMOptimizedSIMD::to_power_spectrum_db_arm_optimized(
+        re, im, output, inv_norm,
+      );
+    });
   }
 
   /// Apply gain to power spectrum
@@ -260,7 +288,7 @@ impl IQConverter {
       &mut complex_re,
       &mut complex_im,
       gain,
-      1.0 + (phase_step * fft_size as f32 / (2.0 * std::f32::consts::PI)),
+      phase_step,
       fft_size,
     );
 
@@ -280,23 +308,25 @@ impl IQConverter {
     window_coeffs: &[f32],
   ) {
     let len = complex_buffer.len().min(window_coeffs.len());
-    let mut re = vec![0.0; len];
-    let mut im = vec![0.0; len];
-    for i in 0..len {
-      re[i] = complex_buffer[i].re;
-      im[i] = complex_buffer[i].im;
-    }
+    DEINTERLEAVE_SCRATCH.with(|scratch| {
+      let mut scratch = scratch.borrow_mut();
+      let (re, im) = &mut *scratch;
+      re.clear();
+      re.resize(len, 0.0);
+      im.clear();
+      im.resize(len, 0.0);
+      for i in 0..len {
+        re[i] = complex_buffer[i].re;
+        im[i] = complex_buffer[i].im;
+      }
 
-    ARMOptimizedSIMD::apply_window_arm_optimized(
-      &mut re,
-      &mut im,
-      window_coeffs,
-    );
+      ARMOptimizedSIMD::apply_window_arm_optimized(re, im, window_coeffs);
 
-    for i in 0..len {
-      complex_buffer[i].re = re[i];
-      complex_buffer[i].im = im[i];
-    }
+      for i in 0..len {
+        complex_buffer[i].re = re[i];
+        complex_buffer[i].im = im[i];
+      }
+    });
   }
 }
 

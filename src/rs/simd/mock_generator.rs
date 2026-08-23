@@ -540,14 +540,15 @@ impl MockSignalGenerator {
     config: &MockSignalsConfig,
   ) {
     for signal in signals.iter_mut() {
+      // An ACTIVE signal may disappear; an INACTIVE one may appear.
       if signal.active
         && self.rng.random::<f32>()
-          < config.global_settings.signal_appearance_chance as f32
+          < config.global_settings.signal_disappearance_chance as f32
       {
         signal.active = false;
       } else if !signal.active
         && self.rng.random::<f32>()
-          < config.global_settings.signal_disappearance_chance as f32
+          < config.global_settings.signal_appearance_chance as f32
       {
         signal.active = true;
       }

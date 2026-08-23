@@ -319,19 +319,23 @@ pub unsafe fn fast_cosq_f32(x: v128) -> v128 {
 #[inline(always)]
 pub unsafe fn fast_tanhq_f32(x: float32x4_t) -> float32x4_t {
   // Clamp to [-3, 3] where tanh is mostly linear-ish or saturating
+  let v_one = vdupq_n_f32(1.0);
+  let v_neg_one = vdupq_n_f32(-1.0);
   let v_three = vdupq_n_f32(3.0);
   let v_neg_three = vdupq_n_f32(-3.0);
   let x_clamped = vmaxq_f32(vminq_f32(x, v_three), v_neg_three);
 
   let x2 = vmulq_f32(x_clamped, x_clamped);
-  // (x * (135.0 + x2 * (15.0 + x2))) / (135.0 + x2 * (60.0 + 20.0 * x2)) - too complex
-  // Rational approx: x * (1.0 + 0.125 * x^2) / (1.0 + 0.5 * x^2)
-  let num = vfmaq_f32(vdupq_n_f32(1.0), vdupq_n_f32(0.125), x2);
-  let den = vfmaq_f32(vdupq_n_f32(1.0), vdupq_n_f32(0.5), x2);
+  // Rational approx: x * (27 + x^2) / (27 + 9 * x^2).
+  // Unlike the earlier (1 + 0.125x²)/(1 + 0.5x²) form — which overshoots to
+  // ~1.159 at |x| = 3 and wrapped to garbage after the u8 conversion — this
+  // Padé form is monotone and lands exactly on ±1 at |x| = 3.
+  let num = vfmaq_f32(vdupq_n_f32(27.0), x_clamped, x2);
+  let den = vfmaq_f32(vdupq_n_f32(27.0), vdupq_n_f32(9.0), x2);
 
-  // Fallback to simple poly for now if we want to avoid division,
-  // but ARM has fast vdivq_f32.
-  vmulq_f32(x_clamped, vdivq_f32(num, den))
+  let result = vmulq_f32(x_clamped, vdivq_f32(num, den));
+  // Belt-and-braces: tanh is strictly within [-1, 1].
+  vmaxq_f32(vminq_f32(result, v_one), v_neg_one)
 }
 
 /// # Safety
@@ -339,19 +343,63 @@ pub unsafe fn fast_tanhq_f32(x: float32x4_t) -> float32x4_t {
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
 pub unsafe fn fast_tanhq_f32(x: v128) -> v128 {
-  let v_three = f32x4(3.0, 3.0, 3.0, 3.0);
-  let v_neg_three = f32x4(-3.0, -3.0, -3.0, -3.0);
+  let v_one = f32x4_splat(1.0);
+  let v_neg_one = f32x4_splat(-1.0);
+  let v_three = f32x4_splat(3.0);
+  let v_neg_three = f32x4_splat(-3.0);
   let x_clamped = f32x4_max(f32x4_min(x, v_three), v_neg_three);
 
   let x2 = f32x4_mul(x_clamped, x_clamped);
-  let num = f32x4_add(
-    f32x4(1.0, 1.0, 1.0, 1.0),
-    f32x4_mul(x2, f32x4(0.125, 0.125, 0.125, 0.125)),
-  );
-  let den = f32x4_add(
-    f32x4(1.0, 1.0, 1.0, 1.0),
-    f32x4_mul(x2, f32x4(0.5, 0.5, 0.5, 0.5)),
-  );
+  // Rational approx: x * (27 + x^2) / (27 + 9 * x^2) — monotone on [-3, 3],
+  // exactly ±1 at the endpoints (see the aarch64 note above).
+  let num = f32x4_add(f32x4_splat(27.0), f32x4_mul(x_clamped, x2));
+  let den = f32x4_add(f32x4_splat(27.0), f32x4_mul(f32x4_splat(9.0), x2));
 
-  f32x4_mul(x_clamped, f32x4_div(num, den))
+  let result = f32x4_mul(x_clamped, f32x4_div(num, den));
+  // Belt-and-braces: tanh is strictly within [-1, 1].
+  f32x4_max(f32x4_min(result, v_one), v_neg_one)
+}
+
+#[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
+#[cfg(test)]
+mod tests {
+  /// Regression: the previous rational approximation overshot to ~1.159 at
+  /// |x| = 3, which wrapped to a garbage u8 after the mock generator's
+  /// `u32` conversion (dark pixels where saturation was expected). The
+  /// approximation must stay within tanh's exact [-1, 1] range everywhere.
+  #[test]
+  fn fast_tanhq_stays_within_unit_range() {
+    unsafe {
+      let inputs: [f32; 8] = [-10.0, -3.0, -1.0, -0.5, 0.5, 1.0, 3.0, 10.0];
+      for chunk in inputs.chunks(4) {
+        let mut lane = [0.0f32; 4];
+        lane[..chunk.len()].copy_from_slice(chunk);
+        let v = crate::simd::fast_math::fast_tanhq_f32(
+          std::mem::transmute::<[f32; 4], _>(lane),
+        );
+        #[cfg(target_arch = "aarch64")]
+        {
+          use std::arch::aarch64::*;
+          let out: [f32; 4] = std::mem::transmute(v);
+          for value in out {
+            assert!(
+              (-1.0..=1.0).contains(&value),
+              "fast_tanhq_f32 produced {value} outside [-1, 1]"
+            );
+          }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+          use std::arch::wasm32::*;
+          let out: [f32; 4] = std::mem::transmute(v);
+          for value in out {
+            assert!(
+              (-1.0..=1.0).contains(&value),
+              "fast_tanhq_f32 produced {value} outside [-1, 1]"
+            );
+          }
+        }
+      }
+    }
+  }
 }

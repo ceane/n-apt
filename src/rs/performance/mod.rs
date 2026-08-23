@@ -209,9 +209,16 @@ struct AtomicCounters {
 
 #[derive(Default)]
 struct StageMeasurements {
+  /// Recent latency samples. Capped: profiling runs for the whole process
+  /// lifetime, so an unbounded Vec would grow forever and make every
+  /// snapshot's clone+sort slower over time. Percentiles therefore describe
+  /// the most recent window, which is what live profiling wants anyway.
   latency_ns: Vec<u64>,
   queue_high_water: u64,
 }
+
+/// Maximum retained latency samples per stage.
+const LATENCY_SAMPLE_CAP: usize = 4096;
 
 pub struct PipelineMetrics {
   detailed: bool,
@@ -272,14 +279,13 @@ impl PipelineMetrics {
 
   pub fn record_latency(&self, stage: Stage, duration: Duration) {
     let nanos = duration.as_nanos().min(u64::MAX as u128) as u64;
-    self
-      .stages
-      .lock()
-      .unwrap()
-      .entry(stage)
-      .or_default()
-      .latency_ns
-      .push(nanos);
+    let mut stages = self.stages.lock().unwrap();
+    let measurement = stages.entry(stage).or_default();
+    if measurement.latency_ns.len() >= LATENCY_SAMPLE_CAP {
+      // Retain the most recent half; bounds memory while keeping history.
+      measurement.latency_ns.drain(..LATENCY_SAMPLE_CAP / 2);
+    }
+    measurement.latency_ns.push(nanos);
   }
 
   pub fn observe_queue(&self, stage: Stage, depth: u64) {

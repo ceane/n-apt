@@ -137,7 +137,8 @@ impl ARMOptimizedSIMD {
       let src_offset = start_bin.max(0);
 
       if data_to_copy > 0 && src_offset < full_waveform.len() {
-        let copy_len = data_to_copy as usize;
+        let copy_len =
+          (data_to_copy as usize).min(full_waveform.len() - src_offset);
         sliced_waveform[dest_offset..dest_offset + copy_len]
           .copy_from_slice(&full_waveform[src_offset..src_offset + copy_len]);
       }
@@ -567,7 +568,14 @@ impl ARMOptimizedSIMD {
     let fft_height = fft_area_max_y - fft_area_y as f32;
     let plot_width = fft_area_max_x - fft_area_x as f32;
     let vert_range = db_max - db_min;
-    let scale_factor = fft_height / vert_range;
+    // A degenerate (zero-width) dB range would produce inf scale factors and
+    // NaN coordinates that survive .clamp(); a flat range maps every value
+    // to the baseline instead.
+    let scale_factor = if vert_range > 0.0 {
+      fft_height / vert_range
+    } else {
+      0.0
+    };
 
     let mut coords = Vec::with_capacity(data_width);
     let x_base = fft_area_x as f32;
@@ -606,7 +614,14 @@ impl ARMOptimizedSIMD {
     let fft_height = fft_area_max_y - fft_area_y as f32;
     let plot_width = fft_area_max_x - fft_area_x as f32;
     let vert_range = db_max - db_min;
-    let scale_factor = fft_height / vert_range;
+    // A degenerate (zero-width) dB range would produce inf scale factors and
+    // NaN coordinates that survive .clamp(); a flat range maps every value
+    // to the baseline instead.
+    let scale_factor = if vert_range > 0.0 {
+      fft_height / vert_range
+    } else {
+      0.0
+    };
     let x_base = fft_area_x as f32;
     let x_scale = if data_width > 1 {
       plot_width / (data_width as f32 - 1.0)
@@ -640,7 +655,14 @@ impl ARMOptimizedSIMD {
     let fft_height = (fft_area_max_y - fft_area_y) as f32;
     let plot_width = (fft_area_max_x - fft_area_x) as f32;
     let vert_range = db_max - db_min;
-    let scale_factor = fft_height / vert_range;
+    // A degenerate (zero-width) dB range would produce inf scale factors and
+    // NaN coordinates that survive .clamp(); a flat range maps every value
+    // to the baseline instead.
+    let scale_factor = if vert_range > 0.0 {
+      fft_height / vert_range
+    } else {
+      0.0
+    };
 
     let mut coords = Vec::with_capacity(data_width);
 
