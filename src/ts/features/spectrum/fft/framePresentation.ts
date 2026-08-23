@@ -27,7 +27,6 @@ export type FramePresentationDecision = {
   explicitPlaceholderBlocksFrame: boolean;
   hasBlockingVisualPlaceholder: boolean;
   blockingPlaceholderKind: BlockingPlaceholderKind;
-  shouldClearStaleStandby: boolean;
 };
 
 export const selectFrameForPresentation = <T,>({
@@ -154,8 +153,5 @@ export const resolveFramePresentation = ({
     explicitPlaceholderBlocksFrame,
     hasBlockingVisualPlaceholder,
     blockingPlaceholderKind,
-    // Never clear the painted graph without a replacement frame. Black FFT /
-    // waterfall under standby or Start Tx is worse than a brief stale graph.
-    shouldClearStaleStandby: false,
   };
 };

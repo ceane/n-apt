@@ -55,7 +55,10 @@ import {
 import {
   subscribeFrameArrivals,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
-import { createDeviceOptionScheduler } from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
+import {
+  createDeviceOptionScheduler,
+  type DeviceOptionScheduler,
+} from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
 // New hooks
 import { useCanvasNodes } from "@n-apt/spectrum/hooks/useCanvasState";
 import { useWaterfallBuffers } from "@n-apt/spectrum/hooks/useWaterfallBufferPool";
@@ -95,7 +98,7 @@ import {
   resolvePendingWaterfallRestore,
   type PendingWaterfallRestore,
 } from "@n-apt/spectrum/utils/waterfallRestore";
-import { shouldAppendWaterfallRow } from "@n-apt/spectrum/utils/waterfallMotion";
+import { shouldAppendWaterfallFrame } from "@n-apt/spectrum/utils/waterfallMotion";
 import {
   copyValidWaterfallRow,
   resolveWaterfallDisplayRow,
@@ -132,6 +135,15 @@ import {
   displayRangeNeedsBasebandMirror,
   resolveDisplayRangeForPanOffset,
 } from "@n-apt/math/basebandMirror";
+
+export const createVizPanScheduler = (
+  publish: (pan: number) => void,
+): DeviceOptionScheduler<number> =>
+  createDeviceOptionScheduler<number>({
+    publish,
+    intervalMs: 50,
+    idleFlushMs: 80,
+  });
 
 type FrameRenderRangeInput = {
   currentFrame: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate">;
@@ -2069,36 +2081,32 @@ const FFTCanvas = memo(
     const vizDbMaxRef = useRef(vizDbMax);
     const vizDbMinRef = useRef(vizDbMin);
     const vizPanOffsetRef = useRef(vizPanOffset);
+    const onVizPanChangeRef = useRef(onVizPanChange);
+    onVizPanChangeRef.current = onVizPanChange;
 
-    const setVizPanOffset = useCallback(
-      (val: number | ((prev: number) => number)) => {
-        if (onVizPanChange) {
-          onVizPanChange(
-            typeof val === "function" ? val(vizPanOffsetRef.current) : val,
-          );
-        }
-      },
-      [onVizPanChange],
-    );
     /** True while mirror-mode pan is held in the ref ahead of the Redux write. */
     const mirrorPanPendingPublishRef = useRef(false);
     const mirrorPanLastPublishedRef = useRef(vizPanOffset);
     const lastPaintedMirrorPanRef = useRef(vizPanOffset);
     const lastPaintedZoomRef = useRef(currentVizZoom);
-
-    const vizPanScheduler = useMemo(
-      () =>
-        createDeviceOptionScheduler<number>({
-          publish: (pan) => {
-            mirrorPanPendingPublishRef.current = false;
-            mirrorPanLastPublishedRef.current = pan;
-            setVizPanOffset(pan);
-          },
-        }),
-      [setVizPanOffset],
+    const vizPanSchedulerRef = useRef<DeviceOptionScheduler<number> | null>(
+      null,
     );
+    if (!vizPanSchedulerRef.current) {
+      vizPanSchedulerRef.current = createVizPanScheduler((pan) => {
+        mirrorPanPendingPublishRef.current = false;
+        mirrorPanLastPublishedRef.current = pan;
+        // Publish the coalesced value to the parent exactly once. Calling the
+        // local interaction handler here would submit back into this same
+        // scheduler and recurse on the first wheel event.
+        onVizPanChangeRef.current?.(pan);
+      });
+    }
+    const vizPanScheduler = vizPanSchedulerRef.current;
 
-    useEffect(() => () => vizPanScheduler.dispose(), [vizPanScheduler]);
+    // Cancel timers on cleanup, but keep the ref-backed scheduler reusable
+    // across React Strict Mode's mount probe and callback refreshes.
+    useEffect(() => () => vizPanScheduler.cancel(), [vizPanScheduler]);
     const previousPowerScaleRef = useRef(effectivePowerScale);
     const previousRemoveDcSpikeRef = useRef(removeDcSpike);
     const previousFftSizeRef = useRef(effectiveFftSize);
@@ -3051,7 +3059,6 @@ const FFTCanvas = memo(
           explicitPlaceholderBlocksFrame,
           hasBlockingVisualPlaceholder,
           blockingPlaceholderKind,
-          shouldClearStaleStandby,
         } = framePresentation;
         if (
           presentationPolicy?.clearStalePresentation &&
@@ -3077,7 +3084,6 @@ const FFTCanvas = memo(
             shouldCommitSourcePresentationReset(
               pendingSourcePresentationResetRef.current,
               false,
-              shouldClearStaleStandby,
             )
           ) {
             commitPendingSourcePresentationReset();
@@ -3094,7 +3100,7 @@ const FFTCanvas = memo(
           shouldCommitSourcePresentationReset(
             pendingSourcePresentationResetRef.current,
             hasRenderableFrame,
-            shouldClearStaleStandby,
+            undefined,
             preservesMatchingStandbyPresentation,
           )
         ) {
@@ -4013,11 +4019,12 @@ const FFTCanvas = memo(
                 (currentFrame as any)?.is_tx_preview === true ||
                 (currentFrame as any)?.is_mock_tx_preview === true;
               const shouldUpdateWaterfallRow =
-                shouldAppendWaterfallRow({
+                shouldAppendWaterfallFrame({
                   hasNewData,
                   isStandby,
                   isTxPreviewFrame,
-                }) && preparedSpectrum.coversDisplay;
+                  coversDisplay: preparedSpectrum.coversDisplay,
+                });
 
               // Waterfall texture strategy: Always resample to constant 4096 bins.
               // This 'bakes' the zoom into each row permanently, avoiding WebGPU
@@ -4037,7 +4044,7 @@ const FFTCanvas = memo(
 
               // Bake the displayed axis (including |f| below 0 Hz) into each
               // new row so the waterfall follows the FFT past DC both ways.
-              if (hasNewData && preparedSpectrum.coversDisplay) {
+              if (hasNewData) {
                 waterfallBins = resolveWaterfallDisplayRow({
                   sourceWaveform: currentWaveform,
                   sourceRange: sourceFrequencyRange,

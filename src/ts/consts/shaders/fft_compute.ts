@@ -178,8 +178,11 @@ fn fft_power_spectrum(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let complex_val = input_buffer[idx];
   let magnitude = complex_magnitude(complex_val);
   
-  // Convert to dB scale with normalization
-  let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
+  // Convert to dB scale with normalization.
+  // Power-referenced PSD convention (N·Σw² normalization): matches the
+  // backend SIMD paths so summing linear bins recovers complex RMS power.
+  let db_value =
+    10.0 * log10(max(magnitude * magnitude / params.normalization, 1e-10));
   
   // Store as real value in output buffer
   output_buffer[idx] = Complex(db_value, 0.0);
@@ -239,8 +242,10 @@ fn fft_waterfall_direct(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let complex_val = input_buffer[idx];
   let magnitude = complex_magnitude(complex_val);
   
-  // Convert to dB scale with normalization
-  let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
+  // Convert to dB scale with normalization.
+  // Power-referenced PSD convention — see fft_power_spectrum above.
+  let db_value =
+    10.0 * log10(max(magnitude * magnitude / params.normalization, 1e-10));
   
   // Normalize dB value to [0, 1] for waterfall using min_db/max_db
   let range = params.max_db - params.min_db;
@@ -283,7 +288,9 @@ fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) 
   // Read FFT power spectrum directly
   let complex_val = input_buffer[input_idx];
   let magnitude = complex_magnitude(complex_val);
-  let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
+  // Power-referenced PSD convention — see fft_power_spectrum above.
+  let db_value =
+    10.0 * log10(max(magnitude * magnitude / params.normalization, 1e-10));
   
   // Normalize and apply color mapping using min_db/max_db
   let range = params.max_db - params.min_db;

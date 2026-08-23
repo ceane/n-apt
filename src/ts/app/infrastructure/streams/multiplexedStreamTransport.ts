@@ -7,7 +7,29 @@ import {
   type StreamOptions,
   type StreamTransport,
 } from "./sourceModeStreamManager";
-import type { StreamDeliveryPolicy } from "./streamContract";
+import type {
+  StreamControlScopes,
+  StreamDeliveryPolicy,
+} from "./streamContract";
+
+/**
+ * Wire shape of an inbound `stream_frame` message. Fields arrive as untrusted
+ * server JSON — every consumer validates defensively; this type only names
+ * the vocabulary.
+ */
+export type IncomingStreamFrameMessage = {
+  [key: string]: unknown;
+  type?: unknown;
+  sourceId?: unknown;
+  mode?: unknown;
+  sequence?: unknown;
+  streamEpoch?: unknown;
+  optionsRevision?: unknown;
+  timestamp?: unknown;
+  centerFrequencyHz?: unknown;
+  sampleRateHz?: unknown;
+  iqData?: unknown;
+};
 
 type StreamInboundItem =
   | {
@@ -30,6 +52,7 @@ type StreamConnection = {
   inboundQueue: StreamInboundItem[];
   inboundItemInFlight: boolean;
   losslessLagReported: boolean;
+  minimumOptionsRevision: number;
 };
 
 type MultiplexedStreamTransportOptions = {
@@ -41,15 +64,6 @@ type MultiplexedStreamTransportOptions = {
 
 const keyFor = ({ sourceId, mode }: StreamKey): string =>
   `${sourceId}\u0000${mode}`;
-
-const toBytes = (base64: string): Uint8Array => {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-};
 
 const isStreamOptionsForMode = (
   value: unknown,
@@ -81,19 +95,38 @@ const streamUrl = (controlUrl: string): string => {
   return url.toString();
 };
 
-const makeFrame = async (
-  message: Record<string, unknown>,
+const toFiniteNumber = (value: unknown): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/** Test seam: exposed so property tests can fuzz frame assembly directly. */
+export const makeFrame = async (
+  message: IncomingStreamFrameMessage,
   aesKey: CryptoKey,
 ): Promise<StreamEvent> => {
   const sourceId = String(message.sourceId ?? "");
   const mode = message.mode === "tx" ? "tx" : "rx";
-  const sequence = Number(message.sequence ?? 0);
-  const streamEpoch = Number(message.streamEpoch ?? 0);
-  const optionsRevision = Number(message.optionsRevision ?? 0);
+  // Garbage numeric fields must never flow NaN/Infinity into the frame — the
+  // stream manager's epoch/revision/sequence gating relies on finite numbers.
+  const sequence = toFiniteNumber(message.sequence ?? 0);
+  const streamEpoch = toFiniteNumber(message.streamEpoch ?? 0);
+  const optionsRevision = toFiniteNumber(message.optionsRevision ?? 0);
+  const timestamp = toFiniteNumber(message.timestamp ?? 0);
   const iqData = await decryptPayloadBytes(
     aesKey,
     String(message.iqData ?? ""),
   );
+  const centerFrequencyHz =
+    typeof message.centerFrequencyHz === "number" &&
+    Number.isFinite(message.centerFrequencyHz)
+      ? message.centerFrequencyHz
+      : undefined;
+  const sampleRateHz =
+    typeof message.sampleRateHz === "number" &&
+    Number.isFinite(message.sampleRateHz)
+      ? message.sampleRateHz
+      : undefined;
   const frame: IqRawFrame = {
     type: "spectrum",
     data_type: "iq_raw",
@@ -101,15 +134,9 @@ const makeFrame = async (
     protocol_version: 2,
     stream_epoch: streamEpoch,
     sequence,
-    timestamp: Number(message.timestamp ?? 0),
-    center_frequency_hz:
-      typeof message.centerFrequencyHz === "number"
-        ? message.centerFrequencyHz
-        : undefined,
-    sample_rate:
-      typeof message.sampleRateHz === "number"
-        ? message.sampleRateHz
-        : undefined,
+    timestamp,
+    center_frequency_hz: centerFrequencyHz,
+    sample_rate: sampleRateHz,
     frame_status: mode === "tx" ? "transmitting" : "receiving",
     iq_data: iqData,
   };
@@ -120,15 +147,39 @@ const makeFrame = async (
     streamEpoch,
     optionsRevision,
     sequence,
-    timestamp: frame.timestamp ?? 0,
-    centerFrequencyHz: frame.center_frequency_hz,
-    sampleRateHz: Number(message.sampleRateHz ?? 0),
+    timestamp,
+    centerFrequencyHz,
+    sampleRateHz: sampleRateHz ?? 0,
     iqData,
     frame,
   };
 };
 
 const MAX_PENDING_LOSSLESS_FRAMES = 32;
+
+const frameOptionsRevision = (item: StreamInboundItem): number =>
+  item.kind === "frame" ? Number(item.message.optionsRevision ?? 0) : 0;
+const advanceOptionsRevision = (
+  connection: StreamConnection,
+  optionsRevision: number,
+): void => {
+  if (
+    !Number.isFinite(optionsRevision) ||
+    optionsRevision <= connection.minimumOptionsRevision
+  ) {
+    return;
+  }
+  connection.minimumOptionsRevision = optionsRevision;
+  // Lossless applies within one tuning contract. Frames from an older device
+  // window can no longer be presented after a retune and must not delay the
+  // first frame that matches the new center frequency.
+  connection.inboundQueue = connection.inboundQueue.filter(
+    (item) =>
+      item.kind !== "frame" ||
+      frameOptionsRevision(item) >= connection.minimumOptionsRevision,
+  );
+  connection.losslessLagReported = false;
+};
 
 const drainInbound = (
   connection: StreamConnection,
@@ -147,7 +198,9 @@ const drainInbound = (
 
   void makeFrame(nextItem.message, aesKey)
     .then((frame) => {
-      connection.onEvent(frame);
+      if (frame.optionsRevision >= connection.minimumOptionsRevision) {
+        connection.onEvent(frame);
+      }
     })
     .catch(() => {
       connection.onEvent({
@@ -175,9 +228,15 @@ const drainInbound = (
 
 const enqueueFrame = (
   connection: StreamConnection,
-  message: Record<string, unknown>,
+  message: IncomingStreamFrameMessage,
   aesKey: CryptoKey,
 ): void => {
+  const optionsRevision = Number(message.optionsRevision ?? 0);
+  if (optionsRevision > connection.minimumOptionsRevision) {
+    advanceOptionsRevision(connection, optionsRevision);
+  }
+  if (optionsRevision < connection.minimumOptionsRevision) return;
+
   if (connection.deliveryPolicy === "lossless") {
     const queuedLosslessFrames = connection.inboundQueue.filter(
       (item) => item.kind === "frame" && item.deliveryPolicy === "lossless",
@@ -336,6 +395,10 @@ export const createMultiplexedStreamTransport = ({
         const effectiveDeliveryPolicy: StreamDeliveryPolicy =
           message.deliveryPolicy === "latest" ? "latest" : "lossless";
         connection.deliveryPolicy = effectiveDeliveryPolicy;
+        advanceOptionsRevision(
+          connection,
+          Number(message.optionsRevision ?? 1),
+        );
         enqueueControl(connection, {
           type: "stream_opened",
           sourceId: connection.key.sourceId,
@@ -347,16 +410,25 @@ export const createMultiplexedStreamTransport = ({
               ? message.state
               : "ready",
           options: effectiveOptions,
-          controlScopes:
-            message.controlScopes as import("./streamContract").StreamControlScopes,
+          controlScopes: message.controlScopes as StreamControlScopes,
           deliveryPolicy: effectiveDeliveryPolicy,
         }, aesKey);
         return;
       }
       if (message.type === "stream_unsubscribe") return;
       if (message.type === "stream_frame") {
-        enqueueFrame(connection, message, aesKey);
+        enqueueFrame(
+          connection,
+          message as IncomingStreamFrameMessage,
+          aesKey,
+        );
         return;
+      }
+      if (message.type === "stream_options_applied") {
+        advanceOptionsRevision(
+          connection,
+          Number(message.optionsRevision ?? 0),
+        );
       }
       enqueueControl(connection, message, aesKey);
     };
@@ -393,6 +465,7 @@ export const createMultiplexedStreamTransport = ({
       inboundQueue: [],
       inboundItemInFlight: false,
       losslessLagReported: false,
+      minimumOptionsRevision: 1,
     };
     connections.set(keyFor(key), entry);
     connect();
@@ -405,6 +478,7 @@ export const createMultiplexedStreamTransport = ({
           entry.deliveryPolicy = message.deliveryPolicy ?? "lossless";
         } else if (message.type === "stream_update_options") {
           entry.options = message.options;
+          advanceOptionsRevision(entry, entry.minimumOptionsRevision + 1);
         } else if (message.type === "stream_set_paused") {
           entry.paused = message.paused;
         } else if (message.type === "stream_set_delivery") {

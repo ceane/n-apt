@@ -37,6 +37,7 @@ import { formatDuration } from "@n-apt/math/formatters";
 import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { shouldRestorePausedFrameSnapshot } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
+import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -187,8 +188,6 @@ const ChannelSelector = React.memo<ChannelSelectorProps>(
 
 ChannelSelector.displayName = "ChannelSelector";
 
-import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
-
 const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
   (
     {
@@ -272,6 +271,10 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     const animateFrameRef = useRef<
       ((timestamp: number, forceFrame?: boolean) => void) | null
     >(null);
+    // Bumped whenever stitching (re)writes allChannelsRef / workerMetadataMap.
+    // The refs have stable identity, so render-time reads of them must be
+    // paired with this counter to guarantee recomputation.
+    const [channelDataVersion, setChannelDataVersion] = useState(0);
     // ── Custom hooks for separated concerns ──
     const {
       hasStitchedData,
@@ -280,8 +283,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       activeChannel,
       hardwareSampleRateHz,
       allChannelsRef,
-      workerFileDataCache,
-      workerFreqMap,
       workerMetadataMap,
       precomputedFrames,
       setChannelCount,
@@ -294,6 +295,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       fftSize,
       onStitchStatus,
       onChannelsChange: (channels) => {
+        setChannelDataVersion((version) => version + 1);
         // Strip non-serializable binary data for Redux
         const metadataOnly = channels.map((ch) => ({
           label: ch.label || `Channel ${channels.indexOf(ch) + 1}`,
@@ -319,14 +321,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       true,
     );
 
-    // Refs for data that changes rapidly (no re-render cascades)
-    const fileDataCache = useRef<Map<string, number[]>>(new Map());
-    const freqMapRef = useRef<Map<string, number>>(new Map());
-    const selectedFilesRef = useRef(selectedFiles);
-    selectedFilesRef.current = selectedFiles;
-    const stitchSourceSettingsRef = useRef(stitchSourceSettings);
-    stitchSourceSettingsRef.current = stitchSourceSettings;
-
     /**
      * Hot-path data ref — written directly by the animation loop, never via
      * React state.  FFTCanvas reads this ref on every rAF, identical to the
@@ -339,10 +333,14 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     // first frame only from an effect creates a race: the child can start its
     // canvas loop while dataRef is still null and remain behind the loading
     // placeholder until another playback tick arrives.
-    const playbackSeedKey = `${selectedFiles
-      .map((file) => file.id || file.name)
-      .sort()
-      .join("|")}:${stitchTrigger ?? "none"}:${displayMode}:${activeChannel}`;
+    const playbackSeedKey = useMemo(
+      () =>
+        `${selectedFiles
+          .map((file) => file.id || file.name)
+          .sort()
+          .join("|")}:${stitchTrigger ?? "none"}:${displayMode}:${activeChannel}`,
+      [selectedFiles, stitchTrigger, displayMode, activeChannel],
+    );
     if (!hasStitchedData) {
       fftCanvasDataRef.current = null;
       seededPlaybackKeyRef.current = null;
@@ -369,11 +367,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     }, [forwardedRef, hasStitchedData, playbackSeedKey]);
 
     // ── Memoized callbacks for hook stability ──
-    const handleFrameEmitted = useCallback(() => {
-      // Intentionally empty: removed high-frequency Redux dispatch to eliminate jitter.
-      // Tables poll the source-specific playback ref at a lower frequency.
-    }, []);
-
     const handleChannelMetadataChange = useCallback(
       (meta: any) => {
         dispatch(setActivePlaybackMetadata(meta));
@@ -391,7 +384,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       precomputedFrames,
       fftCanvasDataRef,
       displayMode,
-      onFrameEmitted: handleFrameEmitted,
     });
     animateFrameRef.current = animateFrame;
 
@@ -452,6 +444,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       hasStitchedData,
       activeChannel,
       channelCount,
+      channelDataVersion,
       hardwareSampleRateHz,
       dispatch,
     ]);
@@ -485,24 +478,56 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     }, [hasStitchedData, activeSignalArea, allChannelsRef, dispatch]);
 
     // ── Clear when file selection actually changes ──
-    const fileNamesSet = useMemo(
-      () => new Set(selectedFiles.map((f) => f.name)),
-      [selectedFiles],
-    );
-    const visualizerSessionKey = useMemo(() => {
-      const fileIdentity = selectedFiles
+    // Null-initialized so the first run after mount never clears state that
+    // useStitchingLogic has just populated.
+    const prevFileNamesKeyRef = useRef<string | null>(null);
+
+    useEffect(() => {
+      const nameKey = selectedFiles
         .map((file) => file.id || file.name)
         .sort()
         .join("|");
-      return `playback:${displayMode}:${stitchTrigger ?? 0}:${fileIdentity}`;
-    }, [displayMode, selectedFiles, stitchTrigger]);
+      if (prevFileNamesKeyRef.current === null) {
+        prevFileNamesKeyRef.current = nameKey;
+        return;
+      }
+      if (nameKey === prevFileNamesKeyRef.current) return;
+      prevFileNamesKeyRef.current = nameKey;
+
+      fftCanvasDataRef.current = null;
+      fileFrameRuntime.clear();
+      setChannelCount(0);
+      setActiveChannel(0);
+      dispatch(clearActivePlaybackMetadata());
+      allChannelsRef.current = [];
+    }, [
+      selectedFiles,
+      setChannelCount,
+      setActiveChannel,
+      dispatch,
+      allChannelsRef,
+    ]);
+    const visualizerSessionKey = useMemo(
+      () =>
+        `playback:${displayMode}:${stitchTrigger ?? 0}:${selectedFiles
+          .map((file) => file.id || file.name)
+          .sort()
+          .join("|")}`,
+      [displayMode, selectedFiles, stitchTrigger],
+    );
 
     const pulseSnapshotSection = useCallback(() => {
       dispatch(bumpSnapshotSectionPulse());
     }, [dispatch]);
 
-    const fastSpectrumSnapshotAction = useMemo<ReactNode>(() => {
-      return (
+    const renderFastSnapshotButton = useCallback(
+      ({
+        filenamePrefix,
+        getCanvas,
+      }: {
+        filenamePrefix: string;
+        getCanvas: () => HTMLCanvasElement | null;
+      }) => (
         <FastSnapshotButton
           type="button"
           $variant="accentSoft"
@@ -521,65 +546,72 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
                 forwardedRef && "current" in forwardedRef
                   ? (forwardedRef.current?.getSnapshotData() ?? null)
                   : null,
-              canvasOnly: {
-                getCanvas: () =>
-                  forwardedRef && "current" in forwardedRef
-                    ? (forwardedRef.current?.getSpectrumCanvas() ?? null)
-                    : null,
-                filenamePrefix: "fast-fft-snapshot",
-              },
+              canvasOnly: { getCanvas, filenamePrefix },
             });
           }}
         >
           Fast Snapshot
         </FastSnapshotButton>
-      );
-    }, [
-      forwardedRef,
-      pulseSnapshotSection,
-      snapshotButtonsLoading,
-      takeSnapshot,
-    ]);
+      ),
+      [
+        forwardedRef,
+        pulseSnapshotSection,
+        snapshotButtonsLoading,
+        takeSnapshot,
+      ],
+    );
 
-    const fastWaterfallSnapshotAction = useMemo<ReactNode>(() => {
-      return (
-        <FastSnapshotButton
-          type="button"
-          $variant="accentSoft"
-          disabled={snapshotButtonsLoading}
-          onClick={() => {
-            pulseSnapshotSection();
-            void takeSnapshot({
-              whole: false,
-              showWaterfall: false,
-              showStats: false,
-              showGeolocation: false,
-              showGrid: false,
-              format: "png",
-              useThemeColors: false,
-              getSnapshotData: () =>
-                forwardedRef && "current" in forwardedRef
-                  ? (forwardedRef.current?.getSnapshotData() ?? null)
-                  : null,
-              canvasOnly: {
-                getCanvas: () =>
-                  forwardedRef && "current" in forwardedRef
-                    ? (forwardedRef.current?.getWaterfallCanvas() ?? null)
-                    : null,
-                filenamePrefix: "fast-waterfall-snapshot",
-              },
-            });
-          }}
-        >
-          Fast Snapshot
-        </FastSnapshotButton>
+    const getSpectrumCanvas = useCallback(
+      () =>
+        forwardedRef && "current" in forwardedRef
+          ? (forwardedRef.current?.getSpectrumCanvas() ?? null)
+          : null,
+      [forwardedRef],
+    );
+    const getWaterfallCanvas = useCallback(
+      () =>
+        forwardedRef && "current" in forwardedRef
+          ? (forwardedRef.current?.getWaterfallCanvas() ?? null)
+          : null,
+      [forwardedRef],
+    );
+
+    const fastSpectrumSnapshotAction = useMemo<ReactNode>(
+      () =>
+        renderFastSnapshotButton({
+          filenamePrefix: "fast-fft-snapshot",
+          getCanvas: getSpectrumCanvas,
+        }),
+      [renderFastSnapshotButton, getSpectrumCanvas],
+    );
+
+    const fastWaterfallSnapshotAction = useMemo<ReactNode>(
+      () =>
+        renderFastSnapshotButton({
+          filenamePrefix: "fast-waterfall-snapshot",
+          getCanvas: getWaterfallCanvas,
+        }),
+      [renderFastSnapshotButton, getWaterfallCanvas],
+    );
+
+    // Mirror the active channel's display-relevant fields into state so
+    // consumers (fftFrameRate, ChannelSelector label) re-render when the
+    // stitching refs change, instead of reading them during render.
+    const [activeChannelInfo, setActiveChannelInfo] = useState<{
+      label?: string;
+      frameRate?: number;
+    }>({});
+    useEffect(() => {
+      const ch =
+        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+      const label = ch?.label || `Channel ${activeChannel + 1}`;
+      const frameRate = ch?.frame_rate;
+      setActiveChannelInfo((previous) =>
+        previous.label === label && previous.frameRate === frameRate
+          ? previous
+          : { label, frameRate },
       );
-    }, [
-      forwardedRef,
-      pulseSnapshotSection,
-      snapshotButtonsLoading,
-      takeSnapshot,
-    ]);
+    }, [activeChannel, channelDataVersion, allChannelsRef]);
 
     const playbackCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
       if (!hasStitchedData) return null;
@@ -623,62 +655,21 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       fftSize,
       hardwareSampleRateHz,
       hasStitchedData,
+      channelDataVersion,
       workerMetadataMap,
     ]);
 
-    const initialFileNamesKey = useMemo(
-      () => Array.from(fileNamesSet).sort().join("|"),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [],
-    );
-    const prevFileNamesRef2 = useRef(initialFileNamesKey);
-
+    // The render-phase seeding above rebuilds the data ref whenever the seed
+    // key (files / stitch trigger / display mode / channel) changes. When
+    // paused, manually repaint once so channel/mode switches are visible
+    // without waiting for the next playback tick.
     useEffect(() => {
-      const nameKey = Array.from(fileNamesSet).sort().join("|");
-      if (nameKey === prevFileNamesRef2.current) return;
-      prevFileNamesRef2.current = nameKey;
-
-      fftCanvasDataRef.current = null;
-      fileFrameRuntime.clear();
-      setChannelCount(0);
-      setActiveChannel(0);
-      dispatch(clearActivePlaybackMetadata());
-      fileDataCache.current.clear();
-      freqMapRef.current.clear();
-      allChannelsRef.current = [];
-    }, [
-      fileNamesSet,
-      setChannelCount,
-      setActiveChannel,
-      dispatch,
-      allChannelsRef,
-    ]);
-
-    // ── Handle stitched data state changes ──
-    useEffect(() => {
-      if (!hasStitchedData) {
-        return;
-      }
-
-      const channelData =
-        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
-      fftCanvasDataRef.current = buildPlaybackSeedFrame({
-        displayMode,
-        precomputedFrames: precomputedFrames.current,
-        channelData,
-        fftSize,
-      });
-
-      // If paused, manually trigger one frame update to reflect channel/mode changes
-      if (isPaused) {
-        animateFrame(performance.now(), true);
-      }
+      if (!hasStitchedData || !isPaused) return;
+      animateFrame(performance.now(), true);
     }, [
       activeChannel,
-      allChannelsRef,
       displayMode,
       hasStitchedData,
-      precomputedFrames,
       isPaused,
       animateFrame,
     ]);
@@ -706,15 +697,11 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       };
     }, [toggleVisualizerPause]);
 
+    // Leaving playback mode must drop the shared metadata so the live view
+    // doesn't inherit file-mode channel info. The stitching hook owns its own
+    // internal refs; they die with this component instance.
     useEffect(() => {
       return () => {
-        workerFileDataCache.current = [];
-        workerFreqMap.current = [];
-        workerMetadataMap.current = [];
-        precomputedFrames.current = [];
-        fileDataCache.current.clear();
-        freqMapRef.current.clear();
-        allChannelsRef.current = [];
         dispatch(clearActivePlaybackMetadata());
       };
     }, [dispatch]);
@@ -749,7 +736,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               onFftDbLimitsChange={onFftDbLimitsChange}
               hardwareSampleRateHz={hardwareSampleRateHz}
               isIqRecordingActive={true}
-              fftFrameRate={allChannelsRef.current[activeChannel]?.frame_rate}
+              fftFrameRate={activeChannelInfo.frameRate}
               powerScale={powerScale}
               removeDcSpike={removeDcSpike}
               visualizerMachine={visualizerMachine}
@@ -766,10 +753,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
             <ChannelSelector
               channelCount={channelCount}
               activeChannel={activeChannel}
-              channelLabel={
-                allChannelsRef.current[activeChannel]?.label ||
-                `Channel ${activeChannel + 1}`
-              }
+              channelLabel={activeChannelInfo.label}
               onChannelChange={switchChannel}
             />
           </VisualizationContainer>

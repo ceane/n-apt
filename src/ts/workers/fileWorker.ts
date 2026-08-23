@@ -730,7 +730,20 @@ self.onmessage = async function (e) {
             metadata.encrypted === "true" ||
             metaObj.encrypted === true;
 
-          const possibleHeaderSizes = [4096, 2048, 8192, 1024];
+          // Prefer the v4 section index (exact); fall back to the historical
+          // probe sizes for legacy captures with fixed 4096-byte headers.
+          const sectionedBinaryOffset =
+            metadata.sections?.binary?.offset_bytes;
+          const possibleHeaderSizes = [
+            ...(typeof sectionedBinaryOffset === "number" &&
+            sectionedBinaryOffset > 0
+              ? [sectionedBinaryOffset]
+              : []),
+            4096,
+            2048,
+            8192,
+            1024,
+          ];
 
           // Check for channels at top-level OR inside metadata
           const channels = metaObj.channels ||
@@ -1004,7 +1017,20 @@ self.onmessage = async function (e) {
 
               if (channelsMetadata && channelsMetadata.length > 0) {
                 let decryptedData: ArrayBuffer | null = null;
-                const possibleHeaderSizes = [4096, 2048, 8192, 1024];
+                // Prefer the v4 section index (exact); fall back to the
+                // historical probe sizes for legacy fixed-size headers.
+                const sectionedBinaryOffset =
+                  metadata.sections?.binary?.offset_bytes;
+                const possibleHeaderSizes = [
+                  ...(typeof sectionedBinaryOffset === "number" &&
+                  sectionedBinaryOffset > 0
+                    ? [sectionedBinaryOffset]
+                    : []),
+                  4096,
+                  2048,
+                  8192,
+                  1024,
+                ];
                 const wrappedDekBase64 =
                   metaObj.wrapped_dek ||
                   (metaObj.metadata && metaObj.metadata.wrapped_dek) ||

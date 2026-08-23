@@ -6,6 +6,7 @@ import {
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
 import type { StreamMode } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
+import { sameMultiplexStreamLifecycle } from "@n-apt/spectrum/model/multiplexStream";
 import { demodFrameQueue } from "./demodFrameQueue";
 export {
   notifyFrameArrival,
@@ -146,10 +147,13 @@ export const getLiveFrameRefForSource = (
     if (slot) {
       const frozenIsCurrent =
         slot.frozenFrame !== null &&
-        slot.frozenFrame.sourceId === sourceId &&
-        (slot.frozenFrame.streamEpoch === null ||
-          slot.streamEpoch === null ||
-          slot.frozenFrame.streamEpoch === slot.streamEpoch);
+        sameMultiplexStreamLifecycle(
+          {
+            sourceId: slot.frozenFrame.sourceId,
+            streamEpoch: slot.frozenFrame.streamEpoch,
+          },
+          { sourceId, streamEpoch: slot.streamEpoch },
+        );
       if (frozenIsCurrent) {
         return { current: slot.frozenFrame!.frame };
       }

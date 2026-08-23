@@ -368,11 +368,18 @@ export const createSourceModeStreamManager = ({
 
     if (event.type === "stream_options_applied") {
       if (event.optionsRevision < entry.optionsRevision) return;
+      // Revisions are device-global, while localOptionsRevision is only this
+      // manager's optimistic counter. Another subscriber may have advanced
+      // the backend revision before our acknowledgement arrives, so revision
+      // equality is not enough to identify our own echo. Matching the pending
+      // effective options is safe: every logical subscriber already received
+      // the optimistic local event, and there is no state change to re-emit.
       if (
-        event.optionsRevision === entry.localOptionsRevision &&
+        entry.localOptionsRevision !== null &&
         optionsEqual(event.options, entry.options)
       ) {
         entry.streamEpoch = Math.max(entry.streamEpoch, event.streamEpoch);
+        entry.optionsRevision = event.optionsRevision;
         entry.lastSequence = null;
         entry.localOptionsRevision = null;
         return;

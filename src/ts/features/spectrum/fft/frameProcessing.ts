@@ -541,9 +541,12 @@ export function newestIqWindow(
   if (!Number.isFinite(fftSize) || fftSize <= 0) return iqData;
   const bytesNeeded = fftSize * 2;
   if (iqData.length <= bytesNeeded) return iqData;
-  // Start on an even index so I and Q never swap.
+  // Start on an even index so I and Q never swap, then take exactly
+  // `bytesNeeded` bytes so a whole (non-straddling) FFT window is returned.
+  // Aligning only the start can otherwise yield bytesNeeded + 1 bytes when the
+  // input minus the window length is odd.
   const start = (iqData.length - bytesNeeded) & ~1;
-  return iqData.subarray(start);
+  return iqData.subarray(start, start + bytesNeeded);
 }
 
 export interface SpectrumWaveformSource {

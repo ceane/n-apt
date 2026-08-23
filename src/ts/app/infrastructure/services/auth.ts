@@ -225,12 +225,12 @@ export async function fetchVaultKey(token: string): Promise<string | null> {
 
   const promise = (async () => {
     try {
-      const response = await fetch(
-        `${API_BASE}/auth/vault-key?token=${encodeURIComponent(token)}`,
-        {
-          method: "GET",
-        },
-      );
+      // Send the session token via the Authorization header so it stays out
+      // of the URL (access logs, browser history).
+      const response = await fetch(`${API_BASE}/auth/vault-key`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!response.ok) {
         return null;
@@ -309,12 +309,20 @@ export async function authenticateWithPassword(
 export async function registerPasskey(): Promise<void> {
   console.log("Starting passkey registration...");
 
+  // The backend requires an authenticated session to add a passkey once one
+  // is already enrolled; first-run enrollment stays open.
+  const storedToken = getStoredSession();
+  const authHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
+  };
+
   // Step 1: Get registration options from server
   let startRes: Response;
   try {
     startRes = await fetch(`${API_BASE}/auth/passkey/register/start`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders,
       body: "{}",
     });
   } catch (error) {
@@ -344,7 +352,7 @@ export async function registerPasskey(): Promise<void> {
   try {
     finishRes = await fetch(`${API_BASE}/auth/passkey/register/finish`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders,
       body: JSON.stringify({
         challenge_id,
         credential: serializeRegistrationCredential(
