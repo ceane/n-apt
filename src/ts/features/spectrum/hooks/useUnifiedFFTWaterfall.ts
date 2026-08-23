@@ -604,13 +604,13 @@ export function useUnifiedFFTWaterfall(options: UnifiedFFTWaterfallOptions) {
       const maxDb = processOptions?.maxDb ?? 0.0;
       const waterfallWidth = Math.min(fftSize, MAX_WATERFALL_WIDTH);
 
-      let activeNormalization = normalizationFactor;
-      if (powerMode === "dbm" && inputMode === "complex_iq") {
-        activeNormalization = shaderWindowPowerNormalization(
-          fftSize,
-          windowType,
-        );
-      }
+      // All pipelines are power-referenced (10·log10(mag²/N·Σw²)) so the GPU
+      // path matches the backend SIMD spectra and summing linear bins
+      // recovers complex RMS power regardless of mode.
+      const activeNormalization = shaderWindowPowerNormalization(
+        fftSize,
+        windowType,
+      );
 
       const calibrationOptions = {
         centerFrequencyHz: processOptions?.centerFrequencyHz ?? 0,

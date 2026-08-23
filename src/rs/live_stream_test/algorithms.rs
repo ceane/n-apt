@@ -83,7 +83,7 @@ impl AlgorithmTester {
     &mut self,
     waveform: &[f32],
     timestamp: i64,
-    _center_freq_hz: u32,
+    _center_freq_hz: u64,
     sample_rate_hz: u32,
   ) {
     let peaks = find_peaks(waveform, sample_rate_hz, -60.0, 5);
@@ -152,7 +152,7 @@ impl AlgorithmTester {
     &mut self,
     waveform: &[f32],
     timestamp: i64,
-    _center_freq_hz: u32,
+    _center_freq_hz: u64,
     sample_rate_hz: u32,
   ) {
     if waveform.is_empty() {
@@ -226,7 +226,7 @@ impl AlgorithmTester {
     &mut self,
     iq_bytes: &[u8],
     _timestamp: i64,
-    center_freq_hz: u32,
+    center_freq_hz: u64,
     sample_rate_hz: u32,
   ) {
     println!(

@@ -73,7 +73,7 @@ fn take_pending_passkey_state<T>(
 pub async fn auth_info_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
-  let has_passkeys = state.credential_store.has_passkeys();
+  let has_passkeys = state.credential_store.has_passkeys().await;
   Json(serde_json::json!({
     "has_passkeys": has_passkeys,
   }))
@@ -379,7 +379,7 @@ async fn require_session_for_re_enrollment(
   headers: &axum::http::HeaderMap,
   query_token: Option<String>,
 ) -> Result<(), axum::response::Response> {
-  if !state.credential_store.has_passkeys() {
+  if !state.credential_store.has_passkeys().await {
     return Ok(());
   }
   let Some(token) = session_token_from_request(headers, query_token) else {
@@ -418,7 +418,7 @@ pub async fn passkey_register_start_handler(
   }
 
   let user_unique_id = Uuid::new_v4();
-  let existing_keys = state.credential_store.get_passkeys();
+  let existing_keys = state.credential_store.get_passkeys().await;
   let exclude_credentials: Vec<CredentialID> =
     existing_keys.iter().map(|k| k.cred_id().clone()).collect();
 
@@ -508,7 +508,7 @@ pub async fn passkey_register_finish_handler(
     .finish_passkey_registration(&body.credential, &reg_state)
   {
     Ok(passkey) => {
-      if let Err(e) = state.credential_store.add_passkey(passkey) {
+      if let Err(e) = state.credential_store.add_passkey(passkey).await {
         error!("Failed to store passkey: {}", e);
         return (
           StatusCode::INTERNAL_SERVER_ERROR,
@@ -545,7 +545,7 @@ pub async fn passkey_register_finish_handler(
 pub async fn passkey_auth_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
-  let existing_keys = state.credential_store.get_passkeys();
+  let existing_keys = state.credential_store.get_passkeys().await;
   if existing_keys.is_empty() {
     return (
       StatusCode::BAD_REQUEST,

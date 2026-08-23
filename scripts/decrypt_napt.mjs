@@ -60,8 +60,20 @@ async function decryptFile(filePath) {
   const metaObj = JSON.parse(jsonStr);
   const metadata = metaObj.metadata || metaObj;
   
-  // Probe common header sizes until decryption works
-  const candidates = [4096, 2048, 8192, 1024];
+  // Prefer the v4 section index (exact); fall back to probing the historical
+  // fixed header sizes used by older captures.
+  const sectionedBinaryOffset =
+    metaObj.metadata?.sections?.binary?.offset_bytes ??
+    metaObj.sections?.binary?.offset_bytes;
+  const candidates = [
+    ...(typeof sectionedBinaryOffset === "number" && sectionedBinaryOffset > 0
+      ? [sectionedBinaryOffset]
+      : []),
+    4096,
+    2048,
+    8192,
+    1024,
+  ];
   let decrypted = null;
 
   for (const hSize of candidates) {

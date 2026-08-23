@@ -71,7 +71,9 @@ module.exports = {
   ],
   testPathIgnorePatterns: [
     "/node_modules/",
-    "/.shared-worktree-cache/"
+    "/.shared-worktree-cache/",
+    // Shader tests are owned by vitest (npm run test:shader); avoid running them twice.
+    "/test/ts/shaders/"
   ],
   collectCoverageFrom: [
     "src/**/*.{ts,tsx}",

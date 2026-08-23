@@ -8,13 +8,14 @@ work, load `.agents/signals/SKILL.md`. It defines the project's plain-language
 terminology, current demod modes, evidence standards, and RX-only safety rules.
 
 ## Working Rules
-
+- Stash changes before clearing the worktree/branch.
+- Ensure to update checklists, tasks, etc., as you complete tasks.
 - The user normally has the dev server running. Do not start or restart it for
   ordinary changes; Vite and Rust hot reload are enabled.
 - Keep changes scoped, avoid scratch files, and keep the workspace clean.
-- Keep changes as device/source agnostic as possible
+- Keep changes as device/source agnostic as possible.
 - Do not add unrequested design changes or features.
-- Do not run `npm run build`; run `npm run build:markdown` only for markdown
+- Do not run `npm run build`; run `npm run build:article` only for markdown
   article changes.
 - Do not use browser automation for testing. If frontend testing is necessary,
   use `http://localhost:5173`; `127.0.0.1` is blocked.

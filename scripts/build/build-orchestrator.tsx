@@ -32,6 +32,7 @@ import {
 } from './rustHotReloadGate';
 import { acquireBuildOrchestratorLock } from './buildOrchestratorLock';
 import { writeBackendTarget } from './backend-handoff-proxy';
+import { removeActiveChild } from './processLifecycle';
 import { isRustSourceChange } from './rustWatchFilter';
 import { getCompletedStepLabel } from './buildStepLabels';
 import { waitForViteReady } from './waitForViteReady';
@@ -884,6 +885,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('error', (error: any) => {
+          removeActiveChild(activeChildrenRef.current, child);
           addLog(chalk.red(`Failed to start ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
           resolved = true;
@@ -891,6 +893,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+          removeActiveChild(activeChildrenRef.current, child);
           const statusText =
             signal ? `signal ${signal}` : code !== null ? `exit code ${code}` : 'unknown exit';
           if (!resolved) {
@@ -924,6 +927,7 @@ const BuildOrchestrator = () => {
         });
 
         child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+          removeActiveChild(activeChildrenRef.current, child);
           if (shutdownRequestedRef.current) {
             return;
           }
@@ -1240,7 +1244,6 @@ exit 1
         command: isNativeWindows ? 'echo Windows cleanup is skipped; use manual process cleanup if needed.' : `
 # Kill by name without matching this cleanup shell itself.
 pkill -9 -f '[n]-apt-backend' || true
-pkill -9 -f '[v]ite' || true
 pkill -9 -f '[r]edis-server' || true
 
 # Small settling delay.
@@ -2292,8 +2295,7 @@ async function runNonTtyBuild() {
         child.stdout?.on('data', (data) => { stdout += data.toString(); });
         child.stderr?.on('data', (data) => { stderr += data.toString(); });
         child.on('close', (code) => {
-          const index = activeChildren.indexOf(child);
-          if (index > -1) activeChildren.splice(index, 1);
+          removeActiveChild(activeChildren, child);
           if (code === 0) {
             resolve({ success: true, output: stdout });
           } else {
@@ -2303,8 +2305,7 @@ async function runNonTtyBuild() {
           }
         });
         child.on('error', (err) => {
-          const index = activeChildren.indexOf(child);
-          if (index > -1) activeChildren.splice(index, 1);
+          removeActiveChild(activeChildren, child);
           appendErrorDetail(`${description}: ${err.message}`);
           resolve({ success: false, output: '' });
         });
@@ -2336,9 +2337,12 @@ async function runNonTtyBuild() {
         }));
         activeChildren.push(child);
         child.on('error', (err) => {
+          removeActiveChild(activeChildren, child);
           appendErrorDetail(`${description}: ${err.message}`);
           resolve(false);
         });
+        child.once('exit', () => removeActiveChild(activeChildren, child));
+        child.once('close', () => removeActiveChild(activeChildren, child));
         setTimeout(() => {
           void (async () => {
             if (!(child.pid && child.exitCode === null)) {
@@ -2389,7 +2393,6 @@ async function runNonTtyBuild() {
       run: () => executeCommandNonTty(
         isNativeWindows ? 'echo Windows cleanup is skipped' : `
           pkill -9 -f '[n]-apt-backend' || true
-          pkill -9 -f '[v]ite' || true
           pkill -9 -f '[r]edis-server' || true
           sleep 0.5
         `,

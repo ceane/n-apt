@@ -215,6 +215,11 @@ jobs:
             mock_apt_tests
             performance_program_tests
             server_tests
+            ws_message_proptests
+            yaml_config_proptests
+            iq_frame_codec_proptests
+            stream_manager_proptests
+            stream_command_proptests
           )
 
           run_selected_tests() {
@@ -260,7 +265,10 @@ jobs:
                 tests+=("encryption_e2e_tests" "authentication_tests")
                 ;;
               src/rs/server/*)
-                tests+=("server_tests" "device_stream_frozen_tests")
+                tests+=("server_tests" "device_stream_frozen_tests" "stream_manager_proptests" "stream_command_proptests" "ws_message_proptests")
+                ;;
+              src/rs/streaming/*)
+                tests+=("stream_manager_proptests")
                 ;;
               src/rs/sdr/mock_apt/*)
                 tests+=("mock_apt_tests")
@@ -304,6 +312,7 @@ jobs:
         env:
           REDIS_URL: redis://localhost:6379
           UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key
+          PROPTEST_SEED: 0xdeadbeef00000001
 
       - name: Upload Rust coverage
         uses: codecov/codecov-action@0f8570b1a125f4937846a11fcfa3bcd548bd8c97 # v4.6.0

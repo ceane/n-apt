@@ -8,14 +8,16 @@ pub enum LiveData {
   /// FFT spectrum data (power values)
   Spectrum {
     timestamp: i64,
-    center_frequency_hz: u32,
+    /// Full-width u64: the wire header carries 8 bytes and SDR centers can
+    /// exceed the 32-bit range (e.g. 6 GHz HackRF band).
+    center_frequency_hz: u64,
     sample_rate_hz: u32,
     waveform: Vec<f32>,
   },
   /// Raw I/Q samples
   RawIQ {
     timestamp: i64,
-    center_frequency_hz: u32,
+    center_frequency_hz: u64,
     sample_rate_hz: u32,
     iq_bytes: Vec<u8>,
   },

@@ -126,7 +126,7 @@ impl WebSocketClient {
         info!("✅ Authentication successful, got session token");
         debug!(
           "Session token: {}...",
-          &token[..std::cmp::min(token.len(), 20)]
+          token.get(..20).unwrap_or(&token)
         );
         Ok(())
       }

@@ -1,3 +1,6 @@
+import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
+import { matchesMultiplexStreamSelection } from "@n-apt/spectrum/model/multiplexStream/frameGate";
+
 export type WebGpuStreamIdentity = {
   sourceId: string | null;
   status: string | null;
@@ -16,6 +19,9 @@ export const shouldRestoreWebGpuStreamState = (epoch: number): boolean =>
  * middleware attaches the owning source before the frame reaches the canvas,
  * which lets a handoff reject a late frame from the socket it just replaced.
  * Untagged frames remain valid for legacy/file paths.
+ *
+ * Delegates to the canonical model gate; kept as a named export because the
+ * canvas presentation path and its tests consume this spelling.
  */
 export const shouldAcceptWebGpuStreamFrame = ({
   expectedSourceId,
@@ -25,14 +31,12 @@ export const shouldAcceptWebGpuStreamFrame = ({
   expectedSourceId: string | null | undefined;
   frameSourceId: string | null | undefined;
   fallbackFrameSourceId?: string | null;
-}): boolean => {
-  const effectiveFrameSourceId = frameSourceId ?? fallbackFrameSourceId;
-  return (
-    !expectedSourceId ||
-    !effectiveFrameSourceId ||
-    expectedSourceId === effectiveFrameSourceId
-  );
-};
+}): boolean =>
+  matchesMultiplexStreamSelection({
+    expectedSourceId,
+    frameSourceId,
+    fallbackFrameSourceId,
+  });
 
 /**
  * Loading overlays must sit on top of the last painted graph. Wiping WebGPU
@@ -163,8 +167,6 @@ export const isMockSource = (sourceId: string | null): boolean => {
   );
 };
 
-import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
-
 /**
  * A reset must replace the canvas subtree, not only clear its current GPU
  * texture. Browser/WebGPU implementations may retain a presented texture
@@ -189,15 +191,11 @@ export const getWebGpuStreamResetKey = ({
 
 /**
  * Pause/resume and source handoff are presentation state, not canvas mount
- * boundaries. Same-source reconnects advance the epoch and still reset.
+ * boundaries. Only the reset epoch drives the key: selection and same-source
+ * reconnect boundaries advance the epoch, so the epoch alone is sufficient.
  */
-export const getVisualizerLifecycleKey = ({
-  epoch,
-}: {
-  sourceId: string | null;
-  epoch: number;
-  status?: string | null;
-}): string => `live:${epoch}`;
+export const getVisualizerLifecycleKey = ({ epoch }: { epoch: number }): string =>
+  `live:${epoch}`;
 
 const RESET_STATUSES = new Set(["loading", "stale", "disconnected"]);
 
