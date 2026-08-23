@@ -11,13 +11,17 @@ import {
   getFrequencyRangeCenterHz,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/math/frequency";
-import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
+import {
+  normalizePositiveHardwareRange,
+  resolveDisplayRangeForPanOffset,
+} from "@n-apt/math/basebandMirror";
 import {
   isHackrfDevice,
   isRtlSdrDevice,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 import { DEVICE_CONTROL_SCOPE } from "@n-apt/app/infrastructure/streams/streamContract";
+import { restartRequested } from "@n-apt/redux/slices/websocketSlice";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =
@@ -42,6 +46,68 @@ const buildTunedFrequencyPayload = (
     min_hz: normalizedRange.min,
     max_hz: normalizedRange.max,
     center_frequency,
+  };
+};
+
+export type FrequencyRangeSyncRequest =
+  | FrequencyRange
+  | {
+      range: FrequencyRange;
+      displayRange?: FrequencyRange | null;
+    };
+
+const resolveFrequencyRangeSyncRequest = (
+  request: FrequencyRangeSyncRequest,
+): { range: FrequencyRange; displayRange: FrequencyRange | null } => {
+  if ("range" in request) {
+    return {
+      range: request.range,
+      displayRange: request.displayRange ?? null,
+    };
+  }
+  return { range: request, displayRange: null };
+};
+
+export const buildFrequencyRangeMessageData = (
+  state: RootState,
+  request: FrequencyRangeSyncRequest,
+): Record<string, unknown> => {
+  const { range, displayRange: explicitDisplayRange } =
+    resolveFrequencyRangeSyncRequest(request);
+  const tunedRange = buildTunedFrequencyPayload(state, range);
+  const mirrorEnabled = state.settings?.mirrorIqBasebandBelowZero === true;
+  if (!mirrorEnabled) return tunedRange;
+
+  const hardwareRange = {
+    min: tunedRange.min_hz,
+    max: tunedRange.max_hz,
+  };
+  const zoom =
+    typeof state.spectrum?.vizZoom === "number" &&
+    Number.isFinite(state.spectrum.vizZoom) &&
+    state.spectrum.vizZoom > 0
+      ? state.spectrum.vizZoom
+      : 1;
+  const displayRange =
+    explicitDisplayRange ??
+    resolveDisplayRangeForPanOffset({
+      hardwareRange,
+      zoom,
+      panOffsetHz: Number(state.spectrum?.vizPanOffset ?? 0),
+    });
+  const displayCenter = (displayRange.min + displayRange.max) / 2;
+  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
+  const panHz = displayCenter - hardwareCenter;
+
+  return {
+    ...tunedRange,
+    display_min_hz: Math.round(displayRange.min),
+    display_max_hz: Math.round(displayRange.max),
+    display_pan_hz: Math.round(panHz),
+    display_zoom: zoom,
+    display_crosses_dc: displayRange.min < 0 && displayRange.max > 0,
+    display_direction_negative: panHz < 0,
+    mirror_spectrum_below_zero: true,
   };
 };
 
@@ -74,7 +140,8 @@ export const resolveWholeChannelSampleRateForSourceSwitch = ({
   const channel =
     channels.find(
       (candidate) =>
-        requestedArea && candidate.label?.trim().toLowerCase() === requestedArea,
+        requestedArea &&
+        candidate.label?.trim().toLowerCase() === requestedArea,
     ) ?? channels[0];
   if (
     !channel ||
@@ -138,9 +205,10 @@ export const disconnectWebSocket = createAsyncThunk(
 // Send frequency range to server
 export const sendFrequencyRange = createAsyncThunk(
   "websocket/sendFrequencyRange",
-  async (range: FrequencyRange, { dispatch, getState }) => {
+  async (request: FrequencyRangeSyncRequest, { dispatch, getState }) => {
     const state = getState() as RootState;
-    const tunedRange = buildTunedFrequencyPayload(state, range);
+    const { range } = resolveFrequencyRangeSyncRequest(request);
+    const tunedRange = buildFrequencyRangeMessageData(state, request);
     if (state.websocket.isConnected) {
       const activeSignalArea = state.spectrum?.activeSignalArea;
       dispatch({
@@ -436,20 +504,29 @@ export const sendSettings = createAsyncThunk(
   },
 );
 
-// Send device restart command
+// Send device restart command. When `sourceId` is provided the backend
+// restarts only that source (in place, without changing the active source);
+// otherwise it restarts the active device.
 export const sendRestartDevice = createAsyncThunk(
   "websocket/sendRestartDevice",
-  async (_, { dispatch, getState }) => {
+  async (sourceId: string | undefined, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "restart_device",
-          data: { scope: DEVICE_CONTROL_SCOPE },
+          data: {
+            scope: DEVICE_CONTROL_SCOPE,
+            ...(sourceId ? { source_id: sourceId } : {}),
+          },
         },
       });
+      if (sourceId) {
+        dispatch(restartRequested(sourceId));
+      }
     }
+    return sourceId ?? null;
   },
 );
 
@@ -466,11 +543,12 @@ export const sendSelectSource = createAsyncThunk(
       const targetIsHackRf =
         targetSource?.kind === "hackrf_one" ||
         sourceId.toLowerCase().includes("hackrf");
-      const wholeChannelSampleRate = resolveWholeChannelSampleRateForSourceSwitch({
-        source: targetSource,
-        channels: state.websocket.channels ?? [],
-        activeSignalArea: state.spectrum?.activeSignalArea,
-      });
+      const wholeChannelSampleRate =
+        resolveWholeChannelSampleRateForSourceSwitch({
+          source: targetSource,
+          channels: state.websocket.channels ?? [],
+          activeSignalArea: state.spectrum?.activeSignalArea,
+        });
       const requestedSampleRate =
         wholeChannelSampleRate ??
         (targetIsHackRf &&

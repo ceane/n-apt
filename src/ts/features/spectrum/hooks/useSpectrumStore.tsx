@@ -87,7 +87,6 @@ import {
   liveDataRef,
   presentationController,
   sourceVisualizationRuntime,
-  isPauseCommandInFlight,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
@@ -714,21 +713,22 @@ export const resolveEffectiveSourcePaused = ({
   return localPaused ?? backendPaused ?? false;
 };
 
-export const shouldReleaseSourcePauseLatch = ({
-  backendPaused,
+/**
+ * The button pause state is owned entirely by the client: the manual/auto
+ * latches and the local override. The backend snapshot is never consulted, so
+ * a live backend report cannot unpause a stream the user paused locally, and a
+ * stale paused backend report cannot re-pin a stream the user resumed.
+ */
+export const resolveClientPauseState = ({
+  localPaused,
   manuallyPaused,
-  restoredManualPause,
-  pauseCommandInFlight,
+  autoPaused,
 }: {
-  backendPaused?: boolean;
+  localPaused?: boolean;
   manuallyPaused: boolean;
-  restoredManualPause: boolean;
-  pauseCommandInFlight: boolean;
+  autoPaused: boolean;
 }): boolean =>
-  backendPaused === false &&
-  !manuallyPaused &&
-  !restoredManualPause &&
-  !pauseCommandInFlight;
+  localPaused === true || manuallyPaused || autoPaused;
 
 /** Pause the playing stream unless the caller named a specific source. */
 export const resolvePauseTargetSourceId = ({
@@ -975,6 +975,31 @@ const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
   "wfSmoothEnabled",
 ];
 
+// A source view is persisted for convenience, but not every persisted value
+// is safe to replay when a subscriber first joins a live device. Device
+// options are shared by all subscribers; replaying an old channel/range here
+// would turn page hydration into a device-global write and can make two tabs
+// oscillate between their remembered channels. The backend stream hydration
+// owns those values on initial load. These fields remain subscriber-local
+// presentation state and are safe to restore immediately.
+const INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS: Array<keyof SpectrumState> = [
+  "displayTemporalResolution",
+  "powerScale",
+  "vizZoom",
+  "vizZoomFloor",
+  "vizZoomFloorPan",
+  "autoZoomStability",
+  "vizPanOffset",
+  "fftMinDb",
+  "fftMaxDb",
+  "showSpikeOverlay",
+  "removeDcSpike",
+  "displayMode",
+  "fftAvgEnabled",
+  "fftSmoothEnabled",
+  "wfSmoothEnabled",
+];
+
 export const buildPersistedSourceViewState = (
   state: SpectrumState,
 ): Partial<SpectrumState> => {
@@ -1003,6 +1028,22 @@ export const normalizePersistedSourceViewState = (
     }
   }
   return next;
+};
+
+export const resolveInitialSourceHydrationSettings = (
+  restored: Partial<SpectrumState> | null | undefined,
+): Partial<SpectrumState> => {
+  const normalized = normalizePersistedSourceViewState(restored);
+  const localSettings: Partial<SpectrumState> = {};
+
+  for (const key of INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS) {
+    const value = normalized[key];
+    if (typeof value !== "undefined") {
+      localSettings[key] = value as never;
+    }
+  }
+
+  return localSettings;
 };
 
 export const resolveSourceSwitchDisplaySettings = (
@@ -1236,6 +1277,17 @@ export const shouldSyncSdrSettingsCache = (
     currentKeys.some((key) => current[key] !== next[key])
   );
 };
+
+/**
+ * Keep cache hydration referentially stable when source_info rebuilds an
+ * equivalent settings object. Returning the previous value is important here:
+ * this helper feeds a React state setter inside the live hydration effect.
+ */
+export const resolveCachedSdrSettings = (
+  current: SourceSdrSettings | null,
+  next: SourceSdrSettings,
+): SourceSdrSettings =>
+  shouldSyncSdrSettingsCache(current, next) ? next : (current ?? next);
 
 
 export const resolveEffectiveLiveSampleRateHz = ({
@@ -1614,7 +1666,7 @@ export type SpectrumStoreContextValue = {
     sendFrequencyRange: (range: FrequencyRange) => void;
     sendPauseCommand: (isPaused: boolean, sourceId: string) => void;
     sendSettings: (settings: SDRSettings) => void;
-    sendRestartDevice: () => void;
+    sendRestartDevice: (sourceId?: string) => void;
     sendCaptureCommand: (req: CaptureRequest) => void;
     sendScanCommand: (
       jobId: string,
@@ -2031,10 +2083,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       // Previous source was already snapshotted at selection time (before Tx
       // monitor jumps). Only restore the committed source here.
       if (previousSourceViewKey !== selectedSourceViewKey) {
-        const restoredState = resolveSourceSwitchDisplaySettings(
-          loadStoredJson<Partial<SpectrumState>>(selectedSourceViewKey),
-          {},
+        const persistedSourceView = loadStoredJson<Partial<SpectrumState>>(
+          selectedSourceViewKey,
         );
+        const restoredState =
+          previousSourceViewKey === null
+            ? resolveInitialSourceHydrationSettings(persistedSourceView)
+            : resolveSourceSwitchDisplaySettings(persistedSourceView, {});
         skipNextSourceViewPersistRef.current = selectedSourceViewKey;
         if (Object.keys(restoredState).length > 0) {
           if (restoredState.frequencyRange) {
@@ -2401,9 +2456,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [reduxDispatch],
     );
 
-    const sendRestartDeviceCommand = useCallback(() => {
-      reduxDispatch(sendRestartDeviceThunk());
-    }, [reduxDispatch]);
+    const sendRestartDeviceCommand = useCallback(
+      (sourceId?: string) => {
+        reduxDispatch(sendRestartDeviceThunk(sourceId));
+      },
+      [reduxDispatch],
+    );
 
     const sendCaptureCommand = useCallback(
       (req: CaptureRequest) => {
@@ -2576,18 +2634,26 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const [manualVisualizerPaused, setManualVisualizerPaused] = useState(
       () => loadPersistedManualVisualizerPaused() ?? false,
     );
-    const restoredManualPauseRef = useRef(manualVisualizerPaused);
     useEffect(() => {
       persistManualVisualizerPaused(manualVisualizerPaused);
     }, [manualVisualizerPaused]);
     // Seed the manual-pause latch from the restored persisted state so the
     // source-activation replay below re-asserts the pause to a backend that
-    // reset its own pause state on reconnect (hot reload auto-play fix).
+    // reset its own pause state on reconnect. Also apply the pause to the
+    // local frame gate immediately so a restored pause freezes the stream from
+    // the very first frame instead of depending on a round trip to the
+    // backend (which may already report the source as paused and thus skip the
+    // replay, leaving the frame gate live while the UI shows "Resume").
+    const restoredPauseAppliedRef = useRef<string | null>(null);
     useEffect(() => {
       if (!manualVisualizerPaused || !selectedSourceId) return;
       manualPausedSourceIdsRef.current.add(selectedSourceId);
       autoPausedSourceIdsRef.current.delete(selectedSourceId);
-    }, [manualVisualizerPaused, selectedSourceId]);
+      if (restoredPauseAppliedRef.current !== selectedSourceId) {
+        restoredPauseAppliedRef.current = selectedSourceId;
+        wsConnection.sendPauseCommand(true, selectedSourceId);
+      }
+    }, [manualVisualizerPaused, selectedSourceId, wsConnection]);
     const previousDeviceStateRef = useRef<DeviceState | null>(null);
 
     // Track if we've already synced backend connection settings
@@ -2628,43 +2694,19 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const syncSelectedSourcePauseState = useCallback(
       (sourceId: string | null | undefined) => {
-        const rawSource = sourceId
-          ? websocketSources.find((source) => source.id === sourceId)
-          : undefined;
-        const backendPaused = rawSource?.paused;
-        const effectivePaused = sourceId
-          ? effectiveWebsocketSources.find((source) => source.id === sourceId)
-              ?.paused
-          : undefined;
-        // The backend is authoritative for display. When it explicitly reports
-        // the source as unpaused, release any stale manual/auto latch so the
-        // UI cannot stay stuck on "Resume" while the stream plays — but only
-        // once no pause command is in flight, otherwise a just-clicked pause
-        // would be undone by the pre-echo backend snapshot. A pause restored
-        // from persistence is an explicit user intent that must survive until
-        // the user resumes it.
-        if (
-          shouldReleaseSourcePauseLatch({
-            backendPaused,
-            manuallyPaused: manualPausedSourceIdsRef.current.has(sourceId!),
-            restoredManualPause: restoredManualPauseRef.current,
-            pauseCommandInFlight: isPauseCommandInFlight(),
-          })
-        ) {
-          manualPausedSourceIdsRef.current.delete(sourceId!);
-          autoPausedSourceIdsRef.current.delete(sourceId!);
-          setLocalSourcePauseOverrides((current) =>
-            updateLocalSourcePauseOverride(current, sourceId!, false),
-          );
-        }
+        // The client pause is authoritative: the user can stop the stream
+        // locally without waiting for (or depending on) the backend. Mirror
+        // the client's own intent — the manual/auto latches and the local
+        // override — into the button state.
         const nextPaused =
           !!sourceId &&
-          (effectivePaused !== undefined
-            ? effectivePaused
-            : backendPaused !== undefined
-              ? backendPaused
-              : manualPausedSourceIdsRef.current.has(sourceId) ||
-                autoPausedSourceIdsRef.current.has(sourceId));
+          resolveClientPauseState({
+            localPaused: localSourcePauseOverrides[sourceId],
+            manuallyPaused:
+              manualPausedSourceIdsRef.current.has(sourceId),
+            autoPaused:
+              autoPausedSourceIdsRef.current.has(sourceId),
+          });
         if (manualVisualizerPaused === nextPaused) {
           return;
         }
@@ -2672,10 +2714,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         reduxDispatch(setVisualizerPausedAction(nextPaused));
       },
       [
-        effectiveWebsocketSources,
+        localSourcePauseOverrides,
         manualVisualizerPaused,
         storeDispatch,
-        websocketSources,
       ],
     );
 
@@ -3282,7 +3323,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
       if (!sdrSettings) return;
-      setCachedSdrSettings(sdrSettings);
+      setCachedSdrSettings((current) =>
+        resolveCachedSdrSettings(current, sdrSettings),
+      );
       try {
         sessionStorage.setItem(
           "napt-sdr-settings",
@@ -3723,7 +3766,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const setVisualizerPause = useCallback(
       (requestedPaused: boolean, sourceId?: string) => {
+        console.log("[pause-debug] setVisualizerPause enter", { requestedPaused, sourceId, sourceMode: mergedState.sourceMode, selectedSourceId, activeSourceId });
         if (mergedState.sourceMode === "file") {
+          console.log("[pause-debug] file-mode branch");
           reduxDispatch(setWaterfallStitchPaused(requestedPaused));
           return;
         }
@@ -3755,10 +3800,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           manualPausedSourceIdsRef.current.delete(pauseTargetSourceId);
           autoPausedSourceIdsRef.current.delete(pauseTargetSourceId);
         }
-        // An explicit toggle takes ownership of the pause away from the
-        // persisted-restore latch, so later backend-driven resume can release
-        // it normally.
-        restoredManualPauseRef.current = false;
         setLocalSourcePauseOverrides((current) =>
           updateLocalSourcePauseOverride(
             current,

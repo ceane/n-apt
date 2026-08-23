@@ -12,6 +12,7 @@ import {
   queueMessage,
   clearQueuedMessages,
   setSpectrumFrames,
+  restartSettled,
 } from "../slices/websocketSlice";
 import {
   setSelectedSourceId,
@@ -22,9 +23,17 @@ import {
   setDeviceSignalAreaAndRange,
   setDeviceSdrSettingsBundle,
   setSdrSettingsBundle,
+  setVizPan,
+  setVizZoom,
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
+import {
+  filterMultiplexStreamTxPreviewFrames,
+  hasMultiplexStreamTxPreviewFrame,
+  isMultiplexStreamTxPresentationFrame,
+  resolveMultiplexStreamPresentationBatch,
+} from "@n-apt/spectrum/model/multiplexStream";
 import { decryptPayload } from "@n-apt/crypto/webcrypto";
 import {
   type DeviceState,
@@ -42,6 +51,7 @@ import {
   isValidSignalsDefaultsMessage,
   isValidSourceErrorMessage,
   isValidActiveSourceMessage,
+  isValidObject,
 } from "@n-apt/validation";
 import {
   SourceVisualizationRuntime,
@@ -78,6 +88,7 @@ import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFr
 import { notifyFrameArrival } from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
+import { buildFrequencyRangeMessageData } from "../thunks/websocketThunks";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -124,7 +135,6 @@ export const isBoundTxPreviewStandby = ({
   sourceStatus === "standby";
 
 export { decodeIqFrameEnvelope } from "@n-apt/app/infrastructure/io/iqStreamProtocol";
-export { createIqFramePump } from "@n-apt/app/infrastructure/io/iqFramePump";
 
 const isDemodEligibleLiveFrame = (frame: any): boolean =>
   !!frame?.source_id &&
@@ -646,6 +656,42 @@ export const resolveIncomingChannelsFrequencyRange = (
   incomingRange: { min: number; max: number },
 ): { min: number; max: number } => currentRange ?? incomingRange;
 
+/**
+ * A delayed channels message can carry an old active label while the range
+ * has already been preserved from a newer device update. Derive the label
+ * from that effective range first so the sidebar cannot flash back to the
+ * previous channel during hydration.
+ */
+export const resolveIncomingChannelsActiveSignalArea = ({
+  channels,
+  currentRange,
+  incomingActiveSignalArea,
+  currentActiveSignalArea,
+}: {
+  channels: Array<{ label?: string; min_hz: number; max_hz: number }>;
+  currentRange: { min: number; max: number } | null | undefined;
+  incomingActiveSignalArea?: string | null;
+  currentActiveSignalArea?: string | null;
+}): string | null => {
+  if (currentRange && Number.isFinite(currentRange.min) && Number.isFinite(currentRange.max)) {
+    const center = (currentRange.min + currentRange.max) / 2;
+    const matchingChannel = channels.find(
+      (channel) =>
+        typeof channel.label === "string" &&
+        center >= channel.min_hz &&
+        center <= channel.max_hz,
+    );
+    if (matchingChannel?.label) return matchingChannel.label;
+  }
+
+  return (
+    incomingActiveSignalArea ??
+    currentActiveSignalArea ??
+    channels.find((channel) => typeof channel.label === "string")?.label ??
+    null
+  );
+};
+
 const roundHzField = (value: unknown): number | undefined => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return undefined;
@@ -668,6 +714,9 @@ export const normalizeFrequencyRangeMessageData = (
     "max_freq",
     "center_frequency",
     "bandwidth_center_frequency",
+    "display_min_hz",
+    "display_max_hz",
+    "display_pan_hz",
   ] as const;
 
   for (const field of integerFields) {
@@ -852,11 +901,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     });
     const isActiveTxPreviewBinding =
       !!activeSourceId && boundTxSourceId === activeSourceId;
-    const isTxPresentationFrame = (frame: any): boolean =>
-      frame?.frame_status === "standby" ||
-      frame?.frame_status === "transmitting" ||
-      frame?.is_tx_preview === true ||
-      frame?.is_mock_tx_preview === true;
+    const isTxPresentationFrame = isMultiplexStreamTxPresentationFrame;
     const isActiveTxPresentation =
       activeSourceStatus === "standby" ||
       activeSourceStatus === "transmitting" ||
@@ -991,46 +1036,38 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         }),
       );
     }
-    const hasTxPreviewFrame = presentationFrames.some(
-      (f: any) =>
-        f?.frame_status === "standby" ||
-        f?.is_tx_preview === true ||
-        f?.is_mock_tx_preview === true,
+    const hasTxPreviewFrame = hasMultiplexStreamTxPreviewFrame(
+      presentationFrames,
     );
     // A paused Rx source publishes exactly one frame per request_next_frame.
-    // It has no Tx-preview tag, so gate acceptance on the armed request. Consume
-    // the gate after the first frame so idle background frames cannot bleed in.
-    const shouldAcceptPausedFrame = hasTxPreviewFrame || isPausedOneShotFrame;
+    // It has no Tx-preview tag, so acceptance gates on the armed request;
+    // that arithmetic now lives in resolveMultiplexStreamPresentationBatch.
+    // Consume the gate after the first frame so idle background frames
+    // cannot bleed in.
     if (isPausedOneShotFrame) {
       pausedFrameRequestInFlight = false;
     }
 
-    if (
-      presentationFrames.length > 0 &&
-      ((!isPaused &&
-        !isActiveTxMonitorStandby &&
-        !isActiveBoundTxPreviewStandby &&
-        !isSelectedTxPresentationStandby) ||
-        shouldAcceptPausedFrame ||
-        isActiveTxMonitorTransmitting) &&
-      !isFileSource
-    ) {
-      if (
-        (isPaused ||
-          isActiveTxMonitorStandby ||
-          isActiveBoundTxPreviewStandby ||
-          isSelectedTxPresentationStandby) &&
-        (shouldAcceptPausedFrame || hasTxPreviewFrame) &&
-        !isActiveTxMonitorTransmitting &&
-        !isSelectedTxPresentationTransmitting
-      ) {
+    const batchDecision = resolveMultiplexStreamPresentationBatch({
+      frameCount: presentationFrames.length,
+      isFileSource,
+      isPaused,
+      // isPausedOneShotFrame captured the armed state BEFORE the gate
+      // consumption above; preserve those exact semantics.
+      pausedRequestInFlight:
+        isPausedOneShotFrame || pausedFrameRequestInFlight,
+      isActiveTxMonitorStandby,
+      isActiveBoundTxPreviewStandby,
+      isSelectedTxPresentationStandby,
+      isActiveTxMonitorTransmitting,
+      isSelectedTxPresentationTransmitting,
+      hasTxPreviewFrame,
+    });
+
+    if (batchDecision.accept) {
+      if (batchDecision.replacePausedPresentation) {
         const framesToUse = hasTxPreviewFrame
-          ? presentationFrames.filter(
-              (f: any) =>
-                f?.frame_status === "standby" ||
-                f?.is_tx_preview === true ||
-                f?.is_mock_tx_preview === true,
-            )
+          ? filterMultiplexStreamTxPreviewFrames(presentationFrames)
           : presentationFrames;
         liveDataRef.current = collapsePausedFrameBatch(framesToUse);
         // A requested untagged standby frame is still a one-frame response.
@@ -1233,6 +1270,13 @@ const shouldSuppressDuplicateFrequencyRangeSend = (
     bandwidth_center_frequency: Number(
       data?.bandwidth_center_frequency ?? null,
     ),
+    display_min_hz: Number(data?.display_min_hz ?? null),
+    display_max_hz: Number(data?.display_max_hz ?? null),
+    display_pan_hz: Number(data?.display_pan_hz ?? null),
+    display_zoom: Number(data?.display_zoom ?? null),
+    display_crosses_dc: data?.display_crosses_dc ?? null,
+    display_direction_negative: data?.display_direction_negative ?? null,
+    mirror_spectrum_below_zero: data?.mirror_spectrum_below_zero ?? null,
   });
 
   const now = Date.now();
@@ -1291,6 +1335,47 @@ export const __testQueueLiveDataForMiddleware = (
   getState: () => any,
 ) => {
   queueLiveData(data, dispatch, getState);
+};
+
+/**
+ * Test-only seam mirroring the control-socket `onmessage` path: parse a raw
+ * message (string or already-parsed object) and run it through the real
+ * validation + dispatch pipeline against live Redux state. Fuzz inputs may be
+ * arbitrary JSON; this must never throw.
+ */
+export const __testIngestIncomingMessage = (
+  dispatch: Dispatch,
+  getState: () => any,
+  raw: string | unknown,
+): void => {
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Unparseable frames are dropped exactly like the real onmessage path.
+      return;
+    }
+  }
+  if (parsed instanceof ArrayBuffer) {
+    processWebSocketMessage(dispatch, getState, parsed);
+    return;
+  }
+  if (!isValidObject(parsed)) {
+    return;
+  }
+  const data = parsed as Record<string, unknown>;
+  // Mirror the onmessage fast path: high-frequency frames queue live data;
+  // batch decryption requires an AES key so it only runs on a live socket.
+  if (data.type === "spectrum") {
+    queueLiveData(data, dispatch, getState);
+    return;
+  }
+  if (data.type === "encrypted_spectrum") {
+    // Without a wired aesKey on a live connection the payload cannot be
+    // decrypted here; fall through so fuzz sees the same validation verdict.
+  }
+  processWebSocketMessage(dispatch, getState, parsed);
 };
 
 const sourceCenterFrequencyHz = (state: any): number => {
@@ -2225,6 +2310,7 @@ export const processWebSocketMessage = (
       const sourceStatuses = Object.fromEntries(
         sources.map((source: SourceInfo) => [source.id, source.status]),
       );
+      dispatch(restartSettled(sourceStatuses));
       if (parsedData.active_source === requestedSourceId) {
         requestedSourceId = null;
       }
@@ -2370,8 +2456,10 @@ export const processWebSocketMessage = (
 
   if (parsedData?.type === "channels") {
     if (!isValidChannelsMessageEnhanced(parsedData)) {
+      // Malformed channels must not manufacture an operational error; a
+      // regressed or hostile peer could otherwise flip the UI into an error
+      // state from garbage traffic. Log and ignore.
       console.error("Channels message validation failed:", parsedData);
-      dispatch(setOperationalError("Error: Bad JSON"));
       return;
     }
 
@@ -2379,7 +2467,7 @@ export const processWebSocketMessage = (
       const channels = parsedData.channels as SpectrumFrame[];
       const firstChannel = channels[0];
       if (!firstChannel) {
-        dispatch(setOperationalError("Error: Bad JSON"));
+        console.error("Channels message missing first channel:", parsedData);
         return;
       }
 
@@ -2400,6 +2488,12 @@ export const processWebSocketMessage = (
             nextRange,
           );
       const currentSignalArea = getState().spectrum?.activeSignalArea;
+      const effectiveSignalArea = resolveIncomingChannelsActiveSignalArea({
+        channels,
+        currentRange: selectedRange,
+        incomingActiveSignalArea: parsedData.active_signal_area,
+        currentActiveSignalArea: currentSignalArea,
+      });
       const targetSourceId =
         parsedData.source_id || getState().websocket.activeSourceId;
       const persistedArea = targetSourceId
@@ -2411,10 +2505,45 @@ export const processWebSocketMessage = (
       if (!inManualMode || hasAuthoritativeSelection) {
         dispatch(
           setDeviceSignalAreaAndRange({
-            area: parsedData.active_signal_area ?? firstChannel.label ?? "A",
+            area: effectiveSignalArea ?? firstChannel.label ?? "A",
             range: selectedRange,
           }),
         );
+      }
+
+      // Device frequency updates carry the signed presentation viewport when
+      // the originating client has mirror mode enabled. Apply that viewport
+      // after the device-range reducer (which intentionally resets pan) so
+      // every mirror-enabled subscriber paints the same side of DC. When the
+      // subscriber is paused, these Redux changes also advance the existing
+      // paused-preview signature, which issues request_next_frame for the
+      // newly synchronized viewport.
+      const incomingDisplayRange = parsedData.display_range;
+      const mirrorEnabled =
+        getState().settings?.mirrorIqBasebandBelowZero === true;
+      if (
+        mirrorEnabled &&
+        incomingDisplayRange?.mirror_below_zero === true &&
+        Number.isFinite(incomingDisplayRange.min) &&
+        Number.isFinite(incomingDisplayRange.max) &&
+        incomingDisplayRange.max > incomingDisplayRange.min
+      ) {
+        const hardwareCenter =
+          (selectedRange.min + selectedRange.max) / 2;
+        const displayCenter =
+          (incomingDisplayRange.min + incomingDisplayRange.max) / 2;
+        const panHz = Number(incomingDisplayRange.pan_hz);
+        dispatch(
+          setVizPan(
+            Number.isFinite(panHz)
+              ? Math.round(panHz)
+              : Math.round(displayCenter - hardwareCenter),
+          ),
+        );
+        const zoom = Number(incomingDisplayRange.zoom);
+        if (Number.isFinite(zoom) && zoom > 0) {
+          dispatch(setVizZoom(zoom));
+        }
       }
       const incomingSampleRate =
         typeof parsedData.sample_rate === "number" &&
@@ -2529,6 +2658,7 @@ export const processWebSocketMessage = (
       sourceStatuses[parsedData.source_id] =
         nextSources.find((source) => source.id === parsedData.source_id)
           ?.status ?? parsedData.status;
+      dispatch(restartSettled(sourceStatuses));
       presentationController.setSourceStatus(
         parsedData.source_id,
         sourceStatuses[parsedData.source_id],
@@ -2894,13 +3024,14 @@ const createWebSocketMiddleware =
               const currentRange = state.spectrum?.frequencyRange;
               if (currentRange) {
                 const activeSignalArea = state.spectrum?.activeSignalArea;
+                const rangePayload = buildFrequencyRangeMessageData(state, {
+                  range: currentRange,
+                });
                 ws.send(
                   JSON.stringify({
                     type: "frequency_range",
                     scope: "device",
-                    min_hz: currentRange.min,
-                    max_hz: currentRange.max,
-                    center_frequency: (currentRange.min + currentRange.max) / 2,
+                    ...rangePayload,
                     ...(typeof activeSignalArea === "string" &&
                     activeSignalArea.trim().length > 0
                       ? { signal_area: activeSignalArea }
@@ -2998,14 +3129,25 @@ const createWebSocketMiddleware =
                     const decrypted = JSON.parse(plaintext);
                     if (
                       decrypted?.type === "batch" &&
-                      Array.isArray(decrypted.messages) &&
-                      decrypted.messages.length > 0
+                      Array.isArray(decrypted.messages)
                     ) {
-                      queueLiveData(
-                        JSON.parse(decrypted.messages[0]),
-                        dispatch,
-                        getState,
-                      );
+                      // A batch bundles multiple spectrum frames for delivery
+                      // in one round trip. Feed each through queueLiveData so
+                      // the visualizer's rAF coalescing retains the newest one.
+                      for (const message of decrypted.messages) {
+                        try {
+                          queueLiveData(
+                            JSON.parse(message),
+                            dispatch,
+                            getState,
+                          );
+                        } catch (parseError) {
+                          console.error(
+                            "Failed to parse batched spectrum message:",
+                            parseError,
+                          );
+                        }
+                      }
                     } else {
                       if (pendingDataUpdate === null) {
                         pendingDataUpdate = [decrypted];

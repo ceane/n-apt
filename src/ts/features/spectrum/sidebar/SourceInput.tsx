@@ -292,15 +292,28 @@ const DeviceActions = styled.div`
 `;
 
 const DeviceLoadingState = styled.div`
-  width: 130px;
-  min-height: 65px;
+  width: 65px;
+  aspect-ratio: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 3px;
+  border-radius: 50%;
+  border: 1px solid ${({ theme }) => theme.borderHover};
+  background: ${({ theme }) => theme.surface};
   color: ${({ theme }) => theme.warning};
-  font-size: 10px;
+  opacity: 0.9;
+`;
+
+const DeviceLoadingHint = styled.span`
+  font-size: 8px;
+  line-height: 1;
+  max-width: 58px;
   text-align: center;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+  white-space: normal;
 `;
 
 const FileActionButton = styled(DeviceActionButton)`
@@ -337,6 +350,16 @@ const TxModeActionButton = styled(DeviceActionButton)`
   }
 `;
 
+const DeviceRestartButton = styled(DeviceActionButton)`
+  gap: 2px;
+
+  ${ActionLabel} {
+    font-size: 11px;
+    white-space: normal;
+    line-height: 1.05;
+  }
+`;
+
 interface SourceInputProps {
   sourceMode: SourceMode;
   backend?: string | null;
@@ -370,10 +393,12 @@ interface SourceInputProps {
       loadingLabel?: string;
       canPause?: boolean;
       canRestart?: boolean;
+      restarting?: boolean;
       hideAction?: boolean;
       actionLabel?: string;
       actionTitle?: string;
       onAction?: () => void;
+      onRestart?: () => void;
     };
   }>;
   selectedDeviceId?: string;
@@ -846,20 +871,58 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   </DevicePillMeta>
                 </DevicePillMain>
                 <DeviceActions>
-                  {device.status?.loading && !isHalfDuplex ? (
+                  {device.status?.loading ? (
                     <DeviceLoadingState
                       role="status"
                       aria-label={
                         device.status.loadingLabel ?? "Loading device"
                       }
+                      title={device.status.loadingLabel ?? "Loading…"}
                     >
                       <Loader2
-                        size={15}
+                        size={16}
                         className="animate-spin"
                         aria-hidden="true"
                       />
-                      {device.status.loadingLabel ?? "Loading…"}
+                      <DeviceLoadingHint>
+                        {device.status.restarting ? "Restarting…" : "Loading…"}
+                      </DeviceLoadingHint>
                     </DeviceLoadingState>
+                  ) : device.status?.canRestart || device.status?.restarting ? (
+                    <DeviceRestartButton
+                      type="button"
+                      aria-label={
+                        device.status?.restarting
+                          ? "Restarting device"
+                          : "Restart device"
+                      }
+                      $active={isSelectedDevice}
+                      $muted={!device.status?.restarting && !isSelectedDevice}
+                      $opacity={fileModeOpacity}
+                      disabled={!!device.status?.restarting}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!device.status?.restarting) {
+                          device.status?.onRestart?.();
+                        }
+                      }}
+                      title={
+                        device.status?.restarting
+                          ? "Restarting the stale source..."
+                          : "Restart this source and reconnect its stream."
+                      }
+                    >
+                      {device.status?.restarting ? (
+                        <Loader2
+                          size={13}
+                          className="animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      <ActionLabel>
+                        {device.status?.restarting ? "Restarting…" : "Restart"}
+                      </ActionLabel>
+                    </DeviceRestartButton>
                   ) : isHalfDuplex && onToggleDeviceRxPause ? (
                     <DeviceActionButton
                       type="button"
@@ -877,18 +940,14 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                         onToggleDeviceRxPause(device.id);
                       }}
                       title={
-                        device.status?.loading
-                          ? "Device is loading"
-                          : isHalfDuplexRxActive(device)
-                            ? "Pause Rx"
-                            : "Resume Rx"
+                        isHalfDuplexRxActive(device)
+                          ? "Pause Rx"
+                          : "Resume Rx"
                       }
                     >
-                      {device.status?.loading
-                        ? "Loading…"
-                        : isHalfDuplexRxActive(device)
-                          ? "Pause Rx"
-                          : "Resume Rx"}
+                      {isHalfDuplexRxActive(device)
+                        ? "Pause Rx"
+                        : "Resume Rx"}
                       {isOnscreenStreaming && <ActionHint>[Space]</ActionHint>}
                     </DeviceActionButton>
                   ) : !isHalfDuplex &&

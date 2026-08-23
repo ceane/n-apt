@@ -808,6 +808,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
   const websocketSources = useAppSelector((s) => s.websocket.sources);
+  const restartPendingSourceIds = useAppSelector(
+    (s) => s.websocket.restartPendingSourceIds,
+  );
 
   const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
   const { getLocation } = useGeolocation();
@@ -1932,6 +1935,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     };
   }, []);
 
+  const handleRestartDevice = useCallback(
+    (sourceId?: string) => {
+      dispatch(sendRestartDevice(sourceId));
+    },
+    [dispatch],
+  );
+
   const sourceDevices = useMemo(() => {
     const mappedSources = sourcesToUse.map((source) => {
       const isTransmitting = source.status === "transmitting";
@@ -1957,6 +1967,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           isStreaming ||
           isMockSource);
       const canToggleStreaming = isLiveConnected;
+      const isStale = source.status === "stale";
+      const isRestartPending = restartPendingSourceIds.includes(source.id);
       const actionLabel =
         isTransmitting || supportsTx
           ? isTransmitting
@@ -2021,10 +2033,17 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             source.status === "initializing"
               ? `Initializing ${source.name}…`
               : source.status === "loading"
-                ? source.kind === "hackrf_one"
-                  ? "Rx active · waiting for first frame…"
-                  : `Loading ${source.name}…`
+                ? isRestartPending
+                  ? "Restarting…"
+                  : source.kind === "hackrf_one"
+                    ? "Rx active · waiting for first frame…"
+                    : `Loading ${source.name}…`
                 : undefined,
+          canRestart: isStale,
+          restarting: isRestartPending,
+          onRestart: isStale
+            ? () => handleRestartDevice(source.id)
+            : undefined,
           actionLabel,
           actionTitle,
           onAction,
@@ -2033,7 +2052,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     });
     return mappedSources;
   }, [
+    handleRestartDevice,
     handleToggleTransmitMode,
+    restartPendingSourceIds,
     sourcesToUse,
     toggleLiveVisualizerPause,
     txPreviewSourceId,
@@ -2759,10 +2780,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const resetLiveControls = useCallback(() => {
     dispatch(resetLiveControlsAction({ fftSize, fftFrameRate }));
   }, [dispatch, fftSize, fftFrameRate]);
-
-  const handleRestartDevice = useCallback(() => {
-    dispatch(sendRestartDevice());
-  }, [dispatch]);
 
   const handleResetOptions = useCallback(() => {
     showPrompt({

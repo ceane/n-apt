@@ -1,10 +1,17 @@
 import { Middleware } from "@reduxjs/toolkit";
 import type { SignalsSdrDefaults } from "@n-apt/consts/schemas/websocket";
 import { isValidSignalsDefaultsMessage } from "@n-apt/validation";
+import spectrumReducer, {
+  type SpectrumState,
+} from "@n-apt/redux/slices/spectrumSlice";
 import {
   FRONTEND_VISUALIZER_DEFAULTS,
   VISUALIZER_MAX_ZOOM_LIMITS,
 } from "@n-apt/consts/visualizerControls";
+
+const initialState: SpectrumState = spectrumReducer(undefined, {
+  type: "@@INIT",
+});
 
 // Keys for localStorage persistence
 const STORAGE_KEYS = {
@@ -156,20 +163,15 @@ const createLocalStorageMiddleware =
     if (action.type?.startsWith("spectrum/")) {
       const spectrumState = state.spectrum;
       const settingsData = {
-        fftSize: spectrumState.fftSize,
-        fftWindow: spectrumState.fftWindow,
-        fftFrameRate: spectrumState.fftFrameRate,
-        gain: spectrumState.gain,
-        ppm: spectrumState.ppm,
-        tunerAGC: spectrumState.tunerAGC,
-        rtlAGC: spectrumState.rtlAGC,
+        // Device-scoped Rx options are owned by the live stream. Persisting
+        // them in this global browser cache lets a new subscriber replay a
+        // stale channel/range/settings bundle before WebSocket hydration.
+        // Keep only subscriber-local presentation state here.
         vizZoom: spectrumState.vizZoom,
         maxVizZoom: spectrumState.maxVizZoom,
         vizPanOffset: spectrumState.vizPanOffset,
         fftMinDb: spectrumState.fftMinDb,
         fftMaxDb: spectrumState.fftMaxDb,
-        frequencyRange: spectrumState.frequencyRange,
-        activeSignalArea: spectrumState.activeSignalArea,
         lastKnownRanges: spectrumState.lastKnownRanges,
         displayTemporalResolution: spectrumState.displayTemporalResolution,
         txSampleRateHz: spectrumState.txSampleRateHz,
@@ -275,6 +277,10 @@ export const loadPersistedTheme = () => {
 
   try {
     const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      safeRemoveItem(STORAGE_KEYS.THEME);
+      return null;
+    }
     if (parsed && typeof parsed === "object") {
       parsed.shouldPageLoadAnimationRun = true;
       delete parsed.hasPlayedStandbySlam;
@@ -304,6 +310,10 @@ export const loadPersistedSdrSettings = () => {
   try {
     const parsed = JSON.parse(stored);
 
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
     // Ensure lastKnownRanges is a valid object
     if (
       !parsed.lastKnownRanges ||
@@ -321,6 +331,24 @@ export const loadPersistedSdrSettings = () => {
     // Persisting it here tends to reintroduce stale rates during HMR.
     if ("sampleRateHz" in parsed) {
       delete parsed.sampleRateHz;
+    }
+
+    // Channel selection, frequency range, and acquisition settings are
+    // device-scoped. They must be hydrated from the current live stream,
+    // never replayed from a browser-global cache that may predate another
+    // subscriber.
+    for (const key of [
+      "activeSignalArea",
+      "frequencyRange",
+      "fftSize",
+      "fftWindow",
+      "fftFrameRate",
+      "gain",
+      "ppm",
+      "tunerAGC",
+      "rtlAGC",
+    ]) {
+      delete parsed[key];
     }
 
     if (!Number.isFinite(parsed.txSampleRateHz)) {
@@ -351,7 +379,38 @@ export const loadPersistedSdrSettings = () => {
 
     parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
 
-    if (typeof parsed.txSafetyEnabled !== "boolean") {
+    // Repair numeric display/FFT fields. Non-finite or wrong-typed values are
+    // dropped so they can never reach preloadedState (the slice defaults fill
+    // the gap via mergePersistedSdrSettings).
+    const repairFiniteNumber = (key: string, fallback: number) => {
+      if (!Number.isFinite(parsed[key])) {
+        parsed[key] = fallback;
+      }
+    };
+    repairFiniteNumber("vizZoom", initialState.vizZoom);
+    repairFiniteNumber("vizZoomFloor", initialState.vizZoomFloor);
+    repairFiniteNumber("vizZoomFloorPan", initialState.vizZoomFloorPan);
+    repairFiniteNumber("vizPanOffset", initialState.vizPanOffset);
+    repairFiniteNumber("fftMinDb", initialState.fftMinDb);
+    repairFiniteNumber("fftMaxDb", initialState.fftMaxDb);
+    // Tx fields not already covered by the pre-existing tx* guards above.
+    repairFiniteNumber("txIfftSize", initialState.txIfftSize);
+    repairFiniteNumber("txSampleRateHz", initialState.txSampleRateHz);
+    repairFiniteNumber("txCenterFrequencyHz", initialState.txCenterFrequencyHz);
+    repairFiniteNumber("txPowerDbm", initialState.txPowerDbm);
+    repairFiniteNumber("txVgaGain", initialState.txVgaGain);
+
+    // Enum-valued string fields.
+    if (
+      parsed.displayTemporalResolution !== "slow" &&
+      parsed.displayTemporalResolution !== "reduced" &&
+      parsed.displayTemporalResolution !== "lossless"
+    ) {
+      parsed.displayTemporalResolution = initialState.displayTemporalResolution;
+    }
+
+    // Boolean fields. Strict literal checks: NaN/[]/"false" must not pass.
+    if (parsed.txSafetyEnabled !== true && parsed.txSafetyEnabled !== false) {
       parsed.txSafetyEnabled = false;
     }
 
@@ -379,14 +438,8 @@ export const loadPersistedSdrSettings = () => {
       parsed.txHopRateHz = 10;
     }
 
-    if (typeof parsed.txHopEnabled !== "boolean") {
+    if (parsed.txHopEnabled !== true && parsed.txHopEnabled !== false) {
       parsed.txHopEnabled = false;
-    }
-
-    // Preserve the restored live default gain if stale cache data wrote a zero
-    // generic gain. Zero is a common "missing value" in older persisted state.
-    if (parsed.gain === 0) {
-      delete parsed.gain;
     }
 
     return parsed;

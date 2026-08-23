@@ -124,6 +124,11 @@ export interface WebSocketState {
   activeSourceMode: "live" | "file" | null;
   sources: SourceInfo[];
   sourceStatuses: Record<string, SourceStatus>;
+  /**
+   * Sources with an in-flight per-source restart. A source leaves this set
+   * when its status reports out of stale/loading, or on disconnect.
+   */
+  restartPendingSourceIds: string[];
   /** Low-frequency lifecycle of the raw-I/Q transport selected by the UI. */
   sourceTransport: SourceTransportState;
   /** Per-mode lifecycle; RX and TX events must never share a transport slot. */
@@ -187,6 +192,7 @@ const initialState: WebSocketState = {
   activeSourceMode: null,
   sources: [],
   sourceStatuses: {},
+  restartPendingSourceIds: [],
   sourceTransport: { sourceId: null, phase: "idle", error: null },
   sourceTransportByMode: createSourceTransportByMode(),
   sourceFrameReadiness: null,
@@ -254,6 +260,7 @@ const websocketSlice = createSlice({
       state.activeSourceMode = null;
       state.sources = [];
       state.sourceStatuses = {};
+      state.restartPendingSourceIds = [];
       state.sourceTransport = { sourceId: null, phase: "idle", error: null };
       state.sourceTransportByMode = createSourceTransportByMode();
       state.sourceFrameReadiness = null;
@@ -371,6 +378,31 @@ const websocketSlice = createSlice({
     incrementDataFrameCounter: (state) => {
       state.dataFrameCounter += 1;
     },
+
+    /** Tracks a per-source restart from click until the source reports live. */
+    restartRequested: (state, action: PayloadAction<string>) => {
+      if (!state.restartPendingSourceIds.includes(action.payload)) {
+        state.restartPendingSourceIds.push(action.payload);
+      }
+    },
+
+    /** Drops pending-restart flags for sources that now report a live status. */
+    restartSettled: (
+      state,
+      action: PayloadAction<Record<string, SourceStatus>>,
+    ) => {
+      const statuses = action.payload;
+      state.restartPendingSourceIds = state.restartPendingSourceIds.filter(
+        (sourceId) => {
+          const status = statuses[sourceId];
+          return (
+            status === "stale" ||
+            status === "loading" ||
+            status === "initializing"
+          );
+        },
+      );
+    },
   },
 });
 
@@ -392,6 +424,8 @@ export const {
   clearQueuedMessages,
   setPaused,
   incrementDataFrameCounter,
+  restartRequested,
+  restartSettled,
 } = websocketSlice.actions;
 
 export default websocketSlice.reducer;

@@ -348,31 +348,58 @@ const SignalsSdrDefaultsSchema = z.object({
     max_db: z.number(),
     padding: z.number(),
   }),
-  devices: z.record(z.string(), z.object({
-    duplex_mode: z.string().nullable().optional(),
-    max_sample_rate: z.number().nullable().optional(),
-    sample_rate: SdrSampleRateSpecSchema,
-    fft_display: z.object({
-      markers: z.array(z.object({
-        kind: z.string(),
-        freq_hz: z.number(),
-        label: z.string().nullable().optional(),
-      })),
-    }).nullable().optional(),
-    gain_limits: z.record(z.string(), z.number().nullable()).nullable().optional(),
-    fft_sizes: z.array(z.object({
-      base: z.string(),
-      fft_min: z.number().nullable().optional(),
-      fft_max: z.number().nullable().optional(),
-    })).nullable().optional(),
-    _tx_power_mapping: z.record(z.string(), z.unknown()).nullable().optional(),
-    _tx_iq_power_model: z.record(z.string(), z.unknown()).nullable().optional(),
-  })),
-  fft_sizes: z.array(z.object({
-    base: z.string(),
-    fft_min: z.number().nullable().optional(),
-    fft_max: z.number().nullable().optional(),
-  })).nullable().optional(),
+  devices: z.record(
+    z.string(),
+    z.object({
+      duplex_mode: z.string().nullable().optional(),
+      max_sample_rate: z.number().nullable().optional(),
+      sample_rate: SdrSampleRateSpecSchema,
+      fft_display: z
+        .object({
+          markers: z.array(
+            z.object({
+              kind: z.string(),
+              freq_hz: z.number(),
+              label: z.string().nullable().optional(),
+            }),
+          ),
+        })
+        .nullable()
+        .optional(),
+      gain_limits: z
+        .record(z.string(), z.number().nullable())
+        .nullable()
+        .optional(),
+      fft_sizes: z
+        .array(
+          z.object({
+            base: z.string(),
+            fft_min: z.number().nullable().optional(),
+            fft_max: z.number().nullable().optional(),
+          }),
+        )
+        .nullable()
+        .optional(),
+      _tx_power_mapping: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .optional(),
+      _tx_iq_power_model: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .optional(),
+    }),
+  ),
+  fft_sizes: z
+    .array(
+      z.object({
+        base: z.string(),
+        fft_min: z.number().nullable().optional(),
+        fft_max: z.number().nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
 });
 
 export const SignalsDefaultsMessageSchema = z.object({
@@ -402,6 +429,18 @@ export const ChannelsMessageSchema = z.object({
   active_signal_area: z.string().nullable().optional(),
   frequency_range: z
     .object({ min: z.number(), max: z.number() })
+    .nullable()
+    .optional(),
+  display_range: z
+    .object({
+      min: z.number(),
+      max: z.number(),
+      pan_hz: z.number().optional(),
+      zoom: z.number().positive().optional(),
+      crosses_dc: z.boolean().optional(),
+      direction_negative: z.boolean().optional(),
+      mirror_below_zero: z.boolean().optional(),
+    })
     .nullable()
     .optional(),
   sample_rate: z.number().positive().optional(),
@@ -474,6 +513,13 @@ export const WebSocketMessageSchema = z.union([
     center_frequency: z.number().int().optional(),
     bandwidth_center_frequency: z.number().int().optional(),
     signal_area: z.string().optional(),
+    display_min_hz: z.number().int().optional(),
+    display_max_hz: z.number().int().optional(),
+    display_pan_hz: z.number().int().optional(),
+    display_zoom: z.number().positive().optional(),
+    display_crosses_dc: z.boolean().optional(),
+    display_direction_negative: z.boolean().optional(),
+    mirror_spectrum_below_zero: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("set_frequency_range"),
@@ -483,6 +529,13 @@ export const WebSocketMessageSchema = z.union([
     center_frequency: z.number().int().optional(),
     bandwidth_center_frequency: z.number().int().optional(),
     signal_area: z.string().optional(),
+    display_min_hz: z.number().int().optional(),
+    display_max_hz: z.number().int().optional(),
+    display_pan_hz: z.number().int().optional(),
+    display_zoom: z.number().positive().optional(),
+    display_crosses_dc: z.boolean().optional(),
+    display_direction_negative: z.boolean().optional(),
+    mirror_spectrum_below_zero: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("pause"),
@@ -554,6 +607,7 @@ export const WebSocketMessageSchema = z.union([
   z.object({
     type: z.literal("restart_device"),
     scope: z.literal("device").optional(),
+    source_id: z.string().optional(),
   }),
   z.object({
     type: z.literal("select_source"),

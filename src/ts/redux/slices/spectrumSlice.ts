@@ -198,6 +198,58 @@ const LIVE_CONTROL_DEFAULTS = {
   txHopEnabled: false,
 };
 
+/** Numeric slice keys whose bundles must never hold non-finite or wrong-typed values. */
+const SETTINGS_BUNDLE_NUMERIC_KEYS = new Set([
+  "fftSize",
+  "fftFrameRate",
+  "fftMinDb",
+  "fftMaxDb",
+  "gain",
+  "ppm",
+  "sampleRateHz",
+  "minReceiveSampleRateHz",
+  "txSampleRateHz",
+  "txIfftSize",
+  "txViewerSampleRateHz",
+  "txViewerFftSize",
+  "txViewerFftFrameRate",
+  "txCenterFrequencyHz",
+  "txPowerDbm",
+  "txVgaGain",
+  "txHopStartFrequencyHz",
+  "txHopEndFrequencyHz",
+  "txHopRateHz",
+  "hackrfLnaGain",
+  "hackrfVgaGain",
+  "hackrfBasebandBandwidth",
+  "vizZoom",
+  "maxVizZoom",
+  "vizZoomFloor",
+  "vizZoomFloorPan",
+  "vizPanOffset",
+  "gpuSpikeCount",
+]);
+
+/**
+ * Keep settings bundles from ever pushing non-finite numbers or wrong-typed
+ * values into the slice: numeric keys accept only finite numbers; everything
+ * else accepts only non-null scalars.
+ */
+function sanitizeSettingsBundle(
+  payload: Partial<SpectrumState>,
+): Partial<SpectrumState> {
+  const cleanPayload: Partial<SpectrumState> = {};
+  for (const [key, val] of Object.entries(payload)) {
+    if (SETTINGS_BUNDLE_NUMERIC_KEYS.has(key)) {
+      if (typeof val !== "number" || !Number.isFinite(val)) continue;
+    } else if (val === null || typeof val === "function") {
+      continue;
+    }
+    (cleanPayload as Record<string, unknown>)[key] = val;
+  }
+  return cleanPayload;
+}
+
 const initialState: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
@@ -344,6 +396,50 @@ const spectrumSlice = createSlice({
       }
       state.lastKnownRanges[action.payload.area] = action.payload.range;
       state.deviceFrequencyRangeRevision += 1;
+    },
+
+    // Atomic hop-preview update: the hop cycler retunes view + planned Tx on
+    // every tick, and five separate dispatches meant five subscriber passes
+    // per tick. Semantics mirror the individual reducers exactly.
+    setTxHopPreviewState: (
+      state,
+      action: PayloadAction<{
+        frequencyRange?: FrequencyRange;
+        txCenterFrequencyHz?: number;
+        txSampleRateHz?: number;
+        sampleRateHz?: number;
+        activeSignalArea?: string;
+      }>,
+    ) => {
+      const { payload } = action;
+      if (
+        payload.frequencyRange &&
+        (payload.frequencyRange.min !== state.frequencyRange?.min ||
+          payload.frequencyRange.max !== state.frequencyRange?.max)
+      ) {
+        state.frequencyRange = payload.frequencyRange;
+      }
+      if (
+        payload.txCenterFrequencyHz !== undefined &&
+        Number.isFinite(payload.txCenterFrequencyHz)
+      ) {
+        state.txCenterFrequencyHz = payload.txCenterFrequencyHz;
+      }
+      if (
+        payload.txSampleRateHz !== undefined &&
+        Number.isFinite(payload.txSampleRateHz)
+      ) {
+        state.txSampleRateHz = payload.txSampleRateHz;
+      }
+      if (
+        payload.sampleRateHz !== undefined &&
+        Number.isFinite(payload.sampleRateHz)
+      ) {
+        state.sampleRateHz = payload.sampleRateHz;
+      }
+      if (payload.activeSignalArea !== undefined) {
+        state.activeSignalArea = payload.activeSignalArea;
+      }
     },
 
     tuneToChannels: (
@@ -659,28 +755,14 @@ const spectrumSlice = createSlice({
       state,
       action: PayloadAction<Partial<SpectrumState>>,
     ) => {
-      const cleanPayload: Partial<SpectrumState> = {};
-      for (const [key, val] of Object.entries(action.payload)) {
-        if (typeof val === "number" && !Number.isFinite(val)) {
-          continue;
-        }
-        (cleanPayload as any)[key] = val;
-      }
-      Object.assign(state, cleanPayload);
+      Object.assign(state, sanitizeSettingsBundle(action.payload));
     },
 
     setDeviceSdrSettingsBundle: (
       state,
       action: PayloadAction<Partial<SpectrumState>>,
     ) => {
-      const cleanPayload: Partial<SpectrumState> = {};
-      for (const [key, val] of Object.entries(action.payload)) {
-        if (typeof val === "number" && !Number.isFinite(val)) {
-          continue;
-        }
-        (cleanPayload as any)[key] = val;
-      }
-      Object.assign(state, cleanPayload);
+      Object.assign(state, sanitizeSettingsBundle(action.payload));
       if (action.payload.frequencyRange !== undefined) {
         const frequencyRange = action.payload.frequencyRange;
         const area =
@@ -746,6 +828,7 @@ const spectrumSlice = createSlice({
     },
 
     setGpuSpikeCount: (state, action: PayloadAction<number>) => {
+      if (!Number.isFinite(action.payload)) return;
       state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
     },
 
@@ -883,6 +966,7 @@ export const {
   setFrequencyRange,
   setSignalAreaAndRange,
   setDeviceSignalAreaAndRange,
+  setTxHopPreviewState,
   tuneToChannels,
   mergeLastKnownRanges,
   setTemporalResolution,

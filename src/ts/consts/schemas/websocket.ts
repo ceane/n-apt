@@ -147,6 +147,16 @@ export type SpectrumFrame = {
   description: string;
 };
 
+export type MirroredDisplayRange = {
+  min: number;
+  max: number;
+  pan_hz?: number;
+  zoom?: number;
+  crosses_dc?: boolean;
+  direction_negative?: boolean;
+  mirror_below_zero?: boolean;
+};
+
 /** Canonical channel metadata derived by the backend from signals.channels. */
 export type ChannelsMessage = {
   type: "channels";
@@ -154,6 +164,7 @@ export type ChannelsMessage = {
   channels: SpectrumFrame[];
   active_signal_area?: string | null;
   frequency_range?: { min: number; max: number } | null;
+  display_range?: MirroredDisplayRange | null;
   sample_rate?: number;
   error?: string | null;
 };
@@ -456,6 +467,13 @@ export type WebSocketMessage =
       center_frequency?: number;
       bandwidth_center_frequency?: number;
       signal_area?: string;
+      display_min_hz?: number;
+      display_max_hz?: number;
+      display_pan_hz?: number;
+      display_zoom?: number;
+      display_crosses_dc?: boolean;
+      display_direction_negative?: boolean;
+      mirror_spectrum_below_zero?: boolean;
     }
   | ChannelsMessage
   | {
@@ -497,7 +515,11 @@ export type WebSocketMessage =
   | ({ type: "settings"; scope?: "device" } & SDRSettings)
   | SignalDisplaySettingsMessage
   | SignalsDefaultsMessage
-  | { type: "restart_device"; scope?: "device" }
+  | {
+      type: "restart_device";
+      scope?: "device";
+      source_id?: string;
+    }
   | {
       type: "select_source";
       scope?: "device";

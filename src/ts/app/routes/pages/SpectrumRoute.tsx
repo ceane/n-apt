@@ -27,7 +27,10 @@ import {
   InitializingText,
 } from "@n-apt/app/Layout";
 import { useSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
-import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import {
+  getLiveFrameRefForSource,
+  subscribeFrameRuntime,
+} from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { buildSdrLimitMarkers } from "@n-apt/math/sdrLimitMarkers";
 import { getSourceViewStorageKeyForSource } from "@n-apt/spectrum/public/sourcePersistence";
 import { isMockTxSource } from "@n-apt/app/infrastructure/services/deviceCapabilities";
@@ -62,7 +65,6 @@ import {
   setShowTxSlider,
   setDeviceKind,
   setFrequencyRange,
-  setActiveSignalArea,
   setStitchStatus,
   resetWaterfallCleared,
   setVizZoom as setVizZoomAction,
@@ -71,7 +73,7 @@ import {
   setVizZoomFloorPan,
   setFftDbLimits,
   setSdrSettingsBundle,
-  setSampleRate as setSampleRateAction,
+  setTxHopPreviewState,
   selectSourceTransportSnapshot,
 } from "@n-apt/redux";
 import { selectTxHopChannels } from "@n-apt/redux/selectors/spectrumSelectors";
@@ -103,12 +105,7 @@ export const resolveNavigationFrequencyBounds = ({
   return channelBounds;
 };
 
-/**
- * Publish a live tuning window as one synchronous contract. The local view and
- * the backend request must be ordered together; putting either behind an
- * animation-frame coalescer made a VFO gesture look like it was waiting for a
- * debounce timer before the radio received the tune.
- */
+/** Publishes a discrete tuning command with local state before the device. */
 export const publishFrequencyRangeImmediately = (
   range: FrequencyRange,
   setFrequencyRange: (range: FrequencyRange) => void,
@@ -116,6 +113,52 @@ export const publishFrequencyRangeImmediately = (
 ): void => {
   setFrequencyRange(range);
   sendFrequencyRange(range);
+};
+
+/** Coalesces live pan publication without rerendering the spectrum every frame. */
+export const createLiveFrequencyRangePublisher = (
+  setFrequencyRange: (range: FrequencyRange) => void,
+  sendFrequencyRange: (range: FrequencyRange) => void,
+) => {
+  const scheduler = createDeviceOptionScheduler<FrequencyRange>({
+    publish: (range) => {
+      setFrequencyRange(range);
+      sendFrequencyRange(range);
+    },
+    equals: (left, right) =>
+      left.min === right.min && left.max === right.max,
+    intervalMs: 50,
+    idleFlushMs: 80,
+  });
+
+  return {
+    publish: (range: FrequencyRange) => scheduler.submit(range, "gesture"),
+    flush: scheduler.flush,
+    // React can run effect cleanup during Strict Mode's mount probe and then
+    // reuse the same ref-backed publisher. Cancel timers without permanently
+    // disposing the scheduler so the next gesture can still publish.
+    cancel: scheduler.cancel,
+  };
+};
+
+/** Publishes a live pan target without a lifecycle-owned coalescing queue. */
+export const publishLiveFrequencyRange = (
+  range: FrequencyRange,
+  setFrequencyRange: (range: FrequencyRange) => void,
+  sendFrequencyRange: (range: FrequencyRange) => void,
+): void => {
+  publishFrequencyRangeImmediately(range, setFrequencyRange, sendFrequencyRange);
+};
+
+/**
+ * Visual pan is subscriber-local. It changes the viewport, not the device's
+ * acquisition window, so it must never emit a shared frequency command.
+ */
+export const publishSubscriberLocalVizPan = (
+  pan: number,
+  setVizPanOffset: (pan: number) => void,
+): void => {
+  setVizPanOffset(pan);
 };
 import { resolveCanonicalDisplaySampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
@@ -137,11 +180,17 @@ import {
 } from "@n-apt/transmit/public/txSliderPlacement";
 import {
   attachLiveSourceLifecyclePlaceholder,
+  hasPlayedOnceForSource,
   isCurrentSourceFrameReady,
   isCommittedStandbyPresentation,
   isLiveSourceAwaitingFrame,
   isLiveSourceHandoffPending,
+  isTxSuiteBoundToSelection,
+  resolveLiveSourceHandoffPending,
   resolveLiveSourceLifecycleErrorReason,
+  resolveSelectedSourceTxPresentationFlags,
+  resolveSelectedSourceTxStatusFlags,
+  selectedSourceOwnsPaintableFrame,
   shouldRequestMockTxStandbyPreview,
   shouldPresentMockTxStandby,
   selectSourceFrameReadinessForMode,
@@ -174,6 +223,7 @@ import {
   TxPowerField,
 } from "./spectrum/SpectrumRouteControls";
 
+// Kept as re-exports: tests import these helpers via this module.
 export { resolveLiveDevicePlaceholderState } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
 export { getMockTxPreviewRequestKey } from "./spectrum/mockTxPreview";
 
@@ -225,7 +275,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const localFftCanvasRef = useRef<FFTCanvasHandle | null>(null);
   const fftCanvasRef = fftCanvasRefProp ?? localFftCanvasRef;
   const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
-  const [, setFftHistoryVersion] = useState(0);
+  const [fftHistoryVersion, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
   const [fastSnapshotMode, setFastSnapshotMode] = useState<0 | 1 | 2>(() =>
     getSettingsDefaults().snapshot.fastSnapshotShowStats ? 1 : 0,
@@ -244,12 +294,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const fastSnapshotGeolocationRequestRef = useRef(0);
   const fastSnapshotShowStats = fastSnapshotMode > 0;
   const fastSnapshotShowGeolocation = fastSnapshotMode === 2;
-  const showStatsSpectrum = fastSnapshotShowStats;
-  const showStatsWaterfall = fastSnapshotShowStats;
-  const setShowStatsSpectrum = (show: boolean) =>
-    setFastSnapshotMode(show ? 1 : 0);
-  const setShowStatsWaterfall = (show: boolean) =>
-    setFastSnapshotMode(show ? 1 : 0);
+  const handleShowStatsChange = useCallback(
+    (show: boolean) => setFastSnapshotMode(show ? 1 : 0),
+    [],
+  );
 
   useEffect(() => {
     if (
@@ -451,39 +499,60 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       sdrLimitMarkers,
       sources,
       sendTransmitStatus,
-      sendPowerScaleCommand: _sendPowerScaleCommand,
     },
     sampleRateHzEffective,
     toggleVisualizerPause,
   } = useSpectrumStore();
-  const frequencyRangeScheduler = useMemo(
-    () =>
-      createDeviceOptionScheduler<FrequencyRange>({
-        publish: (range) =>
-          publishFrequencyRangeImmediately(
-            range,
-            (nextRange) => reduxDispatch(setFrequencyRange(nextRange)),
-            sendFrequencyRange,
-          ),
-        equals: (left, right) =>
-          left.min === right.min && left.max === right.max,
-      }),
-    [reduxDispatch, sendFrequencyRange],
+  const setLiveFrequencyRangeRef = useRef<(range: FrequencyRange) => void>(
+    () => {},
   );
+  const sendLiveFrequencyRangeRef = useRef<(range: FrequencyRange) => void>(
+    () => {},
+  );
+  const liveFrequencyRangePublisherRef = useRef<
+    ReturnType<typeof createLiveFrequencyRangePublisher> | null
+  >(null);
+  if (!liveFrequencyRangePublisherRef.current) {
+    liveFrequencyRangePublisherRef.current = createLiveFrequencyRangePublisher(
+      (range) => setLiveFrequencyRangeRef.current(range),
+      (range) => sendLiveFrequencyRangeRef.current(range),
+    );
+  }
+  setLiveFrequencyRangeRef.current = (nextRange) => {
+    reduxDispatch(setFrequencyRange(nextRange));
+  };
+  sendLiveFrequencyRangeRef.current = sendFrequencyRange;
   useEffect(
-    () => () => frequencyRangeScheduler.dispose(),
-    [frequencyRangeScheduler],
+    () => () => {
+      liveFrequencyRangePublisherRef.current?.cancel();
+    },
+    [],
   );
   const publishFrequencyRange = useCallback(
     (
       range: FrequencyRange,
       source: "user-pan" | "mode-enter" | "typed" = "user-pan",
-    ) =>
-      frequencyRangeScheduler.submit(
+    ) => {
+      // The canvas keeps the live view in refs while a gesture is in flight.
+      // Coalesce Redux and device updates to one latest-value publish every
+      // 50 ms. The interaction hook already updates the live refs and asks
+      // the canvas to repaint synchronously, so this does not slow the drag.
+      const publisher = liveFrequencyRangePublisherRef.current;
+      if (source === "user-pan") {
+        publisher?.publish(range);
+        return;
+      }
+
+      // Typed/mode changes are discrete commands. Flush a pending pan first,
+      // then preserve their immediate ordering with the device request.
+      publisher?.flush();
+      publishFrequencyRangeImmediately(
         range,
-        source === "user-pan" ? "gesture" : "immediate",
-      ),
-    [frequencyRangeScheduler],
+        setLiveFrequencyRangeRef.current,
+        sendLiveFrequencyRangeRef.current,
+      );
+    },
+    [],
   );
   const streamingSource = useMemo(
     () =>
@@ -511,8 +580,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         id: selectedSource?.id ?? selectedSourceId,
         kind: selectedSource?.kind,
       }));
-  const hasActiveSourceFrame =
-    hasPlayedAtLeastOnce && playedSourceId === (streamingSourceId || null);
   const selectedSourceStatus =
     state.sourceMode === "live" && selectedSourceId
       ? (sourceStatuses?.[selectedSourceId] ?? selectedSource?.status ?? null)
@@ -548,17 +615,37 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       selectedSourceId || activeSourceId,
       isSelectedSourceTxMode ? "tx" : "rx",
     );
+  // Track the painted frame's owner through state instead of reading the
+  // mutable frame ref during render (a stale-read hazard). The shared
+  // low-frequency clock polls the ref; setState bails out unless the owner
+  // actually changed, so this costs nothing while a single source streams.
+  const [presentedStreamSourceId, setPresentedStreamSourceId] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    return subscribeFrameRuntime(() => {
+      const latest = getLatestLiveFrame(dataRef.current)?.source_id ?? null;
+      setPresentedStreamSourceId((previous) =>
+        previous === latest ? previous : latest,
+      );
+    }, 50);
+  }, [dataRef]);
   // supports_tx_monitor is a capability, not the current mode. The Tx
   // monitor pipeline must only be active after an explicit Tx-mode switch.
   const isMockTxMonitorActive =
     isSelectedMockTxSource &&
     (isSelectedSourceTxMode || selectedSource?.kind === "mock_tx");
-  const isSelectedTxPreviewStandby =
-    txSuiteSourceId === selectedSourceId &&
-    selectedSourceStatus !== "transmitting" &&
-    (isSelectedSourceTxMode ||
-      (selectedSourceStatus === "paused" &&
-        selectedSourceModeManagement.canTransmit));
+  const { isSelectedTxPreviewStandby } = resolveSelectedSourceTxPresentationFlags(
+    {
+      txSuiteBoundToSelection: isTxSuiteBoundToSelection({
+        boundTxSourceId: txSuiteSourceId,
+        selectedSourceId,
+      }),
+      selectedSourceStatus,
+      isSelectedSourceTxMode,
+      canTransmit: selectedSourceModeManagement.canTransmit,
+    },
+  );
   const [webGpuStreamResetEpoch, setWebGpuStreamResetEpoch] = useState(0);
   const previousWebGpuStreamIdentityRef = useRef<{
     sourceId: string | null;
@@ -617,13 +704,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       transportSourceId: sourceTransport?.sourceId ?? null,
       transportPhase: sourceTransport?.phase ?? "idle",
     }) || isSelectedTxPreviewStandby;
-  const isSelectedSourceTxStandby =
-    selectedSourceStatus === "standby" || selectedSource?.status === "standby";
-  const isSelectedSourceTxStatus =
-    isSelectedSourceTxStandby ||
-    isSelectedTxPreviewStandby ||
-    selectedSourceStatus === "transmitting" ||
-    selectedSource?.status === "transmitting";
+  const {
+    isSelectedSourceTxStandby,
+    isSelectedSourceTxStatus,
+  } = resolveSelectedSourceTxStatusFlags({
+    transportReportedStatus: selectedSourceStatus,
+    sourceRecordedStatus: selectedSource?.status ?? null,
+    isSelectedTxPreviewStandby,
+  });
   const standbyPresentationSourceId =
     selectedSourceId || selectedSource?.id || streamingSourceId || null;
   // A standby request may be issued before the source switch commits. The
@@ -634,7 +722,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     requested: shouldShowMockTxStandby || isSelectedSourceTxStandby,
     selectedSourceId: standbyPresentationSourceId,
     activeSourceId,
-    presentedSourceId: getLatestLiveFrame(dataRef.current)?.source_id ?? null,
+    presentedSourceId: presentedStreamSourceId,
     isTransmitting: isSelectedMockTxTransmitting,
   });
   const hasTargetFrozenFrame = selectedSourceId
@@ -645,9 +733,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         presentationController.getSlot(selectedSourceId, "rx")?.phase ===
           "paused"
     : false;
-  const liveSourceHandoffPending =
-    !!(selectedSourceId && selectedSourceId !== (activeSourceId ?? null)) ||
-    sourceTransport?.phase === "warming";
+  const liveSourceHandoffPending = resolveLiveSourceHandoffPending({
+    selectedSourceId,
+    activeSourceId,
+    transportPhase: sourceTransport?.phase ?? "idle",
+  });
   const liveSourceLifecycle = useLiveSourceLifecycle({
     isLive: state.sourceMode === "live",
     isConnected,
@@ -661,20 +751,25 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     transportError: sourceTransport?.error ?? null,
     readinessSequence: sourceFrameReadiness?.sequence ?? null,
     readiness: sourceFrameReadiness,
-    presentedSourceId: getLatestLiveFrame(dataRef.current)?.source_id ?? null,
+    presentedSourceId: presentedStreamSourceId,
     // Never treat a previous source's "played once" flag as a Mock Tx frame.
     // That skipped awaiting-frame Loading and left a black FFT under STANDBY
     // on first Rx→Tx and on cold reload into Mock Tx before request_next_frame.
-    hasValidFrame:
-      hasTargetFrozenFrame ||
-      isCurrentSourceFrameReady({
+    hasValidFrame: selectedSourceOwnsPaintableFrame({
+      hasTargetFrozenFrame,
+      currentSourceFrameReady: isCurrentSourceFrameReady({
         selectedSourceId: selectedSourceId || null,
         activeSourceId: activeSourceId || null,
         expectedStreamEpoch: expectedLegacyStreamEpoch,
         readiness: sourceFrameReadiness,
-      }) ||
-      hasRenderableCurrentFrame ||
-      hasActiveSourceFrame,
+      }),
+      hasRenderableCurrentFrame,
+      hasPlayedOnceForSelectedSource: hasPlayedOnceForSource({
+        hasPlayedAtLeastOnce,
+        playedSourceId,
+        streamingSourceId,
+      }),
+    }),
     deviceStatus: selectedSourceStatus,
     isStandby: isStandbyPresentationActive,
   });
@@ -685,9 +780,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   // even before it becomes the active streaming source. This ensures GPU state resets
   // during the loading phase when switching from mock to hardware.
   const visualizerLifecycleKey = getVisualizerLifecycleKey({
-    sourceId: selectedSourceId || streamingSourceId || null,
     epoch: webGpuStreamResetEpoch,
-    status: selectedSourceStatus,
   });
   const visualizerSessionKey = useMemo(
     () => getSourceViewStorageKeyForSource(selectedSource ?? streamingSource),
@@ -759,6 +852,29 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (pan: number) => reduxDispatch(setVizPanAction(pan)),
     [reduxDispatch],
   );
+  // Stable dispatch wrappers: the canvases are memoized, so fresh inline
+  // arrows here would defeat memoization on every route render.
+  const handleVizZoomFloorPanChange = useCallback(
+    (pan: number) => reduxDispatch(setVizZoomFloorPan(pan)),
+    [reduxDispatch],
+  );
+  const handleFftDbLimitsChange = useCallback(
+    (min: number, max: number) => reduxDispatch(setFftDbLimits({ min, max })),
+    [reduxDispatch],
+  );
+  const handleResetWaterfallCleared = useCallback(
+    () => reduxDispatch(resetWaterfallCleared()),
+    [reduxDispatch],
+  );
+  const handleOpenCenterFrequencyEditor = useCallback(
+    () => setIsCenterFrequencyEditing(true),
+    [],
+  );
+  const handleStitchStatusChange = useCallback(
+    (status: string) => reduxDispatch(setStitchStatus(status)),
+    [reduxDispatch],
+  );
+  const handleNoopSnapshot = useCallback(() => {}, []);
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
   );
@@ -811,317 +927,176 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     };
   }, [fftCanvasRef]);
 
-  const fastSpectrumSnapshotAction = useMemo<ReactNode>(() => {
-    const spectrumCanvas = fftCanvasRef.current?.getSpectrumCanvas();
-    const spectrumWidth = spectrumCanvas?.width ?? 1;
-    const spectrumHeight =
-      spectrumCanvas?.height ?? FAST_SPECTRUM_FALLBACK_HEIGHT;
+  const buildFastSnapshotControl = useCallback(
+    (target: "spectrum" | "waterfall") => {
+      const isSpectrum = target === "spectrum";
+      const fallbackHeight = isSpectrum
+        ? FAST_SPECTRUM_FALLBACK_HEIGHT
+        : FAST_WATERFALL_FALLBACK_HEIGHT;
+      const getTargetCanvas = () =>
+        isSpectrum
+          ? fftCanvasRef.current?.getSpectrumCanvas()
+          : fftCanvasRef.current?.getWaterfallCanvas();
 
-    const sdrSettingsLabel = buildSnapshotSettingsLabel({
+      const sdrSettingsLabel = buildSnapshotSettingsLabel({
+        effectiveSdrSettings,
+        gain: state.gain,
+        ppm: state.ppm,
+        hackrfLnaGain: state.hackrfLnaGain,
+        hackrfVgaGain: state.hackrfVgaGain,
+        hackrfAmpEnabled: state.hackrfAmpEnabled,
+        hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
+        deviceKind:
+          selectedSourceDerived.deviceProfile?.kind ??
+          deviceProfile?.kind ??
+          deviceKind ??
+          undefined,
+      });
+      const sourceName =
+        selectedSourceDerived.deviceName ??
+        deviceName ??
+        (isConnected ? "SDR" : "Offline");
+
+      const snapshotOptions = {
+        showStats: fastSnapshotShowStats,
+        showGeolocation: fastSnapshotShowGeolocation,
+        geolocation: fastSnapshotGeolocation,
+        locationLabel: fastSnapshotLocationLabel,
+        activeSignalArea: state.activeSignalArea,
+        activeSignalAreaBounds,
+        sourceName,
+        sdrSettingsLabel,
+        gain: state.gain ?? undefined,
+        ppm: state.ppm ?? undefined,
+        fftSize: state.fftSize ?? undefined,
+      };
+
+      return (
+        <FastSnapshotControl
+          disabled={
+            fftSnapshotLoading ||
+            (isRecording !== null && isRecording !== target)
+          }
+          isRecording={isRecording === target}
+          recordingCountdown={recordingCountdown}
+          videoFormat={supportedVideoFormat}
+          showStats={fastSnapshotShowStats}
+          onShowStatsChange={handleShowStatsChange}
+          fastSnapshotMode={
+            fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode
+          }
+          onFastSnapshotModeChange={
+            fastSnapshotGeoUnavailable ? undefined : cycleFastSnapshotMode
+          }
+          onImage={() => {
+            // Read dimensions at click time — canvas size changes with layout
+            // and must not be baked into the memoized element.
+            const canvas = getTargetCanvas();
+            void takeFastSnapshot(
+              target,
+              (dataOptions) =>
+                fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
+              canvas?.width ?? 1,
+              canvas?.height ?? fallbackHeight,
+              getCanvases,
+              snapshotOptions,
+            );
+          }}
+          onVideo={() =>
+            startFastRecording(
+              target,
+              (dataOptions) =>
+                fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
+              () => {
+                const canvas = getTargetCanvas();
+                return {
+                  width: canvas?.width ?? 1,
+                  height: canvas?.height ?? fallbackHeight,
+                };
+              },
+              isSpectrum ? "fast-fft-recording" : "fast-waterfall-recording",
+              getCanvases,
+              {
+                ...snapshotOptions,
+                getActiveSignalArea: () => state.activeSignalArea,
+                getActiveSignalAreaBounds: () =>
+                  signalAreaBounds?.[state.activeSignalArea] ??
+                  signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
+                  null,
+                getSdrSettingsLabel: () =>
+                  buildSnapshotSettingsLabel({
+                    effectiveSdrSettings,
+                    gain: state.gain,
+                    ppm: state.ppm,
+                    hackrfLnaGain: state.hackrfLnaGain,
+                    hackrfVgaGain: state.hackrfVgaGain,
+                    hackrfAmpEnabled: state.hackrfAmpEnabled,
+                    hackrfBasebandBandwidth:
+                      state.hackrfBasebandBandwidth ?? undefined,
+                    deviceKind:
+                      selectedSourceDerived.deviceProfile?.kind ??
+                      deviceProfile?.kind ??
+                      deviceKind ??
+                      undefined,
+                  }),
+                getSourceName: () =>
+                  selectedSourceDerived.deviceName ??
+                  deviceName ??
+                  (isConnected ? "SDR" : "Offline"),
+              },
+            )
+          }
+          onStop={stopFastRecording}
+        />
+      );
+    },
+    [
+      fftCanvasRef,
+      fftSnapshotLoading,
+      isRecording,
+      recordingCountdown,
+      supportedVideoFormat,
+      takeFastSnapshot,
+      startFastRecording,
+      stopFastRecording,
+      getCanvases,
+      fastSnapshotShowStats,
+      fastSnapshotShowGeolocation,
+      fastSnapshotGeolocation,
+      fastSnapshotLocationLabel,
+      fastSnapshotMode,
+      fastSnapshotGeoUnavailable,
+      handleShowStatsChange,
+      cycleFastSnapshotMode,
+      state.activeSignalArea,
+      state.gain,
+      state.ppm,
+      state.hackrfLnaGain,
+      state.hackrfVgaGain,
+      state.hackrfAmpEnabled,
+      state.hackrfBasebandBandwidth,
+      state.fftSize,
+      activeSignalAreaBounds,
+      signalAreaBounds,
       effectiveSdrSettings,
-      gain: state.gain,
-      ppm: state.ppm,
-      hackrfLnaGain: state.hackrfLnaGain,
-      hackrfVgaGain: state.hackrfVgaGain,
-      hackrfAmpEnabled: state.hackrfAmpEnabled,
-      hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-      deviceKind:
-        selectedSourceDerived.deviceProfile?.kind ??
-        deviceProfile?.kind ??
-        deviceKind ??
-        undefined,
-    });
-    const sourceName =
-      selectedSourceDerived.deviceName ??
-      deviceName ??
-      (isConnected ? "SDR" : "Offline");
+      selectedSourceDerived.deviceProfile?.kind,
+      selectedSourceDerived.deviceName,
+      deviceProfile?.kind,
+      deviceKind,
+      deviceName,
+      isConnected,
+    ],
+  );
 
-    return (
-      <FastSnapshotControl
-        disabled={
-          fftSnapshotLoading ||
-          (isRecording !== null && isRecording !== "spectrum")
-        }
-        isRecording={isRecording === "spectrum"}
-        recordingCountdown={recordingCountdown}
-        videoFormat={supportedVideoFormat}
-        showStats={showStatsSpectrum}
-        onShowStatsChange={setShowStatsSpectrum}
-        fastSnapshotMode={
-          fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode
-        }
-        onFastSnapshotModeChange={
-          fastSnapshotGeoUnavailable ? undefined : cycleFastSnapshotMode
-        }
-        onImage={() =>
-          takeFastSnapshot(
-            "spectrum",
-            (dataOptions) =>
-              fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
-            spectrumWidth,
-            spectrumHeight,
-            getCanvases,
-            {
-              showStats: showStatsSpectrum,
-              showGeolocation: fastSnapshotShowGeolocation,
-              geolocation: fastSnapshotGeolocation,
-              locationLabel: fastSnapshotLocationLabel,
-              activeSignalArea: state.activeSignalArea,
-              activeSignalAreaBounds,
-              sourceName,
-              sdrSettingsLabel,
-              gain: state.gain ?? undefined,
-              ppm: state.ppm ?? undefined,
-              fftSize: state.fftSize ?? undefined,
-            },
-          )
-        }
-        onVideo={() =>
-          startFastRecording(
-            "spectrum",
-            (dataOptions) =>
-              fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
-            () => ({
-              width: fftCanvasRef.current?.getSpectrumCanvas()?.width ?? 1,
-              height:
-                fftCanvasRef.current?.getSpectrumCanvas()?.height ??
-                FAST_SPECTRUM_FALLBACK_HEIGHT,
-            }),
-            "fast-fft-recording",
-            getCanvases,
-            {
-              showStats: showStatsSpectrum,
-              showGeolocation: fastSnapshotShowGeolocation,
-              geolocation: fastSnapshotGeolocation,
-              locationLabel: fastSnapshotLocationLabel,
-              activeSignalArea: state.activeSignalArea,
-              activeSignalAreaBounds,
-              getActiveSignalArea: () => state.activeSignalArea,
-              getActiveSignalAreaBounds: () =>
-                signalAreaBounds?.[state.activeSignalArea] ??
-                signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
-                null,
-              sourceName,
-              sdrSettingsLabel,
-              gain: state.gain ?? undefined,
-              ppm: state.ppm ?? undefined,
-              fftSize: state.fftSize ?? undefined,
-              getSdrSettingsLabel: () =>
-                buildSnapshotSettingsLabel({
-                  effectiveSdrSettings,
-                  gain: state.gain,
-                  ppm: state.ppm,
-                  hackrfLnaGain: state.hackrfLnaGain,
-                  hackrfVgaGain: state.hackrfVgaGain,
-                  hackrfAmpEnabled: state.hackrfAmpEnabled,
-                  hackrfBasebandBandwidth:
-                    state.hackrfBasebandBandwidth ?? undefined,
-                  deviceKind:
-                    selectedSourceDerived.deviceProfile?.kind ??
-                    deviceProfile?.kind ??
-                    deviceKind ??
-                    undefined,
-                }),
-              getSourceName: () =>
-                selectedSourceDerived.deviceName ??
-                deviceName ??
-                (isConnected ? "SDR" : "Offline"),
-            },
-          )
-        }
-        onStop={stopFastRecording}
-      />
-    );
-  }, [
-    isRecording,
-    fftCanvasRef,
-    fftSnapshotLoading,
-    recordingCountdown,
-    supportedVideoFormat,
-    takeFastSnapshot,
-    startFastRecording,
-    stopFastRecording,
-    getCanvases,
-    showStatsSpectrum,
-    fastSnapshotMode,
-    fastSnapshotGeoUnavailable,
-    fastSnapshotShowGeolocation,
-    fastSnapshotGeolocation,
-    fastSnapshotLocationLabel,
-    cycleFastSnapshotMode,
-    state.activeSignalArea,
-    activeSignalAreaBounds,
-    signalAreaBounds,
-    effectiveSdrSettings,
-    state.gain,
-    state.ppm,
-    state.hackrfLnaGain,
-    state.hackrfVgaGain,
-    state.hackrfAmpEnabled,
-    state.hackrfBasebandBandwidth,
-    selectedSourceDerived.deviceProfile?.kind,
-    selectedSourceDerived.deviceName,
-    deviceProfile?.kind,
-    deviceKind,
-    deviceName,
-    isConnected,
-  ]);
+  const fastSpectrumSnapshotAction = useMemo<ReactNode>(
+    () => buildFastSnapshotControl("spectrum"),
+    [buildFastSnapshotControl],
+  );
 
-  const fastWaterfallSnapshotAction = useMemo<ReactNode>(() => {
-    const waterfallCanvas = fftCanvasRef.current?.getWaterfallCanvas();
-    const waterfallWidth = waterfallCanvas?.width ?? 1;
-    const waterfallHeight =
-      waterfallCanvas?.height ?? FAST_WATERFALL_FALLBACK_HEIGHT;
-
-    const sdrSettingsLabel = buildSnapshotSettingsLabel({
-      effectiveSdrSettings,
-      gain: state.gain,
-      ppm: state.ppm,
-      hackrfLnaGain: state.hackrfLnaGain,
-      hackrfVgaGain: state.hackrfVgaGain,
-      hackrfAmpEnabled: state.hackrfAmpEnabled,
-      hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-      deviceKind:
-        selectedSourceDerived.deviceProfile?.kind ??
-        deviceProfile?.kind ??
-        deviceKind ??
-        undefined,
-    });
-    const sourceName =
-      selectedSourceDerived.deviceName ??
-      deviceName ??
-      (isConnected ? "SDR" : "Offline");
-
-    return (
-      <FastSnapshotControl
-        disabled={
-          fftSnapshotLoading ||
-          (isRecording !== null && isRecording !== "waterfall")
-        }
-        isRecording={isRecording === "waterfall"}
-        recordingCountdown={recordingCountdown}
-        videoFormat={supportedVideoFormat}
-        showStats={showStatsWaterfall}
-        onShowStatsChange={setShowStatsWaterfall}
-        fastSnapshotMode={
-          fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode
-        }
-        onFastSnapshotModeChange={
-          fastSnapshotGeoUnavailable ? undefined : cycleFastSnapshotMode
-        }
-        onImage={() =>
-          takeFastSnapshot(
-            "waterfall",
-            (dataOptions) =>
-              fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
-            waterfallWidth,
-            waterfallHeight,
-            getCanvases,
-            {
-              showStats: showStatsWaterfall,
-              showGeolocation: fastSnapshotShowGeolocation,
-              geolocation: fastSnapshotGeolocation,
-              locationLabel: fastSnapshotLocationLabel,
-              activeSignalArea: state.activeSignalArea,
-              activeSignalAreaBounds,
-              sourceName,
-              sdrSettingsLabel,
-              gain: state.gain ?? undefined,
-              ppm: state.ppm ?? undefined,
-              fftSize: state.fftSize ?? undefined,
-            },
-          )
-        }
-        onVideo={() =>
-          startFastRecording(
-            "waterfall",
-            (dataOptions) =>
-              fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
-            () => ({
-              width: fftCanvasRef.current?.getWaterfallCanvas()?.width ?? 1,
-              height:
-                fftCanvasRef.current?.getWaterfallCanvas()?.height ??
-                FAST_WATERFALL_FALLBACK_HEIGHT,
-            }),
-            "fast-waterfall-recording",
-            getCanvases,
-            {
-              showStats: showStatsWaterfall,
-              showGeolocation: fastSnapshotShowGeolocation,
-              geolocation: fastSnapshotGeolocation,
-              locationLabel: fastSnapshotLocationLabel,
-              activeSignalArea: state.activeSignalArea,
-              activeSignalAreaBounds,
-              getActiveSignalArea: () => state.activeSignalArea,
-              getActiveSignalAreaBounds: () =>
-                signalAreaBounds?.[state.activeSignalArea] ??
-                signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
-                null,
-              sourceName,
-              sdrSettingsLabel,
-              gain: state.gain ?? undefined,
-              ppm: state.ppm ?? undefined,
-              fftSize: state.fftSize ?? undefined,
-              getSdrSettingsLabel: () =>
-                buildSnapshotSettingsLabel({
-                  effectiveSdrSettings,
-                  gain: state.gain,
-                  ppm: state.ppm,
-                  hackrfLnaGain: state.hackrfLnaGain,
-                  hackrfVgaGain: state.hackrfVgaGain,
-                  hackrfAmpEnabled: state.hackrfAmpEnabled,
-                  hackrfBasebandBandwidth:
-                    state.hackrfBasebandBandwidth ?? undefined,
-                  deviceKind:
-                    selectedSourceDerived.deviceProfile?.kind ??
-                    deviceProfile?.kind ??
-                    deviceKind ??
-                    undefined,
-                }),
-              getSourceName: () =>
-                selectedSourceDerived.deviceName ??
-                deviceName ??
-                (isConnected ? "SDR" : "Offline"),
-            },
-          )
-        }
-        onStop={stopFastRecording}
-      />
-    );
-  }, [
-    isRecording,
-    fftCanvasRef,
-    fftSnapshotLoading,
-    recordingCountdown,
-    supportedVideoFormat,
-    takeFastSnapshot,
-    startFastRecording,
-    stopFastRecording,
-    getCanvases,
-    showStatsWaterfall,
-    fastSnapshotMode,
-    fastSnapshotGeoUnavailable,
-    fastSnapshotShowGeolocation,
-    fastSnapshotGeolocation,
-    fastSnapshotLocationLabel,
-    cycleFastSnapshotMode,
-    state.activeSignalArea,
-    activeSignalAreaBounds,
-    signalAreaBounds,
-    effectiveSdrSettings,
-    state.gain,
-    state.ppm,
-    state.hackrfLnaGain,
-    state.hackrfVgaGain,
-    state.hackrfAmpEnabled,
-    state.hackrfBasebandBandwidth,
-    selectedSourceDerived.deviceProfile?.kind,
-    selectedSourceDerived.deviceName,
-    deviceProfile?.kind,
-    deviceKind,
-    deviceName,
-    isConnected,
-  ]);
+  const fastWaterfallSnapshotAction = useMemo<ReactNode>(
+    () => buildFastSnapshotControl("waterfall"),
+    [buildFastSnapshotControl],
+  );
 
   const handleCreateNoteCard = useCallback(() => {
     const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
@@ -1140,26 +1115,29 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     );
   }, [fftCanvasRef, reduxDispatch]);
 
-  const notesActionPill = (
-    <NotesSnapshotPill>
-      <NotesSnapshotLabel>Notes</NotesSnapshotLabel>
-      <FastSnapshotDivider />
-      <NotesSnapshotButton
-        type="button"
-        onClick={handleCreateNoteCard}
-        title="Create a note from the current spectrum"
-      >
-        New
-      </NotesSnapshotButton>
-      <FastSnapshotDivider />
-      <NotesSnapshotButton
-        type="button"
-        onClick={() => reduxDispatch(setNoteCardsCollapsed(!notesCollapsed))}
-        title={notesCollapsed ? "Show saved notes" : "Hide saved notes"}
-      >
-        {notesCollapsed ? "Show Notes" : "Hide Notes"}
-      </NotesSnapshotButton>
-    </NotesSnapshotPill>
+  const notesActionPill = useMemo<ReactNode>(
+    () => (
+      <NotesSnapshotPill>
+        <NotesSnapshotLabel>Notes</NotesSnapshotLabel>
+        <FastSnapshotDivider />
+        <NotesSnapshotButton
+          type="button"
+          onClick={handleCreateNoteCard}
+          title="Create a note from the current spectrum"
+        >
+          New
+        </NotesSnapshotButton>
+        <FastSnapshotDivider />
+        <NotesSnapshotButton
+          type="button"
+          onClick={() => reduxDispatch(setNoteCardsCollapsed(!notesCollapsed))}
+          title={notesCollapsed ? "Show saved notes" : "Hide saved notes"}
+        >
+          {notesCollapsed ? "Show Notes" : "Hide Notes"}
+        </NotesSnapshotButton>
+      </NotesSnapshotPill>
+    ),
+    [handleCreateNoteCard, notesCollapsed, reduxDispatch],
   );
 
   const captureWholeChannelSegments = useCaptureWholeChannelSegments({
@@ -1579,7 +1557,24 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       tunerAGC: state.tunerAGC,
       rtlAGC: state.rtlAGC,
     };
-  }, [state]);
+  }, [
+    state.activeSignalArea,
+    state.frequencyRange,
+    state.displayTemporalResolution,
+    state.powerScale,
+    state.vizZoom,
+    state.vizZoomFloor,
+    state.vizZoomFloorPan,
+    state.vizPanOffset,
+    state.fftMinDb,
+    state.fftMaxDb,
+    state.fftSize,
+    state.fftWindow,
+    state.gain,
+    state.ppm,
+    state.tunerAGC,
+    state.rtlAGC,
+  ]);
 
   const applySpectrumViewSnapshot = useCallback(
     (snapshot: SpectrumViewSnapshot) => {
@@ -1610,7 +1605,26 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         handleFrequencyRangeChange(snapshot.frequencyRange);
       }
     },
-    [handleFrequencyRangeChange, reduxDispatch, state],
+    [
+      reduxDispatch,
+      handleFrequencyRangeChange,
+      state.activeSignalArea,
+      state.frequencyRange,
+      state.displayTemporalResolution,
+      state.powerScale,
+      state.vizZoom,
+      state.vizZoomFloor,
+      state.vizZoomFloorPan,
+      state.vizPanOffset,
+      state.fftMinDb,
+      state.fftMaxDb,
+      state.fftSize,
+      state.fftWindow,
+      state.gain,
+      state.ppm,
+      state.tunerAGC,
+      state.rtlAGC,
+    ],
   );
 
   const handleViewNoteCard = useCallback(
@@ -1727,16 +1741,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [
     state.sourceMode,
     state.frequencyRange,
-    state.activeSignalArea,
     state.vizPanOffset,
     state.vizZoom,
     state.autoZoomStability,
     state.vizZoomFloor,
-    signalAreaBounds,
-    toggleVisualizerPause,
     handleFrequencyRangeChange,
     setVizPanOffset,
-    dispatch,
   ]);
 
   const mockTxViewSampleRateHz = state.frequencyRange
@@ -1788,9 +1798,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     mockMonitorCenterHz,
     sharedFrequencyRange,
     state.frequencyRange,
-    isSelectedSourceTransmitting,
-    isSelectedSourceTxStatus,
-    allowNegativeFrequencies,
     txCenterFrequencyHz,
   ]);
   const previewVfoCenterHz = resolveTxPreviewCenterHz({
@@ -2165,9 +2172,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     state.frequencyRange,
     activeHopTarget,
     hopPreviewIndex,
-    isMockTxMonitorActive,
-    isSelectedSourceTransmitting,
-    isSelectedSourceTxStatus,
   ]);
 
   // Retry once per lifecycle/transport fence while the standby preview has no
@@ -2298,18 +2302,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   ]);
 
   useEffect(() => {
-    if (isHopActive && activeHopTarget) {
-      const range = { min: activeHopTarget.min, max: activeHopTarget.max };
-      reduxDispatch(setFrequencyRange(range));
-      reduxDispatch(setTxCenterFrequencyHz(activeHopTarget.centerFrequencyHz));
-      reduxDispatch(setTxSampleRateHz(activeHopTarget.bandwidthHz));
-      reduxDispatch(setSampleRateAction(activeHopTarget.bandwidthHz));
-      setMockMonitorCenterHz(activeHopTarget.centerFrequencyHz);
-      if (activeHopTarget.label && activeHopTarget.label !== "range") {
-        reduxDispatch(setActiveSignalArea(activeHopTarget.label));
-      }
-    }
-  }, [isHopActive, activeHopTarget, reduxDispatch, dispatch]);
+    if (!isHopActive || !activeHopTarget) return;
+    // Single atomic dispatch: view range, planned Tx, and sample rate move
+    // together as one hop-preview step.
+    reduxDispatch(
+      setTxHopPreviewState({
+        frequencyRange: { min: activeHopTarget.min, max: activeHopTarget.max },
+        txCenterFrequencyHz: activeHopTarget.centerFrequencyHz,
+        txSampleRateHz: activeHopTarget.bandwidthHz,
+        sampleRateHz: activeHopTarget.bandwidthHz,
+        activeSignalArea:
+          activeHopTarget.label && activeHopTarget.label !== "range"
+            ? activeHopTarget.label
+            : undefined,
+      }),
+    );
+    setMockMonitorCenterHz(activeHopTarget.centerFrequencyHz);
+  }, [isHopActive, activeHopTarget, reduxDispatch]);
 
   // Keep the last painted frame available during handoff. FFTCanvas rejects
   // frames that do not match expectedSourceId, while its existing presentation
@@ -2319,8 +2328,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     if (!isStandbyPresentationActive) {
       return null;
     }
-    const presentedFrameSourceId =
-      getLatestLiveFrame(dataRef.current)?.source_id ?? null;
+    const presentedFrameSourceId = presentedStreamSourceId;
     const presentedFrameSource = presentedFrameSourceId
       ? sources.find((source) => source.id === presentedFrameSourceId)
       : null;
@@ -2340,7 +2348,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sources,
     selectedSource?.name,
     selectedSourceDerived.deviceName,
-    dataRef,
+    presentedStreamSourceId,
   ]);
   const deviceRecoveryPlaceholderState =
     useMemo<CanvasPlaceholderState | null>(() => {
@@ -2456,7 +2464,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         }
       }
 
-      setVizPanOffset(nextPan);
+      publishSubscriberLocalVizPan(nextPan, setVizPanOffset);
     },
     [
       handleFrequencyRangeChange,
@@ -2486,6 +2494,33 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isTxOptionsEditing]);
+
+  // Memoized so FFTAndWaterfall sees a stable prop between route renders;
+  // fftHistoryVersion forces a refresh when the note-view back stack changes.
+  const headerActionContent = useMemo<ReactNode>(() => {
+    void fftHistoryVersion;
+    return (
+      <>
+        {fastSpectrumSnapshotAction}
+        {notesActionPill}
+        <HeaderActionSpacer />
+        {fftHistoryRef.current.length > 0 ? (
+          <FFTBackButton
+            type="button"
+            $variant="secondary"
+            onClick={handleBackFromNoteView}
+          >
+            👈 Back
+          </FFTBackButton>
+        ) : null}
+      </>
+    );
+  }, [
+    fastSpectrumSnapshotAction,
+    notesActionPill,
+    handleBackFromNoteView,
+    fftHistoryVersion,
+  ]);
 
   return (
     <SpectrumContainer>
@@ -2623,9 +2658,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 frameSourceIdFallback={activeSourceId || streamingSourceId}
                 frequencyRange={fftFrequencyRange}
                 centerFrequencyHz={fftCenterFrequencyHz}
-                onCenterFrequencyDoubleClick={() =>
-                  setIsCenterFrequencyEditing(true)
-                }
+                onCenterFrequencyDoubleClick={handleOpenCenterFrequencyEditor}
                 activeSignalArea={state.activeSignalArea}
                 signalAreaBounds={signalAreaBounds ?? undefined}
                 hardwareSampleRateHz={fftHardwareSampleRateHz}
@@ -2665,44 +2698,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 isStandby={isStandbyPresentationActive}
                 onVizZoomChange={setVizZoom}
                 onVizZoomFloorChange={setVizZoomFloor}
-                onVizZoomFloorPanChange={(pan) =>
-                  reduxDispatch(setVizZoomFloorPan(pan))
-                }
+                onVizZoomFloorPanChange={handleVizZoomFloorPanChange}
                 onVizPanChange={handleVizPanChange}
                 fftMin={state.fftMinDb}
                 fftMax={state.fftMaxDb}
-                onFftDbLimitsChange={(min, max) =>
-                  reduxDispatch(setFftDbLimits({ min, max }))
-                }
-                onSnapshot={() => {}}
+                onFftDbLimitsChange={handleFftDbLimitsChange}
+                onSnapshot={handleNoopSnapshot}
                 snapshotGridPreference={state.snapshotGridPreference}
                 showSpikeOverlay={state.showSpikeOverlay}
                 fftFrameRate={state.fftFrameRate}
                 isWaterfallCleared={state.isWaterfallCleared}
-                onResetWaterfallCleared={() =>
-                  reduxDispatch(resetWaterfallCleared())
-                }
+                onResetWaterfallCleared={handleResetWaterfallCleared}
                 awaitingDeviceData={false}
                 visualizerMachine={fftVisualizerMachine}
                 visualizerSessionKey={visualizerSessionKey}
                 webGpuStreamResetEpoch={webGpuStreamResetEpoch}
                 onLoadingStateChange={handleVisualizerLoadingStateChange}
-                headerActionContent={
-                  <>
-                    {fastSpectrumSnapshotAction}
-                    {notesActionPill}
-                    <HeaderActionSpacer />
-                    {fftHistoryRef.current.length > 0 ? (
-                      <FFTBackButton
-                        type="button"
-                        $variant="secondary"
-                        onClick={handleBackFromNoteView}
-                      >
-                        👈 Back
-                      </FFTBackButton>
-                    ) : null}
-                  </>
-                }
+                headerActionContent={headerActionContent}
                 waterfallHeaderActionContent={fastWaterfallSnapshotAction}
               />
             </>
@@ -2719,45 +2731,37 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
             </InitializingContainer>
           )}
         {state.sourceMode === "file" && (
-          <>
-            <FFTPlaybackCanvas
-              ref={fftCanvasRef}
-              selectedFiles={state.selectedFiles}
-              stitchTrigger={state.stitchTrigger}
-              stitchSourceSettings={state.stitchSourceSettings}
-              isPaused={state.isStitchPaused}
-              fftSize={state.fftSize}
-              displayTemporalResolution={
-                state.displayTemporalResolution === "reduced"
-                  ? "lossless"
-                  : state.displayTemporalResolution
-              }
-              displayMode={state.displayMode}
-              powerScale={state.powerScale}
-              removeDcSpike={state.removeDcSpike}
-              vizZoom={vizZoom}
-              vizZoomFloor={vizZoomFloor}
-              vizZoomFloorPan={state.vizZoomFloorPan}
-              vizPanOffset={vizPanOffset}
-              autoZoomStability={state.autoZoomStability}
-              fftMin={state.fftMinDb}
-              fftMax={state.fftMaxDb}
-              onVizZoomChange={setVizZoom}
-              onVizZoomFloorChange={setVizZoomFloor}
-              onVizZoomFloorPanChange={(pan) =>
-                reduxDispatch(setVizZoomFloorPan(pan))
-              }
-              onVizPanChange={handleVizPanChange}
-              onStitchStatus={(status) =>
-                reduxDispatch(setStitchStatus(status))
-              }
-              onFrequencyRangeChange={handleFrequencyRangeChange}
-              onFftDbLimitsChange={(min, max) =>
-                reduxDispatch(setFftDbLimits({ min, max }))
-              }
-              snapshotGridPreference={state.snapshotGridPreference}
-            />
-          </>
+          <FFTPlaybackCanvas
+            ref={fftCanvasRef}
+            selectedFiles={state.selectedFiles}
+            stitchTrigger={state.stitchTrigger}
+            stitchSourceSettings={state.stitchSourceSettings}
+            isPaused={state.isStitchPaused}
+            fftSize={state.fftSize}
+            displayTemporalResolution={
+              state.displayTemporalResolution === "reduced"
+                ? "lossless"
+                : state.displayTemporalResolution
+            }
+            displayMode={state.displayMode}
+            powerScale={state.powerScale}
+            removeDcSpike={state.removeDcSpike}
+            vizZoom={vizZoom}
+            vizZoomFloor={vizZoomFloor}
+            vizZoomFloorPan={state.vizZoomFloorPan}
+            vizPanOffset={vizPanOffset}
+            autoZoomStability={state.autoZoomStability}
+            fftMin={state.fftMinDb}
+            fftMax={state.fftMaxDb}
+            onVizZoomChange={setVizZoom}
+            onVizZoomFloorChange={setVizZoomFloor}
+            onVizZoomFloorPanChange={handleVizZoomFloorPanChange}
+            onVizPanChange={handleVizPanChange}
+            onStitchStatus={handleStitchStatusChange}
+            onFrequencyRangeChange={handleFrequencyRangeChange}
+            onFftDbLimitsChange={handleFftDbLimitsChange}
+            snapshotGridPreference={state.snapshotGridPreference}
+          />
         )}
       </SpectrumContent>
       <NoteCards

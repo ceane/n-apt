@@ -168,6 +168,7 @@ export {
   setFrequencyRange,
   setActiveSignalArea,
   setSignalAreaAndRange,
+  setTxHopPreviewState,
   setDeviceSignalAreaAndRange,
   tuneToChannels,
   mergeLastKnownRanges,
