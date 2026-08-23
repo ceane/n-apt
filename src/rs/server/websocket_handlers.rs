@@ -17,7 +17,7 @@ use validator::Validate;
 
 use crate::crypto;
 
-use super::shared_state::SharedState;
+use super::shared_state::{DisplayViewport, SharedState};
 use super::stream_contract::{
   stream_control_scope, StreamControlAction, StreamControlScope,
   StreamDeliveryPolicy,
@@ -50,6 +50,53 @@ fn harden_websocket(ws: WebSocketUpgrade) -> WebSocketUpgrade {
   ws.max_message_size(WS_MAX_MESSAGE_BYTES)
     .max_frame_size(WS_MAX_FRAME_BYTES)
     .max_write_buffer_size(WS_MAX_WRITE_BUFFER_BYTES)
+}
+
+/// Cache kind for `ENCODED_FRAME_CACHE` entries.
+///
+/// 0 = v1 binary wire payload, 1..=4 = v2 binary wire payload per
+/// `IqFrameStatus`, 5 = base64 ciphertext string bytes (JSON transport).
+type EncodedFrameCacheKey = (u8, String, u64, u64, u64);
+
+/// Every subscriber of the same frame shares one encryption result.
+///
+/// The process uses a single global encryption key and each frame is uniquely
+/// identified by (source, epoch, sequence, timestamp), so N subscribers of the
+/// same broadcast frame can reuse the encoded buffer instead of each paying an
+/// AES-GCM pass plus a ~700 KiB allocation per frame per subscriber.
+static ENCODED_FRAME_CACHE: std::sync::LazyLock<
+  std::sync::Mutex<HashMap<EncodedFrameCacheKey, (std::time::Instant, axum::body::Bytes)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+const ENCODED_FRAME_CACHE_MAX_ENTRIES: usize = 256;
+const ENCODED_FRAME_CACHE_TTL: std::time::Duration =
+  std::time::Duration::from_secs(2);
+const ENCODED_FRAME_KIND_V1: u8 = 0;
+const ENCODED_FRAME_KIND_JSON: u8 = 5;
+
+fn cached_encoded_frame(
+  key: EncodedFrameCacheKey,
+  encode: impl FnOnce() -> Result<Vec<u8>, ()>,
+) -> Result<axum::body::Bytes, ()> {
+  if let Ok(cache) = ENCODED_FRAME_CACHE.try_lock() {
+    if let Some((stored_at, payload)) = cache.get(&key) {
+      if stored_at.elapsed() < ENCODED_FRAME_CACHE_TTL {
+        return Ok(payload.clone());
+      }
+    }
+  }
+
+  let payload: axum::body::Bytes = encode()?.into();
+  if let Ok(mut cache) = ENCODED_FRAME_CACHE.try_lock() {
+    cache.retain(|_, (stored_at, _)| {
+      stored_at.elapsed() < ENCODED_FRAME_CACHE_TTL
+    });
+    if cache.len() >= ENCODED_FRAME_CACHE_MAX_ENTRIES {
+      cache.clear();
+    }
+    cache.insert(key, (std::time::Instant::now(), payload.clone()));
+  }
+  Ok(payload)
 }
 
 fn normalize_tx_signal(signal_name: Option<&str>) -> String {
@@ -171,7 +218,7 @@ pub(crate) fn build_tx_preview_frame(
   let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
   let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
   let power_model = complex_baseband::resolve_mock_tx_iq_power_model();
-  let raw_iq = complex_baseband::synthesize_mock_tx_monitor_iq(
+  let raw_iq = complex_baseband::synthesize_mock_tx_monitor_iq_shared_phase(
     fft_size,
     view_center_hz,
     sample_rate,
@@ -185,7 +232,7 @@ pub(crate) fn build_tx_preview_frame(
     tx_ifft_size,
     tx_power_dbm,
     &power_model,
-    &mut *shared.mock_tx_phase_accumulator.lock().unwrap(),
+    &shared.mock_tx_phase_accumulator,
   );
   build_tx_monitor_frame_from_iq(
     shared,
@@ -378,7 +425,7 @@ pub async fn source_iq_ws_upgrade_handler(
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
-enum StreamCommand {
+pub enum StreamCommand {
   #[serde(rename = "stream_subscribe")]
   Subscribe {
     #[serde(default = "default_subscriber_scope")]
@@ -426,6 +473,89 @@ enum StreamCommand {
     #[serde(rename = "deliveryPolicy")]
     delivery_policy: StreamDeliveryPolicy,
   },
+}
+
+fn stream_rx_processor_settings(
+  options: &super::stream_manager::RxStreamOptions,
+) -> Option<(u32, super::types::SdrProcessorSettings)> {
+  // Bounds mirroring the control-plane (`WebSocketMessage`) validators so an
+  // out-of-range stream option (e.g. fft_size: u64::MAX) can never reach device
+  // state and corrupt the acquisition pipeline.
+  if options.sample_rate_hz == 0 || options.sample_rate_hz > 100_000_000 {
+    return None;
+  }
+  if options.fft_size < 256 || options.fft_size > 8_388_608 {
+    return None;
+  }
+  if let Some(frame_rate) = options.frame_rate {
+    if frame_rate == 0 || frame_rate > 100 {
+      return None;
+    }
+  }
+  if let Some(gain) = options.gain {
+    if !gain.is_finite() || gain > 100.0 {
+      return None;
+    }
+  }
+  let center_frequency_hz = u32::try_from(options.center_frequency_hz).ok()?;
+  if center_frequency_hz == 0 {
+    return None;
+  }
+  Some((
+    center_frequency_hz,
+    super::types::SdrProcessorSettings {
+      sample_rate: Some(options.sample_rate_hz),
+      fft_size: Some(options.fft_size),
+      fft_window: options.fft_window.clone(),
+      frame_rate: options.frame_rate,
+      gain: options.gain,
+      ..Default::default()
+    },
+  ))
+}
+
+/// Validate Tx stream options before they reach the device-owned Tx stream.
+fn stream_tx_options_valid(options: &super::stream_manager::TxStreamOptions) -> bool {
+  // Battery/power limits are enforced separately by the safety layer; here we
+  // only reject values that would desync the IFFT device state.
+  options.center_frequency_hz > 0
+    && options.sample_rate_hz > 0
+    && options.sample_rate_hz <= 100_000_000
+    && (options.ifft_size >= 256 && options.ifft_size <= 8_388_608)
+    && options.power_dbm.is_finite()
+}
+
+/// Tells whether a `StreamOptions` value is within documented runtime bounds.
+/// Central gate used by both `stream_subscribe` and `stream_update_options` so
+/// an out-of-range option can never reach device state.
+pub fn stream_options_valid(options: &super::stream_manager::StreamOptions) -> bool {
+  match options {
+    super::stream_manager::StreamOptions::Rx(rx) => stream_rx_processor_settings(rx).is_some(),
+    super::stream_manager::StreamOptions::Tx(tx) => stream_tx_options_valid(tx),
+  }
+}
+
+fn apply_rx_stream_device_options(
+  shared: &SharedState,
+  center_frequency_hz: u32,
+  settings: super::types::SdrProcessorSettings,
+) {
+  shared.request_center_frequency(center_frequency_hz);
+  shared.enqueue_pending_fast_settings(settings.clone());
+  let mut current = shared.sdr_settings.lock().unwrap();
+  current.center_frequency = center_frequency_hz;
+  if let Some(sample_rate) = settings.sample_rate {
+    current.sample_rate = sample_rate;
+  }
+  if let Some(fft_size) = settings.fft_size {
+    current.fft.default_size = fft_size;
+  }
+  if let Some(frame_rate) = settings.frame_rate {
+    current.fft.default_frame_rate = frame_rate;
+  }
+  if let Some(gain) = settings.gain {
+    current.gain.tuner_gain = gain;
+  }
 }
 
 fn default_subscriber_scope() -> StreamControlScope {
@@ -505,7 +635,7 @@ mod sample_rate_tests {
   }
 }
 
-fn stream_event_json(
+pub fn stream_event_json(
   event: &StreamEvent,
   enc_key: &[u8; 32],
 ) -> Result<serde_json::Value, String> {
@@ -545,9 +675,25 @@ fn stream_event_json(
       Ok(value)
     }
     StreamEvent::Frame(frame) => {
-      let encrypted =
-        crate::crypto::encrypt_payload_binary(enc_key, &frame.iq_data)
-          .map_err(|_| "I/Q data encryption failed".to_string())?;
+      // Connections receiving the same frame share one encrypt+base64 pass.
+      let cache_key: EncodedFrameCacheKey = (
+        ENCODED_FRAME_KIND_JSON,
+        frame.key.source_id.clone(),
+        frame.stream_epoch,
+        frame.sequence,
+        frame.timestamp as u64,
+      );
+      let encoded_iq = cached_encoded_frame(cache_key, || {
+        let encrypted =
+          crate::crypto::encrypt_payload_binary(enc_key, &frame.iq_data)
+            .map_err(|_| ())?;
+        Ok(
+          base64::engine::general_purpose::STANDARD
+            .encode(encrypted)
+            .into_bytes(),
+        )
+      })
+      .map_err(|_| "I/Q data encryption failed".to_string())?;
       let mut value =
         base(&frame.key, frame.stream_epoch, frame.options_revision);
       value["type"] = serde_json::json!("stream_frame");
@@ -557,8 +703,8 @@ fn stream_event_json(
       value["sampleRateHz"] = serde_json::json!(frame.sample_rate_hz);
       value["dataType"] = serde_json::json!("iq_raw");
       value["encrypted"] = serde_json::json!(true);
-      value["iqData"] = serde_json::json!(
-        base64::engine::general_purpose::STANDARD.encode(encrypted)
+      value["iqData"] = serde_json::Value::String(
+        String::from_utf8_lossy(&encoded_iq).into_owned(),
       );
       Ok(value)
     }
@@ -691,6 +837,11 @@ async fn handle_stream_connection(
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
             };
+            if !stream_options_valid(&options) {
+              let error = stream_error_json(&subscription_id, &stream, "options", "invalid stream options");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
             manager.register_source(stream.source_id.clone(), capabilities);
             let source_snapshot = build_source_info_snapshot(&shared);
             let source_status = source_snapshot["sources"]
@@ -783,9 +934,55 @@ async fn handle_stream_connection(
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
             }
-            if let Err(error) = manager.update_options(&stream, options) {
-              let response = stream_error_json(&subscription_id, &stream, error.code(), &error.to_string());
+            if !stream_options_valid(&options) {
+              let response = stream_error_json(
+                &subscription_id,
+                &stream,
+                "options",
+                "invalid stream options",
+              );
               let _ = sender.send(Message::Text(response.to_string().into())).await;
+              continue;
+            }
+            let rx_device_settings = match &options {
+              StreamOptions::Rx(rx_options) => {
+                let Some(settings) = stream_rx_processor_settings(rx_options) else {
+                  let response = stream_error_json(
+                    &subscription_id,
+                    &stream,
+                    "options",
+                    "invalid RX stream options",
+                  );
+                  let _ = sender.send(Message::Text(response.to_string().into())).await;
+                  continue;
+                };
+                Some(settings)
+              }
+              StreamOptions::Tx(_) => None,
+            };
+            match manager.update_options(&stream, options) {
+              Err(error) => {
+                let response = stream_error_json(&subscription_id, &stream, error.code(), &error.to_string());
+                let _ = sender.send(Message::Text(response.to_string().into())).await;
+              }
+              Ok((_, _, true)) => {
+                if let Some((center_frequency_hz, settings)) = rx_device_settings {
+                  // Managed RX options are device-scoped, not presentation-only.
+                  // Apply them through the same lock-free acquisition path used by
+                  // legacy settings and VFO commands so accepted stream revisions
+                  // cannot keep publishing frames from the previous channel.
+                  apply_rx_stream_device_options(
+                    &shared,
+                    center_frequency_hz,
+                    settings,
+                  );
+                }
+              }
+              Ok((_, _, false)) => {
+                // A duplicate write is already represented by the authoritative
+                // stream revision. Do not enqueue another hardware application
+                // or create another frontend feedback event.
+              }
             }
           }
           StreamCommand::SetPaused { scope, subscription_id, stream, paused } => {
@@ -895,7 +1092,7 @@ async fn handle_stream_connection(
 ///
 /// Frame layout:
 /// `[timestamp:8][center_freq:8][data_type:4][sample_rate:4][encrypted_payload...]`
-fn encode_encrypted_iq_frame_v1(
+pub fn encode_encrypted_iq_frame_v1(
   enc_key: &[u8; 32],
   spectrum_data: &super::types::SpectrumData,
 ) -> Result<Vec<u8>, ()> {
@@ -922,7 +1119,7 @@ fn encode_encrypted_iq_frame_v1(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IqStreamProtocol {
+pub enum IqStreamProtocol {
   V1,
   V2,
 }
@@ -935,7 +1132,7 @@ pub(crate) enum IqStreamProtocol {
 /// for this enum and the remaining five bytes are reserved for future fields.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IqFrameStatus {
+pub enum IqFrameStatus {
   Receiving = 0,
   Standby = 1,
   Transmitting = 2,
@@ -976,7 +1173,7 @@ impl IqStreamProtocol {
 /// The source, generation, and presentation metadata let clients reject late
 /// async decryptions and stale Tx preview frames without modifying the
 /// checksum-sensitive waveform bytes.
-fn encode_encrypted_iq_frame_v2(
+pub fn encode_encrypted_iq_frame_v2(
   enc_key: &[u8; 32],
   spectrum_data: &super::types::SpectrumData,
   source_id: &str,
@@ -1021,7 +1218,7 @@ fn encode_encrypted_iq_frame_v2(
   Ok(payload)
 }
 
-fn encode_encrypted_iq_frame(
+pub fn encode_encrypted_iq_frame(
   protocol: IqStreamProtocol,
   enc_key: &[u8; 32],
   spectrum_data: &super::types::SpectrumData,
@@ -1058,15 +1255,28 @@ async fn send_encrypted_iq_frame(
       metrics,
       crate::performance::Stage::EncryptSerialize,
     );
-    encode_encrypted_iq_frame(
-      protocol,
-      enc_key,
-      spectrum_data,
-      &spectrum_data.source_id,
+    // Subscribers of the same broadcast frame share one encoded payload.
+    let cache_key: EncodedFrameCacheKey = (
+      match protocol {
+        IqStreamProtocol::V1 => ENCODED_FRAME_KIND_V1,
+        IqStreamProtocol::V2 => 1 + frame_status as u8,
+      },
+      spectrum_data.source_id.clone(),
       spectrum_data.stream_epoch,
       spectrum_data.sequence,
-      frame_status,
-    )?
+      spectrum_data.timestamp as u64,
+    );
+    cached_encoded_frame(cache_key, || {
+      encode_encrypted_iq_frame(
+        protocol,
+        enc_key,
+        spectrum_data,
+        &spectrum_data.source_id,
+        spectrum_data.stream_epoch,
+        spectrum_data.sequence,
+        frame_status,
+      )
+    })?
   };
   metrics.increment(crate::performance::CounterKind::Copies, 1);
   metrics.increment(
@@ -1477,6 +1687,7 @@ pub async fn handle_ws_connection(
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut broadcast_rx = broadcast_tx.subscribe();
+  let connection_id = shared.next_connection_id();
 
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
@@ -1563,6 +1774,9 @@ pub async fn handle_ws_connection(
               // otherwise its local selection waits forever for an active
               // source confirmation that will never arrive.
               || plaintext_json.contains("\"type\":\"error\"")
+              // TX safety state changes gate the transmit UI; dropping them
+              // left clients showing stale safety limits.
+              || plaintext_json.contains("\"type\":\"tx_safety\"")
             {
               if ws_sender.send(Message::Text(plaintext_json.into())).await.is_err() {
                 break;
@@ -1610,6 +1824,20 @@ pub async fn handle_ws_connection(
                     }
                   }
                 } else {
+                  // Track capture ownership before dispatching: this socket
+                  // disconnecting must only stop captures it started, never
+                  // another client's in-flight job.
+                  let mut message = message;
+                  if message.message_type == "capture_start" {
+                    let job_id = message
+                      .job_id
+                      .get_or_insert_with(|| uuid::Uuid::new_v4().to_string());
+                    shared.register_capture_owner(job_id, connection_id);
+                  } else if message.message_type == "capture_stop" {
+                    if let Some(job_id) = &message.job_id {
+                      shared.clear_capture_owner_if(job_id);
+                    }
+                  }
                   handle_message(&cmd_tx, &shared, &broadcast_tx, message);
                 }
               }
@@ -1625,7 +1853,15 @@ pub async fn handle_ws_connection(
     }
   }
 
-  let _ = cmd_tx.send(super::types::SdrCommand::StopCapture { job_id: None });
+  // Stop only a capture this connection started. `job_id: None` would stop
+  // whatever capture is running globally, letting one client's refresh abort
+  // another client's in-flight capture.
+  if let Some(job_id) = shared.take_owned_capture_for_connection(connection_id)
+  {
+    let _ = cmd_tx.send(super::types::SdrCommand::StopCapture {
+      job_id: Some(job_id),
+    });
+  }
 
   shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
   shared.client_count.fetch_sub(1, Ordering::Relaxed);
@@ -1646,6 +1882,46 @@ fn is_device_scoped_control(message: &WebSocketMessage) -> bool {
     "status" => message.source_id.is_none(),
     _ => false,
   }
+}
+
+fn resolve_display_viewport(
+  message: &WebSocketMessage,
+) -> Option<DisplayViewport> {
+  let min_hz = message.display_min_hz?;
+  let max_hz = message.display_max_hz?;
+  if !min_hz.is_finite() || !max_hz.is_finite() || max_hz <= min_hz {
+    return None;
+  }
+
+  let hardware_center = match (message.min_freq, message.max_freq) {
+    (Some(min), Some(max)) if min.is_finite() && max.is_finite() => {
+      (min + max) / 2.0
+    }
+    _ => (min_hz + max_hz) / 2.0,
+  };
+  let display_center = (min_hz + max_hz) / 2.0;
+  let pan_hz = message
+    .display_pan_hz
+    .filter(|pan| pan.is_finite())
+    .unwrap_or(display_center - hardware_center);
+  let zoom = message
+    .display_zoom
+    .filter(|zoom| zoom.is_finite() && *zoom > 0.0)
+    .unwrap_or(1.0);
+
+  Some(DisplayViewport {
+    min_hz,
+    max_hz,
+    pan_hz,
+    zoom,
+    crosses_dc: message
+      .display_crosses_dc
+      .unwrap_or(min_hz < 0.0 && max_hz > 0.0),
+    direction_negative: message
+      .display_direction_negative
+      .unwrap_or(pan_hz < 0.0),
+    mirror_below_zero: message.mirror_spectrum_below_zero.unwrap_or(false),
+  })
 }
 
 pub fn handle_message(
@@ -1693,6 +1969,10 @@ pub fn handle_message(
           message.signal_area.clone(),
           (min_freq, _max_freq),
         );
+        // A legacy or mirror-disabled client has no signed viewport to share;
+        // clear the previous presentation instead of replaying stale negative
+        // coordinates to the next subscriber.
+        shared.set_display_viewport(resolve_display_viewport(&message));
         {
           let mut sdr_settings = shared.sdr_settings.lock().unwrap();
           sdr_settings.center_frequency = center_freq;
@@ -2286,8 +2566,13 @@ pub fn handle_message(
       let _ = broadcast_tx.send(tx_safety.to_string());
     }
     "restart_device" => {
-      info!("Client requested device restart");
-      let _ = cmd_tx.send(super::types::SdrCommand::RestartDevice);
+      let source_id = message.source_id.clone();
+      match source_id.as_deref() {
+        Some(id) => info!("Client requested restart of source {}", id),
+        None => info!("Client requested device restart"),
+      }
+      let _ =
+        cmd_tx.send(super::types::SdrCommand::RestartDevice { source_id });
     }
     "select_source" => {
       if let Some(mut source_id) = message.source_id.clone() {
@@ -2527,18 +2812,22 @@ pub fn handle_message(
 #[cfg(test)]
 mod tests {
   use super::{
-    build_mock_tx_standby_preview_frame, build_tx_preview_frame,
-    drain_latest_source_iq_frame, encode_encrypted_iq_frame, handle_message,
-    is_frame_after_paused_request, is_tx_preview_source,
-    live_tune_is_out_of_bounds, resolve_live_center_frequency,
-    should_send_source_iq_frame, source_iq_frame_matches_source,
+    apply_rx_stream_device_options, build_mock_tx_standby_preview_frame,
+    build_tx_preview_frame, drain_latest_source_iq_frame,
+    encode_encrypted_iq_frame, handle_message, is_frame_after_paused_request,
+    is_tx_preview_source, live_tune_is_out_of_bounds,
+    resolve_live_center_frequency, should_send_source_iq_frame,
+    source_iq_frame_matches_source,
     source_iq_subscription_matches_active_source,
-    source_iq_v2_frame_matches_source, take_source_owned_paused_frame_request,
-    stream_event_json, IqFrameStatus, IqStreamProtocol,
+    source_iq_v2_frame_matches_source, stream_event_json,
+    stream_rx_processor_settings, take_source_owned_paused_frame_request,
+    IqFrameStatus, IqStreamProtocol,
   };
-  use crate::server::stream_manager::{StreamEvent, StreamKey, StreamMode};
   use crate::sdr::processor::SdrProcessor;
   use crate::server::shared_state::SharedState;
+  use crate::server::stream_manager::{
+    RxStreamOptions, StreamEvent, StreamKey, StreamMode,
+  };
   use crate::server::types::{
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
   };
@@ -2548,6 +2837,58 @@ mod tests {
   use std::sync::mpsc;
   use std::sync::Arc;
   use std::time::Duration;
+
+  #[test]
+  fn managed_rx_options_translate_to_live_device_settings() {
+    let options = RxStreamOptions {
+      center_frequency_hz: 6_374_000,
+      sample_rate_hz: 4_372_000,
+      fft_size: 2_048,
+      fft_window: Some("Rectangular".to_string()),
+      frame_rate: Some(60),
+      gain: Some(46.9),
+    };
+
+    let (center_frequency_hz, settings) =
+      stream_rx_processor_settings(&options).expect("valid RX options");
+
+    assert_eq!(center_frequency_hz, 6_374_000);
+    assert_eq!(settings.sample_rate, Some(4_372_000));
+    assert_eq!(settings.fft_size, Some(2_048));
+    assert_eq!(settings.fft_window.as_deref(), Some("Rectangular"));
+    assert_eq!(settings.frame_rate, Some(60));
+    assert_eq!(settings.gain, Some(46.9));
+  }
+
+  #[test]
+  #[serial]
+  fn managed_rx_options_reach_the_acquisition_fast_path() {
+    let shared = test_shared_state();
+    let (_, settings) = stream_rx_processor_settings(&RxStreamOptions {
+      center_frequency_hz: 6_374_000,
+      sample_rate_hz: 4_372_000,
+      fft_size: 2_048,
+      fft_window: Some("Rectangular".to_string()),
+      frame_rate: Some(60),
+      gain: Some(46.9),
+    })
+    .expect("valid RX options");
+
+    apply_rx_stream_device_options(&shared, 6_374_000, settings);
+
+    assert_eq!(
+      shared.pending_center_freq.load(Ordering::Acquire),
+      6_374_000
+    );
+    assert!(shared.pending_center_freq_dirty.load(Ordering::Acquire));
+    let pending = shared.pending_fast_settings.lock().unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].sample_rate, Some(4_372_000));
+    drop(pending);
+    let current = shared.sdr_settings.lock().unwrap();
+    assert_eq!(current.center_frequency, 6_374_000);
+    assert_eq!(current.sample_rate, 4_372_000);
+  }
   use tokio::sync::broadcast;
   use validator::Validate;
 
@@ -2672,6 +3013,42 @@ mod tests {
     assert_eq!(snapshot["frequency_range"]["min"], 24_100_000.0);
     assert_eq!(snapshot["frequency_range"]["max"], 30_370_000.0);
     assert!(snapshot["sample_rate"].as_u64().is_some());
+  }
+
+  #[test]
+  #[serial]
+  fn frequency_range_broadcast_includes_signed_mirrored_viewport_state() {
+    let shared = test_shared_state();
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+    let mut broadcast_rx = broadcast_tx.subscribe();
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"frequency_range",
+        "scope":"device",
+        "min_hz":0,
+        "max_hz":4000000,
+        "center_frequency":2000000,
+        "display_min_hz":-3000000,
+        "display_max_hz":1000000,
+        "display_pan_hz":-3000000,
+        "display_zoom":1,
+        "display_crosses_dc":true,
+        "display_direction_negative":true,
+        "mirror_spectrum_below_zero":true
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let snapshot: serde_json::Value =
+      serde_json::from_str(&broadcast_rx.try_recv().unwrap()).unwrap();
+    assert_eq!(snapshot["display_range"]["min"], -3_000_000.0);
+    assert_eq!(snapshot["display_range"]["max"], 1_000_000.0);
+    assert_eq!(snapshot["display_range"]["pan_hz"], -3_000_000.0);
+    assert_eq!(snapshot["display_range"]["crosses_dc"], true);
+    assert_eq!(snapshot["display_range"]["direction_negative"], true);
+    assert_eq!(snapshot["display_range"]["mirror_below_zero"], true);
   }
 
   #[test]
@@ -3688,16 +4065,17 @@ mod tests {
 
   #[test]
   fn max_fft_stream_frame_fits_the_multiplexed_websocket_write_budget() {
-    let event = StreamEvent::Frame(crate::server::stream_manager::StreamFrame {
-      key: StreamKey::new("mock-apt", StreamMode::Rx),
-      stream_epoch: 1,
-      options_revision: 1,
-      sequence: 1,
-      timestamp: 1234,
-      center_frequency_hz: Some(1_600_000),
-      sample_rate_hz: 3_200_000,
-      iq_data: Arc::new(vec![128; 262_144 * 2]),
-    });
+    let event =
+      StreamEvent::Frame(crate::server::stream_manager::StreamFrame {
+        key: StreamKey::new("mock-apt", StreamMode::Rx),
+        stream_epoch: 1,
+        options_revision: 1,
+        sequence: 1,
+        timestamp: 1234,
+        center_frequency_hz: Some(1_600_000),
+        sample_rate_hz: 3_200_000,
+        iq_data: Arc::new(vec![128; 262_144 * 2]),
+      });
 
     let encoded = stream_event_json(&event, &[7u8; 32])
       .expect("maximum-size stream frame should encode");

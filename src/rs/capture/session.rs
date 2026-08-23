@@ -288,6 +288,10 @@ impl CaptureWorker {
       return;
     };
 
+    // The job is done; drop its connection-ownership record so the map does
+    // not hold stale entries.
+    self.shared_state.clear_capture_owner_if(&result.job_id);
+
     let processing_msg = serde_json::json!({
       "type": "capture_status",
       "status": {
@@ -337,6 +341,7 @@ impl CaptureWorker {
     broadcast_tx: &broadcast::Sender<String>,
     reason: Option<&str>,
   ) {
+    shared_state.clear_capture_owner_if(&result.job_id);
     let status_msg = reason.unwrap_or("Capture stopped").to_string();
     let processing_msg = serde_json::json!({
       "type": "capture_status",
@@ -466,8 +471,13 @@ async fn store_artifact_and_broadcast(
   };
   artifacts.push(artifact.clone());
 
-  if let Err(error) =
-    shared_state.redis_store.set_json(1, &key, &artifacts).await
+  // Capture artifact metadata is refreshed per artifact; give the key a
+  // generous TTL so abandoned jobs do not accumulate in Redis forever.
+  const CAPTURE_ARTIFACT_TTL_SECS: u64 = 30 * 24 * 60 * 60;
+  if let Err(error) = shared_state
+    .redis_store
+    .set_json_with_ttl(1, &key, &artifacts, Some(CAPTURE_ARTIFACT_TTL_SECS))
+    .await
   {
     error!("Failed to store capture artifacts in Redis: {error}");
   }

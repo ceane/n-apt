@@ -267,6 +267,39 @@ static COMPLEX_BASEBAND_IQ_CACHE: LazyLock<Mutex<ComplexBasebandIQBuffer>> =
 #[cfg(test)]
 pub(crate) static MOCK_TX_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+/// Snapshot the shared TX phase, synthesize against a local copy, and publish
+/// the advanced phase back. This keeps the phase accumulator's std Mutex held
+/// only for two quick copies instead of across the entire per-sample synthesis
+/// loop, so the RX acquisition path is never blocked behind an IFFT.
+pub fn synthesize_mock_tx_monitor_iq_shared_phase(
+  fft_size: usize,
+  view_center_hz: f64,
+  view_sample_rate: u32,
+  tx_center_hz: f64,
+  tx_bandwidth_hz: f64,
+  signal_name: &str,
+  tx_ifft_size: usize,
+  power_dbm: f64,
+  power_model: &TxIqPowerModel,
+  phase_accumulator: &std::sync::Mutex<f64>,
+) -> Vec<u8> {
+  let mut phase = *phase_accumulator.lock().unwrap();
+  let iq = synthesize_mock_tx_monitor_iq(
+    fft_size,
+    view_center_hz,
+    view_sample_rate,
+    tx_center_hz,
+    tx_bandwidth_hz,
+    signal_name,
+    tx_ifft_size,
+    power_dbm,
+    power_model,
+    &mut phase,
+  );
+  *phase_accumulator.lock().unwrap() = phase;
+  iq
+}
+
 pub fn synthesize_mock_tx_monitor_iq(
   fft_size: usize,
   view_center_hz: f64,
@@ -278,8 +311,7 @@ pub fn synthesize_mock_tx_monitor_iq(
   power_dbm: f64,
   power_model: &TxIqPowerModel,
   phase_accumulator: &mut f64,
-) -> Vec<u8> {
-  #[cfg(test)]
+) -> Vec<u8> {  #[cfg(test)]
   let _cwd_guard = crate::server::utils::cwd_lock().lock().unwrap();
 
   if fft_size == 0 {

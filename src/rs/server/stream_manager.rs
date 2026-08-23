@@ -627,7 +627,7 @@ impl StreamingSourceModeManager {
     &self,
     key: &StreamKey,
     options: StreamOptions,
-  ) -> Result<(u64, u64), StreamError> {
+  ) -> Result<(u64, u64, bool), StreamError> {
     if options.mode() != key.mode {
       return Err(StreamError::InvalidOptions);
     }
@@ -635,7 +635,7 @@ impl StreamingSourceModeManager {
     let mut streams = self.inner.streams.lock().unwrap();
     let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
     if entry.options == options {
-      return Ok((entry.stream_epoch, entry.options_revision));
+      return Ok((entry.stream_epoch, entry.options_revision, false));
     }
     entry.options = options.clone();
     entry.options_revision += 1;
@@ -649,7 +649,7 @@ impl StreamingSourceModeManager {
       options_revision: revision,
       options,
     });
-    Ok((epoch, revision))
+    Ok((epoch, revision, true))
   }
 
   fn unsubscribe(&self, key: &StreamKey, subscription_id: u64) {
@@ -1000,6 +1000,24 @@ mod tests {
 
     let latest = subscription.recv().await.unwrap();
     assert!(matches!(latest, StreamEvent::Frame(frame) if frame.sequence == 64));
+  }
+
+  #[test]
+  fn identical_device_options_are_not_republished() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let mut subscription = manager.subscribe(key.clone(), rx_options()).unwrap();
+
+    let (_, revision, changed) = manager
+      .update_options(&key, rx_options())
+      .expect("existing stream options should be accepted");
+
+    assert_eq!(revision, 1);
+    assert!(!changed);
+    assert!(matches!(
+      subscription.receiver.try_recv(),
+      Err(broadcast::error::TryRecvError::Empty)
+    ));
   }
 
   #[test]

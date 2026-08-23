@@ -104,14 +104,25 @@ pub(crate) fn spawn_monitor_stream(
         let Some(payload) = stream_manager.tx_payload(&tx_key) else {
           continue;
         };
-        crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
+        let frame = crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
           &shared_state,
           &active_source_id,
           payload.center_frequency_hz as f64,
           payload.sample_rate_hz,
           (*payload.iq_data).clone(),
           false,
-        )
+        );
+        // Publish the exact bytes handed to the transmitter by sharing the
+        // payload's existing Arc instead of re-cloning the full IQ buffer.
+        let _ = stream_manager.publish_iq_frame_with_metadata(
+          &tx_key,
+          frame.timestamp,
+          frame.center_frequency_hz.map(|frequency| frequency as u64),
+          frame.sample_rate.unwrap_or(1),
+          Arc::clone(&payload.iq_data),
+        );
+        let _ = spectrum_tx.send(Arc::new(frame));
+        continue;
       };
       let _ = stream_manager.publish_iq_frame_with_metadata(
         &tx_key,
@@ -200,28 +211,33 @@ impl TxWorker {
     // from the TX globals set by the preview request, mirroring the source-I/Q
     // socket behavior for an inactive tx-capable device.
     let hardware_tx_key = StreamKey::new(request_owner.clone(), StreamMode::Tx);
-    let frame =
+    let (frame, published_iq) =
       if let Some(payload) = self.stream_manager.tx_payload(&hardware_tx_key) {
-        crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
+        let frame = crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
           &self.shared_state,
           &request_owner,
           payload.center_frequency_hz as f64,
           payload.sample_rate_hz,
           (*payload.iq_data).clone(),
           true,
-        )
+        );
+        // Publish the transmitter's exact bytes by sharing the payload's
+        // existing Arc instead of re-cloning the full IQ buffer.
+        (frame, Arc::clone(&payload.iq_data))
       } else {
-        crate::server::websocket_handlers::build_tx_preview_frame(
+        let frame = crate::server::websocket_handlers::build_tx_preview_frame(
           &self.shared_state,
           &request_owner,
-        )
+        );
+        let published_iq = Arc::new(frame.iq_data.clone());
+        (frame, published_iq)
       };
     let _ = self.stream_manager.publish_iq_frame_with_metadata(
       &hardware_tx_key,
       frame.timestamp,
       frame.center_frequency_hz.map(|frequency| frequency as u64),
       frame.sample_rate.unwrap_or(1),
-      Arc::new(frame.iq_data.clone()),
+      published_iq,
     );
     let _ = self.spectrum_tx.send(Arc::new(frame));
     self.shared_state.clear_paused_frame_request();
@@ -266,11 +282,57 @@ impl TxWorker {
     if let Some(tx_signal) = tx_signal.as_deref() {
       *crate::safety::TX_SIGNAL.lock().unwrap() = tx_signal.to_string();
     }
-    if let Some(power_dbm) = complex_baseband::resolve_effective_tx_power_dbm(
+
+    // Enforce the configured TX radiation limit server-side so client-supplied
+    // power or gains cannot bypass the safety feature.
+    let safety_active =
+      enabled && crate::safety::TX_SAFETY_ENABLED.load(Ordering::Relaxed);
+    let mut power_dbm = power_dbm;
+    let mut vga_gain_db = vga_gain_db;
+    let mut amp_enabled = amp_enabled;
+    let mut power_limit_dbm: Option<f64> = None;
+    if safety_active {
+      let safety_limit =
+        self.shared_state.tx_safety_limit.lock().unwrap().clone();
+      if safety_limit == "min" {
+        power_dbm = Some(-70.0);
+        vga_gain_db = Some(0.0);
+        amp_enabled = Some(false);
+      } else {
+        let max_distance_m = if crate::safety::TX_SAFETY_LIMIT_IS_PERSON
+          .load(Ordering::Relaxed)
+        {
+          1.0
+        } else {
+          3.0
+        };
+        let frequency_hz = center_frequency_hz
+          .map(|frequency| frequency as f64)
+          .unwrap_or(*crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap());
+        let limit_dbm = crate::safety::calculate_room_power_limit(
+          frequency_hz,
+          max_distance_m,
+        );
+        power_dbm = power_dbm.map(|power| power.min(limit_dbm));
+        let safe_gains = crate::safety::get_max_safe_vga_and_amp(limit_dbm);
+        vga_gain_db = Some(vga_gain_db.unwrap_or(0.0).min(safe_gains.vga));
+        if !safe_gains.amp {
+          amp_enabled = Some(false);
+        }
+        power_limit_dbm = Some(limit_dbm);
+      }
+    }
+    let effective_power_dbm = complex_baseband::resolve_effective_tx_power_dbm(
       power_dbm,
       vga_gain_db,
       amp_enabled,
-    ) {
+    )
+    .or_else(|| {
+      power_limit_dbm.map(|limit| {
+        (*crate::safety::TX_POWER_DBM.lock().unwrap()).min(limit)
+      })
+    });
+    if let Some(power_dbm) = effective_power_dbm {
       *crate::safety::TX_POWER_DBM.lock().unwrap() = power_dbm;
     }
     if let Some(center_frequency_hz) = center_frequency_hz {
@@ -284,9 +346,15 @@ impl TxWorker {
       *crate::safety::TX_IFFT_SIZE.lock().unwrap() = tx_ifft_size;
     }
 
+    // Defer the transmitting flag until the hardware actions succeed: on a
+    // failed start it stays off, and on a failed stop it stays on so the
+    // downstream safety gates remain conservative.
+    let transmit_capable = active_kind == "hackrf_one"
+      || active_kind == "mock_tx"
+      || is_mock_tx_device;
     let was_transmitting =
-      crate::safety::TX_TRANSMITTING.swap(enabled, Ordering::Relaxed);
-    if !enabled {
+      crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+    if !enabled && transmit_capable {
       crate::safety::TX_HOP_ENABLED.store(false, Ordering::Relaxed);
       self
         .shared_state
@@ -314,7 +382,7 @@ impl TxWorker {
                 let mut processor = self.processor.lock().await;
                 processor.queue_center_frequency(center_frequency_hz.min(u32::MAX as u64) as u32);
             }
-            self.shared_state.pending_fast_settings.lock().unwrap().push(
+            self.shared_state.enqueue_pending_fast_settings(
                 crate::server::types::SdrProcessorSettings {
                     sample_rate: sample_rate_hz.map(|value| value.min(u32::MAX as u64) as u32),
                     hackrf_lna_gain: lna_gain_db,
@@ -329,8 +397,9 @@ impl TxWorker {
         }
 
     if active_kind == "hackrf_one" {
-      let mut processor = self.processor.lock().await;
-      if enabled {
+      let hardware_result: anyhow::Result<()> = async {
+        let mut processor = self.processor.lock().await;
+        if enabled {
         let center_hz = center_frequency_hz.unwrap_or(0) as f64;
         let sample_rate =
           sample_rate_hz.unwrap_or(2_000_000).min(u32::MAX as u64) as u32;
@@ -349,7 +418,7 @@ impl TxWorker {
             metrics,
             crate::performance::Stage::TxSynthesis,
           );
-          complex_baseband::synthesize_mock_tx_monitor_iq(
+          complex_baseband::synthesize_mock_tx_monitor_iq_shared_phase(
             tx_ifft_size.unwrap_or(262_144).clamp(256, 262_144),
             center_hz,
             sample_rate,
@@ -359,7 +428,7 @@ impl TxWorker {
             tx_ifft_size.unwrap_or(262_144),
             power_dbm.unwrap_or(-18.0),
             &complex_baseband::resolve_mock_tx_iq_power_model(),
-            &mut *self.shared_state.mock_tx_phase_accumulator.lock().unwrap(),
+            &self.shared_state.mock_tx_phase_accumulator,
           )
         };
         metrics.increment(crate::performance::CounterKind::FramesProduced, 1);
@@ -406,9 +475,18 @@ impl TxWorker {
             .clear_tx_payload(&StreamKey::new(request_owner, StreamMode::Tx));
         }
       }
+        Ok(())
+      }
+      .await;
+      hardware_result?;
     }
 
-    let mut status_changed = was_transmitting != enabled;
+    if transmit_capable {
+      crate::safety::TX_TRANSMITTING.store(enabled, Ordering::Relaxed);
+    }
+
+    let mut status_changed =
+      transmit_capable && was_transmitting != enabled;
     if active_kind == "mock_tx" || is_mock_tx_device {
       let mock_tx_was_transmitting = self
         .shared_state
