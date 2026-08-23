@@ -1,7 +1,7 @@
 import React from "react";
 import styled, { useTheme } from "styled-components";
 import type { AppStyledTheme } from "@n-apt/ui/Theme";
-import { LazySDRCanvas } from "@n-apt/three-d/LazySDRCanvas";
+import { LazySDRCanvas } from "@n-apt/three-d/public/LazySDRCanvas";
 
 const GuideCard = styled.figure`
   margin: 0 0 24px;

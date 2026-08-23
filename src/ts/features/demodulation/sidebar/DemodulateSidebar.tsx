@@ -11,6 +11,7 @@ import {
   triggerStitch,
 } from "@n-apt/redux";
 import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
+import { sendRestartDevice } from "@n-apt/redux/thunks/websocketThunks";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { SourceSidebar } from "@n-apt/spectrum";
 import {
@@ -141,6 +142,15 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   );
   const sourceMode = useAppSelector(selectSourceMode);
   const selectedFiles = useAppSelector(selectSelectedFiles);
+  const restartPendingSourceIds = useAppSelector(
+    (state) => state.websocket.restartPendingSourceIds,
+  );
+  const handleRestartSource = useCallback(
+    (sourceId: string) => {
+      dispatch(sendRestartDevice(sourceId));
+    },
+    [dispatch],
+  );
   const [txPreviewSourceId, setTxPreviewSourceId] = useState<string | null>(
     null,
   );
@@ -354,6 +364,8 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           source.status === "paused" ||
           source.paused === true ||
           isMockSource;
+        const isStale = source.status === "stale";
+        const isRestartPending = restartPendingSourceIds.includes(source.id);
         const actionLabel = isLiveConnected
           ? isPaused
             ? "Resume"
@@ -389,8 +401,15 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
               source.status === "initializing"
                 ? `Initializing ${source.name}`
                 : source.status === "loading"
-                  ? `Loading ${source.name}`
+                  ? isRestartPending
+                    ? "Restarting…"
+                    : `Loading ${source.name}`
                   : undefined,
+            canRestart: isStale,
+            restarting: isRestartPending,
+            onRestart: isStale
+              ? () => handleRestartSource(source.id)
+              : undefined,
             actionLabel,
             actionTitle,
             onAction: isTxSource
@@ -401,7 +420,13 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
           },
         };
       }),
-    [handleToggleTransmit, sources, toggleVisualizerPause],
+    [
+      handleRestartSource,
+      handleToggleTransmit,
+      restartPendingSourceIds,
+      sources,
+      toggleVisualizerPause,
+    ],
   );
 
   const wasLivePausedBeforeFileModeRef = useRef<boolean>(false);

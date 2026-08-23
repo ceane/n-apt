@@ -190,6 +190,29 @@ const Card = styled.article`
   }
 `;
 
+const AccentCard = styled(Card)`
+  border-color: ${(props) => props.theme.primary};
+  background: color-mix(
+    in srgb,
+    ${(props) => props.theme.primary} 8%,
+    ${(props) => props.theme.surface}
+  );
+
+  &:hover {
+    border-color: ${(props) => props.theme.primary};
+    background: color-mix(
+      in srgb,
+      ${(props) => props.theme.primary} 16%,
+      ${(props) => props.theme.surface}
+    );
+    box-shadow:
+      0 0 0 1px ${(props) => props.theme.primary},
+      0 6px 18px -6px
+        color-mix(in srgb, ${(props) => props.theme.primary} 30%, transparent);
+    transform: translateY(-2px);
+  }
+`;
+
 const CardLink = styled(Link)`
   display: flex;
   flex-direction: column;
@@ -214,6 +237,14 @@ const LegalCard = styled(Card)`
   padding: 0;
   overflow: hidden;
   min-height: clamp(180px, 26vmin, 240px);
+
+  /* Override Card's hover: keep the lift and border change, but not the
+     whole-card tint — only the hovered half should highlight. */
+  &:hover {
+    border-color: ${(props) => props.theme.borderHover};
+    background: ${(props) => props.theme.surface};
+    transform: translateY(-2px);
+  }
 
   @media (max-width: 560px) {
     min-height: clamp(360px, 52vmin, 480px);
@@ -470,7 +501,7 @@ export const GetStartedRoute: React.FC = () => {
               opensFileDialog,
             }) =>
               showBypassToggle ? (
-                <Card key={title}>
+                <AccentCard key={title}>
                   <CardLinkBody to={href}>
                     <IconFrame aria-hidden="true">
                       <Icon size={23} strokeWidth={1.7} />
@@ -498,7 +529,7 @@ export const GetStartedRoute: React.FC = () => {
                       Bypass Start Page Next Time
                     </Toggle>
                   </CardFooter>
-                </Card>
+                </AccentCard>
               ) : opensFileDialog ? (
                 <Card
                   key={title}

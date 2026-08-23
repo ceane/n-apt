@@ -21,6 +21,24 @@ export const shouldAppendWaterfallRow = ({
 }): boolean =>
   (!isStandby || isTxPreviewFrame) && hasNewData;
 
+/**
+ * Every accepted live frame owns one history row. Coverage only controls how
+ * the row is filled (uncovered bins use the floor); it must not slow or stop
+ * waterfall time while the subscriber pans its viewport.
+ */
+export const shouldAppendWaterfallFrame = ({
+  hasNewData,
+  isStandby,
+  isTxPreviewFrame,
+  coversDisplay: _coversDisplay,
+}: {
+  hasNewData: boolean;
+  isStandby: boolean;
+  isTxPreviewFrame: boolean;
+  coversDisplay: boolean;
+}): boolean =>
+  shouldAppendWaterfallRow({ hasNewData, isStandby, isTxPreviewFrame });
+
 export const getWaterfallMotion = ({
   previousVisualRange,
   currentVisualRange,

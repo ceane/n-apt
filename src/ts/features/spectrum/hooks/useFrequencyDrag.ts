@@ -1748,7 +1748,19 @@ export function useSpectrumInteraction({
       } else if (onFrequencyRangeChange) {
         // Hardware retune mode (unzoomed, live SDR only).
         // Dragging right (deltaX > 0) means frequency decreases.
-        let newMinFreq = dragStartFreqRef.current - freqChange;
+        // When the mirror is on, a negative visual pan can be left over from a
+        // DC-crossing excursion below 0 Hz (the visual-pan branch held the
+        // displacement as pan while the window stayed put). Re-entering the
+        // positive hardware path must fold that residual pan into the window
+        // shift and zero the pan — otherwise the raw start-anchored delta
+        // double-counts the displacement and the display snaps back at DC.
+        const residualPan = vizPanOffsetRef?.current ?? 0;
+        const returningFromMirroredPan =
+          allowNegativeFrequencies && residualPan < 0;
+        const hardwareShift = returningFromMirroredPan
+          ? freqChange + residualPan
+          : freqChange;
+        let newMinFreq = dragStartFreqRef.current - hardwareShift;
         const rangeWidth = fullRange;
         let newMaxFreq = newMinFreq + rangeWidth;
 
@@ -1756,6 +1768,10 @@ export function useSpectrumInteraction({
           min: newMinFreq,
           max: newMaxFreq,
         });
+        if (returningFromMirroredPan) {
+          onVizPanChange?.(0);
+          if (vizPanOffsetRef) vizPanOffsetRef.current = 0;
+        }
         frequencyRangeRef.current = newRange;
         publishHardwareRange(newRange);
       } else if (onVizPanChange) {
@@ -2539,6 +2555,10 @@ export function useSpectrumInteraction({
     };
 
     const handleWheel = (e: WheelEvent) => {
+      // A wheel gesture is a separate interaction. If a pointer/selection
+      // gesture was interrupted before pointerup, do not let its edge-pan
+      // animation continue moving the acquisition underneath the wheel.
+      stopSelectionEdgePan();
       if (fullPlotSelection) return;
       const container = getContainer();
       if (!container) return;
@@ -2689,6 +2709,8 @@ export function useSpectrumInteraction({
         const freqChange = (deltaPx / width) * visualRange;
         const currentPan = vizPanOffsetRef?.current || 0;
         const proposedPan = currentPan + freqChange;
+        const isReturningFromMirroredPan =
+          allowNegativeFrequencies && currentPan < 0 && proposedPan >= 0;
 
         if (
           // A paused positive viewport must retune its acquisition window so
@@ -2745,11 +2767,32 @@ export function useSpectrumInteraction({
         } else if (onFrequencyRangeChange) {
           // Hardware retune mode
           const currentRange = frequencyRangeRef.current;
+          // If a mirrored visual pan is being undone, consume that pan before
+          // applying any new positive hardware movement. Using the raw wheel
+          // delta here shifts [0, 10] to [4, 14] when [-4, 6] is scrolled back
+          // to DC, leaving the display and acquisition axes out of phase.
+          const hardwareShift = isReturningFromMirroredPan
+            ? proposedPan
+            : freqChange;
           const currentMin = currentRange.min;
-          const newMin = currentMin + freqChange;
+          const newMin = currentMin + hardwareShift;
           const newMax = newMin + fullRange;
           const nextRange = { min: newMin, max: newMax };
           const clampedRange = clampWheelRangeToHardwareBounds(nextRange);
+          if (
+            isReturningFromMirroredPan &&
+            onVizPanChange &&
+            vizPanOffsetRef
+          ) {
+            onVizPanChange(0);
+            vizPanOffsetRef.current = 0;
+          }
+          if (
+            isReturningFromMirroredPan &&
+            Math.abs(hardwareShift) <= Number.EPSILON
+          ) {
+            return;
+          }
           frequencyRangeRef.current = clampedRange;
           publishHardwareRange(clampedRange);
         }
@@ -2797,6 +2840,9 @@ export function useSpectrumInteraction({
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", stopSelectionEdgePan);
+    window.addEventListener("blur", stopSelectionEdgePan);
+    document.addEventListener("visibilitychange", stopSelectionEdgePan);
     window.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
@@ -2821,6 +2867,9 @@ export function useSpectrumInteraction({
       }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", stopSelectionEdgePan);
+      window.removeEventListener("blur", stopSelectionEdgePan);
+      document.removeEventListener("visibilitychange", stopSelectionEdgePan);
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [
@@ -2843,6 +2892,7 @@ export function useSpectrumInteraction({
     onVizZoomChange,
     hardwareSpectrumBounds,
     signalAreaBounds,
+    allowNegativeFrequencies,
     renderWaveformRef,
     selectionMode,
     selectionEdgePanMode,
