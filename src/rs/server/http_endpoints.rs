@@ -75,6 +75,22 @@ pub struct CliSnapshotFramesQuery {
   fft_size: Option<usize>,
 }
 
+/// Build a snapshot frame carrying only the requested IQ prefix.
+///
+/// Copies just the first `iq_bytes` of IQ instead of cloning the full ~512 KiB
+/// buffer and truncating — up to 128 frames per request would otherwise spike
+/// transient allocations by tens of MB.
+fn snapshot_frame_from(
+  frame: &super::types::SpectrumData,
+  iq_bytes: usize,
+) -> super::types::SpectrumData {
+  let mut snapshot = frame.clone();
+  snapshot.waveform.clear();
+  snapshot.iq_data =
+    frame.iq_data[..iq_bytes.min(frame.iq_data.len())].to_vec();
+  snapshot
+}
+
 /// Returns a short history of current Rust SDR frames for the authenticated
 /// CLI snapshot harness. The endpoint exposes data only; image composition
 /// stays shared with the frontend's existing 2D snapshot renderers.
@@ -89,12 +105,7 @@ pub async fn cli_snapshot_frame_handler(
   let collection = async {
     while frames.len() < requested {
       match receiver.recv().await {
-        Ok(frame) => {
-          let mut snapshot_frame = (*frame).clone();
-          snapshot_frame.waveform.clear();
-          snapshot_frame.iq_data.truncate(iq_bytes);
-          frames.push(snapshot_frame);
-        }
+        Ok(frame) => frames.push(snapshot_frame_from(&frame, iq_bytes)),
         Err(error) => return Err(error),
       }
     }
@@ -154,7 +165,7 @@ pub async fn mock_tx_power_frame_handler(
   let model =
     super::websocket_server::complex_baseband::resolve_mock_tx_iq_power_model();
   let raw_iq =
-    super::websocket_server::complex_baseband::synthesize_mock_tx_monitor_iq(
+    super::websocket_server::complex_baseband::synthesize_mock_tx_monitor_iq_shared_phase(
       fft_size,
       137_100_000.0,
       sample_rate_hz,
@@ -164,7 +175,7 @@ pub async fn mock_tx_power_frame_handler(
       tx_ifft_size,
       power_dbm,
       &model,
-      &mut *state.shared.mock_tx_phase_accumulator.lock().unwrap(),
+      &state.shared.mock_tx_phase_accumulator,
     );
 
   let mut response = raw_iq.into_response();
@@ -871,74 +882,107 @@ pub async fn capture_download_handler(
 
   // Multiple files: create ZIP archive on disk (streaming)
   // SECURITY: Using tempfile() which is automatically deleted after all handles are closed.
-  let mut zip_temp = match tempfile::tempfile() {
-    Ok(t) => t,
-    Err(e) => {
-      error!("Failed to create temp file for ZIP: {}", e);
-      return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
-        .into_response();
-    }
-  };
+  // The ZIP build performs blocking file I/O over potentially multi-GB IQ
+  // captures, so it runs on the blocking pool instead of pinning an async
+  // worker thread for the duration.
+  let artifacts_for_zip = artifacts.clone();
+  let zip_build = tokio::task::spawn_blocking(move || {
+    let mut zip_temp = match tempfile::tempfile() {
+      Ok(t) => t,
+      Err(e) => {
+        error!("Failed to create temp file for ZIP: {}", e);
+        return Err(
+          (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+            .into_response(),
+        );
+      }
+    };
 
-  {
-    let mut zip = zip::ZipWriter::new(&mut zip_temp);
-    let options: zip::write::FileOptions<()> =
-      zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored)
-        .unix_permissions(0o644);
+    {
+      let mut zip = zip::ZipWriter::new(&mut zip_temp);
+      let options: zip::write::FileOptions<()> =
+        zip::write::FileOptions::default()
+          .compression_method(zip::CompressionMethod::Stored)
+          .unix_permissions(0o644);
 
-    for artifact in &artifacts {
-      let mut file = match std::fs::File::open(&artifact.path) {
-        Ok(f) => f,
-        Err(e) => {
-          error!("Failed to open capture file for ZIP: {}", e);
-          return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to read capture file",
-          )
-            .into_response();
+      for artifact in &artifacts_for_zip {
+        let mut file = match std::fs::File::open(&artifact.path) {
+          Ok(f) => f,
+          Err(e) => {
+            error!("Failed to open capture file for ZIP: {}", e);
+            return Err(
+              (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to read capture file",
+              )
+                .into_response(),
+            );
+          }
+        };
+
+        if let Err(e) = zip.start_file(&artifact.filename, options) {
+          error!("Failed to add file to ZIP: {}", e);
+          return Err(
+            (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              "Failed to create ZIP archive",
+            )
+              .into_response(),
+          );
         }
-      };
 
-      if let Err(e) = zip.start_file(&artifact.filename, options) {
-        error!("Failed to add file to ZIP: {}", e);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          "Failed to create ZIP archive",
-        )
-          .into_response();
+        if let Err(e) = std::io::copy(&mut file, &mut zip) {
+          error!("Failed to copy file into ZIP: {}", e);
+          return Err(
+            (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              "Failed to write to ZIP archive",
+            )
+              .into_response(),
+          );
+        }
       }
 
-      if let Err(e) = std::io::copy(&mut file, &mut zip) {
-        error!("Failed to copy file into ZIP: {}", e);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          "Failed to write to ZIP archive",
-        )
-          .into_response();
+      if let Err(e) = zip.finish() {
+        error!("Failed to finalize ZIP: {}", e);
+        return Err(
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to create ZIP archive",
+          )
+            .into_response(),
+        );
       }
     }
 
-    if let Err(e) = zip.finish() {
-      error!("Failed to finalize ZIP: {}", e);
+    // Seek back to start of temp file for reading
+    use std::io::Seek;
+    if let Err(e) = zip_temp.seek(std::io::SeekFrom::Start(0)) {
+      error!("Failed to seek in ZIP temp file: {}", e);
+      return Err(
+        (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          "Failed to read ZIP archive",
+        )
+          .into_response(),
+      );
+    }
+
+    Ok(zip_temp)
+  });
+
+  let zip_temp = match zip_build.await {
+    Ok(Ok(file)) => file,
+    Ok(Err(response)) => return response,
+    Err(e) => {
+      error!("ZIP build task failed: {}", e);
       return (
         StatusCode::INTERNAL_SERVER_ERROR,
         "Failed to create ZIP archive",
       )
         .into_response();
     }
-  }
-
-  // Seek back to start of temp file for reading
-  use std::io::Seek;
-  if let Err(e) = zip_temp.seek(std::io::SeekFrom::Start(0)) {
-    error!("Failed to seek in ZIP temp file: {}", e);
-    return (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      "Failed to read ZIP archive",
-    )
-      .into_response();
-  }
+  };
 
   let zip_size = zip_temp.metadata().map(|m| m.len()).unwrap_or(0);
   let tokio_file = tokio::fs::File::from_std(zip_temp);
@@ -1318,7 +1362,28 @@ pub async fn stitch_diagnostic_handler(
   let start_time = Instant::now();
   info!("Stitch diagnostic requested (multi-frame)");
 
-  let mut processor = state.sdr_processor.lock().await;
+  // The capture loop performs blocking hardware I/O; run it on the blocking
+  // pool so an async worker thread is never pinned for the whole diagnostic.
+  let result = tokio::task::spawn_blocking(move || {
+    stitch_diagnostic_blocking(state, body, start_time)
+  })
+  .await;
+  match result {
+    Ok(response) => response,
+    Err(e) => (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      format!("Stitch diagnostic task failed: {}", e),
+    )
+      .into_response(),
+  }
+}
+
+fn stitch_diagnostic_blocking(
+  state: Arc<super::main::AppState>,
+  body: Option<Json<StitchDiagnosticRequest>>,
+  start_time: Instant,
+) -> axum::response::Response {
+  let mut processor = state.sdr_processor.blocking_lock();
 
   // Apply FFT size if requested before any processing
   if let Some(requested_fft_size) = body.as_ref().and_then(|b| b.fft_size) {
@@ -1365,8 +1430,9 @@ pub async fn stitch_diagnostic_handler(
 
   log::info!("Starting multi-frame stitch diagnostic...");
 
-  let (center1, hop_bw_hz, sample_rate, device_info, was_paused) = {
-    let was_paused = state.shared.is_paused.load(Ordering::Relaxed);
+  let was_paused = state.shared.is_paused.load(Ordering::Relaxed);
+  let original_center_hz = processor.get_center_frequency();
+  let (center1, hop_bw_hz, sample_rate, device_info) = {
     // Pause during diagnostic to avoid hardware contention
     state.shared.is_paused.store(true, Ordering::Relaxed);
 
@@ -1388,7 +1454,6 @@ pub async fn stitch_diagnostic_handler(
       sample_rate,
       sample_rate,
       processor.get_device_info(),
-      was_paused,
     )
   };
 
@@ -1425,17 +1490,19 @@ pub async fn stitch_diagnostic_handler(
     .unwrap_or_else(|| "interleaved".to_string());
 
   let center2 = center1 + 1_200_000;
-  if acq_mode == "interleaved" {
+  let capture_result: Result<(), axum::response::Response> = 'capture: {
+    if acq_mode == "interleaved" {
     log::info!("Performing INTERLEAVED capture (rapid hopping)...");
     for i in 0..num_frames {
       // Frame for Hop 1
       if let Err(e) = processor.set_center_frequency(center1) {
-        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          format!("Failed to tune to hop 1: {}", e),
-        )
-          .into_response();
+        break 'capture Err(
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to tune to hop 1: {}", e),
+          )
+            .into_response(),
+        );
       }
       processor.flush_read_queue();
       match processor.read_and_process_frame() {
@@ -1444,23 +1511,25 @@ pub async fn stitch_diagnostic_handler(
           hop1_frames.push(f);
         }
         Err(e) => {
-          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-          return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to capture hop 1 at index {}: {}", i, e),
-          )
-            .into_response();
+          break 'capture Err(
+            (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              format!("Failed to capture hop 1 at index {}: {}", i, e),
+            )
+              .into_response(),
+          );
         }
       }
 
       // Frame for Hop 2
       if let Err(e) = processor.set_center_frequency(center2) {
-        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          format!("Failed to tune to hop 2: {}", e),
-        )
-          .into_response();
+        break 'capture Err(
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to tune to hop 2: {}", e),
+          )
+            .into_response(),
+        );
       }
       processor.flush_read_queue();
       match processor.read_and_process_frame() {
@@ -1469,26 +1538,28 @@ pub async fn stitch_diagnostic_handler(
           hop2_frames.push(f);
         }
         Err(e) => {
-          state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-          return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to capture hop 2 at index {}: {}", i, e),
-          )
-            .into_response();
+          break 'capture Err(
+            (
+              StatusCode::INTERNAL_SERVER_ERROR,
+              format!("Failed to capture hop 2 at index {}: {}", i, e),
+            )
+              .into_response(),
+          );
         }
       }
     }
-  } else {
+    } else {
     log::info!("Performing STEPWISE capture (block-wise)...");
     // 1. Capture Hop 1 Block
     {
       if let Err(e) = processor.set_center_frequency(center1) {
-        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          format!("Failed to tune to hop 1: {}", e),
-        )
-          .into_response();
+        break 'capture Err(
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to tune to hop 1: {}", e),
+          )
+            .into_response(),
+        );
       }
       processor.flush_read_queue();
       for _ in 0..num_frames {
@@ -1498,12 +1569,13 @@ pub async fn stitch_diagnostic_handler(
             hop1_frames.push(f);
           }
           Err(e) => {
-            state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-            return (
-              StatusCode::INTERNAL_SERVER_ERROR,
-              format!("Failed to capture hop 1: {}", e),
-            )
-              .into_response();
+            break 'capture Err(
+              (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to capture hop 1: {}", e),
+              )
+                .into_response(),
+            );
           }
         }
       }
@@ -1512,12 +1584,13 @@ pub async fn stitch_diagnostic_handler(
     // 2. Capture Hop 2 Block
     {
       if let Err(e) = processor.set_center_frequency(center2) {
-        state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-        return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          format!("Failed to tune to hop 2: {}", e),
-        )
-          .into_response();
+        break 'capture Err(
+          (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to tune to hop 2: {}", e),
+          )
+            .into_response(),
+        );
       }
       processor.flush_read_queue();
       for _ in 0..num_frames {
@@ -1527,31 +1600,46 @@ pub async fn stitch_diagnostic_handler(
             hop2_frames.push(f);
           }
           Err(e) => {
-            state.shared.is_paused.store(was_paused, Ordering::Relaxed);
-            return (
-              StatusCode::INTERNAL_SERVER_ERROR,
-              format!("Failed to capture hop 2: {}", e),
-            )
-              .into_response();
+            break 'capture Err(
+              (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to capture hop 2: {}", e),
+              )
+                .into_response(),
+            );
           }
         }
       }
     }
-  }
+    }
+    Ok(())
+  };
 
-  // Restore frequency
+  // Restore the previous pause state and tuned frequency regardless of
+  // whether the capture completed or aborted mid-way.
+  state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+  if processor.get_center_frequency() != original_center_hz {
+    if let Err(e) = processor.set_center_frequency(original_center_hz) {
+      warn!(
+        "Failed to restore diagnostic center frequency {}: {}",
+        original_center_hz, e
+      );
+    } else {
+      processor.flush_read_queue();
+    }
+  }
+  if let Err(response) = capture_result {
+    return response;
+  }
 
   // Compute phase coherence / alignment offset in the overlap region
   log::info!("Calculating phase offset and stitching...");
   let (correction_angle_deg, hop1_phase_deg, hop2_phase_deg, fm_deviation_khz) =
     if options.phase_correction || options.fm_deviation_correction {
-      calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq)
-    } else {
-      (0.0, 0.0, 0.0, 0.0)
-    };
-
-  // Restore previous pause state
-  state.shared.is_paused.store(was_paused, Ordering::Relaxed);
+    calculate_overlap_phase_offset(&mut processor, &hop1_raw_iq, &hop2_raw_iq)
+  } else {
+    (0.0, 0.0, 0.0, 0.0)
+  };
 
   // 4. Seamless Crossfade Stitching
   let jump_hz = (center2 - center1) as f64;
@@ -1732,7 +1820,10 @@ async fn handle_connect_device(
   _params: &serde_json::Value,
 ) -> WebMCPToolResponse {
   // Send restart command to SDR thread
-  if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::RestartDevice) {
+  if let Err(e) = state
+    .cmd_tx
+    .send(super::types::SdrCommand::RestartDevice { source_id: None })
+  {
     WebMCPToolResponse {
       success: false,
       result: None,
@@ -1897,7 +1988,10 @@ async fn handle_restart_device(
   state: &Arc<super::AppState>,
   _params: &serde_json::Value,
 ) -> WebMCPToolResponse {
-  if let Err(e) = state.cmd_tx.send(super::types::SdrCommand::RestartDevice) {
+  if let Err(e) = state
+    .cmd_tx
+    .send(super::types::SdrCommand::RestartDevice { source_id: None })
+  {
     WebMCPToolResponse {
       success: false,
       result: None,
@@ -2081,3 +2175,60 @@ async fn handle_classify_signal(
   }
 }
 // Hot-reload handoff probe 1.
+
+#[cfg(test)]
+mod snapshot_tests {
+  use super::snapshot_frame_from;
+  use crate::server::types::SpectrumData;
+
+  fn sample_frame(iq_len: usize) -> SpectrumData {
+    SpectrumData {
+      message_type: "spectrum".to_string(),
+      waveform: vec![1.0, 2.0, 3.0],
+      is_mock_apt: false,
+      source_id: "mock-apt".to_string(),
+      stream_epoch: 7,
+      sequence: 42,
+      center_frequency_hz: Some(137_500_000),
+      waveform_span_hz: None,
+      timestamp: 1_700_000_000_000,
+      data_type: Some("iq_raw".to_string()),
+      sample_rate: Some(2_400_000),
+      power_scale: None,
+      iq_data: (0..iq_len).map(|i| (i % 251) as u8).collect(),
+      is_tx_preview: None,
+    }
+  }
+
+  #[test]
+  fn snapshot_truncates_iq_to_requested_prefix() {
+    let frame = sample_frame(8192);
+    let snapshot = snapshot_frame_from(&frame, 4096);
+
+    assert_eq!(snapshot.iq_data.len(), 4096);
+    assert_eq!(snapshot.iq_data[..], frame.iq_data[..4096]);
+    // Metadata is preserved for the harness.
+    assert_eq!(snapshot.source_id, frame.source_id);
+    assert_eq!(snapshot.stream_epoch, frame.stream_epoch);
+    assert_eq!(snapshot.sequence, frame.sequence);
+    assert_eq!(snapshot.center_frequency_hz, frame.center_frequency_hz);
+    // Waveform payload is dropped; it is not part of the snapshot contract.
+    assert!(snapshot.waveform.is_empty());
+  }
+
+  #[test]
+  fn snapshot_handles_frames_shorter_than_the_request() {
+    let frame = sample_frame(100);
+    let snapshot = snapshot_frame_from(&frame, 4096);
+
+    assert_eq!(snapshot.iq_data.len(), 100);
+    assert_eq!(snapshot.iq_data, frame.iq_data);
+  }
+
+  #[test]
+  fn snapshot_never_allocates_more_than_the_source() {
+    let frame = sample_frame(262_144);
+    let snapshot = snapshot_frame_from(&frame, 524_288);
+    assert_eq!(snapshot.iq_data.len(), 262_144);
+  }
+}

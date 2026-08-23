@@ -3,6 +3,8 @@ use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use log::{error, info, warn};
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use webauthn_rs::prelude::*;
 
@@ -13,6 +15,58 @@ use crate::server::types::{
   PasskeyAuthFinishRequest, PasskeyRegisterFinishRequest,
 };
 use uuid::Uuid;
+
+// NOTE (known security flaw, accepted for local deployments): the /auth/*
+// endpoints have no rate limiting. N-APT is designed to run on localhost /
+// trusted LANs where per-IP throttling is not meaningful; if this server is
+// ever exposed publicly, add rate limiting to /auth/challenge, /auth/verify,
+// /auth/passkey/register/* and /auth/passkey/auth/* before doing so — they
+// are unauthenticated and each request performs Redis or WebAuthn work.
+
+/// Abandoned passkey challenges expire after this long. Both start endpoints
+/// are unauthenticated, so without an expiry + cap the pending-state maps
+/// accumulate entries for the lifetime of the process.
+const PENDING_PASSKEY_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+const PENDING_PASSKEY_MAX_ENTRIES: usize = 64;
+
+type PendingPasskeyState<T> = HashMap<String, (std::time::Instant, T)>;
+
+fn insert_pending_passkey_state<T>(
+  map: &mut PendingPasskeyState<T>,
+  challenge_id: String,
+  value: T,
+) {
+  let now = std::time::Instant::now();
+  map.retain(|_, (created_at, _)| {
+    now.duration_since(*created_at) < PENDING_PASSKEY_TTL
+  });
+  if map.len() >= PENDING_PASSKEY_MAX_ENTRIES {
+    // Evict the oldest entries to make room.
+    let mut entries: Vec<(std::time::Instant, String)> = map
+      .iter()
+      .map(|(key, (created_at, _))| (*created_at, key.clone()))
+      .collect();
+    entries.sort();
+    let excess = map.len() + 1 - PENDING_PASSKEY_MAX_ENTRIES;
+    for (_, key) in entries.into_iter().take(excess) {
+      map.remove(&key);
+    }
+  }
+  map.insert(challenge_id, (now, value));
+}
+
+fn take_pending_passkey_state<T>(
+  map: &mut PendingPasskeyState<T>,
+  challenge_id: &str,
+) -> Option<T> {
+  let (created_at, value) = map.remove(challenge_id)?;
+  if std::time::Instant::now().duration_since(created_at) >= PENDING_PASSKEY_TTL
+  {
+    warn!("Expired pending passkey challenge rejected");
+    return None;
+  }
+  Some(value)
+}
 
 /// GET /auth/info — returns whether passkeys are registered (so frontend
 /// knows whether to show passkey button vs password-only).
@@ -32,8 +86,23 @@ pub async fn auth_logout_handler(
   Query(params): Query<LogoutParams>,
 ) -> impl IntoResponse {
   if let Some(token) = params.token {
-    info!("Revoking session token: {}…", &token[..token.len().min(8)]);
-    state.session_store.revoke(&token).await;
+    info!(
+      "Revoking session token: {}…",
+      token.get(..8).unwrap_or(&token)
+    );
+    // Fail closed: if the session cannot be revoked server-side, the client
+    // must not be told it logged out while the token remains valid.
+    if let Err(error) = state.session_store.revoke(&token).await {
+      error!("Logout failed to revoke session: {error}");
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+          "error": "logout_failed",
+          "message": "Session could not be revoked; please try again",
+        })),
+      )
+        .into_response();
+    }
   }
 
   info!("Logout requested, clearing site data and redirecting");
@@ -136,6 +205,19 @@ pub async fn auth_verify_handler(
     }
   };
 
+  // Verify HMAC.
+  //
+  // SECURITY CONTRACT — do not "fix" this into breakage:
+  // `state.shared.encryption_key` IS `PBKDF2-HMAC-SHA256(UNSAFE_LOCAL_USER_PASSWORD,
+  // salt, 100k)` (see SharedState::new). Verifying the client's nonce-HMAC
+  // with it therefore proves knowledge of the password: only a client that
+  // ran the same derivation can produce a valid tag. The same derived key is
+  // also the vault key that encrypts .napt I/Q captures (and what
+  // scripts/decrypt_napt.mjs re-derives for playback). Changing either the
+  // derivation parameters, the salt handling, or this verification key makes
+  // every previously recorded capture unplayable. Accepted local-deployment
+  // trade-offs: one shared user password; passkey sessions can retrieve the
+  // vault key via /auth/vault-key by design.
   if !crypto::verify_hmac(
     &state.shared.encryption_key,
     &nonce_bytes,
@@ -174,7 +256,7 @@ pub async fn auth_verify_handler(
     StatusCode::OK,
     Json(serde_json::json!({
       "token": token,
-      "expires_in": 86400,
+      "expires_in": crate::session::SESSION_TTL_SECS,
     })),
   )
     .into_response()
@@ -206,18 +288,50 @@ pub async fn auth_session_handler(
   }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct VaultKeyQuery {
-  pub token: String,
+  pub token: Option<String>,
+}
+
+/// Optional query parameters accepted by the passkey registration endpoints.
+#[derive(Debug, Deserialize)]
+pub struct RegistrationQuery {
+  pub token: Option<String>,
 }
 
 /// GET /auth/vault-key — returns the password-derived vault key used for file
 /// encryption/decryption in this local environment.
+///
+/// SECURITY: this endpoint serves key material, so the session token is
+/// accepted via the `Authorization: Bearer` header first; the query-parameter
+/// form remains only as a legacy fallback because tokens in URLs leak into
+/// proxy/access logs and browser history.
 pub async fn auth_vault_key_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: axum::http::HeaderMap,
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
-  match state.session_store.validate(&query.token).await {
+  let token = headers
+    .get(axum::http::header::AUTHORIZATION)
+    .and_then(|value| value.to_str().ok())
+    .and_then(|value| value.strip_prefix("Bearer "))
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(str::to_string)
+    .or(query.token);
+
+  let Some(token) = token else {
+    return (
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({
+        "error": "session_expired",
+        "message": "Missing session token",
+      })),
+    )
+      .into_response();
+  };
+
+  match state.session_store.validate(&token).await {
     Some(_session) => {
       info!("Vault key requested and session validated");
       (
@@ -239,10 +353,70 @@ pub async fn auth_vault_key_handler(
   }
 }
 
+/// Extract a session token from the `Authorization: Bearer` header, falling
+/// back to the `?token=` query parameter (legacy form used by direct
+/// download links).
+fn session_token_from_request(
+  headers: &axum::http::HeaderMap,
+  query_token: Option<String>,
+) -> Option<String> {
+  headers
+    .get(axum::http::header::AUTHORIZATION)
+    .and_then(|value| value.to_str().ok())
+    .and_then(|value| value.strip_prefix("Bearer "))
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(str::to_string)
+    .or(query_token)
+    .filter(|token| !token.is_empty())
+}
+
+/// Passkey enrollment is open only while no passkey exists (first-run setup).
+/// Once enrolled, registering another passkey requires a valid session —
+/// otherwise anyone who can reach the server could enroll themselves access.
+async fn require_session_for_re_enrollment(
+  state: &Arc<crate::server::AppState>,
+  headers: &axum::http::HeaderMap,
+  query_token: Option<String>,
+) -> Result<(), axum::response::Response> {
+  if !state.credential_store.has_passkeys() {
+    return Ok(());
+  }
+  let Some(token) = session_token_from_request(headers, query_token) else {
+    return Err((
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({
+        "error": "session_required",
+        "message": "Passkeys are already enrolled; authenticate before adding another",
+      })),
+    )
+      .into_response());
+  };
+  match state.session_store.validate(&token).await {
+    Some(_) => Ok(()),
+    None => Err((
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({
+        "error": "session_expired",
+        "message": "Invalid or expired session token",
+      })),
+    )
+      .into_response()),
+  }
+}
+
 /// POST /auth/passkey/register/start — begin passkey registration.
 pub async fn passkey_register_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: axum::http::HeaderMap,
+  Query(query): Query<RegistrationQuery>,
 ) -> impl IntoResponse {
+  if let Err(response) =
+    require_session_for_re_enrollment(&state, &headers, query.token).await
+  {
+    return response;
+  }
+
   let user_unique_id = Uuid::new_v4();
   let existing_keys = state.credential_store.get_passkeys();
   let exclude_credentials: Vec<CredentialID> =
@@ -256,11 +430,14 @@ pub async fn passkey_register_start_handler(
   ) {
     Ok((ccr, reg_state)) => {
       let challenge_id = Uuid::new_v4().to_string();
-      state
-        .pending_passkey_registrations
-        .lock()
-        .expect("passkey registration state poisoned")
-        .insert(challenge_id.clone(), reg_state);
+      insert_pending_passkey_state(
+        &mut state
+          .pending_passkey_registrations
+          .lock()
+          .expect("passkey registration state poisoned"),
+        challenge_id.clone(),
+        reg_state,
+      );
 
       let ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
         error!("Failed to serialize CCR: {}", e);
@@ -278,6 +455,7 @@ pub async fn passkey_register_start_handler(
           "options": ccr_json,
         })),
       )
+        .into_response()
     }
     Err(e) => {
       error!("WebAuthn registration start failed: {}", e);
@@ -288,6 +466,7 @@ pub async fn passkey_register_start_handler(
           "message": format!("{}", e),
         })),
       )
+        .into_response()
     }
   }
 }
@@ -295,23 +474,33 @@ pub async fn passkey_register_start_handler(
 /// POST /auth/passkey/register/finish — complete passkey registration.
 pub async fn passkey_register_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: axum::http::HeaderMap,
+  Query(query): Query<RegistrationQuery>,
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
-  let reg_state: PasskeyRegistration = match state
-    .pending_passkey_registrations
-    .lock()
-    .expect("passkey registration state poisoned")
-    .remove(&body.challenge_id)
+  // Symmetric with the start handler: once enrolled, finishing a
+  // registration also requires an authenticated session.
+  if let Err(response) =
+    require_session_for_re_enrollment(&state, &headers, query.token).await
   {
-    Some(s) => s,
-    None => {
-      return (
-        StatusCode::BAD_REQUEST,
-        Json(serde_json::json!({
-          "error": "invalid_challenge",
-        })),
-      );
-    }
+    return response;
+  }
+
+  let reg_state: Option<PasskeyRegistration> = {
+    let mut pending = state
+      .pending_passkey_registrations
+      .lock()
+      .expect("passkey registration state poisoned");
+    take_pending_passkey_state(&mut pending, &body.challenge_id)
+  };
+  let Some(reg_state) = reg_state else {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "invalid_challenge",
+      })),
+    )
+      .into_response();
   };
 
   match state
@@ -326,7 +515,8 @@ pub async fn passkey_register_finish_handler(
           Json(serde_json::json!({
             "error": "storage_error",
           })),
-        );
+        )
+          .into_response();
       }
       info!("Passkey registered successfully");
       (
@@ -335,6 +525,7 @@ pub async fn passkey_register_finish_handler(
           "success": true,
         })),
       )
+        .into_response()
     }
     Err(e) => {
       warn!("Passkey registration failed: {}", e);
@@ -345,6 +536,7 @@ pub async fn passkey_register_finish_handler(
           "message": format!("{}", e),
         })),
       )
+        .into_response()
     }
   }
 }
@@ -367,11 +559,14 @@ pub async fn passkey_auth_start_handler(
   match state.webauthn.start_passkey_authentication(&existing_keys) {
     Ok((rcr, auth_state)) => {
       let challenge_id = Uuid::new_v4().to_string();
-      state
-        .pending_passkey_authentications
-        .lock()
-        .expect("passkey auth state poisoned")
-        .insert(challenge_id.clone(), auth_state);
+      insert_pending_passkey_state(
+        &mut state
+          .pending_passkey_authentications
+          .lock()
+          .expect("passkey auth state poisoned"),
+        challenge_id.clone(),
+        auth_state,
+      );
 
       (
         StatusCode::OK,
@@ -399,21 +594,20 @@ pub async fn passkey_auth_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyAuthFinishRequest>,
 ) -> impl IntoResponse {
-  let auth_state: PasskeyAuthentication = match state
-    .pending_passkey_authentications
-    .lock()
-    .expect("passkey auth state poisoned")
-    .remove(&body.challenge_id)
-  {
-    Some(s) => s,
-    None => {
-      return (
-        StatusCode::BAD_REQUEST,
-        Json(serde_json::json!({
-          "error": "invalid_challenge",
-        })),
-      );
-    }
+  let auth_state: Option<PasskeyAuthentication> = {
+    let mut pending = state
+      .pending_passkey_authentications
+      .lock()
+      .expect("passkey auth state poisoned");
+    take_pending_passkey_state(&mut pending, &body.challenge_id)
+  };
+  let Some(auth_state) = auth_state else {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "invalid_challenge",
+      })),
+    );
   };
 
   match state
@@ -442,7 +636,7 @@ pub async fn passkey_auth_finish_handler(
         StatusCode::OK,
         Json(serde_json::json!({
           "token": token,
-          "expires_in": 86400,
+          "expires_in": crate::session::SESSION_TTL_SECS,
         })),
       )
     }

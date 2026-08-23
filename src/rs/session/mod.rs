@@ -11,8 +11,10 @@ use redis::{AsyncCommands, Client as RedisClient};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Default session lifetime (30 days).
-const DEFAULT_SESSION_TTL_SECS: u64 = 30 * 24 * 60 * 60;
+/// Session lifetime (30 days). This is the single source of truth shared with
+/// the auth handlers' advertised `expires_in`.
+pub const SESSION_TTL_SECS: u64 = 30 * 24 * 60 * 60;
+const DEFAULT_SESSION_TTL_SECS: u64 = SESSION_TTL_SECS;
 
 /// A single authenticated session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +31,10 @@ pub struct SessionStore {
   ttl_secs: u64,
   prefix: String,
   config_error: Option<String>,
+  /// Cached DB-1 multiplexed connection. Clones share one socket, so session
+  /// operations don't pay a TCP handshake + SELECT each time; any command
+  /// error evicts it so the next call reconnects cleanly.
+  connection: std::sync::Mutex<Option<MultiplexedConnection>>,
 }
 
 impl SessionStore {
@@ -41,6 +47,7 @@ impl SessionStore {
       ttl_secs: DEFAULT_SESSION_TTL_SECS,
       prefix: "session:".to_string(),
       config_error: None,
+      connection: std::sync::Mutex::new(None),
     })
   }
 
@@ -58,16 +65,19 @@ impl SessionStore {
           ttl_secs: DEFAULT_SESSION_TTL_SECS,
           prefix: "session:".to_string(),
           config_error: Some(error),
+          connection: std::sync::Mutex::new(None),
         }
       }
     }
   }
 
-  async fn get_conn(&self) -> Result<MultiplexedConnection, String> {
-    if let Some(error) = &self.config_error {
-      return Err(error.clone());
-    }
+  /// Drop the cached connection after a command failure so the next call
+  /// reconnects (and re-runs SELECT).
+  fn evict_connection(&self) {
+    *self.connection.lock().unwrap() = None;
+  }
 
+  async fn connect(&self) -> Result<MultiplexedConnection, String> {
     let mut conn = self
       .client
       .get_multiplexed_async_connection()
@@ -81,6 +91,20 @@ impl SessionStore {
       .await
       .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
 
+    Ok(conn)
+  }
+
+  async fn get_conn(&self) -> Result<MultiplexedConnection, String> {
+    if let Some(error) = &self.config_error {
+      return Err(error.clone());
+    }
+
+    if let Some(cached) = self.connection.lock().unwrap().clone() {
+      return Ok(cached);
+    }
+
+    let conn = self.connect().await?;
+    *self.connection.lock().unwrap() = Some(conn.clone());
     Ok(conn)
   }
 
@@ -101,8 +125,14 @@ impl SessionStore {
 
     let mut conn = self.get_conn().await?;
     let write_result = conn.set_ex(&key, session_json, self.ttl_secs).await;
+    if write_result.is_err() {
+      self.evict_connection();
+    }
     let persisted_token = Self::session_write_result(write_result, token)?;
-    log::info!("Session created in Redis: {}…", &persisted_token[..8]);
+    log::info!(
+      "Session created in Redis: {}…",
+      persisted_token.get(..8).unwrap_or(&persisted_token)
+    );
     Ok(persisted_token)
   }
 
@@ -125,27 +155,46 @@ impl SessionStore {
     let mut conn = self.get_conn().await.ok()?;
     let key = format!("{}{}", self.prefix, token);
 
-    let session_json: Option<String> = conn.get(&key).await.ok()?;
-    match session_json {
-      Some(json) => {
-        let session: Session = serde_json::from_str(&json).ok()?;
-        Some(session)
+    match conn.get::<_, Option<String>>(&key).await {
+      Ok(session_json) => match session_json {
+        Some(json) => {
+          let session: Session = serde_json::from_str(&json).ok()?;
+          Some(session)
+        }
+        None => None,
+      },
+      Err(_) => {
+        self.evict_connection();
+        None
       }
-      None => None,
     }
   }
 
   /// Remove a session (logout).
-  pub async fn revoke(&self, token: &str) {
+  ///
+  /// Returns an error when the session could not be removed — callers must
+  /// treat logout as failed so a client is never told it logged out while the
+  /// token remains valid in Redis.
+  pub async fn revoke(&self, token: &str) -> Result<(), String> {
     if Uuid::parse_str(token).is_err() {
       log::warn!("Session revoke: rejected non-UUID token");
-      return;
+      return Err("Invalid session token format".to_string());
     }
-    if let Ok(mut conn) = self.get_conn().await {
-      let key = format!("{}{}", self.prefix, token);
-      let _: redis::RedisResult<()> = conn.del(&key).await;
-      log::info!("Session revoked in Redis: {}…", &token[..8]);
+    let mut conn = self
+      .get_conn()
+      .await
+      .map_err(|error| format!("Session revoke failed: {error}"))?;
+    let key = format!("{}{}", self.prefix, token);
+    let del_result = conn.del::<_, i64>(&key).await;
+    if del_result.is_err() {
+      self.evict_connection();
     }
+    del_result.map_err(|error| format!("Session revoke failed: {error}"))?;
+    log::info!(
+      "Session revoked in Redis: {}…",
+      token.get(..8).unwrap_or(token)
+    );
+    Ok(())
   }
 }
 

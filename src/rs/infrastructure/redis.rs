@@ -3,6 +3,8 @@
 use redis::aio::MultiplexedConnection;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Redis is optional for listener readiness. Endpoint-specific code may use
 /// this value to defer connection work until it actually needs Redis.
@@ -14,10 +16,16 @@ pub struct RedisConfig {
 /// Async Redis operations shared by request handlers and background workers.
 /// The client is cheap to clone; network connections are opened only by an
 /// operation and are therefore safe to use after listener startup.
+///
+/// One multiplexed connection per database is cached and shared (clones of a
+/// multiplexed connection pipeline over the same socket), so request bursts
+/// don't pay a TCP handshake + SELECT per operation. Any command error evicts
+/// the cached connection so the next call reconnects cleanly.
 #[derive(Clone)]
 pub struct RedisStore {
   client: redis::Client,
   config_error: Option<String>,
+  connections: Arc<Mutex<HashMap<u8, MultiplexedConnection>>>,
 }
 
 pub struct RedisDatabase {
@@ -49,6 +57,7 @@ impl RedisStore {
     Self {
       client,
       config_error: None,
+      connections: Arc::new(Mutex::new(HashMap::new())),
     }
   }
 
@@ -59,7 +68,14 @@ impl RedisStore {
     Self {
       client,
       config_error: Some(error.into()),
+      connections: Arc::new(Mutex::new(HashMap::new())),
     }
+  }
+
+  /// Drop the cached connection for a database after a command failure so
+  /// the next call opens a fresh socket (and re-runs SELECT).
+  fn evict_connection(&self, database: u8) {
+    self.connections.lock().unwrap().remove(&database);
   }
 
   pub async fn database(&self, database: u8) -> Result<RedisDatabase, String> {
@@ -68,14 +84,7 @@ impl RedisStore {
     })
   }
 
-  async fn connection(
-    &self,
-    database: u8,
-  ) -> Result<MultiplexedConnection, String> {
-    if let Some(error) = &self.config_error {
-      return Err(error.clone());
-    }
-
+  async fn connect(&self, database: u8) -> Result<MultiplexedConnection, String> {
     let mut connection =
       self
         .client
@@ -94,6 +103,27 @@ impl RedisStore {
     Ok(connection)
   }
 
+  async fn connection(
+    &self,
+    database: u8,
+  ) -> Result<MultiplexedConnection, String> {
+    if let Some(error) = &self.config_error {
+      return Err(error.clone());
+    }
+
+    if let Some(cached) = self.connections.lock().unwrap().get(&database) {
+      return Ok(cached.clone());
+    }
+
+    let connection = self.connect(database).await?;
+    self
+      .connections
+      .lock()
+      .unwrap()
+      .insert(database, connection.clone());
+    Ok(connection)
+  }
+
   pub async fn store_challenge(
     &self,
     challenge_id: &str,
@@ -102,13 +132,16 @@ impl RedisStore {
     let mut connection = self.connection(1).await?;
     let key = format!("challenge:{challenge_id}");
 
-    redis::cmd("SETEX")
+    let result = redis::cmd("SETEX")
       .arg(key)
       .arg(60)
       .arg(nonce.to_vec())
       .query_async::<()>(&mut connection)
-      .await
-      .map_err(|error| format!("Redis challenge SETEX failed: {error}"))
+      .await;
+    if result.is_err() {
+      self.evict_connection(1);
+    }
+    result.map_err(|error| format!("Redis challenge SETEX failed: {error}"))
   }
 
   /// Atomically read and remove a challenge so it cannot be replayed by two
@@ -122,11 +155,17 @@ impl RedisStore {
     let script = redis::Script::new(
       "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
     );
-    let nonce: Option<Vec<u8>> = script
+    let nonce: Option<Vec<u8>> = match script
       .key(key)
       .invoke_async(&mut connection)
       .await
-      .map_err(|error| format!("Redis challenge consume failed: {error}"))?;
+    {
+      Ok(nonce) => nonce,
+      Err(error) => {
+        self.evict_connection(1);
+        return Err(format!("Redis challenge consume failed: {error}"));
+      }
+    };
 
     match nonce {
       Some(bytes) if bytes.len() == 32 => {
@@ -145,16 +184,35 @@ impl RedisStore {
     key: &str,
     value: &T,
   ) -> Result<(), String> {
+    self.set_json_with_ttl(database, key, value, None).await
+  }
+
+  /// SET with an optional expiry in seconds.
+  ///
+  /// Keys written without a TTL accumulate in Redis for the lifetime of the
+  /// dataset; new callers should pass one unless the key genuinely must be
+  /// permanent.
+  pub async fn set_json_with_ttl<T: Serialize>(
+    &self,
+    database: u8,
+    key: &str,
+    value: &T,
+    ttl_secs: Option<u64>,
+  ) -> Result<(), String> {
     let mut connection = self.connection(database).await?;
     let json = serde_json::to_string(value)
       .map_err(|error| format!("Redis JSON serialization failed: {error}"))?;
 
-    redis::cmd("SET")
-      .arg(key)
-      .arg(json)
-      .query_async::<()>(&mut connection)
-      .await
-      .map_err(|error| format!("Redis JSON SET failed: {error}"))
+    let mut command = redis::cmd("SET");
+    command.arg(key).arg(json);
+    if let Some(ttl_secs) = ttl_secs {
+      command.arg("EX").arg(ttl_secs);
+    }
+    let result = command.query_async::<()>(&mut connection).await;
+    if result.is_err() {
+      self.evict_connection(database);
+    }
+    result.map_err(|error| format!("Redis JSON SET failed: {error}"))
   }
 
   pub async fn get_json<T: DeserializeOwned>(
@@ -163,11 +221,14 @@ impl RedisStore {
     key: &str,
   ) -> Result<Option<T>, String> {
     let mut connection = self.connection(database).await?;
-    let json: Option<String> = redis::cmd("GET")
+    let result: Result<Option<String>, _> = redis::cmd("GET")
       .arg(key)
       .query_async(&mut connection)
-      .await
-      .map_err(|error| format!("Redis JSON GET failed: {error}"))?;
+      .await;
+    if result.is_err() {
+      self.evict_connection(database);
+    }
+    let json = result.map_err(|error| format!("Redis JSON GET failed: {error}"))?;
 
     json
       .map(|value| {
