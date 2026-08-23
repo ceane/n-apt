@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 use webauthn_rs::prelude::*;
 
 /// On-disk format for the credential store.
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CredentialFile {
   /// Map of user ID → list of registered passkey credentials
   pub passkeys: HashMap<String, Vec<Passkey>>,
@@ -119,7 +119,7 @@ impl CredentialStore {
   pub async fn save(&self, creds: &CredentialFile) -> Result<(), String> {
     let paths = self.resolve_paths()?;
     let creds = creds.clone();
-    tokio::task::spawn_blocking(move || Self::save_to_paths(&paths, creds))
+    tokio::task::spawn_blocking(move || Self::save_to_paths(&paths, &creds))
       .await
       .map_err(|e| format!("credential write task failed: {e}"))?
   }
