@@ -551,15 +551,35 @@ pub async fn drain_hotplug_events(
       state.missing_since = None;
     } else if current_count > 0 && processor.is_mock() {
       state.missing_since = None;
-      if let Err(e) =
+      // A genuine count transition (device just plugged in) attaches
+      // immediately. A same-count retry means the previous attach failed
+      // while the inventory still reports the devices present — the wedged
+      // USB-context loop. Each `attach_real_device` cycle performs five
+      // open attempts, so retrying it every probe hammers the bus without
+      // improving the odds. Wait out the retry cooldown between attempts;
+      // the cooldown clears on success or on the next count change.
+      let is_new_transition = current_count != previous_count;
+      let cooled_down = state
+        .last_failure_at
+        .map(|t| t.elapsed() >= state.retry_cooldown)
+        .unwrap_or(true);
+      if !is_new_transition && !cooled_down {
+        debug!(
+          "Skipping hotplug attach retry; last failure {:?} ago is within the {:?} cooldown",
+          state.last_failure_at.map(|t| t.elapsed()),
+          state.retry_cooldown
+        );
+      } else if let Err(e) =
         attach_real_device(processor, shared_state, broadcast_tx).await
       {
         error!(
           "hotplug attach failed after device-count reconciliation: {}",
           e
         );
+        state.last_failure_at = Some(Instant::now());
       } else {
         state.last_hardware_swap = Some(Instant::now());
+        state.last_failure_at = None;
       }
     } else if current_count > 0
       && !processor.is_mock()
