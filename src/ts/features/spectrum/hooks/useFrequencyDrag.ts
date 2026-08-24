@@ -6,6 +6,7 @@ import {
 } from "@n-apt/spectrum/public/visualizationZoom";
 import {
   clampFrequencyRangeToBounds,
+  getAvailableSpectrumBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/math/frequency";
 import {
@@ -1048,10 +1049,14 @@ export function useSpectrumInteraction({
         ) {
           return false;
         }
-        const tuningBounds =
+        // Never leave the mirrored acquisition unbounded: before hardware
+        // bounds hydrate (cold start) a deep negative pan folds to a positive
+        // window the backend rejects, no frames arrive, and the UI freezes.
+        const tuningBounds = getAvailableSpectrumBounds(
           hardwareSpectrumBounds ??
-          signalAreaBounds?.[activeSignalArea] ??
-          null;
+            signalAreaBounds?.[activeSignalArea] ??
+            null,
+        );
         const retune = resolveMirroredRetune({
           displayRange,
           sourceRange: frequencyRangeRef.current,

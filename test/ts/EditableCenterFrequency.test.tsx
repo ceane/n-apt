@@ -23,6 +23,52 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 describe("EditableCenterFrequency", () => {
+  it("corrects the center so the window edge sits at the spectrum ceiling", () => {
+    const onChange = jest.fn();
+    const onClose = jest.fn();
+    render(
+      <Wrapper>
+        <EditableCenterFrequency
+          centerFrequencyHz={844_036_300}
+          onCenterFrequencyChange={onChange}
+          onClose={onClose}
+          windowSpanHz={20_000_000}
+        />
+      </Wrapper>,
+    );
+
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "30000" } });
+    fireEvent.blur(input);
+
+    // Entering the 30 GHz cap must land the upper *edge* on the cap.
+    expect(onChange).toHaveBeenCalledWith(29_990_000_000);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("corrects a mirrored negative ceiling entry symmetrically", () => {
+    const onChange = jest.fn();
+    const onClose = jest.fn();
+    render(
+      <Wrapper>
+        <EditableCenterFrequency
+          centerFrequencyHz={-100_000_000}
+          onCenterFrequencyChange={onChange}
+          onClose={onClose}
+          allowNegativeFrequencies
+          windowSpanHz={20_000_000}
+        />
+      </Wrapper>,
+    );
+
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "-30000" } });
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(-29_990_000_000);
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("commits on blur", () => {
     const onChange = jest.fn();
     const onClose = jest.fn();

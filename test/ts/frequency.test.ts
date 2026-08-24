@@ -9,6 +9,7 @@ import {
   getCenteredFrequencyHz,
   resolveCenteredFrequencyHz,
   resolveMockTxMonitorCenterHz,
+  resolveEdgeClampedCenterHz,
   getFrequencyUnitScale,
   getOptimalFrequencyScale,
   formatFrequency,
@@ -177,6 +178,24 @@ describe("Frequency Utilities", () => {
       expect(clampFrequencyHz(5_000, 0, 10_000)).toBe(5_000);
       expect(clampFrequencyHz(-1, 0, 10_000)).toBe(0);
       expect(clampFrequencyHz(11_000, 0, 10_000)).toBe(10_000);
+    });
+
+    test("should correct the center so the window edge lands on a bound", () => {
+      const MAX = 30_000_000_000;
+      // Entering the ceiling with a 20 MHz window leaves the lower half inside.
+      expect(
+        resolveEdgeClampedCenterHz(MAX, 20_000_000, -Infinity, MAX),
+      ).toBe(MAX - 10_000_000);
+      // Symmetric negative ceiling (mirror mode).
+      expect(
+        resolveEdgeClampedCenterHz(-MAX, 20_000_000, -MAX, MAX),
+      ).toBe(-MAX + 10_000_000);
+      // Interior centers pass through untouched.
+      expect(resolveEdgeClampedCenterHz(845_000_000, 20_000_000, -Infinity, MAX)).toBe(
+        845_000_000,
+      );
+      // Degenerate span falls back to plain clamping of the center itself.
+      expect(resolveEdgeClampedCenterHz(MAX + 1, 0, 0, MAX)).toBe(MAX);
     });
 
     test("should normalize inverted bounds before clamping", () => {

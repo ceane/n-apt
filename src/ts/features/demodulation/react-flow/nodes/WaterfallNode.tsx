@@ -1918,6 +1918,9 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                 onClose={() => setShowVfoEditor(false)}
                 placement="top"
                 allowNegativeFrequencies={allowNegativeFrequencies}
+                windowSpanHz={
+                  frequencyRange.max - frequencyRange.min
+                }
               />
             )}
           </AnalysisViewport>

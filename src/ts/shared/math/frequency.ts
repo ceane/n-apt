@@ -198,6 +198,34 @@ export const getAvailableSpectrumBounds = (
   return AVAILABLE_SPECTRUM_FALLBACK;
 };
 
+/**
+ * Corrects a requested center frequency so a window of `spanHz` stays inside
+ * `[minHz, maxHz]`: entering a bound corrects the center so the window's
+ * *edge* lands on the bound instead of pushing half the window past it.
+ * Pass `-Infinity`/`Infinity` for an unbounded side.
+ */
+export const resolveEdgeClampedCenterHz = (
+  centerHz: number,
+  spanHz: number,
+  minHz: number,
+  maxHz: number,
+): number => {
+  const halfSpan =
+    Number.isFinite(spanHz) && spanHz > 0 ? spanHz / 2 : 0;
+  const safeMax = Number.isFinite(maxHz) ? maxHz : Number.POSITIVE_INFINITY;
+  const safeMin = Number.isFinite(minHz) ? minHz : Number.NEGATIVE_INFINITY;
+  const raw = Number.isFinite(centerHz) ? centerHz : 0;
+  if (halfSpan <= 0) {
+    return Math.max(safeMin, Math.min(raw, safeMax));
+  }
+  return Math.max(
+    safeMin === Number.NEGATIVE_INFINITY
+      ? Number.NEGATIVE_INFINITY
+      : safeMin + halfSpan,
+    Math.min(raw, safeMax - halfSpan),
+  );
+};
+
 export const clampFrequencyRangeToBounds = (
   range: FrequencyRange,
   bounds?: FrequencyRange | null,

@@ -13,6 +13,7 @@ export interface StitchSessionData {
   stitchStatus: string;
 }
 
+const MAX_STITCH_SESSIONS = 3;
 const stitchSessionCache = new Map<string, StitchSessionData>();
 
 export const createStitchSessionKey = ({
@@ -45,7 +46,14 @@ export const getStitchSession = (key: string) =>
   stitchSessionCache.get(key) ?? null;
 
 export const setStitchSession = (key: string, data: StitchSessionData) => {
+  stitchSessionCache.delete(key);
   stitchSessionCache.set(key, data);
+
+  while (stitchSessionCache.size > MAX_STITCH_SESSIONS) {
+    const oldestKey = stitchSessionCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    stitchSessionCache.delete(oldestKey);
+  }
 };
 
 export const clearStitchSession = (key: string) => {

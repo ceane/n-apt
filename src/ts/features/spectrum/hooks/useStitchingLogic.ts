@@ -128,6 +128,8 @@ export const useStitchingLogic = ({
   const [hardwareSampleRateHz, setHardwareSampleRateHz] = useState<
     number | undefined
   >(cachedOnMount?.hardwareSampleRateHz);
+  const frequencyRangeRef = useRef(frequencyRange);
+  frequencyRangeRef.current = frequencyRange;
 
   const setStitchStatus = useCallback((status: string) => {
     onStitchStatusRef.current?.(status);
@@ -289,7 +291,7 @@ export const useStitchingLogic = ({
         hasStitchedData: true,
         frequencyRange: firstChannelRange
           ? { min: firstChannelRange[0], max: firstChannelRange[1] }
-          : (result.range ?? frequencyRange),
+          : (result.range ?? frequencyRangeRef.current),
         channelCount: channels.length,
         activeChannel: 0,
         hardwareSampleRateHz: hwHz,
@@ -312,7 +314,6 @@ export const useStitchingLogic = ({
     }
   }, [
     fftSize,
-    frequencyRange,
     sampleRateOptions,
     setStitchStatus,
     stitchSessionKey,

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { styled } from "styled-components";
 import { FrequencyInput } from "./FrequencyInput";
+import { resolveEdgeClampedCenterHz } from "@n-apt/math/frequency";
 
 const MAX_CENTER_FREQUENCY_HZ = 30_000_000_000;
 
@@ -12,6 +13,13 @@ interface EditableCenterFrequencyProps {
   placement?: "top" | "bottom";
   /** When mirror-below-0Hz is on, allow typing a negative display center. */
   allowNegativeFrequencies?: boolean;
+  /**
+   * Width of the acquisition window. When set, committing a center at the
+   * spectrum ceiling corrects the center so the window's *edge* lands on the
+   * ceiling instead of pushing half the window past it (which the backend
+   * would reject).
+   */
+  windowSpanHz?: number | null;
 }
 
 const Shell = styled.div<{ $placement: "top" | "bottom" }>`
@@ -122,6 +130,7 @@ export const EditableCenterFrequency: React.FC<
   className,
   placement = "bottom",
   allowNegativeFrequencies = false,
+  windowSpanHz = null,
 }) => {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const minHz = allowNegativeFrequencies ? -MAX_CENTER_FREQUENCY_HZ : 0;
@@ -143,7 +152,16 @@ export const EditableCenterFrequency: React.FC<
   }, [onClose]);
 
   const commitCenterFrequency = (nextCenterFrequencyHz: number) => {
-    onCenterFrequencyChange(nextCenterFrequencyHz);
+    // The spectrum cap applies to window edges, not the center: entering
+    // the max must land the window's upper edge on the cap (and, in mirror
+    // mode, the lower edge on the negative ceiling).
+    const committed = resolveEdgeClampedCenterHz(
+      nextCenterFrequencyHz,
+      typeof windowSpanHz === "number" ? windowSpanHz : NaN,
+      allowNegativeFrequencies ? -MAX_CENTER_FREQUENCY_HZ : Number.NEGATIVE_INFINITY,
+      MAX_CENTER_FREQUENCY_HZ,
+    );
+    onCenterFrequencyChange(committed);
     onClose();
   };
 
