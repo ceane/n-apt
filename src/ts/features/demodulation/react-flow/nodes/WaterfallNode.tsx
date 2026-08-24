@@ -721,9 +721,6 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   const sourceMode = useAppSelector(
     (state) => state.waterfall?.sourceMode ?? "live",
   );
-  const dataFrameCounter = useAppSelector((state) =>
-    sourceMode === "file" ? state.websocket.dataFrameCounter : 0,
-  );
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
   const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
   const powerScale = useAppSelector(
@@ -891,18 +888,6 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     setLiveFrame(next);
     setFrameRevision((revision) => revision + 1);
   }, [activeSourceId, roleSourceId, txViewerSampleRateHz, getCurrentFrame]);
-
-  useEffect(() => {
-    if (sourceMode !== "file") return;
-    const next = getCurrentFrame();
-    if (!next) return;
-    lastRefRef.current = next;
-    lastIqRef.current = next.iq_data;
-    lastIqMutationMarkerRef.current = getIqMutationMarker(next.iq_data);
-    lastTimestampRef.current = next.timestamp;
-    setLiveFrame(next);
-    setFrameRevision((revision) => revision + 1);
-  }, [dataFrameCounter, getCurrentFrame, sourceMode]);
 
   const waveform = useMemo(() => {
     const fileWaveform =
@@ -1603,7 +1588,6 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     <NodeWrapper
       $analysis={data.analysisOptions}
       data-testid="waterfall-node"
-      data-frame-counter={dataFrameCounter}
       data-iq-length={liveFrame?.iq_data?.length ?? 0}
       data-waveform-length={waveform?.length ?? 0}
     >

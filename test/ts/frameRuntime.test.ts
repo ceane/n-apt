@@ -1,8 +1,10 @@
 import {
+  __getSourceFrameProxyCacheSize,
   createFrameRuntime,
   createSourceFrameRuntime,
   getLiveFrameRefForSource,
   notifyFrameArrival,
+  resolveFrameSlot,
   subscribeFrameArrivals,
   subscribeFrameRuntime,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
@@ -149,6 +151,154 @@ describe("frame runtime", () => {
       presentationController.reset();
       sourceVisualizationRuntime.clear();
       liveDataBySourceRef.current = previous;
+    }
+  });
+
+  test("returns the same proxy for repeated lookups of one source/mode key", () => {
+    const previous = liveDataBySourceRef.current;
+    try {
+      liveDataBySourceRef.current = {};
+      presentationController.reset();
+
+      const first = getLiveFrameRefForSource("proxy-stability", "rx");
+      expect(getLiveFrameRefForSource("proxy-stability", "rx")).toBe(first);
+      expect(getLiveFrameRefForSource("proxy-stability")).toBe(
+        getLiveFrameRefForSource("proxy-stability"),
+      );
+      // Distinct keys are distinct proxies.
+      expect(getLiveFrameRefForSource("proxy-stability", "tx")).not.toBe(first);
+    } finally {
+      presentationController.reset();
+      liveDataBySourceRef.current = previous;
+    }
+  });
+
+  test("writes through the proxy into the resolved target and clears it", () => {
+    const previous = liveDataBySourceRef.current;
+    try {
+      liveDataBySourceRef.current = {};
+      presentationController.reset();
+      sourceVisualizationRuntime.clear();
+
+      const ref = getLiveFrameRefForSource("write-through");
+      const frame = { sequence: 9 };
+      ref.current = frame;
+      expect(ref.current).toBe(frame);
+
+      // Route transitions issue exactly this clear across handoffs.
+      ref.current = null;
+      expect(ref.current).toBeNull();
+    } finally {
+      presentationController.reset();
+      sourceVisualizationRuntime.clear();
+      liveDataBySourceRef.current = previous;
+    }
+  });
+
+  test("serves a paused source's frozen frame once it is no longer the active target", () => {
+    const previous = liveDataBySourceRef.current;
+    try {
+      liveDataBySourceRef.current = {};
+      presentationController.reset();
+      sourceVisualizationRuntime.clear();
+
+      // Freeze a frame for source A while it is presented…
+      presentationController.selectSource("frozen-src", "rx");
+      presentationController.commitActiveSource("frozen-src");
+      const frozenFrame = { source_id: "frozen-src", sequence: 1 };
+      presentationController.acceptFrame(frozenFrame as any, "rx");
+      // Pausing snapshots the live frame into the slot's frozen frame.
+      presentationController.setPaused("frozen-src", "rx", true);
+
+      // …then move presentation to another source. Reads of A now resolve
+      // through A's own slot rather than the active presentation ref.
+      presentationController.selectSource("other-src", "rx");
+      presentationController.commitActiveSource("other-src");
+
+      expect(getLiveFrameRefForSource("frozen-src", "rx").current).toBe(
+        frozenFrame,
+      );
+    } finally {
+      presentationController.reset();
+      sourceVisualizationRuntime.clear();
+      liveDataBySourceRef.current = previous;
+    }
+  });
+});
+
+describe("resolveFrameSlot", () => {
+  const fallback = { current: null };
+
+  afterEach(() => {
+    presentationController.reset();
+    sourceVisualizationRuntime.clear();
+  });
+
+  test("names each rung of the resolution ladder", () => {
+    presentationController.reset();
+    liveDataBySourceRef.current = {};
+
+    // Tier 3 fallback: explicit mode, no slot.
+    expect(resolveFrameSlot("tier-test", "rx", fallback)).toEqual({
+      ref: fallback,
+      kind: "fallback",
+    });
+
+    // Tier 2 slot-live once the source has a mode slot…
+    presentationController.selectSource("tier-test", "rx");
+    presentationController.commitActiveSource("tier-test");
+    const liveFrame = { source_id: "tier-test", sequence: 1 };
+    presentationController.acceptFrame(liveFrame as any, "rx");
+
+    const slotResolution = resolveFrameSlot("tier-test", "rx", fallback);
+    // The source is the active target, so tier 1 wins with its own ref kind.
+    expect(slotResolution.kind).toBe("active-presentation");
+
+    // …and tier 2 is observable for a non-active source with a frozen frame.
+    presentationController.setPaused("tier-test", "rx", true);
+    presentationController.selectSource("other-tier", "rx");
+    presentationController.commitActiveSource("other-tier");
+    const frozen = resolveFrameSlot("tier-test", "rx", fallback);
+    expect(frozen.kind).toBe("slot-frozen");
+    expect(frozen.ref.current).toMatchObject({ sequence: 1 });
+  });
+
+  test("never crosses the RX/TX boundary even for the active target", () => {
+    presentationController.reset();
+    presentationController.selectSource("mode-strict", "rx");
+    presentationController.commitActiveSource("mode-strict");
+
+    // Asking with an explicit different mode must not serve the active RX
+    // presentation ref.
+    const txResolution = resolveFrameSlot("mode-strict", "tx", fallback);
+    expect(txResolution.kind).toBe("fallback");
+    expect(txResolution.ref).toBe(fallback);
+  });
+});
+
+describe("source frame proxy cache", () => {
+  test("stays bounded while evicted proxies keep resolving through live state", () => {
+    const previous = liveDataBySourceRef.current;
+    try {
+      liveDataBySourceRef.current = {};
+      presentationController.reset();
+
+      const held = getLiveFrameRefForSource("held-source");
+      held.current = { marker: true };
+
+      // Flood past the bound (implementation cap is 64).
+      for (let index = 0; index < 80; index += 1) {
+        getLiveFrameRefForSource(`churn-${index}`);
+      }
+
+      // The still-held proxy keeps working through its closure even though
+      // it was evicted from the cache.
+      expect(held.current).toEqual({ marker: true });
+
+      expect(__getSourceFrameProxyCacheSize()).toBeLessThanOrEqual(64);
+    } finally {
+      liveDataBySourceRef.current = previous;
+      presentationController.reset();
     }
   });
 });
