@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use log::{error, info};
+use log::{error, info, warn};
 use tokio::sync::{broadcast, Mutex};
 
 use crate::sdr::processor::{CaptureResult, SdrProcessor};
@@ -62,8 +62,44 @@ impl CaptureWorker {
       channels,
     } = request;
     let shared_state = self.shared_state.clone();
-    let _broadcast_tx = self.broadcast_tx.clone();
+    let broadcast_tx = self.broadcast_tx.clone();
     let mut processor = self.processor.lock().await;
+
+    // Device-scoped guard (single-Rx mode): the currently supported radios —
+    // simplex and half-duplex devices with one Rx pipeline — can run exactly
+    // one capture at a time. A second start used to silently clobber the
+    // running job *and* its restore-frequency record, leaving the device
+    // tuned to the dead job's first hop. Reject instead and tell the
+    // requesting client why. Multi-receiver commercial rigs would key this
+    // guard per receiver rather than remove it.
+    if processor.capture_active {
+      let active_job = processor
+        .capture_job_id
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+      warn!(
+        "[CAPTURE] Rejected StartCapture job {}: device already running capture {}",
+        job_id, active_job
+      );
+      // The websocket layer registered ownership for this never-started job
+      // before dispatching; drop that record so the slot does not claim the
+      // active capture belongs to the rejected requester.
+      shared_state.clear_capture_owner_if(&job_id);
+      let rejected = serde_json::json!({
+        "type": "capture_status",
+        "status": {
+          "jobId": job_id,
+          "status": "error",
+          "message": format!(
+            "A capture ({active_job}) is already running on this device; stop it before starting another"
+          ),
+          "activeJobId": active_job,
+        }
+      });
+      let _ = broadcast_tx.send(rejected.to_string());
+      return;
+    }
+
     // Bind the channels payload to the processor for Patch B trimming
     processor.capture_requested_channels = channels;
     // fft_size is used by the SDR processor for FFT configuration
@@ -263,7 +299,7 @@ impl CaptureWorker {
             "message": "Capturing..."
         }
     });
-    let _ = _broadcast_tx.send(msg.to_string());
+    let _ = broadcast_tx.send(msg.to_string());
   }
 
   pub fn new(
@@ -356,8 +392,13 @@ impl CaptureWorker {
     let enc_key = shared_state.encryption_key;
     let shared_clone = shared_state.clone();
     let bcast = broadcast_tx.clone();
-    let runtime = tokio::runtime::Handle::current();
-    tokio::task::spawn_blocking(move || {
+    // Async end-to-end: only the blocking file write runs on the blocking
+    // pool; the async Redis bookkeeping runs as a regular task afterwards.
+    // The previous runtime.block_on(...) inside spawn_blocking pinned a pool
+    // thread and panicked if the runtime was shutting down.
+    let result = std::sync::Arc::new(result);
+    let result_for_save = std::sync::Arc::clone(&result);
+    tokio::spawn(async move {
       if result.is_ephemeral {
         let msg = serde_json::json!({
           "type": "capture_status",
@@ -373,18 +414,31 @@ impl CaptureWorker {
         return;
       }
 
-      match crate::server::utils::save_capture_file_multi(&result, &enc_key) {
-        Ok(artifact) => {
-          runtime.block_on(store_artifact_and_broadcast(
+      let saved = tokio::task::spawn_blocking(move || {
+        crate::server::utils::save_capture_file_multi(&result_for_save, &enc_key)
+      })
+      .await;
+
+      match saved {
+        Ok(Ok(artifact)) => {
+          store_artifact_and_broadcast(
             &result,
             artifact,
             shared_clone,
             bcast,
             &status_msg,
-          ));
+          )
+          .await;
+        }
+        Ok(Err(e)) => {
+          broadcast_capture_failure(&bcast, &result.job_id, &e.to_string());
         }
         Err(e) => {
-          broadcast_capture_failure(&bcast, &result.job_id, &e.to_string());
+          broadcast_capture_failure(
+            &bcast,
+            &result.job_id,
+            &format!("capture persistence task failed: {e}"),
+          );
         }
       }
     });
@@ -397,8 +451,9 @@ fn spawn_capture_persistence(
   broadcast_tx: broadcast::Sender<String>,
 ) {
   let enc_key = shared_state.encryption_key;
-  let runtime = tokio::runtime::Handle::current();
-  tokio::task::spawn_blocking(move || {
+  let result = std::sync::Arc::new(result);
+  let result_for_save = std::sync::Arc::clone(&result);
+  tokio::spawn(async move {
     if result.is_ephemeral {
       info!(
         "Ephemeral capture job {} completed. Skipping persistence.",
@@ -428,21 +483,30 @@ fn spawn_capture_persistence(
     });
     let _ = broadcast_tx.send(creating_msg.to_string());
 
-    match crate::server::utils::save_capture_file_multi(&result, &enc_key) {
-      Ok(artifact) => {
-        runtime.block_on(store_artifact_and_broadcast(
+    let saved = tokio::task::spawn_blocking(move || {
+      crate::server::utils::save_capture_file_multi(&result_for_save, &enc_key)
+    })
+    .await;
+
+    match saved {
+      Ok(Ok(artifact)) => {
+        store_artifact_and_broadcast(
           &result,
           artifact,
           shared_state,
           broadcast_tx,
           "Capture complete",
-        ));
+        )
+        .await;
+      }
+      Ok(Err(e)) => {
+        broadcast_capture_failure(&broadcast_tx, &result.job_id, &e.to_string());
       }
       Err(e) => {
         broadcast_capture_failure(
           &broadcast_tx,
           &result.job_id,
-          &e.to_string(),
+          &format!("capture persistence task failed: {e}"),
         );
       }
     }
@@ -482,10 +546,12 @@ async fn store_artifact_and_broadcast(
     error!("Failed to store capture artifacts in Redis: {error}");
   }
 
+  // Headless boards can boot with clocks before the epoch; never panic in
+  // the persistence path over a timestamp.
   let timestamp = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
-    .unwrap()
-    .as_millis() as u64;
+    .map(|since_epoch| since_epoch.as_millis() as u64)
+    .unwrap_or(0);
   let msg = serde_json::json!({
     "type": "capture_status",
     "status": {

@@ -113,19 +113,23 @@ impl DeviceHealthWorker {
     shared_state: &SharedState,
     broadcast_tx: &broadcast::Sender<String>,
   ) {
-    let mut processor = self.processor.lock().await;
+    // Lock per attempt: sleeping between retries must not pin the processor
+    // lock, or the first live frame from a healthy device stalls behind it.
     for attempt in 0..5 {
-      maybe_attach_hotplugged_device(
-        hotplug_monitor,
-        hotplug_state,
-        &mut processor,
-        shared_state,
-        broadcast_tx,
-        true,
-      )
-      .await;
-      if !processor.is_mock() {
-        break;
+      {
+        let mut processor = self.processor.lock().await;
+        maybe_attach_hotplugged_device(
+          hotplug_monitor,
+          hotplug_state,
+          &mut processor,
+          shared_state,
+          broadcast_tx,
+          true,
+        )
+        .await;
+        if !processor.is_mock() {
+          break;
+        }
       }
       if attempt < 4 {
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -156,10 +160,12 @@ impl DeviceHealthWorker {
 
     if processor.is_mock() {
       // Mock should never fail, but don't crash — just wait briefly
+      drop(processor);
       tokio::time::sleep(Duration::from_millis(100)).await;
     } else {
       let current_state = shared_state.device_state.lock().unwrap().clone();
       if should_ignore_read_error(&current_state, &e) {
+        drop(processor);
         tokio::time::sleep(Duration::from_millis(100)).await;
         return;
       }
@@ -196,6 +202,7 @@ impl DeviceHealthWorker {
 
       if let Some(last_failed) = hotplug_state.last_failure_at {
         if last_failed.elapsed() < hotplug_state.retry_cooldown {
+          drop(processor);
           tokio::time::sleep(Duration::from_millis(250)).await;
           return;
         }
@@ -239,7 +246,9 @@ impl DeviceHealthWorker {
           }
         }
 
-        // Brief settle regardless
+        // Brief settle regardless — release the processor lock first so the
+        // streaming loop resumes while this task settles.
+        drop(processor);
         tokio::time::sleep(Duration::from_millis(100)).await;
       } else {
         // Threshold reached: restart stalled readers before falling back.
@@ -499,7 +508,12 @@ impl DeviceHealthWorker {
             shared_state.set_device_state("disconnected", None);
             broadcast_device_status(&shared_state, &_broadcast_tx);
             hotplug_state.last_failure_at = Some(Instant::now());
+            // The longest settle in this path (up to ~15 s). Release the
+            // processor lock first — the RX frame loop must keep serving
+            // frames while recovery waits out its cooldown.
+            drop(processor);
             tokio::time::sleep(hotplug_state.exhausted_recovery_cooldown).await;
+            return;
           }
         } else if should_fallback_to_mock_on_threshold_read_error(
           &e,
@@ -543,6 +557,7 @@ impl DeviceHealthWorker {
           broadcast_device_status(&shared_state, &_broadcast_tx);
         }
         hotplug_state.last_failure_at = Some(Instant::now());
+        drop(processor);
         tokio::time::sleep(Duration::from_millis(250)).await;
       }
     }
