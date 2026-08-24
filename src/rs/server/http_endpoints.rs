@@ -528,7 +528,52 @@ pub async fn towers_bounds_handler(
   }
 
   let range_filter = parse_filter_set(&query.range);
-  let mut seen_ids: HashSet<String> = HashSet::new();
+
+  // Deduplicate keys, then fetch every tower in two round-trips (MGET on DB2
+  // for all keys, MGET on DB4 for the misses) instead of one GET per tower.
+  let mut seen: HashSet<String> = HashSet::new();
+  let unique_keys: Vec<String> = all_tower_keys
+    .into_iter()
+    .filter(|key| seen.insert(key.clone()))
+    .collect();
+  drop(seen);
+
+  let mut tower_payloads: Vec<Option<String>> = if unique_keys.is_empty() {
+    Vec::new()
+  } else {
+    match fast_tower_db
+      .query("MGET", |command| {
+        for key in &unique_keys {
+          command.arg(key);
+        }
+      })
+      .await
+      .unwrap_or_default()
+    {
+      payloads => payloads,
+    }
+  };
+
+  let miss_indices: Vec<usize> = tower_payloads
+    .iter()
+    .enumerate()
+    .filter(|(_, payload)| payload.is_none())
+    .map(|(index, _)| index)
+    .collect();
+  if !miss_indices.is_empty() {
+    let fallback: Vec<Option<String>> = local_tower_db
+      .query("MGET", |command| {
+        for index in &miss_indices {
+          command.arg(&unique_keys[*index]);
+        }
+      })
+      .await
+      .unwrap_or_default();
+    for (slot, value) in miss_indices.into_iter().zip(fallback) {
+      tower_payloads[slot] = value;
+    }
+  }
+
   let mut towers: Vec<TowerRecord> = Vec::new();
 
   let center_lat = (query.ne_lat + query.sw_lat) / 2.0;
@@ -539,32 +584,9 @@ pub async fn towers_bounds_handler(
     * center_lat.to_radians().cos().abs().max(0.01);
   let radius_km = ((lat_km.powi(2) + lon_km.powi(2)).sqrt() / 2.0).max(0.5);
 
-  for tower_key in all_tower_keys {
-    // Skip if we've already seen this tower
-    if !seen_ids.insert(tower_key.clone()) {
+  for (tower_key, tower_json) in unique_keys.iter().zip(&tower_payloads) {
+    let Some(tower_json) = tower_json else {
       continue;
-    }
-
-    // Get tower data as JSON string (try DB 2, then DB 4)
-    let tower_json: Option<String> = fast_tower_db
-      .query("GET", |command| {
-        command.arg(&tower_key);
-      })
-      .await
-      .unwrap_or(None);
-
-    let tower_json = match tower_json {
-      Some(json) => json,
-      None => match local_tower_db
-        .query("GET", |command| {
-          command.arg(&tower_key);
-        })
-        .await
-        .unwrap_or(None)
-      {
-        Some(json) => json,
-        None => continue,
-      },
     };
 
     // Parse JSON tower data
@@ -670,7 +692,7 @@ pub async fn towers_bounds_handler(
 
     // Create tower record
     towers.push(TowerRecord {
-      id: tower_key,
+      id: tower_key.clone(),
       radio: tech.to_string(),
       mcc,
       mnc,

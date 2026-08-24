@@ -1,6 +1,7 @@
 //! Redis construction boundary.
 
 use redis::aio::MultiplexedConnection;
+use redis::Pipeline;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -49,6 +50,24 @@ impl RedisDatabase {
       .query_async(&mut self.connection)
       .await
       .map_err(|error| format!("Redis {command_name} failed: {error}"))
+  }
+
+  /// Send several commands in one round-trip (pipelined). Replies map to `T`
+  /// positionally — e.g. `Vec<HashMap<String, String>>` for N HGETALLs.
+  pub async fn query_pipeline<T, F>(
+    &mut self,
+    build: F,
+  ) -> Result<T, String>
+  where
+    T: redis::FromRedisValue,
+    F: FnOnce(&mut Pipeline),
+  {
+    let mut pipeline = redis::pipe();
+    build(&mut pipeline);
+    pipeline
+      .query_async(&mut self.connection)
+      .await
+      .map_err(|error| format!("Redis pipeline failed: {error}"))
   }
 }
 

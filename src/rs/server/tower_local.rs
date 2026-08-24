@@ -722,14 +722,22 @@ async fn load_towers_direct(
   let states = get_states_in_radius(lat, lng, radius_km);
   let mut towers = Vec::new();
 
-  for tower_key in tower_keys {
-    let tower_data: HashMap<String, String> = tower_database
-      .query("HGETALL", |command| {
-        command.arg(&tower_key);
+  // Fetch every tower hash in one pipelined round-trip instead of one
+  // HGETALL per tower.
+  let tower_maps: Vec<HashMap<String, String>> = if tower_keys.is_empty() {
+    Vec::new()
+  } else {
+    tower_database
+      .query_pipeline(|pipe| {
+        for key in &tower_keys {
+          pipe.cmd("HGETALL").arg(key);
+        }
       })
       .await
-      .unwrap_or_default();
+      .unwrap_or_default()
+  };
 
+  for (tower_key, tower_data) in tower_keys.into_iter().zip(tower_maps) {
     if let Some(tower) = normalize_tower_record(tower_key, tower_data) {
       if calculate_distance(lat, lng, tower.lat, tower.lon) <= radius_km as f64
       {
@@ -747,44 +755,47 @@ async fn load_towers_direct(
     })
     .await?;
 
-  for tower in &towers {
-    let full_tower_data = serde_json::json!({
-      "type": tower.radio,
-      "mcc": tower.mcc.parse::<u64>().unwrap_or(0),
-      "mnc": tower.mnc.parse::<u64>().unwrap_or(0),
-      "lac": tower.lac.parse::<u64>().unwrap_or(0),
-      "cellId": tower.cell.parse::<u64>().unwrap_or(0),
-      "range": tower.range.parse::<i64>().unwrap_or(0),
-      "lon": tower.lon,
-      "lat": tower.lat,
-      "samples": tower.samples.parse::<u64>().unwrap_or(0),
-      "created": tower.created.parse::<u64>().unwrap_or(0),
-      "updated": tower.updated.parse::<u64>().unwrap_or(0),
-    })
-    .to_string();
-
+  // Write the whole cache in one pipelined round-trip (SETEX + GEOADD per
+  // tower, then the index EXPIRE).
+  if !towers.is_empty() {
+    let cache_key_for_expire = cache_key.clone();
     local_database
-      .query::<(), _>("SETEX", |command| {
-        command.arg(&tower.id).arg(6 * 3600).arg(full_tower_data);
-      })
-      .await?;
+      .query_pipeline::<Vec<()>, _>(|pipe| {
+        for tower in &towers {
+          let full_tower_data = serde_json::json!({
+            "type": tower.radio,
+            "mcc": tower.mcc.parse::<u64>().unwrap_or(0),
+            "mnc": tower.mnc.parse::<u64>().unwrap_or(0),
+            "lac": tower.lac.parse::<u64>().unwrap_or(0),
+            "cellId": tower.cell.parse::<u64>().unwrap_or(0),
+            "range": tower.range.parse::<i64>().unwrap_or(0),
+            "lon": tower.lon,
+            "lat": tower.lat,
+            "samples": tower.samples.parse::<u64>().unwrap_or(0),
+            "created": tower.created.parse::<u64>().unwrap_or(0),
+            "updated": tower.updated.parse::<u64>().unwrap_or(0),
+          })
+          .to_string();
 
-    local_database
-      .query::<(), _>("GEOADD", |command| {
-        command
-          .arg(&cache_key)
-          .arg(tower.lon)
-          .arg(tower.lat)
-          .arg(&tower.id);
+          pipe
+            .cmd("SETEX")
+            .arg(&tower.id)
+            .arg(6 * 3600)
+            .arg(full_tower_data);
+          pipe
+            .cmd("GEOADD")
+            .arg(&cache_key)
+            .arg(tower.lon)
+            .arg(tower.lat)
+            .arg(&tower.id);
+        }
+        pipe
+          .cmd("EXPIRE")
+          .arg(&cache_key_for_expire)
+          .arg(6 * 3600);
       })
       .await?;
   }
-
-  local_database
-    .query::<(), _>("EXPIRE", |command| {
-      command.arg(&cache_key).arg(6 * 3600);
-    })
-    .await?;
 
   Ok(LoadLocalRadiusResponse {
     loaded: towers.len(),
