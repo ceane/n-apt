@@ -61,27 +61,6 @@ export const DEMOD_FIT_VIEW_OPTIONS = {
   maxZoom: 1.2,
 } as const;
 
-/** Normalize Vite's CJS/ESM interop shapes for the ELK constructor. */
-export const resolveDemodElkConstructor = (
-  moduleValue: unknown,
-): (new (...args: any[]) => any) | null => {
-  const candidate = moduleValue as {
-    default?: unknown;
-    ELK?: unknown;
-  };
-  const values = [
-    candidate?.default,
-    (candidate?.default as { default?: unknown } | undefined)?.default,
-    candidate?.ELK,
-    moduleValue,
-  ];
-  return (
-    values.find((value): value is new (...args: any[]) => any =>
-      typeof value === "function",
-    ) ?? null
-  );
-};
-
 /** Waterfalls own temporal history in their mounted canvas runtime. Keep every
  * waterfall mounted when zooming moves it outside the viewport. Tx Suite FFTs
  * are also source-bound runtime producers for their adjacent waterfalls. */

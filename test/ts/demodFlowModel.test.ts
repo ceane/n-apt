@@ -8,7 +8,6 @@ import {
   serializeDemodFlow,
   shouldDeferDemodAutoLayout,
   DEMOD_FIT_VIEW_OPTIONS,
-  resolveDemodElkConstructor,
 } from "@n-apt/demodulation/react-flow/flows/demodFlowModel";
 
 describe("buildDemodFlowGraph", () => {
@@ -101,16 +100,6 @@ describe("buildDemodFlowGraph", () => {
 });
 
 describe("demod flow initial layout", () => {
-  it("normalizes the browser's nested ELK module export", () => {
-    const ctor = class Elk {};
-    expect(resolveDemodElkConstructor({ default: { default: ctor } })).toBe(
-      ctor,
-    );
-    expect(resolveDemodElkConstructor({ default: ctor })).toBe(ctor);
-    expect(resolveDemodElkConstructor(ctor)).toBe(ctor);
-    expect(resolveDemodElkConstructor({})).toBeNull();
-  });
-
   it("fits against hidden template nodes so the selected flow stays on-screen", () => {
     expect(DEMOD_FIT_VIEW_OPTIONS.includeHiddenNodes).toBe(true);
     expect(DEMOD_FIT_VIEW_OPTIONS.minZoom).toBeLessThan(0.3);

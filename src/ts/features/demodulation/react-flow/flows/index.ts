@@ -10,7 +10,6 @@ export {
   resolveDemodCaptureRange,
   serializeDemodFlow,
   DEMOD_FIT_VIEW_OPTIONS,
-  resolveDemodElkConstructor,
 } from "@n-apt/demodulation/react-flow/flows/demodFlowModel";
 export * from "@n-apt/demodulation/react-flow/flows/templates";
 export { FindBeatsFlow } from "@n-apt/demodulation/react-flow/flows/FindBeatsFlow";

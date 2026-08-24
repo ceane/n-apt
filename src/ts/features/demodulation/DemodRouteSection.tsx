@@ -26,33 +26,13 @@ import { useDemodAnalysis } from "@n-apt/demodulation/context/DemodAnalysisConte
 import { useDemodFlow } from "@n-apt/demodulation/context/DemodFlowContext";
 import { useAppSelector } from "@n-apt/redux";
 import {
-  StimulusNode,
-  SignalConfigNode,
-  MetadataNode,
-  SourceNode,
-  CoreMLNode,
-  SpikeDetectionNode,
-  BeatNode,
-  FFTNode,
-  WaterfallNode,
-  SpectogramNode,
-  ChannelNode,
-  ChannelOptionsNode,
-  SpanNode,
-  AnalysisNode,
-  AptNode,
-  FmNode,
-  FileOptionsNode,
-  RadioNode,
-  StreamNode,
-  TempoNoteNode,
-  OutputNode,
-  IQCaptureNode,
-  SymbolsTable,
-  BitstreamViewer,
-  TxNode,
-  TxSignalConfigNode,
-} from "@n-apt/demodulation/react-flow/nodes";
+  DefaultDemodNodeContent,
+  DemodNodeSuspense,
+  LazyBitstreamViewer,
+  LazySymbolsTable,
+  hasPendingDemodLazyNodeContent,
+  resolveDemodNodeEntry,
+} from "@n-apt/demodulation/react-flow/nodes/nodeRegistry";
 import {
   NodeContainer,
   FlowContainer,
@@ -62,7 +42,6 @@ import {
   shouldRunDemodAutoLayout,
   shouldDeferDemodAutoLayout,
   shouldVirtualizeDemodFlowNodes,
-  resolveDemodElkConstructor,
 } from "@n-apt/demodulation/react-flow/flows/demodFlowModel";
 // Removed local buildDemodFlowGraph call
 
@@ -185,40 +164,7 @@ export const calculateVisibleFrequencyRange = ({
 };
 
 const CustomNode = React.memo(({ data, id }: { data: any; id: string }) => {
-  let content: React.ReactNode;
-
-  if (data.sourceNode) content = <SourceNode data={data} />;
-  else if (data.coremlOptions) content = <CoreMLNode data={data} />;
-  else if (data.spikeOptions) content = <SpikeDetectionNode data={data} />;
-  else if (data.beatOptions) content = <BeatNode data={data} />;
-  else if (data.fftOptions) content = <FFTNode data={data} id={id} />;
-  else if (data.waterfallOptions) content = <WaterfallNode data={data} />;
-  else if (data.spectogramOptions) content = <SpectogramNode data={data} />;
-  else if (data.channelNode) content = <ChannelNode data={data} />;
-  else if (data.txSignalOptions) content = <TxSignalConfigNode data={data} />;
-  else if (data.signalOptions) content = <SignalConfigNode data={data} />;
-  else if (data.metadataNode) content = <MetadataNode data={data} />;
-  else if (data.channelOptions) content = <ChannelOptionsNode data={data} />;
-  else if (data.spanOptions) content = <SpanNode data={data} />;
-  else if (data.stimulusOptions) content = <StimulusNode data={data} />;
-  else if (data.tempoNoteOptions) content = <TempoNoteNode data={data} />;
-  else if (data.radioOptions) content = <RadioNode data={data} />;
-  else if (data.streamOptions) content = <StreamNode data={data} />;
-  else if (data.analysisOptions) content = <AnalysisNode data={data} />;
-  else if (data.aptOptions) content = <AptNode data={data} />;
-  else if (data.fmOptions) content = <FmNode data={data} />;
-  else if (data.fileOptions) content = <FileOptionsNode data={data} />;
-  else if (data.iqCaptureNode) content = <IQCaptureNode data={data} />;
-  else if (data.txOptions) content = <TxNode data={data} />;
-  else if (data.outputNode) content = <OutputNode data={data} />;
-  else {
-    content = (
-      <div className="node-container">
-        <div className="node-title">{data.label}</div>
-        <div className="node-description">{data.description}</div>
-      </div>
-    );
-  }
+  const entry = resolveDemodNodeEntry(data);
 
   return (
     <NodeContainer data-nodeid={id}>
@@ -234,7 +180,13 @@ const CustomNode = React.memo(({ data, id }: { data: any; id: string }) => {
           }}
         />
       )}
-      {content}
+      <DemodNodeSuspense label={data.label}>
+        {entry ? (
+          <entry.Component data={data} id={id} />
+        ) : (
+          <DefaultDemodNodeContent data={data} />
+        )}
+      </DemodNodeSuspense>
       {!data.outputNode && (
         <Handle
           type="source"
@@ -268,7 +220,9 @@ const FrequencyAwareNode = React.memo(
               height: "8px",
             }}
           />
-          <SymbolsTable frequencyRange={frequencyRange} />
+          <DemodNodeSuspense label={data.label}>
+            <LazySymbolsTable frequencyRange={frequencyRange} />
+          </DemodNodeSuspense>
           <Handle
             type="source"
             position={Position.Bottom}
@@ -295,7 +249,9 @@ const FrequencyAwareNode = React.memo(
             height: "8px",
           }}
         />
-        <BitstreamViewer frequencyRange={frequencyRange} />
+        <DemodNodeSuspense label={data.label}>
+          <LazyBitstreamViewer frequencyRange={frequencyRange} />
+        </DemodNodeSuspense>
         <Handle
           type="source"
           position={Position.Bottom}
@@ -321,29 +277,7 @@ const NODE_TYPES = {
   },
 };
 
-let elkBrowserScriptPromise: Promise<void> | null = null;
-
-const ensureElkBrowserGlobal = () => {
-  if (typeof document === "undefined") return Promise.resolve();
-  if ((globalThis as { ELK?: unknown }).ELK) return Promise.resolve();
-  elkBrowserScriptPromise ??= new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-n-apt-elk="true"]',
-    );
-    if (existing) {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("ELK script failed to load")), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "/node_modules/elkjs/lib/elk.bundled.js";
-    script.dataset.nAptElk = "true";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("ELK script failed to load"));
-    document.head.appendChild(script);
-  });
-  return elkBrowserScriptPromise;
-};
+const DEMOD_LAYOUT_CACHE_LIMIT = 8;
 
 // Inner component that uses React Flow hooks
 const DemodRouteSectionInner: React.FC = () => {
@@ -374,7 +308,6 @@ const DemodRouteSectionInner: React.FC = () => {
     new Map(),
   );
   const onKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => {});
-  const elkRef = useRef<any>(null);
   const layoutRunIdRef = useRef(0);
   const shouldFitAfterLayoutRef = useRef(true);
   const layoutCacheRef = useRef<Map<string, any>>(new Map()); // Cache layout results
@@ -411,6 +344,7 @@ const DemodRouteSectionInner: React.FC = () => {
 
   const [, setIsLaidOut] = useState(false);
   const [isFlowTransitioning, setIsFlowTransitioning] = useState(false);
+  const [fitViewEpoch, setFitViewEpoch] = useState(0);
 
   const [menu, setMenu] = React.useState<{
     id: string;
@@ -442,33 +376,51 @@ const DemodRouteSectionInner: React.FC = () => {
   }, []);
 
   const measureAndLayout = useCallback(
-    async (force: boolean = false) => {
+    async (force: boolean = false, remeasure: boolean = false) => {
       if (!reactFlowWrapper.current) return;
       const wrapper = reactFlowWrapper.current;
       const currentRunId = ++layoutRunIdRef.current;
 
-      // Use React Flow's built-in measurements if available, else fallback to DOM, else 400x300
       const sizeMap = new Map<string, { w: number; h: number }>();
-      const nodeEls = wrapper.querySelectorAll<HTMLElement>("[data-nodeid]");
-      nodeEls.forEach((el) => {
-        const id = el.getAttribute("data-nodeid");
-        if (id) {
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            sizeMap.set(id, { w: rect.width, h: rect.height });
+      if (remeasure) {
+        const nodeEls = wrapper.querySelectorAll<HTMLElement>("[data-nodeid]");
+        nodeEls.forEach((el) => {
+          const id = el.getAttribute("data-nodeid");
+          if (!id) return;
+          if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+            sizeMap.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+          }
+        });
+      } else {
+        let hasUnmeasuredNodes = false;
+        for (const node of nodesRef.current) {
+          const measuredWidth = node.measured?.width;
+          const measuredHeight = node.measured?.height;
+          if (measuredWidth && measuredHeight) {
+            sizeMap.set(node.id, { w: measuredWidth, h: measuredHeight });
+          } else {
+            hasUnmeasuredNodes = true;
           }
         }
-      });
+        if (hasUnmeasuredNodes) {
+          const nodeEls =
+            wrapper.querySelectorAll<HTMLElement>("[data-nodeid]");
+          nodeEls.forEach((el) => {
+            const id = el.getAttribute("data-nodeid");
+            if (!id || sizeMap.has(id)) return;
+            if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+              sizeMap.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+            }
+          });
+        }
+      }
 
       const getDimensions = (node: Node) => {
-        // React Flow v11+ internal measurement
         if (node.measured?.width && node.measured?.height) {
           return { w: node.measured.width, h: node.measured.height };
         }
-        // DOM fallback
         const domSz = sizeMap.get(node.id);
         if (domSz) return domSz;
-        // Default guess
         return { w: 400, h: 300 };
       };
 
@@ -496,134 +448,99 @@ const DemodRouteSectionInner: React.FC = () => {
 
       lastMeasuredSizesRef.current = sizeMap;
 
-      // Create cache key from node IDs, sizes, and edges
-      const cacheKey = JSON.stringify({
-        nodes: nodesRef.current.map((n) => ({ id: n.id, type: n.type })),
-        edges: edgesRef.current.map((e) => ({
-          source: e.source,
-          target: e.target,
-        })),
-        sizes: Array.from(sizeMap.entries()),
+      const layoutNodes = nodesRef.current.map((node: Node) => {
+        const dims = getDimensions(node);
+        return { id: node.id, width: dims.w, height: dims.h };
       });
+      const layoutEdges = edgesRef.current.map((edge: Edge) => ({
+        id: edge.id,
+        sources: [edge.source],
+        targets: [edge.target],
+      }));
 
-      // Check cache for existing layout
-      const cachedLayout = layoutCacheRef.current.get(cacheKey);
-      if (cachedLayout && !force) {
-        setNodesLocal((nds: Node[]) => {
-          return nds.map((node: Node) => {
-            const cachedNode = cachedLayout.find((n: any) => n.id === node.id);
-            if (cachedNode) {
-              return {
-                ...node,
-                position: { x: cachedNode.x, y: cachedNode.y },
-              };
-            }
-            return node;
-          });
-        });
-        setIsLaidOut(true);
-        setIsFlowTransitioning(false);
-        hasLaidOut.current = true;
-        shouldFitAfterLayoutRef.current = false;
-        void fitView({
-          ...DEMOD_FIT_VIEW_OPTIONS,
-        });
+      const cacheKey = `${layoutNodes
+        .map((node) => `${node.id}:${node.width}x${node.height}`)
+        .join(";")}|${layoutEdges
+        .map((edge) => `${edge.sources[0]}>${edge.targets[0]}`)
+        .join(";")}`;
+
+      const cachedPositions = force
+        ? null
+        : layoutCacheRef.current.get(cacheKey);
+      if (cachedPositions) {
+        setNodesLocal((nds: Node[]) =>
+          nds.map((node: Node) => {
+            const position = cachedPositions[node.id];
+            if (!position) return node;
+            return { ...node, position: { x: position.x, y: position.y } };
+          }),
+        );
+        setFitViewEpoch((epoch) => epoch + 1);
         return;
       }
 
       try {
-        if (!elkRef.current) {
-          const ELKModule = await import("elkjs/lib/elk.bundled.js");
-          const ELKConstructor =
-            resolveDemodElkConstructor(ELKModule) ??
-            resolveDemodElkConstructor(
-              (globalThis as { ELK?: unknown }).ELK,
-            );
-          if (ELKConstructor) {
-            elkRef.current = new ELKConstructor();
-          } else {
-            await ensureElkBrowserGlobal();
-            const BrowserELK = resolveDemodElkConstructor(
-              (globalThis as { ELK?: unknown }).ELK,
-            );
-            if (!BrowserELK) {
-              throw new Error("Unable to resolve the ELK layout constructor");
-            }
-            elkRef.current = new BrowserELK();
-          }
-        }
-        const elk = elkRef.current;
-
-        // Preserve the current visual order so source changes do not cause
-        // the flow to flash or reshuffle. ELK still receives the live node
-        // list, but we keep the existing ordering stable.
-        const sortedNodes = nodesRef.current.slice();
-
-        const graph = {
-          id: "root",
-          layoutOptions: {
-            "elk.algorithm": "layered",
-            "elk.direction": "DOWN",
-            "elk.spacing.nodeNode": "60",
-            "elk.layered.spacing.nodeNodeBetweenLayers": "80",
-            "elk.alignment": "CENTER",
-            "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
-          },
-          children: sortedNodes.map((node: Node) => {
-            const dims = getDimensions(node);
-            return {
-              id: node.id,
-              width: dims.w,
-              height: dims.h,
-            };
-          }),
-          edges: edgesRef.current.map((edge: Edge) => ({
-            id: edge.id,
-            sources: [edge.source],
-            targets: [edge.target],
-          })),
-        };
-
-        const layoutedGraph = await elk.layout(graph);
+        const { runDemodLayout } = await import(
+          "@n-apt/demodulation/react-flow/flows/demodLayoutClient"
+        );
+        const positions = await runDemodLayout(
+          currentRunId,
+          layoutNodes,
+          layoutEdges,
+        );
         if (layoutRunIdRef.current !== currentRunId) {
           return;
         }
 
-        // Cache the layout result
-        layoutCacheRef.current.set(cacheKey, layoutedGraph.children);
+        if (layoutCacheRef.current.size >= DEMOD_LAYOUT_CACHE_LIMIT) {
+          const oldestKey = layoutCacheRef.current.keys().next().value;
+          if (oldestKey !== undefined) {
+            layoutCacheRef.current.delete(oldestKey);
+          }
+        }
+        layoutCacheRef.current.set(cacheKey, positions);
+
+        const isTxSuite = nodesRef.current.some(
+          (candidate) => candidate.data?.txSuite === true,
+        );
+        const txSuiteLayout = (() => {
+          if (!isTxSuite) return null;
+          const next: Record<string, { x: number; y: number }> = {
+            source: { x: 425, y: 40 },
+          };
+          const columns = [
+            {
+              x: 40,
+              ids: [
+                "tx-settings",
+                "tx-signal-config",
+                "tx-fft",
+                "tx-waterfall",
+              ],
+            },
+            { x: 650, ids: ["rx-channel", "rx-fft", "rx-waterfall"] },
+            { x: 1250, ids: ["rx-signal-config"] },
+          ];
+          for (const column of columns) {
+            let y = 360;
+            for (const id of column.ids) {
+              next[id] = { x: column.x, y };
+              y += (sizeMap.get(id)?.h ?? 400) + 80;
+            }
+          }
+          return next;
+        })();
 
         setNodesLocal((nds: Node[]) => {
           let hasPositionChanges = false;
-          const isTxSuite = nodesRef.current.some(
-            (candidate) => candidate.data?.txSuite === true,
-          );
-          const txSuiteLayout: Record<string, { x: number; y: number }> = {
-            source: { x: 425, y: 40 },
-            "tx-settings": { x: 40, y: 360 },
-            "tx-signal-config": { x: 40, y: 850 },
-            "tx-fft": { x: 40, y: 1350 },
-            "tx-waterfall": { x: 40, y: 1900 },
-            "rx-channel": { x: 650, y: 360 },
-            "rx-signal-config": { x: 1250, y: 360 },
-            "rx-fft": { x: 650, y: 1350 },
-            "rx-waterfall": { x: 650, y: 1900 },
-          };
           const nextNodes = nds.map((node: Node) => {
-            const layoutNode = layoutedGraph.children?.find(
-              (n: { id: string }) => n.id === node.id,
-            );
-            // If ELK failed to position this node, preserve its current position to avoid stacking at 0,0
-            if (
-              !layoutNode ||
-              layoutNode.x === undefined ||
-              layoutNode.y === undefined
-            )
-              return node;
+            const layoutPosition = positions[node.id];
+            if (!layoutPosition) return node;
 
-            let targetX = layoutNode.x;
-            let targetY = layoutNode.y;
+            let targetX = layoutPosition.x;
+            let targetY = layoutPosition.y;
 
-            if (isTxSuite && txSuiteLayout[node.id]) {
+            if (txSuiteLayout && txSuiteLayout[node.id]) {
               targetX = txSuiteLayout[node.id].x;
               targetY = txSuiteLayout[node.id].y;
             }
@@ -647,18 +564,10 @@ const DemodRouteSectionInner: React.FC = () => {
         });
 
         if (typeof window !== "undefined") {
-          window.requestAnimationFrame(() => {
-            if (layoutRunIdRef.current !== currentRunId) {
-              return;
-            }
-            setIsLaidOut(true);
-            setIsFlowTransitioning(false);
-            hasLaidOut.current = true;
-            shouldFitAfterLayoutRef.current = false;
-            void fitView({
-              ...DEMOD_FIT_VIEW_OPTIONS,
-            });
-          });
+          if (layoutRunIdRef.current !== currentRunId) {
+            return;
+          }
+          setFitViewEpoch((epoch) => epoch + 1);
         } else {
           setIsLaidOut(true);
           setIsFlowTransitioning(false);
@@ -668,31 +577,45 @@ const DemodRouteSectionInner: React.FC = () => {
         console.error("Layout error:", error);
       }
     },
-    [fitView, setNodesLocal, setEdgesLocal],
+    [setNodesLocal, setEdgesLocal],
   );
 
   const nodeTypes = useMemo(() => NODE_TYPES, []);
 
   const scheduleMeasureAndLayout = useCallback(
-    (force: boolean = false) => {
+    (force: boolean = false, remeasure: boolean = false) => {
       if (layoutFrameRef.current !== null && typeof window !== "undefined") {
         window.cancelAnimationFrame(layoutFrameRef.current);
       }
 
       if (typeof window === "undefined") {
-        void measureAndLayout(force);
+        void measureAndLayout(force, remeasure);
         return;
       }
 
       layoutFrameRef.current = window.requestAnimationFrame(() => {
         layoutFrameRef.current = null;
-        void measureAndLayout(force);
+        void measureAndLayout(force, remeasure);
       });
     },
     [measureAndLayout],
   );
 
   useEffect(() => {
+    if (fitViewEpoch === 0) return;
+    setIsLaidOut(true);
+    setIsFlowTransitioning(false);
+    hasLaidOut.current = true;
+    shouldFitAfterLayoutRef.current = false;
+    void fitView({
+      ...DEMOD_FIT_VIEW_OPTIONS,
+    });
+  }, [fitViewEpoch, fitView]);
+
+  useEffect(() => {
+    if (hasPendingDemodLazyNodeContent()) {
+      return;
+    }
     if (
       shouldDeferDemodAutoLayout({
         hasNodes: nodes.length > 0,
@@ -740,7 +663,7 @@ const DemodRouteSectionInner: React.FC = () => {
       // Debounce resize to 200ms
       debounceTimerRef.current = setTimeout(() => {
         shouldFitAfterLayoutRef.current = true;
-        scheduleMeasureAndLayout(true);
+        scheduleMeasureAndLayout(true, true);
       }, 200);
     };
     window.addEventListener("resize", onResize);
@@ -753,13 +676,9 @@ const DemodRouteSectionInner: React.FC = () => {
   }, [scheduleMeasureAndLayout]);
 
   useEffect(() => {
-    // Keep local React Flow state as the source of truth.
-  }, [nodes, edges]);
-
-  useEffect(() => {
     const onNodeResize = () => {
       shouldFitAfterLayoutRef.current = true;
-      scheduleMeasureAndLayout(true);
+      scheduleMeasureAndLayout(true, true);
     };
 
     window.addEventListener("demod-flow-node-resize", onNodeResize);
@@ -882,57 +801,55 @@ const DemodRouteSectionInner: React.FC = () => {
         data: nodeData.data,
       };
 
-      setNodesLocal((nds: Node[]) => {
-        const isSpikeNode = !!nodeData.data?.spikeOptions;
-        const fftNode = isSpikeNode
-          ? (nds
-              .filter((node) => node.data?.fftOptions)
-              .sort((a, b) => a.position.y - b.position.y)[0] ?? null)
-          : null;
-        const nextNode =
-          isSpikeNode && fftNode
-            ? {
-                ...newNode,
-                position: {
-                  x: fftNode.position.x,
-                  y: fftNode.position.y + 180,
-                },
-              }
-            : newNode;
-        const nextNodes = nds.concat(nextNode);
-        if (!isSpikeNode || !fftNode) {
-          return nextNodes;
+      const isSpikeNode = !!nodeData.data?.spikeOptions;
+      const fftNode = isSpikeNode
+        ? (nodesRef.current
+            .filter((node) => node.data?.fftOptions)
+            .sort((a, b) => a.position.y - b.position.y)[0] ?? null)
+        : null;
+      const placedNode =
+        isSpikeNode && fftNode
+          ? {
+              ...newNode,
+              position: {
+                x: fftNode.position.x,
+                y: fftNode.position.y + 180,
+              },
+            }
+          : newNode;
+
+      setNodesLocal((nds: Node[]) => nds.concat(placedNode));
+
+      if (!isSpikeNode || !fftNode) {
+        return;
+      }
+
+      const nextEdge: Edge = {
+        id: `e-${fftNode.id}-${newNode.id}`,
+        source: fftNode.id,
+        target: newNode.id,
+        animated: true,
+        style: {
+          stroke: "#00d4ffaa",
+          strokeWidth: 2,
+          strokeDasharray: "5 5",
+        },
+      };
+
+      setEdgesLocal((eds: Edge[]) => {
+        if (
+          eds.some(
+            (edge) =>
+              edge.source === fftNode.id && edge.target === newNode.id,
+          )
+        ) {
+          return eds;
         }
+        return [...eds, nextEdge];
+      });
 
-        const nextEdge: Edge = {
-          id: `e-${fftNode.id}-${newNode.id}`,
-          source: fftNode.id,
-          target: newNode.id,
-          animated: true,
-          style: {
-            stroke: "#00d4ffaa",
-            strokeWidth: 2,
-            strokeDasharray: "5 5",
-          },
-        };
-
-        setEdgesLocal((eds: Edge[]) => {
-          if (
-            eds.some(
-              (edge) =>
-                edge.source === fftNode.id && edge.target === newNode.id,
-            )
-          ) {
-            return eds;
-          }
-          return [...eds, nextEdge];
-        });
-
-        window.requestAnimationFrame(() => {
-          window.dispatchEvent(new CustomEvent("demod-flow-node-resize"));
-        });
-
-        return nextNodes;
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent("demod-flow-node-resize"));
       });
     },
     [setNodesLocal, setEdgesLocal, screenToFlowPosition],
@@ -941,9 +858,27 @@ const DemodRouteSectionInner: React.FC = () => {
   // Handle keyboard shortcuts
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
-      if (event.key === "Delete" || event.key === "Backspace") {
-        deleteElements({ nodes: [], edges: [] });
+      if (event.key !== "Delete" && event.key !== "Backspace") {
+        return;
       }
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (
+        activeElement &&
+        (activeElement.tagName === "INPUT" ||
+          activeElement.tagName === "TEXTAREA" ||
+          activeElement.tagName === "SELECT" ||
+          activeElement.isContentEditable)
+      ) {
+        return;
+      }
+      const selectedNodes = nodesRef.current.filter(
+        (node) => node.selected && node.data?.nonRemovable !== true,
+      );
+      const selectedEdges = edgesRef.current.filter((edge) => edge.selected);
+      if (selectedNodes.length === 0 && selectedEdges.length === 0) {
+        return;
+      }
+      deleteElements({ nodes: selectedNodes, edges: selectedEdges });
     },
     [deleteElements],
   );
