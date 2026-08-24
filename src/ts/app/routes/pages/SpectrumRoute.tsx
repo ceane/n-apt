@@ -50,7 +50,6 @@ import { useDeviceConnectionState } from "@n-apt/app/hooks/useDeviceConnectionSt
 import { useCaptureWholeChannelSegments } from "@n-apt/capture/hooks/useCaptureWholeChannelSegments";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocation } from "@n-apt/capture/snapshotLocation";
-import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
 
 import {
   useAppSelector,
@@ -80,6 +79,7 @@ import { selectTxHopChannels } from "@n-apt/redux/selectors/spectrumSelectors";
 import {
   clampFrequencyRangeToBounds,
   buildCenteredFrequencyRange,
+  getAvailableSpectrumBounds,
   normalizeFrequencyRangeToHz,
   resolveCenteredFrequencyHz,
   resolveMockTxMonitorCenterHz,
@@ -205,10 +205,7 @@ import {
   shouldClearMockTxPreviewRequestDedupe,
 } from "./spectrum/mockTxPreview";
 import {
-  FAST_SPECTRUM_FALLBACK_HEIGHT,
-  FAST_WATERFALL_FALLBACK_HEIGHT,
   FFTBackButton,
-  FastSnapshotControl,
   FastSnapshotDivider,
   HeaderActionSpacer,
   NotesSnapshotButton,
@@ -222,6 +219,13 @@ import {
   TxOptionsTitle,
   TxPowerField,
 } from "./spectrum/SpectrumRouteControls";
+import { useFastSnapshotControls } from "./spectrum/hooks/useFastSnapshotControls";
+import { useTxHopPreview } from "./spectrum/hooks/useTxHopPreview";
+import { useNoteViewHistory } from "./spectrum/hooks/useNoteViewHistory";
+import {
+  useFrequencyTuning,
+  useTxMonitor,
+} from "./spectrum/hooks/useLiveTuning";
 
 // Kept as re-exports: tests import these helpers via this module.
 export { resolveLiveDevicePlaceholderState } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
@@ -248,25 +252,6 @@ interface SpectrumRouteProps {
   onLoadingStateChange?: (isLoading: boolean) => void;
 }
 
-type SpectrumViewSnapshot = Partial<{
-  activeSignalArea: string;
-  frequencyRange: FrequencyRange;
-  displayTemporalResolution: TemporalResolution;
-  powerScale: "dB" | "dBm";
-  vizZoom: number;
-  vizZoomFloor: number;
-  vizZoomFloorPan: number;
-  vizPanOffset: number;
-  fftMinDb: number;
-  fftMaxDb: number;
-  fftSize: number;
-  fftWindow: string;
-  gain: number;
-  ppm: number;
-  tunerAGC: boolean;
-  rtlAGC: boolean;
-}>;
-
 export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   activeTab,
   fftCanvasRef: fftCanvasRefProp,
@@ -274,125 +259,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 }) => {
   const localFftCanvasRef = useRef<FFTCanvasHandle | null>(null);
   const fftCanvasRef = fftCanvasRefProp ?? localFftCanvasRef;
-  const fftHistoryRef = useRef<SpectrumViewSnapshot[]>([]);
-  const [fftHistoryVersion, setFftHistoryVersion] = useState(0);
   const [fftSnapshotLoading, setFftSnapshotLoading] = useState(false);
-  const [fastSnapshotMode, setFastSnapshotMode] = useState<0 | 1 | 2>(() =>
-    getSettingsDefaults().snapshot.fastSnapshotShowStats ? 1 : 0,
-  );
-  const { getLocation: getFastSnapshotLocation } = useGeolocation();
-  const [fastSnapshotGeolocation, setFastSnapshotGeolocation] = useState<{
-    lat: string;
-    lon: string;
-  } | null>(null);
-  const [fastSnapshotLocationLabel, setFastSnapshotLocationLabel] = useState<
-    string | null
-  >(null);
-  const [fastSnapshotGeoUnavailable, setFastSnapshotGeoUnavailable] =
-    useState(false);
-  const fastSnapshotGeoUnavailableRef = useRef(false);
-  const fastSnapshotGeolocationRequestRef = useRef(0);
-  const fastSnapshotShowStats = fastSnapshotMode > 0;
-  const fastSnapshotShowGeolocation = fastSnapshotMode === 2;
-  const handleShowStatsChange = useCallback(
-    (show: boolean) => setFastSnapshotMode(show ? 1 : 0),
-    [],
-  );
-
-  useEffect(() => {
-    if (
-      typeof navigator === "undefined" ||
-      !navigator.permissions ||
-      typeof navigator.permissions.query !== "function"
-    ) {
-      return;
-    }
-
-    let active = true;
-    void navigator.permissions
-      .query({ name: "geolocation" })
-      .then((permission) => {
-        if (!active || permission.state !== "denied") return;
-        fastSnapshotGeoUnavailableRef.current = true;
-        setFastSnapshotGeoUnavailable(true);
-      })
-      .catch(() => {
-        // The geolocation request remains the fallback for browsers that do
-        // not support querying this permission on load.
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const cycleFastSnapshotMode = useCallback(
-    (selectedMode?: 0 | 1 | 2) => {
-      if (selectedMode === 2) {
-        if (fastSnapshotGeoUnavailableRef.current) {
-          fastSnapshotGeoUnavailableRef.current = false;
-          setFastSnapshotGeoUnavailable(false);
-          setFastSnapshotGeolocation(null);
-          setFastSnapshotLocationLabel(null);
-          setFastSnapshotMode(0);
-          return;
-        }
-        const requestId = ++fastSnapshotGeolocationRequestRef.current;
-        void getFastSnapshotLocation()
-          .then((location) => {
-            if (requestId !== fastSnapshotGeolocationRequestRef.current) return;
-            if (!location) {
-              fastSnapshotGeoUnavailableRef.current = true;
-              setFastSnapshotGeolocation(null);
-              setFastSnapshotLocationLabel(null);
-              setFastSnapshotMode(1);
-              return;
-            }
-
-            const geolocation = {
-              lat: location.latitude.toFixed(6),
-              lon: location.longitude.toFixed(6),
-            };
-            fastSnapshotGeoUnavailableRef.current = false;
-            setFastSnapshotGeoUnavailable(false);
-            setFastSnapshotGeolocation(geolocation);
-            setFastSnapshotMode(2);
-            void reverseGeocodeSnapshotLocation(
-              geolocation.lat,
-              geolocation.lon,
-            )
-              .then((label) => {
-                if (requestId === fastSnapshotGeolocationRequestRef.current) {
-                  setFastSnapshotLocationLabel(label);
-                }
-              })
-              .catch(() => {
-                if (requestId === fastSnapshotGeolocationRequestRef.current) {
-                  setFastSnapshotLocationLabel(null);
-                }
-              });
-          })
-          .catch(() => {
-            if (requestId !== fastSnapshotGeolocationRequestRef.current) return;
-            fastSnapshotGeoUnavailableRef.current = true;
-            setFastSnapshotGeolocation(null);
-            setFastSnapshotLocationLabel(null);
-            setFastSnapshotMode(1);
-          });
-        return;
-      }
-
-      fastSnapshotGeolocationRequestRef.current += 1;
-      setFastSnapshotGeolocation(null);
-      setFastSnapshotLocationLabel(null);
-      setFastSnapshotMode((current) =>
-        selectedMode === undefined
-          ? (((current + 1) % 3) as 0 | 1 | 2)
-          : selectedMode,
-      );
-    },
-    [getFastSnapshotLocation],
-  );
   const [isCenterFrequencyEditing, setIsCenterFrequencyEditing] =
     useState(false);
   const [isTxOptionsEditing, setIsTxOptionsEditing] = useState(false);
@@ -503,57 +370,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sampleRateHzEffective,
     toggleVisualizerPause,
   } = useSpectrumStore();
-  const setLiveFrequencyRangeRef = useRef<(range: FrequencyRange) => void>(
-    () => {},
-  );
-  const sendLiveFrequencyRangeRef = useRef<(range: FrequencyRange) => void>(
-    () => {},
-  );
-  const liveFrequencyRangePublisherRef = useRef<
-    ReturnType<typeof createLiveFrequencyRangePublisher> | null
-  >(null);
-  if (!liveFrequencyRangePublisherRef.current) {
-    liveFrequencyRangePublisherRef.current = createLiveFrequencyRangePublisher(
-      (range) => setLiveFrequencyRangeRef.current(range),
-      (range) => sendLiveFrequencyRangeRef.current(range),
-    );
-  }
-  setLiveFrequencyRangeRef.current = (nextRange) => {
-    reduxDispatch(setFrequencyRange(nextRange));
-  };
-  sendLiveFrequencyRangeRef.current = sendFrequencyRange;
-  useEffect(
-    () => () => {
-      liveFrequencyRangePublisherRef.current?.cancel();
-    },
-    [],
-  );
-  const publishFrequencyRange = useCallback(
-    (
-      range: FrequencyRange,
-      source: "user-pan" | "mode-enter" | "typed" = "user-pan",
-    ) => {
-      // The canvas keeps the live view in refs while a gesture is in flight.
-      // Coalesce Redux and device updates to one latest-value publish every
-      // 50 ms. The interaction hook already updates the live refs and asks
-      // the canvas to repaint synchronously, so this does not slow the drag.
-      const publisher = liveFrequencyRangePublisherRef.current;
-      if (source === "user-pan") {
-        publisher?.publish(range);
-        return;
-      }
-
-      // Typed/mode changes are discrete commands. Flush a pending pan first,
-      // then preserve their immediate ordering with the device request.
-      publisher?.flush();
-      publishFrequencyRangeImmediately(
-        range,
-        setLiveFrequencyRangeRef.current,
-        sendLiveFrequencyRangeRef.current,
-      );
-    },
-    [],
-  );
   const streamingSource = useMemo(
     () =>
       sources.find((source) => source.id === activeSourceId) ??
@@ -927,130 +743,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     };
   }, [fftCanvasRef]);
 
-  const buildFastSnapshotControl = useCallback(
-    (target: "spectrum" | "waterfall") => {
-      const isSpectrum = target === "spectrum";
-      const fallbackHeight = isSpectrum
-        ? FAST_SPECTRUM_FALLBACK_HEIGHT
-        : FAST_WATERFALL_FALLBACK_HEIGHT;
-      const getTargetCanvas = () =>
-        isSpectrum
-          ? fftCanvasRef.current?.getSpectrumCanvas()
-          : fftCanvasRef.current?.getWaterfallCanvas();
-
-      const sdrSettingsLabel = buildSnapshotSettingsLabel({
-        effectiveSdrSettings,
-        gain: state.gain,
-        ppm: state.ppm,
-        hackrfLnaGain: state.hackrfLnaGain,
-        hackrfVgaGain: state.hackrfVgaGain,
-        hackrfAmpEnabled: state.hackrfAmpEnabled,
-        hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
-        deviceKind:
-          selectedSourceDerived.deviceProfile?.kind ??
-          deviceProfile?.kind ??
-          deviceKind ??
-          undefined,
-      });
-      const sourceName =
-        selectedSourceDerived.deviceName ??
-        deviceName ??
-        (isConnected ? "SDR" : "Offline");
-
-      const snapshotOptions = {
-        showStats: fastSnapshotShowStats,
-        showGeolocation: fastSnapshotShowGeolocation,
-        geolocation: fastSnapshotGeolocation,
-        locationLabel: fastSnapshotLocationLabel,
-        activeSignalArea: state.activeSignalArea,
-        activeSignalAreaBounds,
-        sourceName,
-        sdrSettingsLabel,
-        gain: state.gain ?? undefined,
-        ppm: state.ppm ?? undefined,
-        fftSize: state.fftSize ?? undefined,
-      };
-
-      return (
-        <FastSnapshotControl
-          disabled={
-            fftSnapshotLoading ||
-            (isRecording !== null && isRecording !== target)
-          }
-          isRecording={isRecording === target}
-          recordingCountdown={recordingCountdown}
-          videoFormat={supportedVideoFormat}
-          showStats={fastSnapshotShowStats}
-          onShowStatsChange={handleShowStatsChange}
-          fastSnapshotMode={
-            fastSnapshotGeoUnavailable ? undefined : fastSnapshotMode
-          }
-          onFastSnapshotModeChange={
-            fastSnapshotGeoUnavailable ? undefined : cycleFastSnapshotMode
-          }
-          onImage={() => {
-            // Read dimensions at click time — canvas size changes with layout
-            // and must not be baked into the memoized element.
-            const canvas = getTargetCanvas();
-            void takeFastSnapshot(
-              target,
-              (dataOptions) =>
-                fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
-              canvas?.width ?? 1,
-              canvas?.height ?? fallbackHeight,
-              getCanvases,
-              snapshotOptions,
-            );
-          }}
-          onVideo={() =>
-            startFastRecording(
-              target,
-              (dataOptions) =>
-                fftCanvasRef.current?.getSnapshotData(dataOptions) ?? null,
-              () => {
-                const canvas = getTargetCanvas();
-                return {
-                  width: canvas?.width ?? 1,
-                  height: canvas?.height ?? fallbackHeight,
-                };
-              },
-              isSpectrum ? "fast-fft-recording" : "fast-waterfall-recording",
-              getCanvases,
-              {
-                ...snapshotOptions,
-                getActiveSignalArea: () => state.activeSignalArea,
-                getActiveSignalAreaBounds: () =>
-                  signalAreaBounds?.[state.activeSignalArea] ??
-                  signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
-                  null,
-                getSdrSettingsLabel: () =>
-                  buildSnapshotSettingsLabel({
-                    effectiveSdrSettings,
-                    gain: state.gain,
-                    ppm: state.ppm,
-                    hackrfLnaGain: state.hackrfLnaGain,
-                    hackrfVgaGain: state.hackrfVgaGain,
-                    hackrfAmpEnabled: state.hackrfAmpEnabled,
-                    hackrfBasebandBandwidth:
-                      state.hackrfBasebandBandwidth ?? undefined,
-                    deviceKind:
-                      selectedSourceDerived.deviceProfile?.kind ??
-                      deviceProfile?.kind ??
-                      deviceKind ??
-                      undefined,
-                  }),
-                getSourceName: () =>
-                  selectedSourceDerived.deviceName ??
-                  deviceName ??
-                  (isConnected ? "SDR" : "Offline"),
-              },
-            )
-          }
-          onStop={stopFastRecording}
-        />
-      );
-    },
-    [
+  const { fastSpectrumSnapshotAction, fastWaterfallSnapshotAction } =
+    useFastSnapshotControls({
       fftCanvasRef,
       fftSnapshotLoading,
       isRecording,
@@ -1060,43 +754,24 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       startFastRecording,
       stopFastRecording,
       getCanvases,
-      fastSnapshotShowStats,
-      fastSnapshotShowGeolocation,
-      fastSnapshotGeolocation,
-      fastSnapshotLocationLabel,
-      fastSnapshotMode,
-      fastSnapshotGeoUnavailable,
-      handleShowStatsChange,
-      cycleFastSnapshotMode,
-      state.activeSignalArea,
-      state.gain,
-      state.ppm,
-      state.hackrfLnaGain,
-      state.hackrfVgaGain,
-      state.hackrfAmpEnabled,
-      state.hackrfBasebandBandwidth,
-      state.fftSize,
-      activeSignalAreaBounds,
-      signalAreaBounds,
       effectiveSdrSettings,
-      selectedSourceDerived.deviceProfile?.kind,
-      selectedSourceDerived.deviceName,
-      deviceProfile?.kind,
       deviceKind,
+      deviceProfileKind: deviceProfile?.kind,
+      selectedSourceDeviceProfileKind: selectedSourceDerived.deviceProfile?.kind,
+      selectedSourceDeviceName: selectedSourceDerived.deviceName,
       deviceName,
       isConnected,
-    ],
-  );
-
-  const fastSpectrumSnapshotAction = useMemo<ReactNode>(
-    () => buildFastSnapshotControl("spectrum"),
-    [buildFastSnapshotControl],
-  );
-
-  const fastWaterfallSnapshotAction = useMemo<ReactNode>(
-    () => buildFastSnapshotControl("waterfall"),
-    [buildFastSnapshotControl],
-  );
+      activeSignalArea: state.activeSignalArea,
+      activeSignalAreaBounds,
+      signalAreaBounds,
+      gain: state.gain,
+      ppm: state.ppm,
+      hackrfLnaGain: state.hackrfLnaGain,
+      hackrfVgaGain: state.hackrfVgaGain,
+      hackrfAmpEnabled: state.hackrfAmpEnabled,
+      hackrfBasebandBandwidth: state.hackrfBasebandBandwidth,
+      fftSize: state.fftSize,
+    });
 
   const handleCreateNoteCard = useCallback(() => {
     const snapshotData = fftCanvasRef.current?.getSnapshotData() ?? null;
@@ -1203,137 +878,119 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     },
   });
 
-  const [mockMonitorCenterHz, setMockMonitorCenterHz] = useState<number | null>(
-    () => {
-      if (Number.isFinite(txCenterFrequencyHz)) {
-        return txCenterFrequencyHz;
-      }
-      const range = state.frequencyRange;
-      if (range && Number.isFinite(range.min) && Number.isFinite(range.max)) {
-        return Math.round((range.min + range.max) / 2);
-      }
-      return null;
-    },
+  const transmittingTxSource = useMemo(
+    () =>
+      sources.find((source) => {
+        const capability = source.capability?.toLowerCase?.() ?? "";
+        const status = sourceStatuses?.[source.id] ?? source.status;
+        return (
+          status === "transmitting" &&
+          (source.capabilities?.supports_tx_monitor === true ||
+            capability === "tx" ||
+            capability === "tx_rx")
+        );
+      }) ?? null,
+    [sourceStatuses, sources],
   );
-  const isDraggingTxRef = useRef(false);
-  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /**
-   * Attached (false): monitor stays on planned Tx — required for cold load so a
-   * stale frequencyRange cannot synthesize an off-window noise-floor preview.
-   * Detached (true): user pan or slider moved the carrier without jumping view.
-   */
-  const [txMonitorDetached, setTxMonitorDetached] = useState(false);
-  const wasMockTxMonitorActiveRef = useRef(false);
 
-  const applyTxMonitorForRange = useCallback(
-    (range: FrequencyRange, source: "user-pan" | "mode-enter" | "typed") => {
+  const handleRenderableLiveFrameChange = useCallback(
+    (hasCanvasFrame: boolean) => {
+      if (!hasCanvasFrame) return;
+      const latestFrame = getLatestLiveFrame(dataRef.current);
+      const isReady = resolveFrameReadiness({
+        frame: latestFrame,
+        selectedSourceId: expectedVisualizerSourceId,
+        activeSourceId: activeSourceId || streamingSourceId || null,
+        expectedStreamEpoch: expectedLegacyStreamEpoch,
+        frameCounter: latestFrame?.source_id ? 1 : 0,
+        handoffStartedFrameCounter: 0,
+      });
+      if (!isReady) return;
+
+      setHasRenderableCurrentFrame(true);
+      setHasPlayedAtLeastOnce(true);
+      setPlayedSourceId(streamingSourceId || null);
+      const sampleRate = latestFrame?.sample_rate;
       if (
-        !isMockTxMonitorActive ||
-        !Number.isFinite(range.min) ||
-        !Number.isFinite(range.max)
+        typeof sampleRate === "number" &&
+        Number.isFinite(sampleRate) &&
+        sampleRate > 0
       ) {
-        return;
-      }
-      const nextCenter = (range.min + range.max) / 2;
-      if (source === "user-pan") {
-        setTxMonitorDetached(true);
-        setMockMonitorCenterHz(nextCenter);
-      } else if (shouldJumpTxMonitor({ source })) {
-        setTxMonitorDetached(false);
-        setMockMonitorCenterHz(nextCenter);
+        setAcceptedFrameSampleRateHz((current) =>
+          current === sampleRate ? current : sampleRate,
+        );
       }
     },
-    [isMockTxMonitorActive],
+    [
+      activeSourceId,
+      dataRef,
+      expectedLegacyStreamEpoch,
+      expectedVisualizerSourceId,
+      streamingSource?.stream_epoch,
+      streamingSourceId,
+    ],
   );
 
-  const handleFrequencyRangeChange = useCallback(
+  const centerFrequencyHz = useMemo(() => {
+    return calculateCenterFrequency(state.frequencyRange);
+  }, [state.frequencyRange]);
+
+  // Late-wired tune handler: the monitor hook runs before the tuner because
+  // the tuner needs applyTxMonitorForRange; the tuner's handler reaches the
+  // monitor through this ref.
+  const frequencyRangeChangerRef = useRef<
     (
       range: FrequencyRange,
-      source: "user-pan" | "mode-enter" | "typed" = "user-pan",
-    ) => {
-      // The mirror is presentational: an explicit tune still asks the radio for
-      // a positive window, and a below-zero request is restored with pan rather
-      // than by letting the shifted window become the view. Already-positive
-      // requests (including auto-retunes) must not touch pan — the caller owns
-      // re-anchoring, otherwise a retune briefly snaps the viewport to DC.
-      if (allowNegativeFrequencies && range.min < 0) {
-        // Cap every mirrored tune at the live sample-rate window. Whole-channel
-        // thumbs (positive or DC-crossing) must not widen Redux past what the
-        // radio actually acquires — that is the channel-island flatline.
-        const acquisitionSpanHz =
-          state.frequencyRange &&
-          Number.isFinite(state.frequencyRange.max) &&
-          Number.isFinite(state.frequencyRange.min) &&
-          state.frequencyRange.max > state.frequencyRange.min
-            ? state.frequencyRange.max - state.frequencyRange.min
-            : sampleRateHzEffective;
-        const { hardwareRange, panOffsetHz } = resolveMirroredTuning(
-          range,
-          null,
-          { maxAcquisitionSpanHz: acquisitionSpanHz },
-        );
-        const nextRange = normalizeFrequencyRangeToHz(hardwareRange);
-        // Only re-anchor pan for below-zero / clamped-crossing requests.
-        // Auto-retunes that are already positive own their own pan.
-        if (range.min < 0) {
-          setVizPanOffset(panOffsetHz);
-        }
-        publishFrequencyRange(nextRange, source);
-        applyTxMonitorForRange(nextRange, source);
-        return;
-      }
-
-      const primaryBounds = resolveNavigationFrequencyBounds({
-        mirrorEnabled: allowNegativeFrequencies,
-        zoom: state.vizZoom,
-        channelBounds: activeSignalAreaBounds,
-        hardwareBounds: hardwareSpectrumBounds,
-      });
-      const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds
-          ? clampFrequencyRangeToBounds(range, primaryBounds)
-          : range,
-      );
-      publishFrequencyRange(clampedRange, source);
-      applyTxMonitorForRange(clampedRange, source);
-    },
-    [
-      allowNegativeFrequencies,
-      applyTxMonitorForRange,
-      hardwareSpectrumBounds,
-      activeSignalAreaBounds,
-      publishFrequencyRange,
-      sampleRateHzEffective,
-      setVizPanOffset,
-      state.frequencyRange,
-      state.vizZoom,
-    ],
-  );
-
-  const jumpMonitorToTx = useCallback(
-    (centerHz: number, source: "mode-enter" | "typed" = "typed") => {
-      if (!Number.isFinite(centerHz) || !shouldJumpTxMonitor({ source })) {
-        return;
-      }
-      setTxMonitorDetached(false);
-      setMockMonitorCenterHz(centerHz);
-      const spanHz = state.frequencyRange
-        ? state.frequencyRange.max - state.frequencyRange.min
-        : txSampleRateHz;
-      if (Number.isFinite(spanHz) && spanHz > 0) {
-        handleFrequencyRangeChange(
-          buildCenteredFrequencyRange(centerHz, spanHz, 0),
-          source,
-        );
-      }
-    },
-    [
-      allowNegativeFrequencies,
-      handleFrequencyRangeChange,
-      state.frequencyRange,
-      txSampleRateHz,
-    ],
-  );
+      source?: "user-pan" | "mode-enter" | "typed",
+    ) => void
+  >(() => {});
+  const {
+    mockMonitorCenterHz,
+    setMockMonitorCenterHz,
+    setTxMonitorDetached,
+    isDraggingTxRef,
+    txMonitorDetached,
+    applyTxMonitorForRange,
+    jumpMonitorToTx,
+    syncMockTxSettingsFromSlider,
+    handleCenterFrequencyChangeFromSlider,
+  } = useTxMonitor({
+    isMockTxMonitorActive,
+    isConnected,
+    isSwitchingLiveSource,
+    isSelectedMockTxTransmitting,
+    selectedSourceId,
+    selectedSource,
+    sendTransmitStatus,
+    frequencyRange: state.frequencyRange ?? null,
+    txSampleRateHz,
+    txPowerDbm,
+    txSignal,
+    txIfftSize,
+    txCenterFrequencyHz,
+    centerFrequencyHz,
+    transmittingTxSource,
+    reduxDispatch,
+    frequencyRangeChangerRef,
+  });
+  const { handleFrequencyRangeChange } = useFrequencyTuning({
+    allowNegativeFrequencies,
+    hardwareSpectrumBounds,
+    activeSignalAreaBounds,
+    sampleRateHzEffective,
+    getAvailableSpectrumBounds,
+    frequencyRange: state.frequencyRange ?? null,
+    vizZoom: state.vizZoom,
+    sourceMode: state.sourceMode,
+    vizPanOffset: state.vizPanOffset,
+    autoZoomStability: state.autoZoomStability,
+    vizZoomFloor: state.vizZoomFloor,
+    reduxDispatch,
+    sendFrequencyRange,
+    applyTxMonitorForRange,
+    setVizPanOffset,
+  });
+  frequencyRangeChangerRef.current = handleFrequencyRangeChange;
 
   const handleCenterFrequencyChange = useCallback(
     (nextCenterFrequencyHz: number) => {
@@ -1400,354 +1057,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     ],
   );
 
-  const centerFrequencyHz = useMemo(() => {
-    return calculateCenterFrequency(state.frequencyRange);
-  }, [state.frequencyRange]);
-
-  const syncMockTxSettingsFromSlider = useCallback(
-    (centerFrequencyHz: number, sampleRateHzOverride?: number) => {
-      if (
-        !Number.isFinite(centerFrequencyHz) ||
-        !isMockTxMonitorActive ||
-        !isConnected ||
-        isSwitchingLiveSource ||
-        !isSelectedMockTxTransmitting
-      ) {
-        return;
-      }
-
-      const effectiveTxSampleRateHz =
-        typeof sampleRateHzOverride === "number" &&
-        Number.isFinite(sampleRateHzOverride)
-          ? sampleRateHzOverride
-          : txSampleRateHz;
-      const rangeViewSampleRateHz = state.frequencyRange
-        ? state.frequencyRange.max - state.frequencyRange.min
-        : undefined;
-      const rangeViewCenterHz =
-        state.frequencyRange &&
-        Number.isFinite(state.frequencyRange.min) &&
-        Number.isFinite(state.frequencyRange.max)
-          ? (state.frequencyRange.min + state.frequencyRange.max) / 2
-          : null;
-      // Slider is passive: never force the monitor onto the carrier.
-      const txSettings = {
-        ...resolveMockTxTransmitSettings({
-          txCenterHz: centerFrequencyHz,
-          viewCenterHz: mockMonitorCenterHz ?? rangeViewCenterHz,
-          viewSampleRateHz: rangeViewSampleRateHz,
-          txBandwidthHz: effectiveTxSampleRateHz,
-          alignMonitor: false,
-        }),
-        powerDbm: txPowerDbm,
-        txSignal,
-        txIfftSize,
-      };
-
-      const fallbackId = selectedSourceId || selectedSource?.id;
-      if (!fallbackId) return;
-      sendTransmitStatus?.(true, selectedSource?.name ?? fallbackId, {
-        serialNumber: selectedSource?.serial_number?.trim() || fallbackId,
-        ...txSettings,
-      });
-    },
-    [
-      isConnected,
-      isMockTxMonitorActive,
-      isSelectedMockTxTransmitting,
-      isSwitchingLiveSource,
-      mockMonitorCenterHz,
-      selectedSource,
-      selectedSourceId,
-      sendTransmitStatus,
-      state.frequencyRange,
-      txIfftSize,
-      txPowerDbm,
-      txSampleRateHz,
-      txSignal,
-    ],
-  );
-
-  const handleCenterFrequencyChangeFromSlider = useCallback(
-    (value: number, isDragging?: boolean) => {
-      if (dragTimeoutRef.current) {
-        clearTimeout(dragTimeoutRef.current);
-      }
-      isDraggingTxRef.current = !!isDragging;
-      if (!isDragging) {
-        dragTimeoutRef.current = setTimeout(() => {
-          isDraggingTxRef.current = false;
-        }, 0);
-      }
-
-      // Standby and transmitting: slider updates planned Tx only and detaches
-      // so a later attached-sync cannot yank the monitor onto the new carrier.
-      setTxMonitorDetached(true);
-      reduxDispatch(setTxCenterFrequencyHz(value));
-      syncMockTxSettingsFromSlider(value);
-    },
-    [reduxDispatch, syncMockTxSettingsFromSlider],
-  );
-
-  // Entering Mock Tx / Tx mode aligns the monitor to the planned carrier once.
-  useEffect(() => {
-    const enteredMockTx =
-      isMockTxMonitorActive && !wasMockTxMonitorActiveRef.current;
-    wasMockTxMonitorActiveRef.current = isMockTxMonitorActive;
-    if (!enteredMockTx || !Number.isFinite(txCenterFrequencyHz)) {
-      return;
-    }
-    jumpMonitorToTx(txCenterFrequencyHz, "mode-enter");
-  }, [isMockTxMonitorActive, jumpMonitorToTx, txCenterFrequencyHz]);
-
-  // While attached, ignore stale frequencyRange centers (cold-load race).
-  // While detached, follow range updates from user pan / typed sidebar jumps
-  // that already recentered onto Tx (range center ≈ tx center → re-attach).
-  useEffect(() => {
-    if (!isMockTxMonitorActive || !state.frequencyRange) {
-      return;
-    }
-    if (isDraggingTxRef.current) {
-      return;
-    }
-    const rangeCenter =
-      (state.frequencyRange.min + state.frequencyRange.max) / 2;
-    if (!Number.isFinite(rangeCenter)) {
-      return;
-    }
-    const alignedWithTx =
-      Number.isFinite(txCenterFrequencyHz) &&
-      Math.abs(rangeCenter - txCenterFrequencyHz) <= 1;
-    if (alignedWithTx) {
-      setTxMonitorDetached(false);
-      setMockMonitorCenterHz(txCenterFrequencyHz);
-      return;
-    }
-    if (txMonitorDetached) {
-      setMockMonitorCenterHz((previous) =>
-        previous != null && Math.abs(previous - rangeCenter) <= 1
-          ? previous
-          : rangeCenter,
-      );
-    }
-  }, [
-    isMockTxMonitorActive,
-    state.frequencyRange,
-    txCenterFrequencyHz,
-    txMonitorDetached,
-  ]);
-
-  const captureSpectrumViewSnapshot = useCallback((): SpectrumViewSnapshot => {
-    const range = state.frequencyRange;
-    return {
-      activeSignalArea: state.activeSignalArea,
-      frequencyRange: range ? { ...range } : undefined,
-      displayTemporalResolution: state.displayTemporalResolution,
-      powerScale: state.powerScale,
-      vizZoom: state.vizZoom,
-      vizZoomFloor: state.vizZoomFloor,
-      vizZoomFloorPan: state.vizZoomFloorPan,
-      vizPanOffset: state.vizPanOffset,
-      fftMinDb: state.fftMinDb,
-      fftMaxDb: state.fftMaxDb,
-      fftSize: state.fftSize,
-      fftWindow: state.fftWindow,
-      gain: state.gain,
-      ppm: state.ppm,
-      tunerAGC: state.tunerAGC,
-      rtlAGC: state.rtlAGC,
-    };
-  }, [
-    state.activeSignalArea,
-    state.frequencyRange,
-    state.displayTemporalResolution,
-    state.powerScale,
-    state.vizZoom,
-    state.vizZoomFloor,
-    state.vizZoomFloorPan,
-    state.vizPanOffset,
-    state.fftMinDb,
-    state.fftMaxDb,
-    state.fftSize,
-    state.fftWindow,
-    state.gain,
-    state.ppm,
-    state.tunerAGC,
-    state.rtlAGC,
-  ]);
-
-  const applySpectrumViewSnapshot = useCallback(
-    (snapshot: SpectrumViewSnapshot) => {
-      reduxDispatch(
-        setSdrSettingsBundle({
-          activeSignalArea: snapshot.activeSignalArea ?? state.activeSignalArea,
-          displayTemporalResolution:
-            snapshot.displayTemporalResolution ??
-            state.displayTemporalResolution,
-          powerScale: snapshot.powerScale ?? state.powerScale,
-          vizZoom: snapshot.vizZoom ?? state.vizZoom,
-          vizZoomFloor: snapshot.vizZoomFloor ?? state.vizZoomFloor,
-          vizZoomFloorPan: snapshot.vizZoomFloorPan ?? state.vizZoomFloorPan,
-          vizPanOffset: snapshot.vizPanOffset ?? state.vizPanOffset,
-          fftMinDb: snapshot.fftMinDb ?? state.fftMinDb,
-          fftMaxDb: snapshot.fftMaxDb ?? state.fftMaxDb,
-          fftSize: snapshot.fftSize ?? state.fftSize,
-          fftWindow: snapshot.fftWindow ?? state.fftWindow,
-          gain: snapshot.gain ?? state.gain,
-          ppm: snapshot.ppm ?? state.ppm,
-          tunerAGC: snapshot.tunerAGC ?? state.tunerAGC,
-          rtlAGC: snapshot.rtlAGC ?? state.rtlAGC,
-          frequencyRange: snapshot.frequencyRange ?? state.frequencyRange,
-        }),
-      );
-
-      if (snapshot.frequencyRange) {
-        handleFrequencyRangeChange(snapshot.frequencyRange);
-      }
-    },
-    [
-      reduxDispatch,
-      handleFrequencyRangeChange,
-      state.activeSignalArea,
-      state.frequencyRange,
-      state.displayTemporalResolution,
-      state.powerScale,
-      state.vizZoom,
-      state.vizZoomFloor,
-      state.vizZoomFloorPan,
-      state.vizPanOffset,
-      state.fftMinDb,
-      state.fftMaxDb,
-      state.fftSize,
-      state.fftWindow,
-      state.gain,
-      state.ppm,
-      state.tunerAGC,
-      state.rtlAGC,
-    ],
-  );
-
-  const handleViewNoteCard = useCallback(
-    (card: NoteCardStatsSnapshot) => {
-      if (state.frequencyRange) {
-        fftHistoryRef.current.push(captureSpectrumViewSnapshot());
-        setFftHistoryVersion((version) => version + 1);
-      }
-
-      applySpectrumViewSnapshot({
-        activeSignalArea: state.activeSignalArea,
-        frequencyRange:
-          card.frequencyRange ?? state.frequencyRange ?? undefined,
-        displayTemporalResolution: card.temporalResolution,
-        powerScale: card.powerScale,
-        vizZoom: card.vizZoom,
-        vizZoomFloor: state.vizZoomFloor,
-        vizZoomFloorPan: state.vizZoomFloorPan,
-        vizPanOffset: card.vizPanOffset,
-        fftMinDb: card.fftDbMin,
-        fftMaxDb: card.fftDbMax,
-        fftSize: card.fftSize,
-        fftWindow: card.fftWindow,
-        gain: card.gain,
-        ppm: card.ppm,
-        tunerAGC: card.tunerAGC,
-        rtlAGC: card.rtlAGC,
-      });
-    },
-    [
-      applySpectrumViewSnapshot,
-      captureSpectrumViewSnapshot,
-      state.activeSignalArea,
-      state.frequencyRange,
-      state.vizZoomFloor,
-      state.vizZoomFloorPan,
-    ],
-  );
-
-  const handleBackFromNoteView = useCallback(() => {
-    const previous = fftHistoryRef.current.pop();
-    if (!previous) return;
-    setFftHistoryVersion((version) => version + 1);
-    applySpectrumViewSnapshot(previous);
-  }, [applySpectrumViewSnapshot]);
-
-  // Global keyboard event listener for spacebar to pause/resume and arrows for frequency shift
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Only handle events when not in an input field
-      const isInputFocused =
-        ["INPUT", "TEXTAREA", "SELECT"].includes(
-          document.activeElement?.tagName || "",
-        ) || (document.activeElement as HTMLElement)?.isContentEditable;
-
-      if (isInputFocused) return;
-
-      // Handle ArrowLeft/ArrowRight to move frequency by 33kHz
-      if (
-        (event.code === "ArrowLeft" || event.code === "ArrowRight") &&
-        state.frequencyRange
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const shiftHz = event.code === "ArrowRight" ? 33000 : -33000;
-
-        if (state.sourceMode === "live") {
-          if (state.vizZoom > 1) {
-            // Zoomed-in live mode: pan the visual display instead of changing hardware VFO
-            const currentPan = state.vizPanOffset;
-            const zoom = state.vizZoom;
-            const fullRange =
-              state.frequencyRange.max - state.frequencyRange.min;
-            const visualRange = fullRange / zoom;
-            const maxPan = fullRange / 2 - visualRange / 2;
-
-            let newPan = currentPan + shiftHz;
-            newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
-            setVizPanOffset(newPan);
-
-            // Auto zoom stability: track floor pan so Refocus can restore this position
-            if (state.autoZoomStability && state.vizZoomFloor > 1) {
-              reduxDispatch(setVizZoomFloorPan(newPan));
-            }
-          } else {
-            // Unzoomed live mode: change hardware VFO
-            const currentRange = state.frequencyRange;
-            const fullRange = currentRange.max - currentRange.min;
-            const newMin = currentRange.min + shiftHz;
-            const newMax = newMin + fullRange;
-
-            handleFrequencyRangeChange({ min: newMin, max: newMax });
-          }
-        } else if (state.sourceMode === "file") {
-          // In file mode, move the visual pan offset
-          const currentPan = state.vizPanOffset;
-          const zoom = state.vizZoom;
-          const fullRange = state.frequencyRange.max - state.frequencyRange.min;
-          const visualRange = fullRange / zoom;
-          const maxPan = fullRange / 2 - visualRange / 2;
-
-          let newPan = currentPan + shiftHz;
-          newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
-          setVizPanOffset(newPan);
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [
-    state.sourceMode,
-    state.frequencyRange,
-    state.vizPanOffset,
-    state.vizZoom,
-    state.autoZoomStability,
-    state.vizZoomFloor,
+  const {
+    fftHistoryRef,
+    fftHistoryVersion,
+    handleViewNoteCard,
+    handleBackFromNoteView,
+    hasNoteViewHistory,
+  } = useNoteViewHistory({
+    state,
+    reduxDispatch,
     handleFrequencyRangeChange,
-    setVizPanOffset,
-  ]);
+  });
 
   const mockTxViewSampleRateHz = state.frequencyRange
     ? state.frequencyRange.max - state.frequencyRange.min
@@ -1830,184 +1150,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         previewVfoCenterHz ?? centerFrequencyHz ?? 0,
       )
     : null;
-  const txSettingsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
-  const transmittingTxSource = useMemo(
-    () =>
-      sources.find((source) => {
-        const capability = source.capability?.toLowerCase?.() ?? "";
-        const status = sourceStatuses?.[source.id] ?? source.status;
-        return (
-          status === "transmitting" &&
-          (source.capabilities?.supports_tx_monitor === true ||
-            capability === "tx" ||
-            capability === "tx_rx")
-        );
-      }) ?? null,
-    [sourceStatuses, sources],
-  );
-
-  useLayoutEffect(() => {
-    setHasPlayedAtLeastOnce(false);
-    setHasRenderableCurrentFrame(false);
-    setAcceptedFrameSampleRateHz(null);
-    setPlayedSourceId(null);
-  }, [streamingSource?.stream_epoch, streamingSourceId]);
-
-  const handleRenderableLiveFrameChange = useCallback(
-    (hasCanvasFrame: boolean) => {
-      if (!hasCanvasFrame) return;
-      const latestFrame = getLatestLiveFrame(dataRef.current);
-      const isReady = resolveFrameReadiness({
-        frame: latestFrame,
-        selectedSourceId: expectedVisualizerSourceId,
-        activeSourceId: activeSourceId || streamingSourceId || null,
-        expectedStreamEpoch: expectedLegacyStreamEpoch,
-        frameCounter: latestFrame?.source_id ? 1 : 0,
-        handoffStartedFrameCounter: 0,
-      });
-      if (!isReady) return;
-
-      setHasRenderableCurrentFrame(true);
-      setHasPlayedAtLeastOnce(true);
-      setPlayedSourceId(streamingSourceId || null);
-      const sampleRate = latestFrame?.sample_rate;
-      if (
-        typeof sampleRate === "number" &&
-        Number.isFinite(sampleRate) &&
-        sampleRate > 0
-      ) {
-        setAcceptedFrameSampleRateHz((current) =>
-          current === sampleRate ? current : sampleRate,
-        );
-      }
-    },
-    [
-      activeSourceId,
-      dataRef,
-      expectedLegacyStreamEpoch,
-      expectedVisualizerSourceId,
-      streamingSource?.stream_epoch,
-      streamingSourceId,
-    ],
-  );
-
-  useLayoutEffect(() => {
-    if (state.sourceMode !== "live") {
-      previousLiveSourceIdRef.current = streamingSourceId || null;
-      return;
-    }
-    const nextSourceId = streamingSourceId || null;
-    if (!hasInitializedLiveSourceRef.current) {
-      hasInitializedLiveSourceRef.current = true;
-      previousLiveSourceIdRef.current = nextSourceId;
-      return;
-    }
-    previousLiveSourceIdRef.current = nextSourceId;
-  }, [state.sourceMode, streamingSourceId]);
-
-  useEffect(() => {
-    if (isSelectedMockTxTransmitting) {
-      setHasPlayedAtLeastOnce(true);
-      setPlayedSourceId(streamingSourceId || null);
-    }
-  }, [isSelectedMockTxTransmitting, streamingSourceId]);
-
-  useEffect(() => {
-    if (!transmittingTxSource) {
-      lastTxSettingsSyncKeyRef.current = null;
-      if (txSettingsSyncTimerRef.current) {
-        clearTimeout(txSettingsSyncTimerRef.current);
-        txSettingsSyncTimerRef.current = null;
-      }
-      return;
-    }
-
-    const rangeViewSampleRateHz = state.frequencyRange
-      ? state.frequencyRange.max - state.frequencyRange.min
-      : undefined;
-    const rangeViewCenterHz =
-      state.frequencyRange &&
-      Number.isFinite(state.frequencyRange.min) &&
-      Number.isFinite(state.frequencyRange.max)
-        ? (state.frequencyRange.min + state.frequencyRange.max) / 2
-        : null;
-    // First Start Tx aligns when still attached; later slider/pan syncs stay
-    // on the current monitor view.
-    const alignMonitor =
-      lastTxSettingsSyncKeyRef.current === null && !txMonitorDetached;
-    if (alignMonitor) {
-      setMockMonitorCenterHz(txCenterFrequencyHz);
-      setTxMonitorDetached(false);
-    }
-    const transmitSettings = resolveMockTxTransmitSettings({
-      txCenterHz: txCenterFrequencyHz,
-      viewCenterHz: alignMonitor
-        ? txCenterFrequencyHz
-        : (mockMonitorCenterHz ?? rangeViewCenterHz),
-      viewSampleRateHz: rangeViewSampleRateHz,
-      txBandwidthHz: txSampleRateHz,
-      alignMonitor,
-    });
-    const syncKey = JSON.stringify({
-      sourceId: transmittingTxSource.id,
-      txSignal,
-      ...transmitSettings,
-      txPowerDbm,
-    });
-    if (lastTxSettingsSyncKeyRef.current === syncKey) {
-      return;
-    }
-
-    const sendTxSettings = () => {
-      lastTxSettingsSyncKeyRef.current = syncKey;
-      sendTransmitStatus?.(
-        true,
-        transmittingTxSource.name ?? transmittingTxSource.id,
-        {
-          serialNumber:
-            transmittingTxSource.serial_number?.trim() ||
-            transmittingTxSource.id,
-          ...transmitSettings,
-          powerDbm: txPowerDbm,
-          txSignal,
-        },
-      );
-    };
-
-    if (lastTxSettingsSyncKeyRef.current === null) {
-      sendTxSettings();
-      return;
-    }
-
-    if (txSettingsSyncTimerRef.current) {
-      clearTimeout(txSettingsSyncTimerRef.current);
-    }
-    txSettingsSyncTimerRef.current = setTimeout(() => {
-      txSettingsSyncTimerRef.current = null;
-      sendTxSettings();
-    }, 16);
-
-    return () => {
-      if (txSettingsSyncTimerRef.current) {
-        clearTimeout(txSettingsSyncTimerRef.current);
-        txSettingsSyncTimerRef.current = null;
-      }
-    };
-  }, [
-    sendTransmitStatus,
-    state.frequencyRange,
-    transmittingTxSource,
-    centerFrequencyHz,
-    mockMonitorCenterHz,
-    txCenterFrequencyHz,
-    txMonitorDetached,
-    txPowerDbm,
-    txSampleRateHz,
-    txSignal,
-  ]);
 
   const channelsList = useMemo(() => {
     const defaultChannels = [
@@ -2027,109 +1169,19 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const effectiveRxSampleRate =
     sampleRateHzEffective ?? maxSampleRateHz ?? 3_200_000;
-  const autoHopRequired = useMemo(() => {
-    return txHopType === "channels" && txHopChannels.length > 1;
-  }, [txHopType, txHopChannels.length]);
-
-  const isHopActive =
-    (txHopEnabled || autoHopRequired) &&
-    (isSelectedSourceTxMode || isSelectedMockTxTransmitting);
-
-  const hopTargets = useMemo(() => {
-    if (!isHopActive) return [];
-    if (txHopType === "channels") {
-      const selected = (txHopChannels || []).map((l) => l.toUpperCase());
-      const targets: Array<{
-        centerFrequencyHz: number;
-        bandwidthHz: number;
-        min: number;
-        max: number;
-        label: string;
-      }> = [];
-      for (const label of selected) {
-        const ch = channelsList.find((c) => c.label.toUpperCase() === label);
-        if (ch) {
-          const bw = Math.max(1, ch.max - ch.min);
-          const center = Math.round((ch.min + ch.max) / 2);
-          targets.push({
-            centerFrequencyHz: center,
-            bandwidthHz: bw,
-            min: ch.min,
-            max: ch.max,
-            label: ch.label,
-          });
-        }
-      }
-      return targets;
-    } else {
-      const hwRate = Math.max(1_000_000, effectiveRxSampleRate || 3_200_000);
-      if (txSampleRateHz <= hwRate) {
-        return [
-          {
-            centerFrequencyHz: txCenterFrequencyHz,
-            bandwidthHz: txSampleRateHz,
-            min: txCenterFrequencyHz - txSampleRateHz / 2,
-            max: txCenterFrequencyHz + txSampleRateHz / 2,
-            label: "range",
-          },
-        ];
-      }
-      const numSegments = Math.ceil(txSampleRateHz / hwRate);
-      const startHz = txCenterFrequencyHz - txSampleRateHz / 2;
-      const targets: Array<{
-        centerFrequencyHz: number;
-        bandwidthHz: number;
-        min: number;
-        max: number;
-        label: string;
-      }> = [];
-      for (let i = 0; i < numSegments; i++) {
-        const segMin = Math.round(startHz + hwRate * i);
-        const segMax = Math.round(startHz + hwRate * (i + 1));
-        const segCenter = Math.round((segMin + segMax) / 2);
-        targets.push({
-          centerFrequencyHz: segCenter,
-          bandwidthHz: hwRate,
-          min: segMin,
-          max: segMax,
-          label: `segment_${i + 1}`,
-        });
-      }
-      return targets;
-    }
-  }, [
-    isHopActive,
+  const { activeHopTarget, hopPreviewIndex } = useTxHopPreview({
     txHopType,
+    txHopEnabled,
     txHopChannels,
-    channelsList,
-    effectiveRxSampleRate,
+    websocketChannels,
     txSampleRateHz,
     txCenterFrequencyHz,
-  ]);
-
-  const [hopPreviewIndex, setHopPreviewIndex] = useState(0);
-
-  useEffect(() => {
-    if (
-      !isHopActive ||
-      hopTargets.length <= 1 ||
-      isSelectedMockTxTransmitting
-    ) {
-      setHopPreviewIndex(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setHopPreviewIndex((prev) => (prev + 1) % hopTargets.length);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isHopActive, hopTargets.length, isSelectedMockTxTransmitting]);
-
-  const activeHopTarget = useMemo(() => {
-    if (isHopActive && hopTargets.length > 1) {
-      return hopTargets[hopPreviewIndex % hopTargets.length];
-    }
-    return null;
-  }, [isHopActive, hopTargets, hopPreviewIndex]);
+    effectiveRxSampleRate,
+    isSelectedSourceTxMode,
+    isSelectedMockTxTransmitting,
+    reduxDispatch,
+    setMockMonitorCenterHz,
+  });
 
   const lastMockTxPreviewRequestKeyRef = useRef<string | null>(null);
   const lastMockTxPreviewRetryActiveIdRef = useRef<string | null>(null);
@@ -2300,25 +1352,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txSampleRateHz,
     txSignal,
   ]);
-
-  useEffect(() => {
-    if (!isHopActive || !activeHopTarget) return;
-    // Single atomic dispatch: view range, planned Tx, and sample rate move
-    // together as one hop-preview step.
-    reduxDispatch(
-      setTxHopPreviewState({
-        frequencyRange: { min: activeHopTarget.min, max: activeHopTarget.max },
-        txCenterFrequencyHz: activeHopTarget.centerFrequencyHz,
-        txSampleRateHz: activeHopTarget.bandwidthHz,
-        sampleRateHz: activeHopTarget.bandwidthHz,
-        activeSignalArea:
-          activeHopTarget.label && activeHopTarget.label !== "range"
-            ? activeHopTarget.label
-            : undefined,
-      }),
-    );
-    setMockMonitorCenterHz(activeHopTarget.centerFrequencyHz);
-  }, [isHopActive, activeHopTarget, reduxDispatch]);
 
   // Keep the last painted frame available during handoff. FFTCanvas rejects
   // frames that do not match expectedSourceId, while its existing presentation
@@ -2504,7 +1537,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         {fastSpectrumSnapshotAction}
         {notesActionPill}
         <HeaderActionSpacer />
-        {fftHistoryRef.current.length > 0 ? (
+        {hasNoteViewHistory ? (
           <FFTBackButton
             type="button"
             $variant="secondary"
@@ -2594,6 +1627,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                         onCenterFrequencyChange={handleCenterFrequencyChange}
                         onClose={() => setIsCenterFrequencyEditing(false)}
                         allowNegativeFrequencies={allowNegativeFrequencies}
+                        windowSpanHz={
+                          state.frequencyRange
+                            ? state.frequencyRange.max - state.frequencyRange.min
+                            : null
+                        }
                       />
                     ) : null}
                     {isTxOptionsEditing && txSliderDefaults ? (
