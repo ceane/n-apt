@@ -303,6 +303,10 @@ export default defineConfig(({ mode }) => {
   },
   server: {
     port: 5173,
+    // The build orchestrator hands port 5173 over from its pre-Vite status
+    // page to Vite. If the handoff races, fail loudly instead of silently
+    // bumping to another port and breaking the "same URL" swap.
+    strictPort: true,
     // Let Vite bind HMR to the actual dev-server port. A fixed 5173 HMR
     // endpoint breaks `vite --port <other-port>` and leaves the Router SPA
     // hydration fallback stuck on Loading N-APT.

@@ -43,7 +43,9 @@ import {
   RUST_HOT_RELOAD_BUILD_STALE_MS,
   summarizeCargoProgressChunk,
   type RebuildStatusPayload,
+  type RebuildStatusStep,
 } from './cargoBuildProgress';
+import { startDevStatusServer, type DevStatusServerHandle } from './devStatusServer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,6 +143,7 @@ const trackLaunchedChild = (child: ReturnType<typeof spawn>) => {
 };
 
 const terminateLaunchedChildren = () => {
+  void closeDevStatusServer();
   for (const child of Array.from(launchedChildren)) {
     try {
       if (child.pid) {
@@ -160,6 +163,25 @@ const terminateKnownDevProcesses = () => {
   // Do not use broad process-name matching here: during takeover, the old
   // orchestrator can still be shutting down while the new one is starting.
   terminateLaunchedChildren();
+};
+
+let devStatusServerPromise: Promise<DevStatusServerHandle | null> | null = null;
+
+const ensureDevStatusServer = (): Promise<DevStatusServerHandle | null> => {
+  if (!devStatusServerPromise) {
+    devStatusServerPromise = startDevStatusServer();
+  }
+  return devStatusServerPromise;
+};
+
+const closeDevStatusServer = async (): Promise<void> => {
+  const handlePromise = devStatusServerPromise;
+  devStatusServerPromise = null;
+  if (!handlePromise) return;
+  const handle = await handlePromise.catch(() => null);
+  if (handle) {
+    await handle.close();
+  }
 };
 
 // Types
@@ -419,6 +441,7 @@ const BuildOrchestrator = () => {
       // Best-effort status for the Vite /rebuild-status endpoint.
     }
   }, []);
+
   const [buildState, setBuildState] = useState<BuildState>({
     processes: [
       { name: 'Cleaning up existing processes', status: 'pending' },
@@ -446,6 +469,21 @@ const BuildOrchestrator = () => {
   const [liveDeviceState, setLiveDeviceState] = useState<string | null>(null);
   const [completedRuntimeSeconds, setCompletedRuntimeSeconds] = useState<number | null>(null);
   const metalBackendStatusRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    writeRebuildStatus({
+      rebuilding: buildState.isBuilding,
+      steps: buildState.processes.map((proc): RebuildStatusStep => ({
+        name: proc.name,
+        status: proc.status,
+        message: proc.message,
+      })),
+      currentStep: buildState.currentStep,
+      buildStartedAt: buildState.startTime || undefined,
+      errorCount: buildState.errorCount,
+      warningCount: buildState.warningCount,
+    });
+  }, [buildState, writeRebuildStatus]);
 
   const addLog = useCallback((_message: string) => {
     // Placeholder for future log streaming
@@ -976,6 +1014,7 @@ const BuildOrchestrator = () => {
                 if (!ready.ok) {
                   addLog(chalk.red(`Vite readiness probe failed: ${ready.reason ?? 'unknown error'}`));
                   appendErrorDetail(`Vite readiness probe failed: ${ready.reason ?? 'unknown error'}`);
+                  void ensureDevStatusServer();
                   resolved = true;
                   resolve(false);
                   return;
@@ -1414,6 +1453,10 @@ exit 1
       const runningLabel = step.label ?? stepLabel;
 
       updateProcessStatus(step.index, 'running', undefined, runningLabel);
+
+      if (step.pidKey === 'vitePid') {
+        await closeDevStatusServer();
+      }
 
       let success: boolean;
       let commandOutput = '';
@@ -2363,6 +2406,7 @@ async function runNonTtyBuild() {
             if (!ready.ok) {
               appendErrorDetail(`Vite readiness probe failed: ${ready.reason ?? 'unknown error'}`);
               console.error(`[Build] Vite readiness probe failed: ${ready.reason ?? 'unknown error'}`);
+              void ensureDevStatusServer();
               resolve(false);
               return;
             }
@@ -2529,18 +2573,61 @@ async function runNonTtyBuild() {
     {
       index: 8,
       description: 'Starting frontend server',
-      run: () => startBackgroundProcessNonTty(
-        isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
-        'Starting frontend server'
-      )
+      run: async () => {
+        await closeDevStatusServer();
+        return startBackgroundProcessNonTty(
+          isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
+          'Starting frontend server'
+        );
+      }
     }
   ];
 
   let failedComponents: string[] = [];
 
+  const nonTtyStatusSteps: RebuildStatusStep[] = [];
+  let nonTtyStartedAt = 0;
+  const writeNonTtyStatus = (patch: Partial<RebuildStatusPayload>) => {
+    try {
+      fs.writeFileSync('.rebuild_status.json', `${JSON.stringify({
+        rebuilding: true,
+        buildStartedAt: nonTtyStartedAt || Date.now(),
+        errorCount: errorDetails.length,
+        warningCount: 0,
+        recentLines: [] as string[],
+        ...patch,
+      })}\n`);
+    } catch {
+      // Best-effort status for the pre-Vite loading page.
+    }
+  };
+
   for (const step of steps) {
     console.log(`[Build] ${step.description}...`);
+    if (!nonTtyStartedAt) {
+      nonTtyStartedAt = Date.now();
+      writeNonTtyStatus({
+        currentStep: 0,
+        steps: steps.map(s => ({ name: s.description, status: 'pending' as const })),
+      });
+    }
+    while (nonTtyStatusSteps.length < steps.length) {
+      nonTtyStatusSteps.push({ name: steps[nonTtyStatusSteps.length].description, status: 'pending' });
+    }
+    nonTtyStatusSteps[step.index] = { name: step.description, status: 'running' };
+    writeNonTtyStatus({
+      currentStep: step.index,
+      steps: nonTtyStatusSteps.map(s => ({ ...s })),
+    });
     const res = await step.run();
+    nonTtyStatusSteps[step.index] = {
+      name: step.description,
+      status: res && (typeof res !== 'object' || res.success) ? 'success' : 'error',
+    };
+    writeNonTtyStatus({
+      currentStep: step.index,
+      steps: nonTtyStatusSteps.map(s => ({ ...s })),
+    });
     if (!res || (typeof res === 'object' && !res.success)) {
       const component = getFailedComponentName(step.index);
       failedComponents.push(component);
@@ -2574,6 +2661,8 @@ if (isMainModule) {
   const orchestratorLockPath = path.resolve('.n-apt-build-orchestrator.lock');
   const releaseOrchestratorLock = acquireBuildOrchestratorLock(orchestratorLockPath);
   process.once('exit', releaseOrchestratorLock);
+
+  void ensureDevStatusServer();
 
   if (!hasInteractiveTty) {
     runNonTtyBuild().catch((err) => {

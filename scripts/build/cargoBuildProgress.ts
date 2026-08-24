@@ -25,7 +25,20 @@ export type RebuildStatusPayload = {
   recentLines?: string[];
   /** Epoch ms when the current wait/build episode started. */
   startedAt?: number;
+  /** Per-step snapshot for the pre-Vite dev status page. */
+  steps?: RebuildStatusStep[];
+  currentStep?: number;
+  /** Epoch ms when the whole dev build started. */
+  buildStartedAt?: number;
+  errorCount?: number;
+  warningCount?: number;
 };
+
+export interface RebuildStatusStep {
+  name: string;
+  status: 'pending' | 'running' | 'success' | 'warning' | 'error';
+  message?: string;
+}
 
 /** Absolute ceiling so a dead interval/watcher cannot leave UI stuck forever. */
 export const RUST_HOT_RELOAD_WAIT_STALE_MS = 45_000;
