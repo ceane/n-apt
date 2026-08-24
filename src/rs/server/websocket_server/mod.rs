@@ -591,6 +591,16 @@ mod tests {
     let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
+    // Mirror the websocket subscribe path: capabilities are registered from
+    // the device inventory before a stream can open (default-deny).
+    stream_manager.register_source(
+      MOCK_TX_SOURCE_ID.to_string(),
+      crate::server::stream_manager::SourceStreamCapabilities {
+        can_receive: false,
+        can_transmit: true,
+        full_duplex: false,
+      },
+    );
     let _subscription = stream_manager
       .subscribe(
         StreamKey::new(MOCK_TX_SOURCE_ID, StreamMode::Tx),
