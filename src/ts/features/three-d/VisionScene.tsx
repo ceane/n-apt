@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { createPortal } from "react-dom";
+import { useDemodCaptureCountdown } from "@n-apt/demodulation/public/context/DemodAnalysisContext";
 
 const FullscreenOverlay = styled.div`
   position: fixed;
@@ -33,25 +34,23 @@ const Label = styled.div`
 `;
 
 export const VisionScene: React.FC<{ session: any }> = ({ session }) => {
+  const { countdown } = useDemodCaptureCountdown();
   const [captureTime, setCaptureTime] = useState(5);
 
   useEffect(() => {
-    if (
-      session.state === "capturing" &&
-      (!session.countdown || session.countdown === 0)
-    ) {
+    if (session.state === "capturing" && (!countdown || countdown === 0)) {
       const timer = setInterval(() => {
         setCaptureTime((prev) => Math.max(0, prev - 1));
       }, 1000);
       return () => clearInterval(timer);
     }
-  }, [session.state, session.countdown]);
+  }, [session.state, countdown]);
 
   return createPortal(
     <FullscreenOverlay>
-      {session.countdown && session.countdown > 0 ? (
+      {countdown && countdown > 0 ? (
         <>
-          <Timer>{session.countdown}</Timer>
+          <Timer>{countdown}</Timer>
           <Label>Preparing Vision Baseline…</Label>
         </>
       ) : (

@@ -59,7 +59,9 @@ import {
 } from "@n-apt/demodulation/context/DemodFlowContext";
 import {
   DemodAnalysisContext,
+  DemodCaptureCountdownProvider,
   type DemodAnalysisContextValue,
+  type DemodCaptureCountdownValue,
 } from "@n-apt/demodulation/context/DemodAnalysisContext";
 import {
   DemodAudioContext,
@@ -177,6 +179,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({
     state: "idle",
   });
+  const [captureCountdown, setCaptureCountdown] = useState<
+    number | undefined
+  >(undefined);
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
   const [selectedAlgorithm, setSelectedAlgorithm] =
@@ -726,6 +731,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     countdownIntervalRef.current = null;
     progressIntervalRef.current = null;
+    setCaptureCountdown(undefined);
     setAnalysisSession({ state: "idle" });
   }, []);
 
@@ -768,13 +774,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Start with a countdown
       let count = 3;
+      setCaptureCountdown(count);
       setAnalysisSession({
         state: type === "apt" ? "capturing" : "starting",
         type,
         durationS,
         sampleRateHz: state.sampleRateHz,
         centerFrequencyHz: referenceCaptureCenterFrequencyHz,
-        countdown: count,
         startTime: Date.now(),
         scriptContent,
         mediaContent,
@@ -786,11 +792,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       countdownIntervalRef.current = setInterval(() => {
         count -= 1;
         if (count > 0) {
-          setAnalysisSession((prev) => ({ ...prev, countdown: count }));
+          setCaptureCountdown(count);
         } else {
           if (countdownIntervalRef.current)
             clearInterval(countdownIntervalRef.current);
-          setAnalysisSession((prev) => ({ ...prev, countdown: 0 }));
+          setCaptureCountdown(undefined);
 
           if (type === "apt") {
             // Send APT analysis command via WebSocket
@@ -800,7 +806,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             setAnalysisSession((prev) => ({
               ...prev,
               state: "analyzing",
-              countdown: undefined,
             }));
 
             // Simulate APT analysis progress
@@ -883,7 +888,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
                 setAnalysisSession((prev) => ({
                   ...prev,
                   state: "analyzing",
-                  countdown: undefined,
                 }));
               },
               durationS * 1000 + 500,
@@ -1000,6 +1004,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     [analysisSession],
   );
 
+  const countdownValue = useMemo<DemodCaptureCountdownValue>(
+    () => ({ countdown: captureCountdown }),
+    [captureCountdown],
+  );
+
   const audioValue = useMemo<DemodAudioContextValue>(
     () => ({ audioPlayback }),
     [audioPlayback],
@@ -1008,11 +1017,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   return (
     <DemodContext.Provider value={value}>
       <DemodAnalysisContext.Provider value={analysisValue}>
-        <DemodAudioContext.Provider value={audioValue}>
-          <DemodFlowContext.Provider value={flowValue}>
-            {children}
-          </DemodFlowContext.Provider>
-        </DemodAudioContext.Provider>
+        <DemodCaptureCountdownProvider value={countdownValue}>
+          <DemodAudioContext.Provider value={audioValue}>
+            <DemodFlowContext.Provider value={flowValue}>
+              {children}
+            </DemodFlowContext.Provider>
+          </DemodAudioContext.Provider>
+        </DemodCaptureCountdownProvider>
       </DemodAnalysisContext.Provider>
     </DemodContext.Provider>
   );

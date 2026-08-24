@@ -28,7 +28,6 @@ export interface AnalysisSession {
   durationS?: number; // The requested duration in seconds
   sampleRateHz?: number;
   centerFrequencyHz?: number;
-  countdown?: number; // 3, 2, 1...
   result?: CaptureResult;
   scriptContent?: string; // Content of the script for analysis
   mediaContent?: string; // Base64 encoded media content (e.g., image, video frame)
