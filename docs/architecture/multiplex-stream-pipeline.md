@@ -147,6 +147,14 @@ with the fresh tune. The guard comment at `handleManagedStreamEvent`
 ("never replay an older write") covers Redux state but apparently not the
 device command path.
 
-Status: open. Fix belongs in the managed-options scheduler/hydration boundary;
-the consolidation plan's Phase 3 verdict work should treat "one writer, one
-current tune" as an invariant with its own gate test.
+**Fix (shipped):** `handleManagedStreamEvent` opens a suppression window
+(`RX_HYDRATION_SUPPRESSION_MS`, 750 ms) on every authoritative non-local
+`stream_options_applied`, and `syncManagedStreamSubscriptions` drops
+state-derived option candidates whose center does not match the latest
+outgoing gesture intent (`markOutgoingRxTuneIntent`, updated by every
+`frequency_range` / `set_frequency_range` send — a fresh gesture also clears
+the window, so fast legitimate retunes are never suppressed). The decision is
+the pure predicate `shouldSuppressRxOptionsCandidate`
+(`model/multiplexStream/presentationGate.ts`); the middleware only applies it.
+Invariant going forward: **one writer, one current tune** — hydration may
+rewrite Redux, never the device.

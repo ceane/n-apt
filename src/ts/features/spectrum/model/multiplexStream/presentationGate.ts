@@ -113,3 +113,27 @@ export const resolveMultiplexStreamPresentationBatch = ({
 
   return { accept: true, replacePausedPresentation };
 };
+
+/**
+ * Retune-oscillation guard: after an authoritative device hydration
+ * (`stream_options_applied`, non-local), state-derived option builds can read
+ * values older than the newest user gesture; publishing them tunes the device
+ * backwards and sustains an oscillation between stale windows.
+ *
+ * A candidate is suppressed only when ALL hold:
+ * - we are inside the post-hydration suppression window,
+ * - a gesture intent center is known,
+ * - the candidate does NOT match that intent.
+ */
+export const shouldSuppressRxOptionsCandidate = ({
+  hydrationSuppressionActive,
+  latestGestureCenterHz,
+  candidateCenterHz,
+}: {
+  hydrationSuppressionActive: boolean;
+  latestGestureCenterHz: number | null;
+  candidateCenterHz: number | null | undefined;
+}): boolean =>
+  hydrationSuppressionActive &&
+  latestGestureCenterHz !== null &&
+  candidateCenterHz !== latestGestureCenterHz;

@@ -93,6 +93,7 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
     })
   });
   let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
+  let origin_id = shared.last_tune_origin_id.lock().unwrap().clone();
   serde_json::json!({
     "type": "channels",
     "source_id": active_source_id(shared),
@@ -101,6 +102,7 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
     "frequency_range": frequency_range,
     "display_range": display_range,
     "sample_rate": sample_rate,
+    "origin_id": origin_id,
     "error": serde_json::Value::Null,
   })
 }

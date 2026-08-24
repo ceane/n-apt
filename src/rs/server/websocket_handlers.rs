@@ -1979,7 +1979,10 @@ pub fn handle_message(
         }
         // The control command is device-scoped. Echo the authoritative
         // selection to every subscriber and include it in the next client's
-        // initial channels snapshot for hydration.
+        // initial channels snapshot for hydration. The origin tag rides along
+        // so the tuning client can drop its own echo; foreign subscribers
+        // still apply it as an authoritative retune.
+        *shared.last_tune_origin_id.lock().unwrap() = message.origin_id.clone();
         broadcast_channels(shared, broadcast_tx);
 
         // Retunes are the highest-frequency control path. Publish the latest

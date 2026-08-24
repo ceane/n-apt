@@ -3,6 +3,7 @@ import {
   hasMultiplexStreamTxPreviewFrame,
   isMultiplexStreamTxPresentationFrame,
   resolveMultiplexStreamPresentationBatch,
+  shouldSuppressRxOptionsCandidate,
 } from "@n-apt/spectrum/model/multiplexStream";
 
 const rxFrame = { source_id: "mock-apt", frame_status: "receiving" };
@@ -147,6 +148,45 @@ describe("resolveMultiplexStreamPresentationBatch", () => {
         isSelectedTxPresentationTransmitting: true,
         hasTxPreviewFrame: true,
       } as never).replacePausedPresentation,
+    ).toBe(false);
+  });
+});
+
+describe("shouldSuppressRxOptionsCandidate", () => {
+  const base = {
+    hydrationSuppressionActive: true,
+    latestGestureCenterHz: 5_200_000,
+    candidateCenterHz: 5_100_000,
+  };
+
+  it("suppresses hydration echoes that differ from gesture intent", () => {
+    expect(shouldSuppressRxOptionsCandidate(base)).toBe(true);
+  });
+
+  it("allows the gesture-intent tune itself", () => {
+    expect(
+      shouldSuppressRxOptionsCandidate({
+        ...base,
+        candidateCenterHz: 5_200_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows everything outside the suppression window", () => {
+    expect(
+      shouldSuppressRxOptionsCandidate({
+        ...base,
+        hydrationSuppressionActive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows candidates when no gesture intent is known yet", () => {
+    expect(
+      shouldSuppressRxOptionsCandidate({
+        ...base,
+        latestGestureCenterHz: null,
+      }),
     ).toBe(false);
   });
 });

@@ -270,6 +270,15 @@ pub struct WebSocketMessage {
   /// controls that mutate shared source/transmitter state.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub scope: Option<crate::server::stream_contract::StreamControlScope>,
+  /// Origin tag stamped by the tuning client. The backend remembers the last
+  /// tuner and echoes it in channels snapshots so clients can drop their own
+  /// echo instead of treating it as foreign authoritative state.
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "originId",
+    default
+  )]
+  pub origin_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,

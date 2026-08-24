@@ -33,6 +33,7 @@ import {
   hasMultiplexStreamTxPreviewFrame,
   isMultiplexStreamTxPresentationFrame,
   resolveMultiplexStreamPresentationBatch,
+  shouldSuppressRxOptionsCandidate,
 } from "@n-apt/spectrum/model/multiplexStream";
 import { decryptPayload } from "@n-apt/crypto/webcrypto";
 import {
@@ -582,6 +583,41 @@ const managedRxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
   },
   equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
 });
+/**
+ * Retune-oscillation guard: authoritative hydration (`stream_options_applied`
+ * from the device) rewrites source settings in Redux. Until that state
+ * settles, any state-derived option build can read values OLDER than the
+ * newest gesture; submitting them tunes the device backwards and the backend
+ * oscillates between stale windows instead of delivering the requested one.
+ *
+ * For the suppression window after each authoritative hydration, only option
+ * sets whose center matches the latest outgoing gesture intent may publish;
+ * anything else is a hydration echo and is dropped. Gestures themselves always
+ * update the intent marker, so legitimate fast retunes are never suppressed.
+ */
+const RX_HYDRATION_SUPPRESSION_MS = 750;
+let rxHydrationSuppressionUntil = 0;
+let latestGestureRxCenterHz: number | null = null;
+
+const extractTuneCenterHz = (data: any): number | null => {
+  const center = Number(data?.center_frequency ?? data?.centerFrequencyHz);
+  if (Number.isFinite(center) && center > 0) return center;
+  const min = Number(data?.min_hz ?? data?.min_freq ?? data?.min);
+  const max = Number(data?.max_hz ?? data?.max_freq ?? data?.max);
+  if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
+    return (min + max) / 2;
+  }
+  return null;
+};
+
+const markOutgoingRxTuneIntent = (data: any): void => {
+  const center = extractTuneCenterHz(data);
+  if (center !== null) {
+    latestGestureRxCenterHz = center;
+    // A fresh gesture supersedes any pending hydration echo suppression.
+    rxHydrationSuppressionUntil = 0;
+  }
+};
 const managedTxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
   publish: (options) => {
     void managedTxSubscription?.updateOptions(options).catch(() => undefined);
@@ -732,6 +768,33 @@ export const normalizeFrequencyRangeMessageData = (
 
   return normalized;
 };
+
+/**
+ * Stable per-page-load identity used to break the retune echo loop. The
+ * backend echoes every device-scoped tune back to all subscribers including
+ * the originator; outgoing tunes are stamped with this id and the echoed
+ * channels snapshot carries it so the originator can drop its own echo
+ * instead of re-applying stale state over an in-flight gesture.
+ */
+const CLIENT_ORIGIN_ID = (() => {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // Fall through to the non-secure-context fallback below.
+  }
+  return `client-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+})();
+
+/** Message types the backend treats as device-scoped live tunes. */
+const ORIGIN_TAGGED_MESSAGE_TYPES = new Set([
+  "frequency_range",
+  "set_frequency_range",
+  "demod_tune",
+]);
 
 export const collapsePausedFrameBatch = <T>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
@@ -1588,6 +1651,10 @@ const handleManagedStreamEvent = (
     // A device revision from another subscriber supersedes any locally queued
     // gesture value. Never replay an older write after authoritative hydration.
     managedRxOptionsScheduler.cancel();
+    // Hydration is about to rewrite Redux with device-reported settings. While
+    // that settles, state-derived option builds must not reach the device —
+    // see the suppression-window note at managedRxOptionsScheduler.
+    rxHydrationSuppressionUntil = Date.now() + RX_HYDRATION_SUPPRESSION_MS;
   }
   if (
     mode === "rx" &&
@@ -1803,10 +1870,24 @@ const syncManagedStreamSubscriptions = (
         );
       });
   } else if (managedRxSubscription && desiredRxSource) {
-    managedRxOptionsScheduler.submit(
-      buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
-      publishMode,
+    const candidate = buildManagedRxOptions(
+      getState(),
+      desiredRxSource,
+      rxOptionsOverride,
     );
+    // Drop hydration echoes: within the suppression window after an
+    // authoritative options_applied, only a build matching the latest
+    // gesture intent may reach the device. See the guard note at
+    // managedRxOptionsScheduler.
+    if (
+      !shouldSuppressRxOptionsCandidate({
+        hydrationSuppressionActive: Date.now() < rxHydrationSuppressionUntil,
+        latestGestureCenterHz: latestGestureRxCenterHz,
+        candidateCenterHz: candidate.centerFrequencyHz,
+      })
+    ) {
+      managedRxOptionsScheduler.submit(candidate, publishMode);
+    }
   }
   // A source handoff can commit after the stream acknowledgement. In that
   // ordering the stream_opened event was intentionally ignored while the old
@@ -2488,6 +2569,14 @@ export const processWebSocketMessage = (
             nextRange,
           );
       const currentSignalArea = getState().spectrum?.activeSignalArea;
+      // A self-echo is the backend replaying this client's own tune back to
+      // it. The gesture already published the range optimistically; applying
+      // the echo would overwrite frequencyRange and slam vizPanOffset to 0
+      // mid-gesture, which near DC re-anchors the scroll base and sustains a
+      // retune oscillation. Foreign subscribers still apply it.
+      const isSelfEcho =
+        typeof parsedData.origin_id === "string" &&
+        parsedData.origin_id === CLIENT_ORIGIN_ID;
       const effectiveSignalArea = resolveIncomingChannelsActiveSignalArea({
         channels,
         currentRange: selectedRange,
@@ -2502,7 +2591,7 @@ export const processWebSocketMessage = (
       const inManualMode =
         currentSignalArea === "manual" || persistedArea === "manual";
 
-      if (!inManualMode || hasAuthoritativeSelection) {
+      if (!isSelfEcho && (!inManualMode || hasAuthoritativeSelection)) {
         dispatch(
           setDeviceSignalAreaAndRange({
             area: effectiveSignalArea ?? firstChannel.label ?? "A",
@@ -2522,6 +2611,7 @@ export const processWebSocketMessage = (
       const mirrorEnabled =
         getState().settings?.mirrorIqBasebandBelowZero === true;
       if (
+        !isSelfEcho &&
         mirrorEnabled &&
         incomingDisplayRange?.mirror_below_zero === true &&
         Number.isFinite(incomingDisplayRange.min) &&
@@ -3256,6 +3346,15 @@ const createWebSocketMiddleware =
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
         let normalizedData = normalizeFrequencyRangeMessageData(type, data);
+        if (ORIGIN_TAGGED_MESSAGE_TYPES.has(type) && normalizedData) {
+          normalizedData = {
+            ...normalizedData,
+            origin_id: CLIENT_ORIGIN_ID,
+          };
+          if (type === "frequency_range" || type === "set_frequency_range") {
+            markOutgoingRxTuneIntent(normalizedData);
+          }
+        }
         if (type === "settings" && normalizedData) {
           normalizedData = { ...normalizedData };
           for (const key of [

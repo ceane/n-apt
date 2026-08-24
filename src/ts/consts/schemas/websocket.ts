@@ -166,6 +166,8 @@ export type ChannelsMessage = {
   frequency_range?: { min: number; max: number } | null;
   display_range?: MirroredDisplayRange | null;
   sample_rate?: number;
+  /** Origin tag of the client that performed the last live tune. */
+  origin_id?: string | null;
   error?: string | null;
 };
 

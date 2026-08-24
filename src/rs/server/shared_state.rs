@@ -205,6 +205,10 @@ pub struct SharedState {
   /// Last channels payload, kept separate so status/settings traffic cannot
   /// make an unchanged channel snapshot look new to subscribers.
   pub last_broadcast_channels: Mutex<Option<String>>,
+  /// Origin tag of the client that performed the last live tune. Echoed in
+  /// channels snapshots so the originator can recognize and drop its own
+  /// echo instead of re-applying it over an in-flight gesture.
+  pub last_tune_origin_id: Mutex<Option<String>>,
   /// HackRF inventory populated by the hardware monitor. Source/status
   /// snapshots must read this cache rather than enumerate the native library.
   pub hackrf_inventory: Mutex<Vec<HackRfInventoryDevice>>,
@@ -296,6 +300,7 @@ impl SharedState {
       pending_fast_settings: Mutex::new(Vec::new()),
       last_broadcast_status: Mutex::new(None),
       last_broadcast_channels: Mutex::new(None),
+      last_tune_origin_id: Mutex::new(None),
       hackrf_inventory: Mutex::new(Vec::new()),
       rtl_sdr_inventory: Mutex::new(Vec::new()),
       mock_tx_transmitting: AtomicBool::new(false),
