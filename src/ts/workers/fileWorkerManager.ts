@@ -57,6 +57,17 @@ export class FileWorkerManager {
 
       this.worker.onerror = (error) => {
         console.error("File Worker error:", error);
+        // A crashed worker will never answer pending requests; reject them
+        // now so callers do not hang until timeout and so transferred
+        // ArrayBuffers are not kept alive by pending closures.
+        this.rejectAllPending(new Error("File Worker crashed"));
+      };
+
+      this.worker.onmessageerror = () => {
+        console.error("File Worker message deserialization failed");
+        this.rejectAllPending(
+          new Error("File Worker message could not be deserialized"),
+        );
       };
     } catch (error) {
       console.error("Failed to initialize File Worker:", error);
@@ -193,15 +204,19 @@ export class FileWorkerManager {
     return this.sendMessage("getFrame", { frameIndex, precomputedFrames });
   }
 
-  terminate(): void {
-    // Clear all pending requests and timeouts
+  private rejectAllPending(error: Error): void {
     for (const [, request] of this.pendingRequests) {
       if (request.timeout) {
         clearTimeout(request.timeout);
       }
-      request.reject(new Error("Worker terminated"));
+      request.reject(error);
     }
     this.pendingRequests.clear();
+  }
+
+  terminate(): void {
+    // Clear all pending requests and timeouts
+    this.rejectAllPending(new Error("Worker terminated"));
 
     if (this.worker) {
       this.worker.terminate();

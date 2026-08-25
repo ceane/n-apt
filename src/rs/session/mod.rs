@@ -34,7 +34,13 @@ pub struct SessionStore {
   /// Cached DB-1 multiplexed connection. Clones share one socket, so session
   /// operations don't pay a TCP handshake + SELECT each time; any command
   /// error evicts it so the next call reconnects cleanly.
+  ///
+  /// Reconnection is single-flighted through `connect_lock`: callers that
+  /// race after an eviction wait on one attempt instead of each opening
+  /// their own connection. The sync guard is never held across an `.await`.
   connection: std::sync::Mutex<Option<MultiplexedConnection>>,
+  /// Serializes reconnection attempts (see `connection`).
+  connect_lock: tokio::sync::Mutex<()>,
 }
 
 impl SessionStore {
@@ -48,6 +54,7 @@ impl SessionStore {
       prefix: "session:".to_string(),
       config_error: None,
       connection: std::sync::Mutex::new(None),
+      connect_lock: tokio::sync::Mutex::new(()),
     })
   }
 
@@ -66,6 +73,7 @@ impl SessionStore {
           prefix: "session:".to_string(),
           config_error: Some(error),
           connection: std::sync::Mutex::new(None),
+          connect_lock: tokio::sync::Mutex::new(()),
         }
       }
     }
@@ -99,6 +107,14 @@ impl SessionStore {
       return Err(error.clone());
     }
 
+    if let Some(cached) = self.connection.lock().unwrap().clone() {
+      return Ok(cached);
+    }
+
+    // Single-flight the reconnect so concurrent callers after an eviction
+    // share one connection attempt instead of racing to each dial Redis.
+    let _permit = self.connect_lock.lock().await;
+    // Re-check: another caller may have connected while we waited.
     if let Some(cached) = self.connection.lock().unwrap().clone() {
       return Ok(cached);
     }
