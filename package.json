@@ -113,7 +113,8 @@
     "redis:snapshot": "./scripts/redis/redis_persistent_manager.sh snapshot",
     "redis:export": "./scripts/redis/redis_persistent_manager.sh export",
     "ladle": "ladle serve",
-    "build-ladle": "ladle build"
+    "build-ladle": "ladle build",
+    "lint:structure": "node scripts/lint/check-entry-reachability.mjs"
   },
   "dependencies": {
     "@chenglou/pretext": "0.0.8",

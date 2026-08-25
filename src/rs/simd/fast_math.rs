@@ -379,7 +379,6 @@ mod tests {
         );
         #[cfg(target_arch = "aarch64")]
         {
-          use std::arch::aarch64::*;
           let out: [f32; 4] = std::mem::transmute(v);
           for value in out {
             assert!(

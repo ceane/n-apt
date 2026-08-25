@@ -325,7 +325,7 @@ async fn test_password_auth_flow_issues_working_session() {
   let derived = crypto::derive_key(
     &std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap(),
   );
-  let hmac = crypto::to_base64(&crypto::compute_hmac(&derived, &nonce_bytes));
+  let _hmac = crypto::to_base64(&crypto::compute_hmac(&derived, &nonce_bytes));
 
   // Step 3: verify — wrong-password proof must be rejected first
   let other_key = crypto::derive_key("definitely-not-the-password");

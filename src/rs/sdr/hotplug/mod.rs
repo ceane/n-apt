@@ -453,11 +453,12 @@ pub fn scan_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
 }
 
 pub fn scan_usb_for_supported_device() -> Result<Option<String>> {
-  for snapshot in scan_supported_usb_device_snapshots()? {
-    return Ok(Some(snapshot.device_type));
-  }
-
-  Ok(None)
+  Ok(
+    scan_supported_usb_device_snapshots()?
+      .into_iter()
+      .next()
+      .map(|snapshot| snapshot.device_type),
+  )
 }
 
 pub(crate) fn should_enter_hardware_recovery(device_type: &str) -> bool {
