@@ -80,12 +80,6 @@ export function usePauseLogic({
               validationResult.warnings,
             );
           }
-
-          // Log validation metadata for debugging
-          console.log(
-            "Waterfall validation metadata:",
-            validationResult.metadata,
-          );
         }
       }
       writePauseSnapshot(snapshotScope, {

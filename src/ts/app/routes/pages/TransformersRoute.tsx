@@ -34,14 +34,10 @@ export const TransformersRoute: React.FC = () => {
     setProgressStatus("Initializing...");
 
     try {
-      console.log("Loading transformers.js model...");
-
       // Use the installed package, not CDN fallback
       const transformers = await import("@huggingface/transformers");
-      console.log("Transformers imported:", Object.keys(transformers));
 
       // Create and cache the pipeline for selected task
-      console.log(`Creating ${selectedTask} pipeline...`);
       setProgressStatus("Loading model files...");
 
       let modelConfig: any = {
@@ -77,17 +73,14 @@ export const TransformersRoute: React.FC = () => {
         modelConfig,
       );
 
-      console.log("Pipeline created:", typeof pipe, pipe);
       setPipeline(() => pipe);
       setModelReady(true);
       setProgress(100);
       setProgressStatus("Model loaded successfully!");
-      console.log("Model loaded successfully!");
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       setError(`Failed to load model: ${errorMessage}`);
-      console.error("Model loading error:", error);
       setModelReady(false);
     } finally {
       setModelLoading(false);
@@ -95,10 +88,7 @@ export const TransformersRoute: React.FC = () => {
   };
 
   const runAnalysis = async () => {
-    console.log("runAnalysis called, pipeline:", typeof pipeline, pipeline);
-
     if (!pipeline || !inputText.trim()) {
-      console.log("Early return - no pipeline or empty text");
       return;
     }
 
@@ -107,8 +97,6 @@ export const TransformersRoute: React.FC = () => {
     setError("");
 
     try {
-      console.log(`Running ${selectedTask} on:`, inputText);
-
       let output: any;
 
       switch (selectedTask) {
@@ -142,13 +130,11 @@ export const TransformersRoute: React.FC = () => {
           output = await pipeline(inputText);
       }
 
-      console.log("Analysis result:", output);
       setResult(JSON.stringify(output, null, 2));
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       setError(errorMessage);
-      console.error("Analysis error:", error);
     } finally {
       setLoading(false);
     }

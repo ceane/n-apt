@@ -18,12 +18,6 @@ import {
   setNoteCardsCollapsed,
 } from "@n-apt/redux";
 
-declare global {
-  interface Window {
-    __reduxProviderInitialized?: boolean;
-  }
-}
-
 interface ReduxProviderProps {
   children: React.ReactNode;
 }
@@ -68,14 +62,8 @@ const ReduxProvider: React.FC<ReduxProviderProps> = ({ children }) => {
           store.dispatch(setNoteCardsCollapsed(persistedNoteCards.isCollapsed));
         }
 
-        if (!window.__reduxProviderInitialized) {
-          console.log("Redux provider initialized with persisted data");
-          window.__reduxProviderInitialized = true;
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load persisted data:", error);
-        }
+      } catch {
+        // Best-effort hydration: a failed read leaves defaults in place.
       }
     })();
 

@@ -404,9 +404,6 @@ const playbackAfterCapture = async (
   try {
     if (!sessionToken || !aesKey) {
       if (retryCount < 10) {
-        console.log(
-          `PlaybackAfterCapture: Waiting for auth state... (attempt ${retryCount + 1})`,
-        );
         schedule(() => {
           void playbackAfterCapture(args, retryCount + 1);
         }, 500);
@@ -418,12 +415,6 @@ const playbackAfterCapture = async (
     }
 
     if (getCancelled()) return;
-
-    console.group("PlaybackAfterCapture Flow");
-    console.log("Status: done, triggering transition...");
-    console.log("Download URL:", liveCaptureStatus.downloadUrl);
-    console.log("Session Token present:", !!sessionToken);
-    console.log("AES Key present:", !!aesKey);
 
     dispatch(setSourceMode("file"));
     dispatch(setSelectedFiles([]));
@@ -440,11 +431,6 @@ const playbackAfterCapture = async (
       response = await fetch(url);
     } catch (fetchErr) {
       if (retryCount < 3) {
-        console.warn(
-          "PlaybackAfterCapture: Fetch failed, retrying...",
-          fetchErr,
-        );
-        console.groupEnd();
         schedule(() => {
           void playbackAfterCapture(args, retryCount + 1);
         }, 1000);
@@ -455,12 +441,7 @@ const playbackAfterCapture = async (
 
     if (getCancelled()) return;
 
-    console.log("Fetch status:", response.status);
-
     if (response.status === 401) {
-      console.error(
-        "PlaybackAfterCapture: 401 Unauthorized. Session might be stale.",
-      );
       throw new Error(
         "Playback failed: Unauthorized (401). Please try logging in again.",
       );
@@ -485,17 +466,12 @@ const playbackAfterCapture = async (
 
     dispatch(setSelectedFiles([serializedFile]));
 
-    console.log("File registered and selected. ID:", id);
-
     schedule(() => {
       if (getCancelled()) return;
-      console.log("Triggering stitch...");
       dispatch(triggerStitch());
-      console.groupEnd();
     }, 800);
   } catch (e) {
     console.error("Playback after capture failed:", e);
-    console.groupEnd();
     if (e instanceof Error) {
       setNaptMetadataError(`Playback failed: ${e.message}`);
     }

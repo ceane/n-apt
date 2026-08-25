@@ -525,14 +525,6 @@ export function useDrawWebGPUFIFOWaterfall() {
                 validationResult.warnings,
               );
             }
-
-            // Log validation metadata for debugging (only in development)
-            if (process.env.NODE_ENV === "development") {
-              console.log(
-                "WebGPU waterfall FFT validation metadata:",
-                validationResult.metadata,
-              );
-            }
           }
 
           const smear = Math.max(

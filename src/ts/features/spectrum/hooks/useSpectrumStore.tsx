@@ -3766,9 +3766,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const setVisualizerPause = useCallback(
       (requestedPaused: boolean, sourceId?: string) => {
-        console.log("[pause-debug] setVisualizerPause enter", { requestedPaused, sourceId, sourceMode: mergedState.sourceMode, selectedSourceId, activeSourceId });
         if (mergedState.sourceMode === "file") {
-          console.log("[pause-debug] file-mode branch");
           reduxDispatch(setWaterfallStitchPaused(requestedPaused));
           return;
         }

@@ -307,8 +307,6 @@ export async function authenticateWithPassword(
 
 /** Register a new passkey. */
 export async function registerPasskey(): Promise<void> {
-  console.log("Starting passkey registration...");
-
   // The backend requires an authenticated session to add a passkey once one
   // is already enrolled; first-run enrollment stays open.
   const storedToken = getStoredSession();
@@ -330,22 +328,17 @@ export async function registerPasskey(): Promise<void> {
   }
   if (!startRes.ok) {
     const text = await startRes.text();
-    console.error("Failed to start passkey registration:", text);
     throw new Error(`Failed to start passkey registration: ${text}`);
   }
   const { challenge_id, options } = await startRes.json();
-  console.log("Got registration options:", { challenge_id, options });
 
   // Step 2: Create credential via WebAuthn API
-  console.log("Calling navigator.credentials.create...");
   const credential = await navigator.credentials.create({
     publicKey: parseCreationOptions(options),
   });
   if (!credential) {
-    console.error("Passkey creation cancelled by user");
     throw new Error("Passkey creation cancelled");
   }
-  console.log("Created credential:", credential);
 
   // Step 3: Send credential to server
   let finishRes: Response;
@@ -366,10 +359,8 @@ export async function registerPasskey(): Promise<void> {
 
   if (!finishRes.ok) {
     const text = await finishRes.text();
-    console.error("Failed to finish passkey registration:", text);
     throw new Error(`Failed to finish passkey registration: ${text}`);
   }
-  console.log("Passkey registration completed successfully");
 }
 
 /** Authenticate with an existing passkey. */
@@ -457,8 +448,6 @@ function base64urlToBuffer(base64url: string): ArrayBuffer {
 function parseCreationOptions(
   options: any,
 ): PublicKeyCredentialCreationOptions {
-  console.log("Parsing creation options:", options);
-
   // webauthn-rs nests everything under publicKey
   const pk = options.publicKey || options;
   if (!pk.challenge) {

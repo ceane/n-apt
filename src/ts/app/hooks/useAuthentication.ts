@@ -64,9 +64,6 @@ const getInitialHasPasskeys = () => {
     return localStorage.getItem("n_apt_has_passkeys") === "true";
   } catch {
     // Safari private mode or localStorage blocked
-    console.warn(
-      "localStorage unavailable, assuming no passkeys (likely Safari private mode)",
-    );
     return false;
   }
 };
@@ -89,7 +86,6 @@ function authReducer(
     case "AUTHENTICATING":
       return { ...state, authState: "authenticating", authError: null };
     case "AUTH_SUCCESS":
-      console.log("AuthReducer: AUTH_SUCCESS. aesKey set?", !!action.aesKey);
       return {
         ...state,
         sessionToken: action.sessionToken,
@@ -163,7 +159,6 @@ const useAuthenticationInternal = (
   skipBackendBootstrap = false,
 ): UseAuthenticationReturn => {
   const [state, dispatch] = useReducer(authReducer, initialState);
-  const hasLoggedWebAuthnIdeNoticeRef = useRef(false);
   const heartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatActiveRef = useRef(false);
 
@@ -213,22 +208,10 @@ const useAuthenticationInternal = (
     })();
 
     if (isLikelyIDEBrowser) {
-      if (!hasLoggedWebAuthnIdeNoticeRef.current) {
-        console.warn(
-          "🔒 Passkeys disabled in IDE browser. Use password authentication for in-IDE browsing.",
-        );
-        hasLoggedWebAuthnIdeNoticeRef.current = true;
-      }
       return false;
     }
 
     if (isSafariPrivateMode) {
-      if (!hasLoggedWebAuthnIdeNoticeRef.current) {
-        console.warn(
-          "🔒 Passkeys disabled in Safari private mode. Use password authentication.",
-        );
-        hasLoggedWebAuthnIdeNoticeRef.current = true;
-      }
       return false;
     }
 
@@ -270,7 +253,7 @@ const useAuthenticationInternal = (
                 effectiveHasPasskeys ? "true" : "false",
               );
             } catch {
-              console.debug("localStorage unavailable for auth state");
+              // Safari private mode - localStorage not available
             }
             dispatch({
               type: "READY",
@@ -328,7 +311,6 @@ const useAuthenticationInternal = (
               );
             } catch {
               // Safari private mode - localStorage not available
-              console.debug("localStorage unavailable for auth state");
             }
             dispatch({
               type: "SET_PASSKEYS",
@@ -337,7 +319,6 @@ const useAuthenticationInternal = (
           }
         } catch {
           if (!cancelled) {
-            console.debug("Auth info retry failed:");
             scheduleAuthInfoRetry(attempt + 1);
           }
         }
@@ -355,10 +336,6 @@ const useAuthenticationInternal = (
               if (vaultKeyB64) {
                 const key = await importBase64Key(vaultKeyB64);
 
-                console.log(
-                  "AuthInit: Setting session from storage. Key fetched?",
-                  !!vaultKeyB64,
-                );
                 dispatch({
                   type: "AUTH_SUCCESS",
                   sessionToken: storedToken,
@@ -368,12 +345,11 @@ const useAuthenticationInternal = (
               }
               throw new Error("Could not fetch vault key for session");
             } catch {
-              console.warn("Stored session cannot be resumed securely:");
+              // Stored session unusable — drop it and fall through to the prompt.
               clearSession();
             }
           }
         } catch {
-          console.warn("Session validation failed:");
           clearSession();
         }
       }
@@ -390,13 +366,11 @@ const useAuthenticationInternal = (
             );
           } catch {
             // Safari private mode - localStorage not available
-            console.debug("localStorage unavailable for session persistence");
           }
           dispatch({ type: "READY", hasPasskeys: effectiveHasPasskeys });
         }
       } catch {
         if (!cancelled) {
-          console.warn("Backend unavailable, showing auth prompt:");
           dispatch({ type: "SERVER_DOWN" });
           startHeartbeat();
           scheduleAuthInfoRetry();
@@ -511,7 +485,6 @@ const useAuthenticationInternal = (
         );
       } catch {
         // Safari private mode - localStorage not available
-        console.debug("localStorage unavailable for passkey state");
       }
       dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: effectiveHasPasskeys });
     } catch (e: any) {

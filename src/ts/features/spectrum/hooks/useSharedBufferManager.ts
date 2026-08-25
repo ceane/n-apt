@@ -371,9 +371,6 @@ export function useSharedBufferManager(options: SharedBufferManagerOptions) {
     });
 
     if (toDelete.length > 0 || ringBuffersToDelete.length > 0) {
-      console.log(
-        `🧹 GC: Cleaned ${toDelete.length} allocations, ${ringBuffersToDelete.length} ring buffers`,
-      );
       updateMemoryStats();
     }
   }, [returnBufferToPool]);

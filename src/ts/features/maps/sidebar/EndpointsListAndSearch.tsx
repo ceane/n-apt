@@ -257,20 +257,9 @@ export const EndpointsListAndSearch: React.FC = () => {
     return R * c;
   };
 
-  const handleEndpointClick = (endpoint: NearestEndpoint) => {
-    // Center the map on this endpoint
-    const newLocation = {
-      id: `endpoint_${endpoint.tower.id}`,
-      name: `${endpoint.tower.radio} Tower ${endpoint.tower.mcc}-${endpoint.tower.mnc}`,
-      lat: endpoint.tower.lat,
-      lng: endpoint.tower.lon,
-      zoom: 16,
-      color: "#f59e0b",
-    };
-
-    // This would need to be integrated with the map location management
-    // For now, just log it
-    console.log("Navigate to endpoint:", newLocation);
+  const handleEndpointClick = (_endpoint: NearestEndpoint) => {
+    // Map centering on endpoint click is not wired into the map
+    // location management yet.
   };
 
   const getCarrierName = (mcc: string, mnc: string): string => {

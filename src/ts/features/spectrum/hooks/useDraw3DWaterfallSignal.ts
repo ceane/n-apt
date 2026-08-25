@@ -78,14 +78,6 @@ export function useDraw3DWaterfallSignal() {
               validationResult.warnings,
             );
           }
-
-          // Log validation metadata for debugging (only in development)
-          if (process.env.NODE_ENV === "development") {
-            console.log(
-              "3D waterfall validation metadata:",
-              validationResult.metadata,
-            );
-          }
         }
 
         frameHistoryRef.current.push(waveformArray.slice());
