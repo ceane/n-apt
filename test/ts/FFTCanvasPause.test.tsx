@@ -93,10 +93,6 @@ jest.mock("@n-apt/spectrum/hooks/useFFTAnimation", () => ({
 }));
 
 // Mock other hooks
-jest.mock("@n-apt/spectrum/hooks/useSpectrumRendering", () => ({
-  useSpectrumRendering: () => ({ renderSpectrum: jest.fn() }),
-}));
-
 jest.mock("@n-apt/spectrum/hooks/useFrequencyDrag", () => ({
   useSpectrumInteraction: () => {},
   useFrequencyDrag: () => {},

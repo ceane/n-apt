@@ -1,4 +1,4 @@
-import { FFT_COMPUTE_SHADER } from "@n-apt/consts/shaders/fft_compute";
+import { FFT_COMPUTE_SHADER } from "./shaderSources";
 
 describe("fft_compute.wgsl", () => {
   it("stays non-empty", () => {

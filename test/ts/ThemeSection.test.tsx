@@ -2,7 +2,6 @@ import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeSection } from "@n-apt/settings/sidebar/ThemeSection";
-import { useThemeStore } from "@n-apt/app/hooks/useThemeStore";
 import { useAppSelector } from "@n-apt/redux";
 import { TestWrapper } from "./testUtils";
 import { ThemeProvider } from "styled-components";
@@ -30,10 +29,6 @@ const ThemeTestHarness: React.FC = () => {
 };
 
 describe("ThemeSection Component", () => {
-  beforeEach(() => {
-    useThemeStore.getState().resetTheme();
-  });
-
   it("should render theme options when open", () => {
     render(
       <TestWrapper>

@@ -1,4 +1,4 @@
-import { WATERFALL_3D_FRAGMENT_SHADER } from "@n-apt/consts/shaders/waterfall3d";
+import { WATERFALL_3D_FRAGMENT_SHADER } from "./shaderSources";
 
 describe("waterfall3d_fragment.wgsl", () => {
   it("stays non-empty", () => {

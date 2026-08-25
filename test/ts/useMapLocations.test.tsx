@@ -31,11 +31,6 @@ jest.mock("leaflet", () => ({
   latLng: jest.fn(),
 }));
 
-// Mock @n-apt/app/infrastructure/services/env
-jest.mock("@n-apt/app/infrastructure/services/env", () => ({
-  getGoogleMapsApiKey: () => "mock-api-key",
-}));
-
 // Mock Geolocation
 const mockGeolocation = {
   getCurrentPosition: jest.fn().mockImplementation((success) =>

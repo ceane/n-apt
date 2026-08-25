@@ -1,4 +1,4 @@
-import { WATERFALL_3D_VERTEX_SHADER } from "@n-apt/consts/shaders/waterfall3d";
+import { WATERFALL_3D_VERTEX_SHADER } from "./shaderSources";
 
 describe("waterfall3d_vertex.wgsl", () => {
   it("stays non-empty", () => {

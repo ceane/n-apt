@@ -44,7 +44,7 @@ export default [
     route("extras", "./app/routes/FullApplicationRoute.tsx", {
       id: "extras-legacy",
     }),
-    route("logout", "./app/routes/LogoutRoute.tsx", { id: "logout" }),
+    route("logout", "./app/routes/pages/LogoutRoute.tsx", { id: "logout" }),
     route("draw-signal", "./app/routes/FullApplicationRoute.tsx", {
       id: "draw-signal",
     }),
