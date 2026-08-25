@@ -4,7 +4,6 @@ use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::ffi;
@@ -62,8 +61,6 @@ fn apply_ppm_correction(freq_hz: u32, ppm: u32) -> u32 {
 pub struct HackRfDevice {
   dev: *mut ffi::HackRfDeviceHandle,
   rx_queue: Receiver<Vec<u8>>,
-  #[allow(dead_code)]
-  async_thread: Option<JoinHandle<()>>,
   rx_context: Option<Arc<RxContext>>,
   tx_context: Option<Arc<TxContext>>,
   tx_started: bool,
@@ -221,7 +218,6 @@ impl HackRfDevice {
       Ok(Self {
         dev,
         rx_queue: rx,
-        async_thread: None,
         rx_context: None,
         tx_context: None,
         tx_started: false,
@@ -744,7 +740,6 @@ mod tests {
     let mut device = HackRfDevice {
       dev: ptr::null_mut(),
       rx_queue: rx,
-      async_thread: None,
       rx_context: None,
       last_error: None,
       sample_rate: HACKRF_MIN_SAMPLE_RATE,

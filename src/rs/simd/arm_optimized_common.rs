@@ -295,7 +295,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn resample_scalar_impl(input: &[f32], output: &mut [f32], width: usize) {
     let input_len = input.len();
     if input_len == 0 || width == 0 {
@@ -393,7 +393,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn shift_waterfall_scalar_impl(
     buffer: &mut [u8],
     width: usize,
@@ -531,7 +531,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn color_map_scalar_impl(
     amplitudes: &[f32],
     output: &mut [u8],
@@ -639,7 +639,7 @@ impl ARMOptimizedSIMD {
     coords
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn transform_coords_scalar_impl(
     spectrum_data: &[f32],
     canvas_width: usize,
@@ -859,7 +859,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn apply_window_scalar_impl(
     complex_re: &mut [f32],
     complex_im: &mut [f32],
@@ -967,7 +967,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn power_spectrum_db_scalar_impl(
     complex_re: &[f32],
     complex_im: &[f32],
@@ -1134,7 +1134,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn convert_to_complex_scalar_impl(
     data: &[u8],
     complex_re: &mut [f32],

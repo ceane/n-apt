@@ -8,11 +8,8 @@ pub mod data_parser;
 pub mod types;
 pub mod websocket_client;
 
-pub use algorithms::AlgorithmTester;
-pub use types::*;
-pub use websocket_client::WebSocketClient;
-
 use anyhow::Result;
+use websocket_client::WebSocketClient;
 
 /// Main test harness for live stream algorithm testing
 pub struct LiveStreamTester {

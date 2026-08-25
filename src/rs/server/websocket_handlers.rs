@@ -445,6 +445,12 @@ pub enum StreamCommand {
     subscription_id: String,
     stream: StreamKey,
     options: StreamOptions,
+    /// Identifies the tuning client so the OptionsApplied echo can be
+    /// attributed: the originator drops its own echo while foreign
+    /// subscribers still apply it. Mirrors the legacy `frequency_range`
+    /// origin_id contract.
+    #[serde(default)]
+    origin_id: Option<String>,
   },
   #[serde(rename = "stream_unsubscribe")]
   Unsubscribe {
@@ -799,9 +805,16 @@ async fn handle_stream_connection(
   loop {
     tokio::select! {
       Some(event) = event_rx.recv() => {
-        let Ok(payload) = stream_event_json(&event, &enc_key) else {
+        let Ok(mut payload) = stream_event_json(&event, &enc_key) else {
           continue;
         };
+        if matches!(event, StreamEvent::OptionsApplied { .. }) {
+          // Stamp the last tuner's origin so the originating client can drop
+          // its own echo while foreign subscribers still apply the options.
+          if let Some(origin_id) = shared.last_tune_origin_id.lock().unwrap().clone() {
+            payload["originId"] = serde_json::json!(origin_id);
+          }
+        }
         if sender.send(Message::Text(payload.to_string().into())).await.is_err() {
           break;
         }
@@ -918,7 +931,7 @@ async fn handle_stream_connection(
               break;
             }
           }
-          StreamCommand::UpdateOptions { scope, subscription_id, stream, options } => {
+          StreamCommand::UpdateOptions { scope, subscription_id, stream, options, origin_id } => {
             if scope != StreamControlScope::Device {
               let error = stream_error_json(&subscription_id, &stream, "scope", "stream options are device-scoped");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
@@ -976,6 +989,9 @@ async fn handle_stream_connection(
                     center_frequency_hz,
                     settings,
                   );
+                  // Attribute the device tune so the OptionsApplied echo can be
+                  // recognized by its originator (see stream_event_json).
+                  *shared.last_tune_origin_id.lock().unwrap() = origin_id.clone();
                 }
               }
               Ok((_, _, false)) => {

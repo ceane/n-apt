@@ -732,31 +732,6 @@ impl Default for IqFormat {
   }
 }
 
-/// Structured signal pattern for consistent waterfall visualization
-#[derive(Debug, Clone)]
-pub struct MockAptSignal {
-  pub center_bin: f32,
-  pub drift_offset: f32,
-  pub bandwidth: usize,
-  pub base_strength: f32,
-  pub modulation_phase: f32,
-  pub active: bool,
-  /// Type of signal (for future classification features)
-  #[allow(dead_code)]
-  pub signal_type: SignalType,
-}
-
-#[derive(Debug, Clone)]
-pub enum SignalType {
-  Narrow,
-  Medium,
-  Wide,
-}
-
-impl SignalType {
-  // NOTE: Bandwidth and strength ranges are sourced from signals.yaml.
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalsConfig {
   pub signals: SignalsData,

@@ -432,11 +432,6 @@ impl RtlSdrDevice {
     3_200_000
   }
 
-  #[allow(dead_code)]
-  fn get_center_frequency(&self) -> u32 {
-    self.get_center_freq()
-  }
-
   /// Set manual gain mode and gain value in tenths of dB
   ///
   /// Pass gain in tenths of dB (e.g., 496 = 49.6 dB).

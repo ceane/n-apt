@@ -1091,7 +1091,6 @@ fn add_bandlimited_mock_tx_noise_overlay(
   }
 }
 
-#[allow(dead_code)]
 impl MockAptDevice {
   /// Fallback synchronous read method
   /// Synthesize one I/Q frame synchronously.

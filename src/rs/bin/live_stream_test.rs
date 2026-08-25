@@ -7,6 +7,9 @@ use anyhow::Result;
 use clap::{Arg, Command};
 use log::{error, info, LevelFilter};
 
+// The shared crypto module is compiled into this standalone binary too; most
+// of its API serves the server lib, so unused-in-binary warnings are expected.
+#[allow(dead_code)]
 #[path = "../crypto/mod.rs"]
 mod crypto;
 

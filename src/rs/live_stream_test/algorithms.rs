@@ -298,16 +298,6 @@ impl AlgorithmTester {
       self.results.len()
     );
   }
-
-  /// Get all results
-  pub fn get_results(&self) -> &[AlgorithmResult] {
-    &self.results
-  }
-
-  /// Clear all results
-  pub fn clear_results(&mut self) {
-    self.results.clear();
-  }
 }
 
 /// Helper function to convert bin index to frequency

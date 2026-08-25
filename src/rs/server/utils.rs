@@ -2,7 +2,6 @@ use anyhow::Result;
 use indexmap::IndexMap;
 use log::info;
 use regex::Regex;
-use serde_yaml::Value;
 use sha2::Digest;
 use std::io::Write;
 use std::sync::Arc;
@@ -174,12 +173,6 @@ pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
       }
     })
     .to_string()
-}
-
-/// Downsample spectrum data to a target length using averaging
-#[allow(dead_code)]
-fn downsample_spectrum(data: &[f32], target_len: usize) -> Vec<f32> {
-  crate::simd::downsample_spectrum_simd(data, target_len)
 }
 
 pub fn read_config_file(
@@ -664,55 +657,6 @@ pub fn signals_config_modified_at() -> Option<std::time::SystemTime> {
     .map(|cached| cached.modified)
 }
 
-#[allow(dead_code)]
-fn extract_channels_from_value(
-  value: &Value,
-) -> Option<Vec<super::types::SpectrumFrameMessage>> {
-  let channels = value
-    .get("signals")
-    .and_then(|v| v.get("channels"))
-    .and_then(|v| v.as_mapping())?;
-
-  let mut out = Vec::new();
-  for (id_value, frame_value) in channels {
-    let id = id_value.as_str()?.to_string();
-    let mapping = frame_value.as_mapping()?;
-    let label = mapping
-      .get(Value::String("label".to_string()))
-      .and_then(|v| v.as_str())
-      .unwrap_or("")
-      .to_string();
-    let description = mapping
-      .get(Value::String("description".to_string()))
-      .and_then(|v| v.as_str())
-      .unwrap_or("")
-      .to_string();
-    let freq_range = mapping
-      .get(Value::String("freq_range_hz".to_string()))
-      .and_then(|v| v.as_sequence())?;
-    if freq_range.len() < 2 {
-      continue;
-    }
-    let min_hz = freq_range[0].as_f64()?;
-    let max_hz = freq_range[1].as_f64()?;
-    if !(min_hz.is_finite() && max_hz.is_finite() && max_hz > min_hz) {
-      continue;
-    }
-    out.push(super::types::SpectrumFrameMessage {
-      id,
-      label,
-      min_hz,
-      max_hz,
-      description,
-    });
-  }
-  out.sort_by(|a, b| {
-    a.min_hz
-      .partial_cmp(&b.min_hz)
-      .unwrap_or(std::cmp::Ordering::Equal)
-  });
-  Some(out)
-}
 
 /// Reconcile `device_connected` flag with `device_state` string.
 ///
