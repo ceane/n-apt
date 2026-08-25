@@ -5,16 +5,8 @@ export interface DemodAnalysisContextValue {
   analysisSession: AnalysisSession;
 }
 
-export interface DemodCaptureCountdownValue {
-  countdown?: number;
-}
-
 export const DemodAnalysisContext = createContext<DemodAnalysisContextValue | null>(
   null,
-);
-
-const DemodCaptureCountdownContext = createContext<DemodCaptureCountdownValue>(
-  {},
 );
 
 export const useDemodAnalysis = () => {
@@ -26,8 +18,3 @@ export const useDemodAnalysis = () => {
   }
   return context;
 };
-
-export const DemodCaptureCountdownProvider = DemodCaptureCountdownContext.Provider;
-
-export const useDemodCaptureCountdown = (): DemodCaptureCountdownValue =>
-  useContext(DemodCaptureCountdownContext);

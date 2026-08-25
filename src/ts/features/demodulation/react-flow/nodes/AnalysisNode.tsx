@@ -86,8 +86,8 @@ interface AnalysisNodeProps {
     analysisOptions: boolean;
     label: string;
     result: {
-      snrDelta: string;
-      summary: string;
+      snrDelta?: string;
+      summary?: string;
     };
   };
 }
@@ -163,11 +163,13 @@ export const AnalysisNode: React.FC<AnalysisNodeProps> = ({ data }) => {
             {formatFrequency(freqRange.min)} - {formatFrequency(freqRange.max)}
           </FrequencyValue>
         </FrequencySpan>
-        <SnrRow>
-          <span style={{ opacity: 0.6 }}>SNR Delta:</span>
-          <span style={{ fontFamily: "monospace" }}>{result.snrDelta}</span>
-        </SnrRow>
-        <SummaryText>{result.summary}</SummaryText>
+        {result.snrDelta && (
+          <SnrRow>
+            <span style={{ opacity: 0.6 }}>SNR Delta:</span>
+            <span style={{ fontFamily: "monospace" }}>{result.snrDelta}</span>
+          </SnrRow>
+        )}
+        {result.summary && <SummaryText>{result.summary}</SummaryText>}
       </ContentBox>
     </AnalysisContainer>
   );

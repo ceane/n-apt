@@ -53,7 +53,6 @@ const baselineOptions: Array<{ value: AnalysisType; label: string }> = [
   { value: "internal", label: "Audio (Internal)" },
   { value: "speech", label: "Speech" },
   { value: "vision", label: "Vision" },
-  { value: "apt", label: "APT" },
 ];
 
 // Audio preview components
@@ -304,15 +303,6 @@ const CountdownContainer = styled.div`
   backdrop-filter: blur(10px);
 `;
 
-const CountdownNumber = styled.div`
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 24px;
-  font-weight: bold;
-  color: ${({ theme }) => theme.colors.danger};
-  text-align: center;
-  margin-bottom: 4px;
-`;
-
 const ProgressBar = styled.div<{ $progress: number }>`
   width: 100%;
   height: 4px;
@@ -474,33 +464,6 @@ const TitleText = styled.div`
   text-transform: uppercase;
 `;
 
-const APTPreviewContainer = styled.div`
-  position: relative;
-  text-align: center;
-  color: ${({ theme }) => theme.colors.primary};
-  font-family: ${({ theme }) => theme.typography.mono};
-`;
-
-const APTPreviewTitle = styled.div`
-  font-size: 11px;
-  opacity: 0.55;
-  margin-bottom: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-`;
-
-const APTPreviewMain = styled.div`
-  font-size: 24px;
-  letter-spacing: 0.2em;
-  font-weight: 700;
-`;
-
-const APTPreviewSub = styled.div`
-  font-size: 12px;
-  margin-top: 10px;
-  opacity: 0.75;
-`;
-
 const StimulusInput = styled.input`
   flex: 1;
   padding: 8px 10px;
@@ -535,7 +498,6 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [previewMode, setPreviewMode] =
     useState<AnalysisType>(selectedBaseline);
   const [scriptIndex, setScriptIndex] = useState(0);
-  const [countdown, setCountdown] = useState(0);
   const [progress, setProgress] = useState(0);
   const [durationS, setDurationS] = useState(5);
   const [durationError, setDurationError] = useState<string | null>(null);
@@ -614,19 +576,6 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       setDurationError(null);
     }
   };
-
-  // Countdown timer logic (internal UI sync only)
-  useEffect(() => {
-    if (isStarting) {
-      setCountdown(3);
-      const interval = setInterval(() => {
-        setCountdown((prev) => Math.max(0, prev - 1));
-      }, 1000);
-      return () => clearInterval(interval);
-    } else {
-      setCountdown(0);
-    }
-  }, [isStarting]);
 
   // Capture progress bar logic
   useEffect(() => {
@@ -801,35 +750,14 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             </VisionContainer>
           )}
 
-          {previewMode === "apt" && (
-            <APTPreviewContainer>
-              <APTPreviewTitle>Stimulus Preview</APTPreviewTitle>
-              <APTPreviewMain>
-                {isCapturing ? "RECORD" : "APT FRAME"}
-              </APTPreviewMain>
-              <APTPreviewSub>
-                {isCapturing ? "Capturing APT frame" : "APT frame capture"}
-              </APTPreviewSub>
-            </APTPreviewContainer>
-          )}
-
-          {(countdown > 0 || progress > 0) && (
+          {progress > 0 && (
             <CountdownContainer>
-              {countdown > 0 ? (
-                <>
-                  <CountdownNumber>{countdown}</CountdownNumber>
-                  <ProgressLabel>Starting…</ProgressLabel>
-                </>
-              ) : (
-                <>
-                  <ProgressBar $progress={progress}>
-                    <ProgressFill $progress={progress} />
-                  </ProgressBar>
-                  <ProgressLabel>
-                    {progress < 100 ? "Capturing..." : "Complete!"}
-                  </ProgressLabel>
-                </>
-              )}
+              <ProgressBar $progress={progress}>
+                <ProgressFill $progress={progress} />
+              </ProgressBar>
+              <ProgressLabel>
+                {progress < 100 ? "Capturing..." : "Complete!"}
+              </ProgressLabel>
             </CountdownContainer>
           )}
         </StimulusPreview>

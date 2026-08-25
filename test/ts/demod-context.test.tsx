@@ -101,8 +101,6 @@ const TestComponent = () => {
     <div data-testid="apt-test">
       <div data-testid="analysis-state">{analysisSession.state}</div>
       <div data-testid="analysis-type">{analysisSession.type || "none"}</div>
-      <div data-testid="apt-progress">{analysisSession.aptProgress || 0}</div>
-      <div data-testid="apt-stage">{analysisSession.aptStage || "none"}</div>
       <div data-testid="script-content">
         {analysisSession.scriptContent || "none"}
       </div>
@@ -120,6 +118,9 @@ describe("APT Analysis", () => {
   beforeEach(() => {
     if (jestGlobal) jestGlobal.useFakeTimers();
     else if (viGlobal) viGlobal.useFakeTimers();
+    if (mockWsConnection.sendCaptureCommand.mock) {
+      mockWsConnection.sendCaptureCommand.mockClear();
+    }
   });
 
   afterEach(() => {
@@ -133,7 +134,7 @@ describe("APT Analysis", () => {
     });
   };
 
-  it("should initialize APT analysis with correct parameters", async () => {
+  it("should request a real reference capture immediately", async () => {
     render(
       <Provider store={mockStore}>
         <DemodProvider>
@@ -144,15 +145,19 @@ describe("APT Analysis", () => {
 
     await flushMicrotasks();
 
-    expect(screen.getByTestId("analysis-state")).toHaveTextContent("capturing");
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent("starting");
     expect(screen.getByTestId("analysis-type")).toHaveTextContent("apt");
     expect(screen.getByTestId("script-content")).toHaveTextContent(
       "test script",
     );
     expect(screen.getByTestId("media-content")).toHaveTextContent("test media");
+    expect(mockWsConnection.sendCaptureCommand).toHaveBeenCalledTimes(1);
+    const command = mockWsConnection.sendCaptureCommand.mock.calls[0]?.[0];
+    expect(command?.jobId).toMatch(/^ref_apt_/);
+    expect(command?.encrypted).toBe(true);
   });
 
-  it("should progress through APT analysis stages", async () => {
+  it("should transition to analyzing after the requested duration", async () => {
     render(
       <Provider store={mockStore}>
         <DemodProvider>
@@ -163,34 +168,14 @@ describe("APT Analysis", () => {
 
     await flushMicrotasks();
 
-    expect(screen.getByTestId("analysis-state")).toHaveTextContent("capturing");
-
-    // Advance 3 seconds for countdown
     act(() => {
-      if (jestGlobal) jestGlobal.advanceTimersByTime(3000);
-      else if (viGlobal) viGlobal.advanceTimersByTime(3000);
+      if (jestGlobal) jestGlobal.advanceTimersByTime(5500);
+      else if (viGlobal) viGlobal.advanceTimersByTime(5500);
     });
 
-    // Advance 500ms for first tick of progress
-    act(() => {
-      if (jestGlobal) jestGlobal.advanceTimersByTime(500);
-      else if (viGlobal) viGlobal.advanceTimersByTime(500);
-    });
-
-    expect(screen.getByTestId("apt-progress")).toHaveTextContent("0.2");
-    expect(screen.getByTestId("apt-stage")).toHaveTextContent(
-      "subcarrier_isolation",
+    expect(screen.getByTestId("analysis-state")).toHaveTextContent(
+      "analyzing",
     );
-
-    // Advance 2000ms for remaining ticks to complete
-    act(() => {
-      if (jestGlobal) jestGlobal.advanceTimersByTime(2000);
-      else if (viGlobal) viGlobal.advanceTimersByTime(2000);
-    });
-
-    expect(screen.getByTestId("analysis-state")).toHaveTextContent("result");
-    expect(screen.getByTestId("apt-progress")).toHaveTextContent("1");
-    expect(screen.getByTestId("apt-stage")).toHaveTextContent("completed");
   });
 
   it("should clear analysis when requested", async () => {
@@ -203,14 +188,6 @@ describe("APT Analysis", () => {
     );
 
     await flushMicrotasks();
-
-    // Advance to completed state
-    act(() => {
-      if (jestGlobal) jestGlobal.advanceTimersByTime(5500);
-      else if (viGlobal) viGlobal.advanceTimersByTime(5500);
-    });
-
-    expect(screen.getByTestId("analysis-state")).toHaveTextContent("result");
 
     act(() => {
       screen.getByTestId("clear-btn").click();

@@ -50,7 +50,6 @@ import {
 import {
   AnalysisSession,
   AnalysisType,
-  CaptureResult,
 } from "@n-apt/consts/types";
 import { NaptSpikeDetectionResult } from "@n-apt/demodulation/utils/naptSpikeDetection";
 import {
@@ -59,9 +58,7 @@ import {
 } from "@n-apt/demodulation/context/DemodFlowContext";
 import {
   DemodAnalysisContext,
-  DemodCaptureCountdownProvider,
   type DemodAnalysisContextValue,
-  type DemodCaptureCountdownValue,
 } from "@n-apt/demodulation/context/DemodAnalysisContext";
 import {
   DemodAudioContext,
@@ -179,9 +176,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({
     state: "idle",
   });
-  const [captureCountdown, setCaptureCountdown] = useState<
-    number | undefined
-  >(undefined);
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
   const [selectedAlgorithm, setSelectedAlgorithm] =
@@ -578,28 +572,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     // or adding an observer pattern.
   }, []);
 
-  // Handle APT analysis results from WebSocket events
-  React.useEffect(() => {
-    const handleAptResult = (event: CustomEvent) => {
-      const result = event.detail;
-      if (result.type === "apt_analysis_result") {
-        setAnalysisSession((prev) => ({
-          ...prev,
-          aptProgress: result.progress,
-          aptStage: result.stage,
-        }));
-      }
-    };
-
-    window.addEventListener("apt_result", handleAptResult as EventListener);
-    return () =>
-      window.removeEventListener(
-        "apt_result",
-        handleAptResult as EventListener,
-      );
-  }, []);
-
-  // Listen for capture status changes from Redux
   // Listen for capture status changes from Redux
   const captureStatus = useAppSelector(
     (state) => state.websocket.captureStatus,
@@ -648,9 +620,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             duration: finalDuration,
             sampleRateHz: prev.sampleRateHz,
             centerFrequencyHz: prev.centerFrequencyHz,
-            confidence: 0.85 + Math.random() * 0.1,
-            matchRate: 0.92 + Math.random() * 0.05,
-            snrDelta: (Math.random() * 10).toFixed(2) + " dB",
             summary:
               captureStatus.message ||
               `Capture ${captureStatus.jobId} completed successfully.`,
@@ -719,19 +688,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const [liveMode, setLiveMode] = useState(false);
 
-  const countdownIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
-  const progressIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const progressTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const clearAnalysis = useCallback(() => {
-    if (countdownIntervalRef.current)
-      clearInterval(countdownIntervalRef.current);
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current);
-      clearTimeout(progressIntervalRef.current);
+    if (progressTimerRef.current) {
+      clearTimeout(progressTimerRef.current);
     }
-    countdownIntervalRef.current = null;
-    progressIntervalRef.current = null;
-    setCaptureCountdown(undefined);
+    progressTimerRef.current = null;
     setAnalysisSession({ state: "idle" });
   }, []);
 
@@ -772,11 +735,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
       clearAnalysis();
 
-      // Start with a countdown
-      let count = 3;
-      setCaptureCountdown(count);
       setAnalysisSession({
-        state: type === "apt" ? "capturing" : "starting",
+        state: "starting",
         type,
         durationS,
         sampleRateHz: state.sampleRateHz,
@@ -785,116 +745,45 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         scriptContent,
         mediaContent,
         baselineVector: resolvedBaselineVector,
-        aptProgress: 0.0,
-        aptStage: "initializing",
       });
 
-      countdownIntervalRef.current = setInterval(() => {
-        count -= 1;
-        if (count > 0) {
-          setCaptureCountdown(count);
-        } else {
-          if (countdownIntervalRef.current)
-            clearInterval(countdownIntervalRef.current);
-          setCaptureCountdown(undefined);
+      // Capture flow: request a real encrypted reference capture from the
+      // backend; completion arrives via the websocket captureStatus stream.
+      const jobId = `ref_${type}_${Date.now()}`;
+      const fragments = [
+        {
+          minFreq: referenceCaptureRange.min,
+          maxFreq: referenceCaptureRange.max,
+        },
+      ];
 
-          if (type === "apt") {
-            // Send APT analysis command via WebSocket
-            const jobId = `apt_${Date.now()}`;
-            // This would be handled by a new WebSocket message type
-            // For now, we'll simulate the APT analysis flow
-            setAnalysisSession((prev) => ({
-              ...prev,
-              state: "analyzing",
-            }));
+      sendCaptureCommand({
+        jobId,
+        fragments, // current range
+        durationMode: durationS ? "timed" : "manual",
+        durationS: durationS,
+        fileType: ".napt",
+        acquisitionMode: "whole_sample",
+        encrypted: true,
+        fftSize: 32768,
+        fftWindow: "Hann",
+        refBasedDemodBaseline:
+          type === "audio"
+            ? "audio_hearing"
+            : ((type === "internal" ? "audio_internal" : type) as any),
+        liveMode: isLive,
+      });
 
-            // Simulate APT analysis progress
-            let progress = 0.0;
-            const stages = [
-              "fm_demodulation",
-              "subcarrier_isolation",
-              "envelope_detection",
-              "baseband_recovery",
-              "content_analysis",
-            ];
-            let currentStageIndex = 0;
-
-            progressIntervalRef.current = setInterval(() => {
-              progress += 0.2;
-              currentStageIndex = Math.min(
-                Math.floor(progress / 0.2),
-                stages.length - 1,
-              );
-
-              setAnalysisSession((prev) => ({
-                ...prev,
-                aptProgress: Math.min(progress, 1.0),
-                aptStage: stages[currentStageIndex],
-              }));
-
-              if (progress >= 1.0) {
-                if (progressIntervalRef.current)
-                  clearInterval(progressIntervalRef.current);
-                setAnalysisSession((prev) => ({
-                  ...prev,
-                  state: "result",
-                  aptProgress: 1.0,
-                  aptStage: "completed",
-                  result: {
-                    jobId,
-                    isEphemeral: false,
-                    confidence: 0.85 + Math.random() * 0.1,
-                    matchRate: 0.92 + Math.random() * 0.05,
-                    snrDelta: (Math.random() * 10).toFixed(2) + " dB",
-                    duration: prev.startTime
-                      ? Date.now() - prev.startTime
-                      : undefined,
-                    summary: `APT analysis for ${type} baseline completed. Pattern analysis detected multiple signal characteristics.`,
-                  } as CaptureResult,
-                }));
-              }
-            }, 500);
-          } else {
-            // Original capture flow for non-APT types
-            const jobId = `ref_${type}_${Date.now()}`;
-            // Calculate fragments from current range
-            const fragments = [
-              {
-                minFreq: referenceCaptureRange.min,
-                maxFreq: referenceCaptureRange.max,
-              },
-            ];
-
-            sendCaptureCommand({
-              jobId,
-              fragments, // current range
-              durationMode: durationS ? "timed" : "manual",
-              durationS: durationS,
-              fileType: ".napt",
-              acquisitionMode: "whole_sample",
-              encrypted: true,
-              fftSize: 32768,
-              fftWindow: "Hann",
-              refBasedDemodBaseline:
-                type === "audio"
-                  ? "audio_hearing"
-                  : ((type === "internal" ? "audio_internal" : type) as any),
-              liveMode: isLive,
-            });
-
-            // Transition to analyzing after 5 seconds of capture
-            progressIntervalRef.current = setTimeout(
-              () => {
-                setAnalysisSession((prev) => ({
-                  ...prev,
-                  state: "analyzing",
-                }));
-              },
-              durationS * 1000 + 500,
-            ); // Dynamic capture duration + 0.5s margin
-          }
-        }
-      }, 1000);
+      // Transition to analyzing after the requested capture duration
+      progressTimerRef.current = setTimeout(
+        () => {
+          setAnalysisSession((prev) => ({
+            ...prev,
+            state: "analyzing",
+          }));
+        },
+        durationS * 1000 + 500,
+      ); // Dynamic capture duration + 0.5s margin
     },
     [
       clearAnalysis,
@@ -1004,11 +893,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     [analysisSession],
   );
 
-  const countdownValue = useMemo<DemodCaptureCountdownValue>(
-    () => ({ countdown: captureCountdown }),
-    [captureCountdown],
-  );
-
   const audioValue = useMemo<DemodAudioContextValue>(
     () => ({ audioPlayback }),
     [audioPlayback],
@@ -1017,13 +901,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   return (
     <DemodContext.Provider value={value}>
       <DemodAnalysisContext.Provider value={analysisValue}>
-        <DemodCaptureCountdownProvider value={countdownValue}>
-          <DemodAudioContext.Provider value={audioValue}>
-            <DemodFlowContext.Provider value={flowValue}>
-              {children}
-            </DemodFlowContext.Provider>
-          </DemodAudioContext.Provider>
-        </DemodCaptureCountdownProvider>
+        <DemodAudioContext.Provider value={audioValue}>
+          <DemodFlowContext.Provider value={flowValue}>
+            {children}
+          </DemodFlowContext.Provider>
+        </DemodAudioContext.Provider>
       </DemodAnalysisContext.Provider>
     </DemodContext.Provider>
   );

@@ -15,9 +15,6 @@ export interface CaptureResult {
   duration?: number; // milliseconds
   sampleRateHz?: number;
   centerFrequencyHz?: number;
-  confidence: number;
-  matchRate: number;
-  snrDelta: string;
   summary: string;
 }
 
@@ -32,8 +29,6 @@ export interface AnalysisSession {
   scriptContent?: string; // Content of the script for analysis
   mediaContent?: string; // Base64 encoded media content (e.g., image, video frame)
   baselineVector?: number[]; // Vector representation of the baseline media/script
-  aptProgress?: number; // APT analysis progress (0.0 to 1.0)
-  aptStage?: string; // Current APT processing stage
 }
 
 export type AnalysisType = "audio" | "internal" | "speech" | "vision" | "apt";
