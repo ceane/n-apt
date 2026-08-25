@@ -155,7 +155,8 @@ interface NearestEndpoint {
 
 export const EndpointsListAndSearch: React.FC = () => {
   const { sessionToken } = useAuthentication();
-  const { activeLocationId, locations } = useMapLocations();
+  const { activeLocationId, locations, setPreviewLocation } =
+    useMapLocations();
   const [nearestEndpoints, setNearestEndpoints] = useState<NearestEndpoint[]>(
     [],
   );
@@ -257,9 +258,18 @@ export const EndpointsListAndSearch: React.FC = () => {
     return R * c;
   };
 
-  const handleEndpointClick = (_endpoint: NearestEndpoint) => {
-    // Map centering on endpoint click is not wired into the map
-    // location management yet.
+  const handleEndpointClick = (endpoint: NearestEndpoint) => {
+    // Preview (not save) the endpoint as a map location: the map page
+    // re-centers on previewLocation and renders its marker without
+    // persisting it to the saved-locations list.
+    setPreviewLocation({
+      id: "preview",
+      name: `${endpoint.tower.radio} Tower ${endpoint.tower.mcc}-${endpoint.tower.mnc}`,
+      lat: endpoint.tower.lat,
+      lng: endpoint.tower.lon,
+      zoom: 16,
+      color: "#f59e0b",
+    });
   };
 
   const getCarrierName = (mcc: string, mnc: string): string => {
