@@ -2045,12 +2045,27 @@ const cleanupSocket = () => {
   }
 
   if (wsInstance.ws) {
-    wsInstance.ws.onclose = null;
-    wsInstance.ws.onerror = null;
-    wsInstance.ws.onmessage = null;
-    wsInstance.ws.onopen = null;
-    wsInstance.ws.close();
+    const socket = wsInstance.ws;
     wsInstance.ws = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.onmessage = null;
+    socket.onopen = null;
+    if (socket.readyState === WebSocket.CONNECTING) {
+      // A connecting handshake cannot be aborted; calling close() here makes
+      // the browser log "WebSocket is closed before the connection is
+      // established". Defer teardown until the socket settles instead. All
+      // handlers are detached above, so the pending open stays inert.
+      socket.addEventListener(
+        "open",
+        () => {
+          socket.close();
+        },
+        { once: true },
+      );
+    } else {
+      socket.close();
+    }
   }
   resetManagedStreamPipeline(false);
 
