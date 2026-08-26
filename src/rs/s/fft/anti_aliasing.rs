@@ -90,7 +90,7 @@ pub fn match_noise_floor_db_with_limit(
 
   #[cfg(target_arch = "wasm32")]
   {
-    let delta_vec = unsafe { f32x4_splat(delta) };
+    let delta_vec = f32x4_splat(delta);
     let (prefix, middle, suffix) = unsafe { target.align_to_mut::<v128>() };
 
     for x in prefix {
@@ -100,12 +100,10 @@ pub fn match_noise_floor_db_with_limit(
     }
 
     for x in middle {
-      unsafe {
-        let val = *x;
-        // Optimization: only add if we have any finite values to avoid unnecessary work
-        // though f32x4_add is fast anyway.
-        *x = f32x4_add(val, delta_vec);
-      }
+      let val = *x;
+      // Optimization: only add if we have any finite values to avoid unnecessary work
+      // though f32x4_add is fast anyway.
+      *x = f32x4_add(val, delta_vec);
     }
 
     for x in suffix {
@@ -203,21 +201,6 @@ pub struct WasmWholeChannelStitchOptions {
 #[cfg(target_arch = "wasm32")]
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
   a + (b - a) * t
-}
-
-#[cfg(target_arch = "wasm32")]
-fn sample_linear(data: &[f32], x: f32) -> f32 {
-  let len = data.len();
-  if len == 0 {
-    return 0.0;
-  }
-  if len == 1 {
-    return data[0];
-  }
-  let idx = x.max(0.0).min(len as f32 - 1.0001);
-  let i = idx.floor() as usize;
-  let t = idx - i as f32;
-  lerp(data[i], data[i + 1], t)
 }
 
 #[cfg(target_arch = "wasm32")]

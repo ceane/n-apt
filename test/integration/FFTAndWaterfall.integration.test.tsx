@@ -69,23 +69,9 @@ jest.mock("@n-apt/spectrum/hooks/useAsyncShaderCache", () => ({
   }),
 }));
 
-jest.mock("@n-apt/spectrum/hooks/useUnifiedFFTWaterfall", () => ({
-  useUnifiedFFTWaterfall: () => ({
-    process: jest.fn(),
-    cleanup: jest.fn(),
-  }),
-}));
-
 jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall", () => ({
   useDrawWebGPUFIFOWaterfall: () => ({
     draw: jest.fn(),
-    cleanup: jest.fn(),
-  }),
-}));
-
-jest.mock("@n-apt/spectrum/hooks/useWaterfallRetuneCompute", () => ({
-  useWaterfallRetuneCompute: () => ({
-    render: jest.fn(),
     cleanup: jest.fn(),
   }),
 }));
