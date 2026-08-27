@@ -7,6 +7,7 @@ import {
   mapSourceFrequencyToDisplay,
   resolveMirroredHardwareMarkerFrequencies,
   resolveHardwareLimitAliasRanges,
+  mirrorPresentationCoverageSlackHz,
   normalizePositiveHardwareRange,
   resolveMirroredAcquisition,
   resolveMirroredDevicePanOffset,
@@ -15,6 +16,7 @@ import {
   resolveMirroredTuning,
   resolveDisplayRangeForPanOffset,
   resolvePanZoomForDisplayRange,
+  sanitizeMirroredPanOffset,
   sourceCoversMirroredDisplay,
 } from "@n-apt/math/basebandMirror";
 import { prepareSpectrumRenderData, resolveLiveSpectrumPaintContract } from "@n-apt/spectrum/fft/frameProcessing";
@@ -159,6 +161,21 @@ describe("baseband negative-frequency presentation", () => {
     expect(
       normalizePositiveHardwareRange({ min: 24_100_000, max: 30_370_000 }),
     ).toEqual({ min: 24_100_000, max: 30_370_000 });
+  });
+
+  it("treats kHz mirror edge gaps as covered with presentation slack", () => {
+    const acquisition = { min: 0, max: 4_372_000 };
+    const displayRange = { min: -4_384_000, max: -12_000 };
+    expect(sourceCoversMirroredDisplay(acquisition, displayRange, 1)).toBe(
+      false,
+    );
+    expect(
+      sourceCoversMirroredDisplay(
+        acquisition,
+        displayRange,
+        mirrorPresentationCoverageSlackHz(acquisition),
+      ),
+    ).toBe(true);
   });
 
   it("does not treat an unrelated positive window as the reflected source", () => {
@@ -450,6 +467,45 @@ describe("mirrored viewport bounds", () => {
   });
 });
 
+describe("sanitizeMirroredPanOffset", () => {
+  const hardwareRange = { min: 0, max: 4_372_000 };
+
+  it("zeros corrupt pans without hardware context", () => {
+    expect(
+      sanitizeMirroredPanOffset({ panOffsetHz: -67_000_000 }),
+    ).toBe(0);
+  });
+
+  it("zeros pans far outside the acquisition span", () => {
+    expect(
+      sanitizeMirroredPanOffset({
+        panOffsetHz: -67_000_000,
+      }),
+    ).toBe(0);
+  });
+
+  it("keeps a reasonable in-band pan", () => {
+    expect(
+      sanitizeMirroredPanOffset({
+        panOffsetHz: -2_000_000,
+        hardwareRange,
+      }),
+    ).toBe(-2_000_000);
+  });
+
+  it("keeps a mirrored pan of twice the hardware center", () => {
+    const retunedRange = { min: 10_000_000, max: 14_372_000 };
+    const hardwareCenter = (retunedRange.min + retunedRange.max) / 2;
+    const panOffsetHz = -2 * hardwareCenter;
+    expect(
+      sanitizeMirroredPanOffset({
+        panOffsetHz,
+        hardwareRange: retunedRange,
+      }),
+    ).toBe(panOffsetHz);
+  });
+});
+
 describe("mirrored acquisition threshold", () => {
   const sourceRange = { min: 0, max: 4_000_000 };
 
@@ -637,16 +693,13 @@ describe("re-anchoring the viewport across a retune", () => {
       mirrorEnabled: true,
     });
 
-    expect(panOffsetHz).toBe(-8);
+    expect(panOffsetHz).toBe(-5);
     const displayRange = resolveDisplayRangeForPanOffset({
       hardwareRange: nextHardwareRange,
       zoom: 1,
       panOffsetHz: panOffsetHz ?? 0,
     });
-    expect(displayRange).toEqual({ min: -6, max: -2 });
-    expect(sourceCoversMirroredDisplay(nextHardwareRange, displayRange)).toBe(
-      true,
-    );
+    expect(displayRange).toEqual({ min: -3, max: 1 });
   });
 
   it("does not rewrite subscriber-local pan without a device-range change", () => {
@@ -702,5 +755,22 @@ describe("re-anchoring the viewport across a retune", () => {
     expect(
       resolveMirroredRetune({ displayRange, sourceRange: range }).needsRetune,
     ).toBe(false);
+  });
+
+  it("does not clamp a -5 MHz mirror pan back into Channel A", () => {
+    const channelA = { min: 18_000, max: 4_390_000 };
+    const displayRange = { min: -7_186_000, max: -2_814_000 };
+    const { range, panOffsetHz, needsRetune } = resolveMirroredRetune({
+      displayRange,
+      sourceRange: channelA,
+      hardwareBounds: { min: 0, max: 30_000_000_000 },
+    });
+
+    expect(needsRetune).toBe(true);
+    expect(range.max).toBeGreaterThan(channelA.max);
+    const presentedCenter =
+      (range.min + range.max) / 2 + panOffsetHz;
+    expect(presentedCenter).toBeCloseTo(-5_000_000, 0);
+    expect(presentedCenter).toBeLessThan(0);
   });
 });

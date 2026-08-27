@@ -4,6 +4,8 @@ import spectrumReducer, {
   setSdrSettingsBundle,
   setMaxVizZoom,
   mergeLastKnownRanges,
+  setFrequencyRange,
+  setVizPan,
 } from "@n-apt/redux/slices/spectrumSlice";
 
 describe("Spectrum Slice TX intent", () => {
@@ -88,6 +90,29 @@ describe("Spectrum Slice TX intent", () => {
     );
     expect(state.txPowerDbm).toBe(initialPower);
     expect(state.txCenterFrequencyHz).toBe(initialCenter);
+  });
+});
+
+describe("Spectrum Slice mirror pan", () => {
+  it("does not zero a DC-crossing pan when Redux publishes the gesture", () => {
+    let state = spectrumReducer(undefined, { type: "@@INIT" });
+    state = spectrumReducer(
+      state,
+      setFrequencyRange({ min: 0, max: 4_372_000 }),
+    );
+    state = spectrumReducer(state, setVizPan(-2_186_000));
+    expect(state.vizPanOffset).toBe(-2_186_000);
+  });
+
+  it("does not zero a mirrored pan of twice the hardware center", () => {
+    let state = spectrumReducer(undefined, { type: "@@INIT" });
+    state = spectrumReducer(
+      state,
+      setFrequencyRange({ min: 10_000_000, max: 14_372_000 }),
+    );
+    const pan = -24_372_000;
+    state = spectrumReducer(state, setVizPan(pan));
+    expect(state.vizPanOffset).toBe(pan);
   });
 });
 

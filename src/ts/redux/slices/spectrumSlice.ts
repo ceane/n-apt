@@ -7,6 +7,7 @@ import {
   VISUALIZER_MAX_ZOOM_LIMITS,
   getVisualizerDefaultDbLimits,
 } from "@n-apt/consts/visualizerControls";
+import { sanitizeMirroredPanOffset } from "@n-apt/math/basebandMirror";
 
 const DEFAULT_DB_LIMITS = getVisualizerDefaultDbLimits("dB");
 
@@ -73,6 +74,8 @@ export interface SpectrumState {
   // Signal area and frequency
   activeSignalArea: string;
   frequencyRange: FrequencyRange | null;
+  /** True while an opt-in progressive tune owns the range preview. */
+  tuningPreviewActive: boolean;
   lastKnownRanges: Record<string, { min: number; max: number }>;
   /** Monotonic marker for device-scoped range hydrations from other subscribers. */
   deviceFrequencyRangeRevision: number;
@@ -253,6 +256,7 @@ function sanitizeSettingsBundle(
 const initialState: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
+  tuningPreviewActive: false,
   lastKnownRanges: {},
   deviceFrequencyRangeRevision: 0,
 
@@ -369,6 +373,10 @@ const spectrumSlice = createSlice({
       }
     },
 
+    setTuningPreviewActive: (state, action: PayloadAction<boolean>) => {
+      state.tuningPreviewActive = action.payload;
+    },
+
     setSignalAreaAndRange: (
       state,
       action: PayloadAction<{ area: string; range: FrequencyRange }>,
@@ -386,11 +394,24 @@ const spectrumSlice = createSlice({
 
     setDeviceSignalAreaAndRange: (
       state,
-      action: PayloadAction<{ area: string; range: FrequencyRange }>,
+      action: PayloadAction<{
+        area: string;
+        range: FrequencyRange;
+        vizPanOffset?: number;
+      }>,
     ) => {
       state.activeSignalArea = action.payload.area;
       state.frequencyRange = action.payload.range;
-      state.vizPanOffset = 0;
+      if (
+        typeof action.payload.vizPanOffset === "number" &&
+        Number.isFinite(action.payload.vizPanOffset)
+      ) {
+        state.vizPanOffset = sanitizeMirroredPanOffset({
+          panOffsetHz: action.payload.vizPanOffset,
+          hardwareRange: action.payload.range,
+          zoom: state.vizZoom ?? 1,
+        });
+      }
       if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
         state.lastKnownRanges = {};
       }
@@ -447,6 +468,7 @@ const spectrumSlice = createSlice({
       action: PayloadAction<{
         channels: Array<{ label: string; min: number; max: number }>;
         selectedLabels?: string[];
+        frequencyRange?: FrequencyRange;
       }>,
     ) => {
       const { channels, selectedLabels } = action.payload;
@@ -463,12 +485,16 @@ const spectrumSlice = createSlice({
       );
 
       state.activeSignalArea = primaryLabel;
-      state.frequencyRange = { min: primaryMin, max: primaryMax };
+      const initialRange = action.payload.frequencyRange ?? {
+        min: primaryMin,
+        max: primaryMax,
+      };
+      state.frequencyRange = initialRange;
       state.vizPanOffset = 0;
       if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
         state.lastKnownRanges = {};
       }
-      state.lastKnownRanges[primaryLabel] = { min: primaryMin, max: primaryMax };
+      state.lastKnownRanges[primaryLabel] = initialRange;
 
       state.txCenterFrequencyHz = primaryCenter;
       state.txSampleRateHz = primaryBw;
@@ -543,7 +569,18 @@ const spectrumSlice = createSlice({
 
     setVizPan: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload)) return;
-      state.vizPanOffset = action.payload;
+      state.vizPanOffset =
+        state.frequencyRange &&
+        Number.isFinite(state.frequencyRange.min) &&
+        Number.isFinite(state.frequencyRange.max)
+          ? sanitizeMirroredPanOffset({
+              panOffsetHz: action.payload,
+              hardwareRange: state.frequencyRange,
+              zoom: state.vizZoom ?? 1,
+            })
+          : Math.abs(action.payload) > 50_000_000
+            ? 0
+            : action.payload;
     },
 
     setDisplayMode: (state, action: PayloadAction<"fft" | "iq">) => {
@@ -964,6 +1001,7 @@ const spectrumSlice = createSlice({
 export const {
   setActiveSignalArea,
   setFrequencyRange,
+  setTuningPreviewActive,
   setSignalAreaAndRange,
   setDeviceSignalAreaAndRange,
   setTxHopPreviewState,

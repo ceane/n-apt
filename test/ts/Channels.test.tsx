@@ -10,6 +10,8 @@ import { createTestStore } from "./testUtils";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { websocketActions } from "@n-apt/redux";
+import { setVizPan } from "@n-apt/redux/slices/spectrumSlice";
+import { setMirrorIqBasebandBelowZero } from "@n-apt/redux/slices/settingsSlice";
 
 jest.mock("@n-apt/spectrum/sidebar/FrequencyRangeSlider", () => ({
   __esModule: true,
@@ -199,6 +201,91 @@ describe("Channels", () => {
     expect(screen.getByRole("button", { name: "B" })).toHaveAttribute(
       "data-is-active",
       "true",
+    );
+  });
+
+  it("does not force stale Channel A active merely because mirror pan is nonzero", () => {
+    const store = createTestStore();
+    store.dispatch(setMirrorIqBasebandBelowZero(true));
+    store.dispatch(setVizPan(-1_000_000));
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 8_000_000, max: 12_000_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 4_000_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
+      "data-is-active",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-is-active",
+      "true",
+    );
+  });
+
+  it("keeps Channel A active while hardware is still in A and mirror pan is below DC", () => {
+    const store = createTestStore();
+    store.dispatch(setMirrorIqBasebandBelowZero(true));
+    store.dispatch(setVizPan(-7_000_000));
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 18_000, max: 4_390_000 },
+                  vizPanOffset: -7_000_000,
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 4_372_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
+      "data-is-active",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-is-active",
+      "false",
     );
   });
 

@@ -327,6 +327,7 @@ export const Channels: React.FC<ChannelsProps> = ({
   const reduxActiveSignalArea = useAppSelector(
     (s) => s.spectrum.activeSignalArea,
   );
+  const reduxVizPanOffset = useAppSelector((s) => s.spectrum.vizPanOffset);
   const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
   const {
     state,
@@ -429,12 +430,22 @@ export const Channels: React.FC<ChannelsProps> = ({
   const currentCenterFrequencyHz = calculateCenterFrequency(
     currentFrequencyRange,
   );
+  const currentVizPanOffset =
+    typeof state.vizPanOffset === "number" &&
+    Number.isFinite(state.vizPanOffset)
+      ? state.vizPanOffset
+      : reduxVizPanOffset;
+  const displayedCenterFrequencyHz =
+    typeof currentCenterFrequencyHz === "number" &&
+    Number.isFinite(currentCenterFrequencyHz)
+      ? currentCenterFrequencyHz + currentVizPanOffset
+      : null;
   const channelRanges = useMemo(
     () => channels.map((ch) => ({ min: ch.min_hz, max: ch.max_hz })),
     [channels],
   );
   const channelForCurrentCenter = findRangeContainingFrequency(
-    currentCenterFrequencyHz ?? Number.NaN,
+    displayedCenterFrequencyHz ?? Number.NaN,
     channelRanges,
   );
 
@@ -452,9 +463,9 @@ export const Channels: React.FC<ChannelsProps> = ({
     );
     const center = currentCenterFrequencyHz;
     if (typeof center === "number" && Number.isFinite(center)) {
-      // The VFO range is authoritative while scrolling. The stored active
-      // label can lag behind it by a render (or remain stale after a free
-      // scroll), so derive the active channel directly from the center.
+      // Highlight follows the hardware VFO, not the signed display pan.
+      // Adding pan here made Channel A drop out around -5 MHz (just past
+      // −A.max) and remount the slider on the positive |f| image.
       const matchingChannel = channels.find(
         (channel) => center >= channel.min_hz && center <= channel.max_hz,
       );
@@ -521,19 +532,19 @@ export const Channels: React.FC<ChannelsProps> = ({
   const formattedDataBandwidth = formatDataRate(bandwidthMBps * 1_000_000);
   const formattedSignalBandwidth = (widthHz / 1_000_000).toFixed(2);
   const shouldShowOtherChannel =
-    typeof currentCenterFrequencyHz === "number" &&
-    Number.isFinite(currentCenterFrequencyHz) &&
+    typeof displayedCenterFrequencyHz === "number" &&
+    Number.isFinite(displayedCenterFrequencyHz) &&
     !channelForCurrentCenter;
   const otherChannelFrequencyLabel =
-    typeof currentCenterFrequencyHz === "number" &&
-    Number.isFinite(currentCenterFrequencyHz)
-      ? formatFrequency(currentCenterFrequencyHz)
+    typeof displayedCenterFrequencyHz === "number" &&
+    Number.isFinite(displayedCenterFrequencyHz)
+      ? formatFrequency(displayedCenterFrequencyHz)
       : "X.X MHz";
   const otherChannelRangeLabel =
     currentFrequencyRange &&
     Number.isFinite(currentFrequencyRange.min) &&
     Number.isFinite(currentFrequencyRange.max)
-      ? `${formatFrequency(currentFrequencyRange.min)} - ${formatFrequency(currentFrequencyRange.max)}`
+      ? `${formatFrequency(currentFrequencyRange.min + currentVizPanOffset)} - ${formatFrequency(currentFrequencyRange.max + currentVizPanOffset)}`
       : "Outside known channel ranges";
 
   if (variant === "spectrum") {
@@ -628,6 +639,9 @@ export const Channels: React.FC<ChannelsProps> = ({
                       undefined,
                       clampedRange,
                       isWholeChannelMode ? channelSpan : undefined,
+                      fileMode
+                        ? undefined
+                        : { durationMs: 500, inertia: "ease-out" },
                     );
                   }}
                 />
@@ -706,7 +720,9 @@ export const Channels: React.FC<ChannelsProps> = ({
         min: frame.min_hz,
         max: frame.max_hz,
       },
-    ]);
+    ], undefined, undefined, undefined, fileMode
+      ? undefined
+      : { durationMs: 500, inertia: "ease-out" });
     setIsManualMode(false);
   };
 

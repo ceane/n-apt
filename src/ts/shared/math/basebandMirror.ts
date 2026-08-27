@@ -183,6 +183,15 @@ export const sourceCoversMirroredDisplay = (
   );
 };
 
+/** Slack for mirror presentation coverage — avoids retune storms from kHz edge gaps. */
+export const mirrorPresentationCoverageSlackHz = (
+  sourceRange: BasebandFrequencyRange,
+): number => {
+  const span = sourceRange.max - sourceRange.min;
+  if (!Number.isFinite(span) || span <= 0) return 1;
+  return Math.max(1, Math.min(span * 0.01, 50_000));
+};
+
 /**
  * The mirror setting is only active when the viewport actually reaches below
  * 0 Hz. Panning entirely in the positive half must stay on the normal
@@ -256,14 +265,12 @@ export const resolveMirroredDevicePanOffset = ({
     zoom: previousZoom,
     panOffsetHz: previousPanOffsetHz,
   });
+  const previousDisplayCenter =
+    (previousDisplayRange.min + previousDisplayRange.max) / 2;
   const nextHardwareCenter =
     (nextHardwareRange.min + nextHardwareRange.max) / 2;
-  const nextDisplayCenter =
-    previousDisplayRange.min < -toleranceHz
-      ? -nextHardwareCenter
-      : nextHardwareCenter;
 
-  return nextDisplayCenter - nextHardwareCenter;
+  return previousDisplayCenter - nextHardwareCenter;
 };
 
 /**
@@ -481,6 +488,40 @@ export const clampMirroredPanOffset = ({
   // A viewport wider than the tuning range can only be centred on DC.
   if (minPan > maxPan) return -hardwareCenter;
   return Math.min(maxPan, Math.max(minPan, panOffsetHz));
+};
+
+/** Reject corrupt persisted or synced pans before they reach Redux. */
+export const sanitizeMirroredPanOffset = ({
+  panOffsetHz,
+  hardwareRange,
+  zoom = 1,
+  tuningBounds,
+}: {
+  panOffsetHz: number;
+  hardwareRange?: BasebandFrequencyRange | null;
+  zoom?: number;
+  tuningBounds?: BasebandFrequencyRange | null;
+}): number => {
+  if (!Number.isFinite(panOffsetHz)) return 0;
+  if (!hardwareRange || !isUsableRange(hardwareRange)) {
+    return Math.abs(panOffsetHz) > 50_000_000 ? 0 : panOffsetHz;
+  }
+  const span = hardwareRange.max - hardwareRange.min;
+  if (!(span > 0)) {
+    return 0;
+  }
+  // A mirrored viewport's pan is displayCenter − hardwareCenter. After the
+  // first retune past Channel A that is about 2×hardwareCenter, which is
+  // routinely larger than 4×span. Zeroing it snapped -5 MHz back to +|f|.
+  if (tuningBounds && isUsableRange(tuningBounds)) {
+    return clampMirroredPanOffset({
+      panOffsetHz,
+      hardwareRange,
+      tuningBounds,
+      zoom,
+    });
+  }
+  return panOffsetHz;
 };
 
 export interface MirroredAcquisitionRequest {

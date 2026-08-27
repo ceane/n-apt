@@ -4,9 +4,8 @@ import {
   ensureTemporalFrameSlot,
 } from "@n-apt/math/temporalResolution";
 import {
-  displayRangeNeedsBasebandMirror,
   extendSpectrumBelowZero,
-  getPositiveSourceRangeForDisplayRange,
+  mirrorPresentationCoverageSlackHz,
   resolvePanZoomForDisplayRange,
   sourceCoversMirroredDisplay,
 } from "@n-apt/math/basebandMirror";
@@ -79,9 +78,9 @@ export function shouldPresentSpectrumFrameForRange({
 }
 
 /**
- * A live IQ frame owns the spectrum's frequency axis. Do not replace the
- * requested window with an older frame while a hardware retune is in flight;
- * keep the last complete paint until the new center/span arrives.
+ * A live IQ frame owns the spectrum's frequency axis. Do not let an older
+ * frame take ownership of the requested window while a hardware retune is in
+ * flight; each frame is painted on the axis it reports.
  */
 export const shouldAdoptLiveFrameRange = ({
   frameCenterHz,
@@ -101,95 +100,6 @@ export const shouldAdoptLiveFrameRange = ({
     requiresExactRange: true,
     isTxPreviewFrame,
   });
-
-/**
- * Keep the last FFT on screen while a same-span VFO retune is in flight.
- * The GPU can slide that acquisition into the new viewport; a sample-rate
- * or channel-span change still waits for a matching frame.
- */
-export const shouldKeepPaintingThroughRetune = ({
-  frameCenterHz,
-  frameSampleRateHz,
-  requestedRange,
-  isTxPreviewFrame = false,
-}: {
-  frameCenterHz?: number | null;
-  frameSampleRateHz?: number | null;
-  requestedRange: { min: number; max: number };
-  isTxPreviewFrame?: boolean;
-}): boolean => {
-  if (
-    shouldAdoptLiveFrameRange({
-      frameCenterHz,
-      frameSampleRateHz,
-      requestedRange,
-      isTxPreviewFrame,
-    })
-  ) {
-    return true;
-  }
-  if (
-    typeof frameSampleRateHz !== "number" ||
-    !Number.isFinite(frameSampleRateHz) ||
-    frameSampleRateHz <= 0
-  ) {
-    return false;
-  }
-  const requestedSpanHz = requestedRange.max - requestedRange.min;
-  if (!Number.isFinite(requestedSpanHz) || requestedSpanHz <= 0) {
-    return false;
-  }
-  return Math.abs(requestedSpanHz - frameSampleRateHz) <= 1;
-};
-
-/**
- * While a same-span retune is in flight, shift display coordinates back onto
- * the resident acquisition so the cached FFT slides with the gesture instead
- * of flooring the leading edge to the noise floor.
- */
-export const resolveRetunePresentationOffsetHz = ({
-  frameCenterHz,
-  frameSampleRateHz,
-  requestedRange,
-  isTxPreviewFrame = false,
-}: {
-  frameCenterHz?: number | null;
-  frameSampleRateHz?: number | null;
-  requestedRange: { min: number; max: number };
-  isTxPreviewFrame?: boolean;
-}): number => {
-  if (
-    shouldAdoptLiveFrameRange({
-      frameCenterHz,
-      frameSampleRateHz,
-      requestedRange,
-      isTxPreviewFrame,
-    })
-  ) {
-    return 0;
-  }
-  if (
-    !shouldKeepPaintingThroughRetune({
-      frameCenterHz,
-      frameSampleRateHz,
-      requestedRange,
-      isTxPreviewFrame,
-    }) ||
-    typeof frameCenterHz !== "number" ||
-    !Number.isFinite(frameCenterHz) ||
-    typeof frameSampleRateHz !== "number" ||
-    !Number.isFinite(frameSampleRateHz)
-  ) {
-    return 0;
-  }
-  const requestedCenter = (requestedRange.min + requestedRange.max) / 2;
-  if (requestedRange.min < 0) {
-    const required = getPositiveSourceRangeForDisplayRange(requestedRange);
-    const frameMinHz = frameCenterHz - frameSampleRateHz / 2;
-    return required.min - frameMinHz;
-  }
-  return requestedCenter - frameCenterHz;
-};
 
 export function invertSpectrumVertically(
   waveform: Float32Array,
@@ -215,9 +125,8 @@ export interface SpectrumRenderPreparation {
   spectrumWaveform: Float32Array;
   /**
    * False when the mirror is on and the current acquisition cannot fill the
-   * viewport. Callers must hold the previous paint in that case; resampling
-   * anyway paints the uncovered region as the noise floor and produces the
-   * flatline-then-fill flash.
+   * viewport. The live renderer still paints immediately; the GPU resampler
+   * handles uncovered bins at the noise floor on the frame's own axis.
    */
   coversDisplay: boolean;
 }
@@ -256,7 +165,6 @@ export interface LiveSpectrumPaintContract {
   displayRange: { min: number; max: number };
   zoom: number;
   panOffsetHz: number;
-  presentationOffsetHz: number;
 }
 
 /**
@@ -271,9 +179,6 @@ export const resolveLiveSpectrumPaintContract = ({
   zoom,
   panOffsetHz,
   mirrorEnabled,
-  frameCenterHz,
-  frameSampleRateHz,
-  isTxPreviewFrame = false,
 }: {
   requestedViewRange: { min: number; max: number };
   sourceFrequencyRange: { min: number; max: number };
@@ -294,62 +199,66 @@ export const resolveLiveSpectrumPaintContract = ({
   const requestedDisplaySpan =
     gestureView.displayRange.max - gestureView.displayRange.min;
   const sourceSpan = sourceFrequencyRange.max - sourceFrequencyRange.min;
+  const mirrorGestureCovered = sourceCoversMirroredDisplay(
+    sourceFrequencyRange,
+    gestureView.displayRange,
+    mirrorPresentationCoverageSlackHz(sourceFrequencyRange),
+  );
+  const residentMirrorRange =
+    (gestureView.displayRange.min + gestureView.displayRange.max) / 2 < 0
+      ? {
+          min: -sourceFrequencyRange.max,
+          max: -sourceFrequencyRange.min,
+        }
+      : sourceFrequencyRange;
   // During cold start Redux can still expose a persisted whole-channel span
   // while the first live frame only covers the accepted sample-rate window.
   // Letting that wider range reach the GPU makes the frame occupy one island
   // inside a channel-sized viewport. The frame axis is the only complete row
   // available until the range state catches up, so keep the initial paint
   // source-sized. Normal zoom/pan requests have a span no wider than source.
-  const displayRange =
-    Number.isFinite(requestedDisplaySpan) &&
-    Number.isFinite(sourceSpan) &&
-    sourceSpan > 0 &&
-    requestedDisplaySpan > sourceSpan + 1
+  // Commit mirror presentation atomically with frame coverage. If the pending
+  // gesture cannot be filled by this resident frame, present the complete
+  // frame on the positive or reflected side nearest the requested center.
+  const gestureCrossesOrBelowDc = gestureView.displayRange.min < 0;
+  const requestedIsPositiveHardware = requestedViewRange.min >= 0;
+  // A Channel A acquisition only covers |f| up to A.max (~4.39 MHz). Scrolling
+  // to about -5 MHz is the first uncovered mirror pan. Falling back to the
+  // positive resident frame (or the wide-span channel thumb) is what flipped
+  // the VFO from -5 MHz to +A / +|f|. Keep the gesture axis whenever the
+  // radio window is still positive and the user has crossed DC.
+  const keepMirrorScrollGesture =
+    mirrorEnabled && requestedIsPositiveHardware && gestureCrossesOrBelowDc;
+  const displayRange = keepMirrorScrollGesture
+    ? gestureView.displayRange
+    : Number.isFinite(requestedDisplaySpan) &&
+        Number.isFinite(sourceSpan) &&
+        sourceSpan > 0 &&
+        requestedDisplaySpan > sourceSpan + 1
       ? sourceFrequencyRange
-      : gestureView.displayRange;
+      : mirrorEnabled
+        ? mirrorGestureCovered
+          ? gestureView.displayRange
+          : residentMirrorRange
+        : gestureView.displayRange.min >= sourceFrequencyRange.min &&
+            gestureView.displayRange.max <= sourceFrequencyRange.max
+          ? gestureView.displayRange
+          : sourceFrequencyRange;
+  // A retune request can move ahead of the latest server frame. Keep the
+  // visual axis on that resident frame until a new acquisition arrives; this
+  // avoids presenting a floor-filled gap that appears to animate toward the
+  // requested VFO position.
   const rebased = resolvePanZoomForDisplayRange({
     hardwareRange: sourceFrequencyRange,
     displayRange,
   });
-  // Covered |f| must not slide — that locked Channel A. Uncovered negative
-  // pans shift in source space after the mirror so the leading edge stays
-  // filled instead of flooring to -120 dB.
-  const presentationOffsetHz =
-    mirrorEnabled &&
-    displayRangeNeedsBasebandMirror(displayRange) &&
-    sourceCoversMirroredDisplay(sourceFrequencyRange, displayRange)
-      ? 0
-      : resolveRetunePresentationOffsetHz({
-          frameCenterHz,
-          frameSampleRateHz,
-          requestedRange: displayRange,
-          isTxPreviewFrame,
-        });
   return {
     paintViewportRange: sourceFrequencyRange,
     sourceFrequencyRange,
     displayRange,
     zoom: rebased.zoom,
     panOffsetHz: rebased.panOffsetHz,
-    presentationOffsetHz,
   };
-};
-
-export const shouldHoldLiveSpectrumPaint = ({
-  coversDisplay,
-  presentationOffsetHz = 0,
-  displayMinHz,
-}: {
-  coversDisplay: boolean;
-  presentationOffsetHz?: number;
-  displayMinHz?: number;
-}): boolean => {
-  // Negative viewports must keep painting: holding here is what made the
-  // FFT freeze until the pointer stopped, then jump when the retune landed.
-  if (typeof displayMinHz === "number" && displayMinHz < 0) {
-    return false;
-  }
-  return !coversDisplay && !(Math.abs(presentationOffsetHz) > 0.5);
 };
 
 export const shouldClearSpectrumWaveformForRangeChange = ({

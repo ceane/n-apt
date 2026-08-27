@@ -8,9 +8,6 @@ import {
   resolveSpectrumWaveform,
   shouldPresentSpectrumFrameForRange,
   shouldAdoptLiveFrameRange,
-  shouldKeepPaintingThroughRetune,
-  resolveRetunePresentationOffsetHz,
-  shouldHoldLiveSpectrumPaint,
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
 import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom";
@@ -435,6 +432,64 @@ describe("resolveLiveSpectrumPaintContract", () => {
     expect(contract.panOffsetHz).toBeCloseTo(0, 0);
   });
 
+  it("keeps a lagging live frame on its own axis instead of painting a gap", () => {
+    const sourceFrequencyRange = { min: 26_000_000, max: 30_000_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: { min: 24_000_000, max: 28_000_000 },
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+    });
+
+    expect(contract.displayRange).toEqual(sourceFrequencyRange);
+    expect(contract.panOffsetHz).toBe(0);
+  });
+
+  it("keeps an uncovered DC-crossing frame whole instead of painting two islands", () => {
+    const requestedViewRange = {
+      min: -11_417_900,
+      max: 6_832_100,
+    };
+    const sourceFrequencyRange = {
+      min: 4_700_000,
+      max: 22_950_000,
+    };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+    });
+
+    // The pending VFO is negative, so present the complete resident frame on
+    // its reflected axis until a replacement frame can cover the requested
+    // DC-crossing viewport. Never stretch the old frame over the new axis.
+    expect(contract.displayRange).toEqual({
+      min: -22_950_000,
+      max: -4_700_000,
+    });
+
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array(2048).fill(-75),
+      frequencyRange: contract.paintViewportRange,
+      sourceFrequencyRange: contract.sourceFrequencyRange,
+      zoom: contract.zoom,
+      panOffset: contract.panOffsetHz,
+      invert: false,
+      dbMin: FLOOR,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      resampleOnGpu: true,
+      getZoomedData: createFFTZoomProcessor(FLOOR).process,
+    });
+
+    expect(result.coversDisplay).toBe(true);
+    expect(result.visualRange).toEqual(contract.displayRange);
+  });
+
   it("fills the row instead of a channel island when redux and frame axes differ", () => {
     const requestedViewRange = { min: 0, max: 4_372_000 };
     const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
@@ -534,34 +589,140 @@ describe("resolveLiveSpectrumPaintContract", () => {
       min: -2_186_000,
       max: 2_186_000,
     });
-    expect(contract.presentationOffsetHz).toBe(0);
   });
 
-  it("slides an uncovered negative viewport in |f| source space instead of flooring", () => {
+  it("does not snap a DC-straddling scroll to the positive live-frame center", () => {
+    const requestedViewRange = { min: 0, max: 4_372_000 };
+    const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
+    const hardwareCenter =
+      (requestedViewRange.min + requestedViewRange.max) / 2;
+    const panOffsetHz = -hardwareCenter + 1_000;
     const contract = resolveLiveSpectrumPaintContract({
-      requestedViewRange: { min: -7_416_000, max: -3_044_000 },
-      sourceFrequencyRange: { min: 0, max: 4_372_000 },
+      requestedViewRange,
+      sourceFrequencyRange,
       zoom: 1,
-      panOffsetHz: 0,
+      panOffsetHz,
       mirrorEnabled: true,
-      frameCenterHz: 2_186_000,
+      frameCenterHz: 6_480_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    const displayCenter =
+      (contract.displayRange.min + contract.displayRange.max) / 2;
+    const frameCenter =
+      (sourceFrequencyRange.min + sourceFrequencyRange.max) / 2;
+    expect(contract.displayRange.min).toBeLessThan(0);
+    expect(contract.displayRange.max).toBeGreaterThan(0);
+    expect(displayCenter).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
+    expect(Math.abs(displayCenter - frameCenter)).toBeGreaterThan(1_000_000);
+  });
+
+  it("does not snap a Channel A scroll past -A.max onto the positive A axis", () => {
+    const channelA = { min: 18_000, max: 4_390_000 };
+    const hardwareCenter = (channelA.min + channelA.max) / 2;
+    const panOffsetHz = -5_000_000 - hardwareCenter;
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: channelA,
+      sourceFrequencyRange: channelA,
+      zoom: 1,
+      panOffsetHz,
+      mirrorEnabled: true,
+    });
+
+    const displayCenter =
+      (contract.displayRange.min + contract.displayRange.max) / 2;
+    expect(displayCenter).toBeCloseTo(-5_000_000, 0);
+    expect(displayCenter).toBeLessThan(0);
+    expect(contract.displayRange.min).toBeLessThan(-channelA.max);
+  });
+
+  it("does not flip a -5 MHz mirror center to the positive |f| image", () => {
+    const requestedViewRange = { min: 0, max: 10_000_000 };
+    const laggedFrame = { min: 4_294_000, max: 8_666_000 };
+    const panOffsetHz = -10_000_000;
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange: laggedFrame,
+      zoom: 1,
+      panOffsetHz,
+      mirrorEnabled: true,
+      frameCenterHz: 6_480_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    const displayCenter =
+      (contract.displayRange.min + contract.displayRange.max) / 2;
+    expect(displayCenter).toBeCloseTo(-5_000_000, -3);
+    expect(displayCenter).toBeLessThan(0);
+  });
+
+  it("does not jump to the reflected frame when scroll center just crosses below DC", () => {
+    const requestedViewRange = { min: 0, max: 4_372_000 };
+    const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
+    const hardwareCenter =
+      (requestedViewRange.min + requestedViewRange.max) / 2;
+    const panOffsetHz = -hardwareCenter - 1_000;
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz,
+      mirrorEnabled: true,
+      frameCenterHz: 6_480_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    const displayCenter =
+      (contract.displayRange.min + contract.displayRange.max) / 2;
+    expect(contract.displayRange.min).toBeLessThan(0);
+    expect(displayCenter).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
+    expect(displayCenter).toBeGreaterThan(-1_000_000);
+  });
+
+  it("keeps a wholly negative mirror center when edge rounding misses coverage by a few Hz", () => {
+    const acquisition = { min: 0, max: 4_372_000 };
+    const hardwareCenter = 2_186_000;
+    const panOffsetHz = -4_384_000;
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: acquisition,
+      sourceFrequencyRange: acquisition,
+      zoom: 1,
+      panOffsetHz,
+      mirrorEnabled: true,
+      frameCenterHz: hardwareCenter,
       frameSampleRateHz: 4_372_000,
     });
 
     expect(contract.displayRange.min).toBeLessThan(0);
-    expect(contract.presentationOffsetHz).toBeCloseTo(3_044_000, 0);
+    expect(contract.displayRange.max).toBeLessThanOrEqual(0);
     expect(
-      shouldHoldLiveSpectrumPaint({
-        coversDisplay: false,
-        presentationOffsetHz: contract.presentationOffsetHz,
-        displayMinHz: contract.displayRange.min,
-      }),
-    ).toBe(false);
+      (contract.displayRange.min + contract.displayRange.max) / 2,
+    ).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
+    expect(contract.panOffsetHz).toBeCloseTo(panOffsetHz, 0);
+
+    const painted = prepareSpectrumRenderData({
+      waveform: new Float32Array(2048).fill(-50),
+      frequencyRange: contract.paintViewportRange,
+      sourceFrequencyRange: contract.sourceFrequencyRange,
+      zoom: contract.zoom,
+      panOffset: contract.panOffsetHz,
+      invert: false,
+      dbMin: FLOOR,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      resampleOnGpu: true,
+      getZoomedData: createFFTZoomProcessor(FLOOR).process,
+    });
+    expect(
+      (painted.visualRange.min + painted.visualRange.max) / 2,
+    ).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
   });
 
-  it("slides an uncovered positive mirror retune instead of waiting for the radio", () => {
+  it("reflects the resident frame for an uncovered negative request", () => {
+    const requestedViewRange = { min: -7_416_000, max: -3_044_000 };
     const contract = resolveLiveSpectrumPaintContract({
-      requestedViewRange: { min: 4_294_000, max: 8_666_000 },
+      requestedViewRange,
       sourceFrequencyRange: { min: 0, max: 4_372_000 },
       zoom: 1,
       panOffsetHz: 0,
@@ -570,17 +731,25 @@ describe("resolveLiveSpectrumPaintContract", () => {
       frameSampleRateHz: 4_372_000,
     });
 
-    expect(contract.displayRange.min).toBeGreaterThan(0);
-    expect(contract.presentationOffsetHz).toBeCloseTo(4_294_000, 0);
-    expect(
-      shouldHoldLiveSpectrumPaint({
-        coversDisplay: false,
-        presentationOffsetHz: contract.presentationOffsetHz,
-      }),
-    ).toBe(false);
+    expect(contract.displayRange).toEqual({ min: -4_372_000, max: -0 });
   });
 
-  it("slides an uncovered mirror-off retune instead of waiting for the radio", () => {
+  it("keeps the resident frame whole for an uncovered positive request", () => {
+    const requestedViewRange = { min: 4_294_000, max: 8_666_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange: { min: 0, max: 4_372_000 },
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+      frameCenterHz: 2_186_000,
+      frameSampleRateHz: 4_372_000,
+    });
+
+    expect(contract.displayRange).toEqual({ min: 0, max: 4_372_000 });
+  });
+
+  it("uses the resident axis during an uncovered mirror-off retune", () => {
     const contract = resolveLiveSpectrumPaintContract({
       requestedViewRange: { min: 4_294_000, max: 8_666_000 },
       sourceFrequencyRange: { min: 0, max: 4_372_000 },
@@ -591,50 +760,7 @@ describe("resolveLiveSpectrumPaintContract", () => {
       frameSampleRateHz: 4_372_000,
     });
 
-    expect(contract.displayRange).toEqual({
-      min: 4_294_000,
-      max: 8_666_000,
-    });
-    expect(contract.presentationOffsetHz).toBeCloseTo(4_294_000, 0);
-  });
-});
-
-describe("shouldHoldLiveSpectrumPaint", () => {
-  it("holds the last complete FFT instead of painting -120 dB uncovered bins", () => {
-    expect(
-      shouldHoldLiveSpectrumPaint({
-        coversDisplay: false,
-        presentationOffsetHz: 0,
-      }),
-    ).toBe(true);
-  });
-
-  it("does not hold a negative viewport so |f| can pan with the gesture", () => {
-    expect(
-      shouldHoldLiveSpectrumPaint({
-        coversDisplay: false,
-        presentationOffsetHz: 0,
-        displayMinHz: -7_416_000,
-      }),
-    ).toBe(false);
-  });
-
-  it("paints when a same-span retune can slide the last FFT", () => {
-    expect(
-      shouldHoldLiveSpectrumPaint({
-        coversDisplay: false,
-        presentationOffsetHz: 4_294_000,
-      }),
-    ).toBe(false);
-  });
-
-  it("does not hold a covered mirrored view", () => {
-    expect(
-      shouldHoldLiveSpectrumPaint({
-        coversDisplay: true,
-        presentationOffsetHz: 0,
-      }),
-    ).toBe(false);
+    expect(contract.displayRange).toEqual({ min: 0, max: 4_372_000 });
   });
 });
 
@@ -734,59 +860,5 @@ describe("shouldAdoptLiveFrameRange", () => {
         requestedRange: { min: 18_000, max: 3_218_000 },
       }),
     ).toBe(true);
-  });
-});
-
-describe("shouldKeepPaintingThroughRetune", () => {
-  it("keeps painting a same-span VFO retune so the last FFT can slide", () => {
-    expect(
-      shouldKeepPaintingThroughRetune({
-        frameCenterHz: 105,
-        frameSampleRateHz: 10,
-        requestedRange: { min: 110, max: 120 },
-      }),
-    ).toBe(true);
-  });
-
-  it("does not remap a frame onto a different acquisition span", () => {
-    expect(
-      shouldKeepPaintingThroughRetune({
-        frameCenterHz: 105,
-        frameSampleRateHz: 10,
-        requestedRange: { min: 100, max: 200 },
-      }),
-    ).toBe(false);
-  });
-
-  it("still paints when the live frame already matches the requested window", () => {
-    expect(
-      shouldKeepPaintingThroughRetune({
-        frameCenterHz: 115,
-        frameSampleRateHz: 10,
-        requestedRange: { min: 110, max: 120 },
-      }),
-    ).toBe(true);
-  });
-});
-
-describe("resolveRetunePresentationOffsetHz", () => {
-  it("slides a panned viewport onto a lagging acquisition", () => {
-    expect(
-      resolveRetunePresentationOffsetHz({
-        frameCenterHz: 2_186_000,
-        frameSampleRateHz: 4_372_000,
-        requestedRange: { min: 4_294_000, max: 8_666_000 },
-      }),
-    ).toBeCloseTo(4_294_000, 0);
-  });
-
-  it("slides a negative panned viewport in |f| source space", () => {
-    expect(
-      resolveRetunePresentationOffsetHz({
-        frameCenterHz: 2_186_000,
-        frameSampleRateHz: 4_372_000,
-        requestedRange: { min: -7_416_000, max: -3_044_000 },
-      }),
-    ).toBeCloseTo(3_044_000, 0);
   });
 });
