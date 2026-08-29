@@ -144,7 +144,7 @@ jobs:
         env:
           REDIS_URL: redis://localhost:6379
           UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key
-          PROPTEST_SEED: 0xdeadbeef00000001
+          PROPTEST_SEED: "0xdeadbeef00000001"
 
       - name: Upload Rust coverage
         uses: codecov/codecov-action@0f8570b1a125f4937846a11fcfa3bcd548bd8c97 # v4.6.0
