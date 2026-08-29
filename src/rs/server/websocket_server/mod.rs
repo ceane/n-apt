@@ -1168,8 +1168,7 @@ impl WebSocketServer {
               &mut warm_devices,
               &mut hotplug_state,
               &mut allow_next_paused_frame,
-            )
-            .await;
+            );
           }
           crate::server::types::SdrCommand::RestartDevice { source_id } => {
             let active_id = active_source_id(&shared_state);
@@ -1186,8 +1185,7 @@ impl WebSocketServer {
               _ => {
                 self
                   .device_supervisor
-                  .restart(&shared_state, &_broadcast_tx, &mut hotplug_state)
-                  .await;
+                  .restart(&shared_state, &_broadcast_tx, &mut hotplug_state);
               }
             }
           }

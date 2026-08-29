@@ -21,6 +21,7 @@ const MOCK_TX_QUANTIZATION_SUPPORT_AMPLITUDE: f64 = 1.0 / (128.0 * 16.0);
 // Keep the mock monitor faithful to a hardware receiver's centered DC offset.
 // Raw IQ consumers see it; the display's optional compute stage can remove it.
 const MOCK_TX_DC_OFFSET: f64 = 0.01;
+const MAX_MOCK_TX_MONITOR_FFT_SIZE: usize = 262_144;
 
 fn mock_tx_noise_unit(sample_index: u64, noise_key: u64) -> f64 {
   let mut x = sample_index
@@ -314,7 +315,7 @@ pub fn synthesize_mock_tx_monitor_iq(
 ) -> Vec<u8> {  #[cfg(test)]
   let _cwd_guard = crate::server::utils::cwd_lock().lock().unwrap();
 
-  if fft_size == 0 {
+  if fft_size == 0 || fft_size > MAX_MOCK_TX_MONITOR_FFT_SIZE {
     return Vec::new();
   }
 
@@ -2605,6 +2606,25 @@ mod tests {
       frame, expected,
       "fully offscreen Mock Tx should fall through the same final flat-noise mixer used when signal energy is zero"
     );
+  }
+
+  #[test]
+  fn mock_tx_rejects_unbounded_fft_sizes_before_allocating() {
+    let model = TxIqPowerModel::default();
+    let frame = synthesize_mock_tx_monitor_iq(
+      usize::MAX,
+      137_100_000.0,
+      3_200_000,
+      137_100_000.0,
+      100_000.0,
+      "wifi",
+      2048,
+      -18.0,
+      &model,
+      &mut 0.0,
+    );
+
+    assert!(frame.is_empty());
   }
 
   #[test]

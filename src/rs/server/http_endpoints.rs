@@ -75,6 +75,16 @@ pub struct CliSnapshotFramesQuery {
   fft_size: Option<usize>,
 }
 
+const MAX_SNAPSHOT_FRAMES: usize = 128;
+
+fn bounded_snapshot_frame_count(frames: Option<usize>) -> usize {
+  match frames {
+    None | Some(0) => 1,
+    Some(value) if value > MAX_SNAPSHOT_FRAMES => MAX_SNAPSHOT_FRAMES,
+    Some(value) => value,
+  }
+}
+
 /// Build a snapshot frame carrying only the requested IQ prefix.
 ///
 /// Copies just the first `iq_bytes` of IQ instead of cloning the full ~512 KiB
@@ -99,9 +109,9 @@ pub async fn cli_snapshot_frame_handler(
   Query(query): Query<CliSnapshotFramesQuery>,
 ) -> impl IntoResponse {
   let mut receiver = state.spectrum_tx.subscribe();
-  let requested = query.frames.unwrap_or(1).clamp(1, 128);
+  let requested = bounded_snapshot_frame_count(query.frames);
   let iq_bytes = query.fft_size.unwrap_or(4096).clamp(256, 262_144) * 2;
-  let mut frames = Vec::with_capacity(requested);
+  let mut frames = Vec::new();
   let collection = async {
     while frames.len() < requested {
       match receiver.recv().await {
@@ -2200,7 +2210,7 @@ async fn handle_classify_signal(
 
 #[cfg(test)]
 mod snapshot_tests {
-  use super::snapshot_frame_from;
+  use super::{bounded_snapshot_frame_count, snapshot_frame_from};
   use crate::server::types::SpectrumData;
 
   fn sample_frame(iq_len: usize) -> SpectrumData {
@@ -2252,5 +2262,13 @@ mod snapshot_tests {
     let frame = sample_frame(262_144);
     let snapshot = snapshot_frame_from(&frame, 524_288);
     assert_eq!(snapshot.iq_data.len(), 262_144);
+  }
+
+  #[test]
+  fn snapshot_frame_count_is_bounded_before_collection() {
+    assert_eq!(bounded_snapshot_frame_count(None), 1);
+    assert_eq!(bounded_snapshot_frame_count(Some(0)), 1);
+    assert_eq!(bounded_snapshot_frame_count(Some(128)), 128);
+    assert_eq!(bounded_snapshot_frame_count(Some(usize::MAX)), 128);
   }
 }
