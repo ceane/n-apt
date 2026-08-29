@@ -312,7 +312,7 @@ describe("useLiveSampleRateControl", () => {
     });
   });
 
-  it("keeps whole-channel mode aligned when switching active channels", () => {
+  it("preserves the acquisition rate when panning changes the active channel", () => {
     const setSampleRate = jest.fn();
     const applyFrequencyRange = jest.fn();
 
@@ -340,11 +340,8 @@ describe("useLiveSampleRateControl", () => {
       sampleRateHz: 4_372_000,
     });
 
-    expect(setSampleRate).toHaveBeenCalledWith(5_200_000);
-    expect(applyFrequencyRange).toHaveBeenCalledWith({
-      min: 24_720_000,
-      max: 29_920_000,
-    });
+    expect(setSampleRate).not.toHaveBeenCalled();
+    expect(applyFrequencyRange).not.toHaveBeenCalled();
   });
 
   it("treats selecting whole-channel as the active channel span for HackRF One", () => {
@@ -405,7 +402,7 @@ describe("useLiveSampleRateControl", () => {
     expect(applyFrequencyRange).not.toHaveBeenCalled();
   });
 
-  it("repairs stale startup sample rates that are not valid manual options", () => {
+  it("preserves an acquisition rate that is not a manual option until an explicit selection", () => {
     const setSampleRate = jest.fn();
     const applyFrequencyRange = jest.fn();
 
@@ -423,14 +420,11 @@ describe("useLiveSampleRateControl", () => {
       }),
     );
 
-    expect(setSampleRate).toHaveBeenCalledWith(4_372_000);
-    expect(applyFrequencyRange).toHaveBeenCalledWith({
-      min: 18_000,
-      max: 4_390_000,
-    });
+    expect(setSampleRate).not.toHaveBeenCalled();
+    expect(applyFrequencyRange).not.toHaveBeenCalled();
   });
 
-  it("repairs a stale source-ceiling rate to the selected channel span", () => {
+  it("does not reinterpret a valid source-ceiling rate as a channel selection", () => {
     const setSampleRate = jest.fn();
     const applyFrequencyRange = jest.fn();
 
@@ -449,11 +443,8 @@ describe("useLiveSampleRateControl", () => {
       }),
     );
 
-    expect(setSampleRate).toHaveBeenCalledWith(4_372_000);
-    expect(applyFrequencyRange).toHaveBeenCalledWith({
-      min: 18_000,
-      max: 4_390_000,
-    });
+    expect(setSampleRate).not.toHaveBeenCalled();
+    expect(applyFrequencyRange).not.toHaveBeenCalled();
   });
 
   it("does not auto-reset to whole-channel when only the VFO range changes", () => {

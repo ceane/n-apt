@@ -80,7 +80,6 @@ import {
   setSelectedSourceId as setReduxSelectedSourceId,
   setSelectionIntentSourceId as setReduxSelectionIntentSourceId,
   setPendingSourceSwitchId as setReduxPendingSourceSwitchId,
-  websocketActions,
 } from "@n-apt/redux";
 import {
   liveDataBySourceRef,
@@ -521,6 +520,8 @@ export const resolveLeavingSourceViewSnapshot = ({
 export const buildPausedPreviewSignature = ({
   frequencyRange,
   sampleRateHz,
+  fftSize,
+  fftWindow,
   vizZoom,
   vizPanOffset,
   txCenterFrequencyHz,
@@ -531,6 +532,8 @@ export const buildPausedPreviewSignature = ({
 }: {
   frequencyRange: FrequencyRange | null | undefined;
   sampleRateHz: number | null | undefined;
+  fftSize: number | null | undefined;
+  fftWindow: string | null | undefined;
   vizZoom: number;
   vizPanOffset: number;
   txCenterFrequencyHz: number;
@@ -545,6 +548,8 @@ export const buildPausedPreviewSignature = ({
   return [
     rangeSignature,
     sampleRateHz,
+    fftSize,
+    fftWindow,
     vizZoom,
     vizPanOffset,
     txCenterFrequencyHz,
@@ -879,6 +884,7 @@ export type DrawParams = {
 export type SpectrumState = {
   activeSignalArea: string;
   frequencyRange: FrequencyRange | null;
+  tuningPreviewActive: boolean;
   displayTemporalResolution: TemporalResolution;
   powerScale: "dB" | "dBm";
   selectedFiles: SelectedFile[];
@@ -1128,6 +1134,7 @@ export type SpectrumAction =
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
+  tuningPreviewActive: false,
   displayTemporalResolution: "reduced",
   powerScale: "dB",
   selectedFiles: [],
@@ -1264,30 +1271,71 @@ export const shouldSendSignalDisplaySettings = ({
   previous.fftSize !== next.fftSize ||
   previous.frameRate !== next.frameRate;
 
+const areSdrSettingValuesEqual = (
+  current: unknown,
+  next: unknown,
+): boolean => {
+  if (Object.is(current, next)) return true;
+  if (Array.isArray(current) || Array.isArray(next)) {
+    return (
+      Array.isArray(current) &&
+      Array.isArray(next) &&
+      current.length === next.length &&
+      current.every((value, index) =>
+        areSdrSettingValuesEqual(value, next[index]),
+      )
+    );
+  }
+  if (
+    !current ||
+    !next ||
+    typeof current !== "object" ||
+    typeof next !== "object"
+  ) {
+    return false;
+  }
+
+  const currentRecord = current as Record<string, unknown>;
+  const nextRecord = next as Record<string, unknown>;
+  const currentKeys = Object.keys(currentRecord);
+  const nextKeys = Object.keys(nextRecord);
+  return (
+    currentKeys.length === nextKeys.length &&
+    currentKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(nextRecord, key) &&
+        areSdrSettingValuesEqual(currentRecord[key], nextRecord[key]),
+    )
+  );
+};
+
 export const shouldSyncSdrSettingsCache = (
   current: Record<string, unknown> | null | undefined,
   next: Record<string, unknown> | null | undefined,
 ): boolean => {
-  if (current === next) return false;
-  if (!current || !next) return current !== next;
-  const currentKeys = Object.keys(current);
-  const nextKeys = Object.keys(next);
-  return (
-    currentKeys.length !== nextKeys.length ||
-    currentKeys.some((key) => current[key] !== next[key])
-  );
+  return !areSdrSettingValuesEqual(current, next);
 };
 
 /**
  * Keep cache hydration referentially stable when source_info rebuilds an
- * equivalent settings object. Returning the previous value is important here:
- * this helper feeds a React state setter inside the live hydration effect.
+ * equivalent settings object.
  */
 export const resolveCachedSdrSettings = (
   current: SourceSdrSettings | null,
   next: SourceSdrSettings,
 ): SourceSdrSettings =>
   shouldSyncSdrSettingsCache(current, next) ? next : (current ?? next);
+
+export const resolveEffectiveSdrSettingsForConnection = ({
+  isConnected,
+  liveSettings,
+  cachedSettings,
+}: {
+  isConnected: boolean;
+  liveSettings: SourceSdrSettings | null | undefined;
+  cachedSettings: SourceSdrSettings | null | undefined;
+}): SourceSdrSettings | null =>
+  isConnected ? (liveSettings ?? cachedSettings ?? null) : null;
 
 
 export const resolveEffectiveLiveSampleRateHz = ({
@@ -1317,11 +1365,10 @@ export const resolveEffectiveLiveSampleRateHz = ({
     deviceName,
     isRtlSdr,
   });
-  // Whole-channel capable sources (HackRF, Mock APT, ...) can widen their
-  // acquisition window beyond the last backend-reported rate. The frontend
-  // is authoritative for sample-rate changes after user interaction, so the
-  // local whole-channel selection must win over a stale backend snapshot
-  // (e.g. a 3.2 MHz report while Whole Channel 4.372 MHz is selected).
+  // The accepted source rate owns the live display. A local selector value is
+  // only a request until source_info acknowledges it; allowing local intent to
+  // win indefinitely leaves the sidebar in Whole Channel while frames still
+  // arrive at 3.2 MHz and re-arms the channel/rate feedback loop.
   const candidates = isRtlDevice
     ? [
         minReceiveSampleRateHz,
@@ -1331,9 +1378,9 @@ export const resolveEffectiveLiveSampleRateHz = ({
         websocketSampleRateHz,
       ]
     : [
-        localSampleRateHz,
         websocketSampleRateHz,
         sdrSettingsSampleRateHz,
+        localSampleRateHz,
         maxSampleRateHz,
       ];
 
@@ -1981,7 +2028,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       [streamingSource],
     );
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
-    const websocketSdrSettings = useAppSelector((s) => s.websocket.sdrSettings);
     const signalsDefaults = useAppSelector((s) => s.websocket.signalsDefaults);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
     const error = useAppSelector((s) => s.websocket.error);
@@ -2679,8 +2725,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
     });
 
-    const [cachedSdrSettings, setCachedSdrSettings] =
-      useState<SourceSdrSettings | null>(() => {
+    const cachedSdrSettingsRef = useRef<SourceSdrSettings | null>(null);
+    const cachedSdrSettingsHydratedRef = useRef(false);
+    if (!cachedSdrSettingsHydratedRef.current) {
+      cachedSdrSettingsHydratedRef.current = true;
+      cachedSdrSettingsRef.current = (() => {
         if (typeof window === "undefined") return null;
         try {
           const raw = sessionStorage.getItem("napt-sdr-settings");
@@ -2689,7 +2738,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         } catch {
           return null;
         }
-      });
+      })();
+    }
     const lastLiveSourceIdRef = useRef<string | null>(null);
 
     const syncSelectedSourcePauseState = useCallback(
@@ -3025,6 +3075,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const nextSignature = buildPausedPreviewSignature({
         frequencyRange: state.frequencyRange,
         sampleRateHz: reduxSpectrumState.sampleRateHz,
+        fftSize: reduxSpectrumState.fftSize,
+        fftWindow: reduxSpectrumState.fftWindow,
         vizZoom: state.vizZoom,
         vizPanOffset: state.vizPanOffset,
         txCenterFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
@@ -3097,6 +3149,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectedSource,
       state.frequencyRange,
       reduxSpectrumState.sampleRateHz,
+      reduxSpectrumState.fftSize,
+      reduxSpectrumState.fftWindow,
       state.sourceMode,
       state.vizPanOffset,
       state.vizZoom,
@@ -3314,7 +3368,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     useEffect(() => {
       if (!isConnected) {
-        setCachedSdrSettings(null);
+        cachedSdrSettingsRef.current = null;
         try {
           sessionStorage.removeItem("napt-sdr-settings");
         } catch {
@@ -3323,8 +3377,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
       if (!sdrSettings) return;
-      setCachedSdrSettings((current) =>
-        resolveCachedSdrSettings(current, sdrSettings),
+      cachedSdrSettingsRef.current = resolveCachedSdrSettings(
+        cachedSdrSettingsRef.current,
+        sdrSettings,
       );
       try {
         sessionStorage.setItem(
@@ -3335,14 +3390,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       } catch {
         /* ignore */
       }
-      if (shouldSyncSdrSettingsCache(websocketSdrSettings, sdrSettings)) {
-        reduxDispatch(
-          websocketActions.updateDeviceState({
-            sdrSettings: sdrSettings as any,
-          }),
-        );
-      }
-    }, [isConnected, sdrSettings, websocketSdrSettings, reduxDispatch]);
+    }, [isConnected, sdrSettings]);
 
     const hydratedBackendSampleRateRef = useRef(false);
 
@@ -3417,9 +3465,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         : Array.isArray(cachedFrames)
           ? cachedFrames
           : [];
-    const effectiveSdrSettings = isConnected
-      ? (sdrSettings ?? cachedSdrSettings)
-      : null;
+    const effectiveSdrSettings = resolveEffectiveSdrSettingsForConnection({
+      isConnected,
+      liveSettings: sdrSettings,
+      cachedSettings: cachedSdrSettingsRef.current,
+    });
 
     const sampleRateHzEffective = resolveEffectiveLiveSampleRateHz({
       localSampleRateHz: mergedState.sampleRateHz,
@@ -3675,6 +3725,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     useEffect(() => {
       const currentRange = mergedState.frequencyRange;
+      // An opt-in progressive tune owns publication while it is active. Its
+      // controller rate-limits hardware commands; this effect must not echo
+      // every animation-frame preview back to the device.
+      if (reduxSpectrumState.tuningPreviewActive) return;
       const range = currentRange ? clampLiveFrequencyRange(currentRange) : null;
       const deviceRangeRevision =
         reduxSpectrumState.deviceFrequencyRangeRevision;
@@ -3733,6 +3787,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       clampLiveFrequencyRange,
       reduxDispatch,
       reduxSpectrumState.deviceFrequencyRangeRevision,
+      reduxSpectrumState.tuningPreviewActive,
       wsConnection.sendFrequencyRange,
     ]);
 

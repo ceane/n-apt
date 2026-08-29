@@ -164,6 +164,8 @@ describe("buildPausedPreviewSignature", () => {
     const base = {
       frequencyRange: { min: 18_000, max: 4_390_000 },
       sampleRateHz: 4_372_000,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
       vizZoom: 1,
       vizPanOffset: 0,
       txCenterFrequencyHz: 137_100_000,
@@ -184,6 +186,8 @@ describe("buildPausedPreviewSignature", () => {
     const base = {
       frequencyRange: { min: 0, max: 4_000_000 },
       sampleRateHz: 4_000_000,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
       vizZoom: 1,
       vizPanOffset: 0,
       txCenterFrequencyHz: 137_100_000,
@@ -222,7 +226,7 @@ describe("selectLiveSampleRateForSync", () => {
     ).toBe(3_200_000);
   });
 
-  it("keeps the selected Whole Channel rate over a stale backend 3.2MHz report", () => {
+  it("keeps the accepted source rate over an unacknowledged local Whole Channel request", () => {
     expect(
       resolveEffectiveLiveSampleRateHz({
         localSampleRateHz: 4_372_000,
@@ -230,7 +234,7 @@ describe("selectLiveSampleRateForSync", () => {
         sdrSettingsSampleRateHz: 3_200_000,
         maxSampleRateHz: 20_000_000,
       }),
-    ).toBe(4_372_000);
+    ).toBe(3_200_000);
   });
 
   it("keeps RTL-SDR whole-channel state from inheriting a stale connected rate", () => {

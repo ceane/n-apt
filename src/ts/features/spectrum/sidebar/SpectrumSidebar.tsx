@@ -53,7 +53,6 @@ import {
   setFftFrameRate as setFftFrameRateAction,
   setTemporalResolution,
   setPowerScale,
-  setSampleRate as setSampleRateAction,
   setSdrSettingsBundle,
   setBasebandFilterPinned as setBasebandFilterPinnedAction,
   resetLiveControls as resetLiveControlsAction,
@@ -77,10 +76,7 @@ import {
   deriveStateFromConfig,
   useSdrSettings,
 } from "@n-apt/settings/public/useSdrSettings";
-import {
-  resolveHackrfBasebandSampleRateHz,
-  useLiveSampleRateControl,
-} from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
+import { useLiveSampleRateControl } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocation } from "@n-apt/capture";
@@ -599,7 +595,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceProfile: liveDeviceProfile,
   } = useSpectrumStore();
   const spectrumTransport = useSpectrumTransport();
-  const initializedSampleRateKeyRef = useRef<string | null>(null);
   const lastTxToggleTimeRef = useRef(0);
   const pendingTxStopSourceIdRef = useRef<string | null>(null);
   const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
@@ -893,17 +888,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceName: liveDeviceNameToUse,
     sourceId: selectedSource?.id ?? selectedSourceId,
   });
-  const isHackrfForBaseband =
-    isHackrfOne ||
-    [
-      liveDeviceProfileToUse?.kind,
-      liveBackend,
-      liveDeviceNameToUse,
-      selectedSource?.id ?? selectedSourceId,
-    ].some(
-      (value) =>
-        typeof value === "string" && value.toLowerCase().includes("hackrf"),
-    );
   const isRtlSdr = isRtlSdrDevice({
     deviceKind: liveDeviceProfileForDisplay?.kind,
     backend: liveBackend,
@@ -998,16 +982,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     sampleRateControlMaximumHz,
   );
   const sampleRateHzLocal =
-    (typeof liveState.sampleRateHz === "number" &&
-    Number.isFinite(liveState.sampleRateHz) &&
-    liveState.sampleRateHz > 0
+    (typeof sampleRateHzEffective === "number" &&
+    Number.isFinite(sampleRateHzEffective) &&
+    sampleRateHzEffective > 0
       ? clampSampleRateToSourceMaximum(
-          liveState.sampleRateHz,
+          sampleRateHzEffective,
           sampleRateControlMaximumHz,
         )
-      : isMockLiveSource && mockResolved !== null
+      : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
+          Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
+          liveSdrSettingsToUse.sample_rate > 0
         ? clampSampleRateToSourceMaximum(
-            mockResolved.rate,
+            liveSdrSettingsToUse.sample_rate,
             sampleRateControlMaximumHz,
           )
         : typeof sampleRateHz === "number" &&
@@ -1017,21 +1003,41 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               sampleRateHz,
               sampleRateControlMaximumHz,
             )
-          : typeof sampleRateHzEffective === "number" &&
-              Number.isFinite(sampleRateHzEffective) &&
-              sampleRateHzEffective > 0
+          : typeof liveState.sampleRateHz === "number" &&
+              Number.isFinite(liveState.sampleRateHz) &&
+              liveState.sampleRateHz > 0
             ? clampSampleRateToSourceMaximum(
-                sampleRateHzEffective,
+                liveState.sampleRateHz,
                 sampleRateControlMaximumHz,
               )
-            : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
-                Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
-                liveSdrSettingsToUse.sample_rate > 0
+            : isMockLiveSource && mockResolved !== null
               ? clampSampleRateToSourceMaximum(
-                  liveSdrSettingsToUse.sample_rate,
+                  mockResolved.rate,
                   sampleRateControlMaximumHz,
                 )
               : maxSampleRate) || null;
+
+  // The acquisition control follows the locally requested rate immediately.
+  // sampleRateHzLocal prefers the backend-accepted effective rate, which can
+  // lag one round trip behind a manual change; feeding that stale value into
+  // useLiveSampleRateControl re-anchors the frequency range back to the old
+  // span after every gesture and retune-oscillates the device.
+  const sampleRateHzRequestedLocal =
+    (typeof sampleRateHz === "number" &&
+    Number.isFinite(sampleRateHz) &&
+    sampleRateHz > 0
+      ? clampSampleRateToSourceMaximum(
+          sampleRateHz,
+          sampleRateControlMaximumHz,
+        )
+      : typeof liveState.sampleRateHz === "number" &&
+          Number.isFinite(liveState.sampleRateHz) &&
+          liveState.sampleRateHz > 0
+        ? clampSampleRateToSourceMaximum(
+            liveState.sampleRateHz,
+            sampleRateControlMaximumHz,
+          )
+        : sampleRateHzLocal) || null;
 
   const isServerConnected = useMemo(
     () =>
@@ -1082,18 +1088,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   } = useSdrSettings({
     maxSampleRate,
     currentSampleRateHz:
-      typeof liveState.sampleRateHz === "number" &&
-      Number.isFinite(liveState.sampleRateHz) &&
-      liveState.sampleRateHz > 0
-        ? liveState.sampleRateHz
-        : typeof sampleRateHzEffective === "number" &&
-            Number.isFinite(sampleRateHzEffective) &&
-            sampleRateHzEffective > 0
-          ? sampleRateHzEffective
-          : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
-              Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
-              liveSdrSettingsToUse.sample_rate > 0
-            ? liveSdrSettingsToUse.sample_rate
+      typeof sampleRateHzEffective === "number" &&
+      Number.isFinite(sampleRateHzEffective) &&
+      sampleRateHzEffective > 0
+        ? sampleRateHzEffective
+        : typeof liveSdrSettingsToUse?.sample_rate === "number" &&
+            Number.isFinite(liveSdrSettingsToUse.sample_rate) &&
+            liveSdrSettingsToUse.sample_rate > 0
+          ? liveSdrSettingsToUse.sample_rate
+          : typeof liveState.sampleRateHz === "number" &&
+              Number.isFinite(liveState.sampleRateHz) &&
+              liveState.sampleRateHz > 0
+            ? liveState.sampleRateHz
             : undefined,
     minReceiveSampleRate:
       liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
@@ -1160,27 +1166,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const setSampleRateForVisualizer = useCallback(
     (rate: number) => {
+      // Keep the canvas-side request coherent immediately, while
+      // useSdrSettings owns the single Redux bundle + transport message.
       storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
-      dispatch(setSampleRateAction(rate));
       setSampleRate(rate);
     },
-    [dispatch, storeDispatch, setSampleRate],
-  );
-
-  const syncHackrfBasebandToSampleRate = useCallback(
-    (rate: number) => {
-      if (
-        !isHackrfForBaseband ||
-        sourceMode !== "live" ||
-        !Number.isFinite(rate) ||
-        rate <= 0 ||
-        basebandFilterPinned
-      ) {
-        return;
-      }
-      setHackrfBasebandBandwidth(Math.round(rate));
-    },
-    [isHackrfForBaseband, setHackrfBasebandBandwidth, sourceMode, basebandFilterPinned],
+    [setSampleRate, storeDispatch],
   );
 
   const {
@@ -1197,76 +1188,19 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       : sampleRateControlMaximumHz,
     activeSignalAreaBounds,
     frequencyRange,
-    sampleRateHz: sampleRateHzLocal,
+    sampleRateHz: sampleRateHzRequestedLocal,
     fftSize,
     maxFrameRateLimit: maxFrameRate,
     setSampleRate: setSampleRateForVisualizer,
-    onSampleRateApplied: syncHackrfBasebandToSampleRate,
-    setFftFrameRate,
     applyFrequencyRange: useCallback(
       (range) => {
         dispatch(setFrequencyRange(range));
+        storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
         spectrumTransport.sendFrequencyRange(range);
       },
-      [dispatch, spectrumTransport],
+      [dispatch, spectrumTransport, storeDispatch],
     ),
   });
-  const sampleRateSourceKey =
-    selectedSource?.id ||
-    selectedSourceId ||
-    liveDeviceNameToUse ||
-    liveBackend ||
-    null;
-  const sampleRateInitializationKey =
-    sampleRateSourceKey &&
-    typeof liveWholeChannelSampleRate === "number" &&
-    Number.isFinite(liveWholeChannelSampleRate)
-      ? `${sampleRateSourceKey}:${activeSignalArea ?? ""}:${Math.round(liveWholeChannelSampleRate)}`
-      : null;
-
-  useEffect(() => {
-    if (
-      sourceMode !== "live" ||
-      !supportsWholeChannelSampleRate ||
-      !sampleRateInitializationKey ||
-      initializedSampleRateKeyRef.current === sampleRateInitializationKey ||
-      typeof liveWholeChannelSampleRate !== "number" ||
-      !Number.isFinite(liveWholeChannelSampleRate) ||
-      liveWholeChannelSampleRate <= 0
-    ) {
-      return;
-    }
-
-    initializedSampleRateKeyRef.current = sampleRateInitializationKey;
-    const currentRate =
-      typeof sampleRateHzLocal === "number" &&
-      Number.isFinite(sampleRateHzLocal)
-        ? Math.round(sampleRateHzLocal)
-        : null;
-    const configuredFloor =
-      liveSdrSettingsToUse?.min_receive_sample_rate ??
-      liveSdrSettingsToUse?.sample_rate ??
-      3_200_000;
-    const isWholeChannelStartupRate =
-      currentRate === 2_000_000 ||
-      currentRate === Math.round(configuredFloor) ||
-      isWholeChannelMode;
-
-    if (isWholeChannelStartupRate) {
-      handleSampleRateChange(liveWholeChannelSampleRate, "whole");
-    }
-  }, [
-    handleSampleRateChange,
-    liveWholeChannelSampleRate,
-    liveSdrSettingsToUse?.min_receive_sample_rate,
-    liveSdrSettingsToUse?.sample_rate,
-    sampleRateHzLocal,
-    sampleRateInitializationKey,
-    sourceMode,
-    supportsWholeChannelSampleRate,
-    isWholeChannelMode,
-  ]);
-
   const handleSignalDisplaySampleRateChange = useCallback(
     (nextSampleRate: number, mode?: "whole" | "manual") => {
       const roundedNext = Math.round(nextSampleRate);
@@ -3023,6 +2957,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             limitMarkers={limitMarkers}
             rangeSlidersDisabled={visualizerLoading}
             onSampleRateChange={handleSignalDisplaySampleRateChange}
+            activeSampleRateHz={
+              sampleRateHzEffective ??
+              liveSdrSettingsToUse?.sample_rate ??
+              sampleRateHz ??
+              sampleRateHzLocal ??
+              null
+            }
+            wholeChannelMode={isWholeChannelMode}
           />
 
           <IQCaptureControlsSection

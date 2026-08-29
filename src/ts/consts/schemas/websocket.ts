@@ -457,6 +457,15 @@ export interface SignalDisplaySettingsMessage {
   sample_rate: number;
   fft_size: number;
   frame_rate: number;
+  fft_window?: string | null;
+  gain?: number | null;
+  hackrf_lna_gain?: number | null;
+  hackrf_vga_gain?: number | null;
+  hackrf_amp_enable?: boolean | null;
+  tuner_bandwidth?: number | null;
+  ppm?: number | null;
+  tuner_agc?: boolean | null;
+  rtl_agc?: boolean | null;
 }
 
 export type WebSocketMessage =

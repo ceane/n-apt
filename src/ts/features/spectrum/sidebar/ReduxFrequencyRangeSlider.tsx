@@ -36,6 +36,7 @@ interface ReduxFrequencyRangeSliderProps {
   limitMarkers?: Array<{ freq: number; label: string }>;
   isActive?: boolean;
   onActivate?: () => void;
+  onReadOnlyActivate?: () => void;
   readOnly?: boolean;
   disabled?: boolean;
   scanProgress?: number;
@@ -56,6 +57,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   limitMarkers,
   isActive,
   onActivate,
+  onReadOnlyActivate,
   readOnly,
   disabled = false,
   scanProgress,
@@ -368,6 +370,7 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
         limitMarkers={limitMarkers}
         isActive={isActive ?? isCurrentActive}
         onActivate={onActivate ?? (() => {})}
+        onReadOnlyActivate={onReadOnlyActivate}
         onRangeChange={handleRangeChange}
         readOnly={readOnly}
         disabled={disabled}

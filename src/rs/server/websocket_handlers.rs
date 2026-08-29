@@ -445,12 +445,6 @@ pub enum StreamCommand {
     subscription_id: String,
     stream: StreamKey,
     options: StreamOptions,
-    /// Identifies the tuning client so the OptionsApplied echo can be
-    /// attributed: the originator drops its own echo while foreign
-    /// subscribers still apply it. Mirrors the legacy `frequency_range`
-    /// origin_id contract.
-    #[serde(default)]
-    origin_id: Option<String>,
   },
   #[serde(rename = "stream_unsubscribe")]
   Unsubscribe {
@@ -805,16 +799,9 @@ async fn handle_stream_connection(
   loop {
     tokio::select! {
       Some(event) = event_rx.recv() => {
-        let Ok(mut payload) = stream_event_json(&event, &enc_key) else {
+        let Ok(payload) = stream_event_json(&event, &enc_key) else {
           continue;
         };
-        if matches!(event, StreamEvent::OptionsApplied { .. }) {
-          // Stamp the last tuner's origin so the originating client can drop
-          // its own echo while foreign subscribers still apply the options.
-          if let Some(origin_id) = shared.last_tune_origin_id.lock().unwrap().clone() {
-            payload["originId"] = serde_json::json!(origin_id);
-          }
-        }
         if sender.send(Message::Text(payload.to_string().into())).await.is_err() {
           break;
         }
@@ -931,7 +918,7 @@ async fn handle_stream_connection(
               break;
             }
           }
-          StreamCommand::UpdateOptions { scope, subscription_id, stream, options, origin_id } => {
+          StreamCommand::UpdateOptions { scope, subscription_id, stream, options } => {
             if scope != StreamControlScope::Device {
               let error = stream_error_json(&subscription_id, &stream, "scope", "stream options are device-scoped");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
@@ -989,9 +976,6 @@ async fn handle_stream_connection(
                     center_frequency_hz,
                     settings,
                   );
-                  // Attribute the device tune so the OptionsApplied echo can be
-                  // recognized by its originator (see stream_event_json).
-                  *shared.last_tune_origin_id.lock().unwrap() = origin_id.clone();
                 }
               }
               Ok((_, _, false)) => {
@@ -1703,7 +1687,6 @@ pub async fn handle_ws_connection(
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut broadcast_rx = broadcast_tx.subscribe();
-  let connection_id = shared.next_connection_id();
 
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
@@ -1790,9 +1773,6 @@ pub async fn handle_ws_connection(
               // otherwise its local selection waits forever for an active
               // source confirmation that will never arrive.
               || plaintext_json.contains("\"type\":\"error\"")
-              // TX safety state changes gate the transmit UI; dropping them
-              // left clients showing stale safety limits.
-              || plaintext_json.contains("\"type\":\"tx_safety\"")
             {
               if ws_sender.send(Message::Text(plaintext_json.into())).await.is_err() {
                 break;
@@ -1840,20 +1820,6 @@ pub async fn handle_ws_connection(
                     }
                   }
                 } else {
-                  // Track capture ownership before dispatching: this socket
-                  // disconnecting must only stop captures it started, never
-                  // another client's in-flight job.
-                  let mut message = message;
-                  if message.message_type == "capture_start" {
-                    let job_id = message
-                      .job_id
-                      .get_or_insert_with(|| uuid::Uuid::new_v4().to_string());
-                    shared.register_capture_owner(job_id, connection_id);
-                  } else if message.message_type == "capture_stop" {
-                    if let Some(job_id) = &message.job_id {
-                      shared.clear_capture_owner_if(job_id);
-                    }
-                  }
                   handle_message(&cmd_tx, &shared, &broadcast_tx, message);
                 }
               }
@@ -1869,15 +1835,7 @@ pub async fn handle_ws_connection(
     }
   }
 
-  // Stop only a capture this connection started. `job_id: None` would stop
-  // whatever capture is running globally, letting one client's refresh abort
-  // another client's in-flight capture.
-  if let Some(job_id) = shared.take_owned_capture_for_connection(connection_id)
-  {
-    let _ = cmd_tx.send(super::types::SdrCommand::StopCapture {
-      job_id: Some(job_id),
-    });
-  }
+  let _ = cmd_tx.send(super::types::SdrCommand::StopCapture { job_id: None });
 
   shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
   shared.client_count.fetch_sub(1, Ordering::Relaxed);
@@ -1995,10 +1953,7 @@ pub fn handle_message(
         }
         // The control command is device-scoped. Echo the authoritative
         // selection to every subscriber and include it in the next client's
-        // initial channels snapshot for hydration. The origin tag rides along
-        // so the tuning client can drop its own echo; foreign subscribers
-        // still apply it as an authoritative retune.
-        *shared.last_tune_origin_id.lock().unwrap() = message.origin_id.clone();
+        // initial channels snapshot for hydration.
         broadcast_channels(shared, broadcast_tx);
 
         // Retunes are the highest-frequency control path. Publish the latest

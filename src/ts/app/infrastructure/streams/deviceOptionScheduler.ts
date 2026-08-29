@@ -12,6 +12,8 @@ type DeviceOptionSchedulerOptions<T> = {
   equals?: (left: T, right: T) => boolean;
   intervalMs?: number;
   idleFlushMs?: number;
+  /** When false, the first gesture sample waits for the cadence timer. */
+  leadingPublish?: boolean;
 };
 
 const defaultEquals = <T>(left: T, right: T): boolean => Object.is(left, right);
@@ -26,6 +28,7 @@ export const createDeviceOptionScheduler = <T>({
   equals = defaultEquals,
   intervalMs = 50,
   idleFlushMs = 80,
+  leadingPublish = true,
 }: DeviceOptionSchedulerOptions<T>): DeviceOptionScheduler<T> => {
   let lastPublished: T | undefined;
   let hasPublished = false;
@@ -106,7 +109,10 @@ export const createDeviceOptionScheduler = <T>({
       scheduleIdleFlush();
 
       const elapsed = hasPublished ? Date.now() - lastPublishedAt : intervalMs;
-      if (!hasPublished || elapsed >= intervalMs) {
+      if (
+        leadingPublish &&
+        (!hasPublished || elapsed >= intervalMs)
+      ) {
         const leadingValue = pending as T;
         pending = undefined;
         hasPending = false;
@@ -115,7 +121,9 @@ export const createDeviceOptionScheduler = <T>({
         return;
       }
 
-      scheduleCadenceFlush(intervalMs - elapsed);
+      scheduleCadenceFlush(
+        hasPublished ? intervalMs - elapsed : intervalMs,
+      );
     },
     flush,
     cancel,

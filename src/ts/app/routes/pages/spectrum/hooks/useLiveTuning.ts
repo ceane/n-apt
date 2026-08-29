@@ -16,6 +16,7 @@ import {
 } from "@n-apt/transmit/public/txSliderPlacement";
 import {
   setFrequencyRange,
+  setTuningPreviewActive,
   setTxCenterFrequencyHz,
   setVizZoomFloorPan,
 } from "@n-apt/redux";
@@ -34,6 +35,7 @@ export interface UseFrequencyTuningOptions {
     hardwareBounds: { min: number; max: number } | null,
   ) => { min: number; max: number };
   frequencyRange: FrequencyRange | null;
+  tuningPreviewActive?: boolean;
   vizZoom?: number;
   sourceMode?: "live" | "file";
   vizPanOffset?: number;
@@ -43,7 +45,7 @@ export interface UseFrequencyTuningOptions {
   sendFrequencyRange: (range: FrequencyRange) => void;
   applyTxMonitorForRange: (
     range: FrequencyRange,
-    source: "user-pan" | "mode-enter" | "typed",
+    source: "user-pan" | "mode-enter" | "typed" | "hardware-retune",
   ) => void;
   setVizPanOffset: (pan: number) => void;
 }
@@ -62,6 +64,7 @@ export const useFrequencyTuning = (options: UseFrequencyTuningOptions) => {
     sampleRateHzEffective,
     getAvailableSpectrumBounds,
     frequencyRange,
+    tuningPreviewActive = false,
     vizZoom,
     sourceMode,
     vizPanOffset,
@@ -101,34 +104,49 @@ export const useFrequencyTuning = (options: UseFrequencyTuningOptions) => {
   const publishFrequencyRange = useCallback(
     (
       range: FrequencyRange,
-      source: "user-pan" | "mode-enter" | "typed" = "user-pan",
+      source:
+        | "user-pan"
+        | "mode-enter"
+        | "typed"
+        | "hardware-retune" = "user-pan",
     ) => {
-      // The canvas keeps the live view in refs while a gesture is in flight.
-      // Coalesce Redux and device updates to one latest-value publish every
-      // 50 ms. The interaction hook already updates the live refs and asks
-      // the canvas to repaint synchronously, so this does not slow the drag.
-      const publisher = liveFrequencyRangePublisherRef.current;
-      if (source === "user-pan") {
-        publisher?.publish(range);
+      if (
+        tuningPreviewActive &&
+        (source === "user-pan" || source === "hardware-retune")
+      ) {
+        // Direct wheel tuning owns the VFO as soon as the gesture begins.
+        // Stop a channel-selection trajectory before its next animation frame
+        // can overwrite the wheel range in the opposite direction.
+        reduxDispatch(setTuningPreviewActive(false));
+      }
+      if (source === "user-pan" || source === "hardware-retune") {
+        // The interaction hook updates its live refs synchronously. Keep the
+        // route/device fan-out bounded so a trackpad burst cannot cause one
+        // React render and socket command per native wheel event.
+        liveFrequencyRangePublisherRef.current?.publish(range);
         return;
       }
 
       // Typed/mode changes are discrete commands. Flush a pending pan first,
       // then preserve their immediate ordering with the device request.
-      publisher?.flush();
+      liveFrequencyRangePublisherRef.current?.flush();
       publishFrequencyRangeImmediately(
         range,
         setLiveFrequencyRangeRef.current,
         sendLiveFrequencyRangeRef.current,
       );
     },
-    [],
+    [reduxDispatch, tuningPreviewActive],
   );
 
   const handleFrequencyRangeChange = useCallback(
     (
       range: FrequencyRange,
-      source: "user-pan" | "mode-enter" | "typed" = "user-pan",
+      source:
+        | "user-pan"
+        | "mode-enter"
+        | "typed"
+        | "hardware-retune" = "user-pan",
     ) => {
       // The mirror is presentational: an explicit tune still asks the radio for
       // a positive window, and a below-zero request is restored with pan rather
@@ -358,7 +376,10 @@ export const useTxMonitor = (options: UseTxMonitorOptions) => {
   const wasMockTxMonitorActiveRef = useRef(false);
 
   const applyTxMonitorForRange = useCallback(
-    (range: FrequencyRange, source: "user-pan" | "mode-enter" | "typed") => {
+    (
+      range: FrequencyRange,
+      source: "user-pan" | "mode-enter" | "typed" | "hardware-retune",
+    ) => {
       if (
         !isMockTxMonitorActive ||
         !Number.isFinite(range.min) ||
@@ -370,7 +391,10 @@ export const useTxMonitor = (options: UseTxMonitorOptions) => {
       if (source === "user-pan") {
         setTxMonitorDetached(true);
         setMockMonitorCenterHz(nextCenter);
-      } else if (shouldJumpTxMonitor({ source })) {
+      } else if (
+        source !== "hardware-retune" &&
+        shouldJumpTxMonitor({ source })
+      ) {
         setTxMonitorDetached(false);
         setMockMonitorCenterHz(nextCenter);
       }

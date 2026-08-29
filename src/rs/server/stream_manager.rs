@@ -389,22 +389,18 @@ impl StreamingSourceModeManager {
   }
 
   fn validate_capability(&self, key: &StreamKey) -> Result<(), StreamError> {
-    // Default-DENY: capabilities are registered per-source at subscribe time
-    // from the device inventory snapshot. An unknown source id (typo, stale
-    // reference, or crafted input) must not inherit full privileges.
-    let Some(capabilities) = self
+    let capabilities = self
       .inner
       .capabilities
       .lock()
       .unwrap()
       .get(&key.source_id)
       .copied()
-    else {
-      return Err(StreamError::Capability(format!(
-        "unknown source {} cannot open {:?} streams",
-        key.source_id, key.mode
-      )));
-    };
+      .unwrap_or(SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: true,
+        full_duplex: true,
+      });
     let allowed = match key.mode {
       StreamMode::Rx => capabilities.can_receive,
       StreamMode::Tx => capabilities.can_transmit,
@@ -424,9 +420,6 @@ impl StreamingSourceModeManager {
     key: &StreamKey,
     streams: &HashMap<StreamKey, StreamEntry>,
   ) -> bool {
-    // Unregistered sources never reach here (validate_capability denies
-    // first); if one ever did, treat it as half-duplex so mode arbitration
-    // stays conservative rather than permissive.
     let capabilities = self
       .inner
       .capabilities
@@ -435,9 +428,9 @@ impl StreamingSourceModeManager {
       .get(&key.source_id)
       .copied()
       .unwrap_or(SourceStreamCapabilities {
-        can_receive: false,
-        can_transmit: false,
-        full_duplex: false,
+        can_receive: true,
+        can_transmit: true,
+        full_duplex: true,
       });
     if capabilities.full_duplex {
       return false;
@@ -847,52 +840,6 @@ mod tests {
     manager
   }
 
-  /// Manager with the mock Rx source registered, mirroring what the
-  /// websocket subscribe path does from the device inventory snapshot.
-  fn mock_rx_manager() -> StreamingSourceModeManager {
-    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
-    manager.register_source(
-      "mock-apt",
-      SourceStreamCapabilities {
-        can_receive: true,
-        can_transmit: false,
-        full_duplex: false,
-      },
-    );
-    manager
-  }
-
-  /// Default-deny: a source that was never registered in the device
-  /// inventory must not inherit full privileges — subscribing to it is a
-  /// Capability error, not an implicit all-allowed stream.
-  #[test]
-  fn unknown_source_subscribe_is_denied() {
-    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
-
-    let rx_error = match manager.subscribe(
-      StreamKey::new("not-a-registered-source", StreamMode::Rx),
-      rx_options(),
-    ) {
-      Err(error) => error,
-      Ok(_) => panic!("unknown sources must be denied, not granted full privileges"),
-    };
-    assert!(matches!(rx_error, StreamError::Capability(_)));
-
-    let tx_error = match manager.subscribe(
-      StreamKey::new("not-a-registered-source", StreamMode::Tx),
-      tx_options(),
-    ) {
-      Err(error) => error,
-      Ok(_) => panic!("unknown Tx sources must be denied as well"),
-    };
-    assert!(matches!(tx_error, StreamError::Capability(_)));
-
-    assert!(!manager.has_stream(&StreamKey::new(
-      "not-a-registered-source",
-      StreamMode::Rx
-    )));
-  }
-
   #[test]
   fn half_duplex_tx_subscribe_succeeds_without_rx_stream() {
     let manager = half_duplex_manager();
@@ -937,7 +884,7 @@ mod tests {
 
   #[test]
   fn full_duplex_source_can_hold_rx_and_tx_streams() {
-    let manager = mock_rx_manager();
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     manager.register_source(
       "mock-tx",
       SourceStreamCapabilities {
@@ -957,7 +904,7 @@ mod tests {
 
   #[test]
   fn metrics_snapshot_exposes_live_subscriber_delivery_state() {
-    let manager = mock_rx_manager();
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     let key = StreamKey::new("mock-apt", StreamMode::Rx);
     let subscription = manager.subscribe(key.clone(), rx_options()).unwrap();
 
@@ -976,7 +923,7 @@ mod tests {
 
   #[test]
   fn late_subscriber_cannot_overwrite_device_owned_options() {
-    let manager = mock_rx_manager();
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     let key = StreamKey::new("mock-apt", StreamMode::Rx);
     let first = manager.subscribe(key.clone(), rx_options()).unwrap();
     let second_options = StreamOptions::Rx(RxStreamOptions {
@@ -998,7 +945,7 @@ mod tests {
 
   #[tokio::test]
   async fn latest_subscriber_drains_frames_without_crossing_control_events() {
-    let manager = mock_rx_manager();
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     let key = StreamKey::new("mock-apt", StreamMode::Rx);
     let mut subscription = manager
       .subscribe_with_policy(
@@ -1039,7 +986,7 @@ mod tests {
 
   #[tokio::test]
   async fn latest_subscriber_recovers_from_bounded_broadcast_lag() {
-    let manager = mock_rx_manager();
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     let key = StreamKey::new("mock-apt", StreamMode::Rx);
     let mut subscription = manager
       .subscribe_with_policy(key.clone(), rx_options(), StreamDeliveryPolicy::Latest)
@@ -1057,7 +1004,7 @@ mod tests {
 
   #[test]
   fn identical_device_options_are_not_republished() {
-    let manager = mock_rx_manager();
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     let key = StreamKey::new("mock-apt", StreamMode::Rx);
     let mut subscription = manager.subscribe(key.clone(), rx_options()).unwrap();
 

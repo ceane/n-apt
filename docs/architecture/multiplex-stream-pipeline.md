@@ -9,12 +9,9 @@ document in the same commit.
 
 | Term | Meaning | Home |
 |---|---|---|
-| **MultiplexStreamFrameId** | `{sourceId, streamEpoch, sequence}` — the identity of a frame on the wire | `features/spectrum/model/multiplexStream/frameIdentity.ts` |
-| **acceptsMultiplexStreamFrame(frame, lifecycle)** | The *ingress* "does this frame belong here" predicate (strict: no commitment ⇒ reject; newer epoch admitted) | `model/multiplexStream/frameGate.ts` |
-| **matchesMultiplexStreamSelection(…)** | The *presentation* admission rule (permissive: no expectation ⇒ accept anything; tagged foreign source rejected) | `model/multiplexStream/frameGate.ts` (consumers still import it as `shouldAcceptWebGpuStreamFrame` from `webgpuStreamReset`) |
-| **sameMultiplexStreamLifecycle(a, b)** | Exact lifecycle equality with null-tolerant epochs — frozen-frame slot validation | `model/multiplexStream/frameIdentity.ts` |
+| **MultiplexStreamFrameId** | `{sourceId, streamEpoch, sequence}` — the identity of a frame on the wire | `features/spectrum/model/multiplexStream/frameIdentity` (see `frameGate.ts`) |
+| **acceptsMultiplexStreamFrame(frame, lifecycle)** | The *only* "does this frame belong here" predicate | `model/multiplexStream/frameGate.ts` |
 | **Sequence gate** | Per-stream monotonic ordering, duplicate rejection, gap counting, first-frame-per-epoch readiness boundary | `model/multiplexStream/frameGate.ts` (`createMultiplexStreamSequenceGate`) |
-| **Presentation batch gate** | Accept/replace-vs-append decision for a batch of presentation frames, incl. paused one-shot and Tx-preview semantics | `model/multiplexStream/presentationGate.ts` (`resolveMultiplexStreamPresentationBatch`); middleware applies it |
 | **Verdict** | One decision object consumed by canvases/route: `{phase, placeholder, framePolicy, gpuReset, standby}` | `model/multiplexStream/lifecycle/` (Phase 3 of consolidation) |
 | **Transport** | One authenticated WebSocket carrying every active source/mode subscription | `app/infrastructure/streams/multiplexedStreamTransport.ts` |
 | **Delivery policy** | `latest` (coalesce while decrypting; slow consumer drops stale frames) vs `lossless` (bounded 32-frame queue, lag error beyond that) | transport + `streamContract.ts` |
@@ -129,32 +126,3 @@ multiplexed transport with explicit tagging (backend-inclusive work).
   integrity across a handoff.
 - Any refactor of a stage must be preceded by a characterization-test commit so
   regressions bisect to a single diff.
-
-## 8. Known issue: VFO retune oscillation under lossless delivery
-
-The `vfo-retune-latency` integration test intermittently exposes a real tuning
-race. Symptom (captured via manager-level frame tracing): after two successful
-retunes, the backend receives replayed **older** tune windows and oscillates
-between them (observed `cf` sequence: 1.6 MHz → 5.0 → 5.0 → 5.1 → 5.1 →
-**5.0 → 5.0 → 5.0** → 5.1 …), so the requested next retune window never
-produces a frame and the round-trip times out.
-
-Suspected mechanism: the managed-RX device-option hydration path —
-`stream_options_applied` events (authoritative, non-local origin) dispatch SDR
-settings updates while the local gesture scheduler may still hold queued older
-ranges; the stale value is re-published to the device, which then alternates
-with the fresh tune. The guard comment at `handleManagedStreamEvent`
-("never replay an older write") covers Redux state but apparently not the
-device command path.
-
-**Fix (shipped):** `handleManagedStreamEvent` opens a suppression window
-(`RX_HYDRATION_SUPPRESSION_MS`, 750 ms) on every authoritative non-local
-`stream_options_applied`, and `syncManagedStreamSubscriptions` drops
-state-derived option candidates whose center does not match the latest
-outgoing gesture intent (`markOutgoingRxTuneIntent`, updated by every
-`frequency_range` / `set_frequency_range` send — a fresh gesture also clears
-the window, so fast legitimate retunes are never suppressed). The decision is
-the pure predicate `shouldSuppressRxOptionsCandidate`
-(`model/multiplexStream/presentationGate.ts`); the middleware only applies it.
-Invariant going forward: **one writer, one current tune** — hydration may
-rewrite Redux, never the device.

@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 500" role="img" aria-labelledby="title description">
+  <title id="title">Interleaved bins</title>
+  <desc id="description">A shared orthogonal frequency grid where Read occupies even bins and Write occupies odd bins. Both signals are present simultaneously; the alternation is across frequency, not time.</desc>
+  <style>
+    .title { fill: #acbaff; font: 500 26px Inter, system-ui, sans-serif; letter-spacing: .01em; }
+    .label { fill: #acbaff; font: 500 17px Inter, system-ui, sans-serif; }
+    .small { fill: rgba(172,186,255,.72); font: 400 14px Inter, system-ui, sans-serif; letter-spacing: .02em; }
+    .bin-label { font: 500 15px Inter, system-ui, sans-serif; text-anchor: middle; }
+    .equation { fill: #acbaff; font: 500 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .axis, .bracket, .bin-line { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .axis { stroke: #acbaff; stroke-width: 2; }
+    .bracket { stroke: rgba(172,186,255,.72); stroke-width: 1.5; }
+    .bin-line { stroke: rgba(172,186,255,.34); stroke-width: 1.5; }
+    .overlap { fill: none; stroke: rgba(172,186,255,.28); stroke-width: 2; }
+    .read { fill: rgba(93,196,255,.18); stroke: #8fd3ff; stroke-width: 2; }
+    .write { fill: rgba(255,184,112,.18); stroke: #ffca8f; stroke-width: 2; }
+    .read-text { fill: #8fd3ff; }
+    .write-text { fill: #ffca8f; }
+    @media (max-width: 560px) {
+      .title { font-size: 22px; }
+      .label { font-size: 15px; }
+      .small { font-size: 12px; }
+      .bin-label { font-size: 13px; }
+      .equation { font-size: 16px; }
+    }
+  </style>
+
+  <text class="title" x="480" y="38" text-anchor="middle">Interleaved bins</text>
+  <path class="bracket" d="M 76 92 v 12 H 884 v -12" />
+  <text class="label" x="480" y="84" text-anchor="middle">Shared orthogonal frequency grid</text>
+  <text class="small" x="480" y="132" text-anchor="middle">Frequency-domain subcarriers — alternating by frequency, not by time</text>
+
+  <g aria-hidden="true">
+    <path class="overlap" d="M 92 280 C 112 232 132 232 152 280 C 172 328 192 328 212 280 C 232 232 252 232 272 280 C 292 328 312 328 332 280 C 352 232 372 232 392 280 C 412 328 432 328 452 280 C 472 232 492 232 512 280 C 532 328 552 328 572 280 C 592 232 612 232 632 280 C 652 328 672 328 692 280 C 712 232 732 232 752 280 C 772 328 792 328 812 280 C 832 232 852 232 872 280" />
+    <path class="overlap" d="M 92 280 C 110 260 128 260 146 280 C 164 300 182 300 200 280 C 218 260 236 260 254 280 C 272 300 290 300 308 280 C 326 260 344 260 362 280 C 380 300 398 300 416 280 C 434 260 452 260 470 280 C 488 300 506 300 524 280 C 542 260 560 260 578 280 C 596 300 614 300 632 280 C 650 260 668 260 686 280 C 704 300 722 300 740 280 C 758 260 776 260 794 280 C 812 300 830 300 848 280" />
+  </g>
+
+  <g aria-label="Alternating frequency bins">
+    <g class="bin-line">
+      <line x1="92" y1="190" x2="92" y2="326" />
+      <line x1="176" y1="190" x2="176" y2="326" />
+      <line x1="260" y1="190" x2="260" y2="326" />
+      <line x1="344" y1="190" x2="344" y2="326" />
+      <line x1="428" y1="190" x2="428" y2="326" />
+      <line x1="512" y1="190" x2="512" y2="326" />
+      <line x1="596" y1="190" x2="596" y2="326" />
+      <line x1="680" y1="190" x2="680" y2="326" />
+      <line x1="764" y1="190" x2="764" y2="326" />
+      <line x1="848" y1="190" x2="848" y2="326" />
+    </g>
+    <g>
+      <rect class="read" x="73" y="249" width="38" height="62" rx="4" />
+      <rect class="write" x="157" y="249" width="38" height="62" rx="4" />
+      <rect class="read" x="241" y="249" width="38" height="62" rx="4" />
+      <rect class="write" x="325" y="249" width="38" height="62" rx="4" />
+      <rect class="read" x="409" y="249" width="38" height="62" rx="4" />
+      <rect class="write" x="493" y="249" width="38" height="62" rx="4" />
+      <rect class="read" x="577" y="249" width="38" height="62" rx="4" />
+      <rect class="write" x="661" y="249" width="38" height="62" rx="4" />
+      <rect class="read" x="745" y="249" width="38" height="62" rx="4" />
+      <rect class="write" x="829" y="249" width="38" height="62" rx="4" />
+    </g>
+    <g class="bin-label">
+      <text class="read-text" x="92" y="236">R0</text>
+      <text class="write-text" x="176" y="236">W0</text>
+      <text class="read-text" x="260" y="236">R1</text>
+      <text class="write-text" x="344" y="236">W1</text>
+      <text class="read-text" x="428" y="236">R2</text>
+      <text class="write-text" x="512" y="236">W2</text>
+      <text class="read-text" x="596" y="236">R3</text>
+      <text class="write-text" x="680" y="236">W3</text>
+      <text class="read-text" x="764" y="236">R4</text>
+      <text class="write-text" x="848" y="236">W4</text>
+    </g>
+  </g>
+
+  <line class="axis" x1="70" y1="348" x2="890" y2="348" />
+  <path class="axis" d="M 890 348 l -10 -6 M 890 348 l -10 6" />
+  <text class="label" x="480" y="378" text-anchor="middle">Frequency →</text>
+  <text class="label" x="480" y="414" text-anchor="middle">Both signals are present simultaneously</text>
+  <text class="small" x="480" y="437" text-anchor="middle">R and W share the same grid; they are not alternating time slots.</text>
+  <text class="equation" x="480" y="468" text-anchor="middle">X[2k] = R[k]</text>
+  <text class="equation" x="480" y="491" text-anchor="middle">X[2k + 1] = W[k]</text>
+</svg>

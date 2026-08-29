@@ -245,11 +245,16 @@ describe("useSdrSettings", () => {
     });
 
     await waitFor(() => {
+      // Only the capped frame rate is published. The unchanged FFT size must
+      // not be re-sent: a stale local snapshot would clobber device state for
+      // every subscriber (see sendCurrentSettings overrides-only contract).
       expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          fftSize: 16384,
           frameRate: 48,
         }),
+      );
+      expect(mockOnSettingsChange).not.toHaveBeenLastCalledWith(
+        expect.objectContaining({ fftSize: 16384 }),
       );
     });
 
@@ -703,6 +708,70 @@ describe("useSdrSettings", () => {
         4_372_000,
       );
     });
+  });
+
+  it("sends only the changed field, never a stale full snapshot", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 2048, // stale: another client changed it to 4096, this one missed the hydration
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    let hookApi: ReturnType<typeof useSdrSettings> | null = null;
+
+    const Harness = () => {
+      hookApi = useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    expect(hookApi).not.toBeNull();
+
+    act(() => {
+      // The user changes gain. The stale local fftSize (2048) must NOT ride
+      // along in the payload, or every client would be reset to 2048.
+      hookApi!.setGain(30);
+    });
+
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ gain: 30 }),
+    );
+    const lastCall = mockOnSettingsChange.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(lastCall.fftSize).toBeUndefined();
+    expect(lastCall.ppm).toBeUndefined();
+    expect(lastCall.tunerAGC).toBeUndefined();
   });
 
   it("routes HackRF LNA, VGA, and AMP changes through the live settings payload", () => {

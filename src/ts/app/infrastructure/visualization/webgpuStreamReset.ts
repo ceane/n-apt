@@ -1,5 +1,4 @@
 import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
-import { matchesMultiplexStreamSelection } from "@n-apt/spectrum/model/multiplexStream/frameGate";
 
 export type WebGpuStreamIdentity = {
   sourceId: string | null;
@@ -19,9 +18,6 @@ export const shouldRestoreWebGpuStreamState = (epoch: number): boolean =>
  * middleware attaches the owning source before the frame reaches the canvas,
  * which lets a handoff reject a late frame from the socket it just replaced.
  * Untagged frames remain valid for legacy/file paths.
- *
- * Delegates to the canonical model gate; kept as a named export because the
- * canvas presentation path and its tests consume this spelling.
  */
 export const shouldAcceptWebGpuStreamFrame = ({
   expectedSourceId,
@@ -31,12 +27,14 @@ export const shouldAcceptWebGpuStreamFrame = ({
   expectedSourceId: string | null | undefined;
   frameSourceId: string | null | undefined;
   fallbackFrameSourceId?: string | null;
-}): boolean =>
-  matchesMultiplexStreamSelection({
-    expectedSourceId,
-    frameSourceId,
-    fallbackFrameSourceId,
-  });
+}): boolean => {
+  const effectiveFrameSourceId = frameSourceId ?? fallbackFrameSourceId;
+  return (
+    !expectedSourceId ||
+    !effectiveFrameSourceId ||
+    expectedSourceId === effectiveFrameSourceId
+  );
+};
 
 /**
  * Loading overlays must sit on top of the last painted graph. Wiping WebGPU

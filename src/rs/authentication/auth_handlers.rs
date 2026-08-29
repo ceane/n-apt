@@ -3,7 +3,6 @@ use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use log::{error, info, warn};
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use webauthn_rs::prelude::*;
@@ -73,7 +72,7 @@ fn take_pending_passkey_state<T>(
 pub async fn auth_info_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
-  let has_passkeys = state.credential_store.has_passkeys().await;
+  let has_passkeys = state.credential_store.has_passkeys();
   Json(serde_json::json!({
     "has_passkeys": has_passkeys,
   }))
@@ -205,19 +204,6 @@ pub async fn auth_verify_handler(
     }
   };
 
-  // Verify HMAC.
-  //
-  // SECURITY CONTRACT — do not "fix" this into breakage:
-  // `state.shared.encryption_key` IS `PBKDF2-HMAC-SHA256(UNSAFE_LOCAL_USER_PASSWORD,
-  // salt, 100k)` (see SharedState::new). Verifying the client's nonce-HMAC
-  // with it therefore proves knowledge of the password: only a client that
-  // ran the same derivation can produce a valid tag. The same derived key is
-  // also the vault key that encrypts .napt I/Q captures (and what
-  // scripts/decrypt_napt.mjs re-derives for playback). Changing either the
-  // derivation parameters, the salt handling, or this verification key makes
-  // every previously recorded capture unplayable. Accepted local-deployment
-  // trade-offs: one shared user password; passkey sessions can retrieve the
-  // vault key via /auth/vault-key by design.
   if !crypto::verify_hmac(
     &state.shared.encryption_key,
     &nonce_bytes,
@@ -288,50 +274,18 @@ pub async fn auth_session_handler(
   }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct VaultKeyQuery {
-  pub token: Option<String>,
-}
-
-/// Optional query parameters accepted by the passkey registration endpoints.
-#[derive(Debug, Deserialize)]
-pub struct RegistrationQuery {
-  pub token: Option<String>,
+  pub token: String,
 }
 
 /// GET /auth/vault-key — returns the password-derived vault key used for file
 /// encryption/decryption in this local environment.
-///
-/// SECURITY: this endpoint serves key material, so the session token is
-/// accepted via the `Authorization: Bearer` header first; the query-parameter
-/// form remains only as a legacy fallback because tokens in URLs leak into
-/// proxy/access logs and browser history.
 pub async fn auth_vault_key_handler(
   State(state): State<Arc<crate::server::AppState>>,
-  headers: axum::http::HeaderMap,
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
-  let token = headers
-    .get(axum::http::header::AUTHORIZATION)
-    .and_then(|value| value.to_str().ok())
-    .and_then(|value| value.strip_prefix("Bearer "))
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-    .map(str::to_string)
-    .or(query.token);
-
-  let Some(token) = token else {
-    return (
-      StatusCode::UNAUTHORIZED,
-      Json(serde_json::json!({
-        "error": "session_expired",
-        "message": "Missing session token",
-      })),
-    )
-      .into_response();
-  };
-
-  match state.session_store.validate(&token).await {
+  match state.session_store.validate(&query.token).await {
     Some(_session) => {
       info!("Vault key requested and session validated");
       (
@@ -353,72 +307,12 @@ pub async fn auth_vault_key_handler(
   }
 }
 
-/// Extract a session token from the `Authorization: Bearer` header, falling
-/// back to the `?token=` query parameter (legacy form used by direct
-/// download links).
-fn session_token_from_request(
-  headers: &axum::http::HeaderMap,
-  query_token: Option<String>,
-) -> Option<String> {
-  headers
-    .get(axum::http::header::AUTHORIZATION)
-    .and_then(|value| value.to_str().ok())
-    .and_then(|value| value.strip_prefix("Bearer "))
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-    .map(str::to_string)
-    .or(query_token)
-    .filter(|token| !token.is_empty())
-}
-
-/// Passkey enrollment is open only while no passkey exists (first-run setup).
-/// Once enrolled, registering another passkey requires a valid session —
-/// otherwise anyone who can reach the server could enroll themselves access.
-async fn require_session_for_re_enrollment(
-  state: &Arc<crate::server::AppState>,
-  headers: &axum::http::HeaderMap,
-  query_token: Option<String>,
-) -> Result<(), axum::response::Response> {
-  if !state.credential_store.has_passkeys().await {
-    return Ok(());
-  }
-  let Some(token) = session_token_from_request(headers, query_token) else {
-    return Err((
-      StatusCode::UNAUTHORIZED,
-      Json(serde_json::json!({
-        "error": "session_required",
-        "message": "Passkeys are already enrolled; authenticate before adding another",
-      })),
-    )
-      .into_response());
-  };
-  match state.session_store.validate(&token).await {
-    Some(_) => Ok(()),
-    None => Err((
-      StatusCode::UNAUTHORIZED,
-      Json(serde_json::json!({
-        "error": "session_expired",
-        "message": "Invalid or expired session token",
-      })),
-    )
-      .into_response()),
-  }
-}
-
 /// POST /auth/passkey/register/start — begin passkey registration.
 pub async fn passkey_register_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
-  headers: axum::http::HeaderMap,
-  Query(query): Query<RegistrationQuery>,
 ) -> impl IntoResponse {
-  if let Err(response) =
-    require_session_for_re_enrollment(&state, &headers, query.token).await
-  {
-    return response;
-  }
-
   let user_unique_id = Uuid::new_v4();
-  let existing_keys = state.credential_store.get_passkeys().await;
+  let existing_keys = state.credential_store.get_passkeys();
   let exclude_credentials: Vec<CredentialID> =
     existing_keys.iter().map(|k| k.cred_id().clone()).collect();
 
@@ -455,7 +349,6 @@ pub async fn passkey_register_start_handler(
           "options": ccr_json,
         })),
       )
-        .into_response()
     }
     Err(e) => {
       error!("WebAuthn registration start failed: {}", e);
@@ -466,7 +359,6 @@ pub async fn passkey_register_start_handler(
           "message": format!("{}", e),
         })),
       )
-        .into_response()
     }
   }
 }
@@ -474,18 +366,8 @@ pub async fn passkey_register_start_handler(
 /// POST /auth/passkey/register/finish — complete passkey registration.
 pub async fn passkey_register_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
-  headers: axum::http::HeaderMap,
-  Query(query): Query<RegistrationQuery>,
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
-  // Symmetric with the start handler: once enrolled, finishing a
-  // registration also requires an authenticated session.
-  if let Err(response) =
-    require_session_for_re_enrollment(&state, &headers, query.token).await
-  {
-    return response;
-  }
-
   let reg_state: Option<PasskeyRegistration> = {
     let mut pending = state
       .pending_passkey_registrations
@@ -499,8 +381,7 @@ pub async fn passkey_register_finish_handler(
       Json(serde_json::json!({
         "error": "invalid_challenge",
       })),
-    )
-      .into_response();
+    );
   };
 
   match state
@@ -508,15 +389,14 @@ pub async fn passkey_register_finish_handler(
     .finish_passkey_registration(&body.credential, &reg_state)
   {
     Ok(passkey) => {
-      if let Err(e) = state.credential_store.add_passkey(passkey).await {
+      if let Err(e) = state.credential_store.add_passkey(passkey) {
         error!("Failed to store passkey: {}", e);
         return (
           StatusCode::INTERNAL_SERVER_ERROR,
           Json(serde_json::json!({
             "error": "storage_error",
           })),
-        )
-          .into_response();
+        );
       }
       info!("Passkey registered successfully");
       (
@@ -525,7 +405,6 @@ pub async fn passkey_register_finish_handler(
           "success": true,
         })),
       )
-        .into_response()
     }
     Err(e) => {
       warn!("Passkey registration failed: {}", e);
@@ -536,7 +415,6 @@ pub async fn passkey_register_finish_handler(
           "message": format!("{}", e),
         })),
       )
-        .into_response()
     }
   }
 }
@@ -545,7 +423,7 @@ pub async fn passkey_register_finish_handler(
 pub async fn passkey_auth_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
-  let existing_keys = state.credential_store.get_passkeys().await;
+  let existing_keys = state.credential_store.get_passkeys();
   if existing_keys.is_empty() {
     return (
       StatusCode::BAD_REQUEST,

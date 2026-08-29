@@ -2,8 +2,8 @@ import fc from "fast-check";
 import {
   shouldPresentSpectrumFrameForRange,
   shouldAdoptLiveFrameRange,
-  shouldKeepPaintingThroughRetune,
   newestIqWindow,
+  resolveLiveSpectrumPaintContract,
   updateTemporalWaveform,
   type TemporalWaveformState,
 } from "@n-apt/features/spectrum/fft/frameProcessing";
@@ -51,14 +51,6 @@ describe("frame processing fuzz", () => {
           ).not.toThrow();
           expect(() =>
             shouldAdoptLiveFrameRange({
-              frameCenterHz: center,
-              frameSampleRateHz: sampleRate,
-              requestedRange: range,
-              isTxPreviewFrame: tx,
-            }),
-          ).not.toThrow();
-          expect(() =>
-            shouldKeepPaintingThroughRetune({
               frameCenterHz: center,
               frameSampleRateHz: sampleRate,
               requestedRange: range,
@@ -213,6 +205,117 @@ describe("frame processing fuzz", () => {
           expect(out!.activeCount).toBeGreaterThanOrEqual(0);
         },
       ),
+    );
+  });
+
+  it("scroll-lag paint contracts keep the resident frame axis and allow live presentation", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 100_000, max: 25_000_000_000 }),
+        fc.integer({ min: 1_000_000, max: 8_000_000 }),
+        fc.integer({ min: -3_000_000_000, max: 3_000_000_000 }),
+        (centerHz, sampleRateHz, panOffsetHz) => {
+          const sourceFrequencyRange = {
+            min: centerHz - sampleRateHz / 2,
+            max: centerHz + sampleRateHz / 2,
+          };
+          const requestedViewRange = {
+            min: centerHz - sampleRateHz,
+            max: centerHz + sampleRateHz,
+          };
+
+          const contract = resolveLiveSpectrumPaintContract({
+            requestedViewRange,
+            sourceFrequencyRange,
+            zoom: 1,
+            panOffsetHz,
+            mirrorEnabled: true,
+            frameCenterHz: centerHz,
+            frameSampleRateHz: sampleRateHz,
+          });
+
+          expect(contract.paintViewportRange).toEqual(sourceFrequencyRange);
+          expect(
+            shouldPresentSpectrumFrameForRange({
+              frameCenterHz: centerHz,
+              frameSampleRateHz: sampleRateHz,
+              requestedRange: requestedViewRange,
+              requiresExactRange: false,
+            }),
+          ).toBe(true);
+          expect(
+            shouldAdoptLiveFrameRange({
+              frameCenterHz: centerHz,
+              frameSampleRateHz: sampleRateHz,
+              requestedRange: requestedViewRange,
+            }),
+          ).toBe(false);
+        },
+      ),
+      { numRuns: 60 },
+    );
+  });
+
+  it("paint contracts never produce NaN ranges and stay finite under fuzz", () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.integer({ min: -3_000_000_000, max: 3_000_000_000 }),
+          fc.constant(NaN),
+          fc.constant(Infinity),
+          fc.constant(-Infinity),
+        ),
+        fc.oneof(
+          fc.integer({ min: 1, max: 30_000_000_000 }),
+          fc.constant(NaN),
+          fc.constant(0),
+          fc.constant(-1),
+        ),
+        fc.integer({ min: -3_000_000_000, max: 3_000_000_000 }),
+        fc.float({ min: 1, max: 100, noDefaultInfinity: true }),
+        fc.boolean(),
+        (centerHz, sampleRateHz, panOffsetHz, zoom, mirrorEnabled) => {
+          const sourceFrequencyRange = {
+            min: centerHz - sampleRateHz / 2,
+            max: centerHz + sampleRateHz / 2,
+          };
+          const requestedViewRange = {
+            min: centerHz - sampleRateHz,
+            max: centerHz + sampleRateHz,
+          };
+
+          let contract: {
+            paintViewportRange: { min: number; max: number };
+            sourceFrequencyRange: { min: number; max: number };
+            displayRange: { min: number; max: number };
+            zoom: number;
+            panOffsetHz: number;
+          };
+          expect(() => {
+            contract = resolveLiveSpectrumPaintContract({
+              requestedViewRange,
+              sourceFrequencyRange,
+              zoom,
+              panOffsetHz,
+              mirrorEnabled,
+            });
+          }).not.toThrow();
+
+          for (const range of [
+            contract!.paintViewportRange,
+            contract!.sourceFrequencyRange,
+            contract!.displayRange,
+          ]) {
+            expect(
+              Number.isFinite(range.min) && Number.isFinite(range.max),
+            ).toBe(true);
+            expect(range.max >= range.min).toBe(true);
+          }
+          expect(Number.isFinite(contract!.zoom)).toBe(true);
+          expect(Number.isFinite(contract!.panOffsetHz)).toBe(true);
+        },
+      ),
+      { numRuns: 120 },
     );
   });
 });

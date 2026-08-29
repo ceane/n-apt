@@ -28,13 +28,6 @@ import {
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
-import {
-  filterMultiplexStreamTxPreviewFrames,
-  hasMultiplexStreamTxPreviewFrame,
-  isMultiplexStreamTxPresentationFrame,
-  resolveMultiplexStreamPresentationBatch,
-  shouldSuppressRxOptionsCandidate,
-} from "@n-apt/spectrum/model/multiplexStream";
 import { decryptPayload } from "@n-apt/crypto/webcrypto";
 import {
   type DeviceState,
@@ -101,6 +94,9 @@ export const liveDataRef: { current: IqRawFrame[] | IqRawFrame | null } = {
 export const liveDataBySourceRef: {
   current: Record<string, { current: IqRawFrame[] | IqRawFrame | null }>;
 } = { current: {} };
+
+/** Stable identity attached to legacy client-originated broadcasts. */
+export const CLIENT_ORIGIN_ID = "n-apt-client";
 
 export const sourceVisualizationRuntime =
   new SourceVisualizationRuntime<IqRawFrame>();
@@ -323,11 +319,22 @@ export const resolveManagedRxDeviceOptionUpdates = ({
             options.centerFrequencyHz <= channel.max_hz,
         )?.label;
   const frequencyRange = resolveManagedRxFrequencyRange(options);
+  const previousHardwareCenter = spectrumState.frequencyRange
+    ? (spectrumState.frequencyRange.min + spectrumState.frequencyRange.max) / 2
+    : 0;
+  const previousPanOffset = Number(spectrumState.vizPanOffset ?? 0);
   const mirroredPanOffset = reanchorMirroredView
     ? resolveMirroredDevicePanOffset({
         previousHardwareRange: spectrumState.frequencyRange,
         nextHardwareRange: frequencyRange,
-        previousPanOffsetHz: Number(spectrumState.vizPanOffset ?? 0),
+        // Older persisted mirrored views stored the absolute negative display
+        // center at the exact negative edge of the acquisition range.
+        previousPanOffsetHz:
+          previousPanOffset < 0 &&
+          spectrumState.frequencyRange &&
+          previousPanOffset === -spectrumState.frequencyRange.max
+            ? previousPanOffset - previousHardwareCenter
+            : previousPanOffset,
         previousZoom: Number(spectrumState.vizZoom ?? 1),
         mirrorEnabled: settingsState.mirrorIqBasebandBelowZero === true,
       })
@@ -583,41 +590,6 @@ const managedRxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
   },
   equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
 });
-/**
- * Retune-oscillation guard: authoritative hydration (`stream_options_applied`
- * from the device) rewrites source settings in Redux. Until that state
- * settles, any state-derived option build can read values OLDER than the
- * newest gesture; submitting them tunes the device backwards and the backend
- * oscillates between stale windows instead of delivering the requested one.
- *
- * For the suppression window after each authoritative hydration, only option
- * sets whose center matches the latest outgoing gesture intent may publish;
- * anything else is a hydration echo and is dropped. Gestures themselves always
- * update the intent marker, so legitimate fast retunes are never suppressed.
- */
-const RX_HYDRATION_SUPPRESSION_MS = 750;
-let rxHydrationSuppressionUntil = 0;
-let latestGestureRxCenterHz: number | null = null;
-
-const extractTuneCenterHz = (data: any): number | null => {
-  const center = Number(data?.center_frequency ?? data?.centerFrequencyHz);
-  if (Number.isFinite(center) && center > 0) return center;
-  const min = Number(data?.min_hz ?? data?.min_freq ?? data?.min);
-  const max = Number(data?.max_hz ?? data?.max_freq ?? data?.max);
-  if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
-    return (min + max) / 2;
-  }
-  return null;
-};
-
-const markOutgoingRxTuneIntent = (data: any): void => {
-  const center = extractTuneCenterHz(data);
-  if (center !== null) {
-    latestGestureRxCenterHz = center;
-    // A fresh gesture supersedes any pending hydration echo suppression.
-    rxHydrationSuppressionUntil = 0;
-  }
-};
 const managedTxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
   publish: (options) => {
     void managedTxSubscription?.updateOptions(options).catch(() => undefined);
@@ -768,33 +740,6 @@ export const normalizeFrequencyRangeMessageData = (
 
   return normalized;
 };
-
-/**
- * Stable per-page-load identity used to break the retune echo loop. The
- * backend echoes every device-scoped tune back to all subscribers including
- * the originator; outgoing tunes are stamped with this id and the echoed
- * channels snapshot carries it so the originator can drop its own echo
- * instead of re-applying stale state over an in-flight gesture.
- */
-const CLIENT_ORIGIN_ID = (() => {
-  try {
-    if (typeof crypto !== "undefined" && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-  } catch {
-    // Fall through to the non-secure-context fallback below.
-  }
-  return `client-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 10)}`;
-})();
-
-/** Message types the backend treats as device-scoped live tunes. */
-const ORIGIN_TAGGED_MESSAGE_TYPES = new Set([
-  "frequency_range",
-  "set_frequency_range",
-  "demod_tune",
-]);
 
 export const collapsePausedFrameBatch = <T>(data: T | T[]): T => {
   return Array.isArray(data) ? data[data.length - 1] : data;
@@ -964,7 +909,11 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     });
     const isActiveTxPreviewBinding =
       !!activeSourceId && boundTxSourceId === activeSourceId;
-    const isTxPresentationFrame = isMultiplexStreamTxPresentationFrame;
+    const isTxPresentationFrame = (frame: any): boolean =>
+      frame?.frame_status === "standby" ||
+      frame?.frame_status === "transmitting" ||
+      frame?.is_tx_preview === true ||
+      frame?.is_mock_tx_preview === true;
     const isActiveTxPresentation =
       activeSourceStatus === "standby" ||
       activeSourceStatus === "transmitting" ||
@@ -1099,38 +1048,46 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         }),
       );
     }
-    const hasTxPreviewFrame = hasMultiplexStreamTxPreviewFrame(
-      presentationFrames,
+    const hasTxPreviewFrame = presentationFrames.some(
+      (f: any) =>
+        f?.frame_status === "standby" ||
+        f?.is_tx_preview === true ||
+        f?.is_mock_tx_preview === true,
     );
     // A paused Rx source publishes exactly one frame per request_next_frame.
-    // It has no Tx-preview tag, so acceptance gates on the armed request;
-    // that arithmetic now lives in resolveMultiplexStreamPresentationBatch.
-    // Consume the gate after the first frame so idle background frames
-    // cannot bleed in.
+    // It has no Tx-preview tag, so gate acceptance on the armed request. Consume
+    // the gate after the first frame so idle background frames cannot bleed in.
+    const shouldAcceptPausedFrame = hasTxPreviewFrame || isPausedOneShotFrame;
     if (isPausedOneShotFrame) {
       pausedFrameRequestInFlight = false;
     }
 
-    const batchDecision = resolveMultiplexStreamPresentationBatch({
-      frameCount: presentationFrames.length,
-      isFileSource,
-      isPaused,
-      // isPausedOneShotFrame captured the armed state BEFORE the gate
-      // consumption above; preserve those exact semantics.
-      pausedRequestInFlight:
-        isPausedOneShotFrame || pausedFrameRequestInFlight,
-      isActiveTxMonitorStandby,
-      isActiveBoundTxPreviewStandby,
-      isSelectedTxPresentationStandby,
-      isActiveTxMonitorTransmitting,
-      isSelectedTxPresentationTransmitting,
-      hasTxPreviewFrame,
-    });
-
-    if (batchDecision.accept) {
-      if (batchDecision.replacePausedPresentation) {
+    if (
+      presentationFrames.length > 0 &&
+      ((!isPaused &&
+        !isActiveTxMonitorStandby &&
+        !isActiveBoundTxPreviewStandby &&
+        !isSelectedTxPresentationStandby) ||
+        shouldAcceptPausedFrame ||
+        isActiveTxMonitorTransmitting) &&
+      !isFileSource
+    ) {
+      if (
+        (isPaused ||
+          isActiveTxMonitorStandby ||
+          isActiveBoundTxPreviewStandby ||
+          isSelectedTxPresentationStandby) &&
+        (shouldAcceptPausedFrame || hasTxPreviewFrame) &&
+        !isActiveTxMonitorTransmitting &&
+        !isSelectedTxPresentationTransmitting
+      ) {
         const framesToUse = hasTxPreviewFrame
-          ? filterMultiplexStreamTxPreviewFrames(presentationFrames)
+          ? presentationFrames.filter(
+              (f: any) =>
+                f?.frame_status === "standby" ||
+                f?.is_tx_preview === true ||
+                f?.is_mock_tx_preview === true,
+            )
           : presentationFrames;
         liveDataRef.current = collapsePausedFrameBatch(framesToUse);
         // A requested untagged standby frame is still a one-frame response.
@@ -1651,10 +1608,6 @@ const handleManagedStreamEvent = (
     // A device revision from another subscriber supersedes any locally queued
     // gesture value. Never replay an older write after authoritative hydration.
     managedRxOptionsScheduler.cancel();
-    // Hydration is about to rewrite Redux with device-reported settings. While
-    // that settles, state-derived option builds must not reach the device —
-    // see the suppression-window note at managedRxOptionsScheduler.
-    rxHydrationSuppressionUntil = Date.now() + RX_HYDRATION_SUPPRESSION_MS;
   }
   if (
     mode === "rx" &&
@@ -1673,7 +1626,19 @@ const handleManagedStreamEvent = (
       ...updateDeviceState(updates.device as any),
       meta: { origin: "managed-stream-hydration" },
     });
-    dispatch(setDeviceSdrSettingsBundle(updates.spectrum as any));
+    const currentSpectrum = getState().spectrum ?? {};
+    const knownSpectrumUpdates = Object.entries(updates.spectrum).filter(
+      ([key]) => currentSpectrum[key] !== undefined,
+    );
+    const spectrumChanged =
+      knownSpectrumUpdates.length === 0 ||
+      knownSpectrumUpdates.some(
+        ([key, value]) =>
+          JSON.stringify(currentSpectrum[key]) !== JSON.stringify(value),
+      );
+    if (spectrumChanged) {
+      dispatch(setDeviceSdrSettingsBundle(updates.spectrum as any));
+    }
   } else if (event.type === "stream_frame") {
     const state = getState().websocket;
     const source = (state.sources ?? []).find(
@@ -1870,24 +1835,10 @@ const syncManagedStreamSubscriptions = (
         );
       });
   } else if (managedRxSubscription && desiredRxSource) {
-    const candidate = buildManagedRxOptions(
-      getState(),
-      desiredRxSource,
-      rxOptionsOverride,
+    managedRxOptionsScheduler.submit(
+      buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
+      publishMode,
     );
-    // Drop hydration echoes: within the suppression window after an
-    // authoritative options_applied, only a build matching the latest
-    // gesture intent may reach the device. See the guard note at
-    // managedRxOptionsScheduler.
-    if (
-      !shouldSuppressRxOptionsCandidate({
-        hydrationSuppressionActive: Date.now() < rxHydrationSuppressionUntil,
-        latestGestureCenterHz: latestGestureRxCenterHz,
-        candidateCenterHz: candidate.centerFrequencyHz,
-      })
-    ) {
-      managedRxOptionsScheduler.submit(candidate, publishMode);
-    }
   }
   // A source handoff can commit after the stream acknowledgement. In that
   // ordering the stream_opened event was intentionally ignored while the old
@@ -1970,6 +1921,7 @@ const syncManagedStreamSubscriptions = (
 const MANAGED_STREAM_OPTION_ACTIONS = new Set([
   "spectrum/setFrequencyRange",
   "spectrum/setSignalAreaAndRange",
+  "spectrum/setFftSize",
   "spectrum/setTxGeometry",
   "spectrum/setTxCenterFrequencyHz",
   "spectrum/setTxSampleRateHz",
@@ -2045,27 +1997,12 @@ const cleanupSocket = () => {
   }
 
   if (wsInstance.ws) {
-    const socket = wsInstance.ws;
+    wsInstance.ws.onclose = null;
+    wsInstance.ws.onerror = null;
+    wsInstance.ws.onmessage = null;
+    wsInstance.ws.onopen = null;
+    wsInstance.ws.close();
     wsInstance.ws = null;
-    socket.onclose = null;
-    socket.onerror = null;
-    socket.onmessage = null;
-    socket.onopen = null;
-    if (socket.readyState === WebSocket.CONNECTING) {
-      // A connecting handshake cannot be aborted; calling close() here makes
-      // the browser log "WebSocket is closed before the connection is
-      // established". Defer teardown until the socket settles instead. All
-      // handlers are detached above, so the pending open stays inert.
-      socket.addEventListener(
-        "open",
-        () => {
-          socket.close();
-        },
-        { once: true },
-      );
-    } else {
-      socket.close();
-    }
   }
   resetManagedStreamPipeline(false);
 
@@ -2317,6 +2254,45 @@ export const processWebSocketMessage = (
         signalsDefaults: parsedData.sdr,
       }),
     );
+    return;
+  }
+
+  if (parsedData?.type === "signal_display_settings") {
+    const deviceSettings = {
+      sampleRateHz: parsedData.sample_rate,
+      fftSize: parsedData.fft_size,
+      fftFrameRate: parsedData.frame_rate,
+      ...(typeof parsedData.gain === "number" ? { gain: parsedData.gain } : {}),
+      ...(typeof parsedData.hackrf_lna_gain === "number"
+        ? { hackrfLnaGain: parsedData.hackrf_lna_gain }
+        : {}),
+      ...(typeof parsedData.hackrf_vga_gain === "number"
+        ? { hackrfVgaGain: parsedData.hackrf_vga_gain }
+        : {}),
+      ...(typeof parsedData.hackrf_amp_enable === "boolean"
+        ? { hackrfAmpEnabled: parsedData.hackrf_amp_enable }
+        : {}),
+      ...(typeof parsedData.tuner_bandwidth === "number"
+        ? { hackrfBasebandBandwidth: parsedData.tuner_bandwidth }
+        : {}),
+      ...(typeof parsedData.ppm === "number" ? { ppm: parsedData.ppm } : {}),
+      ...(typeof parsedData.tuner_agc === "boolean"
+        ? { tunerAGC: parsedData.tuner_agc }
+        : {}),
+    };
+    const currentSpectrum = getState().spectrum ?? {};
+    const knownSettings = Object.entries(deviceSettings).filter(
+      ([key]) => currentSpectrum[key] !== undefined,
+    );
+    const settingsChanged =
+      knownSettings.length === 0 ||
+      knownSettings.some(
+        ([key, value]) =>
+          JSON.stringify(currentSpectrum[key]) !== JSON.stringify(value),
+      );
+    if (settingsChanged) {
+      dispatch(setDeviceSdrSettingsBundle(deviceSettings));
+    }
     return;
   }
 
@@ -2584,14 +2560,13 @@ export const processWebSocketMessage = (
             nextRange,
           );
       const currentSignalArea = getState().spectrum?.activeSignalArea;
-      // A self-echo is the backend replaying this client's own tune back to
-      // it. The gesture already published the range optimistically; applying
-      // the echo would overwrite frequencyRange and slam vizPanOffset to 0
-      // mid-gesture, which near DC re-anchors the scroll base and sustains a
-      // retune oscillation. Foreign subscribers still apply it.
-      const isSelfEcho =
-        typeof parsedData.origin_id === "string" &&
-        parsedData.origin_id === CLIENT_ORIGIN_ID;
+      const incomingDisplayRange = parsedData.display_range;
+      const hasMirroredDisplayViewport =
+        getState().settings?.mirrorIqBasebandBelowZero === true &&
+        incomingDisplayRange?.mirror_below_zero === true &&
+        Number.isFinite(incomingDisplayRange.min) &&
+        Number.isFinite(incomingDisplayRange.max) &&
+        incomingDisplayRange.max > incomingDisplayRange.min;
       const effectiveSignalArea = resolveIncomingChannelsActiveSignalArea({
         channels,
         currentRange: selectedRange,
@@ -2606,7 +2581,10 @@ export const processWebSocketMessage = (
       const inManualMode =
         currentSignalArea === "manual" || persistedArea === "manual";
 
-      if (!isSelfEcho && (!inManualMode || hasAuthoritativeSelection)) {
+      if (
+        (!inManualMode || hasAuthoritativeSelection) &&
+        !hasMirroredDisplayViewport
+      ) {
         dispatch(
           setDeviceSignalAreaAndRange({
             area: effectiveSignalArea ?? firstChannel.label ?? "A",
@@ -2622,17 +2600,9 @@ export const processWebSocketMessage = (
       // subscriber is paused, these Redux changes also advance the existing
       // paused-preview signature, which issues request_next_frame for the
       // newly synchronized viewport.
-      const incomingDisplayRange = parsedData.display_range;
       const mirrorEnabled =
         getState().settings?.mirrorIqBasebandBelowZero === true;
-      if (
-        !isSelfEcho &&
-        mirrorEnabled &&
-        incomingDisplayRange?.mirror_below_zero === true &&
-        Number.isFinite(incomingDisplayRange.min) &&
-        Number.isFinite(incomingDisplayRange.max) &&
-        incomingDisplayRange.max > incomingDisplayRange.min
-      ) {
+      if (hasMirroredDisplayViewport) {
         const hardwareCenter =
           (selectedRange.min + selectedRange.max) / 2;
         const displayCenter =
@@ -2658,6 +2628,7 @@ export const processWebSocketMessage = (
           : null;
       const targetSourceIdForState =
         parsedData.source_id || getState().websocket.activeSourceId;
+      const isLocalEcho = parsedData.origin_id === CLIENT_ORIGIN_ID;
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
       const centerFrequency =
         typeof selectedRange?.min === "number" &&
@@ -2689,13 +2660,15 @@ export const processWebSocketMessage = (
       dispatch(
         updateDeviceState({
           channels,
-          ...(incomingSampleRate !== null
+          ...(!isLocalEcho && incomingSampleRate !== null
             ? { sampleRateHz: incomingSampleRate }
             : {}),
-          ...(nextSources.length > 0 ? { sources: nextSources } : {}),
+          ...(!isLocalEcho && nextSources.length > 0
+            ? { sources: nextSources }
+            : {}),
         }),
       );
-      if (incomingSampleRate !== null || hasAuthoritativeSelection) {
+      if (!isLocalEcho && (incomingSampleRate !== null || hasAuthoritativeSelection)) {
         dispatch(
           setSdrSettingsBundle({
             ...(incomingSampleRate !== null
@@ -3361,15 +3334,6 @@ const createWebSocketMiddleware =
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
         let normalizedData = normalizeFrequencyRangeMessageData(type, data);
-        if (ORIGIN_TAGGED_MESSAGE_TYPES.has(type) && normalizedData) {
-          normalizedData = {
-            ...normalizedData,
-            origin_id: CLIENT_ORIGIN_ID,
-          };
-          if (type === "frequency_range" || type === "set_frequency_range") {
-            markOutgoingRxTuneIntent(normalizedData);
-          }
-        }
         if (type === "settings" && normalizedData) {
           normalizedData = { ...normalizedData };
           for (const key of [

@@ -7,8 +7,10 @@ import {
 const ref = <T,>(current: T) => ({ current });
 
 function createOptions(
-  overrides: Partial<FftCanvasInvalidationOptions> = {},
-): FftCanvasInvalidationOptions {
+  overrides: Partial<Omit<FftCanvasInvalidationOptions, "forceRender">> & {
+    forceRender?: jest.Mock;
+  } = {},
+): FftCanvasInvalidationOptions & { forceRender: jest.Mock } {
   return {
     displayTemporalResolution: "reduced",
     previousTemporalResolutionRef: ref("reduced"),
@@ -61,5 +63,59 @@ describe("useFftCanvasInvalidation", () => {
 
     expect(options.overlayDirtyRef.current.markers).toBe(true);
     expect(options.forceRender).toHaveBeenCalled();
+  });
+
+  it("does not re-fire forceRender when the sample rate is unchanged", () => {
+    const options = createOptions({ hardwareSampleRateHz: 3_200_000 });
+    const { rerender } = renderHook(
+      ({ currentOptions }) => useFftCanvasInvalidation(currentOptions),
+      { initialProps: { currentOptions: options } },
+    );
+    const before = options.forceRender.mock.calls.length;
+
+    // A rerender with the same rate (new options object, same value) must not
+    // schedule another frame.
+    const sameRate = { ...options, hardwareSampleRateHz: 3_200_000 };
+    rerender({ currentOptions: sameRate });
+
+    expect(options.forceRender).toHaveBeenCalledTimes(before);
+  });
+
+  it("fires forceRender exactly once when the sample rate changes", () => {
+    const options = createOptions({ hardwareSampleRateHz: 3_200_000 });
+    const { rerender } = renderHook(
+      ({ currentOptions }) => useFftCanvasInvalidation(currentOptions),
+      { initialProps: { currentOptions: options } },
+    );
+    const before = options.forceRender.mock.calls.length;
+
+    const changed = { ...options, hardwareSampleRateHz: 5_200_000 };
+    rerender({ currentOptions: changed });
+    rerender({ currentOptions: { ...changed, hardwareSampleRateHz: 5_200_000 } });
+
+    expect(options.forceRender.mock.calls.length).toBe(before + 1);
+    expect(options.overlayDirtyRef.current.grid).toBe(true);
+    expect(options.overlayDirtyRef.current.markers).toBe(true);
+  });
+
+  it("an unrelated option change still fires forceRender at the same sample rate", () => {
+    const options = createOptions({ hardwareSampleRateHz: 3_200_000 });
+    const { rerender } = renderHook(
+      ({ currentOptions }) => useFftCanvasInvalidation(currentOptions),
+      { initialProps: { currentOptions: options } },
+    );
+    const before = options.forceRender.mock.calls.length;
+
+    // selectionRange is a separate invalidation path; the sample-rate guard
+    // must not suppress it.
+    rerender({
+      currentOptions: {
+        ...options,
+        selectionRange: { min: 100, max: 200 },
+        hardwareSampleRateHz: 3_200_000,
+      },
+    });
+
+    expect(options.forceRender.mock.calls.length).toBeGreaterThan(before);
   });
 });

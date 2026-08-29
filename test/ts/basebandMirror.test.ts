@@ -5,6 +5,7 @@ import {
   mapDisplayFrequencyToSource,
   mapPositiveHardwareFrequencyToDisplay,
   mapSourceFrequencyToDisplay,
+  mirroredSourceIntervalForDisplayPixel,
   resolveMirroredHardwareMarkerFrequencies,
   resolveHardwareLimitAliasRanges,
   mirrorPresentationCoverageSlackHz,
@@ -66,6 +67,35 @@ describe("baseband negative-frequency presentation", () => {
     expect(mapDisplayFrequencyToSource(-2_204_000)).toBe(2_204_000);
     expect(mapDisplayFrequencyToSource(2_204_000)).toBe(2_204_000);
     expect(mapSourceFrequencyToDisplay(2_204_000)).toBe(2_204_000);
+  });
+
+  it("keeps DC inside a pixel that straddles 0 Hz", () => {
+    const interval = mirroredSourceIntervalForDisplayPixel(-1_000, 1_000);
+    expect(interval.lo).toBe(0);
+    expect(interval.hi).toBe(1_000);
+  });
+
+  it("does not collapse a DC-straddling pixel onto its folded endpoints", () => {
+    const interval = mirroredSourceIntervalForDisplayPixel(-4_372, 4_372);
+    expect(interval.lo).toBeLessThanOrEqual(0);
+    expect(interval.hi).toBeGreaterThan(0);
+    expect(interval.lo).toBe(0);
+    expect(interval.hi).toBe(4_372);
+  });
+
+  it("fills a small configured source guard gap at DC from the nearest acquired bin", () => {
+    const output = extendSpectrumBelowZero({
+      spectrum: new Float32Array([-70, -60, -50, -40, -30]),
+      sourceRange: { min: 18_000, max: 3_218_000 },
+      displayRange: { min: -36_000, max: 36_000 },
+      outputLength: 5,
+      floorDb: FLOOR,
+    });
+
+    expect(output[2]).toBeCloseTo(-70, 5);
+    expect(output[2]).not.toBe(FLOOR);
+    expect(output[1]).toBeCloseTo(output[3], 5);
+    expect(output[0]).toBeCloseTo(output[4], 5);
   });
 
   it("maps positive hardware markers onto a wholly negative display axis", () => {
@@ -163,9 +193,25 @@ describe("baseband negative-frequency presentation", () => {
     ).toEqual({ min: 24_100_000, max: 30_370_000 });
   });
 
-  it("treats kHz mirror edge gaps as covered with presentation slack", () => {
+  it("does not treat an uncovered outer edge as covered by DC guard slack", () => {
     const acquisition = { min: 0, max: 4_372_000 };
     const displayRange = { min: -4_384_000, max: -12_000 };
+    expect(sourceCoversMirroredDisplay(acquisition, displayRange, 1)).toBe(
+      false,
+    );
+    expect(
+      sourceCoversMirroredDisplay(
+        acquisition,
+        displayRange,
+        mirrorPresentationCoverageSlackHz(acquisition),
+      ),
+    ).toBe(false);
+  });
+
+  it("uses presentation slack only for a bounded source guard at DC", () => {
+    const acquisition = { min: 18_000, max: 4_390_000 };
+    const displayRange = { min: 0, max: 4_372_000 };
+
     expect(sourceCoversMirroredDisplay(acquisition, displayRange, 1)).toBe(
       false,
     );

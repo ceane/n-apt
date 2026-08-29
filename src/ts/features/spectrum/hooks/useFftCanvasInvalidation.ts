@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 type MutableRef<T> = React.MutableRefObject<T>;
 type OverlayDirtyState = { grid: boolean; markers: boolean; spikes: boolean };
@@ -71,6 +71,8 @@ export function useFftCanvasInvalidation({
   clearOverlayCanvas,
   spectrumOverlayCanvas,
 }: FftCanvasInvalidationOptions): void {
+  const lastInvalidatedSampleRateRef = useRef<number | null | undefined>(null);
+
   useEffect(() => {
     if (displayTemporalResolution === previousTemporalResolutionRef.current) {
       return;
@@ -175,6 +177,13 @@ export function useFftCanvasInvalidation({
   }, [forceRender, overlayDirtyRef, selectionRange]);
 
   useEffect(() => {
+    if (
+      lastInvalidatedSampleRateRef.current !== null &&
+      lastInvalidatedSampleRateRef.current === hardwareSampleRateHz
+    ) {
+      return;
+    }
+    lastInvalidatedSampleRateRef.current = hardwareSampleRateHz;
     markersOverlayRendererRef.current?.destroy?.();
     overlayDirtyRef.current.grid = true;
     overlayDirtyRef.current.markers = true;
@@ -188,6 +197,7 @@ export function useFftCanvasInvalidation({
     deviceProfileKind,
     forceRender,
     hardwareSampleRateHz,
+    lastInvalidatedSampleRateRef,
     limitMarkers,
     markersOverlayRendererRef,
     overlayDirtyRef,

@@ -107,6 +107,11 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
   })
 }
 
+/// Broadcast the full device settings snapshot so every subscriber adopts the
+/// same device-scoped configuration (FFT size/frame rate, sample rate, gain,
+/// PPM, AGC, baseband filter). The FFT window is a local viewer choice and is
+/// intentionally not included, as are temporal resolution, DC spike removal,
+/// power scale, display mode, and zoom/pan.
 pub fn broadcast_signal_display_settings(
   shared: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
@@ -114,20 +119,27 @@ pub fn broadcast_signal_display_settings(
   fft_size: usize,
   frame_rate: u32,
 ) {
+  let sdr_settings = shared.sdr_settings.lock().unwrap();
   let payload = serde_json::json!({
     "type": "signal_display_settings",
     "source_id": active_source_id(shared),
     "sample_rate": sample_rate,
     "fft_size": fft_size,
     "frame_rate": frame_rate,
+    "gain": sdr_settings.gain.tuner_gain,
+    "hackrf_lna_gain": sdr_settings.gain.hackrf_lna_gain,
+    "hackrf_vga_gain": sdr_settings.gain.hackrf_vga_gain,
+    "hackrf_amp_enable": sdr_settings.gain.hackrf_amp_enable,
+    "tuner_bandwidth": sdr_settings.gain.tuner_bandwidth,
+    "ppm": sdr_settings.ppm,
+    "tuner_agc": sdr_settings.gain.tuner_agc,
+    "rtl_agc": sdr_settings.gain.rtl_agc,
   });
-  let payload = payload.to_string();
-  let mut last_payload = shared.last_broadcast_status.lock().unwrap();
-  if last_payload.as_ref() == Some(&payload) {
-    return;
-  }
-  *last_payload = Some(payload.clone());
-  let _ = broadcast_tx.send(payload);
+  drop(sdr_settings);
+  // A settings broadcast is a state change, not a status heartbeat: it must
+  // reach every client even when the previous broadcast carried the same
+  // sample_rate/fft_size/frame_rate triple (e.g. a gain-only change).
+  let _ = broadcast_tx.send(payload.to_string());
 }
 
 pub fn reconcile_stale_device_snapshot(shared: &SharedState) -> bool {
@@ -227,6 +239,50 @@ mod tests {
 
     broadcast_channels(&shared, &broadcast_tx);
     assert!(broadcast_rx.try_recv().is_err());
+  }
+
+  #[test]
+  #[serial]
+  fn signal_display_settings_broadcast_carries_device_settings_only() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1/");
+    {
+      let mut settings = shared.sdr_settings.lock().unwrap();
+      settings.gain.tuner_gain = 18.5;
+      settings.gain.tuner_agc = true;
+      settings.gain.rtl_agc = false;
+      settings.gain.hackrf_lna_gain = Some(8.0);
+      settings.gain.hackrf_vga_gain = Some(20.0);
+      settings.gain.hackrf_amp_enable = Some(true);
+      settings.gain.tuner_bandwidth = Some(5_200_000);
+      settings.ppm = 3.0;
+    }
+    let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+    broadcast_signal_display_settings(
+      &shared,
+      &broadcast_tx,
+      5_200_000,
+      4096,
+      12,
+    );
+    let raw = broadcast_rx.try_recv().expect("settings broadcast");
+    let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+    assert_eq!(payload["type"], "signal_display_settings");
+    assert_eq!(payload["sample_rate"], 5_200_000);
+    assert_eq!(payload["fft_size"], 4096);
+    assert_eq!(payload["frame_rate"], 12);
+    assert_eq!(payload["gain"], 18.5);
+    assert_eq!(payload["tuner_agc"], true);
+    assert_eq!(payload["rtl_agc"], false);
+    assert_eq!(payload["hackrf_lna_gain"], 8.0);
+    assert_eq!(payload["hackrf_vga_gain"], 20.0);
+    assert_eq!(payload["hackrf_amp_enable"], true);
+    assert_eq!(payload["tuner_bandwidth"], 5_200_000);
+    assert_eq!(payload["ppm"], 3.0);
+    // Local viewer state must never leak into the device broadcast.
+    assert!(payload.get("fft_window").is_none());
   }
 }
 // Hot-reload verification edit 1.

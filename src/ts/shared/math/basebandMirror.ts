@@ -33,6 +33,29 @@ const isUsableRange = (range: BasebandFrequencyRange): boolean =>
 export const mapDisplayFrequencyToSource = (frequencyHz: number): number =>
   frequencyHz < 0 ? -frequencyHz : frequencyHz;
 
+/**
+ * Source interval a display pixel covers after one reflection across DC.
+ *
+ * A pixel that straddles 0 Hz maps both halves onto [0, max(|d0|, |d1|)].
+ * Folding the endpoints independently and taking min/max skips DC and paints
+ * a hole that pops in and out as 0 Hz crosses a pixel boundary.
+ */
+export const mirroredSourceIntervalForDisplayPixel = (
+  display0: number,
+  display1: number,
+): { lo: number; hi: number } => {
+  const crossesDc = display0 < 0 !== display1 < 0;
+  if (crossesDc) {
+    return {
+      lo: 0,
+      hi: Math.max(Math.abs(display0), Math.abs(display1)),
+    };
+  }
+  const s0 = mapDisplayFrequencyToSource(display0);
+  const s1 = mapDisplayFrequencyToSource(display1);
+  return { lo: Math.min(s0, s1), hi: Math.max(s0, s1) };
+};
+
 /** Positive baseband source coordinates remain unchanged on the display. */
 export const mapSourceFrequencyToDisplay = (frequencyHz: number): number =>
   frequencyHz;
@@ -177,13 +200,19 @@ export const sourceCoversMirroredDisplay = (
   }
   const required = getPositiveSourceRangeForDisplayRange(displayRange);
   if (!isUsableRange(required)) return false;
+  const edgeToleranceHz = 1;
+  const fillsBoundedDcGuard =
+    sourceRange.min >= 0 &&
+    sourceRange.min <= toleranceHz &&
+    required.min >= 0;
   return (
-    required.min >= sourceRange.min - toleranceHz &&
-    required.max <= sourceRange.max + toleranceHz
+    (required.min >= sourceRange.min - edgeToleranceHz ||
+      fillsBoundedDcGuard) &&
+    required.max <= sourceRange.max + edgeToleranceHz
   );
 };
 
-/** Slack for mirror presentation coverage — avoids retune storms from kHz edge gaps. */
+/** Slack used only to bridge a configured source guard immediately above DC. */
 export const mirrorPresentationCoverageSlackHz = (
   sourceRange: BasebandFrequencyRange,
 ): number => {
@@ -570,9 +599,11 @@ export const resolveMirroredAcquisition = ({
     return { range: sourceRange, needsRetune: false };
   }
 
-  const covered =
-    required.min >= sourceRange.min - toleranceHz &&
-    required.max <= sourceRange.max + toleranceHz;
+  const covered = sourceCoversMirroredDisplay(
+    sourceRange,
+    displayRange,
+    toleranceHz,
+  );
   if (covered) {
     return { range: sourceRange, needsRetune: false };
   }
@@ -625,7 +656,20 @@ const sampleSpectrumAtFrequency = (
   }
 
   // Single reflection across DC. Periodic folding below 0 Hz repeats Channel A.
-  const frequencyHz = mapDisplayFrequencyToSource(displayFrequencyHz);
+  let frequencyHz = mapDisplayFrequencyToSource(displayFrequencyHz);
+  // Some configured channels start a few kHz above DC (Mock APT starts at
+  // 18 kHz). Treat only that small guard interval as the first acquired bin;
+  // otherwise the reflected row gets a narrow floor-colored slit at 0 Hz.
+  // Larger untuned intervals remain floor so this never tiles/smears a channel.
+  const dcGapSlackHz = mirrorPresentationCoverageSlackHz(sourceRange);
+  if (
+    sourceRange.min >= 0 &&
+    sourceRange.min <= dcGapSlackHz &&
+    frequencyHz >= 0 &&
+    frequencyHz < sourceRange.min
+  ) {
+    frequencyHz = sourceRange.min;
+  }
   if (frequencyHz < sourceRange.min || frequencyHz > sourceRange.max) {
     return floorDb;
   }

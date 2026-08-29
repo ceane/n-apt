@@ -108,13 +108,12 @@ pub(crate) async fn restart_source_in_place(
   }
   let shared_for_open = Arc::clone(shared_state);
   let id_for_open = source_id.clone();
-  let open_task = tokio::task::spawn_blocking(move || {
+  let reopened = tokio::task::spawn_blocking(move || {
     open_device_for_source_id(&shared_for_open, &id_for_open)
-  });
-  let reopened =
-    tokio::time::timeout(super::DEVICE_OPEN_TIMEOUT, open_task).await;
+  })
+  .await;
   match reopened {
-    Ok(Ok(Ok(device))) => {
+    Ok(Ok(device)) => {
       info!("Source {} restarted into the warm pool", source_id);
       warm_devices.insert(source_id.clone(), device);
       broadcast_source_status_for_id(
@@ -124,7 +123,7 @@ pub(crate) async fn restart_source_in_place(
         "connected",
       );
     }
-    Ok(Ok(Err(error))) => {
+    Ok(Err(error)) => {
       warn!(
         "In-place restart of source {} failed to reopen the device: {}",
         source_id, error
@@ -136,23 +135,10 @@ pub(crate) async fn restart_source_in_place(
         "stale",
       );
     }
-    Ok(Err(error)) => {
+    Err(error) => {
       warn!(
         "In-place restart task for source {} panicked or was cancelled: {}",
         source_id, error
-      );
-      broadcast_source_status_for_id(
-        shared_state,
-        broadcast_tx,
-        &source_id,
-        "stale",
-      );
-    }
-    Err(_) => {
-      warn!(
-        "In-place restart of source {} exceeded {:?}; leaving it stale",
-        source_id,
-        super::DEVICE_OPEN_TIMEOUT
       );
       broadcast_source_status_for_id(
         shared_state,

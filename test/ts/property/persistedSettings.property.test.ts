@@ -84,7 +84,6 @@ const isFiniteNumber = (v: unknown): v is number =>
 const FINITE_NUMERIC_KEYS = [
   "vizZoom",
   "maxVizZoom",
-  "vizPanOffset",
   "fftMinDb",
   "fftMaxDb",
   "txSampleRateHz",
@@ -151,6 +150,18 @@ describe("persisted settings fuzz", () => {
         walk(out!);
       }),
     );
+  });
+
+  it("does not rehydrate subscriber-local mirror pan from localStorage", () => {
+    window.localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({ vizPanOffset: -67_000_000 }),
+    );
+    const merged = mergePersistedSdrSettings(
+      initialState as unknown as Record<string, unknown>,
+      loadPersistedSdrSettings(),
+    );
+    expect((merged as unknown as SpectrumState).vizPanOffset).toBe(0);
   });
 
   it("rehydrate merges over slice defaults without corrupting the initial state", () => {

@@ -233,29 +233,17 @@ export const useSdrSettings = ({
     onSettingsChangeRef.current = onSettingsChange;
   }, [onSettingsChange]);
 
+  /**
+   * Publish a settings change to the backend. Only the fields being changed
+   * (the `overrides`) are sent: a client whose Redux has not yet hydrated a
+   * remote device change must never replay its stale local snapshot, or it
+   * would clobber the device state for every other subscriber.
+   */
   const sendCurrentSettings = useCallback(
     (overrides: Partial<SDRSettings> = {}) => {
-      onSettingsChangeRef.current?.({
-        fftSize: stateRef.current.fftSize,
-        fftWindow: stateRef.current.fftWindow,
-        frameRate: stateRef.current.fftFrameRate,
-        gain: stateRef.current.gain,
-        ppm: stateRef.current.ppm,
-        tunerAGC: stateRef.current.tunerAGC,
-        rtlAGC: stateRef.current.rtlAGC,
-        ...(deviceType === "hackrf_one"
-          ? {
-              hackrfLnaGain: stateRef.current.hackrfLnaGain,
-              hackrfVgaGain: stateRef.current.hackrfVgaGain,
-              hackrfAmpEnabled: stateRef.current.hackrfAmpEnabled,
-              tunerBandwidth:
-                stateRef.current.hackrfBasebandBandwidth ?? undefined,
-            }
-          : {}),
-        ...overrides,
-      });
+      onSettingsChangeRef.current?.(overrides);
     },
-    [deviceType],
+    [],
   );
 
   const setFftSize = useCallback(

@@ -338,6 +338,67 @@ describe("ReduxFrequencyRangeSlider", () => {
     expect(screen.queryByText(/604kHz.*-.*3\.804MHz/)).not.toBeInTheDocument();
   });
 
+  it("re-anchors the thumb from a Redux range update without dispatching a send", async () => {
+    const store = createTestStore();
+    store.dispatch(
+      setHardwareInfo({
+        range: { min: 0, max: 30_000_000_000 },
+        sampleRate: 3_200_000,
+      }),
+    );
+    const sendFrequencyRange = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 18_000, max: 3_218_000 },
+                  lastKnownRanges: {},
+                  vizZoom: 1,
+                  vizPanOffset: 0,
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [],
+                sampleRateHzEffective: 3_200_000,
+                wsConnection: { sendFrequencyRange },
+              } as any
+            }
+          >
+            <ReduxFrequencyRangeSlider
+              label="A"
+              minFreq={18_000}
+              maxFreq={4_390_000}
+              sampleRateHz={3_200_000}
+              isActive
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/18kHz.*-.*3\.218MHz/)).toBeInTheDocument();
+    });
+
+    // A Redux-driven tune (e.g. a channels echo) moves the visible window.
+    // The slider is a passive highlight here: it must not echo a send back.
+    store.dispatch(
+      setFrequencyRange({
+        min: 604_000,
+        max: 3_804_000,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/604kHz.*-.*3\.804MHz/)).toBeInTheDocument();
+    });
+    expect(sendFrequencyRange).not.toHaveBeenCalled();
+  });
+
   it("clears a negative visual pan when the slider explicitly selects a channel frequency", async () => {
     const store = createTestStore();
     store.dispatch(setVizPan(-1_600_000));

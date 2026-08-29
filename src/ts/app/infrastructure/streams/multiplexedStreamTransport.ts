@@ -7,29 +7,7 @@ import {
   type StreamOptions,
   type StreamTransport,
 } from "./sourceModeStreamManager";
-import type {
-  StreamControlScopes,
-  StreamDeliveryPolicy,
-} from "./streamContract";
-
-/**
- * Wire shape of an inbound `stream_frame` message. Fields arrive as untrusted
- * server JSON — every consumer validates defensively; this type only names
- * the vocabulary.
- */
-export type IncomingStreamFrameMessage = {
-  [key: string]: unknown;
-  type?: unknown;
-  sourceId?: unknown;
-  mode?: unknown;
-  sequence?: unknown;
-  streamEpoch?: unknown;
-  optionsRevision?: unknown;
-  timestamp?: unknown;
-  centerFrequencyHz?: unknown;
-  sampleRateHz?: unknown;
-  iqData?: unknown;
-};
+import type { StreamDeliveryPolicy } from "./streamContract";
 
 type StreamInboundItem =
   | {
@@ -65,6 +43,15 @@ type MultiplexedStreamTransportOptions = {
 const keyFor = ({ sourceId, mode }: StreamKey): string =>
   `${sourceId}\u0000${mode}`;
 
+const toBytes = (base64: string): Uint8Array => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
 const isStreamOptionsForMode = (
   value: unknown,
   mode: StreamKey["mode"],
@@ -95,24 +82,24 @@ const streamUrl = (controlUrl: string): string => {
   return url.toString();
 };
 
-const toFiniteNumber = (value: unknown): number => {
+const nsToFinite = (value: unknown): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 };
 
 /** Test seam: exposed so property tests can fuzz frame assembly directly. */
 export const makeFrame = async (
-  message: IncomingStreamFrameMessage,
+  message: Record<string, unknown>,
   aesKey: CryptoKey,
 ): Promise<StreamEvent> => {
   const sourceId = String(message.sourceId ?? "");
   const mode = message.mode === "tx" ? "tx" : "rx";
   // Garbage numeric fields must never flow NaN/Infinity into the frame — the
   // stream manager's epoch/revision/sequence gating relies on finite numbers.
-  const sequence = toFiniteNumber(message.sequence ?? 0);
-  const streamEpoch = toFiniteNumber(message.streamEpoch ?? 0);
-  const optionsRevision = toFiniteNumber(message.optionsRevision ?? 0);
-  const timestamp = toFiniteNumber(message.timestamp ?? 0);
+  const sequence = nsToFinite(message.sequence ?? 0);
+  const streamEpoch = nsToFinite(message.streamEpoch ?? 0);
+  const optionsRevision = nsToFinite(message.optionsRevision ?? 0);
+  const timestamp = nsToFinite(message.timestamp ?? 0);
   const iqData = await decryptPayloadBytes(
     aesKey,
     String(message.iqData ?? ""),
@@ -159,6 +146,7 @@ const MAX_PENDING_LOSSLESS_FRAMES = 32;
 
 const frameOptionsRevision = (item: StreamInboundItem): number =>
   item.kind === "frame" ? Number(item.message.optionsRevision ?? 0) : 0;
+
 const advanceOptionsRevision = (
   connection: StreamConnection,
   optionsRevision: number,
@@ -228,7 +216,7 @@ const drainInbound = (
 
 const enqueueFrame = (
   connection: StreamConnection,
-  message: IncomingStreamFrameMessage,
+  message: Record<string, unknown>,
   aesKey: CryptoKey,
 ): void => {
   const optionsRevision = Number(message.optionsRevision ?? 0);
@@ -410,18 +398,15 @@ export const createMultiplexedStreamTransport = ({
               ? message.state
               : "ready",
           options: effectiveOptions,
-          controlScopes: message.controlScopes as StreamControlScopes,
+          controlScopes:
+            message.controlScopes as import("./streamContract").StreamControlScopes,
           deliveryPolicy: effectiveDeliveryPolicy,
         }, aesKey);
         return;
       }
       if (message.type === "stream_unsubscribe") return;
       if (message.type === "stream_frame") {
-        enqueueFrame(
-          connection,
-          message as IncomingStreamFrameMessage,
-          aesKey,
-        );
+        enqueueFrame(connection, message, aesKey);
         return;
       }
       if (message.type === "stream_options_applied") {

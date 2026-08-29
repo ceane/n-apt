@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import styled from 'styled-components';
 import { motion, animate, useInView } from 'framer-motion';
+import { Copy, Check } from 'lucide-react';
 import {
   BYTES_PER_IQ_SAMPLE,
   getRawIfftModel,
@@ -29,8 +30,38 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   gap: 3rem;
-  position: relative;
   overflow: hidden;
+`;
+
+const CopyRow = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+`;
+
+const CopyButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--ds-accent);
+  cursor: pointer;
+  transition: color 0.2s ease;
+
+  &:hover {
+    color: rgba(158, 174, 255, 0.8);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ds-accent);
+    outline-offset: 2px;
+  }
+
+  &[data-copied='true'] {
+    color: #7df6a6;
+  }
 `;
 
 const TopRow = styled.div`
@@ -157,6 +188,13 @@ const DataMinMaxGrid = styled(MinMaxGrid)`
 
 const CostContainer = styled(DataContainer)`
   margin-top: 0;
+
+  /* Keep both Min/Max rows aligned when the left heading wraps. */
+  > ${StatBox} > ${Label} {
+    display: block;
+    min-height: 2.6em;
+    line-height: 1.3;
+  }
 `;
 
 const DigitContainer = styled.span`
@@ -244,6 +282,378 @@ const formatCurrency = (val: number) => {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(val);
+};
+
+// ---------------------------------------------------------------------------
+// Clipboard image rendering
+// ---------------------------------------------------------------------------
+
+// The copied image uses a fixed canvas so the pasted image reads as a
+// self-contained card on any surface.
+const IMAGE_WIDTH = 800;
+const IMAGE_HEIGHT = 500;
+
+const IMAGE_BG = '#283780';
+const IMAGE_TEXT = '#f3f6ff';
+const IMAGE_TEXT_DIM = 'rgba(172, 186, 255, 0.7)';
+const IMAGE_TEXT_FAINT = 'rgba(172, 186, 255, 0.4)';
+const IMAGE_UNIT = 'rgba(172, 186, 255, 0.5)';
+
+const IMAGE_FONT_SERIF = '"KaTeX_Main", "Times New Roman", serif';
+
+const IMAGE_COL_X = [24, 280, 538];
+const IMAGE_TOP_LABEL_Y = 34;
+const IMAGE_TOP_VALUE_Y = 100;
+const IMAGE_TOP_VALUE_SIZE = 48;
+
+const IMAGE_SECTION_LABEL_Y = 174;
+const IMAGE_SECTION_MINMAX_Y = 245;
+const IMAGE_SECTION_SUB_Y = 271;
+const IMAGE_SECTION_X = [24, 408];
+const IMAGE_MINMAX_X_OFFSET = 0;
+const IMAGE_MAX_X_OFFSET = 188;
+const IMAGE_TEXT_COLUMN_WIDTH = IMAGE_MAX_X_OFFSET - 16;
+
+const IMAGE_COST_LABEL_Y = 356;
+const IMAGE_COST_MINMAX_Y = 384;
+const IMAGE_COST_VALUE_Y = 414;
+
+const drawLabel = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  baselineY: number,
+  size = 10,
+) => {
+  ctx.save();
+  ctx.font = `700 ${size}px ${IMAGE_FONT_SERIF}`;
+  ctx.fillStyle = IMAGE_TEXT_DIM;
+  ctx.textBaseline = 'alphabetic';
+  ctx.letterSpacing = '0.25em';
+  ctx.fillText(text.toUpperCase(), x, baselineY);
+  ctx.restore();
+};
+
+// Shrink-to-fit: find the largest font size that lets `text` fit within
+// `maxWidth` pixels. Mirrors the site's clamp()-based responsive values.
+const fitTextSize = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  startSize: number,
+  minSize = 12,
+) => {
+  let size = startSize;
+  while (size > minSize) {
+    ctx.font = `400 ${size}px ${IMAGE_FONT_SERIF}`;
+    if (ctx.measureText(text).width <= maxWidth) {
+      break;
+    }
+    size -= 1;
+  }
+  return Math.max(size, minSize);
+};
+
+const drawValue = (
+  ctx: CanvasRenderingContext2D,
+  value: string,
+  x: number,
+  baselineY: number,
+  unit?: string,
+  valueSize = 56,
+) => {
+  ctx.save();
+  ctx.font = `400 ${valueSize}px ${IMAGE_FONT_SERIF}`;
+  ctx.fillStyle = IMAGE_TEXT;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(value, x, baselineY);
+  if (unit) {
+    const unitX = x + ctx.measureText(value).width + 12;
+    ctx.font = `italic 400 ${valueSize - 20}px ${IMAGE_FONT_SERIF}`;
+    ctx.fillStyle = IMAGE_UNIT;
+    ctx.fillText(unit, unitX, baselineY);
+  }
+  ctx.restore();
+};
+
+const drawCostValue = (
+  ctx: CanvasRenderingContext2D,
+  value: string,
+  x: number,
+  baselineY: number,
+  maxWidth: number,
+  unit?: string,
+) => {
+  const valueSize = fitTextSize(ctx, value, maxWidth, 20, 12);
+  ctx.save();
+  ctx.font = `400 ${valueSize}px ${IMAGE_FONT_SERIF}`;
+  ctx.fillStyle = IMAGE_TEXT;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(value, x, baselineY);
+  if (unit) {
+    const unitX = x + ctx.measureText(value).width + 8;
+    ctx.font = `italic 400 13px ${IMAGE_FONT_SERIF}`;
+    ctx.fillStyle = IMAGE_TEXT_FAINT;
+    ctx.fillText(unit, unitX, baselineY);
+  }
+  ctx.restore();
+};
+
+const wrapCanvasText = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+) => {
+  const lines: string[] = [];
+  let line = '';
+
+  for (const word of text.split(/\s+/)) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      line = candidate;
+      continue;
+    }
+
+    if (line) {
+      lines.push(line);
+    }
+    line = '';
+
+    // Match the DOM's overflow-wrap:anywhere behavior for an unusually long
+    // token that cannot fit on one line by itself.
+    for (const character of word) {
+      const characterCandidate = line + character;
+      if (ctx.measureText(characterCandidate).width > maxWidth && line) {
+        lines.push(line);
+        line = character;
+      } else {
+        line = characterCandidate;
+      }
+    }
+  }
+
+  if (line) {
+    lines.push(line);
+  }
+  return lines.length > 0 ? lines : [''];
+};
+
+const drawWrappedText = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  baselineY: number,
+  maxWidth: number,
+  lineHeight: number,
+) => {
+  const lines = wrapCanvasText(ctx, text, maxWidth);
+  lines.forEach((line, index) => {
+    ctx.fillText(line, x, baselineY + index * lineHeight);
+  });
+  return lines.length;
+};
+
+export const renderImage = (
+  canvas: HTMLCanvasElement,
+  stats: { totalHours: number; escalationHours: number; totalDays: number },
+  costs: { totalMin: string; totalMax: string; dailyMin: string; dailyMax: string },
+  dataMin: { val: string; unit: string },
+  dataMax: { val: string; unit: string },
+  dailyDataMin: { val: string; unit: string },
+  dailyDataMax: { val: string; unit: string },
+  totalComparisonTextMin: string,
+  totalComparisonTextMax: string,
+  dailyComparisonTextMin: string,
+  dailyComparisonTextMax: string,
+) => {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return;
+  }
+
+  const devicePixelRatio = Math.max(
+    1,
+    Math.min(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1, 3),
+  );
+  canvas.width = Math.round(IMAGE_WIDTH * devicePixelRatio);
+  canvas.height = Math.round(IMAGE_HEIGHT * devicePixelRatio);
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  // Solid article background.
+  ctx.fillStyle = IMAGE_BG;
+  ctx.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
+
+  // Top row: hours total, since escalation, days total.
+  const topValues = [
+    formatNumber(stats.totalHours),
+    formatNumber(stats.escalationHours),
+    formatNumber(stats.totalDays),
+  ];
+  for (let i = 0; i < 3; i++) {
+    const x = IMAGE_COL_X[i];
+    drawLabel(ctx, ['Hours Total', 'Since Escalation', 'Days Total'][i], x, IMAGE_TOP_LABEL_Y);
+    drawValue(
+      ctx,
+      topValues[i],
+      x,
+      IMAGE_TOP_VALUE_Y,
+      ['hrs', 'hrs', 'days'][i],
+      IMAGE_TOP_VALUE_SIZE,
+    );
+  }
+
+  // Data sections: the DOM places the total and 24-hour sections side by side.
+  const sections = [
+    {
+      x: IMAGE_SECTION_X[0],
+      label: 'Data Intercepted Total',
+      min: { value: dataMin.val, unit: dataMin.unit },
+      max: { value: dataMax.val, unit: dataMax.unit },
+      minSub: totalComparisonTextMin,
+      maxSub: totalComparisonTextMax,
+    },
+    {
+      x: IMAGE_SECTION_X[1],
+      label: 'Data Intercepted in 24HRS',
+      min: { value: dailyDataMin.val, unit: dailyDataMin.unit },
+      max: { value: dailyDataMax.val, unit: dailyDataMax.unit },
+      minSub: dailyComparisonTextMin,
+      maxSub: dailyComparisonTextMax,
+    },
+  ];
+
+  for (const section of sections) {
+    drawLabel(ctx, section.label, section.x, IMAGE_SECTION_LABEL_Y);
+    drawLabel(ctx, 'Min†', section.x + IMAGE_MINMAX_X_OFFSET, IMAGE_SECTION_MINMAX_Y - 44, 8);
+    drawLabel(ctx, 'Max‡', section.x + IMAGE_MAX_X_OFFSET, IMAGE_SECTION_MINMAX_Y - 44, 8);
+    drawValue(
+      ctx,
+      section.min.value,
+      section.x + IMAGE_MINMAX_X_OFFSET,
+      IMAGE_SECTION_MINMAX_Y,
+      section.min.unit,
+      40,
+    );
+    drawValue(
+      ctx,
+      section.max.value,
+      section.x + IMAGE_MAX_X_OFFSET,
+      IMAGE_SECTION_MINMAX_Y,
+      section.max.unit,
+      40,
+    );
+
+    ctx.save();
+    ctx.font = `italic 400 13px ${IMAGE_FONT_SERIF}`;
+    ctx.fillStyle = IMAGE_TEXT_FAINT;
+    ctx.textBaseline = 'alphabetic';
+    drawWrappedText(
+      ctx,
+      section.minSub,
+      section.x + IMAGE_MINMAX_X_OFFSET,
+      IMAGE_SECTION_SUB_Y,
+      IMAGE_TEXT_COLUMN_WIDTH,
+      17,
+    );
+    drawWrappedText(
+      ctx,
+      section.maxSub,
+      section.x + IMAGE_MAX_X_OFFSET,
+      IMAGE_SECTION_SUB_Y,
+      IMAGE_TEXT_COLUMN_WIDTH,
+      17,
+    );
+    ctx.restore();
+  }
+
+  // Cost sections mirror the DOM's two-column CostContainer. Each section has
+  // its own Min/Max row, and the daily unit follows each value.
+  const costSections = [
+    {
+      x: IMAGE_SECTION_X[0],
+      label: 'Data total Cost (to present)*',
+      min: costs.totalMin,
+      max: costs.totalMax,
+    },
+    {
+      x: IMAGE_SECTION_X[1],
+      label: 'Data cost per Day*',
+      min: costs.dailyMin,
+      max: costs.dailyMax,
+    },
+  ];
+  for (const section of costSections) {
+    drawLabel(ctx, section.label, section.x, IMAGE_COST_LABEL_Y);
+    drawLabel(ctx, 'Min†', section.x + IMAGE_MINMAX_X_OFFSET, IMAGE_COST_MINMAX_Y, 8);
+    drawLabel(ctx, 'Max‡', section.x + IMAGE_MAX_X_OFFSET, IMAGE_COST_MINMAX_Y, 8);
+    drawCostValue(
+      ctx,
+      section.min,
+      section.x + IMAGE_MINMAX_X_OFFSET,
+      IMAGE_COST_VALUE_Y,
+      IMAGE_TEXT_COLUMN_WIDTH,
+      section === costSections[1] ? '/day' : undefined,
+    );
+    drawCostValue(
+      ctx,
+      section.max,
+      section.x + IMAGE_MAX_X_OFFSET,
+      IMAGE_COST_VALUE_Y,
+      IMAGE_TEXT_COLUMN_WIDTH,
+      section === costSections[1] ? '/day' : undefined,
+    );
+  }
+};
+
+const copyCanvasToClipboard = (canvas: HTMLCanvasElement) => {
+  return new Promise<void>((resolve, reject) => {
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        reject(new Error('Could not encode canvas image'));
+        return;
+      }
+
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'image/png': blob,
+          }),
+        ]);
+        resolve();
+      } catch (err) {
+        // Safari does not support ClipboardItem with images. Fall back to a
+        // legacy copy: select a hidden image element so the PNG lands on the
+        // clipboard as a normal copy.
+        try {
+          const img = document.createElement('img');
+          img.src = canvas.toDataURL('image/png');
+          img.style.position = 'fixed';
+          img.style.left = '-9999px';
+          img.style.width = '2px';
+          img.style.height = '2px';
+          document.body.appendChild(img);
+
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(img);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+
+          const ok = document.execCommand('copy');
+          selection?.removeAllRanges();
+          img.remove();
+
+          if (!ok) {
+            reject(err);
+            return;
+          }
+          resolve();
+        } catch (fallbackErr) {
+          reject(fallbackErr);
+        }
+      }
+    }, 'image/png');
+  });
 };
 
 export const DaysSince: React.FC = () => {
@@ -402,8 +812,72 @@ export const DaysSince: React.FC = () => {
     };
   }, [now, minRateMbs, maxRateMbs]);
 
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
+
+  const handleCopyImage = useCallback(async () => {
+    const canvas = document.createElement('canvas');
+    renderImage(
+      canvas,
+      stats,
+      costs,
+      dataMin,
+      dataMax,
+      dailyDataMin,
+      dailyDataMax,
+      totalComparisonTextMin,
+      totalComparisonTextMax,
+      dailyComparisonTextMin,
+      dailyComparisonTextMax,
+    );
+
+    try {
+      await copyCanvasToClipboard(canvas);
+      setCopied(true);
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copyTimerRef.current = null;
+      }, 2000);
+    } catch {
+      // Clipboard unavailable (e.g. non-secure context) — leave state unchanged.
+    }
+  }, [
+    stats,
+    costs,
+    dataMin,
+    dataMax,
+    dailyDataMin,
+    dailyDataMax,
+    totalComparisonTextMin,
+    totalComparisonTextMax,
+    dailyComparisonTextMin,
+    dailyComparisonTextMax,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
   return (
     <Container ref={containerRef}>
+      <CopyRow>
+        <CopyButton
+          type="button"
+          onClick={() => void handleCopyImage()}
+          data-copied={copied}
+          aria-label={copied ? 'Copied' : 'Copy stats as image'}
+          title={copied ? 'Copied!' : 'Copy stats as image'}
+        >
+          {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={2} />}
+        </CopyButton>
+      </CopyRow>
       <TopRow>
         <StatBox
           initial={{ opacity: 0, y: 20 }}

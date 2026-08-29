@@ -21,6 +21,7 @@ import {
   shouldPublishProcessedSpectrumFrame,
   shouldRepaintCachedSpectrumForViewportChange,
   createVizPanScheduler,
+  resolveMirrorPanPropSync,
   invertSpectrumVertically,
   formatTxIfftSizeLabel,
 } from "@n-apt/spectrum/FFTCanvas";
@@ -45,12 +46,31 @@ it("keeps the mirrored pan publisher usable after lifecycle cleanup", () => {
     scheduler.submit(-4, "gesture");
     scheduler.cancel();
     scheduler.submit(-8, "gesture");
+    expect(publish).not.toHaveBeenCalled();
     jest.advanceTimersByTime(50);
 
     expect(publish).toHaveBeenLastCalledWith(-8);
   } finally {
     jest.useRealTimers();
   }
+});
+
+it("does not rewind a pending mirror gesture from a stale Redux pan", () => {
+  expect(
+    resolveMirrorPanPropSync({
+      pendingPublish: true,
+      incomingPan: 0,
+      lastPublishedPan: -120_000,
+    }),
+  ).toEqual({ applyIncomingPan: false, clearPendingPublish: false });
+
+  expect(
+    resolveMirrorPanPropSync({
+      pendingPublish: true,
+      incomingPan: -120_000,
+      lastPublishedPan: -120_000,
+    }),
+  ).toEqual({ applyIncomingPan: true, clearPendingPublish: true });
 });
 
 test("inverts spectrum power values without reversing frequency order", () => {
@@ -922,6 +942,69 @@ describe("FFTCanvas Component", () => {
 
     expect(dataRef.current).toBe(previousFrame);
   });
+
+  it("repaints a paused canvas when a stale source frame arrives after a reset", async () => {
+    // A source switch while paused advances the reset epoch and wipes the GPU
+    // buffers and the paused-frame cache. The transport ref can still hold the
+    // previous source's frame, which the frame gate rejects. The paused
+    // recovery path must still repaint a waveform — otherwise the canvas is
+    // stranded blank under the paused top-bar.
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+
+    const liveFrame = {
+      source_id: "mock-apt",
+      iq_data: new Uint8Array([128, 129, 127, 126]),
+      center_frequency_hz: 2_186_000,
+      sample_rate: 4_372_000,
+    };
+    const dataRef = { current: liveFrame as any };
+    const renderCanvas = (props: Partial<React.ComponentProps<typeof FFTCanvas>>) => (
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={dataRef}
+                frequencyRange={{ min: 0, max: 4_372_000 }}
+                centerFrequencyHz={2_186_000}
+                {...props}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+    // First render live so the canvas reports a rendered frame.
+    const { rerender } = render(renderCanvas({ expectedSourceId: "mock-apt" }));
+    await waitFor(() => expect(drawSpectrumMock).toHaveBeenCalled());
+
+    // Now the user pauses and switches source: the transport still holds the
+    // previous source's frame while the new source has not delivered yet.
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+    rerender(
+      renderCanvas({
+        expectedSourceId: "rtl-sdr-00000001",
+        isPaused: true,
+        webGpuStreamResetEpoch: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(drawSpectrumMock).toHaveBeenCalled();
+    });
+
+    // The paused recovery may reprocess the previous live frame to repaint,
+    // but it must never ingest a frame as if it were the new source's data.
+    const processIqCalls = processIqToDbmSpectrumMock.mock
+      .calls as unknown as Array<[ArrayLike<number>]>;
+    for (const call of processIqCalls) {
+      expect(Array.from(call[0] ?? [])).not.toEqual([200, 201, 199, 198]);
+    }
+  }, 10000);
 
   it("draws Mock Tx standby preview spectrum unchanged from backend I/Q processing", async () => {
     drawSpectrumMock.mockClear();

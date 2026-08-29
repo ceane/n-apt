@@ -189,28 +189,48 @@ export const resolveLiveSpectrumPaintContract = ({
   frameSampleRateHz?: number | null;
   isTxPreviewFrame?: boolean;
 }): LiveSpectrumPaintContract => {
+  // Non-finite inputs (fuzzed NaN/Infinity, corrupt Redux hydration) must
+  // degrade to a safe finite fallback instead of pushing an infinite range
+  // into the GPU pipeline and freezing the spectrum with no console trace.
+  const safeSourceRange = {
+    min: Number.isFinite(sourceFrequencyRange.min)
+      ? sourceFrequencyRange.min
+      : 0,
+    max: Number.isFinite(sourceFrequencyRange.max)
+      ? sourceFrequencyRange.max
+      : 1,
+  };
+  if (!(safeSourceRange.max > safeSourceRange.min)) {
+    safeSourceRange.max = safeSourceRange.min + 1;
+  }
+  const safeRequestedRange = {
+    min: Number.isFinite(requestedViewRange.min) ? requestedViewRange.min : 0,
+    max: Number.isFinite(requestedViewRange.max) ? requestedViewRange.max : 0,
+  };
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const safePan = Number.isFinite(panOffsetHz) ? panOffsetHz : 0;
   const gestureView = resolveLiveSpectrumCoordinateModel({
-    viewportBaseRange: requestedViewRange,
-    sourceRange: sourceFrequencyRange,
-    zoom,
-    panOffsetHz,
+    viewportBaseRange: safeRequestedRange,
+    sourceRange: safeSourceRange,
+    zoom: safeZoom,
+    panOffsetHz: safePan,
     mirrorEnabled,
   });
   const requestedDisplaySpan =
     gestureView.displayRange.max - gestureView.displayRange.min;
-  const sourceSpan = sourceFrequencyRange.max - sourceFrequencyRange.min;
+  const sourceSpan = safeSourceRange.max - safeSourceRange.min;
   const mirrorGestureCovered = sourceCoversMirroredDisplay(
-    sourceFrequencyRange,
+    safeSourceRange,
     gestureView.displayRange,
-    mirrorPresentationCoverageSlackHz(sourceFrequencyRange),
+    mirrorPresentationCoverageSlackHz(safeSourceRange),
   );
   const residentMirrorRange =
     (gestureView.displayRange.min + gestureView.displayRange.max) / 2 < 0
       ? {
-          min: -sourceFrequencyRange.max,
-          max: -sourceFrequencyRange.min,
+          min: -safeSourceRange.max,
+          max: -safeSourceRange.min,
         }
-      : sourceFrequencyRange;
+      : safeSourceRange;
   // During cold start Redux can still expose a persisted whole-channel span
   // while the first live frame only covers the accepted sample-rate window.
   // Letting that wider range reach the GPU makes the frame occupy one island
@@ -220,42 +240,40 @@ export const resolveLiveSpectrumPaintContract = ({
   // Commit mirror presentation atomically with frame coverage. If the pending
   // gesture cannot be filled by this resident frame, present the complete
   // frame on the positive or reflected side nearest the requested center.
-  const gestureCrossesOrBelowDc = gestureView.displayRange.min < 0;
-  const requestedIsPositiveHardware = requestedViewRange.min >= 0;
-  // A Channel A acquisition only covers |f| up to A.max (~4.39 MHz). Scrolling
-  // to about -5 MHz is the first uncovered mirror pan. Falling back to the
-  // positive resident frame (or the wide-span channel thumb) is what flipped
-  // the VFO from -5 MHz to +A / +|f|. Keep the gesture axis whenever the
-  // radio window is still positive and the user has crossed DC.
-  const keepMirrorScrollGesture =
-    mirrorEnabled && requestedIsPositiveHardware && gestureCrossesOrBelowDc;
-  const displayRange = keepMirrorScrollGesture
-    ? gestureView.displayRange
-    : Number.isFinite(requestedDisplaySpan) &&
-        Number.isFinite(sourceSpan) &&
-        sourceSpan > 0 &&
-        requestedDisplaySpan > sourceSpan + 1
-      ? sourceFrequencyRange
+  const displayRange =
+    Number.isFinite(requestedDisplaySpan) &&
+    Number.isFinite(sourceSpan) &&
+    sourceSpan > 0 &&
+    requestedDisplaySpan > sourceSpan + 1
+      ? mirrorEnabled
+        ? residentMirrorRange
+        : safeSourceRange
       : mirrorEnabled
         ? mirrorGestureCovered
           ? gestureView.displayRange
           : residentMirrorRange
-        : gestureView.displayRange.min >= sourceFrequencyRange.min &&
-            gestureView.displayRange.max <= sourceFrequencyRange.max
+        : gestureView.displayRange.min >= safeSourceRange.min &&
+            gestureView.displayRange.max <= safeSourceRange.max
           ? gestureView.displayRange
-          : sourceFrequencyRange;
+          : safeSourceRange;
   // A retune request can move ahead of the latest server frame. Keep the
   // visual axis on that resident frame until a new acquisition arrives; this
   // avoids presenting a floor-filled gap that appears to animate toward the
   // requested VFO position.
   const rebased = resolvePanZoomForDisplayRange({
-    hardwareRange: sourceFrequencyRange,
+    hardwareRange: safeSourceRange,
     displayRange,
   });
+  // Normalize the emitted ranges so they always satisfy max >= min (a fuzzed
+  // negative sample rate can produce an inverted display range otherwise).
+  const normalizedDisplayRange =
+    displayRange.max >= displayRange.min
+      ? displayRange
+      : { min: displayRange.max, max: displayRange.min };
   return {
-    paintViewportRange: sourceFrequencyRange,
-    sourceFrequencyRange,
-    displayRange,
+    paintViewportRange: safeSourceRange,
+    sourceFrequencyRange: safeSourceRange,
+    displayRange: normalizedDisplayRange,
     zoom: rebased.zoom,
     panOffsetHz: rebased.panOffsetHz,
   };

@@ -1,11 +1,23 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   useAppDispatch,
+  useAppSelector,
   setSignalAreaAndRange,
+  setFrequencyRange,
   setVizPan,
+  setTuningPreviewActive,
   tuneToChannels,
 } from "@n-apt/redux";
 import { useOptionalSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import {
+  createProgressiveTuningController,
+  resolveTuningRange,
+  type ProgressiveTuningController,
+  type TuneOptions,
+  type TuningFrequencyRange,
+} from "@n-apt/spectrum/tuning/progressiveTuning";
+
+export type { TuneInertia, TuneOptions, TuneWiggleOptions } from "@n-apt/spectrum/tuning/progressiveTuning";
 
 export interface ChannelDescriptor {
   label: string;
@@ -19,6 +31,59 @@ export const useChannelTuner = (
 ) => {
   const reduxDispatch = useAppDispatch();
   const spectrumStore = useOptionalSpectrumStore();
+  const reduxDispatchRef = useRef(reduxDispatch);
+  reduxDispatchRef.current = reduxDispatch;
+  const spectrumStoreRef = useRef(spectrumStore);
+  spectrumStoreRef.current = spectrumStore;
+  const tuningPreviewActive = useAppSelector(
+    (state) => state.spectrum.tuningPreviewActive,
+  );
+  const previewRangeRef = useRef<TuningFrequencyRange | null>(null);
+  const activeTuneRef = useRef<{ area: string } | null>(null);
+  const progressiveControllerRef = useRef<ProgressiveTuningController | null>(
+    null,
+  );
+
+  if (!progressiveControllerRef.current) {
+    progressiveControllerRef.current = createProgressiveTuningController({
+      onPreview: (range) => {
+        previewRangeRef.current = range;
+        reduxDispatchRef.current(setFrequencyRange(range));
+      },
+      onRetune: (range) => {
+        spectrumStoreRef.current?.wsConnection?.sendFrequencyRange?.(range);
+      },
+      onComplete: (range) => {
+        const activeTune = activeTuneRef.current;
+        if (!activeTune) return;
+        reduxDispatchRef.current(
+          setSignalAreaAndRange({ area: activeTune.area, range }),
+        );
+        reduxDispatchRef.current(setTuningPreviewActive(false));
+        previewRangeRef.current = null;
+        activeTuneRef.current = null;
+      },
+    });
+  }
+
+  useEffect(
+    () => () => {
+      progressiveControllerRef.current?.cancel();
+      if (activeTuneRef.current) {
+        reduxDispatchRef.current(setTuningPreviewActive(false));
+        activeTuneRef.current = null;
+        previewRangeRef.current = null;
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (tuningPreviewActive || !activeTuneRef.current) return;
+    progressiveControllerRef.current?.cancel();
+    activeTuneRef.current = null;
+    previewRangeRef.current = null;
+  }, [tuningPreviewActive]);
 
   const tuneChannels = useCallback(
     (
@@ -26,6 +91,7 @@ export const useChannelTuner = (
       selectedLabels?: string[],
       rangeOverride?: { min: number; max: number },
       sampleRateOverride?: number,
+      tuneOptions?: TuneOptions,
     ) => {
       if (!channels || channels.length === 0) return;
 
@@ -34,6 +100,71 @@ export const useChannelTuner = (
       const primaryMax = primary.max;
       const range = rangeOverride ?? { min: primaryMin, max: primaryMax };
       const primaryLabel = primary.label.toUpperCase();
+
+      const targetBounds =
+        spectrumStoreRef.current?.signalAreaBounds?.[primaryLabel] ??
+        spectrumStoreRef.current?.signalAreaBounds?.[primary.label] ?? {
+          min: primaryMin,
+          max: primaryMax,
+        };
+
+      if (tuneOptions) {
+        const targetRange = resolveTuningRange(
+          (range.min + range.max) / 2,
+          range,
+          targetBounds,
+        );
+        const fromRange =
+          previewRangeRef.current ??
+          spectrumStoreRef.current?.state.frequencyRange ??
+          targetRange;
+
+        activeTuneRef.current = { area: primaryLabel };
+        reduxDispatch(setTuningPreviewActive(true));
+        // Commit the requested acquisition window immediately. The animation
+        // then updates the preview range while the device catches up, so
+        // callers that need a synchronous tune still receive one coherent
+        // device-range command.
+        reduxDispatch(
+          setSignalAreaAndRange({ area: primaryLabel, range }),
+        );
+        reduxDispatch(
+          tuneToChannels({
+            channels,
+            selectedLabels,
+            frequencyRange: fromRange,
+          }),
+        );
+        reduxDispatch(setVizPan(0));
+
+        const targetSampleRate = sampleRateOverride ?? primary.targetSampleRate;
+        if (
+          typeof targetSampleRate === "number" &&
+          Number.isFinite(targetSampleRate) &&
+          targetSampleRate > 0
+        ) {
+          onSampleRateChange?.(targetSampleRate, "whole");
+        }
+
+        spectrumStoreRef.current?.wsConnection?.sendFrequencyRange?.(range);
+
+        progressiveControllerRef.current?.start(
+          fromRange,
+          targetRange,
+          tuneOptions,
+          targetBounds,
+        );
+        return;
+      }
+
+      // An immediate tune is also a latest-wins operation. This matters when
+      // a user clicks a channel while an animated tune is still in flight.
+      if (activeTuneRef.current) {
+        progressiveControllerRef.current?.cancel();
+        activeTuneRef.current = null;
+        previewRangeRef.current = null;
+        reduxDispatch(setTuningPreviewActive(false));
+      }
 
       reduxDispatch(tuneToChannels({ channels, selectedLabels }));
       reduxDispatch(
@@ -61,7 +192,7 @@ export const useChannelTuner = (
         spectrumStore.wsConnection?.sendFrequencyRange?.(range);
       }
     },
-    [reduxDispatch, spectrumStore, onSampleRateChange],
+    [reduxDispatch, onSampleRateChange],
   );
 
   return { tuneChannels };

@@ -28,6 +28,7 @@ interface FrequencyRangeSliderProps {
   limitMarkers?: Array<{ freq: number; label: string }>;
   isActive: boolean;
   onActivate: () => void;
+  onReadOnlyActivate?: () => void;
   onRangeChange: (range: FrequencyRange) => void;
   isDeviceConnected?: boolean;
   externalFrequencyRange?: FrequencyRange; // Add external frequency range for VFO sync
@@ -174,6 +175,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   label = "A",
   isActive = false,
   onActivate,
+  onReadOnlyActivate,
   onRangeChange,
   isDeviceConnected: _isDeviceConnected = true,
   externalFrequencyRange,
@@ -598,7 +600,12 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   ) => {
     if (readOnly || disabled) return; // Disable dragging in read-only/disabled mode
     e.stopPropagation();
-    if (!isActive) onActivate?.();
+    if (!isActive) {
+      if (readOnly) {
+        if (onReadOnlyActivate) onReadOnlyActivate();
+        else onActivate?.();
+      } else onActivate?.();
+    }
     isLeftLockedRef.current = false;
     isRightLockedRef.current = false;
     setIsLeftLocked(false);
@@ -637,12 +644,18 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   };
 
   const handleContainerClick = (e: React.MouseEvent) => {
-    if (readOnly) return; // Disable clicking in read-only mode
+    // readOnly sliders stay selectable: the container click must still reach
+    // onActivate (channel selection) without enabling drag/publish.
     if (
       e.target === containerRef.current ||
       (e.target as HTMLElement).closest(".range-track")
     ) {
-      if (!isActive) onActivate?.();
+      if (!isActive) {
+        if (readOnly) {
+          if (onReadOnlyActivate) onReadOnlyActivate();
+          else onActivate?.();
+        } else onActivate?.();
+      }
     }
   };
 

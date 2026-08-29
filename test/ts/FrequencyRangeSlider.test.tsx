@@ -299,6 +299,90 @@ describe("FrequencyRangeSlider", () => {
     expect(rangeAfterDown.min).toBeLessThan(rangeAfterUp.min);
   });
 
+  test("moves the thumb from external state without publishing", () => {
+    const onRangeChange = jest.fn();
+    const { rerender } = render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
+      </TestWrapper>,
+    );
+    expect(screen.getByText(/120.*-.*150/)).toBeInTheDocument();
+
+    // An external tune (e.g. a websocket channels echo) re-anchors the visible
+    // window. This is a passive highlight update: it must not dispatch a range.
+    rerender(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          visibleMin={130}
+          visibleMax={160}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText(/130.*-.*160/)).toBeInTheDocument();
+    expect(screen.queryByText(/120.*-.*150/)).not.toBeInTheDocument();
+    expect(onRangeChange).not.toHaveBeenCalled();
+  });
+
+  test("external changes do not fight an active drag", () => {
+    const onRangeChange = jest.fn();
+    const { rerender } = render(
+      <TestWrapper>
+        <FrequencyRangeSlider {...defaultProps} onRangeChange={onRangeChange} />
+      </TestWrapper>,
+    );
+
+    const thumb = screen.getByText(/120.*-.*150/).parentElement;
+    fireEvent.mouseDown(thumb as HTMLElement, { clientX: 100 });
+
+    // An external range update arrives mid-drag. The in-progress drag must not
+    // snap the thumb back to the external value.
+    rerender(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          visibleMin={140}
+          visibleMax={170}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.mouseMove(window, { clientX: 150 });
+    fireEvent.mouseUp(window);
+
+    expect(onRangeChange).toHaveBeenCalledTimes(1);
+    const published = onRangeChange.mock.calls[0][0] as { min: number };
+    // The published range reflects the drag from the original start (100 -> 150),
+    // not the external 140 re-anchor.
+    expect(published.min).toBeGreaterThan(120);
+    expect(published.min).toBeLessThan(140);
+  });
+
+  test("readOnly sliders still activate on container click", () => {
+    const onActivate = jest.fn();
+    const onRangeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          isActive={false}
+          readOnly={true}
+          onActivate={onActivate}
+          onRangeChange={onRangeChange}
+        />
+      </TestWrapper>,
+    );
+
+    const container = screen.getByText("A").closest("div")?.nextElementSibling;
+    fireEvent.click(container as HTMLElement);
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    expect(onRangeChange).not.toHaveBeenCalled();
+  });
+
   test("respects readOnly mode", () => {
     const onRangeChange = jest.fn();
     render(

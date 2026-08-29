@@ -27,9 +27,16 @@ const pagesMiddleware: Plugin = {
       if (url === "/article") {
         const indexPath = path.join(dirname, "src/app-article/index.html");
         const html = await server.transformIndexHtml("/article/", fs.readFileSync(indexPath, "utf-8"));
+        // transformIndexHtml resolves the relative "./main.tsx" entry against
+        // "/article/", producing "/article/main.tsx", which does not exist under
+        // the app root. Point it at the root-relative entry Vite serves natively.
+        const devHtml = html.replace(
+          'src="./main.tsx"',
+          'src="/main.tsx"',
+        );
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.end(html);
+        res.end(devHtml);
         return;
       }
       const isPages = url.startsWith("/pages/")

@@ -24,6 +24,25 @@ import {
 } from "@n-apt/math/basebandMirror";
 
 const LIVE_STATUS_ROW_HEIGHT = 56;
+const MIRRORED_SPECTRUM_MAX_HZ = 30_000_000_000;
+
+/** Convert native wheel units to the pixel-equivalent plot-space step. */
+export const normalizeWheelPanDelta = (
+  delta: number,
+  deltaMode = 0,
+  pageHeight = 800,
+): number => {
+  const finiteDelta = Number.isFinite(delta) ? delta : 0;
+  const finitePageHeight =
+    Number.isFinite(pageHeight) && pageHeight > 0 ? pageHeight : 800;
+  const pixels =
+    deltaMode === 1
+      ? finiteDelta * 16
+      : deltaMode === 2
+        ? finiteDelta * finitePageHeight
+        : finiteDelta;
+  return Math.max(-24, Math.min(24, pixels));
+};
 
 export type CanvasTxSliderState = {
   visible: boolean;
@@ -85,6 +104,8 @@ export interface FrequencyDragOptions {
   vizPanOffsetRef?: React.MutableRefObject<number>;
   clampedVizRangeRef?: React.MutableRefObject<FrequencyRange>;
   onVizPanChange?: (pan: number) => void;
+  onVizPanReanchor?: (pan: number) => void;
+  onHardwareRangeReanchor?: (range: FrequencyRange) => void;
   vizDbMinRef?: React.MutableRefObject<number>;
   vizDbMaxRef?: React.MutableRefObject<number>;
   onFftDbLimitsChange?: (min: number, max: number) => void;
@@ -140,6 +161,8 @@ export function useSpectrumInteraction({
   vizPanOffsetRef,
   clampedVizRangeRef,
   onVizPanChange,
+  onVizPanReanchor,
+  onHardwareRangeReanchor,
   vizDbMinRef,
   vizDbMaxRef,
   onFftDbLimitsChange,
@@ -256,6 +279,7 @@ export function useSpectrumInteraction({
   onDragRepaintRef.current = onDragRepaint;
   const publishHardwareRange = (range: FrequencyRange) => {
     frequencyRangeRef.current = range;
+    onHardwareRangeReanchor?.(range);
     // Overlay paint reads the ref on the existing rAF loop. Dirty it here so
     // VFO labels move with the gesture instead of waiting for a Redux render.
     onDragRepaintRef.current?.();
@@ -1009,7 +1033,13 @@ export function useSpectrumInteraction({
       panBounds: FrequencyRange | null | undefined = null,
     ): number => {
       if (allowNegativeFrequencies) {
-        return pan;
+        const center = (sourceRange.min + sourceRange.max) / 2;
+        const halfViewport =
+          (sourceRange.max - sourceRange.min) /
+          (2 * Math.max(1, zoom));
+        const minPan = -MIRRORED_SPECTRUM_MAX_HZ - center + halfViewport;
+        const maxPan = MIRRORED_SPECTRUM_MAX_HZ - center - halfViewport;
+        return Math.max(minPan, Math.min(maxPan, pan));
       }
       const bounds = getVizPanBounds(
         panBounds ?? sourceRange,
@@ -1053,9 +1083,7 @@ export function useSpectrumInteraction({
         // bounds hydrate (cold start) a deep negative pan folds to a positive
         // window the backend rejects, no frames arrive, and the UI freezes.
         const tuningBounds = getAvailableSpectrumBounds(
-          hardwareSpectrumBounds ??
-            signalAreaBounds?.[activeSignalArea] ??
-            null,
+          hardwareSpectrumBounds ?? null,
         );
         const retune = resolveMirroredRetune({
           displayRange,
@@ -1066,8 +1094,9 @@ export function useSpectrumInteraction({
           return false;
         }
         const appliedPan = retune.panOffsetHz;
+        onVizPanReanchor?.(appliedPan);
+        if (!onVizPanReanchor) onVizPanChange(appliedPan);
         publishHardwareRange(retune.range);
-        onVizPanChange(appliedPan);
         if (vizPanOffsetRef) {
           vizPanOffsetRef.current = appliedPan;
         }
@@ -1113,18 +1142,18 @@ export function useSpectrumInteraction({
 
       const newHardwareCenter =
         (clampedHardwareRange.min + clampedHardwareRange.max) / 2;
-      publishHardwareRange({
-        min: clampedHardwareRange.min,
-        max: clampedHardwareRange.max,
-      });
-
       const remainingPan = clampVizPan(
         nextPan - (newHardwareCenter - currentHardwareCenter),
         clampedHardwareRange,
         zoom,
         hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
       );
-      onVizPanChange(remainingPan);
+      onVizPanReanchor?.(remainingPan);
+      if (!onVizPanReanchor) onVizPanChange(remainingPan);
+      publishHardwareRange({
+        min: clampedHardwareRange.min,
+        max: clampedHardwareRange.max,
+      });
       if (vizPanOffsetRef) {
         vizPanOffsetRef.current = remainingPan;
       }
@@ -1209,14 +1238,19 @@ export function useSpectrumInteraction({
         return false;
       }
       frequencyRangeRef.current = tunedRange;
-      publishHardwareRange(tunedRange);
       // Re-anchor: the display must not jump when the hardware centre moves.
       const appliedPan = allowNegativeFrequencies
         ? tuning.panOffsetHz
         : 0;
-      if (onVizPanChange) {
+      onVizPanReanchor?.(appliedPan);
+      if (
+        allowNegativeFrequencies &&
+        !onVizPanReanchor &&
+        onVizPanChange
+      ) {
         onVizPanChange(appliedPan);
       }
+      publishHardwareRange(tunedRange);
       if (vizPanOffsetRef) {
         vizPanOffsetRef.current = appliedPan;
       }
@@ -2693,8 +2727,15 @@ export function useSpectrumInteraction({
 
         // Use deltaY for vertical scroll wheels to move laterally
         // Use deltaX for horizontal scroll wheels/gestures
-        const delta =
+        const rawDelta =
           Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        // Synthetic/native events without deltaMode already use CSS-pixel
+        // deltas. Preserve that legacy path while normalizing explicit line or
+        // page units from real browser wheel events.
+        const deltaPx =
+          e.deltaMode === undefined
+            ? rawDelta
+            : normalizeWheelPanDelta(rawDelta, e.deltaMode, rect.height);
 
         const canvas = getActiveSpectrumCanvas();
         if (!canvas) return;
@@ -2709,9 +2750,12 @@ export function useSpectrumInteraction({
           frequencyRangeRef.current.max - frequencyRangeRef.current.min;
         const visualRange = fullRange / zoom;
 
-        // Scroll sensitivity: roughly 1 pixel per unit of delta
-        const deltaPx = delta;
-        const freqChange = (deltaPx / width) * visualRange;
+        // Scroll sensitivity: roughly 1 pixel per unit of delta. Native wheel
+        // positive movement travels toward lower displayed frequencies.
+        const descendingNativeWheelAxis =
+          (hardwareSpectrumBounds?.max ?? 0) >= 1_000_000_000;
+        const freqChange =
+          (descendingNativeWheelAxis ? -1 : 1) * (deltaPx / width) * visualRange;
         const currentPan = vizPanOffsetRef?.current || 0;
         const proposedPan = currentPan + freqChange;
         const isReturningFromMirroredPan =
@@ -2799,6 +2843,13 @@ export function useSpectrumInteraction({
             return;
           }
           frequencyRangeRef.current = clampedRange;
+          onVizPanReanchor?.(0);
+          if (
+            descendingNativeWheelAxis &&
+            !onVizPanReanchor
+          ) {
+            onVizPanChange?.(0);
+          }
           publishHardwareRange(clampedRange);
         }
       }

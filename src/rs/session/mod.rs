@@ -31,16 +31,6 @@ pub struct SessionStore {
   ttl_secs: u64,
   prefix: String,
   config_error: Option<String>,
-  /// Cached DB-1 multiplexed connection. Clones share one socket, so session
-  /// operations don't pay a TCP handshake + SELECT each time; any command
-  /// error evicts it so the next call reconnects cleanly.
-  ///
-  /// Reconnection is single-flighted through `connect_lock`: callers that
-  /// race after an eviction wait on one attempt instead of each opening
-  /// their own connection. The sync guard is never held across an `.await`.
-  connection: std::sync::Mutex<Option<MultiplexedConnection>>,
-  /// Serializes reconnection attempts (see `connection`).
-  connect_lock: tokio::sync::Mutex<()>,
 }
 
 impl SessionStore {
@@ -53,8 +43,6 @@ impl SessionStore {
       ttl_secs: DEFAULT_SESSION_TTL_SECS,
       prefix: "session:".to_string(),
       config_error: None,
-      connection: std::sync::Mutex::new(None),
-      connect_lock: tokio::sync::Mutex::new(()),
     })
   }
 
@@ -72,20 +60,16 @@ impl SessionStore {
           ttl_secs: DEFAULT_SESSION_TTL_SECS,
           prefix: "session:".to_string(),
           config_error: Some(error),
-          connection: std::sync::Mutex::new(None),
-          connect_lock: tokio::sync::Mutex::new(()),
         }
       }
     }
   }
 
-  /// Drop the cached connection after a command failure so the next call
-  /// reconnects (and re-runs SELECT).
-  fn evict_connection(&self) {
-    *self.connection.lock().unwrap() = None;
-  }
+  async fn get_conn(&self) -> Result<MultiplexedConnection, String> {
+    if let Some(error) = &self.config_error {
+      return Err(error.clone());
+    }
 
-  async fn connect(&self) -> Result<MultiplexedConnection, String> {
     let mut conn = self
       .client
       .get_multiplexed_async_connection()
@@ -99,28 +83,6 @@ impl SessionStore {
       .await
       .map_err(|e| format!("Failed to select Redis DB 1: {}", e))?;
 
-    Ok(conn)
-  }
-
-  async fn get_conn(&self) -> Result<MultiplexedConnection, String> {
-    if let Some(error) = &self.config_error {
-      return Err(error.clone());
-    }
-
-    if let Some(cached) = self.connection.lock().unwrap().clone() {
-      return Ok(cached);
-    }
-
-    // Single-flight the reconnect so concurrent callers after an eviction
-    // share one connection attempt instead of racing to each dial Redis.
-    let _permit = self.connect_lock.lock().await;
-    // Re-check: another caller may have connected while we waited.
-    if let Some(cached) = self.connection.lock().unwrap().clone() {
-      return Ok(cached);
-    }
-
-    let conn = self.connect().await?;
-    *self.connection.lock().unwrap() = Some(conn.clone());
     Ok(conn)
   }
 
@@ -141,9 +103,6 @@ impl SessionStore {
 
     let mut conn = self.get_conn().await?;
     let write_result = conn.set_ex(&key, session_json, self.ttl_secs).await;
-    if write_result.is_err() {
-      self.evict_connection();
-    }
     let persisted_token = Self::session_write_result(write_result, token)?;
     log::info!(
       "Session created in Redis: {}…",
@@ -171,18 +130,13 @@ impl SessionStore {
     let mut conn = self.get_conn().await.ok()?;
     let key = format!("{}{}", self.prefix, token);
 
-    match conn.get::<_, Option<String>>(&key).await {
-      Ok(session_json) => match session_json {
-        Some(json) => {
-          let session: Session = serde_json::from_str(&json).ok()?;
-          Some(session)
-        }
-        None => None,
-      },
-      Err(_) => {
-        self.evict_connection();
-        None
+    let session_json: Option<String> = conn.get(&key).await.ok()?;
+    match session_json {
+      Some(json) => {
+        let session: Session = serde_json::from_str(&json).ok()?;
+        Some(session)
       }
+      None => None,
     }
   }
 
@@ -201,11 +155,10 @@ impl SessionStore {
       .await
       .map_err(|error| format!("Session revoke failed: {error}"))?;
     let key = format!("{}{}", self.prefix, token);
-    let del_result = conn.del::<_, i64>(&key).await;
-    if del_result.is_err() {
-      self.evict_connection();
-    }
-    del_result.map_err(|error| format!("Session revoke failed: {error}"))?;
+    conn
+      .del::<_, i64>(&key)
+      .await
+      .map_err(|error| format!("Session revoke failed: {error}"))?;
     log::info!(
       "Session revoked in Redis: {}…",
       token.get(..8).unwrap_or(token)

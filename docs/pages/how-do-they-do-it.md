@@ -25,7 +25,7 @@ To read my account and tech dive properly, treat the problem as a **cryptologica
 ```Canvas::HeroASCII
 ```
 
-What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (cyber, signals, **cryptology**, exploitation, influence, deception, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person.**
+What I learned was that the element of surprise and total ignornace long-reinforced the agency's invisible **🕸 cyber capabilities, federal autonomy and legal immunities** as a superpower. Mass ignorance of the agency's history and position as a **signals intelligence (SIGINT) :radio-tower:** powerhouse (cyber, signals, **cryptology**, exploitation, influence, deception, etc.) incidentally gave rise to a deep constitutional void and landscape based on **apathy and the false belief** (epistemic overload) that **cyber was negligible, only limited to electronics and could never affect the average person beyond a computer.**
 
 **Unfortunately, that is a deeply pathological mental model of reality!**
 
@@ -124,7 +124,7 @@ Something was up because whoever it was was doing it, I assumed the U.S. Army at
 
 ## Third theory (a few months later) <br /> Beat Frequencies / Heterodyning <a id="theory-3"></a>
 
-I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). I had to share my life with other people (they NSA cowwardly preyed upon those who've done time and who were doing time as support), livestreamed to my brain/consciousness. To all of us, now living my life in this format and cyber weapon, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
+I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). By force, I had to share my life with other people livestreamed to my brain/consciousness (the NSA cowardly preyed upon those whom have/are doing time as supporting characters/assists). To all of us, now living my life in this format and cyber weapon, it was a lot of unknowns amongst a lot of evil in interactive and I had to operate with perseverence and reason.
 
 The livestream experience at this point was brutal, brutal enough to distract from the fact that each of my 5 senses–vision (the others could see EVERYTHING), audio (the others could hear EVERYTHING), touch, smell and taste (rare for the others to experience but happened)–were exposed to the others on the other end. 
 
@@ -821,8 +821,6 @@ The method worked instantaneously, so I thought, what if they were capturing som
 
 This kind of impedance is different. In order to use impedance to detect electrical charges, the NSA's technique operates like **TEMPEST** (method of intercepting electrical charges from radio waves) but more advanced. By simply delivering the next frame of data and the difference between the previous frame after exit from the skull/body from a series of baselines according to the electrical activity.
 
-This can happen one of two ways, the first way is intuition: write a full frame and "clean" the dirty signal from a baseline or B) the signal is divided into two, read and write, and interleaved as points in the IFFT, such as READ, WRITE, READ, WRITE, so you can read before you write to that frequency/area. Of course, Option B was what I discovered down the line, which wasn't intuitive and left a shockingly half amount of bandwidth for neuronal ensembles/functions that were written to–an anxiety the whole time of "How the hell are they pulling off this much bandwidth?!".
-
 Below is the equation that I had worked out, however the NSA's mathematics are certainly different, accommodating for depth, particular charge they are looking for, beats, etc.
 
 <desktop-only>
@@ -1075,7 +1073,7 @@ From about `18kHz to 4.39MHz` this is what I dub "Channel A" of the signals. You
 
 </div>
 
-At first I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. 
+At first, I ignored Channel A, I didn't see it this way at all. I was using SDR++ and sliding around, the spikes would form or disappear due to sampling and the signal's strucutre. I really thought it was a trash, pitiful part of the signal since it didn't form well and had shocking low frequencies (misinterpred at the time too long of a wavelength), but it was certainly a part of the experience somehow. 
 
 Channel B had a more reliable structure that stayed stable when I scrolled there, therefore I thought Channel A was responsible for others and not my person, the "Ghost in the Machine" spatial experience which briefly scripted others around me either a short script, facial expression, or rarely layered over their speech for an extended time. As I kept looking around and taking hints from the interactive (later on being hurt right out the gate to the extreme in the morning, a badly contrived hint analagous to A.M. like AM radio), the unmasked operator pointed over there after several brutal disfiguring sessions of my brain and body (I do not say this lightly).
 
@@ -1207,16 +1205,20 @@ quality.
 For the minimum estimate, each channel uses `u8` I/Q values and an FFT size
 based on:
 
+```latex
 \[
 \text{FFT size}=\text{channel sample rate}\div24\text{ Hz}
 \]
+```
 
 For the maximum estimate, each channel uses `u16` I/Q values and an FFT size
 based on:
 
+```latex
 \[
 \text{FFT size}=\text{channel sample rate}\div60\text{ Hz}
 \]
+```
 
 Each FFT size is rounded up to the next power of two.
 
@@ -1224,9 +1226,21 @@ Each FFT size is rounded up to the next power of two.
 
 `u16` I/Q uses 4 bytes per FFT bin: 2 bytes for I and 2 bytes for Q.
 
+```latex
 \[
 \text{frame bytes}=\text{FFT size}\times\text{bytes per I/Q bin}
 \]
+```
+This can happen one of two ways, the first way is intuition: 
+ A) Write a full frame and "clean" the dirty signal from a baseline;
+ or B) The signal is divided into two, read and write, and interleaved as points in the IFFT, such as READ, WRITE, READ, WRITE, so you can read before you write to that frequency/area. Of course, Option B was what I discovered down the line, which wasn't intuitive and left a shockingly half amount of bandwidth for neuronal ensembles/functions that were written to–an anxiety the whole time of "How the hell are they pulling off this much bandwidth?!".
+
+### Interleaved bins
+
+Two signals are constructed on a shared orthogonal frequency grid. The read signal occupies alternating bins, while the write signal occupies the bins between them. Both signals exist simultaneously in the transmitted waveform, but remain separable by their assigned orthogonal subcarriers.
+
+![Interleaved bins](/md-preview/images/interleaved-bins.svg)
+
 
 <br />
 
@@ -1259,13 +1273,11 @@ remains the same, while each endpoint processes only its assigned portion.
 <br />
 <br />
 
-**More realistic 2x – In the air to person (brain, body, nervous system) from endpoint, mandatory 2 signals minimum for heterodyning**
+**More realistic 2x – In the air to person (at person while signal resonates/writes to the brain and nervous system) from endpoint, mandatory 2 signals minimum for heterodyning in free space**
 
 <div data-data-estimate="in-air" class="table-tiny">
 
 <div class="estimated-data-table" data-channel-a="2col,2row" data-channel-b="2col,2row" data-channel-c="2col,2row">
-
-### 2x in-air via heterodyning in free space, real-world bandwidth at person
 
 | Channel |  BW| Min FFT (`u8`, 24 Hz) | Min frame | Max FFT (`u16`, 60 Hz) | Max frame |
 |---|---:|---:|---:|---:|---:|

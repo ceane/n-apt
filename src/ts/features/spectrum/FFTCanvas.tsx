@@ -72,11 +72,9 @@ import {
   newestIqWindow,
   prepareSpectrumRenderData,
   resolveLiveSpectrumPaintContract,
-  resolveRetunePresentationOffsetHz,
   resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
   shouldAdoptLiveFrameRange,
-  shouldHoldLiveSpectrumPaint,
   shouldClearSpectrumWaveformForRangeChange,
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
@@ -143,7 +141,28 @@ export const createVizPanScheduler = (
     publish,
     intervalMs: 50,
     idleFlushMs: 80,
+    // Visual pan is ref-driven during the gesture. Defer Redux until cadence
+    // or idle flush so a trackpad burst does not re-render the route every tick.
+    leadingPublish: false,
   });
+
+export const resolveMirrorPanPropSync = ({
+  pendingPublish,
+  incomingPan,
+  lastPublishedPan,
+}: {
+  pendingPublish: boolean;
+  incomingPan: number;
+  lastPublishedPan: number;
+}): { applyIncomingPan: boolean; clearPendingPublish: boolean } => {
+  if (incomingPan === lastPublishedPan) {
+    return { applyIncomingPan: true, clearPendingPublish: true };
+  }
+  if (pendingPublish) {
+    return { applyIncomingPan: false, clearPendingPublish: false };
+  }
+  return { applyIncomingPan: true, clearPendingPublish: false };
+};
 
 type FrameRenderRangeInput = {
   currentFrame: Pick<LiveFrameData, "center_frequency_hz" | "sample_rate">;
@@ -298,6 +317,48 @@ export const shouldRepaintCachedSpectrumForViewportChange = ({
   !shouldReprocessCurrentFrame &&
   hasCachedWaveform &&
   (zoomChanged || panChanged || rangeChanged);
+
+/**
+ * Mirror-on can repaint from the resident FFT when only pan moved. Without
+ * this branch the live loop waits for a matching retune frame and the VFO
+ * freezes until the radio catches up.
+ */
+export const shouldMirrorPanOnlyRedraw = ({
+  allowNegativeFrequencies,
+  hasNewData,
+  shouldReprocessCurrentFrame,
+  hasCachedWaveform,
+  lastPaintedMirrorPan,
+  currentMirrorPan,
+}: {
+  allowNegativeFrequencies: boolean;
+  hasNewData: boolean;
+  shouldReprocessCurrentFrame: boolean;
+  hasCachedWaveform: boolean;
+  lastPaintedMirrorPan: number;
+  currentMirrorPan: number;
+}): boolean =>
+  allowNegativeFrequencies &&
+  !hasNewData &&
+  !shouldReprocessCurrentFrame &&
+  hasCachedWaveform &&
+  lastPaintedMirrorPan !== currentMirrorPan;
+
+/**
+ * GPU |f| fold must follow the mirror setting, not whether this frame's
+ * display.min has crossed 0 Hz. Arming it only after the viewport dips
+ * below DC floors the new negative sliver, then fills it in — a snap and a
+ * wipe around 0 Hz.
+ */
+export const shouldEnableGpuMirrorFold = ({
+  mirrorOnGpu,
+  allowNegativeFrequencies,
+  displayMinHz: _displayMinHz,
+}: {
+  mirrorOnGpu: boolean;
+  allowNegativeFrequencies: boolean;
+  displayMinHz: number;
+}): boolean => Boolean(mirrorOnGpu && allowNegativeFrequencies);
 
 export const resolveEffectiveDbmOffsetDb = ({
   powerScale,
@@ -2087,6 +2148,8 @@ const FFTCanvas = memo(
     /** True while mirror-mode pan is held in the ref ahead of the Redux write. */
     const mirrorPanPendingPublishRef = useRef(false);
     const mirrorPanLastPublishedRef = useRef(vizPanOffset);
+    /** True while a mirror retune ref is ahead of the Redux frequency range. */
+    const hardwareRangeReanchorPendingRef = useRef(false);
     const lastPaintedMirrorPanRef = useRef(vizPanOffset);
     const lastPaintedZoomRef = useRef(currentVizZoom);
     const vizPanSchedulerRef = useRef<DeviceOptionScheduler<number> | null>(
@@ -2094,11 +2157,12 @@ const FFTCanvas = memo(
     );
     if (!vizPanSchedulerRef.current) {
       vizPanSchedulerRef.current = createVizPanScheduler((pan) => {
-        mirrorPanPendingPublishRef.current = false;
         mirrorPanLastPublishedRef.current = pan;
         // Publish the coalesced value to the parent exactly once. Calling the
         // local interaction handler here would submit back into this same
-        // scheduler and recurse on the first wheel event.
+        // scheduler and recurse on the first wheel event. Keep the local ref
+        // authoritative until the published prop is acknowledged below;
+        // clearing pending here creates a render-sized stale-prop rewind.
         onVizPanChangeRef.current?.(pan);
       });
     }
@@ -2627,6 +2691,13 @@ const FFTCanvas = memo(
       },
       [],
     );
+    const scheduleInteractionRepaint = useCallback(() => {
+      if (dragRepaintFrameRef.current !== null) return;
+      dragRepaintFrameRef.current = window.requestAnimationFrame(() => {
+        dragRepaintFrameRef.current = null;
+        forceRenderRef.current?.();
+      });
+    }, []);
 
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
@@ -2650,30 +2721,53 @@ const FFTCanvas = memo(
       vizPanScheduler.flush();
     }, [vizPanScheduler]);
 
-    const handleVizPanChange = useCallback(
+    const onHardwareRangeReanchor = useCallback((range: FrequencyRange) => {
+      frequencyRangeRef.current = range;
+      hardwareRangeReanchorPendingRef.current = true;
+    }, []);
+
+    const publishVizPanReanchor = useCallback(
       (pan: number) => {
-        // Ref updates are picked up by the existing rAF paint loop. Do not call
-        // forceRender here — that cancels/restarts the animation run on every
-        // pointer tick and is what froze the UI after a single pan/scroll.
+        // A hardware re-anchor is an atomic range + pan operation. Flush any
+        // queued gesture pan BEFORE re-anchoring: cancel() would drop the
+        // in-flight motion, so the first publish after the retune would be the
+        // re-anchor's hold-pan, briefly reversing the display ("initial scroll
+        // goes opposite, stop + continue flips direction"). Flushing preserves
+        // the accumulated gesture motion, then the re-anchor keeps the viewport
+        // fixed while the acquisition moves.
+        vizPanScheduler.flush();
         vizPanOffsetRef.current = pan;
         overlayDirtyRef.current.grid = true;
         overlayDirtyRef.current.markers = true;
+        scheduleInteractionRepaint();
+        mirrorPanPendingPublishRef.current = true;
+        mirrorPanLastPublishedRef.current = pan;
+        onVizPanChangeRef.current?.(pan);
+      },
+      [overlayDirtyRef, scheduleInteractionRepaint, vizPanScheduler],
+    );
+
+    const handleVizPanChange = useCallback(
+      (pan: number) => {
+        // Commit the ref immediately and schedule at most one render per
+        // animation frame. Waiting for the next server frame makes mirrored
+        // pan feel frozen; rendering once per native wheel event starves it.
+        vizPanOffsetRef.current = pan;
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+        scheduleInteractionRepaint();
         // Keep the ref ahead of Redux so live FFT frames cannot rewind the
         // gesture. Publish the subscriber-local snapshot at the shared 20 Hz
         // cadence; the scheduler also flushes wheel inactivity and pointerup.
         mirrorPanPendingPublishRef.current = true;
         vizPanScheduler.submit(pan, "gesture");
-        if (isPaused && dragRepaintFrameRef.current === null) {
-          // Pointer events can outpace the paused render cadence by orders of
-          // magnitude. Coalesce them into one repaint instead of restarting
-          // the animation loop for every drag tick.
-          dragRepaintFrameRef.current = window.requestAnimationFrame(() => {
-            dragRepaintFrameRef.current = null;
-            forceRenderRef.current?.();
-          });
+        // The scheduler skips unchanged values; clear the pending guard here so
+        // a stale Redux pan cannot fight the gesture on the next render.
+        if (pan === mirrorPanLastPublishedRef.current) {
+          mirrorPanPendingPublishRef.current = false;
         }
       },
-      [isPaused, vizPanScheduler],
+      [scheduleInteractionRepaint, vizPanScheduler],
     );
 
     // Grab-pan ends on pointerup — clear the pending-ref guard so
@@ -2691,11 +2785,15 @@ const FFTCanvas = memo(
     // Channel tunes / slider writes must win over an in-flight pan.
     // Echoes of our own publish match lastPublished and are ignored.
     useEffect(() => {
-      if (vizPanOffset === mirrorPanLastPublishedRef.current) {
+      const sync = resolveMirrorPanPropSync({
+        pendingPublish: mirrorPanPendingPublishRef.current,
+        incomingPan: vizPanOffset,
+        lastPublishedPan: mirrorPanLastPublishedRef.current,
+      });
+      if (sync.clearPendingPublish) {
         mirrorPanPendingPublishRef.current = false;
-        return;
       }
-      mirrorPanPendingPublishRef.current = false;
+      if (!sync.applyIncomingPan) return;
       mirrorPanLastPublishedRef.current = vizPanOffset;
       vizPanOffsetRef.current = vizPanOffset;
     }, [vizPanOffset]);
@@ -2703,6 +2801,18 @@ const FFTCanvas = memo(
     // Effect: When hardware frequency range changes, mark overlays for redraw
     // and sync the ref used by drag/render logic. Note: this does NOT retune the device.
     useEffect(() => {
+      if (hardwareRangeReanchorPendingRef.current) {
+        if (
+          renderableFrequencyRange.min === frequencyRangeRef.current.min &&
+          renderableFrequencyRange.max === frequencyRangeRef.current.max
+        ) {
+          hardwareRangeReanchorPendingRef.current = false;
+        } else {
+          overlayDirtyRef.current.grid = true;
+          overlayDirtyRef.current.markers = true;
+          return;
+        }
+      }
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
       frequencyRangeRef.current = renderableFrequencyRange;
@@ -2825,6 +2935,8 @@ const FFTCanvas = memo(
       vizPanOffsetRef,
       clampedVizRangeRef,
       onVizPanChange: handleVizPanChange,
+      onVizPanReanchor: publishVizPanReanchor,
+      onHardwareRangeReanchor,
       vizDbMinRef,
       vizDbMaxRef,
       onFftDbLimitsChange: applyDbLimits,
@@ -2838,13 +2950,8 @@ const FFTCanvas = memo(
       onDragRepaint: useCallback(() => {
         overlayDirtyRef.current.grid = true;
         overlayDirtyRef.current.markers = true;
-        if (isPaused && dragRepaintFrameRef.current === null) {
-          dragRepaintFrameRef.current = window.requestAnimationFrame(() => {
-            dragRepaintFrameRef.current = null;
-            forceRenderRef.current?.();
-          });
-        }
-      }, [isPaused, overlayDirtyRef]),
+        scheduleInteractionRepaint();
+      }, [overlayDirtyRef, scheduleInteractionRepaint]),
       onTxSliderRepaint: useCallback(() => {
         setTxSliderVisualRevision((revision) => revision + 1);
       }, []),
@@ -2995,6 +3102,13 @@ const FFTCanvas = memo(
      */
     const onRenderFrame = useCallback(
       (_runId: number) => {
+        // React dev profiling and WebGPU commits accumulate PerformanceMeasure
+        // entries without bound; clear each frame to prevent multi-GB growth.
+        if (typeof performance !== "undefined") {
+          performance.clearMeasures?.();
+          performance.clearMarks?.();
+        }
+
         // Standby toggles are handled by the layout effect above. Never wipe
         // WebGPU from the animation loop — that raced the preserve path and
         // cleared the canvas a frame before the standby preview painted.
@@ -3009,7 +3123,7 @@ const FFTCanvas = memo(
 
         const currentData = dataRef.current;
         const incomingFrame = getLatestLiveFrame(currentData);
-        const currentFrame = selectFrameForPresentation({
+        let currentFrame = selectFrameForPresentation({
           incomingFrame,
           isPaused,
           isStandby,
@@ -3092,8 +3206,19 @@ const FFTCanvas = memo(
           // while a handoff is in flight. Reject that frame without erasing
           // the last presentation; the target frame or delayed placeholder
           // will replace it.
+          //
+          // When paused, a reset (source switch / epoch bump) may have already
+          // wiped the GPU buffers and the paused-frame cache. Returning here
+          // would strand the canvas blank under the paused top-bar: the paused
+          // recovery path below is the only thing that repaints a waveform.
+          // Drop the stale frame (so it is never ingested) and fall through so
+          // that recovery can run.
           if (!hasAuthoritativeBlockingState) {
-            return;
+            if (isPaused) {
+              currentFrame = null;
+            } else {
+              return;
+            }
           }
         }
         if (
@@ -3257,8 +3382,8 @@ const FFTCanvas = memo(
               }
             : null;
         // Process every incoming IQ frame immediately. The frame owns its
-        // acquisition axis; if a mirror viewport outruns that acquisition, the
-        // paint contract holds the last complete row until |f| is covered.
+        // acquisition axis; an outrun mirror viewport is painted directly and
+        // the resampler handles any uncovered bins at the noise floor.
 
         if (
           (hasNewData || shouldReprocessCurrentFrame) &&
@@ -3283,9 +3408,8 @@ const FFTCanvas = memo(
           });
           // A frame from the previous hardware window is still useful for
           // demodulation, but it must not take ownership of the displayed
-          // frequency axis. Leave the requested range intact so the paint
-          // gate below retains the last complete canvas until the retuned
-          // frame arrives.
+          // frequency axis. Leave the requested range intact until the
+          // retuned frame reports its own axis.
           if (currentFrameMatchesRequestedRange) {
             frequencyRangeRef.current = frameRenderableRange;
           }
@@ -3472,13 +3596,16 @@ const FFTCanvas = memo(
         previousRemoveDcSpikeRef.current = removeDcSpike;
 
         // Mirror-on can change viewport geometry without a fresh IQ frame.
-        const mirrorPanOnlyRedraw =
-          allowNegativeFrequencies &&
-          !hasNewData &&
-          !shouldReprocessCurrentFrame &&
-          !!renderWaveformRef.current &&
-          renderWaveformRef.current.length > 0 &&
-          lastPaintedMirrorPanRef.current !== vizPanOffsetRef.current;
+        const mirrorPanOnlyRedraw = shouldMirrorPanOnlyRedraw({
+          allowNegativeFrequencies,
+          hasNewData: Boolean(hasNewData),
+          shouldReprocessCurrentFrame,
+          hasCachedWaveform: Boolean(
+            renderWaveformRef.current && renderWaveformRef.current.length > 0,
+          ),
+          lastPaintedMirrorPan: lastPaintedMirrorPanRef.current,
+          currentMirrorPan: vizPanOffsetRef.current,
+        });
         const viewportOnlyRedraw =
           !allowNegativeFrequencies &&
           shouldRepaintCachedSpectrumForViewportChange({
@@ -3599,9 +3726,6 @@ const FFTCanvas = memo(
             zoom: vizZoomRef.current || 1,
             panOffsetHz: vizPanOffsetRef.current,
             mirrorEnabled: allowNegativeFrequencies,
-            frameCenterHz: currentFrame?.center_frequency_hz,
-            frameSampleRateHz: currentFrame?.sample_rate,
-            isTxPreviewFrame,
           });
           // Setting on → free pan + optional GPU fold. Fold arms inside
           // prepareSpectrumRenderData only when visual.min < 0.
@@ -3635,26 +3759,9 @@ const FFTCanvas = memo(
             getZoomedData,
           });
 
-          // Keep the last complete row while a mirror viewport is outside the
-          // resident acquisition. The shader floors only bins that are truly
-          // uncovered inside a row that is otherwise safe to paint.
-          const { visualRange, coversDisplay } = preparedSpectrum;
-          const presentationOffsetHz =
-            allowNegativeFrequencies &&
-            displayRangeNeedsBasebandMirror(visualRange) &&
-            coversDisplay
-              ? 0
-              : resolveRetunePresentationOffsetHz({
-                  frameCenterHz: currentFrame?.center_frequency_hz,
-                  frameSampleRateHz: currentFrame?.sample_rate,
-                  requestedRange: visualRange,
-                  isTxPreviewFrame,
-                });
-          const holdUncoveredPaint = shouldHoldLiveSpectrumPaint({
-            coversDisplay,
-            presentationOffsetHz,
-            displayMinHz: visualRange.min,
-          });
+          // Paint the current frame immediately. The shader floors only bins
+          // that are truly outside the current acquisition window.
+          const { visualRange } = preparedSpectrum;
           // Keep the pan the gesture/tune requested. Writing clampedPan back
           // into the ref on the mirror-off path froze the spectrum: every
           // paint rewrote vizPan into the acquisition while the VFO moved.
@@ -3673,11 +3780,14 @@ const FFTCanvas = memo(
           }
           const displayWaveform = spectrumWaveform;
           const displayVisualRange = visualRange;
-          // Negative-band shader mapping only while the window is below 0 Hz.
-          // Leaving this at "setting on" folded positive pans and looked frozen.
-          const gpuMirrorActive =
-            mirrorOnGpu &&
-            displayRangeNeedsBasebandMirror(displayVisualRange);
+          // Mirror fold follows the setting, not this frame's sign. Arming it
+          // only after display.min crosses 0 Hz floors the new negative sliver
+          // and then fills it in — a snap and a wipe around DC.
+          const gpuMirrorActive = shouldEnableGpuMirrorFold({
+            mirrorOnGpu,
+            allowNegativeFrequencies,
+            displayMinHz: displayVisualRange.min,
+          });
           const displayFullCaptureRange = requestedViewRange;
           const displayCenterFrequencyHz =
             (displayVisualRange.min + displayVisualRange.max) / 2;
@@ -3707,8 +3817,10 @@ const FFTCanvas = memo(
               : TX_SLIDER_ROW_HEIGHT;
           const markerOverlayOpacity =
             powerLineDbRef.current !== null ? 0.1 : 1;
+          const skipSpikeAnalysis =
+            mirrorPanOnlyRedraw && !hasNewData && !shouldReprocessCurrentFrame;
           // Spectrum render (using unified hook)
-          if (spectrumGpuCanvas && !holdUncoveredPaint) {
+          if (spectrumGpuCanvas) {
             drawSpectrum({
               canvas: spectrumGpuCanvas,
               webgpuEnabled: spectrumWebgpuEnabled,
@@ -3721,9 +3833,6 @@ const FFTCanvas = memo(
               sourceFrequencyRange: resampleOnGpu
                 ? sourceFrequencyRange
                 : undefined,
-              presentationOffsetHz: resampleOnGpu
-                ? presentationOffsetHz
-                : 0,
               mirrorEnabled: gpuMirrorActive,
               reuseWaveformUpload: resampleOnGpu,
               fftMin: activeScaleDbMinRef.current,
@@ -3780,22 +3889,26 @@ const FFTCanvas = memo(
               txSlider: compact ? null : displayTxSlider,
               overlayOpacity: markerOverlayOpacity,
               canvasStatusRow: compact ? null : effectiveCanvasStatusRow,
-              onSpikeCount: (count) => {
-                dispatch(setGpuSpikeCount(count));
-              },
-              onSpikeAnalysis: (analysis) => {
-                const presented = presentSpikeAnalysis(
-                  analysis as SpikeAnalysis,
-                  stableSpikeClassifierRef.current,
-                  stableSpikeDecisionRef.current,
-                  stableSpikeFloorDbmRef.current,
-                );
-                if (!presented) return;
-                stableSpikeFloorDbmRef.current = presented.floorDbm;
-                stableSpikeClassifierRef.current = presented.classifier;
-                stableSpikeDecisionRef.current = presented.isNapt;
-                dispatch(setGpuSpikeAnalysis(presented.analysis));
-              },
+              onSpikeCount: skipSpikeAnalysis
+                ? undefined
+                : (count) => {
+                    dispatch(setGpuSpikeCount(count));
+                  },
+              onSpikeAnalysis: skipSpikeAnalysis
+                ? undefined
+                : (analysis) => {
+                    const presented = presentSpikeAnalysis(
+                      analysis as SpikeAnalysis,
+                      stableSpikeClassifierRef.current,
+                      stableSpikeDecisionRef.current,
+                      stableSpikeFloorDbmRef.current,
+                    );
+                    if (!presented) return;
+                    stableSpikeFloorDbmRef.current = presented.floorDbm;
+                    stableSpikeClassifierRef.current = presented.classifier;
+                    stableSpikeDecisionRef.current = presented.isNapt;
+                    dispatch(setGpuSpikeAnalysis(presented.analysis));
+                  },
               lineColor: fftColorRef.current,
               fillColor: fillColorRef.current,
               isStandby: isStandby,
@@ -4649,9 +4762,15 @@ const FFTCanvas = memo(
       visualizerMachine?.clear(visualizerSessionKey);
       clearLocalVisualizerSession();
       lastIncomingFrameRef.current = null;
-      setHasRenderedSpectrumFrame(false);
-      hasPresentedSpectrumFrameRef.current = false;
-      notifyRenderableFrame(false);
+      // A paused canvas is still renderable: the paused recovery path repaints
+      // a waveform from the snapshot / floor fallback. Flipping this to false
+      // while paused strands the canvas under a loading placeholder (or blank)
+      // because no live frame will arrive to flip it back until resume.
+      if (!isPaused) {
+        setHasRenderedSpectrumFrame(false);
+        hasPresentedSpectrumFrameRef.current = false;
+        notifyRenderableFrame(false);
+      }
       clearSpectrumBackbuffer();
       forceRenderRef.current?.();
     }, [
@@ -4661,6 +4780,7 @@ const FFTCanvas = memo(
       visualizerMachine,
       visualizerSessionKey,
       webGpuStreamResetEpoch,
+      isPaused,
     ]);
 
     // Effect: On mount: restore visualizer state from machine if available.
@@ -4698,6 +4818,19 @@ const FFTCanvas = memo(
     // redraws the frozen frame instead of rebuilding from a transient frame.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
+      if (hardwareRangeReanchorPendingRef.current) {
+        if (
+          renderableFrequencyRange.min === frequencyRangeRef.current.min &&
+          renderableFrequencyRange.max === frequencyRangeRef.current.max
+        ) {
+          hardwareRangeReanchorPendingRef.current = false;
+        } else {
+          if (isPaused) {
+            forceRender();
+          }
+          return;
+        }
+      }
       frequencyRangeRef.current = renderableFrequencyRange;
 
         if (
@@ -4936,8 +5069,10 @@ const FFTCanvas = memo(
       forceRender();
     }, [isPaused, webgpuEnabled, forceRender]);
 
-    // Effect: When visualization parameters change (dB limits, zoom, pan),
+    // Effect: When visualization parameters change (dB limits, zoom),
     // mark overlays dirty and trigger paused re-render to update immediately.
+    // Pan is ref-driven during gestures; syncing Redux pan here re-marked
+    // overlays on every coalesced publish and duplicated rAF overlay work.
     useEffect(() => {
       overlayDirtyRef.current.grid = true;
       overlayDirtyRef.current.markers = true;
@@ -4948,7 +5083,6 @@ const FFTCanvas = memo(
       vizDbMin,
       vizDbMax,
       currentVizZoom,
-      vizPanOffset,
       isPaused,
       forceRender,
     ]);
@@ -5007,6 +5141,9 @@ const FFTCanvas = memo(
       lastProcessedDataRef.current = null;
       lastProcessedFrameSignatureRef.current = null;
       pendingFftSizeChangeRef.current = true;
+      if (isPaused) {
+        forceRender();
+      }
     }, [effectiveFftSize, isPaused, forceRender]);
 
     const buildSnapshotData = useCallback(

@@ -34,6 +34,7 @@ export function useFFTAnimation({
   }, [currentFPS]);
 
   const isVisibleRef = useRef(true);
+  const renderFrameFailedRef = useRef(false);
 
   const animate = useCallback((force: boolean = false) => {
     const runId = animationRunIdRef.current;
@@ -55,7 +56,18 @@ export function useFFTAnimation({
       } else {
         lastFrameTimeRef.current += frameRateLimiterRef.current;
       }
-      onRenderFrameRef.current(runId, force);
+      try {
+        onRenderFrameRef.current(runId, force);
+        renderFrameFailedRef.current = false;
+      } catch (error) {
+        // A throw inside the frame render must not kill the rAF loop: the
+        // loop would stop re-arming and freeze the spectrum with no console
+        // trace. Log once per error burst, then keep the cadence alive.
+        if (!renderFrameFailedRef.current) {
+          console.error("FFT render frame failed:", error);
+        }
+        renderFrameFailedRef.current = true;
+      }
       browserPipelineMetrics.presentationFrame(now, frameRateLimiterRef.current);
     }
 

@@ -40,22 +40,27 @@ describe("resample.wgsl", () => {
     expect(RESAMPLE_WGSL).not.toContain("negative_band_source_frequency");
   });
 
-  it("keeps the mirror-off full-frame path on the proportional bin fast path", () => {
+  it("keeps the full-frame identity path on the proportional bin fast path", () => {
     expect(RESAMPLE_WGSL).toContain("fast_path_start");
-    expect(RESAMPLE_WGSL).toContain("params.mirror_enabled == 0u");
+    expect(RESAMPLE_WGSL).toContain("abs(params.display_min - params.source_min)");
     expect(RESAMPLE_WGSL).toContain("f32(params.src_len) / f32(params.out_len)");
   });
 
-  it("slides stale acquisitions during an in-flight same-span retune", () => {
-    expect(RESAMPLE_WGSL).toContain("presentation_offset_hz");
+  it("keeps every displayed frame on its server-owned frequency axis", () => {
+    expect(RESAMPLE_WGSL).not.toContain("presentation_offset_hz");
     expect(RESAMPLE_WGSL).toContain(
-      "display0 - params.presentation_offset_hz",
+      "s0 = source_frequency(display0, source_span);",
+    );
+    expect(RESAMPLE_WGSL).toContain(
+      "s1 = source_frequency(display1, source_span);",
     );
   });
 
-  it("shifts mirrored lookups in source space so negative pans do not floor", () => {
+  it("samples through DC when a pixel straddles 0 Hz", () => {
+    expect(RESAMPLE_WGSL).toContain("crosses_dc");
+    expect(RESAMPLE_WGSL).toContain("s0 = 0.0;");
     expect(RESAMPLE_WGSL).toContain(
-      "source_frequency(display0, source_span) - params.presentation_offset_hz",
+      "s1 = max(abs(display0), abs(display1));",
     );
   });
 });

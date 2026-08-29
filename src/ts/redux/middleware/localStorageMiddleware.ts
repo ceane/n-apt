@@ -84,7 +84,6 @@ export const normalizePersistedTxSignalKey = (value: unknown): string => {
     case "":
     case "apt":
       return "wifi";
-    case "d":
     case "d_sharp":
     case "dsharp":
     case "wifi":
@@ -167,9 +166,11 @@ const createLocalStorageMiddleware =
         // them in this global browser cache lets a new subscriber replay a
         // stale channel/range/settings bundle before WebSocket hydration.
         // Keep only subscriber-local presentation state here.
+        // Subscriber-local mirror pan must not replay from a browser-global
+        // cache. A corrupt scroll session can persist -67 MHz offsets that
+        // flatline the spectrum on every reload until WebSocket hydration.
         vizZoom: spectrumState.vizZoom,
         maxVizZoom: spectrumState.maxVizZoom,
-        vizPanOffset: spectrumState.vizPanOffset,
         fftMinDb: spectrumState.fftMinDb,
         fftMaxDb: spectrumState.fftMaxDb,
         lastKnownRanges: spectrumState.lastKnownRanges,
@@ -347,6 +348,8 @@ export const loadPersistedSdrSettings = () => {
       "ppm",
       "tunerAGC",
       "rtlAGC",
+      "vizPanOffset",
+      "vizZoomFloorPan",
     ]) {
       delete parsed[key];
     }
@@ -389,8 +392,6 @@ export const loadPersistedSdrSettings = () => {
     };
     repairFiniteNumber("vizZoom", initialState.vizZoom);
     repairFiniteNumber("vizZoomFloor", initialState.vizZoomFloor);
-    repairFiniteNumber("vizZoomFloorPan", initialState.vizZoomFloorPan);
-    repairFiniteNumber("vizPanOffset", initialState.vizPanOffset);
     repairFiniteNumber("fftMinDb", initialState.fftMinDb);
     repairFiniteNumber("fftMaxDb", initialState.fftMaxDb);
     // Tx fields not already covered by the pre-existing tx* guards above.

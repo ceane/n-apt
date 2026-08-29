@@ -490,6 +490,43 @@ describe("resolveLiveSpectrumPaintContract", () => {
     expect(result.visualRange).toEqual(contract.displayRange);
   });
 
+  it("does not progressively fill a requested DC-crossing axis from a lagged frame", () => {
+    const requestedViewRange = { min: 0, max: 4_372_000 };
+    const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange,
+      zoom: 1,
+      // Put the requested center just below DC while the server still owns a
+      // wholly positive, non-covering acquisition farther up the band.
+      panOffsetHz: -2_187_000,
+      mirrorEnabled: true,
+    });
+
+    expect(contract.displayRange).toEqual({
+      min: -8_666_000,
+      max: -4_294_000,
+    });
+
+    const result = prepareSpectrumRenderData({
+      waveform: new Float32Array(2048).fill(-75),
+      frequencyRange: contract.paintViewportRange,
+      sourceFrequencyRange: contract.sourceFrequencyRange,
+      zoom: contract.zoom,
+      panOffset: contract.panOffsetHz,
+      invert: false,
+      dbMin: FLOOR,
+      dbMax: 0,
+      allowNegativeFrequencies: true,
+      mirrorOnGpu: true,
+      resampleOnGpu: true,
+      getZoomedData: createFFTZoomProcessor(FLOOR).process,
+    });
+
+    expect(result.coversDisplay).toBe(true);
+    expect(result.visualRange).toEqual(contract.displayRange);
+  });
+
   it("fills the row instead of a channel island when redux and frame axes differ", () => {
     const requestedViewRange = { min: 0, max: 4_372_000 };
     const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
@@ -591,7 +628,7 @@ describe("resolveLiveSpectrumPaintContract", () => {
     });
   });
 
-  it("does not snap a DC-straddling scroll to the positive live-frame center", () => {
+  it("keeps an uncovered DC-straddling request on the complete live-frame axis", () => {
     const requestedViewRange = { min: 0, max: 4_372_000 };
     const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
     const hardwareCenter =
@@ -607,17 +644,10 @@ describe("resolveLiveSpectrumPaintContract", () => {
       frameSampleRateHz: 4_372_000,
     });
 
-    const displayCenter =
-      (contract.displayRange.min + contract.displayRange.max) / 2;
-    const frameCenter =
-      (sourceFrequencyRange.min + sourceFrequencyRange.max) / 2;
-    expect(contract.displayRange.min).toBeLessThan(0);
-    expect(contract.displayRange.max).toBeGreaterThan(0);
-    expect(displayCenter).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
-    expect(Math.abs(displayCenter - frameCenter)).toBeGreaterThan(1_000_000);
+    expect(contract.displayRange).toEqual(sourceFrequencyRange);
   });
 
-  it("does not snap a Channel A scroll past -A.max onto the positive A axis", () => {
+  it("reflects the complete Channel A frame when a negative request outruns it", () => {
     const channelA = { min: 18_000, max: 4_390_000 };
     const hardwareCenter = (channelA.min + channelA.max) / 2;
     const panOffsetHz = -5_000_000 - hardwareCenter;
@@ -629,14 +659,13 @@ describe("resolveLiveSpectrumPaintContract", () => {
       mirrorEnabled: true,
     });
 
-    const displayCenter =
-      (contract.displayRange.min + contract.displayRange.max) / 2;
-    expect(displayCenter).toBeCloseTo(-5_000_000, 0);
-    expect(displayCenter).toBeLessThan(0);
-    expect(contract.displayRange.min).toBeLessThan(-channelA.max);
+    expect(contract.displayRange).toEqual({
+      min: -channelA.max,
+      max: -channelA.min,
+    });
   });
 
-  it("does not flip a -5 MHz mirror center to the positive |f| image", () => {
+  it("keeps a wide negative request on the reflected lagged-frame axis", () => {
     const requestedViewRange = { min: 0, max: 10_000_000 };
     const laggedFrame = { min: 4_294_000, max: 8_666_000 };
     const panOffsetHz = -10_000_000;
@@ -650,13 +679,13 @@ describe("resolveLiveSpectrumPaintContract", () => {
       frameSampleRateHz: 4_372_000,
     });
 
-    const displayCenter =
-      (contract.displayRange.min + contract.displayRange.max) / 2;
-    expect(displayCenter).toBeCloseTo(-5_000_000, -3);
-    expect(displayCenter).toBeLessThan(0);
+    expect(contract.displayRange).toEqual({
+      min: -laggedFrame.max,
+      max: -laggedFrame.min,
+    });
   });
 
-  it("does not jump to the reflected frame when scroll center just crosses below DC", () => {
+  it("atomically reflects the complete lagged frame when the center crosses below DC", () => {
     const requestedViewRange = { min: 0, max: 4_372_000 };
     const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };
     const hardwareCenter =
@@ -672,14 +701,13 @@ describe("resolveLiveSpectrumPaintContract", () => {
       frameSampleRateHz: 4_372_000,
     });
 
-    const displayCenter =
-      (contract.displayRange.min + contract.displayRange.max) / 2;
-    expect(contract.displayRange.min).toBeLessThan(0);
-    expect(displayCenter).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
-    expect(displayCenter).toBeGreaterThan(-1_000_000);
+    expect(contract.displayRange).toEqual({
+      min: -sourceFrequencyRange.max,
+      max: -sourceFrequencyRange.min,
+    });
   });
 
-  it("keeps a wholly negative mirror center when edge rounding misses coverage by a few Hz", () => {
+  it("keeps a wholly negative frame complete when the requested center outruns its outer edge", () => {
     const acquisition = { min: 0, max: 4_372_000 };
     const hardwareCenter = 2_186_000;
     const panOffsetHz = -4_384_000;
@@ -695,10 +723,8 @@ describe("resolveLiveSpectrumPaintContract", () => {
 
     expect(contract.displayRange.min).toBeLessThan(0);
     expect(contract.displayRange.max).toBeLessThanOrEqual(0);
-    expect(
-      (contract.displayRange.min + contract.displayRange.max) / 2,
-    ).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
-    expect(contract.panOffsetHz).toBeCloseTo(panOffsetHz, 0);
+    expect(contract.displayRange).toEqual({ min: -4_372_000, max: -0 });
+    expect(contract.panOffsetHz).toBeCloseTo(-4_372_000, 0);
 
     const painted = prepareSpectrumRenderData({
       waveform: new Float32Array(2048).fill(-50),
@@ -716,7 +742,7 @@ describe("resolveLiveSpectrumPaintContract", () => {
     });
     expect(
       (painted.visualRange.min + painted.visualRange.max) / 2,
-    ).toBeCloseTo(hardwareCenter + panOffsetHz, 0);
+    ).toBeCloseTo(-hardwareCenter, 0);
   });
 
   it("reflects the resident frame for an uncovered negative request", () => {
@@ -747,6 +773,20 @@ describe("resolveLiveSpectrumPaintContract", () => {
     });
 
     expect(contract.displayRange).toEqual({ min: 0, max: 4_372_000 });
+  });
+
+  it("does not expose an uncovered outer-edge strip during pointer pan", () => {
+    const sourceFrequencyRange = { min: 0, max: 4_372_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: sourceFrequencyRange,
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 12_000,
+      mirrorEnabled: true,
+    });
+
+    expect(contract.displayRange).toEqual(sourceFrequencyRange);
+    expect(contract.panOffsetHz).toBe(0);
   });
 
   it("uses the resident axis during an uncovered mirror-off retune", () => {

@@ -14,9 +14,9 @@ struct ResampleParams {
   display_min: f32,
   display_max: f32,
   floor_db: f32,
-  presentation_offset_hz: f32,
   _pad2: f32,
   _pad3: f32,
+  _pad4: f32,
 };
 
 @group(0) @binding(0) var<storage, read> input_buffer: array<f32>;
@@ -72,11 +72,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     return;
   }
 
-  // Hardware normally presents the complete acquired frame with mirroring
-  // off. Keep that hot path equivalent to the original main-branch shader:
-  // proportional bins only, with no display-frequency transforms or folds.
+  // Full-frame identity mapping (display == source) is the same whether or
+  // not the mirror setting is on: |f| is a no-op for f >= 0. Keep this hot
+  // path on proportional bins so arming the fold on the positive side of DC
+  // does not change the acquired-frame paint.
   if (
-    params.mirror_enabled == 0u &&
     abs(params.display_min - params.source_min) < 0.5 &&
     abs(params.display_max - params.source_max) < 0.5
   ) {
@@ -99,17 +99,35 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   var s0: f32;
   var s1: f32;
-  if (params.mirror_enabled == 1u) {
-    // Reflect first, then slide in source space. Offsetting display Hz
-    // before |f| left a leading-edge hole on negative pans.
-    s0 = source_frequency(display0, source_span) - params.presentation_offset_hz;
-    s1 = source_frequency(display1, source_span) - params.presentation_offset_hz;
+  // A pixel that straddles 0 Hz covers [display0, 0] ∪ [0, display1]. After
+  // one reflection that is [0, max(|d0|, |d1|)]. Folding the endpoints
+  // independently collapses onto |edge| and skips DC, which reads as a gap
+  // at 0 Hz that pops in and out while scrolling.
+  let crosses_dc = (display0 < 0.0) != (display1 < 0.0);
+  if (params.mirror_enabled == 1u && crosses_dc) {
+    s0 = 0.0;
+    s1 = max(abs(display0), abs(display1));
   } else {
-    s0 = source_frequency(display0 - params.presentation_offset_hz, source_span);
-    s1 = source_frequency(display1 - params.presentation_offset_hz, source_span);
+    s0 = source_frequency(display0, source_span);
+    s1 = source_frequency(display1, source_span);
   }
-  let src_lo = min(s0, s1);
-  let src_hi = max(s0, s1);
+  var src_lo = min(s0, s1);
+  var src_hi = max(s0, s1);
+
+  // A configured source may begin a few kHz above DC. Extend only that small
+  // guard interval to the first acquired bin so reflection has no floor slit
+  // at 0 Hz; genuinely untuned wider regions still paint the floor below.
+  let dc_gap_slack = max(1.0, min(source_span * 0.01, 50000.0));
+  let fills_dc_guard_gap =
+    params.mirror_enabled == 1u &&
+    params.source_min >= 0.0 &&
+    params.source_min <= dc_gap_slack &&
+    src_lo >= 0.0 &&
+    src_hi < params.source_min;
+  if (fills_dc_guard_gap) {
+    src_lo = params.source_min;
+    src_hi = params.source_min;
+  }
 
   // Frequencies beyond the acquired positive half are uncovered — paint the
   // floor rather than clamping to the edge bin, which smears the +fs/2 peak

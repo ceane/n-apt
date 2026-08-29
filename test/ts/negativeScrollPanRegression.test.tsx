@@ -136,6 +136,10 @@ describe("negative-direction scroll panning regression", () => {
         deltaY,
         ctrlKey: false,
       } as any);
+      // Wheel pan is intentionally coalesced to one bounded calculation per
+      // animation frame. Execute that frame so this regression exercises the
+      // real frequency transition instead of asserting against a no-op.
+      jest.advanceTimersByTime(17);
     });
   };
 
@@ -188,5 +192,122 @@ describe("negative-direction scroll panning regression", () => {
         SPECTRUM_MAX_HZ + 1,
       );
     }
+  });
+
+  it("clamps a continued negative momentum gesture to the signed 30 GHz limit", () => {
+    renderHook(() =>
+      useFrequencyDrag(
+        buildOptions({
+          allowNegativeFrequencies: true,
+          hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
+        }),
+      ),
+    );
+
+    // A trackpad can deliver a large inertial delta in one event. Once the
+    // positive acquisition is pinned at the hardware ceiling, a second event
+    // must clamp the signed display viewport instead of letting its pan run
+    // into the THz range.
+    wheelTick(10_000_000);
+    wheelTick(10_000_000);
+
+    const { min, max } = frequencyRangeRef.current;
+    const center = (min + max) / 2;
+    const viewportSpan = max - min;
+    const displayCenter = center + vizPanOffsetRef.current;
+    expect(displayCenter - viewportSpan / 2).toBeGreaterThanOrEqual(
+      -SPECTRUM_MAX_HZ - 1,
+    );
+    expect(displayCenter + viewportSpan / 2).toBeLessThanOrEqual(
+      SPECTRUM_MAX_HZ + 1,
+    );
+  });
+
+  it("reanchors once at the negative spectrum edge without repeating the same request", () => {
+    renderHook(() =>
+      useFrequencyDrag(
+        buildOptions({
+          allowNegativeFrequencies: true,
+          hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
+        }),
+      ),
+    );
+    vizPanOffsetRef.current = -40_000_000_000;
+
+    // Positive wheel deltas move the signed viewport toward lower Hz. The
+    // first event must move the hardware acquisition to the mirrored edge;
+    // the next event must continue from that new axis, not publish the same
+    // retune forever.
+    wheelTick(120);
+    const callsAfterFirstRetune = mockOnFrequencyRangeChange.mock.calls.length;
+    const firstRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0] ?? null;
+    const firstLocalRange = { ...frequencyRangeRef.current };
+    wheelTick(120);
+    const secondRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0] ?? null;
+
+    expect(firstRange).not.toBeNull();
+    expect(secondRange).not.toBeNull();
+    expect(firstLocalRange).toEqual(firstRange);
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledTimes(
+      callsAfterFirstRetune,
+    );
+    expect(secondRange).toEqual(firstRange);
+  });
+
+  it("publishes the mirrored pan re-anchor before the matching hardware range", () => {
+    const publishOrder: string[] = [];
+    const onVizPanReanchor = jest.fn((pan: number) => {
+      publishOrder.push(`pan:${Math.round(pan)}`);
+      vizPanOffsetRef.current = pan;
+    });
+    const onFrequencyRangeChange = jest.fn(() => {
+      publishOrder.push("range");
+    });
+
+    renderHook(() =>
+      useFrequencyDrag(
+        buildOptions({
+          allowNegativeFrequencies: true,
+          hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
+          onVizPanReanchor,
+          onFrequencyRangeChange,
+        }),
+      ),
+    );
+    vizPanOffsetRef.current = -40_000_000_000;
+
+    wheelTick(120);
+
+    expect(onVizPanReanchor).toHaveBeenCalledTimes(1);
+    expect(onFrequencyRangeChange).toHaveBeenCalled();
+    expect(publishOrder[0]).toMatch(/^pan:/);
+    expect(publishOrder[1]).toBe("range");
+  });
+
+  it("uses the global spectrum fallback instead of channel bounds before hardware bounds hydrate", () => {
+    renderHook(() =>
+      useFrequencyDrag(
+        buildOptions({
+          allowNegativeFrequencies: true,
+          hardwareSpectrumBounds: null,
+          signalAreaBounds: { TEST: { min: 24_100_000, max: 30_370_000 } },
+        }),
+      ),
+    );
+    vizPanOffsetRef.current = -40_000_000_000;
+
+    wheelTick(120);
+
+    const firstRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(firstRange.max).toBe(SPECTRUM_MAX_HZ);
   });
 });

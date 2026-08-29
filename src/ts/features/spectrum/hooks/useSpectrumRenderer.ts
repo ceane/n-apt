@@ -155,8 +155,6 @@ export interface SpectrumRendererOptions {
   mirrorEnabled?: boolean;
   /** Reuse an unchanged acquisition while GPU viewport uniforms change. */
   reuseWaveformUpload?: boolean;
-  /** Shift display coordinates onto a stale acquisition during retune. */
-  presentationOffsetHz?: number;
   /** Minimum dB value for the Y-axis */
   fftMin: number;
   /** Maximum dB value for the Y-axis */
@@ -265,7 +263,6 @@ export function useSpectrumRenderer() {
         sourceFrequencyRange,
         mirrorEnabled = false,
         reuseWaveformUpload = false,
-        presentationOffsetHz = 0,
         fftMin,
         fftMax,
         powerScale = "dB",
@@ -477,7 +474,6 @@ export function useSpectrumRenderer() {
           sourceFrequencyRange,
           mirrorEnabled,
           reuseWaveformUpload,
-          presentationOffsetHz,
           fftMin,
           fftMax,
           gridOverlayRenderer: gridOverlayRenderer ?? undefined,

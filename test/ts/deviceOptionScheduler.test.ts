@@ -61,6 +61,23 @@ describe("device option scheduler", () => {
     expect(publish).toHaveBeenNthCalledWith(2, "discrete");
   });
 
+  it("waits for cadence when leading publish is disabled", () => {
+    const publish = jest.fn();
+    const scheduler = createDeviceOptionScheduler({
+      publish,
+      leadingPublish: false,
+    });
+
+    scheduler.submit(1, "gesture");
+    scheduler.submit(2, "gesture");
+
+    expect(publish).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(50);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenLastCalledWith(2);
+  });
+
   it("does not republish an unchanged value", () => {
     const publish = jest.fn();
     const scheduler = createDeviceOptionScheduler({

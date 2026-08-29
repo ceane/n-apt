@@ -289,8 +289,6 @@ export interface WebGPUFFTSignalOptions {
   mirrorEnabled?: boolean;
   /** Reuse the uploaded acquisition while only viewport uniforms change. */
   reuseWaveformUpload?: boolean;
-  /** Shift display coordinates onto a stale acquisition during retune. */
-  presentationOffsetHz?: number;
   fftMin?: number;
   fftMax?: number;
   gridOverlayRenderer?: OverlayTextureRenderer;
@@ -958,7 +956,6 @@ export function useDrawWebGPUFFTSignal() {
         sourceFrequencyRange,
         mirrorEnabled = false,
         reuseWaveformUpload = false,
-        presentationOffsetHz = 0,
         fftMin = -80,
         fftMax = 20,
         gridOverlayRenderer,
@@ -1335,11 +1332,7 @@ export function useDrawWebGPUFFTSignal() {
           true,
         );
         state.scratchResampleParamsView.setFloat32(32, fftMin, true);
-        state.scratchResampleParamsView.setFloat32(
-          36,
-          presentationOffsetHz,
-          true,
-        );
+        state.scratchResampleParamsView.setFloat32(36, 0, true);
         state.scratchResampleParamsView.setFloat32(40, 0, true);
         state.scratchResampleParamsView.setFloat32(44, 0, true);
         state.device.queue.writeBuffer(

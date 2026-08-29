@@ -246,7 +246,7 @@ describe("Channels", () => {
     );
   });
 
-  it("keeps Channel A active while hardware is still in A and mirror pan is below DC", () => {
+  it("does not highlight a positive channel when the displayed center is below DC", () => {
     const store = createTestStore();
     store.dispatch(setMirrorIqBasebandBelowZero(true));
     store.dispatch(setVizPan(-7_000_000));
@@ -281,10 +281,106 @@ describe("Channels", () => {
 
     expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
       "data-is-active",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-is-active",
+      "false",
+    );
+  });
+
+  it("keeps the explicit target highlighted while a progressive preview crosses another channel", () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "B",
+                  // Preview is currently crossing C on its way to B.
+                  frequencyRange: { min: 8_000_000, max: 12_000_000 },
+                  vizPanOffset: 0,
+                  tuningPreviewActive: true,
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 3_200_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: "B" })).toHaveAttribute(
+      "data-is-active",
       "true",
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-is-active",
+      "false",
+    );
+  });
+
+  it("uses the explicit live rate and mode instead of inferring Whole Channel from stale Redux state", () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "C",
+                  frequencyRange: { min: 4_750_000, max: 7_950_000 },
+                  sampleRateHz: 18_250_000,
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                selectedSourceDerived: {
+                  deviceName: "Mock APT SDR",
+                  deviceProfile: { kind: "mock_apt" },
+                  backend: "mock_apt",
+                  sdrSettings: { sample_rate: 3_200_000 },
+                },
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 3_200_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels
+              variant="spectrum"
+              activeSampleRateHz={3_200_000}
+              wholeChannelMode={false}
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-sample-rate-hz",
+      "3200000",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-force-full-width",
       "false",
     );
   });

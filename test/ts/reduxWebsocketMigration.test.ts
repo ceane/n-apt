@@ -38,6 +38,7 @@ import {
   resolveManagedRxOptionsOverride,
   resolveLocalRxTuningOverride,
   processWebSocketMessage,
+  CLIENT_ORIGIN_ID,
   __testQueueLiveDataForMiddleware,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -428,6 +429,7 @@ describe("managed stream option synchronization", () => {
     expect(
       shouldSyncManagedStreamOptions("spectrum/setSignalAreaAndRange"),
     ).toBe(true);
+    expect(shouldSyncManagedStreamOptions("spectrum/setFftSize")).toBe(true);
     expect(
       shouldSyncManagedStreamOptions("spectrum/setDeviceSignalAreaAndRange"),
     ).toBe(false);
@@ -730,6 +732,126 @@ describe("managed stream option synchronization", () => {
         },
       }),
     ).toBe(false);
+  });
+});
+
+describe("signal_display_settings device-scoped hydration", () => {
+  it("hydrates device settings but never local viewer state", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+        channels: [],
+      },
+      spectrum: {
+        sampleRateHz: 2_400_000,
+        fftSize: 1024,
+        fftFrameRate: 30,
+        gain: 10,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 1,
+        tunerAGC: false,
+        rtlAGC: false,
+        // Local viewer state that must survive hydration untouched.
+        fftWindow: "Rectangular",
+        displayTemporalResolution: "reduced",
+        removeDcSpike: true,
+        powerScale: "dB",
+        displayMode: "fft",
+        vizPanOffset: -1_000_000,
+        vizZoom: 2,
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "signal_display_settings",
+      source_id: "mock-apt",
+      sample_rate: 5_200_000,
+      fft_size: 4096,
+      frame_rate: 12,
+      fft_window: "Hann",
+      gain: 24,
+      hackrf_lna_gain: 8,
+      hackrf_vga_gain: 20,
+      hackrf_amp_enable: true,
+      tuner_bandwidth: 5_200_000,
+      ppm: 3,
+      tuner_agc: true,
+      rtl_agc: false,
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSdrSettingsBundle",
+        payload: {
+          sampleRateHz: 5_200_000,
+          fftSize: 4096,
+          fftFrameRate: 12,
+          gain: 24,
+          hackrfLnaGain: 8,
+          hackrfVgaGain: 20,
+          hackrfAmpEnabled: true,
+          hackrfBasebandBandwidth: 5_200_000,
+          ppm: 3,
+          tunerAGC: true,
+        },
+      }),
+    );
+    // The local viewer fields must not be included in the bundle.
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSdrSettingsBundle",
+        payload: expect.objectContaining({
+          fftWindow: expect.anything(),
+          displayTemporalResolution: expect.anything(),
+          removeDcSpike: expect.anything(),
+          powerScale: expect.anything(),
+          displayMode: expect.anything(),
+          vizPanOffset: expect.anything(),
+          vizZoom: expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it("does not dispatch when a broadcast carries no changed device settings", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+        channels: [],
+      },
+      spectrum: {
+        sampleRateHz: 5_200_000,
+        fftSize: 4096,
+        fftFrameRate: 12,
+        gain: 24,
+        ppm: 3,
+        tunerAGC: true,
+        rtlAGC: false,
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "signal_display_settings",
+      source_id: "mock-apt",
+      sample_rate: 5_200_000,
+      fft_size: 4096,
+      frame_rate: 12,
+      gain: 24,
+      ppm: 3,
+      tuner_agc: true,
+      rtl_agc: false,
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setDeviceSdrSettingsBundle" }),
+    );
   });
 });
 
@@ -1170,6 +1292,335 @@ describe("Redux WebSocket Migration", () => {
     });
   });
 
+  it("does not overwrite the sample rate from a self-echoed channels message", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+      },
+      spectrum: {
+        activeSignalArea: "A",
+        // The optimistic write from the sample-rate control is authoritative.
+        sampleRateHz: 5_200_000,
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "channels",
+      source_id: "mock-apt",
+      origin_id: CLIENT_ORIGIN_ID,
+      channels: [
+        {
+          id: "a",
+          label: "A",
+          min_hz: 18_000,
+          max_hz: 4_390_000,
+          description: "APT A",
+        },
+      ],
+      active_signal_area: "A",
+      frequency_range: { min: 18_000, max: 4_390_000 },
+      // A stale value replayed by the backend must not clobber the local rate.
+      sample_rate: 4_372_000,
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setSdrSettingsBundle",
+        payload: expect.objectContaining({ sampleRateHz: 4_372_000 }),
+      }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "websocket/updateDeviceState",
+        payload: expect.objectContaining({ sampleRateHz: 4_372_000 }),
+      }),
+    );
+  });
+
+  it("still applies the sample rate from a foreign subscriber's channels message", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+      },
+      spectrum: {
+        activeSignalArea: "A",
+        sampleRateHz: 5_200_000,
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "channels",
+      source_id: "mock-apt",
+      origin_id: "another-browser-client",
+      channels: [
+        {
+          id: "a",
+          label: "A",
+          min_hz: 18_000,
+          max_hz: 4_390_000,
+          description: "APT A",
+        },
+      ],
+      active_signal_area: "A",
+      frequency_range: { min: 18_000, max: 4_390_000 },
+      sample_rate: 6_270_000,
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setSdrSettingsBundle",
+        payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "websocket/updateDeviceState",
+        payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),
+      }),
+    );
+  });
+
+  it("does not re-dispatch an identical stream-options sample-rate echo", () => {
+    const dispatch = jest.fn();
+    const options = {
+      mode: "rx" as const,
+      centerFrequencyHz: 138_000_000,
+      sampleRateHz: 5_200_000,
+      fftSize: 2048,
+    };
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+        channels: [],
+      },
+      spectrum: {
+        sampleRateHz: 5_200_000,
+        frequencyRange: { min: 135_400_000, max: 140_600_000 },
+      },
+      settings: { mirrorIqBasebandBelowZero: false },
+    };
+
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_options_applied",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 3,
+        optionsRevision: 2,
+        origin: "backend",
+        options,
+      },
+      dispatch,
+      () => state,
+    );
+
+    // The device snapshot still syncs...
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "websocket/updateDeviceState" }),
+    );
+    // ...but the identical spectrum rate/range must not rewrite the bundle.
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setDeviceSdrSettingsBundle" }),
+    );
+  });
+
+  it("still hydrates the spectrum bundle when a stream-options echo changes the rate", () => {
+    const dispatch = jest.fn();
+    const options = {
+      mode: "rx" as const,
+      centerFrequencyHz: 138_000_000,
+      sampleRateHz: 6_270_000,
+      fftSize: 2048,
+    };
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+        channels: [],
+      },
+      spectrum: {
+        sampleRateHz: 5_200_000,
+        frequencyRange: { min: 135_400_000, max: 140_600_000 },
+      },
+      settings: { mirrorIqBasebandBelowZero: false },
+    };
+
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_options_applied",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 3,
+        optionsRevision: 2,
+        origin: "backend",
+        options,
+      },
+      dispatch,
+      () => state,
+    );
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSdrSettingsBundle",
+        payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),
+      }),
+    );
+  });
+
+  it("hydrates the spectrum bundle when a stream-options echo changes only the FFT size", () => {
+    const dispatch = jest.fn();
+    const options = {
+      mode: "rx" as const,
+      centerFrequencyHz: 138_000_000,
+      sampleRateHz: 5_200_000,
+      fftSize: 4096,
+    };
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+        channels: [],
+      },
+      spectrum: {
+        sampleRateHz: 5_200_000,
+        fftSize: 2048,
+        frequencyRange: { min: 135_400_000, max: 140_600_000 },
+      },
+      settings: { mirrorIqBasebandBelowZero: false },
+    };
+
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_options_applied",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 3,
+        optionsRevision: 2,
+        origin: "backend",
+        options,
+      },
+      dispatch,
+      () => state,
+    );
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSdrSettingsBundle",
+        payload: expect.objectContaining({ fftSize: 4096 }),
+      }),
+    );
+  });
+
+  it("does not hydrate an identical spectrum bundle when only the FFT size is unchanged", () => {
+    const dispatch = jest.fn();
+    const options = {
+      mode: "rx" as const,
+      centerFrequencyHz: 138_000_000,
+      sampleRateHz: 5_200_000,
+      fftSize: 2048,
+    };
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+        channels: [],
+      },
+      spectrum: {
+        sampleRateHz: 5_200_000,
+        fftSize: 2048,
+        frequencyRange: { min: 135_400_000, max: 140_600_000 },
+      },
+      settings: { mirrorIqBasebandBelowZero: false },
+    };
+
+    handleManagedStreamEvent(
+      "mock-apt",
+      "rx",
+      {
+        type: "stream_options_applied",
+        sourceId: "mock-apt",
+        mode: "rx",
+        streamEpoch: 3,
+        optionsRevision: 2,
+        origin: "backend",
+        options,
+      },
+      dispatch,
+      () => state,
+    );
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setDeviceSdrSettingsBundle" }),
+    );
+  });
+
+  it("does not grow Redux dispatches under repeated self-echo/echo cycles", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+      },
+      spectrum: {
+        activeSignalArea: "A",
+        sampleRateHz: 5_200_000,
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+      },
+    };
+
+    // A pessimistic fuzz-like loop: the local client's own tune echoed back
+    // repeatedly (as if the server re-broadcast on every subscribe), interleaved
+    // with the stream-options echo of the same value. The rate must stay put
+    // and the self-echo must not produce spectrum-write dispatches.
+    for (let cycle = 0; cycle < 30; cycle += 1) {
+      processWebSocketMessage(dispatch, () => state, {
+        type: "channels",
+        source_id: "mock-apt",
+        origin_id: CLIENT_ORIGIN_ID,
+        channels: [
+          {
+            id: "a",
+            label: "A",
+            min_hz: 18_000,
+            max_hz: 4_390_000,
+          },
+        ],
+        active_signal_area: "A",
+        frequency_range: { min: 18_000, max: 4_390_000 },
+        sample_rate: 5_200_000,
+      });
+    }
+
+    const spectrumWrites = dispatch.mock.calls.filter(
+      ([action]) =>
+        action?.type === "spectrum/setSdrSettingsBundle" ||
+        action?.type === "spectrum/setDeviceSdrSettingsBundle",
+    );
+    // The self-echoes may carry the authoritative selection once; they must not
+    // each rewrite the bundle with the same value on every cycle.
+    expect(spectrumWrites.length).toBeLessThanOrEqual(1);
+    expect(
+      dispatch.mock.calls.filter(
+        ([action]) =>
+          action?.type === "websocket/updateDeviceState" &&
+          (action as any)?.payload?.sampleRateHz === 5_200_000,
+      ).length,
+    ).toBe(0);
+  });
+
   it("hydrates signed mirrored viewport state so a paused subscriber can request its next frame", () => {
     const dispatch = jest.fn();
     const state = {
@@ -1219,6 +1670,9 @@ describe("Redux WebSocket Migration", () => {
       type: "spectrum/setVizPan",
       payload: -3_000_000,
     });
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setDeviceSignalAreaAndRange" }),
+    );
   });
 
   it("marks managed device option acknowledgements as remote range hydration", () => {

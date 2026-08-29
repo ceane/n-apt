@@ -132,7 +132,6 @@ type WaterfallState = {
   clearBuf: ArrayBuffer;
   clearBytes: Uint8Array;
   writeRow: number;
-  lastFftSize?: number;
   currentColorMapName?: string;
   defaultBackgroundColor: string;
   backgroundColor: string;
@@ -254,7 +253,6 @@ export function useDrawWebGPUFIFOWaterfall() {
         clearBuf: new ArrayBuffer(0),
         clearBytes: new Uint8Array(0),
         writeRow: 0,
-        lastFftSize: undefined,
         currentColorMapName: colormapName,
         defaultBackgroundColor: readCssColor(
           "--color-fft-background",
@@ -349,17 +347,16 @@ export function useDrawWebGPUFIFOWaterfall() {
 
         // -- Resize texture IF PLOT HEIGHT changes OR force reset on source change --
         // (internal width is constant 4096)
-        const fftSizeChanged =
-          typeof fftSize === "number" &&
-          s.lastFftSize !== undefined &&
-          s.lastFftSize !== fftSize;
+        // FFT size changes are intentionally NOT a reset trigger: the internal
+        // texture is a fixed 4096-bin buffer and rows are resampled on write
+        // (copySpectrumIntoWaterfallRow), so the visible history survives an
+        // FFT size change instead of being wiped.
         const forceReset =
-          fftSizeChanged ||
-          (restoreTexture &&
-            restoreTexture.width > 0 &&
-            restoreTexture.height > 0 &&
-            (needW !== restoreTexture.width ||
-              needH !== restoreTexture.height));
+          restoreTexture &&
+          restoreTexture.width > 0 &&
+          restoreTexture.height > 0 &&
+          (needW !== restoreTexture.width ||
+            needH !== restoreTexture.height);
 
         if (needW !== s.texW || needH !== s.texH || forceReset) {
           const prevTex = s.dataTex;
@@ -441,8 +438,6 @@ export function useDrawWebGPUFIFOWaterfall() {
             ],
           });
         }
-        if (typeof fftSize === "number") s.lastFftSize = fftSize;
-
         // -- Restore snapshot --
         if (restoreTexture && s.dataTex) {
           const { data, width, height, writeRow } = restoreTexture;

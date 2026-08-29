@@ -70,48 +70,45 @@ export interface StitchOptions {
   acquisitionMode: "stepwise" | "interleaved";
 }
 
-export interface SpectrumState {
-  // Signal area and frequency
+/**
+ * Device-scoped spectrum state: hardware / acquisition settings that the
+ * backend owns and that must be identical on every connected subscriber.
+ * These are the fields hydrated from server broadcasts (`signal_display_settings`,
+ * `stream_options_applied`, `channels`) and persisted server-side.
+ */
+export interface DeviceScopedSpectrumState {
+  // Signal area and frequency (device tune)
   activeSignalArea: string;
   frequencyRange: FrequencyRange | null;
-  /** True while an opt-in progressive tune owns the range preview. */
-  tuningPreviewActive: boolean;
   lastKnownRanges: Record<string, { min: number; max: number }>;
   /** Monotonic marker for device-scoped range hydrations from other subscribers. */
   deviceFrequencyRangeRevision: number;
 
-  // Display settings
-  displayTemporalResolution: TemporalResolution;
-  powerScale: PowerScale;
-  vizZoom: number;
-  maxVizZoom: number;
-  vizZoomFloor: number;
-  vizZoomFloorPan: number;
-  autoZoomStability: boolean;
-  vizPanOffset: number;
-  displayMode: "fft" | "iq";
-
-  // FFT settings
-  fftMinDb: number;
-  fftMaxDb: number;
+  // FFT acquisition settings (device-owned)
   fftSize: number;
   fftSizeOptions: number[];
-  fftWindow: string;
   fftFrameRate: number;
-  fftAvgEnabled: boolean;
-  fftSmoothEnabled: boolean;
-  wfSmoothEnabled: boolean;
 
-  // SDR settings
+  // SDR / hardware settings (device-owned)
+  gain: number;
+  hackrfLnaGain: number;
+  hackrfVgaGain: number;
+  hackrfAmpEnabled: boolean;
+  hackrfBasebandBandwidth: number | null;
+  ppm: number;
+  tunerAGC: boolean;
+  rtlAGC: boolean;
+  sampleRateHz: number;
+  minReceiveSampleRateHz: number;
+  deviceKind: string | null;
+
+  // TX / IFFT settings (device-owned)
   txSignal: string;
   txSampleRateHz: number;
   txIfftSize: number;
   txViewerSampleRateHz: number;
   txViewerFftSize: number;
   txViewerFftFrameRate: number;
-  txViewerFftWindow: string;
-  txViewerTemporalResolution: TemporalResolution;
-  txViewerPowerScale: PowerScale;
   txCenterFrequencyHz: number;
   txPowerDbm: number;
   txVgaGain: number;
@@ -124,22 +121,45 @@ export interface SpectrumState {
   txHopChannels: string[];
   txHopRateHz: number;
   txHopEnabled: boolean;
-  gain: number;
-  hackrfLnaGain: number;
-  hackrfVgaGain: number;
-  hackrfAmpEnabled: boolean;
-  hackrfBasebandBandwidth: number | null;
+}
+
+/**
+ * Local (subscriber-scoped) spectrum state: viewer presentation choices that
+ * each browser keeps for itself. These are deliberately NOT synced across
+ * clients — pan/zoom, dB limits, FFT window, temporal resolution, DC spike
+ * removal, power scale, display mode, pause, and diagnostics are all local.
+ */
+export interface LocalSpectrumState {
+  // Display settings (local viewer)
+  displayTemporalResolution: TemporalResolution;
+  powerScale: PowerScale;
+  vizZoom: number;
+  maxVizZoom: number;
+  vizZoomFloor: number;
+  vizZoomFloorPan: number;
+  autoZoomStability: boolean;
+  vizPanOffset: number;
+  displayMode: "fft" | "iq";
+
+  // FFT display settings (local viewer)
+  fftWindow: string;
+  fftMinDb: number;
+  fftMaxDb: number;
+  fftAvgEnabled: boolean;
+  fftSmoothEnabled: boolean;
+  wfSmoothEnabled: boolean;
+
+  // TX viewer display settings (local viewer)
+  txViewerFftWindow: string;
+  txViewerTemporalResolution: TemporalResolution;
+  txViewerPowerScale: PowerScale;
+
+  // Local-only SDR UI state
   /** True once the user pins a custom baseband-filter value; auto-tracking
    * resumes when the field is cleared and blurred. */
   basebandFilterPinned: boolean;
-  ppm: number;
-  tunerAGC: boolean;
-  rtlAGC: boolean;
-  sampleRateHz: number;
-  minReceiveSampleRateHz: number;
-  deviceKind: string | null;
 
-  // Visualization state
+  // Visualization state (local)
   visualizerPaused: boolean;
   detectedFrameRate: number | null;
   isWaterfallCleared: boolean;
@@ -150,16 +170,21 @@ export interface SpectrumState {
   hoveredSpikeIndex: number | null;
   showTxSlider: boolean;
 
-  // Diagnostic state
+  // Diagnostic state (local)
   diagnosticStatus: string;
   isDiagnosticRunning: boolean;
   diagnosticTrigger: number;
 
-  // Live preview range (from SpanNode)
+  // Live preview range (from SpanNode, local)
+  tuningPreviewActive: boolean;
   previewRange: FrequencyRange | null;
   previewAlignment: Alignment;
   stitchOptions: StitchOptions;
 }
+
+export interface SpectrumState
+  extends DeviceScopedSpectrumState,
+    LocalSpectrumState {}
 
 const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "reduced" as const,
@@ -498,7 +523,6 @@ const spectrumSlice = createSlice({
 
       state.txCenterFrequencyHz = primaryCenter;
       state.txSampleRateHz = primaryBw;
-      state.sampleRateHz = primaryBw;
       state.txHopChannels = lowerLabels;
     },
 

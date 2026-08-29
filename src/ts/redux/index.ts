@@ -92,6 +92,7 @@ export {
 // Import spectrum actions for collective export
 import {
   setFrequencyRange,
+  setTuningPreviewActive,
   setActiveSignalArea,
   setSignalAreaAndRange,
   setDeviceSignalAreaAndRange,
@@ -166,6 +167,7 @@ import {
 // Export spectrum actions as individual
 export {
   setFrequencyRange,
+  setTuningPreviewActive,
   setActiveSignalArea,
   setSignalAreaAndRange,
   setTxHopPreviewState,
@@ -241,6 +243,7 @@ export {
 // Export collective action objects for convenience
 export const spectrumActions = {
   setFrequencyRange,
+  setTuningPreviewActive,
   setActiveSignalArea,
   setSignalAreaAndRange,
   setDeviceSignalAreaAndRange,
