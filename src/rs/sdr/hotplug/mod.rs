@@ -3,9 +3,11 @@ use crate::sdr::hackrf::ffi as hackrf_ffi;
 use crate::sdr::{
   processor::SdrProcessor, rtlsdr::device::RtlSdrDevice, SdrDeviceFactory,
 };
+#[cfg(has_hackrf)]
+use crate::server::shared_state::HackRfInventoryDevice;
 use crate::server::shared_state::{
-  HackRfInventoryDevice, SharedState, DEVICE_PROBE_INTERVAL,
-  DISCONNECT_FAILURE_THRESHOLD, MAX_RECOVERY_ATTEMPTS,
+  SharedState, DEVICE_PROBE_INTERVAL, DISCONNECT_FAILURE_THRESHOLD,
+  MAX_RECOVERY_ATTEMPTS,
 };
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};

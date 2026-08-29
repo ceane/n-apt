@@ -13,7 +13,9 @@
 
 use crate::s::fft::types::RawSamples;
 use anyhow::Result;
+#[cfg(has_hackrf)]
 use std::thread;
+#[cfg(has_hackrf)]
 use std::time::Duration;
 
 #[cfg(has_hackrf)]
@@ -225,6 +227,7 @@ impl SdrDeviceFactory {
         Err(_) => Vec::new(),
       };
 
+    #[cfg(has_hackrf)]
     let has_hackrf_connected =
       snapshots.iter().any(|s| s.device_type == "hackrf_one");
     let has_rtlsdr_connected =

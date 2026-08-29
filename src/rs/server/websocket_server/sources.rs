@@ -86,7 +86,7 @@ fn source_id_for_device(
 }
 
 pub fn resolve_source_selection(
-  shared: &SharedState,
+  _shared: &SharedState,
   source_id: &str,
 ) -> Result<SourceSelection> {
   if source_id == "mock-apt" || source_id == "mock_apt" {
@@ -107,7 +107,7 @@ pub fn resolve_source_selection(
   }
 
   #[cfg(has_hackrf)]
-  for device in shared.hackrf_inventory.lock().unwrap().iter() {
+  for device in _shared.hackrf_inventory.lock().unwrap().iter() {
     if source_id_for_device(
       "hackrf_one",
       Some(&device.serial_number),

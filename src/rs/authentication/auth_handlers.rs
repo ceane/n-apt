@@ -1,5 +1,5 @@
 use axum::extract::{Query, State};
-use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use log::{error, info, warn};
@@ -25,7 +25,8 @@ use uuid::Uuid;
 /// Abandoned passkey challenges expire after this long. Both start endpoints
 /// are unauthenticated, so without an expiry + cap the pending-state maps
 /// accumulate entries for the lifetime of the process.
-const PENDING_PASSKEY_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+const PENDING_PASSKEY_TTL: std::time::Duration =
+  std::time::Duration::from_secs(300);
 const PENDING_PASSKEY_MAX_ENTRIES: usize = 64;
 
 type PendingPasskeyState<T> = HashMap<String, (std::time::Instant, T)>;
@@ -276,17 +277,26 @@ pub async fn auth_session_handler(
 
 #[derive(serde::Deserialize)]
 pub struct VaultKeyQuery {
-  pub token: String,
+  pub token: Option<String>,
 }
 
 /// GET /auth/vault-key — returns the password-derived vault key used for file
 /// encryption/decryption in this local environment.
 pub async fn auth_vault_key_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
-  match state.session_store.validate(&query.token).await {
-    Some(_session) => {
+  let token = headers
+    .get(axum::http::header::AUTHORIZATION)
+    .and_then(|header| header.to_str().ok())
+    .and_then(|header| header.strip_prefix("Bearer "))
+    .filter(|token| !token.is_empty())
+    .map(str::to_owned)
+    .or(query.token);
+
+  match token {
+    Some(token) if state.session_store.validate(&token).await.is_some() => {
       info!("Vault key requested and session validated");
       (
         StatusCode::OK,
@@ -296,7 +306,7 @@ pub async fn auth_vault_key_handler(
       )
         .into_response()
     }
-    None => (
+    _ => (
       StatusCode::UNAUTHORIZED,
       Json(serde_json::json!({
         "error": "session_expired",

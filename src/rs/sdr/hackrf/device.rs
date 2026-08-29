@@ -148,6 +148,7 @@ impl HackRfDevice {
     Self::open(0)
   }
 
+  #[cfg(has_hackrf)]
   pub(crate) fn enumerate_serial_numbers() -> Result<Vec<String>> {
     let _native_operation_guard = Self::native_operation_lock();
     unsafe {

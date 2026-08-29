@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+#[cfg(rs_decrypted)]
 use log::info;
 use tokio::sync::{broadcast, Mutex};
 
@@ -11,7 +12,9 @@ use crate::server::types::SdrCommand;
 /// Executes optional analysis jobs against the latest processor frame.
 #[derive(Clone)]
 pub struct AnalysisWorker {
+  #[cfg_attr(not(rs_decrypted), allow(dead_code))]
   processor: Arc<Mutex<SdrProcessor>>,
+  #[cfg_attr(not(rs_decrypted), allow(dead_code))]
   broadcast_tx: broadcast::Sender<String>,
 }
 
