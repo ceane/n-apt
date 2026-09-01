@@ -24,6 +24,7 @@ describe("self-contained WebUSB build", () => {
     expect(buildScript).toContain("<script type=\"module\">");
     expect(buildScript).toContain("modulepreload");
     expect(buildScript).toContain("minifyCss");
+    expect(buildScript).not.toMatch(/replace\(\/<!--/);
     expect(buildScript).toContain(
       '.replace(/\\s*([{}:;,>])\\s*/g, "$1")',
     );

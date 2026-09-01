@@ -22,6 +22,10 @@ describe("standalone WebUSB probe mobile layout", () => {
     expect(probeHtml).toContain("@media (max-width: 680px)");
     expect(probeHtml).toContain(".source-pill { gap: 4px; padding: 5px;");
     expect(probeHtml).toContain(".snapshot-pill { width: 100%; max-width: 100%; display: grid;");
+    expect(probeHtml).toContain(".snapshot-controls { width: 100%; min-width: 0; flex: 0 0 auto; margin-top: 10px; }");
+    expect(probeHtml).toContain(".snapshot-controls { margin-bottom: 12px; }");
+    expect(probeHtml).toContain(".snapshot-pill { min-width: 0; flex: 1 1 100%; }");
+    expect(probeHtml).toContain(".snapshot-mode, .snapshot-stats-toggle { min-width: 0; overflow: hidden; text-overflow: ellipsis; }");
     expect(probeHtml).toContain(
       '<span class="snapshot-prefix">Take a snapshot</span>',
     );

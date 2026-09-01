@@ -30,7 +30,6 @@ function minifyHtml(html) {
     },
   );
   let minified = withPreservedBlocks
-    .replace(/<!--(?!\[if)[\s\S]*?-->/g, "")
     .replace(/\s+/g, " ")
     .replace(/>\s+</g, "><")
     .trim();
