@@ -34,9 +34,26 @@ function walk(d, files) {
   }
 }
 
+function walkHtml(d, files) {
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) {
+      if (SKIP_DIRS.has(e.name)) continue;
+      walkHtml(p, files);
+    } else if (e.name.endsWith(".html")) {
+      files.push(path.normalize(p));
+    }
+  }
+}
+
 const files = [];
 ROOTS.forEach((r) => {
   if (fs.existsSync(r)) walk(r, files);
+});
+
+const htmlEntries = [];
+ROOTS.forEach((r) => {
+  if (fs.existsSync(r)) walkHtml(r, htmlEntries);
 });
 
 function tryFile(base) {
@@ -138,12 +155,15 @@ const prodSeeds = new Set(
 for (const f of prodSeeds) {
   routeRefs(f).forEach((r) => prodSeeds.add(r));
 }
-// index.html script tags (classic Vite SPA entry)
-const spaEntry = "src/ts/index.html";
-if (fs.existsSync(spaEntry)) {
-  const html = fs.readFileSync(spaEntry, "utf8");
-  for (const mm of html.matchAll(/src="(\.\/[^"]+)"/g)) {
-    const r = tryFile(path.resolve(path.dirname(spaEntry), mm[1]));
+// Source HTML script tags (including standalone Vite entrypoints).
+for (const htmlEntry of htmlEntries) {
+  const html = fs.readFileSync(htmlEntry, "utf8");
+  for (const mm of html.matchAll(/src="((?:\.\.?\/|\/)[^"]+)"/g)) {
+    const spec = mm[1];
+    const target = spec.startsWith("/")
+      ? path.resolve(CWD, spec.slice(1))
+      : path.resolve(path.dirname(htmlEntry), spec);
+    const r = tryFile(target);
     if (r) prodSeeds.add(r);
   }
 }
