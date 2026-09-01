@@ -19,12 +19,11 @@ export function getSpectrumPlaceholderState(
   error?: unknown,
 ): SpectrumPlaceholderState | null {
   if (error !== undefined && error !== null) {
-    const message = error instanceof Error ? error.message : String(error);
     return {
       kind: "error",
       kicker: "Error",
-      title: "WebUSB stream unavailable",
-      message: message || "The RTL-SDR stream stopped unexpectedly.",
+      title: "No device available",
+      message: "Connect your SDR (RTL-SDR) to start streaming.",
       source: "WebUSB",
     };
   }

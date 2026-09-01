@@ -57,7 +57,12 @@ ROOTS.forEach((r) => {
 });
 
 function tryFile(base) {
-  const c = base.startsWith(CWD) ? path.relative(CWD, base) : base;
+  // Vite worker and asset imports may carry a query (for example
+  // `?worker&inline`); resolve the filesystem path before that suffix.
+  const filesystemBase = base.split(/[?#]/, 1)[0];
+  const c = filesystemBase.startsWith(CWD)
+    ? path.relative(CWD, filesystemBase)
+    : filesystemBase;
   for (const e of ["", ".ts", ".tsx", "/index.ts", "/index.tsx"]) {
     const cand = c + e;
     if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {

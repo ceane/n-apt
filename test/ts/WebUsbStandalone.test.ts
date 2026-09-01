@@ -28,6 +28,7 @@ import {
   clampFrequencyHz,
   formatFrequency,
   formatFrequencyInputValue,
+  getFrequencyArrowStepHz,
   getFrequencyUnitScale,
   getOptimalFrequencyScale,
   parseFrequencyInputValue,
@@ -87,6 +88,8 @@ describe("standalone WebUSB SDR transport", () => {
       unit: "MHz",
     });
     expect(getFrequencyUnitScale("MHz")).toBe(1_000_000);
+    expect(getFrequencyArrowStepHz("MHz")).toBe(50_000);
+    expect(getFrequencyArrowStepHz("kHz")).toBe(50);
     expect(trimNumericString("1.600")).toBe("1.6");
     expect(formatFrequencyInputValue(1_600_000, "MHz")).toBe("1.6");
     expect(parseFrequencyInputValue("1.6", "MHz", 0, 30_000_000_000)).toBe(
@@ -405,8 +408,8 @@ describe("standalone WebUSB SDR transport", () => {
     expect(getSpectrumPlaceholderState(true)).toBeNull();
     expect(getSpectrumPlaceholderState(false, new Error("Device busy"))).toMatchObject({
       kind: "error",
-      title: "WebUSB stream unavailable",
-      message: "Device busy",
+      title: "No device available",
+      message: "Connect your SDR (RTL-SDR) to start streaming.",
     });
   });
 
@@ -417,7 +420,7 @@ describe("standalone WebUSB SDR transport", () => {
     });
     expect(getOptionSyncIndicator("sent")).toEqual({
       symbol: "✓",
-      label: "Sent",
+      label: "Applied",
     });
     expect(getOptionSyncIndicator("error")).toEqual({
       symbol: "×",

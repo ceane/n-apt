@@ -41,6 +41,10 @@ export const getFrequencyUnitScale = (unit: FrequencyUnit): number => {
   }
 };
 
+/** Percentage of the selected denomination used for keyboard tuning steps. */
+export const getFrequencyArrowStepHz = (unit: FrequencyUnit): number =>
+  Math.max(1, Math.round(getFrequencyUnitScale(unit) * 0.05));
+
 export const getOptimalFrequencyScale = (hz: number): FrequencyScale => {
   const absHz = Math.abs(hz);
   if (absHz >= 1_000_000_000) return { value: hz / 1_000_000_000, unit: "GHz" };

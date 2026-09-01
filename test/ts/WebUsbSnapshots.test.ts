@@ -2,6 +2,7 @@ import {
   buildWebUsbSnapshotStatsLines,
   getWebUsbSnapshotFilename,
   getWebUsbSnapshotOutputHeight,
+  getWebUsbSnapshotStatsLayout,
   getNextWebUsbSnapshotMode,
   WEBUSB_SNAPSHOT_MODES,
   renderWebUsbSnapshot,
@@ -29,6 +30,43 @@ describe("standalone WebUSB snapshots", () => {
     ]);
   });
 
+  it("uses the app timezone label and matching snapshot filename stamp", () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-01T17:00:00.000Z"));
+    try {
+      expect(buildWebUsbSnapshotStatsLines(data)[1]).toBe(
+        "2026-09-01 10:00:00 America/Los_Angeles",
+      );
+      expect(getWebUsbSnapshotFilename("png")).toBe(
+        "webusb-spectrum-2026-09-01T17-00-00.png",
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("stacks long timezone stats instead of allowing the columns to collide", () => {
+    const lines = buildWebUsbSnapshotStatsLines(
+      {
+        ...data,
+        geolocation: { lat: "37.335620", lon: "-121.885758" },
+        locationLabel: "Downtown Historic District, San Jose, California, United States",
+      },
+      "2026-09-01 15:57:08 America/Los_Angeles",
+    );
+
+    const narrowLayout = getWebUsbSnapshotStatsLayout(lines, 800);
+    expect(narrowLayout.stacked).toBe(true);
+    expect(narrowLayout.fontSize).toBe(14);
+    expect(narrowLayout.locationLines.length).toBeGreaterThan(1);
+    expect(narrowLayout.locationLineYOffsets[1] - narrowLayout.locationLineYOffsets[0])
+      .toBeLessThan(30);
+    const wrappedColumnsLayout = getWebUsbSnapshotStatsLayout(lines, 900);
+    expect(wrappedColumnsLayout.stacked).toBe(false);
+    expect(wrappedColumnsLayout.locationStartYOffset)
+      .toBeGreaterThan(wrappedColumnsLayout.columnRowCount * 30);
+    expect(getWebUsbSnapshotStatsLayout(lines, 1600).stacked).toBe(false);
+  });
+
   it("adds the location line for the stats-plus-geolocation mode", () => {
     expect(
       buildWebUsbSnapshotStatsLines(
@@ -39,6 +77,18 @@ describe("standalone WebUSB snapshots", () => {
         "2026-09-01 10:00:00 PDT",
       ),
     ).toContain("Location: 37.774900, -122.419400");
+  });
+
+  it("adds the reverse-geocoded place to the coordinate line", () => {
+    expect(
+      buildWebUsbSnapshotStatsLines({
+        ...data,
+        geolocation: { lat: "37.774900", lon: "-122.419400" },
+        locationLabel: "Mission District, San Francisco, California, United States",
+      }),
+    ).toContain(
+      "Location: 37.774900, -122.419400 – Mission District, San Francisco, California, United States",
+    );
   });
 
   it("renders a vector SVG and includes stats only when requested", () => {

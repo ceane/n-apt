@@ -19,7 +19,7 @@ export function getOptionSyncIndicator(
     case "pending":
       return { symbol: "⟳", label: "Applying" };
     case "sent":
-      return { symbol: "✓", label: "Sent" };
+      return { symbol: "✓", label: "Applied" };
     case "local":
       return { symbol: "•", label: "Local" };
     case "error":

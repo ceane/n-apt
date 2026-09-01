@@ -14,9 +14,11 @@ import {
   processRtlSdrFrame,
 } from "./rtlSdrWebUsb";
 import {
+  clampFrequencyHz,
   FrequencyUnit,
   formatFrequency,
   formatFrequencyInputValue,
+  getFrequencyArrowStepHz,
   getOptimalFrequencyScale,
   parseFrequencyInputValue,
   trimNumericString,
@@ -31,11 +33,54 @@ import {
   type OptionSyncState,
 } from "./optionSync";
 import {
+  getRtlSdrOptionState,
+  haveRtlSdrOptionsChanged,
+  type RtlSdrOptionState,
+} from "./rtlSdrOptionState";
+import {
+  getValidChannelCenterRange,
+  parseCanonicalNaptChannels,
+  resolveNaptChannelCenter,
+} from "./naptChannels";
+import {
   getWebUsbSnapshotFilename,
   renderWebUsbSnapshot,
   type WebUsbSnapshotData,
   type WebUsbSnapshotFormat,
 } from "./webUsbSnapshots";
+import {
+  IqCaptureRecorder,
+  type IqCaptureFormat,
+  type IqCaptureOptions,
+} from "./iqCapture";
+import { reverseGeocodeSnapshotLocation } from "@n-apt/capture/snapshotLocation";
+import signalsYaml from "../../../signals.yaml?raw";
+
+const MOBILE_FIRST_VISIT_NOTICE_KEY =
+  "n-apt.webusb-probe.mobile-notice-seen";
+
+function showMobileFirstVisitNotice(): void {
+  if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
+
+  let alreadySeen = false;
+  try {
+    alreadySeen =
+      window.localStorage.getItem(MOBILE_FIRST_VISIT_NOTICE_KEY) === "1";
+  } catch {
+    // Continue without persistence when storage is unavailable.
+  }
+  if (alreadySeen) return;
+
+  try {
+    window.localStorage.setItem(MOBILE_FIRST_VISIT_NOTICE_KEY, "1");
+  } catch {
+    // The notice is still useful even when private browsing blocks storage.
+  }
+
+  window.alert(
+    "If this page is blank in Chrome for Android, close the browser completely and reopen it. The page should then appear normally.",
+  );
+}
 
 const centerFrequencyInputElement =
   document.querySelector<HTMLInputElement>("#center-frequency");
@@ -48,6 +93,9 @@ const sampleRateUnitElement =
 const fftSizeInputElement = document.querySelector<HTMLSelectElement>("#fft-size");
 const gainInputElement = document.querySelector<HTMLInputElement>("#gain-db");
 const ppmInputElement = document.querySelector<HTMLInputElement>("#ppm");
+const naptChannelButtonsElement = document.querySelector<HTMLElement>(
+  "#napt-channel-buttons",
+);
 const connectButtonElement =
   document.querySelector<HTMLButtonElement>("#connect");
 const streamToggleButtonElement =
@@ -83,6 +131,8 @@ const optionSyncLabelElement = document.querySelector<HTMLElement>(
 );
 const snapshotImageButtonElement =
   document.querySelector<HTMLButtonElement>("#snapshot-image");
+const snapshotPillElement =
+  document.querySelector<HTMLElement>(".snapshot-pill");
 const snapshotSvgButtonElement =
   document.querySelector<HTMLButtonElement>("#snapshot-svg");
 const snapshotVideoButtonElement =
@@ -91,6 +141,14 @@ const snapshotStatsToggleElement =
   document.querySelector<HTMLButtonElement>("#snapshot-stats-toggle");
 const snapshotStatusElement =
   document.querySelector<HTMLElement>("#snapshot-status");
+const iqCaptureFormatElement =
+  document.querySelector<HTMLSelectElement>("#iq-capture-format");
+const iqCapturePassphraseElement =
+  document.querySelector<HTMLInputElement>("#iq-capture-passphrase");
+const iqCaptureToggleElement =
+  document.querySelector<HTMLButtonElement>("#iq-capture-toggle");
+const iqCaptureStatusElement =
+  document.querySelector<HTMLElement>("#iq-capture-status");
 
 if (
   !centerFrequencyInputElement ||
@@ -100,6 +158,7 @@ if (
   !fftSizeInputElement ||
   !gainInputElement ||
   !ppmInputElement ||
+  !naptChannelButtonsElement ||
   !connectButtonElement ||
   !streamToggleButtonElement ||
   !disconnectSourceButtonElement ||
@@ -120,10 +179,15 @@ if (
   !optionSyncIndicatorElement ||
   !optionSyncLabelElement ||
   !snapshotImageButtonElement ||
+  !snapshotPillElement ||
   !snapshotSvgButtonElement ||
   !snapshotVideoButtonElement ||
   !snapshotStatsToggleElement ||
-  !snapshotStatusElement
+  !snapshotStatusElement ||
+  !iqCaptureFormatElement ||
+  !iqCapturePassphraseElement ||
+  !iqCaptureToggleElement ||
+  !iqCaptureStatusElement
 ) {
   throw new Error("The standalone WebUSB probe markup is incomplete.");
 }
@@ -135,6 +199,7 @@ const sampleRateUnit = sampleRateUnitElement;
 const fftSizeInput = fftSizeInputElement;
 const gainInput = gainInputElement;
 const ppmInput = ppmInputElement;
+const naptChannelButtons = naptChannelButtonsElement;
 const connectButton = connectButtonElement;
 const streamToggleButton = streamToggleButtonElement;
 const disconnectSourceButton = disconnectSourceButtonElement;
@@ -155,10 +220,16 @@ const optionSync = optionSyncElement;
 const optionSyncIndicator = optionSyncIndicatorElement;
 const optionSyncLabel = optionSyncLabelElement;
 const snapshotImageButton = snapshotImageButtonElement;
+const snapshotPill = snapshotPillElement;
 const snapshotSvgButton = snapshotSvgButtonElement;
 const snapshotVideoButton = snapshotVideoButtonElement;
 const snapshotStatsToggle = snapshotStatsToggleElement;
 const snapshotStatus = snapshotStatusElement;
+const iqCaptureFormat = iqCaptureFormatElement;
+const iqCapturePassphrase = iqCapturePassphraseElement;
+const iqCaptureToggle = iqCaptureToggleElement;
+const iqCaptureStatus = iqCaptureStatusElement;
+const iqCapturePill = iqCaptureToggle.closest<HTMLElement>(".iq-capture-pill");
 
 const mobileLandscapeQuery = window.matchMedia(
   "(orientation: landscape) and (max-width: 960px)",
@@ -166,6 +237,14 @@ const mobileLandscapeQuery = window.matchMedia(
 let landscapeControlsOpen = false;
 
 let centerFrequencyHz = 1_600_000;
+const naptChannels = parseCanonicalNaptChannels(signalsYaml);
+let activeNaptChannelId: string | null =
+  naptChannels.find(
+    (channel) =>
+      centerFrequencyHz >= channel.minHz && centerFrequencyHz <= channel.maxHz,
+  )?.id ?? null;
+const lastNaptChannelCenters = new Map<string, number>();
+const naptChannelPanDirections = new Map<string, 1 | -1>();
 const initialFrequencyScale = getOptimalFrequencyScale(centerFrequencyHz);
 let centerFrequencyUnitValue = initialFrequencyScale.unit;
 centerFrequencyUnit.value = initialFrequencyScale.unit;
@@ -195,13 +274,20 @@ let streamPaused = false;
 let animationFrame: number | null = null;
 let latestBins: Float32Array | null = null;
 let optionDebounceTimer: number | null = null;
+let deviceOptionUpdateQueue: Promise<void> = Promise.resolve();
 let mediaRecorder: MediaRecorder | null = null;
 let videoCanvas: HTMLCanvasElement | null = null;
 let videoAnimationFrame: number | null = null;
 let videoChunks: Blob[] = [];
 let snapshotMode: 0 | 1 | 2 = 0;
 let snapshotGeolocation: { lat: string; lon: string } | null = null;
+let snapshotLocationLabel: string | null = null;
+let snapshotGeolocationUnavailable = false;
+let snapshotGeolocationRequestId = 0;
 const snapshotSuccessTimers = new Map<HTMLButtonElement, number>();
+let iqCaptureRecorder: IqCaptureRecorder | null = null;
+let naptCaptureAvailable = false;
+let iqCaptureStatusTimer: number | null = null;
 
 function optionValueElement(key: "centerFrequency" | "sampleRate" | "fftSize" | "gain" | "ppm"): HTMLElement | null {
   return document.querySelector<HTMLElement>(
@@ -220,6 +306,78 @@ function formatCenterFrequencyValue(): string {
     precisionKHz: 2,
     trimTrailingZeros: true,
   });
+}
+
+function rememberActiveNaptChannelCenter(): void {
+  if (!activeNaptChannelId) return;
+  const channel = naptChannels.find(
+    (candidate) => candidate.id === activeNaptChannelId,
+  );
+  if (!channel) return;
+  const validRange = getValidChannelCenterRange(
+    channel,
+    getSampleRateFromInput(),
+  );
+  if (
+    centerFrequencyHz >= validRange.minHz &&
+    centerFrequencyHz <= validRange.maxHz
+  ) {
+    lastNaptChannelCenters.set(channel.id, centerFrequencyHz);
+  }
+}
+
+function setCenterFrequencyFromChannel(centerHz: number): void {
+  centerFrequencyHz = Math.max(1, Math.floor(centerHz));
+  formatCenterFrequency();
+  rememberActiveNaptChannelCenter();
+  scheduleDeviceOptions();
+  queuePaint();
+}
+
+function refreshNaptChannelButtons(): void {
+  naptChannelButtons.replaceChildren(
+    ...naptChannels.map((channel) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "napt-channel-button";
+      button.dataset.channelId = channel.id;
+      button.dataset.active = String(channel.id === activeNaptChannelId);
+      button.ariaPressed = String(channel.id === activeNaptChannelId);
+      button.textContent = `Channel ${channel.label} / ${formatFrequency(channel.minHz)} - ${formatFrequency(channel.maxHz)}`;
+      button.addEventListener("click", () => {
+        rememberActiveNaptChannelCenter();
+        const isActive = channel.id === activeNaptChannelId;
+        activeNaptChannelId = channel.id;
+        const targetCenterHz = resolveNaptChannelCenter({
+          channel,
+          sampleRateHz: getSampleRateFromInput(),
+          currentCenterHz: centerFrequencyHz,
+          rememberedCenterHz: lastNaptChannelCenters.get(channel.id) ?? null,
+          isActive,
+          panDirection: naptChannelPanDirections.get(channel.id) ?? 1,
+        });
+        if (isActive) {
+          const sampleRateHz = getSampleRateFromInput();
+          const validRange = getValidChannelCenterRange(channel, sampleRateHz);
+          const currentDirection =
+            naptChannelPanDirections.get(channel.id) ?? 1;
+          if (
+            (currentDirection === 1 && targetCenterHz >= validRange.maxHz) ||
+            (currentDirection === -1 && targetCenterHz <= validRange.minHz)
+          ) {
+            naptChannelPanDirections.set(
+              channel.id,
+              currentDirection === 1 ? -1 : 1,
+            );
+          }
+        }
+        lastNaptChannelCenters.set(channel.id, targetCenterHz);
+        setCenterFrequencyFromChannel(targetCenterHz);
+        refreshNaptChannelButtons();
+      });
+      return button;
+    }),
+  );
 }
 
 function setOptionSyncState(state: OptionSyncState): void {
@@ -322,6 +480,91 @@ function refreshSourceActions(): void {
 function setSnapshotStatus(message: string, isError = false): void {
   snapshotStatus.textContent = message;
   snapshotStatus.dataset.error = String(isError);
+  if (message) setStatus(message, isError);
+}
+
+function setIqCaptureStatus(message: string, isError = false): void {
+  if (iqCaptureStatusTimer !== null) {
+    window.clearTimeout(iqCaptureStatusTimer);
+    iqCaptureStatusTimer = null;
+  }
+  iqCaptureStatus.textContent = message;
+  iqCaptureStatus.dataset.error = String(isError);
+  delete iqCaptureStatus.dataset.success;
+  if (message) setStatus(message, isError);
+}
+
+function getIqCaptureOptions(
+  connection = session?.getConnection(),
+): IqCaptureOptions | null {
+  if (!connection) return null;
+  return {
+    centerFrequencyHz: connection.centerFrequencyHz,
+    sampleRateHz: connection.sampleRateHz,
+    fftSize: connection.fftSize,
+    fftWindow: "Hanning",
+    gainDb: connection.gainDb,
+    ppm: connection.ppm,
+  };
+}
+
+function getIqCaptureFilename(format: IqCaptureFormat): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `n-apt_capture_${timestamp}${format}`;
+}
+
+function getIqCaptureMetadata(
+  connection: NonNullable<ReturnType<RtlSdrWebUsbSession["getConnection"]>>,
+): Record<string, unknown> {
+  return {
+    center_frequency_hz: connection.centerFrequencyHz,
+    capture_sample_rate_hz: connection.sampleRateHz,
+    hardware_sample_rate_hz: connection.sampleRateHz,
+    encrypted: false,
+    timestamp_utc: new Date().toISOString(),
+    frame_rate: 0,
+    fft_size: connection.fftSize,
+    fft_window: "Hanning",
+    duration_s: 0,
+    acquisition_mode: "interleaved",
+    source_device: connection.deviceLabel,
+    gain: connection.gainDb,
+    ppm: connection.ppm,
+    tuner_agc: false,
+    rtl_agc: false,
+    data_format: "iq_u8",
+    spectrum_shifted: true,
+    device_profile: {
+      kind: connection.deviceLabel,
+      firmware_version: null,
+    },
+  };
+}
+
+function refreshIqCaptureControls(): void {
+  const recording = iqCaptureRecorder?.isRecording() ?? false;
+  const connected = session !== null;
+  if (iqCapturePill) {
+    iqCapturePill.dataset.state = connected || recording ? "ready" : "unavailable";
+  }
+  const naptOption = iqCaptureFormat.querySelector<HTMLOptionElement>(
+    'option[value=".napt"]',
+  );
+  if (naptOption) {
+    naptOption.disabled = !naptCaptureAvailable;
+    naptOption.title = naptCaptureAvailable
+      ? "Encrypt an app-compatible .napt capture with a passphrase."
+      : "Encrypted captures are unavailable in this browser.";
+  }
+  if (!naptCaptureAvailable && iqCaptureFormat.value === ".napt") {
+    iqCaptureFormat.value = ".iq";
+  }
+  if (iqCapturePill) iqCapturePill.dataset.format = iqCaptureFormat.value;
+  iqCaptureFormat.disabled = recording;
+  iqCapturePassphrase.disabled = recording || iqCaptureFormat.value !== ".napt";
+  iqCaptureToggle.disabled = !connected && !recording;
+  iqCaptureToggle.textContent = recording ? "Stop & Save" : "Record";
+  iqCaptureToggle.ariaPressed = String(recording);
 }
 
 function showSnapshotSuccess(button: HTMLButtonElement, label: string): void {
@@ -341,7 +584,9 @@ function refreshSnapshotStatsToggle(): void {
   const label = snapshotMode === 0
     ? "Stats: Off"
     : snapshotMode === 1
-      ? "Stats: On"
+      ? snapshotGeolocationUnavailable
+        ? "Stats: On (no geolocation / denied)"
+        : "Stats: On"
       : "Stats + Geo";
   snapshotStatsToggle.textContent = label;
   snapshotStatsToggle.ariaPressed = String(snapshotMode > 0);
@@ -360,6 +605,7 @@ function getCurrentSnapshotData(): WebUsbSnapshotData | null {
     ppm: connection.ppm,
     deviceName: connection.deviceLabel,
     geolocation: snapshotMode === 2 ? snapshotGeolocation : null,
+    locationLabel: snapshotMode === 2 ? snapshotLocationLabel : null,
   };
 }
 
@@ -372,6 +618,7 @@ function getSnapshotDimensions(): { width: number; height: number } {
 
 function refreshSnapshotButtons(): void {
   const available = getCurrentSnapshotData() !== null;
+  snapshotPill.dataset.state = available ? "ready" : "unavailable";
   snapshotImageButton.disabled = !available;
   snapshotSvgButton.disabled = !available;
   snapshotVideoButton.disabled = !available && mediaRecorder === null;
@@ -388,6 +635,125 @@ function downloadBlob(blob: Blob, filename: string): void {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function finishIqCapture(save: boolean): Promise<void> {
+  if (!iqCaptureRecorder?.isRecording()) return;
+  try {
+    const result = await iqCaptureRecorder.stop();
+    if (save) {
+      downloadBlob(
+        new Blob([result.data], {
+          type: result.filename.endsWith(".napt")
+            ? "application/octet-stream"
+            : "application/octet-stream",
+        }),
+        result.filename,
+      );
+      setIqCaptureStatus(
+        `${result.filename} saved (${result.frameCount.toLocaleString()} frames).`,
+      );
+      iqCaptureStatus.dataset.success = "true";
+      iqCaptureStatusTimer = window.setTimeout(() => {
+        iqCaptureStatus.textContent = "";
+        delete iqCaptureStatus.dataset.success;
+        iqCaptureStatusTimer = null;
+        setStatus(
+          session ? "Streaming the latest RTL-SDR frame." : "Disconnected.",
+        );
+      }, 1800);
+    } else {
+      setIqCaptureStatus("I/Q capture discarded.");
+    }
+  } catch (error: unknown) {
+    iqCaptureRecorder.abort();
+    setIqCaptureStatus(
+      error instanceof Error ? error.message : String(error),
+      true,
+    );
+  } finally {
+    refreshIqCaptureControls();
+  }
+}
+
+async function toggleIqCapture(): Promise<void> {
+  if (iqCaptureRecorder?.isRecording()) {
+    iqCaptureToggle.disabled = true;
+    setIqCaptureStatus("Finalizing capture in the worker…");
+    await finishIqCapture(true);
+    return;
+  }
+  const connection = session?.getConnection();
+  const options = getIqCaptureOptions(connection);
+  if (!connection || !options || !iqCaptureRecorder) {
+    setIqCaptureStatus("Connect an RTL-SDR before recording I/Q.", true);
+    return;
+  }
+
+  const format = iqCaptureFormat.value as IqCaptureFormat;
+  const passphrase = format === ".napt" ? iqCapturePassphrase.value.trim() : undefined;
+  if (format === ".napt" && !passphrase) {
+    setIqCaptureStatus("Enter a passphrase before recording an encrypted capture.", true);
+    iqCapturePassphrase.focus();
+    return;
+  }
+
+  try {
+    await iqCaptureRecorder.start({
+      format,
+      filename: getIqCaptureFilename(format),
+      metadata: getIqCaptureMetadata(connection),
+      channel: {
+        center_freq_hz: connection.centerFrequencyHz,
+        sample_rate_hz: connection.sampleRateHz,
+        requested_min_freq_hz:
+          connection.centerFrequencyHz - connection.sampleRateHz / 2,
+        requested_max_freq_hz:
+          connection.centerFrequencyHz + connection.sampleRateHz / 2,
+        bins_per_frame: connection.fftSize,
+        label: null,
+      },
+      options,
+      passphrase,
+    });
+    setIqCaptureStatus(`Recording ${format} in the worker…`);
+    refreshIqCaptureControls();
+  } catch (error: unknown) {
+    setIqCaptureStatus(
+      error instanceof Error ? error.message : String(error),
+      true,
+    );
+    refreshIqCaptureControls();
+  }
+}
+
+function initializeIqCapture(): void {
+  try {
+    iqCaptureRecorder = new IqCaptureRecorder({
+      onProgress: ({ bytes, frameCount }) => {
+        if (iqCaptureRecorder?.isRecording()) {
+          setIqCaptureStatus(
+            `Recording ${frameCount.toLocaleString()} frames (${bytes.toLocaleString()} bytes)…`,
+          );
+        }
+      },
+      onError: (error) => {
+        setIqCaptureStatus(error.message, true);
+        refreshIqCaptureControls();
+      },
+    });
+    refreshIqCaptureControls();
+    void IqCaptureRecorder.supportsEncryptedNapt().then((supported) => {
+      naptCaptureAvailable = supported;
+      refreshIqCaptureControls();
+      if (!supported && iqCaptureFormat.value === ".napt") {
+        setIqCaptureStatus("Encrypted .napt is unavailable; using .iq.");
+      }
+    });
+  } catch {
+    iqCaptureRecorder = null;
+    setIqCaptureStatus("I/Q recording is unavailable in this browser.", true);
+  }
 }
 
 async function downloadRenderedSnapshot(
@@ -514,6 +880,9 @@ function startVideoRecording(): void {
       showSnapshotSuccess(snapshotVideoButton, "Video");
       refreshSnapshotButtons();
       setSnapshotStatus("");
+      setStatus(
+        session ? "Streaming the latest RTL-SDR frame." : "Disconnected.",
+      );
     };
     recorder.start(250);
     mediaRecorder = recorder;
@@ -574,6 +943,7 @@ function refreshCenterFrequency(): void {
     30_000_000_000,
   );
   if (parsed !== null) centerFrequencyHz = parsed;
+  rememberActiveNaptChannelCenter();
   setOptionValue("centerFrequency", formatCenterFrequencyValue());
   scheduleDeviceOptions();
 }
@@ -589,6 +959,24 @@ function formatCenterFrequency(preserveUnit = false): void {
 }
 
 centerFrequencyInput.addEventListener("input", refreshCenterFrequency);
+centerFrequencyInput.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+  event.preventDefault();
+  event.stopPropagation();
+  refreshCenterFrequency();
+  const direction = event.key === "ArrowUp" ? 1 : -1;
+  const multiplier = event.shiftKey ? 10 : 1;
+  centerFrequencyHz = clampFrequencyHz(
+    centerFrequencyHz +
+      direction * getFrequencyArrowStepHz(centerFrequencyUnitValue) * multiplier,
+    0,
+    30_000_000_000,
+  );
+  rememberActiveNaptChannelCenter();
+  formatCenterFrequency(true);
+  dispatchDeviceOptionsImmediately();
+  queuePaint();
+});
 centerFrequencyInput.addEventListener("blur", () => {
   refreshCenterFrequency();
   formatCenterFrequency();
@@ -607,18 +995,23 @@ centerFrequencyUnit.addEventListener("change", () => {
   scheduleDeviceOptions();
 });
 
-function getSampleRateFromInput(): number {
+function getParsedSampleRateFromInput(): number | null {
   const parsed = parseFrequencyInputValue(
     sampleRateInput.value,
     sampleRateUnitValue,
     1,
     MAX_SAMPLE_RATE_HZ,
   );
-  return normalizeSampleRateHz(parsed ?? DEFAULT_SAMPLE_RATE_HZ);
+  return parsed === null ? null : normalizeSampleRateHz(parsed);
 }
 
-function formatSampleRate(): void {
-  const nextHz = getSampleRateFromInput();
+function getSampleRateFromInput(): number {
+  return getParsedSampleRateFromInput() ?? DEFAULT_SAMPLE_RATE_HZ;
+}
+
+function formatSampleRate(): boolean {
+  const nextHz = getParsedSampleRateFromInput();
+  if (nextHz === null) return false;
   const nextScale = getOptimalFrequencyScale(nextHz);
   sampleRateUnitValue = nextScale.unit;
   sampleRateUnit.value = nextScale.unit;
@@ -627,34 +1020,78 @@ function formatSampleRate(): void {
     precisionMHz: 3,
     trimTrailingZeros: true,
   }));
+  return true;
 }
 
-async function updateDeviceOptions(): Promise<void> {
-  if (!session) return;
-  setStatus("Applying RTL-SDR options…");
-  const connection = await session.updateOptions({
-    centerFrequencyHz,
-    sampleRateHz: getSampleRateFromInput(),
-    fftSize: normalizeFftSize(Number(fftSizeInput.value)),
-    gainDb: normalizeGainDb(Number(gainInput.value)),
-    ppm: normalizePpm(Number(ppmInput.value)),
+function getDeviceOptionState(): RtlSdrOptionState | null {
+  return getRtlSdrOptionState({
+    centerFrequencyText: centerFrequencyInput.value,
+    centerFrequencyUnit: centerFrequencyUnitValue,
+    sampleRateText: sampleRateInput.value,
+    sampleRateUnit: sampleRateUnitValue,
+    fftSizeText: fftSizeInput.value,
+    gainText: gainInput.value,
+    ppmText: ppmInput.value,
   });
+}
+
+async function updateDeviceOptions(options: RtlSdrOptionState): Promise<void> {
+  if (!session) return;
+  const current = session.getConnection();
+  if (!haveRtlSdrOptionsChanged(current, options)) {
+    setOptionSyncState("sent");
+    return;
+  }
+  setStatus("Applying RTL-SDR options…");
+  const connection = await session.updateOptions(options);
   fftSizeInput.value = String(connection.fftSize);
   gainInput.value = String(connection.gainDb);
   ppmInput.value = String(connection.ppm);
   refreshOptionValues(connection);
+  iqCaptureRecorder?.updateOptions(getIqCaptureOptions(connection)!);
   setOptionSyncState("sent");
   setStatus("RTL-SDR options updated.");
 }
 
 function scheduleDeviceOptions(): void {
-  setOptionSyncState(session ? "pending" : "idle");
   if (!session) return;
+  const nextOptions = getDeviceOptionState();
+  const current = session.getConnection();
+  if (!nextOptions || !haveRtlSdrOptionsChanged(current, nextOptions)) {
+    if (optionDebounceTimer !== null) {
+      window.clearTimeout(optionDebounceTimer);
+      optionDebounceTimer = null;
+    }
+    setOptionSyncState("sent");
+    return;
+  }
+  setOptionSyncState("pending");
   if (optionDebounceTimer !== null) window.clearTimeout(optionDebounceTimer);
   optionDebounceTimer = window.setTimeout(() => {
     optionDebounceTimer = null;
-    void updateDeviceOptions().catch(setError);
+    enqueueDeviceOptionsUpdate(nextOptions);
   }, 350);
+}
+
+function enqueueDeviceOptionsUpdate(options: RtlSdrOptionState): void {
+  deviceOptionUpdateQueue = deviceOptionUpdateQueue
+    .then(() => updateDeviceOptions(options))
+    .catch(setError);
+}
+
+function dispatchDeviceOptionsImmediately(): void {
+  if (!session) return;
+  if (optionDebounceTimer !== null) {
+    window.clearTimeout(optionDebounceTimer);
+    optionDebounceTimer = null;
+  }
+  const nextOptions = getDeviceOptionState();
+  if (!nextOptions) {
+    setOptionSyncState("sent");
+    return;
+  }
+  setOptionSyncState("pending");
+  enqueueDeviceOptionsUpdate(nextOptions);
 }
 
 sampleRateInput.addEventListener("input", () => {
@@ -674,12 +1111,12 @@ sampleRateInput.addEventListener("input", () => {
   }
 });
 sampleRateInput.addEventListener("blur", () => {
-  formatSampleRate();
-  scheduleDeviceOptions();
+  if (formatSampleRate()) scheduleDeviceOptions();
 });
 sampleRateUnit.addEventListener("change", () => {
   const nextUnit = sampleRateUnit.value as FrequencyUnit;
-  const nextHz = getSampleRateFromInput();
+  const nextHz = getParsedSampleRateFromInput();
+  if (nextHz === null) return;
   sampleRateUnitValue = nextUnit;
   sampleRateInput.value = formatFrequencyInputValue(
     nextHz,
@@ -693,6 +1130,7 @@ sampleRateUnit.addEventListener("change", () => {
 });
 
 fftSizeInput.addEventListener("change", () => {
+  if (fftSizeInput.value.trim() === "") return;
   const value = Number(fftSizeInput.value);
   if (!Number.isFinite(value)) return;
   const normalized = normalizeFftSize(value);
@@ -700,7 +1138,8 @@ fftSizeInput.addEventListener("change", () => {
   scheduleDeviceOptions();
 });
 gainInput.addEventListener("input", () => {
-  const value = Number(gainInput.value);
+  if (gainInput.value.trim() === "") return;
+  const value = Number(gainInput.value.trim());
   if (!Number.isFinite(value)) return;
   const normalized = normalizeGainDb(value);
   if (value > MAX_GAIN_DB) gainInput.value = String(MAX_GAIN_DB);
@@ -708,7 +1147,8 @@ gainInput.addEventListener("input", () => {
   scheduleDeviceOptions();
 });
 ppmInput.addEventListener("input", () => {
-  const value = Number(ppmInput.value);
+  if (ppmInput.value.trim() === "") return;
+  const value = Number(ppmInput.value.trim());
   if (!Number.isFinite(value)) return;
   const normalized = normalizePpm(value);
   setOptionValue("ppm", String(normalized));
@@ -717,6 +1157,7 @@ ppmInput.addEventListener("input", () => {
 
 async function disconnect(): Promise<void> {
   stopVideoRecording();
+  await finishIqCapture(true);
   const activeSession = session;
   session = null;
   streamPaused = false;
@@ -733,6 +1174,7 @@ async function disconnect(): Promise<void> {
   refreshSourceActions();
   refreshStreamToggle();
   refreshSnapshotButtons();
+  refreshIqCaptureControls();
 }
 
 function toggleStream(): void {
@@ -791,14 +1233,17 @@ async function connect(): Promise<void> {
     refreshStreamToggle();
     deviceElement.textContent = connection.deviceLabel;
     refreshOptionValues(connection);
+    refreshIqCaptureControls();
     markConnectedOptionStates();
     setStatus("Streaming the latest RTL-SDR frame.");
 
     void activeSession
-      .start((frame) => {
-        latestBins = processRtlSdrFrame(frame);
-        renderPlaceholder(null);
-        queuePaint();
+    .start((frame) => {
+      latestBins = processRtlSdrFrame(frame);
+      const captureOptions = getIqCaptureOptions();
+      if (captureOptions) iqCaptureRecorder?.appendFrame(frame, captureOptions);
+      renderPlaceholder(null);
+      queuePaint();
       })
       .catch(async (error: unknown) => {
       if (session !== activeSession) return;
@@ -810,6 +1255,8 @@ async function connect(): Promise<void> {
         deviceElement.textContent = "No device";
         refreshSourceActions();
         refreshStreamToggle();
+        void finishIqCapture(false);
+        refreshIqCaptureControls();
         setError(error);
         refreshSnapshotButtons();
       });
@@ -848,8 +1295,11 @@ snapshotVideoButton.addEventListener("click", startVideoRecording);
 snapshotStatsToggle.addEventListener("click", () => {
   const nextMode = ((snapshotMode + 1) % 3) as 0 | 1 | 2;
   if (nextMode !== 2) {
+    snapshotGeolocationRequestId += 1;
     snapshotMode = nextMode;
     snapshotGeolocation = null;
+    snapshotLocationLabel = null;
+    snapshotGeolocationUnavailable = false;
     refreshSnapshotStatsToggle();
     if (mediaRecorder) {
       setSnapshotStatus(
@@ -860,38 +1310,67 @@ snapshotStatsToggle.addEventListener("click", () => {
   }
 
   if (!navigator.geolocation) {
+    snapshotGeolocationRequestId += 1;
     snapshotMode = 1;
     snapshotGeolocation = null;
+    snapshotLocationLabel = null;
+    snapshotGeolocationUnavailable = true;
     refreshSnapshotStatsToggle();
-    setSnapshotStatus("Geolocation is unavailable; stats remain on.", true);
+    setSnapshotStatus("");
     return;
   }
 
+  snapshotGeolocationUnavailable = false;
+  const requestId = ++snapshotGeolocationRequestId;
+  snapshotLocationLabel = null;
   setSnapshotStatus("Requesting geolocation for the next snapshot…");
   navigator.geolocation.getCurrentPosition(
     (position) => {
+      if (requestId !== snapshotGeolocationRequestId) return;
       snapshotGeolocation = {
         lat: position.coords.latitude.toFixed(6),
         lon: position.coords.longitude.toFixed(6),
       };
+      const { lat, lon } = snapshotGeolocation;
+      snapshotGeolocationUnavailable = false;
       snapshotMode = 2;
       refreshSnapshotStatsToggle();
       setSnapshotStatus(
         `Stats and geolocation enabled${mediaRecorder ? " for the recording" : " for the next snapshot"}.`,
       );
+      void reverseGeocodeSnapshotLocation(lat, lon)
+        .then((label) => {
+          if (requestId === snapshotGeolocationRequestId) {
+            snapshotLocationLabel = label;
+          }
+        })
+        .catch(() => {
+          if (requestId === snapshotGeolocationRequestId) {
+            snapshotLocationLabel = null;
+          }
+        });
     },
     () => {
+      if (requestId !== snapshotGeolocationRequestId) return;
       snapshotMode = 1;
       snapshotGeolocation = null;
+      snapshotLocationLabel = null;
+      snapshotGeolocationUnavailable = true;
       refreshSnapshotStatsToggle();
-      setSnapshotStatus("Location unavailable; stats remain on.", true);
+      setSnapshotStatus("");
     },
     { enableHighAccuracy: false, maximumAge: 60_000, timeout: 5_000 },
   );
 });
+iqCaptureToggle.addEventListener("click", () => {
+  void toggleIqCapture();
+});
+iqCaptureFormat.addEventListener("change", refreshIqCaptureControls);
 window.addEventListener("pagehide", () => {
   void session?.disconnect();
   stopVideoRecording();
+  iqCaptureRecorder?.abort();
+  iqCaptureRecorder?.dispose();
 });
 
 setStatus(
@@ -905,3 +1384,6 @@ refreshSnapshotStatsToggle();
 refreshSourceActions();
 refreshStreamToggle();
 refreshSnapshotButtons();
+refreshNaptChannelButtons();
+initializeIqCapture();
+showMobileFirstVisitNotice();
