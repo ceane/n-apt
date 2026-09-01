@@ -1,8 +1,8 @@
-import type { RenderableLiveFrame } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+import type { RenderableLiveFrame } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   getLatestLiveFrame,
   hasRenderableFramePayload,
-} from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 
 /** Stable request identity used to suppress duplicate Mock Tx previews. */
 export const getMockTxPreviewRequestKey = ({

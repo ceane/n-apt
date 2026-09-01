@@ -5,6 +5,7 @@ import type { SourceMode } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { isMockDevice } from "@n-apt/app/infrastructure/services/deviceCapabilities";
 import { VaultStatus } from "@n-apt/ui/VaultStatus";
 import { resolveSourceModeManagement } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
+import { resolveLiveSourcePauseButtonState } from "@n-apt/spectrum/public/liveSourceLifecycle";
 
 const SourceInputWrapper = styled.div`
   display: grid;
@@ -615,16 +616,19 @@ export const SourceInput: React.FC<SourceInputProps> = ({
 
   const isHalfDuplexRxActive = (device: (typeof sourceDevices)[number]) =>
     device.duplex_mode?.toLowerCase?.() === "half-duplex" &&
-    resolveSourceModeManagement({
-      source: {
-        ...device,
-        status: getStatusLabel(device.status),
-        paused: device.status?.paused,
-      },
-      txBindingSourceId,
-      txPreviewSourceId,
-    }).isRxMode &&
-    isRxActiveStatus(device);
+    resolveLiveSourcePauseButtonState({
+      isRxMode: resolveSourceModeManagement({
+        source: {
+          ...device,
+          status: getStatusLabel(device.status),
+          paused: device.status?.paused,
+        },
+        txBindingSourceId,
+        txPreviewSourceId,
+      }).isRxMode,
+      isStreaming: isRxActiveStatus(device),
+      paused: device.status?.paused === true,
+    }).label === "Pause Rx";
   const isStreamingDevice = (device: (typeof sourceDevices)[number]) =>
     resolveSourceModeManagement({
       source: {

@@ -1336,11 +1336,12 @@ impl WebSocketServer {
         continue;
       }
       let requested_single_frame = allow_next_paused_frame;
+      let managed_rx_key =
+        StreamKey::new(active_source_for_pause.clone(), StreamMode::Rx);
+      let has_managed_rx_subscribers =
+        stream_manager.has_subscribers(&managed_rx_key);
       let all_managed_subscribers_paused = stream_manager
-        .all_subscribers_paused(&StreamKey::new(
-          active_source_for_pause.clone(),
-          StreamMode::Rx,
-        ));
+        .all_subscribers_paused(&managed_rx_key);
       let tx_is_active_for_gate =
         crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
       if should_delegate_tx_monitor(
@@ -1373,7 +1374,8 @@ impl WebSocketServer {
         tokio::time::sleep(Duration::from_millis(100)).await;
         continue;
       }
-      if shared_state.is_paused.load(Ordering::SeqCst)
+      if !has_managed_rx_subscribers
+        && shared_state.is_paused.load(Ordering::SeqCst)
         && !requested_single_frame
         && !should_stream_while_tx_active
       {

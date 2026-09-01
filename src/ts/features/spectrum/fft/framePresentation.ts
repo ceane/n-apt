@@ -1,9 +1,9 @@
 import type { CanvasPlaceholderState } from "@n-apt/ui/CanvasPlaceholder";
-import type { LiveSourcePresentationPolicy } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+import type { LiveSourcePresentationPolicy } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   hasRenderableFramePayload,
   type RenderableLiveFrame,
-} from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   shouldAcceptWebGpuStreamFrame,
   shouldPreservePresentationDuringFrameGap,

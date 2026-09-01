@@ -23,8 +23,6 @@ import {
   setDeviceSignalAreaAndRange,
   setDeviceSdrSettingsBundle,
   setSdrSettingsBundle,
-  setVizPan,
-  setVizZoom,
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
@@ -62,7 +60,7 @@ import {
   getStreamDeliveryDemandPolicy,
   subscribeStreamDeliveryDemand,
 } from "@n-apt/app/infrastructure/streams/streamDeliveryDemand";
-import { filterLiveFramesForSource } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+import { filterLiveFramesForSource } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   createSourceModeStreamManager,
   type StreamSubscription,
@@ -638,6 +636,12 @@ let pendingDataUpdate: any = null;
 let statusBatchFrame: number | null = null;
 let pendingStatusUpdates: any = null;
 let pausedFrameRequestInFlight = false;
+// A cold connection can receive the first paused-preview request before the
+// managed RX subscription's promise has installed its logical subscriber.
+// Keep that request scoped to the intended source and replay it only after
+// the subscription exists; sending the legacy request in the meantime loses
+// the one-shot for the managed subscriber.
+let pendingManagedRxFrameRequestSourceId: string | null = null;
 let lastPauseCommandTime = 0;
 let lastExpectedPauseState: boolean | null = null;
 // Visualizer pause is a subscriber concern. Keep it separate from the
@@ -800,6 +804,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   managedTxSourceId = null;
   managedRxSubscribePending = false;
   managedRxSubscribePendingSourceId = null;
+  pendingManagedRxFrameRequestSourceId = null;
   managedTxSubscribePending = false;
   pendingManagedTxOptions = null;
   managedRxOptionsScheduler.cancel();
@@ -1722,7 +1727,7 @@ const isCurrentManagedTxTarget = (
 const syncManagedStreamSubscriptions = (
   dispatch: Dispatch,
   getState: () => any,
-  rxOptionsOverride: Partial<Omit<RxDeviceOptions, "mode">> = {},
+  rxOptionsOverride?: Partial<Omit<RxDeviceOptions, "mode">>,
   publishMode: DeviceOptionPublishMode = "immediate",
 ): void => {
   if (!sourceModeStreamManager) return;
@@ -1801,9 +1806,16 @@ const syncManagedStreamSubscriptions = (
     void sourceModeStreamManager
       .subscribe(
         key,
-        buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
+        buildManagedRxOptions(
+          getState(),
+          desiredRxSource,
+          rxOptionsOverride ?? {},
+        ),
         (event) =>
           handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
+        {
+          paused: subscriberPausedBySource.get(rxSourceId) === true,
+        },
       )
       .then((subscription) => {
         if (managedRxSubscribePendingSourceId === rxSourceId) {
@@ -1821,6 +1833,23 @@ const syncManagedStreamSubscriptions = (
         );
         const paused = subscriberPausedBySource.get(rxSourceId);
         if (paused !== undefined) subscription.setPaused(paused);
+        if (pendingManagedRxFrameRequestSourceId === rxSourceId) {
+          pendingManagedRxFrameRequestSourceId = null;
+          // Put the latest universal center on the managed device stream
+          // before arming the one-shot. WebSocket ordering then guarantees
+          // the frame is acquired from the same range the paused canvas has
+          // already requested, instead of resuming the old center later.
+          syncManagedStreamSubscriptions(
+            dispatch,
+            getState,
+            resolveLocalRxTuningOverride(
+              "spectrum/setFrequencyRange",
+              getState(),
+            ),
+            "immediate",
+          );
+          subscription.requestNextFrame();
+        }
         syncManagedStreamSubscriptions(dispatch, getState);
       })
       .catch((error: unknown) => {
@@ -1834,7 +1863,15 @@ const syncManagedStreamSubscriptions = (
           ),
         );
       });
-  } else if (managedRxSubscription && desiredRxSource) {
+  } else if (
+    managedRxSubscription &&
+    desiredRxSource &&
+    rxOptionsOverride !== undefined
+  ) {
+    // Existing subscriptions already own the backend's effective options.
+    // Status/frame hydration must not replay this client's cached center as a
+    // device-wide write; only an explicit local option action supplies an
+    // override and is allowed to enter the scheduler.
     managedRxOptionsScheduler.submit(
       buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
       publishMode,
@@ -1878,6 +1915,9 @@ const syncManagedStreamSubscriptions = (
     void sourceModeStreamManager
       .subscribe(key, txOptions, (event) =>
         handleManagedStreamEvent(txSourceId, "tx", event, dispatch, getState),
+        {
+          paused: subscriberPausedBySource.get(txSourceId) === true,
+        },
       )
       .then((subscription) => {
         managedTxSubscribePending = false;
@@ -2560,13 +2600,6 @@ export const processWebSocketMessage = (
             nextRange,
           );
       const currentSignalArea = getState().spectrum?.activeSignalArea;
-      const incomingDisplayRange = parsedData.display_range;
-      const hasMirroredDisplayViewport =
-        getState().settings?.mirrorIqBasebandBelowZero === true &&
-        incomingDisplayRange?.mirror_below_zero === true &&
-        Number.isFinite(incomingDisplayRange.min) &&
-        Number.isFinite(incomingDisplayRange.max) &&
-        incomingDisplayRange.max > incomingDisplayRange.min;
       const effectiveSignalArea = resolveIncomingChannelsActiveSignalArea({
         channels,
         currentRange: selectedRange,
@@ -2581,10 +2614,7 @@ export const processWebSocketMessage = (
       const inManualMode =
         currentSignalArea === "manual" || persistedArea === "manual";
 
-      if (
-        (!inManualMode || hasAuthoritativeSelection) &&
-        !hasMirroredDisplayViewport
-      ) {
+      if (!inManualMode || hasAuthoritativeSelection) {
         dispatch(
           setDeviceSignalAreaAndRange({
             area: effectiveSignalArea ?? firstChannel.label ?? "A",
@@ -2593,33 +2623,6 @@ export const processWebSocketMessage = (
         );
       }
 
-      // Device frequency updates carry the signed presentation viewport when
-      // the originating client has mirror mode enabled. Apply that viewport
-      // after the device-range reducer (which intentionally resets pan) so
-      // every mirror-enabled subscriber paints the same side of DC. When the
-      // subscriber is paused, these Redux changes also advance the existing
-      // paused-preview signature, which issues request_next_frame for the
-      // newly synchronized viewport.
-      const mirrorEnabled =
-        getState().settings?.mirrorIqBasebandBelowZero === true;
-      if (hasMirroredDisplayViewport) {
-        const hardwareCenter =
-          (selectedRange.min + selectedRange.max) / 2;
-        const displayCenter =
-          (incomingDisplayRange.min + incomingDisplayRange.max) / 2;
-        const panHz = Number(incomingDisplayRange.pan_hz);
-        dispatch(
-          setVizPan(
-            Number.isFinite(panHz)
-              ? Math.round(panHz)
-              : Math.round(displayCenter - hardwareCenter),
-          ),
-        );
-        const zoom = Number(incomingDisplayRange.zoom);
-        if (Number.isFinite(zoom) && zoom > 0) {
-          dispatch(setVizZoom(zoom));
-        }
-      }
       const incomingSampleRate =
         typeof parsedData.sample_rate === "number" &&
         Number.isFinite(parsedData.sample_rate) &&
@@ -3098,75 +3101,95 @@ const createWebSocketMiddleware =
                 dispatch(clearQueuedMessages());
               }
 
-              // Re-sync current settings and frequency range to the newly established connection
-              const currentRange = state.spectrum?.frequencyRange;
-              if (currentRange) {
-                const activeSignalArea = state.spectrum?.activeSignalArea;
-                const rangePayload = buildFrequencyRangeMessageData(state, {
-                  range: currentRange,
-                });
-                ws.send(
-                  JSON.stringify({
-                    type: "frequency_range",
-                    scope: "device",
-                    ...rangePayload,
-                    ...(typeof activeSignalArea === "string" &&
-                    activeSignalArea.trim().length > 0
-                      ? { signal_area: activeSignalArea }
-                      : {}),
-                  }),
+              // The managed raw-IQ stream hydrates its device-owned options
+              // after reconnect. Replaying this client's cached Redux range
+              // here would retune the shared device before that hydration,
+              // which is especially visible when this tab was backgrounded
+              // while another subscriber moved the center frequency. Keep the
+              // legacy resync for non-managed sources and for the first cold
+              // connection, where it remains the initial device setup path.
+              const activeSource = (state.websocket.sources ?? []).find(
+                (source: SourceInfo) =>
+                  source.id === state.websocket.activeSourceId,
+              );
+              const hasManagedRxTarget =
+                hadSession &&
+                !!activeSource?.iq_format &&
+                activeSource.capabilities?.can_receive !== false &&
+                isSourceStreamAvailable(
+                  state.websocket.sourceStatuses?.[activeSource.id] ??
+                    activeSource.status,
                 );
-              }
-
-              const spectrumSettings = state.spectrum;
-              if (spectrumSettings) {
-                const sdrSettingsPayload: Record<string, any> = {
-                  type: "settings",
-                  scope: "device",
-                };
-                if (
-                  typeof spectrumSettings.fftSize === "number" &&
-                  spectrumSettings.fftSize > 0
-                ) {
-                  sdrSettingsPayload.fftSize = spectrumSettings.fftSize;
-                }
-                if (
-                  typeof spectrumSettings.fftWindow === "string" &&
-                  spectrumSettings.fftWindow.length > 0
-                ) {
-                  sdrSettingsPayload.fftWindow = spectrumSettings.fftWindow;
-                }
-                if (
-                  typeof spectrumSettings.fftFrameRate === "number" &&
-                  spectrumSettings.fftFrameRate > 0
-                ) {
-                  sdrSettingsPayload.frameRate = clampFrameRateToProtocolLimit(
-                    spectrumSettings.fftFrameRate,
+              if (!hasManagedRxTarget) {
+                const currentRange = state.spectrum?.frequencyRange;
+                if (currentRange) {
+                  const activeSignalArea = state.spectrum?.activeSignalArea;
+                  const rangePayload = buildFrequencyRangeMessageData(state, {
+                    range: currentRange,
+                  });
+                  ws.send(
+                    JSON.stringify({
+                      type: "frequency_range",
+                      scope: "device",
+                      ...rangePayload,
+                      ...(typeof activeSignalArea === "string" &&
+                      activeSignalArea.trim().length > 0
+                        ? { signal_area: activeSignalArea }
+                        : {}),
+                    }),
                   );
                 }
-                if (
-                  typeof spectrumSettings.sampleRateHz === "number" &&
-                  spectrumSettings.sampleRateHz > 0
-                ) {
-                  sdrSettingsPayload.sampleRate = spectrumSettings.sampleRateHz;
-                }
-                if (
-                  typeof spectrumSettings.gain === "number" &&
-                  spectrumSettings.gain >= 0
-                ) {
-                  sdrSettingsPayload.gain = spectrumSettings.gain;
-                }
-                if (typeof spectrumSettings.ppm === "number") {
-                  sdrSettingsPayload.ppm = spectrumSettings.ppm;
-                }
-                if (typeof spectrumSettings.tunerAGC === "boolean") {
-                  sdrSettingsPayload.tunerAGC = spectrumSettings.tunerAGC;
-                }
-                if (typeof spectrumSettings.rtlAGC === "boolean") {
-                  sdrSettingsPayload.rtlAGC = spectrumSettings.rtlAGC;
-                }
-                if (Object.keys(sdrSettingsPayload).length > 1) {
-                  ws.send(JSON.stringify(sdrSettingsPayload));
+
+                const spectrumSettings = state.spectrum;
+                if (spectrumSettings) {
+                  const sdrSettingsPayload: Record<string, any> = {
+                    type: "settings",
+                    scope: "device",
+                  };
+                  if (
+                    typeof spectrumSettings.fftSize === "number" &&
+                    spectrumSettings.fftSize > 0
+                  ) {
+                    sdrSettingsPayload.fftSize = spectrumSettings.fftSize;
+                  }
+                  if (
+                    typeof spectrumSettings.fftWindow === "string" &&
+                    spectrumSettings.fftWindow.length > 0
+                  ) {
+                    sdrSettingsPayload.fftWindow = spectrumSettings.fftWindow;
+                  }
+                  if (
+                    typeof spectrumSettings.fftFrameRate === "number" &&
+                    spectrumSettings.fftFrameRate > 0
+                  ) {
+                    sdrSettingsPayload.frameRate = clampFrameRateToProtocolLimit(
+                      spectrumSettings.fftFrameRate,
+                    );
+                  }
+                  if (
+                    typeof spectrumSettings.sampleRateHz === "number" &&
+                    spectrumSettings.sampleRateHz > 0
+                  ) {
+                    sdrSettingsPayload.sampleRate = spectrumSettings.sampleRateHz;
+                  }
+                  if (
+                    typeof spectrumSettings.gain === "number" &&
+                    spectrumSettings.gain >= 0
+                  ) {
+                    sdrSettingsPayload.gain = spectrumSettings.gain;
+                  }
+                  if (typeof spectrumSettings.ppm === "number") {
+                    sdrSettingsPayload.ppm = spectrumSettings.ppm;
+                  }
+                  if (typeof spectrumSettings.tunerAGC === "boolean") {
+                    sdrSettingsPayload.tunerAGC = spectrumSettings.tunerAGC;
+                  }
+                  if (typeof spectrumSettings.rtlAGC === "boolean") {
+                    sdrSettingsPayload.rtlAGC = spectrumSettings.rtlAGC;
+                  }
+                  if (Object.keys(sdrSettingsPayload).length > 1) {
+                    ws.send(JSON.stringify(sdrSettingsPayload));
+                  }
                 }
               }
             };
@@ -3424,10 +3447,44 @@ const createWebSocketMiddleware =
 
         if (wsInstance.ws && wsInstance.ws.readyState === WebSocket.OPEN) {
           // A paused source publishes exactly one frame per request_next_frame.
-          // The backend arms the one-shot; this side must arm the matching
-          // acceptance gate so the (non-Tx-preview) response is not dropped.
+          // Route managed RX previews through the subscriber-scoped stream
+          // contract. A legacy control request has no subscriber identity,
+          // so it cannot make exactly one paused client receive the frame
+          // while another client continues normally.
           if (type === "request_next_frame") {
             pausedFrameRequestInFlight = true;
+            const requestedSourceId =
+              typeof normalizedData?.source_id === "string"
+                ? normalizedData.source_id
+                : getState().websocket.activeSourceId;
+            if (
+              managedRxSubscription &&
+              managedRxSourceId === requestedSourceId
+            ) {
+              // A range change and its one-shot request can be dispatched in
+              // adjacent React effects. Flush the explicit center update
+              // first so the backend cannot service this request with the
+              // previous acquisition window; this is the resume snap-back
+              // seen after a paused VFO move.
+              syncManagedStreamSubscriptions(
+                dispatch,
+                getState,
+                resolveLocalRxTuningOverride(
+                  "spectrum/setFrequencyRange",
+                  getState(),
+                ),
+                "immediate",
+              );
+              managedRxSubscription.requestNextFrame();
+              return next(action);
+            }
+            if (
+              managedRxSubscribePending &&
+              managedRxSubscribePendingSourceId === requestedSourceId
+            ) {
+              pendingManagedRxFrameRequestSourceId = requestedSourceId;
+              return next(action);
+            }
           }
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
           if (type === "settings") {
@@ -3478,6 +3535,8 @@ const createWebSocketMiddleware =
         if (isPaused) {
           resetPausedFrameRequestGate();
           pendingDataUpdate = null;
+        } else {
+          pendingManagedRxFrameRequestSourceId = null;
         }
 
         if (sourceId) {

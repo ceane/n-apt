@@ -39,6 +39,19 @@ export const shouldAppendWaterfallFrame = ({
 }): boolean =>
   shouldAppendWaterfallRow({ hasNewData, isStandby, isTxPreviewFrame });
 
+/**
+ * A paused renderer may lose its GPU texture while the CPU FFT is recoverable.
+ * Keep the retained history when it exists, otherwise paint the row rebuilt
+ * from the recovered frame instead of submitting an empty zero-filled buffer.
+ */
+export const resolvePausedWaterfallRow = ({
+  rebuiltRow,
+  cachedRow,
+}: {
+  rebuiltRow: Float32Array;
+  cachedRow: Float32Array | null;
+}): Float32Array => cachedRow ?? rebuiltRow;
+
 export const getWaterfallMotion = ({
   previousVisualRange,
   currentVisualRange,

@@ -1,5 +1,6 @@
 import {
   buildPausedPreviewSignature,
+  resolveColdStartVisualizerPauseState,
   loadPersistedManualVisualizerPaused,
   persistManualVisualizerPaused,
   updateLocalSourcePauseOverride,
@@ -40,6 +41,12 @@ describe("paused preview signature", () => {
 });
 
 describe("local source pause overrides", () => {
+  it("starts a fresh page session playing instead of restoring a stale pause latch", () => {
+    expect(
+      resolveColdStartVisualizerPauseState({ persistedPaused: true }),
+    ).toBe(false);
+  });
+
   it("keeps the same state object when the override is already applied", () => {
     const state = { "mock-apt": false };
 

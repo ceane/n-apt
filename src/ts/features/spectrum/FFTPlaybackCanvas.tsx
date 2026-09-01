@@ -35,7 +35,7 @@ import type { LiveCanvasStatusRow } from "@n-apt/spectrum/hooks/useDraw2DFFTSign
 import { formatFrequency } from "@n-apt/math/frequency";
 import { formatDuration } from "@n-apt/math/formatters";
 import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
-import { shouldRestorePausedFrameSnapshot } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+import { shouldRestorePausedFrameSnapshot } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
 

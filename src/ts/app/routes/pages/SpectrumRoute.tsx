@@ -13,7 +13,6 @@ import type { FFTCanvasHandle } from "@n-apt/spectrum";
 import FFTPlaybackCanvas from "@n-apt/spectrum/FFTPlaybackCanvas";
 import { EditableCenterFrequency } from "@n-apt/ui/EditableCenterFrequency";
 import { FrequencyInput } from "@n-apt/ui/FrequencyInput";
-import type { CanvasPlaceholderState } from "@n-apt/ui/CanvasPlaceholder";
 import { useSnapshot } from "@n-apt/capture/hooks/useSnapshot";
 import type {
   DeviceProfile,
@@ -162,8 +161,7 @@ import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualiz
 import {
   getLatestLiveFrame,
   resolveFrameReadiness,
-  resolveLiveDevicePlaceholderState,
-} from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   isSourcePresentationConnected,
   resolveSourceModeManagement,
@@ -176,7 +174,6 @@ import {
   shouldJumpTxMonitor,
 } from "@n-apt/transmit/public/txSliderPlacement";
 import {
-  attachLiveSourceLifecyclePlaceholder,
   isCurrentSourceFrameReady,
   isCommittedStandbyPresentation,
   isLiveSourceAwaitingFrame,
@@ -187,7 +184,7 @@ import {
   selectSourceFrameReadinessForMode,
   selectSourceTransportForMode,
   useLiveSourceLifecycle,
-} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
 import {
   getMockTxPreviewRequestKey,
@@ -215,7 +212,7 @@ import {
 } from "./spectrum/SpectrumRouteControls";
 
 // Kept as re-exports: tests import these helpers via this module.
-export { resolveLiveDevicePlaceholderState } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+export { resolveLiveDevicePlaceholderState } from "@n-apt/spectrum/public/liveSourceLifecycle";
 export { getMockTxPreviewRequestKey } from "./spectrum/mockTxPreview";
 
 const resolveTxSignalDisplayLabel = (signal: string) => {
@@ -490,6 +487,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       sdrLimitMarkers,
       sources,
       sendTransmitStatus,
+      cryptoCorrupted,
     },
     sampleRateHzEffective,
     toggleVisualizerPause,
@@ -708,6 +706,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const liveSourceHandoffPending =
     !!(selectedSourceId && selectedSourceId !== (activeSourceId ?? null)) ||
     sourceTransport?.phase === "warming";
+  const liveSourceLabel =
+    selectedSource?.name ??
+    selectedSourceDerived.deviceName ??
+    streamingSource?.name ??
+    "device";
+  const presentedSourceId = getLatestLiveFrame(dataRef.current)?.source_id ?? null;
+  const presentedSource = presentedSourceId
+    ? sources.find((source) => source.id === presentedSourceId)
+    : null;
+  const standbySourceLabel =
+    presentedSource?.name ?? presentedSourceId ?? liveSourceLabel;
   const liveSourceLifecycle = useLiveSourceLifecycle({
     isLive: state.sourceMode === "live",
     isConnected,
@@ -721,7 +730,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     transportError: sourceTransport?.error ?? null,
     readinessSequence: sourceFrameReadiness?.sequence ?? null,
     readiness: sourceFrameReadiness,
-    presentedSourceId: getLatestLiveFrame(dataRef.current)?.source_id ?? null,
+    presentedSourceId,
     // Never treat a previous source's "played once" flag as a Mock Tx frame.
     // That skipped awaiting-frame Loading and left a black FFT under STANDBY
     // on first Rx→Tx and on cold reload into Mock Tx before request_next_frame.
@@ -736,6 +745,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       hasRenderableCurrentFrame ||
       hasActiveSourceFrame,
     deviceStatus: selectedSourceStatus,
+    sourceLabel: liveSourceLabel,
+    loadingAttempt: streamingSource?.loading_attempt,
+    loadingAttemptMax: streamingSource?.loading_attempt_max,
+    hasPlayedAtLeastOnce,
+    hasRenderableCurrentFrame,
+    standbySourceLabel,
+    cryptoCorrupted,
     isStandby: isStandbyPresentationActive,
   });
   const isSwitchingLiveSource = isLiveSourceHandoffPending(liveSourceLifecycle);
@@ -2289,102 +2305,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   // frames that do not match expectedSourceId, while its existing presentation
   // remains visible until the target frame arrives or loading exceeds grace.
   const fftDataRef = dataRef;
-  const standbyPlaceholderState = useMemo<CanvasPlaceholderState | null>(() => {
-    if (!isStandbyPresentationActive) {
-      return null;
-    }
-    const presentedFrameSourceId =
-      getLatestLiveFrame(dataRef.current)?.source_id ?? null;
-    const presentedFrameSource = presentedFrameSourceId
-      ? sources.find((source) => source.id === presentedFrameSourceId)
-      : null;
-    return {
-      kind: "top-bar",
-      title: "Start Tx to transmit",
-      sourceLabel:
-        presentedFrameSource?.name ??
-        presentedFrameSourceId ??
-        selectedSource?.name ??
-        selectedSourceDerived.deviceName ??
-        "Mock Tx SDR",
-      message: "Start Tx to view backend-generated monitor I/Q.",
-    };
-  }, [
-    isStandbyPresentationActive,
-    sources,
-    selectedSource?.name,
-    selectedSourceDerived.deviceName,
-    dataRef,
-  ]);
-  const deviceRecoveryPlaceholderState =
-    useMemo<CanvasPlaceholderState | null>(() => {
-      const isHandoffInFlight =
-        !!selectedSourceId &&
-        selectedSourceId !== activeSourceId &&
-        sourceTransport?.phase !== "failed";
-      if (isHandoffInFlight) return null;
-
-      const sourceLabel =
-        selectedSourceDerived.deviceName ??
-        selectedSourceDerived.backend ??
-        "device";
-      return resolveLiveDevicePlaceholderState({
-        deviceState:
-          selectedSourceDerived.deviceState ?? streamingSource?.status ?? null,
-        sourceLabel,
-        loadingAttempt: streamingSource?.loading_attempt,
-        loadingAttemptMax: streamingSource?.loading_attempt_max,
-        sourceId: streamingSource?.id,
-        hasPlayedAtLeastOnce,
-        hasRenderableCurrentFrame,
-      });
-    }, [
-      selectedSourceId,
-      activeSourceId,
-      sourceTransport?.phase,
-      streamingSource?.id,
-      streamingSource?.loading_attempt,
-      streamingSource?.loading_attempt_max,
-      streamingSource?.status,
-      selectedSourceDerived.backend,
-      selectedSourceDerived.deviceName,
-      selectedSourceDerived.deviceState,
-      hasPlayedAtLeastOnce,
-      hasRenderableCurrentFrame,
-    ]);
-  const sourceHandoffPlaceholderState =
-    useMemo<CanvasPlaceholderState | null>(() => {
-      if (!isSourceHandoffOverlayPending) return null;
-      return {
-        kind: "loading",
-        paneLabel: "FFT",
-        sourceLabel:
-          selectedSource?.name ??
-          selectedSourceDerived.deviceName ??
-          streamingSource?.name ??
-          "device",
-        message: "Waiting for the first frame to arrive.",
-      };
-    }, [
-      isSourceHandoffOverlayPending,
-      selectedSource?.name,
-      selectedSourceDerived.deviceName,
-      streamingSource?.name,
-    ]);
-  const presentedLiveSourceLifecycle = useMemo(
-    () =>
-      attachLiveSourceLifecyclePlaceholder(liveSourceLifecycle, {
-        devicePlaceholder: deviceRecoveryPlaceholderState,
-        handoffPlaceholder: sourceHandoffPlaceholderState,
-        standbyPlaceholder: standbyPlaceholderState,
-      }),
-    [
-      deviceRecoveryPlaceholderState,
-      liveSourceLifecycle,
-      standbyPlaceholderState,
-      sourceHandoffPlaceholderState,
-    ],
-  );
+  const presentedLiveSourceLifecycle = liveSourceLifecycle;
   const livePlaceholderState = presentedLiveSourceLifecycle.placeholder;
   const livePlaceholderErrorReason = resolveLiveSourceLifecycleErrorReason(
     presentedLiveSourceLifecycle,

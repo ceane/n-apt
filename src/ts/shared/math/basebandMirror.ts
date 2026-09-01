@@ -657,14 +657,13 @@ const sampleSpectrumAtFrequency = (
 
   // Single reflection across DC. Periodic folding below 0 Hz repeats Channel A.
   let frequencyHz = mapDisplayFrequencyToSource(displayFrequencyHz);
-  // Some configured channels start a few kHz above DC (Mock APT starts at
-  // 18 kHz). Treat only that small guard interval as the first acquired bin;
-  // otherwise the reflected row gets a narrow floor-colored slit at 0 Hz.
-  // Larger untuned intervals remain floor so this never tiles/smears a channel.
-  const dcGapSlackHz = mirrorPresentationCoverageSlackHz(sourceRange);
+  // The mirrored display must remain continuous at DC. If the configured
+  // positive acquisition begins above zero, leaving this interval as floor
+  // exposes an artificial slit between the reflected and positive halves.
+  // Use the nearest acquired edge for the boundary fill; this is presentation
+  // continuity, not another acquisition range.
   if (
     sourceRange.min >= 0 &&
-    sourceRange.min <= dcGapSlackHz &&
     frequencyHz >= 0 &&
     frequencyHz < sourceRange.min
   ) {

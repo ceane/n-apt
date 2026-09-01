@@ -206,6 +206,7 @@ struct StreamEntry {
 /// global pause visible to the other subscribers.
 struct SubscriberContract {
   paused: Arc<AtomicBool>,
+  next_frame_requested: Arc<AtomicBool>,
   delivery_policy: Arc<AtomicU8>,
 }
 
@@ -230,6 +231,7 @@ pub struct StreamSubscription {
   receiver: broadcast::Receiver<StreamEvent>,
   active: Arc<AtomicBool>,
   paused: Arc<AtomicBool>,
+  next_frame_requested: Arc<AtomicBool>,
   delivery_policy: Arc<AtomicU8>,
   pending_event: Option<StreamEvent>,
 }
@@ -313,21 +315,23 @@ impl StreamingSourceModeManager {
       // callers use update_options for an intentional device-scoped change.
       let subscription_id = self.next_subscription();
       let paused = Arc::new(AtomicBool::new(false));
-      let delivery_policy = Arc::new(AtomicU8::new(delivery_policy_to_u8(delivery_policy)));
-      entry
-        .subscribers
-        .insert(
-          subscription_id,
-          SubscriberContract {
-            paused: paused.clone(),
-            delivery_policy: delivery_policy.clone(),
-          },
-        );
+      let next_frame_requested = Arc::new(AtomicBool::new(false));
+      let delivery_policy =
+        Arc::new(AtomicU8::new(delivery_policy_to_u8(delivery_policy)));
+      entry.subscribers.insert(
+        subscription_id,
+        SubscriberContract {
+          paused: paused.clone(),
+          next_frame_requested: next_frame_requested.clone(),
+          delivery_policy: delivery_policy.clone(),
+        },
+      );
       return Ok(self.make_subscription(
         key,
         receiver,
         subscription_id,
         paused,
+        next_frame_requested,
         delivery_policy,
       ));
     }
@@ -337,12 +341,15 @@ impl StreamingSourceModeManager {
     let options_revision = 1;
     let subscription_id = self.next_subscription();
     let paused = Arc::new(AtomicBool::new(false));
-    let delivery_policy = Arc::new(AtomicU8::new(delivery_policy_to_u8(delivery_policy)));
+    let next_frame_requested = Arc::new(AtomicBool::new(false));
+    let delivery_policy =
+      Arc::new(AtomicU8::new(delivery_policy_to_u8(delivery_policy)));
     let mut subscribers = HashMap::new();
     subscribers.insert(
       subscription_id,
       SubscriberContract {
         paused: paused.clone(),
+        next_frame_requested: next_frame_requested.clone(),
         delivery_policy: delivery_policy.clone(),
       },
     );
@@ -364,6 +371,7 @@ impl StreamingSourceModeManager {
       receiver,
       subscription_id,
       paused,
+      next_frame_requested,
       delivery_policy,
     ))
   }
@@ -374,6 +382,7 @@ impl StreamingSourceModeManager {
     receiver: broadcast::Receiver<StreamEvent>,
     subscription_id: u64,
     paused: Arc<AtomicBool>,
+    next_frame_requested: Arc<AtomicBool>,
     delivery_policy: Arc<AtomicU8>,
   ) -> StreamSubscription {
     StreamSubscription {
@@ -383,6 +392,7 @@ impl StreamingSourceModeManager {
       receiver,
       active: Arc::new(AtomicBool::new(true)),
       paused,
+      next_frame_requested,
       delivery_policy,
       pending_event: None,
     }
@@ -514,6 +524,40 @@ impl StreamingSourceModeManager {
         .subscribers
         .values()
         .all(|subscriber| subscriber.paused.load(Ordering::Acquire))
+  }
+
+  /// Returns whether the managed stream has at least one subscriber. This is
+  /// distinct from `all_subscribers_paused`: a managed subscriber is an
+  /// explicit per-client delivery contract and must prevent the legacy global
+  /// pause flag from blocking another client's live stream.
+  pub fn has_subscribers(&self, key: &StreamKey) -> bool {
+    self
+      .inner
+      .streams
+      .lock()
+      .unwrap()
+      .get(key)
+      .is_some_and(|entry| !entry.subscribers.is_empty())
+  }
+
+  /// Allow exactly one newly published frame through a paused subscriber.
+  /// Device tuning remains shared, but this delivery exception remains local
+  /// to the subscriber that requested the retuned preview.
+  pub fn request_next_frame(
+    &self,
+    key: &StreamKey,
+    subscription_id: u64,
+  ) -> Result<(), StreamError> {
+    let streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get(key).ok_or(StreamError::MissingStream)?;
+    let subscriber = entry
+      .subscribers
+      .get(&subscription_id)
+      .ok_or(StreamError::MissingStream)?;
+    subscriber
+      .next_frame_requested
+      .store(true, Ordering::Release);
+    Ok(())
   }
 
   /// Update one subscriber's local pause contract and return whether all
@@ -714,10 +758,12 @@ impl StreamSubscription {
           Err(error) => return Err(error),
         }
       };
-      if self.paused.load(Ordering::Acquire)
-        && matches!(&event, StreamEvent::Frame(_))
-      {
-        continue;
+      if matches!(&event, StreamEvent::Frame(_)) {
+        let requested_next_frame =
+          self.next_frame_requested.swap(false, Ordering::AcqRel);
+        if self.paused.load(Ordering::Acquire) && !requested_next_frame {
+          continue;
+        }
       }
 
       if delivery_policy_from_u8(self.delivery_policy.load(Ordering::Acquire))
@@ -919,6 +965,46 @@ mod tests {
     assert_eq!(snapshot[0].accepted_frames, 1);
 
     subscription.unsubscribe();
+  }
+
+  #[tokio::test]
+  async fn paused_subscriber_receives_only_its_requested_retune_frame() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let mut paused = manager.subscribe(key.clone(), rx_options()).unwrap();
+    let mut active = manager.subscribe(key.clone(), rx_options()).unwrap();
+
+    paused.set_paused(true).unwrap();
+    assert!(manager.has_subscribers(&key));
+    manager
+      .request_next_frame(&key, paused.subscription_id())
+      .unwrap();
+    manager
+      .publish_iq_frame(&key, 1, 2_400_000, Arc::new(vec![1]))
+      .unwrap();
+
+    assert!(matches!(
+      paused.recv().await.unwrap(),
+      StreamEvent::Frame(frame) if frame.sequence == 1
+    ));
+    assert!(matches!(
+      active.recv().await.unwrap(),
+      StreamEvent::Frame(frame) if frame.sequence == 1
+    ));
+
+    manager
+      .publish_iq_frame(&key, 2, 2_400_000, Arc::new(vec![2]))
+      .unwrap();
+    assert!(matches!(
+      active.recv().await.unwrap(),
+      StreamEvent::Frame(frame) if frame.sequence == 2
+    ));
+    assert!(
+      tokio::time::timeout(Duration::from_millis(10), paused.recv())
+        .await
+        .is_err(),
+      "a paused subscriber must not receive continuous frames"
+    );
   }
 
   #[test]

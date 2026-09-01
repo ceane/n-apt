@@ -1,8 +1,7 @@
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import FFTAndWaterfall, {
-  shouldShowLiveServerDownPlaceholder,
-} from "@n-apt/spectrum/FFTAndWaterfall";
+import FFTAndWaterfall from "@n-apt/spectrum/FFTAndWaterfall";
+import { isControlPlaneUnavailable } from "@n-apt/spectrum/public/liveSourceLifecycle";
 
 const fftCanvasMock = jest.fn((_props?: any) => (
   <div data-testid="fft-canvas" />
@@ -105,37 +104,33 @@ describe("FFTAndWaterfall", () => {
 
   it("reports server down only after a connected session is lost", () => {
     expect(
-      shouldShowLiveServerDownPlaceholder({
+      isControlPlaneUnavailable({
         isConnected: false,
         connectionStatus: "connecting",
         hasConnectedOnce: false,
-        sourceStreamReady: false,
       }),
     ).toBe(false);
     expect(
-      shouldShowLiveServerDownPlaceholder({
+      isControlPlaneUnavailable({
         isConnected: false,
         connectionStatus: "disconnected",
         hasConnectedOnce: false,
-        sourceStreamReady: false,
       }),
     ).toBe(false);
     expect(
-      shouldShowLiveServerDownPlaceholder({
+      isControlPlaneUnavailable({
         isConnected: false,
         connectionStatus: "disconnected",
         hasConnectedOnce: true,
-        sourceStreamReady: false,
         sourceHandoffPending: true,
-        sourceTransportPhase: "warming",
+        transportPhase: "warming",
       }),
     ).toBe(true);
     expect(
-      shouldShowLiveServerDownPlaceholder({
+      isControlPlaneUnavailable({
         isConnected: true,
         connectionStatus: "connected",
         hasConnectedOnce: true,
-        sourceStreamReady: false,
       }),
     ).toBe(false);
   });
@@ -922,7 +917,7 @@ describe("FFTAndWaterfall", () => {
     expect(fftProps?.placeholderState).toMatchObject({ kind: "loading" });
   });
 
-  it("falls back to Server Down only when lifecycle presentation is absent", () => {
+  it("does not synthesize Server Down when lifecycle presentation is absent", () => {
     mockedWebsocketState = {
       isConnected: false,
       connectionStatus: "disconnected",
@@ -952,7 +947,7 @@ describe("FFTAndWaterfall", () => {
 
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
-    expect(fftProps?.placeholderErrorReason).toBe("Server down");
+    expect(fftProps?.placeholderErrorReason).toBeNull();
   });
 
   it("does not flash Server Down while the first websocket connect is in flight", () => {

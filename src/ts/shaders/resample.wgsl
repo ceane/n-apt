@@ -114,14 +114,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   var src_lo = min(s0, s1);
   var src_hi = max(s0, s1);
 
-  // A configured source may begin a few kHz above DC. Extend only that small
-  // guard interval to the first acquired bin so reflection has no floor slit
-  // at 0 Hz; genuinely untuned wider regions still paint the floor below.
-  let dc_gap_slack = max(1.0, min(source_span * 0.01, 50000.0));
+  // The mirrored display must remain continuous at DC. If the configured
+  // positive acquisition begins above zero, the reflected and positive halves
+  // otherwise expose an artificial floor-colored slit between 0 and the first
+  // acquired bin while a paused frame is being retained. Use the nearest
+  // acquired edge for that boundary interval; this is presentation fill, not
+  // fabricated acquisition data, and it keeps the full canvas painted.
   let fills_dc_guard_gap =
     params.mirror_enabled == 1u &&
     params.source_min >= 0.0 &&
-    params.source_min <= dc_gap_slack &&
     src_lo >= 0.0 &&
     src_hi < params.source_min;
   if (fills_dc_guard_gap) {

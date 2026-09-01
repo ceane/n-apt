@@ -27,39 +27,12 @@ import {
   isSourceStreamAvailable,
   resolveSourceModeManagement,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
-import { isControlPlaneUnavailable } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
 
 type FFTAndWaterfallProps = FFTCanvasProps & {
   waterfallHeaderActionContent?: ReactNode;
   onLoadingStateChange?: (isLoading: boolean) => void;
   loadingPlaceholderDelayMs?: number;
 };
-
-export const shouldShowLiveServerDownPlaceholder = ({
-  isConnected,
-  connectionStatus = null,
-  hasConnectedOnce = false,
-  sourceStreamReady: _sourceStreamReady,
-  sourceHandoffPending = false,
-  sourceTransportPhase = null,
-}: {
-  isConnected: boolean;
-  connectionStatus?: string | null;
-  hasConnectedOnce?: boolean;
-  sourceStreamReady?: boolean;
-  sourceHandoffPending?: boolean;
-  sourceTransportPhase?: string | null;
-}): boolean =>
-  // First-boot disconnected/connecting must stay on Loading FFT. After a live
-  // session existed, a dropped control socket is Server Down even if a stale
-  // source status or transport phase still looks ready.
-  isControlPlaneUnavailable({
-    isConnected,
-    connectionStatus,
-    hasConnectedOnce,
-    sourceHandoffPending,
-    transportPhase: sourceTransportPhase,
-  });
 
 const resolveTxSignalDisplayLabel = (signal: string) => {
   switch (signal) {
@@ -269,26 +242,8 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       ) {
         return props.placeholderState.reason;
       }
-      if (sourceMode === "live" && wsState.cryptoCorrupted) {
-        return "Crypto Corrupted";
-      }
       if (lifecycleOwnsPlaceholders) {
         return null;
-      }
-      // Unit-test / non-route fallback only — production live path uses lifecycle.
-      if (
-        sourceMode === "live" &&
-        shouldShowLiveServerDownPlaceholder({
-          isConnected: wsState.isConnected,
-          connectionStatus: wsState.connectionStatus,
-          hasConnectedOnce: wsState.hasConnectedOnce === true,
-          sourceStreamReady,
-          sourceHandoffPending:
-            props.presentationPolicy?.suppressStaleFrames === true,
-          sourceTransportPhase: sourceTransport?.phase,
-        })
-      ) {
-        return "Server down";
       }
       return null;
     }, [
@@ -296,13 +251,6 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       props.placeholderState,
       lifecycleOwnsPlaceholders,
       sourceMode,
-      wsState.isConnected,
-      wsState.connectionStatus,
-      wsState.hasConnectedOnce,
-      wsState.cryptoCorrupted,
-      sourceStreamReady,
-      props.presentationPolicy?.suppressStaleFrames,
-      sourceTransport?.phase,
     ]);
 
     const awaitingDeviceData = useMemo(() => {

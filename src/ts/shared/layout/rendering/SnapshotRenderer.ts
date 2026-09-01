@@ -17,6 +17,7 @@ import {
  * same key.
  */
 const scratchBuffers = new Map<string, Float32Array>();
+export const DC_MARKER_LABEL = "Direct Current (DC/0Hz)";
 
 function borrowScratch(key: string, size: number): Float32Array {
   const existing = scratchBuffers.get(key);
@@ -774,6 +775,40 @@ export class SnapshotRenderer {
       }
       cur = bEnd;
     }
+    dc.restore();
+  }
+
+  drawDcMarker(dc: DrawingContext, viewRange: Range): void {
+    if (
+      !Number.isFinite(viewRange.min) ||
+      !Number.isFinite(viewRange.max) ||
+      viewRange.min > 0 ||
+      viewRange.max < 0
+    ) {
+      return;
+    }
+
+    const area = this.mapper.getPlotArea();
+    const dpr = this.mapper.getDPR();
+    const dcX = this.mapper.freqToX(0);
+    const labelWidth = dc.measureTextWidth(DC_MARKER_LABEL);
+    const leftBound = area.x + labelWidth / 2 + 8;
+    const rightBound = area.x + area.width - labelWidth / 2 - 2;
+    const labelX = Math.max(leftBound, Math.min(rightBound, dcX));
+
+    dc.save();
+    dc.setStroke(this.theme.text, Math.max(1 / dpr, 1), [4, 4]);
+    dc.beginPath();
+    dc.moveTo(dcX, area.y);
+    dc.lineTo(dcX, area.y + area.height);
+    dc.stroke();
+
+    dc.setStroke(this.theme.text, Math.max(1 / dpr, 1));
+    dc.setFill(this.theme.text);
+    dc.setFont("10px JetBrains Mono");
+    dc.setTextAlign("center");
+    dc.setTextBaseline("top");
+    dc.fillText(DC_MARKER_LABEL, labelX, area.y + 28);
     dc.restore();
   }
 

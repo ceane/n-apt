@@ -65,6 +65,39 @@ describe("requestNextPausedFrame thunk", () => {
     ).toBe(false);
   });
 
+  it("does not retune the device while requesting a paused preview", async () => {
+    const actions: any[] = [];
+    const store = {
+      dispatch: (action: any) => {
+        if (typeof action === "function") {
+          return action(store.dispatch, store.getState, undefined);
+        }
+        actions.push(action);
+        return action;
+      },
+      getState: () => ({
+        websocket: { isConnected: true },
+        spectrum: { activeSignalArea: "TEST" },
+      }),
+    };
+
+    await requestNextPausedFrame({
+      sourceId: "hackrf-one",
+      frequencyRange: { min: 100, max: 110 },
+    })(store.dispatch as any, store.getState as any, undefined);
+
+    expect(actions.filter((action) => action.type === "websocket/sendMessage"))
+      .toEqual([
+        {
+          type: "websocket/sendMessage",
+          payload: {
+            type: "request_next_frame",
+            data: { source_id: "hackrf-one" },
+          },
+        },
+      ]);
+  });
+
   it("does not dispatch when disconnected", async () => {
     const store = createMockStore(false);
 

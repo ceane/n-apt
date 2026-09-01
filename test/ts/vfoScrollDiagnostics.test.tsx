@@ -106,10 +106,13 @@ describe("VFO scroll diagnostics", () => {
     );
 
     const panCallsBefore = harness.mocks.onVizPanChange.mock.calls.length;
+    const rangeCallsBefore =
+      harness.mocks.onFrequencyRangeChange.mock.calls.length;
     harness.wheel({ deltaY: 100, clientY: VFO_WHEEL_CLIENT_Y });
-    expect(harness.mocks.onVizPanChange.mock.calls.length).toBeGreaterThan(
-      panCallsBefore,
-    );
+    expect(harness.mocks.onVizPanChange.mock.calls.length).toBe(panCallsBefore);
+    expect(
+      harness.mocks.onFrequencyRangeChange.mock.calls.length,
+    ).toBeGreaterThan(rangeCallsBefore);
     expect(harness.mocks.overlayDirty.current).toBe(true);
     expect(jest.getTimerCount()).toBe(0);
   });

@@ -994,6 +994,21 @@ export function useDrawWebGPUFFTSignal() {
         destroyRendererResources(staleState);
       }
 
+      // A backgrounded tab can lose its WebGPU device while React preserves
+      // this hook's refs. Never submit work through resources owned by the
+      // previous device; rebuild the renderer on the first frame from the
+      // replacement device.
+      if (
+        rendererRef.current &&
+        (rendererRef.current.device !== device ||
+          rendererRef.current.format !== format)
+      ) {
+        const staleState = rendererRef.current;
+        rendererRef.current = null;
+        destroyRendererResources(staleState);
+        lastDataRef.current = null;
+      }
+
       if (!rendererRef.current) {
         if (!canvas || !device || !format) return false;
 

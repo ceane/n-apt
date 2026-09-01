@@ -34,20 +34,6 @@ pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 /// stream; past this budget the terminal fallback path runs instead.
 pub const MAX_READER_RESTARTS: u32 = 8;
 
-/// Subscriber viewport metadata that must follow the shared device tune when
-/// mirrored baseband presentation is enabled. The device range remains
-/// positive RF Hz; this state describes the signed display coordinates.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DisplayViewport {
-  pub min_hz: f64,
-  pub max_hz: f64,
-  pub pan_hz: f64,
-  pub zoom: f64,
-  pub crosses_dc: bool,
-  pub direction_negative: bool,
-  pub mirror_below_zero: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HackRfInventoryDevice {
   pub serial_number: String,
@@ -146,8 +132,6 @@ pub struct SharedState {
   pub active_signal_area: Mutex<Option<String>>,
   /// Device-scoped viewport selected by the control plane.
   pub active_frequency_range: Mutex<Option<(f64, f64)>>,
-  /// Signed presentation viewport selected by a mirror-enabled subscriber.
-  pub active_display_viewport: Mutex<Option<DisplayViewport>>,
   /// SDR settings loaded from signals.yaml
   pub sdr_settings: Mutex<super::types::SdrConfig>,
   /// Available spectrum bounds loaded from signals.yaml
@@ -284,7 +268,6 @@ impl SharedState {
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),
-      active_display_viewport: Mutex::new(None),
       sdr_settings: Mutex::new(sdr_settings.clone()),
       available_spectrum: load_available_spectrum()
         .map(|range| (range.min_freq, range.max_freq)),
@@ -393,15 +376,6 @@ impl SharedState {
 
   pub fn active_frequency_range(&self) -> Option<(f64, f64)> {
     *self.active_frequency_range.lock().unwrap()
-  }
-
-  pub fn set_display_viewport(&self, viewport: Option<DisplayViewport>) {
-    *self.active_display_viewport.lock().unwrap() = viewport;
-    *self.last_broadcast_channels.lock().unwrap() = None;
-  }
-
-  pub fn active_display_viewport(&self) -> Option<DisplayViewport> {
-    *self.active_display_viewport.lock().unwrap()
   }
 
   /// Return the current source-scoped I/Q lifecycle generation.

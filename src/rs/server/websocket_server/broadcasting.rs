@@ -81,17 +81,6 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
   let frequency_range = shared
     .active_frequency_range()
     .map(|(min, max)| serde_json::json!({ "min": min, "max": max }));
-  let display_range = shared.active_display_viewport().map(|viewport| {
-    serde_json::json!({
-      "min": viewport.min_hz,
-      "max": viewport.max_hz,
-      "pan_hz": viewport.pan_hz,
-      "zoom": viewport.zoom,
-      "crosses_dc": viewport.crosses_dc,
-      "direction_negative": viewport.direction_negative,
-      "mirror_below_zero": viewport.mirror_below_zero,
-    })
-  });
   let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
   let origin_id = shared.last_tune_origin_id.lock().unwrap().clone();
   serde_json::json!({
@@ -100,7 +89,6 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
     "channels": channels,
     "active_signal_area": active_signal_area,
     "frequency_range": frequency_range,
-    "display_range": display_range,
     "sample_rate": sample_rate,
     "origin_id": origin_id,
     "error": serde_json::Value::Null,

@@ -96,7 +96,10 @@ import {
   resolvePendingWaterfallRestore,
   type PendingWaterfallRestore,
 } from "@n-apt/spectrum/utils/waterfallRestore";
-import { shouldAppendWaterfallFrame } from "@n-apt/spectrum/utils/waterfallMotion";
+import {
+  resolvePausedWaterfallRow,
+  shouldAppendWaterfallFrame,
+} from "@n-apt/spectrum/utils/waterfallMotion";
 import {
   copyValidWaterfallRow,
   resolveWaterfallDisplayRow,
@@ -123,7 +126,7 @@ import {
 } from "@n-apt/spectrum/hooks/useOverlayRenderer";
 import { useResolvedThemeMode } from "@n-apt/ui/Theme";
 import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom";
-import { type LiveSourcePresentationPolicy } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+import { type LiveSourcePresentationPolicy } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   resolveFramePresentation,
   selectFrameForPresentation,
@@ -2095,6 +2098,9 @@ const FFTCanvas = memo(
     const currentVizZoom = vizZoom ?? 1;
 
     const currentVisualRange = useMemo(() => {
+      // Pause changes frame delivery only. Grid geometry always reads the one
+      // global requested range; there is no resident/paused center to restore
+      // on resume.
       const minFreq = frequencyRange?.min ?? 0;
       const maxFreq = frequencyRange?.max ?? 0;
       const fullSpan = maxFreq - minFreq;
@@ -2148,8 +2154,6 @@ const FFTCanvas = memo(
     /** True while mirror-mode pan is held in the ref ahead of the Redux write. */
     const mirrorPanPendingPublishRef = useRef(false);
     const mirrorPanLastPublishedRef = useRef(vizPanOffset);
-    /** True while a mirror retune ref is ahead of the Redux frequency range. */
-    const hardwareRangeReanchorPendingRef = useRef(false);
     const lastPaintedMirrorPanRef = useRef(vizPanOffset);
     const lastPaintedZoomRef = useRef(currentVizZoom);
     const vizPanSchedulerRef = useRef<DeviceOptionScheduler<number> | null>(
@@ -2723,8 +2727,9 @@ const FFTCanvas = memo(
 
     const onHardwareRangeReanchor = useCallback((range: FrequencyRange) => {
       frequencyRangeRef.current = range;
-      hardwareRangeReanchorPendingRef.current = true;
-    }, []);
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+    }, [overlayDirtyRef]);
 
     const publishVizPanReanchor = useCallback(
       (pan: number) => {
@@ -2797,26 +2802,6 @@ const FFTCanvas = memo(
       mirrorPanLastPublishedRef.current = vizPanOffset;
       vizPanOffsetRef.current = vizPanOffset;
     }, [vizPanOffset]);
-
-    // Effect: When hardware frequency range changes, mark overlays for redraw
-    // and sync the ref used by drag/render logic. Note: this does NOT retune the device.
-    useEffect(() => {
-      if (hardwareRangeReanchorPendingRef.current) {
-        if (
-          renderableFrequencyRange.min === frequencyRangeRef.current.min &&
-          renderableFrequencyRange.max === frequencyRangeRef.current.max
-        ) {
-          hardwareRangeReanchorPendingRef.current = false;
-        } else {
-          overlayDirtyRef.current.grid = true;
-          overlayDirtyRef.current.markers = true;
-          return;
-        }
-      }
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-      frequencyRangeRef.current = renderableFrequencyRange;
-    }, [renderableFrequencyRange, overlayDirtyRef]);
 
     // Effect: When center frequency changes, only mark markers overlay for redraw
     // (grid lines stay at same positions, but frequency labels shift)
@@ -3726,6 +3711,7 @@ const FFTCanvas = memo(
             zoom: vizZoomRef.current || 1,
             panOffsetHz: vizPanOffsetRef.current,
             mirrorEnabled: allowNegativeFrequencies,
+            isPaused,
           });
           // Setting on → free pan + optional GPU fold. Fold arms inside
           // prepareSpectrumRenderData only when visual.min < 0.
@@ -3831,7 +3817,15 @@ const FFTCanvas = memo(
               waveformDirty: processedCurrentFrame,
               frequencyRange: displayVisualRange,
               sourceFrequencyRange: resampleOnGpu
-                ? sourceFrequencyRange
+                // The paint contract may intentionally rebase a retained
+                // paused frame onto the new universal range. Passing the raw
+                // frame acquisition range here makes the GPU floor the
+                // uncovered tail until request_next_frame arrives, which is
+                // the visible gap during VFO scrolling. The renderer must
+                // receive the same source axis that the contract used to
+                // derive displayVisualRange so the resident frame fills the
+                // canvas continuously while the replacement frame is fetched.
+                ? paintContract.sourceFrequencyRange
                 : undefined,
               mirrorEnabled: gpuMirrorActive,
               reuseWaveformUpload: resampleOnGpu,
@@ -4204,7 +4198,10 @@ const FFTCanvas = memo(
 
               } else {
                 // Paused or no new data: keep the last complete row.
-                waterfallBins = lastWaterfallRowRef.current ?? processed;
+                waterfallBins = resolvePausedWaterfallRow({
+                  rebuiltRow: waterfallBins,
+                  cachedRow: lastWaterfallRowRef.current,
+                });
               }
 
               // Snapshot tracking: maintain a CPU-side copy of the waterfall texture
@@ -4813,24 +4810,11 @@ const FFTCanvas = memo(
       restoreVisualizerSessionSnapshot,
     ]);
 
-    // Effect: When hardware frequency range changes, invalidate live caches.
-    // While paused, keep the cached waveform intact so a channel/zoom change
-    // redraws the frozen frame instead of rebuilding from a transient frame.
+    // Effect: When hardware frequency range changes, update the one universal
+    // presentation range. Pause affects delivery only; it never owns another
+    // center frequency or delays the graph axis until a replacement frame.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
-      if (hardwareRangeReanchorPendingRef.current) {
-        if (
-          renderableFrequencyRange.min === frequencyRangeRef.current.min &&
-          renderableFrequencyRange.max === frequencyRangeRef.current.max
-        ) {
-          hardwareRangeReanchorPendingRef.current = false;
-        } else {
-          if (isPaused) {
-            forceRender();
-          }
-          return;
-        }
-      }
       frequencyRangeRef.current = renderableFrequencyRange;
 
         if (

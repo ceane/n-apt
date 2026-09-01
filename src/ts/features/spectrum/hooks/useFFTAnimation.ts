@@ -90,10 +90,15 @@ export function useFFTAnimation({
       isVisibleRef.current = document.visibilityState === "visible";
       if (isVisibleRef.current) {
         onBecomeVisibleRef.current?.();
-        if (!animationFrameRef.current) {
-          animationRunIdRef.current += 1;
-          animate(true);
+        // A backgrounded browser may suppress the callback for the queued
+        // frame without clearing its ID. Always replace that stale handle on
+        // return so a paused canvas cannot remain blank indefinitely.
+        if (animationFrameRef.current !== null) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
         }
+        animationRunIdRef.current += 1;
+        animate(true);
       }
     };
 

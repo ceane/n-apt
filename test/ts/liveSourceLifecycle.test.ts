@@ -1,5 +1,4 @@
 import {
-  attachLiveSourceLifecyclePlaceholder,
   isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
   resolveLiveSourceLifecycleErrorReason,
@@ -12,12 +11,12 @@ import {
   shouldPresentMockTxStandby,
   selectSourceFrameReadinessForMode,
   selectSourceTransportForMode,
-} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
-import type { SourceTransportLifecycle } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
+import type { SourceTransportLifecycle } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   resolveFrameReadiness,
   resolveLiveDevicePlaceholderState,
-} from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 
 const handoffPlaceholder = {
   kind: "loading" as const,
@@ -96,19 +95,16 @@ describe("resolveLiveSourceLifecycle", () => {
       transportPhase: "ready",
       hasValidFrame: false,
       deviceStatus: "receiving",
+      devicePlaceholder: {
+        kind: "error",
+        title: "I/O Device Error",
+        sourceLabel: "RTL-SDR",
+        reason: "No frames received",
+        message: "No I/Q frames are arriving.",
+      },
     });
 
-    expect(
-      attachLiveSourceLifecyclePlaceholder(lifecycle, {
-        devicePlaceholder: {
-          kind: "error",
-          title: "I/O Device Error",
-          sourceLabel: "RTL-SDR",
-          reason: "No frames received",
-          message: "No I/Q frames are arriving.",
-        },
-      }).placeholder,
-    ).toMatchObject({
+    expect(lifecycle.placeholder).toMatchObject({
       kind: "error",
       title: "I/O Device Error",
     });
@@ -450,12 +446,11 @@ describe("resolveLiveSourceLifecycle", () => {
     });
     expect(lifecycle.phase).toBe("awaiting-frame");
 
-    const presented = attachLiveSourceLifecyclePlaceholder(lifecycle, {});
-    expect(presented.placeholder).toMatchObject({
+    expect(lifecycle.placeholder).toMatchObject({
       kind: "loading",
       message: "Waiting for the first frame to arrive.",
     });
-    expect(resolveLiveSourceLifecycleErrorReason(presented)).toBeNull();
+    expect(resolveLiveSourceLifecycleErrorReason(lifecycle)).toBeNull();
   });
 
   test("never reports Server Down during a healthy connected source handoff", () => {
@@ -577,7 +572,7 @@ describe("resolveLiveSourceLifecycle", () => {
         selectedSourceId: "mock-apt",
         activeSourceId: "mock-apt",
         transportSourceId: "mock-apt",
-        transportPhase: "ready",
+        transportPhase: "idle",
         hasValidFrame: false,
         deviceStatus: "receiving",
         isConnected: false,
@@ -593,7 +588,7 @@ describe("resolveLiveSourceLifecycle", () => {
       selectedSourceId: "mock-apt",
       activeSourceId: "mock-apt",
       transportSourceId: "mock-apt",
-      transportPhase: "ready",
+      transportPhase: "idle",
       hasValidFrame: false,
       deviceStatus: "receiving",
       isConnected: false,
@@ -607,14 +602,27 @@ describe("resolveLiveSourceLifecycle", () => {
       kind: "error",
       reason: "Server down",
     });
-    expect(
-      attachLiveSourceLifecyclePlaceholder(lifecycle, {
-        handoffPlaceholder,
-      }).placeholder,
-    ).toMatchObject({
+    expect(lifecycle.placeholder).toMatchObject({
       kind: "error",
       reason: "Server down",
     });
+  });
+
+  test("keeps a ready source stream alive during a control-plane reconnect", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "whole-channel",
+      activeSourceId: "whole-channel",
+      transportSourceId: "whole-channel",
+      transportPhase: "ready",
+      hasValidFrame: true,
+      deviceStatus: "receiving",
+      isConnected: false,
+      connectionStatus: "reconnecting",
+      hasConnectedOnce: true,
+    });
+
+    expect(lifecycle.phase).toBe("ready");
+    expect(lifecycle.placeholder).toBeNull();
   });
 
   test("uses Loading during Mock Tx handoff instead of a black canvas under standby", () => {
@@ -635,12 +643,7 @@ describe("resolveLiveSourceLifecycle", () => {
 
     // Handoff owns Loading. Standby top-bar alone must not win (black FFT).
     expect(lifecycle.phase).toBe("warming-transport");
-    expect(
-      attachLiveSourceLifecyclePlaceholder(lifecycle, {
-        handoffPlaceholder,
-        standbyPlaceholder,
-      }),
-    ).toMatchObject({
+    expect(lifecycle).toMatchObject({
       phase: "warming-transport",
       placeholder: handoffPlaceholder,
     });

@@ -29,10 +29,10 @@ import {
 import {
   getSourcePresentationSessionKey,
   hasRenderableFramePayload,
-} from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
-import { isTxStandbyPreviewSource } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+import { isTxStandbyPreviewSource } from "@n-apt/spectrum/public/liveSourceLifecycle";
 
 interface FFTNodeProps {
   id: string;

@@ -588,6 +588,17 @@ describe("managed stream option synchronization", () => {
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"fftSize":2048'),
     );
+
+    streamSocket.send.mockClear();
+    middlewareStore.dispatch(
+      updateDeviceState({
+        sourceStatuses: { "mock-apt": "receiving" },
+      } as any),
+    );
+
+    expect(streamSocket.send).not.toHaveBeenCalledWith(
+      expect.stringContaining('"type":"stream_update_options"'),
+    );
   });
 
   it("opens a managed Tx stream for selected Mock Tx standby preview delivery", () => {
@@ -1621,7 +1632,7 @@ describe("Redux WebSocket Migration", () => {
     ).toBe(0);
   });
 
-  it("hydrates signed mirrored viewport state so a paused subscriber can request its next frame", () => {
+  it("does not hydrate subscriber-local viewport state from a device snapshot", () => {
     const dispatch = jest.fn();
     const state = {
       websocket: {
@@ -1666,11 +1677,10 @@ describe("Redux WebSocket Migration", () => {
       },
     });
 
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "spectrum/setVizPan",
-      payload: -3_000_000,
-    });
     expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setVizPan" }),
+    );
+    expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: "spectrum/setDeviceSignalAreaAndRange" }),
     );
   });
@@ -4036,7 +4046,7 @@ describe("Redux WebSocket Migration", () => {
       ).toBe(false);
     });
 
-    it("does not send a global pause command for a subscriber pause", () => {
+  it("does not send a global pause command for a subscriber pause", () => {
       const send = jest.fn();
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
         readyState: WebSocket.OPEN,
@@ -4297,7 +4307,7 @@ describe("Redux WebSocket Migration", () => {
       });
     });
 
-    it("sends signed mirrored viewport state alongside the positive device range", async () => {
+    it("does not send subscriber-local viewport state with the device range", async () => {
       const dispatch = jest.fn();
       const getState = () =>
         ({
@@ -4325,13 +4335,6 @@ describe("Redux WebSocket Migration", () => {
             max_hz: 4_000_000,
             center_frequency: 2_000_000,
             bandwidth_center_frequency: undefined,
-            display_min_hz: -3_000_000,
-            display_max_hz: 1_000_000,
-            display_pan_hz: -3_000_000,
-            display_zoom: 1,
-            display_crosses_dc: true,
-            display_direction_negative: true,
-            mirror_spectrum_below_zero: true,
           },
         },
       });
@@ -5012,6 +5015,91 @@ describe("Redux WebSocket Migration", () => {
       const state = (store.getState() as any).websocket;
       expect(state.sdrLimitMarkers).toEqual(markers);
     });
+  });
+
+  it("does not replay a cached RX range during managed reconnect hydration", () => {
+    const sockets: any[] = [];
+    (global.WebSocket as unknown as jest.Mock).mockImplementation(
+      (url: string) => {
+        const socket = {
+          url,
+          readyState: WebSocket.OPEN,
+          close: jest.fn(),
+          send: jest.fn(),
+          addEventListener: jest.fn(),
+          removeEventListener: jest.fn(),
+          dispatchEvent: jest.fn(),
+          onopen: null as (() => void) | null,
+          onclose: null,
+          onerror: null,
+          onmessage: null,
+        };
+        sockets.push(socket);
+        return socket;
+      },
+    );
+
+    const middlewareStore = configureStore({
+      reducer: {
+        websocket: websocketSlice,
+        spectrum: spectrumSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          websocketMiddleware,
+        ),
+    });
+    middlewareStore.dispatch(
+      updateDeviceState({
+        hasConnectedOnce: true,
+        activeSourceId: "mock-apt",
+        sourceStatuses: { "mock-apt": "streaming" },
+        sources: [
+          {
+            id: "mock-apt",
+            status: "streaming",
+            capability: "mock",
+            iq_format: {
+              element_type: "u8",
+              layout: "interleaved_iq",
+              typed_array: "Uint8Array",
+            },
+            sdr: {
+              settings: {
+                sample_rate: 2_400_000,
+                center_frequency: 8_100_000,
+              },
+            },
+          },
+        ],
+      } as any),
+    );
+    middlewareStore.dispatch(
+      setDeviceSdrSettingsBundle({
+        frequencyRange: { min: 6_000_000, max: 8_400_000 },
+        sampleRateHz: 2_400_000,
+      } as any),
+    );
+
+    middlewareStore.dispatch({
+      type: "websocket/connect",
+      payload: {
+        url: "ws://localhost/ws",
+        aesKey: {} as CryptoKey,
+        enabled: true,
+      },
+    });
+    sockets[0].onopen?.();
+
+    expect(sockets[0].send).not.toHaveBeenCalledWith(
+      expect.stringContaining('"type":"frequency_range"'),
+    );
+    expect(sockets[0].send).not.toHaveBeenCalledWith(
+      expect.stringContaining('"type":"settings"'),
+    );
+    expect(sockets.some((socket) => socket.url.endsWith("/ws/streams"))).toBe(
+      true,
+    );
   });
 
   describe("WebSocket disconnect handling", () => {

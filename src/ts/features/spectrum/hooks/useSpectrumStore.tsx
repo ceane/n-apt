@@ -171,6 +171,17 @@ export const loadPersistedManualVisualizerPaused = (): boolean | null => {
   }
 };
 
+/**
+ * A full page load starts a new live presentation. A session marker can be
+ * left behind by a renderer freeze or an interrupted pause command, so it
+ * must not force the fresh stream into a paused state.
+ */
+export const resolveColdStartVisualizerPauseState = ({
+  persistedPaused: _persistedPaused,
+}: {
+  persistedPaused?: boolean | null;
+}): boolean => false;
+
 export const updateLocalSourcePauseOverride = (
   current: Record<string, boolean>,
   sourceId: string,
@@ -452,20 +463,31 @@ const isTxCapableSourceInfo = (
 };
 
 /**
- * Paused-frame requests are source-owned previews. Tx Suite keeps Rx active so
- * this command is handled by the Rx control stream; Mock Tx previews remain
- * handled by its source-bound I/Q socket in the middleware.
+ * Paused-frame requests are source-owned previews. A TX/RX device can still
+ * be an RX view, while Mock Tx and a source bound to the TX view remain owned
+ * by their source-bound preview path.
  */
 export const shouldRequestPausedPreview = (
   source: SourceInfo | null | undefined,
+  txBindingSourceId?: string | null,
 ): boolean => {
   if (!source) return false;
   if (source.status === "transmitting") return false;
   // SpectrumRoute owns Mock Tx one-shots; stacking an incomplete request here
   // can leave the monitor on a noise-floor / Loading path.
   if (isMockTxSource({ id: source.id, kind: source.kind })) return false;
-  if (isTxCapableSourceInfo(source)) return false;
-  return source.iq_format != null;
+  // Capability describes what a device can do, not which view currently owns
+  // it. A TX/RX device still needs paused RX view refreshes unless it is bound
+  // to the TX presentation.
+  const sourceMode = resolveSourceModeManagement({
+    source,
+    txBindingSourceId,
+  });
+  return (
+    sourceMode.isRxMode &&
+    sourceMode.shouldRequestRxFrame &&
+    source.iq_format != null
+  );
 };
 
 /** Persist per-source view only for the committed active stream. */
@@ -734,6 +756,29 @@ export const resolveClientPauseState = ({
   autoPaused: boolean;
 }): boolean =>
   localPaused === true || manuallyPaused || autoPaused;
+
+/**
+ * Compute a button toggle from client-owned state, not a possibly stale
+ * source_info snapshot. This is used while a stream is opening and during
+ * source handoff, when the backend's paused bit can lag the user's click.
+ */
+export const resolveToggleVisualizerPauseState = ({
+  backendPaused,
+  localPaused,
+  manuallyPaused,
+  autoPaused,
+}: {
+  backendPaused?: boolean;
+  localPaused?: boolean;
+  manuallyPaused: boolean;
+  autoPaused: boolean;
+}): boolean =>
+  !resolveEffectiveSourcePaused({
+    backendPaused,
+    localPaused,
+    manuallyPaused,
+    autoPaused,
+  });
 
 /** Pause the playing stream unless the caller named a specific source. */
 export const resolvePauseTargetSourceId = ({
@@ -2677,8 +2722,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     // Track active spectrum route globally. Restore a persisted manual pause
     // so hot reload / full reload keeps the visualizer paused when the user
     // left it paused.
-    const [manualVisualizerPaused, setManualVisualizerPaused] = useState(
-      () => loadPersistedManualVisualizerPaused() ?? false,
+    const [manualVisualizerPaused, setManualVisualizerPaused] = useState(() =>
+      resolveColdStartVisualizerPauseState({
+        persistedPaused: loadPersistedManualVisualizerPaused(),
+      }),
     );
     useEffect(() => {
       persistManualVisualizerPaused(manualVisualizerPaused);
@@ -3056,7 +3103,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const isPausedForPreview =
         manualVisualizerPaused &&
         isConnected &&
-        shouldRequestPausedPreview(selectedSource);
+        shouldRequestPausedPreview(selectedSource, txSuiteSourceId);
       const isSwitchingSource =
         activeSourceId !== null &&
         selectedSourceId !== null &&
@@ -3091,6 +3138,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         lastPausedPreviewSignatureRef.current = nextSignature;
         reduxDispatch(
           requestNextPausedFrameThunk({
+            sourceId: activeSourceId || selectedSourceId,
             frequencyRange: state.frequencyRange,
             txSettings: {
               centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
@@ -3115,6 +3163,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       pausedPreviewTimeoutRef.current = window.setTimeout(() => {
         reduxDispatch(
           requestNextPausedFrameThunk({
+            sourceId: activeSourceId || selectedSourceId,
             frequencyRange: state.frequencyRange,
             txSettings: {
               centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
@@ -3147,6 +3196,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       reduxSpectrumState.txSignal,
       selectedSourceId,
       selectedSource,
+      txSuiteSourceId,
       state.frequencyRange,
       reduxSpectrumState.sampleRateHz,
       reduxSpectrumState.fftSize,
@@ -3914,14 +3964,18 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           effectiveWebsocketSources.find(
             (source) => source.id === pauseSourceId,
           ) ?? (selectedSourceId === pauseSourceId ? selectedSource : null);
-        const currentPaused =
-          pauseTargetSource?.paused ??
-          (pauseSourceId === selectedSourceId ? manualVisualizerPaused : false);
-        setVisualizerPause(!currentPaused, pauseSourceId);
+        const nextPaused = resolveToggleVisualizerPauseState({
+          backendPaused: pauseTargetSource?.paused,
+          localPaused: localSourcePauseOverrides[pauseSourceId],
+          manuallyPaused: manualPausedSourceIdsRef.current.has(pauseSourceId),
+          autoPaused: autoPausedSourceIdsRef.current.has(pauseSourceId),
+        });
+        setVisualizerPause(nextPaused, pauseSourceId);
       },
       [
         activeSourceId,
         effectiveWebsocketSources,
+        localSourcePauseOverrides,
         manualVisualizerPaused,
         mergedState.isStitchPaused,
         mergedState.sourceMode,

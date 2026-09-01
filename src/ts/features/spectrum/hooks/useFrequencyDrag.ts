@@ -19,7 +19,6 @@ import {
   displayRangeNeedsBasebandMirror,
   resolveDisplayRangeForPanOffset,
   resolveMirroredRetune,
-  resolveMirroredTuning,
   sourceCoversMirroredDisplay,
 } from "@n-apt/math/basebandMirror";
 
@@ -185,6 +184,7 @@ export function useSpectrumInteraction({
   txSliderLocked = false,
 }: FrequencyDragOptions) {
   const isDraggingRef = useRef(false);
+  const isVfoDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
   const isPowerDraggingRef = useRef(false);
   const isPowerHeldRef = useRef(false);
@@ -270,13 +270,17 @@ export function useSpectrumInteraction({
   const pendingDispatchRef = useRef<FrequencyRange | null>(null);
   const dispatchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Keep the callback fresh without recreating the native event listeners.
-  // The backend owns latest-value coalescing; the browser must not add another
-  // debounce or timer in front of a live VFO gesture.
+  // Keep callbacks fresh without recreating the native event listeners. The
+  // backend still owns its own latest-value coalescing; the wheel boundary
+  // below additionally limits browser-side momentum fan-out to one range per
+  // animation frame.
   const onFrequencyRangeChangeRef = useRef(onFrequencyRangeChange);
   onFrequencyRangeChangeRef.current = onFrequencyRangeChange;
   const onDragRepaintRef = useRef(onDragRepaint);
   onDragRepaintRef.current = onDragRepaint;
+  const wheelRangePublicationFrameRef = useRef<number | null>(null);
+  const wheelRangePublicationPendingRef = useRef<FrequencyRange | null>(null);
+  const wheelRangePublicationSentRef = useRef(false);
   const publishHardwareRange = (range: FrequencyRange) => {
     frequencyRangeRef.current = range;
     onHardwareRangeReanchor?.(range);
@@ -285,6 +289,49 @@ export function useSpectrumInteraction({
     onDragRepaintRef.current?.();
     onFrequencyRangeChangeRef.current?.(range);
   };
+
+  // Wheel momentum can deliver many retunes before the next paint. Keep the
+  // universal range and renderer overlay current for every event, but publish
+  // only the latest range once per animation frame. This prevents a paused
+  // mirrored overrun from flooding Redux/socket subscribers while preserving
+  // the immediate coordinate update that keeps the canvas anchored.
+  const publishHardwareRangeFromWheel = (range: FrequencyRange) => {
+    frequencyRangeRef.current = range;
+    onHardwareRangeReanchor?.(range);
+    onDragRepaintRef.current?.();
+
+    const publish = onFrequencyRangeChangeRef.current;
+    if (!publish) return;
+
+    if (!wheelRangePublicationSentRef.current) {
+      publish(range);
+      wheelRangePublicationSentRef.current = true;
+      return;
+    }
+
+    wheelRangePublicationPendingRef.current = range;
+    if (wheelRangePublicationFrameRef.current !== null) return;
+
+    wheelRangePublicationFrameRef.current = window.requestAnimationFrame(() => {
+      wheelRangePublicationFrameRef.current = null;
+      const pending = wheelRangePublicationPendingRef.current;
+      wheelRangePublicationPendingRef.current = null;
+      wheelRangePublicationSentRef.current = false;
+      if (pending) onFrequencyRangeChangeRef.current?.(pending);
+    });
+  };
+
+  useEffect(
+    () => () => {
+      if (wheelRangePublicationFrameRef.current !== null) {
+        window.cancelAnimationFrame(wheelRangePublicationFrameRef.current);
+        wheelRangePublicationFrameRef.current = null;
+      }
+      wheelRangePublicationPendingRef.current = null;
+      wheelRangePublicationSentRef.current = false;
+    },
+    [],
+  );
 
   /** Cached bounding rect for the active spectrum canvas — captured on pointerDown,
    *  invalidated on resize. Avoids per-move getBoundingClientRect layout thrashing. */
@@ -1052,9 +1099,11 @@ export function useSpectrumInteraction({
     const maybeRetuneHardwareWindow = ({
       nextPan,
       zoom,
+      coalescePublication = false,
     }: {
       nextPan: number;
       zoom: number;
+      coalescePublication?: boolean;
     }) => {
       if (!onFrequencyRangeChange || !onVizPanChange) return false;
 
@@ -1091,12 +1140,30 @@ export function useSpectrumInteraction({
           hardwareBounds: tuningBounds,
         });
         if (!retune.needsRetune) {
-          return false;
+          // The requested mirrored display is outside the current source,
+          // but the tuning bounds have already clamped the next window to
+          // this same source. Consume continued momentum here; falling
+          // through to the ordinary hardware path would wrap the window to
+          // the opposite edge and publish a duplicate reanchor.
+          const boundedPan = clampVizPan(
+            nextPan,
+            frequencyRangeRef.current,
+            zoom,
+            null,
+          );
+          if (boundedPan !== nextPan) {
+            onVizPanReanchor?.(boundedPan);
+            if (!onVizPanReanchor) onVizPanChange(boundedPan);
+            if (vizPanOffsetRef) vizPanOffsetRef.current = boundedPan;
+          }
+          return true;
         }
         const appliedPan = retune.panOffsetHz;
         onVizPanReanchor?.(appliedPan);
         if (!onVizPanReanchor) onVizPanChange(appliedPan);
-        publishHardwareRange(retune.range);
+        (coalescePublication
+          ? publishHardwareRangeFromWheel
+          : publishHardwareRange)(retune.range);
         if (vizPanOffsetRef) {
           vizPanOffsetRef.current = appliedPan;
         }
@@ -1150,7 +1217,9 @@ export function useSpectrumInteraction({
       );
       onVizPanReanchor?.(remainingPan);
       if (!onVizPanReanchor) onVizPanChange(remainingPan);
-      publishHardwareRange({
+      (coalescePublication
+        ? publishHardwareRangeFromWheel
+        : publishHardwareRange)({
         min: clampedHardwareRange.min,
         max: clampedHardwareRange.max,
       });
@@ -1183,78 +1252,48 @@ export function useSpectrumInteraction({
     const shouldUseVisualPan = (pan: number, zoom: number) =>
       zoom > 1 || displayNeedsMirror(pan, zoom);
 
-    /**
-     * While paused, every pan must move the acquisition window so the
-     * one-shot request_next_frame fetches data at the new position. The
-     * mirror-off path already retunes via onFrequencyRangeChange when the pan
-     * leaves the acquisition; the mirror-on visual-pan path never did. This
-     * publishes a window centred on the requested pan and re-anchors pan so
-     * the viewport stays put.
-     *
-     * Returns true only when the acquisition actually moved. A DC-crossing
-     * request against an already DC-anchored window resolves to the same
-     * window — publishing that no-op and returning true froze the mirror
-     * pan at the acquisition's lower edge (the user could not scroll past a
-     * DC-crossing viewport). Falling through to the visual-pan path keeps
-     * the presentation moving and lets the next request leave the fixed
-     * point.
-     */
-    const publishPausedPanRetune = ({
-      nextPan,
-      zoom,
-    }: {
-      nextPan: number;
-      zoom: number;
-    }): boolean => {
-      if (!onFrequencyRangeChange) return false;
-      const sourceRange = frequencyRangeRef.current;
-      const fullSpan = sourceRange.max - sourceRange.min;
-      if (!Number.isFinite(fullSpan) || fullSpan <= 0) return false;
-      const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-      const visualSpan = fullSpan / safeZoom;
+    const shouldKeepVfoPanLocal = (pan: number, zoom: number) => {
+      if (!allowNegativeFrequencies) return false;
 
-      // Absolute display centre the pan requests, then let the shared mirror
-      // tuning resolve the positive acquisition + re-anchor pan (identical to
-      // the route's handleFrequencyRangeChange). Wholly positive windows keep
-      // pan 0, so the acquisition centre lands on the requested display centre.
-      const displayCenter = (sourceRange.min + sourceRange.max) / 2 + nextPan;
-      const requested = {
-        min: displayCenter - visualSpan / 2,
-        max: displayCenter + visualSpan / 2,
-      };
-      const tuning = allowNegativeFrequencies
-        ? resolveMirroredTuning(requested, null, {
-            maxAcquisitionSpanHz: fullSpan,
-          })
-        : { hardwareRange: requested, panOffsetHz: 0 };
-      const tunedRange = clampWheelRangeToHardwareBounds(tuning.hardwareRange);
-      const isSameWindow =
-        Math.abs(tunedRange.min - sourceRange.min) <= 1 &&
-        Math.abs(tunedRange.max - sourceRange.max) <= 1;
-      if (isSameWindow) {
-        // No-op retune: the acquisition cannot move further in this direction
-        // (e.g. it is DC-anchored at [0, SR]). Let the caller keep panning
-        // visually so the mirror presentation does not freeze.
-        return false;
-      }
-      frequencyRangeRef.current = tunedRange;
-      // Re-anchor: the display must not jump when the hardware centre moves.
-      const appliedPan = allowNegativeFrequencies
-        ? tuning.panOffsetHz
-        : 0;
-      onVizPanReanchor?.(appliedPan);
-      if (
-        allowNegativeFrequencies &&
-        !onVizPanReanchor &&
-        onVizPanChange
-      ) {
-        onVizPanChange(appliedPan);
-      }
-      publishHardwareRange(tunedRange);
-      if (vizPanOffsetRef) {
-        vizPanOffsetRef.current = appliedPan;
-      }
-      return true;
+      const displayRange = resolveDisplayRangeForPanOffset({
+        hardwareRange: frequencyRangeRef.current,
+        zoom,
+        panOffsetHz: pan,
+      });
+      // A negative pan is not automatically a mirrored view: an ordinary
+      // positive-frequency viewport can be panned left while still remaining
+      // entirely above DC. Keep that movement global. A mirrored VFO motion
+      // stays local only while the resident acquisition covers |display|;
+      // once it outruns the sample-rate window, retune the shared range so
+      // paused canvases do not expose a floor-filled tail.
+      return (
+        displayNeedsMirror(pan, zoom) &&
+        sourceCoversMirroredDisplay(
+          frequencyRangeRef.current,
+          displayRange,
+        )
+      );
+    };
+    const shouldKeepWheelVfoPanLocal = (pan: number, zoom: number) => {
+      if (shouldKeepVfoPanLocal(pan, zoom)) return true;
+
+      // A single wheel tick that merely crosses DC should remain anchored to
+      // the resident mirrored frame. If the proposed mirrored viewport is no
+      // longer covered, shouldKeepVfoPanLocal returns false and the caller
+      // retunes the shared acquisition window instead of exposing a floor.
+      const currentPan = vizPanOffsetRef?.current ?? 0;
+      return (
+        !displayNeedsMirror(pan, zoom) &&
+        displayNeedsMirror(currentPan, zoom) &&
+        sourceCoversMirroredDisplay(
+          frequencyRangeRef.current,
+          resolveDisplayRangeForPanOffset({
+            hardwareRange: frequencyRangeRef.current,
+            zoom,
+            panOffsetHz: currentPan,
+          }),
+        )
+      );
     };
 
     const updateContainerRect = () => {
@@ -1742,17 +1781,26 @@ export function useSpectrumInteraction({
       const freqChange = (deltaX / width) * visualRange;
 
       const desiredPan = dragStartPanRef.current - freqChange;
+      const vfoRequiresHardwareRetune =
+        isVfoDraggingRef.current &&
+        !shouldKeepVfoPanLocal(desiredPan, zoom);
 
-      if (shouldUseVisualPan(desiredPan, zoom) && onVizPanChange) {
-        // Visual panning when zoomed or when the viewport actually includes
-        // f<0. Unzoomed positive pans stay on the hardware retune path so
-        // the mirror setting cannot make ordinary scrolling slower.
-        // While paused, follow the pan with the acquisition so the one-shot
-        // frame repaints at the dragged location.
-        if (isPausedRef.current && publishPausedPanRetune({ nextPan: desiredPan, zoom })) {
-          return;
-        }
-        if (maybeRetuneHardwareWindow({ nextPan: desiredPan, zoom })) {
+      if (
+        !vfoRequiresHardwareRetune &&
+        (shouldUseVisualPan(desiredPan, zoom) ||
+          (isPausedRef.current && allowNegativeFrequencies)) &&
+        onVizPanChange
+      ) {
+        // Live visual panning is used when zoomed or when the viewport
+        // actually includes f<0. Unzoomed positive live pans stay on the
+        // hardware retune path so mirror mode cannot slow ordinary scrolling.
+        // An unzoomed paused pan must also retune: otherwise the client moves
+        // its center while the resident frame remains on the old acquisition
+        // window, producing a sliced spectrum until another interaction.
+        if (
+          !isPausedRef.current &&
+          maybeRetuneHardwareWindow({ nextPan: desiredPan, zoom })
+        ) {
           return;
         }
 
@@ -1785,7 +1833,9 @@ export function useSpectrumInteraction({
           onVizZoomFloorPanChange?.(clampedPan);
         }
       } else if (onFrequencyRangeChange) {
-        // Hardware retune mode (unzoomed, live SDR only).
+        // Hardware retune mode. Pause is only a subscriber delivery state:
+        // interaction still changes the universal acquisition range and
+        // reanchors visual pan immediately, exactly as it does while playing.
         // Dragging right (deltaX > 0) means frequency decreases.
         // When the mirror is on, a negative visual pan can be left over from a
         // DC-crossing excursion below 0 Hz (the visual-pan branch held the
@@ -1793,24 +1843,34 @@ export function useSpectrumInteraction({
         // positive hardware path must fold that residual pan into the window
         // shift and zero the pan — otherwise the raw start-anchored delta
         // double-counts the displacement and the display snaps back at DC.
-        const residualPan = vizPanOffsetRef?.current ?? 0;
-        const returningFromMirroredPan =
-          allowNegativeFrequencies && residualPan < 0;
-        const hardwareShift = returningFromMirroredPan
-          ? freqChange + residualPan
-          : freqChange;
-        let newMinFreq = dragStartFreqRef.current - hardwareShift;
+        // The VFO center is global. Absorb any existing positive visual pan
+        // into the hardware window before clearing it; otherwise Pause exposes
+        // the old base center while the waveform remains at the playing VFO.
+        if (
+          isVfoDraggingRef.current &&
+          allowNegativeFrequencies &&
+          displayNeedsMirror(desiredPan, zoom) &&
+          maybeRetuneHardwareWindow({ nextPan: desiredPan, zoom })
+        ) {
+          return;
+        }
+        const rangeShift = isVfoDraggingRef.current
+          ? desiredPan
+          : -freqChange;
+        let newMinFreq = dragStartFreqRef.current + rangeShift;
         const rangeWidth = fullRange;
         let newMaxFreq = newMinFreq + rangeWidth;
 
-        const newRange = clampRangeToTuningBounds({
-          min: newMinFreq,
-          max: newMaxFreq,
-        });
-        if (returningFromMirroredPan) {
-          onVizPanChange?.(0);
-          if (vizPanOffsetRef) vizPanOffsetRef.current = 0;
+        const requestedRange = { min: newMinFreq, max: newMaxFreq };
+        const newRange = isVfoDraggingRef.current
+          ? clampWheelRangeToHardwareBounds(requestedRange)
+          : clampRangeToTuningBounds(requestedRange);
+        const existingPan = vizPanOffsetRef?.current ?? 0;
+        if (existingPan !== 0) {
+          onVizPanReanchor?.(0);
+          if (!onVizPanReanchor) onVizPanChange?.(0);
         }
+        if (vizPanOffsetRef) vizPanOffsetRef.current = 0;
         frequencyRangeRef.current = newRange;
         publishHardwareRange(newRange);
       } else if (onVizPanChange) {
@@ -2139,6 +2199,7 @@ export function useSpectrumInteraction({
       // Bottom area is the VFO area
       if (y >= height - vfoThreshold) {
         isDraggingRef.current = true;
+        isVfoDraggingRef.current = true;
         dragStartXRef.current = e.clientX;
         dragStartFreqRef.current = frequencyRangeRef.current.min;
         dragStartPanRef.current = vizPanOffsetRef?.current || 0;
@@ -2147,6 +2208,7 @@ export function useSpectrumInteraction({
         removeClassIfAvailable(container, "cursor-grab");
         setPointerCaptureIfAvailable(container, e.pointerId);
       } else {
+        isVfoDraggingRef.current = false;
         // Upper area is for box zooming
         isBoxDraggingRef.current = true;
         boxStartRef.current = { x: e.clientX, y: e.clientY };
@@ -2451,6 +2513,7 @@ export function useSpectrumInteraction({
         }
       }
       isDraggingRef.current = false;
+      isVfoDraggingRef.current = false;
       isSelectionDraggingRef.current = false;
       selectionDragModeRef.current = null;
       selectionDragOriginFreqRef.current = null;
@@ -2760,33 +2823,36 @@ export function useSpectrumInteraction({
         const proposedPan = currentPan + freqChange;
         const isReturningFromMirroredPan =
           allowNegativeFrequencies && currentPan < 0 && proposedPan >= 0;
+        const vfoRequiresHardwareRetune =
+          isOverVfo && !shouldKeepWheelVfoPanLocal(proposedPan, zoom);
 
         if (
-          // A paused positive viewport must retune its acquisition window so
-          // the one requested frame is new data for the scrolled location.
-          // Negative display coordinates are a mirrored presentation axis:
-          // retain its pan path so the existing |f| conversion reaches the
-          // hardware with a non-negative range.
-          (!isPausedRef.current || displayNeedsMirror(proposedPan, zoom)) &&
-          shouldUseVisualPan(proposedPan, zoom) &&
+          // Plot panning can remain presentation-only, but an explicit VFO
+          // interaction is always a device tune, including while paused. The
+          // next subscriber-scoped one-shot must be acquired at the new
+          // center; otherwise play snaps back to the old hardware range after
+          // a local-only pan.
+          !vfoRequiresHardwareRetune &&
+          (shouldUseVisualPan(proposedPan, zoom) ||
+            (isPausedRef.current && allowNegativeFrequencies)) &&
           onVizPanChange &&
           vizPanOffsetRef
         ) {
           // Scrolling down/right (delta > 0) shows higher frequencies -> increase pan
           let newPan = proposedPan;
 
-          // While paused the acquisition must follow every pan so the one-shot
-          // request_next_frame repaints at the scrolled location instead of
-          // re-serving the old centre.
-          if (isPausedRef.current && publishPausedPanRetune({ nextPan: newPan, zoom })) {
-            return;
-          }
-
           // Retune when the viewport outruns the acquisition (including a
           // DC-crossing window the resident frame cannot fill). Start each
           // tick from the visible remaining pan so trackpad momentum cannot
           // queue a hidden ballistic target.
-          if (maybeRetuneHardwareWindow({ nextPan: newPan, zoom })) {
+          if (
+            !isPausedRef.current &&
+            maybeRetuneHardwareWindow({
+              nextPan: newPan,
+              zoom,
+              coalescePublication: true,
+            })
+          ) {
             return;
           }
 
@@ -2814,15 +2880,28 @@ export function useSpectrumInteraction({
             onVizZoomFloorPanChange?.(newPan);
           }
         } else if (onFrequencyRangeChange) {
+          if (
+            vfoRequiresHardwareRetune &&
+            allowNegativeFrequencies &&
+            displayNeedsMirror(proposedPan, zoom) &&
+            maybeRetuneHardwareWindow({
+              nextPan: proposedPan,
+              zoom,
+              coalescePublication: true,
+            })
+          ) {
+            return;
+          }
           // Hardware retune mode
           const currentRange = frequencyRangeRef.current;
           // If a mirrored visual pan is being undone, consume that pan before
           // applying any new positive hardware movement. Using the raw wheel
           // delta here shifts [0, 10] to [4, 14] when [-4, 6] is scrolled back
           // to DC, leaving the display and acquisition axes out of phase.
-          const hardwareShift = isReturningFromMirroredPan
-            ? proposedPan
-            : freqChange;
+          const hardwareShift =
+            isOverVfo || isReturningFromMirroredPan
+              ? proposedPan
+              : freqChange;
           const currentMin = currentRange.min;
           const newMin = currentMin + hardwareShift;
           const newMax = newMin + fullRange;
@@ -2843,14 +2922,25 @@ export function useSpectrumInteraction({
             return;
           }
           frequencyRangeRef.current = clampedRange;
-          onVizPanReanchor?.(0);
+          // Hardware movement consumes visual pan immediately. Paused mode
+          // still uses the same global center/range and only changes whether
+          // frames arrive continuously or as subscriber-scoped one-shots.
+          const existingPan = vizPanOffsetRef?.current ?? 0;
+          if (existingPan !== 0) {
+            onVizPanReanchor?.(0);
+          }
           if (
-            descendingNativeWheelAxis &&
+            existingPan !== 0 &&
             !onVizPanReanchor
           ) {
             onVizPanChange?.(0);
           }
-          publishHardwareRange(clampedRange);
+          if (vizPanOffsetRef) vizPanOffsetRef.current = 0;
+          const publishWheelRange =
+            allowNegativeFrequencies
+              ? publishHardwareRangeFromWheel
+              : publishHardwareRange;
+          publishWheelRange(clampedRange);
         }
       }
     };
@@ -2941,6 +3031,8 @@ export function useSpectrumInteraction({
     vizZoomRef,
     vizPanOffsetRef,
     onVizPanChange,
+    onVizPanReanchor,
+    onHardwareRangeReanchor,
 
     vizDbMinRef,
     vizDbMaxRef,

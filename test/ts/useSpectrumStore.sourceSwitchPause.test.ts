@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import {
   shouldAutoResumeVisualizerOnSourceSwitch,
   shouldAutoPauseVisualizerOnRouteLeave,
@@ -17,12 +18,60 @@ import {
   resolveInitialSourceSelection,
   shouldClearPendingSourceSwitch,
   resolveNextVisualizerPauseState,
+  resolveToggleVisualizerPauseState,
   resolvePauseTargetSourceId,
   shouldReplayManualPauseOnSourceActivation,
   shouldCarryManualPauseToSelectedSource,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 describe("source selection and switch lifecycle", () => {
+  it("keeps the pause button toggle anchored to client state under stale backend snapshots", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            backendPaused: fc.boolean(),
+            localPaused: fc.option(fc.boolean(), { nil: undefined }),
+            autoPaused: fc.boolean(),
+          }),
+          { minLength: 1, maxLength: 80 },
+        ),
+        (snapshots) => {
+          let manuallyPaused = false;
+          let localPaused: boolean | undefined;
+          let autoPaused = false;
+
+          snapshots.forEach((snapshot) => {
+            const currentPaused = resolveEffectiveSourcePaused({
+              backendPaused: snapshot.backendPaused,
+              localPaused,
+              manuallyPaused,
+              autoPaused,
+            });
+            const nextPaused = resolveToggleVisualizerPauseState({
+              backendPaused: snapshot.backendPaused,
+              localPaused,
+              manuallyPaused,
+              autoPaused,
+            });
+
+            expect(nextPaused).toBe(!currentPaused);
+            manuallyPaused = nextPaused;
+            localPaused = nextPaused;
+            autoPaused = false;
+            expect(
+              resolveClientPauseState({
+                localPaused,
+                manuallyPaused,
+                autoPaused,
+              }),
+            ).toBe(nextPaused);
+          });
+        },
+      ),
+    );
+  });
+
   it("creates an explicit intent when the first source is auto-selected on load", () => {
     expect(
       resolveInitialSourceSelection({

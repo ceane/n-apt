@@ -1,4 +1,5 @@
 import type { CanvasPlaceholderState } from "@n-apt/ui/CanvasPlaceholder";
+import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { useMemo } from "react";
 
 /** Transport milestones emitted only when a source socket changes lifecycle. */
@@ -17,7 +18,196 @@ export type LiveSourceLifecyclePhase =
   | "disconnected"
   | "failed";
 
-/** A live source that never emits its first frame must not leave a blank view. */
+/** Payload shapes accepted by live canvases during protocol migration. */
+export type RenderableLiveFrame = Partial<IqRawFrame> & {
+  data?: ArrayLike<number> | null;
+  waveform?: ArrayLike<number> | null;
+  protocol_version?: 1 | 2;
+  stream_epoch?: number;
+  sequence?: number;
+};
+
+export type LivePresentationPhase =
+  | "idle"
+  | "awaiting-source"
+  | "awaiting-frame"
+  | "ready"
+  | "recovering"
+  | "disconnected";
+
+export type LivePresentationState = {
+  phase: LivePresentationPhase;
+  placeholder: CanvasPlaceholderState | null;
+};
+
+export const isTxStandbyPreviewSource = ({
+  sourceRole,
+  capability,
+  status,
+}: {
+  sourceRole?: "rx" | "tx";
+  capability?: string | null;
+  status?: string | null;
+}): boolean => {
+  if (status === "transmitting") return false;
+  if (sourceRole === "rx") return false;
+  if (sourceRole === "tx") return capability === "tx" || capability === "tx_rx";
+  return capability === "tx";
+};
+
+export const getSourcePresentationSessionKey = ({
+  sourceMode,
+  selectedFiles,
+  stitchTrigger,
+  presentationRevision,
+}: {
+  sourceMode: "live" | "file";
+  selectedFiles: Array<{ id?: string; name: string }>;
+  stitchTrigger: number | null | undefined;
+  presentationRevision?: string | number | null;
+}): string =>
+  `${sourceMode}:${stitchTrigger ?? "none"}:${presentationRevision ?? "none"}:${selectedFiles
+    .map((file) => file.id || file.name)
+    .sort()
+    .join("|")}`;
+
+const normalizeSourceIdentity = (sourceId: string | null | undefined) =>
+  sourceId?.trim() || null;
+
+export const getLatestLiveFrame = (
+  value: RenderableLiveFrame | RenderableLiveFrame[] | null | undefined,
+): RenderableLiveFrame | null =>
+  Array.isArray(value)
+    ? value.length > 0
+      ? (value[value.length - 1] ?? null)
+      : null
+    : (value ?? null);
+
+export const filterLiveFramesForSource = <T extends { source_id?: string }>(
+  frames: T[],
+  sourceId: string | null | undefined,
+  allowUntagged = false,
+): T[] => {
+  const normalizedSourceId = normalizeSourceIdentity(sourceId);
+  if (!normalizedSourceId) return frames;
+  return frames.filter(
+    (frame) =>
+      normalizeSourceIdentity(frame.source_id) === normalizedSourceId ||
+      (allowUntagged && !normalizeSourceIdentity(frame.source_id)),
+  );
+};
+
+export const hasRenderableFramePayload = (
+  frame: RenderableLiveFrame | null | undefined,
+): boolean =>
+  !!(
+    frame &&
+    ((frame.iq_data?.length ?? 0) > 0 ||
+      (frame.waveform?.length ?? 0) > 0 ||
+      (frame.data?.length ?? 0) > 0)
+  );
+
+export const resolveFrameReadiness = ({
+  frame,
+  selectedSourceId,
+  activeSourceId,
+  expectedStreamEpoch,
+  frameCounter,
+  handoffStartedFrameCounter,
+}: {
+  frame: RenderableLiveFrame | null | undefined;
+  selectedSourceId: string | null | undefined;
+  activeSourceId: string | null | undefined;
+  expectedStreamEpoch?: number | null;
+  frameCounter: number;
+  handoffStartedFrameCounter: number;
+}): boolean => {
+  if (!hasRenderableFramePayload(frame)) return false;
+  const selected = normalizeSourceIdentity(selectedSourceId);
+  const active = normalizeSourceIdentity(activeSourceId);
+  const owner = normalizeSourceIdentity(frame?.source_id);
+  if (!selected || !active || selected !== active) return false;
+  if (owner && owner !== selected) return false;
+  if (frame?.protocol_version === 2) {
+    return (
+      owner === selected &&
+      (typeof expectedStreamEpoch !== "number" ||
+        frame.stream_epoch === expectedStreamEpoch)
+    );
+  }
+  if (owner === selected) return true;
+  return frameCounter > handoffStartedFrameCounter;
+};
+
+export const resolveLiveDevicePlaceholderState = ({
+  deviceState,
+  sourceLabel,
+  loadingAttempt,
+  loadingAttemptMax,
+  hasPlayedAtLeastOnce,
+  hasRenderableCurrentFrame,
+}: {
+  deviceState: string | null;
+  sourceLabel: string;
+  loadingAttempt?: number | null;
+  loadingAttemptMax?: number | null;
+  sourceId?: string | null;
+  hasPlayedAtLeastOnce?: boolean;
+  hasRenderableCurrentFrame?: boolean;
+}): CanvasPlaceholderState | null => {
+  if (
+    deviceState !== "loading" &&
+    deviceState !== "stale" &&
+    deviceState !== "disconnected" &&
+    deviceState !== "error"
+  ) {
+    return null;
+  }
+  if (
+    (hasRenderableCurrentFrame || hasPlayedAtLeastOnce) &&
+    deviceState !== "disconnected" &&
+    deviceState !== "error" &&
+    deviceState !== "loading"
+  ) {
+    return null;
+  }
+  if (deviceState === "disconnected") {
+    return {
+      kind: "disconnected",
+      sourceLabel,
+      message: "The device disconnected. The backend is retrying the connection.",
+    };
+  }
+  if (deviceState === "error") {
+    return {
+      kind: "error",
+      sourceLabel,
+      reason: "The device reported an error.",
+      message: "Resolve the device error before live I/Q can resume.",
+    };
+  }
+  const attempt =
+    typeof loadingAttempt === "number" && Number.isFinite(loadingAttempt)
+      ? Math.max(0, Math.floor(loadingAttempt))
+      : 0;
+  const attemptMax =
+    typeof loadingAttemptMax === "number" &&
+    Number.isFinite(loadingAttemptMax) &&
+    loadingAttemptMax > 0
+      ? Math.floor(loadingAttemptMax)
+      : 0;
+  return {
+    kind: "loading",
+    paneLabel: "device",
+    sourceLabel,
+    message:
+      deviceState === "stale"
+        ? "The device is still visible but has not produced a fresh frame yet."
+        : attempt > 0
+          ? `Attempting to restart the device... (${attempt}/${attemptMax || "?"})`
+          : "The device is restarting; this can take 20-30 seconds for HackRF One.",
+  };
+};
 
 /** Stable transport state published by the WebSocket boundary. */
 export type SourceTransportLifecycle = {
@@ -32,6 +222,23 @@ export type SourceFrameReadiness = {
   streamEpoch: number | null;
   sequence: number;
 };
+
+/**
+ * The Sources panel and the canvas share this pause meaning. A stale backend
+ * bit must never make a currently paused RX source display "Pause Rx".
+ */
+export const resolveLiveSourcePauseButtonState = ({
+  isRxMode,
+  isStreaming,
+  paused,
+}: {
+  isRxMode: boolean;
+  isStreaming: boolean;
+  paused: boolean;
+}): { paused: boolean; label: "Pause Rx" | "Resume Rx" } => ({
+  paused,
+  label: isRxMode && isStreaming && !paused ? "Pause Rx" : "Resume Rx",
+});
 
 /** Selects the lifecycle slot that belongs to the currently presented mode. */
 export const selectSourceTransportForMode = <
@@ -304,6 +511,7 @@ export type LiveSourceLifecycle = {
   transportSourceId: string | null;
   readinessSequence: number | null;
   placeholder: CanvasPlaceholderState | null;
+  errorReason: string | null;
   presentation: LiveSourcePresentationPolicy;
 };
 
@@ -323,7 +531,7 @@ export const isControlPlaneUnavailable = ({
   connectionStatus = null,
   hasConnectedOnce = false,
   sourceHandoffPending: _sourceHandoffPending = false,
-  transportPhase: _transportPhase = null,
+  transportPhase = null,
 }: {
   isConnected: boolean;
   connectionStatus?: string | null;
@@ -336,6 +544,10 @@ export const isControlPlaneUnavailable = ({
   // (File → Mock Tx subscribe races); that must stay Loading/handoff, not the
   // killed-backend placeholder, or Mock APT inherits a false Server Down.
   if (isConnected) return false;
+  // A ready source stream remains usable during a control-plane reconnect.
+  // Re-evaluate this on every lifecycle pass; a remembered frame is not proof
+  // that the stream is still open.
+  if (transportPhase === "ready") return false;
   if (connectionStatus === "error") return true;
   // After a live session, softDisconnect / reconnect polling is Server Down.
   // First-boot disconnected/connecting keep Loading instead.
@@ -360,6 +572,13 @@ export const resolveLiveSourceLifecycle = ({
   devicePlaceholder = null,
   handoffPlaceholder = null,
   standbyPlaceholder = null,
+  sourceLabel,
+  loadingAttempt,
+  loadingAttemptMax,
+  hasPlayedAtLeastOnce = false,
+  hasRenderableCurrentFrame = false,
+  standbySourceLabel,
+  cryptoCorrupted = false,
   isLive = true,
   isConnected = true,
   connectionStatus = null,
@@ -380,6 +599,13 @@ export const resolveLiveSourceLifecycle = ({
   devicePlaceholder?: CanvasPlaceholderState | null;
   handoffPlaceholder?: CanvasPlaceholderState | null;
   standbyPlaceholder?: CanvasPlaceholderState | null;
+  sourceLabel?: string | null;
+  loadingAttempt?: number | null;
+  loadingAttemptMax?: number | null;
+  hasPlayedAtLeastOnce?: boolean;
+  hasRenderableCurrentFrame?: boolean;
+  standbySourceLabel?: string | null;
+  cryptoCorrupted?: boolean;
   isLive?: boolean;
   isConnected?: boolean;
   connectionStatus?: string | null;
@@ -390,6 +616,29 @@ export const resolveLiveSourceLifecycle = ({
   readiness?: SourceFrameReadiness | null;
   presentedSourceId?: string | null;
 }): LiveSourceLifecycle => {
+  const resolvedSourceLabel = sourceLabel?.trim() || selectedSourceId || "device";
+  const resolvedDevicePlaceholder =
+    devicePlaceholder ??
+    resolveLiveDevicePlaceholderState({
+      deviceState: deviceStatus,
+      sourceLabel: resolvedSourceLabel,
+      loadingAttempt,
+      loadingAttemptMax,
+      hasPlayedAtLeastOnce,
+      hasRenderableCurrentFrame,
+    });
+  const resolvedHandoffPlaceholder =
+    handoffPlaceholder ?? createLiveSourceHandoffPlaceholder(resolvedSourceLabel);
+  const resolvedStandbyPlaceholder =
+    standbyPlaceholder ??
+    (isStandby
+      ? {
+          kind: "top-bar" as const,
+          title: "Start Tx to transmit",
+          sourceLabel: standbySourceLabel?.trim() || resolvedSourceLabel,
+          message: "Start Tx to view backend-generated monitor I/Q.",
+        }
+      : null);
   const result = (
     phase: LiveSourceLifecyclePhase,
     placeholder: CanvasPlaceholderState | null,
@@ -400,6 +649,7 @@ export const resolveLiveSourceLifecycle = ({
     transportSourceId,
     readinessSequence,
     placeholder,
+    errorReason: placeholder?.kind === "error" ? placeholder.reason ?? null : null,
     presentation: resolveLiveSourcePresentationPolicy({
       phase,
       selectedSourceId,
@@ -427,7 +677,7 @@ export const resolveLiveSourceLifecycle = ({
   ) {
     return result("failed", {
       kind: "error",
-      sourceLabel: selectedSourceId ?? undefined,
+      sourceLabel: resolvedSourceLabel,
       reason: "Server down",
       message:
         "The server was disconnected due to being manually exited or an error.",
@@ -436,19 +686,27 @@ export const resolveLiveSourceLifecycle = ({
   if (transportPhase === "failed" && transportSourceId === selectedSourceId) {
     return result("failed", {
       kind: "error",
-      sourceLabel: selectedSourceId ?? undefined,
+      sourceLabel: resolvedSourceLabel,
       reason: transportError ?? "The selected source failed to start.",
       message: "The previous source transport has been restored.",
     });
   }
   if (
     deviceStatus === "disconnected" ||
-    devicePlaceholder?.kind === "disconnected"
+    resolvedDevicePlaceholder?.kind === "disconnected"
   ) {
-    return result("disconnected", devicePlaceholder);
+    return result("disconnected", resolvedDevicePlaceholder);
   }
-  if (deviceStatus === "error" || devicePlaceholder?.kind === "error") {
-    return result("failed", devicePlaceholder);
+  if (cryptoCorrupted) {
+    return result("failed", {
+      kind: "error",
+      sourceLabel: resolvedSourceLabel,
+      reason: "Encrypted stream data could not be decoded.",
+      message: "Reconnect to resume live I/Q.",
+    });
+  }
+  if (deviceStatus === "error" || resolvedDevicePlaceholder?.kind === "error") {
+    return result("failed", resolvedDevicePlaceholder);
   }
   if (!selectedSourceId) return result("idle", null);
 
@@ -457,21 +715,20 @@ export const resolveLiveSourceLifecycle = ({
       transportSourceId === selectedSourceId && transportPhase === "ready";
     return result(
       targetTransportIsReady ? "swapping-device" : "warming-transport",
-      handoffPlaceholder,
+      resolvedHandoffPlaceholder,
     );
   }
 
   // Standby with a committed preview frame shows the top bar over the graph.
   // Standby without a frame must stay in awaiting-frame so Loading covers the
   // canvas instead of a black FFT under the STANDBY chrome.
-  if ((isStandby || standbyPlaceholder) && hasValidFrame) {
-    return result("standby", standbyPlaceholder);
+  if (isStandby && hasValidFrame) {
+    return result("standby", resolvedStandbyPlaceholder);
   }
-  if (isStandby || standbyPlaceholder) {
+  if (isStandby) {
     return result(
       "awaiting-frame",
-      handoffPlaceholder ??
-        createLiveSourceHandoffPlaceholder(selectedSourceId),
+      resolvedHandoffPlaceholder,
     );
   }
 
@@ -485,17 +742,17 @@ export const resolveLiveSourceLifecycle = ({
   if (
     deviceStatus === "loading" ||
     deviceStatus === "initializing" ||
-    devicePlaceholder
+    (resolvedDevicePlaceholder && !(deviceStatus === "stale" && hasValidFrame))
   ) {
-    return result("recovering", devicePlaceholder);
+    return result("recovering", resolvedDevicePlaceholder);
   }
 
   if (hasValidFrame) return result("ready", null);
 
   if (RECOVERY_STATUSES.has(deviceStatus ?? "")) {
-    return result("recovering", devicePlaceholder);
+    return result("recovering", resolvedDevicePlaceholder);
   }
-  return result("awaiting-frame", handoffPlaceholder);
+  return result("awaiting-frame", resolvedHandoffPlaceholder);
 };
 export const isLiveSourceHandoffPending = (
   lifecycle: LiveSourceLifecycle,
@@ -511,11 +768,8 @@ export const isLiveSourceAwaitingFrame = (
 
 /** Error reason from a lifecycle-owned error placeholder, if any. */
 export const resolveLiveSourceLifecycleErrorReason = (
-  lifecycle: Pick<LiveSourceLifecycle, "placeholder">,
-): string | null =>
-  lifecycle.placeholder?.kind === "error"
-    ? (lifecycle.placeholder.reason ?? null)
-    : null;
+  lifecycle: Pick<LiveSourceLifecycle, "errorReason">,
+): string | null => lifecycle.errorReason;
 
 /** Default loading card while a selected live source has no accepted frame. */
 export const createLiveSourceHandoffPlaceholder = (
@@ -526,62 +780,6 @@ export const createLiveSourceHandoffPlaceholder = (
   sourceLabel: sourceLabel ?? undefined,
   message: "Waiting for the first frame to arrive.",
 });
-
-/** Adds the phase-appropriate placeholder without recomputing lifecycle. */
-export const attachLiveSourceLifecyclePlaceholder = (
-  lifecycle: LiveSourceLifecycle,
-  {
-    devicePlaceholder = null,
-    handoffPlaceholder = null,
-    standbyPlaceholder = null,
-  }: {
-    devicePlaceholder?: CanvasPlaceholderState | null;
-    handoffPlaceholder?: CanvasPlaceholderState | null;
-    standbyPlaceholder?: CanvasPlaceholderState | null;
-  },
-): LiveSourceLifecycle => {
-  // A source can remain optimistically "receiving" while its I/O reader has
-  // stopped. Preserve the watchdog's terminal error instead of replacing it
-  // with the generic awaiting-frame loader.
-  if (
-    devicePlaceholder?.kind === "error" ||
-    devicePlaceholder?.kind === "disconnected"
-  ) {
-    return { ...lifecycle, placeholder: devicePlaceholder };
-  }
-
-  const placeholder = (() => {
-    switch (lifecycle.phase) {
-      case "failed":
-        return lifecycle.placeholder ?? devicePlaceholder;
-      case "disconnected":
-      case "recovering":
-        return devicePlaceholder;
-      case "warming-transport":
-      case "swapping-device":
-      case "awaiting-frame":
-        // Full-canvas Loading only. A standby top-bar alone leaves a black
-        // FFT while the one-shot preview is in flight.
-        return (
-          handoffPlaceholder ??
-          (lifecycle.placeholder?.kind === "loading"
-            ? lifecycle.placeholder
-            : null) ??
-          createLiveSourceHandoffPlaceholder(lifecycle.selectedSourceId)
-        );
-      case "standby":
-        return standbyPlaceholder;
-      case "idle":
-      case "ready":
-        return null;
-      default: {
-        const _exhaustive: never = lifecycle.phase;
-        return _exhaustive;
-      }
-    }
-  })();
-  return { ...lifecycle, placeholder };
-};
 
 /**
  * Owns the route's live-source state without subscribing the route to
@@ -609,6 +807,13 @@ export const useLiveSourceLifecycle = (
       input.transportError,
       input.transportPhase,
       input.transportSourceId,
+      input.sourceLabel,
+      input.loadingAttempt,
+      input.loadingAttemptMax,
+      input.hasPlayedAtLeastOnce,
+      input.hasRenderableCurrentFrame,
+      input.standbySourceLabel,
+      input.cryptoCorrupted,
     ],
   );
   return lifecycle;

@@ -17,7 +17,7 @@ use validator::Validate;
 
 use crate::crypto;
 
-use super::shared_state::{DisplayViewport, SharedState};
+use super::shared_state::SharedState;
 use super::stream_contract::{
   stream_control_scope, StreamControlAction, StreamControlScope,
   StreamDeliveryPolicy,
@@ -463,6 +463,14 @@ pub enum StreamCommand {
     stream: StreamKey,
     paused: bool,
   },
+  #[serde(rename = "stream_request_frame")]
+  RequestFrame {
+    #[serde(default = "default_subscriber_scope")]
+    scope: StreamControlScope,
+    #[serde(rename = "subscriptionId")]
+    subscription_id: String,
+    stream: StreamKey,
+  },
   #[serde(rename = "stream_set_delivery")]
   SetDelivery {
     #[serde(default = "default_subscriber_scope")]
@@ -777,9 +785,10 @@ pub async fn stream_ws_upgrade_handler(
 
   let manager = state.stream_manager.clone();
   let shared = state.shared.clone();
+  let cmd_tx = state.cmd_tx.clone();
   let enc_key = shared.encryption_key;
   harden_websocket(ws).on_upgrade(move |socket| {
-    handle_stream_connection(socket, shared, manager, enc_key)
+    handle_stream_connection(socket, shared, manager, cmd_tx, enc_key)
   })
 }
 
@@ -787,6 +796,7 @@ async fn handle_stream_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
   manager: StreamingSourceModeManager,
+  cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
   enc_key: [u8; 32],
 ) {
   let (mut sender, mut receiver) = socket.split();
@@ -1017,6 +1027,42 @@ async fn handle_stream_connection(
               );
               let _ = sender.send(Message::Text(response.to_string().into())).await;
             }
+          }
+          StreamCommand::RequestFrame { scope, subscription_id, stream } => {
+            if scope != StreamControlScope::Subscriber
+              || stream.mode != super::stream_manager::StreamMode::Rx
+            {
+              let error = stream_error_json(&subscription_id, &stream, "scope", "one-shot frames are subscriber-scoped RX operations");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            let Some((active_stream, manager_subscription_id, _)) = subscriptions.get(&subscription_id) else {
+              let error = stream_error_json(&subscription_id, &stream, "missing_stream", "subscription is not active");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            };
+            if active_stream != &stream {
+              let error = stream_error_json(&subscription_id, &stream, "protocol", "subscription stream does not match");
+              let _ = sender.send(Message::Text(error.to_string().into())).await;
+              continue;
+            }
+            if let Err(error) = manager.request_next_frame(
+              &stream,
+              *manager_subscription_id,
+            ) {
+              let response = stream_error_json(
+                &subscription_id,
+                &stream,
+                error.code(),
+                &error.to_string(),
+              );
+              let _ = sender.send(Message::Text(response.to_string().into())).await;
+              continue;
+            }
+            // Wake the acquisition worker even when every managed subscriber
+            // is paused. The worker consumes the token for one fresh frame;
+            // delivery remains scoped to the requesting subscriber.
+            let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
           }
           StreamCommand::SetDelivery { scope, subscription_id, stream, delivery_policy } => {
             if scope != StreamControlScope::Subscriber {
@@ -1858,46 +1904,6 @@ fn is_device_scoped_control(message: &WebSocketMessage) -> bool {
   }
 }
 
-fn resolve_display_viewport(
-  message: &WebSocketMessage,
-) -> Option<DisplayViewport> {
-  let min_hz = message.display_min_hz?;
-  let max_hz = message.display_max_hz?;
-  if !min_hz.is_finite() || !max_hz.is_finite() || max_hz <= min_hz {
-    return None;
-  }
-
-  let hardware_center = match (message.min_freq, message.max_freq) {
-    (Some(min), Some(max)) if min.is_finite() && max.is_finite() => {
-      (min + max) / 2.0
-    }
-    _ => (min_hz + max_hz) / 2.0,
-  };
-  let display_center = (min_hz + max_hz) / 2.0;
-  let pan_hz = message
-    .display_pan_hz
-    .filter(|pan| pan.is_finite())
-    .unwrap_or(display_center - hardware_center);
-  let zoom = message
-    .display_zoom
-    .filter(|zoom| zoom.is_finite() && *zoom > 0.0)
-    .unwrap_or(1.0);
-
-  Some(DisplayViewport {
-    min_hz,
-    max_hz,
-    pan_hz,
-    zoom,
-    crosses_dc: message
-      .display_crosses_dc
-      .unwrap_or(min_hz < 0.0 && max_hz > 0.0),
-    direction_negative: message
-      .display_direction_negative
-      .unwrap_or(pan_hz < 0.0),
-    mirror_below_zero: message.mirror_spectrum_below_zero.unwrap_or(false),
-  })
-}
-
 pub fn handle_message(
   cmd_tx: &std::sync::mpsc::Sender<super::types::SdrCommand>,
   shared: &Arc<SharedState>,
@@ -1943,10 +1949,6 @@ pub fn handle_message(
           message.signal_area.clone(),
           (min_freq, _max_freq),
         );
-        // A legacy or mirror-disabled client has no signed viewport to share;
-        // clear the previous presentation instead of replaying stale negative
-        // coordinates to the next subscriber.
-        shared.set_display_viewport(resolve_display_viewport(&message));
         {
           let mut sdr_settings = shared.sdr_settings.lock().unwrap();
           sdr_settings.center_frequency = center_freq;
@@ -2991,7 +2993,7 @@ mod tests {
 
   #[test]
   #[serial]
-  fn frequency_range_broadcast_includes_signed_mirrored_viewport_state() {
+  fn frequency_range_broadcast_does_not_include_subscriber_viewport_state() {
     let shared = test_shared_state();
     let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
     let mut broadcast_rx = broadcast_tx.subscribe();
@@ -3017,12 +3019,7 @@ mod tests {
 
     let snapshot: serde_json::Value =
       serde_json::from_str(&broadcast_rx.try_recv().unwrap()).unwrap();
-    assert_eq!(snapshot["display_range"]["min"], -3_000_000.0);
-    assert_eq!(snapshot["display_range"]["max"], 1_000_000.0);
-    assert_eq!(snapshot["display_range"]["pan_hz"], -3_000_000.0);
-    assert_eq!(snapshot["display_range"]["crosses_dc"], true);
-    assert_eq!(snapshot["display_range"]["direction_negative"], true);
-    assert_eq!(snapshot["display_range"]["mirror_below_zero"], true);
+    assert!(snapshot.get("display_range").is_none());
   }
 
   #[test]

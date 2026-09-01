@@ -755,6 +755,7 @@ function drawSnapshotOverlay(
     data.hardwareSampleRateHz || 0,
     fullCaptureRange,
   );
+  renderer.drawDcMarker(dc, frequencyRange);
   const channelSpan = activeSignalAreaBounds
     ? activeSignalAreaBounds.max - activeSignalAreaBounds.min
     : 0;

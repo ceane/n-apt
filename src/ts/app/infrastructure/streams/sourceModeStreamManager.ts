@@ -122,6 +122,13 @@ export type StreamSetPausedCommand = {
   paused: boolean;
 };
 
+export type StreamRequestFrameCommand = {
+  type: "stream_request_frame";
+  scope: "subscriber";
+  subscriptionId: string;
+  stream: StreamKey;
+};
+
 export type StreamSetDeliveryCommand = {
   type: "stream_set_delivery";
   scope: "subscriber";
@@ -135,6 +142,7 @@ export type StreamCommand =
   | StreamUpdateOptionsCommand
   | StreamUnsubscribeCommand
   | StreamSetPausedCommand
+  | StreamRequestFrameCommand
   | StreamSetDeliveryCommand;
 
 export type StreamMessage = StreamEvent | StreamCommand;
@@ -160,6 +168,8 @@ export type StreamSubscription = {
   readonly streamEpoch: number;
   readonly deliveryPolicy: StreamDeliveryPolicy;
   setPaused(paused: boolean): void;
+  /** Request one fresh frame without resuming continuous delivery. */
+  requestNextFrame(): void;
   setDeliveryPolicy(policy: StreamDeliveryPolicy): void;
   unsubscribe(): void;
   updateOptions(options: StreamOptions): Promise<void>;
@@ -167,6 +177,7 @@ export type StreamSubscription = {
 
 type StreamSubscriber = StreamSubscriberContract & {
   handler: (event: StreamEvent) => void;
+  pendingFrameRequest: boolean;
 };
 
 type StreamEntry = {
@@ -216,7 +227,11 @@ export const createSourceModeStreamManager = ({
 
   const notify = (entry: StreamEntry, event: StreamEvent): void => {
     for (const subscriber of entry.subscribers.values()) {
-      if (event.type === "stream_frame" && subscriber.paused) continue;
+      if (event.type === "stream_frame") {
+        const requestedWhilePaused = subscriber.pendingFrameRequest;
+        subscriber.pendingFrameRequest = false;
+        if (subscriber.paused && !requestedWhilePaused) continue;
+      }
       subscriber.handler(event);
     }
   };
@@ -291,7 +306,7 @@ export const createSourceModeStreamManager = ({
   ): void => {
     const nextAggregate = aggregatePausedState(entry);
     if (
-      previousAggregate === null ||
+      (previousAggregate === null && nextAggregate !== true) ||
       previousAggregate === nextAggregate ||
       nextAggregate === null ||
       entry.key.mode !== "rx"
@@ -431,7 +446,10 @@ export const createSourceModeStreamManager = ({
     key: StreamKey,
     options: StreamOptions,
     handler: (event: StreamEvent) => void,
-    subscriberOptions: { deliveryPolicy?: StreamDeliveryPolicy } = {},
+    subscriberOptions: {
+      deliveryPolicy?: StreamDeliveryPolicy;
+      paused?: boolean;
+    } = {},
   ): Promise<StreamSubscription> => {
     if (key.mode !== options.mode) {
       throw new Error("Stream key mode must match stream options mode");
@@ -484,8 +502,9 @@ export const createSourceModeStreamManager = ({
     const previousAggregate = aggregatePausedState(entry);
     entry.subscribers.set(subscriptionId, {
       handler,
-      paused: false,
+      paused: subscriberOptions.paused === true,
       deliveryPolicy,
+      pendingFrameRequest: false,
     });
     entry.metrics.subscribers = entry.subscribers.size;
     syncAggregatePausedState(entry, previousAggregate);
@@ -510,6 +529,18 @@ export const createSourceModeStreamManager = ({
         const previousAggregate = aggregatePausedState(entry!);
         subscriber.paused = paused;
         syncAggregatePausedState(entry!, previousAggregate);
+      },
+      requestNextFrame: () => {
+        if (!active) return;
+        const subscriber = entry!.subscribers.get(subscriptionId);
+        if (!subscriber) return;
+        subscriber.pendingFrameRequest = true;
+        entry!.transport.send({
+          type: "stream_request_frame",
+          scope: "subscriber",
+          subscriptionId: entry!.transportSubscriptionId,
+          stream: entry!.key,
+        });
       },
       setDeliveryPolicy: (nextPolicy) => {
         if (!active) return;

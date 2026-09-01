@@ -527,6 +527,67 @@ describe("resolveLiveSpectrumPaintContract", () => {
     expect(result.visualRange).toEqual(contract.displayRange);
   });
 
+  it("keeps a paused view on the requested negative axis past one sample rate", () => {
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: { min: 0, max: 4_372_000 },
+      sourceFrequencyRange: { min: 0, max: 4_372_000 },
+      zoom: 1,
+      panOffsetHz: -6_000_000,
+      mirrorEnabled: true,
+      isPaused: true,
+    });
+
+    expect(contract.displayRange).toEqual({
+      min: -6_000_000,
+      max: -1_628_000,
+    });
+    expect(contract.panOffsetHz).toBe(-6_000_000);
+  });
+
+  it.each([false, true])(
+    "keeps a paused positive retune edge-to-edge on the universal requested range (mirror=%s)",
+    (mirrorEnabled) => {
+      const requestedViewRange = { min: 5_934_700, max: 9_134_700 };
+      const contract = resolveLiveSpectrumPaintContract({
+        // The subscriber is paused, but its interaction still retunes the one
+        // global acquisition window. Until the one-shot replaces the values,
+        // the resident waveform remains pixel-anchored across the full plot.
+        requestedViewRange,
+        sourceFrequencyRange: { min: 4_334_700, max: 7_534_700 },
+        zoom: 1,
+        panOffsetHz: 0,
+        mirrorEnabled,
+        isPaused: true,
+      });
+
+      expect(contract.paintViewportRange).toEqual(requestedViewRange);
+      expect(contract.sourceFrequencyRange).toEqual(requestedViewRange);
+      expect(contract.displayRange).toEqual(requestedViewRange);
+      expect(contract.panOffsetHz).toBe(0);
+    },
+  );
+
+  it("keeps a paused DC transition on the universal axis when the retained span differs", () => {
+    const requestedViewRange = { min: 0, max: 3_200_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      // The retained frame can have a slightly different acquisition span
+      // while the paused request is being fulfilled.
+      sourceFrequencyRange: { min: 100_000, max: 3_400_000 },
+      zoom: 1,
+      panOffsetHz: -1_400_000,
+      mirrorEnabled: true,
+      isPaused: true,
+    });
+
+    expect(contract.paintViewportRange).toEqual(requestedViewRange);
+    expect(contract.sourceFrequencyRange).toEqual(requestedViewRange);
+    expect(contract.displayRange).toEqual({
+      min: -1_400_000,
+      max: 1_800_000,
+    });
+  });
+
   it("fills the row instead of a channel island when redux and frame axes differ", () => {
     const requestedViewRange = { min: 0, max: 4_372_000 };
     const sourceFrequencyRange = { min: 4_294_000, max: 8_666_000 };

@@ -179,12 +179,15 @@ export const resolveLiveSpectrumPaintContract = ({
   zoom,
   panOffsetHz,
   mirrorEnabled,
+  isPaused = false,
 }: {
   requestedViewRange: { min: number; max: number };
   sourceFrequencyRange: { min: number; max: number };
   zoom: number;
   panOffsetHz: number;
   mirrorEnabled: boolean;
+  /** Pause changes delivery cadence, not the global tuning coordinate system. */
+  isPaused?: boolean;
   frameCenterHz?: number | null;
   frameSampleRateHz?: number | null;
   isTxPreviewFrame?: boolean;
@@ -209,28 +212,41 @@ export const resolveLiveSpectrumPaintContract = ({
   };
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const safePan = Number.isFinite(panOffsetHz) ? panOffsetHz : 0;
+  const requestedBaseSpan = safeRequestedRange.max - safeRequestedRange.min;
+  const pausedRetuneUsesUniversalRange =
+    isPaused && safeRequestedRange.min >= 0 && requestedBaseSpan > 0;
+  // Pause is a subscriber delivery mode, not another coordinate system. A
+  // A paused retune updates the global center immediately, while the current
+  // values remain pixel-anchored until request_next_frame replaces them. Use
+  // the universal requested axis even when the retained frame's span differs
+  // (for example during a Whole Channel or DC transition), otherwise the old
+  // frame axis produces a partial island and floors the uncovered canvas.
+  const presentationSourceRange = pausedRetuneUsesUniversalRange
+    ? safeRequestedRange
+    : safeSourceRange;
   const gestureView = resolveLiveSpectrumCoordinateModel({
     viewportBaseRange: safeRequestedRange,
-    sourceRange: safeSourceRange,
+    sourceRange: presentationSourceRange,
     zoom: safeZoom,
     panOffsetHz: safePan,
     mirrorEnabled,
   });
   const requestedDisplaySpan =
     gestureView.displayRange.max - gestureView.displayRange.min;
-  const sourceSpan = safeSourceRange.max - safeSourceRange.min;
+  const sourceSpan =
+    presentationSourceRange.max - presentationSourceRange.min;
   const mirrorGestureCovered = sourceCoversMirroredDisplay(
-    safeSourceRange,
+    presentationSourceRange,
     gestureView.displayRange,
-    mirrorPresentationCoverageSlackHz(safeSourceRange),
+    mirrorPresentationCoverageSlackHz(presentationSourceRange),
   );
   const residentMirrorRange =
     (gestureView.displayRange.min + gestureView.displayRange.max) / 2 < 0
       ? {
-          min: -safeSourceRange.max,
-          max: -safeSourceRange.min,
+          min: -presentationSourceRange.max,
+          max: -presentationSourceRange.min,
         }
-      : safeSourceRange;
+      : presentationSourceRange;
   // During cold start Redux can still expose a persisted whole-channel span
   // while the first live frame only covers the accepted sample-rate window.
   // Letting that wider range reach the GPU makes the frame occupy one island
@@ -240,11 +256,21 @@ export const resolveLiveSpectrumPaintContract = ({
   // Commit mirror presentation atomically with frame coverage. If the pending
   // gesture cannot be filled by this resident frame, present the complete
   // frame on the positive or reflected side nearest the requested center.
-  const displayRange =
-    Number.isFinite(requestedDisplaySpan) &&
-    Number.isFinite(sourceSpan) &&
-    sourceSpan > 0 &&
-    requestedDisplaySpan > sourceSpan + 1
+  // A paused gesture is allowed to remain beyond the resident sample-rate
+  // window. Replacing it with residentMirrorRange here makes the canvas appear
+  // locked at the negative sample-rate edge even though the pan ref advanced.
+  const pausedPositiveViewIsCovered =
+    !mirrorEnabled &&
+    gestureView.displayRange.min >= presentationSourceRange.min &&
+    gestureView.displayRange.max <= presentationSourceRange.max;
+  const displayRange = isPaused
+    ? mirrorEnabled || pausedPositiveViewIsCovered
+      ? gestureView.displayRange
+      : safeSourceRange
+    : Number.isFinite(requestedDisplaySpan) &&
+        Number.isFinite(sourceSpan) &&
+        sourceSpan > 0 &&
+        requestedDisplaySpan > sourceSpan + 1
       ? mirrorEnabled
         ? residentMirrorRange
         : safeSourceRange
@@ -252,16 +278,15 @@ export const resolveLiveSpectrumPaintContract = ({
         ? mirrorGestureCovered
           ? gestureView.displayRange
           : residentMirrorRange
-        : gestureView.displayRange.min >= safeSourceRange.min &&
-            gestureView.displayRange.max <= safeSourceRange.max
+        : gestureView.displayRange.min >= presentationSourceRange.min &&
+            gestureView.displayRange.max <= presentationSourceRange.max
           ? gestureView.displayRange
-          : safeSourceRange;
-  // A retune request can move ahead of the latest server frame. Keep the
-  // visual axis on that resident frame until a new acquisition arrives; this
-  // avoids presenting a floor-filled gap that appears to animate toward the
-  // requested VFO position.
+          : presentationSourceRange;
+  // Non-paused lagging frames may retain their complete resident axis. A
+  // paused same-bandwidth retune has already adopted the universal requested
+  // axis above, so this rebase cannot restore the pre-pause center.
   const rebased = resolvePanZoomForDisplayRange({
-    hardwareRange: safeSourceRange,
+    hardwareRange: presentationSourceRange,
     displayRange,
   });
   // Normalize the emitted ranges so they always satisfy max >= min (a fuzzed
@@ -271,8 +296,8 @@ export const resolveLiveSpectrumPaintContract = ({
       ? displayRange
       : { min: displayRange.max, max: displayRange.min };
   return {
-    paintViewportRange: safeSourceRange,
-    sourceFrequencyRange: safeSourceRange,
+    paintViewportRange: presentationSourceRange,
+    sourceFrequencyRange: presentationSourceRange,
     displayRange: normalizedDisplayRange,
     zoom: rebased.zoom,
     panOffsetHz: rebased.panOffsetHz,

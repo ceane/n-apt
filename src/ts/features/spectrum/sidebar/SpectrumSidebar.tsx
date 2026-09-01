@@ -555,6 +555,19 @@ const EMPTY_SELECTED_SOURCE_DERIVED = {
   supportsBasebandFilter: false,
 };
 
+export const resolveSidebarSourcePausedState = ({
+  sourceId,
+  selectedSourceId,
+  backendPaused,
+  clientPaused,
+}: {
+  sourceId: string;
+  selectedSourceId: string;
+  backendPaused?: boolean;
+  clientPaused: boolean;
+}): boolean =>
+  sourceId === selectedSourceId ? clientPaused : (backendPaused ?? false);
+
 export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   onCreateNoteCard,
   visualizerLoading = false,
@@ -1861,7 +1874,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       const isPaused =
         source.status === "paused" ||
         isTxPreviewing ||
-        (source.paused ?? false);
+        resolveSidebarSourcePausedState({
+          sourceId: source.id,
+          selectedSourceId,
+          backendPaused: source.paused,
+          clientPaused: liveIsPaused,
+        });
       const supportsTx =
         source.capability === "tx" || source.capability === "tx_rx";
       const isMockSource = source.capability === "mock";
@@ -1966,6 +1984,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     handleToggleTransmitMode,
     restartPendingSourceIds,
     sourcesToUse,
+    selectedSourceId,
+    liveIsPaused,
     toggleLiveVisualizerPause,
     txPreviewSourceId,
   ]);

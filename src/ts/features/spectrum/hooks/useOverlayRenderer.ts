@@ -31,6 +31,7 @@ import {
   resolveHardwareLimitAliasRanges,
   resolveMirroredHardwareMarkerFrequencies,
 } from "@n-apt/math/basebandMirror";
+import { DC_MARKER_LABEL } from "@n-apt/layout/rendering/SnapshotRenderer";
 
 export type Alignment = "centered" | "start" | "end";
 
@@ -454,10 +455,9 @@ export function useOverlayRenderer() {
         ctx.font = "10px 'JetBrains Mono', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        const dcLabel = "Direct Current (DC/0Hz)";
         ctx.fillText(
-          dcLabel,
-          clampLabelX(dcX, dcLabel),
+          DC_MARKER_LABEL,
+          clampLabelX(dcX, DC_MARKER_LABEL),
           FFT_AREA_MIN.y + DC_LABEL_Y_OFFSET,
         );
         ctx.restore();

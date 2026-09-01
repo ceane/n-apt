@@ -17,8 +17,10 @@ import {
   remapBrushLineToZoomBox,
   WaterfallNode,
 } from "@n-apt/demodulation/react-flow/nodes/WaterfallNode";
-import { isFilePlaybackPaused } from "@n-apt/spectrum/hooks/liveSourceLifecycle";
-import { getSourcePresentationSessionKey } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+import {
+  getSourcePresentationSessionKey,
+  isFilePlaybackPaused,
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { ThemeProvider } from "styled-components";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";

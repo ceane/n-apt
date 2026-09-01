@@ -180,6 +180,60 @@ describe("dbToColor", () => {
 });
 
 describe("renderSpectrumSnapshotCanvas", () => {
+  it("draws the labeled dotted DC marker for mirrored frequency ranges", () => {
+    global.clearCanvasCalls?.();
+
+    renderSpectrumSnapshotCanvas(
+      {
+        frequencyRange: { min: -500_000, max: 500_000 },
+        waveform: new Float32Array([-100, -95, -90, -85]),
+        fullChannelWaveform: null,
+        dbMin: -120,
+        dbMax: 0,
+        powerScale: "dB",
+        centerFrequencyHz: 0,
+        isDeviceConnected: true,
+        vizZoom: 1,
+        vizPanOffset: 0,
+        waterfallTextureSnapshot: null,
+        waterfallTextureMeta: null,
+        waterfallBuffer: null,
+        waterfallDims: null,
+        webgpuEnabled: false,
+        colormap: [],
+      } as any,
+      { min: -500_000, max: 500_000 },
+      true,
+      320,
+      180,
+      undefined,
+      [],
+      undefined,
+      {
+        bg: "#000000",
+        grid: "#333333",
+        line: "#ffffff",
+        shadow: "#111111",
+        text: "#777777",
+        hwLine: "#999999",
+        hwText: "#aaaaaa",
+        cfText: "#fefefe",
+      },
+    );
+
+    const calls = (global as any).__CANVAS_CALLS__ as Array<{
+      name: string;
+      args: unknown[];
+    }>;
+    expect(
+      calls.some(
+        (call) =>
+          call.name === "fillText" &&
+          call.args[0] === "Direct Current (DC/0Hz)",
+      ),
+    ).toBe(true);
+  });
+
   it("uses the explicit dBm power scale for axis labels", () => {
     global.clearCanvasCalls?.();
 

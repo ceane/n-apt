@@ -47,7 +47,7 @@ import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import { resampleNearestInto } from "@n-apt/math/resampleNearest";
 import { getFilePlaceholderState } from "@n-apt/app/infrastructure/io/filePlaceholderState";
 import { isFilePlaybackPaused } from "@n-apt/spectrum/public/liveSourceLifecycle";
-import { getSourcePresentationSessionKey } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+import { getSourcePresentationSessionKey } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 import { Vfo } from "@n-apt/layout/vfo/Vfo";
 import { mapDisplayFrequencyToSource } from "@n-apt/math/basebandMirror";
@@ -55,7 +55,7 @@ import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefault
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
-import { isTxStandbyPreviewSource } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+import { isTxStandbyPreviewSource } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { sourceVisualizationRuntime as liveIqRuntime } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   DEFAULT_WATERFALL_BIN_SUBSET,

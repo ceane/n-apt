@@ -67,8 +67,8 @@ import {
 import {
   isFilePlaybackPaused,
   shouldRestorePausedFrameSnapshot,
-} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
-import { getSourcePresentationSessionKey } from "@n-apt/app/infrastructure/visualization/liveSourcePresentation";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
+import { getSourcePresentationSessionKey } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { TestWrapper } from "./testUtils";
 
 describe("FFTNode", () => {

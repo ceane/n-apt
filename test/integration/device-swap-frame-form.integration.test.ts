@@ -14,7 +14,7 @@ import {
 import {
   resolveLiveSourcePresentationPolicy,
   shouldClearPausedStandbyPresentation,
-} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   resolveWebGpuStreamTransition,
   shouldResetVisualPresentationForSelection,

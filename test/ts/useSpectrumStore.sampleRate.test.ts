@@ -88,7 +88,7 @@ describe("shouldRequestPausedPreview", () => {
     ).toBe(true);
   });
 
-  it("does not request a Tx-settings preview when a half-duplex source is paused in Rx", () => {
+  it("requests a fresh view frame when a half-duplex source is paused in Rx", () => {
     expect(
       shouldRequestPausedPreview({
         id: "hackrf-one",
@@ -102,6 +102,26 @@ describe("shouldRequestPausedPreview", () => {
         },
         status: "streaming",
       } as any),
+    ).toBe(true);
+  });
+
+  it("does not request an Rx preview when the source is bound to the Tx view", () => {
+    expect(
+      shouldRequestPausedPreview(
+        {
+          id: "hackrf-one",
+          kind: "hackrf",
+          capability: "tx_rx",
+          duplex_mode: "half_duplex",
+          iq_format: {
+            element_type: "u8",
+            layout: "interleaved_iq",
+            typed_array: "Uint8Array",
+          },
+          status: "streaming",
+        } as any,
+        "hackrf-one",
+      ),
     ).toBe(false);
   });
 });

@@ -14,7 +14,10 @@ import { Provider, useSelector } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
 import { MemoryRouter, useNavigate } from "react-router";
-import { SpectrumSidebar } from "@n-apt/spectrum/sidebar/SpectrumSidebar";
+import {
+  resolveSidebarSourcePausedState,
+  SpectrumSidebar,
+} from "@n-apt/spectrum/sidebar/SpectrumSidebar";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
@@ -33,6 +36,17 @@ import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
 import demodSlice from "@n-apt/redux/slices/demodSlice";
 
 describe("SpectrumSidebar hot-path diagnostics", () => {
+  it("uses the client pause latch for the selected source row", () => {
+    expect(
+      resolveSidebarSourcePausedState({
+        sourceId: "mock-apt",
+        selectedSourceId: "mock-apt",
+        backendPaused: false,
+        clientPaused: true,
+      }),
+    ).toBe(true);
+  });
+
   it("does not log metadata on every animation frame", () => {
     const source = readFileSync(
       join(process.cwd(), "src/ts/features/spectrum/sidebar/SpectrumSidebar.tsx"),

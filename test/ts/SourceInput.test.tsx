@@ -203,6 +203,36 @@ describe("SourceInput", () => {
     expect(mutedRxButton).toHaveStyle({ opacity: "0.45" });
   });
 
+  it("keeps the Sources button on Resume Rx when a streaming source is frozen", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="hackrf-1"
+          devices={[
+            {
+              id: "hackrf-1",
+              name: "HackRF One",
+              capability: "tx_rx",
+              duplex_mode: "Half-duplex",
+              status: { label: "streaming", paused: true },
+            },
+          ]}
+          onToggleDeviceRxPause={jest.fn()}
+          onToggleDeviceTxMode={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Resume Rx [Space]" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Pause Rx [Space]" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("labels backend Tx standby separately from paused Rx", () => {
     render(
       <TestWrapper>

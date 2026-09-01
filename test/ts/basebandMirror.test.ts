@@ -98,6 +98,19 @@ describe("baseband negative-frequency presentation", () => {
     expect(output[0]).toBeCloseTo(output[4], 5);
   });
 
+  it("fills the paused DC boundary even when the positive source guard is wider", () => {
+    const output = extendSpectrumBelowZero({
+      spectrum: new Float32Array([-70, -60, -50, -40, -30]),
+      sourceRange: { min: 100_000, max: 3_300_000 },
+      displayRange: { min: -100_000, max: 100_000 },
+      outputLength: 5,
+      floorDb: FLOOR,
+    });
+
+    expect(output.every((value) => value !== FLOOR)).toBe(true);
+    expect(output[2]).toBeCloseTo(-70, 5);
+  });
+
   it("maps positive hardware markers onto a wholly negative display axis", () => {
     expect(
       mapPositiveHardwareFrequencyToDisplay(105_000_000, {

@@ -183,6 +183,106 @@ describe("source mode stream manager fuzz", () => {
     h.manager.dispose();
   });
 
+  it("never delivers a frame to a subscriber during arbitrary pause/resume churn", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(
+          fc.record({
+            paused: fc.boolean(),
+            emitFrame: fc.boolean(),
+          }),
+          { minLength: 1, maxLength: 100 },
+        ),
+        async (operations) => {
+          const h = makeHarness();
+          const key: StreamKey = { sourceId: "src", mode: "rx" };
+          const events: StreamEvent[] = [];
+          const sub = await h.manager.subscribe(key, rxOptions(), (event) =>
+            events.push(event),
+          );
+          const inject = h.byKey(key);
+          let paused = false;
+          let sequence = 1;
+          let expectedFrames = 0;
+
+          for (const operation of operations) {
+            sub.setPaused(operation.paused);
+            paused = operation.paused;
+            if (operation.emitFrame) {
+              inject(frameEvent("src", "rx", sequence++));
+              if (!paused) expectedFrames += 1;
+            }
+          }
+
+          expect(
+            events.filter((event) => event.type === "stream_frame"),
+          ).toHaveLength(expectedFrames);
+          sub.unsubscribe();
+          h.manager.dispose();
+        },
+      ),
+    );
+  });
+
+  it("keeps requested paused previews scoped through pause/request churn", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(
+          fc.record({
+            paused: fc.boolean(),
+            requestFrame: fc.boolean(),
+            emitFrame: fc.boolean(),
+          }),
+          { minLength: 1, maxLength: 120 },
+        ),
+        async (operations) => {
+          const h = makeHarness();
+          const key: StreamKey = { sourceId: "src", mode: "rx" };
+          const pausedEvents: StreamEvent[] = [];
+          const activeEvents: StreamEvent[] = [];
+          const pausedSub = await h.manager.subscribe(
+            key,
+            rxOptions(),
+            (event) => pausedEvents.push(event),
+            { paused: true },
+          );
+          await h.manager.subscribe(key, rxOptions(), (event) =>
+            activeEvents.push(event),
+          );
+
+          let paused = true;
+          let pendingRequest = false;
+          let sequence = 1;
+          let expectedPausedFrames = 0;
+          let expectedActiveFrames = 0;
+          for (const operation of operations) {
+            pausedSub.setPaused(operation.paused);
+            paused = operation.paused;
+            if (operation.requestFrame) {
+              pausedSub.requestNextFrame();
+              pendingRequest = true;
+            }
+            if (operation.emitFrame) {
+              h.byKey(key)(frameEvent("src", "rx", sequence++));
+              expectedActiveFrames += 1;
+              if (!paused || pendingRequest) expectedPausedFrames += 1;
+              pendingRequest = false;
+            }
+          }
+
+          expect(
+            pausedEvents.filter((event) => event.type === "stream_frame"),
+          ).toHaveLength(expectedPausedFrames);
+          expect(
+            activeEvents.filter((event) => event.type === "stream_frame"),
+          ).toHaveLength(expectedActiveFrames);
+          pausedSub.unsubscribe();
+          h.manager.dispose();
+        },
+      ),
+    );
+  });
+
   it("aggregate pause command is sent only when all rx subscribers pause, never as device state", async () => {
     const h = makeHarness();
     const key: StreamKey = { sourceId: "src", mode: "rx" };

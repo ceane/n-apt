@@ -210,6 +210,60 @@ describe("SourceModeStreamManager", () => {
     expect(second[0]).toEqual(expect.objectContaining({ sequence: 8 }));
   });
 
+  it("delivers one requested retune frame to a paused subscriber", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const pausedEvents: StreamEvent[] = [];
+    const activeEvents: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+
+    const pausedSubscription = await manager.subscribe(
+      key,
+      rxOptions(),
+      (event) => pausedEvents.push(event),
+      { paused: true },
+    );
+    await manager.subscribe(key, rxOptions(), (event) => activeEvents.push(event));
+
+    pausedSubscription.requestNextFrame();
+    expect(transports[0].sent).toContainEqual(
+      expect.objectContaining({ type: "stream_request_frame", stream: key }),
+    );
+
+    transports[0].onEvent(
+      streamFrame("source-a", "rx", 9, new Uint8Array([140, 141])),
+    );
+    transports[0].onEvent(
+      streamFrame("source-a", "rx", 10, new Uint8Array([142, 143])),
+    );
+
+    expect(pausedEvents).toHaveLength(1);
+    expect(pausedEvents[0]).toEqual(expect.objectContaining({ sequence: 9 }));
+    expect(activeEvents).toHaveLength(2);
+  });
+
+  it("starts a subscriber paused when the user pauses during stream opening", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const received: StreamEvent[] = [];
+
+    await manager.subscribe(
+      { sourceId: "source-a", mode: "rx" },
+      rxOptions(),
+      (event) => received.push(event),
+      { paused: true },
+    );
+
+    transports[0].onEvent(
+      streamFrame("source-a", "rx", 1, new Uint8Array([128, 129])),
+    );
+
+    expect(received).toHaveLength(0);
+    expect(transports[0].sent).toContainEqual(
+      expect.objectContaining({ type: "stream_set_paused", paused: true }),
+    );
+  });
+
   it("pauses the physical stream only when every logical subscriber is paused", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });

@@ -13,7 +13,6 @@ import {
 } from "@n-apt/math/frequency";
 import {
   normalizePositiveHardwareRange,
-  resolveDisplayRangeForPanOffset,
 } from "@n-apt/math/basebandMirror";
 import {
   isHackrfDevice,
@@ -72,43 +71,12 @@ export const buildFrequencyRangeMessageData = (
   state: RootState,
   request: FrequencyRangeSyncRequest,
 ): Record<string, unknown> => {
-  const { range, displayRange: explicitDisplayRange } =
-    resolveFrequencyRangeSyncRequest(request);
-  const tunedRange = buildTunedFrequencyPayload(state, range);
-  const mirrorEnabled = state.settings?.mirrorIqBasebandBelowZero === true;
-  if (!mirrorEnabled) return tunedRange;
-
-  const hardwareRange = {
-    min: tunedRange.min_hz,
-    max: tunedRange.max_hz,
-  };
-  const zoom =
-    typeof state.spectrum?.vizZoom === "number" &&
-    Number.isFinite(state.spectrum.vizZoom) &&
-    state.spectrum.vizZoom > 0
-      ? state.spectrum.vizZoom
-      : 1;
-  const displayRange =
-    explicitDisplayRange ??
-    resolveDisplayRangeForPanOffset({
-      hardwareRange,
-      zoom,
-      panOffsetHz: Number(state.spectrum?.vizPanOffset ?? 0),
-    });
-  const displayCenter = (displayRange.min + displayRange.max) / 2;
-  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
-  const panHz = displayCenter - hardwareCenter;
-
-  return {
-    ...tunedRange,
-    display_min_hz: Math.round(displayRange.min),
-    display_max_hz: Math.round(displayRange.max),
-    display_pan_hz: Math.round(panHz),
-    display_zoom: zoom,
-    display_crosses_dc: displayRange.min < 0 && displayRange.max > 0,
-    display_direction_negative: panHz < 0,
-    mirror_spectrum_below_zero: true,
-  };
+  const { range } = resolveFrequencyRangeSyncRequest(request);
+  // Pan and zoom are subscriber-local presentation state. Only send the
+  // positive RF acquisition window across the device-scoped control socket;
+  // including a signed viewport here makes another browser inherit it when
+  // the backend echoes the authoritative range.
+  return buildTunedFrequencyPayload(state, range);
 };
 
 const optionalIntegerHz = (value: unknown): number | undefined => {
@@ -235,7 +203,7 @@ export const sendFrequencyRange = createAsyncThunk(
 
 export interface RequestNextLiveFrameOptions {
   sourceId?: string | null;
-  /** The viewport to apply before asking a paused source for its one frame. */
+  /** The current viewport associated with a paused one-shot request. */
   frequencyRange?: FrequencyRange | null;
   txSettings?: {
     centerFrequencyHz?: number | null;
@@ -327,12 +295,6 @@ export const requestNextPausedFrame = createAsyncThunk(
   ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
-      if (options?.frequencyRange) {
-        // A paused source only publishes the frame explicitly requested below.
-        // Send the viewport first so that frame is rendered for the new VFO
-        // position rather than the range from the previous paused frame.
-        await dispatch(sendFrequencyRange(options.frequencyRange) as any);
-      }
       // Standby previews are one-shot. Do not open a continuous managed Tx
       // stream; that would look like automatic transmission.
       dispatch({

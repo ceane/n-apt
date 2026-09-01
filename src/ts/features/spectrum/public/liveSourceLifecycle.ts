@@ -1,1 +1,1 @@
-export * from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+export * from "@n-apt/spectrum/model/multiplexStream/lifecycle";

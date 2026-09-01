@@ -24,7 +24,7 @@ import {
   selectSourceFrameReadinessForMode,
   selectSourceTransportForMode,
   type LiveSourceLifecyclePhase,
-} from "@n-apt/spectrum/hooks/liveSourceLifecycle";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
 import type { SourcePresentationPhase } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 
 // The repository has the runtime `ws` dependency but intentionally does not
@@ -757,6 +757,7 @@ export const createLiveReduxStreamHarness = async (
         isConnected: state.isConnected,
         connectionStatus: state.connectionStatus,
         hasConnectedOnce: state.hasConnectedOnce,
+        transportPhase: sourceTransport.phase,
       });
 
       return {
