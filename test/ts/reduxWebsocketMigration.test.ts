@@ -1303,6 +1303,38 @@ describe("Redux WebSocket Migration", () => {
     });
   });
 
+  it("hydrates the shared mirror-axis choice for every subscriber", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: { activeSourceId: "mock-apt", sources: [] },
+      spectrum: {
+        activeSignalArea: "A",
+        frequencyRange: { min: 0, max: 4_000_000 },
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "channels",
+      source_id: "mock-apt",
+      channels: [
+        {
+          id: "a",
+          label: "A",
+          min_hz: 0,
+          max_hz: 4_000_000,
+          description: "APT A",
+        },
+      ],
+      frequency_range: { min: 0, max: 4_000_000 },
+      mirror_spectrum_below_zero: true,
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "settings/setMirrorIqBasebandBelowZero",
+      payload: true,
+    });
+  });
+
   it("does not overwrite the sample rate from a self-echoed channels message", () => {
     const dispatch = jest.fn();
     const state = {

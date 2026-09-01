@@ -25,6 +25,7 @@ import {
   setSdrSettingsBundle,
   setTxSafetyResult,
 } from "../slices/spectrumSlice";
+import { setMirrorIqBasebandBelowZero } from "../slices/settingsSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
 import { decryptPayload } from "@n-apt/crypto/webcrypto";
 import {
@@ -2576,6 +2577,13 @@ export const processWebSocketMessage = (
     }
 
     try {
+      if (typeof parsedData.mirror_spectrum_below_zero === "boolean") {
+        dispatch(
+          setMirrorIqBasebandBelowZero(
+            parsedData.mirror_spectrum_below_zero,
+          ),
+        );
+      }
       const channels = parsedData.channels as SpectrumFrame[];
       const firstChannel = channels[0];
       if (!firstChannel) {

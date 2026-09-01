@@ -189,8 +189,6 @@ export const useFrequencyTuning = (options: UseFrequencyTuningOptions) => {
       }
 
       const primaryBounds = resolveNavigationFrequencyBounds({
-        mirrorEnabled: allowNegativeFrequencies,
-        zoom: vizZoom ?? 1,
         channelBounds: activeSignalAreaBounds,
         hardwareBounds: hardwareSpectrumBounds,
       });

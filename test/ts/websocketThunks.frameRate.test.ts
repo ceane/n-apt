@@ -22,4 +22,26 @@ describe("sendSettings frame-rate protocol boundary", () => {
       },
     });
   });
+
+  it("sends the mirror-axis choice as device-scoped presentation state", async () => {
+    const dispatch = jest.fn();
+    const getState = () => ({ websocket: { isConnected: true } });
+
+    await (sendSettings({ mirrorSpectrumBelowZero: true }) as any)(
+      dispatch,
+      getState,
+      undefined,
+    );
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "websocket/sendMessage",
+      payload: {
+        type: "settings",
+        data: {
+          scope: "device",
+          mirror_spectrum_below_zero: true,
+        },
+      },
+    });
+  });
 });

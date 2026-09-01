@@ -87,17 +87,18 @@ import {
 } from "@n-apt/math/basebandMirror";
 
 export const resolveNavigationFrequencyBounds = ({
-  mirrorEnabled,
-  zoom,
   channelBounds,
   hardwareBounds,
 }: {
-  mirrorEnabled: boolean;
-  zoom: number;
   channelBounds: FrequencyRange | null;
   hardwareBounds: FrequencyRange | null;
 }): FrequencyRange | null => {
-  if (mirrorEnabled || zoom > 1) return hardwareBounds;
+  // The live VFO is a device acquisition control, not a subscriber-local
+  // channel selector. Using channelBounds at 1x made zoom level decide whether
+  // 0 Hz was reachable, so two clients could show the same center with
+  // different lower edges. Keep the device bounds at every zoom level; the
+  // channel is still used when hardware bounds have not hydrated yet.
+  if (hardwareBounds) return hardwareBounds;
   return channelBounds;
 };
 
@@ -1265,8 +1266,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       }
 
       const primaryBounds = resolveNavigationFrequencyBounds({
-        mirrorEnabled: allowNegativeFrequencies,
-        zoom: state.vizZoom,
         channelBounds: activeSignalAreaBounds,
         hardwareBounds: hardwareSpectrumBounds,
       });

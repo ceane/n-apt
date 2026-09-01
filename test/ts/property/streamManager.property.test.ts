@@ -98,6 +98,290 @@ const makeHarness = (): Harness => {
 };
 
 describe("source mode stream manager fuzz", () => {
+  it("keeps independent subscribers coordinated through tune/pause/hydration churn", async () => {
+    type Client = {
+      manager: ReturnType<typeof createSourceModeStreamManager>;
+      transport: {
+        key: StreamKey;
+        sent: StreamMessage[];
+        onEvent: (event: StreamEvent) => void;
+      };
+      subscription: Awaited<
+        ReturnType<ReturnType<typeof createSourceModeStreamManager>["subscribe"]>
+      >;
+      events: StreamEvent[];
+    };
+
+    type Broker = {
+      authoritativeOptions: StreamOptions;
+      optionsByRevision: Map<number, StreamOptions>;
+      optionsRevision: number;
+      streamEpoch: number;
+      sequence: number;
+      clients: Client[];
+      emitFrame: (optionsRevision?: number) => void;
+      hydrate: () => void;
+    };
+
+    const createBroker = (): Broker => {
+      const key: StreamKey = { sourceId: "shared-source", mode: "rx" };
+      const broker: Broker = {
+        authoritativeOptions: rxOptions(100_000_000),
+        optionsByRevision: new Map([[1, rxOptions(100_000_000)]]),
+        optionsRevision: 1,
+        streamEpoch: 1,
+        sequence: 0,
+        clients: [],
+        emitFrame: (optionsRevision = broker.optionsRevision) => {
+          broker.sequence += 1;
+          for (const client of broker.clients) {
+            const event = frameEvent(
+              key.sourceId,
+              key.mode,
+              broker.sequence,
+              broker.streamEpoch,
+              optionsRevision,
+            ) as Extract<StreamEvent, { type: "stream_frame" }>;
+            event.centerFrequencyHz =
+              broker.optionsByRevision.get(optionsRevision)?.mode === "rx"
+                ? (
+                    broker.optionsByRevision.get(optionsRevision) as Extract<
+                      StreamOptions,
+                      { mode: "rx" }
+                    >
+                  ).centerFrequencyHz
+                : undefined;
+            event.sampleRateHz =
+              broker.optionsByRevision.get(optionsRevision)?.sampleRateHz ??
+              broker.authoritativeOptions.sampleRateHz;
+            event.frame.center_frequency_hz = event.centerFrequencyHz;
+            event.frame.sample_rate = event.sampleRateHz;
+            client.transport.onEvent(event);
+          }
+        },
+        hydrate: () => {
+          for (const client of broker.clients) {
+            client.transport.onEvent({
+              type: "stream_opened",
+              sourceId: key.sourceId,
+              mode: key.mode,
+              streamEpoch: broker.streamEpoch,
+              optionsRevision: broker.optionsRevision,
+              state: "ready",
+              options: { ...broker.authoritativeOptions },
+            });
+          }
+        },
+      };
+
+      return broker;
+    };
+
+    const makeClient = async (
+      broker: Broker,
+      requestedCenterHz: number,
+    ): Promise<Client> => {
+      const key: StreamKey = { sourceId: "shared-source", mode: "rx" };
+      const events: StreamEvent[] = [];
+      let transport!: Client["transport"];
+      const manager = createSourceModeStreamManager({
+        noSubscriberGraceMs: 10_000,
+        transportFactory: (transportKey, onEvent) => {
+          transport = {
+            key: transportKey,
+            sent: [],
+            onEvent,
+          };
+          return {
+            key: transportKey,
+            send: (message: StreamCommand) => {
+              transport.sent.push(message);
+              if (message.type === "stream_subscribe") {
+                // Subscribe is hydration, never a device tune. This is the
+                // exact boundary that prevents a second tab's stale local
+                // view from changing the shared source center.
+                transport.onEvent({
+                  type: "stream_opened",
+                  sourceId: transportKey.sourceId,
+                  mode: transportKey.mode,
+                  streamEpoch: broker.streamEpoch,
+                  optionsRevision: broker.optionsRevision,
+                  state: "ready",
+                  options: { ...broker.authoritativeOptions },
+                });
+              }
+              if (message.type === "stream_update_options") {
+                broker.authoritativeOptions = { ...message.options };
+                broker.optionsRevision += 1;
+                broker.optionsByRevision.set(
+                  broker.optionsRevision,
+                  { ...broker.authoritativeOptions },
+                );
+                for (const client of broker.clients) {
+                  client.transport.onEvent({
+                    type: "stream_options_applied",
+                    sourceId: transportKey.sourceId,
+                    mode: transportKey.mode,
+                    streamEpoch: broker.streamEpoch,
+                    optionsRevision: broker.optionsRevision,
+                    options: { ...broker.authoritativeOptions },
+                    origin: "backend",
+                  });
+                }
+              }
+            },
+            close: () => undefined,
+            onEvent,
+          };
+        },
+      });
+      const subscription = await manager.subscribe(
+        key,
+        rxOptions(requestedCenterHz),
+        (event) => events.push(event),
+      );
+      const client = { manager, transport, subscription, events };
+      broker.clients.push(client);
+      return client;
+    };
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.record({
+          firstRequestedCenterHz: fc.integer({
+            min: 1_000_000,
+            max: 200_000_000,
+          }),
+          secondRequestedCenterHz: fc.integer({
+            min: 1_000_000,
+            max: 200_000_000,
+          }),
+          operations: fc.array(
+            fc.record({
+              client: fc.integer({ min: 0, max: 1 }),
+              action: fc.constantFrom(
+                "pause",
+                "resume",
+                "request",
+                "tune",
+                "frame",
+                "stale-frame",
+                "hydrate",
+              ),
+              centerDeltaHz: fc.integer({ min: -2_000_000, max: 2_000_000 }),
+            }),
+            { minLength: 1, maxLength: 100 },
+          ),
+        }),
+        async ({
+          firstRequestedCenterHz,
+          secondRequestedCenterHz,
+          operations,
+        }) => {
+          const broker = createBroker();
+          const clients = [
+            await makeClient(broker, firstRequestedCenterHz),
+            await makeClient(broker, secondRequestedCenterHz),
+          ];
+          const paused = [false, false];
+          const pendingFrameRequest = [false, false];
+
+          const assertCoordinated = () => {
+            for (const client of clients) {
+              expect(client.subscription.effectiveOptions).toEqual(
+                broker.authoritativeOptions,
+              );
+              for (const event of client.events) {
+                if (event.type === "stream_frame") {
+                  const frameOptions = broker.optionsByRevision.get(
+                    event.optionsRevision,
+                  );
+                  expect(frameOptions).toBeDefined();
+                  expect(event.centerFrequencyHz).toBe(
+                    frameOptions?.mode === "rx"
+                      ? frameOptions.centerFrequencyHz
+                      : undefined,
+                  );
+                }
+              }
+            }
+          };
+
+          // Initial requested centers intentionally disagree. Both clients
+          // must hydrate to the broker's one device-owned center before any
+          // fuzzed interaction begins.
+          assertCoordinated();
+
+          for (const [step, operation] of operations.entries()) {
+            const clientIndex = operation.client;
+            const client = clients[clientIndex];
+            switch (operation.action) {
+              case "pause":
+                client.subscription.setPaused(true);
+                paused[clientIndex] = true;
+                break;
+              case "resume":
+                client.subscription.setPaused(false);
+                paused[clientIndex] = false;
+                break;
+              case "request":
+                client.subscription.requestNextFrame();
+                pendingFrameRequest[clientIndex] = true;
+                break;
+              case "tune": {
+                const nextCenter = Math.max(
+                  1_000_000,
+                  broker.authoritativeOptions.mode === "rx"
+                    ? broker.authoritativeOptions.centerFrequencyHz +
+                      operation.centerDeltaHz
+                    : 100_000_000,
+                );
+                await client.subscription.updateOptions(
+                  rxOptions(nextCenter),
+                );
+                break;
+              }
+              case "frame": {
+                const expectedFrames = clients.map(
+                  (_, index) =>
+                    !paused[index] || pendingFrameRequest[index] ? 1 : 0,
+                );
+                const before = clients.map(
+                  (candidate) =>
+                    candidate.events.filter(
+                      (event) => event.type === "stream_frame",
+                    ).length,
+                );
+                broker.emitFrame();
+                clients.forEach((candidate, index) => {
+                  const after = candidate.events.filter(
+                    (event) => event.type === "stream_frame",
+                  ).length;
+                  expect(after - before[index]).toBe(expectedFrames[index]);
+                });
+                pendingFrameRequest.fill(false);
+                break;
+              }
+              case "stale-frame":
+                broker.emitFrame(Math.max(0, broker.optionsRevision - 1));
+                break;
+              case "hydrate":
+                broker.hydrate();
+                break;
+            }
+
+            assertCoordinated();
+            expect(broker.optionsRevision).toBeGreaterThanOrEqual(1);
+            expect(step).toBeGreaterThanOrEqual(0);
+          }
+
+          clients.forEach((client) => client.manager.dispose());
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
   it("subscribed frames with monotone sequence are all accepted (lossless policy)", async () => {
     await fc.assert(
       fc.asyncProperty(

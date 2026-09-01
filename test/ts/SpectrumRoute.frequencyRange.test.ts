@@ -119,22 +119,18 @@ describe("resolveNavigationFrequencyBounds", () => {
   it("lets mirror-mode display navigation acquire beyond the active channel", () => {
     expect(
       resolveNavigationFrequencyBounds({
-        mirrorEnabled: true,
-        zoom: 1,
         channelBounds,
         hardwareBounds,
       }),
     ).toEqual(hardwareBounds);
   });
 
-  it("retains the ordinary unzoomed channel clamp when mirroring is disabled", () => {
+  it("keeps the device acquisition bounds at 1x so every subscriber can reach the same edge", () => {
     expect(
       resolveNavigationFrequencyBounds({
-        mirrorEnabled: false,
-        zoom: 1,
         channelBounds,
         hardwareBounds,
       }),
-    ).toEqual(channelBounds);
+    ).toEqual(hardwareBounds);
   });
 });

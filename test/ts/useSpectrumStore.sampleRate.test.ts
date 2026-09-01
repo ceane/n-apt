@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import {
   buildPersistedSourceViewState,
   resolveInitialSourceHydrationSettings,
@@ -10,18 +11,133 @@ import {
   buildPausedPreviewSignature,
   selectLiveSampleRateForSync,
   shouldSendSignalDisplaySettings,
+  resolveLiveAcquisitionBounds,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
+const DEVICE_OWNED_SOURCE_FIELDS = [
+  "activeSignalArea",
+  "frequencyRange",
+  "sampleRateHz",
+  "fftSize",
+  "fftFrameRate",
+  "fftWindow",
+  "gain",
+  "hackrfLnaGain",
+  "hackrfVgaGain",
+  "hackrfAmpEnabled",
+  "hackrfBasebandBandwidth",
+  "ppm",
+  "tunerAGC",
+  "rtlAGC",
+  "lastKnownRanges",
+] as const;
+
+const SOURCE_VIEW_FIELDS = [
+  ...DEVICE_OWNED_SOURCE_FIELDS,
+  "displayTemporalResolution",
+  "powerScale",
+  "vizZoom",
+  "vizZoomFloor",
+  "vizZoomFloorPan",
+  "autoZoomStability",
+  "vizPanOffset",
+  "fftMinDb",
+  "fftMaxDb",
+  "showSpikeOverlay",
+  "removeDcSpike",
+  "displayMode",
+  "fftAvgEnabled",
+  "fftSmoothEnabled",
+  "wfSmoothEnabled",
+] as const;
+
 describe("resolveSourceSwitchDisplaySettings", () => {
-  it("restores the selected RTL-SDR sample and frame rates together", () => {
-    expect(
-      resolveSourceSwitchDisplaySettings(
-        { sampleRateHz: 3_200_000, fftFrameRate: 30 },
-        { sampleRateHz: 20_000_000, fftFrameRate: 12 } as any,
-      ),
-    ).toEqual(
-      expect.objectContaining({ sampleRateHz: 3_200_000, fftFrameRate: 30 }),
+  it("does not restore a device-owned center frequency from client storage", () => {
+    const resolved = resolveSourceSwitchDisplaySettings(
+      {
+        activeSignalArea: "C",
+        frequencyRange: { min: 13_152_300, max: 16_352_300 },
+        sampleRateHz: 3_200_000,
+        fftFrameRate: 30,
+        vizPanOffset: 0.25,
+        powerScale: "dBm",
+      },
+      { sampleRateHz: 20_000_000, fftFrameRate: 12 } as any,
     );
+
+    expect(resolved).not.toHaveProperty("activeSignalArea");
+    expect(resolved).not.toHaveProperty("frequencyRange");
+    expect(resolved.sampleRateHz).toBe(20_000_000);
+    expect(resolved.fftFrameRate).toBe(12);
+    expect(resolved).toEqual(
+      expect.objectContaining({ vizPanOffset: 0.25, powerScale: "dBm" }),
+    );
+  });
+
+  it("cannot let arbitrary local source state overwrite device-owned options", () => {
+    fc.assert(
+      fc.property(
+        fc.dictionary(fc.constantFrom(...SOURCE_VIEW_FIELDS), fc.jsonValue()),
+        (restored) => {
+          const current = {
+            activeSignalArea: "A",
+            frequencyRange: { min: 0, max: 3_200_000 },
+            sampleRateHz: 3_200_000,
+            fftSize: 2_048,
+            fftFrameRate: 30,
+            fftWindow: "Rectangular",
+            gain: 12,
+            lastKnownRanges: { A: { min: 0, max: 3_200_000 } },
+            vizZoom: 1,
+            vizPanOffset: 0,
+          };
+          const before = {
+            ...current,
+            frequencyRange: { ...current.frequencyRange },
+            lastKnownRanges: {
+              A: { ...current.lastKnownRanges.A },
+            },
+          };
+          const currentRecord = current as Record<string, unknown>;
+          const normalized = normalizePersistedSourceViewState(
+            restored as any,
+          );
+          const switched = resolveSourceSwitchDisplaySettings(
+            restored as any,
+            current,
+          );
+
+          expect(Object.keys(normalized)).toEqual(
+            expect.arrayContaining(
+              Object.keys(restored).filter(
+                (key) => !DEVICE_OWNED_SOURCE_FIELDS.includes(key as never),
+              ),
+            ),
+          );
+          for (const key of DEVICE_OWNED_SOURCE_FIELDS) {
+            expect(normalized).not.toHaveProperty(key);
+            if (key in currentRecord) {
+              expect(switched[key]).toEqual(currentRecord[key]);
+            } else {
+              expect(switched).not.toHaveProperty(key);
+            }
+          }
+          expect(current).toEqual(before);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+describe("resolveLiveAcquisitionBounds", () => {
+  it("prefers the device bounds over a subscriber-local channel frame", () => {
+    expect(
+      resolveLiveAcquisitionBounds({
+        hardwareBounds: { min: 0, max: 30_000_000_000 },
+        channelBounds: { min: 6_780, max: 4_390_000 },
+      }),
+    ).toEqual({ min: 0, max: 30_000_000_000 });
   });
 });
 
@@ -149,7 +265,7 @@ describe("shouldPersistSelectedSourceView", () => {
 });
 
 describe("resolveLeavingSourceViewSnapshot", () => {
-  it("freezes the leaving source view before Mock Tx can rewrite shared geometry", () => {
+  it("preserves local presentation state without capturing the shared range", () => {
     const snapshot = resolveLeavingSourceViewSnapshot({
       previousSelectedSourceId: "mock-apt",
       nextSelectedSourceId: "mock-tx",
@@ -157,14 +273,14 @@ describe("resolveLeavingSourceViewSnapshot", () => {
       state: {
         frequencyRange: { min: 18_000, max: 4_390_000 },
         sampleRateHz: 4_372_000,
+        vizPanOffset: 0.2,
       } as any,
     });
 
     expect(snapshot?.key).toBe("napt-spectrum-view-v1:mock-apt");
-    expect(snapshot?.view.frequencyRange).toEqual({
-      min: 18_000,
-      max: 4_390_000,
-    });
+    expect(snapshot?.view).not.toHaveProperty("frequencyRange");
+    expect(snapshot?.view).not.toHaveProperty("sampleRateHz");
+    expect(snapshot?.view.vizPanOffset).toBe(0.2);
   });
 
   it("does nothing when the selection has not changed", () => {
@@ -296,7 +412,7 @@ describe("selectLiveSampleRateForSync", () => {
     ).toBe(20_000_000);
   });
 
-  it("persists and restores the selected sample rate for a source view", () => {
+  it("does not persist device-owned sample rate in a source view", () => {
     const persisted = buildPersistedSourceViewState({
       fftSize: 262_144,
       fftWindow: "Rectangular",
@@ -317,13 +433,13 @@ describe("selectLiveSampleRateForSync", () => {
       wfSmoothEnabled: false,
     } as any);
 
-    expect(persisted.sampleRateHz).toBe(5_200_000);
+    expect(persisted.sampleRateHz).toBeUndefined();
     expect(
       normalizePersistedSourceViewState({
         ...persisted,
         sampleRateHz: 5_200_000,
       }),
-    ).toEqual(expect.objectContaining({ sampleRateHz: 5_200_000 }));
+    ).not.toHaveProperty("sampleRateHz");
   });
 });
 

@@ -543,6 +543,29 @@ pub fn stream_options_valid(options: &super::stream_manager::StreamOptions) -> b
   }
 }
 
+/// A subscribe is a read/hydration operation, not a device-control write.
+/// When this is the first subscriber for a stream, seed its effective RX
+/// options from the backend's current device state so a stale client cannot
+/// become the new center-frequency authority during hydration. Deliberate
+/// retunes go through `stream_update_options` or the control-plane VFO path.
+fn resolve_authoritative_subscribe_options(
+  shared: &SharedState,
+  options: super::stream_manager::StreamOptions,
+) -> super::stream_manager::StreamOptions {
+  match options {
+    super::stream_manager::StreamOptions::Rx(mut requested) => {
+      let settings = shared.sdr_settings.lock().unwrap();
+      requested.center_frequency_hz = u64::from(settings.center_frequency);
+      requested.sample_rate_hz = settings.sample_rate;
+      requested.fft_size = settings.fft.default_size;
+      requested.frame_rate = Some(settings.fft.default_frame_rate);
+      requested.gain = Some(settings.gain.tuner_gain);
+      super::stream_manager::StreamOptions::Rx(requested)
+    }
+    other => other,
+  }
+}
+
 fn apply_rx_stream_device_options(
   shared: &SharedState,
   center_frequency_hz: u32,
@@ -852,6 +875,8 @@ async fn handle_stream_connection(
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
             }
+            let effective_subscribe_options =
+              resolve_authoritative_subscribe_options(&shared, options);
             manager.register_source(stream.source_id.clone(), capabilities);
             let source_snapshot = build_source_info_snapshot(&shared);
             let source_status = source_snapshot["sources"]
@@ -873,7 +898,7 @@ async fn handle_stream_connection(
             };
             let subscription = match manager.subscribe_with_policy(
               stream.clone(),
-              options,
+              effective_subscribe_options,
               delivery_policy,
             ) {
               Ok(subscription) => subscription,
@@ -1949,6 +1974,11 @@ pub fn handle_message(
           message.signal_area.clone(),
           (min_freq, _max_freq),
         );
+        if let Some(mirror_below_zero) = message.mirror_spectrum_below_zero {
+          shared
+            .mirror_spectrum_below_zero
+            .store(mirror_below_zero, Ordering::Relaxed);
+        }
         {
           let mut sdr_settings = shared.sdr_settings.lock().unwrap();
           sdr_settings.center_frequency = center_freq;
@@ -2092,6 +2122,7 @@ pub fn handle_message(
         }
       });
       let hackrf_amp_enable = message.hackrf_amp_enable;
+      let mirror_spectrum_below_zero = message.mirror_spectrum_below_zero;
 
       let ppm = message.ppm.and_then(|p| {
         const MAX_PPM: u32 = 200;
@@ -2116,8 +2147,36 @@ pub fn handle_message(
         && sample_rate.is_none()
         && message.tuner_agc.is_none()
         && message.rtl_agc.is_none()
+        && mirror_spectrum_below_zero.is_none()
       {
         debug!("Dropping settings message with no valid fields");
+        return;
+      }
+
+      if let Some(mirror_below_zero) = mirror_spectrum_below_zero {
+        shared
+          .mirror_spectrum_below_zero
+          .store(mirror_below_zero, Ordering::Relaxed);
+      }
+
+      // The mirror convention is device-scoped presentation state, not an
+      // SDR processor setting. Broadcast it without waking or reconfiguring
+      // the hardware when it is the only field in this message.
+      if fft_size.is_none()
+        && message.fft_window.is_none()
+        && frame_rate.is_none()
+        && max_frame_rate.is_none()
+        && gain.is_none()
+        && hackrf_lna_gain.is_none()
+        && hackrf_vga_gain.is_none()
+        && hackrf_amp_enable.is_none()
+        && message.tuner_bandwidth.is_none()
+        && ppm.is_none()
+        && sample_rate.is_none()
+        && message.tuner_agc.is_none()
+        && message.rtl_agc.is_none()
+      {
+        broadcast_channels(shared, broadcast_tx);
         return;
       }
 
@@ -2229,6 +2288,9 @@ pub fn handle_message(
           "frame_rate": shared.sdr_settings.lock().unwrap().fft.default_frame_rate,
         });
         let _ = broadcast_tx.send(payload.to_string());
+      }
+      if mirror_spectrum_below_zero.is_some() {
+        broadcast_channels(shared, broadcast_tx);
       }
     }
     "status" if message.source_id.is_none() => {
@@ -2797,7 +2859,7 @@ mod tests {
     source_iq_subscription_matches_active_source,
     source_iq_v2_frame_matches_source, stream_event_json,
     stream_rx_processor_settings, take_source_owned_paused_frame_request,
-    IqFrameStatus, IqStreamProtocol,
+    resolve_authoritative_subscribe_options, IqFrameStatus, IqStreamProtocol,
   };
   use crate::sdr::processor::SdrProcessor;
   use crate::server::shared_state::SharedState;
@@ -2834,6 +2896,36 @@ mod tests {
     assert_eq!(settings.fft_window.as_deref(), Some("Rectangular"));
     assert_eq!(settings.frame_rate, Some(60));
     assert_eq!(settings.gain, Some(46.9));
+  }
+
+  #[test]
+  #[serial]
+  fn new_rx_subscriber_cannot_make_its_stale_center_the_device_center() {
+    let shared = test_shared_state();
+    shared.sdr_settings.lock().unwrap().center_frequency = 14_752_300;
+
+    let effective = resolve_authoritative_subscribe_options(
+      &shared,
+      super::super::stream_manager::StreamOptions::Rx(RxStreamOptions {
+        center_frequency_hz: 1_600_000,
+        sample_rate_hz: 3_200_000,
+        fft_size: 2_048,
+        fft_window: Some("Rectangular".to_string()),
+        frame_rate: Some(60),
+        gain: Some(10.0),
+      }),
+    );
+
+    match effective {
+      super::super::stream_manager::StreamOptions::Rx(options) => {
+        assert_eq!(options.center_frequency_hz, 14_752_300);
+      }
+      _ => panic!("expected RX options"),
+    }
+    assert_eq!(
+      shared.sdr_settings.lock().unwrap().center_frequency,
+      14_752_300,
+    );
   }
 
   #[test]
@@ -3020,6 +3112,57 @@ mod tests {
     let snapshot: serde_json::Value =
       serde_json::from_str(&broadcast_rx.try_recv().unwrap()).unwrap();
     assert!(snapshot.get("display_range").is_none());
+  }
+
+  #[test]
+  #[serial]
+  fn frequency_range_snapshot_carries_the_shared_mirror_axis_choice() {
+    let shared = test_shared_state();
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+    let mut broadcast_rx = broadcast_tx.subscribe();
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"frequency_range",
+        "scope":"device",
+        "min_hz":0,
+        "max_hz":4000000,
+        "center_frequency":2000000,
+        "mirror_spectrum_below_zero":true
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let snapshot: serde_json::Value =
+      serde_json::from_str(&broadcast_rx.try_recv().unwrap()).unwrap();
+    assert_eq!(snapshot["mirror_spectrum_below_zero"], true);
+  }
+
+  #[test]
+  #[serial]
+  fn settings_updates_the_shared_mirror_axis_without_reconfiguring_the_sdr() {
+    let shared = test_shared_state();
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+    let mut broadcast_rx = broadcast_tx.subscribe();
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"settings",
+        "scope":"device",
+        "mirror_spectrum_below_zero":true
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    assert!(shared
+      .mirror_spectrum_below_zero
+      .load(Ordering::Relaxed));
+    let snapshot: serde_json::Value =
+      serde_json::from_str(&broadcast_rx.try_recv().unwrap()).unwrap();
+    assert_eq!(snapshot["type"], "channels");
+    assert_eq!(snapshot["mirror_spectrum_below_zero"], true);
   }
 
   #[test]

@@ -132,6 +132,10 @@ pub struct SharedState {
   pub active_signal_area: Mutex<Option<String>>,
   /// Device-scoped viewport selected by the control plane.
   pub active_frequency_range: Mutex<Option<(f64, f64)>>,
+  /// Device-scoped signed display convention. All subscribers receive this
+  /// value so separate clients cannot render the same RF stream on opposite
+  /// sides of the baseband axis.
+  pub mirror_spectrum_below_zero: AtomicBool,
   /// SDR settings loaded from signals.yaml
   pub sdr_settings: Mutex<super::types::SdrConfig>,
   /// Available spectrum bounds loaded from signals.yaml
@@ -268,6 +272,7 @@ impl SharedState {
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),
+      mirror_spectrum_below_zero: AtomicBool::new(false),
       sdr_settings: Mutex::new(sdr_settings.clone()),
       available_spectrum: load_available_spectrum()
         .map(|range| (range.min_freq, range.max_freq)),

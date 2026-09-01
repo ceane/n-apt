@@ -444,6 +444,7 @@ export const ChannelsMessageSchema = z.object({
     .nullable()
     .optional(),
   sample_rate: z.number().positive().optional(),
+  mirror_spectrum_below_zero: z.boolean().optional(),
   error: z.string().nullable().optional(),
 });
 
@@ -612,6 +613,7 @@ export const WebSocketMessageSchema = z.union([
     ppm: z.number().int().nonnegative().optional(),
     tunerAGC: z.boolean().optional(),
     rtlAGC: z.boolean().optional(),
+    mirrorSpectrumBelowZero: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("restart_device"),

@@ -90,6 +90,9 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
     "active_signal_area": active_signal_area,
     "frequency_range": frequency_range,
     "sample_rate": sample_rate,
+    "mirror_spectrum_below_zero": shared
+      .mirror_spectrum_below_zero
+      .load(std::sync::atomic::Ordering::Relaxed),
     "origin_id": origin_id,
     "error": serde_json::Value::Null,
   })
@@ -99,7 +102,9 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
 /// same device-scoped configuration (FFT size/frame rate, sample rate, gain,
 /// PPM, AGC, baseband filter). The FFT window is a local viewer choice and is
 /// intentionally not included, as are temporal resolution, DC spike removal,
-/// power scale, display mode, and zoom/pan.
+/// power scale, display mode, and zoom/pan. The signed baseband convention is
+/// broadcast in the channels snapshot because it must be shared by every
+/// subscriber while remaining a rendering concern.
 pub fn broadcast_signal_display_settings(
   shared: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
@@ -227,6 +232,20 @@ mod tests {
 
     broadcast_channels(&shared, &broadcast_tx);
     assert!(broadcast_rx.try_recv().is_err());
+  }
+
+  #[test]
+  #[serial]
+  fn initial_channels_snapshot_carries_the_shared_mirror_axis_choice() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1/");
+    shared
+      .mirror_spectrum_below_zero
+      .store(true, std::sync::atomic::Ordering::Relaxed);
+
+    let snapshot = build_channels_snapshot(&shared);
+
+    assert_eq!(snapshot["mirror_spectrum_below_zero"], true);
   }
 
   #[test]

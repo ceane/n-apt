@@ -512,10 +512,7 @@ export const shouldPersistSelectedSourceView = ({
   return true;
 };
 
-/**
- * Snapshot the leaving source's view at selection time — before child effects
- * (e.g. Mock Tx mode-enter jumps) rewrite shared frequency geometry.
- */
+/** Snapshot only subscriber-local presentation state at source selection time. */
 export const resolveLeavingSourceViewSnapshot = ({
   previousSelectedSourceId,
   nextSelectedSourceId,
@@ -993,9 +990,11 @@ export type SpectrumState = {
   };
 };
 
+// Only subscriber-local presentation state belongs in a browser's source
+// view cache. The live center/range is device-scoped SSOT: persisting it here
+// lets a second client replay a trapped range during hydration and retune the
+// shared source, which later appears as a pause/unpause frequency jump.
 const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
-  "activeSignalArea",
-  "frequencyRange",
   "displayTemporalResolution",
   "powerScale",
   "vizZoom",
@@ -1005,51 +1004,40 @@ const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
   "vizPanOffset",
   "fftMinDb",
   "fftMaxDb",
-  "fftSize",
-  "fftFrameRate",
-  "fftWindow",
   "showSpikeOverlay",
   "removeDcSpike",
-  "gain",
-  "hackrfLnaGain",
-  "hackrfVgaGain",
-  "hackrfAmpEnabled",
-  "hackrfBasebandBandwidth",
-  "sampleRateHz",
-  "ppm",
-  "tunerAGC",
-  "rtlAGC",
-  "lastKnownRanges",
   "displayMode",
   "fftAvgEnabled",
   "fftSmoothEnabled",
   "wfSmoothEnabled",
 ];
 
-// A source view is persisted for convenience, but not every persisted value
-// is safe to replay when a subscriber first joins a live device. Device
-// options are shared by all subscribers; replaying an old channel/range here
-// would turn page hydration into a device-global write and can make two tabs
-// oscillate between their remembered channels. The backend stream hydration
-// owns those values on initial load. These fields remain subscriber-local
-// presentation state and are safe to restore immediately.
-const INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS: Array<keyof SpectrumState> = [
-  "displayTemporalResolution",
-  "powerScale",
-  "vizZoom",
-  "vizZoomFloor",
-  "vizZoomFloorPan",
-  "autoZoomStability",
-  "vizPanOffset",
-  "fftMinDb",
-  "fftMaxDb",
-  "showSpikeOverlay",
-  "removeDcSpike",
-  "displayMode",
-  "fftAvgEnabled",
-  "fftSmoothEnabled",
-  "wfSmoothEnabled",
-];
+/**
+ * Live acquisition bounds are device-scoped. A channel frame is only a
+ * hydration fallback; letting it win at 1x makes a subscriber's zoom history
+ * decide whether the shared source can reach an edge such as 0 Hz.
+ */
+export const resolveLiveAcquisitionBounds = ({
+  hardwareBounds,
+  channelBounds,
+}: {
+  hardwareBounds?: FrequencyRange | null;
+  channelBounds?: FrequencyRange | null;
+}): FrequencyRange | null => {
+  if (
+    hardwareBounds &&
+    Number.isFinite(hardwareBounds.min) &&
+    Number.isFinite(hardwareBounds.max) &&
+    hardwareBounds.max > hardwareBounds.min
+  ) {
+    return hardwareBounds;
+  }
+  return channelBounds ?? null;
+};
+
+// Every persisted source-view field is subscriber-local and safe to restore
+// immediately; device options come from the current live stream instead.
+const INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS = PERSISTED_SOURCE_VIEW_FIELDS;
 
 export const buildPersistedSourceViewState = (
   state: SpectrumState,
@@ -1855,6 +1843,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
 
     const isConnected = useAppSelector((s) => s.websocket.isConnected);
+    const hardwareSpectrumBounds = useAppSelector(
+      (s) => s.demod.hardwareRange,
+    );
     const isPaused = useAppSelector((s) => s.websocket.isPaused);
     const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
     const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
@@ -3559,7 +3550,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             normalizePositiveHardwareRange(range),
           );
         }
-        const bounds = mergedState.vizZoom > 1 ? null : activeSignalAreaBounds;
+        const bounds = resolveLiveAcquisitionBounds({
+          hardwareBounds: hardwareSpectrumBounds,
+          channelBounds: activeSignalAreaBounds,
+        });
         if (!bounds) return normalizeFrequencyRangeToHz(range);
 
         const rangeSpan = range.max - range.min;
@@ -3594,7 +3588,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         deviceName,
         deviceProfile?.is_rtl_sdr,
         deviceProfile?.kind,
-        mergedState.vizZoom,
+        hardwareSpectrumBounds,
         sampleRateHzEffective,
       ],
     );

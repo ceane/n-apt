@@ -443,6 +443,9 @@ export const sendSettings = createAsyncThunk(
     if (typeof settings.rtlAGC === "boolean") {
       sanitized.rtlAGC = settings.rtlAGC;
     }
+    if (typeof settings.mirrorSpectrumBelowZero === "boolean") {
+      sanitized.mirror_spectrum_below_zero = settings.mirrorSpectrumBelowZero;
+    }
 
     if (Object.keys(sanitized).length === 0) {
       console.warn(

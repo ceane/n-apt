@@ -477,6 +477,43 @@ describe("DC-region scroll uniformity", () => {
   });
 });
 
+describe("zoom reset and subscriber-independent VFO bounds", () => {
+  let harness = createFrequencyDragHarness();
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    harness = createFrequencyDragHarness();
+    harness.resetGestureState();
+  });
+
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it("continues hardware scrolling after returning from zoom to 1x", () => {
+    renderHook(() =>
+      useFrequencyDrag(
+        harness.buildOptions({
+          allowNegativeFrequencies: false,
+          hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
+        }),
+      ),
+    );
+
+    harness.wheel({ ctrlKey: true, deltaY: -200 });
+    harness.wheel({ ctrlKey: true, deltaY: 200 });
+
+    expect(harness.vizZoomRef.current).toBeCloseTo(1, 8);
+
+    harness.wheel({ deltaY: 40, clientY: VFO_WHEEL_CLIENT_Y });
+
+    expect(harness.mocks.onFrequencyRangeChange).toHaveBeenCalled();
+    expect(harness.vizPanOffsetRef.current).toBe(0);
+  });
+});
+
 describe("live frequency publisher burst fuzz", () => {
   beforeEach(() => {
     jest.useFakeTimers();

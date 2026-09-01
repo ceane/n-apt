@@ -760,9 +760,16 @@ const SdrSettingsSection: React.FC = () => {
           <Toggle
             aria-label="Mirror spectrum below 0Hz"
             $active={mirrorIqBasebandBelowZero}
-            onClick={() =>
-              dispatch(setMirrorIqBasebandBelowZero(!mirrorIqBasebandBelowZero))
-            }
+            onClick={() => {
+              const nextValue = !mirrorIqBasebandBelowZero;
+              dispatch(setMirrorIqBasebandBelowZero(nextValue));
+              // The mirror axis is part of the shared device presentation
+              // contract so a second client cannot silently render the same
+              // stream on the opposite signed axis.
+              dispatch(
+                sendSettings({ mirrorSpectrumBelowZero: nextValue }),
+              );
+            }}
           />
         </MirrorSpectrumRow>
       </SectionGrid>

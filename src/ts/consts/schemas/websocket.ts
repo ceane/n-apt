@@ -43,6 +43,7 @@ export type SDRSettings = {
   ppm?: number;
   tunerAGC?: boolean;
   rtlAGC?: boolean;
+  mirrorSpectrumBelowZero?: boolean;
 };
 
 export type SdrSettingsConfig = {
@@ -166,6 +167,8 @@ export type ChannelsMessage = {
   frequency_range?: { min: number; max: number } | null;
   display_range?: MirroredDisplayRange | null;
   sample_rate?: number;
+  /** Device-scoped display convention shared by all subscribers. */
+  mirror_spectrum_below_zero?: boolean;
   /** Origin tag of the client that performed the last live tune. */
   origin_id?: string | null;
   error?: string | null;
