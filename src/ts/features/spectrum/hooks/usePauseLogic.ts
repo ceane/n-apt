@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { validateWaterfallDataComprehensive } from "@n-apt/validation";
 import { readPauseSnapshot, writePauseSnapshot, type PauseSnapshot } from "@n-apt/capture/public/pauseSnapshotStorage";
-import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
 export {
   getPauseSnapshotStorageKeys,
   SNAPSHOT_IQ_KEY,

@@ -654,7 +654,7 @@ const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
 // RATIONALE for Auto FFT:
 // 1. Screen widths are typically smaller than the FFT size (which is width-based).
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
-let lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
+let _lastSettingsRequest: { fft_size?: number; timestamp: number } | null = null;
 let lastFrequencyRangeSendKey: string | null = null;
 let lastFrequencyRangeSendAt = 0;
 
@@ -786,7 +786,7 @@ export const isPauseCommandInFlight = (): boolean =>
 
 export const resetWebSocketMiddlewareState = (): void => {
   requestedSourceId = null;
-  lastSettingsRequest = null;
+  _lastSettingsRequest = null;
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
   pendingDataUpdate = null;
@@ -1274,7 +1274,7 @@ const getPersistedActiveSignalArea = (sourceId: string): string | null => {
       const parsed = JSON.parse(stored);
       return parsed?.activeSignalArea ?? null;
     }
-  } catch (e) {
+  } catch {
     // Ignore
   }
   return null;
@@ -2894,7 +2894,7 @@ export const processWebSocketMessage = (
     return;
   }
 
-  if (false && parsedData?.type === "status") {
+  if (parsedData?.type === "status") {
     return;
   }
 
@@ -3392,7 +3392,7 @@ const createWebSocketMiddleware =
           normalizedData?.fftSize ??
           normalizedData?.fft_size_hz;
         if (type === "settings" && requestedFftSize) {
-          lastSettingsRequest = {
+          _lastSettingsRequest = {
             fft_size: requestedFftSize,
             timestamp: Date.now(),
           };

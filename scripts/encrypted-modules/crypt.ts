@@ -8,7 +8,6 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 const KEY_LENGTH = 32;
-const ITERATIONS = 600000;
 
 interface FileBundle {
   files: {
@@ -79,7 +78,7 @@ function decrypt(buffer: Buffer, password: string): string {
     let decrypted = decipher.update(encrypted.toString('hex'), 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
-  } catch (err) {
+  } catch {
     // Fallback to pbkdf2Sync (legacy encryption format)
     const key = crypto.pbkdf2Sync(password, salt, 100000, KEY_LENGTH, 'sha256');
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
@@ -144,9 +143,9 @@ function unbundle(bundle: FileBundle, targetDir: string) {
       try {
         const decoded = Buffer.from(file.content, 'base64').toString('utf8');
         // Strip zero-width and common combining ranges (U+200B..U+200D, U+FEFF, U+0300..U+036F)
-        const cleaned = decoded.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u00B8\u02DA\u0300-\u036F]/g, '');
+        const cleaned = decoded.replace(/[\u200B-\u200D\uFEFF\u00AD\u00B8\u02DA\u0300-\u036F]/g, '');
         fs.writeFileSync(fullPath, cleaned, { encoding: 'utf8' });
-      } catch (e) {
+      } catch {
         // If decoding fails, fall back to writing raw buffer
         fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
       }

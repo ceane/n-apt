@@ -156,7 +156,7 @@ describe("shader math fidelity", () => {
       frameSpacing: 0.02,
     };
 
-    const nearDepth = (0 / fftParams.frameCount) * 2 - 1;
+    const nearDepth = -1;
     const farDepth = (9 / fftParams.frameCount) * 2 - 1;
 
     const screenX =
@@ -169,7 +169,7 @@ describe("shader math fidelity", () => {
       ((-40 - fftParams.minDb) / (fftParams.maxDb - fftParams.minDb)) * 2 - 1;
 
     const nearPerspectiveY =
-      screenY * (1 + nearDepth * 0.3) + 0 * fftParams.frameSpacing;
+      screenY * (1 + nearDepth * 0.3);
     const farPerspectiveY =
       screenY * (1 + farDepth * 0.3) + 9 * fftParams.frameSpacing;
 

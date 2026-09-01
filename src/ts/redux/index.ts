@@ -147,7 +147,6 @@ import {
   setDeviceSdrSettingsBundle,
   setBasebandFilterPinned,
   setVisualizerPaused,
-  setDetectedFrameRate,
   setDiagnosticStatus,
   setDiagnosticRunning,
   triggerDiagnostic,
@@ -155,13 +154,10 @@ import {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
-  setMinReceiveSampleRate,
   setShowSpikeOverlay,
   setRemoveDcSpike,
   setGpuSpikeCount,
   setShowTxSlider,
-  setStitchOption,
-  setStitchOptionValue,
 } from "./slices/spectrumSlice";
 
 // Export spectrum actions as individual

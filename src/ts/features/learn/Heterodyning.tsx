@@ -53,7 +53,8 @@ function WaveCanvas({
           const phase = (x / w) * Math.PI * 2 * 8;
           const env = Math.abs(Math.cos(beatFreq * phase / 2 + t * beatFreq * Math.PI));
           const y = cy - amp * env;
-          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
         }
         for (let x = w; x >= 0; x--) {
           const phase = (x / w) * Math.PI * 2 * 8;
@@ -71,7 +72,8 @@ function WaveCanvas({
           const phase = (x / w) * Math.PI * 2 * 8;
           const env = Math.abs(Math.cos(beatFreq * phase / 2 + t * beatFreq * Math.PI));
           const y = cy - amp * env;
-          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
         }
         ctx.strokeStyle = dark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.25)";
         ctx.lineWidth = 1;
@@ -84,7 +86,8 @@ function WaveCanvas({
           const phase = (x / w) * Math.PI * 2 * 8;
           const env = Math.abs(Math.cos(beatFreq * phase / 2 + t * beatFreq * Math.PI));
           const y = cy + amp * env;
-          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
         }
         ctx.strokeStyle = dark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.25)";
         ctx.lineWidth = 1;
@@ -106,7 +109,8 @@ function WaveCanvas({
           // Single transmitter wave
           y = cy - amp * Math.sin(freqA * phase + t * freqA * Math.PI);
         }
-        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
       ctx.strokeStyle = dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.85)";
       ctx.lineWidth = 1.5;
@@ -208,7 +212,7 @@ function FreespaceViz({ freqA, freqB }: { freqA: number; freqB: number }) {
         const phaseB = dB * freqB * 0.08 - t * freqB * Math.PI;
         const amp = (Math.cos(phaseA) + Math.cos(phaseB)) / 2;
         const intensity = (amp + 1) / 2;
-        const r = i / numSamples;
+        const _r = i / numSamples;
         const y = cy + amp * 22;
         ctx.beginPath();
         ctx.arc(x, y, 2, 0, Math.PI * 2);

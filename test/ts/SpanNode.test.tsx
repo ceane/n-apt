@@ -2,7 +2,6 @@ import React from "react";
 import {
   render,
   screen,
-  act,
   waitFor,
   fireEvent,
 } from "@testing-library/react";
@@ -22,16 +21,11 @@ jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
   useDemod: () => ({ fileCapturedRange: null }),
 }));
 
-import * as websocketThunks from "@n-apt/redux/thunks/websocketThunks";
-import demodReducer, {
-  setHardwareInfo,
-} from "@n-apt/redux/slices/demodSlice";
+import demodReducer from "@n-apt/redux/slices/demodSlice";
 import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
 import themeReducer from "@n-apt/redux/slices/themeSlice";
 import websocketReducer from "@n-apt/redux/slices/websocketSlice";
-import { DemodContext } from "@n-apt/demodulation/context/DemodContext";
 import { buildAppTheme } from "@n-apt/ui/Theme";
-import { formatFrequency } from "@n-apt/math/frequency";
 
 // Minimal mock theme
 const theme = buildAppTheme({
@@ -83,7 +77,7 @@ function createMockStore(
       theme: themeReducer,
       waterfall: (
         state = { sourceMode: options.sourceMode ?? "live" },
-        action: any,
+        _action: any,
       ) => state,
     } as any,
     preloadedState: {

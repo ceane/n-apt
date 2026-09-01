@@ -1,4 +1,4 @@
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { ReactNode } from "react";
 import {
@@ -8,7 +8,7 @@ import {
   getLearnSignalsSectionFromSlug,
 } from "@n-apt/learn/context/LearnSignalsContext";
 
-const renderInRouter = (initialPath: string, children: ReactNode) =>
+const renderInRouter = (initialPath: string, _children: ReactNode) =>
   renderHook(() => useLearnSignals(), {
     wrapper: ({ children: wrapperChildren }: { children: ReactNode }) => (
       <MemoryRouter initialEntries={[initialPath]}>

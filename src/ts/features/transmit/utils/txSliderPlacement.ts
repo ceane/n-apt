@@ -193,7 +193,7 @@ export const resolveTxSliderCenterHz = ({
   const fallbackCenter = Number.isFinite(fallbackCenterHz)
     ? fallbackCenterHz
     : viewportCenterHz;
-  const centerToUse = Number.isFinite(preferredCenterHz)
+  const _centerToUse = Number.isFinite(preferredCenterHz)
     ? preferredCenterHz
     : fallbackCenter;
 

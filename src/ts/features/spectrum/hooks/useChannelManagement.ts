@@ -217,7 +217,7 @@ interface UseChannelManagementProps {
 export const useChannelManagement = ({
   allChannelsRef,
   setActiveChannel,
-  setFrequencyRange,
+  setFrequencyRange: _setFrequencyRange,
   onChannelMetadataChange,
 }: UseChannelManagementProps) => {
   const { tuneChannels } = useChannelTuner();

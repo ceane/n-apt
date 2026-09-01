@@ -1,5 +1,4 @@
 // @ts-nocheck
-import { motion } from "framer-motion";
 import MultipathReflectionCanvas from "@n-apt/app-article/components/canvas/MultipathReflectionCanvas";
 
 export function ObstaclesMultipath() {

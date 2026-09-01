@@ -1,5 +1,4 @@
 import { useEffect, useMemo } from 'react'
-import * as THREE from 'three'
 import { useStore, BuildingData } from '../store'
 import { CellTower, TowerType } from './CellTower'
 
@@ -26,7 +25,7 @@ export function City() {
           { cx: 18, cz: 18 },
         ]
 
-        quadrants.forEach((quad, i) => {
+        quadrants.forEach((quad, _i) => {
           // Building size between 15 and 25
           const bWidth = 15 + Math.random() * 10
           const bDepth = 15 + Math.random() * 10

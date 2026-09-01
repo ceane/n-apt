@@ -6,7 +6,6 @@ import { IQCaptureNode } from "@n-apt/demodulation/react-flow/nodes/IQCaptureNod
 import { TestWrapper } from "./testUtils";
 import {
   sendCaptureCommand,
-  sendCaptureStopCommand,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
 

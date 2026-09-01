@@ -3,7 +3,6 @@ import type { StreamMode } from "@n-apt/app/infrastructure/streams/sourceModeStr
 import {
   writePauseSnapshot,
   readPauseSnapshot,
-  type PauseSnapshot,
 } from "@n-apt/capture/public/pauseSnapshotStorage";
 
 // ---------------------------------------------------------------------------

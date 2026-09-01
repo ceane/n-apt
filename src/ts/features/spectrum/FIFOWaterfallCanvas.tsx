@@ -107,7 +107,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   placeholderState: explicitPlaceholderState = null,
   isStandby: explicitIsStandby,
 }) => {
-  const isStandby =
+  const _isStandby =
     typeof explicitIsStandby === "boolean"
       ? explicitIsStandby
       : !!(

@@ -184,7 +184,7 @@ describe("frame processing fuzz", () => {
         fc.integer({ min: 1, max: 260 }),
         fc.integer({ min: 1, max: 64 }),
         fc.integer({ min: -50, max: 512 }),
-        (waveLen, temporalWindow, seed) => {
+        (waveLen, temporalWindow, _seed) => {
           const waveform = new Float32Array(waveLen).map((_, i) => i * 0.5);
           const state: TemporalWaveformState = {
             framePool: [],

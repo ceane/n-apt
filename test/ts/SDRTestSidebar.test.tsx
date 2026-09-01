@@ -1,7 +1,6 @@
 import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { THEME_TOKENS } from "@n-apt/consts";
 import { SDRTestSidebar } from "@n-apt/sdr-test/sidebar/SDRTestSidebar";
 import {
   SpectrumProvider,

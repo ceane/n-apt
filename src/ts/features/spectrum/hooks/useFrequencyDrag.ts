@@ -473,7 +473,7 @@ export function useSpectrumInteraction({
    *  canvas and already includes zoom + pan, so return it directly.
    *  Fall back to computing from the frequency range ref + zoom/pan
    *  when the clamped ref is unavailable. */
-  const getTxVisualRange = (slider: CanvasTxSliderState) => {
+  const getTxVisualRange = (_slider: CanvasTxSliderState) => {
     if (clampedVizRangeRef?.current) {
       return clampedVizRangeRef.current;
     }
@@ -544,8 +544,8 @@ export function useSpectrumInteraction({
     const minBandwidth = Math.min(25_000, Math.max(1, visibleSpan * 0.01));
     const maxBandwidth = Math.max(minBandwidth, visibleSpan);
     const visualRange = getTxVisualRange(slider);
-    const geometry = getTxSliderGeometry(canvasRect);
-    const canvasX = clientX - canvasRect.left;
+    const _geometry = getTxSliderGeometry(canvasRect);
+    const _canvasX = clientX - canvasRect.left;
     let nextMin = currentMin;
     let nextMax = currentMax;
 
@@ -1532,8 +1532,8 @@ export function useSpectrumInteraction({
         const currentX = boxCurrentRef.current.x - rect.left;
         const currentY = boxCurrentRef.current.y - rect.top;
 
-        const left = Math.min(startX, currentX);
-        const top = Math.min(startY, currentY);
+        const _left = Math.min(startX, currentX);
+        const _top = Math.min(startY, currentY);
         const width = Math.abs(currentX - startX);
         const height = Math.abs(currentY - startY);
 

@@ -127,24 +127,6 @@ function createSphereGeometry(): THREE.BufferGeometry {
   return geo
 }
 
-// Get geometry for frequency state
-function getGeometryForState(state: FrequencyState): THREE.BufferGeometry {
-  switch (state.geometryType) {
-    case 'thinCone':
-      return createThinConeGeometry()
-    case 'wideCone':
-      return createWideConeGeometry()
-    case 'teardrop':
-      return createTeardropGeometry()
-    case 'donut':
-      return createDonutGeometry()
-    case 'sphere':
-      return createSphereGeometry()
-    default:
-      return createThinConeGeometry()
-  }
-}
-
 // Beam state tracking for morphing
 interface BeamState {
   currentState: FrequencyState
@@ -296,10 +278,10 @@ export function SpotlightSystem() {
     if (!sphereGeo.boundingBox) return 1
     return (sphereGeo.boundingBox.max.z - sphereGeo.boundingBox.min.z) / 2
   }, [sphereGeo])
-  const geoByType: Record<string, THREE.BufferGeometry> = { thinCone: thinConeGeo, wideCone: wideConeGeo, teardrop: teardropGeo, donut: donutGeo, sphere: sphereGeo }
+  const _geoByType: Record<string, THREE.BufferGeometry> = { thinCone: thinConeGeo, wideCone: wideConeGeo, teardrop: teardropGeo, donut: donutGeo, sphere: sphereGeo }
 
   const beamMaterials = useMemo(() => {
-    return colors.map((color, i) => {
+    return colors.map((color, _i) => {
       const mat = new THREE.MeshBasicMaterial({
         color: new THREE.Color(color),
         transparent: true,
@@ -664,7 +646,7 @@ export function SpotlightSystem() {
     for (let i = displayLights.length; i < 9; i++) {
       const light = lightRefs[i].current
       const beamGroup = beamGroupRefs[i].current
-      const beamMesh = beamMeshRefs[i].current
+      const _beamMesh = beamMeshRefs[i].current
       const wave1 = wave1Refs[i].current
 
       if (light && beamGroup) {

@@ -137,7 +137,7 @@ export const adaptDemodFlowForSourceMode = (
   };
 };
 
-const buildReferenceCaptureFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
+const _buildReferenceCaptureFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
   const isFileSource = sourceMode === "file";
 
   const nodes: Node[] = [
@@ -374,7 +374,7 @@ const buildReferenceCaptureFlowGraph = (sourceMode: SourceMode): DemodFlowGraph 
 
 /** The first demod render is intentionally the compact audio-analysis flow.
  * Larger capture/reference graphs remain explicit sidebar templates. */
-const buildCompactAudioAnalysisFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
+const _buildCompactAudioAnalysisFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
   const isFileSource = sourceMode === "file";
   const sourceNode: Node = {
     id: "source",

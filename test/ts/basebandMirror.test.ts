@@ -736,7 +736,7 @@ describe("mirrored spectrum render pipeline", () => {
     for (const pan of [-40, -20, 20, 40]) {
       const { spectrumWaveform } = render({ zoom: 1, pan });
       expect(Array.from(spectrumWaveform)).toEqual(
-        new Array(spectrumWaveform.length).fill(FLOOR),
+        Array.from({ length: spectrumWaveform.length }, () => FLOOR),
       );
     }
   });

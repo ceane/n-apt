@@ -167,7 +167,7 @@ const rangeSpanHz = (range: FrequencyRange): number =>
 export const useLiveSampleRateControl = ({
   sourceMode,
   supportsWholeChannelSampleRate,
-  manualSampleRateOptions = [],
+  manualSampleRateOptions: _manualSampleRateOptions = [],
   activeChannelSampleRate,
   maxSampleRateHz,
   activeSignalAreaBounds,

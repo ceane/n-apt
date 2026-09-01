@@ -106,7 +106,7 @@ describe("useFFTAnimation", () => {
   });
 
   it("re-arms the rAF loop when a render callback throws, logging once per burst", () => {
-    const { raf, caf, pendingFrames, fireNext } = installDrivableRaf();
+    const { raf: _raf, caf, pendingFrames, fireNext } = installDrivableRaf();
     const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
     const error = new Error("boom");
     const render = jest.fn(() => {

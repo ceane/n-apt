@@ -1,5 +1,4 @@
 // @ts-nocheck
-import { motion } from "framer-motion";
 import { RadioWavesCanvas } from "@n-apt/app-article/components/canvas/RadioWavesCanvas";
 
 export function RadioWaves() {

@@ -11,7 +11,7 @@ import {
   Suspense,
   type ReactNode,
 } from "react";
-import styled, { keyframes } from "styled-components";
+import styled from "styled-components";
 import { Lock, Unlock, Zap } from "lucide-react";
 import { useFftRenderCoordinator } from "@n-apt/spectrum/hooks/useFftRenderCoordinator";
 import {
@@ -68,7 +68,6 @@ import type { SpikeAnalysis } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal
 import type { PauseSnapshot } from "@n-apt/capture/public/pauseSnapshotStorage";
 import {
   accumulateFullChannelWaveform,
-  FULL_CHANNEL_BINS,
   newestIqWindow,
   prepareSpectrumRenderData,
   resolveLiveSpectrumPaintContract,
@@ -132,10 +131,6 @@ import {
   selectFrameForPresentation,
 } from "@n-apt/spectrum/fft/framePresentation";
 import { removeDcSpikeFromSpectrum } from "@n-apt/spectrum/utils/removeDcSpike";
-import {
-  displayRangeNeedsBasebandMirror,
-  resolveDisplayRangeForPanOffset,
-} from "@n-apt/math/basebandMirror";
 
 export const createVizPanScheduler = (
   publish: (pan: number) => void,
@@ -179,7 +174,7 @@ type FrameRenderRangeInput = {
   isRtlSdr?: boolean | null;
 };
 
-const EMPTY_FLOAT32_ARRAY = new Float32Array(0);
+const _EMPTY_FLOAT32_ARRAY = new Float32Array(0);
 const WATERFALL_BIN_COUNT = 4096;
 
 const isMockTxIdentity = ({
@@ -724,7 +719,7 @@ const TxSliderLockButton = styled.button`
   }
 `;
 
-const TxBlinkingDot = styled.div`
+const _TxBlinkingDot = styled.div`
   position: absolute;
   top: -1px;
   right: -8px;
@@ -850,7 +845,7 @@ const TxSliderVisualPower = styled.span<{ $isTransmitting: boolean }>`
   font-weight: 600;
 `;
 
-const TxSliderVisualPowerDot = styled.span<{ $isTransmitting: boolean }>`
+const _TxSliderVisualPowerDot = styled.span<{ $isTransmitting: boolean }>`
   display: inline-block;
   width: 6px;
   height: 6px;
@@ -1093,7 +1088,7 @@ const ensureValidDbRange = (
   return { min: nextMin, max: nextMax };
 };
 
-const toUnifiedWindowType = (
+const _toUnifiedWindowType = (
   windowType?: string,
 ): "rectangular" | "hanning" | "hamming" | "blackman" | "nuttall" => {
   switch ((windowType ?? "Rectangular").toLowerCase()) {
@@ -1758,7 +1753,7 @@ const FFTCanvas = memo(
       useState(false);
 
     const [isTxSliderLocked, setIsTxSliderLocked] = useState(false);
-    const [fontLoadedTrigger, setFontLoadedTrigger] = useState(0);
+    const [_fontLoadedTrigger, setFontLoadedTrigger] = useState(0);
 
     const powerLineDbRef = useRef<number | null>(null);
     const isPowerLineHeldRef = useRef(false);
@@ -1818,7 +1813,7 @@ const FFTCanvas = memo(
       [getCached2DContext],
     );
 
-    const drawTxSliderOnContext = useCallback(
+    const _drawTxSliderOnContext = useCallback(
       (
         ctx: CanvasRenderingContext2D,
         width: number,
@@ -1942,7 +1937,7 @@ const FFTCanvas = memo(
 
     // Simplified frame management
     const frameBufferRef = useRef<Float32Array[]>([]);
-    const maxFrameBufferSize = 1;
+    const _maxFrameBufferSize = 1;
     const lastProcessedDataRef = useRef<any>(null);
     const invertedSpectrumBufferRef = useRef<Float32Array | null>(null);
     const hasPresentedSpectrumFrameRef = useRef(false);
@@ -1980,7 +1975,7 @@ const FFTCanvas = memo(
 
 
     const effectivePowerScale = powerScale ?? "dB";
-    const isHackrfDevice = deviceProfile?.kind === "hackrf_one";
+    const _isHackrfDevice = deviceProfile?.kind === "hackrf_one";
     const isRtlSdr = isRtlSdrDevice({
       deviceKind: deviceProfile?.kind,
       backend: deviceBackend,
@@ -2714,7 +2709,7 @@ const FFTCanvas = memo(
       webgpuEnabled,
     ]);
 
-    const handleSpikeCount = useCallback(
+    const _handleSpikeCount = useCallback(
       (count: number) => {
         dispatch(setGpuSpikeCount(count));
       },
@@ -2844,7 +2839,7 @@ const FFTCanvas = memo(
       overlayDirtyRef.current.grid = true;
     }, [isIqRecordingActive, hardwareSampleRateHz]);
 
-    const hasRealWaveform = !!(
+    const _hasRealWaveform = !!(
       waveformFloatRef.current && waveformFloatRef.current.length > 0
     );
     useEffect(() => {
@@ -3145,14 +3140,14 @@ const FFTCanvas = memo(
         const {
           isCurrentSourceFrame,
           hasStalePresentedSource,
-          hasCurrentSourceFrame,
+          hasCurrentSourceFrame: _hasCurrentSourceFrame,
           hasRenderableFrame,
           preservesMatchingStandbyPresentation,
-          shouldBlockForSourceHandoff,
+          shouldBlockForSourceHandoff: _shouldBlockForSourceHandoff,
           showLoadingPlaceholder,
           showErrorPlaceholder,
-          currentExplicitPlaceholderState,
-          hasExplicitPlaceholder,
+          currentExplicitPlaceholderState: _currentExplicitPlaceholderState,
+          hasExplicitPlaceholder: _hasExplicitPlaceholder,
           preservePresentationDuringGap,
           isExplicitStandbyPlaceholder,
           explicitPlaceholderBlocksFrame,
@@ -4660,7 +4655,7 @@ const FFTCanvas = memo(
       [],
     );
 
-    const persistVisualizerSession = useCallback(() => {
+    const _persistVisualizerSession = useCallback(() => {
       if (!visualizerMachine) {
         return;
       }

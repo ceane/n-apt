@@ -109,7 +109,7 @@ interface SourceNodeProps {
 export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
   const { wsConnection, deviceName: spectrumDeviceName } = useSpectrumStore();
-  const activeSource = useAppSelector(selectActiveSource);
+  const _activeSource = useAppSelector(selectActiveSource);
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
   const sources = useAppSelector(selectWebSocketSources);
   const selectedFiles = useAppSelector(selectSelectedFiles);

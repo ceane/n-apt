@@ -56,7 +56,7 @@ export function useAPTImageDemod(
   }, []);
 
   // Standard FM demodulation (APT is FM modulated)
-  const demodulateAPTBaseband = useCallback(
+  const _demodulateAPTBaseband = useCallback(
     (
       iqData: Uint8Array,
       sampleRate: number,
@@ -97,7 +97,7 @@ export function useAPTImageDemod(
     [],
   );
 
-  const resampleAudio = useCallback(
+  const _resampleAudio = useCallback(
     (audio: Float32Array, fromRate: number, toRate: number): Float32Array => {
       const ratio = fromRate / toRate;
       const outputLength = Math.floor(audio.length / ratio);
@@ -118,7 +118,7 @@ export function useAPTImageDemod(
     [],
   );
 
-  const envelopeDetectAPT = useCallback(
+  const _envelopeDetectAPT = useCallback(
     (audio: Float32Array, sampleRate: number): Float32Array => {
       const phi = 2 * Math.PI * (APT_IMAGE_CARRIER / sampleRate);
       const cosPhi = Math.cos(phi);

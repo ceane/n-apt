@@ -191,7 +191,7 @@ export function drawVfoAxis({
   bounds,
   y,
   labelY,
-  orientation = "bottom",
+  orientation: _orientation = "bottom",
   tickDirection = "down",
   tickStepHz,
   targetTicks = 10,

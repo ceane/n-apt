@@ -34,7 +34,7 @@ const getMarkersOverlaySignature = ({
   demodFocusOverlay,
   selectionOverlay,
   txSlider,
-  overlayOpacity = 1,
+  overlayOpacity: _overlayOpacity = 1,
   canvasStatusRow,
   isStandby = false,
   fftMin,

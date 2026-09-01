@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useEffect, type DragEvent } from "react";
+import React, { useRef, useEffect } from "react";
 import styled from "styled-components";
 import { Loader2 } from "lucide-react";
 import type { SourceMode } from "@n-apt/spectrum/hooks/useSpectrumStore";
@@ -151,32 +151,11 @@ const HiddenFileInput = styled.input`
   pointer-events: none;
 `;
 
-const ACCEPTED_TYPES = [".napt", ".wav", ".c64"];
-
 export const isSourceDeviceSelected = (
   sourceMode: SourceMode,
   deviceId: string,
   selectedDeviceId?: string,
 ) => sourceMode === "live" && deviceId === selectedDeviceId;
-
-const isFileTypeAccepted = (file: File): boolean => {
-  const fileName = file.name.toLowerCase();
-  const fileType = file.type.toLowerCase();
-
-  return ACCEPTED_TYPES.some((acceptedType) => {
-    if (acceptedType.startsWith(".")) {
-      return fileName.endsWith(acceptedType.toLowerCase());
-    }
-    if (acceptedType.endsWith("/*")) {
-      const baseType = acceptedType.slice(0, -1);
-      return fileType.startsWith(baseType);
-    }
-    return (
-      fileType === acceptedType.toLowerCase() ||
-      fileName.endsWith(`.${acceptedType.toLowerCase()}`)
-    );
-  });
-};
 
 const DevicePillMain = styled.div<{ $opacity?: number }>`
   display: grid;
@@ -419,7 +398,7 @@ interface SourceInputProps {
 export const SourceInput: React.FC<SourceInputProps> = ({
   sourceMode,
   compactActiveOnly = false,
-  fileModeColor,
+  fileModeColor: _fileModeColor,
   livePreviewStage = 0,
   fileActionLabel,
   fileActionTitle,
@@ -446,65 +425,13 @@ export const SourceInput: React.FC<SourceInputProps> = ({
 }) => {
   const fileSelectionActive = sourceMode === "file";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [isDragging, setIsDragging] = React.useState(false);
   const [transmittingDotOn, setTransmittingDotOn] = React.useState(true);
-
-  const handleFiles = useCallback(
-    (files: File[]) => {
-      const validFiles = files.filter(isFileTypeAccepted);
-      if (validFiles.length > 0) {
-        onFilesSelected?.(validFiles);
-      }
-    },
-    [onFilesSelected],
-  );
 
   useEffect(() => {
     if (!autoBrowseRequested || sourceMode !== "file") return;
     fileInputRef.current?.click();
     onAutoBrowseHandled?.();
   }, [autoBrowseRequested, onAutoBrowseHandled, sourceMode]);
-
-  const onDragEnter = useCallback((event: DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDragging(true);
-  }, []);
-
-  const onDragOver = useCallback((event: DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDragging(true);
-  }, []);
-
-  const onDragLeave = useCallback((event: DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDragging(false);
-  }, []);
-
-  const onDrop = useCallback(
-    (event: DragEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setIsDragging(false);
-
-      const items = event.dataTransfer?.items;
-      const droppedFiles: File[] = [];
-
-      if (items) {
-        Array.from(items).forEach((item) => {
-          if (item.kind === "file") {
-            const file = item.getAsFile();
-            if (file) droppedFiles.push(file);
-          }
-        });
-      }
-
-      handleFiles(droppedFiles);
-    },
-    [handleFiles],
-  );
 
   const fileButtonLabel =
     fileActionLabel || (fileSelectionActive ? "Browse" : "File");
@@ -513,7 +440,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     (fileButtonLabel === "Play" || fileButtonLabel === "Pause");
   const isFileLoading = fileButtonLabel.toLowerCase().includes("process");
 
-  const formatCapability = (
+  const _formatCapability = (
     capability?: string | null,
     isHalfDuplex?: boolean,
   ): string => {
@@ -541,7 +468,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   const formatRxTxLabel = (
     capability?: string | null,
     duplexMode?: string | null,
-    status?: string | null,
+    _status?: string | null,
   ) => {
     const normalizedDuplex = duplexMode?.toLowerCase?.() ?? "";
     if (normalizedDuplex === "half-duplex") {
@@ -629,7 +556,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
       isStreaming: isRxActiveStatus(device),
       paused: device.status?.paused === true,
     }).label === "Pause Rx";
-  const isStreamingDevice = (device: (typeof sourceDevices)[number]) =>
+  const _isStreamingDevice = (device: (typeof sourceDevices)[number]) =>
     resolveSourceModeManagement({
       source: {
         ...device,

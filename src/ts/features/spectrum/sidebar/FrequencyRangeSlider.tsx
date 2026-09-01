@@ -181,7 +181,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   externalFrequencyRange,
   sampleRateHz = null,
   allowWideSampleRateOverscan: _allowWideSampleRateOverscan = false,
-  wideSampleRateZoomThreshold = 1.5,
+  wideSampleRateZoomThreshold: _wideSampleRateZoomThreshold = 1.5,
   limitMarkers: _limitMarkers,
   readOnly = false,
   scanProgress = 0,

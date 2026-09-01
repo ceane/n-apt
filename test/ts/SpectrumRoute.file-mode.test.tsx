@@ -17,8 +17,6 @@ import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
 import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
 import sourceRoutingSlice from "@n-apt/redux/slices/sourceRoutingSlice";
 import {
-  setDeviceKind,
-  setTxCenterFrequencyHz,
   setTxSampleRateHz,
 } from "@n-apt/redux/slices/spectrumSlice";
 import {
@@ -156,7 +154,7 @@ const createStore = (preloadedState?: any) =>
       sourceRouting: {
         ...sourceRoutingSlice(undefined, { type: "@@INIT" as any }),
         bindings: { "tx-suite:tx": "mock-tx" },
-        ...(preloadedState?.sourceRouting ?? {}),
+        ...preloadedState?.sourceRouting,
       },
     },
     middleware: (getDefaultMiddleware) =>
@@ -275,7 +273,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -414,7 +412,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -813,7 +811,7 @@ describe("SpectrumRoute file mode", () => {
 
     const store = createStore();
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -963,7 +961,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -1129,7 +1127,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>

@@ -84,7 +84,6 @@ import {
 import {
   liveDataBySourceRef,
   liveDataRef,
-  presentationController,
   sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
@@ -1420,7 +1419,7 @@ export const resolveEffectiveLiveSampleRateHz = ({
   return resolveSourceSampleRateHz({ candidates, maxSampleRateHz });
 };
 
-function spectrumReducer(
+function _spectrumReducer(
   state: SpectrumState,
   action: SpectrumAction,
 ): SpectrumState {

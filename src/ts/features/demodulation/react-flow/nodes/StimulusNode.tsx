@@ -513,7 +513,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
   const isBusy =
     analysisSession.state !== "idle" && analysisSession.state !== "result";
-  const isStarting = analysisSession.state === "starting";
+  const _isStarting = analysisSession.state === "starting";
   const isCapturing = analysisSession.state === "capturing";
 
   useEffect(() => {

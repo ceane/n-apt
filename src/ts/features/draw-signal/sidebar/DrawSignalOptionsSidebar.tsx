@@ -166,7 +166,7 @@ interface DrawParams {
 
 export const DrawSignalOptionsSidebar: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { drawParams, activeClumpIndex, globalNoiseFloor } = useAppSelector(
+  const { drawParams, activeClumpIndex, globalNoiseFloor: _globalNoiseFloor } = useAppSelector(
     selectDrawSignalState,
   );
   const activeParams = drawParams[activeClumpIndex] || drawParams[0];

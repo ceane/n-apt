@@ -65,9 +65,9 @@ describe("createFifoWaterfall2DRenderer", () => {
     );
 
     expect((context as any).imageSmoothingEnabled).toBe(false);
+    const firstContextResult = sourceCanvas.getContext.mock.results[0];
     expect(
-      (sourceCanvas.getContext.mock.results[0]?.value as any)
-        .imageSmoothingEnabled,
+      firstContextResult && (firstContextResult.value as any).imageSmoothingEnabled,
     ).toBe(false);
   });
 });

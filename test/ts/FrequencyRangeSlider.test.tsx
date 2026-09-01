@@ -1,5 +1,5 @@
 import React from "react";
-import { render, fireEvent, screen, waitFor, act } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import FrequencyRangeSlider from "@n-apt/spectrum/sidebar/FrequencyRangeSlider";
 import { TestWrapper } from "./testUtils";
 

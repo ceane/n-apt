@@ -12,7 +12,6 @@ import spectrumReducer, {
   type SpectrumState,
 } from "@n-apt/redux/slices/spectrumSlice";
 import {
-  FRONTEND_VISUALIZER_DEFAULTS,
   VISUALIZER_MAX_ZOOM_LIMITS,
 } from "@n-apt/consts/visualizerControls";
 

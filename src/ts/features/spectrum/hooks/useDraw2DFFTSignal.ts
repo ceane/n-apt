@@ -162,7 +162,7 @@ const readCssColor = (name: string, fallback: string) => {
   return value || fallback;
 };
 
-const getDarkerColor = (colorStr: string) => {
+const _getDarkerColor = (colorStr: string) => {
   if (!colorStr) return "rgba(170, 30, 30, 0.8)";
   if (colorStr.startsWith("rgba")) {
     const match = colorStr.match(
@@ -354,7 +354,7 @@ export function useDraw2DFFTSignal() {
       const fullSpan = fullCaptureRange
         ? fullCaptureRange.max - fullCaptureRange.min
         : 0;
-      const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
+      const _zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
       const formatFreq = (f: number) =>
         formatFrequency(f, {
           trimTrailingZeros: true,
@@ -690,8 +690,8 @@ export function useDraw2DFFTSignal() {
       const fullSpan = fullCaptureRange
         ? fullCaptureRange.max - fullCaptureRange.min
         : 0;
-      const zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
-      const formatFreq = (f: number) =>
+      const _zoom = fullSpan > 0 ? fullSpan / viewBandwidth : 1;
+      const _formatFreq = (f: number) =>
         formatFrequency(f, {
           trimTrailingZeros: true,
           precisionMHz: 4,

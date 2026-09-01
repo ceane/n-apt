@@ -10,7 +10,7 @@ import {
   waitFor,
   act,
 } from "@testing-library/react";
-import { Provider, useSelector } from "react-redux";
+import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
 import { configureStore } from "@reduxjs/toolkit";
 import { MemoryRouter, useNavigate } from "react-router";

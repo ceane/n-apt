@@ -42,7 +42,6 @@ import {
   formatFrequency,
   getFrequencyRangeCenterHz,
 } from "@n-apt/math/frequency";
-import { Slider } from "@n-apt/ui/Slider";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import { resampleNearestInto } from "@n-apt/math/resampleNearest";
 import { getFilePlaceholderState } from "@n-apt/app/infrastructure/io/filePlaceholderState";
@@ -92,7 +91,7 @@ export const getWaterfallNodeFrequencyRange = ({
   expectedCenterFrequencyHz,
   expectedSampleRateHz,
   frame,
-  allowNegativeFrequencies = false,
+  allowNegativeFrequencies: _allowNegativeFrequencies = false,
 }: {
   sourceRole?: "rx" | "tx";
   fallbackRange?: FrequencyRange | null;
@@ -140,7 +139,7 @@ export const getWaterfallNodeDisplayRange = ({
   analysisOptions,
   requestedRange,
   sourceRange,
-  allowNegativeFrequencies = false,
+  allowNegativeFrequencies: _allowNegativeFrequencies = false,
 }: {
   analysisOptions?: boolean;
   requestedRange: FrequencyRange;
@@ -239,7 +238,7 @@ const CanvasContainer = styled.div<{ $analysis?: boolean }>`
   position: relative;
 `;
 
-const DbControls = styled.div`
+const _DbControls = styled.div`
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
@@ -805,7 +804,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   );
   const [waterfallPanHz, setWaterfallPanHz] = useState(0);
   const waterfallDbUnit = powerScale === "dBm" ? "dBm" : "dB";
-  const formatWaterfallDb = useCallback(
+  const _formatWaterfallDb = useCallback(
     (value: number) => formatDb(value, waterfallDbUnit),
     [waterfallDbUnit],
   );

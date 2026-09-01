@@ -214,7 +214,7 @@ export const assertDcCrossingContinuity = ({
 /** Pan offset must stay the presentation axis — never a separate presentation offset. */
 export const assertPanMatchesDisplayRange = ({
   hardwareRange,
-  zoom,
+  zoom: _zoom,
   panOffsetHz,
   displayRange,
 }: {

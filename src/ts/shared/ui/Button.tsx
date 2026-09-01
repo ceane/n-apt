@@ -38,7 +38,7 @@ export const Button = styled.button<{
     const border = theme?.border || "#2a2a2a";
     const textPrimary = theme?.textPrimary || "#ffffff";
 
-    const softBg = `color-mix(in srgb, ${primary} 18%, ${surface})`;
+    const _softBg = `color-mix(in srgb, ${primary} 18%, ${surface})`;
     const softBgHover = `color-mix(in srgb, ${primary} 26%, ${surface})`;
     const softBgActive = `color-mix(in srgb, ${primary} 32%, ${surface})`;
     const softBorder = `color-mix(in srgb, ${primary} 34%, ${border})`;

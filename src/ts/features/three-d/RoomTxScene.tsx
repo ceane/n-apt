@@ -361,9 +361,9 @@ export function RoomTxScene() {
   let safePower = Number.isFinite(parsedPower) ? parsedPower : -70;
 
   const wavelength = 299_792_458 / frequencyHzSafe;
-  const receiverSensitivityWatts = 4.6e-7;
-  const transmitterGain = 1.64; // half-wave dipole, 2.15 dBi
-  const receiverGain = 1;
+  const _receiverSensitivityWatts = 4.6e-7;
+  const _transmitterGain = 1.64; // half-wave dipole, 2.15 dBi
+  const _receiverGain = 1;
 
   if (calcEnabled) {
     const requiredPowerDbm = calculateRoomPowerLimitJS(

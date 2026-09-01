@@ -343,7 +343,7 @@ export const SpanNode: React.FC<SpanNodeProps> = ({ data }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const isPublishingLocalRangeRef = useRef(false);
 
-  const updatePreviewFromState = useCallback(() => {
+  const _updatePreviewFromState = useCallback(() => {
     let start = bandwidthStartHz;
     let end = bandwidthStartHz + bandwidthHz;
 

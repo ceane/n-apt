@@ -11,7 +11,7 @@ Element.prototype.scrollTo = function (
   this.scrollTop = (options && options.top) || 0;
 } as typeof Element.prototype.scrollTo;
 
-const ScrollHarness: React.FC<{ entry: string }> = ({ entry }) => {
+const ScrollHarness: React.FC<{ entry: string }> = ({ entry: _entry }) => {
   const { navigationContainerRef } = useSidebarNavigationScroll({ path: "/" });
   return (
     <div
@@ -34,7 +34,7 @@ describe("useSidebarNavigationScroll file selection deep link", () => {
     // sticky header (300px down) aligns to the container top (scrollTop 300).
     const realGetBoundingClientRect = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = function () {
-      const height = this.getAttribute?.("height") ?? null;
+      const _height = this.getAttribute?.("height") ?? null;
       const isHeader = this.hasAttribute?.("data-sidebar-sticky-header");
       if (this.getAttribute?.("data-testid") === "nav-container") {
         return {

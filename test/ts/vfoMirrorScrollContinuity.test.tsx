@@ -27,7 +27,6 @@ import {
   DEFAULT_HARDWARE_BOUNDS,
   displayViewport,
   mulberry32,
-  SPECTRUM_MAX_HZ,
   VFO_WHEEL_CLIENT_Y,
 } from "./helpers/vfoScrollTestKit";
 
@@ -67,7 +66,7 @@ jest.mock("@n-apt/shaders", () => ({
 };
 
 const FLOOR_DB = -120;
-const INITIAL_SPAN = DC_ANCHORED_ACQUISITION.max - DC_ANCHORED_ACQUISITION.min;
+const _INITIAL_SPAN = DC_ANCHORED_ACQUISITION.max - DC_ANCHORED_ACQUISITION.min;
 
 describe("FFTCanvas mirror pan redraw gate", () => {
   it("repaints from cache when mirror pan moves without a new IQ frame", () => {

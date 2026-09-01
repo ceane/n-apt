@@ -31,7 +31,6 @@ import {
   setTxHopChannels,
   setTxHopRateHz,
   setTxHopEnabled,
-  setHackrfAmpEnabled,
   setDeviceKind,
   setShowTxSlider,
   setRemoveDcSpike,
@@ -332,7 +331,7 @@ const NoteDeleteButton = memo(styled(Button)`
   }
 `);
 
-const hasPersistedFftSize = (): boolean => {
+const _hasPersistedFftSize = (): boolean => {
   if (typeof window === "undefined") return false;
 
   for (const storage of [window.localStorage, window.sessionStorage]) {
@@ -383,7 +382,7 @@ const playbackAfterCapture = async (
     sessionToken,
     aesKey,
     dispatch,
-    storeDispatch,
+    storeDispatch: _storeDispatch,
     setNaptMetadataError,
     getCancelled,
     schedule,
@@ -603,7 +602,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     manualVisualizerPaused,
     toggleVisualizerPause: toggleLiveVisualizerPause,
     setVisualizerPause: setLiveVisualizerPause,
-    cryptoCorrupted: liveCryptoCorrupted,
+    cryptoCorrupted: _liveCryptoCorrupted,
     deviceName: liveDeviceName,
     deviceProfile: liveDeviceProfile,
   } = useSpectrumStore();
@@ -632,10 +631,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     fftWindow,
     fftFrameRate,
     gain,
-    hackrfLnaGain,
-    hackrfVgaGain,
+    hackrfLnaGain: _hackrfLnaGain,
+    hackrfVgaGain: _hackrfVgaGain,
     hackrfAmpEnabled,
-    hackrfBasebandBandwidth,
+    hackrfBasebandBandwidth: _hackrfBasebandBandwidth,
     ppm,
     tunerAGC,
     rtlAGC,
@@ -813,7 +812,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const liveBackend = selectedSourceDerived.backend ?? wsConnection.backend;
   const liveDeviceState =
     selectedSourceDerived.deviceState ?? wsConnection.deviceState;
-  const liveDeviceLoadingReason =
+  const _liveDeviceLoadingReason =
     wsConnection.deviceLoadingReason ??
     (selectedSource?.status === "loading" ? "connect" : null);
   const liveIsPaused =
@@ -2071,7 +2070,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     return lower.endsWith(".napt") || lower.endsWith(".wav") ? f : null;
   }, [sourceMode, selectedFiles]);
 
-  const isMockFile = useMemo(() => {
+  const _isMockFile = useMemo(() => {
     const metadataSource = [naptMetadata?.source_device, naptMetadata?.hardware]
       .filter(Boolean)
       .join(" ")

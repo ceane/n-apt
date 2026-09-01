@@ -20,8 +20,6 @@ import {
 } from "./helpers/liveReduxStreamHarness";
 import {
   computeHmac,
-  base64ToBytes,
-  importAesKey,
 } from "@n-apt/crypto/webcrypto";
 
 const wsModule: any = require(

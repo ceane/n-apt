@@ -434,7 +434,7 @@ const LearnMoreLink = styled(Link)`
   }
 `;
 
-const LoadingDot = styled.span`
+const _LoadingDot = styled.span`
   animation: ${pulse} 1.5s ease-in-out infinite;
 `;
 
@@ -746,7 +746,7 @@ export const AuthenticationUI = ({
     // State changes are handled by parent component
   }, [onRegisterPasskey]);
 
-  const isLoading =
+  const _isLoading =
     authState === "connecting" ||
     authState === "server_down" ||
     authState === "awaiting_challenge" ||

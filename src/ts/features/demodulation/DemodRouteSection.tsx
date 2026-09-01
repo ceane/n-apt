@@ -286,7 +286,7 @@ const DemodRouteSectionInner: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { deleteElements, fitView, screenToFlowPosition } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
-  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const _sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const activeSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea,
   );

@@ -85,7 +85,7 @@ function SpatialApertureCanvas() {
 
   // User position — mutable refs so canvas loop can read/write without re-renders
   const userRef   = useRef<V2>({ x: 330, y: 210 });
-  const velRef    = useRef<V2>({ x: 0.6, y: 0.4 });
+  const _velRef    = useRef<V2>({ x: 0.6, y: 0.4 });
   const isDragging = useRef(false);
 
   // Target for wandering (changes periodically)

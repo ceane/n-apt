@@ -68,7 +68,7 @@ const readCssColor = (name: string, fallback: string) => {
   return value || fallback;
 };
 
-const getDarkerColor = (colorStr: string) => {
+const _getDarkerColor = (colorStr: string) => {
   if (!colorStr) return "rgba(170, 30, 30, 0.8)";
   if (colorStr.startsWith("rgba")) {
     const match = colorStr.match(
@@ -238,7 +238,7 @@ export function useOverlayRenderer() {
       const fullSpan = fullCaptureRange
         ? fullCaptureRange.max - fullCaptureRange.min
         : 0;
-      const zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
+      const _zoom = fullSpan > 0 ? fullSpan / viewBandwidth2 : 1;
       const formatFreq = (f: number) =>
         formatFrequency(f, {
           trimTrailingZeros: true,
@@ -330,7 +330,7 @@ export function useOverlayRenderer() {
       if (viewBandwidth2 <= 50_000) centerTicksHz.push(5_000);
       if (viewBandwidth2 <= 10_000) centerTicksHz.push(1_000);
 
-      const formatOffset = (hz: number) => {
+      const _formatOffset = (hz: number) => {
         return formatFrequency(hz, { trimTrailingZeros: true });
       };
 
@@ -590,7 +590,7 @@ export function useOverlayRenderer() {
       const fullSpan = _fullCaptureRange
         ? _fullCaptureRange.max - _fullCaptureRange.min
         : 0;
-      const zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
+      const _zoom = fullSpan > 0 ? fullSpan / (maxFreq - minFreq) : 1;
 
       const centerLineColor = isStandby
         ? applyOpacityToColor(canvasTheme.centerLineColor, 0.1)
@@ -1032,13 +1032,13 @@ export function useOverlayRenderer() {
         return;
       }
 
-      const canvasTheme = getCanvasThemeColors();
+      const _canvasTheme = getCanvasThemeColors();
       const plotLeft = Math.min(50, width);
       const plotRight = Math.max(plotLeft, width - 40);
       const left = 4;
-      const right = Math.max(left, width - 4);
+      const _right = Math.max(left, width - 4);
       const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
-      const bottom = Math.max(top + 1, height - 4);
+      const _bottom = Math.max(top + 1, height - 4);
       const trackLeft = plotLeft;
       const trackRight = Math.max(trackLeft + 80, plotRight);
       const trackWidth = Math.max(1, trackRight - trackLeft);
@@ -1094,8 +1094,8 @@ export function useOverlayRenderer() {
       height: number,
       slider: TxSliderOverlayState | null | undefined,
       visualRange?: FrequencyRange,
-      fftMin: number = -120,
-      fftMax: number = 0,
+      _fftMin: number = -120,
+      _fftMax: number = 0,
     ) => {
       if (
         !slider?.visible ||
@@ -1218,7 +1218,7 @@ export function useOverlayRenderer() {
       reservedBottomPx: number = LIVE_STATUS_ROW_HEIGHT,
       overlayOpacity: number = 1,
     ) => {
-      const dpr = window.devicePixelRatio || 1;
+      const _dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = {
         x: width - 40,
@@ -1309,7 +1309,7 @@ export function useOverlayRenderer() {
     ) => {
       if (powerLineDb === null || !Number.isFinite(powerLineDb)) return;
 
-      const dpr = window.devicePixelRatio || 1;
+      const _dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
       const fftAreaMax = {
         x: width - 40,

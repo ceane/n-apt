@@ -2,7 +2,6 @@ import { useCallback, useState, useMemo, useRef, useEffect } from "react";
 import {
   FFT_AREA_MIN,
   findBestFrequencyRange,
-  DB_MARKERS,
 } from "@n-apt/consts";
 import { THEME_TOKENS } from "@n-apt/consts";
 import {
@@ -43,7 +42,6 @@ import {
 import { formatTimestampWithTimezone } from "@n-apt/math/formatters";
 import {
   formatFrequency,
-  formatFrequencyHighRes,
 } from "@n-apt/math/frequency";
 import {
   buildFrequencyAxisTheme,
@@ -1775,7 +1773,7 @@ const FAST_FALLBACK_THEME: SnapshotTheme = {
   cfText: "#eef3fb",
 };
 
-function drawFastSpectrumSnapshotCenterLabel(
+function _drawFastSpectrumSnapshotCenterLabel(
   canvas: HTMLCanvasElement,
   frequencyRange: { min: number; max: number } | null | undefined,
   theme?: SnapshotTheme,
@@ -2025,7 +2023,7 @@ export function renderStatsRowCanvas(
 
   const plotLeft = 52;
   const plotRight = 40;
-  const padX = 12;
+  const _padX = 12;
   const padY = 12;
   const fontBoost = aspectRatio && aspectRatio !== "default" ? 5 : 0;
   const baseFontSize = 17 + fontBoost;
@@ -2099,7 +2097,7 @@ export function renderStatsRowCanvas(
   return canvas;
 }
 
-function appendCanvasBelow(
+function _appendCanvasBelow(
   topCanvas: HTMLCanvasElement,
   bottomCanvas: HTMLCanvasElement,
 ): HTMLCanvasElement {
@@ -3005,7 +3003,7 @@ const RECORDING_SNAPSHOT_DATA_OPTIONS = {
 
 export function useSnapshot(
   frequencyRange: { min: number; max: number } | null,
-  isConnected: boolean,
+  _isConnected: boolean,
 ) {
   const appMode = useAppSelector((state) => state.theme.appMode);
   const dispatch = useAppDispatch();

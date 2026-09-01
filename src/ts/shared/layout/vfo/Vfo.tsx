@@ -14,12 +14,9 @@ import {
   drawVfoAxis,
 } from "@n-apt/layout/rendering/vfoAxis";
 import {
-  DEFAULT_VFO_OPTIONS,
   resolveVfoOptions,
-  type VfoDrawingType,
   type VfoOptions,
   type VfoOrientation,
-  type VfoTickPrecision,
   type VfoVisualState,
 } from "@n-apt/layout/vfo/types";
 

@@ -118,14 +118,14 @@ const BandHandle = styled.div<{ $left: number }>`
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.22);
 `;
 
-const Value = styled.div`
+const _Value = styled.div`
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   color: ${(props) => props.theme.textSecondary};
   white-space: nowrap;
 `;
 
-const Slider = styled.input`
+const _Slider = styled.input`
   width: 100%;
   accent-color: ${(props) => props.theme.primary};
 `;

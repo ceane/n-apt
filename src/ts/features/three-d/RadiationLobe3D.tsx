@@ -76,7 +76,7 @@ const normalizedArrayFactor = (count: number, phaseDelta: number) => {
   return Math.abs(Math.sin((count * phaseDelta) / 2) / (count * denominator));
 };
 
-const createMainLobeGroundReach = (
+const _createMainLobeGroundReach = (
   powerWatts: number,
   wavelength: number,
   apertureWidth: number,

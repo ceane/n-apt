@@ -34,6 +34,6 @@ export function safeDownloadFilename(
   fallback = "capture.napt",
 ): string {
   const basename = (filename || "").split(/[\\/]/).pop() || "";
-  const cleaned = basename.replace(/[\u0000-\u001f\u007f"']/g, "").trim();
+  const cleaned = basename.replace(/[\u0000-\u001F\u007F"']/g, "").trim();
   return cleaned.slice(0, 128) || fallback;
 }

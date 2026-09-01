@@ -10,7 +10,6 @@ import {
   useAppDispatch,
 } from "@n-apt/redux";
 import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
-import { isRtlSdrDevice } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 export type WholeChannelSnapshotSegment = {
   data: SnapshotData;

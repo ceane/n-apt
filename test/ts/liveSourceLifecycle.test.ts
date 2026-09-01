@@ -636,7 +636,7 @@ describe("resolveLiveSourceLifecycle", () => {
       isStandby: true,
       handoffPlaceholder,
     });
-    const standbyPlaceholder = {
+    const _standbyPlaceholder = {
       kind: "top-bar" as const,
       title: "Start Tx to transmit",
     };

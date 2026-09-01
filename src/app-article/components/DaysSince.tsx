@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import styled from 'styled-components';
-import { motion, animate, useInView } from 'framer-motion';
+import { motion, useInView } from 'framer-motion';
 import { Copy, Check } from 'lucide-react';
 import {
   BYTES_PER_IQ_SAMPLE,
@@ -82,7 +82,7 @@ const DataContainer = styled.div`
   position: relative;
 `;
 
-const SectionLabel = styled.div`
+const _SectionLabel = styled.div`
   font-family: "KaTeX_Main", serif;
   font-size: 0.65rem;
   letter-spacing: 0.25em;
@@ -148,7 +148,7 @@ const SubLabel = styled.div`
   margin-bottom: 0.25rem;
 `;
 
-const FootnoteLabel = styled.div`
+const _FootnoteLabel = styled.div`
   font-family: "KaTeX_Main", serif;
   font-size: 0.7rem;
   color: var(--ds-text-dim);

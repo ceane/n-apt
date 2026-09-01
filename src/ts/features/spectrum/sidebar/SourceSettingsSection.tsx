@@ -471,7 +471,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     onHackrfAmpEnabledChange?.(enabled);
   };
 
-  const handleHackrfBasebandBandwidthChange = (raw: string) => {
+  const _handleHackrfBasebandBandwidthChange = (raw: string) => {
     const val = raw === "" ? 0 : Number(raw);
     onHackrfBasebandBandwidthChange?.(
       Math.max(0, Number.isFinite(val) ? Math.round(val) : 0),

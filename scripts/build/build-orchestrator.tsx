@@ -1225,7 +1225,6 @@ exit 1
     // Check if services were already running before this build
     hadServicesRef.current = !!(buildState.vitePid || buildState.rustPid);
 
-    const localOpenCellIdPath = process.env.LOCAL_OPENCELLID_CSV_DIR || 'data/opencellid';
     const redisPort = process.env.REDIS_PORT || '6379';
     const readRedisTowerCount = (db: string) => {
       const result = spawnSync('bash', ['-lc', `redis-cli -p ${redisPort} -n ${db} --raw keys 'tower:*' | wc -l`], { encoding: 'utf8' });

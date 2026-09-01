@@ -15,7 +15,7 @@ import {
 import { useAppSelector } from "@n-apt/redux/store";
 import { formatDurationMs, formatFileSize } from "@n-apt/math/formatters";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
-import { formatChannelFreq, formatFrequency } from "@n-apt/math/frequency";
+import { formatChannelFreq } from "@n-apt/math/frequency";
 import { isValidNaptRange } from "@n-apt/math/signals";
 import {
   AlertTriangle,
@@ -32,7 +32,6 @@ import {
 import {
   Row,
   Collapsible,
-  Range,
   ChannelsSelector,
 } from "@n-apt/ui";
 import { RadioTabs } from "@n-apt/ui/RadioTabs";
@@ -575,7 +574,7 @@ export const IQCaptureControlsSection: React.FC<
 
   const handleActiveCaptureAreasChange = (nextAreas: string[]) => {
     const hwHz = maxSampleRate;
-    const nextOnscreenOnly =
+    const _nextOnscreenOnly =
       nextAreas.includes("Onscreen") && nextAreas.length === 1;
     const nextHasChannel = nextAreas.some((a) => a !== "Onscreen");
 
@@ -754,7 +753,7 @@ export const IQCaptureControlsSection: React.FC<
     (hardwareSampleRateHz > 0 &&
       captureRangeSpan > 0 &&
       hardwareSampleRateHz >= captureRangeSpan);
-  const isOnscreenExactMatch =
+  const _isOnscreenExactMatch =
     onscreenOnly &&
     hardwareSampleRateHz > 0 &&
     Math.abs(captureRangeSpan - hardwareSampleRateHz) < 10_000;

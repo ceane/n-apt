@@ -49,7 +49,6 @@ export function createBackendHandoffProxy(options: {
   targetFile: string;
 }): http.Server {
   let target = readBackendTarget(options.targetFile);
-  const targetDirectory = path.dirname(options.targetFile);
   const proxiedSockets = new Set<any>();
 
   const closeProxiedSockets = () => {

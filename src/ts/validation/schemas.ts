@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { TrustLevel, ExpectedLatency } from "./types";
 
 // Preprocesses null values to undefined so they map properly to optional types rather than null
-const nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
+const _nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((val) => (val === null ? undefined : val), schema.optional());
 
 // Base schemas

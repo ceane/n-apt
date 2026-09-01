@@ -1,5 +1,3 @@
-import { decryptPayload } from "@n-apt/crypto/webcrypto"; // Ensure correct alias namespace imports format
-
 let wasmModule: any = null;
 let wasmPromise: Promise<any> | null = null;
 

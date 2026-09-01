@@ -142,7 +142,7 @@ const createStore = (preloadedState?: any) =>
       sourceRouting: {
         ...sourceRoutingSlice(undefined, { type: "@@INIT" as any }),
         bindings: { "tx-suite:tx": "mock-tx" },
-        ...(preloadedState?.sourceRouting ?? {}),
+        ...preloadedState?.sourceRouting,
       },
     },
     middleware: (getDefaultMiddleware) =>

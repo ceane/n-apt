@@ -70,7 +70,7 @@ export function isRebuildStatusStale(
 export function summarizeCargoProgressChunk(chunk: string): string | null {
   const lines = chunk
     .split(/\r?\n/)
-    .map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trim())
+    .map((line) => line.replace(/\u001b\[[0-9;]*m/g, "").trim())
     .filter(Boolean);
 
   let latest: string | null = null;
@@ -114,7 +114,7 @@ export function mergeRebuildRecentLines(
 ): string[] {
   const next = chunk
     .split(/\r?\n/)
-    .map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trim())
+    .map((line) => line.replace(/\u001b\[[0-9;]*m/g, "").trim())
     .filter(Boolean);
   return [...(previous ?? []), ...next].slice(-limit);
 }

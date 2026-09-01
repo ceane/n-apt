@@ -11,7 +11,6 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 const CWD = process.cwd();
 const ROOTS = ["src/ts", "src/app-article", "src/app-game", "src/app-legal"];
@@ -128,15 +127,15 @@ const prodSeeds = new Set(
   files.filter(
     (f) =>
       /^src\/ts\/(root|routes)\.(ts|tsx)$/.test(f) ||
-      /^src\/ts\/app\/routes\//.test(f) ||
+      f.startsWith('src/ts/app/routes/') ||
       /workers\/(fileWorker|scannerWorker)\.ts$/.test(f) ||
       /(questionnaireWorker|transcriptWorker|demodLayoutWorker)\.ts$/.test(f) ||
       /^src\/(app-article|app-game)\/main\.tsx$/.test(f) ||
-      (/^src\/ts\/cli\//.test(f) &&
+      (f.startsWith('src/ts/cli/') &&
         scriptText.includes(path.basename(f, path.extname(f)))),
   ),
 );
-for (const f of [...prodSeeds]) {
+for (const f of prodSeeds) {
   routeRefs(f).forEach((r) => prodSeeds.add(r));
 }
 // index.html script tags (classic Vite SPA entry)

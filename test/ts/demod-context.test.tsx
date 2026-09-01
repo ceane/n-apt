@@ -1,5 +1,5 @@
 const React = require("react");
-const { render, screen, waitFor, act } = require("@testing-library/react");
+const { render, screen, act, waitFor: _waitFor } = require("@testing-library/react");
 const { Provider } = require("react-redux");
 const { configureStore } = require("@reduxjs/toolkit");
 require("@testing-library/jest-dom");

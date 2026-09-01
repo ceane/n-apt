@@ -1,7 +1,6 @@
 import {
   createSourcePresentationController,
   type SourcePresentationController,
-  type SourceModeSlot,
 } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 import type { IqRawFrame, IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 

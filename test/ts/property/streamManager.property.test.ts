@@ -8,7 +8,6 @@ import {
   type StreamOptions,
   type StreamTransport,
 } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
-import { type StreamDeliveryPolicy } from "@n-apt/app/infrastructure/streams/streamContract";
 
 const rxOptions = (centerFrequencyHz = 100_000_000): StreamOptions => ({
   mode: "rx",
@@ -17,7 +16,7 @@ const rxOptions = (centerFrequencyHz = 100_000_000): StreamOptions => ({
   fftSize: 1024,
 });
 
-const txOptions = (): StreamOptions => ({
+const _txOptions = (): StreamOptions => ({
   mode: "tx",
   centerFrequencyHz: 100_000_000,
   sampleRateHz: 2_400_000,

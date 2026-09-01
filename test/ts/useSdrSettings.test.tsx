@@ -47,7 +47,7 @@ const mockSdrSettings = {
     size_to_frame_rate: { "8192": 60, "16384": 42 },
   },
 };
-let mockSendSettings: ReturnType<typeof testApi.fn>;
+let _mockSendSettings: ReturnType<typeof testApi.fn>;
 let mockOnSettingsChange: ReturnType<typeof testApi.fn>;
 
 type HookHarnessProps = {
@@ -130,7 +130,7 @@ const CouplingHarness: React.FC<HookHarnessProps> = (props) => {
 
 describe("useSdrSettings", () => {
   beforeEach(() => {
-    mockSendSettings = testApi.fn();
+    _mockSendSettings = testApi.fn();
     mockOnSettingsChange = testApi.fn();
   });
 

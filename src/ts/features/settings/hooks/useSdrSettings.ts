@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useEffect } from "react";
-import type { SDRSettings, SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
+import type { SDRSettings } from "@n-apt/consts/schemas/websocket";
 import type { SpectrumState } from "@n-apt/spectrum/public/useSpectrumStore";
 import {
   useAppDispatch,
@@ -9,7 +9,6 @@ import {
 } from "@n-apt/redux";
 import {
   clampFrameRateToLogicalMax,
-  computeMaxFrameRate,
   getLogicalMaxFrameRate,
 } from "@n-apt/math/signals";
 

@@ -236,7 +236,7 @@ const renderSignalsNav = (
 };
 
 export const LearnSignalsRoute: React.FC = () => {
-  const { activeSection, setActiveSection, showIntro, setShowIntro } =
+  const { activeSection, setActiveSection: _setActiveSection, showIntro, setShowIntro } =
     useLearnSignals();
   const navigate = useNavigate();
 

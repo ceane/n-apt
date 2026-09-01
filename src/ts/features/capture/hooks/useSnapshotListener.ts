@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import type { SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
 import type { SnapshotData } from "@n-apt/spectrum/public/FFTCanvas";
 import type { SnapshotOptions } from "@n-apt/capture/hooks/useSnapshot";
 import { formatFrequency } from "@n-apt/math/frequency";

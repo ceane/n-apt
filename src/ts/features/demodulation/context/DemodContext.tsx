@@ -466,7 +466,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     processIQData: processAptAudioIQData,
     playAudio: playAptAudio,
     stopAudio: stopAptAudio,
-    detectSpikes: detectNaptSpikes,
+    detectSpikes: _detectNaptSpikes,
   } = aptAudioDemod;
 
   // Throttled IQ demod processing — polls the frame runtime instead of subscribing
