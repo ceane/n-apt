@@ -297,10 +297,6 @@ const AppShellLayout: React.FC = () => {
             path="/experiments/web-usb"
             element={<WebUsbExperimentRoute />}
           />
-          <Route
-            path="/lite"
-            element={<Navigate to="/experiments/web-usb" replace />}
-          />
           <Route path="/3d-model" element={<Model3DRoute />} />
           <Route path="/map-endpoints" element={<MapEndpointsRoute />} />
           <Route

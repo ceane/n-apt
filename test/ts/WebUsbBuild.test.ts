@@ -8,8 +8,19 @@ const buildScriptPath = path.resolve(
   process.cwd(),
   "scripts/build/inline-webusb-build.mjs",
 );
+const viteConfigPath = path.resolve(process.cwd(), "vite.webusb.config.ts");
 
 describe("self-contained WebUSB build", () => {
+  it("builds only the singleton WebUSB probe entry", () => {
+    const viteConfig = fs.readFileSync(viteConfigPath, "utf8");
+
+    expect(viteConfig).toContain(
+      "webUsbProbe: path.resolve(dirname, \"src/ts/webusb-probe/index.html\")",
+    );
+    expect(viteConfig).not.toContain("lite: path.resolve");
+    expect(viteConfig).not.toContain("src/ts/lite/index.html");
+  });
+
   it("runs the Vite build followed by the single-file inliner", () => {
     expect(packageJson.scripts?.["build:webusb"]).toBe(
       "vite build --config vite.webusb.config.ts && node scripts/build/inline-webusb-build.mjs",

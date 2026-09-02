@@ -70,7 +70,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         webUsbProbe: path.resolve(dirname, "src/ts/webusb-probe/index.html"),
-        lite: path.resolve(dirname, "src/ts/lite/index.html"),
       },
     },
   },

@@ -67,12 +67,10 @@ import {
 import { ContactReveal } from "@n-apt/ui/ContactReveal";
 import {
   Box,
-  Clock,
   FileSignal,
   KeyRound,
   Monitor,
   SlidersHorizontal,
-  Sparkles,
   Camera,
   Zap,
   Code2,

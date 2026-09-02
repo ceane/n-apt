@@ -43,6 +43,18 @@ describe("standalone WebUSB probe mobile layout", () => {
     expect(probeHtml).toContain('<select id="iq-capture-format">');
     expect(probeHtml).toContain('<button id="iq-capture-toggle" type="button" disabled>Record</button>');
     expect(probeHtml).toContain('.iq-capture-pill[data-state="unavailable"]');
+    expect(probeHtml).toContain(
+      ".iq-capture-prefix { flex: 0 1 118px; max-width: 118px;",
+    );
+    expect(probeHtml).toContain(
+      ".iq-capture-prefix > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }",
+    );
+    expect(probeHtml).toContain(
+      ".iq-capture-format select { min-width: 0; width: 100%;",
+    );
+    expect(probeHtml).toContain(
+      ".iq-capture-controls button { flex: 1 1 150px; min-width: 0; font-size: 11px; }",
+    );
     expect(probeHtml).toContain(".snapshot-pill { min-width: 0; flex: 1 1 100%; }");
     expect(probeHtml).toContain(
       '.snapshot-pill[data-state="unavailable"] .snapshot-prefix { color: #52647b; }',
@@ -179,6 +191,12 @@ describe("standalone WebUSB probe mobile layout", () => {
       "padding-top: max(4px, env(safe-area-inset-top));",
     );
     expect(probeHtml).toContain(".mobile-landscape-panel { display: none; }");
+    expect(probeHtml).toContain(
+      ".mobile-landscape-panel > * { order: 2; }",
+    );
+    expect(probeHtml).toContain(
+      ".source-pill { order: 0; } .canvas-frame { order: 1; flex: 1 1 0;",
+    );
     expect(probeHtml).toContain('[data-landscape-controls="open"] .mobile-landscape-panel');
     expect(probeScript).toContain("mobileLandscapeToggle.addEventListener(\"click\"");
     expect(probeScript).toContain("window.matchMedia(");

@@ -1,4 +1,6 @@
 import * as React from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { MemoryRouter } from "react-router";
@@ -173,17 +175,15 @@ describe("AppRoutes auth regression", () => {
     expect(await screen.findByTestId("logout-route")).toBeInTheDocument();
   });
 
-  it("redirects /lite to the WebUSB experiment route", async () => {
-    render(
-      <TestWrapper>
-        <MemoryRouter initialEntries={["/lite"]}>
-          <AppRoutes />
-        </MemoryRouter>
-      </TestWrapper>,
+  it("does not register the removed /lite route", () => {
+    const routesSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "src/ts/app/routes/pages/Routes.tsx",
+      ),
+      "utf8",
     );
 
-    expect(
-      await screen.findByTestId("web-usb-experiment-route"),
-    ).toBeInTheDocument();
+    expect(routesSource).not.toContain('path="/lite"');
   });
 });

@@ -117,6 +117,7 @@
       }
       .iq-capture-pill { display: inline-flex; align-items: stretch; min-height: 42px; overflow: hidden; border: 1px solid #345070; border-radius: 999px; background: rgba(7, 17, 31, .72); color: #e5edf8; }
       .iq-capture-prefix { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 12px; color: #7188a5; font-size: 11px; font-weight: 700; white-space: nowrap; }
+      .iq-capture-prefix > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
       .iq-capture-icon { flex: 0 0 auto; }
       .iq-capture-format { display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; }
       .iq-capture-format select { width: auto; min-height: 34px; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: #e5edf8; font-size: 11px; }
@@ -208,10 +209,10 @@
         .capture-control-row > .iq-capture-controls { width: 100%; margin: 0; }
         .capture-control-row > .iq-capture-controls { margin-top: 24px; }
         .iq-capture-pill { width: 100%; min-width: 0; border-radius: 16px; }
-        .iq-capture-prefix { min-width: 0; padding: 0 8px; font-size: 9px; }
+        .iq-capture-prefix { flex: 0 1 118px; max-width: 118px; min-width: 0; padding: 0 8px; font-size: 9px; }
         .iq-capture-format { flex: 1 1 auto; min-width: 0; }
-        .iq-capture-format select { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
-        .iq-capture-controls button { flex: 1 1 150px; min-width: 0; }
+        .iq-capture-format select { min-width: 0; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+        .iq-capture-controls button { flex: 1 1 150px; min-width: 0; font-size: 11px; }
         .napt-channel-nav { gap: 8px; margin-bottom: 10px; }
         .napt-channel-title { font-size: 10px; }
         .napt-channel-buttons { gap: 5px; }
@@ -220,6 +221,8 @@
       @media (orientation: portrait) and (max-width: 680px) {
         main { padding-top: max(4px, env(safe-area-inset-top)); }
         .card { padding-top: 6px; }
+        .mobile-landscape-panel > * { order: 2; }
+        .source-pill { order: 0; } .canvas-frame { order: 1; flex: 1 1 0; min-height: 0; }
       }
       @supports (height: 100dvh) {
         @media (max-width: 680px) {
