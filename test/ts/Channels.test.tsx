@@ -10,7 +10,7 @@ import { createTestStore } from "./testUtils";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { websocketActions } from "@n-apt/redux";
-import { setVizPan } from "@n-apt/redux/slices/spectrumSlice";
+import { setVizPan, setVizZoom } from "@n-apt/redux/slices/spectrumSlice";
 import { setMirrorIqBasebandBelowZero } from "@n-apt/redux/slices/settingsSlice";
 
 jest.mock("@n-apt/spectrum/sidebar/FrequencyRangeSlider", () => ({
@@ -106,6 +106,57 @@ describe("Channels", () => {
     }
   });
 
+  it("offers to reset zoom when the highlighted channel is zoomed", () => {
+    const store = createTestStore();
+    store.dispatch(setVizZoom(2.5));
+    store.dispatch(setVizPan(1_000_000));
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "C",
+                  frequencyRange: { min: 4_750_000, max: 23_000_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                selectedSourceDerived: {
+                  deviceName: "Mock APT SDR",
+                  deviceProfile: { kind: "mock_apt" },
+                  backend: "mock_apt",
+                },
+                effectiveFrames: [
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 18_250_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels
+              variant="spectrum"
+              activeSampleRateHz={18_250_000}
+              wholeChannelMode={true}
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const resetButton = screen.getByRole("button", {
+      name: "Reset Zoom to see Whole Channel",
+    });
+    expect(resetButton).toBeInTheDocument();
+
+    fireEvent.click(resetButton);
+
+    expect(store.getState().spectrum.vizZoom).toBe(1);
+    expect(store.getState().spectrum.vizPanOffset).toBe(0);
+  });
+
   it("uses the selected channel bounds when switching to a whole-channel demod range", () => {
     const store = createTestStore();
     const sendFrequencyRange = jest.fn();
@@ -156,7 +207,7 @@ describe("Channels", () => {
     });
   });
 
-  it("marks only the channel containing the current VFO center as active", () => {
+  it("keeps the explicitly selected channel active while the VFO is panned", () => {
     const store = createTestStore();
     const sendFrequencyRange = jest.fn();
     const dispatch = jest.fn();
@@ -196,15 +247,133 @@ describe("Channels", () => {
 
     expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
       "data-is-active",
-      "false",
+      "true",
     );
     expect(screen.getByRole("button", { name: "B" })).toHaveAttribute(
       "data-is-active",
-      "true",
+      "false",
     );
   });
 
-  it("does not force stale Channel A active merely because mirror pan is nonzero", () => {
+  it("focuses the clicked channel around its center at the selected sample rate", () => {
+    const store = createTestStore();
+    jest.spyOn(store, "dispatch");
+    const sendFrequencyRange = jest.fn();
+    const dispatch = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "C",
+                  // The active channel can remain selected while the VFO is
+                  // manually moved far away from it.
+                  frequencyRange: { min: 196_000_000, max: 201_000_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch,
+                selectedSourceDerived: {
+                  deviceName: "RTL-SDR v4",
+                  deviceProfile: { kind: "rtl_sdr", is_rtl_sdr: true },
+                  backend: "rtl-sdr",
+                },
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 5_000_000,
+                wsConnection: { sendFrequencyRange },
+              } as any
+            }
+          >
+            <Channels
+              variant="spectrum"
+              activeSampleRateHz={5_000_000}
+              wholeChannelMode={false}
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "C" }));
+
+    expect(store.dispatch).toHaveBeenCalledWith({
+      type: "spectrum/setSignalAreaAndRange",
+      payload: {
+        area: "C",
+        range: { min: 11_375_000, max: 16_375_000 },
+      },
+    });
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 11_375_000,
+      max: 16_375_000,
+    });
+  });
+
+  it("keeps a fitting manual rate when clicking a Mock channel", () => {
+    const store = createTestStore();
+    jest.spyOn(store, "dispatch");
+    const sendFrequencyRange = jest.fn();
+    const onSampleRateChange = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 196_000_000, max: 201_000_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                selectedSourceDerived: {
+                  deviceName: "Mock APT SDR",
+                  deviceProfile: { kind: "mock_apt" },
+                  backend: "mock_apt",
+                },
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 5_000_000,
+                wsConnection: { sendFrequencyRange },
+              } as any
+            }
+          >
+            <Channels
+              variant="spectrum"
+              activeSampleRateHz={5_000_000}
+              wholeChannelMode={false}
+              onSampleRateChange={onSampleRateChange}
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "C" }));
+
+    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(store.dispatch).toHaveBeenCalledWith({
+      type: "spectrum/setSignalAreaAndRange",
+      payload: {
+        area: "C",
+        range: { min: 11_375_000, max: 16_375_000 },
+      },
+    });
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 11_375_000,
+      max: 16_375_000,
+    });
+  });
+
+  it("keeps the explicit channel active while mirror panning is nonzero", () => {
     const store = createTestStore();
     store.dispatch(setMirrorIqBasebandBelowZero(true));
     store.dispatch(setVizPan(-1_000_000));
@@ -238,15 +407,15 @@ describe("Channels", () => {
 
     expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
       "data-is-active",
-      "false",
+      "true",
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-is-active",
-      "true",
+      "false",
     );
   });
 
-  it("does not highlight a positive channel when the displayed center is below DC", () => {
+  it("keeps the explicit channel active when the displayed center is below DC", () => {
     const store = createTestStore();
     store.dispatch(setMirrorIqBasebandBelowZero(true));
     store.dispatch(setVizPan(-7_000_000));
@@ -281,7 +450,7 @@ describe("Channels", () => {
 
     expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
       "data-is-active",
-      "false",
+      "true",
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-is-active",
@@ -443,12 +612,12 @@ describe("Channels", () => {
       type: "spectrum/setSignalAreaAndRange",
       payload: {
         area: "C",
-        range: { min: 25_137_826, max: 28_337_826 },
+        range: { min: 25_400_000, max: 28_600_000 },
       },
     });
     expect(sendFrequencyRange).toHaveBeenCalledWith({
-      min: 25_137_826,
-      max: 28_337_826,
+      min: 25_400_000,
+      max: 28_600_000,
     });
   });
 
@@ -519,7 +688,7 @@ describe("Channels", () => {
     });
   });
 
-  it("does not reset to Whole Channel when clicking a slider after a covering sample rate change", () => {
+  it("keeps a fitting selected rate when switching channels", () => {
     const store = createTestStore();
     const onSampleRateChange = jest.fn();
     const sendFrequencyRange = jest.fn();
@@ -573,19 +742,16 @@ describe("Channels", () => {
       </Provider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "A" }));
+    fireEvent.click(screen.getByRole("button", { name: "C" }));
 
-    expect(onSampleRateChange).not.toHaveBeenCalledWith(
-      4_372_000,
-      "whole",
-    );
-    expect(onSampleRateChange).not.toHaveBeenCalledWith(
-      expect.any(Number),
-      "whole",
-    );
+    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 9_875_000,
+      max: 17_875_000,
+    });
   });
 
-  it("does not reset to Whole Channel when a wide sample rate moves the center off the previous channel", () => {
+  it("switches to the selected channel rate from a wide sample rate", () => {
     const store = createTestStore();
     const onSampleRateChange = jest.fn();
     const sendFrequencyRange = jest.fn();
@@ -597,7 +763,7 @@ describe("Channels", () => {
             mockValue={
               {
                 state: {
-                  activeSignalArea: "A",
+                  activeSignalArea: "C",
                   frequencyRange: { min: 18_000, max: 20_018_000 },
                   sampleRateHz: 20_000_000,
                   lastKnownRanges: {},
@@ -639,14 +805,10 @@ describe("Channels", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "A" }));
 
-    expect(onSampleRateChange).not.toHaveBeenCalledWith(
-      4_372_000,
-      "whole",
-    );
-    expect(onSampleRateChange).not.toHaveBeenCalledWith(
-      expect.any(Number),
-      "whole",
-    );
+    expect(onSampleRateChange).toHaveBeenCalledWith(4_372_000, "whole", {
+      min: 18_000,
+      max: 4_390_000,
+    });
   });
 
   it("applies the target channel Whole Channel rate when switching channels in whole-channel mode", () => {
@@ -697,7 +859,10 @@ describe("Channels", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "C" }));
 
-    expect(onSampleRateChange).toHaveBeenCalledWith(18_250_000, "whole");
+    expect(onSampleRateChange).toHaveBeenCalledWith(18_250_000, "whole", {
+      min: 4_750_000,
+      max: 23_000_000,
+    });
   });
 
   it("renders every channel full-width in whole-channel display mode", () => {

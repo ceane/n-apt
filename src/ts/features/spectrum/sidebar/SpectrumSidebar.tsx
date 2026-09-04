@@ -60,7 +60,6 @@ import {
   setDisplayMode,
   setFileMetadata,
   bumpSnapshotSectionPulse,
-  mergeLastKnownRanges,
 } from "@n-apt/redux";
 import { NaptMetadata } from "@n-apt/consts/types";
 
@@ -1177,10 +1176,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     : sampleRateOptions;
 
   const setSampleRateForVisualizer = useCallback(
-    (rate: number) => {
+    (rate: number, nextRange?: { min: number; max: number }) => {
       // Keep the canvas-side request coherent immediately, while
       // useSdrSettings owns the single Redux bundle + transport message.
-      storeDispatch({ type: "SET_SAMPLE_RATE", sampleRateHz: rate });
+      storeDispatch({
+        type: "SET_SAMPLE_RATE",
+        sampleRateHz: rate,
+        ...(nextRange ? { frequencyRange: nextRange } : {}),
+      });
       setSampleRate(rate);
     },
     [setSampleRate, storeDispatch],
@@ -1204,6 +1207,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     fftSize,
     maxFrameRateLimit: maxFrameRate,
     setSampleRate: setSampleRateForVisualizer,
+    setSampleRateWithFrequencyRange: setSampleRateForVisualizer,
     applyFrequencyRange: useCallback(
       (range) => {
         dispatch(setFrequencyRange(range));
@@ -1214,59 +1218,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ),
   });
   const handleSignalDisplaySampleRateChange = useCallback(
-    (nextSampleRate: number, mode?: "whole" | "manual") => {
-      const roundedNext = Math.round(nextSampleRate);
-      const roundedWholeChannel =
-        typeof hackrfWholeChannelSampleRate === "number" &&
-        Number.isFinite(hackrfWholeChannelSampleRate)
-          ? Math.round(hackrfWholeChannelSampleRate)
-          : null;
-      const roundedCurrent =
-        typeof liveState.sampleRateHz === "number" &&
-        Number.isFinite(liveState.sampleRateHz)
-          ? Math.round(liveState.sampleRateHz)
-          : null;
-      const isLeavingWholeChannel =
-        roundedWholeChannel !== null &&
-        roundedCurrent === roundedWholeChannel &&
-        roundedNext !== roundedWholeChannel;
-
-      if (isLeavingWholeChannel && Number.isFinite(nextSampleRate)) {
-        const anchoredRanges = liveFramesToUse.reduce<
-          Record<string, { min: number; max: number }>
-        >((ranges, frame) => {
-          if (
-            !frame?.label ||
-            !Number.isFinite(frame.min_hz) ||
-            !Number.isFinite(frame.max_hz) ||
-            frame.max_hz <= frame.min_hz
-          ) {
-            return ranges;
-          }
-          const span = Math.max(1, Math.round(nextSampleRate));
-          const range = {
-            min: Math.round(frame.min_hz),
-            max: Math.round(Math.min(frame.max_hz, frame.min_hz + span)),
-          };
-          ranges[frame.label] = range;
-          ranges[frame.label.toLowerCase()] = range;
-          return ranges;
-        }, {});
-
-        if (Object.keys(anchoredRanges).length > 0) {
-          dispatch(mergeLastKnownRanges(anchoredRanges));
-        }
-      }
-
-      handleSampleRateChange(nextSampleRate, mode);
+    (
+      nextSampleRate: number,
+      mode?: "whole" | "manual",
+      channelFocusRange?: { min: number; max: number },
+    ) => {
+      handleSampleRateChange(nextSampleRate, mode, channelFocusRange);
     },
-    [
-      dispatch,
-      handleSampleRateChange,
-      hackrfWholeChannelSampleRate,
-      liveFramesToUse,
-      liveState.sampleRateHz,
-    ],
+    [handleSampleRateChange],
   );
 
   useEffect(() => {

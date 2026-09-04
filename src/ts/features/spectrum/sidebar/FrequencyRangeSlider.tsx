@@ -243,22 +243,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   const [trackWidth, setTrackWidth] = useState(1000);
   useEffect(() => {
     const track = trackRef.current;
-    const thumb = thumbRef.current;
-    if (!track || !thumb) return;
+    if (!track) return;
 
     const updateWidths = () => {
       // Ignore transient zero-width observer events from hidden/non-laid-out panes.
       // Collapsing to 0 breaks min-content fallback and drag pixel math.
-      if (track.clientWidth > 0) setTrackWidth(track.clientWidth);
-      const label = windowLabelRef.current;
-      if (label) setWindowLabelWidth(label.scrollWidth);
+      if (track.clientWidth > 0) {
+        const nextTrackWidth = track.clientWidth;
+        setTrackWidth((previous) =>
+          previous === nextTrackWidth ? previous : nextTrackWidth,
+        );
+      }
     };
 
     const observer = new ResizeObserver(updateWidths);
     observer.observe(track);
-    observer.observe(thumb);
-    const label = windowLabelRef.current;
-    if (label) observer.observe(label);
 
     updateWidths();
 
@@ -363,6 +362,18 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     ? maxFreq
     : Math.min(maxFreq, rawCurrentMax);
 
+  // Measure label content after React lays it out instead of observing the
+  // label. The thumb width depends on this value, so observing both can form
+  // a ResizeObserver feedback loop during live range updates.
+  useEffect(() => {
+    const label = windowLabelRef.current;
+    if (!label) return;
+    const nextLabelWidth = label.scrollWidth;
+    setWindowLabelWidth((previous) =>
+      previous === nextLabelWidth ? previous : nextLabelWidth,
+    );
+  }, [currentMax, currentMin, isLeftLocked, isRightLocked, trackWidth]);
+
   const rangeFromWindowStart = useCallback(
     (start: number): FrequencyRange => {
       const rawMin = minFreq + start * safeTotalRange;
@@ -404,6 +415,27 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     [windowWidth],
   );
 
+  // Interaction listeners are intentionally stable. The parent can update
+  // the live spectrum range many times per second; rebinding native listeners
+  // on each update adds avoidable main-thread work and can compete with frame
+  // delivery while a trackpad gesture is in progress.
+  const applyWindowStartRef = useRef(applyWindowStart);
+  const publishRangeRef = useRef(publishRange);
+  const interactionMetricsRef = useRef({
+    trackWidth,
+    renderedThumbWidth,
+    windowWidth,
+    logicalMaxWindowStart,
+  });
+  applyWindowStartRef.current = applyWindowStart;
+  publishRangeRef.current = publishRange;
+  interactionMetricsRef.current = {
+    trackWidth,
+    renderedThumbWidth,
+    windowWidth,
+    logicalMaxWindowStart,
+  };
+
   const commitWindowStart = useCallback(
     (nextStart: number) => {
       publishRange(applyWindowStart(nextStart));
@@ -433,8 +465,10 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   );
 
   useEffect(() => {
+    if (readOnly || disabled) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isActive || readOnly || disabled) return;
+      if (!isActive) return;
 
       const activeEl = document.activeElement as HTMLElement | null;
       if (activeEl) {
@@ -465,25 +499,39 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
   }, [disabled, isActive, moveWindow, readOnly]);
 
   useEffect(() => {
+    if (!isActive || readOnly || disabled) return;
+
     const host = containerRef.current;
     if (!host) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (!isActive || readOnly || disabled) return;
+      if (!isActive) return;
       e.preventDefault();
       e.stopPropagation();
       const delta =
         Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      const tw = Math.max(1, trackRef.current?.clientWidth || trackWidth);
-      const draggablePixels = Math.max(1, tw - renderedThumbWidth);
+      const {
+        trackWidth: currentTrackWidth,
+        renderedThumbWidth: currentThumbWidth,
+        windowWidth: currentWindowWidth,
+      } = interactionMetricsRef.current;
+      const tw = Math.max(
+        1,
+        trackRef.current?.clientWidth || currentTrackWidth,
+      );
+      const draggablePixels = Math.max(1, tw - currentThumbWidth);
       const maxWindowStart =
-        windowWidth <= 1 ? Math.max(0, 1 - windowWidth) : windowWidth - 1;
+        currentWindowWidth <= 1
+          ? Math.max(0, 1 - currentWindowWidth)
+          : currentWindowWidth - 1;
       const windowStartDelta =
-        windowWidth <= 1
+        currentWindowWidth <= 1
           ? (delta / draggablePixels) * Math.max(maxWindowStart, 1e-9)
           : delta / tw;
-      applyWindowStart(windowStartRef.current + windowStartDelta);
-      publishRange(windowStartRef.current);
+      const appliedStart = applyWindowStartRef.current(
+        windowStartRef.current + windowStartDelta,
+      );
+      publishRangeRef.current(appliedStart);
     };
 
     host.addEventListener("wheel", handleWheel, { passive: false });
@@ -491,19 +539,21 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       host.removeEventListener("wheel", handleWheel);
     };
   }, [
-    applyWindowStart,
-    publishRange,
     disabled,
     isActive,
     readOnly,
-    renderedThumbWidth,
-    trackWidth,
-    windowWidth,
   ]);
 
   useEffect(() => {
+    if (readOnly || disabled) return;
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current || !trackRef.current) return;
+
+      const {
+        windowWidth: currentWindowWidth,
+        logicalMaxWindowStart: currentMaxWindowStart,
+      } = interactionMetricsRef.current;
 
       const deltaX = e.clientX - dragStartXRef.current;
 
@@ -517,9 +567,9 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       const draggablePixels = Math.max(1, tw - thw);
 
       let newStart;
-      if (windowWidth <= 1) {
+      if (currentWindowWidth <= 1) {
         const ratioDelta = deltaX / draggablePixels;
-        const windowStartDelta = ratioDelta * mws;
+        const windowStartDelta = ratioDelta * currentMaxWindowStart;
         newStart = dragStartWindowRef.current + windowStartDelta;
 
         if (isLeftLockedRef.current && newStart > 0) {
@@ -547,7 +597,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       } else {
         const ratioDelta = deltaX / tw;
         newStart = dragStartWindowRef.current + ratioDelta;
-        const overscan = windowWidth - 1;
+        const overscan = currentWindowWidth - 1;
 
         if (isLeftLockedRef.current && newStart > -overscan) {
           isLeftLockedRef.current = false;
@@ -573,11 +623,11 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
         }
       }
 
-      const appliedStart = applyWindowStart(newStart);
+      const appliedStart = applyWindowStartRef.current(newStart);
       // Keep the parent/VFO synchronized with the pointer. The slider is an
       // active tuning control, so waiting for mouseup makes it feel throttled
       // even though the thumb itself is already moving locally.
-      publishRange(appliedStart);
+      publishRangeRef.current(appliedStart);
     };
 
     const handleMouseUp = () => {
@@ -592,7 +642,7 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [applyWindowStart, publishRange, windowWidth]);
+  }, [disabled, readOnly]);
 
   const handleMouseDown = (
     e: React.MouseEvent,
@@ -643,6 +693,24 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
     publishRange(appliedStart);
   };
 
+  const handleSelectionClick = () => {
+    if (readOnly) {
+      if (onReadOnlyActivate) onReadOnlyActivate();
+      else if (!isActive) onActivate?.();
+    } else if (!isActive) {
+      onActivate?.();
+    }
+  };
+
+  const handleLabelClick = () => {
+    if (readOnly) {
+      if (onReadOnlyActivate) onReadOnlyActivate();
+      else onActivate?.();
+      return;
+    }
+    onActivate?.();
+  };
+
   const handleContainerClick = (e: React.MouseEvent) => {
     // readOnly sliders stay selectable: the container click must still reach
     // onActivate (channel selection) without enabling drag/publish.
@@ -650,24 +718,19 @@ const FrequencyRangeSlider: React.FC<FrequencyRangeSliderProps> = ({
       e.target === containerRef.current ||
       (e.target as HTMLElement).closest(".range-track")
     ) {
-      if (!isActive) {
-        if (readOnly) {
-          if (onReadOnlyActivate) onReadOnlyActivate();
-          else onActivate?.();
-        } else onActivate?.();
-      }
+      handleSelectionClick();
     }
   };
 
   return (
-    <SliderWrapper $disabled={disabled || readOnly}>
-      <LabelContainer>
+    <SliderWrapper $disabled={disabled}>
+      <LabelContainer onClick={handleLabelClick}>
         <Label $isActive={isActive}>{label}</Label>
       </LabelContainer>
       <SliderContainer
         ref={containerRef}
         $isActive={isActive}
-        $disabled={disabled || readOnly}
+        $disabled={disabled}
         onClick={handleContainerClick}
         onMouseDown={handleTrackMouseDown}
         tabIndex={0}

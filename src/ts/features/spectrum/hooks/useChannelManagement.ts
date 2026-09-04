@@ -27,7 +27,11 @@ export interface ChannelDescriptor {
 }
 
 export const useChannelTuner = (
-  onSampleRateChange?: (rate: number, mode?: "whole" | "manual") => void,
+  onSampleRateChange?: (
+    rate: number,
+    mode?: "whole" | "manual",
+    channelFocusRange?: TuningFrequencyRange,
+  ) => void,
 ) => {
   const reduxDispatch = useAppDispatch();
   const spectrumStore = useOptionalSpectrumStore();
@@ -143,7 +147,7 @@ export const useChannelTuner = (
           Number.isFinite(targetSampleRate) &&
           targetSampleRate > 0
         ) {
-          onSampleRateChange?.(targetSampleRate, "whole");
+          onSampleRateChange?.(targetSampleRate, "whole", range);
         }
 
         spectrumStoreRef.current?.wsConnection?.sendFrequencyRange?.(range);
@@ -185,7 +189,7 @@ export const useChannelTuner = (
         Number.isFinite(targetSampleRate) &&
         targetSampleRate > 0
       ) {
-        onSampleRateChange?.(targetSampleRate, "whole");
+        onSampleRateChange?.(targetSampleRate, "whole", range);
       }
 
       if (spectrumStore) {

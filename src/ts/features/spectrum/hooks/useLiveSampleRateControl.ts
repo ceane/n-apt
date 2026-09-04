@@ -51,6 +51,10 @@ type UseLiveSampleRateControlArgs = {
   maxFrameRateLimit?: number;
   startingAnchorPosition?: SampleRateAnchorPosition;
   setSampleRate: (rate: number) => void;
+  setSampleRateWithFrequencyRange?: (
+    rate: number,
+    nextRange: FrequencyRange,
+  ) => void;
   onSampleRateApplied?: (rate: number) => void;
   setFftFrameRate?: (rate: number) => void;
   applyFrequencyRange: (range: FrequencyRange) => void;
@@ -62,6 +66,52 @@ type BuildSampleRateRangeArgs = {
   channelBounds?: FrequencyRange | null;
   startingAnchorPosition?: SampleRateAnchorPosition;
   forceStartingAnchor?: boolean;
+};
+
+export interface ChannelFocusRangeOptions {
+  channelBounds: FrequencyRange;
+  sampleRateHz?: number | null;
+  wholeChannel: boolean;
+}
+
+/**
+ * Resolves the presentation window for an explicit channel selection.
+ *
+ * Whole Channel uses the channel bounds. Otherwise the selected sample-rate
+ * window is centered on the channel; windows narrower than the channel are
+ * clamped to its bounds, while wider windows retain their sample-rate span
+ * as the display's intentional overscan.
+ */
+export const resolveChannelFocusRange = ({
+  channelBounds,
+  sampleRateHz,
+  wholeChannel,
+}: ChannelFocusRangeOptions): FrequencyRange => {
+  const channelSpan = channelBounds.max - channelBounds.min;
+  if (
+    wholeChannel ||
+    !Number.isFinite(channelSpan) ||
+    channelSpan <= 0
+  ) {
+    return normalizeFrequencyRangeToHz(channelBounds);
+  }
+
+  const requestedSpan =
+    typeof sampleRateHz === "number" &&
+    Number.isFinite(sampleRateHz) &&
+    sampleRateHz > 0
+      ? Math.max(1, Math.round(sampleRateHz))
+      : Math.max(1, Math.round(channelSpan));
+  const centerHz = (channelBounds.min + channelBounds.max) / 2;
+  const min = Math.max(0, Math.round(centerHz - requestedSpan / 2));
+  const nextRange = normalizeFrequencyRangeToHz({
+    min,
+    max: min + requestedSpan,
+  });
+
+  return requestedSpan < channelSpan
+    ? clampFrequencyRangeToBounds(nextRange, channelBounds)
+    : nextRange;
 };
 
 export const buildLiveSampleRateRange = ({
@@ -177,6 +227,7 @@ export const useLiveSampleRateControl = ({
   maxFrameRateLimit,
   startingAnchorPosition = "start",
   setSampleRate,
+  setSampleRateWithFrequencyRange,
   onSampleRateApplied,
   setFftFrameRate,
   applyFrequencyRange,
@@ -184,6 +235,8 @@ export const useLiveSampleRateControl = ({
   const sampleRateModeRef = useRef<SampleRateMode | null>(null);
   const lastAppliedWholeChannelRateRef = useRef<number | null>(null);
   const lastAppliedFrequencyRangeKeyRef = useRef<string | null>(null);
+  const lastObservedFrequencyRangeKeyRef = useRef<string | null>(null);
+  const lastExplicitChannelFocusRangeKeyRef = useRef<string | null>(null);
   const pendingSampleRateRef = useRef<number | null>(null);
   const requestedSampleRateHz = pendingSampleRateRef.current ?? sampleRateHz;
 
@@ -235,16 +288,41 @@ export const useLiveSampleRateControl = ({
   );
 
   const handleSampleRateChange = useCallback(
-    (nextSampleRate: number, requestedMode?: SampleRateMode) => {
+    (
+      nextSampleRate: number,
+      requestedMode?: SampleRateMode,
+      frequencyRangeOverride?: FrequencyRange,
+    ) => {
       const nextWholeChannelRate = getWholeChannelSampleRate(
         activeChannelSampleRate,
       );
+      const overrideSpanHz =
+        frequencyRangeOverride &&
+        Number.isFinite(frequencyRangeOverride.min) &&
+        Number.isFinite(frequencyRangeOverride.max) &&
+        frequencyRangeOverride.max > frequencyRangeOverride.min
+          ? Math.max(
+              1,
+              Math.round(
+                frequencyRangeOverride.max - frequencyRangeOverride.min,
+              ),
+            )
+          : null;
       const resolvedSampleRate =
-        nextWholeChannelRate !== null &&
-        Math.round(nextWholeChannelRate) === Math.round(nextSampleRate)
-          ? nextWholeChannelRate
-          : nextSampleRate;
+        requestedMode === "whole" && overrideSpanHz !== null
+          ? overrideSpanHz
+          : nextWholeChannelRate !== null &&
+          Math.round(nextWholeChannelRate) === Math.round(nextSampleRate)
+            ? nextWholeChannelRate
+            : nextSampleRate;
       pendingSampleRateRef.current = resolvedSampleRate;
+      if (requestedMode === "whole" && frequencyRangeOverride) {
+        const normalizedOverride = normalizeFrequencyRangeToHz(
+          frequencyRangeOverride,
+        );
+        lastExplicitChannelFocusRangeKeyRef.current =
+          `${normalizedOverride.min}:${normalizedOverride.max}`;
+      }
 
       if (requestedMode) {
         sampleRateModeRef.current = requestedMode;
@@ -257,7 +335,41 @@ export const useLiveSampleRateControl = ({
         sampleRateModeRef.current = "whole";
       }
 
-      setSampleRate(resolvedSampleRate);
+      let nextRange: FrequencyRange | null = null;
+      const rangeForSampleRate = frequencyRangeOverride ?? frequencyRange;
+      if (
+        sourceMode === "live" &&
+        rangeForSampleRate &&
+        Number.isFinite(resolvedSampleRate) &&
+        resolvedSampleRate > 0
+      ) {
+        const isImplicitWholeChannelRestore =
+          requestedMode === undefined &&
+          wholeChannelSampleRate !== null &&
+          Math.round(resolvedSampleRate) === Math.round(wholeChannelSampleRate);
+        nextRange =
+          requestedMode === "whole" && frequencyRangeOverride
+            ? normalizeFrequencyRangeToHz(frequencyRangeOverride)
+            : buildLiveSampleRateRange({
+                currentRange: rangeForSampleRate,
+                sampleRateHz: resolvedSampleRate,
+                // Signal Display changes are viewport changes, even when the
+                // current center is outside the selected channel (for example
+                // after a double-click VFO entry). Channel bounds belong to
+                // channel-selection/automatic hydration paths; applying them here
+                // silently retunes a manual center back to that channel.
+                channelBounds: requestedMode ? null : activeSignalAreaBounds,
+                startingAnchorPosition: isImplicitWholeChannelRestore
+                  ? startingAnchorPosition
+                  : "center",
+              });
+      }
+
+      if (nextRange && setSampleRateWithFrequencyRange) {
+        setSampleRateWithFrequencyRange(resolvedSampleRate, nextRange);
+      } else {
+        setSampleRate(resolvedSampleRate);
+      }
       onSampleRateApplied?.(resolvedSampleRate);
       setFftFrameRate?.(
         computeMaxFrameRate(
@@ -266,40 +378,9 @@ export const useLiveSampleRateControl = ({
           maxFrameRateLimit,
         ),
       );
-
-      if (
-        sourceMode !== "live" ||
-        !frequencyRange ||
-        !Number.isFinite(resolvedSampleRate) ||
-        resolvedSampleRate <= 0
-      ) {
-        return;
+      if (nextRange) {
+        applyFrequencyRangeIfChanged(nextRange);
       }
-
-      const isLeavingWholeChannelMode =
-        wholeChannelSampleRate !== null &&
-        typeof requestedSampleRateHz === "number" &&
-        Number.isFinite(requestedSampleRateHz) &&
-        Math.round(requestedSampleRateHz) === Math.round(wholeChannelSampleRate) &&
-        Math.round(resolvedSampleRate) !== Math.round(wholeChannelSampleRate);
-      const isSelectingWholeChannel =
-        wholeChannelSampleRate !== null &&
-        Math.round(resolvedSampleRate) === Math.round(wholeChannelSampleRate);
-      const preserveCenterFrequency =
-        requestedMode !== "whole" &&
-        !isSelectingWholeChannel &&
-        !(isLeavingWholeChannelMode && requestedMode === "manual");
-      const nextRange = buildLiveSampleRateRange({
-        currentRange: frequencyRange,
-        sampleRateHz: resolvedSampleRate,
-        channelBounds: activeSignalAreaBounds,
-        startingAnchorPosition: preserveCenterFrequency
-          ? "center"
-          : startingAnchorPosition,
-        forceStartingAnchor:
-          isLeavingWholeChannelMode && requestedMode === "manual",
-      });
-      applyFrequencyRangeIfChanged(nextRange);
     },
     [
       activeSignalAreaBounds,
@@ -307,6 +388,7 @@ export const useLiveSampleRateControl = ({
       requestedSampleRateHz,
       startingAnchorPosition,
       setSampleRate,
+      setSampleRateWithFrequencyRange,
       onSampleRateApplied,
       setFftFrameRate,
       sourceMode,
@@ -386,6 +468,13 @@ export const useLiveSampleRateControl = ({
     }
 
     const currentSpan = rangeSpanHz(frequencyRange);
+    const normalizedCurrentRange =
+      normalizeFrequencyRangeToHz(frequencyRange);
+    const currentRangeKey = `${normalizedCurrentRange.min}:${normalizedCurrentRange.max}`;
+    const rangeChangedSinceObservation =
+      lastObservedFrequencyRangeKeyRef.current !== null &&
+      lastObservedFrequencyRangeKeyRef.current !== currentRangeKey;
+    lastObservedFrequencyRangeKeyRef.current = currentRangeKey;
 
     if (canUseWholeChannel) {
       const targetRate =
@@ -400,8 +489,28 @@ export const useLiveSampleRateControl = ({
           ? startingAnchorPosition
           : "center",
       });
+      const wholeChannelEdgesDiffer =
+        normalizedCurrentRange.min !== nextRange.min ||
+        normalizedCurrentRange.max !== nextRange.max;
+      const nextRangeKey = `${nextRange.min}:${nextRange.max}`;
+      const isExplicitChannelFocus =
+        lastExplicitChannelFocusRangeKeyRef.current === nextRangeKey;
+      if (
+        isExplicitChannelFocus &&
+        rangeChangedSinceObservation &&
+        lastAppliedFrequencyRangeKeyRef.current !== currentRangeKey
+      ) {
+        // A changed live range is a new observation. If it does not equal the
+        // range we last requested, allow Whole Channel edge reconciliation to
+        // publish again rather than treating the old request as an ACK.
+        lastAppliedFrequencyRangeKeyRef.current = null;
+      }
 
-      if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
+      if (
+        (isWholeChannelMode && isExplicitChannelFocus)
+          ? wholeChannelEdgesDiffer
+          : rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)
+      ) {
         applyFrequencyRangeIfChanged(nextRange);
       }
     } else if (currentSpan > requestedSampleRateHz) {

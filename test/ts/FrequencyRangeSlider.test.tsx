@@ -383,6 +383,51 @@ describe("FrequencyRangeSlider", () => {
     expect(onRangeChange).not.toHaveBeenCalled();
   });
 
+  test("readOnly sliders remain visually enabled while disabling drag", () => {
+    render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          readOnly={true}
+          onRangeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const sliderWrapper = screen.getByText("A").parentElement?.parentElement;
+    if (sliderWrapper) {
+      expect(sliderWrapper).toHaveStyle({ opacity: "1" });
+    }
+  });
+
+  test("readOnly sliders do not install global interaction listeners", () => {
+    const addEventListener = jest.spyOn(window, "addEventListener");
+    const removeEventListener = jest.spyOn(window, "removeEventListener");
+
+    const { unmount } = render(
+      <TestWrapper>
+        <FrequencyRangeSlider
+          {...defaultProps}
+          readOnly={true}
+          onRangeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      addEventListener.mock.calls.some(([event]) =>
+        ["keydown", "mousemove", "mouseup"].includes(String(event)),
+      ),
+    ).toBe(false);
+
+    unmount();
+    expect(
+      removeEventListener.mock.calls.some(([event]) =>
+        ["keydown", "mousemove", "mouseup"].includes(String(event)),
+      ),
+    ).toBe(false);
+  });
+
   test("respects readOnly mode", () => {
     const onRangeChange = jest.fn();
     render(

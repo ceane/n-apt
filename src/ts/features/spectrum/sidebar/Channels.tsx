@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import styled from "styled-components";
 import { ChevronsLeftRightEllipsis } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
-import { setActiveSignalArea, setSignalAreaAndRange } from "@n-apt/redux";
+import { setSignalAreaAndRange, setVizPan, setVizZoom } from "@n-apt/redux";
 import { useSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { useSpectrumTransport } from "@n-apt/spectrum/hooks/useSpectrumTransport";
 import { formatFrequency, formatChannelFreq } from "@n-apt/math/frequency";
@@ -11,13 +11,10 @@ import { Collapsible, Tooltip } from "@n-apt/ui";
 import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
 import { calculateCenterFrequency } from "@n-apt/math/centerFrequency";
 import { resolveWholeChannelFrame } from "@n-apt/spectrum/utils/wholeChannelControl";
-import {
-  clampFrequencyRangeToBounds,
-  findRangeContainingFrequency,
-  normalizeFrequencyRangeToHz,
-} from "@n-apt/math/frequency";
+import { findRangeContainingFrequency } from "@n-apt/math/frequency";
 import { isRtlSdrDevice } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { useChannelTuner } from "@n-apt/spectrum/hooks/useChannelManagement";
+import { resolveChannelFocusRange } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 import { formatDataRate, formatDataTotal } from "@n-apt/math/formatters";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
 
@@ -217,6 +214,24 @@ const TuneButton = styled.button`
   }
 `;
 
+const ChannelZoomResetButton = styled.button`
+  grid-column: 1 / -1;
+  justify-self: center;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid ${(props) => props.theme.borderHover};
+  border-radius: 4px;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  cursor: pointer;
+
+  &:hover {
+    color: ${(props) => props.theme.primary};
+    border-color: ${(props) => props.theme.primary};
+  }
+`;
+
 const ModeToggle = styled.div`
   display: flex;
   background: ${(props) => props.theme.background};
@@ -286,7 +301,11 @@ interface ChannelsProps {
   rangeSlidersDisabled?: boolean;
   /** When true, hides the Channels section header. Useful for embedding in constrained areas. */
   hideTitle?: boolean;
-  onSampleRateChange?: (rate: number, mode?: "whole" | "manual") => void;
+  onSampleRateChange?: (
+    rate: number,
+    mode?: "whole" | "manual",
+    channelFocusRange?: FrequencyRange,
+  ) => void;
   /** Current source acquisition rate; overrides stale Redux channel state. */
   activeSampleRateHz?: number | null;
   /** Explicit selector mode. Do not infer this globally from channel spans. */
@@ -333,8 +352,8 @@ export const Channels: React.FC<ChannelsProps> = ({
   const reduxActiveSignalArea = useAppSelector(
     (s) => s.spectrum.activeSignalArea,
   );
+  const reduxVizZoom = useAppSelector((s) => s.spectrum.vizZoom);
   const reduxVizPanOffset = useAppSelector((s) => s.spectrum.vizPanOffset);
-  const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
   const {
     state,
     effectiveFrames,
@@ -484,26 +503,13 @@ export const Channels: React.FC<ChannelsProps> = ({
         label.length > 0 &&
         all.indexOf(label) === index,
     );
-    if (state.tuningPreviewActive) {
-      return candidates[0] ?? "";
-    }
-    const center = displayedCenterFrequencyHz;
-    if (typeof center === "number" && Number.isFinite(center)) {
-      // Free pan is presentation state. Highlight the channel under the
-      // displayed center, while an explicit progressive tune above keeps its
-      // target label stable throughout the trajectory.
-      const matchingChannel = channels.find(
-        (channel) => center >= channel.min_hz && center <= channel.max_hz,
-      );
-      return matchingChannel?.label ?? "";
-    }
+    // Viewport panning is presentation state. It must not change the selected
+    // channel or its Whole Channel sample rate; that transition is explicit
+    // and happens only through a channel click/tune.
     return candidates[0] ?? "A";
   }, [
-    channels,
-    displayedCenterFrequencyHz,
     reduxActiveSignalArea,
     state.activeSignalArea,
-    state.tuningPreviewActive,
   ]);
 
   // Compute information for the active channel box
@@ -557,6 +563,17 @@ export const Channels: React.FC<ChannelsProps> = ({
       ? wholeChannelMode
       : inferredWholeChannelMode);
   const activeDescription: string = activeFrame?.description ?? "";
+  const isChannelZoomed =
+    variant === "spectrum" &&
+    !!activeFrame &&
+    typeof reduxVizZoom === "number" &&
+    Number.isFinite(reduxVizZoom) &&
+    reduxVizZoom > 1;
+
+  const resetZoomToWholeChannel = () => {
+    reduxDispatch(setVizZoom(1));
+    reduxDispatch(setVizPan(0));
+  };
   // Bandwidth estimation: 1 byte per Hz, width in Hz -> B/s -> MB/s
   const widthHz = activeFrame
     ? Math.max(0, Number(activeFrame.max_hz) - Number(activeFrame.min_hz))
@@ -622,6 +639,28 @@ export const Channels: React.FC<ChannelsProps> = ({
               const isFrameActive =
                 String(activeSignalArea).toLowerCase() ===
                 String(label).toLowerCase();
+              const activateChannel = () => {
+                const isTargetWholeChannel =
+                  resolveWholeChannelFrame({
+                    supportsWholeChannel: supportsWholeChannelDisplay,
+                    wholeChannelMode: isWholeChannelMode,
+                    sampleRateHz: channelSampleRateHz,
+                    channelBounds: { min: minFreq, max: maxFreq },
+                  }).isWholeChannel;
+
+                const focusedRange = resolveChannelFocusRange({
+                  channelBounds: { min: minFreq, max: maxFreq },
+                  sampleRateHz: sliderSampleRateHz,
+                  wholeChannel: isTargetWholeChannel,
+                });
+                tuneChannels(
+                  [{ label, min: minFreq, max: maxFreq }],
+                  undefined,
+                  focusedRange,
+                  isTargetWholeChannel ? channelSpan : undefined,
+                  undefined,
+                );
+              };
 
               return (
                 <ReduxFrequencyRangeSlider
@@ -636,58 +675,9 @@ export const Channels: React.FC<ChannelsProps> = ({
                   forceFullWidth={isWholeChannelMode}
                   allowWideSampleRateOverscan
                   limitMarkers={limitMarkers}
-                  readOnly
-                  onReadOnlyActivate={() => {
-                    reduxDispatch(setActiveSignalArea(label));
-                  }}
-                  onActivate={() => {
-                    if (isFrameActive) return;
-
-                    const isTargetWholeChannel = resolveWholeChannelFrame({
-                      supportsWholeChannel: supportsWholeChannelDisplay,
-                      wholeChannelMode: isWholeChannelMode,
-                      sampleRateHz: channelSampleRateHz,
-                      channelBounds: { min: minFreq, max: maxFreq },
-                    }).isWholeChannel;
-
-                    const rememberedRange = isTargetWholeChannel
-                      ? null
-                      : (state.lastKnownRanges?.[label] ??
-                        state.lastKnownRanges?.[label.toLowerCase()]);
-                    const nextRange = rememberedRange ?? {
-                      min: minFreq,
-                      max: isTargetWholeChannel
-                        ? maxFreq
-                        : minFreq +
-                          (typeof sliderSampleRateHz === "number"
-                            ? Math.min(sliderSampleRateHz, channelSpan)
-                            : channelSpan),
-                    };
-                    const clampedRange =
-                      typeof sliderSampleRateHz === "number" &&
-                      sliderSampleRateHz > channelSpan
-                        ? normalizeFrequencyRangeToHz(nextRange)
-                        : normalizeFrequencyRangeToHz(
-                            clampFrequencyRangeToBounds(
-                              clampFrequencyRangeToBounds(nextRange, {
-                                min: minFreq,
-                                max: maxFreq,
-                              }),
-                              isRtlSdr
-                                ? { min: minFreq, max: maxFreq }
-                                : hardwareSpectrumBounds,
-                            ),
-                          );
-                    tuneChannels(
-                      [{ label, min: minFreq, max: maxFreq }],
-                      undefined,
-                      clampedRange,
-                      isWholeChannelMode ? channelSpan : undefined,
-                      fileMode
-                        ? undefined
-                        : { durationMs: 500, inertia: "ease-out" },
-                    );
-                  }}
+                  readOnly={!isFrameActive}
+                  onReadOnlyActivate={activateChannel}
+                  onActivate={activateChannel}
                 />
               );
             })
@@ -695,6 +685,14 @@ export const Channels: React.FC<ChannelsProps> = ({
             <EmptyStateText>No active signal areas</EmptyStateText>
           )}
         </ChannelsSpectrumGrid>
+        {isChannelZoomed && (
+          <ChannelZoomResetButton
+            type="button"
+            onClick={resetZoomToWholeChannel}
+          >
+            Reset Zoom to see Whole Channel
+          </ChannelZoomResetButton>
+        )}
 
         {/* Active Channel Description & Stats Box */}
         {activeFrame && !shouldShowOtherChannel && (
@@ -758,13 +756,16 @@ export const Channels: React.FC<ChannelsProps> = ({
   }
 
   const handleTune = (frame: any) => {
+    const channelSpan = Number(frame.max_hz) - Number(frame.min_hz);
     tuneChannels([
       {
         label: frame.label,
         min: frame.min_hz,
         max: frame.max_hz,
       },
-    ], undefined, undefined, undefined, fileMode
+    ], undefined, undefined, supportsWholeChannelDisplay && channelSpan > 0
+      ? channelSpan
+      : undefined, fileMode
       ? undefined
       : { durationMs: 500, inertia: "ease-out" });
     setIsManualMode(false);

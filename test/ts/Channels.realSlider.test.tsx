@@ -1,9 +1,8 @@
 /** @jest-environment jsdom */
 /**
- * Real-slider behavior for Channels: the sidebar slider is a passive
- * highlight. Clicking an inactive channel activates it (channel selection)
- * but must not drag the device range, and external tuning must re-anchor the
- * highlight without a thumb sweep.
+ * Real-slider behavior for Channels: inactive channel selection remains
+ * click-only, while the active channel can be dragged and external tuning
+ * re-anchors the highlight without a thumb sweep.
  */
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -42,9 +41,11 @@ const baseFrames = [
 const renderChannels = ({
   sendFrequencyRange,
   state = baseState,
+  onSampleRateChange,
 }: {
   sendFrequencyRange: jest.Mock;
   state?: Record<string, unknown>;
+  onSampleRateChange?: jest.Mock;
 }) => {
   const store = createTestStore();
   store.dispatch(
@@ -53,7 +54,7 @@ const renderChannels = ({
       sampleRate: 3_200_000,
     }),
   );
-  return render(
+  const rendered = render(
     <Provider store={store}>
       <ThemeProvider theme={theme}>
         <SpectrumProvider
@@ -72,15 +73,124 @@ const renderChannels = ({
             } as any
           }
         >
-          <Channels variant="spectrum" />
+          <Channels
+            variant="spectrum"
+            onSampleRateChange={onSampleRateChange}
+          />
         </SpectrumProvider>
       </ThemeProvider>
     </Provider>,
   );
+  return { ...rendered, store };
 };
 
-describe("Channels real slider (passive highlight)", () => {
-  it("clicking an inactive channel slider activates it without moving the device range", () => {
+describe("Channels real slider (channel selection)", () => {
+  it("activates another channel while preserving its fitting sample rate", () => {
+    const sendFrequencyRange = jest.fn();
+    const onSampleRateChange = jest.fn();
+    const { store } = renderChannels({ sendFrequencyRange, onSampleRateChange });
+    jest.spyOn(store, "dispatch");
+
+    const channelC = screen.getByText("C").closest("div")?.nextElementSibling;
+    expect(channelC).not.toBeNull();
+    fireEvent.click(channelC as HTMLElement);
+
+    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 12_275_000,
+      max: 15_475_000,
+    });
+    expect(store.getState().spectrum.tuningPreviewActive).toBe(false);
+  });
+
+  it("refocuses the active channel when its label is clicked after the VFO moved away", () => {
+    const sendFrequencyRange = jest.fn();
+    const onSampleRateChange = jest.fn();
+    renderChannels({
+      sendFrequencyRange,
+      onSampleRateChange,
+      state: {
+        ...baseState,
+        activeSignalArea: "C",
+        frequencyRange: { min: 196_000_000, max: 201_000_000 },
+      },
+    });
+
+    fireEvent.click(screen.getByText("C"));
+
+    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 12_275_000,
+      max: 15_475_000,
+    });
+  });
+
+  it("focuses a channel when its letter label is clicked", () => {
+    const sendFrequencyRange = jest.fn();
+    const onSampleRateChange = jest.fn();
+    renderChannels({ sendFrequencyRange, onSampleRateChange });
+
+    fireEvent.click(screen.getByText("C"));
+
+    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 12_275_000,
+      max: 15_475_000,
+    });
+  });
+
+  it("does not change the selected channel when the viewport is panned over another channel", () => {
+    const sendFrequencyRange = jest.fn();
+    const onSampleRateChange = jest.fn();
+    const { rerender } = renderChannels({
+      sendFrequencyRange,
+      onSampleRateChange,
+    });
+
+    rerender(
+      <Provider store={createTestStore()}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  ...baseState,
+                  // This is a viewport move, not a channel selection.
+                  frequencyRange: { min: 4_750_000, max: 23_000_000 },
+                  activeSignalArea: "A",
+                },
+                dispatch: jest.fn(),
+                selectedSourceDerived: {
+                  deviceName: "Mock APT SDR",
+                  deviceProfile: { kind: "mock_apt" },
+                  backend: "mock_apt",
+                },
+                effectiveFrames: baseFrames,
+                sampleRateHzEffective: 3_200_000,
+                wsConnection: { sendFrequencyRange },
+              } as any
+            }
+          >
+            <Channels
+              variant="spectrum"
+              onSampleRateChange={onSampleRateChange}
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const channelC = screen.getByText("C").closest("div")?.nextElementSibling;
+    fireEvent.click(channelC as HTMLElement);
+
+    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 12_275_000,
+      max: 15_475_000,
+    });
+  });
+
+  it("clicking an inactive channel slider tunes the selected channel", () => {
     const sendFrequencyRange = jest.fn();
     renderChannels({ sendFrequencyRange });
 
@@ -88,13 +198,41 @@ describe("Channels real slider (passive highlight)", () => {
     const channelC = screen.getByText("C").closest("div")?.nextElementSibling;
     expect(channelC).not.toBeNull();
 
-    // Clicking the inactive slider must select the channel (onActivate) but
-    // not publish a device range from the slider drag path.
+    // Clicking the inactive read-only slider must select and tune the channel,
+    // without enabling the slider drag path.
     fireEvent.click(channelC as HTMLElement);
 
-    // The visible window label should re-anchor to Channel C's range without
-    // the slider publishing a range back.
-    expect(sendFrequencyRange).not.toHaveBeenCalled();
+    expect(sendFrequencyRange).toHaveBeenCalledWith({
+      min: 12_275_000,
+      max: 15_475_000,
+    });
+  });
+
+  it("allows dragging the active channel track", () => {
+    const sendFrequencyRange = jest.fn();
+    renderChannels({ sendFrequencyRange });
+
+    const track = document.querySelector(".range-track") as HTMLElement;
+    expect(track).toBeInTheDocument();
+    Object.defineProperty(track, "clientWidth", {
+      configurable: true,
+      value: 400,
+    });
+    jest.spyOn(track, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      right: 400,
+      width: 400,
+      top: 0,
+      bottom: 40,
+      height: 40,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.mouseDown(track, { clientX: 300 });
+
+    expect(sendFrequencyRange).toHaveBeenCalled();
   });
 
   it("re-anchors the highlight from an external tune without a thumb sweep or publish", async () => {

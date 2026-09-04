@@ -700,8 +700,8 @@ describe("SpectrumSidebar sample rate behavior", () => {
     );
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenCalledTimes(1);
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenCalledWith({
-      min: 18_000,
-      max: 4_390_000,
+      min: 0,
+      max: 4_372_000,
     });
 
     mockWsConnection.sendSettings.mockClear();
@@ -719,8 +719,8 @@ describe("SpectrumSidebar sample rate behavior", () => {
     );
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenCalledTimes(1);
     expect(mockWsConnection.sendFrequencyRange).toHaveBeenCalledWith({
-      min: 18_000,
-      max: 3_218_000,
+      min: 586_000,
+      max: 3_786_000,
     });
     expect(sampleRateSelect).not.toHaveValue("whole-channel");
   });
@@ -1326,7 +1326,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
     }
   });
 
-  it("records the Whole Channel exit anchor once while changing the live sample rate", async () => {
+  it("does not record a channel-start anchor while changing the live sample rate", async () => {
     mockLiveState = {
       ...mockLiveState,
       activeSignalArea: "A",
@@ -1416,7 +1416,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
     const anchorUpdates = dispatchSpy.mock.calls.filter(
       ([action]) => action.type === "spectrum/mergeLastKnownRanges",
     );
-    expect(anchorUpdates).toHaveLength(1);
+    expect(anchorUpdates).toHaveLength(0);
   });
 
   it("keeps manual sample-rate changes sticky across repeated updates and keeps whole-channel as an explicit option", async () => {
