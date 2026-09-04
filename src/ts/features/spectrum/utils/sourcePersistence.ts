@@ -59,6 +59,24 @@ const safeWriteStorage = (key: string, value: string): void => {
   }
 };
 
+const safeReadSessionStorage = (key: string): string | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeWriteSessionStorage = (key: string, value: string): void => {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures in private mode / quota exhaustion.
+  }
+};
+
 export const loadStoredJson = <T>(key: string): T | null => {
   const raw = safeReadStorage(key);
   if (!raw) return null;
@@ -74,11 +92,11 @@ export const saveStoredJson = (key: string, value: unknown): void => {
 };
 
 export const loadSelectedSourceId = (): string | null => {
-  const stored = safeReadStorage(SOURCE_SELECTION_STORAGE_KEY);
+  const stored = safeReadSessionStorage(SOURCE_SELECTION_STORAGE_KEY);
   return stored && stored.trim() ? stored : null;
 };
 
 export const saveSelectedSourceId = (sourceId: string | null): void => {
   if (!sourceId) return;
-  safeWriteStorage(SOURCE_SELECTION_STORAGE_KEY, sourceId);
+  safeWriteSessionStorage(SOURCE_SELECTION_STORAGE_KEY, sourceId);
 };

@@ -21,6 +21,7 @@ import {
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 import { DEVICE_CONTROL_SCOPE } from "@n-apt/app/infrastructure/streams/streamContract";
 import { restartRequested } from "@n-apt/redux/slices/websocketSlice";
+import { CLIENT_ORIGIN_ID } from "@n-apt/redux/clientOrigin";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =
@@ -33,7 +34,12 @@ const getSampleRateHz = (state: RootState): number | null => {
 const buildTunedFrequencyPayload = (
   state: RootState,
   range: FrequencyRange,
-): { min_hz: number; max_hz: number; center_frequency: number } => {
+): {
+  origin_id: string;
+  min_hz: number;
+  max_hz: number;
+  center_frequency: number;
+} => {
   // Negative frequencies are a presentation-only mirrored baseband axis.
   // Convert them to the positive acquisition window before crossing the
   // WebSocket boundary; the Rust protocol represents absolute RF Hz.
@@ -42,6 +48,7 @@ const buildTunedFrequencyPayload = (
   );
   const center_frequency = getFrequencyRangeCenterHz(normalizedRange);
   return {
+    origin_id: CLIENT_ORIGIN_ID,
     min_hz: normalizedRange.min,
     max_hz: normalizedRange.max,
     center_frequency,
@@ -534,6 +541,22 @@ export const sendSelectSource = createAsyncThunk(
               : {}),
           },
         },
+      });
+    }
+    return sourceId;
+  },
+);
+
+// Select a source for this page's subscriber-scoped visualization without
+// changing the backend's one-device active-source control path.
+export const sendViewSource = createAsyncThunk(
+  "websocket/sendViewSource",
+  async (sourceId: string, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: "websocket/viewSource",
+        payload: { sourceId },
       });
     }
     return sourceId;

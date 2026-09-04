@@ -296,6 +296,34 @@ describe("SourceModeStreamManager", () => {
     );
   });
 
+  it("retains the stable backend stream identity after hydration", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), () => {
+      // no-op
+    });
+
+    expect(subscription.streamId).toBeNull();
+    transports[0].onEvent({
+      type: "stream_opened",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 1,
+      optionsRevision: 1,
+      state: "ready",
+      streamId: "session-abc--source-def--rx",
+      streamPath: "/ws/streams/session-abc--source-def--rx",
+    });
+
+    expect(subscription.streamId).toBe("session-abc--source-def--rx");
+    expect(subscription.streamPath).toBe(
+      "/ws/streams/session-abc--source-def--rx",
+    );
+    subscription.unsubscribe();
+    manager.dispose();
+  });
+
   it("reconfigures the shared stream and notifies all subscribers", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });
@@ -382,6 +410,50 @@ describe("SourceModeStreamManager", () => {
 
     expect(events).toHaveLength(0);
     expect(subscription.effectiveOptions).toEqual(rxOptions(101_000_000));
+  });
+
+  it("does not let a same-revision stale options event overwrite a local tune", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const events: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), (event) =>
+      events.push(event),
+    );
+
+    transports[0].onEvent({
+      type: "stream_opened",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 3,
+      optionsRevision: 1,
+      state: "ready",
+      options: rxOptions(),
+    });
+    events.length = 0;
+
+    await subscription.updateOptions(rxOptions(196_000_000));
+    expect(subscription.effectiveOptions).toEqual(rxOptions(196_000_000));
+
+    transports[0].onEvent({
+      type: "stream_options_applied",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 4,
+      optionsRevision: 2,
+      options: rxOptions(28_874_000),
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "stream_options_applied",
+        origin: "local",
+        options: rxOptions(196_000_000),
+      }),
+    ]);
+    expect(subscription.effectiveOptions).toEqual(rxOptions(196_000_000));
+
+    manager.dispose();
   });
 
   it("hydrates a late subscriber from the device-owned effective options", async () => {

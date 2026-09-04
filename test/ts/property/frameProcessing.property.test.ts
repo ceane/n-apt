@@ -1,5 +1,10 @@
 import fc from "fast-check";
 import {
+  resolveDisplayRangeForPanOffset,
+  resolvePanZoomForDisplayRange,
+} from "@n-apt/math/basebandMirror";
+import { getStableVizPanForZoomChange } from "@n-apt/spectrum/public/visualizationZoom";
+import {
   shouldPresentSpectrumFrameForRange,
   shouldAdoptLiveFrameRange,
   newestIqWindow,
@@ -316,6 +321,115 @@ describe("frame processing fuzz", () => {
         },
       ),
       { numRuns: 120 },
+    );
+  });
+
+  it("never stretches a retained frame onto a wider DC-anchored request", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1_000_000, max: 30_000_000 }),
+        fc.integer({ min: 1, max: 50 }),
+        (requestedSpanHz, guardRatio) => {
+          const guardHz = Math.max(
+            1,
+            Math.floor((requestedSpanHz * guardRatio) / 1_000),
+          );
+          const requestedViewRange = { min: 0, max: requestedSpanHz };
+          const retainedFrameRange = {
+            min: guardHz,
+            max: requestedSpanHz - guardHz,
+          };
+
+          const contract = resolveLiveSpectrumPaintContract({
+            requestedViewRange,
+            sourceFrequencyRange: retainedFrameRange,
+            zoom: 1,
+            panOffsetHz: 0,
+            mirrorEnabled: true,
+          });
+
+          expect(contract.displayRange).toEqual(retainedFrameRange);
+          expect(contract.paintViewportRange).toEqual(retainedFrameRange);
+        },
+      ),
+      { numRuns: 500 },
+    );
+  });
+
+  it("keeps every live retained-frame paint within its acquisition window", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1_000_000, max: 30_000_000 }),
+        fc.integer({ min: 1_000_000, max: 30_000_000 }),
+        fc.integer({ min: -20_000_000, max: 20_000_000 }),
+        fc.integer({ min: 1, max: 12 }),
+        fc.boolean(),
+        (requestedSpanHz, sourceSpanHz, panOffsetHz, zoom, mirrorEnabled) => {
+          const requestedViewRange = { min: 0, max: requestedSpanHz };
+          const sourceFrequencyRange = {
+            min: 40_000_000,
+            max: 40_000_000 + sourceSpanHz,
+          };
+          const contract = resolveLiveSpectrumPaintContract({
+            requestedViewRange,
+            sourceFrequencyRange,
+            zoom,
+            panOffsetHz,
+            mirrorEnabled,
+          });
+          const displaySpan =
+            contract.displayRange.max - contract.displayRange.min;
+          const sourceSpan =
+            sourceFrequencyRange.max - sourceFrequencyRange.min;
+
+          expect(displaySpan).toBeLessThanOrEqual(sourceSpan + 1);
+          expect(contract.paintViewportRange).toEqual(sourceFrequencyRange);
+        },
+      ),
+      { numRuns: 1_000 },
+    );
+  });
+
+  it("round-trips zoom-in then zoom-out across DC without clamping the signed view", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1_000_000, max: 30_000_000 }),
+        fc.integer({ min: 2, max: 1_125 }),
+        fc.integer({ min: -1_000, max: 0 }),
+        (sampleRateHz, zoomIn, panRatio) => {
+          const acquisition = { min: 0, max: sampleRateHz };
+          const zoomInPan = Math.round((sampleRateHz * panRatio) / 1_000);
+          const zoomOutPan = getStableVizPanForZoomChange({
+            currentZoom: zoomIn,
+            currentPan: zoomInPan,
+            nextZoom: 1,
+            rangeMin: acquisition.min,
+            rangeMax: acquisition.max,
+            allowNegativeFrequencies: true,
+          });
+          const expectedDisplayRange = resolveDisplayRangeForPanOffset({
+            hardwareRange: acquisition,
+            zoom: 1,
+            panOffsetHz: zoomOutPan,
+          });
+          const contract = resolveLiveSpectrumPaintContract({
+            requestedViewRange: acquisition,
+            sourceFrequencyRange: acquisition,
+            zoom: 1,
+            panOffsetHz: zoomOutPan,
+            mirrorEnabled: true,
+          });
+
+          expect(contract.displayRange).toEqual(expectedDisplayRange);
+          expect(
+            resolvePanZoomForDisplayRange({
+              hardwareRange: acquisition,
+              displayRange: contract.displayRange,
+            }),
+          ).toEqual({ zoom: 1, panOffsetHz: zoomOutPan });
+        },
+      ),
+      { numRuns: 1_000 },
     );
   });
 });

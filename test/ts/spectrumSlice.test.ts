@@ -6,6 +6,8 @@ import spectrumReducer, {
   mergeLastKnownRanges,
   setFrequencyRange,
   setVizPan,
+  setSampleRate,
+  setActiveSignalArea,
 } from "@n-apt/redux/slices/spectrumSlice";
 
 describe("Spectrum Slice TX intent", () => {
@@ -57,6 +59,35 @@ describe("Spectrum Slice TX intent", () => {
       }),
     );
     expect(state.txPowerDbm).toBe(-80);
+  });
+
+  test("applies a sample-rate range override atomically", () => {
+    let state = getInitialState();
+    state = spectrumReducer(state, setActiveSignalArea("B"));
+    state = spectrumReducer(
+      state,
+      setFrequencyRange({ min: 25_420_000, max: 29_420_000 }),
+    );
+
+    state = spectrumReducer(
+      state,
+      {
+        ...setSampleRate(3_200_000),
+        meta: {
+          managedRxFrequencyRange: { min: 26_020_000, max: 29_220_000 },
+        },
+      } as any,
+    );
+
+    expect(state.sampleRateHz).toBe(3_200_000);
+    expect(state.frequencyRange).toEqual({
+      min: 26_020_000,
+      max: 29_220_000,
+    });
+    expect(state.lastKnownRanges.B).toEqual({
+      min: 26_020_000,
+      max: 29_220_000,
+    });
   });
 
   test("stores the editable visualizer maximum zoom", () => {

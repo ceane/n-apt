@@ -223,6 +223,9 @@ describe("multiplexed stream transport", () => {
         streamEpoch: 7,
         optionsRevision: 4,
         state: "ready",
+        streamId: "session-abc--source-def--rx",
+        streamPath: "/ws/streams/session-abc--source-def--rx",
+        streamUrl: "/ws/streams/session-abc--source-def--rx",
         effectiveOptions: {
           mode: "rx",
           centerFrequencyHz: 101_000_000,
@@ -241,6 +244,9 @@ describe("multiplexed stream transport", () => {
           fftSize: 4096,
         }),
         deliveryPolicy: "lossless",
+        streamId: "session-abc--source-def--rx",
+        streamPath: "/ws/streams/session-abc--source-def--rx",
+        streamUrl: "/ws/streams/session-abc--source-def--rx",
       }),
     );
     transport.dispose();

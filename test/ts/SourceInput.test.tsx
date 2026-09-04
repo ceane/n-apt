@@ -18,6 +18,33 @@ describe("source selection state", () => {
 });
 
 describe("SourceInput", () => {
+  it("keeps padded source cards inside their available width", () => {
+    render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="live"
+          onSourceModeChange={jest.fn()}
+          selectedDeviceId="mock-rx"
+          devices={[
+            {
+              id: "mock-rx",
+              name: "Mock APT SDR",
+              capability: "rx",
+              status: { label: "receiving" },
+            },
+          ]}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Mock APT SDR/ }),
+    ).toHaveStyle({ boxSizing: "border-box" });
+    expect(
+      screen.getByRole("button", { name: /File Selection/ }),
+    ).toHaveStyle({ boxSizing: "border-box" });
+  });
+
   it("shows vault status in the file selection pill and hides it while files load", () => {
     const { rerender } = render(
       <TestWrapper>

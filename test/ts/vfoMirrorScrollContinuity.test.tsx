@@ -69,7 +69,7 @@ const FLOOR_DB = -120;
 const _INITIAL_SPAN = DC_ANCHORED_ACQUISITION.max - DC_ANCHORED_ACQUISITION.min;
 
 describe("FFTCanvas mirror pan redraw gate", () => {
-  it("repaints from cache when mirror pan moves without a new IQ frame", () => {
+  it("repaints a paused cache when mirror pan moves without a new IQ frame", () => {
     expect(
       shouldMirrorPanOnlyRedraw({
         allowNegativeFrequencies: true,
@@ -78,8 +78,62 @@ describe("FFTCanvas mirror pan redraw gate", () => {
         hasCachedWaveform: true,
         lastPaintedMirrorPan: 0,
         currentMirrorPan: -500_000,
+        isPaused: true,
       }),
     ).toBe(true);
+  });
+
+  it("keeps a live frame fixed while pan waits for the next IQ frame", () => {
+    expect(
+      shouldMirrorPanOnlyRedraw({
+        allowNegativeFrequencies: true,
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        lastPaintedMirrorPan: 0,
+        currentMirrorPan: -500_000,
+        isPaused: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: true,
+        panChanged: true,
+        isPaused: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("never allows a live cache repaint across arbitrary hot-reload viewport churn", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            hasNewData: fc.boolean(),
+            shouldReprocessCurrentFrame: fc.boolean(),
+            hasCachedWaveform: fc.boolean(),
+            zoomChanged: fc.boolean(),
+            panChanged: fc.boolean(),
+            rangeChanged: fc.boolean(),
+          }),
+          { minLength: 1, maxLength: 200 },
+        ),
+        (states) => {
+          for (const state of states) {
+            expect(
+              shouldRepaintCachedSpectrumForViewportChange({
+                ...state,
+                isPaused: false,
+              }),
+            ).toBe(false);
+          }
+        },
+      ),
+      { numRuns: 250 },
+    );
   });
 
   it("does not mirror-pan redraw when mirror mode is off", () => {
@@ -150,6 +204,7 @@ describe("FFTCanvas mirror pan redraw gate", () => {
       hasCachedWaveform: true,
       lastPaintedMirrorPan: 0,
       currentMirrorPan: -250_000,
+      isPaused: true,
     });
     const mirrorOff = shouldRepaintCachedSpectrumForViewportChange({
       hasNewData: false,
@@ -157,6 +212,7 @@ describe("FFTCanvas mirror pan redraw gate", () => {
       hasCachedWaveform: true,
       zoomChanged: false,
       panChanged: true,
+      isPaused: true,
     });
     expect(mirrorOn).toBe(true);
     expect(mirrorOff).toBe(true);
@@ -295,7 +351,7 @@ describe("mirror scroll direction continuity", () => {
       );
       const direction: "ascending" | "descending" =
         random() < 0.5 ? "ascending" : "descending";
-      // Wheel sign matches useFrequencyDrag: +deltaY lowers displayed frequency.
+      // Wheel sign matches useSpectrumInteraction: +deltaY lowers displayed frequency.
       const deltaSign = direction === "descending" ? 1 : -1;
 
       for (let step = 0; step < 180; step += 1) {

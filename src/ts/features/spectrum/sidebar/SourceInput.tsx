@@ -39,6 +39,7 @@ const DevicePill = styled.div<{
   $opacity?: number;
 }>`
   display: grid;
+  box-sizing: border-box;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
@@ -64,6 +65,7 @@ const DevicePill = styled.div<{
 
 const FilePill = styled.div<{ $active?: boolean }>`
   display: grid;
+  box-sizing: border-box;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;

@@ -279,6 +279,7 @@ describe("FFTCanvas Component", () => {
         hasCachedWaveform: true,
         zoomChanged: true,
         panChanged: false,
+        isPaused: true,
       }),
     ).toBe(true);
     expect(
@@ -288,6 +289,7 @@ describe("FFTCanvas Component", () => {
         hasCachedWaveform: true,
         zoomChanged: false,
         panChanged: true,
+        isPaused: true,
       }),
     ).toBe(true);
     expect(
@@ -297,6 +299,7 @@ describe("FFTCanvas Component", () => {
         hasCachedWaveform: true,
         zoomChanged: false,
         panChanged: false,
+        isPaused: true,
       }),
     ).toBe(false);
     expect(
@@ -307,6 +310,7 @@ describe("FFTCanvas Component", () => {
         zoomChanged: false,
         panChanged: false,
         rangeChanged: true,
+        isPaused: true,
       }),
     ).toBe(true);
     expect(
@@ -316,6 +320,19 @@ describe("FFTCanvas Component", () => {
         hasCachedWaveform: true,
         zoomChanged: true,
         panChanged: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reproject a live cached frame before the replacement frame arrives", () => {
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: true,
+        panChanged: true,
+        isPaused: false,
       }),
     ).toBe(false);
   });

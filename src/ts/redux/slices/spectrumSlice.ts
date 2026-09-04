@@ -805,6 +805,30 @@ const spectrumSlice = createSlice({
     setSampleRate: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload)) return;
       state.sampleRateHz = action.payload;
+
+      const managedRxFrequencyRange = (
+        action as PayloadAction<number> & {
+          meta?: { managedRxFrequencyRange?: FrequencyRange };
+        }
+      ).meta?.managedRxFrequencyRange;
+      if (
+        managedRxFrequencyRange &&
+        Number.isFinite(managedRxFrequencyRange.min) &&
+        Number.isFinite(managedRxFrequencyRange.max) &&
+        managedRxFrequencyRange.max > managedRxFrequencyRange.min
+      ) {
+        state.frequencyRange = managedRxFrequencyRange;
+        if (state.activeSignalArea) {
+          if (
+            !state.lastKnownRanges ||
+            typeof state.lastKnownRanges !== "object"
+          ) {
+            state.lastKnownRanges = {};
+          }
+          state.lastKnownRanges[state.activeSignalArea] =
+            managedRxFrequencyRange;
+        }
+      }
     },
 
     setMinReceiveSampleRate: (state, action: PayloadAction<number>) => {

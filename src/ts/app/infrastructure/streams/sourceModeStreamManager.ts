@@ -61,6 +61,11 @@ export type StreamStateEvent = {
   options?: StreamOptions;
   controlScopes?: StreamControlScopes;
   deliveryPolicy?: StreamDeliveryPolicy;
+  /** Stable logical identity for this session/source/mode stream. */
+  streamId?: string;
+  /** Stable logical URL path for this session/source/mode stream. */
+  streamPath?: string;
+  streamUrl?: string;
 };
 
 export type StreamOptionsAppliedEvent = {
@@ -164,6 +169,9 @@ export type StreamMetrics = {
 export type StreamSubscription = {
   subscriptionId: string;
   stream: StreamKey;
+  /** Stable backend identity, populated after subscription hydration. */
+  readonly streamId: string | null;
+  readonly streamPath: string | null;
   readonly effectiveOptions: StreamOptions;
   readonly streamEpoch: number;
   readonly deliveryPolicy: StreamDeliveryPolicy;
@@ -193,6 +201,8 @@ type StreamEntry = {
   transportReady: boolean;
   transportSubscriptionId: string;
   transportDeliveryPolicy: StreamDeliveryPolicy;
+  streamId: string | null;
+  streamPath: string | null;
 };
 
 type SourceModeStreamManagerOptions = {
@@ -399,6 +409,18 @@ export const createSourceModeStreamManager = ({
         entry.localOptionsRevision = null;
         return;
       }
+      // A backend event at the exact revision of a local update must describe
+      // that update. If it carries a different center, it is a delayed event
+      // from the previous device state; accepting it would briefly hydrate
+      // every subscriber back to the old channel before the local update wins
+      // again on the next control pass. A strictly newer revision is still a
+      // legitimate peer/device update and remains authoritative below.
+      if (
+        entry.localOptionsRevision !== null &&
+        event.optionsRevision === entry.localOptionsRevision
+      ) {
+        return;
+      }
       entry.options = cloneOptions(event.options);
       entry.optionsRevision = event.optionsRevision;
       entry.streamEpoch = Math.max(entry.streamEpoch, event.streamEpoch);
@@ -408,7 +430,21 @@ export const createSourceModeStreamManager = ({
     }
 
     if (event.type === "stream_opened") {
+      // A delayed open/hydration event from the previous device snapshot must
+      // not rewind a stream that has already accepted a newer epoch or
+      // options revision. A fresh transport open starts at epoch 0 and is
+      // likewise ignored once the subscribed stream has a real epoch.
+      if (
+        event.streamEpoch < entry.streamEpoch ||
+        (entry.transportReady &&
+          event.streamEpoch === entry.streamEpoch &&
+          event.optionsRevision <= entry.optionsRevision)
+      ) {
+        return;
+      }
       entry.transportReady = true;
+      entry.streamId = event.streamId ?? entry.streamId;
+      entry.streamPath = event.streamPath ?? event.streamUrl ?? entry.streamPath;
       if (event.options) {
         // The device snapshot wins over the options a subscriber requested.
         // This is the hydration path for late subscribers and reconnects.
@@ -479,6 +515,8 @@ export const createSourceModeStreamManager = ({
         transportReady: false,
         transportSubscriptionId: `transport-subscription-${nextSubscriptionId}`,
         transportDeliveryPolicy: deliveryPolicy,
+        streamId: null,
+        streamPath: null,
       };
       entry.transport = transportFactory(entry.key, (event) =>
         handleEvent(entry!, event),
@@ -513,6 +551,12 @@ export const createSourceModeStreamManager = ({
     const subscription: StreamSubscription = {
       subscriptionId,
       stream: { ...entry.key },
+      get streamId() {
+        return entry!.streamId;
+      },
+      get streamPath() {
+        return entry!.streamPath;
+      },
       get effectiveOptions() {
         return cloneOptions(entry!.options);
       },

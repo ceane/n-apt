@@ -382,7 +382,7 @@ describe("source selection and switch lifecycle", () => {
     ).toBe("mock-tx");
   });
 
-  it("follows the server source when another client switches it", () => {
+  it("does not replace a tab selection with another client's active source", () => {
     expect(
       resolveSelectedSourceIdForInventory({
         selectedSourceId: "mock-apt",
@@ -392,7 +392,33 @@ describe("source selection and switch lifecycle", () => {
           { id: "mock-tx", kind: "mock_tx", capability: "tx_rx" },
         ] as any,
       }),
-    ).toBe("mock-tx");
+    ).toBe("mock-apt");
+  });
+
+  it("keeps this tab's selected source when another client changes the active source", () => {
+    expect(
+      resolveSelectedSourceIdForInventory({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          { id: "mock-tx", kind: "mock_tx", capability: "tx_rx" },
+        ] as any,
+      }),
+    ).toBe("mock-apt");
+  });
+
+  it("does not create a new switch intent from a foreign active-source update", () => {
+    expect(
+      resolveInventorySelectionIntent({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        sources: [
+          { id: "mock-apt", kind: "mock_apt", capability: "mock" },
+          { id: "mock-tx", kind: "mock_tx", capability: "tx_rx" },
+        ] as any,
+      }),
+    ).toBeNull();
   });
 
   it("does not clear a pending source switch just because its inventory entry is temporarily unavailable", () => {

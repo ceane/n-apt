@@ -446,6 +446,21 @@ describe("resolveLiveSpectrumPaintContract", () => {
     expect(contract.panOffsetHz).toBe(0);
   });
 
+  it("keeps a narrower retained frame on its own axis until a replacement arrives", () => {
+    const requestedViewRange = { min: 0, max: 3_200_000 };
+    const retainedFrameRange = { min: 46_980, max: 3_153_020 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange: retainedFrameRange,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+    });
+
+    expect(contract.displayRange).toEqual(retainedFrameRange);
+    expect(contract.paintViewportRange).toEqual(retainedFrameRange);
+  });
+
   it("keeps an uncovered DC-crossing frame whole instead of painting two islands", () => {
     const requestedViewRange = {
       min: -11_417_900,

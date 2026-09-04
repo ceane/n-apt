@@ -1,5 +1,4 @@
 import React, {
-  createContext,
   useContext,
   useEffect,
   useRef,
@@ -86,6 +85,7 @@ import {
   liveDataRef,
   sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
+import { SpectrumStoreContext } from "@n-apt/spectrum/hooks/spectrumStoreContext";
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
@@ -98,7 +98,7 @@ import {
   sendCaptureCommand as sendCaptureCommandThunk,
   sendScanCommand as sendScanCommandThunk,
   sendDemodulateCommand as sendDemodulateCommandThunk,
-  sendSelectSource as sendSelectSourceThunk,
+  sendViewSource as sendViewSourceThunk,
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig } from "@n-apt/settings/public/useSdrSettings";
 import { applyWaterfallStateOverrides } from "@n-apt/spectrum/hooks/spectrumStoreOverrides";
@@ -298,6 +298,20 @@ export const resolveSelectedSourceIdForInventory = ({
   ) {
     return targetHardware.id;
   }
+  // The backend active source is global, but the selected source is a tab-local
+  // presentation/stream preference. Keep an available selection when another
+  // client changes the backend's active source; only an explicit intent should
+  // request a new global handoff.
+  const selectedSourceIsMockTx =
+    selected?.id === "mock-tx" || selected?.kind === "mock_tx";
+  const activeSourceIsHardware = active && !isMockSourceInfo(active);
+  if (
+    selectedSourceIsInInventory &&
+    !selectedSourceIsUnavailable &&
+    (!activeSourceIsHardware || selectedSourceIsMockTx)
+  ) {
+    return selectedSourceId;
+  }
   if (active) return active.id;
 
   if (targetHardware && (!selected || isMockSourceInfo(selected))) {
@@ -335,19 +349,6 @@ export const resolveInventorySelectionIntent = ({
   selectionIntentSourceId?: string | null;
   sources: SourceInfo[];
 }): string | null => {
-  // A persisted selection survives reload independently from the backend's
-  // active-source state. Rehydrate it as an intent before the placeholder
-  // path can settle on the fallback source.
-  if (
-    selectedSourceId &&
-    selectedSourceId !== activeSourceId &&
-    sources.some((source) => source.id === selectedSourceId) &&
-    !["disconnected", "error"].includes(
-      sources.find((source) => source.id === selectedSourceId)?.status ?? "",
-    )
-  ) {
-    return selectedSourceId;
-  }
   const nextSourceId = resolveSelectedSourceIdForInventory({
     selectedSourceId,
     activeSourceId,
@@ -376,7 +377,29 @@ export const resolveInventorySelectionIntent = ({
     return null;
   }
   if (nextSourceId && nextSourceId !== activeSourceId) {
-    return nextSourceId;
+    const hasExplicitSelectionIntent =
+      pendingSourceSwitchId === selectedSourceId ||
+      selectionIntentSourceId === selectedSourceId;
+    const nextSource = sources.find((source) => source.id === nextSourceId);
+    const activeSource = sources.find((source) => source.id === activeSourceId);
+    const isAutomaticHardwareSelection =
+      nextSourceId !== selectedSourceId &&
+      isMockSourceInfo(activeSource) &&
+      !isMockSourceInfo(nextSource);
+    const isAutomaticHardwareRecovery =
+      nextSourceId === selectedSourceId &&
+      isMockSourceInfo(activeSource) &&
+      !isMockSourceInfo(nextSource);
+    if (
+      hasExplicitSelectionIntent ||
+      isAutomaticHardwareSelection ||
+      isAutomaticHardwareRecovery
+    ) {
+      return nextSourceId;
+    }
+    // The active source may have changed in another tab. Keep this tab's
+    // selected source without replaying it as a new global switch request.
+    return selectionIntentSourceId;
   }
   return selectionIntentSourceId;
 };
@@ -1140,7 +1163,11 @@ export type SpectrumAction =
   | { type: "SET_FFT_DB_LIMITS"; min: number; max: number }
   | { type: "SET_SHOW_SPIKE_OVERLAY"; enabled: boolean }
   | { type: "SET_REMOVE_DC_SPIKE"; enabled: boolean }
-  | { type: "SET_SAMPLE_RATE"; sampleRateHz: number }
+  | {
+      type: "SET_SAMPLE_RATE";
+      sampleRateHz: number;
+      frequencyRange?: FrequencyRange;
+    }
   | { type: "SET_MIN_RECEIVE_SAMPLE_RATE"; minReceiveSampleRateHz: number }
   | { type: "SET_SDR_SETTINGS_BUNDLE"; settings: Partial<SpectrumState> }
   | { type: "RESET_ZOOM_AND_DB" }
@@ -1283,6 +1310,39 @@ export const selectLiveSampleRateForSync = ({
       : [sdrSettingsSampleRateHz, maxSampleRateHz];
 
   return resolveSourceSampleRateHz({ candidates, maxSampleRateHz });
+};
+
+export const shouldHydrateLiveSampleRate = ({
+  rate,
+  localSampleRateHz,
+  pendingLocalSampleRateHz,
+  hydratedBackendSampleRate,
+}: {
+  rate?: number | null;
+  localSampleRateHz?: number | null;
+  pendingLocalSampleRateHz?: number | null;
+  hydratedBackendSampleRate: boolean;
+}): boolean => {
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
+    return false;
+  }
+
+  if (
+    typeof pendingLocalSampleRateHz === "number" &&
+    Number.isFinite(pendingLocalSampleRateHz) &&
+    pendingLocalSampleRateHz > 0 &&
+    Math.round(rate) !== Math.round(pendingLocalSampleRateHz)
+  ) {
+    // The local selector is already showing an intentional request. A stale
+    // source snapshot must not turn that request back into a device update.
+    return false;
+  }
+
+  const hasValidLocalRate =
+    typeof localSampleRateHz === "number" &&
+    Number.isFinite(localSampleRateHz) &&
+    localSampleRateHz > 0;
+  return !hasValidLocalRate || !hydratedBackendSampleRate;
 };
 
 type SignalDisplaySettings = {
@@ -1693,6 +1753,8 @@ export type SpectrumStoreContextValue = {
   manualVisualizerPaused: boolean;
   setManualVisualizerPaused: React.Dispatch<React.SetStateAction<boolean>>;
   selectedSourceId: string;
+  selectionIntentSourceId?: string | null;
+  pendingSourceSwitchId?: string | null;
   setSelectedSourceId: React.Dispatch<React.SetStateAction<string>>;
   selectedSource: SourceInfo | null;
   selectedSourceDerived: {
@@ -1797,12 +1859,10 @@ export type SpectrumStoreContextValue = {
   sources: SourceInfo[];
 };
 
-const SpectrumStoreContext = createContext<SpectrumStoreContextValue | null>(
-  null,
-);
-
 export const useSpectrumStore = () => {
-  const context = useContext(SpectrumStoreContext);
+  const context = useContext(SpectrumStoreContext) as
+    | SpectrumStoreContextValue
+    | null;
   if (!context) {
     throw new Error("useSpectrumStore must be used within a SpectrumProvider");
   }
@@ -1811,7 +1871,7 @@ export const useSpectrumStore = () => {
 
 export const useOptionalSpectrumStore =
   (): SpectrumStoreContextValue | null => {
-    return useContext(SpectrumStoreContext);
+    return useContext(SpectrumStoreContext) as SpectrumStoreContextValue | null;
   };
 
 interface SpectrumProviderProps {
@@ -1962,6 +2022,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
     const previousInventorySourceIdsRef = useRef<Set<string>>(new Set());
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
+    const pendingLocalSampleRateRef = useRef<number | null>(null);
 
     // Capture the leaving source before SpectrumRoute effects jump Mock Tx
     // geometry onto the shared frequencyRange (would otherwise poison APT).
@@ -1995,8 +2056,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           sourceSpectrumRuntime.reset(sourceId);
           liveDataBySourceRef.current[sourceId] =
             sourceVisualizationRuntime.getSourceRef(sourceId);
-          reduxDispatch(sendSelectSourceThunk(sourceId));
-          reduxDispatch(setReduxPendingSourceSwitchId(sourceId));
+          reduxDispatch(sendViewSourceThunk(sourceId));
         },
         onTimeout: () => {
           reduxDispatch(setReduxPendingSourceSwitchId(null));
@@ -2152,13 +2212,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       // with a click that the backend has not accepted yet. Otherwise a RTL
       // sample rate/options can be painted over HackRF frames during a warm
       // switch.
-      if (
-        state.sourceMode === "live" &&
-        activeSourceId.length > 0 &&
-        selectedSourceId !== activeSourceId
-      ) {
-        return;
-      }
+      if (state.sourceMode !== "live") return;
 
       const previousSourceViewKey = selectedSourceViewKeyRef.current;
       // Previous source was already snapshotted at selection time (before Tx
@@ -2341,7 +2395,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             reduxDispatch(setFftFrameRate(action.fftFrameRate));
             return;
           case "SET_SAMPLE_RATE":
-            reduxDispatch(setSampleRateAction(action.sampleRateHz));
+            pendingLocalSampleRateRef.current = action.sampleRateHz;
+            reduxDispatch({
+              ...setSampleRateAction(action.sampleRateHz),
+              ...(action.frequencyRange
+                ? { meta: { managedRxFrequencyRange: action.frequencyRange } }
+                : {}),
+            });
             return;
           case "SET_MIN_RECEIVE_SAMPLE_RATE":
             reduxDispatch(
@@ -3436,6 +3496,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     useEffect(() => {
       hydratedBackendSampleRateRef.current = false;
+      pendingLocalSampleRateRef.current = null;
       hasInitializedBackendSettingsRef.current = false;
       // Force re-sending the current frequency range to the newly activated
       // device so it tunes to the user's last frequency, not the backend default.
@@ -3457,17 +3518,28 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         deviceName,
         isRtlSdr: deviceProfile?.is_rtl_sdr,
       });
-      const hasValidLocalRate =
-        typeof state.sampleRateHz === "number" &&
-        Number.isFinite(state.sampleRateHz) &&
-        state.sampleRateHz > 0;
-      const shouldHydrateRate =
-        typeof rate === "number" &&
-        rate > 0 &&
-        (!hasValidLocalRate || !hydratedBackendSampleRateRef.current);
+      const pendingLocalSampleRateHz = pendingLocalSampleRateRef.current;
+      const shouldHydrateRate = shouldHydrateLiveSampleRate({
+        rate,
+        localSampleRateHz: state.sampleRateHz,
+        pendingLocalSampleRateHz,
+        hydratedBackendSampleRate: hydratedBackendSampleRateRef.current,
+      });
 
-      if (shouldHydrateRate && rate !== state.sampleRateHz) {
+      if (
+        shouldHydrateRate &&
+        typeof rate === "number" &&
+        rate !== state.sampleRateHz
+      ) {
         reduxDispatch(setSampleRateAction(rate));
+      }
+      if (
+        typeof pendingLocalSampleRateHz === "number" &&
+        typeof rate === "number" &&
+        Number.isFinite(rate) &&
+        Math.round(rate) === Math.round(pendingLocalSampleRateHz)
+      ) {
+        pendingLocalSampleRateRef.current = null;
       }
       if (typeof rate === "number" && rate > 0) {
         hydratedBackendSampleRateRef.current = true;
@@ -3986,6 +4058,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         manualVisualizerPaused,
         setManualVisualizerPaused,
         selectedSourceId,
+        selectionIntentSourceId,
+        pendingSourceSwitchId,
         setSelectedSourceId,
         selectedSource,
         selectedSourceDerived,
@@ -4007,6 +4081,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         fftVisualizerMachine,
         manualVisualizerPaused,
         selectedSourceId,
+        selectionIntentSourceId,
+        pendingSourceSwitchId,
         selectedSource,
         selectedSourceDerived,
         effectiveFrames,

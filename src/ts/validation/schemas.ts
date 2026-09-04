@@ -425,6 +425,7 @@ export const SpectrumFrameSchema = z.object({
 export const ChannelsMessageSchema = z.object({
   type: z.literal("channels"),
   source_id: z.string(),
+  origin_id: z.string().nullable().optional(),
   channels: z.array(SpectrumFrameSchema),
   active_signal_area: z.string().nullable().optional(),
   frequency_range: z

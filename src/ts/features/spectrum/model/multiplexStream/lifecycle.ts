@@ -329,6 +329,7 @@ export const resolveLiveSourcePresentationPolicy = ({
   phase,
   selectedSourceId,
   activeSourceId,
+  sourceHandoffPending,
   readiness,
   presentedSourceId,
   isStandby,
@@ -336,12 +337,14 @@ export const resolveLiveSourcePresentationPolicy = ({
   phase: LiveSourceLifecyclePhase;
   selectedSourceId: string | null;
   activeSourceId: string | null;
+  sourceHandoffPending?: boolean;
   readiness?: SourceFrameReadiness | null;
   presentedSourceId?: string | null;
   isStandby: boolean;
 }): LiveSourcePresentationPolicy => {
   const sourceHandoff =
-    !!selectedSourceId && selectedSourceId !== activeSourceId;
+    sourceHandoffPending ??
+    (!!selectedSourceId && selectedSourceId !== activeSourceId);
   const selectedFrameReady = readiness?.sourceId === selectedSourceId;
   // A null presentation is deliberately not treated as matching. The canvas
   // may still hold a last-renderable fallback from the previous source even
@@ -637,8 +640,13 @@ export const resolveLiveSourceLifecycle = ({
           title: "Start Tx to transmit",
           sourceLabel: standbySourceLabel?.trim() || resolvedSourceLabel,
           message: "Start Tx to view backend-generated monitor I/Q.",
-        }
+      }
       : null);
+  // Only after a live session is lost. First-boot `disconnected`/`connecting`
+  // must keep warming/loading so Mock APT can receive its first frames.
+  const handoffPending =
+    sourceHandoffPending ??
+    (!!selectedSourceId && selectedSourceId !== activeSourceId);
   const result = (
     phase: LiveSourceLifecyclePhase,
     placeholder: CanvasPlaceholderState | null,
@@ -654,6 +662,7 @@ export const resolveLiveSourceLifecycle = ({
       phase,
       selectedSourceId,
       activeSourceId,
+      sourceHandoffPending: handoffPending,
       readiness,
       presentedSourceId,
       isStandby,
@@ -661,11 +670,6 @@ export const resolveLiveSourceLifecycle = ({
   });
 
   if (!isLive) return result("idle", null);
-  // Only after a live session is lost. First-boot `disconnected`/`connecting`
-  // must keep warming/loading so Mock APT can receive its first frames.
-  const handoffPending =
-    sourceHandoffPending ??
-    (!!selectedSourceId && selectedSourceId !== activeSourceId);
   if (
     isControlPlaneUnavailable({
       isConnected,
@@ -710,7 +714,7 @@ export const resolveLiveSourceLifecycle = ({
   }
   if (!selectedSourceId) return result("idle", null);
 
-  if (selectedSourceId !== activeSourceId) {
+  if (handoffPending && selectedSourceId !== activeSourceId) {
     const targetTransportIsReady =
       transportSourceId === selectedSourceId && transportPhase === "ready";
     return result(
@@ -719,10 +723,17 @@ export const resolveLiveSourceLifecycle = ({
     );
   }
 
+  // A one-shot Tx preview can be accepted by the middleware before the
+  // canvas reports its first paint. Readiness is source-scoped and already
+  // filtered at that boundary, so keep the committed standby top-bar over
+  // the preview instead of briefly re-entering the full Loading placeholder.
+  const hasAcceptedCurrentFrame =
+    hasValidFrame || readiness?.sourceId === selectedSourceId;
+
   // Standby with a committed preview frame shows the top bar over the graph.
   // Standby without a frame must stay in awaiting-frame so Loading covers the
   // canvas instead of a black FFT under the STANDBY chrome.
-  if (isStandby && hasValidFrame) {
+  if (isStandby && hasAcceptedCurrentFrame) {
     return result("standby", resolvedStandbyPlaceholder);
   }
   if (isStandby) {
@@ -825,21 +836,31 @@ export const useLiveSourceLifecycle = (
 // helper predicates with slightly different shapes.
 
 /**
- * The one handoff-pending definition: a selection is awaiting backend commit,
- * or the selected source's transport is still warming. Consumers: route
- * layout, lifecycle resolution, and Tx settings gating.
+ * The one handoff-pending definition: this tab's selection intent is awaiting
+ * backend commit, or this tab's selected source transport is still warming.
+ * The active source is global, so a bare selected/active mismatch can be
+ * caused by another client and must not blank this tab's presentation.
  */
 export const resolveLiveSourceHandoffPending = ({
   selectedSourceId,
   activeSourceId,
+  selectionIntentSourceId = null,
+  pendingSourceSwitchId = null,
+  transportSourceId = null,
   transportPhase = "idle",
 }: {
   selectedSourceId: string | null | undefined;
   activeSourceId: string | null | undefined;
+  selectionIntentSourceId?: string | null;
+  pendingSourceSwitchId?: string | null;
+  transportSourceId?: string | null;
   transportPhase?: SourceTransportPhase;
 }): boolean =>
-  !!(selectedSourceId && selectedSourceId !== (activeSourceId ?? null)) ||
-  transportPhase === "warming";
+  !!selectedSourceId &&
+  ((selectedSourceId !== (activeSourceId ?? null) &&
+    (selectionIntentSourceId === selectedSourceId ||
+      pendingSourceSwitchId === selectedSourceId)) ||
+    (transportSourceId === selectedSourceId && transportPhase === "warming"));
 
 /** Whether a tx-suite binding targets the currently selected source. */
 export const isTxSuiteBoundToSelection = ({

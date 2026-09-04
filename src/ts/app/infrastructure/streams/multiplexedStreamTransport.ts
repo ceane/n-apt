@@ -392,6 +392,15 @@ export const createMultiplexedStreamTransport = ({
           controlScopes:
             message.controlScopes as import("./streamContract").StreamControlScopes,
           deliveryPolicy: effectiveDeliveryPolicy,
+          ...(typeof message.streamId === "string"
+            ? { streamId: message.streamId }
+            : {}),
+          ...(typeof message.streamPath === "string"
+            ? { streamPath: message.streamPath }
+            : {}),
+          ...(typeof message.streamUrl === "string"
+            ? { streamUrl: message.streamUrl }
+            : {}),
         }, aesKey);
         return;
       }

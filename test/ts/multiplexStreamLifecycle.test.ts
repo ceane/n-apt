@@ -7,19 +7,27 @@ import {
 } from "@n-apt/spectrum/model/multiplexStream";
 
 describe("resolveLiveSourceHandoffPending", () => {
-  it("is pending while the selection differs from the active source", () => {
+  it("does not treat a foreign active-source change as a local handoff", () => {
     expect(
       resolveLiveSourceHandoffPending({
-        selectedSourceId: "mock-tx",
-        activeSourceId: "mock-apt",
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+      }),
+    ).toBe(false);
+    expect(
+      resolveLiveSourceHandoffPending({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        selectionIntentSourceId: "mock-apt",
       }),
     ).toBe(true);
     expect(
       resolveLiveSourceHandoffPending({
         selectedSourceId: "mock-apt",
-        activeSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        pendingSourceSwitchId: "mock-apt",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("is pending while the selected transport warms, even after commit", () => {
@@ -27,6 +35,7 @@ describe("resolveLiveSourceHandoffPending", () => {
       resolveLiveSourceHandoffPending({
         selectedSourceId: "mock-apt",
         activeSourceId: "mock-apt",
+        transportSourceId: "mock-apt",
         transportPhase: "warming",
       }),
     ).toBe(true);

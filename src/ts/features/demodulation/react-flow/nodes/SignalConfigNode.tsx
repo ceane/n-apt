@@ -6,6 +6,7 @@ import {
   setFftWindow,
   setFrequencyRange,
   setPowerScale,
+  setSampleRate,
   setTemporalResolution,
 } from "@n-apt/redux";
 import { useSdrSettings } from "@n-apt/settings/public/useSdrSettings";
@@ -168,6 +169,18 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     },
     [dispatch, spectrumTransport, wsConnection],
   );
+  const setSampleRateForVisualizer = React.useCallback(
+    (rate: number, nextRange?: { min: number; max: number }) => {
+      dispatch({
+        ...setSampleRate(rate),
+        ...(nextRange
+          ? { meta: { managedRxFrequencyRange: nextRange } }
+          : {}),
+      });
+      settings.setSampleRate(rate);
+    },
+    [dispatch, settings.setSampleRate],
+  );
   const { handleSampleRateChange } = useLiveSampleRateControl({
     sourceMode: "live",
     supportsWholeChannelSampleRate:
@@ -182,7 +195,8 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     sampleRateHz: sourceSampleRateValue,
     fftSize: spectrum.fftSize,
     maxFrameRateLimit: settings.maxFrameRate,
-    setSampleRate: settings.setSampleRate,
+    setSampleRate: setSampleRateForVisualizer,
+    setSampleRateWithFrequencyRange: setSampleRateForVisualizer,
     setFftFrameRate: settings.setFftFrameRate,
     applyFrequencyRange,
   });

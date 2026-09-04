@@ -12,6 +12,7 @@ import {
   computeHmac,
 } from "@n-apt/crypto/webcrypto";
 import { setFrequencyRange } from "@n-apt/redux";
+import type { RequestNextLiveFrameOptions } from "@n-apt/redux/thunks/websocketThunks";
 import {
   setSelectedSourceId,
   setSelectionIntentSourceId,
@@ -62,6 +63,9 @@ export type LiveFrameSnapshot = {
   sequence: number | null;
   frameStatus: string | null;
   centerFrequencyHz: number | null;
+  sampleRateHz: number | null;
+  iqByteLength: number | null;
+  isTxPreview: boolean;
 };
 
 export type LiveReduxStreamPresentationPhase = {
@@ -74,6 +78,7 @@ export type LiveReduxStreamLifecycleSnapshot = {
   phase: LiveSourceLifecyclePhase;
   controlPlaneUnavailable: boolean;
   placeholderReason: string | null;
+  placeholderKind: string | null;
 };
 
 export type LiveReduxStreamSnapshot = {
@@ -107,7 +112,9 @@ export type LiveReduxStreamHarness = {
   connect(): Promise<void>;
   selectSource(sourceId: string): Promise<void>;
   setPaused(paused: boolean, sourceId?: string): Promise<void>;
-  requestNextStandbyFrame(): Promise<void>;
+  requestNextStandbyFrame(
+    options?: RequestNextLiveFrameOptions,
+  ): Promise<void>;
   setTransmit(enabled: boolean, sourceId?: string): Promise<void>;
   simulateHardwarePresence(present: boolean): Promise<void>;
   setFftSize(fftSize: number, timeoutMs?: number): Promise<void>;
@@ -269,6 +276,14 @@ const frameSnapshot = (value: unknown): LiveFrameSnapshot => {
       typeof frame?.center_frequency_hz === "number"
         ? frame.center_frequency_hz
         : null,
+    sampleRateHz:
+      typeof frame?.sample_rate === "number" ? frame.sample_rate : null,
+    iqByteLength:
+      typeof frame?.iq_data?.byteLength === "number"
+        ? frame.iq_data.byteLength
+        : null,
+    isTxPreview:
+      frame?.is_tx_preview === true || frame?.is_mock_tx_preview === true,
   };
 };
 
@@ -518,23 +533,25 @@ export const createLiveReduxStreamHarness = async (
       );
     },
 
-    async requestNextStandbyFrame() {
+    async requestNextStandbyFrame(requestOptions) {
       if (!connected) {
         throw new Error("connect() must run before requestNextStandbyFrame()");
       }
       const state = store.getState();
       await dispatch(
-        requestNextPausedFrame({
-          sourceId: "mock-tx",
-          txSettings: {
-            centerFrequencyHz: state.spectrum?.txCenterFrequencyHz ?? null,
-            bandwidthHz: state.spectrum?.txSampleRateHz ?? null,
-            sampleRateHz: state.spectrum?.txSampleRateHz ?? null,
-            powerDbm: state.spectrum?.txPowerDbm ?? null,
-            txSignal: state.spectrum?.txSignal ?? null,
-            txIfftSize: state.spectrum?.txIfftSize ?? null,
+        requestNextPausedFrame(
+          requestOptions ?? {
+            sourceId: "mock-tx",
+            txSettings: {
+              centerFrequencyHz: state.spectrum?.txCenterFrequencyHz ?? null,
+              bandwidthHz: state.spectrum?.txSampleRateHz ?? null,
+              sampleRateHz: state.spectrum?.txSampleRateHz ?? null,
+              powerDbm: state.spectrum?.txPowerDbm ?? null,
+              txSignal: state.spectrum?.txSignal ?? null,
+              txIfftSize: state.spectrum?.txIfftSize ?? null,
+            },
           },
-        }),
+        ),
       );
     },
 
@@ -778,6 +795,7 @@ export const createLiveReduxStreamHarness = async (
             lifecycleResult.placeholder?.kind === "error"
               ? lifecycleResult.placeholder.reason
               : null,
+          placeholderKind: lifecycleResult.placeholder?.kind ?? null,
         },
         redux: {
           isConnected: state.isConnected,

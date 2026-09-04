@@ -1,5 +1,6 @@
 import {
   createLiveFrequencyRangePublisher,
+  publishFrequencyRangeBySource,
   publishSubscriberLocalVizPan,
   publishLiveFrequencyRange,
   publishFrequencyRangeImmediately,
@@ -108,6 +109,32 @@ describe("publishFrequencyRangeImmediately", () => {
     expect(sendFrequencyRange).toHaveBeenCalledWith(range);
     expect(setFrequencyRange.mock.invocationCallOrder[0]).toBeLessThan(
       sendFrequencyRange.mock.invocationCallOrder[0],
+    );
+  });
+});
+
+describe("publishFrequencyRangeBySource", () => {
+  it("flushes an older pan before publishing a typed center immediately", () => {
+    const flush = jest.fn();
+    const publish = jest.fn();
+    const setFrequencyRange = jest.fn();
+    const sendFrequencyRange = jest.fn();
+    const range = { min: 192_865_000, max: 199_135_000 };
+
+    publishFrequencyRangeBySource(
+      range,
+      "typed",
+      { publish, flush },
+      setFrequencyRange,
+      sendFrequencyRange,
+    );
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(publish).not.toHaveBeenCalled();
+    expect(setFrequencyRange).toHaveBeenCalledWith(range);
+    expect(sendFrequencyRange).toHaveBeenCalledWith(range);
+    expect(flush.mock.invocationCallOrder[0]).toBeLessThan(
+      setFrequencyRange.mock.invocationCallOrder[0],
     );
   });
 });

@@ -112,6 +112,36 @@ export const publishFrequencyRangeImmediately = (
   sendFrequencyRange(range);
 };
 
+type LiveFrequencyRangePublisher = Pick<
+  ReturnType<typeof createLiveFrequencyRangePublisher>,
+  "publish" | "flush"
+>;
+
+/**
+ * Pan updates may be throttled, but typed/mode changes are discrete commands.
+ * Flush the last pending pan before publishing a typed center so an older
+ * gesture cannot arrive after the user's explicit frequency.
+ */
+export const publishFrequencyRangeBySource = (
+  range: FrequencyRange,
+  source: "user-pan" | "mode-enter" | "typed",
+  publisher: LiveFrequencyRangePublisher,
+  setFrequencyRange: (range: FrequencyRange) => void,
+  sendFrequencyRange: (range: FrequencyRange) => void,
+): void => {
+  if (source === "user-pan") {
+    publisher.publish(range);
+    return;
+  }
+
+  publisher.flush();
+  publishFrequencyRangeImmediately(
+    range,
+    setFrequencyRange,
+    sendFrequencyRange,
+  );
+};
+
 /** Coalesces live pan publication without rerendering the spectrum every frame. */
 export const createLiveFrequencyRangePublisher = (
   setFrequencyRange: (range: FrequencyRange) => void,
@@ -179,6 +209,7 @@ import {
   isCommittedStandbyPresentation,
   isLiveSourceAwaitingFrame,
   isLiveSourceHandoffPending,
+  resolveLiveSourceHandoffPending,
   resolveLiveSourceLifecycleErrorReason,
   shouldRequestMockTxStandbyPreview,
   shouldPresentMockTxStandby,
@@ -472,6 +503,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     effectiveSdrSettings,
     signalAreaBounds,
     selectedSourceId,
+    selectionIntentSourceId,
+    pendingSourceSwitchId,
     selectedSource,
     selectedSourceDerived,
     wsConnection: {
@@ -529,18 +562,29 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       // the canvas to repaint synchronously, so this does not slow the drag.
       const publisher = liveFrequencyRangePublisherRef.current;
       if (source === "user-pan") {
-        publisher?.publish(range);
+        if (publisher) {
+          publishFrequencyRangeBySource(
+            range,
+            source,
+            publisher,
+            setLiveFrequencyRangeRef.current,
+            sendLiveFrequencyRangeRef.current,
+          );
+        }
         return;
       }
 
       // Typed/mode changes are discrete commands. Flush a pending pan first,
       // then preserve their immediate ordering with the device request.
-      publisher?.flush();
-      publishFrequencyRangeImmediately(
-        range,
-        setLiveFrequencyRangeRef.current,
-        sendLiveFrequencyRangeRef.current,
-      );
+      if (publisher) {
+        publishFrequencyRangeBySource(
+          range,
+          source,
+          publisher,
+          setLiveFrequencyRangeRef.current,
+          sendLiveFrequencyRangeRef.current,
+        );
+      }
     },
     [],
   );
@@ -704,9 +748,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         presentationController.getSlot(selectedSourceId, "rx")?.phase ===
           "paused"
     : false;
-  const liveSourceHandoffPending =
-    !!(selectedSourceId && selectedSourceId !== (activeSourceId ?? null)) ||
-    sourceTransport?.phase === "warming";
+  const liveSourceHandoffPending = resolveLiveSourceHandoffPending({
+    selectedSourceId,
+    activeSourceId,
+    selectionIntentSourceId,
+    pendingSourceSwitchId,
+    transportSourceId: sourceTransport?.sourceId ?? null,
+    transportPhase: sourceTransport?.phase ?? "idle",
+  });
   const liveSourceLabel =
     selectedSource?.name ??
     selectedSourceDerived.deviceName ??
@@ -1364,7 +1413,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       const spanHz = state.frequencyRange.max - state.frequencyRange.min;
       handleFrequencyRangeChange(
         buildCenteredFrequencyRange(nextCenterFrequencyHz, spanHz, 0),
-        "user-pan",
+        "typed",
       );
     },
     [

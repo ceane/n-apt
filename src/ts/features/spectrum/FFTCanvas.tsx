@@ -291,10 +291,10 @@ export const shouldPublishProcessedSpectrumFrame = ({
   processedCurrentFrame || hasNewData || shouldReprocessCurrentFrame;
 
 /**
- * Mirror-on already redrew from the cached FFT when pan moved without a new
- * IQ frame. Mirror-off was left on the "wait for the next radio frame" path,
- * which froze the VFO until the retune landed. Viewport geometry changes
- * (pan, zoom, or a same-span retune) must repaint from cache on both paths.
+ * A paused/one-shot presentation may redraw its cached FFT when the local
+ * viewport changes. A live presentation must keep the last frame fixed until
+ * the next radio frame arrives; reprojection against a newer request creates
+ * a sparse/zero-filled frame when the acquisition axis has not caught up.
  */
 export const shouldRepaintCachedSpectrumForViewportChange = ({
   hasNewData,
@@ -303,6 +303,7 @@ export const shouldRepaintCachedSpectrumForViewportChange = ({
   zoomChanged,
   panChanged,
   rangeChanged = false,
+  isPaused = false,
 }: {
   hasNewData: boolean;
   shouldReprocessCurrentFrame: boolean;
@@ -310,16 +311,18 @@ export const shouldRepaintCachedSpectrumForViewportChange = ({
   zoomChanged: boolean;
   panChanged: boolean;
   rangeChanged?: boolean;
+  isPaused?: boolean;
 }): boolean =>
+  isPaused &&
   !hasNewData &&
   !shouldReprocessCurrentFrame &&
   hasCachedWaveform &&
   (zoomChanged || panChanged || rangeChanged);
 
 /**
- * Mirror-on can repaint from the resident FFT when only pan moved. Without
- * this branch the live loop waits for a matching retune frame and the VFO
- * freezes until the radio catches up.
+ * Paused mirrored views can repaint from the resident FFT when only pan moved.
+ * Live views deliberately wait for the next frame so a changing viewport
+ * cannot slide an older acquisition row across the canvas.
  */
 export const shouldMirrorPanOnlyRedraw = ({
   allowNegativeFrequencies,
@@ -328,6 +331,7 @@ export const shouldMirrorPanOnlyRedraw = ({
   hasCachedWaveform,
   lastPaintedMirrorPan,
   currentMirrorPan,
+  isPaused = false,
 }: {
   allowNegativeFrequencies: boolean;
   hasNewData: boolean;
@@ -335,7 +339,9 @@ export const shouldMirrorPanOnlyRedraw = ({
   hasCachedWaveform: boolean;
   lastPaintedMirrorPan: number;
   currentMirrorPan: number;
+  isPaused?: boolean;
 }): boolean =>
+  isPaused &&
   allowNegativeFrequencies &&
   !hasNewData &&
   !shouldReprocessCurrentFrame &&
@@ -3575,7 +3581,8 @@ const FFTCanvas = memo(
 
         previousRemoveDcSpikeRef.current = removeDcSpike;
 
-        // Mirror-on can change viewport geometry without a fresh IQ frame.
+        // Paused mirror views can change geometry without a fresh IQ frame;
+        // live views intentionally wait for the next acquisition frame.
         const mirrorPanOnlyRedraw = shouldMirrorPanOnlyRedraw({
           allowNegativeFrequencies,
           hasNewData: Boolean(hasNewData),
@@ -3585,6 +3592,7 @@ const FFTCanvas = memo(
           ),
           lastPaintedMirrorPan: lastPaintedMirrorPanRef.current,
           currentMirrorPan: vizPanOffsetRef.current,
+          isPaused,
         });
         const viewportOnlyRedraw =
           !allowNegativeFrequencies &&

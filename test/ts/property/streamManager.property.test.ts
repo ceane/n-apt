@@ -9,18 +9,21 @@ import {
   type StreamTransport,
 } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
 
-const rxOptions = (centerFrequencyHz = 100_000_000): StreamOptions => ({
+const rxOptions = (
+  centerFrequencyHz = 100_000_000,
+  sampleRateHz = 2_400_000,
+): StreamOptions => ({
   mode: "rx",
   centerFrequencyHz,
-  sampleRateHz: 2_400_000,
+  sampleRateHz,
   fftSize: 1024,
 });
 
-const _txOptions = (): StreamOptions => ({
+const txOptions = (sampleRateHz = 2_400_000): StreamOptions => ({
   mode: "tx",
   centerFrequencyHz: 100_000_000,
-  sampleRateHz: 2_400_000,
-  bandwidthHz: 1_000_000,
+  sampleRateHz,
+  bandwidthHz: sampleRateHz,
   signal: "wifi",
   powerDbm: -18,
   ifftSize: 1024,
@@ -32,6 +35,7 @@ const frameEvent = (
   sequence: number,
   streamEpoch = 1,
   optionsRevision = 1,
+  sampleRateHz = 2_400_000,
 ): StreamEvent =>
   ({
     type: "stream_frame",
@@ -41,7 +45,7 @@ const frameEvent = (
     optionsRevision,
     sequence,
     timestamp: sequence,
-    sampleRateHz: 2_400_000,
+    sampleRateHz,
     iqData: new Uint8Array([1, 2, 3, 4]),
     frame: {
       type: "spectrum",
@@ -122,11 +126,11 @@ describe("source mode stream manager fuzz", () => {
       hydrate: () => void;
     };
 
-    const createBroker = (): Broker => {
+    const createBroker = (initialCenterHz: number): Broker => {
       const key: StreamKey = { sourceId: "shared-source", mode: "rx" };
       const broker: Broker = {
-        authoritativeOptions: rxOptions(100_000_000),
-        optionsByRevision: new Map([[1, rxOptions(100_000_000)]]),
+        authoritativeOptions: rxOptions(initialCenterHz),
+        optionsByRevision: new Map([[1, rxOptions(initialCenterHz)]]),
         optionsRevision: 1,
         streamEpoch: 1,
         sequence: 0,
@@ -248,12 +252,15 @@ describe("source mode stream manager fuzz", () => {
       fc.asyncProperty(
         fc.record({
           firstRequestedCenterHz: fc.integer({
-            min: 1_000_000,
+            // Keep the active view away from every current signals.yaml
+            // channel so an accidental channel fallback is obvious.
+            min: 50_000_000,
             max: 200_000_000,
           }),
           secondRequestedCenterHz: fc.integer({
-            min: 1_000_000,
-            max: 200_000_000,
+            // Deliberately emulate a stale Channel-B client snapshot.
+            min: 27_170_000,
+            max: 30_370_000,
           }),
           operations: fc.array(
             fc.record({
@@ -266,8 +273,20 @@ describe("source mode stream manager fuzz", () => {
                 "frame",
                 "stale-frame",
                 "hydrate",
+                "stale-hydrate",
+                "sample-rate",
+                "whole-channel",
               ),
               centerDeltaHz: fc.integer({ min: -2_000_000, max: 2_000_000 }),
+              sampleRateHz: fc.constantFrom(
+                3_200_000,
+                4_372_000,
+                5_200_000,
+                8_000_000,
+                12_800_000,
+                18_250_000,
+                20_000_000,
+              ),
             }),
             { minLength: 1, maxLength: 100 },
           ),
@@ -277,7 +296,7 @@ describe("source mode stream manager fuzz", () => {
           secondRequestedCenterHz,
           operations,
         }) => {
-          const broker = createBroker();
+          const broker = createBroker(firstRequestedCenterHz);
           const clients = [
             await makeClient(broker, firstRequestedCenterHz),
             await makeClient(broker, secondRequestedCenterHz),
@@ -301,6 +320,7 @@ describe("source mode stream manager fuzz", () => {
                       ? frameOptions.centerFrequencyHz
                       : undefined,
                   );
+                  expect(event.sampleRateHz).toBe(frameOptions?.sampleRateHz);
                 }
               }
             }
@@ -336,7 +356,27 @@ describe("source mode stream manager fuzz", () => {
                     : 100_000_000,
                 );
                 await client.subscription.updateOptions(
-                  rxOptions(nextCenter),
+                  rxOptions(nextCenter, operation.sampleRateHz),
+                );
+                break;
+              }
+              case "sample-rate": {
+                const currentCenter =
+                  broker.authoritativeOptions.mode === "rx"
+                    ? broker.authoritativeOptions.centerFrequencyHz
+                    : 100_000_000;
+                await client.subscription.updateOptions(
+                  rxOptions(currentCenter, operation.sampleRateHz),
+                );
+                break;
+              }
+              case "whole-channel": {
+                const currentCenter =
+                  broker.authoritativeOptions.mode === "rx"
+                    ? broker.authoritativeOptions.centerFrequencyHz
+                    : 100_000_000;
+                await client.subscription.updateOptions(
+                  rxOptions(currentCenter, 18_250_000),
                 );
                 break;
               }
@@ -367,11 +407,219 @@ describe("source mode stream manager fuzz", () => {
               case "hydrate":
                 broker.hydrate();
                 break;
+              case "stale-hydrate": {
+                const staleRevision = Math.max(1, broker.optionsRevision - 1);
+                const staleOptions = broker.optionsByRevision.get(
+                  staleRevision,
+                );
+                expect(staleOptions).toBeDefined();
+                for (const candidate of clients) {
+                  candidate.transport.onEvent({
+                    type: "stream_opened",
+                    sourceId: candidate.transport.key.sourceId,
+                    mode: candidate.transport.key.mode,
+                    streamEpoch: broker.streamEpoch,
+                    optionsRevision: staleRevision,
+                    state: "ready",
+                    options: { ...staleOptions! },
+                  });
+                }
+                break;
+              }
             }
 
             assertCoordinated();
             expect(broker.optionsRevision).toBeGreaterThanOrEqual(1);
             expect(step).toBeGreaterThanOrEqual(0);
+          }
+
+          clients.forEach((client) => client.manager.dispose());
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it("keeps per-source TX options uniform across clients through fuzzed updates", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(
+          fc.record({
+            client: fc.integer({ min: 0, max: 1 }),
+            action: fc.constantFrom("update", "hydrate", "pause", "resume", "frame"),
+            sampleRateHz: fc.constantFrom(
+              1_000_000,
+              1_200_000,
+              2_400_000,
+              4_000_000,
+              8_000_000,
+              12_800_000,
+              18_250_000,
+            ),
+          }),
+          { minLength: 1, maxLength: 120 },
+        ),
+        async (operations) => {
+          type TxClient = {
+            manager: ReturnType<typeof createSourceModeStreamManager>;
+            transport: {
+              key: StreamKey;
+              sent: StreamMessage[];
+              onEvent: (event: StreamEvent) => void;
+            };
+            subscription: Awaited<
+              ReturnType<
+                ReturnType<typeof createSourceModeStreamManager>["subscribe"]
+              >
+            >;
+            events: StreamEvent[];
+          };
+
+          const key: StreamKey = { sourceId: "shared-tx-source", mode: "tx" };
+          const clients: TxClient[] = [];
+          let authoritativeOptions = txOptions();
+          const optionsByRevision = new Map<number, StreamOptions>([
+            [1, authoritativeOptions],
+          ]);
+          let optionsRevision = 1;
+          let sequence = 0;
+
+          const hydrate = () => {
+            for (const client of clients) {
+              client.transport.onEvent({
+                type: "stream_opened",
+                sourceId: key.sourceId,
+                mode: key.mode,
+                streamEpoch: 1,
+                optionsRevision,
+                state: "ready",
+                options: { ...authoritativeOptions },
+              });
+            }
+          };
+
+          const emitFrame = () => {
+            sequence += 1;
+            for (const client of clients) {
+              const event = frameEvent(
+                key.sourceId,
+                key.mode,
+                sequence,
+                1,
+                optionsRevision,
+                authoritativeOptions.sampleRateHz,
+              ) as Extract<StreamEvent, { type: "stream_frame" }>;
+              event.centerFrequencyHz =
+                authoritativeOptions.mode === "tx"
+                  ? authoritativeOptions.centerFrequencyHz
+                  : undefined;
+              event.frame.center_frequency_hz = event.centerFrequencyHz;
+              event.frame.sample_rate = authoritativeOptions.sampleRateHz;
+              client.transport.onEvent(event);
+            }
+          };
+
+          const makeClient = async (): Promise<TxClient> => {
+            const events: StreamEvent[] = [];
+            let transport!: TxClient["transport"];
+            const manager = createSourceModeStreamManager({
+              noSubscriberGraceMs: 10_000,
+              transportFactory: (transportKey, onEvent) => {
+                transport = { key: transportKey, sent: [], onEvent };
+                return {
+                  key: transportKey,
+                  send: (message: StreamCommand) => {
+                    transport.sent.push(message);
+                    if (message.type === "stream_subscribe") {
+                      transport.onEvent({
+                        type: "stream_opened",
+                        sourceId: key.sourceId,
+                        mode: key.mode,
+                        streamEpoch: 1,
+                        optionsRevision,
+                        state: "ready",
+                        options: { ...authoritativeOptions },
+                      });
+                    }
+                    if (message.type === "stream_update_options") {
+                      authoritativeOptions = { ...message.options };
+                      optionsRevision += 1;
+                      optionsByRevision.set(optionsRevision, {
+                        ...authoritativeOptions,
+                      });
+                      for (const client of clients) {
+                        client.transport.onEvent({
+                          type: "stream_options_applied",
+                          sourceId: key.sourceId,
+                          mode: key.mode,
+                          streamEpoch: 1,
+                          optionsRevision,
+                          options: { ...authoritativeOptions },
+                          origin: "backend",
+                        });
+                      }
+                    }
+                  },
+                  close: () => undefined,
+                  onEvent,
+                } as StreamTransport;
+              },
+            });
+            const subscription = await manager.subscribe(
+              key,
+              txOptions(),
+              (event) => events.push(event),
+            );
+            const client = { manager, transport, subscription, events };
+            clients.push(client);
+            return client;
+          };
+
+          await makeClient();
+          await makeClient();
+
+          const assertUniform = () => {
+            for (const client of clients) {
+              expect(client.subscription.effectiveOptions).toEqual(
+                authoritativeOptions,
+              );
+              for (const event of client.events) {
+                if (event.type === "stream_frame") {
+                  const frameOptions = optionsByRevision.get(
+                    event.optionsRevision,
+                  );
+                  expect(frameOptions).toBeDefined();
+                  expect(event.sampleRateHz).toBe(
+                    frameOptions?.sampleRateHz,
+                  );
+                }
+              }
+            }
+          };
+
+          assertUniform();
+          for (const operation of operations) {
+            const client = clients[operation.client];
+            switch (operation.action) {
+              case "update":
+                await client.subscription.updateOptions(
+                  txOptions(operation.sampleRateHz),
+                );
+                break;
+              case "hydrate":
+                hydrate();
+                break;
+              case "pause":
+                client.subscription.setPaused(true);
+                break;
+              case "resume":
+                client.subscription.setPaused(false);
+                break;
+              case "frame":
+                emitFrame();
+                break;
+            }
+            assertUniform();
           }
 
           clients.forEach((client) => client.manager.dispose());

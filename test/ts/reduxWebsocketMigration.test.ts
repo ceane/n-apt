@@ -50,6 +50,10 @@ import {
 import { tuneDemod } from "@n-apt/redux/thunks/demodThunks";
 import spectrumSlice, {
   setDeviceSdrSettingsBundle,
+  setFrequencyRange,
+  setFftSize,
+  setSampleRate,
+  setTxSampleRateHz,
   setTxGeometry,
 } from "@n-apt/redux/slices/spectrumSlice";
 import sourceRoutingSlice, {
@@ -57,6 +61,7 @@ import sourceRoutingSlice, {
 } from "@n-apt/redux/slices/sourceRoutingSlice";
 import sourceSelectionSlice, {
   setSelectedSourceId,
+  setSelectionIntentSourceId,
 } from "@n-apt/redux/slices/sourceSelectionSlice";
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import { collapsePausedFrameBatch } from "@n-apt/redux/middleware/websocketMiddleware";
@@ -72,6 +77,7 @@ describe("hardware source transition cleanup", () => {
         nextActiveSourceId: "mock-apt",
         selectedSourceId: "rtl-sdr-00000001",
         selectionIntentSourceId: "rtl-sdr-00000001",
+        sources: [{ id: "mock-apt" }] as any,
       }),
     ).toEqual({ fallbackSourceId: "mock-apt" });
     expect(
@@ -80,6 +86,7 @@ describe("hardware source transition cleanup", () => {
         nextActiveSourceId: "mock-apt",
         selectedSourceId: "rtl-sdr-00000001",
         selectionIntentSourceId: "rtl-sdr-00000001",
+        sources: [{ id: "mock-apt" }] as any,
       }),
     ).toBeNull();
   });
@@ -112,6 +119,18 @@ describe("hardware source transition cleanup", () => {
         failedSourceId: "rtl-sdr-00000001",
         activeSourceId: "mock-apt",
         selectedSourceId: "mock-apt",
+      }),
+    ).toBeNull();
+  });
+
+  it("does not retire a source that remains in the global source inventory", () => {
+    expect(
+      resolveSourceSelectionAfterBackendFallback({
+        previousActiveSourceId: "mock-tx",
+        nextActiveSourceId: "mock-apt",
+        selectedSourceId: "mock-tx",
+        selectionIntentSourceId: "mock-tx",
+        sources: [{ id: "mock-apt" }, { id: "mock-tx" }] as any,
       }),
     ).toBeNull();
   });
@@ -426,6 +445,7 @@ describe("managed stream option synchronization", () => {
     expect(shouldSyncManagedStreamOptions("spectrum/setFrequencyRange")).toBe(
       true,
     );
+    expect(shouldSyncManagedStreamOptions("spectrum/setSampleRate")).toBe(true);
     expect(
       shouldSyncManagedStreamOptions("spectrum/setSignalAreaAndRange"),
     ).toBe(true);
@@ -441,6 +461,26 @@ describe("managed stream option synchronization", () => {
         },
       }),
     ).toEqual({ centerFrequencyHz: 27_235_000 });
+    expect(
+      resolveLocalRxTuningOverride("spectrum/setSampleRate", {
+        spectrum: { sampleRateHz: 4_372_000 },
+      }),
+    ).toEqual({ sampleRateHz: 4_372_000 });
+    expect(
+      resolveLocalRxTuningOverride(
+        "spectrum/setSampleRate",
+        {
+          spectrum: {
+            frequencyRange: { min: 24_100_000, max: 30_370_000 },
+            sampleRateHz: 4_000_000,
+          },
+        },
+        { min: 25_420_000, max: 29_420_000 },
+      ),
+    ).toEqual({
+      centerFrequencyHz: 27_420_000,
+      sampleRateHz: 4_000_000,
+    });
     expect(
       resolveLocalRxTuningOverride("spectrum/setDeviceSignalAreaAndRange", {
         spectrum: {
@@ -480,6 +520,22 @@ describe("managed stream option synchronization", () => {
       fftWindow: "Hann",
       frameRate: 12,
       gain: 18,
+    });
+  });
+
+  it("keeps the managed center when the follow-up settings write carries a new rate", () => {
+    expect(
+      resolveManagedRxOptionsOverride(
+        { sampleRate: 3_200_000 },
+        {
+          spectrum: {
+            frequencyRange: { min: 26_020_000, max: 29_220_000 },
+          },
+        },
+      ),
+    ).toEqual({
+      sampleRateHz: 3_200_000,
+      centerFrequencyHz: 27_620_000,
     });
   });
 
@@ -587,6 +643,45 @@ describe("managed stream option synchronization", () => {
     );
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"fftSize":2048'),
+    );
+
+    streamSocket.send.mockClear();
+    middlewareStore.dispatch(setSampleRate(6_270_000));
+
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"type":"stream_update_options"'),
+    );
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"sampleRateHz":6270000'),
+    );
+
+    streamSocket.send.mockClear();
+    middlewareStore.dispatch(
+      setFrequencyRange({ min: 13_000_000, max: 19_270_000 }),
+    );
+    await waitFor(() => {
+      expect(streamSocket.send).toHaveBeenCalledWith(
+        expect.stringContaining('"sampleRateHz":6270000'),
+      );
+    });
+
+    streamSocket.send.mockClear();
+    middlewareStore.dispatch(setFftSize(4096));
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"sampleRateHz":6270000'),
+    );
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"fftSize":4096'),
+    );
+
+    streamSocket.send.mockClear();
+    middlewareStore.dispatch(setTxSampleRateHz(1_200_000));
+
+    expect(streamSocket.send).not.toHaveBeenCalledWith(
+      expect.stringContaining('"sampleRateHz":2400000'),
+    );
+    expect(streamSocket.send).not.toHaveBeenCalledWith(
+      expect.stringContaining('"sampleRateHz":3200000'),
     );
 
     streamSocket.send.mockClear();
@@ -1381,6 +1476,64 @@ describe("Redux WebSocket Migration", () => {
         payload: expect.objectContaining({ sampleRateHz: 4_372_000 }),
       }),
     );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSignalAreaAndRange",
+      }),
+    );
+  });
+
+  it("preserves a local 5 MHz window when a same-channel refresh carries the channel range", () => {
+    const dispatch = jest.fn();
+    const state = {
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+      },
+      spectrum: {
+        activeSignalArea: "B",
+        sampleRateHz: 5_000_000,
+        frequencyRange: { min: 26_000_000, max: 31_000_000 },
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "channels",
+      source_id: "mock-apt",
+      active_signal_area: "B",
+      channels: [
+        {
+          id: "a",
+          label: "A",
+          min_hz: 18_000,
+          max_hz: 4_390_000,
+          description: "APT A",
+        },
+        {
+          id: "b",
+          label: "B",
+          min_hz: 24_100_000,
+          max_hz: 30_370_000,
+          description: "APT B",
+        },
+      ],
+      frequency_range: { min: 24_100_000, max: 30_370_000 },
+      sample_rate: 5_000_000,
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSignalAreaAndRange",
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "websocket/updateDeviceState",
+        payload: expect.objectContaining({
+          channels: expect.any(Array),
+        }),
+      }),
+    );
   });
 
   it("still applies the sample rate from a foreign subscriber's channels message", () => {
@@ -1712,7 +1865,7 @@ describe("Redux WebSocket Migration", () => {
     expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "spectrum/setVizPan" }),
     );
-    expect(dispatch).toHaveBeenCalledWith(
+    expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "spectrum/setDeviceSignalAreaAndRange" }),
     );
   });
@@ -1815,6 +1968,68 @@ describe("Redux WebSocket Migration", () => {
     liveDataBySourceRef.current = {};
     resetPausedFrameRequestGate();
     resetWebSocketMiddlewareState();
+  });
+
+  it("applies a global source snapshot without dropping the requesting tab's retained source", () => {
+    const source = (id: string, kind: string, capability: "mock" | "tx") => ({
+      id,
+      name: id,
+      kind,
+      capability,
+      status: "streaming",
+      loading_attempt: 0,
+      loading_attempt_max: 2,
+      supports_approx_dbm: true,
+      iq_format: {
+        element_type: "u8",
+        layout: "interleaved_iq",
+        typed_array: "Uint8Array",
+      },
+      stream_key: id,
+      stream_key_kind: "source_id",
+      sdr: {
+        max_sample_rate: 2_400_000,
+        sample_rate_options: [2_400_000],
+        fft_display: { markers: [] },
+        settings: {
+          sample_rate: 2_400_000,
+          center_frequency: 137_100_000,
+        },
+      },
+    });
+    const mockTx = source("mock-tx", "mock_tx", "tx");
+    const mockApt = source("mock-apt", "mock_apt", "mock");
+    const middlewareStore = configureStore({
+      reducer: {
+        websocket: websocketSlice,
+        spectrum: spectrumSlice,
+        sourceSelection: sourceSelectionSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }),
+    });
+
+    middlewareStore.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-tx",
+        activeSourceMode: "live",
+        sources: [mockTx, mockApt] as any,
+        sourceStatuses: { "mock-tx": "streaming", "mock-apt": "streaming" },
+      }),
+    );
+    middlewareStore.dispatch(setSelectedSourceId("mock-tx"));
+    middlewareStore.dispatch(setSelectionIntentSourceId("mock-tx"));
+
+    processWebSocketMessage(middlewareStore.dispatch, middlewareStore.getState, {
+      type: "source_info",
+      active_source: "mock-apt",
+      active_source_mode: "live",
+      sources: [mockApt, mockTx],
+    });
+
+    expect(
+      middlewareStore.getState().websocket.sources.map((candidate) => candidate.id),
+    ).toEqual(["mock-apt", "mock-tx"]);
   });
 
   describe("Thunk payload shaping", () => {
@@ -2343,6 +2558,15 @@ describe("Redux WebSocket Migration", () => {
         );
         expect(sourceSocket.send).toHaveBeenCalledWith(
           expect.stringContaining('"centerFrequencyHz":2000000'),
+        );
+
+        sourceSocket.send.mockClear();
+        middlewareStore.dispatch(setTxSampleRateHz(1_300_000));
+        expect(sourceSocket.send).toHaveBeenCalledWith(
+          expect.stringContaining('"sampleRateHz":1300000'),
+        );
+        expect(sourceSocket.send).toHaveBeenCalledWith(
+          expect.stringContaining('"bandwidthHz":1300000'),
         );
       } finally {
         jest.useRealTimers();
@@ -4267,6 +4491,7 @@ describe("Redux WebSocket Migration", () => {
           type: "frequency_range",
           data: {
             scope: "device",
+            origin_id: CLIENT_ORIGIN_ID,
             min_hz: 929_130,
             max_hz: 4_129_130,
             center_frequency: 2_529_130,
@@ -4274,6 +4499,26 @@ describe("Redux WebSocket Migration", () => {
           },
         },
       });
+    });
+
+    it("stamps frequency-range commands with this browser's unique origin", async () => {
+      const dispatch = jest.fn();
+      const getState = () =>
+        ({
+          websocket: { isConnected: true },
+          demod: {},
+          spectrum: {},
+        }) as any;
+
+      await (
+        sendFrequencyRange({ min: 196_000_000, max: 200_000_000 }) as any
+      )(dispatch, getState, undefined);
+
+      const command = dispatch.mock.calls.find(
+        ([action]) => action?.type === "websocket/sendMessage",
+      )?.[0];
+      expect(command?.payload?.data?.origin_id).toBe(CLIENT_ORIGIN_ID);
+      expect(CLIENT_ORIGIN_ID).not.toBe("n-apt-client");
     });
 
     it("sendFrequencyRange preserves channel-anchored wide sample ranges", async () => {
@@ -4298,6 +4543,7 @@ describe("Redux WebSocket Migration", () => {
           type: "frequency_range",
           data: {
             scope: "device",
+            origin_id: CLIENT_ORIGIN_ID,
             min_hz: 18_000,
             max_hz: 20_018_000,
             center_frequency: 10_018_000,
@@ -4330,6 +4576,7 @@ describe("Redux WebSocket Migration", () => {
           type: "frequency_range",
           data: {
             scope: "device",
+            origin_id: CLIENT_ORIGIN_ID,
             min_hz: 0,
             max_hz: 1_228_629,
             center_frequency: 614_315,
@@ -4363,6 +4610,7 @@ describe("Redux WebSocket Migration", () => {
           type: "frequency_range",
           data: {
             scope: "device",
+            origin_id: CLIENT_ORIGIN_ID,
             min_hz: 0,
             max_hz: 4_000_000,
             center_frequency: 2_000_000,
@@ -4394,6 +4642,7 @@ describe("Redux WebSocket Migration", () => {
           type: "frequency_range",
           data: {
             scope: "device",
+            origin_id: CLIENT_ORIGIN_ID,
             min_hz: 2_204_000,
             max_hz: 2_204_001,
             center_frequency: 2_204_001,

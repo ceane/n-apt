@@ -82,6 +82,7 @@ import { notifyFrameArrival } from "@n-apt/app/infrastructure/visualization/fram
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
 import { buildFrequencyRangeMessageData } from "../thunks/websocketThunks";
+import { CLIENT_ORIGIN_ID } from "../clientOrigin";
 
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
@@ -95,7 +96,7 @@ export const liveDataBySourceRef: {
 } = { current: {} };
 
 /** Stable identity attached to legacy client-originated broadcasts. */
-export const CLIENT_ORIGIN_ID = "n-apt-client";
+export { CLIENT_ORIGIN_ID } from "../clientOrigin";
 
 export const sourceVisualizationRuntime =
   new SourceVisualizationRuntime<IqRawFrame>();
@@ -365,6 +366,7 @@ export const resolveManagedRxDeviceOptionUpdates = ({
 
 export const resolveManagedRxOptionsOverride = (
   settings: Record<string, unknown> | null | undefined,
+  state?: any,
 ): Partial<Omit<RxDeviceOptions, "mode">> => {
   if (!settings) return {};
   const overrides: Partial<Omit<RxDeviceOptions, "mode">> = {};
@@ -374,6 +376,17 @@ export const resolveManagedRxOptionsOverride = (
     settings.sampleRate > 0
   ) {
     overrides.sampleRateHz = settings.sampleRate;
+    const range = state?.spectrum?.frequencyRange;
+    if (
+      range &&
+      typeof range.min === "number" &&
+      typeof range.max === "number" &&
+      Number.isFinite(range.min) &&
+      Number.isFinite(range.max) &&
+      range.max > range.min
+    ) {
+      overrides.centerFrequencyHz = (range.min + range.max) / 2;
+    }
   }
   if (
     typeof settings.fftSize === "number" &&
@@ -1454,6 +1467,20 @@ const buildManagedRxOptions = (
   };
 };
 
+/**
+ * Existing managed RX subscriptions already contain the backend-accepted
+ * device options. Merge an explicit local change into that snapshot so an
+ * unrelated action cannot re-publish stale source hydration over the stream.
+ */
+export const mergeManagedRxOptions = (
+  current: RxDeviceOptions,
+  overrides: Partial<Omit<RxDeviceOptions, "mode">>,
+): RxDeviceOptions => ({
+  ...current,
+  ...overrides,
+  mode: "rx",
+});
+
 const buildManagedTxOptions = (
   state: any,
   overrides: Record<string, unknown> = {},
@@ -1873,10 +1900,13 @@ const syncManagedStreamSubscriptions = (
     // Status/frame hydration must not replay this client's cached center as a
     // device-wide write; only an explicit local option action supplies an
     // override and is allowed to enter the scheduler.
-    managedRxOptionsScheduler.submit(
-      buildManagedRxOptions(getState(), desiredRxSource, rxOptionsOverride),
-      publishMode,
-    );
+    const currentOptions = managedRxSubscription.effectiveOptions;
+    if (currentOptions.mode === "rx") {
+      managedRxOptionsScheduler.submit(
+        mergeManagedRxOptions(currentOptions, rxOptionsOverride),
+        publishMode,
+      );
+    }
   }
   // A source handoff can commit after the stream acknowledgement. In that
   // ordering the stream_opened event was intentionally ignored while the old
@@ -1962,6 +1992,7 @@ const syncManagedStreamSubscriptions = (
 const MANAGED_STREAM_OPTION_ACTIONS = new Set([
   "spectrum/setFrequencyRange",
   "spectrum/setSignalAreaAndRange",
+  "spectrum/setSampleRate",
   "spectrum/setFftSize",
   "spectrum/setTxGeometry",
   "spectrum/setTxCenterFrequencyHz",
@@ -1980,12 +2011,42 @@ export const shouldSyncManagedStreamOptions = (type: string): boolean =>
 const LOCAL_RX_TUNING_ACTIONS = new Set([
   "spectrum/setFrequencyRange",
   "spectrum/setSignalAreaAndRange",
+  "spectrum/setSampleRate",
+  "spectrum/setFftSize",
 ]);
 
 export const resolveLocalRxTuningOverride = (
   type: string,
   state: any,
+  requestedFrequencyRange?: { min: number; max: number },
 ): Partial<Omit<RxDeviceOptions, "mode">> => {
+  if (type === "spectrum/setSampleRate") {
+    const sampleRateHz = state.spectrum?.sampleRateHz;
+    const range = requestedFrequencyRange ?? state.spectrum?.frequencyRange;
+    const centerFrequencyHz =
+      range &&
+      typeof range.min === "number" &&
+      typeof range.max === "number" &&
+      Number.isFinite(range.min) &&
+      Number.isFinite(range.max) &&
+      range.max > range.min
+        ? (range.min + range.max) / 2
+        : null;
+    return typeof sampleRateHz === "number" &&
+      Number.isFinite(sampleRateHz) &&
+      sampleRateHz > 0
+      ? {
+          sampleRateHz,
+          ...(centerFrequencyHz !== null ? { centerFrequencyHz } : {}),
+        }
+      : {};
+  }
+  if (type === "spectrum/setFftSize") {
+    const fftSize = state.spectrum?.fftSize;
+    return typeof fftSize === "number" && Number.isFinite(fftSize) && fftSize > 0
+      ? { fftSize }
+      : {};
+  }
   if (!LOCAL_RX_TUNING_ACTIONS.has(type)) return {};
   const centerFrequencyHz = sourceCenterFrequencyHz(state);
   return Number.isFinite(centerFrequencyHz) && centerFrequencyHz > 0
@@ -2195,23 +2256,27 @@ export const resolveSourceSelectionAfterFailedSwitch = ({
 /**
  * A hardware reader can disappear while the control socket is still alive.
  * When the backend publishes the resulting Mock APT fallback, treat that
- * active-source change as authoritative instead of replaying the old hardware
- * selection from React's previous render.
+ * active-source change as authoritative only when the old source is also
+ * absent from the global inventory. A normal peer-tab source switch changes
+ * the active source without removing the old source from any client's list.
  */
 export const resolveSourceSelectionAfterBackendFallback = ({
   previousActiveSourceId,
   nextActiveSourceId,
   selectedSourceId,
   selectionIntentSourceId,
+  sources,
 }: {
   previousActiveSourceId: string | null;
   nextActiveSourceId: string;
   selectedSourceId: string | null;
   selectionIntentSourceId: string | null;
+  sources: SourceInfo[];
 }): { fallbackSourceId: string } | null =>
   previousActiveSourceId &&
   previousActiveSourceId !== "mock-apt" &&
   nextActiveSourceId === "mock-apt" &&
+  !sources.some((source) => source.id === previousActiveSourceId) &&
   (selectedSourceId === previousActiveSourceId ||
     selectionIntentSourceId === previousActiveSourceId)
     ? { fallbackSourceId: nextActiveSourceId }
@@ -2354,6 +2419,7 @@ export const processWebSocketMessage = (
         selectedSourceId: sourceSelection.selectedSourceId ?? null,
         selectionIntentSourceId:
           sourceSelection.selectionIntentSourceId ?? null,
+        sources: parsedData.sources,
       });
       if (parsedData.active_source !== previousActiveSourceId) {
         pendingDataUpdate = null;
@@ -2596,22 +2662,35 @@ export const processWebSocketMessage = (
         max: firstChannel.max_hz,
       };
       const incomingRange = parsedData.frequency_range;
+      const isLocalEcho = parsedData.origin_id === CLIENT_ORIGIN_ID;
+      const currentRange = getState().spectrum?.frequencyRange;
+      const currentSignalArea = getState().spectrum?.activeSignalArea;
+      const incomingSignalArea =
+        typeof parsedData.active_signal_area === "string" &&
+        parsedData.active_signal_area.trim().length > 0
+          ? parsedData.active_signal_area.trim()
+          : null;
       const hasAuthoritativeSelection =
         incomingRange &&
         Number.isFinite(incomingRange.min) &&
         Number.isFinite(incomingRange.max) &&
         incomingRange.max >= incomingRange.min;
-      const selectedRange = hasAuthoritativeSelection
-        ? incomingRange
-        : resolveIncomingChannelsFrequencyRange(
-            getState().spectrum?.frequencyRange,
-            nextRange,
-          );
-      const currentSignalArea = getState().spectrum?.activeSignalArea;
+      const sameActiveSignalArea =
+        typeof currentSignalArea === "string" &&
+        typeof incomingSignalArea === "string" &&
+        currentSignalArea.toLowerCase() === incomingSignalArea.toLowerCase();
+      const preserveCurrentRange =
+        currentRange &&
+        (isLocalEcho || incomingSignalArea === null || sameActiveSignalArea);
+      const selectedRange = preserveCurrentRange
+        ? currentRange
+        : hasAuthoritativeSelection
+          ? incomingRange
+          : resolveIncomingChannelsFrequencyRange(currentRange, nextRange);
       const effectiveSignalArea = resolveIncomingChannelsActiveSignalArea({
         channels,
         currentRange: selectedRange,
-        incomingActiveSignalArea: parsedData.active_signal_area,
+        incomingActiveSignalArea: incomingSignalArea,
         currentActiveSignalArea: currentSignalArea,
       });
       const targetSourceId =
@@ -2622,7 +2701,15 @@ export const processWebSocketMessage = (
       const inManualMode =
         currentSignalArea === "manual" || persistedArea === "manual";
 
-      if (!inManualMode || hasAuthoritativeSelection) {
+      const incomingSelectionChangesArea =
+        !currentRange ||
+        (incomingSignalArea !== null &&
+          (!currentSignalArea || !sameActiveSignalArea));
+      if (
+        !isLocalEcho &&
+        incomingSelectionChangesArea &&
+        (!inManualMode || hasAuthoritativeSelection)
+      ) {
         dispatch(
           setDeviceSignalAreaAndRange({
             area: effectiveSignalArea ?? firstChannel.label ?? "A",
@@ -2639,7 +2726,6 @@ export const processWebSocketMessage = (
           : null;
       const targetSourceIdForState =
         parsedData.source_id || getState().websocket.activeSourceId;
-      const isLocalEcho = parsedData.origin_id === CLIENT_ORIGIN_ID;
       const currentSources: SourceInfo[] = getState().websocket.sources ?? [];
       const centerFrequency =
         typeof selectedRange?.min === "number" &&
@@ -3362,6 +3448,43 @@ const createWebSocketMiddleware =
         return result;
       }
 
+      case "websocket/viewSource": {
+        const sourceId = action.payload?.sourceId;
+        if (typeof sourceId !== "string" || sourceId.trim().length === 0) {
+          return next(action);
+        }
+
+        // A page-level view is subscriber-scoped. Do not send select_source:
+        // that command changes the process-wide active device and would make
+        // another page lose its independent source runtime.
+        clearLiveSpectrumFrames(dispatch);
+        pendingDataUpdate = null;
+        requestedSourceId = sourceId;
+        const requestedSource = (getState().websocket.sources ?? []).find(
+          (source: SourceInfo) => source.id === sourceId,
+        );
+        const isTx =
+          sourceId === "mock-tx" || requestedSource?.capability === "tx";
+        presentationController.selectSource(sourceId, isTx ? "tx" : "rx", true);
+        dispatch(
+          updateDeviceState({
+            sourceFrameReadiness: null,
+            sourceFrameReadinessByMode: { rx: null, tx: null },
+          }),
+        );
+        publishSourceTransport(
+          dispatch,
+          getState,
+          sourceId,
+          isTx ? "tx" : "rx",
+          "warming",
+          null,
+          true,
+        );
+        syncManagedStreamSubscriptions(dispatch, getState);
+        return next(action);
+      }
+
       case "websocket/sendMessage": {
         const { type, data }: { type: string; data: any } = action.payload;
         let normalizedData = normalizeFrequencyRangeMessageData(type, data);
@@ -3497,7 +3620,7 @@ const createWebSocketMiddleware =
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
           if (type === "settings") {
             const rxOptionsOverride =
-              resolveManagedRxOptionsOverride(normalizedData);
+              resolveManagedRxOptionsOverride(normalizedData, getState());
             if (Object.keys(rxOptionsOverride).length > 0) {
               syncManagedStreamSubscriptions(
                 dispatch,
@@ -3642,10 +3765,17 @@ const createWebSocketMiddleware =
           sourceModeStreamManager &&
           (shouldSyncManagedStreamOptions(action.type) || isSourceBindingAction)
         ) {
+          const rxOptionsOverride = LOCAL_RX_TUNING_ACTIONS.has(action.type)
+            ? resolveLocalRxTuningOverride(
+                action.type,
+                getState(),
+                action.meta?.managedRxFrequencyRange,
+              )
+            : undefined;
           syncManagedStreamSubscriptions(
             dispatch,
             getState,
-            resolveLocalRxTuningOverride(action.type, getState()),
+            rxOptionsOverride,
             action.type === "spectrum/setFrequencyRange" ||
               action.type === "spectrum/setSignalAreaAndRange"
               ? "gesture"

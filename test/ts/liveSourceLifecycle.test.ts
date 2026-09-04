@@ -398,6 +398,27 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe("awaiting-frame");
   });
 
+  test("does not enter handoff placeholder for a foreign active-source change", () => {
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        transportSourceId: "mock-apt",
+        transportPhase: "ready",
+        sourceHandoffPending: false,
+        hasValidFrame: true,
+        deviceStatus: "receiving",
+        isConnected: true,
+        connectionStatus: "connected",
+        hasConnectedOnce: true,
+        handoffPlaceholder,
+      }),
+    ).toMatchObject({
+      phase: "ready",
+      placeholder: null,
+    });
+  });
+
   test("keeps Loading FFT during the first connect instead of flashing Server Down", () => {
     expect(
       resolveLiveSourceLifecycle({
@@ -730,6 +751,34 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toMatchObject({ phase: "standby", placeholder: standbyPlaceholder });
   });
 
+  test("does not re-enter Loading after a standby preview is accepted", () => {
+    expect(
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-tx",
+        transportSourceId: "mock-tx",
+        transportPhase: "ready",
+        // The middleware's accepted-frame readiness can arrive before the
+        // canvas callback updates route-local painted-frame state.
+        hasValidFrame: false,
+        hasRenderableCurrentFrame: false,
+        readiness: {
+          sourceId: "mock-tx",
+          streamEpoch: 4,
+          sequence: 1,
+        },
+        deviceStatus: "standby",
+        isStandby: true,
+        isConnected: true,
+        connectionStatus: "connected",
+        hasConnectedOnce: true,
+      }),
+    ).toMatchObject({
+      phase: "standby",
+      placeholder: { kind: "top-bar", title: "Start Tx to transmit" },
+    });
+  });
+
   test("owns standby source retention and stale-frame clearing in the lifecycle", () => {
     expect(
       resolveLiveSourcePresentationPolicy({
@@ -771,6 +820,24 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toMatchObject({
       clearStalePresentation: false,
       preserveMatchingPresentation: true,
+    });
+  });
+
+  test("does not suppress a selected source when another client changes active source", () => {
+    expect(
+      resolveLiveSourcePresentationPolicy({
+        phase: "ready",
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        sourceHandoffPending: false,
+        readiness: { sourceId: "mock-apt", streamEpoch: 4, sequence: 10 },
+        presentedSourceId: "mock-apt",
+        isStandby: false,
+      }),
+    ).toMatchObject({
+      suppressStaleFrames: false,
+      clearStalePresentation: false,
+      preserveMatchingPresentation: false,
     });
   });
 

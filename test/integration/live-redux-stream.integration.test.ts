@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import { createLiveReduxStreamHarness } from "./helpers/liveReduxStreamHarness";
 
 const MOCK_APT_SOURCE_ID = "mock-apt";
@@ -121,6 +122,112 @@ describe("live Redux/source-mode stream harness", () => {
     expect(rx.txPresentation.sourceId).toBe(MOCK_TX_SOURCE_ID);
     expect(rx.rxPresentation.frameStatus).toBe("receiving");
   });
+
+  test("keeps a real Mock Tx one-shot preview above the loading placeholder", async () => {
+    await harness.selectSource(MOCK_TX_SOURCE_ID);
+
+    const before = harness.snapshot().txPresentation.sequence ?? 0;
+    await harness.requestNextStandbyFrame();
+    const preview = await harness.waitFor(
+      () => harness.snapshot(),
+      (value) =>
+        value.txPresentation.sourceId === MOCK_TX_SOURCE_ID &&
+        value.txPresentation.sequence !== null &&
+        value.txPresentation.sequence > before,
+      20_000,
+    );
+
+    expect(preview.txPresentation.hasFrame).toBe(true);
+    expect(preview.txPresentation.frameStatus).toBe("standby");
+    expect(preview.lifecycle.phase).toBe("standby");
+    expect(preview.lifecycle.placeholderKind).toBe("top-bar");
+
+    // Let the real websocket/middleware/render lifecycle settle. A race here
+    // used to briefly replace the accepted preview with the full Loading UI.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const settled = harness.snapshot();
+    expect(settled.txPresentation.sequence).toBe(
+      preview.txPresentation.sequence,
+    );
+    expect(settled.lifecycle.phase).toBe("standby");
+    expect(settled.lifecycle.placeholderKind).toBe("top-bar");
+  });
+
+  test("replays varied Mock Tx preview geometry through the live pipeline", async () => {
+    const previewCase = fc
+      .tuple(
+        fc.integer({ min: -800_000, max: 800_000 }),
+        fc.constantFrom(3_200_000, 18_250_000),
+        fc.integer({ min: 1, max: 4 }),
+        fc.constantFrom(1024, 2048, 4096),
+        fc.constantFrom("wifi", "tone"),
+      )
+      .map(([centerOffsetHz, sampleRateHz, bandwidthTenths, txIfftSize, txSignal]) => {
+        const centerFrequencyHz = 13_875_000 + centerOffsetHz;
+        return {
+          centerFrequencyHz,
+          viewCenterHz: centerFrequencyHz,
+          sampleRateHz,
+          bandwidthHz: Math.round((sampleRateHz * bandwidthTenths) / 10),
+          txIfftSize,
+          txSignal,
+        };
+      });
+
+    await harness.selectSource(MOCK_TX_SOURCE_ID);
+    let expectedIqByteLength: number | null = null;
+
+    await fc.assert(
+      fc.asyncProperty(previewCase, async (settings) => {
+        const before = harness.snapshot().txPresentation.sequence ?? 0;
+        await harness.requestNextStandbyFrame({
+          sourceId: MOCK_TX_SOURCE_ID,
+          txSettings: settings,
+        });
+
+        const preview = await harness.waitFor(
+          () => harness.snapshot(),
+          (value) =>
+            value.txPresentation.sourceId === MOCK_TX_SOURCE_ID &&
+            value.txPresentation.sequence !== null &&
+            value.txPresentation.sequence > before,
+          20_000,
+        );
+
+        expect(preview.txPresentation.frameStatus).toBe("standby");
+        expect(preview.txPresentation.isTxPreview).toBe(true);
+        expect(preview.txPresentation.centerFrequencyHz).toBe(
+          settings.viewCenterHz,
+        );
+        expect(preview.txPresentation.sampleRateHz).toBe(
+          settings.sampleRateHz,
+        );
+        expect(preview.txPresentation.iqByteLength).toBeGreaterThan(0);
+        expect(preview.txPresentation.iqByteLength! % 2).toBe(0);
+        if (expectedIqByteLength === null) {
+          expectedIqByteLength = preview.txPresentation.iqByteLength;
+        } else {
+          // Bandwidth, carrier, and viewer sample rate change the rendered
+          // occupancy, not the negotiated FFT payload size.
+          expect(preview.txPresentation.iqByteLength).toBe(
+            expectedIqByteLength,
+          );
+        }
+
+        expect(preview.lifecycle.phase).toBe("standby");
+        expect(preview.lifecycle.placeholderKind).toBe("top-bar");
+
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        const settled = harness.snapshot();
+        expect(settled.lifecycle.phase).toBe("standby");
+        expect(settled.lifecycle.placeholderKind).toBe("top-bar");
+        expect(settled.txPresentation.sequence).toBe(
+          preview.txPresentation.sequence,
+        );
+      }),
+      { numRuns: 6, seed: 20260902 },
+    );
+  }, 120_000);
 
   test("pauses Mock APT without losing its frame, then resumes streaming", async () => {
     await harness.selectSource(MOCK_APT_SOURCE_ID);

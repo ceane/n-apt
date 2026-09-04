@@ -10,9 +10,11 @@ import {
   shouldRequestPausedPreview,
   buildPausedPreviewSignature,
   selectLiveSampleRateForSync,
+  shouldHydrateLiveSampleRate,
   shouldSendSignalDisplaySettings,
   resolveLiveAcquisitionBounds,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import { buildLiveSampleRateRange } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 
 const DEVICE_OWNED_SOURCE_FIELDS = [
   "activeSignalArea",
@@ -360,6 +362,101 @@ describe("selectLiveSampleRateForSync", () => {
         maxSampleRateHz: 20_000_000,
       }),
     ).toBe(3_200_000);
+  });
+
+  it("does not accept a stale backend rate over a pending local request", () => {
+    expect(
+      shouldHydrateLiveSampleRate({
+        rate: 3_200_000,
+        localSampleRateHz: 18_250_000,
+        pendingLocalSampleRateHz: 18_250_000,
+        hydratedBackendSampleRate: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts the backend rate once it acknowledges the pending request", () => {
+    expect(
+      shouldHydrateLiveSampleRate({
+        rate: 18_250_000,
+        localSampleRateHz: 18_250_000,
+        pendingLocalSampleRateHz: 18_250_000,
+        hydratedBackendSampleRate: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps fuzzed Whole Channel/manual transitions within the channel bounds", () => {
+    const channelBounds = { min: 4_750_000, max: 23_000_000 };
+    const channelSpan = channelBounds.max - channelBounds.min;
+    const rates = [
+      3_200_000,
+      4_372_000,
+      5_200_000,
+      8_000_000,
+      12_800_000,
+      18_250_000,
+      20_000_000,
+    ];
+
+    fc.assert(
+      fc.property(
+        fc.array(fc.constantFrom(...rates), { minLength: 1, maxLength: 80 }),
+        (sampleRates) => {
+          let currentRange = { min: 13_875_000, max: 17_075_000 };
+          for (const sampleRateHz of sampleRates) {
+            currentRange = buildLiveSampleRateRange({
+              currentRange,
+              sampleRateHz,
+              channelBounds,
+            });
+            const span = currentRange.max - currentRange.min;
+            expect(span).toBe(sampleRateHz);
+            if (sampleRateHz <= channelSpan) {
+              expect(currentRange.min).toBeGreaterThanOrEqual(
+                channelBounds.min,
+              );
+              expect(currentRange.max).toBeLessThanOrEqual(channelBounds.max);
+            }
+            if (sampleRateHz === channelSpan) {
+              expect(currentRange).toEqual(channelBounds);
+            }
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it("never hydrates a stale backend rate during fuzzed local requests", () => {
+    const rates = [
+      3_200_000,
+      4_372_000,
+      5_200_000,
+      8_000_000,
+      12_800_000,
+      18_250_000,
+      20_000_000,
+    ];
+
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...rates),
+        fc.constantFrom(...rates),
+        (requestedRate, backendRate) => {
+          const isAcknowledgement = requestedRate === backendRate;
+          expect(
+            shouldHydrateLiveSampleRate({
+              rate: backendRate,
+              localSampleRateHz: requestedRate,
+              pendingLocalSampleRateHz: requestedRate,
+              hydratedBackendSampleRate: false,
+            }),
+          ).toBe(isAcknowledgement);
+        },
+      ),
+      { numRuns: 200 },
+    );
   });
 
   it("keeps the accepted source rate over an unacknowledged local Whole Channel request", () => {
