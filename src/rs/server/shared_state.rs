@@ -203,6 +203,10 @@ pub struct SharedState {
   /// RTL-SDR inventory populated by the SDR-owned device path. Source/status
   /// snapshots must not query librtlsdr directly from the HTTP runtime.
   pub rtl_sdr_inventory: Mutex<Vec<RtlSdrInventoryDevice>>,
+  /// Once Mock Tx has been selected, keep its virtual device in subsequent
+  /// inventories so switching back to Mock APT cannot strand it from new
+  /// clients.
+  pub mock_tx_was_active: AtomicBool,
 }
 
 impl SharedState {
@@ -301,6 +305,7 @@ impl SharedState {
       tx_hop_channels: Mutex::new(Vec::new()),
       tx_hop_rate_hz: Mutex::new(1.0),
       mock_tx_phase_accumulator: Mutex::new(0.0),
+      mock_tx_was_active: AtomicBool::new(false),
     })
   }
 
@@ -494,6 +499,9 @@ impl SharedState {
     self.device_connected.store(connected, Ordering::Relaxed);
     *self.device_info.lock().unwrap() = info;
     let kind = device_profile.kind.clone();
+    if kind == "mock_tx" {
+      self.mock_tx_was_active.store(true, Ordering::Release);
+    }
     *self.device_profile.lock().unwrap() = device_profile;
     {
       let mut settings = self.sdr_settings.lock().unwrap();

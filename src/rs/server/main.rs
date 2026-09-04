@@ -66,6 +66,7 @@ pub struct AppState {
   pub broadcast_tx: broadcast::Sender<String>,
   pub spectrum_tx: broadcast::Sender<Arc<types::SpectrumData>>,
   pub stream_manager: super::stream_manager::StreamingSourceModeManager,
+  pub source_runtime_manager: super::source_runtime::SourceRuntimeManager,
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
   pub sdr_processor:
     Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
@@ -418,6 +419,10 @@ impl websocket_server::WebSocketServer {
         "/ws/streams",
         get(websocket_handlers::stream_ws_upgrade_handler),
       )
+      .route(
+        "/ws/streams/{stream_id}",
+        get(websocket_handlers::stream_identity_ws_upgrade_handler),
+      )
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
 
@@ -476,6 +481,7 @@ impl websocket_server::WebSocketServer {
       broadcast_tx,
       spectrum_tx,
       stream_manager: websocket_server.get_stream_manager(),
+      source_runtime_manager: websocket_server.get_source_runtime_manager(),
       cmd_tx,
       sdr_processor: websocket_server.get_sdr_processor(),
     });

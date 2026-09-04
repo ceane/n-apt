@@ -18,6 +18,7 @@ use validator::Validate;
 use crate::crypto;
 
 use super::shared_state::SharedState;
+use super::source_runtime::{SourceRuntimeManager, SourceStreamIdentity};
 use super::stream_contract::{
   stream_control_scope, StreamControlAction, StreamControlScope,
   StreamDeliveryPolicy,
@@ -35,6 +36,8 @@ use super::websocket_server::{
   build_channels_snapshot, build_signals_defaults_snapshot,
   build_source_info_snapshot, complex_baseband, resolve_stream_key_source_id,
 };
+use super::websocket_server::sources::open_device_for_source_id;
+use crate::sdr::processor::SdrProcessor;
 use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
@@ -798,8 +801,8 @@ pub async fn stream_ws_upgrade_handler(
   Query(params): Query<WsQueryParams>,
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
-  match state.session_store.validate(&params.token).await {
-    Some(_) => {}
+  let session = match state.session_store.validate(&params.token).await {
+    Some(session) => session,
     None => {
       return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")
         .into_response();
@@ -809,9 +812,57 @@ pub async fn stream_ws_upgrade_handler(
   let manager = state.stream_manager.clone();
   let shared = state.shared.clone();
   let cmd_tx = state.cmd_tx.clone();
+  let source_runtime_manager = state.source_runtime_manager.clone();
+  let session_token = session.token;
   let enc_key = shared.encryption_key;
   harden_websocket(ws).on_upgrade(move |socket| {
-    handle_stream_connection(socket, shared, manager, cmd_tx, enc_key)
+    handle_stream_connection(
+      socket,
+      shared,
+      manager,
+      source_runtime_manager,
+      cmd_tx,
+      enc_key,
+      session_token,
+      None,
+    )
+  })
+}
+
+/// GET /ws/streams/{stream_id}?token=<session_token> — authenticated single
+/// logical stream transport. The multiplexed endpoint remains the preferred
+/// client path; this route makes the stable stream URL directly usable.
+pub async fn stream_identity_ws_upgrade_handler(
+  ws: WebSocketUpgrade,
+  Path(stream_id): Path<String>,
+  Query(params): Query<WsQueryParams>,
+  State(state): State<Arc<super::AppState>>,
+) -> impl IntoResponse {
+  let session = match state.session_store.validate(&params.token).await {
+    Some(session) => session,
+    None => {
+      return (StatusCode::UNAUTHORIZED, "Invalid or expired session token")
+        .into_response();
+    }
+  };
+
+  let manager = state.stream_manager.clone();
+  let shared = state.shared.clone();
+  let source_runtime_manager = state.source_runtime_manager.clone();
+  let cmd_tx = state.cmd_tx.clone();
+  let session_token = session.token;
+  let enc_key = shared.encryption_key;
+  harden_websocket(ws).on_upgrade(move |socket| {
+    handle_stream_connection(
+      socket,
+      shared,
+      manager,
+      source_runtime_manager,
+      cmd_tx,
+      enc_key,
+      session_token,
+      Some(stream_id),
+    )
   })
 }
 
@@ -819,8 +870,11 @@ async fn handle_stream_connection(
   socket: WebSocket,
   shared: Arc<SharedState>,
   manager: StreamingSourceModeManager,
+  source_runtime_manager: SourceRuntimeManager,
   cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
   enc_key: [u8; 32],
+  session_token: String,
+  expected_stream_id: Option<String>,
 ) {
   let (mut sender, mut receiver) = socket.split();
   let (event_tx, mut event_rx) = mpsc::channel::<StreamEvent>(32);
@@ -876,7 +930,14 @@ async fn handle_stream_connection(
               continue;
             }
             let effective_subscribe_options =
-              resolve_authoritative_subscribe_options(&shared, options);
+              if active_source_id(&shared) == stream.source_id {
+                resolve_authoritative_subscribe_options(&shared, options)
+              } else {
+                // A parallel source owns its own processor. Hydrating it from
+                // the globally active device would silently retune the new
+                // source to the wrong hardware settings.
+                options
+              };
             manager.register_source(stream.source_id.clone(), capabilities);
             let source_snapshot = build_source_info_snapshot(&shared);
             let source_status = source_snapshot["sources"]
@@ -898,7 +959,7 @@ async fn handle_stream_connection(
             };
             let subscription = match manager.subscribe_with_policy(
               stream.clone(),
-              effective_subscribe_options,
+              effective_subscribe_options.clone(),
               delivery_policy,
             ) {
               Ok(subscription) => subscription,
@@ -908,6 +969,62 @@ async fn handle_stream_connection(
                 continue;
               }
             };
+            let stream_identity =
+              SourceStreamIdentity::from_session_token(&session_token, &stream.source_id, stream.mode);
+            if expected_stream_id
+              .as_deref()
+              .is_some_and(|expected| expected != stream_identity.id())
+            {
+              let response = stream_error_json(
+                &subscription_id,
+                &stream,
+                "stream_identity",
+                "subscription does not match the stream URL",
+              );
+              let _ = sender.send(Message::Text(response.to_string().into())).await;
+              continue;
+            }
+            let mut stream_state = stream_state;
+            if !source_is_active && stream.mode == StreamMode::Rx {
+              let runtime_result = if source_runtime_manager.is_running(&stream) {
+                Ok(())
+              } else {
+                let shared_for_open = shared.clone();
+                let source_id = stream.source_id.clone();
+                match tokio::task::spawn_blocking(move || {
+                  let device = open_device_for_source_id(&shared_for_open, &source_id)?;
+                  SdrProcessor::with_device(device)
+                })
+                .await
+                {
+                  Ok(Ok(processor)) => source_runtime_manager
+                    .start(
+                      stream.clone(),
+                      capabilities,
+                      processor,
+                      effective_subscribe_options.clone(),
+                      manager.clone(),
+                    )
+                    .await
+                    .map_err(|error| error.to_string()),
+                  Ok(Err(error)) => Err(error.to_string()),
+                  Err(error) => Err(error.to_string()),
+                }
+              };
+              match runtime_result {
+                Ok(()) => stream_state = "ready",
+                Err(error) => {
+                  let response = stream_error_json(
+                    &subscription_id,
+                    &stream,
+                    "startup",
+                    &format!("failed to start source runtime: {error}"),
+                  );
+                  let _ = sender.send(Message::Text(response.to_string().into())).await;
+                  continue;
+                }
+              }
+            }
             let metrics = manager.metrics(&stream).expect("new stream has metrics");
             let manager_subscription_id = subscription.subscription_id();
             let response = serde_json::json!({
@@ -915,6 +1032,9 @@ async fn handle_stream_connection(
               "subscriptionId": subscription_id,
               "sourceId": stream.source_id,
               "mode": stream.mode,
+              "streamId": stream_identity.id(),
+              "streamPath": stream_identity.url_path(),
+              "streamUrl": stream_identity.url_path(),
               "streamEpoch": metrics.stream_epoch,
               "optionsRevision": metrics.options_revision,
               "effectiveOptions": manager.options(&stream),
@@ -1006,11 +1126,21 @@ async fn handle_stream_connection(
                   // Apply them through the same lock-free acquisition path used by
                   // legacy settings and VFO commands so accepted stream revisions
                   // cannot keep publishing frames from the previous channel.
-                  apply_rx_stream_device_options(
-                    &shared,
-                    center_frequency_hz,
-                    settings,
-                  );
+                  if stream.mode == StreamMode::Rx
+                    && active_source_id(&shared) != stream.source_id
+                  {
+                    let _ = source_runtime_manager.update_rx_options(
+                      &stream,
+                      center_frequency_hz,
+                      settings,
+                    );
+                  } else {
+                    apply_rx_stream_device_options(
+                      &shared,
+                      center_frequency_hz,
+                      settings,
+                    );
+                  }
                 }
               }
               Ok((_, _, false)) => {
@@ -1974,6 +2104,10 @@ pub fn handle_message(
           message.signal_area.clone(),
           (min_freq, _max_freq),
         );
+        // Preserve the identity of the client that changed the shared range.
+        // Each browser stamps its own ID so other subscribers can distinguish
+        // a foreign tune from their own echo during hydration.
+        *shared.last_tune_origin_id.lock().unwrap() = message.origin_id.clone();
         if let Some(mirror_below_zero) = message.mirror_spectrum_below_zero {
           shared
             .mirror_spectrum_below_zero
@@ -3081,6 +3215,32 @@ mod tests {
     assert_eq!(snapshot["frequency_range"]["min"], 24_100_000.0);
     assert_eq!(snapshot["frequency_range"]["max"], 30_370_000.0);
     assert!(snapshot["sample_rate"].as_u64().is_some());
+  }
+
+  #[test]
+  #[serial]
+  fn frequency_range_broadcast_preserves_the_tuning_client_origin() {
+    let shared = test_shared_state();
+    let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
+    let mut broadcast_rx = broadcast_tx.subscribe();
+    let message: WebSocketMessage = serde_json::from_str(
+      r#"{
+        "type":"frequency_range",
+        "scope":"device",
+        "origin_id":"browser-a",
+        "min_hz":196000000,
+        "max_hz":200000000,
+        "center_frequency":198000000,
+        "signalArea":"manual"
+      }"#,
+    )
+    .unwrap();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+
+    let snapshot: serde_json::Value =
+      serde_json::from_str(&broadcast_rx.try_recv().unwrap()).unwrap();
+    assert_eq!(snapshot["origin_id"], "browser-a");
   }
 
   #[test]

@@ -814,7 +814,10 @@ fn build_mock_tx_source_payload(
   active_source_id: &str,
 ) -> Option<serde_json::Value> {
   let mock_tx_settings = crate::server::utils::load_mock_tx_settings();
-  if !mock_tx_settings.enabled {
+  let was_active = shared
+    .mock_tx_was_active
+    .load(std::sync::atomic::Ordering::Acquire);
+  if !mock_tx_settings.enabled && active_source_id != "mock-tx" && !was_active {
     return None;
   }
   let paused = shared.is_source_paused("mock-tx");
@@ -1051,6 +1054,7 @@ pub fn active_source_id(shared: &SharedState) -> String {
 #[cfg(test)]
 mod stable_source_order_tests {
   use super::*;
+  use serial_test::serial;
 
   #[test]
   fn inventory_source_ids_include_mocks_and_every_cached_peer() {
@@ -1111,6 +1115,65 @@ mod stable_source_order_tests {
       active["capabilities"]["max_instantaneous_sample_rate"],
       active["sdr"]["max_sample_rate"]
     );
+  }
+
+  #[test]
+  #[serial]
+  fn source_inventory_retains_mock_tx_after_switching_away_from_it() {
+    let _guard = crate::server::utils::cwd_lock()
+      .lock()
+      .expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    let original_dir = std::env::current_dir().expect("current dir");
+    let unique = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .expect("time")
+      .as_nanos();
+    let temp_dir =
+      std::env::temp_dir().join(format!("napt-mock-tx-retain-{}", unique));
+    std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+    let manifest_signals =
+      std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("signals.yaml");
+    let mut yaml =
+      std::fs::read_to_string(manifest_signals).expect("read signals.yaml");
+    yaml = yaml.replace(
+      "mock_tx:\n    enabled: true",
+      "mock_tx:\n    enabled: false",
+    );
+    std::fs::write(temp_dir.join("signals.yaml"), yaml)
+      .expect("write temp signals.yaml");
+    std::env::set_current_dir(&temp_dir).expect("set temp dir");
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    shared.update_device_status(
+      true,
+      "Mock Tx SDR".to_string(),
+      build_device_profile("mock_tx"),
+    );
+    let active_snapshot = build_source_info_snapshot(&shared);
+    assert!(active_snapshot["sources"]
+      .as_array()
+      .expect("active sources array")
+      .iter()
+      .any(|source| source["id"].as_str() == Some("mock-tx")));
+
+    shared.update_device_status(
+      false,
+      "Mock APT SDR".to_string(),
+      build_device_profile("mock_apt"),
+    );
+    let switched_snapshot = build_source_info_snapshot(&shared);
+
+    std::env::set_current_dir(original_dir).expect("restore dir");
+    crate::server::utils::clear_signals_config_cache();
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    assert!(switched_snapshot["sources"]
+      .as_array()
+      .expect("switched sources array")
+      .iter()
+      .any(|source| source["id"].as_str() == Some("mock-tx")));
   }
 
   #[test]

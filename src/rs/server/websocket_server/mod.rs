@@ -14,6 +14,7 @@ use super::shared_state::SharedState;
 use super::stream_manager::{
   StreamKey, StreamMode, StreamingSourceModeManager,
 };
+use super::source_runtime::SourceRuntimeManager;
 #[cfg(test)]
 use super::stream_manager::{StreamOptions, TxStreamOptions};
 use super::types::SpectrumData;
@@ -56,7 +57,7 @@ pub use source_lifecycle::SourceLifecyclePhase;
 pub use sources::{
   active_source_id, apply_stream_keys, build_device_profile,
   build_signals_defaults_snapshot, build_source_info_snapshot,
-  enumerate_inventory_source_ids, open_device_for_source_id,
+  open_device_for_source_id,
   resolve_source_selection, resolve_stream_key_source_id,
 };
 
@@ -923,6 +924,7 @@ pub struct WebSocketServer {
   broadcast_tx: broadcast::Sender<String>,
   spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
   stream_manager: StreamingSourceModeManager,
+  source_runtime_manager: SourceRuntimeManager,
 }
 
 impl Default for WebSocketServer {
@@ -949,6 +951,7 @@ impl WebSocketServer {
     let (spectrum_tx, _) = broadcast::channel(1000);
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
+    let source_runtime_manager = SourceRuntimeManager::new();
 
     let shared = SharedState::new(redis_url);
     shared.set_readiness(ReadinessState::Starting);
@@ -962,6 +965,7 @@ impl WebSocketServer {
       broadcast_tx,
       spectrum_tx,
       stream_manager,
+      source_runtime_manager,
     }
   }
 
@@ -1087,30 +1091,10 @@ impl WebSocketServer {
       )
       .await;
 
-    // Pre-open every connected peer into the warm pool so switching devices
-    // never pays a cold USB open + full async-reader swap latency. Failures
-    // are logged and skipped: a failed peer stays cold and is retried on
-    // selection, without blocking the active source's stream.
-    {
-      let active_id = active_source_id(&shared_state);
-      for source_id in enumerate_inventory_source_ids(&shared_state) {
-        if source_id == active_id || warm_devices.contains_key(&source_id) {
-          continue;
-        }
-        match open_device_for_source_id(&shared_state, &source_id) {
-          Ok(device) => {
-            info!("Warming source {} for instant switching", source_id);
-            warm_devices.insert(source_id, device);
-          }
-          Err(error) => {
-            warn!(
-              "Skipping warm-open of source {} (will open cold on selection): {}",
-              source_id, error
-            );
-          }
-        }
-      }
-    }
+    // Inactive sources are opened by SourceRuntimeManager when a page
+    // subscribes to them. Keeping a second private warm handle here would
+    // race the concurrent runtime for the same USB device. Active-source
+    // handoff still uses this map when an explicit legacy switch populates it.
 
     loop {
       if shared_state.shutdown.load(Ordering::Relaxed) {
@@ -1538,6 +1522,7 @@ impl WebSocketServer {
       }
     }
 
+    self.source_runtime_manager.stop_all();
     tx_monitor_task.abort();
     let _ = tx_monitor_task.await;
     Ok(())
@@ -1561,5 +1546,9 @@ impl WebSocketServer {
 
   pub fn get_stream_manager(&self) -> StreamingSourceModeManager {
     self.stream_manager.clone()
+  }
+
+  pub fn get_source_runtime_manager(&self) -> SourceRuntimeManager {
+    self.source_runtime_manager.clone()
   }
 }
