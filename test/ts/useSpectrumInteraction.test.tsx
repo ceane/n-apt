@@ -1,9 +1,9 @@
 /** @jest-environment jsdom */
 import { renderHook, act } from "@testing-library/react";
-import { useFrequencyDrag } from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import { useSpectrumInteraction } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import React from "react";
 
-describe("useFrequencyDrag Hook", () => {
+describe("useSpectrumInteraction Hook", () => {
   const mockOnFrequencyRangeChange = jest.fn();
   const mockOnVizPanChange = jest.fn();
   const mockOnVizZoomChange = jest.fn();
@@ -227,7 +227,7 @@ describe("useFrequencyDrag Hook", () => {
   };
 
   it("should handle VFO dragging (panning) in the bottom 60px area", () => {
-    renderHook(() => useFrequencyDrag(defaultOptions));
+    renderHook(() => useSpectrumInteraction(defaultOptions));
 
     // Pointer down at y=550 (bottom area)
     triggerPointerDown(500, 550);
@@ -250,7 +250,7 @@ describe("useFrequencyDrag Hook", () => {
     if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 2;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         signalAreaBounds: { TEST: { min: 40, max: 60 } },
@@ -276,7 +276,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -4;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         signalAreaBounds: { TEST: { min: 40, max: 60 } },
@@ -295,7 +295,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 0;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         signalAreaBounds: { TEST: { min: 0, max: 1000 } },
@@ -324,7 +324,7 @@ describe("useFrequencyDrag Hook", () => {
 
     const { rerender } = renderHook(
       ({ mirrorEnabled }: { mirrorEnabled: boolean }) =>
-        useFrequencyDrag({
+        useSpectrumInteraction({
           ...defaultOptions,
           allowNegativeFrequencies: mirrorEnabled,
         }),
@@ -354,7 +354,7 @@ describe("useFrequencyDrag Hook", () => {
 
     const { rerender } = renderHook(
       ({ mirrorEnabled }: { mirrorEnabled: boolean }) =>
-        useFrequencyDrag({
+        useSpectrumInteraction({
           ...defaultOptions,
           allowNegativeFrequencies: mirrorEnabled,
         }),
@@ -371,7 +371,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("keeps unzoomed positive mirror pan on the hardware retune path", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
       }),
@@ -390,7 +390,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 0;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         signalAreaBounds: { TEST: { min: 0, max: 1000 } },
@@ -435,7 +435,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 0;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
       }),
@@ -462,7 +462,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -4_000_000;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         signalAreaBounds: { TEST: { min: 0, max: 20_000_000 } },
@@ -486,7 +486,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 0;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         signalAreaBounds: { TEST: { min: 0, max: 1000 } },
@@ -511,7 +511,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -7.5;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
       }),
@@ -544,7 +544,7 @@ describe("useFrequencyDrag Hook", () => {
     const mockBox = document.createElement("div");
     jest.spyOn(document, "createElement").mockReturnValue(mockBox);
 
-    renderHook(() => useFrequencyDrag(defaultOptions));
+    renderHook(() => useSpectrumInteraction(defaultOptions));
 
     // Pointer down at y=100 (upper area)
     triggerPointerDown(100, 100);
@@ -564,7 +564,7 @@ describe("useFrequencyDrag Hook", () => {
   });
 
   it("commits a box zoom from the pointerup coordinates immediately", () => {
-    renderHook(() => useFrequencyDrag(defaultOptions));
+    renderHook(() => useSpectrumInteraction(defaultOptions));
 
     triggerPointerDown(100, 100);
     triggerPointerUp(200, 200);
@@ -589,7 +589,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -7.5;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         clampedVizRangeRef: { current: { min: -10, max: -5 } },
@@ -607,7 +607,7 @@ describe("useFrequencyDrag Hook", () => {
   });
 
   it("creates the zoombox before pointermove so the overlay has a stable node", () => {
-    renderHook(() => useFrequencyDrag(defaultOptions));
+    renderHook(() => useSpectrumInteraction(defaultOptions));
     const mockBox = document.createElement("div");
     jest.spyOn(document, "createElement").mockReturnValue(mockBox);
     (document.createElement as jest.Mock).mockClear();
@@ -623,7 +623,7 @@ describe("useFrequencyDrag Hook", () => {
   it("updates the zoombox state during drag", () => {
     const zoomboxStateRef = { current: null };
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         zoomboxStateRef,
       }),
@@ -653,7 +653,7 @@ describe("useFrequencyDrag Hook", () => {
       },
     };
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         zoomboxStateRef,
       }),
@@ -676,7 +676,7 @@ describe("useFrequencyDrag Hook", () => {
       disabled: false,
       selectionMode: "range" as const,
     };
-    renderHook(() => useFrequencyDrag(selectionOptions));
+    renderHook(() => useSpectrumInteraction(selectionOptions));
 
     triggerPointerDown(120, 120);
     triggerPointerMove(220, 120);
@@ -698,7 +698,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("moves the FFT node selection when dragging inside the existing band", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         selectionRange: { min: 104, max: 106 },
@@ -718,7 +718,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("starts a new FFT node selection when dragging outside the existing band", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         selectionRange: { min: 104, max: 106 },
@@ -738,7 +738,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("keeps the FFT node selection draggable while its display edge-pans", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         selectionRange: { min: 104, max: 106 },
@@ -773,7 +773,7 @@ describe("useFrequencyDrag Hook", () => {
     jest.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         selectionRange: { min: 104, max: 106 },
@@ -818,7 +818,7 @@ describe("useFrequencyDrag Hook", () => {
     jest.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         selectionRange: { min: 104, max: 106 },
@@ -843,7 +843,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("creates a range from right to left without anchoring at the center", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
       }),
@@ -861,7 +861,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("does not draw a second DOM rectangle while selecting a range", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
       }),
@@ -877,7 +877,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("selects freely on the left side of an existing centered range", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         selectionRange: { min: 104, max: 106 },
@@ -897,7 +897,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("uses full canvas bounds for React Flow FFT node range selection", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         fullPlotSelection: true,
@@ -928,7 +928,7 @@ describe("useFrequencyDrag Hook", () => {
     });
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         fullPlotSelection: true,
@@ -945,7 +945,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("edge-pans a React Flow FFT range by shifting its display range without visual overscroll", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         selectionMode: "range" as const,
         fullPlotSelection: true,
@@ -967,7 +967,7 @@ describe("useFrequencyDrag Hook", () => {
   it("uses the latest selection range after rerendering", () => {
     const { rerender } = renderHook(
       ({ selectionRange }) =>
-        useFrequencyDrag({
+        useSpectrumInteraction({
           ...defaultOptions,
           selectionMode: "range" as const,
           selectionRange,
@@ -996,7 +996,7 @@ describe("useFrequencyDrag Hook", () => {
       ...defaultOptions,
       hardwareSpectrumBounds: { min: 100, max: 110 },
     };
-    renderHook(() => useFrequencyDrag(boundsOptions));
+    renderHook(() => useSpectrumInteraction(boundsOptions));
 
     // current is already at 100-110
     triggerPointerDown(500, 550);
@@ -1016,7 +1016,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("drags the canvas TX slider in the bottom stats row", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         txSliderEnabled: true,
         txSliderRef: {
@@ -1053,7 +1053,7 @@ describe("useFrequencyDrag Hook", () => {
     const onGeometryChange = jest.fn();
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         txSliderEnabled: true,
         txSliderRef: {
@@ -1083,7 +1083,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("preserves the TX slider body grab offset on pointer down", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         txSliderEnabled: true,
         txSliderRef: {
@@ -1112,7 +1112,7 @@ describe("useFrequencyDrag Hook", () => {
   it("drags the canvas TX slider when zoomed in", () => {
     const clampedVizRangeRef = { current: { min: 102, max: 108 } };
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         txSliderEnabled: true,
         clampedVizRangeRef,
@@ -1141,7 +1141,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("lets canvas TX slider body dragging reach the visible track edge", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         txSliderEnabled: true,
         txSliderRef: {
@@ -1171,7 +1171,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("pans the hardware window in steps when TX body drag pushes past the visible edge", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         txSliderEnabled: true,
         hardwareSpectrumBounds: { min: 0, max: 1000 },
@@ -1209,7 +1209,7 @@ describe("useFrequencyDrag Hook", () => {
     frequencyRangeRef.current = { min: 0, max: 10 };
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         frequencyRangeRef,
         txSliderEnabled: true,
@@ -1241,7 +1241,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("routes wheel and double click to the canvas TX slider", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         txSliderEnabled: true,
         txSliderRef: {
@@ -1281,7 +1281,7 @@ describe("useFrequencyDrag Hook", () => {
       signalAreaBounds: { TEST: { min: 100, max: 110 } },
       hardwareSpectrumBounds: { min: 0, max: 1000 },
     };
-    renderHook(() => useFrequencyDrag(channelOptions));
+    renderHook(() => useSpectrumInteraction(channelOptions));
 
     triggerPointerDown(500, 550);
     triggerPointerMove(400, 550);
@@ -1297,7 +1297,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("allows hardware wheel scrolling past the selected channel edge immediately", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         frequencyRangeRef: { current: { min: 100, max: 110 } },
         signalAreaBounds: { TEST: { min: 100, max: 110 } },
@@ -1324,7 +1324,7 @@ describe("useFrequencyDrag Hook", () => {
     const localRangeRef = { current: { min: 100, max: 110 } };
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         frequencyRangeRef: localRangeRef,
         signalAreaBounds: { TEST: { min: 100, max: 110 } },
@@ -1347,7 +1347,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("retunes a paused zoomed VFO wheel so play keeps the new center", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         vizZoomRef: { current: 2 },
@@ -1369,7 +1369,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 0;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: false,
         allowNegativeFrequencies: true,
@@ -1390,7 +1390,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 2;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: false,
         allowNegativeFrequencies: true,
@@ -1416,7 +1416,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -1;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         allowNegativeFrequencies: true,
@@ -1437,7 +1437,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("retunes an unzoomed paused VFO so the next frame owns the new center", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         vizZoomRef: { current: 1 },
@@ -1462,7 +1462,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -4;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         allowNegativeFrequencies: true,
@@ -1483,7 +1483,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 0;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         hardwareSpectrumBounds: { min: 0, max: 1000 },
@@ -1503,7 +1503,7 @@ describe("useFrequencyDrag Hook", () => {
     const mockOnHardwareRangeReanchor = jest.fn();
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         onHardwareRangeReanchor: mockOnHardwareRangeReanchor,
@@ -1529,7 +1529,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 2;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         onVizPanReanchor: mockOnVizPanReanchor,
@@ -1552,7 +1552,7 @@ describe("useFrequencyDrag Hook", () => {
 
     const { rerender } = renderHook(
       ({ paused }) =>
-        useFrequencyDrag({
+        useSpectrumInteraction({
           ...defaultOptions,
           isPaused: paused,
           onVizPanReanchor: mockOnVizPanReanchor,
@@ -1579,7 +1579,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -3;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         allowNegativeFrequencies: true,
@@ -1604,7 +1604,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -3_000_000;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         allowNegativeFrequencies: true,
@@ -1637,7 +1637,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -16;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         allowNegativeFrequencies: true,
@@ -1667,7 +1667,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = -2_000_000;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         isPaused: true,
         allowNegativeFrequencies: true,
@@ -1701,7 +1701,7 @@ describe("useFrequencyDrag Hook", () => {
     defaultOptions.vizPanOffsetRef.current = 0;
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         allowNegativeFrequencies: true,
         signalAreaBounds: { TEST: { min: 0, max: 100 } },
@@ -1749,7 +1749,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("repaints the VFO overlay on hardware wheel ticks without waiting for a timer", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         frequencyRangeRef: { current: { min: 100, max: 110 } },
         signalAreaBounds: { TEST: { min: 100, max: 110 } },
@@ -1767,7 +1767,7 @@ describe("useFrequencyDrag Hook", () => {
 
   it("treats the whole VFO numbers row as a pan surface", () => {
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         frequencyRangeRef: { current: { min: 100, max: 110 } },
         hardwareSpectrumBounds: { min: 0, max: 1000 },
@@ -1795,7 +1795,7 @@ describe("useFrequencyDrag Hook", () => {
     const localRangeRef = { current: { min: 100, max: 110 } };
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         frequencyRangeRef: localRangeRef,
         signalAreaBounds: { TEST: { min: 100, max: 110 } },
@@ -1819,7 +1819,7 @@ describe("useFrequencyDrag Hook", () => {
     const panRef = { current: 2.4 };
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         vizZoomRef: { current: 2 },
         vizPanOffsetRef: panRef,
@@ -1854,7 +1854,7 @@ describe("useFrequencyDrag Hook", () => {
     const localRangeRef = { current: { min: 100, max: 110 } };
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         frequencyRangeRef: localRangeRef,
         vizZoomRef: { current: 2 },
@@ -1886,7 +1886,7 @@ describe("useFrequencyDrag Hook", () => {
     const panRef = { current: 2.4 };
 
     renderHook(() =>
-      useFrequencyDrag({
+      useSpectrumInteraction({
         ...defaultOptions,
         signalAreaBounds: { TEST: { min: 100, max: 110 } },
         hardwareSpectrumBounds: { min: 0, max: 1000 },
@@ -1929,7 +1929,7 @@ describe("useFrequencyDrag Hook", () => {
       vizPanOffsetRef: panRef,
     };
 
-    renderHook(() => useFrequencyDrag(zeroClampOptions));
+    renderHook(() => useSpectrumInteraction(zeroClampOptions));
 
     triggerWheel({
       clientX: 10,
@@ -1954,7 +1954,7 @@ describe("useFrequencyDrag Hook", () => {
       vizPanOffsetRef: { current: 10 },
     };
 
-    renderHook(() => useFrequencyDrag(pinchOptions));
+    renderHook(() => useSpectrumInteraction(pinchOptions));
 
     triggerPointerDown(400, 300, 1);
     triggerPointerDown(600, 300, 2);
@@ -1982,7 +1982,7 @@ describe("useFrequencyDrag Hook", () => {
       vizPanOffsetRef: { current: 1 },
     };
 
-    renderHook(() => useFrequencyDrag(pinchOptions));
+    renderHook(() => useSpectrumInteraction(pinchOptions));
 
     triggerPointerDown(400, 300, 1);
     triggerPointerDown(600, 300, 2);
@@ -2006,7 +2006,7 @@ describe("useFrequencyDrag Hook", () => {
       vizPanOffsetRef: { current: 10 },
     };
 
-    renderHook(() => useFrequencyDrag(pinchOptions));
+    renderHook(() => useSpectrumInteraction(pinchOptions));
 
     triggerPointerDown(400, 300, 1);
     triggerPointerDown(600, 300, 2);
@@ -2035,7 +2035,7 @@ describe("useFrequencyDrag Hook", () => {
       vizPanOffsetRef: { current: 10 },
     };
 
-    renderHook(() => useFrequencyDrag(pinchOptions));
+    renderHook(() => useSpectrumInteraction(pinchOptions));
 
     triggerPointerDown(400, 300, 1);
     triggerPointerDown(600, 300, 2);
@@ -2057,7 +2057,7 @@ describe("useFrequencyDrag Hook", () => {
   });
 
   it("should handle draggable power line vertically in the left dB margin and clear it on pointerup", () => {
-    renderHook(() => useFrequencyDrag(defaultOptions));
+    renderHook(() => useSpectrumInteraction(defaultOptions));
 
     // Pointer down at x=20, y=300 (left scale margin area)
     triggerPointerDown(20, 300);
@@ -2085,7 +2085,7 @@ describe("useFrequencyDrag Hook", () => {
   });
 
   it("should disable scroll/wheel events in the left scale margin", () => {
-    renderHook(() => useFrequencyDrag(defaultOptions));
+    renderHook(() => useSpectrumInteraction(defaultOptions));
 
     const preventDefaultMock = jest.fn();
     triggerWheel({

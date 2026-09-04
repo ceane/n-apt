@@ -64,7 +64,7 @@ export type CanvasTxSliderState = {
   onOptionsRequest?: () => void;
 };
 
-export interface FrequencyDragOptions {
+export interface SpectrumInteractionOptions {
   disabled?: boolean;
   selectionMode?: "zoom" | "range";
   spectrumGpuCanvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -182,7 +182,7 @@ export function useSpectrumInteraction({
   txSliderRef,
   txSliderEnabled = false,
   txSliderLocked = false,
-}: FrequencyDragOptions) {
+}: SpectrumInteractionOptions) {
   const isDraggingRef = useRef(false);
   const isVfoDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
@@ -3050,9 +3050,6 @@ export function useSpectrumInteraction({
     txSliderLocked,
   ]);
 }
-
-/** @deprecated Use useSpectrumInteraction. */
-export const useFrequencyDrag = useSpectrumInteraction;
 
 function normalizeSelectionRange(
   a: number,

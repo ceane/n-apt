@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { renderHook, act } from "@testing-library/react";
 import fc from "fast-check";
-import { useFrequencyDrag, normalizeWheelPanDelta } from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import { useSpectrumInteraction, normalizeWheelPanDelta } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import { useFrequencyTuning } from "@n-apt/app/routes/pages/spectrum/hooks/useLiveTuning";
 import {
   createLiveFrequencyRangePublisher,
@@ -59,7 +59,7 @@ describe("VFO scroll diagnostics", () => {
 
   it("keeps the first cold-start mirror scroll ticks human-scale (no GHz jump)", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: null,
@@ -95,7 +95,7 @@ describe("VFO scroll diagnostics", () => {
 
   it("signals an immediate overlay paint on a wheel tick without leaving a timer", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -121,7 +121,7 @@ describe("VFO scroll diagnostics", () => {
   it("signals an immediate paint path on mirror visual-pan wheel ticks", () => {
     harness.vizPanOffsetRef.current = -500_000;
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -164,7 +164,7 @@ describe("VFO scroll diagnostics", () => {
     );
 
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -194,7 +194,7 @@ describe("VFO scroll diagnostics", () => {
     (seed) => {
       const random = mulberry32(seed);
       renderHook(() =>
-        useFrequencyDrag(
+        useSpectrumInteraction(
           harness.buildOptions({
             allowNegativeFrequencies: true,
             hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -308,7 +308,7 @@ describe("DC-region scroll uniformity", () => {
     harness.frequencyRangeRef.current = { min: 0, max: 4_372_000 };
     harness.vizPanOffsetRef.current = -100_000;
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -377,7 +377,7 @@ describe("DC-region scroll uniformity", () => {
     harness.frequencyRangeRef.current = { min: 0, max: 4_372_000 };
     harness.vizPanOffsetRef.current = 0;
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -410,7 +410,7 @@ describe("DC-region scroll uniformity", () => {
     harness.frequencyRangeRef.current = { min: 0, max: 4_372_000 };
     harness.vizPanOffsetRef.current = 0;
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -443,7 +443,7 @@ describe("DC-region scroll uniformity", () => {
 
   it("coalesces a momentum burst crossing DC to bounded hardware retunes", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -494,7 +494,7 @@ describe("zoom reset and subscriber-independent VFO bounds", () => {
 
   it("continues hardware scrolling after returning from zoom to 1x", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: false,
           hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
@@ -679,7 +679,7 @@ describe("wheel handler hot path budget", () => {
 
   it("processes a dense trackpad burst within a deterministic time budget", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,

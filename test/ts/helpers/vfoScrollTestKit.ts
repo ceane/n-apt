@@ -1,6 +1,6 @@
 import { act } from "@testing-library/react";
 import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
-import type { FrequencyDragOptions } from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import type { SpectrumInteractionOptions } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 
 export const SPECTRUM_MAX_HZ = 30_000_000_000;
 export const DEFAULT_HARDWARE_BOUNDS = { min: 10_000, max: 6_000_000_000 };
@@ -48,8 +48,8 @@ export type FrequencyDragHarness = {
   mocks: FrequencyDragMocks;
   listeners: Record<string, (...args: unknown[]) => void>;
   buildOptions: (
-    overrides?: Partial<FrequencyDragOptions>,
-  ) => FrequencyDragOptions;
+    overrides?: Partial<SpectrumInteractionOptions>,
+  ) => SpectrumInteractionOptions;
   containerHandler: (eventName: string) => ((event: unknown) => void) | undefined;
   wheel: (payload: WheelPayload, flushFrame?: boolean) => void;
   resetGestureState: (acquisition?: FrequencyRange) => void;
@@ -416,7 +416,7 @@ export const createFrequencyDragHarness = (): FrequencyDragHarness => {
         ...payload,
       });
       if (flushFrame) {
-        // useFrequencyDrag coalesces wheel input onto requestAnimationFrame.
+        // useSpectrumInteraction coalesces wheel input onto requestAnimationFrame.
         // Step-wise diagnostics flush each event; burst diagnostics queue the
         // complete burst and flush once below.
         jest.advanceTimersByTime(17);
@@ -425,8 +425,8 @@ export const createFrequencyDragHarness = (): FrequencyDragHarness => {
   };
 
   const buildOptions = (
-    overrides: Partial<FrequencyDragOptions> = {},
-  ): FrequencyDragOptions =>
+    overrides: Partial<SpectrumInteractionOptions> = {},
+  ): SpectrumInteractionOptions =>
     ({
       spectrumGpuCanvasRef,
       spectrumGpuCanvasNode: spectrumGpuCanvasRef.current,
@@ -452,7 +452,7 @@ export const createFrequencyDragHarness = (): FrequencyDragHarness => {
       vizDbMinRef,
       vizDbMaxRef,
       ...overrides,
-    }) as unknown as FrequencyDragOptions;
+    }) as unknown as SpectrumInteractionOptions;
 
   const resetGestureState = (acquisition: FrequencyRange = DC_ANCHORED_ACQUISITION) => {
     jest.clearAllMocks();

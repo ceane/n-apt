@@ -45,13 +45,8 @@ jest.mock("@n-apt/spectrum/hooks/useOverlayRenderer", () => ({
   }),
 }));
 
-jest.mock("@n-apt/spectrum/hooks/useFrequencyDrag", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumInteraction", () => ({
   useSpectrumInteraction: () => ({
-    handleMouseDown: jest.fn(),
-    handleMouseMove: jest.fn(),
-    handleMouseUp: jest.fn(),
-  }),
-  useFrequencyDrag: () => ({
     handleMouseDown: jest.fn(),
     handleMouseMove: jest.fn(),
     handleMouseUp: jest.fn(),
@@ -93,9 +88,8 @@ jest.mock("@n-apt/spectrum/hooks/useFFTAnimation", () => ({
 }));
 
 // Mock other hooks
-jest.mock("@n-apt/spectrum/hooks/useFrequencyDrag", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumInteraction", () => ({
   useSpectrumInteraction: () => {},
-  useFrequencyDrag: () => {},
 }));
 
 describe("FFTCanvas Pause Functionality", () => {

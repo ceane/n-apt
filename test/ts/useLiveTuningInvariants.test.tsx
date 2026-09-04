@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { renderHook, act } from "@testing-library/react";
-import { useFrequencyDrag } from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import { useSpectrumInteraction } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import React from "react";
 
 /**
@@ -237,7 +237,7 @@ describe("useLiveTuning gesture invariants", () => {
   };
 
   it("scrolling deep into the mirrored axis and back never publishes out-of-bounds windows or runs away", () => {
-    renderHook(() => useFrequencyDrag(buildOptions({
+    renderHook(() => useSpectrumInteraction(buildOptions({
       allowNegativeFrequencies: true,
       hardwareSpectrumBounds: HARDWARE_BOUNDS,
     })));
@@ -266,7 +266,7 @@ describe("useLiveTuning gesture invariants", () => {
   });
 
   it("a mirror retune at the spectrum edge converges instead of ratcheting pan per tick", () => {
-    renderHook(() => useFrequencyDrag(buildOptions({
+    renderHook(() => useSpectrumInteraction(buildOptions({
       allowNegativeFrequencies: true,
       hardwareSpectrumBounds: HARDWARE_BOUNDS,
     })));
@@ -296,7 +296,7 @@ describe("useLiveTuning gesture invariants", () => {
   });
 
   it("pointer dragging across DC and back respects both spectrum caps", () => {
-    renderHook(() => useFrequencyDrag(buildOptions({
+    renderHook(() => useSpectrumInteraction(buildOptions({
       allowNegativeFrequencies: true,
       hardwareSpectrumBounds: HARDWARE_BOUNDS,
     })));
@@ -316,7 +316,7 @@ describe("useLiveTuning gesture invariants", () => {
   });
 
   it("pinch to zoom keeps the anchored frequency under the cursor and the viewport in bounds", () => {
-    renderHook(() => useFrequencyDrag(buildOptions({
+    renderHook(() => useSpectrumInteraction(buildOptions({
       allowNegativeFrequencies: true,
       hardwareSpectrumBounds: HARDWARE_BOUNDS,
     })));
@@ -347,7 +347,7 @@ describe("useLiveTuning gesture invariants", () => {
   });
 
   it("stays in bounds even before hardware bounds hydrate (cold start)", () => {
-    renderHook(() => useFrequencyDrag(buildOptions({
+    renderHook(() => useSpectrumInteraction(buildOptions({
       allowNegativeFrequencies: true,
       hardwareSpectrumBounds: null,
     })));

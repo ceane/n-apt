@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { renderHook, act } from "@testing-library/react";
-import { useFrequencyDrag } from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import { useSpectrumInteraction } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import {
   resolveIncomingChannelsActiveSignalArea,
 } from "@n-apt/redux/middleware/websocketMiddleware";
@@ -42,7 +42,7 @@ const mulberry32 = (seed: number) => {
   };
 };
 
-describe("useFrequencyDrag gesture fuzz", () => {
+describe("useSpectrumInteraction gesture fuzz", () => {
   const mockOnFrequencyRangeChange = jest.fn();
   const mockOnVizPanChange = jest.fn();
   const mockOnVizZoomChange = jest.fn();
@@ -276,7 +276,7 @@ describe("useFrequencyDrag gesture fuzz", () => {
     (seed) => {
       const random = mulberry32(seed);
       renderHook(() =>
-        useFrequencyDrag(
+        useSpectrumInteraction(
           buildOptions({
             allowNegativeFrequencies: true,
             hardwareSpectrumBounds: HARDWARE_BOUNDS,

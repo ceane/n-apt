@@ -152,7 +152,7 @@ export const computeBandPannedWithinTrack = ({
  * - `overflowHz > 0` → band tried to go past the **right** edge
  * - `overflowHz === 0` → band fits entirely within the visible range
  *
- * The caller (e.g. useFrequencyDrag) uses this to decide whether to
+ * The caller (e.g. useSpectrumInteraction) uses this to decide whether to
  * edge-pan the spectrum underneath.
  */
 export interface BandPanWithOverflowResult extends EdgePanningResult {

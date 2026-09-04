@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { renderHook } from "@testing-library/react";
 import fc from "fast-check";
-import { useFrequencyDrag } from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import { useSpectrumInteraction } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import { useDrawWebGPUFFTSignal } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal";
 import {
   shouldEnableGpuMirrorFold,
@@ -180,7 +180,7 @@ describe("mirror scroll direction continuity", () => {
 
   it("keeps descending while scrolling into the mirror and ascending while scrolling back", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         harness.buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,
@@ -280,7 +280,7 @@ describe("mirror scroll direction continuity", () => {
     (seed) => {
       const random = mulberry32(seed);
       renderHook(() =>
-        useFrequencyDrag(
+        useSpectrumInteraction(
           harness.buildOptions({
             allowNegativeFrequencies: true,
             hardwareSpectrumBounds: DEFAULT_HARDWARE_BOUNDS,

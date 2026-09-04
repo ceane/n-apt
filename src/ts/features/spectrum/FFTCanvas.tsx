@@ -28,7 +28,7 @@ import { useDrawWebGPUFIFOWaterfall } from "@n-apt/spectrum/hooks/useDrawWebGPUF
 import {
   useSpectrumInteraction,
   type CanvasTxSliderState,
-} from "@n-apt/spectrum/hooks/useFrequencyDrag";
+} from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import { useWebGPULifecycle } from "@n-apt/spectrum/hooks/useWebGPUInit";
 import { useSpectrumMath } from "@n-apt/spectrum/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
@@ -3599,6 +3599,7 @@ const FFTCanvas = memo(
             panChanged:
               lastPaintedMirrorPanRef.current !== vizPanOffsetRef.current,
             rangeChanged: !currentFrameMatchesRequestedRange,
+            isPaused,
           });
 
         if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {

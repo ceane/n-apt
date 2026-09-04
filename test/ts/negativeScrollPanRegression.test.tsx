@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { renderHook, act } from "@testing-library/react";
-import { useFrequencyDrag } from "@n-apt/spectrum/hooks/useFrequencyDrag";
+import { useSpectrumInteraction } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import React from "react";
 
 /**
@@ -145,7 +145,7 @@ describe("negative-direction scroll panning regression", () => {
 
   it("scrolls into the mirrored axis with bounded steps and a bounded viewport", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         buildOptions({ allowNegativeFrequencies: true, hardwareSpectrumBounds: HARDWARE_BOUNDS }),
       ),
     );
@@ -196,7 +196,7 @@ describe("negative-direction scroll panning regression", () => {
 
   it("clamps a continued negative momentum gesture to the signed 30 GHz limit", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
@@ -225,7 +225,7 @@ describe("negative-direction scroll panning regression", () => {
 
   it("reanchors once at the negative spectrum edge without repeating the same request", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
@@ -271,7 +271,7 @@ describe("negative-direction scroll panning regression", () => {
     });
 
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
@@ -292,7 +292,7 @@ describe("negative-direction scroll panning regression", () => {
 
   it("uses the global spectrum fallback instead of channel bounds before hardware bounds hydrate", () => {
     renderHook(() =>
-      useFrequencyDrag(
+      useSpectrumInteraction(
         buildOptions({
           allowNegativeFrequencies: true,
           hardwareSpectrumBounds: null,
