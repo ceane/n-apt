@@ -12,8 +12,7 @@ describe('How do they do it data estimate', () => {
     expect(article).toContain('channel sample rate}\\div60\\text{ Hz}');
     expect(article).toContain('| A | 4.372 MHz | 262,144 | 512 KB | 131,072 | 512 KB |');
     expect(article).toContain('| C | 18.25 MHz | 1,048,576 | 2 MB | 524,288 | 2 MB |');
-    expect(article).toContain('Minimum raw content: approximately `57.784 MB/s`');
-    expect(article).toContain('Write→read maximum: approximately `231.136 MB/s`');
+    expect(article).toContain('```React::DaysSince');
   });
 
   it('does not retain the superseded fixed FFT estimate', () => {

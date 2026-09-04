@@ -31,6 +31,10 @@ const Container = styled.div`
   flex-direction: column;
   gap: 3rem;
   overflow: hidden;
+  @media (max-width: 768px) {
+    font-size: clamp(0.9rem, 3.8vw, 1rem);
+    gap: 1.25rem;
+  }
 `;
 
 const CopyRow = styled.div`
@@ -62,6 +66,22 @@ const CopyButton = styled.button`
   &[data-copied='true'] {
     color: #7df6a6;
   }
+
+  @media (max-width: 768px) {
+    padding: 0.7rem;
+
+    svg {
+      width: 24px;
+      height: 24px;
+    }
+  }
+`;
+
+const CopyStatus = styled.span`
+  margin-right: 0.5rem;
+  color: #7df6a6;
+  font-family: "DM Mono", monospace;
+  font-size: 0.75rem;
 `;
 
 const TopRow = styled.div`
@@ -69,9 +89,22 @@ const TopRow = styled.div`
   grid-template-columns: repeat(3, 1fr);
   gap: 2rem;
 
-  @media (max-width: 600px) {
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+
+    .top-value {
+      font-size: 1.55rem;
+      gap: 0.2rem;
+
+      span.unit {
+        font-size: 0.9rem;
+      }
+    }
+  }
+
+  @media (orientation: landscape) and (max-width: 900px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 `;
 
@@ -80,6 +113,7 @@ const DataContainer = styled.div`
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 2rem;
   position: relative;
+  @media (max-width: 768px) { gap: 1.25rem; }
 `;
 
 const _SectionLabel = styled.div`
@@ -106,6 +140,11 @@ const Label = styled.small`
   letter-spacing: 0.2em;
   color: var(--ds-text-secondary);
   font-weight: 600;
+  @media (max-width: 768px) {
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    line-height: 1.35;
+  }
 `;
 
 const Value = styled.div`
@@ -118,6 +157,11 @@ const Value = styled.div`
   gap: 0.5rem;
   line-height: 1;
   white-space: nowrap;
+  @media (max-width: 768px) {
+    font-size: 1.8rem;
+    gap: 0.35rem;
+    span.unit { font-size: 1.1rem; }
+  }
 
   span.unit {
     font-family: "KaTeX_Main", serif;
@@ -136,6 +180,7 @@ const SubValue = styled.small`
   font-style: italic;
   letter-spacing: 0.02em;
   line-height: 1.3;
+  @media (max-width: 600px) { font-size: 0.7rem; }
 `;
 
 const SubLabel = styled.div`
@@ -162,9 +207,9 @@ const MinMaxGrid = styled.div`
   gap: 1.5rem;
   margin-top: 0.25rem;
 
-  @media (max-width: 600px) {
-    grid-template-columns: 1fr;
-    gap: 1rem;
+  @media (max-width: 768px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
   }
 
   ${Value} {
@@ -172,6 +217,16 @@ const MinMaxGrid = styled.div`
 
     span.unit {
       font-size: 0.85rem;
+    }
+  }
+
+  @media (max-width: 768px) {
+    ${Value} {
+      font-size: 1.45rem;
+
+      span.unit {
+        font-size: 1rem;
+      }
     }
   }
 `;
@@ -194,6 +249,25 @@ const CostContainer = styled(DataContainer)`
     display: block;
     min-height: 2.6em;
     line-height: 1.3;
+  }
+
+  @media (max-width: 768px) {
+    > ${StatBox} > ${Label} {
+      min-height: 1.3em;
+    }
+
+    ${MinMaxGrid} {
+      column-gap: 1.25rem;
+
+      ${Value} {
+        font-size: 1.1rem;
+        gap: 0.25rem;
+
+        span.unit {
+          font-size: 0.75rem;
+        }
+      }
+    }
   }
 `;
 
@@ -306,17 +380,18 @@ const IMAGE_TOP_LABEL_Y = 34;
 const IMAGE_TOP_VALUE_Y = 100;
 const IMAGE_TOP_VALUE_SIZE = 48;
 
-const IMAGE_SECTION_LABEL_Y = 174;
-const IMAGE_SECTION_MINMAX_Y = 245;
-const IMAGE_SECTION_SUB_Y = 271;
+const IMAGE_SECTION_LABEL_Y = 150;
+const IMAGE_SECTION_MINMAX_Y = 210;
+const IMAGE_SECTION_SUB_Y = 236;
 const IMAGE_SECTION_X = [24, 408];
 const IMAGE_MINMAX_X_OFFSET = 0;
 const IMAGE_MAX_X_OFFSET = 188;
 const IMAGE_TEXT_COLUMN_WIDTH = IMAGE_MAX_X_OFFSET - 16;
+const IMAGE_ATTRIBUTION = 'Ongoing counter · April 2026 · “How did they do it?” by C. Lamerez · ceane.github.io/n-apt';
 
-const IMAGE_COST_LABEL_Y = 356;
-const IMAGE_COST_MINMAX_Y = 384;
-const IMAGE_COST_VALUE_Y = 414;
+const IMAGE_COST_LABEL_Y = 300;
+const IMAGE_COST_MINMAX_Y = 328;
+const IMAGE_COST_VALUE_Y = 358;
 
 const drawLabel = (
   ctx: CanvasRenderingContext2D,
@@ -383,8 +458,11 @@ const drawCostValue = (
   baselineY: number,
   maxWidth: number,
   unit?: string,
+  startSize = 20,
+  minSize = 12,
+  unitSize = 13,
 ) => {
-  const valueSize = fitTextSize(ctx, value, maxWidth, 20, 12);
+  const valueSize = fitTextSize(ctx, value, maxWidth, startSize, minSize);
   ctx.save();
   ctx.font = `400 ${valueSize}px ${IMAGE_FONT_SERIF}`;
   ctx.fillStyle = IMAGE_TEXT;
@@ -392,7 +470,7 @@ const drawCostValue = (
   ctx.fillText(value, x, baselineY);
   if (unit) {
     const unitX = x + ctx.measureText(value).width + 8;
-    ctx.font = `italic 400 13px ${IMAGE_FONT_SERIF}`;
+    ctx.font = `italic 400 ${unitSize}px ${IMAGE_FONT_SERIF}`;
     ctx.fillStyle = IMAGE_TEXT_FAINT;
     ctx.fillText(unit, unitX, baselineY);
   }
@@ -453,6 +531,78 @@ const drawWrappedText = (
   return lines.length;
 };
 
+type ImageData = {
+  stats: { totalHours: number; escalationHours: number; totalDays: number };
+  costs: { totalMin: string; totalMax: string; dailyMin: string; dailyMax: string };
+  dataMin: { val: string; unit: string };
+  dataMax: { val: string; unit: string };
+  dailyDataMin: { val: string; unit: string };
+  dailyDataMax: { val: string; unit: string };
+  totalComparisonTextMin: string;
+  totalComparisonTextMax: string;
+  dailyComparisonTextMin: string;
+  dailyComparisonTextMax: string;
+};
+
+const renderPortraitImage = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, data: ImageData) => {
+  const width = 600;
+  const height = 1260;
+  canvas.width = width;
+  canvas.height = height;
+  ctx.fillStyle = IMAGE_BG;
+  ctx.fillRect(0, 0, width, height);
+
+  const x = 36;
+  let y = 42;
+  const drawStat = (label: string, value: string, unit: string, statX: number, labelY: number) => {
+    drawLabel(ctx, label, statX, labelY, 16);
+    drawValue(ctx, value, statX, labelY + 62, unit, 52);
+  };
+  drawStat('Hours Total', formatNumber(data.stats.totalHours), 'hrs', x, y);
+  drawStat('Since Escalation', formatNumber(data.stats.escalationHours), 'hrs', x + 288, y);
+  y += 130;
+  drawStat('Days Total', formatNumber(data.stats.totalDays), 'days', x, y);
+  y += 170;
+
+  const drawDataSection = (label: string, min: { val: string; unit: string }, max: { val: string; unit: string }, minSub: string, maxSub: string) => {
+    drawLabel(ctx, label, x, y, 16);
+    y += 42;
+    drawLabel(ctx, 'Min†', x, y, 12);
+    drawLabel(ctx, 'Max‡', x + 288, y, 12);
+    y += 48;
+    drawValue(ctx, min.val, x, y, min.unit, 56);
+    drawValue(ctx, max.val, x + 288, y, max.unit, 56);
+    y += 32;
+    ctx.font = `italic 400 20px ${IMAGE_FONT_SERIF}`;
+    ctx.fillStyle = IMAGE_TEXT_FAINT;
+    drawWrappedText(ctx, minSub, x, y, 250, 25);
+    drawWrappedText(ctx, maxSub, x + 288, y, 250, 25);
+    y += 76;
+  };
+  drawDataSection('Data Intercepted Total', data.dataMin, data.dataMax, data.totalComparisonTextMin, data.totalComparisonTextMax);
+  drawDataSection('Data Intercepted in 24HRS', data.dailyDataMin, data.dailyDataMax, data.dailyComparisonTextMin, data.dailyComparisonTextMax);
+  y += 40;
+
+  const drawCostSection = (label: string, min: string, max: string, unit?: string) => {
+    drawLabel(ctx, label, x, y, 16);
+    y += 42;
+    drawLabel(ctx, 'Min†', x, y, 12);
+    drawLabel(ctx, 'Max‡', x + 288, y, 12);
+    y += 44;
+    drawCostValue(ctx, min, x, y, 250, unit, 36, 24, unit ? 17 : 13);
+    drawCostValue(ctx, max, x + 288, y, 250, unit, 36, 24, unit ? 17 : 13);
+    y += 82;
+  };
+  drawCostSection('Data Total Cost (to Present)*', data.costs.totalMin, data.costs.totalMax);
+  drawCostSection('Data Cost Per Day*', data.costs.dailyMin, data.costs.dailyMax, '/day');
+
+  ctx.font = `400 32px ${IMAGE_FONT_SERIF}`;
+  ctx.fillStyle = IMAGE_TEXT_FAINT;
+  const attributionLines = wrapCanvasText(ctx, IMAGE_ATTRIBUTION, width - (x * 2));
+  const attributionBaseline = height - 24 - ((attributionLines.length - 1) * 38);
+  drawWrappedText(ctx, IMAGE_ATTRIBUTION, x, attributionBaseline, width - (x * 2), 38);
+};
+
 export const renderImage = (
   canvas: HTMLCanvasElement,
   stats: { totalHours: number; escalationHours: number; totalDays: number },
@@ -465,9 +615,27 @@ export const renderImage = (
   totalComparisonTextMax: string,
   dailyComparisonTextMin: string,
   dailyComparisonTextMax: string,
+  layout: 'landscape' | 'portrait' = 'landscape',
 ) => {
   const ctx = canvas.getContext('2d');
   if (!ctx) {
+    return;
+  }
+
+  const data: ImageData = {
+    stats,
+    costs,
+    dataMin,
+    dataMax,
+    dailyDataMin,
+    dailyDataMax,
+    totalComparisonTextMin,
+    totalComparisonTextMax,
+    dailyComparisonTextMin,
+    dailyComparisonTextMax,
+  };
+  if (layout === 'portrait') {
+    renderPortraitImage(canvas, ctx, data);
     return;
   }
 
@@ -482,6 +650,9 @@ export const renderImage = (
   // Solid article background.
   ctx.fillStyle = IMAGE_BG;
   ctx.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
+  ctx.font = `400 14px ${IMAGE_FONT_SERIF}`;
+  ctx.fillStyle = IMAGE_TEXT_FAINT;
+  ctx.fillText(IMAGE_ATTRIBUTION, 24, IMAGE_HEIGHT - 18);
 
   // Top row: hours total, since escalation, days total.
   const topValues = [
@@ -829,6 +1000,9 @@ export const DaysSince: React.FC = () => {
       totalComparisonTextMax,
       dailyComparisonTextMin,
       dailyComparisonTextMax,
+      typeof window !== 'undefined' && window.innerWidth <= 768 && window.innerWidth < window.innerHeight
+        ? 'portrait'
+        : 'landscape',
     );
 
     try {
@@ -868,11 +1042,12 @@ export const DaysSince: React.FC = () => {
   return (
     <Container ref={containerRef}>
       <CopyRow>
+        {copied && <CopyStatus role="status">Copied Table (.png)</CopyStatus>}
         <CopyButton
           type="button"
           onClick={() => void handleCopyImage()}
           data-copied={copied}
-          aria-label={copied ? 'Copied' : 'Copy stats as image'}
+          aria-label={copied ? 'Copied Table (.png)' : 'Copy stats as image'}
           title={copied ? 'Copied!' : 'Copy stats as image'}
         >
           {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={2} />}
@@ -885,7 +1060,7 @@ export const DaysSince: React.FC = () => {
           transition={{ duration: 0.5 }}
         >
           <Label>Hours Total</Label>
-          <Value>
+          <Value className="top-value">
             <RollingCounter value={formatNumber(stats.totalHours)} animateActive={isInView} />
             <span className="unit">hrs</span>
           </Value>
@@ -897,7 +1072,7 @@ export const DaysSince: React.FC = () => {
           transition={{ duration: 0.5, delay: 0.1 }}
         >
           <Label>Since Escalation</Label>
-          <Value>
+          <Value className="top-value">
             <RollingCounter value={formatNumber(stats.escalationHours)} animateActive={isInView} />
             <span className="unit">hrs</span>
           </Value>
@@ -909,7 +1084,7 @@ export const DaysSince: React.FC = () => {
           transition={{ duration: 0.5, delay: 0.2 }}
         >
           <Label>Days Total</Label>
-          <Value>
+          <Value className="top-value">
             <RollingCounter value={formatNumber(stats.totalDays)} animateActive={isInView} />
             <span className="unit">days</span>
           </Value>

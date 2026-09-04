@@ -1,8 +1,20 @@
 import React from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DaysSince, renderImage } from "@n-apt/app-article/components/DaysSince";
 
 describe("DaysSince copyable image", () => {
+  it("uses compact mobile typography for stacked statistics", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../../src/app-article/components/DaysSince.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("@media (max-width: 768px)");
+    expect(source).toContain("font-size: 0.65rem;");
+    expect(source).toContain("font-size: 1.8rem;");
+    expect(source).toContain("letter-spacing: 0.12em;");
+  });
   it("keeps the copied cost sections in the same order as the DOM", async () => {
     const drawCalls: Array<{ text: string; x: number; y: number; font: string }> = [];
     const fillText = jest.fn(function (this: { font: string }, text: string, x: number, y: number) {
@@ -40,6 +52,7 @@ describe("DaysSince copyable image", () => {
       fireEvent.click(screen.getByRole("button", { name: /copy stats as image/i }));
 
       await waitFor(() => expect(toBlob).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Copied Table (.png)"));
       expect(context.fillRect).toHaveBeenCalledWith(0, 0, 800, 500);
 
       const labels = fillText.mock.calls.map(([text]) => text);
@@ -69,7 +82,7 @@ describe("DaysSince copyable image", () => {
       ).toHaveLength(3);
       expect(
         drawCalls
-          .filter(({ y, font }) => y === 245 && font.startsWith("400"))
+          .filter(({ y, font }) => y === 210 && font.startsWith("400"))
           .map(({ font }) => font),
       ).toEqual([
         expect.stringContaining("40px"),
@@ -80,9 +93,9 @@ describe("DaysSince copyable image", () => {
       expect(drawCalls.find(({ text }) => text === "DATA INTERCEPTED TOTAL")?.x).toBe(24);
       expect(drawCalls.find(({ text }) => text === "DATA INTERCEPTED IN 24HRS")?.x).toBe(408);
       expect(
-        drawCalls.some(({ text, y }) => text === "DATA TOTAL COST (TO PRESENT)*" && y === 356),
+        drawCalls.some(({ text, y }) => text === "DATA TOTAL COST (TO PRESENT)*" && y === 300),
       ).toBe(true);
-      expect(drawCalls.some(({ text, y }) => text === "MIN†" && y === 384)).toBe(true);
+      expect(drawCalls.some(({ text, y }) => text === "MIN†" && y === 328)).toBe(true);
       expect(totalMinLabel).toBeGreaterThan(totalCostLabel);
       expect(totalMaxLabel).toBeGreaterThan(totalMinLabel);
       expect(totalMinValue).toBeGreaterThan(totalMaxLabel);

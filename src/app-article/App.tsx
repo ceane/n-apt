@@ -83,9 +83,10 @@ const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...im
   const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
     normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
   );
+  const isFullBleed = normalizedAlt.includes("interleaved bins");
 
   return (
-    <Figure $blendClass={blendClass} $hero={isHero}>
+    <Figure $blendClass={blendClass} $hero={isHero} $fullBleed={isFullBleed}>
       <img src={assetUrl(src)} alt={alt} loading="lazy" {...imgProps} />
     </Figure>
   );
@@ -391,6 +392,7 @@ const ScrollToContents = styled.a`
 
 const ArticleContent = styled.article`
   --article-gutter: clamp(32px, 5vw, 72px);
+  width: 100%;
   max-width: 800px;
   margin: 0 auto;
   padding: var(--article-gutter);
@@ -585,9 +587,17 @@ const ArticleContent = styled.article`
 
   .table-scroll-wrapper {
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     overflow-x: auto;
     margin: 2em 0;
     -webkit-overflow-scrolling: touch;
+
+    table {
+      width: max-content;
+      min-width: 100%;
+      max-width: none;
+    }
     
     /* Custom scrollbar for tables */
     &::-webkit-scrollbar {
@@ -676,6 +686,14 @@ const ArticleContent = styled.article`
       aspect-ratio: 4 / 3;
       object-fit: cover;
       border-radius: 0;
+    }
+
+    @media (max-width: 768px) {
+      border-width: 6px;
+
+      figure {
+        border-width: 3px;
+      }
     }
   }
 
@@ -806,11 +824,18 @@ const CitationLinkWrapper: React.FC<InternalLinkProps> = ({ children, href, $cit
   );
 };
 
-const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean }>`
+const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean; $fullBleed?: boolean }>`
   margin: 1.5em 0;
   position: relative;
   width: 100%;
   display: block;
+
+  ${({ $fullBleed }) => $fullBleed && css`
+    @media (max-width: 768px) {
+      width: 100vw;
+      margin-left: calc((100% - 100vw) / 2);
+    }
+  `}
 
   & > img {
     display: block;

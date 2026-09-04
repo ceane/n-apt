@@ -1339,34 +1339,21 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 ## <a id="conclusion"></a> Conclusion 
 
 TODO
-
-The raw IFFT model treats each channel size as its sample rate and represents
-the channel as packed I/Q frame content.
-
-The minimum uses `u8` I/Q values and an FFT size based on the channel sample
-rate divided by 24 Hz. The maximum uses `u16` I/Q values and an FFT size based
-on the channel sample rate divided by 60 Hz.
-
-The resulting estimates are:
-
-- Minimum raw content: approximately `57.784 MB/s`
-- Maximum raw content: approximately `115.568 MB/s`
-- Write→read minimum: approximately `115.568 MB/s`
-- Write→read maximum: approximately `231.136 MB/s`
-
-A channel may be processed by one endpoint or split across multiple endpoints.
-Splitting changes each endpoint's share of the channel data, but the aggregate
-channel model remains the same and the I/Q quality does not automatically
-change.
-
 ```React::DaysSince
 ```
-*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA, from the start of the interactive livestream up to the present, using the formula in the table above.*
+<small>
 
+*The data estimates are based upon the theoretical minimums of the psychological and physiological interactive livestream experience by the NSA using the forumla in thte table above (purposefully configured without compression which is unlikely), **from the start of the interactive livestream up to the present**.*
+<br />
+<br />
+*The calculations are **of solely one person**–the author–and not including others present nor any others incidentally affected, **data and costs are far higher** when approximating the full scope of the NSA's unthinkable surveillance-interference program.*
+<br />
+<br />
 \* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB). <br />
 † **Min** formula uses `u8` I/Q and the next power-of-two FFT size at `sample rate / 24 Hz`. <br />
 ‡ **Max** formula uses `u16` I/Q and the next power-of-two FFT size at `sample rate / 60 Hz`.
 
+</small>
 
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
@@ -1483,9 +1470,9 @@ It boils down to these 8 simple terms.
 **Bonus** *(not in the article)*
 
 - **Cyber History:** The evolution of electronic communication and networked systems, from early telecom infrastructure like telegraph and telephone networks, through ARPANET and the public World Wide Web launch in 1993, to smartphones with the iPhone in 2007 and the rise of AI systems such as ChatGPT in the 2020s.
-- **Selectors and Queries:** A structured way of identifying and requesting specific information from a larger system, where selectors define the conditions for filtering (what to focus on) and queries define the request itself (what to retrieve or analyze), together forming a mechanism for extracting relevant signals, data, or patterns from a broader information space.
+- **Selectors and Queries:** A FISA-defined structured way of identifying and requesting specific information from a larger system, where selectors define the conditions for filtering (what to focus on) and queries define the request itself (what to retrieve or analyze), together forming a mechanism for extracting relevant signals, data, or patterns from a broader information space.
 - **Tasking / Detasking:** A control process for assigning and removing objectives within a system, where tasking activates a specific goal, function, or analysis to be performed on selected inputs, and detasking deactivates or withdraws that objective, returning the system to an idle or baseline state.
-- **Minimization:** A process of restricting information use to only what is necessary for a defined purpose.
+- **Minimization:** A process of restricting information use to only what is necessary for a legal, defined purpose.
 
 
 ### ⠿ TDLR <a id="tdlr"></a>

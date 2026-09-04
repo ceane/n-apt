@@ -43,5 +43,8 @@ describe("street sign collage", () => {
     expect(collageStyles).toContain("border: 10px solid #ffffff;");
     expect(collageStyles).toContain("border: 5px solid #ffffff;");
     expect(collageStyles).toContain("border-radius: 0;");
+    expect(collageStyles).toContain("@media (max-width: 768px)");
+    expect(collageStyles).toContain("border-width: 6px;");
+    expect(collageStyles).toContain("border-width: 3px;");
   });
 });
