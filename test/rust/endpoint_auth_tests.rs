@@ -4,6 +4,7 @@ use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::crypto;
 use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
+use n_apt_backend::server::source_runtime::SourceRuntimeManager;
 use n_apt_backend::server::stream_manager::StreamingSourceModeManager;
 use n_apt_backend::server::types::SpectrumData;
 use n_apt_backend::server::websocket_server::WebSocketServer;
@@ -118,6 +119,7 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>, String, RedisGuard) 
     stream_manager: StreamingSourceModeManager::new(
       std::time::Duration::from_millis(250),
     ),
+    source_runtime_manager: SourceRuntimeManager::new(),
     cmd_tx,
     sdr_processor,
   });
