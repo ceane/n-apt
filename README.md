@@ -70,6 +70,10 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 | Full fidelity I/Q Captures with metadata (within sample rate; "Whole Channel" captures work but are variable) |
 | Ability to take snapshots |
 | Works by defined channels to keep signal structure |
+| Automatic device discovery, with Mock APT fallback when no physical SDR is available |
+| A lightweight WebUSB version for connecting to an RTL-SDR directly from a Chromium browser |
+| CLI workflows for discovering devices, taking snapshots, and recording I/Q captures without using the frontend |
+| Recorded I/Q file playback and capture stitching for analysis |
 | Logically implemented features that 100% of SDR software get wrong (frame rate, temporal resolution, power scale, etc.) |
 | Whole app themes, not just dark mode! |
 | Whole suite tailored toward N-APT signals/domain |

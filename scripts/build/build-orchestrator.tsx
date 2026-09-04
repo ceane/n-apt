@@ -2656,9 +2656,9 @@ async function runNonTtyBuild() {
 }
 
 // Main execution
-if (isMainModule) {
+const startOrchestrator = async () => {
   const orchestratorLockPath = path.resolve('.n-apt-build-orchestrator.lock');
-  const releaseOrchestratorLock = acquireBuildOrchestratorLock(orchestratorLockPath);
+  const releaseOrchestratorLock = await acquireBuildOrchestratorLock(orchestratorLockPath);
   process.once('exit', releaseOrchestratorLock);
 
   void ensureDevStatusServer();
@@ -2713,6 +2713,13 @@ if (isMainModule) {
     maxFps: 10,
   });
   }
+};
+
+if (isMainModule) {
+  void startOrchestrator().catch((err) => {
+    console.error('Failed to acquire the n-apt dev orchestrator lock:', err);
+    process.exit(1);
+  });
 }
 
 export default BuildOrchestrator;
