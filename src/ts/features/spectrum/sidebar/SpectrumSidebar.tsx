@@ -52,6 +52,7 @@ import {
   setFftFrameRate as setFftFrameRateAction,
   setTemporalResolution,
   setPowerScale,
+  setTxViewerPowerScale,
   setSdrSettingsBundle,
   setBasebandFilterPinned as setBasebandFilterPinnedAction,
   resetLiveControls as resetLiveControlsAction,
@@ -651,6 +652,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     displayMode,
     stitchSourceSettings,
   } = liveState;
+  const txViewerPowerScale = useAppSelector(
+    (state) => state.spectrum.txViewerPowerScale,
+  );
   const websocketChannels = useAppSelector((s) => s.websocket.channels);
   const channelFramesToUse = useMemo(
     () =>
@@ -3179,7 +3183,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             temporalResolution={displayTemporalResolution}
             backend={liveBackend}
             deviceProfile={liveDeviceProfileForDisplay}
-            powerScale={powerScale}
+            powerScale={isMockTxLiveSource ? txViewerPowerScale : powerScale}
             removeDcSpike={removeDcSpike}
             displayMode={displayMode || "fft"}
             onFftFrameRateChange={setFftFrameRate}
@@ -3190,7 +3194,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               dispatch(setTemporalResolution(res));
             }}
             onPowerScaleChange={(ps) => {
-              dispatch(setPowerScale(ps));
+              dispatch(
+                isMockTxLiveSource
+                  ? setTxViewerPowerScale(ps)
+                  : setPowerScale(ps),
+              );
             }}
             onRemoveDcSpikeChange={(enabled) => {
               dispatch(setRemoveDcSpike(enabled));

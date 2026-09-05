@@ -5,6 +5,7 @@ import {
   RUST_HOT_RELOAD_BUILD_STALE_MS,
   RUST_HOT_RELOAD_WAIT_STALE_MS,
   summarizeCargoProgressChunk,
+  summarizeRustBuildFailure,
   formatCargoBuildHeartbeat,
 } from "../../../scripts/build/cargoBuildProgress";
 
@@ -50,6 +51,14 @@ describe("cargoBuildProgress", () => {
       8,
     );
     expect(lines).toEqual(["d", "e", "f", "g", "h", "i", "j", "k"]);
+  });
+
+  it("keeps the actionable compiler diagnostic in the rebuild status", () => {
+    expect(
+      summarizeRustBuildFailure(
+        "error[E0308]: mismatched types\n  --> src/rs/tx/monitor.rs:1:1\nerror: could not compile `n-apt-backend`",
+      ),
+    ).toBe("error[E0308]: mismatched types | error: could not compile `n-apt-backend`");
   });
 
   it("marks a waiting status stale after the wait ceiling", () => {

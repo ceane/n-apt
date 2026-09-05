@@ -169,6 +169,51 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
+  it("uses the selected Tx presentation source when RX remains globally active", () => {
+    mockedWebsocketState = {
+      activeSourceId: "mock-apt",
+      sources: [
+        {
+          id: "mock-apt",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "receiving",
+          capabilities: { can_receive: true, can_transmit: false },
+          iq_format: "u8",
+        },
+        {
+          id: "mock-tx",
+          kind: "mock_tx",
+          capability: "tx",
+          status: "transmitting",
+          capabilities: { can_receive: false, can_transmit: true },
+          iq_format: "u8",
+        },
+      ],
+      sourceStatuses: {
+        "mock-apt": "receiving",
+        "mock-tx": "transmitting",
+      },
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        expectedSourceId="mock-tx"
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    expect(screen.getByTestId("fft-waterfall")).toHaveAttribute(
+      "data-stream-mode",
+      "tx",
+    );
+  });
+
   it("keeps both panes loading until a cached target frame paints", () => {
     render(
       <FFTAndWaterfall
@@ -605,6 +650,43 @@ describe("FFTAndWaterfall", () => {
     });
     expect(waterfallProps?.awaitingDeviceData).toBe(false);
     expect(fftProps?.interactionDisabled).toBe(false);
+  });
+
+  it("keeps a retained Tx standby presentation uncovered after a remount", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        isStandby={true}
+        snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: false,
+          clearStalePresentation: false,
+          preserveMatchingPresentation: true,
+        }}
+        placeholderState={{
+          kind: "loading",
+          sourceLabel: "Mock Tx SDR",
+          paneLabel: "FFT",
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(fftProps?.placeholderState).toBeUndefined();
+    expect(fftProps?.awaitingDeviceData).toBe(false);
+    expect(fftProps?.interactionDisabled).toBe(false);
+    expect(waterfallProps?.placeholderState).toBeUndefined();
+    expect(waterfallProps?.awaitingDeviceData).toBe(false);
   });
 
   it("keeps the last frame available while a live FFT setting is applied", () => {

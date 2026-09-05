@@ -199,3 +199,11 @@ export const resolveTxSliderCenterHz = ({
 
   return Math.min(maxCenterHz, Math.max(minCenterHz, fallbackCenter));
 };
+export const canShowTxSliderForSource = ({
+  canTransmit,
+  status,
+}: {
+  canTransmit: boolean;
+  status?: string | null;
+}): boolean =>
+  canTransmit && (status === "standby" || status === "transmitting");

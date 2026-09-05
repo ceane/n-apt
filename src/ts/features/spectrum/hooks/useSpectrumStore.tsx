@@ -78,11 +78,14 @@ import {
   resetDrawParams as resetWaterfallDrawParams,
   setSelectedSourceId as setReduxSelectedSourceId,
   setSelectionIntentSourceId as setReduxSelectionIntentSourceId,
+  restoreSelectedSource as restoreReduxSelectedSource,
+  selectSource as selectReduxSource,
   setPendingSourceSwitchId as setReduxPendingSourceSwitchId,
 } from "@n-apt/redux";
 import {
   liveDataBySourceRef,
   liveDataRef,
+  presentationController,
   sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { SpectrumStoreContext } from "@n-apt/spectrum/hooks/spectrumStoreContext";
@@ -102,6 +105,7 @@ import {
 } from "@n-apt/redux/thunks/websocketThunks";
 import { deriveStateFromConfig } from "@n-apt/settings/public/useSdrSettings";
 import { applyWaterfallStateOverrides } from "@n-apt/spectrum/hooks/spectrumStoreOverrides";
+import { resolvePausedPreviewRequestSourceId } from "@n-apt/app/routes/pages/spectrum/mockTxPreview";
 import {
   createFFTVisualizerMachine,
   type FFTVisualizerMachine,
@@ -116,6 +120,7 @@ import {
   saveStoredJson,
   loadSelectedSourceId,
   saveSelectedSourceId,
+  shouldSkipSelectedSourcePersistence,
 } from "@n-apt/spectrum/utils/sourcePersistence";
 import {
   clampRtlSdrFrequencyRangeToHardwareWindow,
@@ -135,7 +140,6 @@ import {
 } from "@n-apt/transmit/public/txSuiteSourceControl";
 import { resolveMockTxTransmitSettings } from "@n-apt/transmit/public/txSliderPlacement";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
-import { createSourceSwitchCoordinator } from "@n-apt/spectrum/hooks/sourceSwitchCoordinator";
 import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
 
 // Types
@@ -421,13 +425,12 @@ export const resolveInitialSourceSelection = ({
   const selectedSourceId =
     soleHardwareSourceId ||
     (storedSourceIsInInventory ? storedSourceId : null) ||
-    activeSourceId ||
     sources[0]?.id ||
     null;
   return {
     selectedSourceId,
     selectionIntentSourceId:
-      selectedSourceId && selectedSourceId !== activeSourceId
+      selectedSourceId && !activeSourceId
         ? selectedSourceId
         : null,
   };
@@ -450,9 +453,9 @@ export const shouldClearPendingSourceSwitch = ({
   pendingSourceSwitchId !== selectionIntentSourceId;
 
 /**
- * The sidebar selection is an intent; the active source is the server's
- * confirmation of which I/Q subscription is actually delivering frames.
- * Never let optimistic selection metadata relabel an in-flight stream.
+ * Resolve the source represented by this client. The selected source is a
+ * tab-local presentation choice; the backend active source is only a
+ * fallback while this client has not selected anything yet.
  */
 export const resolveStreamingSourceForDisplay = ({
   selectedSourceId,
@@ -463,15 +466,31 @@ export const resolveStreamingSourceForDisplay = ({
   activeSourceId: string;
   sources: SourceInfo[];
 }): SourceInfo | null =>
-  sources.find((source) => source.id === activeSourceId) ??
   sources.find((source) => source.id === selectedSourceId) ??
+  sources.find((source) => source.id === activeSourceId) ??
   sources[0] ??
   null;
 
-const resolveDeviceActiveMode = (
+/**
+ * Resolve the live frame owner for this browser client. Backend active-source
+ * state is global device control state, not a subscriber's presentation
+ * choice, so a foreign client's Tx transition must not clear this client's
+ * selected RX stream.
+ */
+export const resolveClientLiveSourceId = ({
+  selectedSourceId,
+  activeSourceId,
+}: {
+  selectedSourceId: string | null | undefined;
+  activeSourceId: string | null | undefined;
+}): string | null => selectedSourceId ?? activeSourceId ?? null;
+
+export const resolveDeviceActiveMode = (
   source: SourceInfo | null | undefined,
 ): DeviceActiveMode => {
-  return source?.status === "transmitting" || source?.status === "standby"
+  return source?.status === "transmitting" ||
+    source?.status === "standby" ||
+    isMockTxSource({ id: source?.id, kind: source?.kind })
     ? "tx"
     : "rx";
 };
@@ -481,7 +500,11 @@ const isTxCapableSourceInfo = (
 ): boolean => {
   if (!source) return false;
   const capability = source.capability?.toLowerCase?.() ?? "";
-  return capability === "tx" || capability === "tx_rx";
+  return (
+    capability === "tx" ||
+    capability === "tx_rx" ||
+    isMockTxSource({ id: source.id, kind: source.kind })
+  );
 };
 
 /**
@@ -634,8 +657,15 @@ export const shouldSyncVisualizerPauseToBackend = (
 
 export const shouldPauseSourceOnSwitch = (
   source: SourceInfo | null | undefined,
+  nextSource?: SourceInfo | null,
 ): boolean => {
   if (!source) return false;
+  // This is a subscriber-local pause. It stops this tab's inactive RX
+  // subscription without changing another client viewing the same source.
+  // Keep the destination in the signature because callers compare the
+  // complete source transition, but do not use global TX capability as a
+  // reason to leave this tab's old RX stream running.
+  void nextSource;
   if (
     source.status === "transmitting" ||
     resolveSourceModeManagement({ source }).isTxMode
@@ -716,6 +746,9 @@ export const shouldSendSelectSource = ({
   selectedSourceStatus?: string | null;
   availableSourceIds: string[];
 }): boolean => {
+  // Page source selection is subscriber-local. Device-wide source control is
+  // owned by the explicit TX/RX control commands, never by changing which
+  // source this browser tab is viewing.
   if (
     sourceMode !== "live" ||
     !isConnected ||
@@ -729,17 +762,35 @@ export const shouldSendSelectSource = ({
   if (["disconnected", "stale", "error"].includes(selectedSourceStatus ?? "")) {
     return false;
   }
-
-  // Explicit tab intent always wins.
-  if (selectionIntentSourceId === selectedSourceId) {
-    return true;
-  }
-
-  // After a control-plane wipe (hot-reload / disconnect), activeSourceId is
-  // cleared while selectedSourceId remains. Re-assert without requiring a
-  // fresh intent stamp so Mock APT and other live sources resume.
-  return !activeSourceId && selectionIntentSourceId == null;
+  void selectionIntentSourceId;
+  return false;
 };
+
+/**
+ * A local view request is still required when selection returns to the
+ * process-wide active source after this tab was viewing another source. The
+ * middleware uses that request to replace its transient handoff target;
+ * otherwise the previous source remains the frame filter even though Redux
+ * now points at the active source.
+ */
+export const shouldRequestSubscriberViewSource = ({
+  selectedSourceId,
+  activeSourceId,
+  presentationSourceId,
+  lastRequestedSourceId,
+}: {
+  selectedSourceId: string | null | undefined;
+  activeSourceId: string | null | undefined;
+  /** Current local presentation binding; null means the controller was reset. */
+  presentationSourceId?: string | null;
+  lastRequestedSourceId: string | null | undefined;
+}): boolean =>
+  !!selectedSourceId &&
+  selectedSourceId !== lastRequestedSourceId &&
+  (selectedSourceId !== activeSourceId ||
+    !!lastRequestedSourceId ||
+    (presentationSourceId !== undefined &&
+      presentationSourceId !== selectedSourceId));
 
 export const resolveEffectiveSourcePaused = ({
   backendPaused,
@@ -1947,33 +1998,66 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       (nextSourceId) => {
         if (typeof nextSourceId === "function") {
           const resolvedSourceId = nextSourceId(selectedSourceId);
-          reduxDispatch(setReduxSelectionIntentSourceId(resolvedSourceId));
-          reduxDispatch(setReduxSelectedSourceId(resolvedSourceId));
+          // Source selection is tab-local intent. Persist it at the click
+          // boundary; waiting for source-view hydration loses Mock Tx when a
+          // refresh lands before the asynchronous view effect runs.
+          saveSelectedSourceId(resolvedSourceId);
+          reduxDispatch(selectReduxSource(resolvedSourceId));
           return;
         }
-        reduxDispatch(setReduxSelectionIntentSourceId(nextSourceId));
-        reduxDispatch(setReduxSelectedSourceId(nextSourceId));
+        // See above: this must precede the Redux/effect cycle so reloads
+        // restore the source the user actually chose, not the first source
+        // present when the inventory hydrates.
+        saveSelectedSourceId(nextSourceId);
+        reduxDispatch(selectReduxSource(nextSourceId));
       },
       [reduxDispatch, selectedSourceId],
     );
 
+    // Inventory hydration can optimistically seed the backend's first source
+    // before this hook's effects run. Consume the tab-local selection once,
+    // after the inventory exists, so that optimistic seed cannot win a cold
+    // reload over the source the user last selected.
+    const hasRestoredStoredSelectionRef = useRef(false);
+    const pendingStoredSelectionHydrationRef = useRef<string | null>(null);
+
     useEffect(() => {
-      if (selectedSourceId) return;
       const stored = loadSelectedSourceId();
+      if (!hasRestoredStoredSelectionRef.current && websocketSources.length) {
+        hasRestoredStoredSelectionRef.current = true;
+        if (stored && websocketSources.some((source) => source.id === stored)) {
+          if (selectedSourceId !== stored) {
+            // This effect and the source-view persistence effect run in the
+            // same commit. Defer that write once so the optimistic first
+            // source cannot overwrite the stored selection first.
+            pendingStoredSelectionHydrationRef.current = stored;
+            reduxDispatch(restoreReduxSelectedSource(stored));
+          }
+          return;
+        }
+      }
+      if (selectedSourceId) return;
       const initialSelection = resolveInitialSourceSelection({
         activeSourceId,
         storedSourceId: stored,
         sources: websocketSources,
       });
       if (initialSelection.selectedSourceId) {
-        reduxDispatch(setReduxSelectedSourceId(initialSelection.selectedSourceId));
         if (initialSelection.selectionIntentSourceId) {
           reduxDispatch(
-            setReduxSelectionIntentSourceId(initialSelection.selectionIntentSourceId),
+            restoreReduxSelectedSource(initialSelection.selectedSourceId),
           );
+        } else {
+          reduxDispatch(setReduxSelectedSourceId(initialSelection.selectedSourceId));
         }
       }
-    }, [activeSourceId, reduxDispatch, selectedSourceId, websocketSources]);
+    }, [
+      activeSourceId,
+      reduxDispatch,
+      selectedSourceId,
+      selectionIntentSourceId,
+      websocketSources,
+    ]);
 
     useEffect(() => {
       const hasBoundRxTransport =
@@ -2016,6 +2100,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       Record<string, boolean>
     >({});
     const currentSourceStateRef = useRef(state);
+    const lastRequestedSubscriberViewSourceIdRef = useRef<string | null>(null);
     const selectedSourceViewKeyRef = useRef<string | null>(null);
     const previousSelectedSourceIdForViewRef = useRef<string | null>(
       selectedSourceId || null,
@@ -2042,27 +2127,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       previousSelectedSourceIdForViewRef.current = selectedSourceId || null;
     }
     const deferredFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
-    const sourceSwitchCoordinatorRef = useRef<ReturnType<
-      typeof createSourceSwitchCoordinator
-    > | null>(null);
-    if (sourceSwitchCoordinatorRef.current === null) {
-      sourceSwitchCoordinatorRef.current = createSourceSwitchCoordinator({
-        onRequest: (sourceId) => {
-          liveDataRef.current = [];
-          // The selected source owns a persistent frame slot for fast
-          // rendering. Invalidate that slot at the handoff boundary so a
-          // previous-session frame cannot appear before this switch commits.
-          sourceVisualizationRuntime.reset(sourceId);
-          sourceSpectrumRuntime.reset(sourceId);
-          liveDataBySourceRef.current[sourceId] =
-            sourceVisualizationRuntime.getSourceRef(sourceId);
-          reduxDispatch(sendViewSourceThunk(sourceId));
-        },
-        onTimeout: () => {
-          reduxDispatch(setReduxPendingSourceSwitchId(null));
-        },
-      });
-    }
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const pauseReplaySentForSourceIdRef = useRef<string | null>(null);
     const autoPausedSourceIdsRef = useRef<Set<string>>(new Set());
@@ -2140,9 +2204,18 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectedSourceId || activeSourceId,
       selectedSourceMode.isTxMode ? "tx" : "rx",
     );
+    const presentationSourceId =
+      presentationController.getActivePresentation().sourceId || null;
 
 
     useEffect(() => {
+      // The hydration effect may have found the user's stored source while
+      // this render still contains the optimistic first source. Do not let
+      // inventory reconciliation dispatch that fallback before the restore
+      // action is committed.
+      if (pendingStoredSelectionHydrationRef.current) {
+        return;
+      }
       const previousInventorySourceIds = previousInventorySourceIdsRef.current;
       const newlyAvailableHardware = websocketSources.find(
         (source) =>
@@ -2238,6 +2311,16 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         selectedSourceViewKeyRef.current = selectedSourceViewKey;
       }
 
+      if (
+        shouldSkipSelectedSourcePersistence({
+          pendingHydrationSourceId: pendingStoredSelectionHydrationRef.current,
+          currentSelectedSourceId: selectedSourceId,
+        })
+      ) {
+        pendingStoredSelectionHydrationRef.current = null;
+        return;
+      }
+      pendingStoredSelectionHydrationRef.current = null;
       saveSelectedSourceId(selectedSourceId);
     }, [
       activeSourceId,
@@ -2252,69 +2335,48 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         ? websocketSources.map((source) => source.id)
         : [];
       if (
-        !shouldSendSelectSource({
-          isConnected,
-          sourceMode: state.sourceMode,
+        state.sourceMode !== "live" ||
+        !isConnected ||
+        !selectedSourceId ||
+        !availableSourceIds.includes(selectedSourceId) ||
+        ["disconnected", "stale", "error"].includes(selectedSourceStatus ?? "")
+      ) {
+        return;
+      }
+
+      if (
+        !shouldRequestSubscriberViewSource({
           selectedSourceId,
           activeSourceId,
-          selectionIntentSourceId,
-          selectedSourceStatus,
-          availableSourceIds,
+          presentationSourceId,
+          lastRequestedSourceId:
+            lastRequestedSubscriberViewSourceIdRef.current,
         })
       ) {
-        if (
-          shouldClearPendingSourceSwitch({
-            pendingSourceSwitchId,
-            selectedSourceId,
-            activeSourceId,
-            selectionIntentSourceId,
-          })
-        ) {
-          reduxDispatch(setReduxPendingSourceSwitchId(null));
-        }
         return;
       }
 
-      if (pendingSourceSwitchId === selectedSourceId) {
-        return;
-      }
-
-      sourceSwitchCoordinatorRef.current?.request(selectedSourceId);
+      lastRequestedSubscriberViewSourceIdRef.current = selectedSourceId;
+      liveDataRef.current = [];
+      // The selected source owns a persistent frame slot for fast rendering.
+      // Invalidate that slot at the handoff boundary so a previous-session
+      // frame cannot appear before this switch commits.
+      sourceVisualizationRuntime.reset(selectedSourceId);
+      sourceSpectrumRuntime.reset(selectedSourceId);
+      liveDataBySourceRef.current[selectedSourceId] =
+        sourceVisualizationRuntime.getSourceRef(selectedSourceId);
+      reduxDispatch(sendViewSourceThunk(selectedSourceId));
     }, [
       activeSourceId,
       isConnected,
+      presentationSourceId,
       reduxDispatch,
-      pendingSourceSwitchId,
-      selectionIntentSourceId,
       selectedSource,
       selectedSourceId,
+      selectedSourceStatus,
       state.sourceMode,
       websocketSources,
     ]);
-
-    useEffect(() => {
-      const pendingSourceId = pendingSourceSwitchId;
-      if (!pendingSourceId || pendingSourceId !== activeSourceId) {
-        return;
-      }
-      sourceSwitchCoordinatorRef.current?.confirm(pendingSourceId);
-      reduxDispatch(setReduxPendingSourceSwitchId(null));
-      if (selectionIntentSourceId === activeSourceId) {
-        reduxDispatch(setReduxSelectionIntentSourceId(null));
-      }
-    }, [
-      activeSourceId,
-      pendingSourceSwitchId,
-      reduxDispatch,
-      selectionIntentSourceId,
-    ]);
-
-    useEffect(
-      () => () => {
-        sourceSwitchCoordinatorRef.current?.dispose();
-      },
-      [],
-    );
 
     useEffect(() => {
       if (!selectedSourceId || !selectedSourceViewKey) {
@@ -2882,6 +2944,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         const previousSource = effectiveWebsocketSources.find(
           (source) => source.id === previousSelectedSourceId,
         );
+        const nextSource = effectiveWebsocketSources.find(
+          (source) => source.id === selectedSourceId,
+        );
         const previouslyManuallyPaused = manualPausedSourceIdsRef.current.has(
           previousSelectedSourceId,
         );
@@ -2890,7 +2955,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         );
         if (
           previousSource &&
-          shouldPauseSourceOnSwitch(previousSource) &&
+          shouldPauseSourceOnSwitch(previousSource, nextSource) &&
           !previouslyManuallyPaused &&
           !previouslyAutoPaused
         ) {
@@ -2980,8 +3045,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
 
-      const currentLiveSourceId =
-        activeSourceId ?? selectedSource?.id ?? selectedSourceId ?? null;
+      const currentLiveSourceId = resolveClientLiveSourceId({
+        selectedSourceId: selectedSourceId ?? selectedSource?.id ?? null,
+        activeSourceId,
+      });
       if (!currentLiveSourceId) {
         return;
       }
@@ -3188,7 +3255,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         lastPausedPreviewSignatureRef.current = nextSignature;
         reduxDispatch(
           requestNextPausedFrameThunk({
-            sourceId: activeSourceId || selectedSourceId,
+            sourceId: resolvePausedPreviewRequestSourceId(activeSourceId, selectedSourceId),
             frequencyRange: state.frequencyRange,
             txSettings: {
               centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,
@@ -3213,7 +3280,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       pausedPreviewTimeoutRef.current = window.setTimeout(() => {
         reduxDispatch(
           requestNextPausedFrameThunk({
-            sourceId: activeSourceId || selectedSourceId,
+            sourceId: resolvePausedPreviewRequestSourceId(activeSourceId, selectedSourceId),
             frequencyRange: state.frequencyRange,
             txSettings: {
               centerFrequencyHz: reduxSpectrumState.txCenterFrequencyHz,

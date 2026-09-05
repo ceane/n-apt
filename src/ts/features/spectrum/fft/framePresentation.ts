@@ -59,6 +59,7 @@ export const resolveFramePresentation = ({
   placeholderErrorReason,
   explicitPlaceholderState,
   hasPresentedSpectrumFrame,
+  hasRetainedPausedPresentation = false,
 }: {
   currentFrame: RenderableLiveFrame | null;
   expectedSourceId: string | null;
@@ -73,6 +74,8 @@ export const resolveFramePresentation = ({
   placeholderErrorReason: string | null;
   explicitPlaceholderState: CanvasPlaceholderState | null;
   hasPresentedSpectrumFrame: boolean;
+  /** A same-source pause/standby snapshot survived a canvas remount. */
+  hasRetainedPausedPresentation?: boolean;
 }): FramePresentationDecision => {
   const isCurrentSourceFrame = shouldAcceptWebGpuStreamFrame({
     expectedSourceId,
@@ -94,9 +97,11 @@ export const resolveFramePresentation = ({
     currentFrame === lastRenderableFrame;
   const shouldBlockForSourceHandoff =
     !!awaitingDeviceData && !hasCurrentSourceFrame;
+  const preservesRetainedPresentation = hasRetainedPausedPresentation;
   const showLoadingPlaceholder =
     (isLoadingPlaceholder || shouldBlockForSourceHandoff) &&
-    !hasRenderableFrame;
+    !hasRenderableFrame &&
+    !preservesRetainedPresentation;
   const showErrorPlaceholder =
     !!placeholderErrorReason || (!isDeviceConnected && !hasRenderableFrame);
   const currentExplicitPlaceholderState = explicitPlaceholderState;
@@ -119,12 +124,15 @@ export const resolveFramePresentation = ({
       hasExplicitPlaceholder: hasBlockingExplicitPlaceholder,
       hasPlaceholderError: !!placeholderErrorReason,
     });
+  const preservePresentationDuringGapWithSnapshot =
+    preservePresentationDuringGap || preservesRetainedPresentation;
   const isExplicitStandbyPlaceholder =
     currentExplicitPlaceholderState?.kind === "idle";
   const explicitPlaceholderBlocksFrame = !!(
     hasBlockingExplicitPlaceholder &&
     !isExplicitStandbyPlaceholder &&
-    !hasCurrentSourceFrame
+    !hasCurrentSourceFrame &&
+    !preservesRetainedPresentation
   );
   const blockingPlaceholderKind: BlockingPlaceholderKind =
     isExplicitStandbyPlaceholder
@@ -148,7 +156,7 @@ export const resolveFramePresentation = ({
     showErrorPlaceholder,
     currentExplicitPlaceholderState,
     hasExplicitPlaceholder,
-    preservePresentationDuringGap,
+    preservePresentationDuringGap: preservePresentationDuringGapWithSnapshot,
     isExplicitStandbyPlaceholder,
     explicitPlaceholderBlocksFrame,
     hasBlockingVisualPlaceholder,

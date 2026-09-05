@@ -1,6 +1,8 @@
 import {
   isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
+  isSelectedSourceFrameReady,
+  resolveSelectedSourceFrameReadiness,
   resolveLiveSourceLifecycleErrorReason,
   resolveLiveSourcePresentationPolicy,
   resolveLiveSourceLifecycle,
@@ -360,6 +362,73 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(true);
   });
 
+  test("accepts subscriber-local Tx readiness while RX remains globally active", () => {
+    expect(
+      isSelectedSourceFrameReady({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        mode: "tx",
+        expectedStreamEpoch: 7,
+        readiness: { sourceId: "mock-tx", streamEpoch: 7, sequence: 12 },
+      }),
+    ).toBe(true);
+    expect(
+      isSelectedSourceFrameReady({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        mode: "rx",
+        expectedStreamEpoch: 7,
+        readiness: { sourceId: "mock-tx", streamEpoch: 7, sequence: 12 },
+      }),
+    ).toBe(false);
+    expect(
+      resolveSelectedSourceFrameReadiness({
+        frame: {
+          source_id: "mock-tx",
+          protocol_version: 2,
+          stream_epoch: 7,
+          iq_data: new Uint8Array([128, 129]),
+        },
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        mode: "tx",
+        expectedStreamEpoch: 7,
+        frameCounter: 1,
+        handoffStartedFrameCounter: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("accepts subscriber-local RX readiness while another source owns TX", () => {
+    expect(
+      isSelectedSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        mode: "rx",
+        subscriberLocalRxView: true,
+        expectedStreamEpoch: 8,
+        readiness: { sourceId: "mock-apt", streamEpoch: 8, sequence: 14 },
+      }),
+    ).toBe(true);
+    expect(
+      resolveSelectedSourceFrameReadiness({
+        frame: {
+          source_id: "mock-apt",
+          protocol_version: 2,
+          stream_epoch: 8,
+          iq_data: new Uint8Array([128, 129]),
+        },
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-tx",
+        mode: "rx",
+        subscriberLocalRxView: true,
+        expectedStreamEpoch: 8,
+        frameCounter: 1,
+        handoffStartedFrameCounter: 0,
+      }),
+    ).toBe(true);
+  });
+
   test("models transport warm-up, device commit, and first-frame readiness explicitly", () => {
     expect(
       resolveLiveSourceLifecycle({
@@ -396,6 +465,32 @@ describe("resolveLiveSourceLifecycle", () => {
         handoffPlaceholder,
       }).phase,
     ).toBe("awaiting-frame");
+  });
+
+  test("does not keep the handoff placeholder after the selected source frame arrives", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "mock-tx",
+      activeSourceId: "mock-apt",
+      transportSourceId: "mock-tx",
+      transportPhase: "ready",
+      sourceHandoffPending: true,
+      hasValidFrame: true,
+      readiness: {
+        sourceId: "mock-tx",
+        streamEpoch: 8,
+        sequence: 14,
+      },
+      deviceStatus: "receiving",
+      isConnected: true,
+      connectionStatus: "connected",
+      hasConnectedOnce: true,
+      handoffPlaceholder,
+    });
+
+    expect(lifecycle).toMatchObject({
+      phase: "ready",
+      placeholder: null,
+    });
   });
 
   test("does not enter handoff placeholder for a foreign active-source change", () => {

@@ -145,7 +145,7 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.txViewerFftFrameRate).toBe(60);
     expect(parsed.txViewerFftWindow).toBe("Rectangular");
     expect(parsed.txViewerTemporalResolution).toBe("lossless");
-    expect(parsed.txViewerPowerScale).toBe("dB");
+    expect(parsed.txViewerPowerScale).toBe("dBm");
   });
 
   it("upgrades legacy apt txSignal values to wifi", () => {

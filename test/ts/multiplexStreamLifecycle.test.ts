@@ -41,6 +41,19 @@ describe("resolveLiveSourceHandoffPending", () => {
     ).toBe(true);
   });
 
+  it("does not keep a ready subscriber-local Tx view in handoff loading", () => {
+    expect(
+      resolveLiveSourceHandoffPending({
+        selectedSourceId: "mock-tx",
+        activeSourceId: "mock-apt",
+        selectionIntentSourceId: "mock-tx",
+        transportSourceId: "mock-tx",
+        transportPhase: "ready",
+        subscriberLocalTxView: true,
+      }),
+    ).toBe(false);
+  });
+
   it("treats a missing selection as not pending", () => {
     expect(
       resolveLiveSourceHandoffPending({

@@ -115,7 +115,13 @@ export const makeFrame = async (
     timestamp,
     center_frequency_hz: centerFrequencyHz,
     sample_rate: sampleRateHz,
-    frame_status: mode === "tx" ? "transmitting" : "receiving",
+    frame_status:
+      message.isTxPreview === true
+        ? "standby"
+        : mode === "tx"
+          ? "transmitting"
+          : "receiving",
+    is_tx_preview: message.isTxPreview === true ? true : undefined,
     iq_data: iqData,
   };
   return {
@@ -336,12 +342,17 @@ export const createMultiplexedStreamTransport = ({
       sendAllSubscriptions();
       for (const connection of connections.values()) {
         connection.onEvent({
-          type: "stream_opened",
+          // A socket opening only proves that the command can be sent. The
+          // backend owns the stream epoch and has not yet accepted this
+          // subscription, so callers must keep the stream warming until the
+          // corresponding `stream_subscribed` acknowledgement arrives.
+          type: "stream_state",
           sourceId: connection.key.sourceId,
           mode: connection.key.mode,
           streamEpoch: 0,
           optionsRevision: 1,
-          state: "ready",
+          state: "opening",
+          reason: "stream transport awaiting subscription acknowledgement",
         });
       }
     };

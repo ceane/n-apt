@@ -84,6 +84,8 @@ import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
 import { buildFrequencyRangeMessageData } from "../thunks/websocketThunks";
 import { CLIENT_ORIGIN_ID } from "../clientOrigin";
 
+type ManagedTxStreamOptions = Extract<StreamOptions, { mode: "tx" }>;
+
 // Module-level ref for high-frequency live frame data.
 // Written directly — never goes through Redux state — so no React rerenders per frame.
 export const liveDataRef: { current: IqRawFrame[] | IqRawFrame | null } = {
@@ -594,6 +596,7 @@ let managedTxSourceId: string | null = null;
 let managedRxSubscribePending = false;
 let managedRxSubscribePendingSourceId: string | null = null;
 let managedTxSubscribePending = false;
+let managedTxSubscribePendingSourceId: string | null = null;
 let pendingManagedTxOptions: StreamOptions | null = null;
 let unsubscribeDeliveryDemandListener: (() => void) | null = null;
 const managedRxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
@@ -656,6 +659,8 @@ let pausedFrameRequestInFlight = false;
 // the subscription exists; sending the legacy request in the meantime loses
 // the one-shot for the managed subscriber.
 let pendingManagedRxFrameRequestSourceId: string | null = null;
+let pendingManagedTxFrameRequestSourceId: string | null = null;
+let pendingManagedTxPreviewOptions: ManagedTxStreamOptions | null = null;
 let lastPauseCommandTime = 0;
 let lastExpectedPauseState: boolean | null = null;
 // Visualizer pause is a subscriber concern. Keep it separate from the
@@ -820,6 +825,9 @@ export const resetWebSocketMiddlewareState = (): void => {
   managedRxSubscribePendingSourceId = null;
   pendingManagedRxFrameRequestSourceId = null;
   managedTxSubscribePending = false;
+  managedTxSubscribePendingSourceId = null;
+  pendingManagedTxFrameRequestSourceId = null;
+  pendingManagedTxPreviewOptions = null;
   pendingManagedTxOptions = null;
   managedRxOptionsScheduler.cancel();
   managedTxOptionsScheduler.cancel();
@@ -943,20 +951,55 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       (isActiveMockTxMonitor &&
         activeSourceStatus !== "paused" &&
         activeSourceStatus !== "receiving");
-    const frames = Array.isArray(pendingDataUpdate)
+    const rawFrames = Array.isArray(pendingDataUpdate)
       ? pendingDataUpdate
       : [pendingDataUpdate];
+    const frames = rawFrames.filter((frame: any) => {
+      const managedTxOptions =
+        pendingManagedTxPreviewOptions ??
+        (managedTxSubscription?.effectiveOptions.mode === "tx"
+          ? managedTxSubscription.effectiveOptions
+          : null);
+      if (
+        !managedTxOptions ||
+        frame?.source_id !== "mock-tx"
+      ) {
+        return true;
+      }
+      if (
+        !shouldRejectManagedTxFrameForPreview({
+          frame,
+          sourceStatus:
+            state.websocket.sourceStatuses?.[frame.source_id] ??
+            (state.websocket.sources ?? []).find(
+              (source: SourceInfo) => source.id === frame.source_id,
+            )?.status,
+          previewOptions: managedTxOptions,
+        })
+      ) {
+        pendingManagedTxPreviewOptions = null;
+        return true;
+      }
+      // This is the legacy/control-plane equivalent of the managed-stream
+      // gate above. An automatic startup request may already be queued here;
+      // it must not replace an explicit preview with default geometry.
+      return false;
+    });
     // A paused Rx source publishes exactly one frame per request_next_frame.
     // It has no Tx-preview tag, so gate acceptance on the armed request. The
     // flag is snapped before the loop so the one-shot response reaches both
     // the presentation controller and the legacy liveDataRef path.
     const isPausedOneShotFrame = isPaused && pausedFrameRequestInFlight;
     // Per-source refs retain their own latest frames for secondary previews,
-    // but only the source currently being presented may enter the shared
+    // but only this client's selected source may enter its shared
     // FFT/Waterfall ref. During a handoff, requestedSourceId closes the gap
-    // before the backend commits activeSourceId.
+    // before the backend commits activeSourceId; without a local selection,
+    // the process-wide active source remains the fallback.
     const presentationSourceId =
-      requestedSourceId ?? selectedTxPresentationSourceId ?? activeSourceId;
+      requestedSourceId ??
+      selectedSourceId ??
+      selectedTxPresentationSourceId ??
+      activeSourceId;
     for (const frame of frames) {
       const sourceId = frame?.source_id;
       if (typeof sourceId === "string" && sourceId.length > 0) {
@@ -1016,7 +1059,7 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     const readinessFrame = presentationFrames.find((frame: any) => {
       const frameMode = isTxPresentationFrame(frame) ? "tx" : "rx";
       const expectedSourceId =
-        frameMode === "tx" ? presentationSourceId : activeSourceId;
+        presentationSourceId;
       return (
         frame?.source_id === expectedSourceId &&
         typeof frame?.sequence === "number"
@@ -1337,12 +1380,21 @@ const shouldClearStaleSpectrumFrames = (
 
 const clearLiveSpectrumFrames = (dispatch: Dispatch) => {
   liveDataRef.current = null;
-  // Source-scoped refs are an alternate renderer path. Drop the map itself
-  // so frameRuntime cannot resolve a stale mutable ref after a source switch.
   liveDataBySourceRef.current = {};
   sourceVisualizationRuntime.clear();
   sourceSpectrumRuntime.clear();
   demodFrameQueue.clear();
+  dispatch(setSpectrumFrames([]));
+};
+
+/**
+ * Switching this client's presentation must not turn the next view into a
+ * cold start. The source-keyed runtimes retain their latest frame; only the
+ * legacy shared slot is blanked to prevent the old source flashing under the
+ * new header.
+ */
+const clearSharedLiveSpectrumFrame = (dispatch: Dispatch): void => {
+  liveDataRef.current = null;
   dispatch(setSpectrumFrames([]));
 };
 
@@ -1481,27 +1533,54 @@ export const mergeManagedRxOptions = (
   mode: "rx",
 });
 
-const buildManagedTxOptions = (
+export const buildManagedTxOptions = (
   state: any,
   overrides: Record<string, unknown> = {},
-): StreamOptions => ({
-  mode: "tx",
-  centerFrequencyHz: Number(
-    overrides.centerFrequencyHz ?? state.spectrum?.txCenterFrequencyHz ?? 0,
-  ),
-  sampleRateHz: Number(
+): ManagedTxStreamOptions => {
+  // The stream protocol models carrier and monitor geometry as integer Hz
+  // fields (`u64`/`u32` in Rust). Slider math may legitimately produce a
+  // fractional number, but forwarding it verbatim makes serde reject the
+  // entire Tx subscribe command and leaves the monitor waiting forever.
+  const wholeHz = (value: unknown, fallback: number): number => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.round(numeric) : fallback;
+  };
+  const spectrum = state.spectrum ?? {};
+  const centerFrequencyHz = wholeHz(
+    overrides.centerFrequencyHz ?? spectrum.txCenterFrequencyHz ?? 0,
+    0,
+  );
+  const sampleRateHz = wholeHz(
     overrides.sampleRateHz ??
       overrides.sample_rate ??
-      state.spectrum?.txSampleRateHz ??
+      spectrum.txSampleRateHz ??
       1,
-  ),
-  bandwidthHz: Number(
-    overrides.bandwidthHz ?? state.spectrum?.txSampleRateHz ?? 1,
-  ),
-  signal: String(overrides.txSignal ?? state.spectrum?.txSignal ?? "wifi"),
-  powerDbm: Number(overrides.powerDbm ?? state.spectrum?.txPowerDbm ?? 0),
-  ifftSize: Number(overrides.txIfftSize ?? state.spectrum?.txIfftSize ?? 1024),
-});
+    1,
+  );
+  const bandwidthHz = wholeHz(
+    overrides.bandwidthHz ?? spectrum.txSampleRateHz ?? 1,
+    1,
+  );
+  return {
+    mode: "tx",
+    centerFrequencyHz,
+    sampleRateHz,
+    bandwidthHz,
+    viewCenterHz: wholeHz(
+      overrides.viewCenterHz ?? centerFrequencyHz,
+      centerFrequencyHz,
+    ),
+    viewSampleRateHz: wholeHz(
+      overrides.viewSampleRateHz ??
+        spectrum.txViewerSampleRateHz ??
+        sampleRateHz,
+      sampleRateHz,
+    ),
+    signal: String(overrides.txSignal ?? spectrum.txSignal ?? "wifi"),
+    powerDbm: Number(overrides.powerDbm ?? spectrum.txPowerDbm ?? 0),
+    ifftSize: wholeHz(overrides.txIfftSize ?? spectrum.txIfftSize ?? 1024, 1024),
+  };
+};
 
 /**
  * The manager's tx stream carries the generated waveform in both standby and
@@ -1518,7 +1597,22 @@ export const normalizeManagedStreamFrame = ({
   mode: "rx" | "tx";
   sourceStatus: SourceInfo["status"];
 }): IqRawFrame => {
-  if (mode !== "tx" || sourceStatus === "transmitting") return frame;
+  if (mode !== "tx") return frame;
+  if (
+    sourceStatus === "transmitting" ||
+    frame.frame_status === "transmitting"
+  ) {
+    // StreamFrame deliberately keeps the transport metadata small and uses
+    // `is_tx_preview` only for request-driven standby frames. Add the
+    // presentation mode here so the per-source controller cannot classify a
+    // live TX frame as RX and leave the TX canvas on its frozen preview.
+    return {
+      ...frame,
+      frame_status: "transmitting",
+      is_tx_preview: false,
+      is_mock_tx_preview: false,
+    };
+  }
   return {
     ...frame,
     frame_status: "standby",
@@ -1526,6 +1620,34 @@ export const normalizeManagedStreamFrame = ({
     is_mock_tx_preview: true,
   };
 };
+
+export const managedTxFrameMatchesOptions = (
+  frame: IqRawFrame,
+  options: ManagedTxStreamOptions,
+): boolean =>
+  frame.center_frequency_hz ===
+    (options.viewCenterHz ?? options.centerFrequencyHz) &&
+  frame.sample_rate === (options.viewSampleRateHz ?? options.sampleRateHz);
+
+/**
+ * Preview requests are geometry-specific, but the live Tx monitor is not.
+ * Its acquisition window can differ from the carrier preview while still
+ * being the correct frame for the transmitting source.
+ */
+export const shouldRejectManagedTxFrameForPreview = ({
+  frame,
+  sourceStatus,
+  previewOptions,
+}: {
+  frame: IqRawFrame;
+  sourceStatus: SourceInfo["status"] | null | undefined;
+  previewOptions: ManagedTxStreamOptions | null | undefined;
+}): boolean =>
+  sourceStatus !== "transmitting" &&
+  frame.frame_status !== "transmitting" &&
+  previewOptions !== null &&
+  previewOptions !== undefined &&
+  !managedTxFrameMatchesOptions(frame, previewOptions);
 
 /**
  * Managed Tx subscriptions deliver both continuous transmit frames and
@@ -1610,6 +1732,9 @@ export const resolveManagedTxSourceId = (state: any): string | null => {
   const selectedSource = sources.find(
     (source: SourceInfo) => source.id === selectedSourceId,
   );
+  if (isTransmittingTxSource(selectedSource)) {
+    return selectedSource!.id;
+  }
   if (isStandbyPreviewTxSource(selectedSource)) {
     return selectedSource!.id;
   }
@@ -1623,8 +1748,54 @@ export const resolveManagedTxSourceId = (state: any): string | null => {
   if (isStandbyPreviewTxSource(activeSource)) {
     return activeSource!.id;
   }
+
+  // Transmit ownership is device/global, while source presentation is local
+  // to this client. Keep the monitor subscription attached to the source that
+  // is actually transmitting even when this tab is currently viewing a
+  // different RX source. Otherwise selecting Mock APT tears down the TX
+  // stream, and returning to Mock Tx can leave both canvases waiting forever
+  // for the first frame.
+  const transmittingSource = sources.find(isTransmittingTxSource);
+  if (transmittingSource) return transmittingSource.id;
+
   return null;
 };
+
+export const resolveManagedTxSubscriberPause = (
+  _status: string | undefined,
+  _subscriberPaused: boolean | undefined,
+): false => false;
+
+/** A logical Tx stream is ready independently of which source owns RX. */
+export const shouldPublishManagedTxTransportReady = ({
+  isCurrentTxTarget,
+  streamEpoch,
+}: {
+  isCurrentTxTarget: boolean;
+  streamEpoch: number;
+}): boolean => isCurrentTxTarget && streamEpoch > 0;
+
+/**
+ * An async subscribe may resolve after a rapid source switch. The completed
+ * subscription is stale only when its source no longer matches the desired
+ * source; the caller must then run the normal reconciliation pass.
+ */
+export const shouldReconcileAfterStaleManagedSubscription = ({
+  openedSourceId,
+  desiredSourceId,
+}: {
+  openedSourceId: string;
+  desiredSourceId: string | null;
+}): boolean => openedSourceId !== desiredSourceId;
+
+/** A logical RX stream is ready independently of which source owns global TX. */
+export const shouldPublishManagedRxTransportReady = ({
+  isCurrentRxTarget,
+  streamEpoch,
+}: {
+  isCurrentRxTarget: boolean;
+  streamEpoch: number;
+}): boolean => isCurrentRxTarget && streamEpoch > 0;
 
 const handleManagedStreamEvent = (
   sourceId: string,
@@ -1679,6 +1850,32 @@ const handleManagedStreamEvent = (
     );
     const sourceStatus =
       state.sourceStatuses?.[sourceId] ?? source?.status ?? null;
+    const managedTxOptions =
+      pendingManagedTxPreviewOptions ??
+      (managedTxSubscription?.effectiveOptions.mode === "tx"
+        ? managedTxSubscription.effectiveOptions
+        : null);
+    if (
+      mode === "tx" &&
+      shouldRejectManagedTxFrameForPreview({
+        frame: event.frame,
+        sourceStatus,
+        previewOptions: managedTxOptions,
+      })
+    ) {
+      // An automatic standby request can still be in flight when the route
+      // issues its explicit preview request. Do not let that old default
+      // frame replace the requested waveform while the device update is
+      // being acknowledged.
+      return;
+    }
+    if (
+      mode === "tx" &&
+      pendingManagedTxPreviewOptions &&
+      managedTxFrameMatchesOptions(event.frame, pendingManagedTxPreviewOptions)
+    ) {
+      pendingManagedTxPreviewOptions = null;
+    }
     queueLiveData(
       normalizeManagedStreamFrame({
         frame: event.frame,
@@ -1711,7 +1908,7 @@ const handleManagedStreamEvent = (
 
 export { handleManagedStreamEvent };
 
-const isCurrentManagedRxTarget = (
+export const isCurrentManagedRxTarget = (
   rootState: any,
   sourceId: string,
 ): boolean => {
@@ -1719,13 +1916,43 @@ const isCurrentManagedRxTarget = (
   const source = (state.sources ?? []).find(
     (candidate: SourceInfo) => candidate.id === sourceId,
   );
+  const selectedSourceId =
+    rootState.sourceSelection?.selectedSourceId ??
+    state.sourceSelection?.selectedSourceId;
   return (
-    (state.activeSourceId === sourceId || requestedSourceId === sourceId) &&
+    (state.activeSourceId === sourceId ||
+      requestedSourceId === sourceId ||
+      selectedSourceId === sourceId) &&
+    !!source &&
     source.capabilities?.can_receive !== false &&
-    !!source?.iq_format &&
+    !!source.iq_format &&
     isSourceStreamAvailable(state.sourceStatuses?.[sourceId] ?? source.status)
   );
 };
+
+/**
+ * Global source status broadcasts must not pause a subscriber-local RX view.
+ * A source can be globally paused after another client switches the device,
+ * while this client still owns an independent managed RX subscription for it.
+ * An explicit local pause remains authoritative for that subscriber.
+ */
+export const shouldApplySourceStatusToPresentation = ({
+  sourceId,
+  status,
+  activeSourceId,
+  managedRxSourceId,
+  subscriberPaused,
+}: {
+  sourceId: string;
+  status: string;
+  activeSourceId: string | null | undefined;
+  managedRxSourceId: string | null;
+  subscriberPaused?: boolean;
+}): boolean =>
+  status !== "paused" ||
+  sourceId === activeSourceId ||
+  sourceId !== managedRxSourceId ||
+  subscriberPaused === true;
 
 const isCurrentManagedTxTarget = (
   rootState: any,
@@ -1752,6 +1979,35 @@ const isCurrentManagedTxTarget = (
   );
 };
 
+/**
+ * Resolve the RX stream for this client, independently of global device
+ * ownership. A passive client may select Mock APT while another client has
+ * Mock Tx active; that client still needs its own RX subscription.
+ */
+export const resolveManagedRxSourceId = ({
+  activeSourceId,
+  requestedSourceId = null,
+  selectedSourceId = null,
+  sources,
+}: {
+  activeSourceId: string | null | undefined;
+  requestedSourceId?: string | null;
+  selectedSourceId?: string | null;
+  sources: SourceInfo[];
+}): string | null => {
+  const isRxCapable = (source: SourceInfo | undefined): boolean =>
+    !!source &&
+    source.capability !== "tx" &&
+    source.kind !== "mock_tx" &&
+    source.capabilities?.can_receive !== false;
+  for (const candidateId of [requestedSourceId, selectedSourceId]) {
+    if (!candidateId || candidateId === activeSourceId) continue;
+    const candidate = sources.find((source) => source.id === candidateId);
+    if (candidate && isRxCapable(candidate)) return candidate.id;
+  }
+  return sources.find((source) => source.id === activeSourceId)?.id ?? null;
+};
+
 const syncManagedStreamSubscriptions = (
   dispatch: Dispatch,
   getState: () => any,
@@ -1760,24 +2016,31 @@ const syncManagedStreamSubscriptions = (
 ): void => {
   if (!sourceModeStreamManager) return;
   if (wsInstance.ws?.readyState !== WebSocket.OPEN) return;
-  const state = getState().websocket;
-  const activeSource = (state.sources ?? []).find(
-    (source: SourceInfo) => source.id === state.activeSourceId,
-  );
+  const rootState = getState();
+  const state = rootState.websocket;
   const requestedSource = requestedSourceId
     ? (state.sources ?? []).find(
         (source: SourceInfo) => source.id === requestedSourceId,
       )
     : null;
-  const requestedSourceIsRxCapable =
-    !!requestedSource &&
-    requestedSource.capability !== "tx" &&
-    requestedSource.kind !== "mock_tx" &&
-    requestedSource.capabilities?.can_receive !== false;
-  const desiredRxSource =
-    requestedSourceIsRxCapable && requestedSource.id !== state.activeSourceId
-      ? requestedSource
-      : activeSource;
+  const selectedSourceId =
+    rootState.sourceSelection?.selectedSourceId ??
+    state.sourceSelection?.selectedSourceId;
+  const selectedSource = selectedSourceId
+    ? (state.sources ?? []).find(
+        (source: SourceInfo) =>
+          source.id === selectedSourceId,
+      )
+    : null;
+  const desiredRxSourceId = resolveManagedRxSourceId({
+    activeSourceId: state.activeSourceId,
+    requestedSourceId: requestedSource?.id ?? null,
+    selectedSourceId: selectedSource?.id ?? null,
+    sources: state.sources ?? [],
+  });
+  const desiredRxSource = (state.sources ?? []).find(
+    (source: SourceInfo) => source.id === desiredRxSourceId,
+  );
   // Resolve the desired Tx source before deciding the Rx subscription: a
   // half-duplex device (HackRF) cannot stream Rx and Tx simultaneously. When
   // the *active* source wants its Tx stream (standby preview or transmitting),
@@ -1788,7 +2051,7 @@ const syncManagedStreamSubscriptions = (
   const txSourceId = resolveManagedTxSourceId({
     ...state,
     sourceRouting: getState().sourceRouting,
-    sourceSelection: getState().sourceSelection,
+    sourceSelection: rootState.sourceSelection,
   });
   const txSource = (state.sources ?? []).find(
     (source: SourceInfo) => source.id === txSourceId,
@@ -1852,6 +2115,7 @@ const syncManagedStreamSubscriptions = (
         }
         if (!isCurrentManagedRxTarget(getState(), rxSourceId)) {
           subscription.unsubscribe();
+          syncManagedStreamSubscriptions(dispatch, getState);
           return;
         }
         managedRxSubscription = subscription;
@@ -1914,8 +2178,10 @@ const syncManagedStreamSubscriptions = (
   // though the manager has a real epoch and is delivering frames.
   if (
     managedRxSubscription &&
-    activeSource?.id === rxSourceId &&
-    managedRxSubscription.streamEpoch > 0 &&
+    shouldPublishManagedRxTransportReady({
+      isCurrentRxTarget: isCurrentManagedRxTarget(getState(), rxSourceId!),
+      streamEpoch: managedRxSubscription.streamEpoch,
+    }) &&
     (getState().websocket.sourceTransportByMode?.rx?.sourceId !== rxSourceId ||
       getState().websocket.sourceTransportByMode?.rx?.phase !== "ready")
   ) {
@@ -1940,6 +2206,7 @@ const syncManagedStreamSubscriptions = (
     !managedTxSubscribePending
   ) {
     managedTxSubscribePending = true;
+    managedTxSubscribePendingSourceId = txSourceId;
     const key = { sourceId: txSourceId, mode: "tx" as const };
     const txOptions =
       pendingManagedTxOptions ?? buildManagedTxOptions(getState());
@@ -1947,24 +2214,56 @@ const syncManagedStreamSubscriptions = (
       .subscribe(key, txOptions, (event) =>
         handleManagedStreamEvent(txSourceId, "tx", event, dispatch, getState),
         {
-          paused: subscriberPausedBySource.get(txSourceId) === true,
+          // Tx transmission is global. A client may switch its local view,
+          // but it must never locally pause the managed Tx subscription: that
+          // would make the stop control ineffective from another client and
+          // would leave this client filtering the globally advancing stream.
+          paused: false,
         },
       )
       .then((subscription) => {
         managedTxSubscribePending = false;
+        managedTxSubscribePendingSourceId = null;
         if (!isCurrentManagedTxTarget(getState(), txSourceId)) {
           subscription.unsubscribe();
+          const desiredTxSourceId = resolveManagedTxSourceId({
+            ...getState().websocket,
+            sourceRouting: getState().sourceRouting,
+            sourceSelection: getState().sourceSelection,
+          });
+          if (
+            shouldReconcileAfterStaleManagedSubscription({
+              openedSourceId: txSourceId,
+              desiredSourceId: desiredTxSourceId,
+            })
+          ) {
+            syncManagedStreamSubscriptions(dispatch, getState);
+          }
           return;
         }
         managedTxSubscription = subscription;
         managedTxSourceId = txSourceId;
-        const paused = subscriberPausedBySource.get(txSourceId);
-        if (paused !== undefined) subscription.setPaused(paused);
         pendingManagedTxOptions = null;
+        // Mock Tx standby is request-driven by the presentation route. The
+        // subscription can complete after an explicit request has already
+        // arrived, so replay only that queued request here; never create an
+        // unsolicited second preview on subscription hydration.
+        const hasPendingTxFrameRequest =
+          pendingManagedTxFrameRequestSourceId === txSourceId;
+        if (hasPendingTxFrameRequest) {
+          // The request below fulfills the request that arrived while the
+          // managed subscription was still opening.
+          pendingManagedTxFrameRequestSourceId = null;
+        }
+        subscription.setPaused(false);
+        if (hasPendingTxFrameRequest) {
+          subscription.requestNextFrame();
+        }
         syncManagedStreamSubscriptions(dispatch, getState);
       })
       .catch((error: unknown) => {
         managedTxSubscribePending = false;
+        managedTxSubscribePendingSourceId = null;
         dispatch(
           setOperationalError(
             error instanceof Error ? error.message : String(error),
@@ -1972,16 +2271,20 @@ const syncManagedStreamSubscriptions = (
         );
       });
   } else if (managedTxSubscription) {
-    managedTxOptionsScheduler.submit(
-      pendingManagedTxOptions ?? buildManagedTxOptions(getState()),
-      publishMode,
-    );
-    pendingManagedTxOptions = null;
+    // Tx transmission is global, so a status-only transition must keep the
+    // managed subscriber open and unpaused while this client changes views.
+    managedTxSubscription.setPaused(false);
+    if (pendingManagedTxOptions) {
+      managedTxOptionsScheduler.submit(pendingManagedTxOptions, publishMode);
+      pendingManagedTxOptions = null;
+    }
   }
   if (
     managedTxSubscription &&
-    activeSource?.id === txSourceId &&
-    managedTxSubscription.streamEpoch > 0 &&
+    shouldPublishManagedTxTransportReady({
+      isCurrentTxTarget: isCurrentManagedTxTarget(getState(), txSourceId!),
+      streamEpoch: managedTxSubscription.streamEpoch,
+    }) &&
     (getState().websocket.sourceTransportByMode?.tx?.sourceId !== txSourceId ||
       getState().websocket.sourceTransportByMode?.tx?.phase !== "ready")
   ) {
@@ -2003,6 +2306,16 @@ const MANAGED_STREAM_OPTION_ACTIONS = new Set([
   "spectrum/setTxViewerSampleRateHz",
   "sourceRouting/setSourceBinding",
   "sourceRouting/setSourceBindings",
+]);
+
+const MANAGED_TX_STREAM_OPTION_ACTIONS = new Set([
+  "spectrum/setTxGeometry",
+  "spectrum/setTxCenterFrequencyHz",
+  "spectrum/setTxSampleRateHz",
+  "spectrum/setTxSignal",
+  "spectrum/setTxPowerDbm",
+  "spectrum/setTxIfftSize",
+  "spectrum/setTxViewerSampleRateHz",
 ]);
 
 export const shouldSyncManagedStreamOptions = (type: string): boolean =>
@@ -2073,6 +2386,8 @@ const resetManagedStreamPipeline = (recreate: boolean): void => {
   managedRxSubscribePending = false;
   managedRxSubscribePendingSourceId = null;
   managedTxSubscribePending = false;
+  managedTxSubscribePendingSourceId = null;
+  pendingManagedTxFrameRequestSourceId = null;
   sourceModeStreamManager?.dispose();
   sourceModeStreamManager = null;
   multiplexedStreamTransport?.dispose();
@@ -2834,10 +3149,23 @@ export const processWebSocketMessage = (
         nextSources.find((source) => source.id === parsedData.source_id)
           ?.status ?? parsedData.status;
       dispatch(restartSettled(sourceStatuses));
-      presentationController.setSourceStatus(
-        parsedData.source_id,
-        sourceStatuses[parsedData.source_id],
-      );
+      const websocketState = getState().websocket;
+      if (
+        shouldApplySourceStatusToPresentation({
+          sourceId: parsedData.source_id,
+          status: sourceStatuses[parsedData.source_id],
+          activeSourceId: websocketState.activeSourceId,
+          managedRxSourceId,
+          subscriberPaused: subscriberPausedBySource.get(
+            parsedData.source_id,
+          ),
+        })
+      ) {
+        presentationController.setSourceStatus(
+          parsedData.source_id,
+          sourceStatuses[parsedData.source_id],
+        );
+      }
       const updates: any = {
         sourceStatuses,
         sources: nextSources,
@@ -2856,7 +3184,7 @@ export const processWebSocketMessage = (
           parsedData.status === "stale" ||
           parsedData.status === "disconnected"
         ) {
-          clearLiveSpectrumFrames(dispatch);
+          clearSharedLiveSpectrumFrame(dispatch);
         }
       }
       applyStatusUpdates(dispatch, getState, updates);
@@ -3457,7 +3785,7 @@ const createWebSocketMiddleware =
         // A page-level view is subscriber-scoped. Do not send select_source:
         // that command changes the process-wide active device and would make
         // another page lose its independent source runtime.
-        clearLiveSpectrumFrames(dispatch);
+        clearSharedLiveSpectrumFrame(dispatch);
         pendingDataUpdate = null;
         requestedSourceId = sourceId;
         const requestedSource = (getState().websocket.sources ?? []).find(
@@ -3466,6 +3794,10 @@ const createWebSocketMiddleware =
         const isTx =
           sourceId === "mock-tx" || requestedSource?.capability === "tx";
         presentationController.selectSource(sourceId, isTx ? "tx" : "rx", true);
+        // This is a subscriber-local view change, so it must not wait for the
+        // process-wide control source to confirm the target. The managed
+        // stream is the authority for this session's presentation.
+        presentationController.commitActiveSource(sourceId);
         dispatch(
           updateDeviceState({
             sourceFrameReadiness: null,
@@ -3531,6 +3863,13 @@ const createWebSocketMiddleware =
             getState,
             normalizedData ?? {},
           );
+          // Tx delivery is global, but the managed subscriber is local. A
+          // standby subscription starts paused so it can receive only its
+          // explicit preview. Reconcile immediately with the optimistic
+          // transmitting state instead of waiting for a backend status echo;
+          // a delayed/missing echo must not leave this tab filtering every
+          // live Tx frame while the transmitter is already running.
+          syncManagedStreamSubscriptions(dispatch, getState);
         }
 
         if (type === "select_source") {
@@ -3538,7 +3877,7 @@ const createWebSocketMiddleware =
           // old source may be paused, but its frame must not remain in the
           // shared legacy ref while React and the replacement transport catch
           // up; otherwise it can flash once under the new source header.
-          clearLiveSpectrumFrames(dispatch);
+          clearSharedLiveSpectrumFrame(dispatch);
           pendingDataUpdate = null;
           requestedSourceId =
             (normalizedData?.source_id as string | null) ?? null;
@@ -3588,6 +3927,12 @@ const createWebSocketMiddleware =
               typeof normalizedData?.source_id === "string"
                 ? normalizedData.source_id
                 : getState().websocket.activeSourceId;
+            const requestedSource = (getState().websocket.sources ?? []).find(
+              (source: SourceInfo) => source.id === requestedSourceId,
+            );
+            const isManagedMockTxPreview =
+              requestedSourceId === "mock-tx" ||
+              requestedSource?.kind === "mock_tx";
             if (
               managedRxSubscription &&
               managedRxSourceId === requestedSourceId
@@ -3614,6 +3959,76 @@ const createWebSocketMiddleware =
               managedRxSubscribePendingSourceId === requestedSourceId
             ) {
               pendingManagedRxFrameRequestSourceId = requestedSourceId;
+              return next(action);
+            }
+            if (
+              managedTxSubscription &&
+              managedTxSourceId === requestedSourceId
+            ) {
+              // Tx previews use the managed stream exclusively. Sending the
+              // legacy request as well invokes the backend preview producer
+              // twice and advances the preview sequence twice.
+              // The one-shot payload can carry a new center, bandwidth, or
+              // signal. Apply those device-scoped options to the shared Tx
+              // stream before requesting its next frame; otherwise a paused
+              // preview is generated from the previous settings and appears
+              // stale even though the request itself was current.
+              const previewOptions = buildManagedTxOptions(
+                getState(),
+                normalizedData ?? {},
+              );
+              pendingManagedTxOptions = previewOptions;
+              pendingManagedTxPreviewOptions =
+                previewOptions as ManagedTxStreamOptions;
+              const previewSubscription = managedTxSubscription;
+              void previewSubscription
+                .updateOptions(previewOptions)
+                .then(() => {
+                  // Options are device-scoped. Wait for the manager's
+                  // update path to enqueue the new revision before asking
+                  // the backend for the one-shot, otherwise the preview can
+                  // be generated from the previous center/bandwidth.
+                  if (
+                    managedTxSubscription === previewSubscription &&
+                    managedTxSourceId === requestedSourceId
+                  ) {
+                    previewSubscription.requestNextFrame();
+                  }
+                })
+                .catch(() => undefined);
+              return next(action);
+            }
+            if (
+              managedTxSubscribePending &&
+              managedTxSubscribePendingSourceId === requestedSourceId
+            ) {
+              // The subscription may still be opening on a cold source
+              // switch. Preserve the explicit preview settings so the
+              // eventual subscribe and its initial one-shot use this request
+              // rather than the stale Redux defaults.
+              pendingManagedTxOptions = buildManagedTxOptions(
+                getState(),
+                normalizedData ?? {},
+              );
+              pendingManagedTxPreviewOptions =
+                pendingManagedTxOptions as ManagedTxStreamOptions;
+              pendingManagedTxFrameRequestSourceId = requestedSourceId;
+              return next(action);
+            }
+            if (isManagedMockTxPreview && requestedSourceId) {
+              // A source switch can briefly reach this action between the
+              // selection commit and the subscription sync. Keep Mock Tx
+              // previews on the managed stream even in that small window;
+              // the legacy request has no stream identity and can otherwise
+              // publish a stale default-settings frame first.
+              pendingManagedTxOptions = buildManagedTxOptions(
+                getState(),
+                normalizedData ?? {},
+              );
+              pendingManagedTxPreviewOptions =
+                pendingManagedTxOptions as ManagedTxStreamOptions;
+              pendingManagedTxFrameRequestSourceId = requestedSourceId;
+              syncManagedStreamSubscriptions(dispatch, getState);
               return next(action);
             }
           }
@@ -3674,12 +4089,12 @@ const createWebSocketMiddleware =
           const duplexMode = getPauseDuplexMode(action.payload);
           const activeMode = getPauseActiveMode(action.payload);
           const mode = duplexMode === "tx" || activeMode === "tx" ? "tx" : "rx";
-          subscriberPausedBySource.set(sourceId, isPaused);
-          presentationController.setPaused(sourceId, mode, isPaused);
-          const managedSubscription =
-            mode === "tx" ? managedTxSubscription : managedRxSubscription;
-          if (managedSubscription?.stream.sourceId === sourceId) {
-            managedSubscription.setPaused(isPaused);
+          if (mode === "rx") {
+            subscriberPausedBySource.set(sourceId, isPaused);
+            presentationController.setPaused(sourceId, mode, isPaused);
+            if (managedRxSubscription?.stream.sourceId === sourceId) {
+              managedRxSubscription.setPaused(isPaused);
+            }
           }
         }
 
@@ -3699,10 +4114,13 @@ const createWebSocketMiddleware =
         const activeSourceChanged =
           typeof nextState.activeSourceId === "string" &&
           nextState.activeSourceId !== previousActiveSourceId;
-        if (
-          activeSourceChanged ||
-          shouldClearStaleSpectrumFrames(nextState.deviceState)
-        ) {
+        // activeSourceId is process-wide control-plane state. A foreign
+        // client may change it while this client is still presenting its
+        // selected RX source, so that transition alone must not erase the
+        // subscriber's live frame. Explicit view/select actions already clear
+        // the old presentation before a local handoff; only stale transport
+        // state is a global invalidation here.
+        if (shouldClearStaleSpectrumFrames(nextState.deviceState)) {
           clearLiveSpectrumFrames(dispatch);
         }
         if (activeSourceChanged) {
@@ -3755,6 +4173,9 @@ const createWebSocketMiddleware =
           ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
           : null;
         const result = next(action);
+        if (MANAGED_TX_STREAM_OPTION_ACTIONS.has(action.type)) {
+          pendingManagedTxOptions = buildManagedTxOptions(getState());
+        }
         const nextTxBinding = isSourceBindingAction
           ? (getState().sourceRouting?.bindings?.["tx-suite:tx"] ?? null)
           : null;

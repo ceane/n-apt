@@ -81,6 +81,93 @@ describe("multiplexed stream transport", () => {
     expect(sockets[0].close).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for the server subscription acknowledgement before reporting ready", () => {
+    const socket = {
+      readyState: WebSocket.OPEN,
+      send: jest.fn(),
+      close: jest.fn(),
+      onopen: null as (() => void) | null,
+      onclose: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      onmessage: null as ((event: MessageEvent) => void) | null,
+    };
+    const events: any[] = [];
+    const transport = createMultiplexedStreamTransport({
+      url: "ws://localhost/ws?token=test",
+      aesKey: {} as CryptoKey,
+      webSocketFactory: jest.fn(() => socket as unknown as WebSocket) as unknown as (
+        url: string,
+      ) => WebSocket,
+    });
+    const key: StreamKey = { sourceId: "mock-tx", mode: "tx" };
+    const stream = transport.transportFactory(key, (event) => events.push(event));
+    stream.send({
+      type: "stream_subscribe",
+      scope: "subscriber",
+      subscriptionId: "mock-tx-subscription",
+      stream: key,
+      options: {
+        mode: "tx",
+        centerFrequencyHz: 137_100_000,
+        sampleRateHz: 2_400_000,
+        bandwidthHz: 2_000_000,
+        ifftSize: 2048,
+        signal: "wifi",
+        powerDbm: -18,
+      },
+    });
+
+    socket.onopen?.();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stream_state",
+        sourceId: "mock-tx",
+        mode: "tx",
+        streamEpoch: 0,
+        state: "opening",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "stream_opened",
+        streamEpoch: 0,
+        state: "ready",
+      }),
+    );
+
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "stream_subscribed",
+        sourceId: "mock-tx",
+        mode: "tx",
+        streamEpoch: 7,
+        optionsRevision: 1,
+        state: "ready",
+        effectiveOptions: {
+          mode: "tx",
+          centerFrequencyHz: 137_100_000,
+          sampleRateHz: 2_400_000,
+          bandwidthHz: 2_000_000,
+          ifftSize: 2048,
+          signal: "wifi",
+          powerDbm: -18,
+        },
+      }),
+    } as MessageEvent);
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stream_opened",
+        sourceId: "mock-tx",
+        mode: "tx",
+        streamEpoch: 7,
+        state: "ready",
+      }),
+    );
+    transport.dispose();
+  });
+
   it("restores desired subscriptions after reconnect", () => {
     jest.useFakeTimers();
     try {

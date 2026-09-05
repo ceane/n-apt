@@ -370,6 +370,7 @@ pub(crate) fn activate_source(
                 frame.center_frequency_hz.map(|frequency| frequency as u64),
                 frame.sample_rate.unwrap_or(1),
                 Arc::new(frame.iq_data.clone()),
+                true,
               );
               let _ = spectrum_tx.send(Arc::new(frame));
               shared_state.clear_paused_frame_request();

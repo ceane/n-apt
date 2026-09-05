@@ -506,6 +506,78 @@ export const isCurrentSourceFrameReady = ({
   );
 };
 
+/**
+ * Confirms readiness for the source currently being presented. RX frames are
+ * owned by the globally active source; Tx monitor frames are subscriber-local
+ * and may belong to the selected Tx source while RX remains active elsewhere.
+ */
+export const isSelectedSourceFrameReady = ({
+  selectedSourceId,
+  activeSourceId,
+  mode,
+  subscriberLocalRxView = false,
+  expectedStreamEpoch,
+  readiness,
+}: {
+  selectedSourceId: string | null | undefined;
+  activeSourceId: string | null | undefined;
+  mode: SourceStreamMode;
+  /** RX can be locally presented while a different source owns global TX. */
+  subscriberLocalRxView?: boolean;
+  expectedStreamEpoch?: number | null;
+  readiness?: SourceFrameReadiness | null;
+}): boolean => {
+  if (!readiness || !selectedSourceId || readiness.sourceId !== selectedSourceId) {
+    return false;
+  }
+  if (
+    mode === "rx" &&
+    !subscriberLocalRxView &&
+    selectedSourceId !== activeSourceId
+  ) {
+    return false;
+  }
+  return (
+    readiness.streamEpoch === null ||
+    expectedStreamEpoch === null ||
+    typeof expectedStreamEpoch === "undefined" ||
+    readiness.streamEpoch === expectedStreamEpoch
+  );
+};
+
+/** Same readiness boundary for the frame callback that gates canvas painting. */
+export const resolveSelectedSourceFrameReadiness = ({
+  frame,
+  selectedSourceId,
+  activeSourceId,
+  mode,
+  subscriberLocalRxView = false,
+  expectedStreamEpoch,
+  frameCounter,
+  handoffStartedFrameCounter,
+}: {
+  frame: RenderableLiveFrame | null | undefined;
+  selectedSourceId: string | null | undefined;
+  activeSourceId: string | null | undefined;
+  mode: SourceStreamMode;
+  /** RX can be locally presented while a different source owns global TX. */
+  subscriberLocalRxView?: boolean;
+  expectedStreamEpoch?: number | null;
+  frameCounter: number;
+  handoffStartedFrameCounter: number;
+}): boolean =>
+  resolveFrameReadiness({
+    frame,
+    selectedSourceId,
+    activeSourceId:
+      mode === "tx" || subscriberLocalRxView
+        ? selectedSourceId
+        : activeSourceId,
+    expectedStreamEpoch,
+    frameCounter,
+    handoffStartedFrameCounter,
+  });
+
 /** One source-scoped decision consumed by both canvases and route layout. */
 export type LiveSourceLifecycle = {
   phase: LiveSourceLifecyclePhase;
@@ -714,13 +786,20 @@ export const resolveLiveSourceLifecycle = ({
   }
   if (!selectedSourceId) return result("idle", null);
 
+  // A source-tagged frame is proof that the selected stream is already
+  // usable, even if the control-plane source commit is still catching up.
+  // Do not hide that frame behind the handoff loader; this is especially
+  // important for the Tx one-shot preview that arrives during Rx → Tx.
+  const hasSelectedSourceFrame = readiness?.sourceId === selectedSourceId;
   if (handoffPending && selectedSourceId !== activeSourceId) {
     const targetTransportIsReady =
       transportSourceId === selectedSourceId && transportPhase === "ready";
-    return result(
-      targetTransportIsReady ? "swapping-device" : "warming-transport",
-      resolvedHandoffPlaceholder,
-    );
+    if (!hasSelectedSourceFrame) {
+      return result(
+        targetTransportIsReady ? "swapping-device" : "warming-transport",
+        resolvedHandoffPlaceholder,
+      );
+    }
   }
 
   // A one-shot Tx preview can be accepted by the middleware before the
@@ -848,6 +927,7 @@ export const resolveLiveSourceHandoffPending = ({
   pendingSourceSwitchId = null,
   transportSourceId = null,
   transportPhase = "idle",
+  subscriberLocalTxView = false,
 }: {
   selectedSourceId: string | null | undefined;
   activeSourceId: string | null | undefined;
@@ -855,8 +935,15 @@ export const resolveLiveSourceHandoffPending = ({
   pendingSourceSwitchId?: string | null;
   transportSourceId?: string | null;
   transportPhase?: SourceTransportPhase;
+  /** Tx monitor streams can be ready without changing the global RX source. */
+  subscriberLocalTxView?: boolean;
 }): boolean =>
   !!selectedSourceId &&
+  !(
+    subscriberLocalTxView &&
+    transportSourceId === selectedSourceId &&
+    transportPhase === "ready"
+  ) &&
   ((selectedSourceId !== (activeSourceId ?? null) &&
     (selectionIntentSourceId === selectedSourceId ||
       pendingSourceSwitchId === selectedSourceId)) ||

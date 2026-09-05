@@ -533,7 +533,15 @@ export const createSourcePresentationController = (
   ) => {
     const effectiveMode = mode ?? active.mode;
 
-    if (active.sourceId === sourceId && active.mode === effectiveMode) return;
+    if (active.sourceId === sourceId && active.mode === effectiveMode) {
+      const currentSlot = slots.get(
+        slotKeyString({ sourceId, mode: effectiveMode }),
+      );
+      if (currentSlot?.phase === "paused" && resumePaused) {
+        transitionPhase(currentSlot, "switching");
+      }
+      return;
+    }
 
     // If there's already an active source, mark its slot as paused. The
     // leaving slot retains its frozen frame for when the user switches back,
@@ -563,7 +571,9 @@ export const createSourcePresentationController = (
     }
 
     if (targetSlot.phase === "paused" && resumePaused) {
-      targetSlot.frozenFrame = null;
+      // A source switch is a presentation handoff, not a request to discard
+      // the target source's last frame. Keep it visible while the target
+      // subscription warms; the first fresh frame will replace the live ref.
       transitionPhase(targetSlot, "switching");
     } else if (targetSlot.phase === "idle") {
       transitionPhase(targetSlot, "switching");
@@ -574,9 +584,21 @@ export const createSourcePresentationController = (
 
   const commitActiveSource: SourcePresentationController["commitActiveSource"] =
     (sourceId) => {
+      // Backend active-source broadcasts are process-wide. While this tab has
+      // a subscriber-local target pending, a broadcast naming the old source
+      // is stale for this presentation and must not steal the target slot.
+      if (active.pendingSourceId && active.pendingSourceId !== sourceId) {
+        return;
+      }
       if (active.pendingSourceId === sourceId) {
         active = { ...active, sourceId, pendingSourceId: null };
       } else if (active.sourceId !== sourceId) {
+        // A committed source with no pending local handoff is a session-local
+        // presentation target. A backend active-source broadcast describes
+        // physical control ownership and must not retarget this client.
+        if (active.sourceId && active.pendingSourceId === null) {
+          return;
+        }
         active = { ...active, sourceId, pendingSourceId: null };
       }
 

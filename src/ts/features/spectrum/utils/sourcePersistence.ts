@@ -92,6 +92,9 @@ export const saveStoredJson = (key: string, value: unknown): void => {
 };
 
 export const loadSelectedSourceId = (): string | null => {
+  // Source selection is presentation state, not a shared device command.
+  // Keep it in sessionStorage so a reload in this tab is restored, while a
+  // second client starts from the backend's normal first-source selection.
   const stored = safeReadSessionStorage(SOURCE_SELECTION_STORAGE_KEY);
   return stored && stored.trim() ? stored : null;
 };
@@ -100,3 +103,18 @@ export const saveSelectedSourceId = (sourceId: string | null): void => {
   if (!sourceId) return;
   safeWriteSessionStorage(SOURCE_SELECTION_STORAGE_KEY, sourceId);
 };
+
+/**
+ * The initial Redux source can be an optimistic backend fallback. Do not
+ * persist it over a stored tab selection while inventory hydration is about
+ * to restore that selection.
+ */
+export const shouldSkipSelectedSourcePersistence = ({
+  pendingHydrationSourceId,
+  currentSelectedSourceId,
+}: {
+  pendingHydrationSourceId: string | null;
+  currentSelectedSourceId: string | null;
+}): boolean =>
+  !!pendingHydrationSourceId &&
+  pendingHydrationSourceId !== currentSelectedSourceId;

@@ -118,3 +118,16 @@ export function mergeRebuildRecentLines(
     .filter(Boolean);
   return [...(previous ?? []), ...next].slice(-limit);
 }
+
+/** Keep the short, actionable part of a failed cargo invocation for the UI. */
+export function summarizeRustBuildFailure(output: string): string {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\u001b\[[0-9;]*m/g, "").trim())
+    .filter(Boolean);
+  const diagnostics = lines.filter((line) =>
+    /^(error(?:\[[^\]]+\])?:|error: could not compile|error: aborting)/i.test(line),
+  );
+  const selected = diagnostics.length > 0 ? diagnostics.slice(-3) : lines.slice(-3);
+  return selected.join(" | ").slice(0, 480);
+}

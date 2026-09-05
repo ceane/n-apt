@@ -4,6 +4,12 @@ import {
   hasRenderableFramePayload,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 
+/** One-shot preview requests belong to the selected presentation source. */
+export const resolvePausedPreviewRequestSourceId = (
+  activeSourceId: string | null | undefined,
+  selectedSourceId: string | null | undefined,
+): string | null => selectedSourceId ?? activeSourceId ?? null;
+
 /** Stable request identity used to suppress duplicate Mock Tx previews. */
 export const getMockTxPreviewRequestKey = ({
   sourceId,

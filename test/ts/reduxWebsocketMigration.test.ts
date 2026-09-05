@@ -32,11 +32,15 @@ import {
   resolveSourceSelectionAfterBackendFallback,
   shouldSyncManagedStreamOptions,
   resolveManagedTxSourceId,
+  resolveManagedRxSourceId,
+  shouldPublishManagedRxTransportReady,
+  isCurrentManagedRxTarget,
   txStreamConflictsWithActiveRx,
   handleManagedStreamEvent,
   resolveManagedRxDeviceOptionUpdates,
   resolveManagedRxOptionsOverride,
   resolveLocalRxTuningOverride,
+  shouldApplySourceStatusToPresentation,
   processWebSocketMessage,
   CLIENT_ORIGIN_ID,
   __testQueueLiveDataForMiddleware,
@@ -136,6 +140,40 @@ describe("hardware source transition cleanup", () => {
   });
 });
 import { bytesToBase64 } from "@n-apt/crypto/webcrypto";
+
+describe("client-local presentation status isolation", () => {
+  it("does not freeze a local RX presentation for a foreign global pause", () => {
+    expect(
+      shouldApplySourceStatusToPresentation({
+        sourceId: "mock-apt",
+        status: "paused",
+        activeSourceId: "mock-tx",
+        managedRxSourceId: "mock-apt",
+        subscriberPaused: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldApplySourceStatusToPresentation({
+        sourceId: "mock-apt",
+        status: "paused",
+        activeSourceId: "mock-tx",
+        managedRxSourceId: "mock-apt",
+        subscriberPaused: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldApplySourceStatusToPresentation({
+        sourceId: "mock-tx",
+        status: "paused",
+        activeSourceId: "mock-tx",
+        managedRxSourceId: "mock-apt",
+        subscriberPaused: false,
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("managed stream option synchronization", () => {
   it("does not hydrate Redux from a local stream option echo", () => {
@@ -716,6 +754,129 @@ describe("managed stream option synchronization", () => {
     ).toBe("mock-tx");
   });
 
+  it("attaches a passive client to selected RX while another source owns global Tx", () => {
+    expect(
+      resolveManagedRxSourceId({
+        activeSourceId: "mock-tx",
+        selectedSourceId: "mock-apt",
+        requestedSourceId: null,
+        sources: [
+          {
+            id: "mock-tx",
+            kind: "mock_tx",
+            capability: "tx",
+            capabilities: { can_receive: false },
+          },
+          {
+            id: "mock-apt",
+            kind: "mock_apt",
+            capability: "mock",
+            capabilities: { can_receive: true },
+          },
+        ] as any,
+      }),
+    ).toBe("mock-apt");
+  });
+
+  it("keeps a selected transmitting Mock Tx stream when RX remains active", () => {
+    expect(
+      resolveManagedTxSourceId({
+        activeSourceId: "mock-apt",
+        sources: [
+          {
+            id: "mock-apt",
+            kind: "mock_apt",
+            capability: "mock",
+            status: "receiving",
+          },
+          {
+            id: "mock-tx",
+            name: "Mock Tx SDR",
+            kind: "mock_tx",
+            capability: "tx",
+            status: "transmitting",
+          },
+        ],
+        sourceStatuses: {
+          "mock-apt": "receiving",
+          "mock-tx": "transmitting",
+        },
+        sourceSelection: { selectedSourceId: "mock-tx" },
+        sourceRouting: { bindings: {} },
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("keeps the global transmitting Tx stream when this client views RX", () => {
+    expect(
+      resolveManagedTxSourceId({
+        activeSourceId: "mock-apt",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "rx",
+            status: "receiving",
+          },
+          {
+            id: "mock-tx",
+            name: "Mock Tx SDR",
+            kind: "mock_tx",
+            capability: "tx",
+            status: "transmitting",
+          },
+        ],
+        sourceStatuses: {
+          "mock-apt": "receiving",
+          "mock-tx": "transmitting",
+        },
+        sourceSelection: { selectedSourceId: "mock-apt" },
+        sourceRouting: { bindings: {} },
+      }),
+    ).toBe("mock-tx");
+  });
+
+  it("marks a selected passive RX stream ready while another source owns TX", () => {
+    expect(
+      shouldPublishManagedRxTransportReady({
+        isCurrentRxTarget: true,
+        streamEpoch: 4,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps a selected passive RX subscription current after global TX changes", () => {
+    expect(
+      isCurrentManagedRxTarget(
+        {
+          websocket: {
+            activeSourceId: "mock-tx",
+            sourceStatuses: {
+              "mock-apt": "connected",
+              "mock-tx": "transmitting",
+            },
+            sources: [
+              {
+                id: "mock-apt",
+                kind: "mock_apt",
+                capability: "rx",
+                iq_format: { typed_array: "Uint8Array" },
+              },
+              {
+                id: "mock-tx",
+                kind: "mock_tx",
+                capability: "tx",
+              },
+            ],
+          },
+          sourceSelection: { selectedSourceId: "mock-apt" },
+        },
+        "mock-apt",
+      ),
+    ).toBe(true);
+  });
+
   it("opens a managed Tx stream while actively transmitting", () => {
     expect(
       resolveManagedTxSourceId({
@@ -996,6 +1157,32 @@ const buildV2IqEnvelope = () => {
 };
 
 describe("Tx preview source state", () => {
+  it("marks a manager Tx frame as live transmitting data while Tx is active", () => {
+    const iqData = new Uint8Array([128, 129, 127, 130]);
+    const frame = {
+      type: "spectrum" as const,
+      data_type: "iq_raw" as const,
+      source_id: "mock-tx",
+      protocol_version: 2 as const,
+      stream_epoch: 3,
+      sequence: 9,
+      iq_data: iqData,
+    };
+
+    const normalized = normalizeManagedStreamFrame({
+      frame,
+      mode: "tx",
+      sourceStatus: "transmitting",
+    });
+
+    expect(normalized).toMatchObject({
+      frame_status: "transmitting",
+      is_tx_preview: false,
+      is_mock_tx_preview: false,
+    });
+    expect(normalized.iq_data).toBe(iqData);
+  });
+
   it("marks a manager Tx frame as a standby preview while Tx is idle", () => {
     const iqData = new Uint8Array([128, 129, 127, 130]);
     const frame = {
@@ -1005,7 +1192,7 @@ describe("Tx preview source state", () => {
       protocol_version: 2 as const,
       stream_epoch: 3,
       sequence: 8,
-      frame_status: "transmitting" as const,
+      frame_status: "standby" as const,
       iq_data: iqData,
     };
 
@@ -3372,7 +3559,7 @@ describe("Redux WebSocket Migration", () => {
       );
     });
 
-    it("clears the shared presentation frame before a source switch can render", () => {
+    it("clears only the shared frame while retaining each source's last frame", () => {
       const middlewareStore = configureStore({
         reducer: {
           websocket: websocketSlice,
@@ -3406,10 +3593,12 @@ describe("Redux WebSocket Migration", () => {
       });
 
       expect(liveDataRef.current).toBeNull();
-      expect(liveDataBySourceRef.current).toEqual({});
+      expect(liveDataBySourceRef.current["hackrf-one"]?.current).toBe(
+        pausedPreviousSourceFrame,
+      );
       expect(
         sourceVisualizationRuntime.getSourceRef("hackrf-one").current,
-      ).toBeNull();
+      ).toBe(pausedPreviousSourceFrame);
       expect(middlewareStore.getState().websocket.spectrumFrames).toEqual([]);
     });
 
@@ -4940,6 +5129,166 @@ describe("Redux WebSocket Migration", () => {
       );
       expect(liveDataRef.current).toBeNull();
       jest.useRealTimers();
+    });
+
+    it("presents selected Mock APT RX frames while Mock Tx owns global TX", () => {
+      jest.useFakeTimers();
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+          sourceSelection: sourceSelectionSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isPaused: false,
+          activeSourceId: "mock-tx",
+          sourceStatuses: {
+            "mock-apt": "connected",
+            "mock-tx": "transmitting",
+          },
+          sources: [
+            {
+              id: "mock-apt",
+              name: "Mock APT SDR",
+              kind: "mock_apt",
+              capability: "rx",
+              status: "connected",
+              iq_format: { typed_array: "Uint8Array" },
+            },
+            {
+              id: "mock-tx",
+              name: "Mock Tx SDR",
+              kind: "mock_tx",
+              capability: "tx",
+              status: "transmitting",
+            },
+          ],
+        } as any),
+      );
+      middlewareStore.dispatch(setSelectedSourceId("mock-apt"));
+
+      const selectedRxFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "mock-apt",
+        protocol_version: 2,
+        stream_epoch: 4,
+        sequence: 9,
+        iq_data: new Uint8Array([128, 129, 127, 126]),
+        sample_rate: 4_372_000,
+        center_frequency_hz: 2_204_000,
+      } as IqRawFrame;
+
+      __testQueueLiveDataForMiddleware(
+        selectedRxFrame,
+        middlewareStore.dispatch as any,
+        middlewareStore.getState as any,
+      );
+      jest.advanceTimersByTime(16);
+
+      expect(liveDataRef.current).toEqual([selectedRxFrame]);
+      expect(
+        middlewareStore.getState().websocket.sourceFrameReadinessByMode.rx,
+      ).toEqual({ sourceId: "mock-apt", streamEpoch: 4, sequence: 9 });
+
+      const nextSelectedRxFrame = {
+        ...selectedRxFrame,
+        sequence: 10,
+        iq_data: new Uint8Array([127, 130, 126, 129]),
+      } as IqRawFrame;
+      __testQueueLiveDataForMiddleware(
+        nextSelectedRxFrame,
+        middlewareStore.dispatch as any,
+        middlewareStore.getState as any,
+      );
+      jest.advanceTimersByTime(16);
+
+      expect(liveDataRef.current).toEqual([nextSelectedRxFrame]);
+      jest.useRealTimers();
+    });
+
+    it("does not clear selected RX frames when a foreign client changes global TX", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+          sourceSelection: sourceSelectionSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+      const selectedAptFrame = {
+        type: "spectrum",
+        data_type: "iq_raw",
+        source_id: "mock-apt",
+        protocol_version: 2,
+        stream_epoch: 4,
+        sequence: 9,
+        iq_data: new Uint8Array([128, 129, 127, 126]),
+        sample_rate: 4_372_000,
+        center_frequency_hz: 2_204_000,
+      } as IqRawFrame;
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isPaused: false,
+          activeSourceId: "mock-apt",
+          deviceState: "connected",
+          sourceStatuses: { "mock-apt": "connected", "mock-tx": "standby" },
+          sources: [
+            {
+              id: "mock-apt",
+              kind: "mock_apt",
+              capability: "rx",
+              status: "connected",
+              iq_format: { typed_array: "Uint8Array" },
+            },
+            {
+              id: "mock-tx",
+              kind: "mock_tx",
+              capability: "tx",
+              status: "standby",
+            },
+          ],
+        } as any),
+      );
+      middlewareStore.dispatch(setSelectedSourceId("mock-apt"));
+      liveDataRef.current = [selectedAptFrame];
+
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isPaused: false,
+          activeSourceId: "mock-tx",
+          deviceState: "connected",
+          sourceStatuses: { "mock-apt": "connected", "mock-tx": "transmitting" },
+          sources: [
+            {
+              id: "mock-apt",
+              kind: "mock_apt",
+              capability: "rx",
+              status: "connected",
+              iq_format: { typed_array: "Uint8Array" },
+            },
+            {
+              id: "mock-tx",
+              kind: "mock_tx",
+              capability: "tx",
+              status: "transmitting",
+            },
+          ],
+        } as any),
+      );
+
+      expect(liveDataRef.current).toEqual([selectedAptFrame]);
     });
 
     it("publishes a paused secondary-source preview revision without playing Rx", () => {

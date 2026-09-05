@@ -186,6 +186,33 @@ describe("SourceModeStreamManager", () => {
     expect(secondSubscription.deliveryPolicy).toBe("lossless");
   });
 
+  it("retains latest delivery when options change before subscription acknowledgement", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const key: StreamKey = { sourceId: "mock-tx", mode: "tx" };
+    const subscription = await manager.subscribe(
+      key,
+      txOptions(),
+      () => {
+        // no-op
+      },
+      { deliveryPolicy: "latest" },
+    );
+
+    await subscription.updateOptions({
+      ...txOptions(),
+      centerFrequencyHz: 101_000_000,
+    });
+
+    expect(transports[0].sent[transports[0].sent.length - 1]).toEqual(
+      expect.objectContaining({
+        type: "stream_subscribe",
+        deliveryPolicy: "latest",
+        options: expect.objectContaining({ centerFrequencyHz: 101_000_000 }),
+      }),
+    );
+  });
+
   it("pauses one subscriber without pausing another subscriber", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });
@@ -347,7 +374,7 @@ describe("SourceModeStreamManager", () => {
       state: "ready",
     });
 
-    await firstSubscription.updateOptions(rxOptions(101_000_000));
+    const updatePromise = firstSubscription.updateOptions(rxOptions(101_000_000));
 
     expect(transports[0].sent).toContainEqual(
       expect.objectContaining({
@@ -370,6 +397,23 @@ describe("SourceModeStreamManager", () => {
         optionsRevision: 2,
       }),
     );
+
+    let updateSettled = false;
+    void updatePromise.finally(() => {
+      updateSettled = true;
+    });
+    await Promise.resolve();
+    expect(updateSettled).toBe(false);
+    transports[0].onEvent({
+      type: "stream_options_applied",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 2,
+      optionsRevision: 2,
+      options: rxOptions(101_000_000),
+    });
+    await updatePromise;
+    expect(updateSettled).toBe(true);
   });
 
   it("does not re-emit its own options acknowledgement when the backend revision has advanced", async () => {
@@ -392,13 +436,12 @@ describe("SourceModeStreamManager", () => {
     });
     events.length = 0;
 
-    await subscription.updateOptions(rxOptions(101_000_000));
+    const updatePromise = subscription.updateOptions(rxOptions(101_000_000));
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual(
       expect.objectContaining({ origin: "local", optionsRevision: 8 }),
     );
 
-    events.length = 0;
     transports[0].onEvent({
       type: "stream_options_applied",
       sourceId: key.sourceId,
@@ -407,6 +450,9 @@ describe("SourceModeStreamManager", () => {
       optionsRevision: 12,
       options: rxOptions(101_000_000),
     });
+    await updatePromise;
+
+    events.length = 0;
 
     expect(events).toHaveLength(0);
     expect(subscription.effectiveOptions).toEqual(rxOptions(101_000_000));
@@ -432,7 +478,8 @@ describe("SourceModeStreamManager", () => {
     });
     events.length = 0;
 
-    await subscription.updateOptions(rxOptions(196_000_000));
+    const updatePromise = subscription.updateOptions(rxOptions(196_000_000));
+    const rejectedUpdate = expect(updatePromise).rejects.toThrow("superseded");
     expect(subscription.effectiveOptions).toEqual(rxOptions(196_000_000));
 
     transports[0].onEvent({
@@ -443,6 +490,7 @@ describe("SourceModeStreamManager", () => {
       optionsRevision: 2,
       options: rxOptions(28_874_000),
     });
+    await rejectedUpdate;
 
     expect(events).toEqual([
       expect.objectContaining({

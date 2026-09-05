@@ -84,6 +84,11 @@ export type LiveReduxStreamLifecycleSnapshot = {
 export type LiveReduxStreamSnapshot = {
   hasConnectedOnce: boolean;
   sourcePause: Record<string, boolean>;
+  presentationTarget: {
+    sourceId: string;
+    mode: "rx" | "tx";
+    pendingSourceId: string | null;
+  };
   presentationPhase: LiveReduxStreamPresentationPhase | null;
   lifecycle: LiveReduxStreamLifecycleSnapshot;
   redux: Pick<
@@ -105,12 +110,14 @@ export type LiveReduxStreamSnapshot = {
   managed: DebugSnapshot;
   liveFrame: LiveFrameSnapshot;
   rxPresentation: LiveFrameSnapshot;
+  rxPresentationPhase: SourcePresentationPhase | null;
   txPresentation: LiveFrameSnapshot;
 };
 
 export type LiveReduxStreamHarness = {
   connect(): Promise<void>;
   selectSource(sourceId: string): Promise<void>;
+  viewSource(sourceId: string): Promise<void>;
   setPaused(paused: boolean, sourceId?: string): Promise<void>;
   requestNextStandbyFrame(
     options?: RequestNextLiveFrameOptions,
@@ -131,7 +138,10 @@ export type LiveReduxStreamHarness = {
 const resolvePausePresentationMode = (
   source: SourceInfo | null | undefined,
 ): "rx" | "tx" =>
-  source?.status === "transmitting" || source?.status === "standby"
+  source?.id === "mock-tx" ||
+  source?.kind === "mock_tx" ||
+  source?.status === "transmitting" ||
+  source?.status === "standby"
     ? "tx"
     : "rx";
 
@@ -449,6 +459,7 @@ export const createLiveReduxStreamHarness = async (
       connectWebSocket,
       disconnectWebSocket,
       sendSelectSource,
+      sendViewSource,
       sendFrequencyRange,
       sendSettings,
       requestNextPausedFrame,
@@ -507,10 +518,39 @@ export const createLiveReduxStreamHarness = async (
       await dispatch(sendSelectSource(sourceId));
       await harness.waitFor(
         () => store.getState().websocket,
-        (state) =>
-          state.activeSourceId === sourceId &&
-          (state.sourceStatuses[sourceId] === "standby" ||
-            state.sourceTransport?.sourceId === sourceId),
+        (state) => {
+          const source = state.sources.find(
+            (candidate) => candidate.id === sourceId,
+          );
+          const isTx =
+            source?.id === "mock-tx" ||
+            source?.kind === "mock_tx" ||
+            source?.capability === "tx";
+          const modeTransport = state.sourceTransportByMode?.[
+            isTx ? "tx" : "rx"
+          ];
+          return (
+            state.activeSourceId === sourceId &&
+            (state.sourceStatuses[sourceId] === "standby" ||
+              state.sourceStatuses[sourceId] === "receiving" ||
+              state.sourceStatuses[sourceId] === "transmitting" ||
+              modeTransport?.sourceId === sourceId ||
+              state.sourceTransport?.sourceId === sourceId)
+          );
+        },
+      );
+    },
+
+    async viewSource(sourceId) {
+      if (!connected)
+        throw new Error("connect() must run before viewSource()");
+      dispatch(setSelectedSourceId(sourceId));
+      await dispatch(sendViewSource(sourceId));
+      await harness.waitFor(
+        () => harness.snapshot(),
+        (snapshot) =>
+          snapshot.selectedSourceId === sourceId &&
+          snapshot.presentationTarget.sourceId === sourceId,
       );
     },
 
@@ -523,13 +563,21 @@ export const createLiveReduxStreamHarness = async (
         sourceId,
       );
       const effectiveSourceId = pauseAction.payload.sourceId;
+      if (effectiveSourceId === "mock-tx") {
+        throw new Error(
+          "Tx transmit/stop is global; use setTransmit() instead of local pause",
+        );
+      }
       dispatch(pauseAction);
+      const pauseMode = "rx" as const;
       await harness.waitFor(
         () => harness.snapshot(),
-        (snapshot) =>
-          snapshot.redux.isPaused === paused &&
-          snapshot.sourcePause[effectiveSourceId] === paused &&
-          (paused ? snapshot.presentationPhase?.phase === "paused" : true),
+        () =>
+          paused
+            ? presentationController.getSlot(effectiveSourceId, pauseMode)
+                ?.phase === "paused"
+            : presentationController.getSlot(effectiveSourceId, pauseMode)
+                ?.phase !== "paused",
       );
     },
 
@@ -695,17 +743,32 @@ export const createLiveReduxStreamHarness = async (
           )?.key.sourceId ??
         null;
 
-      const activeSourceId = state.activeSourceId;
-      const activeSource = state.sources.find(
-        (source) => source.id === activeSourceId,
+      const globalActiveSourceId = state.activeSourceId;
+      const globalActiveSource = state.sources.find(
+        (source) => source.id === globalActiveSourceId,
       );
-      const presentationMode = resolvePausePresentationMode(activeSource);
-      const activeSlot = activeSourceId
-        ? presentationController.getSlot(activeSourceId, presentationMode)
+      const rxPresentationSourceId =
+        managed.rx.sourceId ?? state.activeSourceId ?? null;
+      const presentation = presentationController.getActivePresentation();
+      const presentationSourceId =
+        presentation.sourceId || rxPresentationSourceId || globalActiveSourceId;
+      const presentationSource = state.sources.find(
+        (source) => source.id === presentationSourceId,
+      );
+      const presentationMode = presentation.sourceId
+        ? presentation.mode
+        : resolvePausePresentationMode(presentationSource ?? globalActiveSource);
+      const activeSlot = presentationSourceId
+        ? presentationController.getSlot(presentationSourceId, presentationMode)
         : null;
       const trackedSourceIds = [
         ...new Set(
-          [activeSourceId, managed.rx.sourceId, managed.tx.sourceId].filter(
+          [
+            ...state.sources.map((source) => source.id),
+            globalActiveSourceId,
+            managed.rx.sourceId,
+            managed.tx.sourceId,
+          ].filter(
             (value): value is string =>
               typeof value === "string" && value.length > 0,
           ),
@@ -719,23 +782,33 @@ export const createLiveReduxStreamHarness = async (
           return [
             sourceKey,
             source?.paused === true ||
-              (state.isPaused && activeSourceId === sourceKey),
+              (state.isPaused && globalActiveSourceId === sourceKey),
           ];
         }),
       );
       const hasTargetFrozenFrame =
-        !!activeSourceId &&
-        (presentationController.getFrozenFrame(activeSourceId, "rx") !== null ||
-          presentationController.getFrozenFrame(activeSourceId, "tx") !==
+        !!presentationSourceId &&
+        (presentationController.getFrozenFrame(presentationSourceId, "rx") !== null ||
+          presentationController.getFrozenFrame(presentationSourceId, "tx") !==
             null ||
-          presentationController.getSlot(activeSourceId, "rx")?.phase ===
+          presentationController.getSlot(presentationSourceId, "rx")?.phase ===
             "paused" ||
-          presentationController.getSlot(activeSourceId, "tx")?.phase ===
+          presentationController.getSlot(presentationSourceId, "tx")?.phase ===
             "paused");
-      const deviceStatus = activeSourceId
-        ? (state.sourceStatuses[activeSourceId] ?? activeSource?.status ?? null)
+      const deviceStatus = presentationSourceId
+        ? (state.sourceStatuses[presentationSourceId] ??
+          presentationSource?.status ??
+          null)
         : null;
-      const liveFrameSnapshot = frameSnapshot(liveDataRef.current);
+      const liveFrameSnapshot = frameSnapshot(
+        activeSlot?.liveFrameRef.current ?? activeSlot?.frozenFrame?.frame ?? null,
+      );
+      const isPresentedTxStandby =
+        presentationMode === "tx" &&
+        (deviceStatus === "standby" ||
+          activeSlot?.phase === "standby" ||
+          liveFrameSnapshot.frameStatus === "standby" ||
+          liveFrameSnapshot.isTxPreview);
       const sourceTransport = selectSourceTransportForMode(
         presentationMode,
         state.sourceTransportByMode,
@@ -747,16 +820,16 @@ export const createLiveReduxStreamHarness = async (
         state.sourceFrameReadiness,
       );
       const lifecycleResult = resolveLiveSourceLifecycle({
-        selectedSourceId: activeSourceId,
-        activeSourceId,
+        selectedSourceId: presentationSourceId,
+        activeSourceId: presentationSourceId,
         transportSourceId: sourceTransport.sourceId ?? null,
         transportPhase: sourceTransport.phase ?? "idle",
         transportError: sourceTransport.error ?? null,
         hasValidFrame:
           hasTargetFrozenFrame ||
           isCurrentSourceFrameReady({
-            selectedSourceId: activeSourceId,
-            activeSourceId,
+            selectedSourceId: presentationSourceId,
+            activeSourceId: presentationSourceId,
             readiness: sourceReadiness,
           }) ||
           liveFrameSnapshot.hasFrame,
@@ -765,7 +838,9 @@ export const createLiveReduxStreamHarness = async (
         isConnected: state.isConnected,
         connectionStatus: state.connectionStatus,
         hasConnectedOnce: state.hasConnectedOnce,
-        isStandby: deviceStatus === "standby",
+        isStandby:
+          isPresentedTxStandby ||
+          (presentationMode === "tx" && activeSlot?.phase === "paused"),
         readinessSequence: sourceReadiness?.sequence ?? null,
         readiness: sourceReadiness,
         presentedSourceId: liveFrameSnapshot.sourceId,
@@ -780,10 +855,13 @@ export const createLiveReduxStreamHarness = async (
       return {
         hasConnectedOnce: state.hasConnectedOnce,
         sourcePause,
+        presentationTarget: {
+          ...presentationController.getActivePresentation(),
+        },
         presentationPhase:
-          activeSourceId && activeSlot
+          presentationSourceId && activeSlot
             ? {
-                sourceId: activeSourceId,
+                sourceId: presentationSourceId,
                 mode: presentationMode,
                 phase: activeSlot.phase,
               }
@@ -816,9 +894,14 @@ export const createLiveReduxStreamHarness = async (
         managed,
         liveFrame: liveFrameSnapshot,
         rxPresentation: slotFrameSnapshot(
-          managed.rx.sourceId ?? state.activeSourceId,
+          rxPresentationSourceId,
           "rx",
         ),
+        rxPresentationPhase:
+          rxPresentationSourceId
+            ? presentationController.getSlot(rxPresentationSourceId, "rx")
+                ?.phase ?? null
+            : null,
         txPresentation: slotFrameSnapshot(lastPresentedTxSourceId, "tx"),
       };
     },

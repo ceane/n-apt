@@ -21,6 +21,8 @@ export {
 export {
   setSelectedSourceId,
   setSelectionIntentSourceId,
+  restoreSelectedSource,
+  selectSource,
   setPendingSourceSwitchId,
   clearSelectedSourceId,
 } from "./slices/sourceSelectionSlice";

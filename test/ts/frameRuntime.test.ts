@@ -130,6 +130,33 @@ describe("frame runtime", () => {
     }
   });
 
+  test("keeps a managed Tx preview readable while RX remains process-active", () => {
+    const previous = liveDataBySourceRef.current;
+    try {
+      liveDataBySourceRef.current = {};
+      presentationController.reset();
+      presentationController.selectSource("mock-apt", "rx");
+      presentationController.commitActiveSource("mock-apt");
+      presentationController.acceptFrame(
+        { source_id: "mock-apt", frame_status: "receiving" } as any,
+        "rx",
+      );
+
+      presentationController.selectSource("mock-tx", "tx", true);
+      const preview = {
+        source_id: "mock-tx",
+        frame_status: "standby",
+        is_tx_preview: true,
+      };
+      presentationController.acceptFrame(preview as any, "tx");
+
+      expect(getLiveFrameRefForSource("mock-tx", "tx").current).toBe(preview);
+    } finally {
+      presentationController.reset();
+      liveDataBySourceRef.current = previous;
+    }
+  });
+
   test("does not fall back from an RX slot to a source-scoped TX frame", () => {
     const previous = liveDataBySourceRef.current;
     try {

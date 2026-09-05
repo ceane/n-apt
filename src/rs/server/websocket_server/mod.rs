@@ -123,12 +123,10 @@ pub(crate) fn resolve_mock_tx_monitor_fft_size(
 
 fn spawn_tx_monitor_stream(
   shared_state: Arc<SharedState>,
-  spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
   stream_manager: StreamingSourceModeManager,
 ) -> tokio::task::JoinHandle<()> {
   crate::tx::monitor::spawn_monitor_stream(
     shared_state,
-    spectrum_tx,
     stream_manager,
   )
 }
@@ -144,14 +142,13 @@ fn should_delegate_tx_monitor(
 }
 
 pub(crate) fn should_run_tx_monitor(
-  active_source_id: &str,
   tx_is_active: bool,
   managed_tx_stream: bool,
 ) -> bool {
-  // Standby remains request-only. A managed subscription must not auto-start
-  // continuous monitor playback; only an explicit transmitting state does.
-  tx_is_active
-    && (should_delegate_tx_monitor(active_source_id, true) || managed_tx_stream)
+  // Standby remains request-only. Every live monitor frame is delivered only
+  // through an explicit managed Tx subscription; the legacy spectrum
+  // broadcast no longer has a fallback role.
+  tx_is_active && managed_tx_stream
 }
 
 fn broadcast_source_switch_error(
@@ -474,13 +471,13 @@ mod tests {
   fn managed_tx_subscription_does_not_auto_start_standby_monitor() {
     // Standby is announcement + request-only preview. A managed subscription
     // alone must not invoke continuous Tx monitor playback.
-    assert!(!should_run_tx_monitor("mock-tx", false, true));
-    assert!(!should_run_tx_monitor("hackrf_one-test", false, true));
-    assert!(!should_run_tx_monitor("mock-tx", false, false));
-    assert!(!should_run_tx_monitor("mock-apt", false, true));
-    assert!(should_run_tx_monitor("mock-tx", true, true));
-    assert!(should_run_tx_monitor("mock-tx", true, false));
-    assert!(should_run_tx_monitor("mock-apt", true, true));
+    assert!(!should_run_tx_monitor(false, true));
+    assert!(!should_run_tx_monitor(false, true));
+    assert!(!should_run_tx_monitor(false, false));
+    assert!(!should_run_tx_monitor(false, true));
+    assert!(should_run_tx_monitor(true, true));
+    assert!(!should_run_tx_monitor(true, false));
+    assert!(should_run_tx_monitor(true, true));
   }
 
   #[test]
@@ -498,34 +495,54 @@ mod tests {
     *shared.device_profile.lock().unwrap() = build_device_profile("hackrf_one");
     *shared.device_serial.lock().unwrap() = "test".to_string();
     let tx_iq = vec![128, 129, 127, 130, 126, 131];
-    let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
+    let tx_key = StreamKey::new("hackrf_one-test", StreamMode::Tx);
+    let mut subscription = stream_manager
+      .subscribe(
+        tx_key.clone(),
+        StreamOptions::Tx(TxStreamOptions {
+          center_frequency_hz: 2_400_000,
+          sample_rate_hz: 2_000_000,
+          bandwidth_hz: 2_000_000,
+          view_center_hz: None,
+          view_sample_rate_hz: None,
+          signal: "wifi".to_string(),
+          power_dbm: -18.0,
+          ifft_size: 1024,
+        }),
+      )
+      .expect("active HackRF Tx subscription should open");
     stream_manager.set_tx_payload(
-      StreamKey::new("hackrf_one-test", StreamMode::Tx),
+      tx_key,
       2_400_000,
       2_000_000,
       tx_iq.clone(),
     );
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
 
-    let monitor =
-      spawn_tx_monitor_stream(shared.clone(), spectrum_tx, stream_manager);
+    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
     let first =
-      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+      tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
         .expect("first active HackRF Tx monitor frame should arrive")
-        .expect("active HackRF Tx monitor channel should remain open");
+        .expect("active HackRF Tx subscription should remain open");
     let second =
-      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+      tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
         .expect("second active HackRF Tx monitor frame should arrive")
-        .expect("active HackRF Tx monitor channel should remain open");
+        .expect("active HackRF Tx subscription should remain open");
 
-    assert_eq!(first.source_id, "hackrf_one-test");
-    assert_eq!(second.source_id, "hackrf_one-test");
-    assert_ne!(first.sequence, second.sequence);
-    assert_eq!(first.iq_data, tx_iq);
+    let crate::server::stream_manager::StreamEvent::Frame(first) = first else {
+      panic!("expected first managed HackRF Tx monitor frame");
+    };
+    let crate::server::stream_manager::StreamEvent::Frame(second) = second else {
+      panic!("expected second managed HackRF Tx monitor frame");
+    };
+    assert_eq!(first.key.source_id, "hackrf_one-test");
+    assert_eq!(second.key.source_id, "hackrf_one-test");
+    assert!(second.sequence > first.sequence);
+    assert_eq!(first.iq_data.as_ref(), &tx_iq);
     assert_eq!(second.iq_data, first.iq_data);
 
     shared.shutdown.store(true, Ordering::Relaxed);
@@ -543,33 +560,114 @@ mod tests {
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
     let shared = SharedState::new("redis://127.0.0.1:6379");
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
-    let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
+    let mut subscription = stream_manager
+      .subscribe(
+        StreamKey::new(MOCK_TX_SOURCE_ID, StreamMode::Tx),
+        StreamOptions::Tx(TxStreamOptions {
+          center_frequency_hz: 2_400_000,
+          sample_rate_hz: 2_000_000,
+          bandwidth_hz: 2_000_000,
+          view_center_hz: None,
+          view_sample_rate_hz: None,
+          signal: "wifi".to_string(),
+          power_dbm: -18.0,
+          ifft_size: 1024,
+        }),
+      )
+      .expect("active Mock Tx subscription should open");
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
     shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
 
-    let monitor =
-      spawn_tx_monitor_stream(shared.clone(), spectrum_tx, stream_manager);
+    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
     let first =
-      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+      tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
         .expect("first active Tx monitor frame should arrive")
-        .expect("active Tx monitor channel should remain open");
+        .expect("active Tx subscription should remain open");
     let second =
-      tokio::time::timeout(Duration::from_secs(2), spectrum_rx.recv())
+      tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
         .expect("second active Tx monitor frame should arrive")
-        .expect("active Tx monitor channel should remain open");
+        .expect("active Tx subscription should remain open");
 
-    assert_eq!(first.source_id, MOCK_TX_SOURCE_ID);
-    assert_eq!(second.source_id, MOCK_TX_SOURCE_ID);
+    let crate::server::stream_manager::StreamEvent::Frame(first) = first else {
+      panic!("expected first managed Mock Tx monitor frame");
+    };
+    let crate::server::stream_manager::StreamEvent::Frame(second) = second else {
+      panic!("expected second managed Mock Tx monitor frame");
+    };
+    assert_eq!(first.key.source_id, MOCK_TX_SOURCE_ID);
+    assert_eq!(second.key.source_id, MOCK_TX_SOURCE_ID);
+    assert!(!first.is_tx_preview);
+    assert!(!second.is_tx_preview);
+    assert!(second.sequence > first.sequence);
     assert_ne!(first.iq_data, second.iq_data);
 
     shared.shutdown.store(true, Ordering::Relaxed);
     monitor
       .await
       .expect("active Tx monitor should stop cleanly");
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
+  }
+
+  #[tokio::test]
+  #[serial]
+  async fn bound_mock_tx_monitor_emits_when_mock_apt_owns_active_processor() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let _mock_tx_test_guard =
+      complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    *shared.device_profile.lock().unwrap() = build_device_profile("mock_apt");
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(250));
+    let mut subscription = stream_manager
+      .subscribe(
+        StreamKey::new(MOCK_TX_SOURCE_ID, StreamMode::Tx),
+        StreamOptions::Tx(TxStreamOptions {
+          center_frequency_hz: 2_400_000,
+          sample_rate_hz: 2_000_000,
+          bandwidth_hz: 2_000_000,
+          view_center_hz: None,
+          view_sample_rate_hz: None,
+          signal: "wifi".to_string(),
+          power_dbm: -18.0,
+          ifft_size: 1024,
+        }),
+      )
+      .expect("bound Mock Tx subscription should open");
+    crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
+
+    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
+    let first = tokio::time::timeout(Duration::from_secs(2), subscription.recv())
+      .await
+      .expect("bound Mock Tx monitor frame should reach its managed subscriber")
+      .expect("bound Mock Tx subscription should remain open");
+    let second = tokio::time::timeout(Duration::from_secs(2), subscription.recv())
+      .await
+      .expect("second bound Mock Tx monitor frame should reach its managed subscriber")
+      .expect("bound Mock Tx subscription should remain open");
+
+    let crate::server::stream_manager::StreamEvent::Frame(first) = first else {
+      panic!("expected first managed Mock Tx monitor frame");
+    };
+    let crate::server::stream_manager::StreamEvent::Frame(second) = second else {
+      panic!("expected second managed Mock Tx monitor frame");
+    };
+    assert_eq!(first.key.source_id, MOCK_TX_SOURCE_ID);
+    assert_eq!(second.key.source_id, MOCK_TX_SOURCE_ID);
+    assert!(!first.is_tx_preview);
+    assert!(!second.is_tx_preview);
+    assert!(second.sequence > first.sequence);
+    assert_ne!(first.iq_data, second.iq_data);
+
+    shared.shutdown.store(true, Ordering::Relaxed);
+    monitor
+      .await
+      .expect("bound Mock Tx monitor should stop cleanly");
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
     shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
   }
@@ -585,16 +683,17 @@ mod tests {
     shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
 
-    let (spectrum_tx, mut spectrum_rx) = broadcast::channel(8);
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
-    let _subscription = stream_manager
+    let mut subscription = stream_manager
       .subscribe(
         StreamKey::new(MOCK_TX_SOURCE_ID, StreamMode::Tx),
         StreamOptions::Tx(TxStreamOptions {
           center_frequency_hz: 2_400_000,
           sample_rate_hz: 2_000_000,
           bandwidth_hz: 2_000_000,
+          view_center_hz: None,
+          view_sample_rate_hz: None,
           signal: "wifi".to_string(),
           power_dbm: -18.0,
           ifft_size: 1024,
@@ -602,10 +701,9 @@ mod tests {
       )
       .expect("managed Tx subscription should open");
 
-    let monitor =
-      spawn_tx_monitor_stream(shared.clone(), spectrum_tx, stream_manager);
+    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
     assert!(
-      tokio::time::timeout(Duration::from_millis(100), spectrum_rx.recv())
+      tokio::time::timeout(Duration::from_millis(100), subscription.recv())
         .await
         .is_err(),
       "standby Tx subscriptions must wait for an explicit preview request"
@@ -1061,7 +1159,6 @@ impl WebSocketServer {
       sdr_processor.clone(),
       shared_state.clone(),
       _broadcast_tx.clone(),
-      spectrum_tx.clone(),
       stream_manager.clone(),
     );
 
@@ -1073,7 +1170,6 @@ impl WebSocketServer {
     let mut allow_next_paused_frame = false;
     let tx_monitor_task = spawn_tx_monitor_stream(
       shared_state.clone(),
-      spectrum_tx.clone(),
       stream_manager.clone(),
     );
     let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
@@ -1140,19 +1236,38 @@ impl WebSocketServer {
             source_id,
             sample_rate,
           } => {
-            let mut processor = sdr_processor.lock().await;
-            source_lifecycle::activate_source(
-              source_id,
-              sample_rate,
-              &mut processor,
-              &shared_state,
-              &_broadcast_tx,
-              &spectrum_tx,
-              &stream_manager,
-              &mut warm_devices,
-              &mut hotplug_state,
-              &mut allow_next_paused_frame,
-            );
+            // A source-owned runtime must yield before its source resumes
+            // ownership of the legacy control processor. Its managed stream
+            // remains subscribed, so the active acquisition loop can keep
+            // publishing into that same stream after the handoff.
+            self.source_runtime_manager
+              .stop(&StreamKey::new(source_id.clone(), StreamMode::Rx));
+            {
+              let mut processor = sdr_processor.lock().await;
+              source_lifecycle::activate_source(
+                source_id,
+                sample_rate,
+                &mut processor,
+                &shared_state,
+                &_broadcast_tx,
+                &spectrum_tx,
+                &stream_manager,
+                &mut warm_devices,
+                &mut hotplug_state,
+                &mut allow_next_paused_frame,
+              );
+            }
+            // A pre-existing subscription may have been opened while this
+            // source was active, before the handoff made it inactive. Promote
+            // that subscription now rather than waiting for a resubscribe.
+            self
+              .source_runtime_manager
+              .ensure_inactive_rx_runtimes(
+                &active_source_id(&shared_state),
+                shared_state.clone(),
+                stream_manager.clone(),
+              )
+              .await;
           }
           crate::server::types::SdrCommand::RestartDevice { source_id } => {
             let active_id = active_source_id(&shared_state);
@@ -1487,6 +1602,7 @@ impl WebSocketServer {
             Some(center_frequency as u64),
             sample_rate,
             Arc::new(spectrum_message.iq_data.clone()),
+            false,
           );
 
           // Broadcast to all connected WebSocket clients

@@ -1,4 +1,5 @@
 import {
+  canShowTxSliderForSource,
   resolveMockTxPreviewViewCenterHz,
   resolveMockTxTransmitSettings,
   resolveTxPreviewCenterHz,
@@ -8,6 +9,15 @@ import {
   shouldJumpTxMonitor,
   shouldSyncMockMonitorCenterFromRange,
 } from "@n-apt/transmit/public/txSliderPlacement";
+
+describe("canShowTxSliderForSource", () => {
+  it("only allows Tx-capable standby and transmitting sources", () => {
+    expect(canShowTxSliderForSource({ canTransmit: true, status: "standby" })).toBe(true);
+    expect(canShowTxSliderForSource({ canTransmit: true, status: "transmitting" })).toBe(true);
+    expect(canShowTxSliderForSource({ canTransmit: false, status: "transmitting" })).toBe(false);
+    expect(canShowTxSliderForSource({ canTransmit: true, status: "receiving" })).toBe(false);
+  });
+});
 
 describe("resolveTxPreviewGeometry", () => {
   it("keeps the Tx IQ bandwidth fixed while the standby VFO moves", () => {

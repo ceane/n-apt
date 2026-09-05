@@ -2,8 +2,20 @@ import {
   resolveFramePresentation,
   selectFrameForPresentation,
 } from "@n-apt/spectrum/fft/framePresentation";
+import { shouldReprocessSpectrumFrame } from "@n-apt/spectrum/FFTCanvas";
 
 describe("frame presentation policy", () => {
+  it("reprocesses the resident frame after a visibility-forced repaint", () => {
+    expect(
+      shouldReprocessSpectrumFrame({
+        force: true,
+        currentFrame: { iq_data: new Uint8Array([1, 2]) },
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+      }),
+    ).toBe(true);
+  });
+
   it("prefers an incoming frame over a paused snapshot", () => {
     const cached = { source_id: "cached" };
     const incoming = { source_id: "incoming" };
@@ -146,6 +158,30 @@ describe("frame presentation policy", () => {
     });
 
     expect(decision.preservePresentationDuringGap).toBe(true);
+  });
+
+  it("does not cover a recovered standby snapshot with a loading placeholder", () => {
+    const decision = resolveFramePresentation({
+      currentFrame: null,
+      expectedSourceId: "mock-tx",
+      lastPresentedSourceId: "mock-tx",
+      lastRenderableFrame: null,
+      isStandby: true,
+      awaitingDeviceData: true,
+      isLoadingPlaceholder: true,
+      isDeviceConnected: true,
+      placeholderErrorReason: null,
+      explicitPlaceholderState: {
+        kind: "loading",
+        sourceLabel: "Mock Tx SDR",
+      },
+      hasPresentedSpectrumFrame: false,
+      hasRetainedPausedPresentation: true,
+    });
+
+    expect(decision.showLoadingPlaceholder).toBe(false);
+    expect(decision.preservePresentationDuringGap).toBe(true);
+    expect(decision.explicitPlaceholderBlocksFrame).toBe(false);
   });
 
   it("treats a visible loading placeholder as blocking even with a current frame", () => {

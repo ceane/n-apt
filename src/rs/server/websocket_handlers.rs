@@ -25,7 +25,7 @@ use super::stream_contract::{
 };
 use super::stream_manager::{
   SourceStreamCapabilities, StreamEvent, StreamKey, StreamMode, StreamOptions,
-  StreamState, StreamingSourceModeManager,
+  StreamState, StreamingSourceModeManager, TxStreamOptions,
 };
 use super::tx_log::{write_global, TxLogEntry};
 use super::types::{PowerScale, SpectrumData};
@@ -180,6 +180,30 @@ fn apply_tx_preview_settings(message: &WebSocketMessage) {
   }
 }
 
+/// Keep the source-owned Mock Tx monitor generator on the same settings as
+/// its managed stream. A `stream_update_options` command does not carry the
+/// legacy WebSocket message shape, so it must update the synthesis state here
+/// before the following subscriber-scoped one-shot request is serviced.
+fn apply_mock_tx_stream_options(options: &TxStreamOptions) {
+  *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
+    options.center_frequency_hz as f64;
+  *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() =
+    options
+      .view_center_hz
+      .unwrap_or(options.center_frequency_hz) as f64;
+  crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(
+    options
+      .view_sample_rate_hz
+      .unwrap_or(options.sample_rate_hz)
+      .max(1),
+    Ordering::Relaxed,
+  );
+  *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = options.bandwidth_hz as f64;
+  *crate::safety::TX_POWER_DBM.lock().unwrap() = options.power_dbm;
+  *crate::safety::TX_IFFT_SIZE.lock().unwrap() = options.ifft_size;
+  *crate::safety::TX_SIGNAL.lock().unwrap() = normalize_tx_signal(Some(&options.signal));
+}
+
 /// Build one source-owned Mock Tx monitor frame for an inactive Tx device.
 ///
 /// The normal SDR loop can only read the currently active hardware source.
@@ -189,6 +213,24 @@ fn apply_tx_preview_settings(message: &WebSocketMessage) {
 pub(crate) fn build_tx_preview_frame(
   shared: &SharedState,
   source_id: &str,
+) -> SpectrumData {
+  build_tx_preview_frame_with_status(shared, source_id, true)
+}
+
+/// Build the same deterministic Mock Tx IQ used for standby previews, but
+/// with the transmitting presentation role. The bytes remain source-owned;
+/// only the monitor status changes between standby and live Tx.
+pub(crate) fn build_mock_tx_monitor_frame(
+  shared: &SharedState,
+  is_tx_preview: bool,
+) -> SpectrumData {
+  build_tx_preview_frame_with_status(shared, MOCK_TX_SOURCE_ID, is_tx_preview)
+}
+
+fn build_tx_preview_frame_with_status(
+  shared: &SharedState,
+  source_id: &str,
+  is_tx_preview: bool,
 ) -> SpectrumData {
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   // A monitor preview must match the configured viewer FFT size. Keeping the
@@ -243,7 +285,7 @@ pub(crate) fn build_tx_preview_frame(
     view_center_hz,
     sample_rate,
     raw_iq,
-    true,
+    is_tx_preview,
   )
 }
 
@@ -437,7 +479,7 @@ pub enum StreamCommand {
     subscription_id: String,
     stream: StreamKey,
     options: StreamOptions,
-    #[serde(default)]
+    #[serde(default, rename = "deliveryPolicy")]
     delivery_policy: StreamDeliveryPolicy,
   },
   #[serde(rename = "stream_update_options")]
@@ -736,6 +778,7 @@ pub fn stream_event_json(
       value["centerFrequencyHz"] = serde_json::json!(frame.center_frequency_hz);
       value["sampleRateHz"] = serde_json::json!(frame.sample_rate_hz);
       value["dataType"] = serde_json::json!("iq_raw");
+      value["isTxPreview"] = serde_json::json!(frame.is_tx_preview);
       value["encrypted"] = serde_json::json!(true);
       value["iqData"] = serde_json::Value::String(
         String::from_utf8_lossy(&encoded_iq).into_owned(),
@@ -950,9 +993,10 @@ async fn handle_stream_connection(
               .and_then(|source| source["status"].as_str())
               .unwrap_or("disconnected");
             let source_is_active = active_source_id(&shared) == stream.source_id;
+            let logical_mock_tx = stream.source_id == MOCK_TX_SOURCE_ID;
             let stream_state = match source_status {
               "connected" | "receiving" | "streaming" | "transmitting"
-                if source_is_active => "ready",
+                if source_is_active || logical_mock_tx => "ready",
               "standby" if stream.mode == super::stream_manager::StreamMode::Tx => "opening",
               "loading" | "initializing" => "opening",
               _ => "unavailable",
@@ -969,6 +1013,11 @@ async fn handle_stream_connection(
                 continue;
               }
             };
+            if stream.source_id == MOCK_TX_SOURCE_ID {
+              if let StreamOptions::Tx(tx_options) = &effective_subscribe_options {
+                apply_mock_tx_stream_options(tx_options);
+              }
+            }
             let stream_identity =
               SourceStreamIdentity::from_session_token(&session_token, &stream.source_id, stream.mode);
             if expected_stream_id
@@ -1115,12 +1164,23 @@ async fn handle_stream_connection(
               }
               StreamOptions::Tx(_) => None,
             };
+            let mock_tx_options = if stream.source_id == MOCK_TX_SOURCE_ID {
+              match &options {
+                StreamOptions::Tx(tx_options) => Some(tx_options.clone()),
+                StreamOptions::Rx(_) => None,
+              }
+            } else {
+              None
+            };
             match manager.update_options(&stream, options) {
               Err(error) => {
                 let response = stream_error_json(&subscription_id, &stream, error.code(), &error.to_string());
                 let _ = sender.send(Message::Text(response.to_string().into())).await;
               }
               Ok((_, _, true)) => {
+                if let Some(tx_options) = mock_tx_options.as_ref() {
+                  apply_mock_tx_stream_options(tx_options);
+                }
                 if let Some((center_frequency_hz, settings)) = rx_device_settings {
                   // Managed RX options are device-scoped, not presentation-only.
                   // Apply them through the same lock-free acquisition path used by
@@ -1184,10 +1244,8 @@ async fn handle_stream_connection(
             }
           }
           StreamCommand::RequestFrame { scope, subscription_id, stream } => {
-            if scope != StreamControlScope::Subscriber
-              || stream.mode != super::stream_manager::StreamMode::Rx
-            {
-              let error = stream_error_json(&subscription_id, &stream, "scope", "one-shot frames are subscriber-scoped RX operations");
+            if scope != StreamControlScope::Subscriber {
+              let error = stream_error_json(&subscription_id, &stream, "scope", "one-shot frames are subscriber-scoped operations");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
             }
@@ -1217,6 +1275,12 @@ async fn handle_stream_connection(
             // Wake the acquisition worker even when every managed subscriber
             // is paused. The worker consumes the token for one fresh frame;
             // delivery remains scoped to the requesting subscriber.
+            if stream.mode == super::stream_manager::StreamMode::Tx {
+              // Tx standby has no acquisition worker of its own. Let the
+              // TxWorker consume the same source-owned request so a managed
+              // stream receives exactly one preview through the Tx frame bus.
+              shared.mark_paused_frame_requested(&stream.source_id);
+            }
             let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
           }
           StreamCommand::SetDelivery { scope, subscription_id, stream, delivery_policy } => {
@@ -2985,6 +3049,7 @@ pub fn handle_message(
 mod tests {
   use super::{
     apply_rx_stream_device_options, build_mock_tx_standby_preview_frame,
+    apply_mock_tx_stream_options,
     build_tx_preview_frame, drain_latest_source_iq_frame,
     encode_encrypted_iq_frame, handle_message, is_frame_after_paused_request,
     is_tx_preview_source, live_tune_is_out_of_bounds,
@@ -2994,12 +3059,14 @@ mod tests {
     source_iq_v2_frame_matches_source, stream_event_json,
     stream_rx_processor_settings, take_source_owned_paused_frame_request,
     resolve_authoritative_subscribe_options, IqFrameStatus, IqStreamProtocol,
+    StreamCommand,
   };
   use crate::sdr::processor::SdrProcessor;
   use crate::server::shared_state::SharedState;
   use crate::server::stream_manager::{
-    RxStreamOptions, StreamEvent, StreamKey, StreamMode,
+    RxStreamOptions, StreamEvent, StreamKey, StreamMode, TxStreamOptions,
   };
+  use crate::server::stream_contract::StreamDeliveryPolicy;
   use crate::server::types::{
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
   };
@@ -3009,6 +3076,36 @@ mod tests {
   use std::sync::mpsc;
   use std::sync::Arc;
   use std::time::Duration;
+
+  #[test]
+  fn stream_subscribe_honors_camel_case_delivery_policy() {
+    let command: StreamCommand = serde_json::from_str(
+      r#"{
+        "type":"stream_subscribe",
+        "scope":"subscriber",
+        "subscriptionId":"visualizer",
+        "stream":{"sourceId":"mock-tx","mode":"tx"},
+        "options":{
+          "mode":"tx",
+          "centerFrequencyHz":137100000,
+          "sampleRateHz":2400000,
+          "bandwidthHz":1200000,
+          "signal":"wifi",
+          "powerDbm":-18,
+          "ifftSize":2048
+        },
+        "deliveryPolicy":"latest"
+      }"#,
+    )
+    .expect("camelCase frontend subscribe command should deserialize");
+
+    match command {
+      StreamCommand::Subscribe { delivery_policy, .. } => {
+        assert_eq!(delivery_policy, StreamDeliveryPolicy::Latest);
+      }
+      _ => panic!("expected stream_subscribe command"),
+    }
+  }
 
   #[test]
   fn managed_rx_options_translate_to_live_device_settings() {
@@ -3799,6 +3896,34 @@ mod tests {
 
   #[test]
   #[serial]
+  fn managed_mock_tx_options_preserve_the_independent_monitor_view() {
+    apply_mock_tx_stream_options(&TxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      sample_rate_hz: 1_200_000,
+      bandwidth_hz: 1_200_000,
+      view_center_hz: Some(137_350_000),
+      view_sample_rate_hz: Some(4_372_000),
+      signal: "wifi".to_string(),
+      power_dbm: -18.0,
+      ifft_size: 2048,
+    });
+
+    assert_eq!(
+      *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap(),
+      137_100_000.0
+    );
+    assert_eq!(
+      *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap(),
+      137_350_000.0
+    );
+    assert_eq!(
+      crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed),
+      4_372_000
+    );
+  }
+
+  #[test]
+  #[serial]
   fn request_next_frame_without_view_center_aligns_monitor_to_carrier() {
     let shared = test_shared_state();
     let (cmd_tx, _cmd_rx, broadcast_tx) = test_channels();
@@ -4349,6 +4474,7 @@ mod tests {
         center_frequency_hz: Some(1_600_000),
         sample_rate_hz: 3_200_000,
         iq_data: Arc::new(vec![128; 262_144 * 2]),
+        is_tx_preview: false,
       });
 
     let encoded = stream_event_json(&event, &[7u8; 32])

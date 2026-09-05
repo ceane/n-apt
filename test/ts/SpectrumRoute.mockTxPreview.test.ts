@@ -3,10 +3,19 @@ import {
   resolveLiveDevicePlaceholderState,
 } from "@n-apt/app/routes/pages/SpectrumRoute";
 import {
+  resolvePausedPreviewRequestSourceId,
   resolveMockTxMonitorSampleRateForView,
   resolveTxStandbyPreviewTransport,
   shouldClearMockTxPreviewRequestDedupe,
 } from "@n-apt/app/routes/pages/spectrum/mockTxPreview";
+
+describe("resolvePausedPreviewRequestSourceId", () => {
+  it("targets selected Mock Tx instead of the active Rx source", () => {
+    expect(
+      resolvePausedPreviewRequestSourceId("mock-apt", "mock-tx"),
+    ).toBe("mock-tx");
+  });
+});
 
 describe("getMockTxPreviewRequestKey", () => {
   it("changes when TX preview bandwidth changes", () => {

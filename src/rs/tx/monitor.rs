@@ -10,7 +10,6 @@ use crate::server::shared_state::SharedState;
 use crate::server::stream_manager::{
   StreamKey, StreamMode, StreamingSourceModeManager,
 };
-use crate::server::types::SpectrumData;
 use crate::server::websocket_server::complex_baseband;
 use crate::server::websocket_server::{
   active_source_id, broadcast_device_status,
@@ -45,12 +44,31 @@ pub enum StandbyPreviewOutcome {
   NoRequest,
 }
 
+/// A bound Mock Tx must publish status even while Mock APT owns the active
+/// receive processor; status ownership follows the Tx source, not the active
+/// backend kind.
+pub(crate) fn should_broadcast_tx_status(
+  active_kind: &str,
+  is_mock_tx_device: bool,
+) -> bool {
+  is_mock_tx_device || matches!(active_kind, "mock_tx" | "hackrf_one")
+}
+
+#[cfg(test)]
+mod status_tests {
+  #[test]
+  fn bound_mock_tx_broadcasts_status_when_mock_apt_is_active() {
+    assert!(super::should_broadcast_tx_status("mock_apt", true));
+    assert!(super::should_broadcast_tx_status("hackrf_one", false));
+    assert!(!super::should_broadcast_tx_status("mock_apt", false));
+  }
+}
+
 /// Publishes the latest TX monitor frame without entering the RX acquisition
 /// loop. Display consumers are allowed to skip frames; physical TX remains
 /// controlled by `TxWorker::apply_status` and the safety gates.
 pub(crate) fn spawn_monitor_stream(
   shared_state: Arc<SharedState>,
-  spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
   stream_manager: StreamingSourceModeManager,
 ) -> tokio::task::JoinHandle<()> {
   tokio::spawn(async move {
@@ -64,35 +82,39 @@ pub(crate) fn spawn_monitor_stream(
         break;
       }
       let tx_is_active = crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
-      let active_source_id = active_source_id(&shared_state);
-      let active_tx_key =
-        StreamKey::new(active_source_id.clone(), StreamMode::Tx);
-      let mock_tx_key = StreamKey::new(
-        crate::server::websocket_server::MOCK_TX_SOURCE_ID,
-        StreamMode::Tx,
-      );
-      let tx_key = if stream_manager.has_stream(&active_tx_key)
-        || stream_manager.tx_payload(&active_tx_key).is_some()
+      let mut tx_keys = stream_manager.tx_stream_keys();
+      let active_source = active_source_id(&shared_state);
+      if tx_is_active
+        && (active_source == crate::server::websocket_server::MOCK_TX_SOURCE_ID
+          || active_source == "hackrf_one"
+          || active_source.starts_with("hackrf_one-"))
       {
-        active_tx_key
-      } else {
-        mock_tx_key
-      };
+        let active_key = StreamKey::new(active_source, StreamMode::Tx);
+        if !tx_keys.contains(&active_key) {
+          tx_keys.push(active_key);
+        }
+      }
+      for tx_key in tx_keys {
       let managed_tx_stream = stream_manager.has_stream(&tx_key);
-      if !crate::server::websocket_server::should_run_tx_monitor(
-        &active_source_id,
-        tx_is_active,
-        managed_tx_stream,
-      ) {
+      if !managed_tx_stream
+        || !crate::server::websocket_server::should_run_tx_monitor(
+          tx_is_active,
+          managed_tx_stream,
+        )
+      {
         continue;
       }
-      let frame = if active_source_id
+      // The logical Mock Tx stream can be bound while a receive-capable
+      // source remains the active processor. Branch on the stream that owns
+      // the monitor frame, not on the processor's active source.
+      let frame = if tx_key.source_id
         == crate::server::websocket_server::MOCK_TX_SOURCE_ID
       {
         let frame_state = shared_state.clone();
         match tokio::task::spawn_blocking(move || {
-                    crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
-                        &frame_state,
+                    crate::server::websocket_handlers::build_mock_tx_monitor_frame(
+                      &frame_state,
+                      false,
                     )
                 })
                 .await
@@ -100,38 +122,27 @@ pub(crate) fn spawn_monitor_stream(
                     Ok(frame) => frame,
                     Err(_) => continue,
                 }
-      } else {
-        let Some(payload) = stream_manager.tx_payload(&tx_key) else {
-          continue;
-        };
-        let frame = crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
+      } else if let Some(payload) = stream_manager.tx_payload(&tx_key) {
+        crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
           &shared_state,
-          &active_source_id,
+          &tx_key.source_id,
           payload.center_frequency_hz as f64,
           payload.sample_rate_hz,
           (*payload.iq_data).clone(),
           false,
-        );
-        // Publish the exact bytes handed to the transmitter by sharing the
-        // payload's existing Arc instead of re-cloning the full IQ buffer.
-        let _ = stream_manager.publish_iq_frame_with_metadata(
-          &tx_key,
-          frame.timestamp,
-          frame.center_frequency_hz.map(|frequency| frequency as u64),
-          frame.sample_rate.unwrap_or(1),
-          Arc::clone(&payload.iq_data),
-        );
-        let _ = spectrum_tx.send(Arc::new(frame));
+        )
+      } else {
         continue;
       };
-      let _ = stream_manager.publish_iq_frame_with_metadata(
+      let _ = stream_manager.publish_monitor_iq_frame_with_metadata(
         &tx_key,
         frame.timestamp,
         frame.center_frequency_hz.map(|frequency| frequency as u64),
         frame.sample_rate.unwrap_or(1),
         Arc::new(frame.iq_data.clone()),
+        false,
       );
-      let _ = spectrum_tx.send(Arc::new(frame));
+      }
     }
   })
 }
@@ -142,7 +153,6 @@ pub struct TxWorker {
   processor: Arc<Mutex<SdrProcessor>>,
   shared_state: Arc<SharedState>,
   broadcast_tx: broadcast::Sender<String>,
-  spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
   stream_manager: StreamingSourceModeManager,
 }
 
@@ -151,14 +161,12 @@ impl TxWorker {
     processor: Arc<Mutex<SdrProcessor>>,
     shared_state: Arc<SharedState>,
     broadcast_tx: broadcast::Sender<String>,
-    spectrum_tx: broadcast::Sender<Arc<SpectrumData>>,
     stream_manager: StreamingSourceModeManager,
   ) -> Self {
     Self {
       processor,
       shared_state,
       broadcast_tx,
-      spectrum_tx,
       stream_manager,
     }
   }
@@ -192,14 +200,14 @@ impl TxWorker {
         crate::server::websocket_server::MOCK_TX_SOURCE_ID.to_string(),
         StreamMode::Tx,
       );
-      let _ = self.stream_manager.publish_iq_frame_with_metadata(
+      let _ = self.stream_manager.publish_monitor_iq_frame_with_metadata(
         &tx_key,
         frame.timestamp,
         frame.center_frequency_hz.map(|frequency| frequency as u64),
         frame.sample_rate.unwrap_or(1),
         Arc::new(frame.iq_data.clone()),
+        true,
       );
-      let _ = self.spectrum_tx.send(Arc::new(frame));
       self.shared_state.clear_paused_frame_request();
       return StandbyPreviewOutcome::Published;
     }
@@ -232,14 +240,14 @@ impl TxWorker {
         let published_iq = Arc::new(frame.iq_data.clone());
         (frame, published_iq)
       };
-    let _ = self.stream_manager.publish_iq_frame_with_metadata(
+    let _ = self.stream_manager.publish_monitor_iq_frame_with_metadata(
       &hardware_tx_key,
       frame.timestamp,
       frame.center_frequency_hz.map(|frequency| frequency as u64),
       frame.sample_rate.unwrap_or(1),
       published_iq,
+      true,
     );
-    let _ = self.spectrum_tx.send(Arc::new(frame));
     self.shared_state.clear_paused_frame_request();
     StandbyPreviewOutcome::Published
   }
@@ -438,19 +446,9 @@ impl TxWorker {
         );
         metrics
           .increment(crate::performance::CounterKind::Bytes, iq.len() as u64);
-        {
-          let _span = crate::performance::ProfilingSpan::start(
-            metrics,
-            crate::performance::Stage::TxDeviceWrite,
-          );
-          processor.transmit_iq(Some(&iq))?;
-        }
-        metrics.increment(crate::performance::CounterKind::FramesConsumed, 1);
-        // Store the payload under the source that owns the armed standby
-        // preview when one exists. A half-duplex HackRF in Tx mode may be a
-        // bound Tx-suite source rather than the active SDR source; the preview
-        // request and its frame must be keyed to that source so the Tx stream
-        // delivers the standby graph to the bound device.
+        // Publish the immutable source-owned payload before FFI consumes it.
+        // Monitor and managed Tx subscribers therefore observe the exact
+        // generated bytes that enter the transmitter.
         let payload_source = self
           .shared_state
           .paused_frame_request_owner()
@@ -459,8 +457,16 @@ impl TxWorker {
           StreamKey::new(payload_source, StreamMode::Tx),
           center_hz.min(u32::MAX as f64) as u64,
           sample_rate,
-          iq,
+          iq.clone(),
         );
+        {
+          let _span = crate::performance::ProfilingSpan::start(
+            metrics,
+            crate::performance::Stage::TxDeviceWrite,
+          );
+          processor.transmit_iq(Some(&iq))?;
+        }
+        metrics.increment(crate::performance::CounterKind::FramesConsumed, 1);
       } else {
         processor.transmit_iq(None)?;
         self.stream_manager.clear_tx_payload(&StreamKey::new(
@@ -495,7 +501,7 @@ impl TxWorker {
       status_changed |= mock_tx_was_transmitting != enabled;
     }
     if status_changed
-      && matches!(active_kind.as_str(), "mock_tx" | "hackrf_one")
+      && should_broadcast_tx_status(&active_kind, is_mock_tx_device)
     {
       self.shared_state.set_device_state(
         if enabled { "transmitting" } else { "connected" },

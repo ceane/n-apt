@@ -10,6 +10,8 @@ use super::stream_manager::{SourceStreamCapabilities, StreamMode};
 use super::stream_manager::{
   StreamKey, StreamOptions, StreamingSourceModeManager,
 };
+use super::websocket_server::open_device_for_source_id;
+use super::shared_state::SharedState;
 use crate::sdr::processor::SdrProcessor;
 use crate::server::types::SdrProcessorSettings;
 
@@ -368,6 +370,86 @@ impl SourceRuntimeManager {
       .contains_key(key)
   }
 
+  /// Promote subscribed RX streams away from the legacy active-source
+  /// processor. A subscription may have been opened while its source was the
+  /// active source; once another source takes that processor, the subscriber
+  /// still needs a source-owned runtime to keep receiving frames.
+  pub async fn ensure_inactive_rx_runtimes(
+    &self,
+    active_source_id: &str,
+    shared: Arc<SharedState>,
+    stream_manager: StreamingSourceModeManager,
+  ) {
+    for key in stream_manager.rx_stream_keys_with_subscribers() {
+      if key.source_id == active_source_id || self.is_running(&key) {
+        continue;
+      }
+      let Some(capabilities) = stream_manager.capabilities(&key.source_id) else {
+        continue;
+      };
+      let Some(options) = stream_manager.options(&key) else {
+        continue;
+      };
+      let source_id = key.source_id.clone();
+      let shared_for_open = Arc::clone(&shared);
+      let processor = match tokio::task::spawn_blocking(move || {
+        let device = open_device_for_source_id(&shared_for_open, &source_id)
+          .map_err(|error| SourceRuntimeError::Startup(error.to_string()))?;
+        SdrProcessor::with_device(device)
+          .map_err(|error| SourceRuntimeError::Startup(error.to_string()))
+      })
+      .await
+      {
+        Ok(Ok(processor)) => processor,
+        Ok(Err(error)) => {
+          log::warn!(
+            "Failed to promote inactive source runtime {}: {}",
+            key.source_id,
+            error
+          );
+          continue;
+        }
+        Err(error) => {
+          log::warn!(
+            "Inactive source runtime promotion task failed for {}: {}",
+            key.source_id,
+            error
+          );
+          continue;
+        }
+      };
+      if let Err(error) = self
+        .start(
+          key.clone(),
+          capabilities,
+          processor,
+          options,
+          stream_manager.clone(),
+        )
+        .await
+      {
+        log::warn!(
+          "Failed to start promoted source runtime {}: {}",
+          key.source_id,
+          error
+        );
+      }
+    }
+  }
+
+  /// Stop the source-owned RX runtime before its source resumes ownership of
+  /// the legacy control processor. The stream entry and subscribers remain in
+  /// place, so the active acquisition loop can publish into the same stream.
+  pub fn stop(&self, key: &StreamKey) {
+    let inner = self
+      .inner
+      .lock()
+      .expect("source runtime registry lock poisoned");
+    if let Some(handle) = inner.handles.get(key) {
+      let _ = handle.stop.send(true);
+    }
+  }
+
   pub fn running_source_count(&self) -> usize {
     self
       .inner
@@ -461,6 +543,7 @@ async fn run_runtime(
             Some(center_frequency.into()),
             sample_rate,
             iq_data,
+            false,
           );
         }
       }
@@ -702,6 +785,67 @@ mod tests {
     assert_eq!(frame_b.key, key_b);
     assert_eq!(runtime_manager.running_source_count(), 2);
     runtime_manager.stop_all();
+  }
+
+  #[tokio::test]
+  async fn keeps_mock_apt_rx_frames_advancing_while_mock_tx_is_transmitting() {
+    use std::sync::atomic::Ordering;
+
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(20));
+    let runtime_manager = SourceRuntimeManager::new();
+    let capabilities = SourceStreamCapabilities {
+      can_receive: true,
+      can_transmit: false,
+      full_duplex: false,
+    };
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let options = StreamOptions::Rx(RxStreamOptions {
+      center_frequency_hz: 2_204_000,
+      sample_rate_hz: 4_372_000,
+      fft_size: 1024,
+      fft_window: None,
+      frame_rate: Some(20),
+      gain: None,
+    });
+    stream_manager.register_source(key.source_id.clone(), capabilities);
+    let mut subscription = stream_manager
+      .subscribe(key.clone(), options.clone())
+      .expect("Mock APT RX subscription should open");
+
+    crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    let result = async {
+      runtime_manager
+        .start(
+          key.clone(),
+          capabilities,
+          SdrProcessor::new_mock_apt().expect("Mock APT processor"),
+          options,
+          stream_manager.clone(),
+        )
+        .await
+        .expect("Mock APT runtime should start");
+
+      let first = tokio::time::timeout(
+        Duration::from_millis(500),
+        receive_frame(&mut subscription),
+      )
+      .await
+      .expect("Mock APT should publish the first RX frame");
+      let second = tokio::time::timeout(
+        Duration::from_millis(500),
+        receive_frame(&mut subscription),
+      )
+      .await
+      .expect("Mock APT should publish a subsequent RX frame");
+
+      assert!(second.sequence > first.sequence);
+      assert_ne!(second.iq_data.as_ref(), first.iq_data.as_ref());
+    }
+    .await;
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    runtime_manager.stop_all();
+    result
   }
 
   #[tokio::test]

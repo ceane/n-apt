@@ -22,6 +22,8 @@ fn tx_options() -> StreamOptions {
     center_frequency_hz: 100_000_000,
     sample_rate_hz: 2_400_000,
     bandwidth_hz: 1_000_000,
+    view_center_hz: None,
+    view_sample_rate_hz: None,
     signal: "wifi".to_string(),
     power_dbm: -18.0,
     ifft_size: 1024,

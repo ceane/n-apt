@@ -117,6 +117,37 @@ describe("SourcePresentationController", () => {
       expect(ctrl.getSlot("mock-apt", "rx")?.phase).toBe("streaming");
     });
 
+    it("keeps a committed local view when a foreign global source changes", () => {
+      const ctrl = createController();
+      ctrl.selectSource("mock-apt", "rx", true);
+      ctrl.commitActiveSource("mock-apt");
+
+      ctrl.commitActiveSource("mock-tx");
+
+      expect(ctrl.getActivePresentation()).toMatchObject({
+        sourceId: "mock-apt",
+        mode: "rx",
+        pendingSourceId: null,
+      });
+    });
+
+    it("resumes a paused slot when the same local source is selected again", () => {
+      const ctrl = createController();
+      ctrl.selectSource("mock-apt", "rx", true);
+      ctrl.commitActiveSource("mock-apt");
+      const frame = makeRxFrame("mock-apt", { sequence: 1 });
+      ctrl.acceptFrame(frame);
+      ctrl.setPaused("mock-apt", "rx", true);
+
+      ctrl.selectSource("mock-tx", "tx", true);
+      ctrl.commitActiveSource("mock-tx");
+      ctrl.selectSource("mock-apt", "rx", true);
+      ctrl.commitActiveSource("mock-apt");
+
+      expect(ctrl.getSlot("mock-apt", "rx")?.phase).not.toBe("paused");
+      expect(ctrl.getPresentationRef("rx").current).toBe(frame);
+    });
+
     it("rejects frames from a stale epoch", () => {
       const ctrl = createController();
       ctrl.selectSource("hackrf-1");
@@ -498,6 +529,23 @@ describe("SourcePresentationController", () => {
       const slot = ctrl.getSlot("mock-tx", "tx");
       expect(slot?.phase).toBe("standby");
       expect(slot?.frozenFrame).not.toBeNull();
+    });
+
+    it("serves a pending Tx preview when a stale backend commit names the old source", () => {
+      const ctrl = createController();
+      ctrl.selectSource("mock-apt", "rx");
+      ctrl.commitActiveSource("mock-apt");
+      ctrl.acceptFrame(makeRxFrame("mock-apt"));
+
+      // A subscriber-local Tx selection can receive its managed frame before
+      // the process-wide active source changes. The pending target must own
+      // the presentation read during that handoff.
+      ctrl.selectSource("mock-tx", "tx", true);
+      ctrl.commitActiveSource("mock-apt");
+      const preview = makeTxFrame("mock-tx", { status: "standby" });
+      expect(ctrl.acceptFrame(preview, "tx")).toBe(true);
+
+      expect(ctrl.getPresentationRef("tx").current).toBe(preview);
     });
   });
 

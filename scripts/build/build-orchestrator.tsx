@@ -42,6 +42,7 @@ import {
   mergeRebuildRecentLines,
   RUST_HOT_RELOAD_BUILD_STALE_MS,
   summarizeCargoProgressChunk,
+  summarizeRustBuildFailure,
   type RebuildStatusPayload,
   type RebuildStatusStep,
 } from './cargoBuildProgress';
@@ -659,7 +660,7 @@ const BuildOrchestrator = () => {
         child.on('close', (code) => {
           activeChildrenRef.current = activeChildrenRef.current ? activeChildrenRef.current.filter((proc) => proc !== child) : [];
           if (shutdownRequestedRef.current) {
-            resolve({ success: false, output: stdout });
+            resolve({ success: false, output: `${stdout}\n${stderr}`.trim() });
             return;
           }
 
@@ -668,7 +669,7 @@ const BuildOrchestrator = () => {
               addLog(chalk.green(stdout.trim()));
             }
             addLog(chalk.green(`${description} completed successfully`));
-            resolve({ success: true, output: stdout });
+            resolve({ success: true, output: `${stdout}\n${stderr}`.trim() });
             return;
           }
 
@@ -676,7 +677,7 @@ const BuildOrchestrator = () => {
           addLog(chalk.red(`Error in ${description}: ${errorMessage}`));
           const summary = errorMessage.length > 200 ? `${errorMessage.slice(0, 197)}...` : errorMessage;
           appendErrorDetail(`${description}: ${summary}`);
-          resolve({ success: false, output: stdout });
+          resolve({ success: false, output: `${stdout}\n${stderr}`.trim() });
         });
 
         child.on('error', (error: any) => {
@@ -2085,7 +2086,13 @@ exit 1
           phase: validationResult.stage === 'restarted' ? 'ready' : 'degraded',
           progress: validationResult.stage === 'restarted'
             ? 'Rust backend reloaded'
-            : `Reload finished: ${validationResult.stage}`,
+            : `Reload finished: ${validationResult.stage}${
+              'build' in validationResult
+                ? ` — ${summarizeRustBuildFailure(validationResult.build.output)}`
+                : 'check' in validationResult
+                  ? ` — ${summarizeRustBuildFailure(validationResult.check.output)}`
+                  : ''
+            }`,
           startedAt: undefined,
         });
       }

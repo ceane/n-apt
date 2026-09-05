@@ -55,6 +55,7 @@ fn arbitrary_stream_event() -> impl Strategy<Value = StreamEvent> {
         center_frequency_hz: Some(137_100_000),
         sample_rate_hz: 2_400_000,
         iq_data: std::sync::Arc::new(iq),
+        is_tx_preview: false,
       })
     })
 }

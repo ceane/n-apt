@@ -134,7 +134,7 @@ export const normalizePersistedTxViewerSettings = (parsed: any) => {
   }
 
   if (parsed.txViewerPowerScale !== "dB" && parsed.txViewerPowerScale !== "dBm") {
-    parsed.txViewerPowerScale = "dB";
+    parsed.txViewerPowerScale = "dBm";
   }
 
   return parsed;

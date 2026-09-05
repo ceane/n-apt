@@ -12,11 +12,9 @@ decryptPayloadBytesMock.mockImplementation(async () =>
 
 /**
  * Ingress tagging contract (docs/architecture/multiplex-stream-pipeline.md §5):
- * the multiplexed transport NEVER emits standby/preview-tagged frames. Those
- * tags are exclusive to the legacy control-socket one-shot path, and the
- * middleware batch gate keys on them. If this test fails, preview frames have
- * started flowing through the transport — the gate semantics and the doc must
- * be revisited before shipping.
+ * a Mock Tx one-shot preview retains its standby identity across the
+ * multiplexed stream. The presentation lifecycle must therefore accept it
+ * while Mock APT remains the active receive processor.
  */
 describe("multiplexed stream ingress tagging contract", () => {
   const aesKeyImport = async (): Promise<CryptoKey> => {
@@ -41,7 +39,7 @@ describe("multiplexed stream ingress tagging contract", () => {
   });
 
   it.each([["rx"], ["tx"]])(
-    "emits only receiving/transmitting frame_status for %s streams",
+    "emits receiving/transmitting frame_status for ordinary %s streams",
     async (mode) => {
       const event = await makeFrame(frameMessage({ mode }), await aesKeyImport());
       expect(event.type).toBe("stream_frame");
@@ -55,12 +53,13 @@ describe("multiplexed stream ingress tagging contract", () => {
     },
   );
 
-  it("never emits standby tags even when the message claims a standby status", async () => {
+  it("preserves a Mock Tx one-shot as a standby preview", async () => {
     const event = await makeFrame(
-      frameMessage({ frame_status: "standby" }),
+      frameMessage({ isTxPreview: true }),
       await aesKeyImport(),
     );
     if (event.type !== "stream_frame") return;
-    expect(event.frame.frame_status).not.toBe("standby");
+    expect(event.frame.frame_status).toBe("standby");
+    expect(event.frame.is_tx_preview).toBe(true);
   });
 });

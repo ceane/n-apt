@@ -152,17 +152,26 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       ),
     );
     const wsState = useAppSelector((reduxState) => reduxState.websocket);
-    const activeSourceStatus = activeSource
-      ? (wsState.sourceStatuses?.[activeSource.id] ?? activeSource.status)
+    // The control plane's active source owns device arbitration, but the
+    // canvas may be presenting a subscriber-local Tx stream while RX remains
+    // active globally. Derive display mode/status from the selected target
+    // first so Tx frames are not rendered through the RX loading contract.
+    const presentationSource =
+      wsState.sources?.find(
+        (source) => source.id === (props.expectedSourceId ?? ""),
+      ) ?? activeSource;
+    const presentationSourceStatus = presentationSource
+      ? (wsState.sourceStatuses?.[presentationSource.id] ??
+        presentationSource.status)
       : null;
     const txSuiteSourceId = useAppSelector(
       (reduxState) =>
         reduxState.sourceRouting?.bindings?.["tx-suite:tx"] ?? null,
     );
     const sourceModeManagement = resolveSourceModeManagement({
-      source: activeSource
-        ? { ...activeSource, status: activeSourceStatus }
-        : activeSource,
+      source: presentationSource
+        ? { ...presentationSource, status: presentationSourceStatus }
+        : presentationSource,
       txBindingSourceId: txSuiteSourceId,
     });
     const sourceTransport =
@@ -176,17 +185,18 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       sourceMode !== "file" &&
       (props.txSlider?.visible === true ||
         sourceModeManagement.shouldShowTxControls ||
-        activeSourceStatus === "standby" ||
-        activeSourceStatus === "transmitting");
+        presentationSourceStatus === "standby" ||
+        presentationSourceStatus === "transmitting");
 
     const [waterfallGpuCanvasNode, setWaterfallGpuCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
     const [waterfallOverlayCanvasNode, setWaterfallOverlayCanvasNode] =
       useState<HTMLCanvasElement | null>(null);
+    const retainsFramePresentation = props.isPaused || props.isStandby === true;
     const [hasRenderableFrame, setHasRenderableFrame] = useState(false);
     const [hasPaintedFrame, setHasPaintedFrame] = useState(false);
     const [shouldShowLoadingPlaceholder, setShouldShowLoadingPlaceholder] =
-      useState(true);
+      useState(() => !retainsFramePresentation);
     const renderabilityRef = useRef(false);
     const handleRenderableFrameChange = useCallback(
       (hasFrame: boolean) => {
@@ -219,7 +229,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
         ((currentFrame as any).waveform?.length ?? 0) > 0)
     );
     const sourceStreamReady =
-      isSourceStreamAvailable(activeSourceStatus) ||
+      isSourceStreamAvailable(presentationSourceStatus) ||
       sourceTransport?.phase === "ready" ||
       hasIncomingData;
     const hasFrameForLoading =
@@ -274,20 +284,33 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       props.awaitingDeviceData,
     ]);
 
+    const lifecycleBlocksRetainedPresentation = !!(
+      props.placeholderState &&
+      props.placeholderState.kind !== "top-bar" &&
+      !(
+        retainsFramePresentation &&
+        (props.placeholderState.kind === "loading" ||
+          props.placeholderState.kind === "idle")
+      )
+    );
     const isGlobalLoading = !!(
       awaitingDeviceData ||
       placeholderErrorReason ||
-      (props.placeholderState && props.placeholderState.kind !== "top-bar") ||
+      lifecycleBlocksRetainedPresentation ||
       // Standby top-bar is not a full-canvas cover. Cached data is not enough
       // here: both panes must stay covered until one pane confirms a paint.
-      (sourceMode === "live" && !props.isPaused && !hasFrameForLoading)
+      (sourceMode === "live" &&
+        !retainsFramePresentation &&
+        !hasFrameForLoading)
     );
 
     const sharedAwaitingDeviceData = shouldShowLoadingPlaceholder
       ? placeholderErrorReason
         ? false
         : awaitingDeviceData ||
-          (sourceMode === "live" && !props.isPaused && !hasFrameForLoading)
+          (sourceMode === "live" &&
+            !retainsFramePresentation &&
+            !hasFrameForLoading)
       : false;
 
     const sharedPlaceholderState = useMemo(() => {
@@ -341,9 +364,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       }
 
       if (!isGlobalLoading) {
-        if (awaitingFreshFrameRef.current) {
-          return;
-        }
+        awaitingFreshFrameRef.current = false;
         setShouldShowLoadingPlaceholder(false);
         return;
       }
@@ -560,7 +581,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
                   }
                 : sharedPlaceholderState?.kind === "loading" &&
                     !shouldShowLoadingPlaceholder &&
-                    !props.placeholderState
+                    (!props.placeholderState || retainsFramePresentation)
                   ? undefined
                   : sharedPlaceholderState?.kind === "loading"
                     ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }

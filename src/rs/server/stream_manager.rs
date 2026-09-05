@@ -48,6 +48,11 @@ pub struct TxStreamOptions {
   pub center_frequency_hz: u64,
   pub sample_rate_hz: u32,
   pub bandwidth_hz: u32,
+  /// The monitor may acquire a wider/off-center view than the Tx carrier.
+  #[serde(default)]
+  pub view_center_hz: Option<u64>,
+  #[serde(default)]
+  pub view_sample_rate_hz: Option<u32>,
   pub signal: String,
   pub power_dbm: f64,
   pub ifft_size: usize,
@@ -79,6 +84,7 @@ pub struct StreamFrame {
   pub center_frequency_hz: Option<u64>,
   pub sample_rate_hz: u32,
   pub iq_data: Arc<Vec<u8>>,
+  pub is_tx_preview: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -214,6 +220,7 @@ struct ManagerInner {
   streams: Mutex<HashMap<StreamKey, StreamEntry>>,
   capabilities: Mutex<HashMap<String, SourceStreamCapabilities>>,
   tx_payloads: Mutex<HashMap<StreamKey, TxStreamPayload>>,
+  tx_frames: broadcast::Sender<StreamFrame>,
   next_epoch: AtomicU64,
   next_subscription: AtomicU64,
   no_subscriber_grace: Duration,
@@ -253,11 +260,13 @@ fn delivery_policy_from_u8(value: u8) -> StreamDeliveryPolicy {
 
 impl StreamingSourceModeManager {
   pub fn new(no_subscriber_grace: Duration) -> Self {
+    let (tx_frames, _) = broadcast::channel(64);
     Self {
       inner: Arc::new(ManagerInner {
         streams: Mutex::new(HashMap::new()),
         capabilities: Mutex::new(HashMap::new()),
         tx_payloads: Mutex::new(HashMap::new()),
+        tx_frames,
         next_epoch: AtomicU64::new(1),
         next_subscription: AtomicU64::new(1),
         no_subscriber_grace,
@@ -471,6 +480,7 @@ impl StreamingSourceModeManager {
       None,
       sample_rate_hz,
       iq_data,
+      false,
     )
   }
 
@@ -481,6 +491,53 @@ impl StreamingSourceModeManager {
     center_frequency_hz: Option<u64>,
     sample_rate_hz: u32,
     iq_data: Arc<Vec<u8>>,
+    is_tx_preview: bool,
+  ) -> Result<StreamFrame, StreamError> {
+    self.publish_iq_frame_with_metadata_inner(
+      key,
+      timestamp,
+      center_frequency_hz,
+      sample_rate_hz,
+      iq_data,
+      is_tx_preview,
+      true,
+    )
+  }
+
+  /// Publish a display-only monitor frame to source subscribers.
+  ///
+  /// The TX monitor itself listens to `tx_frames` for upstream payloads from
+  /// the transmitter. Its own generated display frames must not be emitted to
+  /// that same bus or the monitor will immediately wake itself and spin.
+  pub fn publish_monitor_iq_frame_with_metadata(
+    &self,
+    key: &StreamKey,
+    timestamp: i64,
+    center_frequency_hz: Option<u64>,
+    sample_rate_hz: u32,
+    iq_data: Arc<Vec<u8>>,
+    is_tx_preview: bool,
+  ) -> Result<StreamFrame, StreamError> {
+    self.publish_iq_frame_with_metadata_inner(
+      key,
+      timestamp,
+      center_frequency_hz,
+      sample_rate_hz,
+      iq_data,
+      is_tx_preview,
+      false,
+    )
+  }
+
+  fn publish_iq_frame_with_metadata_inner(
+    &self,
+    key: &StreamKey,
+    timestamp: i64,
+    center_frequency_hz: Option<u64>,
+    sample_rate_hz: u32,
+    iq_data: Arc<Vec<u8>>,
+    is_tx_preview: bool,
+    emit_to_tx_bus: bool,
   ) -> Result<StreamFrame, StreamError> {
     let mut streams = self.inner.streams.lock().unwrap();
     let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
@@ -495,9 +552,20 @@ impl StreamingSourceModeManager {
       center_frequency_hz,
       sample_rate_hz,
       iq_data,
+      is_tx_preview,
     };
     let _ = entry.sender.send(StreamEvent::Frame(frame.clone()));
+    if emit_to_tx_bus && key.mode == StreamMode::Tx {
+      let _ = self.inner.tx_frames.send(frame.clone());
+    }
     Ok(frame)
+  }
+
+  /// Subscribe to the source-owned Tx frame publication. This is the single
+  /// fan-out point for monitor/legacy consumers; it carries the same immutable
+  /// IQ buffer and sequence that managed WebSocket subscribers receive.
+  pub fn subscribe_tx_frames(&self) -> broadcast::Receiver<StreamFrame> {
+    self.inner.tx_frames.subscribe()
   }
 
   pub fn options(&self, key: &StreamKey) -> Option<StreamOptions> {
@@ -538,6 +606,33 @@ impl StreamingSourceModeManager {
       .unwrap()
       .get(key)
       .is_some_and(|entry| !entry.subscribers.is_empty())
+  }
+
+  /// Snapshot subscribed RX streams so the server can promote a stream that
+  /// was opened while its source was active to an independent runtime after
+  /// another source takes the legacy control processor.
+  pub fn rx_stream_keys_with_subscribers(&self) -> Vec<StreamKey> {
+    self
+      .inner
+      .streams
+      .lock()
+      .unwrap()
+      .iter()
+      .filter(|(key, entry)| {
+        key.mode == StreamMode::Rx && !entry.subscribers.is_empty()
+      })
+      .map(|(key, _)| key.clone())
+      .collect()
+  }
+
+  pub fn capabilities(&self, source_id: &str) -> Option<SourceStreamCapabilities> {
+    self
+      .inner
+      .capabilities
+      .lock()
+      .unwrap()
+      .get(source_id)
+      .copied()
   }
 
   /// Allow exactly one newly published frame through a paused subscriber.
@@ -640,6 +735,17 @@ impl StreamingSourceModeManager {
 
   pub fn has_stream(&self, key: &StreamKey) -> bool {
     self.inner.streams.lock().unwrap().contains_key(key)
+  }
+
+  /// Snapshot all currently managed Tx stream keys. Tx monitoring is
+  /// source-scoped: Mock Tx and a HackRF stream may both need ticks.
+  pub fn tx_stream_keys(&self) -> Vec<StreamKey> {
+    let streams = self.inner.streams.lock().unwrap();
+    streams
+      .keys()
+      .filter(|key| key.mode == StreamMode::Tx)
+      .cloned()
+      .collect()
   }
 
   pub fn set_tx_payload(
@@ -867,6 +973,8 @@ mod tests {
       center_frequency_hz: 100_000_000,
       sample_rate_hz: 2_400_000,
       bandwidth_hz: 2_400_000,
+      view_center_hz: None,
+      view_sample_rate_hz: None,
       signal: "wifi".to_string(),
       power_dbm: -18.0,
       ifft_size: 1024,
@@ -965,6 +1073,44 @@ mod tests {
     assert_eq!(snapshot[0].accepted_frames, 1);
 
     subscription.unsubscribe();
+  }
+
+  #[tokio::test]
+  async fn monitor_publication_does_not_reenter_tx_monitor_bus() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    manager.register_source(
+      "mock-tx",
+      SourceStreamCapabilities {
+        can_receive: false,
+        can_transmit: true,
+        full_duplex: true,
+      },
+    );
+    let key = StreamKey::new("mock-tx", StreamMode::Tx);
+    let mut subscriber = manager.subscribe(key.clone(), tx_options()).unwrap();
+    let mut monitor_bus = manager.subscribe_tx_frames();
+
+    manager
+      .publish_monitor_iq_frame_with_metadata(
+        &key,
+        123,
+        Some(100_000_000),
+        2_400_000,
+        Arc::new(vec![1, 2, 3]),
+        false,
+      )
+      .expect("monitor frame should be accepted by the active stream");
+
+    assert!(matches!(
+      monitor_bus.try_recv(),
+      Err(broadcast::error::TryRecvError::Empty)
+    ));
+    assert!(matches!(
+      subscriber.recv().await,
+      Ok(StreamEvent::Frame(frame)) if frame.sequence == 1
+    ));
+
+    subscriber.unsubscribe();
   }
 
   #[tokio::test]
@@ -1136,5 +1282,18 @@ mod tests {
       stream_control_scope(StreamMode::Tx, StreamControlAction::Settings),
       StreamControlScope::Device
     );
+  }
+
+  #[test]
+  fn tx_frame_snapshot_keeps_multiple_sources_independent() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let mock_tx = StreamKey::new("mock-tx", StreamMode::Tx);
+    let hackrf = StreamKey::new("hackrf-one", StreamMode::Tx);
+    manager.subscribe(mock_tx.clone(), tx_options()).unwrap();
+    manager.subscribe(hackrf.clone(), tx_options()).unwrap();
+
+    let mut keys = manager.tx_stream_keys();
+    keys.sort_by(|left, right| left.source_id.cmp(&right.source_id));
+    assert_eq!(keys, vec![hackrf, mock_tx]);
   }
 }

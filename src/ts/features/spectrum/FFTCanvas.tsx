@@ -290,6 +290,21 @@ export const shouldPublishProcessedSpectrumFrame = ({
 }): boolean =>
   processedCurrentFrame || hasNewData || shouldReprocessCurrentFrame;
 
+/** A hidden tab may lose its canvas contents while the resident frame stays unchanged. */
+export const shouldReprocessSpectrumFrame = ({
+  force,
+  currentFrame,
+  hasNewData,
+  shouldReprocessCurrentFrame,
+}: {
+  force: boolean;
+  currentFrame: Pick<LiveFrameData, "iq_data"> | null;
+  hasNewData: boolean;
+  shouldReprocessCurrentFrame: boolean;
+}): boolean =>
+  !!currentFrame?.iq_data &&
+  (hasNewData || shouldReprocessCurrentFrame || force);
+
 /**
  * A paused/one-shot presentation may redraw its cached FFT when the local
  * viewport changes. A live presentation must keep the last frame fixed until
@@ -1589,6 +1604,7 @@ const FFTCanvas = memo(
         explicitPlaceholderState.title === "Start Tx to transmit"
       );
     }, [explicitIsStandby, explicitPlaceholderState]);
+    const retainsFramePresentation = isPaused || isStandby;
     const canTransmit = useMemo(() => {
       return (
         reduxDeviceKind === "hackrf_one" ||
@@ -3048,6 +3064,7 @@ const FFTCanvas = memo(
     // Redundant overlay logic removed (now handled by useSpectrumRenderer)
 
     const recoverPausedWaveformRef = useRef<() => boolean>(() => false);
+    const hydratePausedSnapshotRef = useRef<() => unknown>(() => null);
     const previousIsStandbyRef = useRef(isStandby);
 
     // The standby bar commits with React, but the frame loop may not run
@@ -3087,7 +3104,7 @@ const FFTCanvas = memo(
      * to prevent memory ballooning (was reaching 40GB+ without this).
      */
     const onRenderFrame = useCallback(
-      (_runId: number) => {
+      (_runId: number, force = false) => {
         // React dev profiling and WebGPU commits accumulate PerformanceMeasure
         // entries without bound; clear each frame to prevent multi-GB growth.
         if (typeof performance !== "undefined") {
@@ -3109,6 +3126,19 @@ const FFTCanvas = memo(
 
         const currentData = dataRef.current;
         const incomingFrame = getLatestLiveFrame(currentData);
+        if (
+          retainsFramePresentation &&
+          (!renderWaveformRef.current ||
+            renderWaveformRef.current.length === 0)
+        ) {
+          hydratePausedSnapshotRef.current();
+          recoverPausedWaveformRef.current();
+        }
+        const hasRetainedPausedPresentation = !!(
+          retainsFramePresentation &&
+          renderWaveformRef.current &&
+          renderWaveformRef.current.length > 0
+        );
         let currentFrame = selectFrameForPresentation({
           incomingFrame,
           isPaused,
@@ -3142,6 +3172,7 @@ const FFTCanvas = memo(
           placeholderErrorReason,
           explicitPlaceholderState: explicitPlaceholderStateRef.current,
           hasPresentedSpectrumFrame: hasPresentedSpectrumFrameRef.current,
+          hasRetainedPausedPresentation,
         });
         const {
           isCurrentSourceFrame,
@@ -3352,6 +3383,12 @@ const FFTCanvas = memo(
             !!(currentFrame as any).waveform ||
             !!(currentFrame as any).data)
         );
+        const shouldReprocessForPaint = shouldReprocessSpectrumFrame({
+          force,
+          currentFrame,
+          hasNewData: !!hasNewData,
+          shouldReprocessCurrentFrame,
+        });
         let processedCurrentFrame = false;
         const frameAcquisitionRange =
           currentFrame &&
@@ -3372,7 +3409,7 @@ const FFTCanvas = memo(
         // the resampler handles any uncovered bins at the noise floor.
 
         if (
-          (hasNewData || shouldReprocessCurrentFrame) &&
+          shouldReprocessForPaint &&
           currentFrame?.iq_data
         ) {
           // Unified IQ→spectrum path: all live data is iq_data (Uint8Array).
@@ -4443,6 +4480,7 @@ const FFTCanvas = memo(
         drawSpectrum,
         drawWebGPUFIFOWaterfall,
         isPaused,
+        retainsFramePresentation,
         invertSpectrum,
         pauseSnapshotEnabled,
         displayTemporalResolution,
@@ -4549,8 +4587,8 @@ const FFTCanvas = memo(
       spectrumOverlayCanvas: spectrumOverlayCanvasNode,
     });
 
-    const { ensurePausedFrame } = usePauseLogic({
-      isPaused,
+    const { ensurePausedFrame, hydratePauseSnapshot } = usePauseLogic({
+      isPaused: retainsFramePresentation,
       waterfallBufferRef,
       waterfallDimsRef,
       dataRef,
@@ -4559,10 +4597,11 @@ const FFTCanvas = memo(
       enabled: pauseSnapshotEnabled,
       pausedSnapshotRef,
     });
+    hydratePausedSnapshotRef.current = hydratePauseSnapshot;
 
     const { recoverPausedWaveform } = usePausedSpectrumRecovery({
       enabled: pauseSnapshotEnabled,
-      isPaused,
+      isPaused: retainsFramePresentation,
       renderWaveformRef,
       spectrumOutputBufferRef,
       lastProcessedFrameRef: lastProcessedDataRef,

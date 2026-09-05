@@ -28,6 +28,9 @@ export type TxStreamOptions = {
   centerFrequencyHz: number;
   sampleRateHz: number;
   bandwidthHz: number;
+  /** Optional independent acquisition viewport used by the Tx monitor. */
+  viewCenterHz?: number;
+  viewSampleRateHz?: number;
   signal: string;
   powerDbm: number;
   ifftSize: number;
@@ -188,6 +191,13 @@ type StreamSubscriber = StreamSubscriberContract & {
   pendingFrameRequest: boolean;
 };
 
+type OptionsUpdateWaiter = {
+  options: StreamOptions;
+  optionsRevision: number;
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
 type StreamEntry = {
   key: StreamKey;
   options: StreamOptions;
@@ -203,6 +213,9 @@ type StreamEntry = {
   transportDeliveryPolicy: StreamDeliveryPolicy;
   streamId: string | null;
   streamPath: string | null;
+  optionsWaiters: OptionsUpdateWaiter[];
+  optionsUpdateChain: Promise<void>;
+  optionsUpdateInFlight: boolean;
 };
 
 type SourceModeStreamManagerOptions = {
@@ -264,6 +277,7 @@ export const createSourceModeStreamManager = ({
         subscriptionId: entry.transportSubscriptionId,
         stream: entry.key,
         options: cloneOptions(options),
+        deliveryPolicy: entry.transportDeliveryPolicy,
       });
       if (notifySubscribers) {
         notify(entry, {
@@ -301,6 +315,38 @@ export const createSourceModeStreamManager = ({
         options: cloneOptions(entry.options),
       });
     }
+  };
+
+  const settleOptionsWaiters = (
+    entry: StreamEntry,
+    event: Extract<StreamEvent, { type: "stream_options_applied" }>,
+  ): void => {
+    if (entry.optionsWaiters.length === 0) return;
+    const remaining: OptionsUpdateWaiter[] = [];
+    for (const waiter of entry.optionsWaiters) {
+      if (
+        event.optionsRevision >= waiter.optionsRevision &&
+        optionsEqual(event.options, waiter.options)
+      ) {
+        waiter.resolve();
+      } else if (event.optionsRevision >= waiter.optionsRevision) {
+        waiter.reject(
+          new Error(
+            `stream options update was superseded at revision ${event.optionsRevision}`,
+          ),
+        );
+      } else {
+        remaining.push(waiter);
+      }
+    }
+    entry.optionsWaiters = remaining;
+    entry.optionsUpdateInFlight = remaining.length > 0;
+  };
+
+  const rejectOptionsWaiters = (entry: StreamEntry, error: Error): void => {
+    for (const waiter of entry.optionsWaiters) waiter.reject(error);
+    entry.optionsWaiters = [];
+    entry.optionsUpdateInFlight = false;
   };
 
   const aggregatePausedState = (entry: StreamEntry): boolean | null => {
@@ -403,6 +449,7 @@ export const createSourceModeStreamManager = ({
         entry.localOptionsRevision !== null &&
         optionsEqual(event.options, entry.options)
       ) {
+        settleOptionsWaiters(entry, event);
         entry.streamEpoch = Math.max(entry.streamEpoch, event.streamEpoch);
         entry.optionsRevision = event.optionsRevision;
         entry.lastSequence = null;
@@ -419,8 +466,10 @@ export const createSourceModeStreamManager = ({
         entry.localOptionsRevision !== null &&
         event.optionsRevision === entry.localOptionsRevision
       ) {
+        settleOptionsWaiters(entry, event);
         return;
       }
+      settleOptionsWaiters(entry, event);
       entry.options = cloneOptions(event.options);
       entry.optionsRevision = event.optionsRevision;
       entry.streamEpoch = Math.max(entry.streamEpoch, event.streamEpoch);
@@ -461,6 +510,9 @@ export const createSourceModeStreamManager = ({
     }
     if (event.type === "stream_state" && event.state === "opening") {
       entry.transportReady = false;
+    }
+    if (event.type === "stream_error") {
+      rejectOptionsWaiters(entry, new Error(event.message));
     }
     notify(entry, event);
   };
@@ -517,6 +569,9 @@ export const createSourceModeStreamManager = ({
         transportDeliveryPolicy: deliveryPolicy,
         streamId: null,
         streamPath: null,
+        optionsWaiters: [],
+        optionsUpdateChain: Promise.resolve(),
+        optionsUpdateInFlight: false,
       };
       entry.transport = transportFactory(entry.key, (event) =>
         handleEvent(entry!, event),
@@ -596,6 +651,10 @@ export const createSourceModeStreamManager = ({
       unsubscribe: () => {
         if (!active) return;
         active = false;
+        rejectOptionsWaiters(
+          entry!,
+          new Error("stream subscription was closed before options were applied"),
+        );
         const previousAggregate = aggregatePausedState(entry!);
         entry!.subscribers.delete(subscriptionId);
         entry!.metrics.subscribers = entry!.subscribers.size;
@@ -609,12 +668,40 @@ export const createSourceModeStreamManager = ({
           pendingCloseTimers.set(entryKey, timer);
         }
       },
-      updateOptions: async (nextOptions) => {
+      updateOptions: (nextOptions) => {
         if (!active) throw new Error("Stream subscription is closed");
         if (nextOptions.mode !== entry!.key.mode) {
           throw new Error("Stream options mode cannot change");
         }
-        applyOptions(entry!, nextOptions, true);
+        const entryRef = entry!;
+        const performUpdate = (): Promise<void> => {
+          if (!active) {
+            return Promise.reject(new Error("Stream subscription is closed"));
+          }
+          if (optionsEqual(entryRef.options, nextOptions)) {
+            return Promise.resolve();
+          }
+          if (!entryRef.transportReady) {
+            applyOptions(entryRef, nextOptions, true);
+            return Promise.resolve();
+          }
+          const update = new Promise<void>((resolve, reject) => {
+            entryRef.optionsWaiters.push({
+              options: cloneOptions(nextOptions),
+              optionsRevision: entryRef.optionsRevision + 1,
+              resolve,
+              reject,
+            });
+            entryRef.optionsUpdateInFlight = true;
+            applyOptions(entryRef, nextOptions, true);
+          });
+          return update;
+        };
+        const update = entryRef.optionsUpdateInFlight
+          ? entryRef.optionsUpdateChain.catch(() => undefined).then(performUpdate)
+          : performUpdate();
+        entryRef.optionsUpdateChain = update.catch(() => undefined);
+        return update;
       },
     };
     return subscription;

@@ -31,6 +31,7 @@ import { buildSdrLimitMarkers } from "@n-apt/math/sdrLimitMarkers";
 import { getSourceViewStorageKeyForSource } from "@n-apt/spectrum/public/sourcePersistence";
 import { isMockTxSource } from "@n-apt/app/infrastructure/services/deviceCapabilities";
 import { getSettingsDefaults } from "@n-apt/settings/public/settingsDefaults";
+import { getVisualizerDefaultDbLimits } from "@n-apt/consts/visualizerControls";
 import {
   getVisualizerLifecycleKey,
   resolveWebGpuStreamTransition,
@@ -191,7 +192,6 @@ import { resolveCanonicalDisplaySampleRateHz } from "@n-apt/app/infrastructure/i
 import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
 import {
   getLatestLiveFrame,
-  resolveFrameReadiness,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   isSourcePresentationConnected,
@@ -202,10 +202,13 @@ import {
   resolveMockTxTransmitSettings,
   resolveTxPreviewCenterHz,
   resolveTxSliderCenterHz,
+  canShowTxSliderForSource,
   shouldJumpTxMonitor,
 } from "@n-apt/transmit/public/txSliderPlacement";
 import {
   isCurrentSourceFrameReady,
+  isSelectedSourceFrameReady,
+  resolveSelectedSourceFrameReadiness,
   isCommittedStandbyPresentation,
   isLiveSourceAwaitingFrame,
   isLiveSourceHandoffPending,
@@ -590,8 +593,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   );
   const streamingSource = useMemo(
     () =>
-      sources.find((source) => source.id === activeSourceId) ??
       selectedSource ??
+      sources.find((source) => source.id === activeSourceId) ??
       null,
     [activeSourceId, selectedSource, sources],
   );
@@ -630,6 +633,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txBindingSourceId: txSuiteSourceId,
   });
   const isSelectedSourceTxMode = selectedSourceModeManagement.isTxMode;
+  // RX monitor frames are also subscriber-local: a tab may view Mock APT
+  // while another source (for example Mock Tx) owns the global control-plane
+  // slot. Only allow this exception for sources that can actually receive;
+  // Mock Tx must not pass its Tx preview through the RX readiness path.
+  const isSelectedSubscriberLocalRxView =
+    !isSelectedSourceTxMode && selectedSourceModeManagement.canReceive;
   const selectedStreamMode = isSelectedSourceTxMode ? "tx" : "rx";
   const sourceTransport = selectSourceTransportForMode(
     selectedStreamMode,
@@ -709,6 +718,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   ]);
   const isSelectedMockTxTransmitting =
     isSelectedMockTxSource && selectedSourceStatus === "transmitting";
+  const txViewerPowerScale = useAppSelector(
+    (rootState) => rootState.spectrum.txViewerPowerScale,
+  );
+  const visualizerPowerScale = isSelectedMockTxSource
+    ? txViewerPowerScale
+    : state.powerScale;
+  const visualizerDbLimits = getVisualizerDefaultDbLimits(visualizerPowerScale);
   const isSelectedMockTxPaused =
     manualVisualizerPaused || selectedSource?.paused === true;
   const shouldShowMockTxStandby =
@@ -755,6 +771,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     pendingSourceSwitchId,
     transportSourceId: sourceTransport?.sourceId ?? null,
     transportPhase: sourceTransport?.phase ?? "idle",
+    subscriberLocalTxView: isSelectedSourceTxMode,
   });
   const liveSourceLabel =
     selectedSource?.name ??
@@ -765,6 +782,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const presentedSource = presentedSourceId
     ? sources.find((source) => source.id === presentedSourceId)
     : null;
+  const hasSelectedSourceFrameReady = isSelectedSourceFrameReady({
+    selectedSourceId: selectedSourceId || null,
+    activeSourceId: activeSourceId || null,
+    mode: selectedStreamMode,
+    subscriberLocalRxView: isSelectedSubscriberLocalRxView,
+    expectedStreamEpoch: expectedLegacyStreamEpoch,
+    readiness: sourceFrameReadiness,
+  });
   const standbySourceLabel =
     presentedSource?.name ?? presentedSourceId ?? liveSourceLabel;
   const liveSourceLifecycle = useLiveSourceLifecycle({
@@ -792,6 +817,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         expectedStreamEpoch: expectedLegacyStreamEpoch,
         readiness: sourceFrameReadiness,
       }) ||
+      hasSelectedSourceFrameReady ||
       hasRenderableCurrentFrame ||
       hasActiveSourceFrame,
     deviceStatus: selectedSourceStatus,
@@ -836,10 +862,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     isMockTxMonitorActive &&
     isSelectedSourceTxStatus &&
     !isSelectedSourceTransmitting;
-  const canShowTxSlider =
-    isSelectedSourceTxMode ||
-    isSelectedSourceTxStatus ||
-    isSelectedSourceTransmitting;
+  const canShowTxSlider = canShowTxSliderForSource({
+    canTransmit:
+      selectedSource?.capability === "tx" ||
+      selectedSource?.capability === "tx_rx" ||
+      selectedSource?.kind === "mock_tx" ||
+      selectedSource?.id === "mock-tx",
+    status: selectedSourceStatus,
+  });
   useEffect(() => {
     if (
       state.sourceMode === "live" &&
@@ -1889,10 +1919,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (hasCanvasFrame: boolean) => {
       if (!hasCanvasFrame) return;
       const latestFrame = getLatestLiveFrame(dataRef.current);
-      const isReady = resolveFrameReadiness({
+      const isReady = resolveSelectedSourceFrameReadiness({
         frame: latestFrame,
         selectedSourceId: expectedVisualizerSourceId,
         activeSourceId: activeSourceId || streamingSourceId || null,
+        mode: isSelectedSourceTxMode ? "tx" : "rx",
+        subscriberLocalRxView: isSelectedSubscriberLocalRxView,
         expectedStreamEpoch: expectedLegacyStreamEpoch,
         frameCounter: latestFrame?.source_id ? 1 : 0,
         handoffStartedFrameCounter: 0,
@@ -1918,6 +1950,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       dataRef,
       expectedLegacyStreamEpoch,
       expectedVisualizerSourceId,
+      isSelectedSourceTxMode,
+      isSelectedSubscriberLocalRxView,
       streamingSource?.stream_epoch,
       streamingSourceId,
     ],
@@ -2608,7 +2642,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 }
                 fftSize={state.fftSize}
                 fftWindow={state.fftWindow}
-                powerScale={state.powerScale}
+                powerScale={visualizerPowerScale}
                 removeDcSpike={state.removeDcSpike}
                 isDeviceConnected={isLivePresentationConnected}
                 onFrequencyRangeChange={handleFrequencyRangeChange}
@@ -2635,8 +2669,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onVizZoomFloorChange={setVizZoomFloor}
                 onVizZoomFloorPanChange={handleVizZoomFloorPanChange}
                 onVizPanChange={handleVizPanChange}
-                fftMin={state.fftMinDb}
-                fftMax={state.fftMaxDb}
+                fftMin={
+                  isSelectedMockTxSource
+                    ? visualizerDbLimits.min
+                    : state.fftMinDb
+                }
+                fftMax={
+                  isSelectedMockTxSource
+                    ? visualizerDbLimits.max
+                    : state.fftMaxDb
+                }
                 onFftDbLimitsChange={handleFftDbLimitsChange}
                 onSnapshot={handleNoopSnapshot}
                 snapshotGridPreference={state.snapshotGridPreference}

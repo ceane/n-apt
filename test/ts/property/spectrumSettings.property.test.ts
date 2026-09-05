@@ -43,6 +43,10 @@ const ANY_VALUE = fc.oneof(
  * later cases.
  */
 describe("spectrum settings reducer fuzz", () => {
+  it("defaults the Tx viewer to calibrated dBm", () => {
+    expect(initialState.txViewerPowerScale).toBe("dBm");
+  });
+
   const numericFieldReducerCases: Array<{
     name: string;
     reducer: (state: SpectrumState, payload: unknown) => SpectrumState;
