@@ -16,7 +16,6 @@ const HISTORY_LENGTH: u32 = 32u;
 // same suspension_bridge when its clumps moved in and out of the capture.
 const MAX_BRIDGE_EVENT_GAP: u32 = 8u;
 const MIN_LOW_RISE_BRIDGE_WIDTH: f32 = 0.48;
-const MIN_VALIDATED_BRIDGE_SUPPORT: f32 = 0.50;
 
 struct Decision {
   is_napt: u32,
@@ -107,7 +106,7 @@ fn structural_bridge_present(frame: HistoryFrame) -> bool {
   // The legacy suspension aggregate alone is not enough because Mock combs
   // can make it look like a bridge in every frame.
   return frame.clump_count >= 1u &&
-    frame.bridge_shape_support >= MIN_VALIDATED_BRIDGE_SUPPORT;
+    frame.bridge_shape_support >= MIN_LOW_RISE_BRIDGE_WIDTH;
 }
 
 fn structural_bridge_score(frame: HistoryFrame) -> f32 {
@@ -129,9 +128,15 @@ fn main() {
   let partial_bridge_support = min(
     metrics.partial_bridge_score,
     metrics.bridge_shoulder_score);
+  let low_rise_bridge_support = select(
+    0.0,
+    metrics.low_rise_bridge_score,
+    metrics.low_rise_bridge_score >= MIN_LOW_RISE_BRIDGE_WIDTH &&
+      metrics.bridge_width_score >= MIN_LOW_RISE_BRIDGE_WIDTH &&
+      metrics.bridge_shoulder_score >= MIN_LOW_RISE_BRIDGE_WIDTH);
   let validated_bridge_shape_support = max(
     full_bridge_support,
-    partial_bridge_support);
+    max(partial_bridge_support, low_rise_bridge_support));
   history[write_index] = HistoryFrame(
     metrics.suspension_bridge_score,
     metrics.u_dip_score,
@@ -171,7 +176,8 @@ fn main() {
     // A low-rise event is specifically a bridge whose width/shoulder support
     // is stronger than its one-frame composite score. A Mock clump that is
     // already scored as a strong bridge does not enter this recovery path.
-    let is_low_rise_event = frame.bridge_shape_support >= 0.48;
+    let is_low_rise_event = frame.bridge_shape_support >= 0.48 &&
+      frame.bridge_shape_support < 0.50;
     if (is_low_rise_event) {
       low_rise_event_count = low_rise_event_count + 1u;
       last_low_rise_index = index;
@@ -307,7 +313,7 @@ fn main() {
   let temporal_shape_supported = low_rise_hold ||
     (active_count >= 2u &&
       persistence >= 0.60 &&
-      bridge_mean >= 0.30 &&
+      (bridge_mean >= 0.30 || event_bridge_mean >= 0.30) &&
       (raw_persistence >= 0.60 || cadence_hits >= 1u));
   let shape_guarded_confidence = select(
     min(temporal_confidence, 0.49),

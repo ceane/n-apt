@@ -1,4 +1,4 @@
-import { getFrontendFftSize } from "@n-apt/utils/frontendFftSize";
+import { getFrontendFftSize } from "@n-apt/spectrum/utils/frontendFftSize";
 
 describe("frontend FFT processing size", () => {
   it("caps oversized hardware FFT payloads to the GPU processing limit", () => {

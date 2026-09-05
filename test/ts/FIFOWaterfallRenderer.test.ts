@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { renderHook } from "@testing-library/react";
-import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
+import { useDrawWebGPUFIFOWaterfall } from "@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall";
 
 // Mock WebGPU constants
 (global as any).GPUBufferUsage = {

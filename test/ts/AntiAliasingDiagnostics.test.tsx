@@ -1,14 +1,18 @@
 import * as React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { Provider } from "react-redux";
 import "@testing-library/jest-dom";
-import { AntiAliasingDiagnostics } from "@n-apt/routes/AntiAliasingDiagnostics";
+import { AntiAliasingDiagnostics } from "@n-apt/app/routes/pages/AntiAliasingDiagnostics";
 import {
   SpectrumProvider,
   INITIAL_SPECTRUM_STATE,
-} from "@n-apt/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { ThemeProvider } from "styled-components";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
+import { TestWrapper } from "./testUtils";
+import { createTestStore } from "./testUtils";
+import { triggerDiagnostic } from "@n-apt/redux";
 
 // Mock canvas
 import "jest-canvas-mock";
@@ -18,7 +22,7 @@ jest.mock("lucide-react", () => ({
   Info: () => <div data-testid="info-icon" />,
 }));
 
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     isAuthenticated: true,
     sessionToken: "mock-token",
@@ -85,7 +89,7 @@ describe("AntiAliasingDiagnostics", () => {
       sendTrainingCommand: jest.fn(),
       sendGetAutoFftOptions: jest.fn(),
       sendPowerScaleCommand: jest.fn(),
-      sendTransmitMode: jest.fn(),
+      sendTransmitStatus: jest.fn(),
     },
     toggleVisualizerPause: jest.fn(),
     cryptoCorrupted: false,
@@ -115,17 +119,83 @@ describe("AntiAliasingDiagnostics", () => {
 
   const renderComponent = (mockValue = defaultMockValue) => {
     return render(
-      <ThemeProvider theme={defaultTheme}>
+      <TestWrapper preloadedState={{ spectrum: mockValue.state }}>
+        <ThemeProvider theme={defaultTheme}>
         <SpectrumProvider mockValue={mockValue}>
           <AntiAliasingDiagnostics />
         </SpectrumProvider>
-      </ThemeProvider>,
+        </ThemeProvider>
+      </TestWrapper>,
     );
   };
 
   it("renders initial state correctly", () => {
     renderComponent();
-    // Check for containers instead of canvas text which isn't in DOM
+    expect(
+      screen.getByRole("heading", {
+        name: "I/Q Capture Stitching & Anti-Aliasing Diagnostics",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Test how N-APT pieces together a waveform that is wider than the device sample rate\./,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: /stepwise and interleaved \(TDMS\) I\/Q capture stitching/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Stepwise I/Q capture")).toBeInTheDocument();
+    expect(
+      screen.getByText("Interleaved (TDMS) I/Q capture"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/RTL-SDR with antenna 3D model spinning/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Max")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Note: FFT size changes apply to the/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /^How it Works \/ What is being worked on/,
+      }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: /^Stitching Diagnostics/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByText(
+        /Compare raw hops and stitched output from the backend and frontend WASM pipeline\./,
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Raw Hops (A/B Overlap)")).not.toBeInTheDocument();
+  });
+
+  it("opens the diagnostic canvases accordion after closing the walkthrough", () => {
+    renderComponent();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Stitching Diagnostics/ }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /^How it Works \/ What is being worked on/,
+      }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.getByRole("button", { name: /^Stitching Diagnostics/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText(
+        /Compare raw hops and stitched output from the backend and frontend WASM pipeline\./,
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("img", {
+      name: /stepwise and interleaved \(TDMS\) I\/Q capture stitching/i,
+    })).not.toBeInTheDocument();
     expect(screen.getByText("Raw Hops (A/B Overlap)")).toBeInTheDocument();
     expect(
       screen.getByText("Stitched Magnitude Output (Backend)"),
@@ -173,9 +243,6 @@ describe("AntiAliasingDiagnostics", () => {
       arrayBuffer: async () => buffer,
     });
 
-    const { rerender } = renderComponent();
-
-    // Simulate trigger
     const triggeredMockValue = {
       ...defaultMockValue,
       state: {
@@ -184,13 +251,19 @@ describe("AntiAliasingDiagnostics", () => {
       },
     };
 
-    rerender(
-      <ThemeProvider theme={defaultTheme}>
-        <SpectrumProvider mockValue={triggeredMockValue}>
-          <AntiAliasingDiagnostics />
-        </SpectrumProvider>
-      </ThemeProvider>,
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={defaultTheme}>
+          <SpectrumProvider mockValue={triggeredMockValue}>
+            <AntiAliasingDiagnostics />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
     );
+    act(() => {
+      store.dispatch(triggerDiagnostic());
+    });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -199,20 +272,8 @@ describe("AntiAliasingDiagnostics", () => {
       );
     });
 
-    expect(mockDispatch).toHaveBeenCalledWith({
-      type: "SET_DIAGNOSTIC_RUNNING",
-      running: true,
-    });
-    expect(mockDispatch).toHaveBeenCalledWith({
-      type: "SET_DIAGNOSTIC_STATUS",
-      status: "Capturing 10 frames...",
-    });
-
     await waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledWith({
-        type: "SET_DIAGNOSTIC_STATUS",
-        status: "Capture complete",
-      });
+      expect(screen.getByText("I/Q capture complete")).toBeInTheDocument();
     });
   });
 
@@ -222,8 +283,6 @@ describe("AntiAliasingDiagnostics", () => {
       text: async () => "Internal Server Error",
     });
 
-    const { rerender } = renderComponent();
-
     const triggeredMockValue = {
       ...defaultMockValue,
       state: {
@@ -232,19 +291,22 @@ describe("AntiAliasingDiagnostics", () => {
       },
     };
 
-    rerender(
-      <ThemeProvider theme={defaultTheme}>
-        <SpectrumProvider mockValue={triggeredMockValue}>
-          <AntiAliasingDiagnostics />
-        </SpectrumProvider>
-      </ThemeProvider>,
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={defaultTheme}>
+          <SpectrumProvider mockValue={triggeredMockValue}>
+            <AntiAliasingDiagnostics />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
     );
+    act(() => {
+      store.dispatch(triggerDiagnostic());
+    });
 
     await waitFor(() => {
-      expect(mockDispatch).toHaveBeenCalledWith({
-        type: "SET_DIAGNOSTIC_STATUS",
-        status: "Error: Internal Server Error",
-      });
+      expect(screen.getByText("Error: Internal Server Error")).toBeInTheDocument();
     });
   });
 });

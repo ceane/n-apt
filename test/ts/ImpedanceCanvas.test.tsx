@@ -1,4 +1,4 @@
-import remarkTimeOfFlightBlocks from "@n-apt/md-preview/utils/remarkTimeOfFlightBlocks";
+import remarkTimeOfFlightBlocks from "@n-apt/app-article/utils/remarkTimeOfFlightBlocks";
 
 describe("remarkTimeOfFlightBlocks", () => {
   it("replaces impedance code fences with the impedance canvas tag", () => {

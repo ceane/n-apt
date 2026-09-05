@@ -2,7 +2,7 @@ import {
   computeFrequencyOffsetHz,
   applyComplexLowPass,
   shiftIqToBaseband,
-} from "../../src/ts/utils/demodulation";
+} from "@n-apt/demodulation/utils/demodulation";
 
 describe("demodulation utilities", () => {
   it("computes frequency offset from the selected and frame center frequencies", () => {

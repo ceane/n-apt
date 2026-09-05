@@ -35,7 +35,14 @@ fn vs_fill(@builtin(vertex_index) vertex_index: u32) -> VertexOut {
 }
 
 @fragment
-fn fs_line() -> @location(0) vec4<f32> {
+fn fs_line(in: VertexOut) -> @location(0) vec4<f32> {
+  if (uniforms[2].a < 0.0) {
+    let px = u32(in.position.x);
+    if ((px % 7u) >= 2u) {
+      discard;
+    }
+    return vec4<f32>(uniforms[2].rgb, -uniforms[2].a);
+  }
   return uniforms[2];
 }
 

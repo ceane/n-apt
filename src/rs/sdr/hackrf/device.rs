@@ -1,14 +1,13 @@
 use anyhow::{anyhow, Result};
 use crossbeam_channel::{bounded, Receiver, Sender};
-use log::{debug, info};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
-use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use super::ffi;
+use crate::sdr::audio_iq_tap::{AudioIqBlock, AudioIqTap};
 use crate::sdr::SdrDevice;
 
 const HACKRF_MAX_SAMPLE_RATE: u32 = 20_000_000;
@@ -19,8 +18,21 @@ const HACKRF_RX_TIMEOUT: Duration = Duration::from_millis(500);
 const HACKRF_RX_START_RETRY_ATTEMPTS: usize = 5;
 const HACKRF_RX_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 
+static HACKRF_NATIVE_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 struct RxContext {
   tx: Sender<Vec<u8>>,
+}
+struct TxContext {
+  iq: Vec<u8>,
+}
+
+fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
+  let mut payload = samples.to_vec();
+  if payload.len() % 2 != 0 {
+    payload.push(0);
+  }
+  payload
 }
 
 fn drain_rx_queue(rx: &Receiver<Vec<u8>>) -> usize {
@@ -49,15 +61,17 @@ fn apply_ppm_correction(freq_hz: u32, ppm: u32) -> u32 {
 pub struct HackRfDevice {
   dev: *mut ffi::HackRfDeviceHandle,
   rx_queue: Receiver<Vec<u8>>,
-  #[allow(dead_code)]
-  async_thread: Option<JoinHandle<()>>,
   rx_context: Option<Arc<RxContext>>,
+  tx_context: Option<Arc<TxContext>>,
+  tx_started: bool,
   last_error: Option<String>,
   sample_rate: u32,
   center_frequency: u32,
   requested_center_frequency: u32,
   ppm: u32,
   iq_buffer: Vec<u8>,
+  /// Contiguous IQ retained for streaming consumers such as audio.
+  audio_tap: AudioIqTap,
   streaming_started: bool,
   serial_number: String,
 }
@@ -65,32 +79,112 @@ pub struct HackRfDevice {
 unsafe impl Send for HackRfDevice {}
 
 extern "C" fn hackrf_rx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
-  if transfer.is_null() {
-    return 0;
-  }
+  let res = std::panic::catch_unwind(|| {
+    if transfer.is_null() {
+      return 0;
+    }
 
-  let transfer = unsafe { &mut *transfer };
-  if transfer.buffer.is_null() || transfer.valid_length <= 0 {
-    return 0;
-  }
+    let transfer = unsafe { &mut *transfer };
+    if transfer.buffer.is_null()
+      || transfer.valid_length <= 0
+      || transfer.rx_ctx.is_null()
+    {
+      return 0;
+    }
 
-  let ctx = unsafe { &*(transfer.rx_ctx as *const RxContext) };
-  let len = transfer.valid_length as usize;
-  let data = unsafe { std::slice::from_raw_parts(transfer.buffer, len) };
-  let mut frame = Vec::with_capacity(len);
-  frame.extend_from_slice(data);
+    let ctx = unsafe { &*(transfer.rx_ctx as *const RxContext) };
+    let len = transfer.valid_length as usize;
+    let data = unsafe { std::slice::from_raw_parts(transfer.buffer, len) };
+    let mut frame = Vec::with_capacity(len);
+    frame.extend_from_slice(data);
 
-  let _ = ctx.tx.try_send(frame);
+    let _ = ctx.tx.try_send(frame);
 
-  0
+    0
+  });
+  res.unwrap_or(0)
+}
+
+extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
+  let res = std::panic::catch_unwind(|| {
+    if transfer.is_null() {
+      return -1;
+    }
+    let transfer = unsafe { &mut *transfer };
+    if transfer.buffer.is_null()
+      || transfer.buffer_length <= 0
+      || transfer.rx_ctx.is_null()
+    {
+      return -1;
+    }
+    let ctx = unsafe { &*(transfer.rx_ctx as *const TxContext) };
+    if ctx.iq.is_empty() {
+      return -1;
+    }
+    let output = unsafe {
+      std::slice::from_raw_parts_mut(
+        transfer.buffer,
+        transfer.buffer_length as usize,
+      )
+    };
+    if crate::tx::repeat_iq_payload_into(&ctx.iq, output).is_err() {
+      return -1;
+    }
+    transfer.valid_length = output.len() as c_int;
+    0
+  });
+  res.unwrap_or(-1)
 }
 
 impl HackRfDevice {
+  pub(crate) fn native_operation_lock() -> MutexGuard<'static, ()> {
+    HACKRF_NATIVE_OPERATION_LOCK
+      .get_or_init(|| Mutex::new(()))
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+  }
+
   pub fn open_first() -> Result<Self> {
     Self::open(0)
   }
 
+  #[cfg(has_hackrf)]
+  pub(crate) fn enumerate_serial_numbers() -> Result<Vec<String>> {
+    let _native_operation_guard = Self::native_operation_lock();
+    unsafe {
+      if ffi::hackrf_init() != 0 {
+        return Err(anyhow!("Failed to initialize HackRF One"));
+      }
+      let list = ffi::hackrf_device_list();
+      if list.is_null() {
+        let _ = ffi::hackrf_exit();
+        return Ok(Vec::new());
+      }
+
+      let mut serial_numbers = Vec::new();
+      let device_count = (*list).devicecount.max(0) as usize;
+      for index in 0..device_count {
+        let serial_number = if !(*list).serial_numbers.is_null() {
+          let serial_ptr = *(*list).serial_numbers.add(index);
+          if serial_ptr.is_null() {
+            String::new()
+          } else {
+            CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
+          }
+        } else {
+          String::new()
+        };
+        serial_numbers.push(serial_number);
+      }
+
+      ffi::hackrf_device_list_free(list);
+      let _ = ffi::hackrf_exit();
+      Ok(serial_numbers)
+    }
+  }
+
   pub fn open(index: i32) -> Result<Self> {
+    let _native_operation_guard = Self::native_operation_lock();
     unsafe {
       if ffi::hackrf_init() != 0 {
         return Err(anyhow!("Failed to initialize HackRF One"));
@@ -121,23 +215,20 @@ impl HackRfDevice {
         let _ = ffi::hackrf_exit();
         return Err(anyhow!("Failed to open HackRF One device #{}", index));
       }
-      info!(
-        "Opened HackRF One device #{} (serial: {:?})",
-        index, serial_number
-      );
-
       let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
       Ok(Self {
         dev,
         rx_queue: rx,
-        async_thread: None,
         rx_context: None,
+        tx_context: None,
+        tx_started: false,
         last_error: None,
         sample_rate: HACKRF_MIN_SAMPLE_RATE,
         center_frequency: 0,
         requested_center_frequency: 0,
         ppm: 0,
         iq_buffer: Vec::with_capacity(HACKRF_BLOCK_SIZE * 2),
+        audio_tap: AudioIqTap::new(),
         streaming_started: false,
         serial_number,
       })
@@ -152,6 +243,17 @@ impl HackRfDevice {
     }
 
     Arc::as_ptr(self.rx_context.as_ref().expect("rx context")) as *mut _
+  }
+
+  /// Retain a received chunk in the audio tap as unsigned offset binary.
+  ///
+  /// The tap feeds consumers that expect the same format the display path
+  /// emits, so the signed i8 samples must be converted before retention rather
+  /// than after.
+  fn tap_normalized(&mut self, chunk: &[u8]) {
+    let mut normalized = chunk.to_vec();
+    normalize_hackrf_buffer(&mut normalized);
+    self.audio_tap.push(&normalized);
   }
 
   fn set_sample_rate_inner(&mut self, rate: u32) -> Result<()> {
@@ -205,13 +307,23 @@ impl HackRfDevice {
     }
   }
 
+  fn stop_transmitting(&mut self) {
+    if self.tx_started {
+      let _ = unsafe { ffi::hackrf_stop_tx(self.dev) };
+      self.tx_started = false;
+    }
+  }
+
   fn cleanup_inner(&mut self) {
+    let _native_operation_guard = Self::native_operation_lock();
+    self.stop_transmitting();
     self.stop_streaming();
     if !self.dev.is_null() {
       let _ = unsafe { ffi::hackrf_close(self.dev) };
       self.dev = ptr::null_mut();
     }
     let _ = self.rx_context.take();
+    let _ = self.tx_context.take();
     let _ = unsafe { ffi::hackrf_exit() };
   }
 }
@@ -244,6 +356,40 @@ impl SdrDevice for HackRfDevice {
     Ok(())
   }
 
+  fn transmit_iq(&mut self, samples: Option<&[u8]>) -> Result<()> {
+    match samples {
+      Some(samples) => {
+        self.stop_transmitting();
+        self.stop_streaming();
+        let payload = prepare_hackrf_tx_payload(samples);
+        if payload.is_empty() {
+          return Err(anyhow!("HackRF TX requires I/Q samples"));
+        }
+        let context = Arc::new(TxContext { iq: payload });
+        let ret = unsafe {
+          ffi::hackrf_start_tx(
+            self.dev,
+            Some(hackrf_tx_callback),
+            Arc::as_ptr(&context) as *mut _,
+          )
+        };
+        if ret != 0 {
+          return Err(anyhow!(
+            "Failed to start HackRF One TX streaming (error code: {})",
+            ret
+          ));
+        }
+        self.tx_context = Some(context);
+        self.tx_started = true;
+      }
+      None => {
+        self.stop_transmitting();
+        self.tx_context = None;
+      }
+    }
+    Ok(())
+  }
+
   fn enter_standby(&mut self) -> Result<()> {
     self.stop_streaming();
     self.flush_read_queue();
@@ -270,6 +416,17 @@ impl SdrDevice for HackRfDevice {
       },
     )?;
 
+    // Tap every byte that arrives before the display path below truncates to a
+    // single FFT, and drain the rest of the queue so the audio timeline has no
+    // hole between display frames. The display keeps the freshest frame.
+    if self.audio_tap.is_enabled() {
+      self.tap_normalized(&frame);
+      while let Ok(next) = self.rx_queue.try_recv() {
+        self.tap_normalized(&next);
+        frame = next;
+      }
+    }
+
     let target_len = fft_size.saturating_mul(2);
     if frame.len() > target_len {
       frame.truncate(target_len);
@@ -294,8 +451,37 @@ impl SdrDevice for HackRfDevice {
     })
   }
 
+  fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
+    if enabled {
+      self
+        .audio_tap
+        .set_capacity_for_sample_rate(self.sample_rate);
+    }
+    self.audio_tap.set_enabled(enabled);
+  }
+
+  fn take_audio_iq(&mut self) -> Option<AudioIqBlock> {
+    if !self.audio_tap.is_enabled() {
+      return None;
+    }
+    let data = self.audio_tap.take();
+    if data.is_empty() {
+      return None;
+    }
+    Some(AudioIqBlock {
+      data,
+      sample_rate: self.sample_rate,
+      dropped_bytes: self.audio_tap.dropped_bytes(),
+    })
+  }
+
   fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
-    self.set_sample_rate_inner(rate)
+    self.set_sample_rate_inner(rate)?;
+    // The latency budget is in seconds, and retained samples belong to the old
+    // rate, so they cannot carry over.
+    self.audio_tap.set_capacity_for_sample_rate(rate);
+    self.audio_tap.clear();
+    Ok(())
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
@@ -316,11 +502,30 @@ impl SdrDevice for HackRfDevice {
         corrected_freq
       ));
     }
-    debug!(
-      "HackRF center frequency set to {} Hz (requested {}, ppm {})",
-      corrected_freq, self.requested_center_frequency, self.ppm
-    );
     Ok(())
+  }
+
+  fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
+    let was_streaming = self.streaming_started;
+    if !was_streaming {
+      return self.set_center_frequency(freq);
+    }
+
+    // HackRF's native frequency setter is not a safe in-flight RX control
+    // operation. Stop the native stream before changing the LO, then restart
+    // it before returning to the acquisition worker. A failed tune still
+    // attempts to restore RX so one bad channel selection cannot strand the
+    // device in a frozen state.
+    self.stop_streaming();
+    self.flush_read_queue();
+    let tune_result = self.set_center_frequency(freq);
+    let restart_result = self.ensure_streaming();
+
+    match (tune_result, restart_result) {
+      (Err(error), _) => Err(error),
+      (Ok(()), Err(error)) => Err(error),
+      (Ok(()), Ok(())) => Ok(()),
+    }
   }
 
   fn set_gain(&mut self, gain: f64) -> Result<()> {
@@ -355,15 +560,11 @@ impl SdrDevice for HackRfDevice {
 
   fn set_ppm(&mut self, ppm: u32) -> Result<()> {
     self.ppm = ppm;
-    debug!("HackRF PPM correction set to {} ppm", ppm);
     Ok(())
   }
 
-  fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
-    debug!(
-      "Ignoring tuner AGC request on HackRF One; use AMP enabled instead: {}",
-      enabled
-    );
+  fn set_tuner_agc(&mut self, _enabled: bool) -> Result<()> {
+    // HackRF has no RTL-style tuner AGC; AMP remains explicitly controlled.
     Ok(())
   }
 
@@ -403,6 +604,9 @@ impl SdrDevice for HackRfDevice {
   fn flush_read_queue(&mut self) {
     drain_rx_queue(&self.rx_queue);
     self.iq_buffer.clear();
+    // A flush is an intentional discontinuity, so retained audio would splice
+    // unrelated spectrum into the stream.
+    self.audio_tap.clear();
   }
 
   fn reset_buffer(&mut self) -> Result<()> {
@@ -484,6 +688,11 @@ mod tests {
   use super::*;
 
   #[test]
+  fn tx_payload_is_padded_to_a_complete_iq_pair() {
+    assert_eq!(prepare_hackrf_tx_payload(&[1, 2, 3]), vec![1, 2, 3, 0]);
+  }
+
+  #[test]
   fn clamps_sample_rate_to_hackrf_bounds() {
     assert_eq!(HACKRF_MIN_SAMPLE_RATE, 2_000_000);
     assert_eq!(HACKRF_MAX_SAMPLE_RATE, 20_000_000);
@@ -532,7 +741,6 @@ mod tests {
     let mut device = HackRfDevice {
       dev: ptr::null_mut(),
       rx_queue: rx,
-      async_thread: None,
       rx_context: None,
       last_error: None,
       sample_rate: HACKRF_MIN_SAMPLE_RATE,
@@ -540,6 +748,9 @@ mod tests {
       requested_center_frequency: 0,
       ppm: 0,
       iq_buffer: Vec::new(),
+      audio_tap: AudioIqTap::new(),
+      tx_context: None,
+      tx_started: false,
       streaming_started: false,
       serial_number: String::new(),
     };

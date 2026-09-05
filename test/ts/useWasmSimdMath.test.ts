@@ -1,6 +1,9 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { computeIqToDbSpectrumScalar } from "../../src/ts/hooks/useWasmSimdMath";
-import { useWasmSimdMath } from "../../src/ts/hooks/useWasmSimdMath";
+import { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/hooks/useWasmSimdMath";
+import {
+  shouldUseWasmIqPath,
+  useWasmSimdMath,
+} from "@n-apt/spectrum/hooks/useWasmSimdMath";
 
 function buildToneIqSamples(sampleCount: number, cycles: number): Uint8Array {
   const out = new Uint8Array(sampleCount * 2);
@@ -88,6 +91,17 @@ describe("computeIqToDbSpectrumScalar", () => {
 });
 
 describe("useWasmSimdMath", () => {
+  it("uses the WASM FFT for the requested frontend size, not only the hook default", () => {
+    expect(
+      shouldUseWasmIqPath({
+        processorAvailable: true,
+        simdAvailable: true,
+        requestedFftSize: 32_768,
+        windowType: "hanning",
+      }),
+    ).toBe(true);
+  });
+
   it("does not let SIMD bypass the requested non-rectangular window", async () => {
     const iq = buildToneIqSamples(64, 5);
 

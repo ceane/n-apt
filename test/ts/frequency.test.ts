@@ -1,10 +1,15 @@
 import {
   clampFrequencyHz,
+  clampFrequencyRangeToBounds,
+  clampCenteredFrequencyRange,
   clampCenteredFrequencyRangeToZeroHz,
   getBandwidthEndHz,
   getBandwidthStartHz,
   buildCenteredFrequencyRange,
   getCenteredFrequencyHz,
+  resolveCenteredFrequencyHz,
+  resolveMockTxMonitorCenterHz,
+  resolveEdgeClampedCenterHz,
   getFrequencyUnitScale,
   getOptimalFrequencyScale,
   formatFrequency,
@@ -12,9 +17,29 @@ import {
   formatChannelFreq,
   roundDbValue,
   type FormatFrequencyOptions,
-} from "@n-apt/utils/frequency";
+} from "@n-apt/math/frequency";
 
 describe("Frequency Utilities", () => {
+  test("prefers the VFO center when the visible range is asymmetric", () => {
+    expect(resolveCenteredFrequencyHz(1_600_000, 2_022_000)).toBe(1_600_000);
+    expect(resolveCenteredFrequencyHz(Number.NaN, 1_600_000)).toBe(1_600_000);
+  });
+
+  test("keeps the Mock Tx view centered on the VFO while tuning", () => {
+    expect(resolveMockTxMonitorCenterHz(2_022_000, 1_600_000)).toBe(2_022_000);
+    expect(resolveMockTxMonitorCenterHz(Number.NaN, 1_600_000)).toBe(1_600_000);
+  });
+
+  test("can relax only the lower frequency bound while retaining the upper bound", () => {
+    expect(
+      clampFrequencyRangeToBounds(
+        { min: -500, max: 500 },
+        { min: 0, max: 1_000 },
+        { minimumFrequencyHz: Number.NEGATIVE_INFINITY },
+      ),
+    ).toEqual({ min: -500, max: 500 });
+  });
+
   describe("formatFrequency", () => {
     test("should format frequencies in kHz", () => {
       expect(formatFrequency(500000)).toBe("500kHz");
@@ -155,6 +180,24 @@ describe("Frequency Utilities", () => {
       expect(clampFrequencyHz(11_000, 0, 10_000)).toBe(10_000);
     });
 
+    test("should correct the center so the window edge lands on a bound", () => {
+      const MAX = 30_000_000_000;
+      // Entering the ceiling with a 20 MHz window leaves the lower half inside.
+      expect(
+        resolveEdgeClampedCenterHz(MAX, 20_000_000, -Infinity, MAX),
+      ).toBe(MAX - 10_000_000);
+      // Symmetric negative ceiling (mirror mode).
+      expect(
+        resolveEdgeClampedCenterHz(-MAX, 20_000_000, -MAX, MAX),
+      ).toBe(-MAX + 10_000_000);
+      // Interior centers pass through untouched.
+      expect(resolveEdgeClampedCenterHz(845_000_000, 20_000_000, -Infinity, MAX)).toBe(
+        845_000_000,
+      );
+      // Degenerate span falls back to plain clamping of the center itself.
+      expect(resolveEdgeClampedCenterHz(MAX + 1, 0, 0, MAX)).toBe(MAX);
+    });
+
     test("should normalize inverted bounds before clamping", () => {
       expect(clampFrequencyHz(5_000, 10_000, 0)).toBe(5_000);
       expect(clampFrequencyHz(-1, 10_000, 0)).toBe(0);
@@ -198,6 +241,15 @@ describe("Frequency Utilities", () => {
       expect(clampCenteredFrequencyRangeToZeroHz(0, 120_000)).toEqual({
         min: 0,
         max: 120_000,
+      });
+    });
+
+    test("can preserve a centered range below zero when baseband mirroring is enabled", () => {
+      expect(
+        clampCenteredFrequencyRange(100, 1_000, Number.NEGATIVE_INFINITY),
+      ).toEqual({
+        min: -400,
+        max: 600,
       });
     });
 

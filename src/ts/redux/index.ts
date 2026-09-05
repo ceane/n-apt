@@ -3,12 +3,29 @@ export { store, useAppDispatch, useAppSelector } from "./store";
 export type { RootState, AppDispatch } from "./store";
 
 export {
+  selectActiveSourceId,
+  selectConnectionSnapshot,
+  selectSdrControls,
+  selectSourceInventory,
+  selectSpectrumControls,
+} from "./selectors/spectrumSelectors";
+
+export {
   setSourceBinding,
   setSourceBindings,
   clearSourceBindings,
   setSourceSelectionMode,
   sourceBindingKey,
 } from "./slices/sourceRoutingSlice";
+
+export {
+  setSelectedSourceId,
+  setSelectionIntentSourceId,
+  restoreSelectedSource,
+  selectSource,
+  setPendingSourceSwitchId,
+  clearSelectedSourceId,
+} from "./slices/sourceSelectionSlice";
 
 // Export slice actions
 export {
@@ -66,7 +83,7 @@ export {
   loadPersistedNoteCards,
   persistNoteCards,
   clearPersistedNoteCards,
-} from "@n-apt/utils/noteCardStorage";
+} from "@n-apt/app/infrastructure/services/noteCardStorage";
 
 export {
   selectNoteCards,
@@ -77,10 +94,14 @@ export {
 // Import spectrum actions for collective export
 import {
   setFrequencyRange,
+  setTuningPreviewActive,
   setActiveSignalArea,
   setSignalAreaAndRange,
+  setDeviceSignalAreaAndRange,
+  tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
+  setMaxVizZoom,
   setVizZoomFloor,
   setVizZoomFloorPan,
   setAutoZoomStability,
@@ -104,6 +125,7 @@ import {
   setTxViewerTemporalResolution,
   setTxViewerPowerScale,
   setTxCenterFrequencyHz,
+  setTxGeometry,
   setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
@@ -124,6 +146,8 @@ import {
   setRtlAGC,
   setSampleRate,
   setSdrSettingsBundle,
+  setDeviceSdrSettingsBundle,
+  setBasebandFilterPinned,
   setVisualizerPaused,
   setDiagnosticStatus,
   setDiagnosticRunning,
@@ -133,6 +157,7 @@ import {
   setTemporalResolution,
   setPowerScale,
   setShowSpikeOverlay,
+  setRemoveDcSpike,
   setGpuSpikeCount,
   setShowTxSlider,
 } from "./slices/spectrumSlice";
@@ -140,10 +165,15 @@ import {
 // Export spectrum actions as individual
 export {
   setFrequencyRange,
+  setTuningPreviewActive,
   setActiveSignalArea,
   setSignalAreaAndRange,
+  setTxHopPreviewState,
+  setDeviceSignalAreaAndRange,
+  tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
+  setMaxVizZoom,
   setVizZoomFloor,
   setVizZoomFloorPan,
   setAutoZoomStability,
@@ -167,6 +197,7 @@ export {
   setTxViewerTemporalResolution,
   setTxViewerPowerScale,
   setTxCenterFrequencyHz,
+  setTxGeometry,
   setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
@@ -187,7 +218,10 @@ export {
   setRtlAGC,
   setSampleRate,
   setSdrSettingsBundle,
+  setDeviceSdrSettingsBundle,
+  setBasebandFilterPinned,
   setVisualizerPaused,
+  setDetectedFrameRate,
   setDiagnosticStatus,
   setDiagnosticRunning,
   triggerDiagnostic,
@@ -195,18 +229,27 @@ export {
   resetLiveControls,
   setTemporalResolution,
   setPowerScale,
+  setMinReceiveSampleRate,
   setShowSpikeOverlay,
+  setRemoveDcSpike,
   setGpuSpikeCount,
   setShowTxSlider,
+  setStitchOption,
+  setStitchOptionValue,
 } from "./slices/spectrumSlice";
 
 // Export collective action objects for convenience
 export const spectrumActions = {
   setFrequencyRange,
+  setTuningPreviewActive,
   setActiveSignalArea,
   setSignalAreaAndRange,
+  setDeviceSignalAreaAndRange,
+  setDeviceSdrSettingsBundle,
+  tuneToChannels,
   mergeLastKnownRanges,
   setVizZoom,
+  setMaxVizZoom,
   setVizZoomFloor,
   setVizZoomFloorPan,
   setAutoZoomStability,
@@ -230,6 +273,7 @@ export const spectrumActions = {
   setTxViewerTemporalResolution,
   setTxViewerPowerScale,
   setTxCenterFrequencyHz,
+  setTxGeometry,
   setDeviceKind,
   setTxPowerDbm,
   setTxVgaGain,
@@ -250,6 +294,7 @@ export const spectrumActions = {
   setRtlAGC,
   setSampleRate,
   setSdrSettingsBundle,
+  setBasebandFilterPinned,
   setVisualizerPaused,
   setDiagnosticStatus,
   setDiagnosticRunning,
@@ -259,6 +304,7 @@ export const spectrumActions = {
   setTemporalResolution,
   setPowerScale,
   setShowSpikeOverlay,
+  setRemoveDcSpike,
   setGpuSpikeCount,
   setShowTxSlider,
 };
@@ -323,6 +369,7 @@ export const themeActions = {
 
 export {
   setSnapshotGrid,
+  setMirrorIqBasebandBelowZero,
   setDeviceInfo,
   resetSettings,
 } from "./slices/settingsSlice";
@@ -334,6 +381,7 @@ import {
   setDisconnected,
   setReconnecting,
   setError,
+  setOperationalError,
   updateDeviceState,
   setCaptureStatus,
   setSpectrumFrames,
@@ -347,6 +395,7 @@ export {
   setDisconnected,
   setReconnecting,
   setError,
+  setOperationalError,
   updateDeviceState,
   setCaptureStatus,
   setSpectrumFrames,
@@ -361,6 +410,7 @@ export const websocketActions = {
   setDisconnected,
   setReconnecting,
   setError,
+  setOperationalError,
   updateDeviceState,
   setCaptureStatus,
   setSpectrumFrames,
@@ -400,11 +450,17 @@ export {
   selectHasPasskeys,
   selectFrequencyRange,
   selectActiveSignalArea,
+  selectAnalysisViewState,
   selectPowerScale,
   selectFftSettings,
   selectVisualizationSettings,
   selectSdrSettings,
   selectDrawParams,
+  selectDrawSignalState,
+  selectSourceMode,
+  selectSelectedSourceId,
+  selectSourceSelectionLifecycle,
+  selectSourceTransportSnapshot,
   selectActiveDrawParams,
   selectTrainingCaptureState,
   selectStitchState,
@@ -421,6 +477,8 @@ export {
   selectHighFrequencyData,
   selectIsWebSocketReady,
   selectDeviceCapabilities,
+  selectSourceDerivedState,
+  selectActiveSourceDerivedState,
 } from "./selectors/performanceSelectors";
 
 // Export middleware (for advanced usage)
@@ -433,5 +491,5 @@ export {
   loadPersistedSdrSettings,
   loadPersistedPasskeys,
   loadPersistedSpectrumFrames,
-  loadPersistedSdrSettingsCache,
+  loadPersistedSignalsDefaults,
 } from "./middleware/localStorageMiddleware";

@@ -1,6 +1,7 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState, AppDispatch } from "@n-apt/redux/store";
 import type { FrequencyRange, NaptMetadata } from "@n-apt/consts/types";
+import type { DemodAlgorithm } from "@n-apt/demodulation/utils/demodProcessors";
 import {
   setSpanRange,
   setCenterFreq,
@@ -9,6 +10,7 @@ import {
   setHardwareSpanHz,
   setBandwidthHz,
   setBandwidthStartHz,
+  clearFmTuneIntent,
   setAlignment,
   setSourceContext,
 } from "../slices/demodSlice";
@@ -18,6 +20,7 @@ import {
   setPreviewAlignment,
 } from "../slices/spectrumSlice";
 import { sendFrequencyRange } from "./websocketThunks";
+import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
 
 // Send get_hardware_info to server
 export const fetchHardwareInfo = createAsyncThunk(
@@ -41,12 +44,19 @@ export const tuneDemod = createAsyncThunk(
   async (range: { min_hz: number; max_hz: number }, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      // `range` may be a mirrored display range. Only the positive hardware
+      // window is valid for the Rust RF tuning protocol; keep the original
+      // range for local display state below.
+      const hardwareRange = normalizePositiveHardwareRange({
+        min: range.min_hz,
+        max: range.max_hz,
+      });
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "demod_tune",
-          min_freq: range.min_hz,
-          max_freq: range.max_hz,
+          min_freq: Math.round(hardwareRange.min),
+          max_freq: Math.round(hardwareRange.max),
         },
       });
 
@@ -101,6 +111,15 @@ export const syncRadioDemodFromSource = createAsyncThunk(
         payload.bandwidthKhz != null && Number.isFinite(payload.bandwidthKhz)
           ? payload.bandwidthKhz
           : 200;
+      const bandwidthHz = bandwidthKhz * 1000;
+      if (payload.centerFreqHz != null && Number.isFinite(payload.centerFreqHz)) {
+        // FM's selected station is both the hardware center and the demod
+        // selection center. Keep both fields coherent so a stale span
+        // selection cannot retune the next frequency-range command.
+        dispatch(setBandwidthCenterFreq(payload.centerFreqHz));
+        dispatch(setBandwidthHz(bandwidthHz));
+        dispatch(setBandwidthStartHz(payload.centerFreqHz - bandwidthHz / 2));
+      }
       dispatch(setBandwidth(bandwidthKhz));
       return;
     }
@@ -210,6 +229,40 @@ const rangesEqual = (
 
 const rangeContains = (outer: FrequencyRange, inner: FrequencyRange) =>
   inner.min >= outer.min && inner.max <= outer.max;
+
+export const shouldPreservePendingFmTune = (params: {
+  sourceMode: DemodSourceMode;
+  algorithm: DemodAlgorithm;
+  pendingCenterHz: number | null | undefined;
+  currentSelection: FrequencyRange | null | undefined;
+  incomingRange: FrequencyRange | null | undefined;
+}) => {
+  const {
+    sourceMode,
+    algorithm,
+    pendingCenterHz,
+    currentSelection,
+    incomingRange,
+  } = params;
+  if (
+    sourceMode !== "live" ||
+    algorithm !== "fm" ||
+    !Number.isFinite(pendingCenterHz) ||
+    !currentSelection ||
+    !incomingRange ||
+    currentSelection.max <= currentSelection.min ||
+    incomingRange.max <= incomingRange.min
+  ) {
+    return false;
+  }
+
+  const currentSelectionCenter =
+    (currentSelection.min + currentSelection.max) / 2;
+  return (
+    Math.abs(currentSelectionCenter - Number(pendingCenterHz)) < 0.1 &&
+    !rangeContains(incomingRange, currentSelection)
+  );
+};
 
 const clampSelectionToRange = (
   center: number,
@@ -607,6 +660,30 @@ export const syncDemodSpanFromSourceContext = createAsyncThunk(
     const state = getState() as RootState;
     const demod = state.demod;
     const currentCenter = demod.centerFreqHz ?? 26_000_000;
+    const currentSelection = state.spectrum?.frequencyRange ?? null;
+    if (
+      shouldPreservePendingFmTune({
+        sourceMode: payload.sourceMode,
+        algorithm: demod.algorithm,
+        pendingCenterHz: demod.fmTuneIntentHz,
+        currentSelection,
+        incomingRange: resolved.range,
+      })
+    ) {
+      return;
+    }
+
+    if (
+      payload.sourceMode === "live" &&
+      demod.fmTuneIntentHz != null &&
+      currentSelection &&
+      rangeContains(resolved.range, currentSelection) &&
+      Math.abs(
+        (resolved.range.min + resolved.range.max) / 2 - demod.fmTuneIntentHz,
+      ) < 0.1
+    ) {
+      dispatch(clearFmTuneIntent());
+    }
     const currentBandwidth = demod.bandwidthHz;
     const currentAlignment = demod.alignment as Alignment;
     const currentPreviewRange = state.spectrum.previewRange;

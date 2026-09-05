@@ -1,13 +1,13 @@
 import * as React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTCanvas from "../../src/ts/components/FFTCanvas";
-import { FrequencyRange } from "../../src/ts/consts/types";
-import { MemoryRouter } from "react-router-dom";
+import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
+import { FrequencyRange } from "@n-apt/consts/types";
+import { MemoryRouter } from "react-router";
 import { TestWrapper } from "./testUtils";
 
 // Mock the hooks that FFTCanvas uses
-jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
+jest.mock("@n-apt/spectrum/hooks/useFFTAnimation", () => ({
   useFFTAnimation: () => ({
     isAnimating: false,
     startAnimation: jest.fn(),
@@ -15,7 +15,7 @@ jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/usePauseLogic", () => ({
+jest.mock("@n-apt/spectrum/hooks/usePauseLogic", () => ({
   usePauseLogic: () => ({
     saveFrameData: jest.fn(),
     restoreWaveformFromStorage: jest.fn(),
@@ -23,7 +23,7 @@ jest.mock("@n-apt/hooks/usePauseLogic", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useDrawWebGPUFFTSignal", () => ({
+jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal", () => ({
   useDrawWebGPUFFTSignal: () => ({
     drawWebGPUFFTSignal: jest.fn(),
     cleanup: jest.fn(),
@@ -31,22 +31,22 @@ jest.mock("@n-apt/hooks/useDrawWebGPUFFTSignal", () => ({
   RESAMPLE_WGSL: "",
 }));
 
-jest.mock("@n-apt/hooks/useDrawWebGPUFIFOWaterfall", () => ({
+jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall", () => ({
   useDrawWebGPUFIFOWaterfall: () => ({
     drawWebGPUFIFOWaterfall: jest.fn(),
     cleanup: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useOverlayRenderer", () => ({
+jest.mock("@n-apt/spectrum/hooks/useOverlayRenderer", () => ({
   useOverlayRenderer: () => ({
     renderOverlay: jest.fn(),
     cleanup: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumInteraction", () => ({
+  useSpectrumInteraction: () => ({
     handleMouseDown: jest.fn(),
     handleMouseMove: jest.fn(),
     handleMouseUp: jest.fn(),
@@ -54,7 +54,17 @@ jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
 }));
 
 // Mock WebGPU
-jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
+jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => ({
+  useWebGPULifecycle: () => ({
+    webgpuEnabled: false,
+    webgpuDeviceRef: { current: null },
+    spectrumRendererRef: { current: null },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    waterfallRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: true, markers: true } },
+    overlayLastUploadMsRef: { current: { grid: 0, markers: 0 } },
+  }),
   useWebGPUInit: () => ({
     webgpuEnabled: false,
     webgpuDeviceRef: { current: null },
@@ -68,7 +78,7 @@ jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
 }));
 
 // Mock animation hook
-jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
+jest.mock("@n-apt/spectrum/hooks/useFFTAnimation", () => ({
   useFFTAnimation: () => ({
     animate: jest.fn(),
     forceRender: jest.fn(),
@@ -78,12 +88,8 @@ jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
 }));
 
 // Mock other hooks
-jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
-  useSpectrumRendering: () => ({ renderSpectrum: jest.fn() }),
-}));
-
-jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => {},
+jest.mock("@n-apt/spectrum/hooks/useSpectrumInteraction", () => ({
+  useSpectrumInteraction: () => {},
 }));
 
 describe("FFTCanvas Pause Functionality", () => {
@@ -143,13 +149,8 @@ describe("FFTCanvas Pause Functionality", () => {
 
     renderFFTCanvas(pausedProps);
 
-    expect(
-      screen.getByText((content, _element) => {
-        return (
-          content.includes("FFT Signal Display") && content.includes("(Paused)")
-        );
-      }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
   });
 
   it("should preserve last frame when paused with valid data", () => {
@@ -187,25 +188,31 @@ describe("FFTCanvas Pause Functionality", () => {
       ...mockProps,
       isPaused: true,
       isDeviceConnected: false,
+      // Lifecycle-owned error placeholder beats the paused top-bar.
+      placeholderState: {
+        kind: "error" as const,
+        reason: "Server down",
+        message:
+          "The server was disconnected due to being manually exited or an error.",
+      },
     };
 
     renderFFTCanvas(pausedProps);
 
-    // Should still render UI elements even in mock mode + paused
-    expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
+    expect(screen.getByText("Server Down")).toBeInTheDocument();
   });
 
   it("should transition from paused to unpaused correctly", async () => {
     const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: true });
 
     // Initially paused
-    expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // Unpause
     rerender(wrapFFTCanvas({ ...mockProps, isPaused: false }));
 
     await waitFor(() => {
-      expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
+      expect(screen.queryByText("Paused")).not.toBeInTheDocument();
     });
   });
 
@@ -213,13 +220,13 @@ describe("FFTCanvas Pause Functionality", () => {
     const { rerender } = renderFFTCanvas({ ...mockProps, isPaused: false });
 
     // Initially not paused
-    expect(screen.queryByText(/\(Paused\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
 
     // Pause
     rerender(wrapFFTCanvas({ ...mockProps, isPaused: true }));
 
     await waitFor(() => {
-      expect(screen.getByText(/\(Paused\)/)).toBeInTheDocument();
+      expect(screen.getByText("Paused")).toBeInTheDocument();
     });
   });
 

@@ -1,11 +1,12 @@
 import {
   canUseWholeChannelSnapshot,
   clampRtlSdrFrequencyRangeToHardwareWindow,
+  isHackrfDevice,
   resolveRenderableFrequencyRange,
   resolveCaptureAcquisitionMode,
   resolveCanonicalDisplaySampleRateHz,
   resolveDisplaySampleRateHz,
-} from "@n-apt/utils/sdrSampleRateGuards";
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 describe("resolveDisplaySampleRateHz", () => {
   it("uses the active Whole Channel rate instead of the stale source floor", () => {
@@ -18,6 +19,46 @@ describe("resolveDisplaySampleRateHz", () => {
         deviceKind: "mock_apt",
       }),
     ).toBe(4_372_000);
+  });
+
+  it("keeps the active Whole Channel rate ahead of a stale frame rate for HackRF", () => {
+    expect(
+      resolveCanonicalDisplaySampleRateHz({
+        activeSampleRateHz: 4_372_000,
+        frameSampleRateHz: 3_200_000,
+        configuredSampleRateHz: 3_200_000,
+        derivedSampleRateHz: 3_200_000,
+        maxSampleRateHz: 20_000_000,
+        deviceKind: "hackrf_one",
+      }),
+    ).toBe(4_372_000);
+  });
+
+  it("lets a wider accepted frame rate win for HackRF when no active rate is selected", () => {
+    expect(
+      resolveCanonicalDisplaySampleRateHz({
+        activeSampleRateHz: null,
+        frameSampleRateHz: 4_372_000,
+        configuredSampleRateHz: 3_200_000,
+        derivedSampleRateHz: 3_200_000,
+        maxSampleRateHz: 20_000_000,
+        deviceKind: "hackrf_one",
+      }),
+    ).toBe(4_372_000);
+  });
+
+  it("keeps RTL-SDR frame-first safety even when an active rate is set", () => {
+    expect(
+      resolveCanonicalDisplaySampleRateHz({
+        activeSampleRateHz: 4_372_000,
+        frameSampleRateHz: 3_200_000,
+        configuredSampleRateHz: 3_200_000,
+        derivedSampleRateHz: 3_200_000,
+        maxSampleRateHz: 3_200_000,
+        deviceKind: "rtl_sdr",
+        isRtlSdr: true,
+      }),
+    ).toBe(3_200_000);
   });
 
   it("uses the configured RTL-SDR rate instead of a wider rendered frame rate", () => {
@@ -79,7 +120,7 @@ describe("resolveDisplaySampleRateHz", () => {
 });
 
 describe("sdrSampleRateGuards", () => {
-  it("blocks whole-channel snapshots for RTL-SDR even when stale UI state asks for them", () => {
+  it("allows whole-channel snapshots as a source-independent acquisition intent", () => {
     expect(
       canUseWholeChannelSnapshot({
         requestedWhole: true,
@@ -87,10 +128,10 @@ describe("sdrSampleRateGuards", () => {
         backend: "rtl-sdr",
         deviceName: "RTL-SDR Blog V4",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("downgrades RTL-SDR whole_sample capture requests wider than the hardware sample rate", () => {
+  it("keeps onscreen Whole Channel intent when the backend may split oversized captures", () => {
     expect(
       resolveCaptureAcquisitionMode({
         requestedMode: "whole_sample",
@@ -100,7 +141,7 @@ describe("sdrSampleRateGuards", () => {
         deviceKind: "rtl_sdr",
         backend: "rtl-sdr",
       }),
-    ).toBe("stepwise");
+    ).toBe("whole_sample");
   });
 
   it("allows exact current-window whole_sample captures at the RTL-SDR sample rate", () => {
@@ -186,16 +227,22 @@ describe("sdrSampleRateGuards", () => {
     });
   });
 
-  it("falls back mock TX render windows to the RF carrier and at least 3.2MHz", () => {
+  it("keeps a render window within the generic sample-rate capability", () => {
     expect(
       resolveRenderableFrequencyRange({
         requestedRange: { min: 0, max: 1_000_000 },
         deviceKind: "mock_tx",
       }),
-    ).toEqual({
-      min: 135_500_000,
-      max: 138_700_000,
-    });
+    ).toEqual({ min: 0, max: 1_000_000 });
+  });
+
+  it("normalizes a mirrored negative request back to a positive hardware window", () => {
+    expect(
+      resolveRenderableFrequencyRange({
+        requestedRange: { min: -2_000_000, max: 2_000_000 },
+        hardwareSampleRateHz: 4_000_000,
+      }),
+    ).toEqual({ min: 0, max: 4_000_000 });
   });
 
   it("clamps a persisted RTL-SDR full-channel range to a start-anchored hardware-sized VFO range", () => {
@@ -224,5 +271,19 @@ describe("sdrSampleRateGuards", () => {
       min: 900_000,
       max: 4_100_000,
     });
+  });
+});
+
+describe("isHackrfDevice", () => {
+  it("identifies HackRF One from deviceKind, backend, deviceName, or sourceId", () => {
+    expect(isHackrfDevice({ deviceKind: "hackrf_one" })).toBe(true);
+    expect(isHackrfDevice({ backend: "hackrf" })).toBe(true);
+    expect(isHackrfDevice({ deviceName: "HackRF One SDR" })).toBe(true);
+    expect(isHackrfDevice({ sourceId: "hackrf-one-0" })).toBe(true);
+  });
+
+  it("returns false for non-HackRF devices", () => {
+    expect(isHackrfDevice({ deviceKind: "rtl-sdr" })).toBe(false);
+    expect(isHackrfDevice({ backend: "mock_apt" })).toBe(false);
   });
 });

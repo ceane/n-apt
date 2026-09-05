@@ -509,6 +509,21 @@ test.describe("N-APT suspension_bridge shader math", () => {
             active && metricsMode === "low-rise" ? 0.49 : 0.0,
             true,
           );
+          metricsView.setFloat32(
+            112,
+            active && metricsMode === "strong" ? 0.85 : 0.0,
+            true,
+          );
+          metricsView.setFloat32(
+            116,
+            active &&
+              (metricsMode === "partial" || metricsMode === "partial-u")
+              ? 0.70
+              : active && metricsMode === "low-rise"
+                ? 0.49
+                : 0.0,
+            true,
+          );
           metricsView.setFloat32(88, active ? 0.8 : 0.1, true);
           device.queue.writeBuffer(metricsBuffer, 0, new Uint8Array(metrics));
 

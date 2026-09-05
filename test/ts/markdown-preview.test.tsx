@@ -118,7 +118,7 @@ jest.mock("react-markdown", () => ({
   },
 }));
 
-import App from "../../src/md-preview/App";
+import App from "@n-apt/app-article/App";
 
 const renderWithMarkdown = async (markdown: string) => {
   (fetch as jest.Mock).mockResolvedValueOnce({

@@ -1,16 +1,16 @@
 import * as React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router";
 // @ts-ignore - Module is mocked below
-import { AppRoutes } from "@n-apt/routes/Routes";
+import { AppRoutes } from "@n-apt/app/routes/pages/Routes";
 import { TestWrapper } from "./testUtils";
 
 // Mock scrollTo for containers
 Element.prototype.scrollTo = jest.fn();
 
 // Mock AppRoutes to bypass lazy loading
-jest.mock("@n-apt/routes/Routes", () => ({
+jest.mock("@n-apt/app/routes/pages/Routes", () => ({
   AppRoutes: () => (
     <Routes>
       <Route
@@ -63,48 +63,48 @@ jest.mock("@n-apt/routes/Routes", () => ({
 }));
 
 // Mock providers and AuthenticationRoute
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
   useAuthentication: () => ({ isAuthenticated: true }),
 }));
 
-jest.mock("@n-apt/routes/AuthenticationRoute", () => ({
+jest.mock("@n-apt/app/routes/pages/AuthenticationRoute", () => ({
   AuthenticationRoute: ({ children }: { children: React.ReactNode }) =>
     children,
 }));
 
-jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
   SpectrumProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-jest.mock("@n-apt/hooks/useModel3D", () => ({
+jest.mock("@n-apt/three-d/hooks/useModel3D", () => ({
   Model3DProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-jest.mock("@n-apt/hooks/useHotspotEditor", () => ({
+jest.mock("@n-apt/three-d/hooks/useHotspotEditor", () => ({
   Model3DInteractionProvider: ({ children }: { children: React.ReactNode }) =>
     children,
 }));
 
-jest.mock("@n-apt/hooks/useMapLocations", () => ({
+jest.mock("@n-apt/maps/hooks/useMapLocations", () => ({
   MapLocationsProvider: ({ children }: { children: React.ReactNode }) =>
     children,
 }));
 
 // Mock route components - return promises for lazy loading
-jest.mock("@n-apt/routes/SpectrumRoute", () => ({
+jest.mock("@n-apt/app/routes/pages/SpectrumRoute", () => ({
   __esModule: true,
   default: () => <div data-testid="spectrum-route">Spectrum Route</div>,
   SpectrumRoute: () => <div data-testid="spectrum-route">Spectrum Route</div>,
 }));
 
-jest.mock("@n-apt/routes/DemodRoute", () => ({
+jest.mock("@n-apt/app/routes/pages/DemodRoute", () => ({
   __esModule: true,
   default: () => <div data-testid="demod-route">Demod Route</div>,
   DemodRoute: () => <div data-testid="demod-route">Demod Route</div>,
 }));
 
-jest.mock("@n-apt/routes/DrawSignalRoute", () => ({
+jest.mock("@n-apt/app/routes/pages/DrawSignalRoute", () => ({
   __esModule: true,
   default: () => <div data-testid="draw-signal-route">Draw Signal Route</div>,
   DrawSignalRoute: () => (
@@ -112,13 +112,13 @@ jest.mock("@n-apt/routes/DrawSignalRoute", () => ({
   ),
 }));
 
-jest.mock("@n-apt/routes/Model3DRoute", () => ({
+jest.mock("@n-apt/app/routes/pages/Model3DRoute", () => ({
   __esModule: true,
   default: () => <div data-testid="model3d-route">Model 3D Route</div>,
   Model3DRoute: () => <div data-testid="model3d-route">Model 3D Route</div>,
 }));
 
-jest.mock("@n-apt/routes/MapEndpointsRoute", () => ({
+jest.mock("@n-apt/app/routes/pages/MapEndpointsRoute", () => ({
   __esModule: true,
   default: () => (
     <div data-testid="map-endpoints-route">Map Endpoints Route</div>
@@ -129,19 +129,19 @@ jest.mock("@n-apt/routes/MapEndpointsRoute", () => ({
 }));
 
 // Mock sidebars
-jest.mock("@n-apt/components/sidebar/SpectrumSidebar", () => ({
+jest.mock("@n-apt/spectrum/sidebar/SpectrumSidebar", () => ({
   SpectrumSidebar: () => (
     <div data-testid="spectrum-sidebar">Spectrum Sidebar</div>
   ),
 }));
 
-jest.mock("@n-apt/components/sidebar/DrawSignalSidebar", () => ({
+jest.mock("@n-apt/draw-signal/sidebar/DrawSignalSidebar", () => ({
   DrawSignalSidebar: () => (
     <div data-testid="draw-signal-sidebar">Draw Signal Sidebar</div>
   ),
 }));
 
-jest.mock("@n-apt/components/sidebar/MapEndpointsSidebar", () => ({
+jest.mock("@n-apt/maps/sidebar/MapEndpointsSidebar", () => ({
   MapEndpointsSidebar: () => (
     <div data-testid="map-endpoints-sidebar">Map Endpoints Sidebar</div>
   ),

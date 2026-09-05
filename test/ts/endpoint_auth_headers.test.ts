@@ -1,4 +1,4 @@
-import { validateSession } from "../../src/ts/services/auth";
+import { validateSession } from "@n-apt/app/infrastructure/services/auth";
 
 describe("Auth Headers Injection", () => {
   beforeEach(() => {

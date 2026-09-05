@@ -1,0 +1,450 @@
+import React, { useCallback } from "react";
+import styled from "styled-components";
+import { Slider } from "@n-apt/ui";
+import { STITCHER_BUTTON_STYLE } from "@n-apt/consts/components";
+import {
+  getVisualizerDbRanges,
+  VISUALIZER_MAX_ZOOM,
+} from "@n-apt/consts/visualizerControls";
+import { roundDbValue } from "@n-apt/math/frequency";
+import {
+  FoldHorizontal,
+  Maximize2,
+  Lock,
+  PaintbrushVertical,
+  RotateCcw,
+  Sigma,
+  Wand2,
+  Eye,
+  EyeOff,
+} from "lucide-react";
+
+const SlidersGrid = styled.div`
+  display: grid;
+  grid-template-rows: auto 1fr 1fr 1fr;
+  justify-content: center;
+  justify-items: center;
+  align-content: start;
+  gap: 12px;
+  height: 100%;
+  width: 100%;
+  user-select: none;
+`;
+
+const CompactSlidersGrid = styled(SlidersGrid)<{ $compact?: boolean }>`
+  ${({ $compact }) =>
+    $compact
+      ? `
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    row-gap: 22px;
+    column-gap: 4px;
+    height: 100%;
+    flex: 1 1 0;
+    min-height: 0;
+    align-content: stretch;
+      `
+      : ""}
+
+  .compact-visualizer-slider {
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .compact-visualizer-slider > [data-testid^="slider-"] {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .compact-visualizer-slider > [data-testid^="slider-"] > span {
+    top: 8px !important;
+    bottom: auto !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    position: absolute;
+    z-index: 40;
+    padding: 0;
+    background: transparent;
+  }
+
+  .compact-visualizer-slider > span {
+    max-width: 100%;
+    overflow: visible;
+    white-space: nowrap;
+    line-height: 12px;
+    position: relative;
+    z-index: 2;
+    background: ${({ theme }) => theme.surface};
+    padding: 0 2px;
+  }
+`;
+
+// Action buttons wrapper
+const ActionButtonsContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 84px;
+`;
+
+const ActionButton = styled.button<{
+  $active?: boolean;
+  $outlined?: boolean;
+  $refocus?: boolean;
+}>`
+  font-family: ${STITCHER_BUTTON_STYLE.fontFamily};
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.1px;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid
+    ${(props) =>
+      props.$refocus
+        ? "rgba(128, 128, 128, 0.25)"
+        : props.$outlined
+          ? props.theme.primary
+          : props.$active
+            ? props.theme.primary
+            : props.theme.border};
+  background: ${(props) =>
+    props.$refocus
+      ? "rgba(128, 128, 128, 0.15)"
+      : props.$outlined
+        ? "transparent"
+        : props.$active
+          ? props.theme.activeBackground
+          : "transparent"};
+  color: ${(props) =>
+    props.$refocus
+      ? props.theme.textPrimary
+      : props.$outlined
+        ? props.theme.textPrimary
+        : props.$active
+          ? props.theme.primary
+          : props.theme.textMuted};
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+
+  &:hover {
+    background: ${(props) =>
+      props.$refocus
+        ? "rgba(128, 128, 128, 0.25)"
+        : props.$outlined
+          ? props.theme.surfaceHover
+          : props.$active
+            ? props.theme.activeBackground
+            : props.theme.surfaceHover};
+    color: ${(props) =>
+      props.$refocus
+        ? props.theme.textPrimary
+        : props.$outlined
+          ? props.theme.textPrimary
+          : props.$active
+            ? props.theme.primary
+            : props.theme.textPrimary};
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: ${(props) => props.theme.textMuted};
+    background: transparent;
+    transform: none;
+  }
+
+  &:disabled:hover {
+    background: transparent;
+    color: ${(props) => props.theme.textMuted};
+  }
+`;
+
+const ResetButton = styled(ActionButton)<{ $hasZoomFloor?: boolean }>`
+  position: relative;
+  padding-right: 14px;
+
+  ${({ $hasZoomFloor, theme }) =>
+    $hasZoomFloor
+      ? `
+    border-color: ${theme.primary};
+    color: ${theme.textPrimary};
+  `
+      : ""}
+`;
+
+const ResetBadge = styled.span`
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #ff5b5b;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+`;
+
+export interface VisualizerSlidersProps {
+  /** Frequency zoom level: 1 = no zoom, higher = more zoomed in */
+  zoom: number;
+  /** User-configurable upper bound for frequency zoom. */
+  maxZoom?: number;
+  /** Max dB ceiling (top of Y axis), range: FFT_MAX_DB down to some minimum */
+  dbMax: number;
+  /** Min dB floor (bottom of Y axis), range: FFT_MIN_DB up to some maximum */
+  dbMin: number;
+  /** Power scale: "dB" or "dBm" */
+  powerScale?: "dB" | "dBm";
+  onZoomChange: (zoom: number) => void;
+  onDbMaxChange: (dbMax: number) => void;
+  onDbMinChange: (dbMin: number) => void;
+  /** FFT averaging toggle */
+  fftAvgEnabled?: boolean;
+  /** FFT smoothing toggle */
+  fftSmoothEnabled?: boolean;
+  /** Waterfall smoothing toggle */
+  wfSmoothEnabled?: boolean;
+  onFftAvgChange?: (enabled: boolean) => void;
+  onFftSmoothChange?: (enabled: boolean) => void;
+  onWfSmoothChange?: (enabled: boolean) => void;
+  onResetZoomDb?: () => void;
+  zoomFloor?: number;
+  autoZoomStability?: boolean;
+  onAutoZoomStabilityChange?: (enabled: boolean) => void;
+  onLockZoomFloor?: () => void;
+  onRefocusZoomFloor?: () => void;
+  /** Disable the control rail while the canvas is loading. */
+  disabled?: boolean;
+  /** Render only the shared zoom and dB sliders for compact node layouts. */
+  compact?: boolean;
+  /** Toggle visibility of the TX slider overlay */
+  showTxSlider?: boolean;
+  /** Whether the active source can expose TX controls */
+  canShowTxSlider?: boolean;
+  onShowTxSliderChange?: (show: boolean) => void;
+}
+
+// Module-level format functions — avoid inline lambdas that break React.memo
+const formatZoom = (v: number) => `${v.toFixed(1)}x`;
+const formatDbValue = (dbUnit: string) => (v: number) =>
+  `${roundDbValue(v)}${dbUnit}`;
+
+export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
+  ({
+    zoom,
+    maxZoom = VISUALIZER_MAX_ZOOM,
+    dbMax,
+    dbMin,
+    powerScale = "dB",
+    onZoomChange,
+    onDbMaxChange,
+    onDbMinChange,
+    fftAvgEnabled = false,
+    fftSmoothEnabled = false,
+    wfSmoothEnabled = false,
+    onFftAvgChange,
+    onFftSmoothChange,
+    onWfSmoothChange,
+    onResetZoomDb,
+    zoomFloor = 1,
+    autoZoomStability = true,
+    onAutoZoomStabilityChange,
+    onLockZoomFloor,
+    onRefocusZoomFloor,
+    disabled = false,
+    compact = false,
+    showTxSlider = true,
+    canShowTxSlider = true,
+    onShowTxSliderChange,
+  }) => {
+    // Calculate appropriate ranges based on power scale
+    const isDbm = powerScale === "dBm";
+    const { max: maxDbRange, min: minDbRange } = getVisualizerDbRanges(
+      powerScale,
+    );
+    const dbUnit = isDbm ? "dBm" : "dB";
+    const formatDb = React.useMemo(() => formatDbValue(dbUnit), [dbUnit]);
+    const isZoomedIn = zoom > 1.0001;
+    const hasZoomFloor = zoomFloor > 1.0001;
+    const canShowZoomFloorAction = autoZoomStability;
+    const handleZoomFloorAction = hasZoomFloor
+      ? onRefocusZoomFloor
+      : onLockZoomFloor;
+
+    const toggleFftAvg = useCallback(
+      () => onFftAvgChange?.(!fftAvgEnabled),
+      [fftAvgEnabled, onFftAvgChange],
+    );
+    const toggleFftSmooth = useCallback(
+      () => onFftSmoothChange?.(!fftSmoothEnabled),
+      [fftSmoothEnabled, onFftSmoothChange],
+    );
+    const toggleWfSmooth = useCallback(
+      () => onWfSmoothChange?.(!wfSmoothEnabled),
+      [wfSmoothEnabled, onWfSmoothChange],
+    );
+    const toggleAutoZoom = useCallback(
+      () => onAutoZoomStabilityChange?.(!autoZoomStability),
+      [autoZoomStability, onAutoZoomStabilityChange],
+    );
+    const toggleShowTxSlider = useCallback(
+      () => onShowTxSliderChange?.(!showTxSlider),
+      [showTxSlider, onShowTxSliderChange],
+    );
+
+    return (
+      <CompactSlidersGrid $compact={compact}>
+        {!compact && <ActionButtonsContainer>
+          <ResetButton
+            $outlined={hasZoomFloor}
+            $hasZoomFloor={hasZoomFloor}
+            disabled={disabled}
+            onClick={onResetZoomDb}
+            title="Reset Zoom and dB limits"
+          >
+            <RotateCcw size={13} strokeWidth={1.5} />
+            Reset
+            {hasZoomFloor ? (
+              <ResetBadge data-testid="zoom-floor-indicator" />
+            ) : null}
+          </ResetButton>
+          <ActionButton
+            $active={fftAvgEnabled}
+            disabled={disabled}
+            onClick={toggleFftAvg}
+            title="Toggle FFT averaging"
+          >
+            <Sigma size={13} strokeWidth={1.5} />
+            FFT Averaging
+          </ActionButton>
+          <ActionButton
+            $active={fftSmoothEnabled}
+            disabled={disabled}
+            onClick={toggleFftSmooth}
+            title="Toggle FFT smoothing"
+          >
+            <Wand2 size={13} strokeWidth={1.5} />
+            FFT Smoothing
+          </ActionButton>
+          <ActionButton
+            $active={wfSmoothEnabled}
+            disabled={disabled}
+            onClick={toggleWfSmooth}
+            title="Toggle waterfall smoothing"
+          >
+            <PaintbrushVertical size={19} strokeWidth={1.5} />
+            Waterfall Smoothing
+          </ActionButton>
+          <ActionButton
+            $active={autoZoomStability}
+            disabled={disabled}
+            onClick={toggleAutoZoom}
+            title="Toggle auto zoom stability — keeps zoom floor tracking as you pan"
+          >
+            <Maximize2 size={13} strokeWidth={1.5} />
+            Auto Zoom Stability
+          </ActionButton>
+          {canShowTxSlider ? (
+            <ActionButton
+              $active={showTxSlider}
+              disabled={disabled}
+              onClick={toggleShowTxSlider}
+              title="Toggle Tx Slider visibility"
+            >
+              {showTxSlider ? (
+                <EyeOff size={13} strokeWidth={1.5} />
+              ) : (
+                <Eye size={13} strokeWidth={1.5} />
+              )}
+              {showTxSlider ? "Hide Tx Slider" : "Show Tx Slider"}
+            </ActionButton>
+          ) : null}
+          {canShowZoomFloorAction && (
+            <ActionButton
+              $refocus={hasZoomFloor}
+              $outlined={!hasZoomFloor}
+              disabled={disabled || (!isZoomedIn && !hasZoomFloor)}
+              onClick={handleZoomFloorAction}
+              title={
+                hasZoomFloor
+                  ? "Refocus — snap zoom and pan back to the current floor window"
+                  : isZoomedIn
+                    ? "Lock zoom floor — save the current zoom and pan as the floor window"
+                    : "Zoom in first — lock zoom floor becomes available above 1.0x"
+              }
+            >
+              {hasZoomFloor ? (
+                <FoldHorizontal size={13} strokeWidth={1.5} />
+              ) : (
+                <Lock size={13} strokeWidth={1.5} />
+              )}
+              {hasZoomFloor ? "Refocus (Zoom Floor)" : "Lock Zoom Floor"}
+            </ActionButton>
+          )}
+        </ActionButtonsContainer>}
+
+        <Slider
+          label="Zoom"
+          value={zoom}
+          min={1}
+          max={maxZoom}
+          step={0.1}
+          disabled={disabled}
+          onChange={onZoomChange}
+          formatValue={formatZoom}
+          orientation="vertical"
+          labelPlacement={compact ? "top" : "bottom"}
+          className="compact-visualizer-slider"
+        />
+        <Slider
+          label="Max"
+          value={dbMax}
+          min={maxDbRange.min}
+          max={maxDbRange.max}
+          step={1}
+          editable
+          disabled={disabled}
+          onChange={onDbMaxChange}
+          formatValue={formatDb}
+          invertFill
+          orientation="vertical"
+          labelPlacement={compact ? "top" : "bottom"}
+          className="compact-visualizer-slider"
+        />
+        <Slider
+          label="Min"
+          value={dbMin}
+          min={minDbRange.min}
+          max={minDbRange.max}
+          step={1}
+          editable
+          disabled={disabled}
+          onChange={onDbMinChange}
+          formatValue={formatDb}
+          orientation="vertical"
+          labelPlacement={compact ? "top" : "bottom"}
+          className="compact-visualizer-slider"
+        />
+      </CompactSlidersGrid>
+    );
+  },
+);
+
+VisualizerSliders.displayName = "VisualizerSliders";
+
+export default VisualizerSliders;

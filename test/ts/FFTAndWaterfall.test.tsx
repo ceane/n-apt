@@ -1,6 +1,7 @@
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
+import FFTAndWaterfall from "@n-apt/spectrum/FFTAndWaterfall";
+import { isControlPlaneUnavailable } from "@n-apt/spectrum/public/liveSourceLifecycle";
 
 const fftCanvasMock = jest.fn((_props?: any) => (
   <div data-testid="fft-canvas" />
@@ -17,7 +18,7 @@ let mockedSourceMode: "live" | "file" = "live";
 let mockedSpectrumState: Record<string, unknown> = {};
 let mockedWebsocketState: Record<string, unknown> = {};
 
-jest.mock("@n-apt/components/FFTCanvas", () => {
+jest.mock("@n-apt/spectrum/FFTCanvas", () => {
   const React = require("react");
 
   return {
@@ -35,11 +36,11 @@ jest.mock("@n-apt/components/FFTCanvas", () => {
   };
 });
 
-jest.mock("@n-apt/components/VisualizerSliders", () => ({
+jest.mock("@n-apt/spectrum/VisualizerSliders", () => ({
   VisualizerSliders: (props: any) => visualizerSlidersMock(props),
 }));
 
-jest.mock("@n-apt/components/FIFOWaterfallCanvas", () => ({
+jest.mock("@n-apt/spectrum/FIFOWaterfallCanvas", () => ({
   __esModule: true,
   default: (_props: any) => waterfallCanvasMock(_props),
 }));
@@ -101,6 +102,39 @@ describe("FFTAndWaterfall", () => {
     waterfallCanvasMock.mockClear();
   });
 
+  it("reports server down only after a connected session is lost", () => {
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "connecting",
+        hasConnectedOnce: false,
+      }),
+    ).toBe(false);
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: false,
+      }),
+    ).toBe(false);
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: false,
+        connectionStatus: "disconnected",
+        hasConnectedOnce: true,
+        sourceHandoffPending: true,
+        transportPhase: "warming",
+      }),
+    ).toBe(true);
+    expect(
+      isControlPlaneUnavailable({
+        isConnected: true,
+        connectionStatus: "connected",
+        hasConnectedOnce: true,
+      }),
+    ).toBe(false);
+  });
+
   it("renders FFTCanvas plus dedicated waterfall and sliders chrome", () => {
     render(
       <FFTAndWaterfall
@@ -135,6 +169,149 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
+  it("uses the selected Tx presentation source when RX remains globally active", () => {
+    mockedWebsocketState = {
+      activeSourceId: "mock-apt",
+      sources: [
+        {
+          id: "mock-apt",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "receiving",
+          capabilities: { can_receive: true, can_transmit: false },
+          iq_format: "u8",
+        },
+        {
+          id: "mock-tx",
+          kind: "mock_tx",
+          capability: "tx",
+          status: "transmitting",
+          capabilities: { can_receive: false, can_transmit: true },
+          iq_format: "u8",
+        },
+      ],
+      sourceStatuses: {
+        "mock-apt": "receiving",
+        "mock-tx": "transmitting",
+      },
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        expectedSourceId="mock-tx"
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    expect(screen.getByTestId("fft-waterfall")).toHaveAttribute(
+      "data-stream-mode",
+      "tx",
+    );
+  });
+
+  it("keeps both panes loading until a cached target frame paints", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{
+          current: {
+            source_id: "mock-apt",
+            data_type: "iq_raw",
+            iq_data: new Uint8Array([1, 2, 3, 4]),
+          },
+        }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: true,
+          clearStalePresentation: true,
+          preserveMatchingPresentation: false,
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.interactionDisabled).toBe(true);
+    expect(fftProps?.awaitingDeviceData).toBe(true);
+    expect(fftProps?.placeholderState).toBeNull();
+
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+    expect(waterfallProps?.awaitingDeviceData).toBe(true);
+  });
+
+  it("keeps the Tx slider available for half-duplex Tx standby", () => {
+    mockedWebsocketState = {
+      activeSourceId: "hackrf-1",
+      sources: [
+        {
+          id: "hackrf-1",
+          kind: "hackrf",
+          capability: "tx_rx",
+          status: "standby",
+        },
+      ],
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 24_100_000, max: 30_370_000 }}
+        centerFrequencyHz={27_235_000}
+        activeSignalArea="A"
+        isPaused={true}
+        snapshotGridPreference={true}
+        txSlider={{ visible: true } as any}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.txSlider).toMatchObject({ visible: true });
+    expect(fftProps?.txSliderAllowed).toBe(true);
+  });
+
+  it("keeps a route-authorized Tx slider visible while active transport catches up", () => {
+    mockedWebsocketState = {
+      activeSourceId: "rtl-1",
+      sources: [
+        {
+          id: "rtl-1",
+          kind: "rtl_sdr",
+          capability: "rx_only",
+          status: "receiving",
+        },
+      ],
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 24_100_000, max: 30_370_000 }}
+        centerFrequencyHz={27_235_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        txSlider={{ visible: true } as any}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.txSlider).toMatchObject({ visible: true });
+    expect(fftProps?.txSliderAllowed).toBe(true);
+  });
+
   it("does not require a live frame before rendering file playback", () => {
     mockedSourceMode = "file";
 
@@ -158,6 +335,32 @@ describe("FFTAndWaterfall", () => {
 
     expect(fftProps?.awaitingDeviceData).toBe(false);
     expect(waterfallProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("never mounts the Tx slider control in file processing mode", () => {
+    mockedSourceMode = "file";
+    mockedWebsocketState = {
+      activeSourceId: "mock-tx",
+      sources: [{ id: "mock-tx", capability: "tx", kind: "mock_tx" }],
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={true}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const sliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(sliderProps?.canShowTxSlider).toBe(false);
   });
 
   it("clears waterfall loading as soon as FFT reports a rendered frame", () => {
@@ -189,6 +392,7 @@ describe("FFTAndWaterfall", () => {
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     act(() => {
       fftProps.onRenderableFrameChange(true);
+      fftProps.onCanvasLoadingChange(false);
     });
     expect(onRenderableFrameChange).toHaveBeenCalledWith(true);
 
@@ -197,6 +401,32 @@ describe("FFTAndWaterfall", () => {
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("forwards renderability changes only when the state changes", () => {
+    const onRenderableFrameChange = jest.fn();
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: { waveform: new Float32Array([1, 2, 3]) } }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        onRenderableFrameChange={onRenderableFrameChange}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      fftProps.onRenderableFrameChange(true);
+      fftProps.onRenderableFrameChange(true);
+      fftProps.onRenderableFrameChange(false);
+      fftProps.onRenderableFrameChange(false);
+    });
+
+    expect(onRenderableFrameChange.mock.calls).toEqual([[true], [false]]);
   });
 
   it("keeps the rendered frame and controls available when pausing", () => {
@@ -264,8 +494,9 @@ describe("FFTAndWaterfall", () => {
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     act(() => {
       runningFftProps.onRenderableFrameChange(true);
+      runningFftProps.onCanvasLoadingChange(false);
     });
-    expect(runningFftProps.onCanvasLoadingChange).toBeUndefined();
+    expect(runningFftProps.onCanvasLoadingChange).toEqual(expect.any(Function));
 
     rerender(
       <FFTAndWaterfall
@@ -343,7 +574,7 @@ describe("FFTAndWaterfall", () => {
     });
   });
 
-  it("keeps a visible placeholder on the waterfall when FFT shows a top bar", () => {
+  it("keeps the waterfall placeholder while FFT is the first pane to report a frame", () => {
     render(
       <FFTAndWaterfall
         dataRef={{ current: null }}
@@ -352,6 +583,52 @@ describe("FFTAndWaterfall", () => {
         activeSignalArea="A"
         isPaused={false}
         snapshotGridPreference={true}
+        placeholderState={{
+          kind: "loading",
+          sourceLabel: "HackRF One",
+          paneLabel: "FFT",
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      fftProps.onRenderableFrameChange(true);
+    });
+
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+    expect(waterfallProps?.placeholderState).toMatchObject({
+      kind: "loading",
+      paneLabel: "Waterfall",
+    });
+  });
+
+  it("keeps standby top bars while a live frame is present", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{
+          current: {
+            source_id: "mock-tx",
+            iq_data: new Uint8Array([128, 129]),
+            frame_status: "standby",
+            is_tx_preview: true,
+          },
+        }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        isStandby={true}
+        snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: false,
+          clearStalePresentation: false,
+          preserveMatchingPresentation: true,
+        }}
         placeholderState={{
           kind: "top-bar",
           title: "Start Tx to transmit",
@@ -364,11 +641,52 @@ describe("FFTAndWaterfall", () => {
       waterfallCanvasMock.mock.calls[
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
 
     expect(waterfallProps?.placeholderState).toMatchObject({
       kind: "top-bar",
       title: "Start Tx to transmit",
     });
+    expect(waterfallProps?.awaitingDeviceData).toBe(false);
+    expect(fftProps?.interactionDisabled).toBe(false);
+  });
+
+  it("keeps a retained Tx standby presentation uncovered after a remount", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        isStandby={true}
+        snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: false,
+          clearStalePresentation: false,
+          preserveMatchingPresentation: true,
+        }}
+        placeholderState={{
+          kind: "loading",
+          sourceLabel: "Mock Tx SDR",
+          paneLabel: "FFT",
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+
+    expect(fftProps?.placeholderState).toBeUndefined();
+    expect(fftProps?.awaitingDeviceData).toBe(false);
+    expect(fftProps?.interactionDisabled).toBe(false);
+    expect(waterfallProps?.placeholderState).toBeUndefined();
+    expect(waterfallProps?.awaitingDeviceData).toBe(false);
   });
 
   it("keeps the last frame available while a live FFT setting is applied", () => {
@@ -429,6 +747,7 @@ describe("FFTAndWaterfall", () => {
       const initialProps =
         fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
       initialProps?.onRenderableFrameChange?.(true);
+      initialProps?.onCanvasLoadingChange?.(false);
     });
 
     rerender(
@@ -576,13 +895,15 @@ describe("FFTAndWaterfall", () => {
     expect(fftProps?.txSlider).toBeUndefined();
   });
 
-  it("surfaces a server-down placeholder for the mock apt source", () => {
+  it("renders a lifecycle-owned Server Down placeholder without inventing one", () => {
     mockedSpectrumState = {
       deviceKind: "mock_apt",
       showTxSlider: true,
     };
     mockedWebsocketState = {
       isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
       activeSourceId: "mock-apt",
       sources: [
         {
@@ -591,6 +912,14 @@ describe("FFTAndWaterfall", () => {
           capability: "mock",
         },
       ],
+    };
+
+    const lifecycleServerDown = {
+      kind: "error" as const,
+      reason: "Server down",
+      message:
+        "The server was disconnected due to being manually exited or an error.",
+      sourceLabel: "mock-apt",
     };
 
     render(
@@ -602,23 +931,131 @@ describe("FFTAndWaterfall", () => {
         isPaused={false}
         isStandby={true}
         snapshotGridPreference={true}
-        placeholderState={{
-          kind: "top-bar",
-          title: "Start Tx to transmit",
+        presentationPolicy={{
+          suppressStaleFrames: false,
+          clearStalePresentation: false,
+          preserveMatchingPresentation: false,
         }}
+        placeholderState={lifecycleServerDown}
+        placeholderErrorReason="Server down"
       />,
     );
 
     const fftProps =
       fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
     expect(fftProps?.placeholderErrorReason).toBe("Server down");
-    expect(fftProps?.placeholderState).toBeNull();
+    expect(fftProps?.placeholderState).toMatchObject(lifecycleServerDown);
     const waterfallProps =
       waterfallCanvasMock.mock.calls[
         waterfallCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(waterfallProps?.placeholderErrorReason).toBe("Server down");
-    expect(waterfallProps?.placeholderState).toBeNull();
+    expect(waterfallProps?.placeholderState).toMatchObject(lifecycleServerDown);
+  });
+
+  it("does not invent Server Down when lifecycle owns placeholders during handoff", () => {
+    mockedWebsocketState = {
+      isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
+      activeSourceId: "mock-apt",
+      sources: [
+        {
+          id: "mock-apt",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "receiving",
+        },
+      ],
+      sourceStatuses: { "mock-apt": "receiving" },
+      sourceTransport: { sourceId: "mock-apt", phase: "warming", error: null },
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        presentationPolicy={{
+          suppressStaleFrames: true,
+          clearStalePresentation: true,
+          preserveMatchingPresentation: false,
+        }}
+        placeholderState={{
+          kind: "loading",
+          paneLabel: "FFT",
+          sourceLabel: "Mock APT SDR",
+          message: "Waiting for the first frame to arrive.",
+        }}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderErrorReason).toBeNull();
+    expect(fftProps?.placeholderState).toMatchObject({ kind: "loading" });
+  });
+
+  it("does not synthesize Server Down when lifecycle presentation is absent", () => {
+    mockedWebsocketState = {
+      isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
+      activeSourceId: "mock-apt",
+      sources: [
+        {
+          id: "mock-apt",
+          kind: "mock_apt",
+          capability: "mock",
+          status: "receiving",
+        },
+      ],
+      sourceStatuses: { "mock-apt": "receiving" },
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderErrorReason).toBeNull();
+  });
+
+  it("does not flash Server Down while the first websocket connect is in flight", () => {
+    mockedWebsocketState = {
+      isConnected: false,
+      connectionStatus: "connecting",
+      hasConnectedOnce: false,
+      activeSourceId: null,
+      sources: [],
+      sourceStatuses: {},
+    };
+
+    render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 0, max: 4_372_000 }}
+        centerFrequencyHz={2_186_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    expect(fftProps?.placeholderErrorReason).toBeNull();
   });
 
   it("keeps the live FFT canvas mounted when fftSize changes", () => {
@@ -693,6 +1130,7 @@ describe("FFTAndWaterfall", () => {
     const onVizZoomChange = jest.fn();
     const onVizZoomFloorChange = jest.fn();
     const onVizPanChange = jest.fn();
+    const onFrequencyRangeChange = jest.fn();
     const onFftDbLimitsChange = jest.fn();
 
     render(
@@ -709,6 +1147,7 @@ describe("FFTAndWaterfall", () => {
         onVizZoomChange={onVizZoomChange}
         onVizZoomFloorChange={onVizZoomFloorChange}
         onVizPanChange={onVizPanChange}
+        onFrequencyRangeChange={onFrequencyRangeChange}
         onFftDbLimitsChange={onFftDbLimitsChange}
       />,
     );
@@ -720,8 +1159,58 @@ describe("FFTAndWaterfall", () => {
     sliderProps.onResetZoomDb();
 
     expect(onVizPanChange).toHaveBeenCalledWith(0);
+    expect(onFrequencyRangeChange).toHaveBeenCalledWith({ min: 100, max: 101 });
     expect(onVizZoomChange).toHaveBeenCalledWith(1);
     expect(onVizZoomFloorChange).toHaveBeenCalledWith(1);
     expect(onFftDbLimitsChange).toHaveBeenCalledWith(-120, 0);
+  });
+
+  it("resets to the frequency range last seen before zooming", () => {
+    const onFrequencyRangeChange = jest.fn();
+    const { rerender } = render(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 100, max: 200 }}
+        centerFrequencyHz={150}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={1}
+        onFrequencyRangeChange={onFrequencyRangeChange}
+      />,
+    );
+
+    rerender(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 120, max: 220 }}
+        centerFrequencyHz={170}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={1}
+        onFrequencyRangeChange={onFrequencyRangeChange}
+      />,
+    );
+    rerender(
+      <FFTAndWaterfall
+        dataRef={{ current: null }}
+        frequencyRange={{ min: 120, max: 220 }}
+        centerFrequencyHz={170}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        vizZoom={2}
+        onFrequencyRangeChange={onFrequencyRangeChange}
+      />,
+    );
+
+    const sliderProps =
+      visualizerSlidersMock.mock.calls[
+        visualizerSlidersMock.mock.calls.length - 1
+      ]?.[0];
+    sliderProps.onResetZoomDb();
+
+    expect(onFrequencyRangeChange).toHaveBeenCalledWith({ min: 120, max: 220 });
   });
 });

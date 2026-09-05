@@ -1,4 +1,4 @@
-import { detectNaptSpikeCandidates } from "../../src/ts/utils/naptSpikeDetection";
+import { detectNaptSpikeCandidates } from "@n-apt/demodulation/utils/naptSpikeDetection";
 
 describe("detectNaptSpikeCandidates", () => {
   it("finds a clear spike above a noisy floor", () => {

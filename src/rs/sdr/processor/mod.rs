@@ -22,6 +22,33 @@ use crate::stitching::SignalStitcher;
 
 use super::{SdrDevice, SdrDeviceFactory};
 
+fn should_retire_device_synchronously(device_type: &str) -> bool {
+  let device_type = device_type.to_ascii_lowercase();
+  device_type.contains("rtl") || device_type.contains("hackrf")
+}
+
+/// Quiesce a warm device without conflating receive-only teardown with the
+/// HackRF pre-Tx standby state. Reused by the source lifecycle warm pool.
+pub(crate) fn stop_warm_device(device: &mut dyn SdrDevice) -> Result<()> {
+  if device.device_type().to_ascii_lowercase().contains("rtl") {
+    return device.cleanup();
+  }
+  let retry_until = Instant::now() + std::time::Duration::from_secs(2);
+  loop {
+    match device.enter_standby() {
+      Ok(()) => return Ok(()),
+      Err(error)
+        if should_retire_device_synchronously(device.device_type())
+          && error.to_string().contains("still stopping")
+          && Instant::now() < retry_until =>
+      {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+      }
+      Err(error) => return Err(error),
+    }
+  }
+}
+
 fn _keep_stitch_types(_result: &CorrelationResult, _method: CorrelationMethod) {
 }
 
@@ -40,6 +67,8 @@ pub struct SdrFrameState {
   pub retune_cooldown_until: Option<Instant>,
   pub post_retune_discard_frames: usize,
   pub last_stable_spectrum: Option<Vec<f32>>,
+  pub last_stable_center_frequency: u32,
+  pub published_held_spectrum: bool,
   pub last_frame_raw_iq: Vec<u8>,
   pub raw_iq_history: VecDeque<Vec<u8>>,
   pub raw_iq_history_capacity: usize,
@@ -71,6 +100,25 @@ pub fn trim_channels_by_spec(
     }
   }
   out
+}
+
+/// Prefer the last real FFT over a synthetic -120 dB row during a live retune gap.
+pub fn resolve_held_live_spectrum(
+  fft_size: usize,
+  last_stable: Option<&[f32]>,
+  avg: Option<&[f32]>,
+) -> Option<Vec<f32>> {
+  if let Some(held) = last_stable {
+    if held.len() == fft_size && !held.is_empty() {
+      return Some(held.to_vec());
+    }
+  }
+  if let Some(held) = avg {
+    if held.len() == fft_size && !held.is_empty() {
+      return Some(held.to_vec());
+    }
+  }
+  None
 }
 
 #[cfg(test)]
@@ -132,6 +180,8 @@ impl SdrFrameState {
       retune_cooldown_until: None,
       post_retune_discard_frames: 0,
       last_stable_spectrum: None,
+      last_stable_center_frequency: 0,
+      published_held_spectrum: false,
       last_frame_raw_iq: Vec::with_capacity(reserve),
       raw_iq_history: VecDeque::with_capacity(raw_iq_history_capacity),
       raw_iq_history_capacity,
@@ -240,6 +290,7 @@ pub struct SdrProcessor {
   pub display_max_db: i32,
   /// Validated frame rate for display
   pub display_frame_rate: u32,
+  pub max_frame_rate: u32,
   /// Whether training capture is active
   pub training_active: bool,
   /// Current training label
@@ -334,6 +385,13 @@ pub struct SdrProcessor {
 }
 
 impl SdrProcessor {
+  pub fn transmit_iq(&mut self, samples: Option<&[u8]>) -> Result<()> {
+    self.device.transmit_iq(samples)
+  }
+
+  pub fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
+    self.device.set_sample_rate(rate)
+  }
   /// Create a new SDR processor with automatic device selection
   pub fn new() -> Result<Self> {
     let device = SdrDeviceFactory::create_device()?;
@@ -393,6 +451,7 @@ impl SdrProcessor {
       display_min_db: min_db,
       display_max_db: max_db,
       display_frame_rate: default_frame_rate,
+      max_frame_rate: sdr_settings.fft.max_frame_rate,
       training_active: false,
       training_label: None,
       training_signal_area: None,
@@ -456,6 +515,7 @@ impl SdrProcessor {
       ppm: Some(sdr_settings.ppm as u32),
       tuner_agc: Some(sdr_settings.gain.tuner_agc),
       rtl_agc: Some(sdr_settings.gain.rtl_agc),
+      tuner_bandwidth: sdr_settings.gain.tuner_bandwidth,
       ..Default::default()
     })?;
 
@@ -499,16 +559,32 @@ impl SdrProcessor {
   /// Swap out the fundamental SDR device during execution (e.g. mock -> real)
   pub fn swap_device_keep_warm(
     &mut self,
-    mut device: Box<dyn SdrDevice>,
+    device: Box<dyn SdrDevice>,
   ) -> Result<Box<dyn SdrDevice>> {
-    // A device returned by an earlier warm swap may deliberately still have
-    // its reader running. Restarting it here can turn an immediate RTL resume
-    // into an async-reader shutdown race. Initial startup-prewarmed devices
-    // report inactive and are initialized normally.
-    if !device.is_rx_active() {
-      device.initialize()?;
-    }
+    self.swap_device_keep_warm_with_sample_rate(device, None)
+  }
+
+  /// Swap devices while honoring a frontend-selected Whole Channel rate.
+  pub fn swap_device_keep_warm_with_sample_rate(
+    &mut self,
+    mut device: Box<dyn SdrDevice>,
+    requested_sample_rate: Option<u32>,
+  ) -> Result<Box<dyn SdrDevice>> {
+    // A warm device may still have RX transfers in flight. Device settings
+    // such as gain, AGC, PPM, and center frequency must be applied while RX is
+    // stopped; librtlsdr rejects those calls during rtlsdr_read_async and the
+    // same ordering is unsafe for HackRF RX. Restart the replacement only
+    // after its configuration has been applied below.
+    // `is_rx_active()` is false while an RTL reader's cancellation is still
+    // unwinding, so always use the standby handshake for a warm replacement.
+    // The bounded retry lets the old async reader finish before settings or a
+    // new reader touch the same USB handle.
+    stop_warm_device(device.as_mut())?;
     let previous_device = std::mem::replace(&mut self.device, device);
+    let previous_gain_db = self.current_gain_db;
+    let previous_ppm = self.current_ppm;
+    let previous_tuner_agc = self.current_tuner_agc;
+    let previous_rtl_agc = self.current_rtl_agc;
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
@@ -516,29 +592,60 @@ impl SdrProcessor {
 
     // Push current config to the new hardware
     let settings = crate::server::utils::load_sdr_settings();
-    self.apply_settings(crate::server::types::SdrProcessorSettings {
-      gain: Some(settings.gain.tuner_gain),
-      ppm: Some(settings.ppm as u32),
-      tuner_agc: Some(settings.gain.tuner_agc),
-      rtl_agc: Some(settings.gain.rtl_agc),
-      ..Default::default()
-    })?;
-    self.set_center_frequency(settings.center_frequency)?;
+    let swap_result = (|| -> Result<()> {
+      self.apply_settings(crate::server::types::SdrProcessorSettings {
+        sample_rate: Some(
+          requested_sample_rate.unwrap_or(settings.sample_rate),
+        ),
+        gain: Some(settings.gain.tuner_gain),
+        ppm: Some(settings.ppm as u32),
+        tuner_agc: Some(settings.gain.tuner_agc),
+        rtl_agc: Some(settings.gain.rtl_agc),
+        tuner_bandwidth: settings.gain.tuner_bandwidth,
+        ..Default::default()
+      })?;
+      self.set_center_frequency(settings.center_frequency)?;
 
-    info!(
-      "SDR processor swapped and synchronized to {}",
-      self.device.device_type()
-    );
+      self.device.initialize()?;
 
-    self.frame.retune_cooldown_until =
-      if self.device.device_type().contains("Mock") {
-        None
-      } else {
-        Some(std::time::Instant::now() + std::time::Duration::from_millis(500))
-      };
-    self.frame.post_retune_discard_frames =
-      self.post_retune_discard_frame_count();
-    self.flush_read_queue();
+      info!(
+        "SDR processor swapped and synchronized to {}",
+        self.device.device_type()
+      );
+
+      self.frame.retune_cooldown_until =
+        if self.device.device_type().contains("Mock") {
+          None
+        } else {
+          Some(
+            std::time::Instant::now() + std::time::Duration::from_millis(500),
+          )
+        };
+      self.frame.post_retune_discard_frames =
+        self.post_retune_discard_frame_count();
+      self.flush_read_queue();
+      Ok(())
+    })();
+
+    if let Err(error) = swap_result {
+      // A failed source must not take down the source that was already
+      // streaming. The replacement may have claimed USB or started a reader
+      // before configuration failed, so clean it up while it is still owned,
+      // then restore the original device and its processor bookkeeping.
+      let mut failed_device =
+        std::mem::replace(&mut self.device, previous_device);
+      if let Err(cleanup_error) = failed_device.cleanup() {
+        warn!(
+          "Failed to clean up replacement SDR after transactional swap failure: {}",
+          cleanup_error
+        );
+      }
+      self.current_gain_db = previous_gain_db;
+      self.current_ppm = previous_ppm;
+      self.current_tuner_agc = previous_tuner_agc;
+      self.current_rtl_agc = previous_rtl_agc;
+      return Err(error);
+    }
 
     // Do not synchronously stop the previous receiver here. In particular,
     // hackrf_stop_rx can block in firmware and prevent the caller from ever
@@ -551,46 +658,52 @@ impl SdrProcessor {
 
   /// Swap devices and release the previous handle.
   pub fn swap_device(&mut self, device: Box<dyn SdrDevice>) -> Result<()> {
-    let mut previous_device = std::mem::replace(&mut self.device, device);
+    // A recovery swap must preserve the rate the user was actually using.
+    // Reloading signals.yaml here reverts a Whole Channel session to the
+    // configured floor before the replacement device can produce a frame.
+    let runtime_sample_rate = self.device.get_sample_rate();
 
-    // Reset tracked state to force re-application to new hardware
-    self.current_gain_db = -1.0;
-    self.current_ppm = u32::MAX;
-
-    // RTL-SDR's async reader owns a live libusb transfer until its thread has
-    // actually returned.  Retire that device synchronously so a fast
-    // unplug/replug cannot open the replacement while the old interface is
-    // still claimed.  Other device implementations retain the historical
-    // bounded, background retirement because some firmware can block in
-    // standby for seconds.
-    let retire_synchronously = previous_device
-      .device_type()
-      .to_ascii_lowercase()
-      .contains("rtl");
+    // USB SDRs must prove that their current reader has stopped before the
+    // processor is replaced. Keep the old device in `self.device` while
+    // waiting; replacing it first would drop a still-active libusb handle if
+    // standby ultimately failed, which can abort inside libusb's mutex code.
+    let retire_synchronously =
+      should_retire_device_synchronously(self.device.device_type());
     if retire_synchronously {
       let deadline =
         std::time::Instant::now() + std::time::Duration::from_secs(2);
       loop {
-        match previous_device.enter_standby() {
-          Ok(()) => {
-            drop(previous_device);
-            break;
-          }
+        match stop_warm_device(self.device.as_mut()) {
+          Ok(()) => break,
           Err(e) if std::time::Instant::now() < deadline => {
             log::debug!(
-              "RTL-SDR is still stopping before swap; retrying standby: {}",
+              "USB SDR is still stopping before swap; retrying standby: {}",
               e
             );
             std::thread::sleep(std::time::Duration::from_millis(10));
           }
           Err(e) => {
             return Err(anyhow::anyhow!(
-              "RTL-SDR did not finish stopping before swap: {}",
+              "USB SDR did not finish stopping before swap: {}",
               e
             ));
           }
         }
       }
+    }
+
+    let mut previous_device = std::mem::replace(&mut self.device, device);
+
+    // Reset tracked state to force re-application to new hardware
+    self.current_gain_db = -1.0;
+    self.current_ppm = u32::MAX;
+
+    // USB SDRs own live libusb transfers until their RX paths have returned.
+    // Retire them synchronously so a fast unplug/replug cannot open the
+    // replacement while the old interface is still claimed. Other device
+    // implementations retain the historical background retirement.
+    if retire_synchronously {
+      drop(previous_device);
     } else {
       // Perform standby and cleanup of the old device in a background thread
       std::thread::spawn(move || {
@@ -612,10 +725,16 @@ impl SdrProcessor {
     // Push current config to the new hardware
     let settings = crate::server::utils::load_sdr_settings();
     self.apply_settings(crate::server::types::SdrProcessorSettings {
+      sample_rate: Some(if runtime_sample_rate > 0 {
+        runtime_sample_rate
+      } else {
+        settings.sample_rate
+      }),
       gain: Some(settings.gain.tuner_gain),
       ppm: Some(settings.ppm as u32),
       tuner_agc: Some(settings.gain.tuner_agc),
       rtl_agc: Some(settings.gain.rtl_agc),
+      tuner_bandwidth: settings.gain.tuner_bandwidth,
       ..Default::default()
     })?;
     self.set_center_frequency(settings.center_frequency)?;
@@ -641,6 +760,19 @@ impl SdrProcessor {
   /// Check if the current device is a mock device
   pub fn is_mock(&self) -> bool {
     self.device.device_type().contains("Mock")
+  }
+
+  /// Start or stop retaining a contiguous IQ stream for audio consumers.
+  pub fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
+    self.device.set_audio_iq_tap_enabled(enabled);
+  }
+
+  /// Take the contiguous IQ retained since the last call. Returns `None` when
+  /// the tap is inactive or nothing new arrived.
+  pub fn take_audio_iq(
+    &mut self,
+  ) -> Option<crate::sdr::audio_iq_tap::AudioIqBlock> {
+    self.device.take_audio_iq()
   }
 
   /// Check if the underlying device is still healthy
@@ -693,6 +825,17 @@ impl SdrProcessor {
     &mut self,
     force_noise: bool,
   ) -> Result<Vec<f32>> {
+    self.read_and_process_frame_with_noise_and_iq_size(force_noise, None)
+  }
+
+  /// Read and process one live frame, optionally reading a larger raw IQ block
+  /// than the FFT consumes. Streaming audio no longer needs this: it reads from
+  /// the device's audio tap, which retains samples across frame boundaries.
+  fn read_and_process_frame_with_noise_and_iq_size(
+    &mut self,
+    force_noise: bool,
+    requested_iq_samples: Option<usize>,
+  ) -> Result<Vec<f32>> {
     let fft_size = self.fft_processor.config().fft_size;
     let sample_rate = self.get_sample_rate();
 
@@ -708,12 +851,8 @@ impl SdrProcessor {
       self.frame.pending_freq = None;
 
       if freq != self.get_center_frequency() {
-        if let Err(e) = self.set_center_frequency(freq) {
+        if let Err(e) = self.set_center_frequency_live(freq) {
           warn!("Failed to apply pending frequency: {}", e);
-        } else {
-          self.frame.last_retune_at = Some(Instant::now());
-          self.frame.post_retune_discard_frames =
-            self.post_retune_discard_frame_count();
         }
       }
     }
@@ -734,10 +873,7 @@ impl SdrProcessor {
     // behind old cooldown data.
     if let Some(until) = self.frame.retune_cooldown_until {
       if Instant::now() < until {
-        if let Some(ref avg) = self.frame.avg_spectrum {
-          return Ok(avg.clone());
-        }
-        return Ok(vec![-120.0; fft_size]);
+        return Ok(self.publish_held_live_spectrum(fft_size));
       }
       self.frame.retune_cooldown_until = None;
     }
@@ -777,22 +913,26 @@ impl SdrProcessor {
       }
     }
 
-    // 1. Read ONE fresh block of FFT size directly from the async layer
-    let mut samples = self.device.read_samples(fft_size)?;
+    // 1. Read one fresh block directly from the async layer. Capture paths
+    // keep the historical FFT-sized block; live streaming may request a
+    // larger block so the raw IQ covers one complete display-frame interval.
+    let read_size = if self.capture_active {
+      fft_size
+    } else {
+      requested_iq_samples.unwrap_or(fft_size).max(fft_size)
+    };
+    let mut samples = self.device.read_samples(read_size)?;
 
     if samples.data.is_empty() {
-      return Ok(vec![-120.0; fft_size]);
+      return Ok(self.publish_held_live_spectrum(fft_size));
     }
 
     while self.frame.post_retune_discard_frames > 0 {
       self.frame.post_retune_discard_frames -= 1;
 
-      let next_samples = self.device.read_samples(fft_size)?;
+      let next_samples = self.device.read_samples(read_size)?;
       if next_samples.data.is_empty() {
-        if let Some(ref held) = self.frame.last_stable_spectrum {
-          return Ok(held.clone());
-        }
-        return Ok(vec![-120.0; fft_size]);
+        return Ok(self.publish_held_live_spectrum(fft_size));
       }
 
       samples = next_samples;
@@ -844,6 +984,11 @@ impl SdrProcessor {
       .unwrap_or_else(|| spectrum.clone());
 
     if self.capture_active {
+      let metrics = crate::performance::pipeline_metrics();
+      let _capture_span = crate::performance::ProfilingSpan::start(
+        metrics,
+        crate::performance::Stage::CaptureQueue,
+      );
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
         let signature = (
@@ -853,16 +998,27 @@ impl SdrProcessor {
         );
         if self.capture_last_frame_signature.as_ref() != Some(&signature) {
           let mut patch = serde_json::Map::new();
-          patch.insert("center_frequency_hz".into(), serde_json::json!(signature.0));
+          patch.insert(
+            "center_frequency_hz".into(),
+            serde_json::json!(signature.0),
+          );
           patch.insert("sample_rate_hz".into(), serde_json::json!(signature.1));
-          patch.insert("fft_size".into(), serde_json::json!(self.capture_fft_size));
+          patch.insert(
+            "fft_size".into(),
+            serde_json::json!(self.capture_fft_size),
+          );
           patch.insert("fft_window".into(), serde_json::json!(signature.2));
           patch.insert("gain".into(), serde_json::json!(self.capture_gain));
-          self.capture_frame_updates.push(crate::server::iq_format::FrameUpdate {
-            sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
-            timestamp_us: self.capture_start.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0),
-            patch: serde_json::Value::Object(patch),
-          });
+          self.capture_frame_updates.push(
+            crate::server::iq_format::FrameUpdate {
+              sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
+              timestamp_us: self
+                .capture_start
+                .map(|s| s.elapsed().as_micros() as u64)
+                .unwrap_or(0),
+              patch: serde_json::Value::Object(patch),
+            },
+          );
           self.capture_last_frame_signature = Some(signature);
         }
         self.capture_channels[ch_idx]
@@ -871,6 +1027,11 @@ impl SdrProcessor {
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(spectrum);
+        metrics.increment(crate::performance::CounterKind::Copies, 2);
+        metrics.increment(
+          crate::performance::CounterKind::CopiedBytes,
+          (display_samples.data.len() + std::mem::size_of_val(spectrum)) as u64,
+        );
       }
       self.capture_actual_frames += 1;
     }
@@ -881,8 +1042,35 @@ impl SdrProcessor {
     );
     self.device.recycle_read_buffer(previous_iq_buffer);
     self.frame.last_stable_spectrum = Some(final_spectrum.clone());
+    self.frame.last_stable_center_frequency = self.get_center_frequency();
+    self.frame.published_held_spectrum = false;
 
     Ok(final_spectrum)
+  }
+
+  /// Keep the last real FFT on screen while USB/RX is empty after a live
+  /// retune. Synthesizing a -120 dB row is what painted the leading-edge gap.
+  fn publish_held_live_spectrum(&mut self, fft_size: usize) -> Vec<f32> {
+    if let Some(held) = resolve_held_live_spectrum(
+      fft_size,
+      self.frame.last_stable_spectrum.as_deref(),
+      self.frame.avg_spectrum.as_deref(),
+    ) {
+      self.frame.published_held_spectrum = true;
+      return held;
+    }
+    self.frame.published_held_spectrum = false;
+    vec![-120.0; fft_size]
+  }
+
+  pub fn displayed_center_frequency(&self) -> u32 {
+    if self.frame.published_held_spectrum
+      && self.frame.last_stable_center_frequency > 0
+    {
+      self.frame.last_stable_center_frequency
+    } else {
+      self.get_center_frequency()
+    }
   }
 
   fn synthesize_noise_frame(fft_size: usize, frame_counter: u64) -> Vec<f32> {
@@ -907,6 +1095,11 @@ impl SdrProcessor {
     let fft_size = settings.fft_size;
     let fft_window = settings.fft_window;
     let frame_rate = settings.frame_rate;
+    if let Some(max_rate) = settings.max_frame_rate {
+      self.max_frame_rate = max_rate.max(1);
+      self.display_frame_rate =
+        self.display_frame_rate.min(self.max_frame_rate);
+    }
     let sample_rate = settings.sample_rate;
     let gain = settings.gain;
     let hackrf_lna_gain = settings.hackrf_lna_gain;
@@ -1004,7 +1197,8 @@ impl SdrProcessor {
     // Frame rate
     if let Some(requested_rate) = frame_rate {
       let max_rate =
-        Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate);
+        Self::calculate_valid_frame_rate(config.fft_size, device_sample_rate)
+          .min(self.max_frame_rate);
       let requested_rate = if is_hackrf && requested_rate == 1 && max_rate > 1 {
         max_rate
       } else {
@@ -1141,9 +1335,7 @@ impl SdrProcessor {
     if fft_size == 0 {
       return crate::server::types::MAX_LOGICAL_FRAME_RATE;
     }
-    (((sample_rate as f64) / (fft_size as f64)).floor() as u32)
-      .min(crate::server::types::MAX_LOGICAL_FRAME_RATE)
-      .max(1)
+    (((sample_rate as f64) / (fft_size as f64)).floor() as u32).max(1)
   }
 
   fn post_retune_discard_frame_count(&self) -> usize {
@@ -1152,6 +1344,23 @@ impl SdrProcessor {
     } else {
       3
     }
+  }
+
+  /// Apply a user VFO tune without creating a display gap.
+  ///
+  /// The live reader is continuous: the next `read_samples` call already
+  /// drains the device queue and keeps its freshest complete block. Clearing
+  /// that queue here, then throwing away three more FFT blocks, makes a
+  /// pointer gesture look like a stopped stream. Frames carry the updated
+  /// center-frequency metadata, so the presentation layer can reject a stale
+  /// frame while the hardware settles without starving the renderer.
+  pub fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
+    self.device.set_center_frequency_live(freq)?;
+    self.fft_processor.set_center_frequency(freq);
+    self.frame.avg_spectrum = None;
+    self.frame.last_retune_at = Some(std::time::Instant::now());
+    self.frame.post_retune_discard_frames = 0;
+    Ok(())
   }
 
   /// Set center frequency
@@ -1934,6 +2143,10 @@ mod hackrf_settings_tests {
     sample_rate: u32,
     max_sample_rate: u32,
     center_frequency: u32,
+    kind: Option<&'static str>,
+    standby_error: bool,
+    rx_active: bool,
+    initialize_error: bool,
   }
 
   impl RecordingDevice {
@@ -1944,7 +2157,7 @@ mod hackrf_settings_tests {
 
   impl SdrDevice for RecordingDevice {
     fn device_type(&self) -> &'static str {
-      "hackrf_one"
+      self.kind.unwrap_or("hackrf_one")
     }
 
     fn get_device_info(&self) -> String {
@@ -1952,11 +2165,20 @@ mod hackrf_settings_tests {
     }
 
     fn initialize(&mut self) -> Result<()> {
+      self.record("initialize");
+      if self.initialize_error {
+        return Err(anyhow::anyhow!("replacement reader failed to start"));
+      }
+      self.rx_active = true;
       Ok(())
     }
 
     fn enter_standby(&mut self) -> Result<()> {
       self.record("standby");
+      if self.standby_error {
+        return Err(anyhow::anyhow!("reader is still stopping"));
+      }
+      self.rx_active = false;
       Ok(())
     }
 
@@ -2045,6 +2267,10 @@ mod hackrf_settings_tests {
       true
     }
 
+    fn is_rx_active(&self) -> bool {
+      self.rx_active
+    }
+
     fn get_error(&self) -> Option<String> {
       None
     }
@@ -2090,6 +2316,31 @@ mod hackrf_settings_tests {
         "vga:62.0".to_string(),
         "amp:true".to_string(),
       ],
+    );
+  }
+
+  #[test]
+  fn live_vfo_tune_does_not_insert_a_discard_window() {
+    let device = RecordingDevice {
+      sample_rate: 3_200_000,
+      center_frequency: 1_000_000,
+      ..Default::default()
+    };
+    let calls = device.calls.clone();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(device)).expect("processor");
+    processor.frame.post_retune_discard_frames = 3;
+    calls.lock().unwrap().clear();
+
+    processor
+      .set_center_frequency_live(1_100_000)
+      .expect("live tune");
+
+    assert_eq!(processor.get_center_frequency(), 1_100_000);
+    assert_eq!(processor.frame.post_retune_discard_frames, 0);
+    assert_eq!(
+      *calls.lock().unwrap(),
+      vec!["center_frequency:1100000".to_string()]
     );
   }
 
@@ -2156,6 +2407,195 @@ mod hackrf_settings_tests {
   }
 
   #[test]
+  fn failed_warm_swap_restores_the_current_streaming_device() {
+    let first = RecordingDevice {
+      kind: Some("rtl-sdr"),
+      rx_active: true,
+      ..Default::default()
+    };
+    let replacement = RecordingDevice {
+      kind: Some("hackrf_one"),
+      initialize_error: true,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+
+    let result = processor.swap_device_keep_warm(Box::new(replacement));
+
+    assert!(result.is_err());
+    assert_eq!(processor.device_type(), "rtl-sdr");
+    assert!(processor.device.is_rx_active());
+    assert!(replacement_calls
+      .lock()
+      .unwrap()
+      .contains(&"cleanup".to_string()));
+  }
+
+  #[test]
+  fn warm_swap_stops_rx_before_reapplying_hardware_settings() {
+    let first = RecordingDevice::default();
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    let replacement = RecordingDevice {
+      rx_active: true,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+
+    processor
+      .swap_device_keep_warm(Box::new(replacement))
+      .expect("warm swap");
+
+    let calls = replacement_calls.lock().unwrap();
+    let standby = calls
+      .iter()
+      .position(|call| call == "standby")
+      .expect("warm replacement should enter standby");
+    let setting = calls
+      .iter()
+      .position(|call| call.starts_with("gain:") || call.starts_with("ppm:"))
+      .expect("warm replacement should receive hardware settings");
+    let initialize = calls
+      .iter()
+      .rposition(|call| call == "initialize")
+      .expect("warm replacement should restart after settings");
+
+    assert!(standby < setting);
+    assert!(setting < initialize);
+  }
+
+  #[test]
+  fn warm_swap_reapplies_the_configured_sample_rate_to_a_new_hackrf() {
+    let first = RecordingDevice {
+      sample_rate: 3_200_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    let replacement = RecordingDevice {
+      sample_rate: 2_000_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+
+    processor
+      .swap_device_keep_warm(Box::new(replacement))
+      .expect("warm swap");
+
+    assert!(replacement_calls
+      .lock()
+      .unwrap()
+      .contains(&"sample_rate:3200000".to_string()));
+  }
+
+  #[test]
+  fn warm_swap_prefers_the_frontend_whole_channel_rate() {
+    let first = RecordingDevice {
+      sample_rate: 3_200_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    let replacement = RecordingDevice {
+      sample_rate: 2_000_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+
+    processor
+      .swap_device_keep_warm_with_sample_rate(
+        Box::new(replacement),
+        Some(18_250_000),
+      )
+      .expect("warm swap");
+
+    assert!(replacement_calls
+      .lock()
+      .unwrap()
+      .contains(&"sample_rate:18250000".to_string()));
+  }
+
+  #[test]
+  fn warm_swap_reapplies_the_baseband_filter_with_the_whole_channel_rate() {
+    let first = RecordingDevice {
+      sample_rate: 3_200_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    let replacement = RecordingDevice {
+      sample_rate: 2_000_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+
+    processor
+      .swap_device_keep_warm_with_sample_rate(
+        Box::new(replacement),
+        Some(4_372_000),
+      )
+      .expect("warm swap");
+
+    let calls = replacement_calls.lock().unwrap();
+    // Changing the sample rate must re-arm the HackRF analog baseband filter
+    // to the same window so the filter does not stay at the previous rate.
+    assert!(calls.contains(&"sample_rate:4372000".to_string()));
+    if let Some(bandwidth_index) = calls
+      .iter()
+      .position(|call| call.starts_with("tuner_bandwidth:"))
+    {
+      let sample_rate_index = calls
+        .iter()
+        .position(|call| call.starts_with("sample_rate:"));
+      assert!(
+        sample_rate_index < Some(bandwidth_index),
+        "baseband filter must be applied after the sample rate change"
+      );
+    }
+  }
+
+  #[test]
+  fn cold_swap_preserves_the_runtime_sample_rate_for_mock_fallback() {
+    let first = RecordingDevice {
+      sample_rate: 3_200_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    processor
+      .apply_settings(SdrProcessorSettings {
+        sample_rate: Some(4_372_000),
+        ..Default::default()
+      })
+      .expect("runtime Whole Channel rate");
+
+    let replacement = RecordingDevice {
+      sample_rate: 2_000_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+
+    processor
+      .swap_device(Box::new(replacement))
+      .expect("cold fallback swap");
+
+    assert!(replacement_calls
+      .lock()
+      .unwrap()
+      .contains(&"sample_rate:4372000".to_string()));
+  }
+
+  #[test]
   fn cleanup_releases_the_current_device_before_a_replacement_open() {
     let device = RecordingDevice::default();
     let calls = device.calls.clone();
@@ -2188,6 +2628,29 @@ mod hackrf_settings_tests {
       .expect("apply settings");
 
     assert_eq!(processor.display_frame_rate, 12);
+  }
+
+  #[test]
+  fn usb_sdrs_are_retired_synchronously_before_replacement_opens() {
+    assert!(should_retire_device_synchronously("rtl-sdr"));
+    assert!(should_retire_device_synchronously("hackrf_one"));
+    assert!(!should_retire_device_synchronously("mock_apt"));
+  }
+
+  #[test]
+  fn failed_usb_standby_keeps_the_current_device_for_retry() {
+    let current = RecordingDevice {
+      kind: Some("hackrf_one"),
+      standby_error: true,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(current)).expect("processor");
+
+    let result = processor.swap_device(Box::new(RecordingDevice::default()));
+
+    assert!(result.is_err());
+    assert_eq!(processor.device_type(), "hackrf_one");
   }
 
   #[test]
@@ -2259,9 +2722,6 @@ mod hackrf_settings_tests {
         Ok(())
       }
       fn is_healthy(&self) -> bool {
-        true
-      }
-      fn is_rx_active(&self) -> bool {
         true
       }
       fn get_error(&self) -> Option<String> {

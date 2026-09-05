@@ -2,16 +2,15 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { IQCaptureNode } from "../../src/ts/components/react-flow/nodes/IQCaptureNode";
+import { IQCaptureNode } from "@n-apt/demodulation/react-flow/nodes/IQCaptureNode";
 import { TestWrapper } from "./testUtils";
 import {
   sendCaptureCommand,
-  sendCaptureStopCommand,
-} from "../../src/ts/redux/thunks/websocketThunks";
-import { useAppDispatch, useAppSelector } from "../../src/ts/redux/store";
+} from "@n-apt/redux/thunks/websocketThunks";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux/store";
 
 // Mock the websocketThunks
-jest.mock("../../src/ts/redux/thunks/websocketThunks", () => ({
+jest.mock("@n-apt/redux/thunks/websocketThunks", () => ({
   sendCaptureCommand: jest.fn(() => ({ type: "MOCK_CAPTURE_COMMAND" })),
   sendCaptureStopCommand: jest.fn(() => ({
     type: "MOCK_CAPTURE_STOP_COMMAND",
@@ -19,7 +18,7 @@ jest.mock("../../src/ts/redux/thunks/websocketThunks", () => ({
 }));
 
 // Mock useAuthentication
-jest.mock("../../src/ts/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     isAuthenticated: true,
     sessionToken: "mock-token",
@@ -27,15 +26,15 @@ jest.mock("../../src/ts/hooks/useAuthentication", () => ({
 }));
 
 // Mock useSpectrumStore
-jest.mock("../../src/ts/hooks/useSpectrumStore", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
   useSpectrumStore: () => ({
     effectiveFrames: [],
   }),
 }));
 
 // Mock the store hooks
-jest.mock("../../src/ts/redux/store", () => ({
-  ...jest.requireActual("../../src/ts/redux/store"),
+jest.mock("@n-apt/redux/store", () => ({
+  ...jest.requireActual("@n-apt/redux/store"),
   useAppDispatch: jest.fn(),
   useAppSelector: jest.fn(),
 }));

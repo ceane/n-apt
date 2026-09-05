@@ -1,10 +1,9 @@
 use anyhow::Result;
-use log::warn;
 use std::ffi::CStr;
 use std::sync::atomic::Ordering;
 
 use crate::server::shared_state::SharedState;
-use crate::server::types::DeviceProfile;
+use crate::server::types::{DeviceProfile, IqFormat};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSelection {
@@ -14,11 +13,10 @@ pub enum SourceSelection {
   #[cfg(has_hackrf)]
   HackRf(i32),
 }
-use super::mock_tx::MOCK_TX_DISPLAY_NAME;
+use super::complex_baseband::MOCK_TX_DISPLAY_NAME;
 #[cfg(has_hackrf)]
 use crate::sdr::hackrf::device::HackRfDevice;
-#[cfg(has_hackrf)]
-use crate::sdr::hackrf::ffi as hackrf_ffi;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::sdr::rtlsdr::{device::RtlSdrDevice, ffi as rtlsdr_ffi};
 use crate::server::utils::{
   device_config_key, reconcile_device_state,
@@ -31,25 +29,25 @@ pub fn build_device_profile(device_type: &str) -> DeviceProfile {
       kind: "rtl-sdr".to_string(),
       is_rtl_sdr: true,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
     "hackrf_one" | "hackrf" => DeviceProfile {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
     "mock_tx" | "mock-tx" => DeviceProfile {
       kind: "mock_tx".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
     _ => DeviceProfile {
       kind: "mock_apt".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(IqFormat::default()),
     },
   }
 }
@@ -87,7 +85,10 @@ fn source_id_for_device(
   sanitize_source_component(&format!("{kind}-{fallback_index}"))
 }
 
-pub fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
+pub fn resolve_source_selection(
+  _shared: &SharedState,
+  source_id: &str,
+) -> Result<SourceSelection> {
   if source_id == "mock-apt" || source_id == "mock_apt" {
     return Ok(SourceSelection::MockApt);
   }
@@ -106,45 +107,15 @@ pub fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
   }
 
   #[cfg(has_hackrf)]
-  unsafe {
-    if hackrf_ffi::hackrf_init() != 0 {
-      return Err(anyhow::anyhow!(
-        "Failed to initialize HackRF device list for source selection"
-      ));
+  for device in _shared.hackrf_inventory.lock().unwrap().iter() {
+    if source_id_for_device(
+      "hackrf_one",
+      Some(&device.serial_number),
+      device.index,
+    ) == source_id
+    {
+      return Ok(SourceSelection::HackRf(device.index as i32));
     }
-
-    let list = hackrf_ffi::hackrf_device_list();
-    if list.is_null() {
-      let _ = hackrf_ffi::hackrf_exit();
-      return Err(anyhow::anyhow!(
-        "No HackRF One device list available for source selection"
-      ));
-    }
-
-    let devicecount = (*list).devicecount.max(0) as usize;
-    for index in 0..devicecount {
-      let serial_number = if !(*list).serial_numbers.is_null() {
-        let serial_ptr = *(*list).serial_numbers.add(index);
-        if serial_ptr.is_null() {
-          String::new()
-        } else {
-          CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
-        }
-      } else {
-        String::new()
-      };
-
-      if source_id_for_device("hackrf_one", Some(&serial_number), index)
-        == source_id
-      {
-        hackrf_ffi::hackrf_device_list_free(list);
-        let _ = hackrf_ffi::hackrf_exit();
-        return Ok(SourceSelection::HackRf(index as i32));
-      }
-    }
-
-    hackrf_ffi::hackrf_device_list_free(list);
-    let _ = hackrf_ffi::hackrf_exit();
   }
 
   Err(anyhow::anyhow!(
@@ -153,9 +124,10 @@ pub fn resolve_source_selection(source_id: &str) -> Result<SourceSelection> {
 }
 
 pub fn open_device_for_source_id(
+  shared: &SharedState,
   source_id: &str,
 ) -> Result<Box<dyn crate::sdr::SdrDevice>> {
-  match resolve_source_selection(source_id)? {
+  match resolve_source_selection(shared, source_id)? {
     SourceSelection::MockApt => {
       Ok(crate::sdr::SdrDeviceFactory::create_mock_device())
     }
@@ -166,6 +138,34 @@ pub fn open_device_for_source_id(
     #[cfg(has_hackrf)]
     SourceSelection::HackRf(index) => Ok(Box::new(HackRfDevice::open(index)?)),
   }
+}
+
+/// Every source id that can be opened from the current inventory.
+///
+/// This drives the startup warm-open pass so switching between connected
+/// devices never pays a cold USB open + full-swap latency. The two mock
+/// sources are deliberately included: they stay warm so a fallback or Mock Tx
+/// handoff reuses the generator/reader instead of recreating it.
+pub fn enumerate_inventory_source_ids(shared: &SharedState) -> Vec<String> {
+  let mut source_ids = Vec::new();
+  source_ids.push("mock-apt".to_string());
+  source_ids.push("mock-tx".to_string());
+  for device in shared.rtl_sdr_inventory_snapshot() {
+    source_ids.push(source_id_for_device(
+      "rtl-sdr",
+      Some(&device.serial_number),
+      device.index as usize,
+    ));
+  }
+  #[cfg(has_hackrf)]
+  for device in shared.hackrf_inventory.lock().unwrap().iter() {
+    source_ids.push(source_id_for_device(
+      "hackrf_one",
+      Some(&device.serial_number),
+      device.index,
+    ));
+  }
+  source_ids
 }
 
 fn source_capability_for_kind(kind: &str) -> &'static str {
@@ -187,7 +187,11 @@ fn source_capability_for_kind_and_duplex(
   match duplex_mode.map(|mode| mode.to_ascii_lowercase()) {
     Some(mode) if mode == "full-duplex" || mode == "full_duplex" => "tx_rx",
     Some(mode) if mode == "half-duplex" || mode == "half_duplex" => {
-      if is_tx_capable_source_kind(kind) { "tx_rx" } else { "rx" }
+      if is_tx_capable_source_kind(kind) {
+        "tx_rx"
+      } else {
+        "rx"
+      }
     }
     _ => source_capability_for_kind(kind),
   }
@@ -196,6 +200,8 @@ fn source_capability_for_kind_and_duplex(
 #[cfg(test)]
 mod tx_suite_tests {
   use super::super::tx_suite::{resolve_tx_suite_pair, DeviceCapability};
+  use serial_test::serial;
+  use std::sync::atomic::Ordering;
 
   #[test]
   fn prefers_dedicated_rx_and_half_duplex_tx_pair() {
@@ -207,14 +213,14 @@ mod tx_suite_tests {
 
     assert_eq!(pair.rx_source_id, "rx");
     assert_eq!(pair.tx_source_id, "tx");
-    assert_eq!(pair.tx_mode, "standby");
+    assert_eq!(pair.tx_status, "standby");
   }
 
   #[test]
   fn uses_one_full_duplex_device_for_both_roles() {
-    let pair = resolve_tx_suite_pair(&[
-      DeviceCapability::new("duplex", true, true, true),
-    ])
+    let pair = resolve_tx_suite_pair(&[DeviceCapability::new(
+      "duplex", true, true, true,
+    )])
     .expect("duplex pair should resolve");
 
     assert_eq!(pair.rx_source_id, "duplex");
@@ -223,10 +229,166 @@ mod tx_suite_tests {
 
   #[test]
   fn rejects_tx_only_pair_without_an_rx_source() {
-    assert!(resolve_tx_suite_pair(&[
-      DeviceCapability::new("tx", false, true, false),
-    ])
+    assert!(resolve_tx_suite_pair(&[DeviceCapability::new(
+      "tx", false, true, false
+    ),])
     .is_none());
+  }
+
+  #[test]
+  #[serial]
+  fn reports_mock_tx_standby_when_tx_is_not_active() {
+    crate::safety::TX_TRANSMITTING
+      .store(false, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        false,
+        "connected",
+        "mock_tx",
+        false,
+        false,
+      ),
+      "standby"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn reports_distinct_rx_lifecycle_statuses() {
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
+      ),
+      "receiving"
+    );
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        true,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
+      ),
+      "paused"
+    );
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        false,
+        "stale",
+        "hackrf_one",
+        true,
+        false,
+      ),
+      "stale"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn keeps_physical_rx_in_loading_until_first_frame() {
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        false,
+        false,
+      ),
+      "loading"
+    );
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
+      ),
+      "receiving"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn keeps_mock_rx_in_loading_during_source_connect() {
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(
+        true, false, "loading", "mock_apt", false, false,
+      ),
+      "loading"
+    );
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        false,
+        "connected",
+        "mock_apt",
+        true,
+        true,
+      ),
+      "receiving"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn does_not_report_receiving_after_frame_liveness_expires() {
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        false,
+        "connected",
+        "hackrf_one",
+        true,
+        false,
+      ),
+      "stale"
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn backend_error_and_active_tx_override_stale_pause_state() {
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        true,
+        "error",
+        "hackrf_one",
+        true,
+        true,
+      ),
+      "error"
+    );
+
+    crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+    assert_eq!(
+      super::source_status_for_entry(
+        true,
+        true,
+        "connected",
+        "hackrf_one",
+        true,
+        true,
+      ),
+      "transmitting"
+    );
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
   }
 }
 
@@ -239,16 +401,34 @@ fn source_status_for_entry(
   is_paused: bool,
   device_state: &str,
   kind: &str,
+  has_successful_frame: bool,
+  has_recent_successful_frame: bool,
 ) -> &'static str {
-  if is_paused {
-    return "connected";
+  if device_state == "error" {
+    return "error";
   }
   let active_tx_state = is_active_source
     && is_tx_capable_source_kind(kind)
     && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+  if active_tx_state {
+    return "transmitting";
+  }
+  if is_paused {
+    if kind == "mock_tx" {
+      return "standby";
+    }
+    return "paused";
+  }
+  // Loading is a source-agnostic connection phase. Mock APT used to bypass
+  // this guard and report `receiving` before its first frame, which made the
+  // frontend skip the placeholder and then appear frozen if acquisition was
+  // still starting.
+  if is_active_source && device_state == "loading" {
+    return "loading";
+  }
   if kind.starts_with("mock_apt") {
     if is_active_source {
-      "streaming"
+      "receiving"
     } else {
       "connected"
     }
@@ -256,19 +436,24 @@ fn source_status_for_entry(
     if active_tx_state || device_state == "transmitting" {
       "transmitting"
     } else {
-      "connected"
+      "standby"
     }
   } else if active_tx_state {
     "transmitting"
   } else if is_active_source {
     match device_state {
       "loading" => "loading",
-      "loose" => "loading",
       "disconnected" => "disconnected",
       "stale" => "stale",
       "error" => "error",
       "transmitting" => "transmitting",
-      _ => "streaming",
+      // Hardware discovery/open succeeded, but acquisition has not produced
+      // a frame for this epoch yet. Keep the UI in Loading until that proof
+      // exists instead of claiming Receiving and triggering a false I/O
+      // watchdog error.
+      _ if !has_successful_frame => "loading",
+      _ if has_recent_successful_frame => "receiving",
+      _ => "stale",
     }
   } else {
     "connected"
@@ -340,6 +525,74 @@ fn build_source_payload(
     .devices
     .get(device_config_key(&device_profile))
     .and_then(|device_cfg| device_cfg.duplex_mode.as_deref());
+  let (has_successful_frame, has_recent_successful_frame) = shared
+    .last_successful_read
+    .lock()
+    .unwrap()
+    .map(|timestamp| {
+      (
+        true,
+        timestamp.elapsed() <= std::time::Duration::from_secs(2),
+      )
+    })
+    .unwrap_or((false, false));
+  let source_capability =
+    source_capability_for_kind_and_duplex(kind, duplex_mode);
+  let can_receive = matches!(source_capability, "rx" | "tx_rx" | "mock");
+  let can_transmit = matches!(source_capability, "tx" | "tx_rx");
+  let device_config =
+    sdr_settings.devices.get(device_config_key(&device_profile));
+  let supports_baseband_filter = device_config
+    .and_then(|device_cfg| device_cfg.baseband_filter)
+    .unwrap_or(false);
+  let supported_controls = [
+    ("gain", can_receive),
+    ("ppm", can_receive),
+    ("sample_rate", can_receive || can_transmit),
+    ("frequency", can_receive || can_transmit),
+    ("baseband_filter", supports_baseband_filter),
+    ("tx_power_dbm", can_transmit),
+  ]
+  .into_iter()
+  .filter_map(|(control, supported)| supported.then_some(control))
+  .collect::<Vec<_>>();
+  let gain_limits = sdr_settings
+    .devices
+    .get(device_config_key(&device_profile))
+    .and_then(|device_cfg| device_cfg.gain_limits.clone());
+  let tx_power_dbm = sdr_settings
+    .devices
+    .get(device_config_key(&device_profile))
+    .and_then(|device_cfg| device_cfg.tx_power_mapping.as_ref())
+    .and_then(|mapping| {
+      let points = mapping.amp_off.iter().chain(mapping.amp_on.iter());
+      let mut min = f64::INFINITY;
+      let mut max = f64::NEG_INFINITY;
+      for point in points {
+        min = min.min(point.dbm);
+        max = max.max(point.dbm);
+      }
+      (min.is_finite() && max.is_finite()).then_some(serde_json::json!({
+        "min": min,
+        "max": max,
+      }))
+    });
+  let frequency_range = shared
+    .available_spectrum
+    .map(|(min, max)| serde_json::json!({ "min": min, "max": max }));
+  let mut fft_sizes = sdr_settings
+    .fft
+    .size_to_frame_rate
+    .keys()
+    .copied()
+    .collect::<Vec<_>>();
+  if !fft_sizes.contains(&sdr_settings.fft.default_size) {
+    fft_sizes.push(sdr_settings.fft.default_size);
+  }
+  if !fft_sizes.contains(&sdr_settings.fft.max_size) {
+    fft_sizes.push(sdr_settings.fft.max_size);
+  }
+  fft_sizes.sort_unstable();
 
   serde_json::json!({
     "id": source_id,
@@ -347,13 +600,44 @@ fn build_source_payload(
     "kind": kind,
     "capability": source_capability_for_kind_and_duplex(kind, duplex_mode),
     "duplex_mode": duplex_mode,
-    "status": source_status_for_entry(is_active_source, paused, device_state, kind),
+    "status": source_status_for_entry(
+      is_active_source,
+      paused,
+      device_state,
+      kind,
+      has_successful_frame,
+      has_recent_successful_frame,
+    ),
     "paused": paused,
     "device_loading_reason": device_loading_reason,
     "loading_attempt": loading_attempt,
     "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
-    "supports_raw_iq_stream": device_profile.supports_raw_iq_stream,
+    "iq_format": device_profile.iq_format,
+    "capabilities": {
+      "can_receive": can_receive,
+      "can_transmit": can_transmit,
+      "supports_tx_monitor": kind == "mock_tx" || kind == "mock-tx",
+      "duplex_mode": duplex_mode,
+      "supports_approx_dbm": device_profile.supports_approx_dbm,
+      "iq_format": device_profile.iq_format,
+      "supported_controls": supported_controls,
+      "sample_rates": sample_rate_options,
+      "max_sample_rate": max_sample_rate,
+      "max_instantaneous_sample_rate": max_sample_rate,
+      "gain_limits": gain_limits,
+      "tx_power_dbm": tx_power_dbm,
+      "frequency_range": frequency_range,
+      "fft": {
+        "sizes": fft_sizes,
+        "default_size": sdr_settings.fft.default_size,
+        "default_frame_rate": sdr_settings.fft.default_frame_rate,
+        "max_size": sdr_settings.fft.max_size,
+        "max_frame_rate": sdr_settings.fft.max_frame_rate,
+        "size_to_frame_rate": sdr_settings.fft.size_to_frame_rate,
+      },
+      "display": sdr_settings.display,
+    },
     "iq_stream_protocols": [1, 2],
     "stream_epoch": shared.current_stream_epoch(),
     "serial_number": serial_number,
@@ -366,8 +650,6 @@ fn build_source_payload(
       "settings": {
         "fft": sdr_settings.fft,
         "display": sdr_settings.display,
-        "devices": sdr_settings.devices,
-        "fft_sizes": sdr_settings.fft_sizes,
         "fft_size": sdr_settings.fft.default_size,
         "fft_window": "Rectangular",
         "frame_rate": sdr_settings.fft.default_frame_rate,
@@ -442,6 +724,10 @@ pub fn sort_sources_for_display(sources: &mut [serde_json::Value]) {
   });
 }
 
+/// Keep the source list focused on the connected hardware while it owns the
+/// active device. Mock sources are restored by the disconnect fallback path;
+/// Mock Tx remains visible only when it is explicitly in standby/transmitting
+/// state so hardware source switching cannot leave stale mock entries behind.
 pub fn remove_idle_mock_sources_for_hardware(
   sources: &mut Vec<serde_json::Value>,
   hardware_is_active: bool,
@@ -452,7 +738,10 @@ pub fn remove_idle_mock_sources_for_hardware(
   sources.retain(|source| {
     let kind = source["kind"].as_str().unwrap_or("");
     !kind.starts_with("mock")
-      || source["status"].as_str() == Some("transmitting")
+      || matches!(
+        source["status"].as_str(),
+        Some("transmitting") | Some("standby")
+      )
   });
 }
 
@@ -525,12 +814,15 @@ fn build_mock_tx_source_payload(
   active_source_id: &str,
 ) -> Option<serde_json::Value> {
   let mock_tx_settings = crate::server::utils::load_mock_tx_settings();
-  if !mock_tx_settings.enabled {
+  let was_active = shared
+    .mock_tx_was_active
+    .load(std::sync::atomic::Ordering::Acquire);
+  if !mock_tx_settings.enabled && active_source_id != "mock-tx" && !was_active {
     return None;
   }
   let paused = shared.is_source_paused("mock-tx");
 
-  let mut payload = build_source_payload(
+  let payload = build_source_payload(
     shared,
     "mock-tx".to_string(),
     MOCK_TX_DISPLAY_NAME.to_string(),
@@ -541,7 +833,7 @@ fn build_mock_tx_source_payload(
     {
       "transmitting"
     } else {
-      "connected"
+      "standby"
     },
     None,
     0,
@@ -554,14 +846,6 @@ fn build_mock_tx_source_payload(
     paused,
     active_source_id == "mock-tx",
   );
-
-  if let Some(obj) = payload.as_object_mut() {
-    obj.insert(
-      "mock_tx".to_string(),
-      serde_json::to_value(&mock_tx_settings)
-        .unwrap_or(serde_json::Value::Null),
-    );
-  }
 
   Some(payload)
 }
@@ -592,12 +876,20 @@ fn enumerate_rtl_sdr_sources(
   active_source_id: &str,
 ) -> Vec<serde_json::Value> {
   let mut sources = Vec::new();
-  let count = RtlSdrDevice::get_device_count();
-  for index in 0..count {
-    let device_name = RtlSdrDevice::get_device_name(index);
-    let (serial, manufacturer, product) = read_rtl_usb_strings(index);
-    let source_id =
-      source_id_for_device("rtl-sdr", Some(&serial), index as usize);
+  // Do not call librtlsdr from this HTTP/WebSocket snapshot path. On macOS,
+  // descriptor reads can block in libusb while the async RTL reader owns the
+  // interface, preventing stream_subscribe and starving the frontend.
+  for device in shared.rtl_sdr_inventory_snapshot() {
+    let device_name = if device.device_name.trim().is_empty() {
+      format!("RTL-SDR Device #{}", device.index)
+    } else {
+      device.device_name.clone()
+    };
+    let source_id = source_id_for_device(
+      "rtl-sdr",
+      Some(&device.serial_number),
+      device.index as usize,
+    );
     if source_id == active_source_id {
       continue;
     }
@@ -605,10 +897,10 @@ fn enumerate_rtl_sdr_sources(
 
     let source_name = status_device_name(
       true,
-      if product.trim().is_empty() {
+      if device.product.trim().is_empty() {
         &device_name
       } else {
-        &product
+        &device.product
       },
       &build_device_profile("rtl-sdr"),
     );
@@ -621,9 +913,9 @@ fn enumerate_rtl_sdr_sources(
       None,
       0,
       crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-      serial,
-      manufacturer,
-      product,
+      device.serial_number,
+      device.manufacturer,
+      device.product,
       device_name,
       true,
       paused,
@@ -639,64 +931,39 @@ fn enumerate_hackrf_sources(
   active_source_id: &str,
 ) -> Vec<serde_json::Value> {
   let mut sources = Vec::new();
-  unsafe {
-    if hackrf_ffi::hackrf_init() != 0 {
-      warn!("Failed to initialize HackRF device list for source inventory");
-      return sources;
+  for device in shared.hackrf_inventory.lock().unwrap().iter() {
+    let source_id = source_id_for_device(
+      "hackrf_one",
+      Some(&device.serial_number),
+      device.index,
+    );
+    if source_id == active_source_id {
+      continue;
     }
+    let paused = shared.is_source_paused(&source_id);
 
-    let list = hackrf_ffi::hackrf_device_list();
-    if list.is_null() {
-      let _ = hackrf_ffi::hackrf_exit();
-      return sources;
-    }
-
-    let devicecount = (*list).devicecount.max(0) as usize;
-    for index in 0..devicecount {
-      let serial_number = if !(*list).serial_numbers.is_null() {
-        let serial_ptr = *(*list).serial_numbers.add(index);
-        if serial_ptr.is_null() {
-          String::new()
-        } else {
-          CStr::from_ptr(serial_ptr).to_string_lossy().into_owned()
-        }
-      } else {
-        String::new()
-      };
-
-      let source_id =
-        source_id_for_device("hackrf_one", Some(&serial_number), index);
-      if source_id == active_source_id {
-        continue;
-      }
-      let paused = shared.is_source_paused(&source_id);
-
-      let source_name = status_device_name(
-        true,
-        "HackRF One",
-        &build_device_profile("hackrf_one"),
-      );
-      sources.push(build_source_payload(
-        shared,
-        source_id,
-        source_name,
-        "hackrf_one",
-        "connected",
-        None,
-        0,
-        crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
-        serial_number,
-        String::new(),
-        "HackRF One".to_string(),
-        "HackRF One".to_string(),
-        true,
-        paused,
-        false,
-      ));
-    }
-
-    hackrf_ffi::hackrf_device_list_free(list);
-    let _ = hackrf_ffi::hackrf_exit();
+    let source_name = status_device_name(
+      true,
+      "HackRF One",
+      &build_device_profile("hackrf_one"),
+    );
+    sources.push(build_source_payload(
+      shared,
+      source_id,
+      source_name,
+      "hackrf_one",
+      "connected",
+      None,
+      0,
+      crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+      device.serial_number.clone(),
+      String::new(),
+      "HackRF One".to_string(),
+      "HackRF One".to_string(),
+      true,
+      paused,
+      false,
+    ));
   }
 
   sources
@@ -711,9 +978,9 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
   let device_loading_reason =
     shared.device_loading_reason.lock().unwrap().clone();
   let device_loading_attempt = shared.recovery_attempts.load(Ordering::Relaxed);
-  let paused = shared.is_paused.load(Ordering::SeqCst);
   let mut sources = Vec::new();
   let active_source_id = active_source_id(shared);
+  let paused = shared.is_source_paused(&active_source_id);
   let active_source = build_active_source_payload(
     shared,
     active_source_id.clone(),
@@ -735,9 +1002,9 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
   }
   sources.extend(enumerate_rtl_sdr_sources(shared, &active_source_id));
   #[cfg(has_hackrf)]
-  {
-    sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
-  }
+  sources.extend(enumerate_hackrf_sources(shared, &active_source_id));
+  // Intentional: when real hardware is active, hide idle mock sources. The
+  // health/disconnect path restores Mock APT as the clean fallback source.
   let hardware_is_active = !shared
     .device_profile
     .lock()
@@ -753,6 +1020,17 @@ pub fn build_source_info_snapshot(shared: &SharedState) -> serde_json::Value {
     "active_source": active_source_id,
     "active_source_mode": if paused { "file" } else { "live" },
     "sources": sources,
+  })
+}
+
+/// Send the effective SDR defaults loaded from signals.yaml as one atomic
+/// payload. The frontend keeps this separate from mutable per-source state so
+/// it can display the configured defaults without treating a stale browser
+/// cache as authoritative.
+pub fn build_signals_defaults_snapshot() -> serde_json::Value {
+  serde_json::json!({
+    "type": "signals_defaults",
+    "sdr": crate::server::utils::load_sdr_settings(),
   })
 }
 
@@ -776,6 +1054,37 @@ pub fn active_source_id(shared: &SharedState) -> String {
 #[cfg(test)]
 mod stable_source_order_tests {
   use super::*;
+  use serial_test::serial;
+
+  #[test]
+  fn inventory_source_ids_include_mocks_and_every_cached_peer() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.set_rtl_sdr_inventory(vec![
+      crate::server::shared_state::RtlSdrInventoryDevice {
+        index: 0,
+        serial_number: "00000001".to_string(),
+        manufacturer: "Realtek".to_string(),
+        product: "RTL-SDR Blog V4".to_string(),
+        device_name: "RTL-SDR Blog V4".to_string(),
+      },
+    ]);
+    #[cfg(has_hackrf)]
+    shared.hackrf_inventory.lock().unwrap().push(
+      crate::server::shared_state::HackRfInventoryDevice {
+        serial_number: "ABC123".to_string(),
+        index: 0,
+      },
+    );
+
+    let ids = enumerate_inventory_source_ids(&shared);
+
+    assert!(ids.contains(&"mock-apt".to_string()));
+    assert!(ids.contains(&"mock-tx".to_string()));
+    assert!(ids.contains(&"rtl-sdr-00000001".to_string()));
+    #[cfg(has_hackrf)]
+    assert!(ids.contains(&"hackrf_one-ABC123".to_string()));
+  }
 
   #[test]
   fn source_inventory_advertises_versioned_iq_lifecycle_metadata() {
@@ -794,6 +1103,89 @@ mod stable_source_order_tests {
     assert!(active["stream_epoch"]
       .as_u64()
       .is_some_and(|epoch| epoch > 0));
+    assert!(active["capabilities"]["can_receive"].is_boolean());
+    assert!(active["capabilities"]["can_transmit"].is_boolean());
+    assert!(active["capabilities"]["supported_controls"].is_array());
+    assert!(active["capabilities"]["fft"]["sizes"].is_array());
+    assert!(active["capabilities"]["display"].is_object());
+    assert!(active["sdr"]["settings"].get("devices").is_none());
+    assert!(active["sdr"]["settings"].get("fft_sizes").is_none());
+    assert!(active.get("mock_tx").is_none());
+    assert_eq!(
+      active["capabilities"]["max_instantaneous_sample_rate"],
+      active["sdr"]["max_sample_rate"]
+    );
+  }
+
+  #[test]
+  #[serial]
+  fn source_inventory_retains_mock_tx_after_switching_away_from_it() {
+    let _guard = crate::server::utils::cwd_lock()
+      .lock()
+      .expect("cwd lock");
+    crate::server::utils::clear_signals_config_cache();
+    let original_dir = std::env::current_dir().expect("current dir");
+    let unique = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .expect("time")
+      .as_nanos();
+    let temp_dir =
+      std::env::temp_dir().join(format!("napt-mock-tx-retain-{}", unique));
+    std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+    let manifest_signals =
+      std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("signals.yaml");
+    let mut yaml =
+      std::fs::read_to_string(manifest_signals).expect("read signals.yaml");
+    yaml = yaml.replace(
+      "mock_tx:\n    enabled: true",
+      "mock_tx:\n    enabled: false",
+    );
+    std::fs::write(temp_dir.join("signals.yaml"), yaml)
+      .expect("write temp signals.yaml");
+    std::env::set_current_dir(&temp_dir).expect("set temp dir");
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+
+    shared.update_device_status(
+      true,
+      "Mock Tx SDR".to_string(),
+      build_device_profile("mock_tx"),
+    );
+    let active_snapshot = build_source_info_snapshot(&shared);
+    assert!(active_snapshot["sources"]
+      .as_array()
+      .expect("active sources array")
+      .iter()
+      .any(|source| source["id"].as_str() == Some("mock-tx")));
+
+    shared.update_device_status(
+      false,
+      "Mock APT SDR".to_string(),
+      build_device_profile("mock_apt"),
+    );
+    let switched_snapshot = build_source_info_snapshot(&shared);
+
+    std::env::set_current_dir(original_dir).expect("restore dir");
+    crate::server::utils::clear_signals_config_cache();
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    assert!(switched_snapshot["sources"]
+      .as_array()
+      .expect("switched sources array")
+      .iter()
+      .any(|source| source["id"].as_str() == Some("mock-tx")));
+  }
+
+  #[test]
+  fn signals_defaults_payload_contains_the_effective_yaml_sdr_config() {
+    let payload = build_signals_defaults_snapshot();
+
+    assert_eq!(payload["type"], "signals_defaults");
+    assert_eq!(payload["sdr"]["sample_rate"], 3_200_000);
+    assert_eq!(payload["sdr"]["center_frequency"], 1_600_000);
+    assert_eq!(payload["sdr"]["gain"]["tuner_gain"], 46.9);
+    assert_eq!(payload["sdr"]["ppm"], 1.0);
+    assert!(payload["sdr"]["devices"].is_object());
   }
 
   #[test]
@@ -827,5 +1219,35 @@ mod stable_source_order_tests {
 
     assert_eq!(sources.len(), 1);
     assert_eq!(sources[0]["id"], "rtl-sdr-b");
+  }
+
+  #[test]
+  fn rtl_inventory_snapshot_uses_sdr_owned_cache() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared
+      .supported_usb_device_count
+      .store(1, Ordering::Relaxed);
+    shared.usb_inventory_known.store(true, Ordering::Release);
+    shared.set_rtl_sdr_inventory(vec![
+      crate::server::shared_state::RtlSdrInventoryDevice {
+        index: 0,
+        serial_number: "00000001".to_string(),
+        manufacturer: "RTLSDRBlog".to_string(),
+        product: "Blog V4".to_string(),
+        device_name: "RTL-SDR Blog V4".to_string(),
+      },
+    ]);
+
+    let snapshot = build_source_info_snapshot(&shared);
+    let rtl_source = snapshot["sources"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .find(|source| source["id"] == "rtl-sdr-00000001")
+      .expect("cached RTL-SDR should be advertised");
+
+    assert_eq!(rtl_source["serial_number"], "00000001");
+    assert_eq!(rtl_source["product"], "Blog V4");
   }
 }

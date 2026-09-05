@@ -13,13 +13,18 @@
 
 use crate::s::fft::types::RawSamples;
 use anyhow::Result;
+#[cfg(has_hackrf)]
 use std::thread;
+#[cfg(has_hackrf)]
 use std::time::Duration;
 
 #[cfg(has_hackrf)]
 const HACKRF_OPEN_RETRY_ATTEMPTS: usize = 5;
+/// Linear backoff between HackRF open attempts. The old flat 250 ms delay
+/// serialized up to a second of dead wait into every failed open; hardware
+/// that needs the retry window is typically ready again within ~100 ms.
 #[cfg(has_hackrf)]
-const HACKRF_OPEN_RETRY_DELAY: Duration = Duration::from_millis(250);
+const HACKRF_OPEN_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 #[cfg(has_hackrf)]
 fn open_hackrf_with_retry() -> Result<Box<dyn SdrDevice>> {
@@ -67,6 +72,23 @@ pub trait SdrDevice: Send {
   /// Read IQ samples from the device
   fn read_samples(&mut self, fft_size: usize) -> Result<RawSamples>;
 
+  /// Enable retention of a contiguous IQ stream alongside the display path.
+  ///
+  /// The display path keeps only the freshest frame, which is correct for a
+  /// real-time waterfall but leaves a hole at every frame boundary. Consumers
+  /// that need an unbroken timeline, such as audio demodulation, enable this
+  /// tap. Devices without a streaming reader default to a no-op.
+  fn set_audio_iq_tap_enabled(&mut self, _enabled: bool) {}
+
+  /// Take the contiguous IQ retained since the last call, if the tap is active.
+  fn take_audio_iq(&mut self) -> Option<audio_iq_tap::AudioIqBlock> {
+    None
+  }
+
+  fn transmit_iq(&mut self, _samples: Option<&[u8]>) -> Result<()> {
+    Err(anyhow::anyhow!("This SDR does not support transmission"))
+  }
+
   /// Return an owned IQ sample buffer to devices that can reuse it.
   fn recycle_read_buffer(&mut self, _buffer: Vec<u8>) {}
 
@@ -75,6 +97,16 @@ pub trait SdrDevice: Send {
 
   /// Set center frequency in Hz
   fn set_center_frequency(&mut self, freq: u32) -> Result<()>;
+
+  /// Set center frequency while the device is serving live RX frames.
+  ///
+  /// Devices with a continuous retune-safe reader can use the normal setter;
+  /// devices whose native API requires RX standby may override this hook to
+  /// stop and restart their reader without making the acquisition worker
+  /// guess at hardware-specific sequencing.
+  fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
+    self.set_center_frequency(freq)
+  }
 
   /// Set tuner gain in dB
   fn set_gain(&mut self, gain: f64) -> Result<()>;
@@ -182,6 +214,12 @@ pub struct SdrDeviceFactory;
 impl SdrDeviceFactory {
   /// Create the appropriate SDR device based on availability
   pub fn create_device() -> Result<Box<dyn SdrDevice>> {
+    if crate::sdr::hotplug::simulated_hardware_present() {
+      log::info!("Using simulated RTL-SDR hardware profile");
+      return Ok(Box::new(
+        crate::sdr::mock_apt::MockAptDevice::new_simulated_rtl_sdr(),
+      ));
+    }
     // Prefer opening the device that is physically connected according to USB snapshots.
     let snapshots =
       match crate::sdr::hotplug::scan_supported_usb_device_snapshots() {
@@ -189,6 +227,7 @@ impl SdrDeviceFactory {
         Err(_) => Vec::new(),
       };
 
+    #[cfg(has_hackrf)]
     let has_hackrf_connected =
       snapshots.iter().any(|s| s.device_type == "hackrf_one");
     let has_rtlsdr_connected =
@@ -264,7 +303,7 @@ impl SdrDeviceFactory {
   }
 }
 
-#[cfg(has_hackrf)]
+pub mod audio_iq_tap;
 pub mod hackrf;
 pub mod hotplug;
 pub mod mock_apt;

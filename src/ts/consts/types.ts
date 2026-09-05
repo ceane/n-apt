@@ -13,9 +13,8 @@ export interface CaptureResult {
   timestamp?: number;
   fileSize?: number;
   duration?: number; // milliseconds
-  confidence: number;
-  matchRate: number;
-  snrDelta: string;
+  sampleRateHz?: number;
+  centerFrequencyHz?: number;
   summary: string;
 }
 
@@ -24,13 +23,12 @@ export interface AnalysisSession {
   type?: "audio" | "internal" | "speech" | "vision" | "apt";
   startTime?: number;
   durationS?: number; // The requested duration in seconds
-  countdown?: number; // 3, 2, 1...
+  sampleRateHz?: number;
+  centerFrequencyHz?: number;
   result?: CaptureResult;
   scriptContent?: string; // Content of the script for analysis
   mediaContent?: string; // Base64 encoded media content (e.g., image, video frame)
   baselineVector?: number[]; // Vector representation of the baseline media/script
-  aptProgress?: number; // APT analysis progress (0.0 to 1.0)
-  aptStage?: string; // Current APT processing stage
 }
 
 export type AnalysisType = "audio" | "internal" | "speech" | "vision" | "apt";

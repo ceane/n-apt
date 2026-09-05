@@ -2,18 +2,19 @@ import React from "react";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { ThemeProvider } from "styled-components";
-import FFTAndWaterfall from "@n-apt/components/FFTAndWaterfall";
+import FFTAndWaterfall from "@n-apt/spectrum/FFTAndWaterfall";
 import { TestWrapper } from "../ts/testUtils";
 import { getMockNaptBuffer } from "../ts/mockNaptData";
 import { configureStore } from "@reduxjs/toolkit";
-import demodReducer from "../../src/ts/redux/slices/demodSlice";
-import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
-import themeReducer from "../../src/ts/redux/slices/themeSlice";
-import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
+import demodReducer from "@n-apt/redux/slices/demodSlice";
+import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
+import settingsReducer from "@n-apt/redux/slices/settingsSlice";
+import themeReducer from "@n-apt/redux/slices/themeSlice";
+import websocketReducer from "@n-apt/redux/slices/websocketSlice";
 import waterfallReducer, {
   setSourceMode,
-} from "../../src/ts/redux/slices/waterfallSlice";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
+} from "@n-apt/redux/slices/waterfallSlice";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 
 const theme = buildAppTheme({
   accentColor: "#00d4ff",
@@ -27,10 +28,10 @@ const theme = buildAppTheme({
 const mockRaf = jest.spyOn(window, "requestAnimationFrame");
 
 // Ensure we use the real FFTCanvas for integration testing, not the manual mock in __mocks__
-jest.unmock("@n-apt/components/FFTCanvas");
+jest.unmock("@n-apt/spectrum/FFTCanvas");
 
-jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
-  useWebGPUInit: () => ({
+jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => {
+  const lifecycle = () => ({
     webgpuEnabled: false,
     isInitializingWebGPU: false,
     webgpuDeviceRef: { current: null },
@@ -39,10 +40,17 @@ jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
     markersOverlayRendererRef: { current: null },
     spikesOverlayRendererRef: { current: null },
     overlayDirtyRef: { current: { grid: false, markers: false } },
-  }),
-}));
+  });
+  return { useWebGPULifecycle: lifecycle, useWebGPUInit: lifecycle };
+});
 
-jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
+jest.mock("@n-apt/spectrum/hooks/useWasmSimdMath", () => ({
+  useSpectrumMath: () => ({
+    processIqToDbmSpectrum: jest.fn(
+      (_iq: Uint8Array, _offsetDb: number, fftSize: number) =>
+        new Float32Array(Math.max(1, fftSize)).fill(-80),
+    ),
+  }),
   useWasmSimdMath: () => ({
     isAvailable: false,
     isLoading: false,
@@ -54,30 +62,16 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useAsyncShaderCache", () => ({
+jest.mock("@n-apt/spectrum/hooks/useAsyncShaderCache", () => ({
   useAsyncShaderCache: () => ({
     preloadShaders: jest.fn(),
     getPipeline: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useUnifiedFFTWaterfall", () => ({
-  useUnifiedFFTWaterfall: () => ({
-    process: jest.fn(),
-    cleanup: jest.fn(),
-  }),
-}));
-
-jest.mock("@n-apt/hooks/useDrawWebGPUFIFOWaterfall", () => ({
+jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall", () => ({
   useDrawWebGPUFIFOWaterfall: () => ({
     draw: jest.fn(),
-    cleanup: jest.fn(),
-  }),
-}));
-
-jest.mock("@n-apt/hooks/useWaterfallRetuneCompute", () => ({
-  useWaterfallRetuneCompute: () => ({
-    render: jest.fn(),
     cleanup: jest.fn(),
   }),
 }));
@@ -126,7 +120,7 @@ describe("FFTAndWaterfall Integration", () => {
 
   test("processes mock binary data and triggers rendering", async () => {
     const mockNaptData = getMockNaptBuffer();
-    // Simulate the data structure useWebSocket would produce after decryption
+    // Simulate the data structure the transport would produce after decryption
     mockDataRef.current = {
       type: "spectrum",
       center_frequency_hz: 101000000,
@@ -178,6 +172,7 @@ describe("FFTAndWaterfall Integration", () => {
       reducer: {
         demod: demodReducer,
         spectrum: spectrumReducer,
+        settings: settingsReducer,
         websocket: websocketReducer,
         theme: themeReducer,
         waterfall: waterfallReducer,

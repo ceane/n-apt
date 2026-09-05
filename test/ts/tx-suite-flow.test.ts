@@ -1,4 +1,4 @@
-import { flowTemplates } from "../../src/ts/components/react-flow/flows/templates";
+import { flowTemplates } from "@n-apt/demodulation/react-flow/flows/templates";
 
 describe("Tx Suite flow", () => {
   it("contains role-specific Rx and Tx visualization branches", () => {

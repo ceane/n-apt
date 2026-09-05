@@ -5,7 +5,7 @@
 import {
   formatFrequency,
   formatFrequencyHighRes,
-} from "@n-apt/utils/frequency";
+} from "@n-apt/math/frequency";
 
 // Shared frequency ranges for optimal grid display (in Hz)
 export const FREQUENCY_RANGES = [
@@ -30,7 +30,7 @@ export const FONT_SIZE = "16px";
 // Shared canvas background
 export const CANVAS_BACKGROUND = "#0a0a0a";
 
-// Frequency formatting functions are now imported from ../utils/frequency
+// Frequency formatting functions are now imported from @n-apt/math/frequency.
 export { formatFrequency, formatFrequencyHighRes };
 
 // Find best range function can be shared

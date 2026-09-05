@@ -5,11 +5,55 @@ import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import glsl from "vite-plugin-glsl";
+import { reactRouter } from "@react-router/dev/vite";
 
 // https://vite.dev/config/
 import { fileURLToPath } from 'node:url';
 // import { reactDevtools } from 'agent-react-devtools/vite';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+
+const scopedFrontendRoots = {
+  app: "src/ts/app",
+  ui: "src/ts/shared/ui",
+  math: "src/ts/shared/math",
+  layout: "src/ts/shared/layout",
+  spectrum: "src/ts/features/spectrum",
+  demodulation: "src/ts/features/demodulation",
+  capture: "src/ts/features/capture",
+  transmit: "src/ts/features/transmit",
+  maps: "src/ts/features/maps",
+  learn: "src/ts/features/learn",
+  "three-d": "src/ts/features/three-d",
+  "draw-signal": "src/ts/features/draw-signal",
+  classification: "src/ts/features/classification",
+  settings: "src/ts/features/settings",
+  "sdr-test": "src/ts/features/sdr-test",
+  agents: "src/ts/agents",
+  cli: "src/ts/cli",
+  consts: "src/ts/consts",
+  crypto: "src/ts/crypto",
+  redux: "src/ts/redux",
+  types: "src/ts/types",
+  validation: "src/ts/validation",
+  workers: "src/ts/workers",
+  shaders: "src/ts/shaders",
+};
+
+const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
+  ([namespace, relativeRoot]) => {
+    const root = path.resolve(dirname, relativeRoot);
+    return [
+      {
+        find: new RegExp(`^\\/?@n-apt/${namespace}$`),
+        replacement: root,
+      },
+      {
+        find: new RegExp(`^\\/?@n-apt/${namespace}/(.*)$`),
+        replacement: `${root}/$1`,
+      },
+    ];
+  },
+);
 
 const resolveGitRoot = () => {
   try {
@@ -73,7 +117,93 @@ const styledComponentsFixPlugin = () => ({
   },
 });
 
+const rebuildStatusPlugin = () => ({
+  name: "n-apt-rebuild-status",
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const urlPath = req.url?.split("?")[0];
+      if (urlPath !== "/rebuild-status") {
+        next();
+        return;
+      }
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      const statusFile = path.resolve(dirname, ".rebuild_status.json");
+      if (fs.existsSync(statusFile)) {
+        res.end(fs.readFileSync(statusFile));
+      } else {
+        res.end(JSON.stringify({ rebuilding: false }));
+      }
+    });
+  },
+});
+
+const markdownForAgentsPlugin = () => ({
+  name: "n-apt-markdown-for-agents",
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const urlPath = (req.url || "").split("?")[0];
+      const wantsMarkdown = String(req.headers.accept || "").includes("text/markdown");
+      if (urlPath === "/agents.md" && (wantsMarkdown || req.method === "GET")) {
+        const index = [
+          "# N-APT Agent Surfaces",
+          "",
+          "This index describes the Markdown-for-Agents and WebMCP surfaces. CLI mutations require `--allow-mutations`; transmission and destructive operations are blocked.",
+          "",
+          "## Supported Markdown routes",
+          "",
+          "- `/` and `/visualizer` — [visualizer](visualizer.md)",
+          "- `/demodulate` and `/demod` — [analysis](analysis.md)",
+          "- `/draw-signal` — [draw-signal](draw-signal.md)",
+          "- `/3d-model` — [3d-model](3d-model.md)",
+          "- `/map-endpoints` — [map-endpoints](map-endpoints.md)",
+          "",
+          "## Coverage policy",
+          "",
+          "Settings and I/Q captures require authentication. Educational, legal, onboarding, and demo routes are not executable agent surfaces.",
+        ].join("\n");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        res.setHeader("Vary", "Accept");
+        res.setHeader("x-markdown-tokens", String(Math.ceil(index.length / 4)));
+        res.setHeader("content-signal", "ai-train=no, search=yes, ai-input=yes");
+        res.end(index);
+        return;
+      }
+      if (!wantsMarkdown) return next();
+      const files = {
+        "/": "visualizer.md",
+        "/visualizer": "visualizer.md",
+        "/demodulate": "analysis.md",
+        "/demod": "analysis.md",
+        "/draw-signal": "draw-signal.md",
+        "/3d-model": "3d-model.md",
+        "/map-endpoints": "map-endpoints.md",
+      };
+      const file = files[urlPath];
+      if (!file) return next();
+      const filePath = path.resolve(dirname, "src/ts/agents/markdown/routes", file);
+      if (!fs.existsSync(filePath)) return next();
+      const content = fs.readFileSync(filePath, "utf8");
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      res.setHeader("Vary", "Accept");
+      res.setHeader("x-markdown-tokens", String(Math.ceil(content.length / 4)));
+      res.setHeader("content-signal", "ai-train=no, search=yes, ai-input=yes");
+      res.end(content);
+    });
+  },
+});
+
 export default defineConfig(({ mode }) => {
+  const useFrameworkViteRoot = process.env.NAPT_REACT_ROUTER === "1";
+  const backendProxyTarget =
+    process.env.NAPT_BACKEND_PROXY_URL ?? "http://127.0.0.1:8765";
+  const backendWebSocketProxyTarget = backendProxyTarget.replace(
+    /^http:/,
+    "ws:",
+  );
   const env = loadEnv(mode, dirname, "");
   const browserEnv = Object.fromEntries(
     Object.entries(env).filter(
@@ -87,11 +217,13 @@ export default defineConfig(({ mode }) => {
   plugins: [
     injectBrowserEnv(browserEnv),
     styledComponentsFixPlugin(),
-    react({
+    rebuildStatusPlugin(),
+    markdownForAgentsPlugin(),
+    ...(!useFrameworkViteRoot ? [react({
       // Configure React Fast Refresh to handle styled-components better
       jsxRuntime: 'automatic',
-      // Ensure JSX is parsed correctly
-    }),
+    })] : []),
+    ...(useFrameworkViteRoot ? [reactRouter()] : []),
     glsl({
       defaultExtension: 'wgsl',
       compress: false,
@@ -99,16 +231,27 @@ export default defineConfig(({ mode }) => {
   ],
   optimizeDeps: {
     include: ['styled-components', 'react', 'react-dom'],
-    exclude: [],
+    // Heavy / route-lazy packages: keep out of cold Rolldown prebundle so
+    // Vite can serve the app before these are needed.
+    exclude: [
+      '@huggingface/transformers',
+      'elkjs',
+      'elkjs/lib/elk.bundled.js',
+    ],
+    holdUntilCrawlEnd: false,
   },
   ssr: {
     noExternal: ['styled-components'],
   },
-  root: "./src/ts",
-  envDir: "../../",
+  root: useFrameworkViteRoot ? dirname : "./src/ts",
+  envDir: useFrameworkViteRoot ? dirname : "../../",
   publicDir: path.resolve(dirname, "public"),
   build: {
-    outDir: "./dist",
+    // Keep the existing CSS surface compatible with Vite 8's default
+    // Lightning CSS minifier. The app's global @font-face declarations are
+    // valid PostCSS input but are rejected by Lightning CSS's minify pass.
+    cssMinify: 'esbuild',
+        outDir: path.resolve(dirname, "dist"),
     rollupOptions: {
       output: {
         manualChunks: (id) => {
@@ -123,12 +266,24 @@ export default defineConfig(({ mode }) => {
     },
   },
   resolve: {
-    alias: [{
-      find: /^\/?@n-apt\/md-signals\/(.*)$/,
-      replacement: `${path.resolve(dirname, "src/md-signals")}/$1`
+    alias: [...scopedFrontendAliases, {
+      find: /^\/?@n-apt\/app-article$/,
+      replacement: path.resolve(dirname, "src/app-article")
     }, {
-      find: /^\/?@n-apt\/md-preview\/(.*)$/,
-      replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+      find: /^\/?@n-apt\/app-article\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-article")}/$1`
+    }, {
+      find: /^\/?@n-apt\/app-game$/,
+      replacement: path.resolve(dirname, "src/app-game")
+    }, {
+      find: /^\/?@n-apt\/app-game\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-game")}/$1`
+    }, {
+      find: /^\/?@n-apt\/app-legal$/,
+      replacement: path.resolve(dirname, "src/app-legal")
+    }, {
+      find: /^\/?@n-apt\/app-legal\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-legal")}/$1`
     }, {
       find: /^\/?@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
@@ -139,9 +294,6 @@ export default defineConfig(({ mode }) => {
       find: /^\/?@n-apt\/webmcp\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/agents/webmcp/$1")
     }, {
-      find: /^\/?@n-apt\/tracked-interactive\/(.*)$/,
-      replacement: path.resolve(dirname, "src/tracked-interactive/$1")
-    }, {
       find: /^\/?@n-apt\/(.*)$/,
       replacement: path.resolve(dirname, "src/ts/$1")
     }, {
@@ -151,33 +303,20 @@ export default defineConfig(({ mode }) => {
   },
   server: {
     port: 5173,
-    hmr: {
-      protocol: 'ws',
-      host: 'localhost',
-      port: 5173,
-    },
+    // The build orchestrator hands port 5173 over from its pre-Vite status
+    // page to Vite. If the handoff races, fail loudly instead of silently
+    // bumping to another port and breaking the "same URL" swap.
+    strictPort: true,
+    // Let Vite bind HMR to the actual dev-server port. A fixed 5173 HMR
+    // endpoint breaks `vite --port <other-port>` and leaves the Router SPA
+    // hydration fallback stuck on Loading N-APT.
+    hmr: true,
     fs: {
       allow: fsAllow,
     },
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (req.url === '/rebuild-status') {
-          res.setHeader('Content-Type', 'application/json');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          const statusFile = path.resolve(dirname, '.rebuild_status.json');
-          if (fs.existsSync(statusFile)) {
-            res.end(fs.readFileSync(statusFile));
-          } else {
-            res.end(JSON.stringify({ rebuilding: false }));
-          }
-        } else {
-          next();
-        }
-      });
-    },
     proxy: {
       "/ws": {
-        target: "ws://localhost:8765",
+        target: backendWebSocketProxyTarget,
         ws: true,
         changeOrigin: true,
         timeout: 10000,
@@ -195,7 +334,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/auth": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -224,7 +363,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/status": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -241,7 +380,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/logout": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -258,7 +397,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/capture": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {
@@ -275,7 +414,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/api": {
-        target: "http://localhost:8765",
+        target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,
         configure: (proxy, _options) => {

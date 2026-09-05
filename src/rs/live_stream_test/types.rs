@@ -8,14 +8,16 @@ pub enum LiveData {
   /// FFT spectrum data (power values)
   Spectrum {
     timestamp: i64,
-    center_frequency_hz: u32,
+    /// Full-width u64: the wire header carries 8 bytes and SDR centers can
+    /// exceed the 32-bit range (e.g. 6 GHz HackRF band).
+    center_frequency_hz: u64,
     sample_rate_hz: u32,
     waveform: Vec<f32>,
   },
   /// Raw I/Q samples
   RawIQ {
     timestamp: i64,
-    center_frequency_hz: u32,
+    center_frequency_hz: u64,
     sample_rate_hz: u32,
     iq_bytes: Vec<u8>,
   },
@@ -36,6 +38,11 @@ pub struct AuthChallenge {
 }
 
 /// Algorithm test results
+///
+/// Payload schemas for the standalone diagnostic harness: fields are
+/// populated when a measurement is recorded and are intentionally not
+/// read back by the binary itself.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct AlgorithmResult {
   pub name: String,
@@ -43,6 +50,7 @@ pub struct AlgorithmResult {
   pub result_type: AlgorithmResultType,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum AlgorithmResultType {
   PeakDetection {
@@ -57,11 +65,9 @@ pub enum AlgorithmResultType {
     dominant_freq_hz: f64,
     bandwidth_hz: f64,
   },
-  Custom {
-    data: serde_json::Value,
-  },
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PeakInfo {
   pub bin_index: usize,

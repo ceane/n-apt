@@ -5,16 +5,19 @@
  * exchanged between the client and server.
  */
 
-import { type GeolocationData } from "../../types/geolocation";
+import { type GeolocationData } from "@n-apt/types/geolocation";
 export { type GeolocationData };
 
 export type DeviceState =
   | "connected"
+  | "initializing"
   | "loading"
-  | "loose"
   | "disconnected"
   | "stale"
   | "error"
+  | "receiving"
+  | "paused"
+  | "standby"
   | "transmitting"
   | "streaming"
   | null;
@@ -30,6 +33,7 @@ export type SDRSettings = {
   fftSize?: number;
   fftWindow?: string;
   frameRate?: number;
+  maxFrameRate?: number;
   sampleRate?: number;
   gain?: number;
   hackrfLnaGain?: number;
@@ -39,20 +43,21 @@ export type SDRSettings = {
   ppm?: number;
   tunerAGC?: boolean;
   rtlAGC?: boolean;
+  mirrorSpectrumBelowZero?: boolean;
 };
 
 export type SdrSettingsConfig = {
   sample_rate: number;
-  min_receive_sample_rate?: number;
+  min_receive_sample_rate?: number | null;
   center_frequency: number;
   gain?: {
     tuner_gain: number;
     rtl_agc: boolean;
     tuner_agc: boolean;
-    hackrf_lna_gain?: number;
-    hackrf_vga_gain?: number;
-    hackrf_amp_enable?: boolean;
-    tuner_bandwidth?: number;
+    hackrf_lna_gain?: number | null;
+    hackrf_vga_gain?: number | null;
+    hackrf_amp_enable?: boolean | null;
+    tuner_bandwidth?: number | null;
   };
   ppm?: number;
   fft?: {
@@ -67,40 +72,43 @@ export type SdrSettingsConfig = {
     max_db: number;
     padding: number;
   };
+};
+
+export type SdrSampleRateSpec =
+  | number
+  | string
+  | string[]
+  | { value: string; min: string; max: string };
+
+export type SignalsSdrDefaults = SdrSettingsConfig & {
+  gain: NonNullable<SdrSettingsConfig["gain"]> & {
+    hackrf_lna_gain?: number | null;
+    hackrf_vga_gain?: number | null;
+    hackrf_amp_enable?: boolean | null;
+    tuner_bandwidth?: number | null;
+  };
+  ppm: number;
+  devices: Record<string, {
+    duplex_mode?: string | null;
+    max_sample_rate?: number | null;
+    sample_rate: SdrSampleRateSpec;
+    fft_display?: {
+      markers: Array<{ kind: string; freq_hz: number; label?: string | null }>;
+    } | null;
+    gain_limits?: Record<string, number | null> | null;
+    fft_sizes?: Array<{
+      base: string;
+      fft_min?: number | null;
+      fft_max?: number | null;
+    }> | null;
+    _tx_power_mapping?: Record<string, unknown> | null;
+    _tx_iq_power_model?: Record<string, unknown> | null;
+  }>;
   fft_sizes?: Array<{
     base: string;
-    fft_min?: number;
-    fft_max?: number;
-  }>;
-  devices?: Record<
-    string,
-    {
-      sample_rate: number | string | Array<string> | Record<string, any>;
-      fft_display?: {
-        markers?: Array<{
-          kind: string;
-          freq_hz: number;
-          label?: string;
-        }>;
-      };
-      fft_sizes?: Array<{
-        base: string;
-        fft_min?: number;
-        fft_max?: number;
-      }>;
-      gain_limits?: {
-        min?: number;
-        max?: number;
-        step?: number;
-        lna_min?: number;
-        lna_max?: number;
-        lna_step?: number;
-        vga_min?: number;
-        vga_max?: number;
-        vga_step?: number;
-      };
-    }
-  >;
+    fft_min?: number | null;
+    fft_max?: number | null;
+  }> | null;
 };
 
 export type AptContentType =
@@ -140,17 +148,44 @@ export type SpectrumFrame = {
   description: string;
 };
 
+export type MirroredDisplayRange = {
+  min: number;
+  max: number;
+  pan_hz?: number;
+  zoom?: number;
+  crosses_dc?: boolean;
+  direction_negative?: boolean;
+  mirror_below_zero?: boolean;
+};
+
+/** Canonical channel metadata derived by the backend from signals.channels. */
 export type ChannelsMessage = {
   type: "channels";
   source_id: string;
   channels: SpectrumFrame[];
   active_signal_area?: string | null;
+  frequency_range?: { min: number; max: number } | null;
+  display_range?: MirroredDisplayRange | null;
+  sample_rate?: number;
+  /** Device-scoped display convention shared by all subscribers. */
+  mirror_spectrum_below_zero?: boolean;
+  /** Origin tag of the client that performed the last live tune. */
+  origin_id?: string | null;
   error?: string | null;
 };
+
+export type IqFrameStatus =
+  | "receiving"
+  | "standby"
+  | "transmitting"
+  | "paused";
 
 type IqRawFramePayload = {
   type: "spectrum";
   is_mock_apt?: boolean;
+  frame_status?: IqFrameStatus;
+  is_tx_preview?: boolean;
+  is_mock_tx_preview?: boolean;
   center_frequency_hz?: number;
   waveform_span_hz?: number | null;
   timestamp?: number;
@@ -179,6 +214,15 @@ export type IqRawFrameV2 = IqRawFramePayload & {
 export type IqRawFrame = IqRawFrameV1 | IqRawFrameV2;
 
 export type LiveFrameData = IqRawFrame;
+
+export type IqElementType = "u8";
+export type IqLayout = "interleaved_iq";
+
+export interface IqFormat {
+  element_type: IqElementType;
+  layout: IqLayout;
+  typed_array: "Uint8Array";
+}
 
 export type CaptureFileType = ".napt" | ".wav" | ".iq";
 
@@ -221,25 +265,89 @@ export type CaptureStatus = {
   duration?: number;
 } | null;
 
+export type TxSafetyResult = {
+  type: "tx_safety";
+  source_id: string;
+  effective_power_dbm: number;
+  maximum_safe_power_dbm: number;
+  minimum_iq_power_floor_dbm: number;
+  recommended_ifft_size: number;
+  effective_ifft_size: number;
+  vga_gain_db?: number;
+  amp_enabled?: boolean;
+  safety_clamped: boolean;
+  validation_errors: string[];
+};
+
 export interface DeviceProfile {
   kind: string;
   is_rtl_sdr: boolean;
   supports_approx_dbm: boolean;
-  supports_raw_iq_stream: boolean;
+  iq_format?: IqFormat;
 }
 
 export type SourceCapability = "rx" | "tx" | "tx_rx" | "mock";
+
+export type SourceCapabilities = {
+  can_receive: boolean;
+  can_transmit: boolean;
+  /** Source can publish a live TX-monitor/preview stream. */
+  supports_tx_monitor?: boolean;
+  /** Configured inventory label, e.g. "Simplex" or "Half-duplex". */
+  duplex_mode?: string | null;
+  active_duplex_mode?: DeviceActiveMode | null;
+  active_duplex_modes?: DeviceActiveMode[] | null;
+  supports_approx_dbm: boolean;
+  iq_format?: IqFormat;
+  supported_controls: string[];
+  sample_rates: number[];
+  max_sample_rate: number;
+  /** Maximum instantaneous render/acquisition span in Hz. */
+  max_instantaneous_sample_rate: number;
+  frequency_range?: FrequencyRange | null;
+  tx_power_dbm?: {
+    min?: number;
+    max?: number;
+  } | null;
+  gain_limits?: {
+    min?: number | null;
+    max?: number | null;
+    step?: number | null;
+    lna_min?: number | null;
+    lna_max?: number | null;
+    lna_step?: number | null;
+    vga_min?: number | null;
+    vga_max?: number | null;
+    vga_step?: number | null;
+  } | null;
+  fft?: {
+    sizes: number[];
+    default_size: number;
+    default_frame_rate: number;
+    max_size: number;
+    max_frame_rate: number;
+    size_to_frame_rate?: Record<string, number>;
+  };
+  display?: {
+    min_db: number;
+    max_db: number;
+    padding: number;
+  };
+};
 
 export type DeviceActiveMode = "rx" | "tx" | "rx_tx";
 export type DeviceDuplexMode = "half_duplex";
 
 export type SourceStatus =
   | "connected"
+  | "initializing"
   | "loading"
-  | "loose"
   | "disconnected"
   | "stale"
   | "error"
+  | "receiving"
+  | "paused"
+  | "standby"
   | "transmitting"
   | "streaming"
   | null;
@@ -252,19 +360,17 @@ export type SourceSdrSettings = {
   min_receive_sample_rate?: number;
   center_frequency?: number;
   gain?: number | SdrSettingsConfig["gain"];
-  hackrf_lna_gain?: number;
-  hackrf_vga_gain?: number;
-  hackrf_amp_enable?: boolean;
+  hackrf_lna_gain?: number | null;
+  hackrf_vga_gain?: number | null;
+  hackrf_amp_enable?: boolean | null;
   ppm?: number;
   tuner_agc?: boolean;
   rtl_agc?: boolean;
   offset_tuning?: boolean;
   direct_sampling?: number;
-  tuner_bandwidth?: number;
+  tuner_bandwidth?: number | null;
   fft?: SdrSettingsConfig["fft"];
   display?: SdrSettingsConfig["display"];
-  devices?: SdrSettingsConfig["devices"];
-  fft_sizes?: SdrSettingsConfig["fft_sizes"];
 };
 
 export interface SourceInfo {
@@ -273,12 +379,17 @@ export interface SourceInfo {
   kind: string;
   capability: SourceCapability;
   duplex_mode?: string | null;
+  /** Backend-reported hardware mode; view mode remains UI-owned. */
+  active_duplex_mode?: DeviceActiveMode | null;
+  active_duplex_modes?: DeviceActiveMode[] | null;
   status: SourceStatus;
   paused?: boolean;
   loading_attempt: number;
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
-  supports_raw_iq_stream: boolean;
+  iq_format?: IqFormat;
+  /** Generic capability envelope. Legacy top-level fields remain during migration. */
+  capabilities?: SourceCapabilities;
   stream_key?: string;
   stream_key_kind?: "serial" | "source_id";
   /** Additive raw-I/Q wire versions supported by this source. */
@@ -299,23 +410,6 @@ export interface SourceInfo {
       }>;
     };
     settings: SourceSdrSettings;
-  };
-  mock_tx?: {
-    enabled: boolean;
-    noise_floor_db?: number;
-    signals: Record<
-      string,
-      {
-        label?: string;
-        channel?: string;
-        center_frequency_hz?: number;
-        sample_rate_hz?: number;
-        offset_hz?: number;
-        tone_hz?: number;
-        bandwidth_hz?: number;
-        description?: string;
-      }
-    >;
   };
 }
 
@@ -348,6 +442,11 @@ export interface SourceSdrSettingsMessage {
   sdr: SourceSdrSettings;
 }
 
+export interface SignalsDefaultsMessage {
+  type: "signals_defaults";
+  sdr: SignalsSdrDefaults;
+}
+
 export interface SourceErrorMessage {
   type: "error";
   source_id: string;
@@ -361,27 +460,47 @@ export interface SignalDisplaySettingsMessage {
   sample_rate: number;
   fft_size: number;
   frame_rate: number;
+  fft_window?: string | null;
+  gain?: number | null;
+  hackrf_lna_gain?: number | null;
+  hackrf_vga_gain?: number | null;
+  hackrf_amp_enable?: boolean | null;
+  tuner_bandwidth?: number | null;
+  ppm?: number | null;
+  tuner_agc?: boolean | null;
+  rtl_agc?: boolean | null;
 }
 
 export type WebSocketMessage =
+  | TxSafetyResult
   | {
       type: "frequency_range" | "set_frequency_range";
+      scope?: "device";
       min_hz: number;
       max_hz: number;
       center_frequency?: number;
       bandwidth_center_frequency?: number;
+      signal_area?: string;
+      display_min_hz?: number;
+      display_max_hz?: number;
+      display_pan_hz?: number;
+      display_zoom?: number;
+      display_crosses_dc?: boolean;
+      display_direction_negative?: boolean;
+      mirror_spectrum_below_zero?: boolean;
     }
   | ChannelsMessage
   | {
       type: "pause";
+      scope?: "subscriber";
       paused: boolean;
       source_id: string;
       duplex_mode?: DeviceDuplexMode;
-      active_mode?: DeviceActiveMode;
     }
   | {
-      type: "tx_mode";
-      active_mode: DeviceActiveMode;
+      type: "status";
+      scope?: "device";
+      status: "standby" | "transmitting";
       txDevice?: string;
       serialNumber?: string;
       centerFrequencyHz?: number;
@@ -405,12 +524,22 @@ export type WebSocketMessage =
       txHopChannels?: string[];
       txHopRateHz?: number;
     }
-  | { type: "gain"; gain: number }
-  | { type: "ppm"; ppm: number }
-  | ({ type: "settings" } & SDRSettings)
+  | { type: "gain"; scope?: "device"; gain: number }
+  | { type: "ppm"; scope?: "device"; ppm: number }
+  | ({ type: "settings"; scope?: "device" } & SDRSettings)
   | SignalDisplaySettingsMessage
-  | { type: "restart_device" }
-  | { type: "select_source"; source_id: string }
+  | SignalsDefaultsMessage
+  | {
+      type: "restart_device";
+      scope?: "device";
+      source_id?: string;
+    }
+  | {
+      type: "select_source";
+      scope?: "device";
+      source_id: string;
+      sample_rate?: number;
+    }
   | {
       type: "training_capture";
       action: "start" | "stop";

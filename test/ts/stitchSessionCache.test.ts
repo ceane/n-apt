@@ -3,7 +3,7 @@ import {
   getStitchSession,
   setStitchSession,
   clearStitchSession,
-} from "@n-apt/utils/stitchSessionCache";
+} from "@n-apt/spectrum/utils/stitchSessionCache";
 
 describe("stitchSessionCache", () => {
   const key = createStitchSessionKey({

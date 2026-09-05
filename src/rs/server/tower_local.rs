@@ -1,8 +1,9 @@
-use axum::{http::StatusCode, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::sync::Arc;
 
 #[derive(Deserialize, Serialize)]
 pub struct LoadLocalRadiusRequest {
@@ -485,6 +486,7 @@ static STATE_BOUNDARIES: &[(&str, StateBounds)] = &[
  * Complements existing fast select towers with dynamic, location-specific data
  */
 pub async fn load_local_radius_towers(
+  State(state): State<Arc<super::AppState>>,
   Json(request): Json<LoadLocalRadiusRequest>,
 ) -> Result<Json<LoadLocalRadiusResponse>, StatusCode> {
   let radius_km = request.radius_km.unwrap_or(25);
@@ -507,15 +509,26 @@ pub async fn load_local_radius_towers(
   debug!("Loading local towers: radius={}km", radius_km);
 
   // Check if already cached
-  if let Ok(cached_result) =
-    check_local_cache(request.latitude, request.longitude, radius_km).await
+  if let Ok(cached_result) = check_local_cache(
+    &state.shared.redis_store,
+    request.latitude,
+    request.longitude,
+    radius_km,
+  )
+  .await
   {
     info!("Found cached local towers: {}", cached_result.loaded);
     return Ok(Json(cached_result));
   }
 
   // Load towers dynamically
-  match load_towers_direct(request.latitude, request.longitude, radius_km).await
+  match load_towers_direct(
+    &state.shared.redis_store,
+    request.latitude,
+    request.longitude,
+    radius_km,
+  )
+  .await
   {
     Ok(result) => {
       info!("Successfully loaded {} local towers", result.loaded);
@@ -532,36 +545,31 @@ pub async fn load_local_radius_towers(
  * Check if local towers are already cached for this location
  */
 async fn check_local_cache(
+  redis_store: &crate::infrastructure::redis::RedisStore,
   lat: f64,
   lng: f64,
   radius_km: u32,
-) -> Result<LoadLocalRadiusResponse, Box<dyn std::error::Error>> {
-  let redis_url = std::env::var("REDIS_URL")
-    .unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
-  let client = redis::Client::open(redis_url)?;
-  let mut con = client.get_connection()?;
-
-  redis::cmd("SELECT")
-    .arg(4)
-    .query::<()>(&mut con)
-    .map_err(|e| format!("Redis DB select failed: {}", e))?;
+) -> Result<LoadLocalRadiusResponse, String> {
+  let mut database = redis_store.database(4).await?;
 
   // Generate geohash for cache key
   let geohash = get_geohash(lat, lng, 4);
   let cache_key = format!("local:{}:{}", geohash, radius_km);
 
   // Check if cache exists
-  let exists: bool = redis::cmd("EXISTS")
-    .arg(&cache_key)
-    .query(&mut con)
-    .map_err(|e| format!("Redis query failed: {}", e))?;
+  let exists: bool = database
+    .query("EXISTS", |command| {
+      command.arg(&cache_key);
+    })
+    .await?;
 
   if exists {
     // Get tower count from geospatial index
-    let tower_count: usize = redis::cmd("ZCARD")
-      .arg(&cache_key)
-      .query(&mut con)
-      .map_err(|e| format!("Redis query failed: {}", e))?;
+    let tower_count: usize = database
+      .query("ZCARD", |command| {
+        command.arg(&cache_key);
+      })
+      .await?;
 
     Ok(LoadLocalRadiusResponse {
       loaded: tower_count,
@@ -684,28 +692,52 @@ fn get_states_in_radius(
 }
 
 async fn load_towers_direct(
+  redis_store: &crate::infrastructure::redis::RedisStore,
   lat: f64,
   lng: f64,
   radius_km: u32,
-) -> Result<LoadLocalRadiusResponse, Box<dyn std::error::Error>> {
-  let redis_url = std::env::var("REDIS_URL")
-    .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-  let client = redis::Client::open(redis_url)?;
-  let mut con = client.get_connection()?;
-
-  redis::cmd("SELECT").arg(3).query::<()>(&mut con)?;
-  let tower_keys: Vec<String> =
-    redis::cmd("KEYS").arg("tower:*").query(&mut con)?;
+) -> Result<LoadLocalRadiusResponse, String> {
+  let mut tower_database = redis_store.database(3).await?;
+  let mut local_database = redis_store.database(4).await?;
+  let mut tower_keys = Vec::new();
+  let mut cursor = 0u64;
+  loop {
+    let (next_cursor, keys): (u64, Vec<String>) = tower_database
+      .query("SCAN", |command| {
+        command
+          .arg(cursor)
+          .arg("MATCH")
+          .arg("tower:*")
+          .arg("COUNT")
+          .arg(1000);
+      })
+      .await?;
+    tower_keys.extend(keys);
+    cursor = next_cursor;
+    if cursor == 0 {
+      break;
+    }
+  }
 
   let states = get_states_in_radius(lat, lng, radius_km);
   let mut towers = Vec::new();
 
-  for tower_key in tower_keys {
-    let tower_data: HashMap<String, String> = redis::cmd("HGETALL")
-      .arg(&tower_key)
-      .query(&mut con)
-      .unwrap_or_default();
+  // Fetch every tower hash in one pipelined round-trip instead of one
+  // HGETALL per tower.
+  let tower_maps: Vec<HashMap<String, String>> = if tower_keys.is_empty() {
+    Vec::new()
+  } else {
+    tower_database
+      .query_pipeline(|pipe| {
+        for key in &tower_keys {
+          pipe.cmd("HGETALL").arg(key);
+        }
+      })
+      .await
+      .unwrap_or_default()
+  };
 
+  for (tower_key, tower_data) in tower_keys.into_iter().zip(tower_maps) {
     if let Some(tower) = normalize_tower_record(tower_key, tower_data) {
       if calculate_distance(lat, lng, tower.lat, tower.lon) <= radius_km as f64
       {
@@ -714,49 +746,56 @@ async fn load_towers_direct(
     }
   }
 
-  redis::cmd("SELECT").arg(4).query::<()>(&mut con)?;
   let geohash = get_geohash(lat, lng, 4);
   let cache_key = format!("local:{}:{}", geohash, radius_km);
 
-  redis::cmd("DEL")
-    .arg(&cache_key)
-    .arg(format!("{cache_key}:data"))
-    .query::<()>(&mut con)?;
-
-  for tower in &towers {
-    let full_tower_data = serde_json::json!({
-      "type": tower.radio,
-      "mcc": tower.mcc.parse::<u64>().unwrap_or(0),
-      "mnc": tower.mnc.parse::<u64>().unwrap_or(0),
-      "lac": tower.lac.parse::<u64>().unwrap_or(0),
-      "cellId": tower.cell.parse::<u64>().unwrap_or(0),
-      "range": tower.range.parse::<i64>().unwrap_or(0),
-      "lon": tower.lon,
-      "lat": tower.lat,
-      "samples": tower.samples.parse::<u64>().unwrap_or(0),
-      "created": tower.created.parse::<u64>().unwrap_or(0),
-      "updated": tower.updated.parse::<u64>().unwrap_or(0),
+  local_database
+    .query::<(), _>("DEL", |command| {
+      command.arg(&cache_key).arg(format!("{cache_key}:data"));
     })
-    .to_string();
+    .await?;
 
-    let _: () = redis::cmd("SETEX")
-      .arg(&tower.id)
-      .arg(6 * 3600)
-      .arg(full_tower_data)
-      .query(&mut con)?;
+  // Write the whole cache in one pipelined round-trip (SETEX + GEOADD per
+  // tower, then the index EXPIRE).
+  if !towers.is_empty() {
+    let cache_key_for_expire = cache_key.clone();
+    local_database
+      .query_pipeline::<Vec<()>, _>(|pipe| {
+        for tower in &towers {
+          let full_tower_data = serde_json::json!({
+            "type": tower.radio,
+            "mcc": tower.mcc.parse::<u64>().unwrap_or(0),
+            "mnc": tower.mnc.parse::<u64>().unwrap_or(0),
+            "lac": tower.lac.parse::<u64>().unwrap_or(0),
+            "cellId": tower.cell.parse::<u64>().unwrap_or(0),
+            "range": tower.range.parse::<i64>().unwrap_or(0),
+            "lon": tower.lon,
+            "lat": tower.lat,
+            "samples": tower.samples.parse::<u64>().unwrap_or(0),
+            "created": tower.created.parse::<u64>().unwrap_or(0),
+            "updated": tower.updated.parse::<u64>().unwrap_or(0),
+          })
+          .to_string();
 
-    let _: () = redis::cmd("GEOADD")
-      .arg(&cache_key)
-      .arg(tower.lon)
-      .arg(tower.lat)
-      .arg(&tower.id)
-      .query(&mut con)?;
+          pipe
+            .cmd("SETEX")
+            .arg(&tower.id)
+            .arg(6 * 3600)
+            .arg(full_tower_data);
+          pipe
+            .cmd("GEOADD")
+            .arg(&cache_key)
+            .arg(tower.lon)
+            .arg(tower.lat)
+            .arg(&tower.id);
+        }
+        pipe
+          .cmd("EXPIRE")
+          .arg(&cache_key_for_expire)
+          .arg(6 * 3600);
+      })
+      .await?;
   }
-
-  let _: () = redis::cmd("EXPIRE")
-    .arg(&cache_key)
-    .arg(6 * 3600)
-    .query(&mut con)?;
 
   Ok(LoadLocalRadiusResponse {
     loaded: towers.len(),
@@ -807,50 +846,50 @@ fn get_geohash(lat: f64, lng: f64, precision: usize) -> String {
  * Get memory usage statistics for local tower cache
  */
 pub async fn get_local_cache_stats(
+  State(state): State<Arc<super::AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-  let redis_url = std::env::var("REDIS_URL")
-    .unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+  let mut database = state
+    .shared
+    .redis_store
+    .database(4)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-  match redis::Client::open(redis_url) {
-    Ok(client) => {
-      match client.get_connection() {
-        Ok(mut con) => {
-          // Switch to DB 4 (local towers)
-          if redis::cmd("SELECT")
-            .arg(4)
-            .query::<String>(&mut con)
-            .is_err()
-          {
-            return Err(StatusCode::SERVICE_UNAVAILABLE);
-          }
+  let info: String = database
+    .query("INFO", |command| {
+      command.arg("memory");
+    })
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-          // Get memory info
-          let info: String =
-            match redis::cmd("INFO").arg("memory").query(&mut con) {
-              Ok(info) => info,
-              Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
-            };
-
-          // Count local cache keys
-          let keys: Vec<String> =
-            match redis::cmd("KEYS").arg("local:*").query(&mut con) {
-              Ok(keys) => keys,
-              Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
-            };
-
-          let stats = serde_json::json!({
-              "cache_keys": keys.len(),
-              "database": 4,
-              "memory_info": parse_memory_info(&info)
-          });
-
-          Ok(Json(stats))
-        }
-        Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
-      }
+  let mut cursor = 0u64;
+  let mut keys = Vec::new();
+  loop {
+    let (next_cursor, page): (u64, Vec<String>) = database
+      .query("SCAN", |command| {
+        command
+          .arg(cursor)
+          .arg("MATCH")
+          .arg("local:*")
+          .arg("COUNT")
+          .arg(100);
+      })
+      .await
+      .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    keys.extend(page);
+    cursor = next_cursor;
+    if cursor == 0 {
+      break;
     }
-    Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
   }
+
+  let stats = serde_json::json!({
+    "cache_keys": keys.len(),
+    "database": 4,
+    "memory_info": parse_memory_info(&info)
+  });
+
+  Ok(Json(stats))
 }
 
 /**
@@ -892,3 +931,4 @@ mod tests {
     assert!(states >= 1);
   }
 }
+// Hot-reload probe 1: harmless source change for watcher verification.

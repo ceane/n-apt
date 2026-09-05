@@ -1,4 +1,4 @@
-import { getFilePlaceholderState } from "@n-apt/utils/filePlaceholderState";
+import { getFilePlaceholderState } from "@n-apt/app/infrastructure/io/filePlaceholderState";
 
 describe("getFilePlaceholderState", () => {
   it("asks for a file when file mode has no selection", () => {

@@ -2,60 +2,41 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const ROOT = process.cwd();
+// Fixtures are generated directly from the canonical WGSL sources that ship
+// with the app (src/ts/shaders, loaded at runtime via vite-plugin-glsl), so
+// the tests always validate exactly what runs.
 const SOURCE_FILES = [
   {
-    input: "src/ts/consts/shaders/spectrum.ts",
+    input: "src/ts/shaders/spectrum.wgsl",
     output: "test/ts/shaders/generated/spectrum.wgsl",
-    exportName: "SPECTRUM_SHADER",
   },
   {
-    input: "src/ts/consts/shaders/waterfall3d.ts",
+    input: "src/ts/shaders/waterfall3d_vertex.wgsl",
     output: "test/ts/shaders/generated/waterfall3d_vertex.wgsl",
-    exportName: "WATERFALL_3D_VERTEX_SHADER",
   },
   {
-    input: "src/ts/consts/shaders/waterfall3d.ts",
+    input: "src/ts/shaders/waterfall3d_fragment.wgsl",
     output: "test/ts/shaders/generated/waterfall3d_fragment.wgsl",
-    exportName: "WATERFALL_3D_FRAGMENT_SHADER",
   },
   {
-    input: "src/ts/consts/shaders/fft_compute.ts",
+    input: "src/ts/shaders/fft_compute.wgsl",
     output: "test/ts/shaders/generated/fft_compute.wgsl",
-    exportName: "FFT_COMPUTE_SHADER",
   },
   {
-    input: "src/ts/consts/shaders/waterfall_retune.ts",
+    input: "src/ts/shaders/waterfall_retune.wgsl",
     output: "test/ts/shaders/generated/waterfall_retune.wgsl",
-    exportName: "WATERFALL_RETUNE_WGSL",
   },
 ];
 
 for (const spec of SOURCE_FILES) {
   const sourcePath = join(ROOT, spec.input);
   const outputPath = join(ROOT, spec.output);
-  const source = readFileSync(sourcePath, "utf8");
-  const extracted = extractWgslExport(source, spec.exportName);
+  const extracted = readFileSync(sourcePath, "utf8");
   const formatted = formatWgsl(extracted);
 
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${formatted}\n`, "utf8");
   console.log(`wrote ${spec.output}`);
-}
-
-function extractWgslExport(source, exportName) {
-  const marker = `export const ${exportName} = /* wgsl */ \``;
-  const start = source.indexOf(marker);
-  if (start < 0) {
-    throw new Error(`Could not find ${exportName}`);
-  }
-
-  const bodyStart = start + marker.length;
-  const end = source.indexOf("`;", bodyStart);
-  if (end < 0) {
-    throw new Error(`Could not find end of ${exportName}`);
-  }
-
-  return source.slice(bodyStart, end);
 }
 
 function formatWgsl(input) {

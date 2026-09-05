@@ -1,7 +1,7 @@
 import {
   createFFTVisualizerMachine,
   FFTVisualizerSnapshot,
-} from "../../src/ts/utils/fftVisualizerMachine";
+} from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
 
 describe("fftVisualizerMachine", () => {
   const createMockSnapshot = (): FFTVisualizerSnapshot => ({

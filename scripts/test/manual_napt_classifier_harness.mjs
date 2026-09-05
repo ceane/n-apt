@@ -21,7 +21,6 @@ import {
 const DEFAULT_URL = "http://localhost:5173/";
 const DEFAULT_DISPLAY_WIDTH = 1024;
 const MAX_SPIKES = 1024;
-const NAPT_TEMPORAL_HISTORY_LENGTH = 32;
 
 function parseArgs(argv) {
   const options = { manifest_dirs: [] };

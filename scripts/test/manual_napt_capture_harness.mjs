@@ -229,7 +229,7 @@ async function runCli() {
   if (!args.input) throw new Error("--input is required");
   const input = path.resolve(args.input);
   const bytes = await readFile(input);
-  const { root, metadata, iq } = decryptNaptBytes(bytes, {
+  const { metadata, iq } = decryptNaptBytes(bytes, {
     password: loadPassword(args.env_file ? path.resolve(args.env_file) : path.resolve(".env.local")),
     salt: process.env.NAPT_PBKDF2_SALT ?? process.env.VITE_PBKDF2_SALT ?? DEFAULT_SALT,
   });

@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
-import FileMetadata from "../../src/ts/components/sidebar/FileMetadata";
+import FileMetadata from "@n-apt/capture/sidebar/FileMetadata";
 
 jest.mock("@n-apt/redux", () => ({
   useAppSelector: (selector: any) =>
@@ -18,7 +18,7 @@ jest.mock("@n-apt/redux", () => ({
     }),
 }));
 
-jest.mock("@n-apt/utils/fileRegistry", () => ({
+jest.mock("@n-apt/app/infrastructure/io/fileRegistry", () => ({
   fileRegistry: {
     get: jest.fn(() => ({ size: 241_696 })),
   },

@@ -6,10 +6,65 @@ if (
   (globalThis as any).jest = (globalThis as any).vi;
 }
 
-import { CoordinateMapper } from "../../src/ts/utils/rendering/CoordinateMapper";
-import { SnapshotRenderer } from "../../src/ts/utils/rendering/SnapshotRenderer";
+import { CoordinateMapper } from "@n-apt/layout/rendering/CoordinateMapper";
+import { SnapshotRenderer } from "@n-apt/layout/rendering/SnapshotRenderer";
 
 describe("SnapshotRenderer", () => {
+  it("draws the DC marker as a dotted labeled seam when the view crosses zero", () => {
+    const renderer = new SnapshotRenderer(
+      new CoordinateMapper(
+        { x: 10, y: 20, width: 300, height: 180 },
+        { min: -100, max: 100 },
+        { min: -120, max: 0 },
+        1,
+      ),
+      {
+        bg: "#000",
+        grid: "#111",
+        line: "#222",
+        shadow: "#333",
+        text: "#fff",
+        hwLine: "#444",
+        hwText: "#555",
+        cfText: "#666",
+      },
+    );
+
+    const setStroke = jest.fn();
+    const fillText = jest.fn();
+    const mockContext = {
+      setStroke,
+      setFill: jest.fn(),
+      setFont: jest.fn(),
+      setScaledFont: jest.fn(),
+      setTextAlign: jest.fn(),
+      setTextBaseline: jest.fn(),
+      setLineJoin: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(),
+      fill: jest.fn(),
+      closePath: jest.fn(),
+      fillRect: jest.fn(),
+      roundRect: jest.fn(),
+      fillText,
+      measureTextWidth: jest.fn((text: string) => text.length * 6),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clipRect: jest.fn(),
+    } as any;
+
+    renderer.drawDcMarker(mockContext, { min: -100, max: 100 });
+
+    expect(setStroke).toHaveBeenCalledWith("#fff", 1, [4, 4]);
+    expect(fillText).toHaveBeenCalledWith(
+      "Direct Current (DC/0Hz)",
+      expect.any(Number),
+      48,
+    );
+  });
+
   it("rounds dB axis labels to whole numbers", () => {
     const renderer = new SnapshotRenderer(
       new CoordinateMapper(

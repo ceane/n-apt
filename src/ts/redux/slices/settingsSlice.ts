@@ -3,6 +3,7 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 export interface SettingsState {
   // App preferences
   snapshotGridPreference: boolean;
+  mirrorIqBasebandBelowZero: boolean;
 
   // Diagnostic state
   diagnosticStatus: string;
@@ -16,6 +17,7 @@ export interface SettingsState {
 
 const initialState: SettingsState = {
   snapshotGridPreference: true,
+  mirrorIqBasebandBelowZero: false,
 
   diagnosticStatus: "Ready",
   isDiagnosticRunning: false,
@@ -31,6 +33,10 @@ const settingsSlice = createSlice({
   reducers: {
     setSnapshotGrid: (state, action: PayloadAction<boolean>) => {
       state.snapshotGridPreference = action.payload;
+    },
+
+    setMirrorIqBasebandBelowZero: (state, action: PayloadAction<boolean>) => {
+      state.mirrorIqBasebandBelowZero = action.payload;
     },
 
     setDiagnosticStatus: (state, action: PayloadAction<string>) => {
@@ -64,6 +70,7 @@ const settingsSlice = createSlice({
 
 export const {
   setSnapshotGrid,
+  setMirrorIqBasebandBelowZero,
   setDiagnosticStatus,
   setDiagnosticRunning,
   triggerDiagnostic,

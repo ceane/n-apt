@@ -5,13 +5,11 @@ import {
   PayloadAction,
 } from "@reduxjs/toolkit";
 import type { RootState } from "@n-apt/redux/store";
-import type {
-  DisplayTemporalResolution,
-  PowerScale,
-} from "@n-apt/redux/slices/spectrumSlice";
+import type { PowerScale } from "@n-apt/redux/slices/spectrumSlice";
 import type { SourceMode } from "@n-apt/redux/slices/waterfallSlice";
-import { formatFrequency } from "@n-apt/utils/frequency";
-import { calculateCenterFrequency } from "@n-apt/utils/centerFrequency";
+import { formatFrequency } from "@n-apt/math/frequency";
+import { calculateCenterFrequency } from "@n-apt/math/centerFrequency";
+import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 
 type SpectrumSliceState = RootState["spectrum"];
 type WaterfallSliceState = RootState["waterfall"];
@@ -24,7 +22,7 @@ export interface NoteCardStatsSnapshot {
   fftSize: number;
   fftWindow: string;
   fftFrameRate: number;
-  temporalResolution: DisplayTemporalResolution;
+  temporalResolution: TemporalResolution;
   powerScale: PowerScale;
   fftDbMin: number;
   fftDbMax: number;
@@ -106,7 +104,7 @@ const normalizeNoteCardStats = (
   fftFrameRate: Number.isFinite(stats.fftFrameRate ?? Number.NaN)
     ? (stats.fftFrameRate as number)
     : 0,
-  temporalResolution: stats.temporalResolution ?? "low",
+    temporalResolution: stats.temporalResolution ?? "slow",
   powerScale: normalizePowerScale(stats.powerScale),
   fftDbMin: Number.isFinite(stats.fftDbMin ?? Number.NaN)
     ? (stats.fftDbMin as number)

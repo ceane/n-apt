@@ -1,8 +1,75 @@
 use n_apt_backend::consts::fft::SAMPLE_RATE;
 use n_apt_backend::sdr::processor::SdrProcessor;
+use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::types::SdrProcessorSettings;
 use serial_test::serial;
 use std::time::{Duration, Instant};
+
+#[test]
+fn frequency_requests_coalesce_to_the_latest_value_without_a_processor_lock() {
+  unsafe {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
+  }
+  let shared = SharedState::new("redis://127.0.0.1:6379");
+
+  shared.request_center_frequency(1_700_000);
+  shared.request_center_frequency(1_800_000);
+
+  assert_eq!(
+    shared
+      .pending_center_freq
+      .load(std::sync::atomic::Ordering::Acquire),
+    1_800_000
+  );
+  assert!(shared
+    .pending_center_freq_dirty
+    .load(std::sync::atomic::Ordering::Acquire));
+}
+
+#[test]
+#[cfg_attr(
+  debug_assertions,
+  ignore = "strict FFT frame budget is enforced in the release profile"
+)]
+#[serial]
+fn mock_retune_to_next_fft_frame_stays_inside_the_fft_frame_budget() {
+  let mut processor =
+    SdrProcessor::new_mock_apt().expect("Failed to create mock processor");
+
+  for fft_size in [2048usize, 8192usize] {
+    processor
+      .apply_settings(SdrProcessorSettings {
+        fft_size: Some(fft_size),
+        ..Default::default()
+      })
+      .expect("Failed to apply FFT size");
+    let _ = processor
+      .read_and_process_frame()
+      .expect("Failed to warm mock frame");
+
+    // The isolated calculation is the theoretical sample-rate/FFT-size
+    // floor. The retune loop is paced by the processor's effective display
+    // rate, which also applies the configured signals.yaml ceiling.
+    let frame_rate = processor.display_frame_rate;
+    let frame_budget = Duration::from_secs_f64(1.0 / frame_rate as f64);
+    // Keep the theoretical budget visible while allowing the shared CI VM's
+    // scheduler jitter in the wall-clock assertion.
+    let measured_budget = frame_budget * ci_timing_multiplier();
+    let target_center = 1_500_000 + fft_size as u32;
+    let started_at = Instant::now();
+    processor.queue_center_frequency(target_center);
+    let _ = processor
+      .read_and_process_frame()
+      .expect("Failed to process retuned mock frame");
+    let elapsed = started_at.elapsed();
+
+    assert_eq!(processor.get_center_frequency(), target_center);
+    assert!(
+      elapsed < measured_budget,
+      "FFT size {fft_size} retune response took {elapsed:?}, theoretical budget is {frame_budget:?}, measured budget is {measured_budget:?}"
+    );
+  }
+}
 
 /// CI runners (GitHub Actions' ubuntu-latest) are shared VMs with variable
 /// single-thread perf. Return a multiplier so timing assertions stay valid.
@@ -160,8 +227,8 @@ fn test_fft_size_switch_to_max_first_frame_latency() {
 #[serial]
 fn test_loop_interval_consistency_across_sizes() {
   let test_cases = [
-    (2048, 1_000_000, 60),   // capped
-    (2048, 3_200_000, 60),   // capped
+    (2048, 1_000_000, 488),  // floor(sample_rate / fft_size)
+    (2048, 3_200_000, 1562), // floor(sample_rate / fft_size)
     (65536, 3_200_000, 48),  // 20.8ms
     (131072, 3_200_000, 24), // 41.6ms
     (262144, 3_200_000, 12), // 83.3ms
@@ -177,7 +244,13 @@ fn test_loop_interval_consistency_across_sizes() {
       fft_size, sample_rate
     );
 
-    let target_duration = Duration::from_millis(1000 / (target_fps as u64));
+    let target_duration = n_apt_backend::performance::CeilingModel::new(
+      sample_rate as u64,
+      fft_size as u64,
+      2,
+      60,
+    )
+    .theoretical_frame_interval();
 
     let mut intervals = Vec::new();
     let mut last_time = Instant::now();

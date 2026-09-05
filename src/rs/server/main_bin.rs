@@ -78,10 +78,10 @@ fn validate_config() -> Result<()> {
     config => {
       // Force evaluation by checking channels
       let ch_count = config.signals.mock_apt.channels.len();
-      let n_apt_count = config.signals.n_apt.channels.len();
+      let channel_count = config.signals.channels.len();
       println!(
-        "✅ signals.yaml is valid (mock_apt channels: {}, n_apt channels: {})",
-        ch_count, n_apt_count
+        "✅ signals.yaml is valid (canonical channels: {}, mock_apt channels: {})",
+        channel_count, ch_count
       );
       Ok(())
     }

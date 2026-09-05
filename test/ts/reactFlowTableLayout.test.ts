@@ -3,7 +3,7 @@ import {
   computeSymbolsLayout,
   deriveIQPoints,
   resolveSampleCount,
-} from "@n-apt/components/react-flow/nodes/tableLayout";
+} from "@n-apt/demodulation/react-flow/nodes/tableLayout";
 
 describe("react flow table layout helpers", () => {
   it("increases bitstream bytes per row when width allows it", () => {

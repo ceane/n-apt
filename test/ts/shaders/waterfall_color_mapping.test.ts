@@ -3,7 +3,7 @@ import { join } from "node:path";
 import {
   WATERFALL_ONSCREEN_COLOR_MAX,
   normalizeWaterfallDbForColor,
-} from "@n-apt/utils/waterfallColor";
+} from "@n-apt/spectrum/public/waterfallColor";
 
 describe("waterfall WebGPU color mapping", () => {
   const source = readFileSync(

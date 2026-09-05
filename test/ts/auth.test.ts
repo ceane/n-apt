@@ -7,7 +7,7 @@ import {
   authenticateWithPassword,
   authenticateWithPasskey,
   buildWsUrl,
-} from "../../src/ts/services/auth";
+} from "@n-apt/app/infrastructure/services/auth";
 
 describe("auth service", () => {
   beforeEach(() => {

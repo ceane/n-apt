@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -12,7 +12,14 @@ import {
   resolveCliCaptureFftSize,
   resolveNaptReceiveDefaults,
   resolveRequestedDevice,
-} from "../../src/ts/capture/policy";
+} from "@n-apt/capture/policy";
+import {
+  executeAgentTool,
+  fetchAgentMarkdown,
+  printAgentCapabilities,
+} from "./agent";
+import { prepareDemodulation, runDemodulationAlgorithm, type DemodAlgorithm } from "@n-apt/demodulation/utils/demodHarness";
+import { inspectSignalFile, summarizeSignal, validateSignalInput } from "@n-apt/cli/signalCli";
 
 const backend = process.env.N_APT_BACKEND_URL ?? "http://localhost:8765";
 const frontend = process.env.N_APT_FRONTEND_URL ?? "http://localhost:5173";
@@ -20,8 +27,87 @@ dotenv.config({ path: ".env.local", quiet: true });
 dotenv.config({ quiet: true });
 
 function usage(): never {
-  console.error(`Usage: npm run cli -- capture <snapshot|iq> [options]\n       npm run cli -- devices`);
+  console.error(`Usage: npm run cli -- devices
+       npm run cli -- capture <snapshot|iq> [options]
+       npm run cli -- signals inspect <input> [--json]
+       npm run cli -- signals spectrum <input> [--json]
+       npm run cli -- signals demod <input> [options]
+       npm run cli -- signals capture [options] --allow-mutations
+       npm run cli -- signals validate <input> [--json]
+       npm run cli -- agent capabilities [--json]
+       npm run cli -- agent markdown --route <path> [--json]
+       npm run cli -- agent tools [--json]
+       npm run cli -- agent call <tool> [--params <json>] [--allow-mutations] [--json]`);
   process.exit(2);
+}
+
+async function demod(args: string[]) {
+  const input = flag(args, "--input", "");
+  if (!input) throw new Error("demod requires --input <raw-IQ-file>");
+  const output = flag(args, "--output", "demodulated.iq");
+  const centerFrequencyHz = Number(flag(args, "--center-frequency", "0"));
+  const minHz = Number(flag(args, "--min-frequency", String(centerFrequencyHz)));
+  const maxHz = Number(flag(args, "--max-frequency", String(centerFrequencyHz + 1)));
+  const sampleRateHz = Number(flag(args, "--sample-rate", "2400000"));
+  const algorithm = flag(args, "--algorithm", "fm") as DemodAlgorithm;
+  const plan = prepareDemodulation({ centerFrequencyHz, frequencyRangeHz: [minHz, maxHz], sampleRateHz, algorithm });
+  const processed = runDemodulationAlgorithm(algorithm, new Uint8Array(await readFile(input)), { sampleRateHz, targetSampleRate: sampleRateHz, centerFrequencyHz, bandwidthHz: maxHz - minHz });
+  const trailer = Buffer.from(JSON.stringify({ ...plan.trailer, reference: { parent_artifact: input }, tool_version: "n-apt-cli" }));
+  const processedBytes = Buffer.from(processed.buffer, processed.byteOffset, processed.byteLength);
+  const chunk = Buffer.alloc(20 + processedBytes.length); chunk.writeBigUInt64LE(0n, 0); chunk.writeUInt32LE(0, 8); chunk.writeBigUInt64LE(BigInt(processedBytes.length), 12); processedBytes.copy(chunk, 20);
+  const frames = Buffer.from("[]");
+  const marker = Buffer.alloc(24); Buffer.from("NAPTTRLR").copy(marker); marker[8] = 1; marker.writeBigUInt64LE(BigInt(trailer.length), 16);
+  const metadata: any = { format: "iq", format_version: 4, interleaving: "IQ", center_frequency_hz: centerFrequencyHz, capture_sample_rate_hz: sampleRateHz, frequency_range: [minHz, maxHz], bandwidth: maxHz - minHz, fft_size: plan.fftSize, temporal_resolution: "lossless", data_format: "demod_pcm_f32", sections: { binary: { offset_bytes: 0, length_bytes: chunk.length, encoding: "pcm_f32_mono", encrypted: false }, trailer: { offset_bytes: 0, length_bytes: marker.length + trailer.length, encoding: "utf8_json", version: 1 } } };
+  let metadataBytes = Buffer.from(JSON.stringify(metadata));
+  metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;
+  metadataBytes = Buffer.from(JSON.stringify(metadata)); metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;
+  const header = Buffer.alloc(40); Buffer.from("NAPT-IQ3").copy(header); header.writeBigUInt64LE(BigInt(metadataBytes.length), 8); header.writeBigUInt64LE(BigInt(frames.length), 16); header.writeBigUInt64LE(BigInt(chunk.length), 24);
+  await writeFile(output, Buffer.concat([header, metadataBytes, frames, chunk, marker, trailer]));
+  console.log(JSON.stringify({ output, algorithm, fftSize: plan.fftSize, bytes: processed.length }));
+}
+
+async function signals(args: string[]) {
+  const operation = args[1];
+  if (!operation || operation === "--help" || operation === "help") usage();
+  if (args.includes("--help")) usage();
+  if (operation === "capture") {
+    if (!args.includes("--allow-mutations")) {
+      throw new Error("signals capture requires --allow-mutations; RX capture changes device state");
+    }
+    await ensureAppRunning();
+    const sources = await fetchSources();
+    const selected = resolveRequestedDevice({
+      requested: await resolveDeviceArgument(args, sources),
+      sources,
+    });
+    await iqCapture(args, selected.id, selected);
+    return;
+  }
+  const input = flag(args, "--input", args[2] ?? "");
+  if (!input) throw new Error(`signals ${operation ?? "command"} requires an input file`);
+  const bytes = new Uint8Array(await readFile(input));
+  if (operation === "inspect") {
+    const result = inspectSignalFile(bytes, input);
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+    return;
+  }
+  if (operation === "spectrum") {
+    const result = summarizeSignal(bytes, input);
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+    return;
+  }
+  if (operation === "validate") {
+    const result = validateSignalInput(inspectSignalFile(bytes, input).metadata);
+    console.log(args.includes("--json") ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+    if (!result.valid) process.exitCode = 1;
+    return;
+  }
+  if (operation === "demod") {
+    const demodArgs = ["demod", "--input", input, ...args.slice(3)];
+    await demod(demodArgs);
+    return;
+  }
+  usage();
 }
 
 async function fetchSources() {
@@ -138,7 +224,7 @@ async function authenticateCli(): Promise<string> {
     challenge_id: string;
     nonce: string;
   };
-  const { computeHmac } = await import("../../src/ts/crypto/webcrypto");
+  const { computeHmac } = await import("@n-apt/crypto/webcrypto");
   const hmac = await computeHmac(password, challenge.nonce);
   const verifyResponse = await fetch(`${backend}/auth/verify`, {
     method: "POST",
@@ -347,6 +433,36 @@ async function resolveDeviceArgument(args: string[], sources: any[]) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === "demod") { await demod(args); return; }
+  if (args[0] === "signals") { await signals(args); return; }
+  if (args[0] === "agent") {
+    const command = args[1];
+    const json = args.includes("--json");
+    if (command === "capabilities" || command === "tools") {
+      printAgentCapabilities(json);
+      return;
+    }
+    if (command === "markdown") {
+      const route = flag(args, "--route", "/");
+      await ensureAppRunning();
+      const result = await fetchAgentMarkdown(frontend, route);
+      console.log(json ? JSON.stringify(result, null, 2) : result.body);
+      return;
+    }
+    if (command === "call") {
+      const name = args[2];
+      if (!name) usage();
+      const paramsText = flag(args, "--params", "{}");
+      let params: unknown;
+      try { params = JSON.parse(paramsText); } catch { throw new Error("--params must be valid JSON"); }
+      await ensureAppRunning();
+      const token = await authenticateCli();
+      const result = await executeAgentTool(backend, token, name, params, args.includes("--allow-mutations"));
+      console.log(json ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+      return;
+    }
+    usage();
+  }
   if (args[0] !== "devices" && args[0] !== "capture") usage();
 
   await ensureAppRunning();

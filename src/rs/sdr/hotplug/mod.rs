@@ -1,6 +1,10 @@
 #[cfg(all(test, has_hackrf))]
 use crate::sdr::hackrf::ffi as hackrf_ffi;
-use crate::sdr::{processor::SdrProcessor, SdrDeviceFactory};
+use crate::sdr::{
+  processor::SdrProcessor, rtlsdr::device::RtlSdrDevice, SdrDeviceFactory,
+};
+#[cfg(has_hackrf)]
+use crate::server::shared_state::HackRfInventoryDevice;
 use crate::server::shared_state::{
   SharedState, DEVICE_PROBE_INTERVAL, DISCONNECT_FAILURE_THRESHOLD,
   MAX_RECOVERY_ATTEMPTS,
@@ -12,17 +16,39 @@ use rusb::{Context, Device, Hotplug, HotplugBuilder, UsbContext};
 use std::os::raw::c_int;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
+#[cfg(has_hackrf)]
+use crate::sdr::hackrf::device::HackRfDevice;
 use crate::server::websocket_server::{
   active_source_id, broadcast_device_status, build_device_profile,
+  open_device_for_source_id,
 };
 
 const HACKRF_DISCONNECT_ADVISORY: &str =
   "HackRF One disconnected. Avoid unplugging and replugging during use; some firmware versions can take 15-20 seconds or stall before USB reattaches. Keep it connected while working, try the HackRF reset button and wait for the USB LED, and update the HackRF firmware if this repeats.";
+
+fn sync_shared_sample_rate(
+  shared_state: &SharedState,
+  processor: &SdrProcessor,
+) {
+  let sample_rate = processor.get_sample_rate();
+  if sample_rate == 0 {
+    return;
+  }
+  let device_kind = shared_state.device_profile.lock().unwrap().kind.clone();
+  let mut settings = shared_state.sdr_settings.lock().unwrap();
+  settings.sample_rate = sample_rate;
+  settings.fft = crate::server::utils::resolve_fft_config(
+    &device_kind,
+    sample_rate,
+    Some(settings.fft.default_size),
+    Some(&settings),
+  );
+}
 
 #[derive(Debug)]
 pub struct HotplugState {
@@ -35,6 +61,35 @@ pub struct HotplugState {
   pub exhausted_recovery_cooldown: Duration,
 }
 
+static SIMULATED_HARDWARE_PRESENT: OnceLock<std::sync::atomic::AtomicBool> =
+  OnceLock::new();
+
+fn simulated_hardware_state() -> &'static std::sync::atomic::AtomicBool {
+  SIMULATED_HARDWARE_PRESENT.get_or_init(|| {
+    std::sync::atomic::AtomicBool::new(
+      std::env::var("N_APT_TEST_HARDWARE_SIMULATION")
+        .ok()
+        .is_some_and(|value| value.eq_ignore_ascii_case("rtl-sdr")),
+    )
+  })
+}
+
+pub fn hardware_simulation_enabled() -> bool {
+  std::env::var("N_APT_TEST_HARDWARE_SIMULATION")
+    .ok()
+    .is_some_and(|value| value.eq_ignore_ascii_case("rtl-sdr"))
+}
+
+pub fn simulated_hardware_present() -> bool {
+  simulated_hardware_state().load(Ordering::Acquire)
+}
+
+pub fn set_simulated_hardware_present(present: bool) {
+  if hardware_simulation_enabled() {
+    simulated_hardware_state().store(present, Ordering::Release);
+  }
+}
+
 impl HotplugState {
   pub fn new() -> Self {
     let now = Instant::now();
@@ -42,11 +97,9 @@ impl HotplugState {
       last_poll: now,
       last_hardware_swap: None,
       last_failure_at: None,
-      last_seen_device_count: if supported_usb_device_present() {
-        1
-      } else {
-        0
-      },
+      // The monitor performs the first inventory refresh on its normal
+      // cadence. Construction must not initiate a second USB scan.
+      last_seen_device_count: 0,
       missing_since: None,
       retry_cooldown: Duration::from_secs(30),
       exhausted_recovery_cooldown: Duration::from_secs(15),
@@ -158,17 +211,145 @@ fn filter_supported_usb_device_snapshots(
 }
 
 pub fn scan_supported_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
+  if hardware_simulation_enabled() {
+    return Ok(if simulated_hardware_present() {
+      vec![UsbDeviceSnapshot {
+        device_type: "rtl-sdr".to_string(),
+        vendor_id: 0x0bda,
+        product_id: 0x2838,
+        bus_number: 99,
+        address: 1,
+      }]
+    } else {
+      Vec::new()
+    });
+  }
+
   Ok(filter_supported_usb_device_snapshots(
     scan_usb_device_snapshots()?,
   ))
 }
 
-pub fn supported_usb_device_count() -> Result<u32> {
-  Ok(scan_supported_usb_device_snapshots()?.len() as u32)
+fn should_clear_rtl_sdr_inventory(
+  devices: &[UsbDeviceSnapshot],
+  native_rtl_count: u32,
+) -> bool {
+  native_rtl_count == 0
+    && !devices.iter().any(|device| device.device_type == "rtl-sdr")
 }
 
-fn supported_usb_device_present() -> bool {
-  matches!(supported_usb_device_count(), Ok(count) if count > 0)
+/// Refresh RTL identity from librtlsdr when the active device is another
+/// source. The native count is the authoritative presence signal for RTL-SDR
+/// on macOS; a libusb inventory can be empty when the process cannot enumerate
+/// the bus even though librtlsdr can open the receiver. Never perform this
+/// native enumeration from the HTTP/WebSocket snapshot path, and never probe
+/// it while an RTL reader owns the active interface.
+fn refresh_cached_rtl_sdr_inventory(
+  shared_state: &SharedState,
+  usb_devices: &[UsbDeviceSnapshot],
+) {
+  let active_kind = shared_state.device_profile.lock().unwrap().kind.clone();
+  if active_kind.to_ascii_lowercase().contains("rtl") {
+    return;
+  }
+
+  let native_rtl_count = RtlSdrDevice::get_device_count();
+  if native_rtl_count > 0 {
+    let inventory = (0..native_rtl_count)
+      .map(|index| {
+        let (serial_number, manufacturer, product) =
+          RtlSdrDevice::get_device_usb_strings(index);
+        let device_name = if product.trim().is_empty() {
+          RtlSdrDevice::get_device_name(index)
+        } else {
+          product.clone()
+        };
+        crate::server::shared_state::RtlSdrInventoryDevice {
+          index,
+          serial_number,
+          manufacturer,
+          product,
+          device_name,
+        }
+      })
+      .collect();
+    shared_state.set_rtl_sdr_inventory(inventory);
+  } else if should_clear_rtl_sdr_inventory(usb_devices, native_rtl_count) {
+    shared_state.set_rtl_sdr_inventory(Vec::new());
+  }
+}
+
+#[cfg(has_hackrf)]
+fn refresh_cached_hackrf_inventory(
+  shared_state: &SharedState,
+  devices: &[UsbDeviceSnapshot],
+) {
+  if !devices
+    .iter()
+    .any(|device| device.device_type == "hackrf_one")
+  {
+    shared_state.hackrf_inventory.lock().unwrap().clear();
+    return;
+  }
+
+  match HackRfDevice::enumerate_serial_numbers() {
+    Ok(serial_numbers) => {
+      *shared_state.hackrf_inventory.lock().unwrap() = serial_numbers
+        .into_iter()
+        .enumerate()
+        .map(|(index, serial_number)| HackRfInventoryDevice {
+          serial_number,
+          index,
+        })
+        .collect();
+    }
+    Err(error) => {
+      warn!("HackRF inventory refresh failed: {}", error);
+    }
+  }
+}
+
+#[cfg(not(has_hackrf))]
+fn refresh_cached_hackrf_inventory(
+  _shared_state: &SharedState,
+  _devices: &[UsbDeviceSnapshot],
+) {
+}
+
+/// Multiple supported receivers may be connected at once. Recovery must be
+/// scoped to the device owned by the processor, not to the global USB count.
+pub(crate) fn active_device_present(
+  device_type: &str,
+  shared_state: &SharedState,
+) -> bool {
+  let normalized = device_type.to_ascii_lowercase();
+  if normalized.contains("hackrf") {
+    return !shared_state.hackrf_inventory.lock().unwrap().is_empty();
+  }
+  scan_supported_usb_device_snapshots()
+    .map(|devices| snapshots_contain_device_type(&devices, &normalized))
+    .unwrap_or(false)
+}
+
+fn snapshots_contain_device_type(
+  devices: &[UsbDeviceSnapshot],
+  device_type: &str,
+) -> bool {
+  let normalized = device_type.to_ascii_lowercase();
+  devices.iter().any(|device| {
+    let detected = device.device_type.to_ascii_lowercase();
+    detected == normalized
+      || (normalized.contains("rtl") && detected.contains("rtl"))
+      || (normalized.contains("hackrf") && detected.contains("hackrf"))
+  })
+}
+
+fn active_hardware_missing(
+  processor_is_mock: bool,
+  device_type: &str,
+  devices: &[UsbDeviceSnapshot],
+) -> bool {
+  !processor_is_mock && !snapshots_contain_device_type(devices, device_type)
 }
 
 #[cfg(all(test, has_hackrf))]
@@ -274,11 +455,12 @@ pub fn scan_usb_device_snapshots() -> Result<Vec<UsbDeviceSnapshot>> {
 }
 
 pub fn scan_usb_for_supported_device() -> Result<Option<String>> {
-  for snapshot in scan_supported_usb_device_snapshots()? {
-    return Ok(Some(snapshot.device_type));
-  }
-
-  Ok(None)
+  Ok(
+    scan_supported_usb_device_snapshots()?
+      .into_iter()
+      .next()
+      .map(|snapshot| snapshot.device_type),
+  )
 }
 
 pub(crate) fn should_enter_hardware_recovery(device_type: &str) -> bool {
@@ -325,17 +507,40 @@ pub async fn drain_hotplug_events(
   shared_state: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
 ) {
-  let current_count = supported_usb_device_count().unwrap_or(0);
+  let usb_devices = match scan_supported_usb_device_snapshots() {
+    Ok(devices) => devices,
+    Err(error) => {
+      warn!("Supported USB inventory refresh failed: {}", error);
+      return;
+    }
+  };
+  refresh_cached_hackrf_inventory(shared_state, &usb_devices);
+  refresh_cached_rtl_sdr_inventory(shared_state, &usb_devices);
+  let current_count = usb_devices.len() as u32;
+  shared_state
+    .supported_usb_device_count
+    .store(current_count, Ordering::Relaxed);
+  shared_state
+    .usb_inventory_known
+    .store(true, Ordering::Release);
+  let current_state = shared_state.device_state.lock().unwrap().clone();
+  let active_hardware_missing = active_hardware_missing(
+    processor.is_mock(),
+    processor.device_type(),
+    &usb_devices,
+  );
   let should_reconcile = should_reconcile_hotplug_state(
     current_count,
     state.last_seen_device_count,
     processor.is_mock(),
+    &current_state,
   );
-  if should_reconcile {
-    if current_count != state.last_seen_device_count {
+  if should_reconcile || active_hardware_missing {
+    let previous_count = state.last_seen_device_count;
+    if current_count != previous_count {
       info!(
         "Supported USB device presence changed from {} to {}",
-        state.last_seen_device_count, current_count
+        previous_count, current_count
       );
     } else {
       info!(
@@ -343,24 +548,78 @@ pub async fn drain_hotplug_events(
       );
     }
     state.last_seen_device_count = current_count;
-    if current_count == 0 && !processor.is_mock() {
+    if active_hardware_missing {
       let _ =
         disconnect_to_mock(state, processor, shared_state, broadcast_tx).await;
       state.missing_since = None;
     } else if current_count > 0 && processor.is_mock() {
       state.missing_since = None;
-      if let Err(e) =
+      // A genuine count transition (device just plugged in) attaches
+      // immediately. A same-count retry means the previous attach failed
+      // while the inventory still reports the devices present — the wedged
+      // USB-context loop. Each `attach_real_device` cycle performs five
+      // open attempts, so retrying it every probe hammers the bus without
+      // improving the odds. Wait out the retry cooldown between attempts;
+      // the cooldown clears on success or on the next count change.
+      let is_new_transition = current_count != previous_count;
+      let cooled_down = state
+        .last_failure_at
+        .map(|t| t.elapsed() >= state.retry_cooldown)
+        .unwrap_or(true);
+      if !is_new_transition && !cooled_down {
+        debug!(
+          "Skipping hotplug attach retry; last failure {:?} ago is within the {:?} cooldown",
+          state.last_failure_at.map(|t| t.elapsed()),
+          state.retry_cooldown
+        );
+      } else if let Err(e) =
         attach_real_device(processor, shared_state, broadcast_tx).await
       {
         error!(
           "hotplug attach failed after device-count reconciliation: {}",
           e
         );
+        state.last_failure_at = Some(Instant::now());
       } else {
         state.last_hardware_swap = Some(Instant::now());
+        state.last_failure_at = None;
+      }
+    } else if current_count > 0
+      && !processor.is_mock()
+      && current_state == "stale"
+    {
+      // A quick unplug/replug can leave the inventory count at one the whole
+      // time. Reconcile the stale reader explicitly instead of waiting for a
+      // count transition that will never arrive.
+      state.missing_since = None;
+      state.last_failure_at = None;
+      shared_state.set_device_state("loading", Some("restart"));
+      broadcast_device_status(shared_state, broadcast_tx);
+      match attach_real_device(processor, shared_state, broadcast_tx).await {
+        Ok(()) => {
+          shared_state
+            .health_failure_streak
+            .store(0, Ordering::Relaxed);
+          shared_state.recovery_attempts.store(0, Ordering::Relaxed);
+          state.last_hardware_swap = Some(Instant::now());
+          info!("Reopened stale SDR after supported USB presence was observed");
+        }
+        Err(error) => {
+          error!("Failed to reopen stale SDR after USB replug: {}", error);
+          shared_state.set_device_state("stale", None);
+          shared_state.set_device_backend_error(Some(error.to_string()));
+          broadcast_device_status(shared_state, broadcast_tx);
+        }
       }
     } else if current_count > 0 {
       state.missing_since = None;
+      if should_broadcast_source_inventory_change(
+        current_count,
+        previous_count,
+        processor.is_mock(),
+      ) {
+        broadcast_device_status(shared_state, broadcast_tx);
+      }
     }
   }
 
@@ -398,6 +657,28 @@ pub async fn drain_hotplug_events(
   }
 }
 
+pub async fn simulate_hardware_presence(
+  present: bool,
+  state: &mut HotplugState,
+  processor: &mut SdrProcessor,
+  shared_state: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+) -> Result<()> {
+  if !hardware_simulation_enabled() {
+    return Err(anyhow!("hardware simulation is not enabled"));
+  }
+
+  set_simulated_hardware_present(present);
+  state.last_seen_device_count = if present { 1 } else { 0 };
+  if present && processor.is_mock() {
+    attach_real_device(processor, shared_state, broadcast_tx).await
+  } else if !present && !processor.is_mock() {
+    disconnect_to_mock(state, processor, shared_state, broadcast_tx).await
+  } else {
+    Ok(())
+  }
+}
+
 fn format_hotplug_event_device(event: &HotplugEvent) -> String {
   match (event.vendor_id, event.product_id) {
     (Some(vendor_id), Some(product_id)) => format!(
@@ -415,9 +696,22 @@ fn should_reconcile_hotplug_state(
   current_count: u32,
   last_seen_device_count: u32,
   processor_is_mock: bool,
+  device_state: &str,
 ) -> bool {
   current_count != last_seen_device_count
     || (processor_is_mock && current_count > 0)
+    || (!processor_is_mock && current_count == 0)
+    || (!processor_is_mock && current_count > 0 && device_state == "stale")
+}
+
+fn should_broadcast_source_inventory_change(
+  current_count: u32,
+  last_seen_device_count: u32,
+  processor_is_mock: bool,
+) -> bool {
+  !processor_is_mock
+    && current_count > 0
+    && current_count != last_seen_device_count
 }
 
 async fn attach_real_device(
@@ -426,18 +720,36 @@ async fn attach_real_device(
   broadcast_tx: &broadcast::Sender<String>,
 ) -> Result<()> {
   info!("Probing supported device attach path");
-  shared_state.set_device_state("loading", Some("connect"));
+  shared_state.set_device_state("initializing", Some("connect"));
   broadcast_device_status(shared_state, broadcast_tx);
 
   let mut last_err = None;
-  let mut new_device = None;
+  let mut attached = false;
   for attempt in 1..=5 {
     match SdrDeviceFactory::create_device() {
       Ok(device)
         if !device.device_type().to_ascii_lowercase().contains("mock") =>
       {
-        new_device = Some(device);
-        break;
+        match processor.swap_device(device) {
+          Ok(()) => {
+            attached = true;
+            break;
+          }
+          Err(e) => {
+            last_err = Some(e);
+            // `swap_device` leaves the failed replacement in the processor
+            // when its async reader cannot start.  Keep that failed handle
+            // alive while retrying and the next librtlsdr open sees the same
+            // claimed USB interface (`usb_claim_interface error -3`).
+            // Release the failed device back to Mock APT before the next open.
+            release_failed_device_before_retry(processor).await;
+            warn!(
+              "Supported device initialize attempt {} of 5 failed during attach; retrying",
+              attempt
+            );
+            tokio::time::sleep(Duration::from_millis(250)).await;
+          }
+        }
       }
       Ok(_) => {
         last_err =
@@ -459,18 +771,14 @@ async fn attach_real_device(
     }
   }
 
-  let new_device = match new_device {
-    Some(device) => device,
-    None => {
-      let err =
-        last_err.unwrap_or_else(|| anyhow!("Supported device open failed"));
-      shared_state.set_device_state("disconnected", None);
-      broadcast_device_status(shared_state, broadcast_tx);
-      return Err(err);
-    }
-  };
+  if !attached {
+    let err =
+      last_err.unwrap_or_else(|| anyhow!("Supported device open failed"));
+    shared_state.set_device_state("disconnected", None);
+    broadcast_device_status(shared_state, broadcast_tx);
+    return Err(err);
+  }
 
-  processor.swap_device(new_device)?;
   shared_state.update_device_status(
     true,
     processor.get_device_info(),
@@ -481,6 +789,16 @@ async fn attach_real_device(
     processor.get_manufacturer(),
     processor.get_product(),
   );
+  // A newly attached/reopened device is not authoritative Receiving until
+  // the acquisition loop records its first successful frame.
+  shared_state.set_device_state("loading", Some("connect"));
+  if processor.device_type().to_ascii_lowercase().contains("rtl") {
+    shared_state.cache_active_rtl_sdr(
+      processor.get_serial_number(),
+      processor.get_manufacturer(),
+      processor.get_product(),
+    );
+  }
   // A reconnect is an automatic resume. Clear any stale pause bit left by
   // the pre-disconnect source so the first fresh Rx frame is not gated behind
   // a second user Pause/Resume click.
@@ -490,6 +808,30 @@ async fn attach_real_device(
   Ok(())
 }
 
+async fn release_failed_device_before_retry(processor: &mut SdrProcessor) {
+  for attempt in 1..=5 {
+    match processor.swap_device(SdrDeviceFactory::create_mock_device()) {
+      Ok(()) => {
+        info!(
+          "Released failed SDR handle before reconnect retry (attempt {})",
+          attempt
+        );
+        return;
+      }
+      Err(error) => {
+        warn!(
+          "Failed to release SDR handle before reconnect retry (attempt {}): {}",
+          attempt, error
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+      }
+    }
+  }
+  warn!(
+    "Giving up on bounded failed SDR-handle release before reconnect retry"
+  );
+}
+
 async fn disconnect_to_mock(
   state: &mut HotplugState,
   processor: &mut SdrProcessor,
@@ -497,6 +839,12 @@ async fn disconnect_to_mock(
   broadcast_tx: &broadcast::Sender<String>,
 ) -> Result<()> {
   let previous_device_type = processor.device_type();
+  if previous_device_type.to_ascii_lowercase().contains("rtl") {
+    // Remove the disconnected hardware from the source inventory before the
+    // fallback snapshot is broadcast. Otherwise the frontend can observe
+    // Mock APT as active while still seeing the old RTL source and retrying it.
+    shared_state.set_rtl_sdr_inventory(Vec::new());
+  }
   shared_state.set_device_state("disconnected", None);
   if previous_device_type == "hackrf_one" {
     shared_state
@@ -505,6 +853,7 @@ async fn disconnect_to_mock(
   broadcast_device_status(shared_state, broadcast_tx);
   let mock_device = SdrDeviceFactory::create_mock_device();
   processor.swap_device(mock_device)?;
+  sync_shared_sample_rate(shared_state, processor);
   shared_state.update_device_status(
     false,
     processor.get_device_info(),
@@ -550,10 +899,16 @@ pub async fn handle_real_hardware_health(
   }
 
   let current_state = shared_state.device_state.lock().unwrap().clone();
-  if current_state == "loading"
-    || current_state == "loose"
-    || current_state == "disconnected"
-  {
+  if matches!(
+    current_state.as_str(),
+    "initializing" | "disconnected" | "stale"
+  ) {
+    // `loading` is deliberately health-checked. A real reader can fail before
+    // its first frame (for example, librtlsdr can exit with USB error -3), and
+    // skipping health checks here strands the source in Loading forever. A
+    // stale source is different: its reader has already crossed the liveness
+    // boundary, so the USB inventory/reopen path owns recovery and must not
+    // compete by extending the error streak.
     return;
   }
 
@@ -584,8 +939,9 @@ pub async fn handle_real_hardware_health(
       && !processor.is_rx_active();
 
   if streak < DISCONNECT_FAILURE_THRESHOLD && !rtl_reader_inactive {
-    let supported_device_present = supported_usb_device_present();
-    if !supported_device_present {
+    let active_device_is_present =
+      active_device_present(processor.device_type(), shared_state);
+    if !active_device_is_present {
       warn!("Supported USB device disappeared during recovery window. Falling back to mock immediately.");
       let was_hackrf = processor.device_type() == "hackrf_one";
       shared_state.set_device_state("disconnected", None);
@@ -603,6 +959,7 @@ pub async fn handle_real_hardware_health(
           e
         );
       } else {
+        sync_shared_sample_rate(shared_state, processor);
         shared_state.update_device_status(
           false,
           processor.get_device_info(),
@@ -635,6 +992,11 @@ pub async fn handle_real_hardware_health(
       }
       if let Err(e) = processor.initialize() {
         warn!("Re-init during recovery failed: {}", e);
+        // A reader restart failure is a stale-stream condition until the
+        // USB inventory independently proves that the device is absent.
+        shared_state.set_device_state("stale", None);
+        shared_state.set_device_backend_error(Some(e.to_string()));
+        broadcast_device_status(shared_state, broadcast_tx);
       } else {
         info!("Device re-init succeeded, awaiting health confirmation...");
         state.last_hardware_swap = Some(Instant::now());
@@ -650,9 +1012,10 @@ pub async fn handle_real_hardware_health(
       tokio::time::sleep(state.exhausted_recovery_cooldown).await;
     }
   } else {
-    let supported_device_present = supported_usb_device_present();
-    if !supported_device_present {
-      warn!("Supported device confirmed unplugged. Falling back to mock.");
+    let active_device_is_present =
+      active_device_present(processor.device_type(), shared_state);
+    if !active_device_is_present {
+      info!("Supported device disconnected. Falling back to Mock APT.");
       let was_hackrf = processor.device_type() == "hackrf_one";
       shared_state.set_device_state("disconnected", None);
       if was_hackrf {
@@ -669,6 +1032,7 @@ pub async fn handle_real_hardware_health(
           e
         );
       } else {
+        sync_shared_sample_rate(shared_state, processor);
         shared_state.update_device_status(
           false,
           processor.get_device_info(),
@@ -686,14 +1050,12 @@ pub async fn handle_real_hardware_health(
       }
     } else if should_hold_recovery_for_usb_present_device(
       processor.device_type(),
-      supported_device_present,
+      active_device_is_present,
     ) {
       warn!(
         "Supported device still on USB but unhealthy. Attempting full restart..."
       );
       let _ = stop_capture(processor);
-      shared_state.set_device_state("loading", Some("restart"));
-      broadcast_device_status(shared_state, broadcast_tx);
       let cleanup_ready = match processor.cleanup() {
         Ok(()) => true,
         Err(e) => {
@@ -703,6 +1065,7 @@ pub async fn handle_real_hardware_health(
             "SDR handle is still stopping; deferring full restart: {}",
             e
           );
+          shared_state.set_device_state("stale", None);
           shared_state.set_device_backend_error(Some(e.to_string()));
           broadcast_device_status(shared_state, broadcast_tx);
           state.last_hardware_swap = Some(Instant::now());
@@ -712,11 +1075,32 @@ pub async fn handle_real_hardware_health(
       if !cleanup_ready {
         return;
       }
-      match SdrDeviceFactory::create_device() {
+      shared_state.set_device_state("loading", Some("restart"));
+      broadcast_device_status(shared_state, broadcast_tx);
+      let requested_source_id = active_source_id(shared_state);
+      match open_device_for_source_id(shared_state, &requested_source_id) {
         Ok(new_device) if !new_device.device_type().contains("Mock") => {
           if let Err(e) = processor.swap_device(new_device) {
-            error!("Full restart swap failed: {}", e);
-            shared_state.set_device_state("loading", Some("restart"));
+            let error_message =
+              format!("Selected SDR full restart swap failed: {}", e);
+            error!("{}", error_message);
+            if let Err(swap_e) =
+              processor.swap_device(SdrDeviceFactory::create_mock_device())
+            {
+              error!(
+                "Failed to fall back to Mock APT after full restart swap failure: {}",
+                swap_e
+              );
+            } else {
+              sync_shared_sample_rate(shared_state, processor);
+              shared_state.update_device_status(
+                false,
+                processor.get_device_info(),
+                build_device_profile(processor.device_type()),
+              );
+              shared_state.set_active_source_pause_state("mock-apt", false);
+            }
+            shared_state.set_device_backend_error(Some(error_message));
             broadcast_device_status(shared_state, broadcast_tx);
           } else {
             shared_state.update_device_status(
@@ -733,9 +1117,35 @@ pub async fn handle_real_hardware_health(
         }
         _ => {
           warn!(
-            "Full restart did not return a real device while USB is still present; keeping device in recovery"
+            "Full restart did not return the selected real device while USB is still present; falling back to Mock APT"
           );
-          shared_state.set_device_state("loading", Some("restart"));
+          let error_message = format!(
+            "Selected SDR could not be reopened while USB is present: {}",
+            shared_state
+              .device_backend_error
+              .lock()
+              .unwrap()
+              .clone()
+              .unwrap_or_else(|| "device reopen failed".to_string())
+          );
+          if let Err(swap_e) =
+            processor.swap_device(SdrDeviceFactory::create_mock_device())
+          {
+            error!(
+              "Failed to fall back to Mock APT after full restart failure: {}",
+              swap_e
+            );
+            shared_state.set_device_backend_error(Some(error_message));
+          } else {
+            sync_shared_sample_rate(shared_state, processor);
+            shared_state.update_device_status(
+              false,
+              processor.get_device_info(),
+              build_device_profile(processor.device_type()),
+            );
+            shared_state.set_active_source_pause_state("mock-apt", false);
+            shared_state.set_device_backend_error(Some(error_message));
+          }
           broadcast_device_status(shared_state, broadcast_tx);
           state.last_hardware_swap = Some(Instant::now());
         }
@@ -786,9 +1196,39 @@ mod tests {
   #[test]
   fn mock_startup_with_supported_device_should_attach_even_without_count_change(
   ) {
-    assert!(should_reconcile_hotplug_state(1, 1, true));
-    assert!(!should_reconcile_hotplug_state(1, 1, false));
-    assert!(should_reconcile_hotplug_state(1, 0, false));
+    assert!(should_reconcile_hotplug_state(1, 1, true, "disconnected"));
+    assert!(!should_reconcile_hotplug_state(1, 1, false, "connected"));
+    assert!(should_reconcile_hotplug_state(1, 0, false, "connected"));
+    assert!(should_reconcile_hotplug_state(0, 0, false, "connected"));
+  }
+
+  #[test]
+  fn stale_real_source_reconciles_even_when_usb_count_is_unchanged() {
+    assert!(should_reconcile_hotplug_state(1, 1, false, "stale"));
+    assert!(!should_reconcile_hotplug_state(1, 1, false, "connected"));
+  }
+
+  #[test]
+  fn active_source_absence_reconciles_when_another_radio_remains() {
+    let snapshots = vec![UsbDeviceSnapshot {
+      device_type: "rtl-sdr".to_string(),
+      vendor_id: 0x0bda,
+      product_id: 0x2838,
+      bus_number: 1,
+      address: 2,
+    }];
+
+    assert!(active_hardware_missing(false, "hackrf_one", &snapshots));
+    assert!(!active_hardware_missing(false, "RTL-SDR", &snapshots));
+    assert!(!active_hardware_missing(true, "Mock APT SDR", &snapshots));
+  }
+
+  #[test]
+  fn real_device_inventory_change_requires_source_info_broadcast() {
+    assert!(should_broadcast_source_inventory_change(2, 1, false));
+    assert!(should_broadcast_source_inventory_change(1, 2, false));
+    assert!(!should_broadcast_source_inventory_change(1, 1, false));
+    assert!(!should_broadcast_source_inventory_change(2, 1, true));
   }
 
   #[test]
@@ -822,6 +1262,12 @@ mod tests {
     assert_eq!(supported.len(), 2);
     assert!(supported.iter().any(|d| d.device_type == "rtl-sdr"));
     assert!(supported.iter().any(|d| d.device_type == "hackrf_one"));
+  }
+
+  #[test]
+  fn native_rtl_presence_preserves_cache_when_libusb_snapshot_is_empty() {
+    assert!(!should_clear_rtl_sdr_inventory(&[], 1));
+    assert!(should_clear_rtl_sdr_inventory(&[], 0));
   }
 
   #[cfg(has_hackrf)]
@@ -878,10 +1324,10 @@ mod tests {
   }
 
   #[test]
-  fn loose_state_is_authoritative_during_reconciliation() {
+  fn unknown_nonconnected_state_reconciles_as_disconnected() {
     assert_eq!(
-      crate::server::utils::reconcile_device_state(false, "loose"),
-      "loose"
+      crate::server::utils::reconcile_device_state(false, "unexpected"),
+      "disconnected"
     );
   }
 

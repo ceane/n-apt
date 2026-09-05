@@ -14,11 +14,11 @@ const NAPT_TEMPORAL_WGSL = readFileSync(
   "utf8",
 );
 const FFT_HOOK_SOURCE = readFileSync(
-  join(process.cwd(), "src/ts/hooks/useDrawWebGPUFFTSignal.ts"),
+  join(process.cwd(), "src/ts/features/spectrum/hooks/useDrawWebGPUFFTSignal.ts"),
   "utf8",
 );
 const FFT_CANVAS_SOURCE = readFileSync(
-  join(process.cwd(), "src/ts/components/FFTCanvas.tsx"),
+  join(process.cwd(), "src/ts/features/spectrum/FFTCanvas.tsx"),
   "utf8",
 );
 
@@ -104,7 +104,15 @@ describe("N-APT classifier", () => {
     expect(FFT_HOOK_SOURCE).toContain(
       "state.naptClassifyReadbackBuffer,\n            0,\n            132,",
     );
-    expect(FFT_CANVAS_SOURCE).toMatch(
+    expect(FFT_CANVAS_SOURCE).toContain(
+      'import { presentSpikeAnalysis } from "@n-apt/spectrum/fft/spikeAnalysisPresentation";',
+    );
+    expect(
+      readFileSync(
+        join(process.cwd(), "src/ts/features/spectrum/fft/spikeAnalysisPresentation.ts"),
+        "utf8",
+      ),
+    ).toMatch(
       /captureQualityScore:\s*Math\.max\(\s*0,\s*Math\.min\(\s*1,\s*1\s*-\s*sincPenaltyScore\s*\)\s*,?\s*\)/,
     );
   });

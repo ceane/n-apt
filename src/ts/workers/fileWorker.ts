@@ -2,8 +2,9 @@
  * File Processing Worker - Handles file I/O and stitching operations
  */
 
-import { parseFrequency } from "../utils/frequency";
-import { base64ToBytes } from "../crypto/webcrypto";
+import { parseFrequency } from "@n-apt/math/frequency";
+import { base64ToBytes } from "@n-apt/crypto/webcrypto";
+import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
 
 let currentFftSize = 8192;
 
@@ -28,6 +29,11 @@ function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
 type FileMetadata = {
   format?: string;
   format_version?: number;
+  sections?: {
+    binary?: { offset_bytes: number; length_bytes: number; encoding?: string; encrypted?: boolean };
+    trailer?: { offset_bytes: number; length_bytes: number; encoding?: string; version?: number };
+  };
+  trailer?: Record<string, unknown> | null;
   interleaving?: string;
   sample_encoding?: {
     element_type: string;
@@ -113,6 +119,24 @@ async function loadIqFile(
   const metadata = JSON.parse(new TextDecoder().decode(
     new Uint8Array(fileData, metadataStart, metadataLength),
   )) as FileMetadata;
+  if ((metadata.format_version ?? 3) >= 4) {
+    const binary = metadata.sections?.binary;
+    const trailerSection = metadata.sections?.trailer;
+    if (!binary || !trailerSection || binary.offset_bytes !== payloadStart || binary.length_bytes !== payloadLength) {
+      throw new Error("Invalid IQ v4 section index");
+    }
+    const trailerStart = trailerSection.offset_bytes;
+    const trailerEnd = trailerStart + trailerSection.length_bytes;
+    if (trailerStart !== payloadStart + payloadLength || trailerEnd !== fileData.byteLength || trailerSection.length_bytes < 24) {
+      throw new Error("Invalid IQ v4 trailer bounds");
+    }
+    const trailerBytes = new Uint8Array(fileData, trailerStart, trailerSection.length_bytes);
+    const marker = new TextDecoder().decode(trailerBytes.slice(0, 8));
+    if (marker !== "NAPTTRLR" || trailerBytes[8] !== 1) throw new Error("Invalid IQ v4 trailer marker");
+    const trailerLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));
+    if (trailerLength + 24 !== trailerBytes.length) throw new Error("Invalid IQ v4 trailer length");
+    metadata.trailer = JSON.parse(new TextDecoder().decode(trailerBytes.slice(24)));
+  }
   const frameUpdates = JSON.parse(new TextDecoder().decode(
     new Uint8Array(fileData, framesStart, framesLength),
   )) as FileMetadata["frame_updates"];
@@ -257,7 +281,7 @@ function processToSpectrum(
   fftSize: number = 8192,
 ): number[] {
   const spectrum = Array.from({ length: fftSize }, () => -150);
-  const windowSize = fftSize * 2;
+  const windowSize = fftSize * BYTES_PER_IQ_SAMPLE.u8;
   const windowStep = windowSize * 4;
   const maxChunks = 4;
   const maxStart = Math.max(0, rawData.length - windowSize);
@@ -682,12 +706,44 @@ self.onmessage = async function (e) {
 
           const metaObj = JSON.parse(jsonStr);
           const metadata = metaObj.metadata || metaObj;
+          let naptBinaryFileData = fileData;
+          if ((metadata.format_version ?? 3) >= 4) {
+            const binary = metadata.sections?.binary;
+            const trailer = metadata.sections?.trailer;
+            if (!binary || !trailer || binary.offset_bytes < 1 || binary.length_bytes < 1 ||
+                binary.offset_bytes + binary.length_bytes !== trailer.offset_bytes ||
+                trailer.offset_bytes + trailer.length_bytes !== fileData.byteLength ||
+                trailer.length_bytes < 24) {
+              throw new Error("Invalid NAPT v4 section index");
+            }
+            const trailerBytes = new Uint8Array(fileData, trailer.offset_bytes, trailer.length_bytes);
+            if (new TextDecoder().decode(trailerBytes.slice(0, 8)) !== "NAPTTRLR" || trailerBytes[8] !== 1) {
+              throw new Error("Invalid NAPT v4 trailer marker");
+            }
+            const trailerJsonLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));
+            if (trailerJsonLength + 24 !== trailerBytes.length) throw new Error("Invalid NAPT v4 trailer length");
+            metadata.trailer = JSON.parse(new TextDecoder().decode(trailerBytes.slice(24)));
+            naptBinaryFileData = fileData.slice(0, trailer.offset_bytes);
+          }
           const isEncrypted =
             metadata.encrypted === true ||
             metadata.encrypted === "true" ||
             metaObj.encrypted === true;
 
-          const possibleHeaderSizes = [4096, 2048, 8192, 1024];
+          // Prefer the v4 section index (exact); fall back to the historical
+          // probe sizes for legacy captures with fixed 4096-byte headers.
+          const sectionedBinaryOffset =
+            metadata.sections?.binary?.offset_bytes;
+          const possibleHeaderSizes = [
+            ...(typeof sectionedBinaryOffset === "number" &&
+            sectionedBinaryOffset > 0
+              ? [sectionedBinaryOffset]
+              : []),
+            4096,
+            2048,
+            8192,
+            1024,
+          ];
 
           // Check for channels at top-level OR inside metadata
           const channels = metaObj.channels ||
@@ -707,7 +763,7 @@ self.onmessage = async function (e) {
                   possibleHeaderSizes.find(
                     (size) => fileData.byteLength > size + 12,
                   ) ?? 0;
-                const encryptedView = new Uint8Array(fileData, hSize);
+                const encryptedView = new Uint8Array(naptBinaryFileData, hSize);
                 decryptedData = encryptedView.buffer.slice(
                   encryptedView.byteOffset,
                 );
@@ -725,7 +781,7 @@ self.onmessage = async function (e) {
                   (metaObj.metadata && metaObj.metadata.session_key);
 
                 decryptedData = await decryptNaptPayloadAtOffsets(
-                  fileData,
+                  naptBinaryFileData,
                   aesKey as CryptoKey,
                   fileName,
                   possibleHeaderSizes,
@@ -927,6 +983,19 @@ self.onmessage = async function (e) {
 
               const metaObj = JSON.parse(naptJsonStr);
               metadata = metaObj.metadata || metaObj;
+              if (!metadata) throw new Error("Invalid NAPT metadata");
+              let naptBinaryFileData = file.fileData;
+              if ((metadata.format_version ?? 3) >= 4) {
+                const binary = metadata.sections?.binary;
+                const trailer = metadata.sections?.trailer;
+                if (!binary || !trailer || binary.offset_bytes + binary.length_bytes !== trailer.offset_bytes || trailer.offset_bytes + trailer.length_bytes !== file.fileData.byteLength || trailer.length_bytes < 24) throw new Error("Invalid NAPT v4 section index");
+                const trailerBytes = new Uint8Array(file.fileData, trailer.offset_bytes, trailer.length_bytes);
+                if (new TextDecoder().decode(trailerBytes.slice(0, 8)) !== "NAPTTRLR" || trailerBytes[8] !== 1) throw new Error("Invalid NAPT v4 trailer marker");
+                const trailerJsonLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));
+                if (trailerJsonLength + 24 !== trailerBytes.length) throw new Error("Invalid NAPT v4 trailer length");
+                metadata.trailer = JSON.parse(new TextDecoder().decode(trailerBytes.slice(24)));
+                naptBinaryFileData = file.fileData.slice(0, trailer.offset_bytes);
+              }
               const isEncrypted = !!(
                 (metadata &&
                   (metadata.encrypted === true ||
@@ -948,7 +1017,20 @@ self.onmessage = async function (e) {
 
               if (channelsMetadata && channelsMetadata.length > 0) {
                 let decryptedData: ArrayBuffer | null = null;
-                const possibleHeaderSizes = [4096, 2048, 8192, 1024];
+                // Prefer the v4 section index (exact); fall back to the
+                // historical probe sizes for legacy fixed-size headers.
+                const sectionedBinaryOffset =
+                  metadata.sections?.binary?.offset_bytes;
+                const possibleHeaderSizes = [
+                  ...(typeof sectionedBinaryOffset === "number" &&
+                  sectionedBinaryOffset > 0
+                    ? [sectionedBinaryOffset]
+                    : []),
+                  4096,
+                  2048,
+                  8192,
+                  1024,
+                ];
                 const wrappedDekBase64 =
                   metaObj.wrapped_dek ||
                   (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
@@ -964,15 +1046,15 @@ self.onmessage = async function (e) {
                 if (!isEncrypted) {
                   const hSize =
                     possibleHeaderSizes.find(
-                      (size) => file.fileData.byteLength > size + 12,
+                      (size) => naptBinaryFileData.byteLength > size + 12,
                     ) ?? 0;
-                  const encryptedView = new Uint8Array(file.fileData, hSize);
+                  const encryptedView = new Uint8Array(naptBinaryFileData, hSize);
                   decryptedData = encryptedView.buffer.slice(
                     encryptedView.byteOffset,
                   );
                 } else {
                   decryptedData = await decryptNaptPayloadAtOffsets(
-                    file.fileData,
+                    naptBinaryFileData,
                     aesKey as CryptoKey,
                     file.fileName,
                     possibleHeaderSizes,
@@ -1112,7 +1194,7 @@ self.onmessage = async function (e) {
         }
 
         const internalFftSize = fftSize || currentFftSize;
-        const chunkSize = internalFftSize * 2; // IQ pair per bin
+        const chunkSize = internalFftSize * BYTES_PER_IQ_SAMPLE.u8;
         const maxFrames = Math.max(
           1,
           Math.min(

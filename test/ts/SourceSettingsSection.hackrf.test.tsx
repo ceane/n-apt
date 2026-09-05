@@ -1,9 +1,9 @@
 import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { SourceSettingsSection } from "@n-apt/components/sidebar/SourceSettingsSection";
+import { SourceSettingsSection } from "@n-apt/spectrum/sidebar/SourceSettingsSection";
 import { TestWrapper } from "./testUtils";
 
-jest.mock("@n-apt/components/ui/Tooltip", () => ({
+jest.mock("@n-apt/ui/Tooltip", () => ({
   Tooltip: ({
     title,
     content,
@@ -294,5 +294,233 @@ describe("SourceSettingsSection HackRF controls", () => {
     expect(onRtlAGCChange).toHaveBeenNthCalledWith(2, true);
     expect(onTunerAGCChange).toHaveBeenNthCalledWith(2, false);
     expect(onAgcModeChange).toHaveBeenNthCalledWith(2, false, true);
+  });
+
+  it("shows the Baseband filter for a capability-bearing non-HackRF device", () => {
+    const onBasebandChange = jest.fn();
+
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="generic_sdr"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={0}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={3_200_000}
+          hackrfCurrentSampleRate={3_200_000}
+          supportsBasebandFilter={true}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={onBasebandChange}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Baseband filter")).toBeInTheDocument();
+    expect(screen.queryByText("LNA gain")).not.toBeInTheDocument();
+  });
+
+  it("hides the Baseband filter when the capability is absent", () => {
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="generic_sdr"
+          ppm={1}
+          gain={0}
+          hackrfBasebandBandwidth={3_200_000}
+          hackrfCurrentSampleRate={3_200_000}
+          supportsBasebandFilter={false}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={jest.fn()}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.queryByText("Baseband filter")).not.toBeInTheDocument();
+  });
+
+  it("auto-tracks the sample rate until the user pins a custom value", () => {
+    const onBasebandChange = jest.fn();
+    const onPinnedChange = jest.fn();
+
+    const { rerender } = render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={30}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={3_200_000}
+          hackrfCurrentSampleRate={3_200_000}
+          basebandFilterPinned={false}
+          onBasebandFilterPinnedChange={onPinnedChange}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={onBasebandChange}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    // Unpinned: a sample-rate change silently updates the baseband filter.
+    rerender(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={30}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={3_200_000}
+          hackrfCurrentSampleRate={4_372_000}
+          basebandFilterPinned={false}
+          onBasebandFilterPinnedChange={onPinnedChange}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={onBasebandChange}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(onBasebandChange).toHaveBeenLastCalledWith(4_372_000);
+
+    // Pinned: the same sample-rate change must NOT touch the baseband value.
+    onBasebandChange.mockClear();
+    rerender(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={30}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={2_400_000}
+          hackrfCurrentSampleRate={4_372_000}
+          basebandFilterPinned={true}
+          onBasebandFilterPinnedChange={onPinnedChange}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={onBasebandChange}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(onBasebandChange).not.toHaveBeenCalled();
+  });
+
+  it("pins on a manual baseband edit and unpins when cleared", () => {
+    const onPinnedChange = jest.fn();
+    let basebandValue = 3_200_000;
+    const onBasebandChange = jest.fn((val: number) => {
+      basebandValue = val;
+    });
+
+    const section = (pinned: boolean) => (
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={30}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={basebandValue}
+          hackrfCurrentSampleRate={3_200_000}
+          basebandFilterPinned={pinned}
+          onBasebandFilterPinnedChange={onPinnedChange}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={onBasebandChange}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>
+    );
+
+    const { rerender } = render(section(false));
+
+    const basebandRow = screen.getByText("Baseband filter").closest("div")
+      ?.parentElement as HTMLElement;
+    const basebandInput = within(basebandRow).getByRole("textbox");
+    expect(basebandInput).toBeInTheDocument();
+
+    // Manual edit pins the filter.
+    fireEvent.change(basebandInput, { target: { value: "2.4" } });
+    expect(onPinnedChange).toHaveBeenLastCalledWith(true);
+
+    // Clearing to zero resumes auto-tracking.
+    rerender(section(true));
+    fireEvent.change(basebandInput, { target: { value: "0" } });
+    expect(onPinnedChange).toHaveBeenLastCalledWith(false);
   });
 });

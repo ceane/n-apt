@@ -2,16 +2,17 @@ import React from "react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { ThemeProvider } from "styled-components";
-import authSlice from "../../src/ts/redux/slices/authSlice";
-import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
-import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
-import themeSlice from "../../src/ts/redux/slices/themeSlice";
-import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
-import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
-import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
-import demodSlice from "../../src/ts/redux/slices/demodSlice";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
-import { THEME_TOKENS } from "../../src/ts/consts";
+import authSlice from "@n-apt/redux/slices/authSlice";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import waterfallSlice from "@n-apt/redux/slices/waterfallSlice";
+import themeSlice from "@n-apt/redux/slices/themeSlice";
+import settingsSlice from "@n-apt/redux/slices/settingsSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
+import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
+import demodSlice from "@n-apt/redux/slices/demodSlice";
+import sourceRoutingSlice from "@n-apt/redux/slices/sourceRoutingSlice";
+import { buildAppTheme } from "@n-apt/ui/Theme";
+import { THEME_TOKENS } from "@n-apt/consts";
 
 const defaultTheme = buildAppTheme({
   accentColor: THEME_TOKENS.colors.dark.primary,
@@ -21,7 +22,7 @@ const defaultTheme = buildAppTheme({
   waterfallTheme: "classic",
 });
 
-export function createTestStore() {
+export function createTestStore(preloadedState?: any) {
   return configureStore({
     reducer: {
       auth: authSlice,
@@ -32,16 +33,24 @@ export function createTestStore() {
       websocket: websocketSlice,
       snapshot: snapshotSlice,
       demod: demodSlice,
+      sourceRouting: sourceRoutingSlice,
     },
-    middleware: (getDefaultMiddleware) =>
+    middleware: (getDefaultMiddleware: any) =>
       getDefaultMiddleware({
         serializableCheck: false,
       }),
-  });
+    preloadedState,
+  } as any);
 }
 
-export function TestWrapper({ children }: { children: React.ReactNode }) {
-  const store = createTestStore();
+export function TestWrapper({
+  children,
+  preloadedState,
+}: {
+  children: React.ReactNode;
+  preloadedState?: any;
+}) {
+  const store = createTestStore(preloadedState);
 
   return (
     <Provider store={store}>

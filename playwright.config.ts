@@ -1,7 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { resolvePlaywrightPassword } from './test/support/authCredentials';
 
 export default defineConfig({
-  testDir: './test/ts',
+  testDir: './test',
   testMatch: /.*\.spec\.(ts|tsx)$/,
   timeout: 60 * 1000,
   expect: {
@@ -30,7 +31,9 @@ export default defineConfig({
     reuseExistingServer: true,
     timeout: 120 * 1000,
     env: {
-      UNSAFE_LOCAL_USER_PASSWORD: 'test-password-123',
+      UNSAFE_LOCAL_USER_PASSWORD: resolvePlaywrightPassword(),
+      WEBSOCKETS_URL: 'http://127.0.0.1:8770',
+      NAPT_BACKEND_PROXY_URL: 'http://127.0.0.1:8770',
       NODE_ENV: 'development',
     },
   },

@@ -46,6 +46,12 @@ extern "C" {
     ctx: *mut c_void,
   ) -> c_int;
   pub fn hackrf_stop_rx(device: *mut HackRfDeviceHandle) -> c_int;
+  pub fn hackrf_start_tx(
+    device: *mut HackRfDeviceHandle,
+    callback: HackRfSampleBlockCb,
+    ctx: *mut c_void,
+  ) -> c_int;
+  pub fn hackrf_stop_tx(device: *mut HackRfDeviceHandle) -> c_int;
   pub fn hackrf_set_freq(
     device: *mut HackRfDeviceHandle,
     freq_hz: u64,

@@ -114,9 +114,13 @@ pub enum SdrCommand {
   SetOffsetTuning(bool),
   SetDirectSampling(u8),
   RequestNextFrame,
-  RestartDevice,
+  RestartDevice {
+    source_id: Option<String>,
+  },
+  SetSimulatedHardwarePresence(bool),
   SetActiveSource {
     source_id: String,
+    sample_rate: Option<u32>,
   },
   StartTraining {
     label: String,
@@ -147,7 +151,7 @@ pub enum SdrCommand {
   SetPowerScale {
     scale: PowerScale,
   },
-  SetTransmitMode {
+  SetTransmitStatus {
     enabled: bool,
     device: String,
     serial_number: String,
@@ -187,6 +191,7 @@ pub struct SdrProcessorSettings {
   pub fft_size: Option<usize>,
   pub fft_window: Option<String>,
   pub frame_rate: Option<u32>,
+  pub max_frame_rate: Option<u32>,
   pub sample_rate: Option<u32>,
   pub gain: Option<f64>,
   pub hackrf_lna_gain: Option<f64>,
@@ -260,6 +265,20 @@ pub struct ChannelSpec {
 pub struct WebSocketMessage {
   #[serde(rename = "type")]
   pub message_type: String,
+  /// Ownership of the control. Missing scope is accepted for legacy clients;
+  /// new clients must send `subscriber` for local RX playback or `device` for
+  /// controls that mutate shared source/transmitter state.
+  #[serde(skip_serializing_if = "Option::is_none", default)]
+  pub scope: Option<crate::server::stream_contract::StreamControlScope>,
+  /// Origin tag stamped by the tuning client. The backend remembers the last
+  /// tuner and echoes it in channels snapshots so clients can drop their own
+  /// echo instead of treating it as foreign authoritative state.
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "originId",
+    default
+  )]
+  pub origin_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
@@ -302,6 +321,28 @@ pub struct WebSocketMessage {
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub center_frequency: Option<f64>,
+  /// Signed display coordinates for mirror-enabled subscribers. These are
+  /// presentation metadata only; min_freq/max_freq remain positive RF Hz.
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayMinHz")]
+  pub display_min_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayMaxHz")]
+  pub display_max_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayPanHz")]
+  pub display_pan_hz: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayZoom")]
+  pub display_zoom: Option<f64>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "displayCrossesDc")]
+  pub display_crosses_dc: Option<bool>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "displayDirectionNegative"
+  )]
+  pub display_direction_negative: Option<bool>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "mirrorSpectrumBelowZero"
+  )]
+  pub mirror_spectrum_below_zero: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "viewCenterHz")]
   pub view_center_hz: Option<f64>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -358,6 +399,9 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "maxFrameRate")]
+  #[validate(range(min = 1, max = 100))]
+  pub max_frame_rate: Option<u32>,
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "sampleRate",
@@ -400,8 +444,8 @@ pub struct WebSocketMessage {
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
   pub live_mode: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "activeMode")]
-  pub active_mode: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub status: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "duplexMode")]
   pub duplex_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
@@ -649,6 +693,9 @@ pub struct SpectrumData {
   /// Power scale mode (dB or dBm)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub power_scale: Option<PowerScale>,
+  /// Flag indicating whether this frame is a Tx preview frame
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub is_tx_preview: Option<bool>,
   /// Raw I/Q data bytes (for dBm mode when data_type is "iq_raw")
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub iq_data: Vec<u8>,
@@ -664,32 +711,25 @@ pub struct DeviceProfile {
   pub kind: String,
   pub is_rtl_sdr: bool,
   pub supports_approx_dbm: bool,
-  pub supports_raw_iq_stream: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub iq_format: Option<IqFormat>,
 }
 
-/// Structured signal pattern for consistent waterfall visualization
-#[derive(Debug, Clone)]
-pub struct MockAptSignal {
-  pub center_bin: f32,
-  pub drift_offset: f32,
-  pub bandwidth: usize,
-  pub base_strength: f32,
-  pub modulation_phase: f32,
-  pub active: bool,
-  /// Type of signal (for future classification features)
-  #[allow(dead_code)]
-  pub signal_type: SignalType,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IqFormat {
+  pub element_type: String,
+  pub layout: String,
+  pub typed_array: String,
 }
 
-#[derive(Debug, Clone)]
-pub enum SignalType {
-  Narrow,
-  Medium,
-  Wide,
-}
-
-impl SignalType {
-  // NOTE: Bandwidth and strength ranges are sourced from signals.yaml.
+impl Default for IqFormat {
+  fn default() -> Self {
+    Self {
+      element_type: "u8".to_string(),
+      layout: "interleaved_iq".to_string(),
+      typed_array: "Uint8Array".to_string(),
+    }
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -705,7 +745,7 @@ pub struct SignalsData {
   pub mock_apt: MockAptSignalsConfig,
   #[serde(default)]
   pub mock_tx: MockTxSignalsConfig,
-  pub n_apt: NaptConfig,
+  pub channels: IndexMap<String, SpectrumFrameConfig>,
   pub sdr: SdrConfig,
 }
 
@@ -791,11 +831,6 @@ pub struct MockAptRealisticRfConfig {
 
 fn default_true() -> bool {
   true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NaptConfig {
-  pub channels: IndexMap<String, SpectrumFrameConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -929,6 +964,8 @@ impl Default for TxIqPowerModel {
 pub struct SdrDeviceConfig {
   #[serde(default)]
   pub duplex_mode: Option<String>,
+  #[serde(default)]
+  pub max_sample_rate: Option<u32>,
   pub sample_rate: SdrSampleRateSpec,
   #[serde(default)]
   pub fft_display: Option<SdrFftDisplayConfig>,
@@ -936,6 +973,11 @@ pub struct SdrDeviceConfig {
   pub gain_limits: Option<DeviceGainLimits>,
   #[serde(default)]
   pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
+  /// Declares a hardware analog baseband filter that can track the active
+  /// sample rate (e.g. the HackRF MAX2837 LPF). Driving the UI off this
+  /// capability keeps the frontend independent of device-kind heuristics.
+  #[serde(default)]
+  pub baseband_filter: Option<bool>,
   #[serde(
     rename = "_tx_power_mapping",
     default,
@@ -1067,14 +1109,33 @@ pub struct SdrGainConfig {
   pub tuner_bandwidth: Option<u32>,
 }
 
-pub const MAX_LOGICAL_FRAME_RATE: u32 = 60;
+pub const MAX_LOGICAL_FRAME_RATE: u32 = 100;
+
+fn default_fft_size() -> usize {
+  2048
+}
+fn default_max_fft_size() -> usize {
+  262_144
+}
+fn default_fft_frame_rate() -> u32 {
+  60
+}
+fn default_max_logical_frame_rate() -> u32 {
+  MAX_LOGICAL_FRAME_RATE
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SdrFftConfig {
+  #[serde(default = "default_fft_size")]
   pub default_size: usize,
+  #[serde(default = "default_fft_frame_rate")]
   pub default_frame_rate: u32,
+  #[serde(default = "default_max_fft_size")]
   pub max_size: usize,
+  #[serde(default = "default_max_logical_frame_rate")]
   pub max_frame_rate: u32,
+  #[serde(default)]
   pub size_to_frame_rate: std::collections::HashMap<usize, u32>,
 }
 

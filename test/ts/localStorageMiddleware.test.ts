@@ -5,13 +5,37 @@ import websocketSlice, {
 } from "@n-apt/redux/slices/websocketSlice";
 import {
   loadPersistedSdrSettings,
-  loadPersistedSdrSettingsCache,
+  loadPersistedSignalsDefaults,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
 import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddleware";
+import spectrumSlice, {
+  setSdrSettingsBundle,
+  setSignalAreaAndRange,
+} from "@n-apt/redux/slices/spectrumSlice";
 
 describe("loadPersistedSdrSettings", () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it("does not warn while the framework build has no browser localStorage", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      expect(loadPersistedSdrSettings()).toEqual({});
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(globalThis, "localStorage", descriptor);
+      }
+      warn.mockRestore();
+    }
   });
 
   it("preserves persisted dBm ranges instead of flattening them to 0 dBm", () => {
@@ -31,6 +55,58 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.fftMaxDb).toBe(30);
     expect(parsed.powerScale).toBeUndefined();
     expect(parsed.sampleRateHz).toBeUndefined();
+  });
+
+  it("does not preload device-scoped channel state before live hydration", () => {
+    localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({
+        activeSignalArea: "C",
+        frequencyRange: { min: 24_100_000, max: 30_370_000 },
+        fftSize: 262_144,
+        gain: 42,
+        vizZoom: 2,
+      }),
+    );
+
+    const parsed = loadPersistedSdrSettings();
+
+    expect(parsed.activeSignalArea).toBeUndefined();
+    expect(parsed.frequencyRange).toBeUndefined();
+    expect(parsed.fftSize).toBeUndefined();
+    expect(parsed.gain).toBeUndefined();
+    expect(parsed.vizZoom).toBe(2);
+  });
+
+  it("does not write device-scoped channel state to the global cache", () => {
+    const store = configureStore({
+      reducer: { spectrum: spectrumSlice },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          localStorageMiddleware,
+        ),
+    });
+
+    store.dispatch(
+      setSignalAreaAndRange({
+        area: "C",
+        range: { min: 24_100_000, max: 30_370_000 },
+      }),
+    );
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 262_144,
+        gain: 42,
+      }),
+    );
+
+    const parsed = JSON.parse(
+      localStorage.getItem("napt-sdr-settings-v2") ?? "{}",
+    );
+    expect(parsed.activeSignalArea).toBeUndefined();
+    expect(parsed.frequencyRange).toBeUndefined();
+    expect(parsed.fftSize).toBeUndefined();
+    expect(parsed.gain).toBeUndefined();
   });
 
   it("restores Tx defaults when persisted spectrum state is partial", () => {
@@ -68,8 +144,8 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.txViewerFftSize).toBe(65_536);
     expect(parsed.txViewerFftFrameRate).toBe(60);
     expect(parsed.txViewerFftWindow).toBe("Rectangular");
-    expect(parsed.txViewerTemporalResolution).toBe("high");
-    expect(parsed.txViewerPowerScale).toBe("dB");
+    expect(parsed.txViewerTemporalResolution).toBe("lossless");
+    expect(parsed.txViewerPowerScale).toBe("dBm");
   });
 
   it("upgrades legacy apt txSignal values to wifi", () => {
@@ -97,22 +173,7 @@ describe("loadPersistedSdrSettings", () => {
     const parsed = loadPersistedSdrSettings();
 
     expect(parsed.gain).toBeUndefined();
-    expect(parsed.fftSize).toBe(2048);
-  });
-
-  it("drops stale zero tuner gain from cached websocket settings", () => {
-    localStorage.setItem(
-      "napt-sdr-settings",
-      JSON.stringify({
-        gain: { tuner_gain: 0, rtl_agc: false, tuner_agc: false },
-        sample_rate: 3_200_000,
-      }),
-    );
-
-    const parsed = loadPersistedSdrSettingsCache();
-
-    expect(parsed?.gain?.tuner_gain).toBeUndefined();
-    expect(parsed?.gain?.rtl_agc).toBe(false);
+    expect(parsed.fftSize).toBeUndefined();
   });
 
   it("removes persisted spectrum frames when the websocket disconnects", () => {
@@ -140,5 +201,42 @@ describe("loadPersistedSdrSettings", () => {
     store.dispatch(setDisconnected());
 
     expect(localStorage.getItem("napt-spectrum-frames")).toBeNull();
+  });
+});
+
+describe("loadPersistedSignalsDefaults", () => {
+  it("loads only the versioned atomic signals defaults envelope", () => {
+    const defaults = {
+      sample_rate: 3_200_000,
+      min_receive_sample_rate: 3_200_000,
+      center_frequency: 1_600_000,
+      gain: {
+        tuner_gain: 46.9,
+        rtl_agc: false,
+        tuner_agc: false,
+        hackrf_lna_gain: null,
+        hackrf_vga_gain: 30,
+        hackrf_amp_enable: false,
+        tuner_bandwidth: 3_200_000,
+      },
+      ppm: 1,
+      fft: {
+        default_size: 2048,
+        default_frame_rate: 60,
+        max_size: 262144,
+        max_frame_rate: 60,
+        size_to_frame_rate: { "2048": 60 },
+      },
+      display: { min_db: -120, max_db: 0, padding: 20 },
+      devices: {},
+      fft_sizes: null,
+    };
+
+    localStorage.setItem(
+      "napt-signals-defaults-v1",
+      JSON.stringify({ version: 1, sdr: defaults }),
+    );
+
+    expect(loadPersistedSignalsDefaults()).toEqual(defaults);
   });
 });

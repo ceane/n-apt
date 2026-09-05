@@ -21,6 +21,10 @@ fn main() {
 }
 
 fn link_rtlsdr() {
+  if link_homebrew_library("librtlsdr", "rtlsdr") {
+    return;
+  }
+
   if try_pkg_config() {
     return;
   }
@@ -46,9 +50,32 @@ fn link_homebrew_libusb() {
 }
 
 fn link_hackrf() {
-  if try_pkg_config_for(&["libhackrf", "hackrf"]) {
+  if link_homebrew_library("hackrf", "hackrf")
+    || try_pkg_config_for(&["libhackrf", "hackrf"])
+  {
     println!("cargo:rustc-cfg=has_hackrf");
   }
+}
+
+fn link_homebrew_library(formula: &str, library: &str) -> bool {
+  if !cfg!(target_os = "macos") {
+    return false;
+  }
+
+  for prefix in ["/opt/homebrew", "/usr/local"] {
+    if let Some(path) = homebrew_library_dir(Path::new(prefix), formula) {
+      println!("cargo:rustc-link-search=native={}", path.display());
+      println!("cargo:rustc-link-lib={}", library);
+      return true;
+    }
+  }
+
+  false
+}
+
+fn homebrew_library_dir(prefix: &Path, formula: &str) -> Option<PathBuf> {
+  let path = prefix.join("opt").join(formula).join("lib");
+  path.is_dir().then_some(path)
 }
 
 fn try_pkg_config() -> bool {
@@ -66,4 +93,22 @@ fn try_pkg_config_for(packages: &[&str]) -> bool {
     }
   }
   false
+}
+
+#[cfg(test)]
+mod tests {
+  use super::homebrew_library_dir;
+  use std::fs;
+  use std::path::PathBuf;
+
+  #[test]
+  fn homebrew_library_dir_uses_stable_opt_path() {
+    let root = std::env::temp_dir()
+      .join(format!("n-apt-build-script-test-{}", std::process::id()));
+    let library_dir: PathBuf = root.join("opt").join("librtlsdr").join("lib");
+    fs::create_dir_all(&library_dir).unwrap();
+
+    assert_eq!(homebrew_library_dir(&root, "librtlsdr"), Some(library_dir));
+    fs::remove_dir_all(root).unwrap();
+  }
 }

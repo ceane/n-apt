@@ -1,0 +1,5 @@
+/* Prevent Tailwind Oxide from auto-scanning the whole repo (incl. target/). */
+@import "tailwindcss" source(none);
+@source "./**/*.{js,ts,jsx,tsx}";
+
+@import url('https://fonts.googleapis.com/css2?family=DynaPuff:wght@400;500;600;700&family=Ubuntu+Mono:wght@400;700&display=swap');

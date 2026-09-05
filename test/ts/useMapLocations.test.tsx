@@ -3,7 +3,7 @@ import { renderHook, act } from "@testing-library/react";
 import {
   MapLocationsProvider,
   useMapLocations,
-} from "@n-apt/hooks/useMapLocations";
+} from "@n-apt/maps/hooks/useMapLocations";
 
 // Mock Leaflet
 jest.mock("react-leaflet", () => ({
@@ -31,11 +31,6 @@ jest.mock("leaflet", () => ({
   latLng: jest.fn(),
 }));
 
-// Mock @n-apt/utils/env
-jest.mock("@n-apt/utils/env", () => ({
-  getGoogleMapsApiKey: () => "mock-api-key",
-}));
-
 // Mock Geolocation
 const mockGeolocation = {
   getCurrentPosition: jest.fn().mockImplementation((success) =>
@@ -59,13 +54,26 @@ describe("useMapLocations Hook", () => {
     <MapLocationsProvider>{children}</MapLocationsProvider>
   );
 
-  it("should initialize with current location", async () => {
+  it("does not request geolocation on mount (lazy by design)", () => {
     const { result } = renderHook(() => useMapLocations(), { wrapper });
 
-    // Geolocation is called on mount
+    // Geolocation must NOT be called on mount — the permission prompt should
+    // only appear when the user actually asks for their location.
+    expect(mockGeolocation.getCurrentPosition).not.toHaveBeenCalled();
+    expect(result.current.locations).toHaveLength(0);
+    expect(result.current.currentLocation).toBeNull();
+  });
+
+  it("populates current location when refreshCurrentLocation is called", async () => {
+    const { result } = renderHook(() => useMapLocations(), { wrapper });
+
+    act(() => {
+      result.current.refreshCurrentLocation();
+    });
+
     expect(mockGeolocation.getCurrentPosition).toHaveBeenCalled();
 
-    // After mount, current location should be in the list
+    // After the request resolves, current location should be in the list
     expect(result.current.locations).toHaveLength(1);
     expect(result.current.locations[0].id).toBe("current");
     expect(result.current.locations[0].name).toBe("Current Location");
@@ -79,7 +87,7 @@ describe("useMapLocations Hook", () => {
       result.current.addLocation("Test Spot", 50, 50);
     });
 
-    expect(result.current.locations).toHaveLength(2);
+    expect(result.current.locations).toHaveLength(1);
     expect(
       result.current.locations.find(
         ({ name }: { name: string }) => name === "Test Spot",
@@ -96,13 +104,13 @@ describe("useMapLocations Hook", () => {
     });
     const locId = result.current.activeLocationId!;
 
-    expect(result.current.locations.length).toBe(2);
+    expect(result.current.locations.length).toBe(1);
 
     act(() => {
       result.current.removeLocation(locId);
     });
 
-    expect(result.current.locations.length).toBe(1);
+    expect(result.current.locations.length).toBe(0);
     expect(result.current.activeLocationId).toBe("current");
   });
 

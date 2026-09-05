@@ -1,19 +1,44 @@
 import { Middleware } from "@reduxjs/toolkit";
+import type { SignalsSdrDefaults } from "@n-apt/consts/schemas/websocket";
+import { isValidSignalsDefaultsMessage } from "@n-apt/validation";
+import spectrumReducer, {
+  type SpectrumState,
+} from "@n-apt/redux/slices/spectrumSlice";
+import {
+  FRONTEND_VISUALIZER_DEFAULTS,
+  VISUALIZER_MAX_ZOOM_LIMITS,
+} from "@n-apt/consts/visualizerControls";
+
+const initialState: SpectrumState = spectrumReducer(undefined, {
+  type: "@@INIT",
+});
 
 // Keys for localStorage persistence
 const STORAGE_KEYS = {
   THEME: "napt-theme-storage",
   SDR_SETTINGS: "napt-sdr-settings-v2",
+  SIGNALS_DEFAULTS: "napt-signals-defaults-v1",
   AUTH_PASSKEYS: "n_apt_has_passkeys",
   VISUALIZER_PAUSE: "napt-visualizer-manual-paused",
   SPECTRUM_FRAMES: "napt-spectrum-frames",
-  SDR_SETTINGS_CACHE: "napt-sdr-settings",
+  SETTINGS: "napt-settings-v1",
 } as const;
 
 // Safe localStorage operations
-const safeSetItem = (key: string, value: string): boolean => {
+const getAvailableLocalStorage = (): Storage | null => {
   try {
-    localStorage.setItem(key, value);
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const safeSetItem = (key: string, value: string): boolean => {
+  const storage = getAvailableLocalStorage();
+  if (!storage) return false;
+
+  try {
+    storage.setItem(key, value);
     return true;
   } catch (error) {
     console.warn(`Failed to save to localStorage (${key}):`, error);
@@ -22,8 +47,11 @@ const safeSetItem = (key: string, value: string): boolean => {
 };
 
 const safeGetItem = (key: string): string | null => {
+  const storage = getAvailableLocalStorage();
+  if (!storage) return null;
+
   try {
-    return localStorage.getItem(key);
+    return storage.getItem(key);
   } catch (error) {
     console.warn(`Failed to read from localStorage (${key}):`, error);
     return null;
@@ -31,8 +59,11 @@ const safeGetItem = (key: string): string | null => {
 };
 
 const safeRemoveItem = (key: string): boolean => {
+  const storage = getAvailableLocalStorage();
+  if (!storage) return false;
+
   try {
-    localStorage.removeItem(key);
+    storage.removeItem(key);
     return true;
   } catch (error) {
     console.warn(`Failed to remove from localStorage (${key}):`, error);
@@ -53,7 +84,6 @@ export const normalizePersistedTxSignalKey = (value: unknown): string => {
     case "":
     case "apt":
       return "wifi";
-    case "d":
     case "d_sharp":
     case "dsharp":
     case "wifi":
@@ -96,15 +126,15 @@ export const normalizePersistedTxViewerSettings = (parsed: any) => {
   }
 
   if (
-    parsed.txViewerTemporalResolution !== "low" &&
-    parsed.txViewerTemporalResolution !== "medium" &&
-    parsed.txViewerTemporalResolution !== "high"
+    parsed.txViewerTemporalResolution !== "slow" &&
+    parsed.txViewerTemporalResolution !== "reduced" &&
+    parsed.txViewerTemporalResolution !== "lossless"
   ) {
-    parsed.txViewerTemporalResolution = "high";
+    parsed.txViewerTemporalResolution = "lossless";
   }
 
   if (parsed.txViewerPowerScale !== "dB" && parsed.txViewerPowerScale !== "dBm") {
-    parsed.txViewerPowerScale = "dB";
+    parsed.txViewerPowerScale = "dBm";
   }
 
   return parsed;
@@ -132,19 +162,17 @@ const createLocalStorageMiddleware =
     if (action.type?.startsWith("spectrum/")) {
       const spectrumState = state.spectrum;
       const settingsData = {
-        fftSize: spectrumState.fftSize,
-        fftWindow: spectrumState.fftWindow,
-        fftFrameRate: spectrumState.fftFrameRate,
-        gain: spectrumState.gain,
-        ppm: spectrumState.ppm,
-        tunerAGC: spectrumState.tunerAGC,
-        rtlAGC: spectrumState.rtlAGC,
+        // Device-scoped Rx options are owned by the live stream. Persisting
+        // them in this global browser cache lets a new subscriber replay a
+        // stale channel/range/settings bundle before WebSocket hydration.
+        // Keep only subscriber-local presentation state here.
+        // Subscriber-local mirror pan must not replay from a browser-global
+        // cache. A corrupt scroll session can persist -67 MHz offsets that
+        // flatline the spectrum on every reload until WebSocket hydration.
         vizZoom: spectrumState.vizZoom,
-        vizPanOffset: spectrumState.vizPanOffset,
+        maxVizZoom: spectrumState.maxVizZoom,
         fftMinDb: spectrumState.fftMinDb,
         fftMaxDb: spectrumState.fftMaxDb,
-        frequencyRange: spectrumState.frequencyRange,
-        activeSignalArea: spectrumState.activeSignalArea,
         lastKnownRanges: spectrumState.lastKnownRanges,
         displayTemporalResolution: spectrumState.displayTemporalResolution,
         txSampleRateHz: spectrumState.txSampleRateHz,
@@ -171,6 +199,16 @@ const createLocalStorageMiddleware =
           JSON.stringify(waterfallState.snapshotGridPreference),
         );
       }
+    }
+
+    if (action.type?.startsWith("settings/")) {
+      safeSetItem(
+        STORAGE_KEYS.SETTINGS,
+        JSON.stringify({
+          mirrorIqBasebandBelowZero:
+            state.settings.mirrorIqBasebandBelowZero === true,
+        }),
+      );
     }
 
     // Handle auth passkey settings
@@ -205,16 +243,20 @@ const createLocalStorageMiddleware =
         action.type === "websocket/reset"
       ) {
         safeRemoveItem(STORAGE_KEYS.SPECTRUM_FRAMES);
+        safeRemoveItem(STORAGE_KEYS.VISUALIZER_PAUSE);
       }
 
       // Cache SDR settings from WebSocket
       if (
         action.type === "websocket/updateDeviceState" &&
-        websocketState.sdrSettings
+        websocketState.signalsDefaults
       ) {
         safeSetItem(
-          STORAGE_KEYS.SDR_SETTINGS_CACHE,
-          JSON.stringify(websocketState.sdrSettings),
+          STORAGE_KEYS.SIGNALS_DEFAULTS,
+          JSON.stringify({
+            version: 1,
+            sdr: websocketState.signalsDefaults,
+          }),
         );
       }
 
@@ -235,7 +277,16 @@ export const loadPersistedTheme = () => {
   if (!stored) return null;
 
   try {
-    return JSON.parse(stored);
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      safeRemoveItem(STORAGE_KEYS.THEME);
+      return null;
+    }
+    if (parsed && typeof parsed === "object") {
+      parsed.shouldPageLoadAnimationRun = true;
+      delete parsed.hasPlayedStandbySlam;
+    }
+    return parsed;
   } catch (error) {
     console.warn("Failed to parse persisted theme data:", error);
     safeRemoveItem(STORAGE_KEYS.THEME);
@@ -243,12 +294,26 @@ export const loadPersistedTheme = () => {
   }
 };
 
+export const mergePersistedSdrSettings = <
+  T extends object,
+>(
+  defaults: T,
+  persisted: Partial<T> | null | undefined,
+): T => ({
+  ...defaults,
+  ...persisted,
+});
+
 export const loadPersistedSdrSettings = () => {
   const stored = safeGetItem(STORAGE_KEYS.SDR_SETTINGS);
   if (!stored) return {};
 
   try {
     const parsed = JSON.parse(stored);
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
 
     // Ensure lastKnownRanges is a valid object
     if (
@@ -269,15 +334,31 @@ export const loadPersistedSdrSettings = () => {
       delete parsed.sampleRateHz;
     }
 
+    // Channel selection, frequency range, and acquisition settings are
+    // device-scoped. They must be hydrated from the current live stream,
+    // never replayed from a browser-global cache that may predate another
+    // subscriber.
+    for (const key of [
+      "activeSignalArea",
+      "frequencyRange",
+      "fftSize",
+      "fftWindow",
+      "fftFrameRate",
+      "gain",
+      "ppm",
+      "tunerAGC",
+      "rtlAGC",
+      "vizPanOffset",
+      "vizZoomFloorPan",
+    ]) {
+      delete parsed[key];
+    }
+
     if (!Number.isFinite(parsed.txSampleRateHz)) {
       parsed.txSampleRateHz = 2_400_000;
     }
 
-    if (
-      !Number.isFinite(parsed.txCenterFrequencyHz) ||
-      parsed.txCenterFrequencyHz === 2_204_000 ||
-      parsed.txCenterFrequencyHz === 1_600_000
-    ) {
+    if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
       parsed.txCenterFrequencyHz = 137_100_000;
     }
 
@@ -289,11 +370,48 @@ export const loadPersistedSdrSettings = () => {
       parsed.txVgaGain = 16;
     }
 
+    if (!Number.isFinite(parsed.maxVizZoom)) {
+      parsed.maxVizZoom = FRONTEND_VISUALIZER_DEFAULTS.maxZoom;
+    }
+    parsed.maxVizZoom = Math.min(
+      VISUALIZER_MAX_ZOOM_LIMITS.max,
+      Math.max(VISUALIZER_MAX_ZOOM_LIMITS.min, parsed.maxVizZoom),
+    );
+
     normalizePersistedTxViewerSettings(parsed);
 
     parsed.txSignal = normalizePersistedTxSignalKey(parsed.txSignal);
 
-    if (typeof parsed.txSafetyEnabled !== "boolean") {
+    // Repair numeric display/FFT fields. Non-finite or wrong-typed values are
+    // dropped so they can never reach preloadedState (the slice defaults fill
+    // the gap via mergePersistedSdrSettings).
+    const repairFiniteNumber = (key: string, fallback: number) => {
+      if (!Number.isFinite(parsed[key])) {
+        parsed[key] = fallback;
+      }
+    };
+    repairFiniteNumber("vizZoom", initialState.vizZoom);
+    repairFiniteNumber("vizZoomFloor", initialState.vizZoomFloor);
+    repairFiniteNumber("fftMinDb", initialState.fftMinDb);
+    repairFiniteNumber("fftMaxDb", initialState.fftMaxDb);
+    // Tx fields not already covered by the pre-existing tx* guards above.
+    repairFiniteNumber("txIfftSize", initialState.txIfftSize);
+    repairFiniteNumber("txSampleRateHz", initialState.txSampleRateHz);
+    repairFiniteNumber("txCenterFrequencyHz", initialState.txCenterFrequencyHz);
+    repairFiniteNumber("txPowerDbm", initialState.txPowerDbm);
+    repairFiniteNumber("txVgaGain", initialState.txVgaGain);
+
+    // Enum-valued string fields.
+    if (
+      parsed.displayTemporalResolution !== "slow" &&
+      parsed.displayTemporalResolution !== "reduced" &&
+      parsed.displayTemporalResolution !== "lossless"
+    ) {
+      parsed.displayTemporalResolution = initialState.displayTemporalResolution;
+    }
+
+    // Boolean fields. Strict literal checks: NaN/[]/"false" must not pass.
+    if (parsed.txSafetyEnabled !== true && parsed.txSafetyEnabled !== false) {
       parsed.txSafetyEnabled = false;
     }
 
@@ -321,20 +439,31 @@ export const loadPersistedSdrSettings = () => {
       parsed.txHopRateHz = 10;
     }
 
-    if (typeof parsed.txHopEnabled !== "boolean") {
+    if (parsed.txHopEnabled !== true && parsed.txHopEnabled !== false) {
       parsed.txHopEnabled = false;
-    }
-
-    // Preserve the restored live default gain if stale cache data wrote a zero
-    // generic gain. Zero is a common "missing value" in older persisted state.
-    if (parsed.gain === 0) {
-      delete parsed.gain;
     }
 
     return parsed;
   } catch (error) {
     console.warn("Failed to parse persisted SDR settings:", error);
     safeRemoveItem(STORAGE_KEYS.SDR_SETTINGS);
+    return {};
+  }
+};
+
+export const loadPersistedSettings = (): Partial<{
+  mirrorIqBasebandBelowZero: boolean;
+}> => {
+  const stored = safeGetItem(STORAGE_KEYS.SETTINGS);
+  if (!stored) return {};
+  try {
+    const parsed = JSON.parse(stored);
+    return {
+      mirrorIqBasebandBelowZero:
+        parsed?.mirrorIqBasebandBelowZero === true,
+    };
+  } catch {
+    safeRemoveItem(STORAGE_KEYS.SETTINGS);
     return {};
   }
 };
@@ -358,21 +487,26 @@ export const loadPersistedSpectrumFrames = () => {
   }
 };
 
-export const loadPersistedSdrSettingsCache = () => {
-  const stored = safeGetItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);
+export const loadPersistedSignalsDefaults = (): SignalsSdrDefaults | null => {
+  const stored = safeGetItem(STORAGE_KEYS.SIGNALS_DEFAULTS);
   if (!stored) return null;
 
   try {
     const parsed = JSON.parse(stored);
-    if (parsed?.gain && typeof parsed.gain === "object") {
-      if (parsed.gain.tuner_gain === 0) {
-        delete parsed.gain.tuner_gain;
-      }
+    if (
+      parsed?.version !== 1 ||
+      !isValidSignalsDefaultsMessage({
+        type: "signals_defaults",
+        sdr: parsed.sdr,
+      })
+    ) {
+      safeRemoveItem(STORAGE_KEYS.SIGNALS_DEFAULTS);
+      return null;
     }
-    return parsed;
+    return parsed.sdr;
   } catch (error) {
-    console.warn("Failed to parse persisted SDR settings cache:", error);
-    safeRemoveItem(STORAGE_KEYS.SDR_SETTINGS_CACHE);
+    console.warn("Failed to parse persisted signals defaults:", error);
+    safeRemoveItem(STORAGE_KEYS.SIGNALS_DEFAULTS);
     return null;
   }
 };

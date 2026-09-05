@@ -1,8 +1,9 @@
 import {
   copyValidWaterfallRow,
   peakResampleWaterfallRow,
+  resolveWaterfallDisplayRow,
   synthesizeWaterfallTransitionRow,
-} from "@n-apt/utils/waterfallRows";
+} from "@n-apt/spectrum/utils/waterfallRows";
 
 describe("waterfallRows", () => {
   it("peak resamples synchronously so every paint gets a complete row", () => {
@@ -76,5 +77,29 @@ describe("waterfallRows", () => {
     });
 
     expect(Array.from(target)).toEqual([-30, -40, -50]);
+  });
+
+  it("maps a new waterfall row onto the displayed axis including below 0 Hz", () => {
+    const target = new Float32Array(5);
+    resolveWaterfallDisplayRow({
+      sourceWaveform: new Float32Array([0, 1, 2, 3, 4]),
+      sourceRange: { min: 0, max: 4 },
+      displayRange: { min: -2, max: 2 },
+      target,
+      floorDb: -200,
+    });
+    expect(Array.from(target)).toEqual([2, 1, 0, 1, 2]);
+  });
+
+  it("maps a positive panned waterfall row from the acquisition, not the raw bins", () => {
+    const target = new Float32Array(5);
+    resolveWaterfallDisplayRow({
+      sourceWaveform: new Float32Array([0, 1, 2, 3, 4]),
+      sourceRange: { min: 0, max: 4 },
+      displayRange: { min: 2, max: 6 },
+      target,
+      floorDb: -200,
+    });
+    expect(Array.from(target)).toEqual([2, 3, 4, -200, -200]);
   });
 });

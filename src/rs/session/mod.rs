@@ -11,8 +11,10 @@ use redis::{AsyncCommands, Client as RedisClient};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Default session lifetime (30 days).
-const DEFAULT_SESSION_TTL_SECS: u64 = 30 * 24 * 60 * 60;
+/// Session lifetime (30 days). This is the single source of truth shared with
+/// the auth handlers' advertised `expires_in`.
+pub const SESSION_TTL_SECS: u64 = 30 * 24 * 60 * 60;
+const DEFAULT_SESSION_TTL_SECS: u64 = SESSION_TTL_SECS;
 
 /// A single authenticated session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +30,7 @@ pub struct SessionStore {
   client: RedisClient,
   ttl_secs: u64,
   prefix: String,
+  config_error: Option<String>,
 }
 
 impl SessionStore {
@@ -39,10 +42,34 @@ impl SessionStore {
       client,
       ttl_secs: DEFAULT_SESSION_TTL_SECS,
       prefix: "session:".to_string(),
+      config_error: None,
     })
   }
 
+  /// Construct a store that keeps the listener available when the configured
+  /// URL is malformed. Requests will receive the configuration error when
+  /// they actually need session persistence.
+  pub fn new_or_degraded(redis_url: &str) -> Self {
+    match Self::new(redis_url) {
+      Ok(store) => store,
+      Err(error) => {
+        log::error!("Redis session configuration unavailable: {error}");
+        Self {
+          client: RedisClient::open("redis://127.0.0.1/")
+            .expect("built-in Redis fallback URL must be valid"),
+          ttl_secs: DEFAULT_SESSION_TTL_SECS,
+          prefix: "session:".to_string(),
+          config_error: Some(error),
+        }
+      }
+    }
+  }
+
   async fn get_conn(&self) -> Result<MultiplexedConnection, String> {
+    if let Some(error) = &self.config_error {
+      return Err(error.clone());
+    }
+
     let mut conn = self
       .client
       .get_multiplexed_async_connection()
@@ -60,7 +87,10 @@ impl SessionStore {
   }
 
   /// Create a new session and return its token.
-  pub async fn create_session(&self, encryption_key: [u8; 32]) -> String {
+  pub async fn create_session(
+    &self,
+    encryption_key: [u8; 32],
+  ) -> Result<String, String> {
     let token = Uuid::new_v4().to_string();
     let session = Session {
       token: token.clone(),
@@ -68,17 +98,26 @@ impl SessionStore {
     };
 
     let key = format!("{}{}", self.prefix, token);
-    let session_json = serde_json::to_string(&session).unwrap_or_default();
+    let session_json = serde_json::to_string(&session)
+      .map_err(|error| format!("Failed to serialize session: {error}"))?;
 
-    if let Ok(mut conn) = self.get_conn().await {
-      let _: redis::RedisResult<()> =
-        conn.set_ex(&key, session_json, self.ttl_secs).await;
-      log::info!("Session created in Redis: {}…", &token[..8]);
-    } else {
-      log::error!("Failed to create session in Redis: connection error");
-    }
+    let mut conn = self.get_conn().await?;
+    let write_result = conn.set_ex(&key, session_json, self.ttl_secs).await;
+    let persisted_token = Self::session_write_result(write_result, token)?;
+    log::info!(
+      "Session created in Redis: {}…",
+      persisted_token.get(..8).unwrap_or(&persisted_token)
+    );
+    Ok(persisted_token)
+  }
 
-    token
+  fn session_write_result(
+    result: redis::RedisResult<()>,
+    token: String,
+  ) -> Result<String, String> {
+    result
+      .map(|()| token)
+      .map_err(|error| format!("Failed to persist session in Redis: {error}"))
   }
 
   /// Validate a session token. Returns the session if valid and not expired.
@@ -102,16 +141,29 @@ impl SessionStore {
   }
 
   /// Remove a session (logout).
-  pub async fn revoke(&self, token: &str) {
+  ///
+  /// Returns an error when the session could not be removed — callers must
+  /// treat logout as failed so a client is never told it logged out while the
+  /// token remains valid in Redis.
+  pub async fn revoke(&self, token: &str) -> Result<(), String> {
     if Uuid::parse_str(token).is_err() {
       log::warn!("Session revoke: rejected non-UUID token");
-      return;
+      return Err("Invalid session token format".to_string());
     }
-    if let Ok(mut conn) = self.get_conn().await {
-      let key = format!("{}{}", self.prefix, token);
-      let _: redis::RedisResult<()> = conn.del(&key).await;
-      log::info!("Session revoked in Redis: {}…", &token[..8]);
-    }
+    let mut conn = self
+      .get_conn()
+      .await
+      .map_err(|error| format!("Session revoke failed: {error}"))?;
+    let key = format!("{}{}", self.prefix, token);
+    conn
+      .del::<_, i64>(&key)
+      .await
+      .map_err(|error| format!("Session revoke failed: {error}"))?;
+    log::info!(
+      "Session revoked in Redis: {}…",
+      token.get(..8).unwrap_or(token)
+    );
+    Ok(())
   }
 }
 
@@ -125,6 +177,20 @@ impl SessionStore {
 // commented-out source below for reference.
 #[cfg(test)]
 mod tests {
+
+  #[test]
+  fn failed_session_persistence_does_not_return_a_token() {
+    let token = uuid::Uuid::new_v4().to_string();
+    let result = super::SessionStore::session_write_result(
+      Err(redis::RedisError::from((
+        redis::ErrorKind::Client,
+        "Redis unavailable",
+      ))),
+      token,
+    );
+
+    assert!(result.is_err());
+  }
 
   /// Deterministic test key — avoids hard-coded byte arrays
   /// that CodeQL flags as "hard-coded cryptographic value".

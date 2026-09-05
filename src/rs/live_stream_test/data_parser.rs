@@ -25,8 +25,9 @@ pub fn parse_binary_message(
 
   // Read header
   let timestamp = cursor.read_i64::<LittleEndian>()?;
-  let center_frequency_hz_raw = cursor.read_u64::<LittleEndian>()?;
-  let center_frequency_hz = center_frequency_hz_raw as u32;
+  // The wire header stores 8 bytes; keep the full width so center
+  // frequencies above 4.29 GHz are not silently wrapped.
+  let center_frequency_hz = cursor.read_u64::<LittleEndian>()?;
   let data_type = cursor.read_u32::<LittleEndian>()?;
   let sample_rate_hz = cursor.read_u32::<LittleEndian>()?;
 

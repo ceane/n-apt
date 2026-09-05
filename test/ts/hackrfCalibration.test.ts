@@ -3,7 +3,7 @@ import {
   estimateHackrfTotalGainDb,
   quantizeHackrfLnaGainDb,
   quantizeHackrfVgaGainDb,
-} from "@n-apt/utils/hackrfCalibration";
+} from "@n-apt/spectrum/utils/hackrfCalibration";
 
 describe("HackRF calibration helpers", () => {
   it("quantizes HackRF gain controls to the hardware step sizes", () => {

@@ -72,7 +72,11 @@ describe("Validation System", () => {
             loading_attempt: 0,
             loading_attempt_max: 3,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: {
+              element_type: "u8",
+              layout: "interleaved_iq",
+              typed_array: "Uint8Array",
+            },
             sdr: {
               max_sample_rate: 3_200_000,
               sample_rate_options: [2_400_000, 3_200_000],
@@ -134,6 +138,33 @@ describe("Validation System", () => {
 
       expect(isValidSourceStatusMessage(mockAptStatus)).toBe(true);
       expect(isValidWebSocketMessage(mockAptStatus)).toBe(true);
+    });
+
+    test("should validate a TX standby source status", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "mock-tx",
+          status: "standby",
+        }),
+      ).toBe(true);
+    });
+
+    test("should validate receiving and paused source statuses", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "hackrf-1",
+          status: "receiving",
+        }),
+      ).toBe(true);
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "hackrf-1",
+          status: "paused",
+        }),
+      ).toBe(true);
     });
 
     test("should validate source sdr settings update", () => {

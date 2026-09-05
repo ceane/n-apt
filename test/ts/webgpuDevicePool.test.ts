@@ -1,7 +1,7 @@
 import {
   acquireSharedWebGpuDevice,
   resetSharedWebGpuDeviceForTests,
-} from "@n-apt/visualization/webgpuDevicePool";
+} from "@n-apt/app/infrastructure/visualization/webgpuDevicePool";
 
 describe("shared WebGPU device pool", () => {
   beforeEach(() => resetSharedWebGpuDeviceForTests());

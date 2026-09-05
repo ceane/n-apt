@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTCanvas from "../../src/ts/components/FFTCanvas";
-import type { FFTCanvasHandle } from "../../src/ts/components/FFTCanvas";
+import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
+import type { FFTCanvasHandle } from "@n-apt/spectrum/FFTCanvas";
 import {
   getLatestLiveFrame,
   getLiveFrameSignature,
@@ -19,21 +19,68 @@ import {
   shouldClearBlockingPlaceholder,
   shouldAccumulateFullChannelWaveform,
   shouldPublishProcessedSpectrumFrame,
-} from "../../src/ts/components/FFTCanvas";
-import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
-import { MemoryRouter } from "react-router-dom";
+  shouldRepaintCachedSpectrumForViewportChange,
+  createVizPanScheduler,
+  resolveMirrorPanPropSync,
+  invertSpectrumVertically,
+  formatTxIfftSizeLabel,
+} from "@n-apt/spectrum/FFTCanvas";
+import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import { MemoryRouter } from "react-router";
 import { TestWrapper } from "./testUtils";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
-import { createFFTVisualizerMachine } from "../../src/ts/utils/fftVisualizerMachine";
+import { createFFTVisualizerMachine } from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
 import { createRef } from "react";
 
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
 const drawSpectrumMock = jest.fn(() => true);
 
+it("keeps the mirrored pan publisher usable after lifecycle cleanup", () => {
+  jest.useFakeTimers();
+  const publish = jest.fn();
+  try {
+    const scheduler = createVizPanScheduler(publish);
+
+    scheduler.submit(-4, "gesture");
+    scheduler.cancel();
+    scheduler.submit(-8, "gesture");
+    expect(publish).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(50);
+
+    expect(publish).toHaveBeenLastCalledWith(-8);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it("does not rewind a pending mirror gesture from a stale Redux pan", () => {
+  expect(
+    resolveMirrorPanPropSync({
+      pendingPublish: true,
+      incomingPan: 0,
+      lastPublishedPan: -120_000,
+    }),
+  ).toEqual({ applyIncomingPan: false, clearPendingPublish: false });
+
+  expect(
+    resolveMirrorPanPropSync({
+      pendingPublish: true,
+      incomingPan: -120_000,
+      lastPublishedPan: -120_000,
+    }),
+  ).toEqual({ applyIncomingPan: true, clearPendingPublish: true });
+});
+
+test("inverts spectrum power values without reversing frequency order", () => {
+  expect(
+    invertSpectrumVertically(new Float32Array([-120, -80, -40]), -120, 0),
+  ).toEqual(new Float32Array([0, -40, -80]));
+});
+
 // Mock useAuthentication to avoid auth errors during state init
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
     sessionToken: "mock-token",
     aesKey: new Uint8Array(32),
@@ -41,8 +88,8 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
-  useWasmSimdMath: () => ({
+jest.mock("@n-apt/spectrum/hooks/useWasmSimdMath", () => {
+  const mockUseSpectrumMath = () => ({
     isWasmLoaded: true,
     isSimdAvailable: false,
     resampleSpectrum: jest.fn(),
@@ -60,17 +107,77 @@ jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
     detectProminentSpikes: jest.fn(() => []),
     resampleSpectrumEnhanced: jest.fn(),
     matchNoiseFloorDb: jest.fn((ref, target) => target),
-  }),
-}));
+  });
 
-jest.mock("@n-apt/hooks/useSpectrumRenderer", () => ({
+  return {
+    useSpectrumMath: mockUseSpectrumMath,
+    // Keep the deprecated hook available for components covered by this
+    // module mock while production code migrates to useSpectrumMath.
+    useWasmSimdMath: mockUseSpectrumMath,
+  };
+});
+
+jest.mock("@n-apt/spectrum/hooks/useSpectrumRenderer", () => ({
   useSpectrumRenderer: () => ({
     drawSpectrum: drawSpectrumMock,
     cleanup: cleanupSpectrumMock,
   }),
 }));
 
-jest.unmock("@n-apt/components/FFTCanvas");
+// Keep these component tests on the deterministic Canvas 2D path. The jsdom
+// WebGPU shim exposes partial device methods, which otherwise leaves the
+// asynchronous GPU startup path pending and prevents the first spectrum draw.
+jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => ({
+  useWebGPULifecycle: () => ({
+    webgpuEnabled: false,
+    isInitializingWebGPU: false,
+    webgpuDeviceRef: { current: null },
+    webgpuFormatRef: { current: null },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    spikesOverlayRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: false, markers: false } },
+  }),
+  useWebGPUInit: () => ({
+    isInitialized: true,
+    isInitializingWebGPU: false,
+    webgpuEnabled: false,
+    webgpuDeviceRef: { current: null },
+    webgpuFormatRef: { current: null },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    spikesOverlayRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: false, markers: false } },
+  }),
+}));
+
+jest.mock("@n-apt/spectrum/hooks/useFftRenderCoordinator", () => {
+  const React = require("react") as typeof import("react");
+  return {
+    useFftRenderCoordinator: ({
+      onRenderFrame,
+      forceRenderRef,
+    }: {
+      onRenderFrame: (runId: number, force?: boolean) => void;
+      forceRenderRef?: { current: (() => void) | null };
+    }) => {
+      const render = React.useCallback(
+        () => onRenderFrame(0, true),
+        [onRenderFrame],
+      );
+      React.useEffect(() => {
+        if (forceRenderRef) forceRenderRef.current = render;
+        render();
+        return () => {
+          if (forceRenderRef?.current === render) forceRenderRef.current = null;
+        };
+      }, [forceRenderRef, render]);
+      return { forceRender: render };
+    },
+  };
+});
+
+jest.unmock("@n-apt/spectrum/FFTCanvas");
 
 const mockTheme = {
   mode: "dark" as const,
@@ -89,11 +196,17 @@ const mockTheme = {
 
 describe("FFTCanvas Component", () => {
   const defaultProps = {
-    dataRef: { current: { waveform: new Float32Array(1024).fill(-50) } },
+    dataRef: {
+      current: {
+        source_id: "source",
+        waveform: new Float32Array(1024).fill(-50),
+      },
+    },
     frequencyRange: { min: 100, max: 110 },
     centerFrequencyHz: 105_000_000,
     activeSignalArea: "test",
     isPaused: false,
+    isDeviceConnected: true,
     snapshotGridPreference: true,
   };
 
@@ -102,6 +215,43 @@ describe("FFTCanvas Component", () => {
     expect(shouldClearBlockingPlaceholder(2, 2)).toBe(false);
     expect(shouldClearBlockingPlaceholder(2, 3)).toBe(true);
     expect(shouldClearBlockingPlaceholder(2, 0)).toBe(false);
+  });
+
+  it("does not draw zoom markers while a blocking placeholder is visible", () => {
+    const zoomMarkerGate = shouldDrawZoomMarkersForCanvas as unknown as (
+      nodePreview: boolean,
+      hasBlockingPlaceholder: boolean,
+    ) => boolean;
+
+    expect(zoomMarkerGate(false, true)).toBe(false);
+    expect(zoomMarkerGate(false, false)).toBe(true);
+  });
+
+  it("keeps header snapshot actions enabled while paused", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                isPaused={true}
+                headerActionContent={<button type="button">Fast Snapshot</button>}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Fast Snapshot" })).toBeVisible();
+    });
+
+    expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Fast Snapshot" }).parentElement,
+    ).toHaveAttribute("data-disabled", "false");
   });
 
   it("publishes a newly ingested paused frame to source-bound consumers", () => {
@@ -117,6 +267,72 @@ describe("FFTCanvas Component", () => {
         hasNewData: false,
         shouldReprocessCurrentFrame: false,
         processedCurrentFrame: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("repaints a cached one-shot Tx frame when zoom or pan changes", () => {
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: true,
+        panChanged: false,
+        isPaused: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: false,
+        panChanged: true,
+        isPaused: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: false,
+        panChanged: false,
+        isPaused: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: false,
+        panChanged: false,
+        rangeChanged: true,
+        isPaused: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: true,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: true,
+        panChanged: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reproject a live cached frame before the replacement frame arrives", () => {
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: true,
+        panChanged: true,
+        isPaused: false,
       }),
     ).toBe(false);
   });
@@ -149,6 +365,11 @@ describe("FFTCanvas Component", () => {
 
   it("caps backing resolution at device pixel density", () => {
     expect(getCanvasPixelRatio(2, 2)).toBe(2);
+  });
+
+  it("falls back when the TX IFFT size is not available yet", () => {
+    expect(formatTxIfftSizeLabel(undefined, 262144)).toBe("262,144");
+    expect(formatTxIfftSizeLabel(null, 262144)).toBe("262,144");
   });
 
   it("uses only the selection overlay for FFT node range selection", () => {
@@ -284,6 +505,23 @@ describe("FFTCanvas Component", () => {
     // After 2D cleanup, waterfall is handled separately - only FFT display renders here
   });
 
+  it("does not add standby text to the FFT header", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <FFTCanvas {...defaultProps} isStandby={true} />
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("FFT Signal Display")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("FFT Signal Display (Standby)")).not.toBeInTheDocument();
+  });
+
   it("should render FFT canvas element", async () => {
     render(
       <TestWrapper>
@@ -303,7 +541,7 @@ describe("FFTCanvas Component", () => {
     expect(screen.getByText(/FFT Signal Display/i)).toBeInTheDocument();
   });
 
-  it("renders the Tx row from Redux state even when no parent slider prop is passed", async () => {
+  it("renders the Tx row when the active source provides slider state", async () => {
     render(
       <TestWrapper>
         <MemoryRouter>
@@ -311,6 +549,15 @@ describe("FFTCanvas Component", () => {
             <FFTCanvas
               {...defaultProps}
               frequencyRange={{ min: 0, max: 4_372_000 }}
+              txSlider={{
+                visible: true,
+                visibleMinHz: 0,
+                visibleMaxHz: 4_372_000,
+                txCenterHz: 137_100_000,
+                txSampleRateHz: 120_000,
+                onCenterFrequencyChange: jest.fn(),
+                onSampleRateChange: jest.fn(),
+              }}
             />
           </SpectrumProvider>
         </MemoryRouter>
@@ -448,7 +695,7 @@ describe("FFTCanvas Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a server down placeholder when the device disconnects", async () => {
+  it("shows a server down placeholder when the control plane reports Server down", async () => {
     render(
       <TestWrapper>
         <MemoryRouter>
@@ -458,6 +705,7 @@ describe("FFTCanvas Component", () => {
                 {...defaultProps}
                 dataRef={{ current: { waveform: null } }}
                 isDeviceConnected={false}
+                placeholderErrorReason="Server down"
                 placeholderSourceLabel="Live SDR"
               />
             </ThemeProvider>
@@ -472,6 +720,28 @@ describe("FFTCanvas Component", () => {
         "The server was disconnected due to being manually exited or an error.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("keeps Loading FFT when presentation is not ready during a healthy handoff", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: { waveform: null } }}
+                isDeviceConnected={false}
+                placeholderSourceLabel="Mock APT SDR"
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(await screen.findByText(/Loading/i)).toBeInTheDocument();
+    expect(screen.queryByText("Server Down")).not.toBeInTheDocument();
   });
 
   it("shows a disconnected placeholder when the websocket is still connected", async () => {
@@ -509,6 +779,7 @@ describe("FFTCanvas Component", () => {
     drawSpectrumMock.mockClear();
 
     const liveFrame = {
+      source_id: "source",
       waveform: new Float32Array(1024).fill(-42),
     };
     const onCanvasLoadingChange = jest.fn();
@@ -688,6 +959,69 @@ describe("FFTCanvas Component", () => {
 
     expect(dataRef.current).toBe(previousFrame);
   });
+
+  it("repaints a paused canvas when a stale source frame arrives after a reset", async () => {
+    // A source switch while paused advances the reset epoch and wipes the GPU
+    // buffers and the paused-frame cache. The transport ref can still hold the
+    // previous source's frame, which the frame gate rejects. The paused
+    // recovery path must still repaint a waveform — otherwise the canvas is
+    // stranded blank under the paused top-bar.
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+
+    const liveFrame = {
+      source_id: "mock-apt",
+      iq_data: new Uint8Array([128, 129, 127, 126]),
+      center_frequency_hz: 2_186_000,
+      sample_rate: 4_372_000,
+    };
+    const dataRef = { current: liveFrame as any };
+    const renderCanvas = (props: Partial<React.ComponentProps<typeof FFTCanvas>>) => (
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={dataRef}
+                frequencyRange={{ min: 0, max: 4_372_000 }}
+                centerFrequencyHz={2_186_000}
+                {...props}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+    // First render live so the canvas reports a rendered frame.
+    const { rerender } = render(renderCanvas({ expectedSourceId: "mock-apt" }));
+    await waitFor(() => expect(drawSpectrumMock).toHaveBeenCalled());
+
+    // Now the user pauses and switches source: the transport still holds the
+    // previous source's frame while the new source has not delivered yet.
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+    rerender(
+      renderCanvas({
+        expectedSourceId: "rtl-sdr-00000001",
+        isPaused: true,
+        webGpuStreamResetEpoch: 1,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(drawSpectrumMock).toHaveBeenCalled();
+    });
+
+    // The paused recovery may reprocess the previous live frame to repaint,
+    // but it must never ingest a frame as if it were the new source's data.
+    const processIqCalls = processIqToDbmSpectrumMock.mock
+      .calls as unknown as Array<[ArrayLike<number>]>;
+    for (const call of processIqCalls) {
+      expect(Array.from(call[0] ?? [])).not.toEqual([200, 201, 199, 198]);
+    }
+  }, 10000);
 
   it("draws Mock Tx standby preview spectrum unchanged from backend I/Q processing", async () => {
     drawSpectrumMock.mockClear();
@@ -1135,7 +1469,6 @@ describe("FFTCanvas Component", () => {
                   kind: "mock_tx",
                   is_rtl_sdr: false,
                   supports_approx_dbm: true,
-                  supports_raw_iq_stream: true,
                 }}
                 deviceBackend="mock_tx"
                 deviceName="Mock Tx SDR"

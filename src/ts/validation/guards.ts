@@ -10,9 +10,10 @@ import type {
   SourceInfoMessage,
   SourceStatusMessage,
   SourceSdrSettingsMessage,
+  SignalsDefaultsMessage,
   SourceErrorMessage,
 } from "@n-apt/consts/schemas/websocket";
-import type { AuthResult } from "@n-apt/services/auth";
+import type { AuthResult } from "@n-apt/app/infrastructure/services/auth";
 import type { SdrProcessorMetadata } from "@n-apt/validation/types";
 import {
   calculateExpectedLatency,
@@ -29,6 +30,7 @@ export {
   isValidSourceInfoMessage,
   isValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage,
+  isValidSignalsDefaultsMessage,
   isValidSourceErrorMessage,
   isValidActiveSourceMessage,
   isValidSpectrumFrame,
@@ -43,6 +45,7 @@ import {
   isValidSourceInfoMessage as baseIsValidSourceInfoMessage,
   isValidSourceStatusMessage as baseIsValidSourceStatusMessage,
   isValidSourceSdrSettingsMessage as baseIsValidSourceSdrSettingsMessage,
+  isValidSignalsDefaultsMessage as baseIsValidSignalsDefaultsMessage,
   isValidSourceErrorMessage as baseIsValidSourceErrorMessage,
   isValidSpectrumFrame as baseIsValidSpectrumFrame,
   isValidCaptureRequest as baseIsValidCaptureRequest,
@@ -732,6 +735,12 @@ export const isValidSourceSdrSettingsMessageEnhanced = (
   data: unknown,
 ): data is SourceSdrSettingsMessage => {
   return baseIsValidSourceSdrSettingsMessage(data);
+};
+
+export const isValidSignalsDefaultsMessageEnhanced = (
+  data: unknown,
+): data is SignalsDefaultsMessage => {
+  return baseIsValidSignalsDefaultsMessage(data);
 };
 
 export const isValidSourceErrorMessageEnhanced = (

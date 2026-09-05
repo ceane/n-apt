@@ -15,30 +15,52 @@
 //! parameters are unchanged. That cache is not the main Mock APT I/Q source.
 
 use crate::s::fft::types::RawSamples;
-use crate::s::ifft::mock_tx_gen::{
-  canonical_mock_tx_signal_key, generate_mock_tx_samples_ifft, MockTxParams,
+use crate::s::ifft::complex_baseband::{
+  canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator,
+  ComplexBasebandIQParams,
 };
-use std::sync::Mutex;
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Cached Mock Tx synthesis state.
 ///
 /// This cache exists only for transmit overlay generation. The main Mock APT
 /// receive path still recomputes the requested frame on every read.
-struct MockTxBuffer {
-  params: Option<MockTxParams>,
-  samples: Vec<Complex<f32>>,
+struct ComplexBasebandIQBuffer {
+  params: Option<ComplexBasebandIQParams>,
+  samples: Arc<Vec<Complex<f32>>>,
+  generator: ComplexBasebandIQGenerator,
 }
 
-impl MockTxBuffer {
-  const fn new() -> Self {
+impl ComplexBasebandIQBuffer {
+  fn new() -> Self {
     Self {
       params: None,
-      samples: Vec::new(),
+      samples: Arc::new(Vec::new()),
+      generator: ComplexBasebandIQGenerator::new(),
     }
+  }
+
+  fn prepare(&mut self, params: &ComplexBasebandIQParams) {
+    if self.params.as_ref() == Some(params)
+      && !self.samples.is_empty()
+      && self.samples.len() == params.tx_ifft_size
+    {
+      return;
+    }
+
+    self
+      .generator
+      .generate_into(params, Arc::make_mut(&mut self.samples));
+    self.params = Some(params.clone());
+  }
+
+  fn snapshot_samples(&self) -> Arc<Vec<Complex<f32>>> {
+    Arc::clone(&self.samples)
   }
 }
 
-static MOCK_TX_CACHE: Mutex<MockTxBuffer> = Mutex::new(MockTxBuffer::new());
+static COMPLEX_BASEBAND_IQ_CACHE: LazyLock<Mutex<ComplexBasebandIQBuffer>> =
+  LazyLock::new(|| Mutex::new(ComplexBasebandIQBuffer::new()));
 
 use std::cell::RefCell;
 
@@ -81,6 +103,7 @@ struct MockAptSignalConfig {
 /// generated per request. That means tuning, gain, ppm, and RF realism options
 /// are applied at read time rather than being baked into a static capture.
 pub struct MockAptDevice {
+  simulated_rtl_sdr: bool,
   center_freq: u32,
   sample_rate: u32,
   gain: f64,
@@ -248,7 +271,7 @@ fn clamp_window_to_range(
 fn resolve_mock_tx_preset(signal_name: &str) -> MockTxRuntimePreset {
   let settings = crate::server::utils::load_mock_tx_settings();
   let mock_apt_settings = crate::server::utils::load_mock_apt_settings();
-  let signal_key = canonical_mock_tx_signal_key(signal_name);
+  let signal_key = canonical_complex_baseband_signal_key(signal_name);
   let preset = settings
     .signals
     .get(&signal_key)
@@ -297,6 +320,9 @@ const MOCK_APT_FRAME_NOISE_KEY: u64 = 0x5749_4649_5f46_524d;
 const MOCK_APT_SAMPLE_NOISE_KEY: u64 = 0x534d_504c_5458_4741;
 const MOCK_APT_I_DITHER_KEY: u64 = 0x4d41_5054_5458_4949;
 const MOCK_APT_Q_DITHER_KEY: u64 = 0x4d41_5054_5458_5151;
+// Model the small receiver DC offset that real SDRs expose at the centered
+// FFT bin. The display can remove it, while raw IQ captures retain it.
+const MOCK_APT_DC_OFFSET: f64 = 0.04;
 
 fn mock_apt_motion_unit(sample_index: u64, noise_key: u64) -> f64 {
   let mut x = sample_index
@@ -391,6 +417,9 @@ impl MockAptDevice {
 
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   fn device_type_label(&self) -> &'static str {
+    if self.simulated_rtl_sdr {
+      return "rtl-sdr";
+    }
     if self.metal_backend.is_some() {
       "Mock APT SDR (Metal)"
     } else {
@@ -400,6 +429,9 @@ impl MockAptDevice {
 
   #[cfg(not(all(feature = "mock_apt_metal", target_os = "macos")))]
   fn device_type_label(&self) -> &'static str {
+    if self.simulated_rtl_sdr {
+      return "rtl-sdr";
+    }
     "Mock APT SDR"
   }
 
@@ -416,6 +448,15 @@ impl MockAptDevice {
   /// This makes the signal layout and subsequent frame generation repeatable.
   pub fn new_with_seed(seed: u64) -> Self {
     Self::new_with_rng(StdRng::seed_from_u64(seed))
+  }
+
+  /// Build deterministic receiver frames behind the test-only RTL-SDR
+  /// hardware profile. The I/Q generator remains shared with Mock APT, while
+  /// the device identity follows the real hardware lifecycle.
+  pub fn new_simulated_rtl_sdr() -> Self {
+    let mut device = Self::new_with_seed(0x52544c5);
+    device.simulated_rtl_sdr = true;
+    device
   }
 
   fn new_with_rng(rng: StdRng) -> Self {
@@ -445,6 +486,7 @@ impl MockAptDevice {
     let _metal_backend_error = None::<String>;
 
     Self {
+      simulated_rtl_sdr: false,
       center_freq: 1_600_000, // 1.6 MHz default
       sample_rate: 3_200_000, // 3.2 MSPS default
       gain: 49.6,
@@ -685,6 +727,12 @@ impl SdrDevice for MockAptDevice {
   }
 
   fn get_device_info(&self) -> String {
+    if self.simulated_rtl_sdr {
+      return format!(
+        "RTL-SDR v4 - Freq: {} Hz, Rate: {} Hz",
+        self.center_freq, self.sample_rate
+      );
+    }
     format!(
       "{} - Freq: {} Hz, Rate: {} Hz (Sample Rate: {} Hz), Gain: {:.1} dB, PPM: {}",
       self.device_type_label(),
@@ -838,6 +886,30 @@ impl SdrDevice for MockAptDevice {
       !handle.is_finished()
     } else {
       true // Not initialized yet or sync mode
+    }
+  }
+
+  fn get_serial_number(&self) -> String {
+    if self.simulated_rtl_sdr {
+      "00000001".to_string()
+    } else {
+      String::new()
+    }
+  }
+
+  fn get_manufacturer(&self) -> String {
+    if self.simulated_rtl_sdr {
+      "RTLSDRBlog".to_string()
+    } else {
+      String::new()
+    }
+  }
+
+  fn get_product(&self) -> String {
+    if self.simulated_rtl_sdr {
+      "Blog V4".to_string()
+    } else {
+      String::new()
     }
   }
 
@@ -1019,7 +1091,6 @@ fn add_bandlimited_mock_tx_noise_overlay(
   }
 }
 
-#[allow(dead_code)]
 impl MockAptDevice {
   /// Fallback synchronous read method
   /// Synthesize one I/Q frame synchronously.
@@ -1295,7 +1366,7 @@ impl MockAptDevice {
       let before_tx_q = self.q_accumulator[..fft_size].to_vec();
       let active_tx_overlay_center_hz: f64;
       let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
-      let tx_signal = canonical_mock_tx_signal_key(&tx_signal);
+      let tx_signal = canonical_complex_baseband_signal_key(&tx_signal);
       let tx_preset = resolve_mock_tx_preset(&tx_signal);
       let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
       // Mock APT is a verification receiver for Mock Tx, so render the Tx
@@ -1385,29 +1456,24 @@ impl MockAptDevice {
               tx_preset.bandwidth_hz
             };
             let is_ofdm = tx_signal == "wifi" || tx_signal == "5g";
-            let current_params = MockTxParams {
+            let current_params = ComplexBasebandIQParams {
               signal_key: tx_signal.clone(),
               sample_rate_hz: sample_rate,
               bandwidth_hz: bw,
               tx_ifft_size: render_ifft_size,
               phase_seed: if is_ofdm { self.frame_log_counter } else { 0 },
             };
-            let mut cache = MOCK_TX_CACHE.lock().unwrap();
-            if cache.params.as_ref() != Some(&current_params)
-              || cache.samples.is_empty()
-              || cache.samples.len() != render_ifft_size
-            {
-              cache.samples = generate_mock_tx_samples_ifft(&current_params);
-              cache.params = Some(current_params);
-            }
-            let block = cache.samples.clone();
-            drop(cache);
+            let block = {
+              let mut cache = COMPLEX_BASEBAND_IQ_CACHE.lock().unwrap();
+              cache.prepare(&current_params);
+              cache.snapshot_samples()
+            };
             let block_cursor =
               (self.frame_log_counter as usize) % render_ifft_size;
             let frame_seed = self.frame_log_counter;
 
             let mut max_peak = 0.0_f64;
-            for s in &block {
+            for s in block.iter() {
               let peak = ((s.re * s.re + s.im * s.im) as f64).sqrt();
               if peak > max_peak {
                 max_peak = peak;
@@ -1517,6 +1583,12 @@ impl MockAptDevice {
           sample_rate,
         );
       }
+    }
+
+    // Keep the receiver's DC offset outside the signal/Tx overlay processing
+    // so it remains a stable centered spike in every generated frame.
+    for sample in self.i_accumulator[..fft_size].iter_mut() {
+      *sample += MOCK_APT_DC_OFFSET;
     }
 
     // Apply noise, clip and quantize (Sequential to keep RNG identical).
@@ -1765,6 +1837,27 @@ mod tests {
   use std::fs;
   use std::thread::sleep;
 
+  #[test]
+  fn mock_tx_overlay_cache_reuses_plans_when_phase_changes() {
+    let mut cache = ComplexBasebandIQBuffer::new();
+    let mut params = ComplexBasebandIQParams {
+      signal_key: "wifi".to_string(),
+      sample_rate_hz: 3_200_000.0,
+      bandwidth_hz: 100_000.0,
+      tx_ifft_size: 1024,
+      phase_seed: 1,
+    };
+
+    cache.prepare(&params);
+    let first_capacity = cache.samples.capacity();
+    params.phase_seed = 2;
+    cache.prepare(&params);
+
+    assert_eq!(cache.samples.len(), 1024);
+    assert_eq!(cache.samples.capacity(), first_capacity);
+    assert_eq!(cache.generator.cached_fft_size_count(), 1);
+  }
+
   fn write_test_signals_yaml(
     path: &std::path::Path,
     spike_hz: u32,
@@ -1816,12 +1909,11 @@ signals:
   triangulation:
     static:
       freq_range_hz: !frequency_range 2.3GHz..2.344GHz
-  n_apt:
-    channels:
-      a:
-        label: "A"
-        freq_range_hz: !frequency_range 18kHz..4.37MHz
-        description: "A"
+  channels:
+    a:
+      label: "A"
+      freq_range_hz: !frequency_range 18kHz..4.37MHz
+      description: "A"
 "#
     );
     fs::write(path, yaml).expect("write test signals.yaml");

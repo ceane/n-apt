@@ -2,7 +2,6 @@ import React from "react";
 import {
   render,
   screen,
-  act,
   waitFor,
   fireEvent,
 } from "@testing-library/react";
@@ -16,22 +15,17 @@ import {
   SpanNode,
   clampBandwidthStartHz,
   SPAN_PRESETS_STORAGE_KEY,
-} from "../../src/ts/components/react-flow/nodes/SpanNode";
+} from "@n-apt/demodulation/react-flow/nodes/SpanNode";
 
-jest.mock("../../src/ts/contexts/DemodContext", () => ({
+jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
   useDemod: () => ({ fileCapturedRange: null }),
 }));
 
-import * as websocketThunks from "../../src/ts/redux/thunks/websocketThunks";
-import demodReducer, {
-  setHardwareInfo,
-} from "../../src/ts/redux/slices/demodSlice";
-import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
-import themeReducer from "../../src/ts/redux/slices/themeSlice";
-import websocketReducer from "../../src/ts/redux/slices/websocketSlice";
-import { DemodContext } from "../../src/ts/contexts/DemodContext";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
-import { formatFrequency } from "../../src/ts/utils/frequency";
+import demodReducer from "@n-apt/redux/slices/demodSlice";
+import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
+import themeReducer from "@n-apt/redux/slices/themeSlice";
+import websocketReducer from "@n-apt/redux/slices/websocketSlice";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 
 // Minimal mock theme
 const theme = buildAppTheme({
@@ -83,7 +77,7 @@ function createMockStore(
       theme: themeReducer,
       waterfall: (
         state = { sourceMode: options.sourceMode ?? "live" },
-        action: any,
+        _action: any,
       ) => state,
     } as any,
     preloadedState: {

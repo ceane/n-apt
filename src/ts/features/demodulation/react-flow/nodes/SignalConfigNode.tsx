@@ -1,0 +1,278 @@
+import React from "react";
+import styled from "styled-components";
+import { Columns3Cog } from "lucide-react";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import {
+  setFftWindow,
+  setFrequencyRange,
+  setPowerScale,
+  setSampleRate,
+  setTemporalResolution,
+} from "@n-apt/redux";
+import { useSdrSettings } from "@n-apt/settings/public/useSdrSettings";
+import { useLiveSampleRateControl } from "@n-apt/spectrum/public/useLiveSampleRateControl";
+import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
+import { useSpectrumTransport } from "@n-apt/spectrum/public/useSpectrumTransport";
+import { SignalDisplaySection } from "@n-apt/spectrum/public/SignalDisplaySection";
+import { SourceSettingsSection } from "@n-apt/spectrum/public/SourceSettingsSection";
+import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
+import { DEMOD_REQUIRED_TEMPORAL_RESOLUTION } from "@n-apt/demodulation/utils/demodQuality";
+import {
+  resolveSourceDisplaySampleRate,
+  resolveSourceDisplaySignalArea,
+  resolveWholeChannelSampleRate,
+} from "@n-apt/app/infrastructure/visualization/sourceSignalDisplay";
+
+const NodeContent = styled.div`
+  width: 100%;
+  min-width: 360px;
+
+  & > div {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  & > div > div {
+    margin-top: 0;
+  }
+
+  & > div > div:not(:first-child) {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+  }
+
+  & > div:nth-of-type(4) > div:first-child {
+    margin-top: 16px;
+  }
+`;
+
+const NodeHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-size: ${({ theme }) => theme.typography.bodySize};
+  font-weight: 700;
+`;
+
+const NodeSubtitle = styled.div`
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 10px;
+`;
+
+interface SignalConfigNodeProps {
+  data: {
+    signalOptions: boolean;
+    label: string;
+    sourceRole?: "rx" | "tx";
+    sourceBindingGroup?: string;
+  };
+}
+
+export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
+  const dispatch = useAppDispatch();
+  const spectrumTransport = useSpectrumTransport();
+  const spectrum = useAppSelector((state) => state.spectrum);
+  const roleSource = useAppSelector((state) => {
+    const sourceId =
+      data.sourceRole && data.sourceBindingGroup
+        ? state.sourceRouting.bindings[
+            sourceBindingKey(data.sourceBindingGroup, data.sourceRole)
+          ]
+        : state.websocket.activeSourceId;
+    return (state.websocket.sources ?? []).find(
+      (source) => source.id === sourceId,
+    );
+  });
+  const channels = useAppSelector((state) =>
+    selectArrayOrEmpty(state.websocket.channels),
+  );
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
+  const reduxActiveSignalArea = useAppSelector(
+    (state) => state.spectrum.activeSignalArea,
+  );
+  const reduxFrequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+  const reduxSampleRateHz = useAppSelector(
+    (state) => state.spectrum.sampleRateHz,
+  );
+  const { wsConnection } = useSpectrumStore();
+  const activeSignalArea = resolveSourceDisplaySignalArea({
+    liveSignalArea: reduxActiveSignalArea,
+    reduxSignalArea: reduxActiveSignalArea,
+  });
+  const { sdrSettings, backend, deviceProfile, sampleRateOptions } =
+    wsConnection;
+
+  React.useEffect(() => {
+    dispatch(setTemporalResolution(DEMOD_REQUIRED_TEMPORAL_RESOLUTION));
+  }, [dispatch]);
+
+  const sourceSdrSettings = roleSource?.sdr.settings ?? sdrSettings;
+  const sourceBackend = roleSource?.kind ?? backend;
+  const sourceSampleRate = resolveSourceDisplaySampleRate({
+    roleSourceId: roleSource?.id,
+    activeSourceId,
+    localSampleRateHz: spectrum.sampleRateHz,
+    liveSampleRateHz: reduxSampleRateHz,
+    sourceSampleRateHz: roleSource?.sdr.settings?.sample_rate,
+    fallbackSampleRateHz: spectrum.sampleRateHz,
+  });
+  const sourceSampleRateValue = sourceSampleRate ?? 3_200_000;
+  const sourceMaxSampleRate =
+    roleSource?.sdr.max_sample_rate ?? reduxSampleRateHz ?? 3_200_000;
+  const sourceSampleRateOptions =
+    roleSource?.sdr.sample_rate_options ?? sampleRateOptions;
+  const wholeChannelSampleRate = resolveWholeChannelSampleRate({
+    source: roleSource,
+    activeSignalArea,
+    channels,
+  });
+  const activeSignalAreaBounds = React.useMemo(() => {
+    if (!activeSignalArea) return null;
+    const normalizedArea = activeSignalArea.toLowerCase();
+    const channel = channels.find(
+      (candidate) => candidate.label?.toLowerCase() === normalizedArea,
+    );
+    if (
+      !channel ||
+      !Number.isFinite(channel.min_hz) ||
+      !Number.isFinite(channel.max_hz) ||
+      channel.max_hz <= channel.min_hz
+    ) {
+      return null;
+    }
+    return { min: channel.min_hz, max: channel.max_hz };
+  }, [activeSignalArea, channels]);
+
+  const settings = useSdrSettings({
+    maxSampleRate: sourceMaxSampleRate,
+    currentSampleRateHz: sourceSampleRateValue,
+    minReceiveSampleRate:
+      sourceSdrSettings?.min_receive_sample_rate ?? undefined,
+    sampleRateOptions: sourceSampleRateOptions,
+    sdrSettings: sourceSdrSettings,
+    deviceType: roleSource?.kind ?? deviceProfile?.kind,
+    onSettingsChange:
+      data.sourceRole === "tx" ? undefined : wsConnection.sendSettings,
+  });
+  const applyFrequencyRange = React.useCallback(
+    (range: { min: number; max: number }) => {
+      dispatch(setFrequencyRange(range));
+      spectrumTransport.sendFrequencyRange(range);
+    },
+    [dispatch, spectrumTransport, wsConnection],
+  );
+  const setSampleRateForVisualizer = React.useCallback(
+    (rate: number, nextRange?: { min: number; max: number }) => {
+      dispatch({
+        ...setSampleRate(rate),
+        ...(nextRange
+          ? { meta: { managedRxFrequencyRange: nextRange } }
+          : {}),
+      });
+      settings.setSampleRate(rate);
+    },
+    [dispatch, settings.setSampleRate],
+  );
+  const { handleSampleRateChange } = useLiveSampleRateControl({
+    sourceMode: "live",
+    supportsWholeChannelSampleRate:
+      Boolean(wholeChannelSampleRate) &&
+      sourceBackend !== "rtl_sdr" &&
+      sourceBackend !== "rtl-sdr",
+    manualSampleRateOptions: settings.sampleRateOptions,
+    activeChannelSampleRate: wholeChannelSampleRate,
+    maxSampleRateHz: sourceMaxSampleRate,
+    activeSignalAreaBounds,
+    frequencyRange: reduxFrequencyRange ?? spectrum.frequencyRange,
+    sampleRateHz: sourceSampleRateValue,
+    fftSize: spectrum.fftSize,
+    maxFrameRateLimit: settings.maxFrameRate,
+    setSampleRate: setSampleRateForVisualizer,
+    setSampleRateWithFrequencyRange: setSampleRateForVisualizer,
+    setFftFrameRate: settings.setFftFrameRate,
+    applyFrequencyRange,
+  });
+
+  return (
+    <NodeContent>
+      <NodeHeader>
+        <Columns3Cog size={16} />
+        {data.label}
+      </NodeHeader>
+      <NodeSubtitle>Hardware sampling and FFT settings</NodeSubtitle>
+
+      <SignalDisplaySection
+        variant="default"
+        sourceMode="live"
+        maxSampleRate={sourceMaxSampleRate}
+        minReceiveSampleRate={
+          sourceSdrSettings?.min_receive_sample_rate ?? undefined
+        }
+        sampleRate={sourceSampleRateValue}
+        sampleRateOptions={settings.sampleRateOptions}
+        wholeChannelSampleRate={wholeChannelSampleRate}
+        fileCapturedRange={null}
+        fftFrameRate={settings.fftFrameRate}
+        maxFrameRate={settings.maxFrameRate}
+        fftSize={spectrum.fftSize}
+        fftSizeOptions={settings.fftSizeOptions}
+        fftWindow={spectrum.fftWindow || "Rectangular"}
+        temporalResolution={spectrum.displayTemporalResolution}
+        backend={sourceBackend}
+        deviceProfile={deviceProfile}
+        powerScale={spectrum.powerScale}
+        onFftFrameRateChange={settings.setFftFrameRate}
+        onFftSizeChange={settings.setFftSize}
+        onSampleRateChange={handleSampleRateChange}
+        onFftWindowChange={(value) => {
+          dispatch(setFftWindow(value));
+          settings.setFftWindow(value);
+        }}
+        onTemporalResolutionChange={(value) => {
+          dispatch(setTemporalResolution(value));
+        }}
+        onPowerScaleChange={(value) => {
+          dispatch(setPowerScale(value));
+        }}
+        scheduleCoupledAdjustment={settings.scheduleCoupledAdjustment}
+      />
+
+      <SourceSettingsSection
+        sourceMode="live"
+        deviceType={deviceProfile?.kind}
+        ppm={settings.ppm}
+        gain={settings.gain}
+        hackrfLnaGain={settings.hackrfLnaGain}
+        hackrfVgaGain={settings.hackrfVgaGain}
+        hackrfAmpEnabled={settings.hackrfAmpEnabled}
+        hackrfBasebandBandwidth={settings.hackrfBasebandBandwidth}
+        hackrfCurrentSampleRate={reduxSampleRateHz || spectrum.sampleRateHz}
+        tunerAGC={settings.tunerAGC}
+        rtlAGC={settings.rtlAGC}
+        stitchSourceSettings={{ gain: settings.gain, ppm: settings.ppm }}
+        isConnected={Boolean(wsConnection.isConnected)}
+        onPpmChange={settings.setPpm}
+        onGainChange={settings.setGain}
+        onHackrfLnaGainChange={settings.setHackrfLnaGain}
+        onHackrfVgaGainChange={settings.setHackrfVgaGain}
+        onHackrfAmpEnabledChange={settings.setHackrfAmpEnabled}
+        onHackrfBasebandBandwidthChange={settings.setHackrfBasebandBandwidth}
+        onTunerAGCChange={settings.setTunerAGC}
+        onRtlAGCChange={settings.setRtlAGC}
+        onStitchSourceSettingsChange={() => undefined}
+        onAgcModeChange={(tunerAGC, rtlAGC) => {
+          settings.setTunerAGC(tunerAGC);
+          settings.setRtlAGC(rtlAGC);
+        }}
+      />
+    </NodeContent>
+  );
+};

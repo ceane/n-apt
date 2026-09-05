@@ -6,6 +6,16 @@ use tempfile::tempdir;
 
 const ENCRYPTION_FIXTURE_PASSWORD: &str = "napt-test-fixture-password-v1";
 
+fn binary_payload<'a>(
+  file_bytes: &'a [u8],
+  header_json: &serde_json::Value,
+) -> &'a [u8] {
+  let length = header_json["metadata"]["sections"]["binary"]["length_bytes"]
+    .as_u64()
+    .expect("binary section length missing") as usize;
+  &file_bytes[4096..4096 + length]
+}
+
 fn test_vault_key() -> [u8; 32] {
   crypto::derive_key(ENCRYPTION_FIXTURE_PASSWORD)
 }
@@ -73,12 +83,12 @@ fn test_encryption_save_load_cycle() {
   // 5. Extract header and payload
   // Header is first 4096 bytes
   let header_bytes = &file_bytes[..4096];
-  let payload_bytes = &file_bytes[4096..];
 
   // 6. Parse Header
   let header_str = String::from_utf8_lossy(header_bytes);
   let header_json: serde_json::Value =
     serde_json::from_str(header_str.trim()).expect("Header parse failed");
+  let payload_bytes = binary_payload(&file_bytes, &header_json);
   let wrapped_dek_b64 = header_json["metadata"]["wrapped_dek"]
     .as_str()
     .expect("wrapped_dek missing");
@@ -180,7 +190,14 @@ fn test_checksum_integrity_and_corruption() {
 
   // 1. Corrupt the file (flip a bit in the encrypted payload)
   let mut file_bytes = fs::read(&artifact.path).expect("Read failed");
-  let corruption_idx = file_bytes.len() - 1;
+  let header_json: serde_json::Value =
+    serde_json::from_str(String::from_utf8_lossy(&file_bytes[..4096]).trim())
+      .expect("Header parse failed");
+  let binary_length = header_json["metadata"]["sections"]["binary"]
+    ["length_bytes"]
+    .as_u64()
+    .expect("binary section length missing") as usize;
+  let corruption_idx = 4096 + binary_length - 1;
   file_bytes[corruption_idx] ^= 0x01;
   fs::write(&artifact.path, &file_bytes).expect("Write failed");
 
@@ -202,10 +219,10 @@ fn test_checksum_integrity_and_corruption() {
 
   // 4. Verify decryption fails due to corrupted payload (AES-GCM tag check)
   let header_bytes = &file_bytes[..4096];
-  let payload_bytes = &file_bytes[4096..];
   let header_str = String::from_utf8_lossy(header_bytes);
   let header_json: serde_json::Value =
     serde_json::from_str(header_str.trim()).unwrap();
+  let payload_bytes = binary_payload(&file_bytes, &header_json);
   let wrapped_dek_b64 =
     header_json["metadata"]["wrapped_dek"].as_str().unwrap();
   let wrapped_dek_bytes = crypto::from_base64(wrapped_dek_b64).unwrap();

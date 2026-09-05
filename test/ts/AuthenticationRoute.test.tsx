@@ -1,10 +1,10 @@
 import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 
-jest.mock("@n-apt/hooks/useAuthentication", () => ({
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: jest.fn(() => ({
     authState: "ready" as const,
     isAuthenticated: false,
@@ -19,8 +19,9 @@ jest.mock("@n-apt/hooks/useAuthentication", () => ({
 
 import {
   AuthenticationUI,
+  AuthenticationRoute,
   type AuthState,
-} from "@n-apt/routes/AuthenticationRoute";
+} from "@n-apt/app/routes/pages/AuthenticationRoute";
 
 describe("AuthenticationRoute", () => {
   const renderAuthenticationUI = (ui: React.ReactElement) =>
@@ -46,6 +47,19 @@ describe("AuthenticationRoute", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps authenticated onboarding behind the authentication boundary", () => {
+    render(
+      <MemoryRouter initialEntries={["/get-started"]}>
+        <AuthenticationRoute>
+          <div>authenticated content</div>
+        </AuthenticationRoute>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Secure Access Required for N-APT")).toBeInTheDocument();
+    expect(screen.queryByText("authenticated content")).not.toBeInTheDocument();
+  });
+
   it("uses darken blending for the light-mode logo", () => {
     renderAuthenticationUI(<AuthenticationUI {...defaultProps} />);
 
@@ -58,7 +72,7 @@ describe("AuthenticationRoute", () => {
     expect(screen.getByRole("region", { name: /what you need/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /I\/Q captures and files/i })).toHaveAttribute(
       "href",
-      "/iq-captures",
+      "/learn/iq-captures",
     );
     expect(screen.getByRole("link", { name: /RTL-SDR/i })).toHaveAttribute(
       "href",
@@ -68,10 +82,16 @@ describe("AuthenticationRoute", () => {
       "href",
       "https://greatscottgadgets.com/hackrf/one/",
     );
-    expect(screen.getByText("(Rx or read only)")).toBeInTheDocument();
     expect(
-      screen.getByText("(Rx AND Tx, Half-Duplex or one mode at a time)"),
+      screen.getByText("Simplex (only one mode; can only do Rx)"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Half-Duplex (either Rx/receive or read or Tx/transmit or write)",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("No Tx")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Good")).toHaveLength(2);
     expect(screen.getByText("Playback .napt and .iq files")).toBeInTheDocument();
     expect(screen.getByLabelText("HackRF One 3D model spinning")).toBeInTheDocument();
   });

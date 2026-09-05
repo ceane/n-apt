@@ -10,7 +10,6 @@ const makeSource = (overrides: Partial<SourceInfo>): SourceInfo => ({
   loading_attempt: 0,
   loading_attempt_max: 0,
   supports_approx_dbm: true,
-  supports_raw_iq_stream: true,
   sdr: {
     max_sample_rate: 4_372_000,
     sample_rate_options: [4_372_000],

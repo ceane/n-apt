@@ -87,7 +87,7 @@ describe("getRuntimeSummaryState", () => {
 
 describe("isRuntimeRecoverySignal", () => {
   it("detects Vite hmr updates as recovery output", () => {
-    expect(isRuntimeRecoverySignal("[vite] hmr update /src/ts/App.tsx")).toBe(
+    expect(isRuntimeRecoverySignal("[vite] hmr update /src/ts/app/App.tsx")).toBe(
       true,
     );
   });

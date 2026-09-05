@@ -4,9 +4,19 @@ import {
   getDemodNodePolicy,
   shouldRunDemodAutoLayout,
   shouldVirtualizeDemodFlowNodes,
-} from "@n-apt/components/react-flow/flows/demodFlowModel";
+  resolveDemodCaptureRange,
+  serializeDemodFlow,
+  shouldDeferDemodAutoLayout,
+  DEMOD_FIT_VIEW_OPTIONS,
+} from "@n-apt/demodulation/react-flow/flows/demodFlowModel";
 
 describe("buildDemodFlowGraph", () => {
+  it("always resolves a non-empty capture range for reference captures", () => {
+    expect(
+      resolveDemodCaptureRange({ sampleRateHz: 3_200_000 }),
+    ).toEqual({ min: 0, max: 3_200_000 });
+  });
+
   it("classifies backend tuning and static metadata nodes by source mode", () => {
     expect(getDemodNodePolicy({ channelNode: true }, "live")).toEqual({
       action: "keep",
@@ -20,10 +30,22 @@ describe("buildDemodFlowGraph", () => {
     });
   });
 
-  it("includes a stimulus node for live source graphs", () => {
+  it("uses Reference Capture as the initial live flow", () => {
     const graph = buildDemodFlowGraph("live");
     const nodeIds = new Set(graph.nodes.map((node) => node.id));
-    expect(nodeIds.has("stimulus")).toBe(true);
+    expect([...nodeIds]).toEqual([
+      "source",
+      "channel",
+      "signal-config",
+      "stimulus",
+      "output",
+    ]);
+    expect(graph.nodes.find((node) => node.id === "channel")?.position.x).toBe(
+      -600,
+    );
+    expect(
+      graph.nodes.find((node) => node.id === "signal-config")?.position.x,
+    ).toBe(500);
     graph.edges.forEach((edge) => {
       expect(nodeIds.has(edge.source)).toBe(true);
       expect(nodeIds.has(edge.target)).toBe(true);
@@ -33,15 +55,10 @@ describe("buildDemodFlowGraph", () => {
   it("removes stimulus-specific edges for file source graphs", () => {
     const graph = buildDemodFlowGraph("file");
     const nodeIds = new Set(graph.nodes.map((node) => node.id));
-    expect(nodeIds.has("stimulus")).toBe(false);
+    expect(nodeIds.has("stimulus")).toBe(true);
     expect(nodeIds.has("channel")).toBe(false);
     expect(nodeIds.has("metadata")).toBe(true);
     expect(nodeIds.has("signalOptions")).toBe(false);
-    expect(
-      graph.edges.some(
-        (edge) => edge.source === "stimulus" || edge.target === "stimulus",
-      ),
-    ).toBe(false);
     expect(
       graph.edges.some(
         (edge) => edge.source === "channel" || edge.target === "channel",
@@ -77,20 +94,35 @@ describe("buildDemodFlowGraph", () => {
     expect(liveFlow.nodes.map((node) => node.id)).toEqual(
       selectedFlow.nodes.map((node) => node.id),
     );
-    expect(
-      liveFlow.nodes.find((node) => node.id === "channel")?.data.channelNode,
-    ).toBe(true);
+    expect(liveFlow.nodes.find((node) => node.id === "channel")?.data.channelNode).toBe(true);
     expect(liveFlow.nodes.some((node) => node.data.metadataNode)).toBe(false);
   });
 });
 
 describe("demod flow initial layout", () => {
+  it("fits against hidden template nodes so the selected flow stays on-screen", () => {
+    expect(DEMOD_FIT_VIEW_OPTIONS.includeHiddenNodes).toBe(true);
+    expect(DEMOD_FIT_VIEW_OPTIONS.minZoom).toBeLessThan(0.3);
+  });
+
   it("keeps the spacious model positions on the first render", () => {
     expect(shouldRunDemodAutoLayout(0)).toBe(false);
   });
 
   it("re-layouts flows after they change", () => {
     expect(shouldRunDemodAutoLayout(1)).toBe(true);
+  });
+
+  it("defers layout until a non-empty graph has measured nodes", () => {
+    expect(
+      shouldDeferDemodAutoLayout({ hasNodes: true, nodesInitialized: false }),
+    ).toBe(true);
+    expect(
+      shouldDeferDemodAutoLayout({ hasNodes: true, nodesInitialized: true }),
+    ).toBe(false);
+    expect(
+      shouldDeferDemodAutoLayout({ hasNodes: false, nodesInitialized: false }),
+    ).toBe(false);
   });
 });
 
@@ -132,5 +164,13 @@ describe("demod flow visualization persistence", () => {
         },
       ]),
     ).toBe(true);
+  });
+
+  it("serializes only the persisted flow state", () => {
+    expect(
+      serializeDemodFlow("live", [{ id: "source" } as any], []),
+    ).toBe(
+      JSON.stringify({ sourceMode: "live", nodes: [{ id: "source" }], edges: [] }),
+    );
   });
 });

@@ -1,7 +1,7 @@
 import {
   resolvePendingWaterfallRestore,
   type PendingWaterfallRestore,
-} from "@n-apt/utils/waterfallRestore";
+} from "@n-apt/spectrum/utils/waterfallRestore";
 
 describe("resolvePendingWaterfallRestore", () => {
   const pendingRestore: PendingWaterfallRestore = {
