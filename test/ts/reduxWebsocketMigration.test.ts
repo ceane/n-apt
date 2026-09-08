@@ -16,6 +16,7 @@ import {
   getFrequencyRequestCenterHz,
   resetWebSocketMiddlewareState,
   trimLiveFrameQueue,
+  retainLatestFramePerStream,
   normalizeFrequencyRangeMessageData,
   resolveIncomingChannelsFrequencyRange,
   resolveIncomingChannelsActiveSignalArea,
@@ -40,6 +41,7 @@ import {
   resolveManagedRxDeviceOptionUpdates,
   resolveManagedRxOptionsOverride,
   resolveLocalRxTuningOverride,
+  buildManagedTxOptions,
   shouldApplySourceStatusToPresentation,
   processWebSocketMessage,
   CLIENT_ORIGIN_ID,
@@ -59,6 +61,7 @@ import spectrumSlice, {
   setSampleRate,
   setTxSampleRateHz,
   setTxGeometry,
+  setTxViewerSampleRateHz,
 } from "@n-apt/redux/slices/spectrumSlice";
 import sourceRoutingSlice, {
   setSourceBinding,
@@ -674,7 +677,7 @@ describe("managed stream option synchronization", () => {
     });
 
     expect(streamSocket.send).toHaveBeenCalledWith(
-      expect.stringContaining('"type":"stream_update_options"'),
+      expect.stringContaining('"type":"stream_subscribe"'),
     );
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"sampleRateHz":5200000'),
@@ -687,7 +690,7 @@ describe("managed stream option synchronization", () => {
     middlewareStore.dispatch(setSampleRate(6_270_000));
 
     expect(streamSocket.send).toHaveBeenCalledWith(
-      expect.stringContaining('"type":"stream_update_options"'),
+      expect.stringContaining('"type":"stream_subscribe"'),
     );
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"sampleRateHz":6270000'),
@@ -1769,6 +1772,114 @@ describe("Redux WebSocket Migration", () => {
     );
   });
 
+  it("does not apply another source's channel center or rate to this view", () => {
+    const dispatch = jest.fn();
+    const state = {
+      sourceSelection: { selectedSourceId: "mock-tx" },
+      websocket: {
+        activeSourceId: "mock-apt",
+        sources: [],
+      },
+      spectrum: {
+        activeSignalArea: "A",
+        sampleRateHz: 4_372_000,
+        frequencyRange: { min: 18_000, max: 4_390_000 },
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "channels",
+      source_id: "mock-apt",
+      origin_id: "another-browser-client",
+      channels: [
+        {
+          id: "a",
+          label: "A",
+          min_hz: 18_000,
+          max_hz: 4_390_000,
+          description: "APT A",
+        },
+      ],
+      active_signal_area: "A",
+      frequency_range: { min: 135_000_000, max: 139_000_000 },
+      sample_rate: 6_270_000,
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSignalAreaAndRange",
+      }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setSdrSettingsBundle",
+        payload: expect.objectContaining({
+          frequencyRange: expect.anything(),
+        }),
+      }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "websocket/updateDeviceState",
+        payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),
+      }),
+    );
+  });
+
+  it("does not let Mock Tx channel announcements jump its monitor to the channel", () => {
+    const dispatch = jest.fn();
+    const state = {
+      sourceSelection: { selectedSourceId: "mock-tx" },
+      websocket: {
+        activeSourceId: "mock-tx",
+        sources: [],
+      },
+      spectrum: {
+        activeSignalArea: "A",
+        sampleRateHz: 4_372_000,
+        frequencyRange: { min: 135_000_000, max: 139_000_000 },
+      },
+    };
+
+    processWebSocketMessage(dispatch, () => state, {
+      type: "channels",
+      source_id: "mock-tx",
+      origin_id: "backend",
+      channels: [
+        {
+          id: "a",
+          label: "A",
+          min_hz: 18_000,
+          max_hz: 4_390_000,
+          description: "Mock channel A",
+        },
+      ],
+      active_signal_area: "A",
+      frequency_range: { min: 18_000, max: 4_390_000 },
+      sample_rate: 4_372_000,
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setDeviceSignalAreaAndRange",
+      }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "spectrum/setSdrSettingsBundle",
+        payload: expect.objectContaining({
+          frequencyRange: expect.anything(),
+        }),
+      }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "websocket/updateDeviceState",
+        payload: expect.objectContaining({ sampleRateHz: 4_372_000 }),
+      }),
+    );
+  });
+
   it("does not re-dispatch an identical stream-options sample-rate echo", () => {
     const dispatch = jest.fn();
     const options = {
@@ -2741,7 +2852,7 @@ describe("Redux WebSocket Migration", () => {
 
         expect(sourceSocket.send).toHaveBeenCalled();
         expect(sourceSocket.send).toHaveBeenCalledWith(
-          expect.stringContaining('"type":"stream_update_options"'),
+          expect.stringContaining('"type":"stream_subscribe"'),
         );
         expect(sourceSocket.send).toHaveBeenCalledWith(
           expect.stringContaining('"centerFrequencyHz":2000000'),
@@ -2781,6 +2892,23 @@ describe("Redux WebSocket Migration", () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it("builds Tx options with independent waveform, bandwidth, and monitor rates", () => {
+      const options = buildManagedTxOptions({
+        spectrum: {
+          txCenterFrequencyHz: 137_100_000,
+          txSampleRateHz: 1_500_000,
+          txViewerSampleRateHz: 4_000_000,
+          txSignal: "wifi",
+          txPowerDbm: -18,
+          txIfftSize: 2048,
+        },
+      });
+
+      expect(options.sampleRateHz).toBe(1_500_000);
+      expect(options.bandwidthHz).toBe(1_500_000);
+      expect(options.viewSampleRateHz).toBe(4_000_000);
     });
 
     it("delivers an encrypted RX stream frame into the live FFT frame path", async () => {
@@ -3706,7 +3834,7 @@ describe("Redux WebSocket Migration", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(
         middlewareStore.getState().websocket.sourceTransportByMode.rx.phase,
-      ).toBe("ready");
+      ).toBe("warming");
 
       sockets[0].onmessage?.({
         data: JSON.stringify({
@@ -5422,7 +5550,26 @@ describe("Redux WebSocket Migration", () => {
       expect(trimmed[0].timestamp).toBe(19);
     });
 
-    it("retains every eligible IQ frame for demodulation despite visualizer trimming", () => {
+    it("retains the latest frame for every source and mode in a shared batch", () => {
+      const frames = [
+        { source_id: "mock-apt", frame_status: "receiving", sequence: 1 },
+        { source_id: "mock-tx", frame_status: "transmitting", sequence: 1 },
+        { source_id: "mock-apt", frame_status: "receiving", sequence: 2 },
+        { source_id: "mock-tx", frame_status: "transmitting", sequence: 2 },
+      ];
+
+      const retained = retainLatestFramePerStream(
+        frames,
+        (frame) => `${frame.source_id}:${frame.frame_status}`,
+      );
+
+      expect(retained).toEqual([
+        { source_id: "mock-apt", frame_status: "receiving", sequence: 2 },
+        { source_id: "mock-tx", frame_status: "transmitting", sequence: 2 },
+      ]);
+    });
+
+    it("keeps lossless RX delivery while coalescing each visualizer stream", () => {
       jest.useFakeTimers();
       for (let index = 0; index < 4; index += 1) {
         __testQueueLiveDataForMiddleware(
@@ -5433,6 +5580,20 @@ describe("Redux WebSocket Migration", () => {
             iq_data: new Uint8Array([128, 128]),
             sample_rate: 3_200_000,
             center_frequency_hz: 93_300_000,
+            sequence: index,
+          },
+          store.dispatch as any,
+          store.getState as any,
+        );
+        __testQueueLiveDataForMiddleware(
+          {
+            type: "spectrum",
+            data_type: "iq_raw",
+            source_id: "mock-tx",
+            frame_status: "transmitting",
+            iq_data: new Uint8Array([127, 129]),
+            sample_rate: 2_400_000,
+            center_frequency_hz: 137_100_000,
             sequence: index,
           },
           store.dispatch as any,

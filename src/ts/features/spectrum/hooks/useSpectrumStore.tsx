@@ -89,7 +89,6 @@ import {
   sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { SpectrumStoreContext } from "@n-apt/spectrum/hooks/spectrumStoreContext";
-import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
   sendPowerScaleCommand as sendPowerScaleCommandThunk,
@@ -106,6 +105,10 @@ import {
 import { deriveStateFromConfig } from "@n-apt/settings/public/useSdrSettings";
 import { applyWaterfallStateOverrides } from "@n-apt/spectrum/hooks/spectrumStoreOverrides";
 import { resolvePausedPreviewRequestSourceId } from "@n-apt/app/routes/pages/spectrum/mockTxPreview";
+import {
+  createSourceSwitchCoordinator,
+  type SourceSwitchCoordinator,
+} from "@n-apt/spectrum/hooks/sourceSwitchCoordinator";
 import {
   createFFTVisualizerMachine,
   type FFTVisualizerMachine,
@@ -138,7 +141,12 @@ import {
   resolveTxSuiteControlSourceId,
   shouldPinTxSuiteToRxSource,
 } from "@n-apt/transmit/public/txSuiteSourceControl";
-import { resolveMockTxTransmitSettings } from "@n-apt/transmit/public/txSliderPlacement";
+import {
+  resolveMockTxTransmitSettings,
+  resolveMockTxMonitorCenterForSync,
+  resolveMockTxTransmitViewSampleRateHz,
+  resolveMockTxTransmitViewCenterHz,
+} from "@n-apt/transmit/public/txSliderPlacement";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
 
@@ -2100,7 +2108,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       Record<string, boolean>
     >({});
     const currentSourceStateRef = useRef(state);
-    const lastRequestedSubscriberViewSourceIdRef = useRef<string | null>(null);
+    const sourceSwitchCoordinatorRef = useRef<SourceSwitchCoordinator | null>(
+      null,
+    );
+    if (sourceSwitchCoordinatorRef.current === null) {
+      sourceSwitchCoordinatorRef.current = createSourceSwitchCoordinator({
+        onRequest: (sourceId) => {
+          reduxDispatch(setReduxPendingSourceSwitchId(sourceId));
+        },
+        onTimeout: () => {
+          reduxDispatch(setReduxPendingSourceSwitchId(null));
+        },
+      });
+    }
+    const sourceSwitchCoordinator = sourceSwitchCoordinatorRef.current;
     const selectedSourceViewKeyRef = useRef<string | null>(null);
     const previousSelectedSourceIdForViewRef = useRef<string | null>(
       selectedSourceId || null,
@@ -2108,6 +2129,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const previousInventorySourceIdsRef = useRef<Set<string>>(new Set());
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
     const pendingLocalSampleRateRef = useRef<number | null>(null);
+
+    useEffect(
+      () => () => {
+        sourceSwitchCoordinator.dispose();
+      },
+    );
 
     // Capture the leaving source before SpectrumRoute effects jump Mock Tx
     // geometry onto the shared frequencyRange (would otherwise poison APT).
@@ -2349,20 +2376,22 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           selectedSourceId,
           activeSourceId,
           presentationSourceId,
-          lastRequestedSourceId:
-            lastRequestedSubscriberViewSourceIdRef.current,
+          lastRequestedSourceId: null,
         })
       ) {
         return;
       }
 
-      lastRequestedSubscriberViewSourceIdRef.current = selectedSourceId;
-      liveDataRef.current = [];
-      // The selected source owns a persistent frame slot for fast rendering.
-      // Invalidate that slot at the handoff boundary so a previous-session
-      // frame cannot appear before this switch commits.
-      sourceVisualizationRuntime.reset(selectedSourceId);
-      sourceSpectrumRuntime.reset(selectedSourceId);
+      if (presentationSourceId === selectedSourceId) {
+        if (sourceSwitchCoordinator.confirm(selectedSourceId)) {
+          reduxDispatch(setReduxPendingSourceSwitchId(null));
+        }
+        return;
+      }
+      if (!sourceSwitchCoordinator.request(selectedSourceId)) return;
+      // Source runtimes are persistent per source. Do not reset the target
+      // slot during a view handoff: its retained frame is the standby/paused
+      // presentation until the reopened managed stream supplies a fresh one.
       liveDataBySourceRef.current[selectedSourceId] =
         sourceVisualizationRuntime.getSourceRef(selectedSourceId);
       reduxDispatch(sendViewSourceThunk(selectedSourceId));
@@ -2374,6 +2403,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectedSource,
       selectedSourceId,
       selectedSourceStatus,
+      sourceSwitchCoordinator,
       state.sourceMode,
       websocketSources,
     ]);
@@ -3399,20 +3429,48 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
 
       const range = reduxSpectrumState.frequencyRange;
-      const rangeViewSampleRateHz =
-        range &&
-        Number.isFinite(range.min) &&
-        Number.isFinite(range.max) &&
-        range.max > range.min
-          ? range.max - range.min
-          : undefined;
-      const rangeViewCenterHz =
+      const mockTxMonitorRange =
+        reduxSpectrumState.sourceViewFrequencyRanges?.[controlSourceId];
+      const isMockTxControlSource = isMockTxSource({
+        id: controlSourceId,
+        kind: controlSource?.kind,
+      });
+      const sourceViewCenterHz =
+        mockTxMonitorRange &&
+        Number.isFinite(mockTxMonitorRange.min) &&
+        Number.isFinite(mockTxMonitorRange.max) &&
+        mockTxMonitorRange.max > mockTxMonitorRange.min
+          ? (mockTxMonitorRange.min + mockTxMonitorRange.max) / 2
+          : null;
+      const sharedViewCenterHz =
         range &&
         Number.isFinite(range.min) &&
         Number.isFinite(range.max) &&
         range.max > range.min
           ? (range.min + range.max) / 2
           : null;
+      const rangeViewSampleRateHz = resolveMockTxTransmitViewSampleRateHz({
+        isMockTx: isMockTxControlSource,
+        viewerSampleRateHz: reduxSpectrumState.txViewerSampleRateHz,
+        fallbackSampleRateHz:
+          range &&
+          Number.isFinite(range.min) &&
+          Number.isFinite(range.max) &&
+          range.max > range.min
+            ? range.max - range.min
+            : null,
+      });
+      const rangeViewCenterHz = resolveMockTxTransmitViewCenterHz({
+        isMockTx: isMockTxControlSource,
+        isSelectedSource: selectedSourceId === controlSourceId,
+        monitorCenterHz: resolveMockTxMonitorCenterForSync({
+          isMockTx: isMockTxControlSource,
+          sourceViewCenterHz,
+          sharedViewCenterHz,
+        }),
+        txCenterHz: reduxSpectrumState.txCenterFrequencyHz,
+        fallbackCenterHz: sharedViewCenterHz,
+      });
       const transmitGeometry = resolveMockTxTransmitSettings({
         txCenterHz: reduxSpectrumState.txCenterFrequencyHz,
         viewCenterHz: rangeViewCenterHz,
@@ -3496,6 +3554,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       reduxSpectrumState.txHopChannels,
       reduxSpectrumState.txHopRateHz,
       reduxSpectrumState.frequencyRange,
+      reduxSpectrumState.sourceViewFrequencyRanges,
       activeSource,
       sendTransmitStatusCommand,
     ]);

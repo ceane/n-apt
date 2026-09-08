@@ -2,6 +2,8 @@ import {
   canShowTxSliderForSource,
   resolveMockTxPreviewViewCenterHz,
   resolveMockTxTransmitSettings,
+  resolveMockTxMonitorCenterForSync,
+  resolveMockTxTransmitViewSampleRateHz,
   resolveTxPreviewCenterHz,
   resolveTxMonitorViewportCenterHz,
   resolveTxPreviewGeometry,
@@ -109,6 +111,38 @@ describe("resolveMockTxPreviewViewCenterHz", () => {
         detached: false,
       }),
     ).toBe(13_875_000);
+  });
+});
+
+describe("resolveMockTxMonitorCenterForSync", () => {
+  it("does not reuse the shared RX viewport when starting Mock Tx", () => {
+    expect(
+      resolveMockTxMonitorCenterForSync({
+        isMockTx: true,
+        sourceViewCenterHz: null,
+        sharedViewCenterHz: 136_500_000,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps an explicitly detached Mock Tx viewport", () => {
+    expect(
+      resolveMockTxMonitorCenterForSync({
+        isMockTx: true,
+        sourceViewCenterHz: 136_800_000,
+        sharedViewCenterHz: 136_500_000,
+      }),
+    ).toBe(136_800_000);
+  });
+
+  it("uses the shared viewport for non-Mock-Tx sources", () => {
+    expect(
+      resolveMockTxMonitorCenterForSync({
+        isMockTx: false,
+        sourceViewCenterHz: null,
+        sharedViewCenterHz: 136_500_000,
+      }),
+    ).toBe(136_500_000);
   });
 });
 
@@ -232,5 +266,17 @@ describe("resolveMockTxTransmitSettings", () => {
       sampleRateHz: 1_000_000,
       bandwidthHz: 1_000_000,
     });
+  });
+});
+
+describe("resolveMockTxTransmitViewSampleRateHz", () => {
+  it("keeps Whole Channel monitor span separate from Tx bandwidth", () => {
+    expect(
+      resolveMockTxTransmitViewSampleRateHz({
+        isMockTx: true,
+        viewerSampleRateHz: 4_372_000,
+        fallbackSampleRateHz: 1_076_000,
+      }),
+    ).toBe(4_372_000);
   });
 });

@@ -34,14 +34,16 @@ const ChannelsSectionTitle = styled.div<{ $fileMode?: boolean }>`
     props.$fileMode ? props.theme.fileMode : props.theme.metadataLabel};
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-top: 1rem;
-  margin-bottom: 0;
+  margin-top: 1.25rem;
+  margin-bottom: 4px;
   font-weight: 600;
   font-family: ${(props) => props.theme.typography.mono};
   grid-column: 1 / -1;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 `;
 
 const SectionText = styled.span`
@@ -215,15 +217,19 @@ const TuneButton = styled.button`
 `;
 
 const ChannelZoomResetButton = styled.button`
-  grid-column: 1 / -1;
-  justify-self: center;
-  padding: 6px 10px;
+  justify-self: end;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 8px;
   background: transparent;
   border: 1px solid ${(props) => props.theme.borderHover};
   border-radius: 4px;
   color: ${(props) => props.theme.textSecondary};
   font-family: ${(props) => props.theme.typography.mono};
-  font-size: 11px;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
   cursor: pointer;
 
   &:hover {
@@ -611,6 +617,14 @@ export const Channels: React.FC<ChannelsProps> = ({
           <ChannelsSectionTitle $fileMode={fileMode}>
             <ChevronsLeftRightEllipsis size={14} />
             <SectionText>Channels</SectionText>
+            {isChannelZoomed && (
+              <ChannelZoomResetButton
+                type="button"
+                onClick={resetZoomToWholeChannel}
+              >
+                Reset Zoom to see Whole Channel
+              </ChannelZoomResetButton>
+            )}
           </ChannelsSectionTitle>
         )}
         <ChannelsSpectrumGrid>
@@ -685,15 +699,6 @@ export const Channels: React.FC<ChannelsProps> = ({
             <EmptyStateText>No active signal areas</EmptyStateText>
           )}
         </ChannelsSpectrumGrid>
-        {isChannelZoomed && (
-          <ChannelZoomResetButton
-            type="button"
-            onClick={resetZoomToWholeChannel}
-          >
-            Reset Zoom to see Whole Channel
-          </ChannelZoomResetButton>
-        )}
-
         {/* Active Channel Description & Stats Box */}
         {activeFrame && !shouldShowOtherChannel && (
           <ActiveChannelInfoBox>

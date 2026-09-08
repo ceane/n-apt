@@ -174,6 +174,7 @@ describe("frame presentation policy", () => {
       explicitPlaceholderState: {
         kind: "loading",
         sourceLabel: "Mock Tx SDR",
+        paneLabel: "FFT",
       },
       hasPresentedSpectrumFrame: false,
       hasRetainedPausedPresentation: true,

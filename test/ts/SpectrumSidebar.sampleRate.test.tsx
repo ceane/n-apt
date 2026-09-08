@@ -550,6 +550,120 @@ describe("SpectrumSidebar sample rate behavior", () => {
     expect(screen.getByText("Tx Bandwidth")).toBeInTheDocument();
   });
 
+  it("keeps Mock Tx monitor sample rate separate from RX sample rate and waveform rate", async () => {
+    const mockTxSource = {
+      id: "mock-tx",
+      name: "Mock Tx SDR",
+      kind: "mock_tx",
+      capability: "tx",
+      status: "standby",
+      serial_number: "mock-tx",
+      supports_approx_dbm: true,
+      iq_format: {
+        element_type: "u8",
+        layout: "interleaved_iq",
+        typed_array: "Uint8Array",
+      },
+      sdr: {
+        max_sample_rate: 20_000_000,
+        sample_rate_options: [3_200_000, 4_000_000, 5_000_000],
+        fft_display: { markers: [] },
+        settings: {
+          center_frequency: 137_100_000,
+          sample_rate: 3_200_000,
+          min_receive_sample_rate: 3_200_000,
+        },
+      },
+    };
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: mockTxSource.id,
+      selectedSource: mockTxSource,
+      sources: [mockTxSource],
+      activeSignalArea: "A",
+      frequencyRange: { min: 18_000, max: 4_390_000 },
+      sampleRateHz: 3_200_000,
+      txSampleRateHz: 2_400_000,
+      txViewerSampleRateHz: 3_200_000,
+      selectedSourceDerived: {
+        deviceState: "standby",
+        deviceName: "Mock Tx SDR",
+        deviceProfile: { kind: "mock_tx", supports_approx_dbm: true },
+        deviceInfo: "Mock Tx SDR",
+        backend: "mock_tx",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: mockTxSource.sdr.sample_rate_options,
+        sampleRateHz: 3_200_000,
+        sdrSettings: mockTxSource.sdr.settings,
+        supportsBasebandFilter: false,
+      },
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      backend: "mock_tx",
+      deviceName: "Mock Tx SDR",
+      deviceProfile: { kind: "mock_tx", supports_approx_dbm: true },
+      sources: [mockTxSource],
+      sampleRateOptions: mockTxSource.sdr.sample_rate_options,
+      sampleRateHz: 3_200_000,
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-tx",
+        activeSourceMode: "live",
+        sources: [mockTxSource],
+        channels: [],
+      } as any),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const sampleRateLabel = (await screen.findAllByText("Sample Rate"))[0];
+    const sampleRateRow = sampleRateLabel.closest("div")?.parentElement;
+    const sampleRateSelect = within(sampleRateRow as HTMLElement).getByRole(
+      "combobox",
+    ) as HTMLSelectElement;
+
+    expect(
+      Array.from(sampleRateSelect.options).map((option) => option.value),
+    ).toEqual(["whole-channel", "3200000", "4000000", "5000000"]);
+    expect(sampleRateSelect).toHaveValue("3200000");
+
+    fireEvent.change(sampleRateSelect, { target: { value: "4000000" } });
+
+    await waitFor(() => expect(sampleRateSelect).toHaveValue("4000000"));
+    expect(store.getState().spectrum.sampleRateHz).toBe(3_200_000);
+    expect(store.getState().spectrum.txSampleRateHz).toBe(2_400_000);
+    expect(store.getState().spectrum.txViewerSampleRateHz).toBe(4_000_000);
+    expect(mockWsConnection.sendSettings).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sampleRate: 4_000_000 }),
+    );
+    expect(mockWsConnection.sendFrequencyRange).not.toHaveBeenCalled();
+
+    fireEvent.change(sampleRateSelect, { target: { value: "whole-channel" } });
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.txViewerSampleRateHz).toBe(4_372_000);
+    });
+    expect(mockLiveState.frequencyRange.max - mockLiveState.frequencyRange.min).toBe(
+      4_372_000,
+    );
+    expect(mockWsConnection.sendSettings).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sampleRate: 4_372_000 }),
+    );
+  });
+
   it("keeps Mock APT at its accepted rate until Whole Channel is selected explicitly", async () => {
     mockLiveState = {
       ...mockLiveState,

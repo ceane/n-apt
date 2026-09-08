@@ -18,6 +18,11 @@ import {
   removeNoteCard,
   setTxSignal,
   setTxSampleRateHz,
+  setTxViewerSampleRateHz,
+  setTxViewerFftSize,
+  setTxViewerFftFrameRate,
+  setTxViewerFftWindow,
+  setTxViewerTemporalResolution,
   setTxIfftSize,
   setTxCenterFrequencyHz,
   setTxGeometry,
@@ -35,6 +40,7 @@ import {
   setShowTxSlider,
   setRemoveDcSpike,
   setFrequencyRange,
+  setSourceViewFrequencyRange,
   setActiveSignalArea,
   setSourceBinding,
 } from "@n-apt/redux";
@@ -106,6 +112,8 @@ import {
   isRtlSdrDevice,
   isHackrfDevice,
   resolveCaptureAcquisitionMode,
+  resolveMockTxMonitorSampleRateHz,
+  resolveMockTxMonitorSampleRateOptions,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { resolveWholeChannelViewport } from "@n-apt/spectrum/utils/wholeChannelPresentation";
 import {
@@ -137,7 +145,12 @@ import {
   resolveTxStopTransition,
   shouldRetainTxStandbyAfterStop,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
-import { resolveMockTxTransmitSettings } from "@n-apt/transmit/public/txSliderPlacement";
+import {
+  resolveMockTxTransmitSettings,
+  resolveMockTxMonitorCenterForSync,
+  resolveMockTxTransmitViewSampleRateHz,
+  resolveMockTxTransmitViewCenterHz,
+} from "@n-apt/transmit/public/txSliderPlacement";
 
 const SidebarContent = memo(styled.div`
   display: grid;
@@ -508,6 +521,8 @@ const buildTxSettingsSyncKey = (values: {
   sourceId?: string | null;
   txSignal?: string | null;
   centerFrequencyHz?: number | null;
+  viewCenterFrequencyHz?: number | null;
+  viewSampleRateHz?: number | null;
   bandwidthHz?: number | null;
   ifftSize?: number | null;
   powerDbm?: number | null;
@@ -526,6 +541,8 @@ const buildTxSettingsSyncKey = (values: {
     sourceId: values.sourceId ?? null,
     txSignal: values.txSignal ?? null,
     centerFrequencyHz: values.centerFrequencyHz ?? null,
+    viewCenterFrequencyHz: values.viewCenterFrequencyHz ?? null,
+    viewSampleRateHz: values.viewSampleRateHz ?? null,
     bandwidthHz: values.bandwidthHz ?? null,
     ifftSize: values.ifftSize ?? null,
     powerDbm: values.powerDbm ?? null,
@@ -654,6 +671,21 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   } = liveState;
   const txViewerPowerScale = useAppSelector(
     (state) => state.spectrum.txViewerPowerScale,
+  );
+  const txViewerSampleRateHz = useAppSelector(
+    (state) => state.spectrum.txViewerSampleRateHz,
+  );
+  const txViewerFftSize = useAppSelector(
+    (state) => state.spectrum.txViewerFftSize,
+  );
+  const txViewerFftFrameRate = useAppSelector(
+    (state) => state.spectrum.txViewerFftFrameRate,
+  );
+  const txViewerFftWindow = useAppSelector(
+    (state) => state.spectrum.txViewerFftWindow,
+  );
+  const txViewerTemporalResolution = useAppSelector(
+    (state) => state.spectrum.txViewerTemporalResolution,
   );
   const websocketChannels = useAppSelector((s) => s.websocket.channels);
   const channelFramesToUse = useMemo(
@@ -961,11 +993,26 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     maxSampleRateHz,
   ]);
 
-  const liveManualSampleRateOptions = isMockLiveSource
-    ? liveSampleRateOptions.length > 0
-      ? liveSampleRateOptions
-      : (mockResolved?.options ?? [3_200_000])
-    : liveSampleRateOptions;
+  const mockTxMonitorSampleRateOptions = isMockTxLiveSource
+    ? resolveMockTxMonitorSampleRateOptions({
+        options:
+          liveSampleRateOptions.length > 0
+            ? liveSampleRateOptions
+            : (mockResolved?.options ?? []),
+        minimumSampleRateHz:
+          liveSdrSettingsToUse?.min_receive_sample_rate ??
+          liveState.minReceiveSampleRateHz ??
+          3_200_000,
+        maximumSampleRateHz: sampleRateControlMaximumHz,
+      })
+    : [];
+  const liveManualSampleRateOptions = isMockTxLiveSource
+    ? mockTxMonitorSampleRateOptions
+    : isMockLiveSource
+      ? liveSampleRateOptions.length > 0
+        ? liveSampleRateOptions
+        : (mockResolved?.options ?? [3_200_000])
+      : liveSampleRateOptions;
   const supportsWholeChannelSampleRate = sourceMode === "live" && !isRtlSdr;
   const wholeChannelViewport = activeSignalAreaBounds
     ? resolveWholeChannelViewport({
@@ -996,6 +1043,23 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           0),
     sampleRateControlMaximumHz,
   );
+  const signalDisplaySampleRate = isMockTxLiveSource
+    ? resolveMockTxMonitorSampleRateHz({
+        requestedSampleRateHz: txViewerSampleRateHz,
+        options: mockTxMonitorSampleRateOptions,
+        wholeChannelSampleRateHz: liveWholeChannelSampleRate,
+      })
+    : null;
+  const signalDisplayFftSize = isMockTxLiveSource ? txViewerFftSize : fftSize;
+  const signalDisplayFftFrameRate = isMockTxLiveSource
+    ? txViewerFftFrameRate
+    : fftFrameRate;
+  const signalDisplayFftWindow = isMockTxLiveSource
+    ? txViewerFftWindow
+    : fftWindow;
+  const signalDisplayTemporalResolution = isMockTxLiveSource
+    ? txViewerTemporalResolution
+    : displayTemporalResolution;
   const sampleRateHzLocal =
     (typeof sampleRateHzEffective === "number" &&
     Number.isFinite(sampleRateHzEffective) &&
@@ -1053,6 +1117,28 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             sampleRateControlMaximumHz,
           )
         : sampleRateHzLocal) || null;
+
+  const sampleRateHzForSignalDisplay = isMockTxLiveSource
+    ? signalDisplaySampleRate
+    : sampleRateHzRequestedLocal;
+
+  useEffect(() => {
+    if (
+      !isMockTxLiveSource ||
+      signalDisplaySampleRate === null ||
+      Math.round(txViewerSampleRateHz) === Math.round(signalDisplaySampleRate)
+    ) {
+      return;
+    }
+    // Repair a persisted pre-split value such as 2.4 MHz without sending it
+    // through the RX settings path or changing another source's acquisition.
+    dispatch(setTxViewerSampleRateHz(signalDisplaySampleRate));
+  }, [
+    dispatch,
+    isMockTxLiveSource,
+    signalDisplaySampleRate,
+    txViewerSampleRateHz,
+  ]);
 
   const isServerConnected = useMemo(
     () =>
@@ -1179,10 +1265,34 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     ? liveManualSampleRateOptions
     : sampleRateOptions;
 
+  const setFftFrameRateForVisualizer = useCallback(
+    (rate: number) => {
+      if (isMockTxLiveSource) {
+        dispatch(setTxViewerFftFrameRate(rate));
+      } else {
+        setFftFrameRate(rate);
+      }
+    },
+    [dispatch, isMockTxLiveSource, setFftFrameRate],
+  );
+
   const setSampleRateForVisualizer = useCallback(
     (rate: number, nextRange?: { min: number; max: number }) => {
-      // Keep the canvas-side request coherent immediately, while
-      // useSdrSettings owns the single Redux bundle + transport message.
+      // Mock Tx has no RX acquisition to retune. Its monitor viewport owns a
+      // separate sample rate from both the TX waveform and the RX device
+      // sample rate; sending the generic action here used to retune Mock APT.
+      if (isMockTxLiveSource) {
+        if (nextRange && selectedSourceId) {
+          dispatch(
+            setSourceViewFrequencyRange({
+              sourceId: selectedSourceId,
+              range: nextRange,
+            }),
+          );
+        }
+        dispatch(setTxViewerSampleRateHz(rate));
+        return;
+      }
       storeDispatch({
         type: "SET_SAMPLE_RATE",
         sampleRateHz: rate,
@@ -1190,7 +1300,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       });
       setSampleRate(rate);
     },
-    [setSampleRate, storeDispatch],
+    [dispatch, isMockTxLiveSource, selectedSourceId, setSampleRate, storeDispatch],
   );
 
   const {
@@ -1207,20 +1317,44 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       : sampleRateControlMaximumHz,
     activeSignalAreaBounds,
     frequencyRange,
-    sampleRateHz: sampleRateHzRequestedLocal,
-    fftSize,
-    maxFrameRateLimit: maxFrameRate,
+    sampleRateHz: sampleRateHzForSignalDisplay,
+    fftSize: signalDisplayFftSize,
+    maxFrameRateLimit: isMockTxLiveSource ? 60 : maxFrameRate,
     setSampleRate: setSampleRateForVisualizer,
     setSampleRateWithFrequencyRange: setSampleRateForVisualizer,
+    // RX sample-rate changes already bundle the derived frame rate in the
+    // single settings command. Mock Tx owns its viewer frame rate separately,
+    // so only that path needs the dedicated viewer action.
+    setFftFrameRate: isMockTxLiveSource
+      ? setFftFrameRateForVisualizer
+      : undefined,
     applyFrequencyRange: useCallback(
       (range) => {
-        dispatch(setFrequencyRange(range));
-        storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
-        spectrumTransport.sendFrequencyRange(range);
+        // A Mock Tx range is only the local monitor viewport. Do not publish
+        // it through the RX transport or another client's Mock APT stream
+        // will be retuned as a side effect of using this control.
+        if (isMockTxLiveSource && selectedSourceId) {
+          dispatch(
+            setSourceViewFrequencyRange({
+              sourceId: selectedSourceId,
+              range,
+            }),
+          );
+        } else if (!isMockTxLiveSource) {
+          storeDispatch({ type: "SET_FREQUENCY_RANGE", range });
+          dispatch(setFrequencyRange(range));
+          spectrumTransport.sendFrequencyRange(range);
+        }
       },
-      [dispatch, spectrumTransport, storeDispatch],
+      [dispatch, isMockTxLiveSource, selectedSourceId, spectrumTransport, storeDispatch],
     ),
   });
+  const signalDisplayWholeChannelMode = isMockTxLiveSource
+    ? signalDisplaySampleRate !== null &&
+      hackrfWholeChannelSampleRate !== null &&
+      Math.round(signalDisplaySampleRate) ===
+        Math.round(hackrfWholeChannelSampleRate)
+    : isWholeChannelMode;
   const handleSignalDisplaySampleRateChange = useCallback(
     (
       nextSampleRate: number,
@@ -1351,6 +1485,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const txIfftSize = useAppSelector((state) => state.spectrum.txIfftSize);
   const txCenterFrequencyHz = useAppSelector(
     (state) => state.spectrum.txCenterFrequencyHz,
+  );
+  const sourceViewFrequencyRanges = useAppSelector(
+    (state) => state.spectrum.sourceViewFrequencyRanges,
   );
   const txPowerDbm = useAppSelector((state) => state.spectrum.txPowerDbm);
   const txVgaGain = useAppSelector((state) => state.spectrum.txVgaGain);
@@ -1509,7 +1646,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           Number.isFinite(frequencyRange.min) &&
           Number.isFinite(frequencyRange.max)
             ? frequencyRange.max - frequencyRange.min
-            : undefined;
+            : null;
+        const monitorViewSampleRateHz =
+          resolveMockTxTransmitViewSampleRateHz({
+            isMockTx: isMockTxSource({
+              id: source.id,
+              kind: source.kind,
+            }),
+            viewerSampleRateHz: txViewerSampleRateHz,
+            fallbackSampleRateHz: rangeViewSampleRateHz,
+          });
         const transmitSettings =
           nextEnabled &&
           typeof fallbackCenterHz === "number" &&
@@ -1518,7 +1664,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           Number.isFinite(fallbackBandwidthHz)
             ? resolveMockTxTransmitSettings({
                 txCenterHz: fallbackCenterHz,
-                viewSampleRateHz: rangeViewSampleRateHz,
+                viewSampleRateHz: monitorViewSampleRateHz,
                 txBandwidthHz: fallbackBandwidthHz,
               })
             : null;
@@ -1528,6 +1674,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               txSignal,
               centerFrequencyHz:
                 transmitSettings?.centerFrequencyHz ?? fallbackCenterHz,
+              viewCenterFrequencyHz: transmitSettings?.viewCenterHz,
+              viewSampleRateHz: monitorViewSampleRateHz,
               bandwidthHz: transmitSettings?.bandwidthHz ?? fallbackBandwidthHz,
               ifftSize: txIfftSize,
               powerDbm: txPowerDbm ?? undefined,
@@ -1634,6 +1782,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       txCenterFrequencyHz,
       txPowerDbm,
       txSampleRateHz,
+      txViewerSampleRateHz,
       txVgaGain,
       txSafetyEnabled,
       txSafetyLimit,
@@ -1655,25 +1804,39 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const jumpMonitorToTypedTxGeometry = useCallback(
     (centerHz: number) => {
       if (!Number.isFinite(centerHz)) return;
-      const spanHz =
-        frequencyRange &&
-        Number.isFinite(frequencyRange.min) &&
-        Number.isFinite(frequencyRange.max) &&
-        frequencyRange.max > frequencyRange.min
-          ? frequencyRange.max - frequencyRange.min
-          : txSampleRateHz;
-      if (!Number.isFinite(spanHz) || spanHz <= 0) return;
-      dispatch(
-        setFrequencyRange(
-          buildCenteredFrequencyRange(
-            centerHz,
-            spanHz,
-            0,
-          ),
-        ),
-      );
+      const spanHz = resolveMockTxTransmitViewSampleRateHz({
+        isMockTx: isMockTxLiveSource,
+        viewerSampleRateHz: txViewerSampleRateHz,
+        fallbackSampleRateHz:
+          frequencyRange &&
+          Number.isFinite(frequencyRange.min) &&
+          Number.isFinite(frequencyRange.max) &&
+          frequencyRange.max > frequencyRange.min
+            ? frequencyRange.max - frequencyRange.min
+            : txSampleRateHz,
+      });
+      if (spanHz === null || !Number.isFinite(spanHz) || spanHz <= 0) return;
+      const range = buildCenteredFrequencyRange(centerHz, spanHz, 0);
+      if (isMockTxLiveSource && selectedSourceId) {
+        dispatch(
+          setSourceViewFrequencyRange({
+            sourceId: selectedSourceId,
+            range,
+          }),
+        );
+      } else {
+        dispatch(setFrequencyRange(range));
+      }
     },
-    [allowNegativeFrequencies, dispatch, frequencyRange, txSampleRateHz],
+    [
+      allowNegativeFrequencies,
+      dispatch,
+      frequencyRange,
+      isMockTxLiveSource,
+      selectedSourceId,
+      txSampleRateHz,
+      txViewerSampleRateHz,
+    ],
   );
 
   const handleTxSignalChange = useCallback(
@@ -1707,17 +1870,49 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const source = sourcesToUse.find((entry) => entry.id === txTargetDeviceId);
     if (!source) return;
     const rangeViewSampleRateHz =
-      frequencyRange &&
-      Number.isFinite(frequencyRange.min) &&
-      Number.isFinite(frequencyRange.max)
-        ? frequencyRange.max - frequencyRange.min
-        : undefined;
-    const rangeViewCenterHz =
+      resolveMockTxTransmitViewSampleRateHz({
+        isMockTx: isMockTxSource({
+          id: source.id,
+          kind: source.kind,
+        }),
+        viewerSampleRateHz: txViewerSampleRateHz,
+        fallbackSampleRateHz:
+          frequencyRange &&
+          Number.isFinite(frequencyRange.min) &&
+          Number.isFinite(frequencyRange.max)
+            ? frequencyRange.max - frequencyRange.min
+            : null,
+      });
+    const isMockTxSourceForSync = isMockTxSource({
+      id: source.id,
+      kind: source.kind,
+    });
+    const mockTxMonitorRange =
+      sourceViewFrequencyRanges?.[source.id] ?? null;
+    const sourceViewCenterHz =
+      mockTxMonitorRange &&
+      Number.isFinite(mockTxMonitorRange.min) &&
+      Number.isFinite(mockTxMonitorRange.max) &&
+      mockTxMonitorRange.max > mockTxMonitorRange.min
+        ? (mockTxMonitorRange.min + mockTxMonitorRange.max) / 2
+        : null;
+    const sharedViewCenterHz =
       frequencyRange &&
       Number.isFinite(frequencyRange.min) &&
       Number.isFinite(frequencyRange.max)
         ? (frequencyRange.min + frequencyRange.max) / 2
         : null;
+    const rangeViewCenterHz = resolveMockTxTransmitViewCenterHz({
+      isMockTx: isMockTxSourceForSync,
+      isSelectedSource: selectedSourceId === source.id,
+      monitorCenterHz: resolveMockTxMonitorCenterForSync({
+        isMockTx: isMockTxSourceForSync,
+        sourceViewCenterHz,
+        sharedViewCenterHz,
+      }),
+      txCenterHz: txCenterFrequencyHz,
+      fallbackCenterHz: sharedViewCenterHz,
+    });
     // Ongoing transmit sync is passive: keep the current monitor view.
     const transmitSettings = resolveMockTxTransmitSettings({
       txCenterHz: txCenterFrequencyHz,
@@ -1730,6 +1925,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sourceId: source.id,
       txSignal,
       centerFrequencyHz: transmitSettings.centerFrequencyHz,
+      viewCenterFrequencyHz: transmitSettings.viewCenterHz,
+      viewSampleRateHz: rangeViewSampleRateHz,
       bandwidthHz: transmitSettings.bandwidthHz,
       ifftSize: txIfftSize,
       powerDbm: txPowerDbm,
@@ -1807,7 +2004,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     txHopChannels,
     txHopRateHz,
     frequencyRange,
+    sourceViewFrequencyRanges,
     sourcesToUse,
+    txViewerSampleRateHz,
     wsConnection.sendTransmitStatus,
   ]);
 
@@ -3167,31 +3366,48 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined
             }
             sampleRate={
+              signalDisplaySampleRate ??
               sampleRateHzLocal ??
               liveSdrSettingsToUse?.sample_rate ??
               maxSampleRate
             }
             sampleRateOptions={signalDisplaySampleRateOptions}
             wholeChannelSampleRate={hackrfWholeChannelSampleRate}
-            isWholeChannelMode={isWholeChannelMode}
+            isWholeChannelMode={signalDisplayWholeChannelMode}
             fileCapturedRange={fileCapturedRange}
-            fftFrameRate={fftFrameRate}
-            maxFrameRate={maxFrameRate}
-            fftSize={fftSize}
+            fftFrameRate={signalDisplayFftFrameRate}
+            maxFrameRate={isMockTxLiveSource ? 60 : maxFrameRate}
+            fftSize={signalDisplayFftSize}
             fftSizeOptions={fftSizeOptions}
-            fftWindow={fftWindow || "Rectangular"}
-            temporalResolution={displayTemporalResolution}
+            fftWindow={signalDisplayFftWindow || "Rectangular"}
+            temporalResolution={signalDisplayTemporalResolution}
             backend={liveBackend}
             deviceProfile={liveDeviceProfileForDisplay}
             powerScale={isMockTxLiveSource ? txViewerPowerScale : powerScale}
             removeDcSpike={removeDcSpike}
             displayMode={displayMode || "fft"}
-            onFftFrameRateChange={setFftFrameRate}
-            onFftSizeChange={setFftSize}
+            onFftFrameRateChange={setFftFrameRateForVisualizer}
+            onFftSizeChange={(value) => {
+              if (isMockTxLiveSource) {
+                dispatch(setTxViewerFftSize(value));
+              } else {
+                setFftSize(value);
+              }
+            }}
             onSampleRateChange={handleSignalDisplaySampleRateChange}
-            onFftWindowChange={setFftWindow}
+            onFftWindowChange={(value) => {
+              if (isMockTxLiveSource) {
+                dispatch(setTxViewerFftWindow(value));
+              } else {
+                setFftWindow(value);
+              }
+            }}
             onTemporalResolutionChange={(res) => {
-              dispatch(setTemporalResolution(res));
+              dispatch(
+                isMockTxLiveSource
+                  ? setTxViewerTemporalResolution(res)
+                  : setTemporalResolution(res),
+              );
             }}
             onPowerScaleChange={(ps) => {
               dispatch(

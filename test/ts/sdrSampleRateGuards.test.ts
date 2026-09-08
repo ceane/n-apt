@@ -6,6 +6,8 @@ import {
   resolveCaptureAcquisitionMode,
   resolveCanonicalDisplaySampleRateHz,
   resolveDisplaySampleRateHz,
+  resolveMockTxMonitorSampleRateHz,
+  resolveMockTxMonitorSampleRateOptions,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 describe("resolveDisplaySampleRateHz", () => {
@@ -120,6 +122,32 @@ describe("resolveDisplaySampleRateHz", () => {
 });
 
 describe("sdrSampleRateGuards", () => {
+  it("keeps the Mock Tx waveform rate out of the monitor rate list", () => {
+    const options = resolveMockTxMonitorSampleRateOptions({
+      options: [2_400_000, 4_000_000, 20_000_000],
+      minimumSampleRateHz: 3_200_000,
+      maximumSampleRateHz: 20_000_000,
+    });
+
+    expect(options).toEqual([3_200_000, 4_000_000, 20_000_000]);
+    expect(
+      resolveMockTxMonitorSampleRateHz({
+        requestedSampleRateHz: 2_400_000,
+        options,
+      }),
+    ).toBe(3_200_000);
+  });
+
+  it("preserves the explicit Whole Channel monitor span even when it is not a manual rate option", () => {
+    expect(
+      resolveMockTxMonitorSampleRateHz({
+        requestedSampleRateHz: 4_372_000,
+        options: [3_200_000, 4_000_000, 5_000_000],
+        wholeChannelSampleRateHz: 4_372_000,
+      }),
+    ).toBe(4_372_000);
+  });
+
   it("allows whole-channel snapshots as a source-independent acquisition intent", () => {
     expect(
       canUseWholeChannelSnapshot({

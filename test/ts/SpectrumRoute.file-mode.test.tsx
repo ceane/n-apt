@@ -330,6 +330,7 @@ describe("SpectrumRoute file mode", () => {
         fftWindow: "Rectangular",
         autoZoomStability: false,
         fftFrameRate: 60,
+        showTxSlider: false,
         showSpikeOverlay: false,
         isWaterfallCleared: false,
         selectedFilesCount: 0,
@@ -355,7 +356,7 @@ describe("SpectrumRoute file mode", () => {
         backend: null,
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [],
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         sdrSettings: { sample_rate: 4_372_000 },
       },
       effectiveFrames: [{ waveform: new Float32Array([0, 1]) }],
@@ -430,14 +431,7 @@ describe("SpectrumRoute file mode", () => {
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
-    expect(visualizerProps.txSlider).toMatchObject({
-      visible: true,
-      signalLabel: "Mock WiFi",
-      visibleMinHz: 0,
-      visibleMaxHz: 4_372_000,
-      txCenterHz: 2_186_000,
-      txSampleRateHz: 2_400_000,
-    });
+    expect(visualizerProps.txSlider).toBeUndefined();
     expect(visualizerProps.limitMarkers).toEqual([]);
     expect(visualizerProps.deviceProfile).toMatchObject({ kind: "mock_tx" });
     expect(visualizerProps.isDeviceConnected).toBe(true);
@@ -501,7 +495,7 @@ describe("SpectrumRoute file mode", () => {
         name: "Mock APT SDR",
         kind: "mock_apt",
         capability: "mock",
-        status: "connected",
+        status: "standby",
       } as any,
       selectedSourceDerived: {
         deviceState: "connected",
@@ -861,6 +855,7 @@ describe("SpectrumRoute file mode", () => {
         fftWindow: "Rectangular",
         autoZoomStability: false,
         fftFrameRate: 60,
+        showTxSlider: true,
         showSpikeOverlay: false,
         isWaterfallCleared: false,
         selectedFilesCount: 0,
@@ -1200,6 +1195,7 @@ describe("SpectrumRoute file mode", () => {
         fftWindow: "Rectangular",
         autoZoomStability: false,
         fftFrameRate: 60,
+        showTxSlider: true,
         showSpikeOverlay: false,
         isWaterfallCleared: false,
         selectedFilesCount: 0,
@@ -1215,7 +1211,7 @@ describe("SpectrumRoute file mode", () => {
         name: "Mock Tx SDR",
         kind: "mock_tx",
         capability: "tx",
-        status: "connected",
+        status: "standby",
       } as any,
       selectedSourceDerived: {
         deviceState: "connected",
@@ -1298,7 +1294,7 @@ describe("SpectrumRoute file mode", () => {
       },
       websocket: {
         ...websocketSlice(undefined, { type: "@@INIT" as any }),
-        sourceStatuses: { "mock-tx": "connected" },
+        sourceStatuses: { "mock-tx": "standby" },
       },
     });
 
@@ -1321,15 +1317,15 @@ describe("SpectrumRoute file mode", () => {
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
     expect(visualizerProps.frequencyRange).toEqual({
-      min: 134_914_000,
-      max: 139_286_000,
+      min: 135_500_000,
+      max: 138_700_000,
     });
     expect(visualizerProps.centerFrequencyHz).toBe(137_100_000);
-    expect(visualizerProps.hardwareSampleRateHz).toBe(4_372_000);
+    expect(visualizerProps.hardwareSampleRateHz).toBe(3_200_000);
     expect(visualizerProps.txSlider).toMatchObject({
       visible: true,
-      visibleMinHz: 134_914_000,
-      visibleMaxHz: 139_286_000,
+      visibleMinHz: 135_500_000,
+      visibleMaxHz: 138_700_000,
       txCenterHz: 137_100_000,
       txSampleRateHz: 2_400_000,
     });
@@ -1346,7 +1342,7 @@ describe("SpectrumRoute file mode", () => {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
         bandwidthHz: 2_400_000,
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1446,7 +1442,7 @@ describe("SpectrumRoute file mode", () => {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
         bandwidthHz: 3_400_000,
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1517,7 +1513,7 @@ describe("SpectrumRoute file mode", () => {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
         bandwidthHz: 1_400_000,
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1591,7 +1587,7 @@ describe("SpectrumRoute file mode", () => {
           backend: "mock_apt",
           maxSampleRateHz: 4_372_000,
           sampleRateOptions: [4_372_000],
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
           sdrSettings: { sample_rate: 4_372_000 },
         },
         effectiveFrames: [],
@@ -1617,7 +1613,7 @@ describe("SpectrumRoute file mode", () => {
           },
           maxSampleRateHz: 4_372_000,
           sampleRateOptions: [4_372_000],
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
           sdrSettings: { sample_rate: 4_372_000 },
           sdrLimitMarkers: [],
           dataRef: { current: null },
@@ -1678,7 +1674,7 @@ describe("SpectrumRoute file mode", () => {
         "Mock Tx SDR",
         expect.objectContaining({
           bandwidthHz: 2_400_000,
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
         }),
       );
       sendTransmitStatus.mockClear();
@@ -1706,7 +1702,7 @@ describe("SpectrumRoute file mode", () => {
           serialNumber: "mock-tx",
           centerFrequencyHz: 137_100_000,
           bandwidthHz: 873_000,
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
           powerDbm: -18,
           txSignal: "wifi",
         }),

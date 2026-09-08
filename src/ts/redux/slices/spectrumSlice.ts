@@ -8,6 +8,7 @@ import {
   getVisualizerDefaultDbLimits,
 } from "@n-apt/consts/visualizerControls";
 import { sanitizeMirroredPanOffset } from "@n-apt/math/basebandMirror";
+import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 const DEFAULT_DB_LIMITS = getVisualizerDefaultDbLimits("dB");
 
@@ -130,6 +131,9 @@ export interface DeviceScopedSpectrumState {
  * removal, power scale, display mode, pause, and diagnostics are all local.
  */
 export interface LocalSpectrumState {
+  /** Subscriber-local monitor windows keyed by source identity. */
+  sourceViewFrequencyRanges: Record<string, FrequencyRange>;
+
   // Display settings (local viewer)
   displayTemporalResolution: TemporalResolution;
   powerScale: PowerScale;
@@ -206,7 +210,7 @@ const LIVE_CONTROL_DEFAULTS = {
   txSignal: "wifi",
   txSampleRateHz: 2_400_000,
   txIfftSize: 2048,
-  txViewerSampleRateHz: 2_400_000,
+  txViewerSampleRateHz: MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
   txViewerFftSize: 65_536,
   txViewerFftFrameRate: 60,
   txViewerFftWindow: "Rectangular",
@@ -275,12 +279,19 @@ function sanitizeSettingsBundle(
     }
     (cleanPayload as Record<string, unknown>)[key] = val;
   }
+  if (typeof cleanPayload.txViewerSampleRateHz === "number") {
+    cleanPayload.txViewerSampleRateHz = Math.max(
+      cleanPayload.txViewerSampleRateHz,
+      MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
+    );
+  }
   return cleanPayload;
 }
 
 const initialState: SpectrumState = {
   activeSignalArea: "A",
   frequencyRange: null,
+  sourceViewFrequencyRanges: {},
   tuningPreviewActive: false,
   lastKnownRanges: {},
   deviceFrequencyRangeRevision: 0,
@@ -309,7 +320,7 @@ const initialState: SpectrumState = {
   txSignal: "wifi",
   txSampleRateHz: 2_400_000,
   txIfftSize: 2048,
-  txViewerSampleRateHz: 2_400_000,
+  txViewerSampleRateHz: MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
   txViewerFftSize: 65_536,
   txViewerFftFrameRate: 60,
   txViewerFftWindow: "Rectangular",
@@ -396,6 +407,26 @@ const spectrumSlice = createSlice({
         }
         state.lastKnownRanges[state.activeSignalArea] = action.payload;
       }
+    },
+
+    setSourceViewFrequencyRange: (
+      state,
+      action: PayloadAction<{ sourceId: string; range: FrequencyRange }>,
+    ) => {
+      const { sourceId, range } = action.payload;
+      if (
+        typeof sourceId !== "string" ||
+        sourceId.length === 0 ||
+        !Number.isFinite(range.min) ||
+        !Number.isFinite(range.max) ||
+        range.max <= range.min
+      ) {
+        return;
+      }
+      state.sourceViewFrequencyRanges = {
+        ...(state.sourceViewFrequencyRanges ?? {}),
+        [sourceId]: range,
+      };
     },
 
     setTuningPreviewActive: (state, action: PayloadAction<boolean>) => {
@@ -672,7 +703,10 @@ const spectrumSlice = createSlice({
 
     setTxViewerSampleRateHz: (state, action: PayloadAction<number>) => {
       if (!Number.isFinite(action.payload) || action.payload <= 0) return;
-      state.txViewerSampleRateHz = action.payload;
+      state.txViewerSampleRateHz = Math.max(
+        action.payload,
+        MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
+      );
     },
 
     setTxViewerFftSize: (state, action: PayloadAction<number>) => {
@@ -1049,6 +1083,7 @@ const spectrumSlice = createSlice({
 export const {
   setActiveSignalArea,
   setFrequencyRange,
+  setSourceViewFrequencyRange,
   setTuningPreviewActive,
   setSignalAreaAndRange,
   setDeviceSignalAreaAndRange,

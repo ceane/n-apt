@@ -117,6 +117,23 @@ describe("SourcePresentationController", () => {
       expect(ctrl.getSlot("mock-apt", "rx")?.phase).toBe("streaming");
     });
 
+    it("keeps the last RX frame visible while switching away and back", () => {
+      const ctrl = createController();
+      const aptFrame = makeRxFrame("mock-apt", { sequence: 1 });
+      ctrl.selectSource("mock-apt", "rx", true);
+      ctrl.commitActiveSource("mock-apt");
+      ctrl.acceptFrame(aptFrame);
+
+      ctrl.selectSource("mock-tx", "tx", true);
+      ctrl.commitActiveSource("mock-tx");
+      ctrl.acceptFrame(makeTxFrame("mock-tx", { sequence: 1 }));
+
+      ctrl.selectSource("mock-apt", "rx", true);
+      ctrl.commitActiveSource("mock-apt");
+
+      expect(ctrl.getPresentationRef("rx").current).toBe(aptFrame);
+    });
+
     it("keeps a committed local view when a foreign global source changes", () => {
       const ctrl = createController();
       ctrl.selectSource("mock-apt", "rx", true);

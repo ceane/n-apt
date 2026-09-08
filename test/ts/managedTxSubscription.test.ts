@@ -1,6 +1,8 @@
 import {
   buildManagedTxOptions,
   managedTxFrameMatchesOptions,
+  resolveManagedTxOptionsAfterSubscribe,
+  resolveMockTxTransmitViewCenterHz,
   resolveManagedTxSubscriberPause,
   shouldReconcileAfterStaleManagedSubscription,
   shouldRejectManagedTxFrameForPreview,
@@ -80,6 +82,45 @@ describe("managed Tx subscription pause state", () => {
     expect(afterRxRetune.viewSampleRateHz).toBe(first.viewSampleRateHz);
   });
 
+  it("does not let the waveform rate become the Mock Tx monitor rate", () => {
+    const options = buildManagedTxOptions({
+      spectrum: {
+        txCenterFrequencyHz: 137_100_000,
+        txSampleRateHz: 2_400_000,
+        txViewerSampleRateHz: 2_400_000,
+        txSignal: "d",
+        txPowerDbm: -18,
+        txIfftSize: 2048,
+      },
+    });
+
+    expect(options.bandwidthHz).toBe(2_400_000);
+    expect(options.sampleRateHz).toBe(2_400_000);
+    expect(options.viewSampleRateHz).toBeGreaterThanOrEqual(3_200_000);
+  });
+
+  it("does not use Mock APT's local center as the global Tx monitor center", () => {
+    expect(
+      resolveMockTxTransmitViewCenterHz({
+        isMockTx: true,
+        isSelectedSource: false,
+        monitorCenterHz: 136_500_000,
+        txCenterHz: 137_100_000,
+        fallbackCenterHz: 136_500_000,
+      }),
+    ).toBe(137_100_000);
+
+    expect(
+      resolveMockTxTransmitViewCenterHz({
+        isMockTx: true,
+        isSelectedSource: true,
+        monitorCenterHz: 136_500_000,
+        txCenterHz: 137_100_000,
+        fallbackCenterHz: 137_100_000,
+      }),
+    ).toBe(136_500_000);
+  });
+
   it("serializes Tx spectrum geometry as whole-Hz values accepted by the stream protocol", () => {
     const options = buildManagedTxOptions({
       spectrum: {
@@ -100,8 +141,71 @@ describe("managed Tx subscription pause state", () => {
       sampleRateHz: 896_492,
       bandwidthHz: 896_492,
       viewCenterHz: 136_964_700,
-      viewSampleRateHz: 896_492,
+      viewSampleRateHz: 3_200_000,
     });
+  });
+
+  it("uses the Start Tx status monitor rate instead of stale Redux viewer state", () => {
+    const options = buildManagedTxOptions(
+      {
+        spectrum: {
+          txCenterFrequencyHz: 2_204_000,
+          txSampleRateHz: 2_400_000,
+          txViewerSampleRateHz: 2_400_000,
+          txSignal: "wifi",
+          txPowerDbm: -18,
+          txIfftSize: 2048,
+        },
+      },
+      {
+        centerFrequencyHz: 137_100_000,
+        viewCenterHz: 137_100_000,
+        sampleRateHz: 4_372_000,
+        bandwidthHz: 2_950_500,
+        txSignal: "wifi",
+        txIfftSize: 2048,
+      },
+    );
+
+    expect(options).toMatchObject({
+      centerFrequencyHz: 137_100_000,
+      viewCenterHz: 137_100_000,
+      sampleRateHz: 4_372_000,
+      viewSampleRateHz: 4_372_000,
+      bandwidthHz: 2_950_500,
+    });
+  });
+
+  it("keeps Start Tx geometry when the subscription was already opening", () => {
+    const openingOptions = buildManagedTxOptions({
+      spectrum: {
+        txCenterFrequencyHz: 137_100_000,
+        txSampleRateHz: 2_400_000,
+        txViewerSampleRateHz: 3_200_000,
+      },
+    });
+    const startTxOptions = buildManagedTxOptions(
+      {
+        spectrum: {
+          txCenterFrequencyHz: 137_012_000,
+          txSampleRateHz: 3_103_000,
+          txViewerSampleRateHz: 4_372_000,
+        },
+      },
+      {
+        centerFrequencyHz: 137_012_000,
+        viewCenterHz: 137_012_000,
+        sampleRateHz: 4_372_000,
+        bandwidthHz: 3_103_000,
+      },
+    );
+
+    expect(
+      resolveManagedTxOptionsAfterSubscribe({
+        openingOptions,
+        pendingOptions: startTxOptions,
+      }),
+    ).toEqual(startTxOptions);
   });
 
   it("rejects an in-flight startup preview with stale geometry", () => {

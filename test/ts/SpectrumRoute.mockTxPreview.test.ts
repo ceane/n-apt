@@ -1,11 +1,14 @@
 import {
   getMockTxPreviewRequestKey,
   resolveLiveDevicePlaceholderState,
+  shouldPublishFrequencyRangeForSource,
 } from "@n-apt/app/routes/pages/SpectrumRoute";
 import {
   resolvePausedPreviewRequestSourceId,
   resolveMockTxMonitorSampleRateForView,
+  resolveMockTxMonitorViewSampleRateHz,
   resolveTxStandbyPreviewTransport,
+  shouldRequestTxLifecycleFrame,
   shouldClearMockTxPreviewRequestDedupe,
 } from "@n-apt/app/routes/pages/spectrum/mockTxPreview";
 
@@ -14,6 +17,26 @@ describe("resolvePausedPreviewRequestSourceId", () => {
     expect(
       resolvePausedPreviewRequestSourceId("mock-apt", "mock-tx"),
     ).toBe("mock-tx");
+  });
+});
+
+describe("shouldPublishFrequencyRangeForSource", () => {
+  it("keeps Mock Tx monitor tuning local to its source", () => {
+    expect(
+      shouldPublishFrequencyRangeForSource({
+        sourceMode: "live",
+        isMockTxMonitorActive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("publishes receive-source tuning to the backend", () => {
+    expect(
+      shouldPublishFrequencyRangeForSource({
+        sourceMode: "live",
+        isMockTxMonitorActive: false,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -94,6 +117,31 @@ describe("resolveTxStandbyPreviewTransport", () => {
   });
 });
 
+describe("shouldRequestTxLifecycleFrame", () => {
+  it.each([
+    ["standby", "transmitting"],
+    ["paused", "transmitting"],
+    ["transmitting", "standby"],
+    ["transmitting", "paused"],
+  ])("requests one frame when Tx changes from %s to %s", (previousStatus, nextStatus) => {
+    expect(
+      shouldRequestTxLifecycleFrame({ previousStatus, nextStatus }),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["standby", "standby"],
+    ["paused", "paused"],
+    ["standby", "paused"],
+    ["receiving", "transmitting"],
+    ["transmitting", "receiving"],
+  ])("does not request for non-Tx lifecycle changes %s to %s", (previousStatus, nextStatus) => {
+    expect(
+      shouldRequestTxLifecycleFrame({ previousStatus, nextStatus }),
+    ).toBe(false);
+  });
+});
+
 describe("resolveMockTxMonitorSampleRateForView", () => {
   it("keeps the Whole Channel view rate ahead of stale source metadata", () => {
     expect(
@@ -103,6 +151,17 @@ describe("resolveMockTxMonitorSampleRateForView", () => {
         3_200_000,
         3_200_000,
       ),
+    ).toBe(4_372_000);
+  });
+});
+
+describe("resolveMockTxMonitorViewSampleRateHz", () => {
+  it("keeps the selected Whole Channel viewer span over a stale viewport span", () => {
+    expect(
+      resolveMockTxMonitorViewSampleRateHz({
+        viewerSampleRateHz: 4_372_000,
+        fallbackSampleRateHz: 2_976_000,
+      }),
     ).toBe(4_372_000);
   });
 });

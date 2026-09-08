@@ -5,6 +5,7 @@ import {
   publishLiveFrequencyRange,
   publishFrequencyRangeImmediately,
   resolveNavigationFrequencyBounds,
+  resolveExplicitCenterFrequencyRange,
 } from "@n-apt/app/routes/pages/SpectrumRoute";
 
 describe("subscriber-local visual pan", () => {
@@ -159,5 +160,26 @@ describe("resolveNavigationFrequencyBounds", () => {
         hardwareBounds,
       }),
     ).toEqual(hardwareBounds);
+  });
+});
+
+describe("resolveExplicitCenterFrequencyRange", () => {
+  it("retunes the source at the existing span without changing zoom", () => {
+    expect(
+      resolveExplicitCenterFrequencyRange(
+        { min: 135_000_000, max: 139_000_000 },
+        137_500_000,
+      ),
+    ).toEqual({ min: 135_500_000, max: 139_500_000 });
+  });
+
+  it("rejects only missing or invalid source ranges", () => {
+    expect(resolveExplicitCenterFrequencyRange(null, 137_500_000)).toBeNull();
+    expect(
+      resolveExplicitCenterFrequencyRange(
+        { min: 139_000_000, max: 135_000_000 },
+        137_500_000,
+      ),
+    ).toBeNull();
   });
 });

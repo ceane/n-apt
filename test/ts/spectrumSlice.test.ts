@@ -19,6 +19,18 @@ describe("Spectrum Slice TX intent", () => {
     const state = getInitialState();
     expect(state.showTxSlider).toBe(true);
     expect(state.gain).toBe(49.6);
+    expect(state.txSampleRateHz).toBe(2_400_000);
+    expect(state.txViewerSampleRateHz).toBe(3_200_000);
+  });
+
+  test("keeps the Tx monitor rate at or above the receive floor", () => {
+    const state = spectrumReducer(
+      getInitialState(),
+      { type: "spectrum/setTxViewerSampleRateHz", payload: 2_400_000 },
+    );
+
+    expect(state.txSampleRateHz).toBe(2_400_000);
+    expect(state.txViewerSampleRateHz).toBe(3_200_000);
   });
 
   test("mergeLastKnownRanges updates inactive channel remembered ranges", () => {

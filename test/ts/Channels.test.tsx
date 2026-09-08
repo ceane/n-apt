@@ -150,6 +150,9 @@ describe("Channels", () => {
       name: "Reset Zoom to see Whole Channel",
     });
     expect(resetButton).toBeInTheDocument();
+    expect(screen.getByText("Channels").closest("div")).toContainElement(
+      resetButton,
+    );
 
     fireEvent.click(resetButton);
 

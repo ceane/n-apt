@@ -5,6 +5,9 @@ export type CaptureAcquisitionMode =
 
 const SAMPLE_RATE_TOLERANCE_HZ = 10_000;
 
+/** The smallest valid receive/monitor window for the Mock Tx source. */
+export const MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ = 3_200_000;
+
 interface DeviceIdentity {
   deviceKind?: string | null;
   backend?: string | null;
@@ -57,6 +60,75 @@ export const clampSampleRateToSourceMaximum = (
     return Math.min(sampleRateHz, maxSampleRateHz);
   }
   return sampleRateHz;
+};
+
+/**
+ * Mock Tx has two independent rate domains: its generated waveform may use a
+ * rate below the SDR receive floor, while its monitor is still an SDR view.
+ * Keep the waveform rate out of the monitor selector and repair persisted
+ * values from before that distinction existed.
+ */
+export const resolveMockTxMonitorSampleRateOptions = ({
+  options,
+  minimumSampleRateHz = MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
+  maximumSampleRateHz,
+}: {
+  options?: readonly number[] | null;
+  minimumSampleRateHz?: number | null;
+  maximumSampleRateHz?: number | null;
+}): number[] => {
+  const minimum =
+    typeof minimumSampleRateHz === "number" &&
+    Number.isFinite(minimumSampleRateHz) &&
+    minimumSampleRateHz > 0
+      ? Math.round(minimumSampleRateHz)
+      : MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ;
+  const maximum =
+    typeof maximumSampleRateHz === "number" &&
+    Number.isFinite(maximumSampleRateHz) &&
+    maximumSampleRateHz >= minimum
+      ? Math.round(maximumSampleRateHz)
+      : null;
+  const validOptions = (options ?? [])
+    .filter(
+      (rate): rate is number =>
+        Number.isFinite(rate) &&
+        rate >= minimum &&
+        (maximum === null || rate <= maximum),
+    )
+    .map((rate) => Math.round(rate));
+
+  // The configured floor is always a valid recovery option. This matters for
+  // a client whose source metadata was hydrated from an older server.
+  return Array.from(new Set([minimum, ...validOptions])).sort((a, b) => a - b);
+};
+
+export const resolveMockTxMonitorSampleRateHz = ({
+  requestedSampleRateHz,
+  options,
+  wholeChannelSampleRateHz,
+}: {
+  requestedSampleRateHz?: number | null;
+  options: readonly number[];
+  wholeChannelSampleRateHz?: number | null;
+}): number => {
+  const requested =
+    typeof requestedSampleRateHz === "number" &&
+    Number.isFinite(requestedSampleRateHz) &&
+    requestedSampleRateHz > 0
+      ? Math.round(requestedSampleRateHz)
+      : null;
+  const wholeChannelRate =
+    typeof wholeChannelSampleRateHz === "number" &&
+    Number.isFinite(wholeChannelSampleRateHz) &&
+    wholeChannelSampleRateHz >= 3_200_000
+      ? Math.round(wholeChannelSampleRateHz)
+      : null;
+  if (requested !== null && requested === wholeChannelRate) {
+    return requested;
+  }
+  if (requested !== null && options.includes(requested)) return requested;
+  return options[0] ?? MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ;
 };
 
 type DisplaySampleRateInput = DeviceIdentity & {

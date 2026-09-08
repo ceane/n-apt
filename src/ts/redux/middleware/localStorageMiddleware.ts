@@ -8,6 +8,7 @@ import {
   FRONTEND_VISUALIZER_DEFAULTS,
   VISUALIZER_MAX_ZOOM_LIMITS,
 } from "@n-apt/consts/visualizerControls";
+import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 const initialState: SpectrumState = spectrumReducer(undefined, {
   type: "@@INIT",
@@ -105,9 +106,9 @@ export const normalizePersistedTxSignalKey = (value: unknown): string => {
 export const normalizePersistedTxViewerSettings = (parsed: any) => {
   if (
     !Number.isFinite(parsed.txViewerSampleRateHz) ||
-    parsed.txViewerSampleRateHz <= 0
+    parsed.txViewerSampleRateHz < MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ
   ) {
-    parsed.txViewerSampleRateHz = 2_400_000;
+    parsed.txViewerSampleRateHz = MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ;
   }
 
   if (!Number.isFinite(parsed.txViewerFftSize) || parsed.txViewerFftSize <= 0) {

@@ -3,6 +3,7 @@ import {
   getLatestLiveFrame,
   hasRenderableFramePayload,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
+import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 /** One-shot preview requests belong to the selected presentation source. */
 export const resolvePausedPreviewRequestSourceId = (
@@ -92,10 +93,10 @@ export const resolveMockTxMonitorSampleRateHz = (
       Number.isFinite(candidate) &&
       candidate > 0
     ) {
-      return Math.max(candidate, 3_200_000);
+      return Math.max(candidate, MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ);
     }
   }
-  return 3_200_000;
+  return MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ;
 };
 
 /** Prefer the active displayed span over stale source metadata. */
@@ -104,6 +105,93 @@ export const resolveMockTxMonitorSampleRateForView = (
   ...sourceCandidates: Array<number | null | undefined>
 ): number =>
   resolveMockTxMonitorSampleRateHz(viewSampleRateHz, ...sourceCandidates);
+
+/** Prefer the selected monitor span over a stale Redux viewport span. */
+export const resolveMockTxMonitorViewSampleRateHz = ({
+  viewerSampleRateHz,
+  fallbackSampleRateHz,
+  sourceCandidates = [],
+}: {
+  viewerSampleRateHz?: number | null;
+  fallbackSampleRateHz?: number | null;
+  sourceCandidates?: Array<number | null | undefined>;
+}): number => {
+  const validViewerSampleRateHz =
+    typeof viewerSampleRateHz === "number" &&
+    Number.isFinite(viewerSampleRateHz) &&
+    viewerSampleRateHz >= MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ
+      ? viewerSampleRateHz
+      : null;
+  return resolveMockTxMonitorSampleRateForView(
+    validViewerSampleRateHz ?? fallbackSampleRateHz,
+    ...(sourceCandidates ?? []),
+  );
+};
+
+/**
+ * Resolve the Mock Tx monitor window without borrowing either the planned Tx
+ * carrier or another source's acquisition window. The monitor may be moved
+ * independently, so a stored source-view range is authoritative when present.
+ */
+export const resolveMockTxMonitorFrequencyRange = ({
+  sourceViewRange,
+  txCenterFrequencyHz,
+  fallbackCenterFrequencyHz,
+  sampleRateHz,
+}: {
+  sourceViewRange?: { min: number; max: number } | null;
+  txCenterFrequencyHz?: number | null;
+  fallbackCenterFrequencyHz?: number | null;
+  sampleRateHz: number;
+}): { min: number; max: number } | null => {
+  if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) return null;
+
+  const sourceViewCenterHz =
+    sourceViewRange &&
+    Number.isFinite(sourceViewRange.min) &&
+    Number.isFinite(sourceViewRange.max) &&
+    sourceViewRange.max > sourceViewRange.min
+      ? (sourceViewRange.min + sourceViewRange.max) / 2
+      : null;
+  const centerHz =
+    sourceViewCenterHz ??
+    (typeof txCenterFrequencyHz === "number" &&
+    Number.isFinite(txCenterFrequencyHz)
+      ? txCenterFrequencyHz
+      : null) ??
+    (typeof fallbackCenterFrequencyHz === "number" &&
+    Number.isFinite(fallbackCenterFrequencyHz)
+      ? fallbackCenterFrequencyHz
+      : null);
+  if (centerHz === null) return null;
+
+  return {
+    min: centerHz - sampleRateHz / 2,
+    max: centerHz + sampleRateHz / 2,
+  };
+};
+
+/** Move a subscriber-local view without borrowing shared acquisition bounds. */
+export const resolveSourceViewPanRange = (
+  currentRange: { min: number; max: number } | null | undefined,
+  nextPanHz: number,
+): { min: number; max: number } | null => {
+  if (
+    !currentRange ||
+    !Number.isFinite(currentRange.min) ||
+    !Number.isFinite(currentRange.max) ||
+    currentRange.max <= currentRange.min ||
+    !Number.isFinite(nextPanHz)
+  ) {
+    return null;
+  }
+  const spanHz = currentRange.max - currentRange.min;
+  const nextCenterHz = (currentRange.min + currentRange.max) / 2 + nextPanHz;
+  return {
+    min: nextCenterHz - spanHz / 2,
+    max: nextCenterHz + spanHz / 2,
+  };
+};
 
 /**
  * Clear Mock Tx preview dedupe when the handoff fence advances without a
@@ -148,3 +236,24 @@ export const resolveTxStandbyPreviewTransport = ({
   isMockTxMonitorActive: boolean;
 }): "one_shot" | "none" =>
   isSelectedTxPreviewStandby || isMockTxMonitorActive ? "one_shot" : "none";
+
+/**
+ * A Tx lifecycle edge needs one fresh frame even when the viewer is paused.
+ * Starting Tx replaces the standby preview with the first live-shaped frame;
+ * stopping Tx replaces the last live frame with the new standby preview.
+ * Unrelated Rx transitions must not advance the Tx waveform.
+ */
+export const shouldRequestTxLifecycleFrame = ({
+  previousStatus,
+  nextStatus,
+}: {
+  previousStatus?: string | null;
+  nextStatus?: string | null;
+}): boolean => {
+  const wasTransmitting = previousStatus === "transmitting";
+  const isTransmitting = nextStatus === "transmitting";
+  const wasTxIdle = previousStatus === "standby" || previousStatus === "paused";
+  const isTxIdle = nextStatus === "standby" || nextStatus === "paused";
+
+  return (wasTxIdle && isTransmitting) || (wasTransmitting && isTxIdle);
+};

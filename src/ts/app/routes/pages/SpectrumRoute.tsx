@@ -48,7 +48,6 @@ import { useCaptureWholeChannelSegments } from "@n-apt/capture/hooks/useCaptureW
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocation } from "@n-apt/capture/snapshotLocation";
 import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
-
 import {
   useAppSelector,
   useAppDispatch,
@@ -59,9 +58,9 @@ import {
   setTxGeometry,
   setTxSampleRateHz,
   setTxPowerDbm,
-  setShowTxSlider,
   setDeviceKind,
   setFrequencyRange,
+  setSourceViewFrequencyRange,
   setStitchStatus,
   resetWaterfallCleared,
   setVizZoom as setVizZoomAction,
@@ -79,7 +78,6 @@ import {
   buildCenteredFrequencyRange,
   normalizeFrequencyRangeToHz,
   resolveCenteredFrequencyHz,
-  resolveMockTxMonitorCenterHz,
 } from "@n-apt/math/frequency";
 import {
   mapDisplayFrequencyToSource,
@@ -101,6 +99,27 @@ export const resolveNavigationFrequencyBounds = ({
   // channel is still used when hardware bounds have not hydrated yet.
   if (hardwareBounds) return hardwareBounds;
   return channelBounds;
+};
+
+/** Build an explicit source tune while preserving the current acquisition span. */
+export const resolveExplicitCenterFrequencyRange = (
+  currentRange: FrequencyRange | null | undefined,
+  centerFrequencyHz: number,
+): FrequencyRange | null => {
+  if (
+    !currentRange ||
+    !Number.isFinite(centerFrequencyHz) ||
+    !Number.isFinite(currentRange.min) ||
+    !Number.isFinite(currentRange.max) ||
+    currentRange.max <= currentRange.min
+  ) {
+    return null;
+  }
+  return buildCenteredFrequencyRange(
+    centerFrequencyHz,
+    currentRange.max - currentRange.min,
+    0,
+  );
 };
 
 /** Publishes a discrete tuning command with local state before the device. */
@@ -142,6 +161,15 @@ export const publishFrequencyRangeBySource = (
     sendFrequencyRange,
   );
 };
+
+/** Mock Tx owns a subscriber-local monitor range, not shared RX tuning. */
+export const shouldPublishFrequencyRangeForSource = ({
+  sourceMode,
+  isMockTxMonitorActive,
+}: {
+  sourceMode: "live" | "file";
+  isMockTxMonitorActive: boolean;
+}): boolean => sourceMode === "live" && !isMockTxMonitorActive;
 
 /** Coalesces live pan publication without rerendering the spectrum every frame. */
 export const createLiveFrequencyRangePublisher = (
@@ -189,7 +217,6 @@ export const publishSubscriberLocalVizPan = (
   setVizPanOffset(pan);
 };
 import { resolveCanonicalDisplaySampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
-import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
 import {
   getLatestLiveFrame,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
@@ -200,6 +227,7 @@ import {
 import {
   resolveMockTxPreviewViewCenterHz,
   resolveMockTxTransmitSettings,
+  resolveMockTxTransmitViewCenterHz,
   resolveTxPreviewCenterHz,
   resolveTxSliderCenterHz,
   canShowTxSliderForSource,
@@ -223,9 +251,13 @@ import {
 import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
 import {
   getMockTxPreviewRequestKey,
+  resolveMockTxMonitorFrequencyRange,
   resolveMockTxMonitorSampleRateForView,
+  resolveMockTxMonitorViewSampleRateHz,
+  resolveSourceViewPanRange,
   resolveTxStandbyPreviewTransport,
   shouldClearMockTxPreviewRequestDedupe,
+  shouldRequestTxLifecycleFrame,
 } from "./spectrum/mockTxPreview";
 import {
   FAST_SPECTRUM_FALLBACK_HEIGHT,
@@ -434,6 +466,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const sharedFrequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
   );
+  const sourceViewFrequencyRanges = useAppSelector(
+    (state) => state.spectrum.sourceViewFrequencyRanges,
+  );
   const txCenterFrequencyHz = useAppSelector(
     (state) => state.spectrum.txCenterFrequencyHz,
   );
@@ -463,6 +498,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   );
   const hasConnectedOnce = useAppSelector(
     (state) => state.websocket.hasConnectedOnce,
+  );
+  const txViewerSampleRateHz = useAppSelector(
+    (state) => state.spectrum.txViewerSampleRateHz,
   );
   const getTxSliderDefaults = useCallback(
     (
@@ -870,15 +908,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       selectedSource?.id === "mock-tx",
     status: selectedSourceStatus,
   });
-  useEffect(() => {
-    if (
-      state.sourceMode === "live" &&
-      isSelectedSourceTxStatus &&
-      !showTxSlider
-    ) {
-      reduxDispatch(setShowTxSlider(true));
-    }
-  }, [isSelectedSourceTxStatus, reduxDispatch, showTxSlider, state.sourceMode]);
   const effectiveTunerGainDb = useMemo(() => {
     const gainConfig = effectiveSdrSettings?.gain;
     const gainObject =
@@ -1312,6 +1341,20 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       range: FrequencyRange,
       source: "user-pan" | "mode-enter" | "typed" = "user-pan",
     ) => {
+      // Tx monitor geometry is subscriber-local. It must never be clamped to
+      // or published as the selected RX channel's device range.
+      if (isMockTxMonitorActive) {
+        const monitorRange = normalizeFrequencyRangeToHz(range);
+        reduxDispatch(
+          setSourceViewFrequencyRange({
+            sourceId: selectedSourceId ?? "mock-tx",
+            range: monitorRange,
+          }),
+        );
+        applyTxMonitorForRange(monitorRange, source);
+        return;
+      }
+
       // The mirror is presentational: an explicit tune still asks the radio for
       // a positive window, and a below-zero request is restored with pan rather
       // than by letting the shifted window become the view. Already-positive
@@ -1339,7 +1382,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         if (range.min < 0) {
           setVizPanOffset(panOffsetHz);
         }
-        publishFrequencyRange(nextRange, source);
+        if (isMockTxMonitorActive) {
+          reduxDispatch(
+            setSourceViewFrequencyRange({
+              sourceId: selectedSourceId ?? "mock-tx",
+              range: nextRange,
+            }),
+          );
+        } else if (
+          shouldPublishFrequencyRangeForSource({
+            sourceMode: state.sourceMode,
+            isMockTxMonitorActive,
+          })
+        ) {
+          publishFrequencyRange(nextRange, source);
+        } else {
+          reduxDispatch(setFrequencyRange(nextRange));
+        }
         applyTxMonitorForRange(nextRange, source);
         return;
       }
@@ -1353,7 +1412,23 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           ? clampFrequencyRangeToBounds(range, primaryBounds)
           : range,
       );
-      publishFrequencyRange(clampedRange, source);
+      if (isMockTxMonitorActive) {
+        reduxDispatch(
+          setSourceViewFrequencyRange({
+            sourceId: selectedSourceId ?? "mock-tx",
+            range: clampedRange,
+          }),
+        );
+      } else if (
+        shouldPublishFrequencyRangeForSource({
+          sourceMode: state.sourceMode,
+          isMockTxMonitorActive,
+        })
+      ) {
+        publishFrequencyRange(clampedRange, source);
+      } else {
+        reduxDispatch(setFrequencyRange(clampedRange));
+      }
       applyTxMonitorForRange(clampedRange, source);
     },
     [
@@ -1362,6 +1437,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       hardwareSpectrumBounds,
       activeSignalAreaBounds,
       publishFrequencyRange,
+      reduxDispatch,
+      selectedSourceId,
       sampleRateHzEffective,
       setVizPanOffset,
       state.frequencyRange,
@@ -1376,9 +1453,15 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       }
       setTxMonitorDetached(false);
       setMockMonitorCenterHz(centerHz);
-      const spanHz = state.frequencyRange
-        ? state.frequencyRange.max - state.frequencyRange.min
-        : txSampleRateHz;
+      const spanHz = resolveMockTxMonitorViewSampleRateHz({
+        viewerSampleRateHz: txViewerSampleRateHz,
+        fallbackSampleRateHz: state.frequencyRange
+          ? state.frequencyRange.max - state.frequencyRange.min
+          : txSampleRateHz,
+      });
+      if (spanHz === null || !Number.isFinite(spanHz) || spanHz <= 0) {
+        return;
+      }
       if (Number.isFinite(spanHz) && spanHz > 0) {
         handleFrequencyRangeChange(
           buildCenteredFrequencyRange(centerHz, spanHz, 0),
@@ -1391,11 +1474,29 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       handleFrequencyRangeChange,
       state.frequencyRange,
       txSampleRateHz,
+      txViewerSampleRateHz,
     ],
   );
 
   const handleCenterFrequencyChange = useCallback(
     (nextCenterFrequencyHz: number) => {
+      if (isMockTxMonitorActive) {
+        const spanHz = resolveMockTxMonitorViewSampleRateHz({
+          viewerSampleRateHz: txViewerSampleRateHz,
+          fallbackSampleRateHz: state.frequencyRange
+            ? state.frequencyRange.max - state.frequencyRange.min
+            : txSampleRateHz,
+        });
+        if (!Number.isFinite(nextCenterFrequencyHz) || spanHz <= 0) return;
+        setMockMonitorCenterHz(nextCenterFrequencyHz);
+        setTxMonitorDetached(true);
+        handleFrequencyRangeChange(
+          buildCenteredFrequencyRange(nextCenterFrequencyHz, spanHz, 0),
+          "typed",
+        );
+        return;
+      }
+
       if (!state.frequencyRange) return;
 
       if (allowNegativeFrequencies && Number.isFinite(nextCenterFrequencyHz)) {
@@ -1416,46 +1517,28 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       const sourceCenterFrequencyHz = mapDisplayFrequencyToSource(
         nextCenterFrequencyHz,
       );
-
-      if (
-        Number.isFinite(sourceCenterFrequencyHz) &&
-        sourceCenterFrequencyHz >= state.frequencyRange.min &&
-        sourceCenterFrequencyHz <= state.frequencyRange.max &&
-        (!hardwareSpectrumBounds ||
-          (sourceCenterFrequencyHz >= hardwareSpectrumBounds.min &&
-            sourceCenterFrequencyHz <= hardwareSpectrumBounds.max))
-      ) {
-        const nextView = getZoomedViewForCenterFrequency({
-          hardwareRange: state.frequencyRange,
-          currentZoom: state.vizZoom,
-          currentPan: state.vizPanOffset,
-          requestedCenterHz: sourceCenterFrequencyHz,
-        });
-        setVizZoom(nextView.zoom);
-        setVizPanOffset(nextView.pan);
-        if (isMockTxMonitorActive) {
-          setMockMonitorCenterHz(nextCenterFrequencyHz);
-          setTxMonitorDetached(true);
-        }
-        return;
-      }
-
-      const spanHz = state.frequencyRange.max - state.frequencyRange.min;
-      handleFrequencyRangeChange(
-        buildCenteredFrequencyRange(nextCenterFrequencyHz, spanHz, 0),
-        "typed",
+      const nextRange = resolveExplicitCenterFrequencyRange(
+        state.frequencyRange,
+        sourceCenterFrequencyHz,
       );
+      if (!nextRange) return;
+
+      // Explicit center entry is a source tune, not a zoom gesture. Keep the
+      // current acquisition width, move the source window to the requested
+      // center, and leave subscriber-local zoom/pan untouched.
+      setVizPanOffset(0);
+      handleFrequencyRangeChange(nextRange, "typed");
     },
     [
       handleFrequencyRangeChange,
       allowNegativeFrequencies,
-      hardwareSpectrumBounds,
       isMockTxMonitorActive,
       setVizPanOffset,
-      setVizZoom,
       state.frequencyRange,
       state.vizPanOffset,
       state.vizZoom,
+      txSampleRateHz,
+      txViewerSampleRateHz,
     ],
   );
 
@@ -1480,9 +1563,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         Number.isFinite(sampleRateHzOverride)
           ? sampleRateHzOverride
           : txSampleRateHz;
-      const rangeViewSampleRateHz = state.frequencyRange
-        ? state.frequencyRange.max - state.frequencyRange.min
-        : undefined;
+      const rangeViewSampleRateHz = resolveMockTxMonitorViewSampleRateHz({
+        viewerSampleRateHz: txViewerSampleRateHz,
+        fallbackSampleRateHz: state.frequencyRange
+          ? state.frequencyRange.max - state.frequencyRange.min
+          : null,
+      });
       const rangeViewCenterHz =
         state.frequencyRange &&
         Number.isFinite(state.frequencyRange.min) &&
@@ -1523,6 +1609,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       txIfftSize,
       txPowerDbm,
       txSampleRateHz,
+      txViewerSampleRateHz,
       txSignal,
     ],
   );
@@ -1563,14 +1650,16 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   // While detached, follow range updates from user pan / typed sidebar jumps
   // that already recentered onto Tx (range center ≈ tx center → re-attach).
   useEffect(() => {
-    if (!isMockTxMonitorActive || !state.frequencyRange) {
+    const sourceViewRange = selectedSourceId
+      ? sourceViewFrequencyRanges?.[selectedSourceId]
+      : null;
+    if (!isMockTxMonitorActive || !sourceViewRange) {
       return;
     }
     if (isDraggingTxRef.current) {
       return;
     }
-    const rangeCenter =
-      (state.frequencyRange.min + state.frequencyRange.max) / 2;
+    const rangeCenter = (sourceViewRange.min + sourceViewRange.max) / 2;
     if (!Number.isFinite(rangeCenter)) {
       return;
     }
@@ -1591,7 +1680,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
   }, [
     isMockTxMonitorActive,
-    state.frequencyRange,
+    selectedSourceId,
+    sourceViewFrequencyRanges,
     txCenterFrequencyHz,
     txMonitorDetached,
   ]);
@@ -1808,9 +1898,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     setVizPanOffset,
   ]);
 
-  const mockTxViewSampleRateHz = state.frequencyRange
-    ? state.frequencyRange.max - state.frequencyRange.min
-    : null;
+  const mockTxViewSampleRateHz = resolveMockTxMonitorViewSampleRateHz({
+    viewerSampleRateHz: txViewerSampleRateHz,
+    fallbackSampleRateHz: state.frequencyRange
+      ? state.frequencyRange.max - state.frequencyRange.min
+      : null,
+  });
   const mockTxMonitorSampleRateHz = isMockTxMonitorActive
     ? resolveMockTxMonitorSampleRateForView(
         mockTxViewSampleRateHz,
@@ -1824,50 +1917,52 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       )
     : null;
   const mockTxMonitorFrequencyRange = useMemo(() => {
-    if (
-      !isMockTxMonitorActive ||
-      !(sharedFrequencyRange ?? state.frequencyRange) ||
-      !mockTxMonitorSampleRateHz
-    ) {
+    if (!isMockTxMonitorActive || !mockTxMonitorSampleRateHz) {
       return null;
     }
-    const activeFrequencyRange = sharedFrequencyRange ?? state.frequencyRange!;
+    const sourceViewRange = selectedSourceId
+      ? sourceViewFrequencyRanges?.[selectedSourceId]
+      : null;
     const fallbackCenterHz =
+      (typeof mockMonitorCenterHz === "number" &&
+      Number.isFinite(mockMonitorCenterHz)
+        ? mockMonitorCenterHz
+        : null) ??
       (Number.isFinite(txCenterFrequencyHz) ? txCenterFrequencyHz : null) ??
       centerFrequencyHz ??
-      (activeFrequencyRange.min + activeFrequencyRange.max) / 2;
-    // Display window follows the monitor VFO, not the planned carrier. Slider
-    // moves the carrier without jumping this center.
-    const monitorCenterHz = resolveMockTxMonitorCenterHz(
-      typeof mockMonitorCenterHz === "number" &&
-        Number.isFinite(mockMonitorCenterHz)
-        ? mockMonitorCenterHz
-        : fallbackCenterHz,
-      fallbackCenterHz,
-    );
-    return buildCenteredFrequencyRange(
-      monitorCenterHz,
-      mockTxMonitorSampleRateHz,
-      0,
-    );
+      (sharedFrequencyRange ?? state.frequencyRange
+        ? ((sharedFrequencyRange ?? state.frequencyRange)!.min +
+            (sharedFrequencyRange ?? state.frequencyRange)!.max) /
+          2
+        : null);
+    return resolveMockTxMonitorFrequencyRange({
+      sourceViewRange,
+      txCenterFrequencyHz,
+      fallbackCenterFrequencyHz: fallbackCenterHz,
+      sampleRateHz: mockTxMonitorSampleRateHz,
+    });
   }, [
     centerFrequencyHz,
     isMockTxMonitorActive,
     mockTxMonitorSampleRateHz,
     mockMonitorCenterHz,
     sharedFrequencyRange,
+    selectedSourceId,
+    sourceViewFrequencyRanges,
     state.frequencyRange,
     txCenterFrequencyHz,
   ]);
   const previewVfoCenterHz = resolveTxPreviewCenterHz({
-    previewCenterHz: mockMonitorCenterHz,
+    previewCenterHz: mockTxMonitorFrequencyRange
+      ? (mockTxMonitorFrequencyRange.min + mockTxMonitorFrequencyRange.max) / 2
+      : mockMonitorCenterHz,
     txCenterHz: txCenterFrequencyHz,
     isPreview: isFixedTxPreview,
   });
   const fftFrequencyRange =
     mockTxMonitorFrequencyRange ?? sharedFrequencyRange ?? state.frequencyRange;
   const fftCenterFrequencyHz = mockTxMonitorFrequencyRange
-    ? resolveMockTxMonitorCenterHz(previewVfoCenterHz, centerFrequencyHz ?? 0)
+    ? (mockTxMonitorFrequencyRange.min + mockTxMonitorFrequencyRange.max) / 2
     : centerFrequencyHz;
   const fftHardwareSampleRateHz =
     mockTxMonitorSampleRateHz ??
@@ -1988,15 +2083,27 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       return;
     }
 
-    const rangeViewSampleRateHz = state.frequencyRange
-      ? state.frequencyRange.max - state.frequencyRange.min
-      : undefined;
-    const rangeViewCenterHz =
-      state.frequencyRange &&
-      Number.isFinite(state.frequencyRange.min) &&
-      Number.isFinite(state.frequencyRange.max)
-        ? (state.frequencyRange.min + state.frequencyRange.max) / 2
-        : null;
+    const rangeViewSampleRateHz = resolveMockTxMonitorViewSampleRateHz({
+      viewerSampleRateHz: txViewerSampleRateHz,
+      fallbackSampleRateHz: state.frequencyRange
+        ? state.frequencyRange.max - state.frequencyRange.min
+        : null,
+    });
+    const rangeViewCenterHz = resolveMockTxTransmitViewCenterHz({
+      isMockTx: isMockTxSource({
+        id: transmittingTxSource.id,
+        kind: transmittingTxSource.kind,
+      }),
+      isSelectedSource: selectedSourceId === transmittingTxSource.id,
+      monitorCenterHz: mockMonitorCenterHz,
+      txCenterHz: txCenterFrequencyHz,
+      fallbackCenterHz:
+        state.frequencyRange &&
+        Number.isFinite(state.frequencyRange.min) &&
+        Number.isFinite(state.frequencyRange.max)
+          ? (state.frequencyRange.min + state.frequencyRange.max) / 2
+          : null,
+    });
     // First Start Tx aligns when still attached; later slider/pan syncs stay
     // on the current monitor view.
     const alignMonitor =
@@ -2065,10 +2172,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     transmittingTxSource,
     centerFrequencyHz,
     mockMonitorCenterHz,
+    selectedSourceId,
     txCenterFrequencyHz,
     txMonitorDetached,
     txPowerDbm,
     txSampleRateHz,
+    txViewerSampleRateHz,
     txSignal,
   ]);
 
@@ -2196,6 +2305,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const lastMockTxPreviewRequestKeyRef = useRef<string | null>(null);
   const lastMockTxPreviewRetryActiveIdRef = useRef<string | null>(null);
+  const previousTxLifecycleRef = useRef<{
+    sourceId: string | null;
+    status: string | null;
+  } | null>(null);
   const mockTxPreviewRequestKey = useMemo(() => {
     const reqCenter = activeHopTarget?.centerFrequencyHz ?? txCenterFrequencyHz;
     const reqViewCenter =
@@ -2208,9 +2321,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     const reqBandwidth = activeHopTarget?.bandwidthHz ?? txSampleRateHz;
     const viewSampleRateHz = activeHopTarget
       ? activeHopTarget.bandwidthHz
-      : state.frequencyRange
-        ? state.frequencyRange.max - state.frequencyRange.min
-        : undefined;
+      : mockTxMonitorSampleRateHz;
     return (
       getMockTxPreviewRequestKey({
         sourceId: selectedSourceId,
@@ -2232,7 +2343,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txSignal,
     mockMonitorCenterHz,
     txMonitorDetached,
-    state.frequencyRange,
+    mockTxMonitorSampleRateHz,
     activeHopTarget,
     hopPreviewIndex,
   ]);
@@ -2279,6 +2390,83 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   ]);
 
   useEffect(() => {
+    const nextLifecycle = {
+      sourceId: selectedSourceId ?? null,
+      status: selectedSourceStatus,
+    };
+    const previousLifecycle = previousTxLifecycleRef.current;
+    previousTxLifecycleRef.current = nextLifecycle;
+
+    if (
+      !previousLifecycle ||
+      previousLifecycle.sourceId !== nextLifecycle.sourceId ||
+      !shouldRequestTxLifecycleFrame({
+        previousStatus: previousLifecycle.status,
+        nextStatus: nextLifecycle.status,
+      }) ||
+      !isConnected ||
+      (!isMockTxMonitorActive && !selectedSourceModeManagement.canTransmit)
+    ) {
+      return;
+    }
+
+    if (nextLifecycle.status !== "transmitting") {
+      // Let the normal standby effect issue the single preview request, but
+      // clear its dedupe fence because this is a new global Tx stop event.
+      lastMockTxPreviewRequestKeyRef.current = null;
+      return;
+    }
+
+    // A different client may have started the global Tx stream while this
+    // client was paused on the Tx view. Refresh that client once immediately;
+    // the managed stream remains responsible for all subsequent live frames.
+    lastMockTxPreviewRequestKeyRef.current = mockTxPreviewRequestKey;
+    const reqCenter = activeHopTarget?.centerFrequencyHz ?? txCenterFrequencyHz;
+    const reqViewCenter =
+      activeHopTarget?.centerFrequencyHz ??
+      resolveMockTxPreviewViewCenterHz({
+        txCenterHz: txCenterFrequencyHz,
+        monitorCenterHz: mockMonitorCenterHz,
+        detached: txMonitorDetached,
+      });
+    const reqBandwidth = activeHopTarget?.bandwidthHz ?? txSampleRateHz;
+    const reqSampleRate = activeHopTarget
+      ? activeHopTarget.bandwidthHz
+      : mockTxMonitorSampleRateHz;
+    reduxDispatch(
+      requestNextPausedFrame({
+        sourceId: selectedSourceId || "mock-tx",
+        txSettings: {
+          centerFrequencyHz: reqCenter,
+          viewCenterHz: reqViewCenter,
+          bandwidthHz: reqBandwidth,
+          sampleRateHz: reqSampleRate,
+          powerDbm: txPowerDbm,
+          txSignal,
+          txIfftSize,
+        },
+      }),
+    );
+  }, [
+    activeHopTarget,
+    isConnected,
+    isMockTxMonitorActive,
+    mockMonitorCenterHz,
+    mockTxMonitorSampleRateHz,
+    mockTxPreviewRequestKey,
+    reduxDispatch,
+    selectedSourceId,
+    selectedSourceModeManagement.canTransmit,
+    selectedSourceStatus,
+    txCenterFrequencyHz,
+    txIfftSize,
+    txMonitorDetached,
+    txPowerDbm,
+    txSampleRateHz,
+    txSignal,
+  ]);
+
+  useEffect(() => {
     const shouldRequestPreview =
       shouldRequestMockTxStandbyPreview({
         isSelectedMockTxSource: isMockTxMonitorActive,
@@ -2299,6 +2487,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     // leaves a black FFT under the standby top bar / Start Tx transition.
     // The canvas keeps the last painted graph until the replacement frame.
 
+    // Every standby preview, including half-duplex hardware, must use the
+    // source-owned one-shot request. The Tx-suite action establishes the
+    // binding, but it does not produce a frame; leaving that action here
+    // leaves the paused Rx frame on the canvas until the user starts Tx.
     const reqCenter = activeHopTarget?.centerFrequencyHz ?? txCenterFrequencyHz;
     const reqViewCenter =
       activeHopTarget?.centerFrequencyHz ??
@@ -2310,14 +2502,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     const reqBandwidth = activeHopTarget?.bandwidthHz ?? txSampleRateHz;
     const reqSampleRate = activeHopTarget
       ? activeHopTarget.bandwidthHz
-      : state.frequencyRange
-        ? state.frequencyRange.max - state.frequencyRange.min
-        : undefined;
+      : mockTxMonitorSampleRateHz;
 
-    // Every standby preview, including half-duplex hardware, must use the
-    // source-owned one-shot request. The Tx-suite action establishes the
-    // binding, but it does not produce a frame; leaving that action here
-    // leaves the paused Rx frame on the canvas until the user starts Tx.
     if (
       resolveTxStandbyPreviewTransport({
         isSelectedTxPreviewStandby,
@@ -2341,7 +2527,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     }
   }, [
     activeHopTarget,
-    dataRef,
     isConnected,
     isMockTxMonitorActive,
     isSelectedSourceTransmitting,
@@ -2351,8 +2536,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     isSelectedMockTxTransmitting,
     isSwitchingLiveSource,
     liveSourceLifecycle.phase,
-    mockMonitorCenterHz,
     mockTxPreviewRequestKey,
+    dataRef,
+    mockMonitorCenterHz,
     reduxDispatch,
     selectedSourceId,
     state.frequencyRange,
@@ -2414,20 +2600,17 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       isSelectedMockTxSource);
   const handleVizPanChange = useCallback(
     (nextPan: number) => {
+      const sourceViewRange = selectedSourceId
+        ? sourceViewFrequencyRanges?.[selectedSourceId]
+        : null;
       if (
         isSelectedMockTxTransmitting &&
         state.sourceMode === "live" &&
-        state.frequencyRange
+        sourceViewRange
       ) {
-        const currentRange = state.frequencyRange;
-        const span = currentRange.max - currentRange.min;
-        if (Number.isFinite(span) && span > 0 && Number.isFinite(nextPan)) {
-          const currentCenter = (currentRange.min + currentRange.max) / 2;
-          const nextCenter = currentCenter + nextPan;
-          handleFrequencyRangeChange({
-            min: nextCenter - span / 2,
-            max: nextCenter + span / 2,
-          });
+        const nextRange = resolveSourceViewPanRange(sourceViewRange, nextPan);
+        if (nextRange) {
+          handleFrequencyRangeChange(nextRange);
           setVizPanOffset(0);
           return;
         }
@@ -2438,8 +2621,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [
       handleFrequencyRangeChange,
       isSelectedMockTxTransmitting,
+      selectedSourceId,
       setVizPanOffset,
-      state.frequencyRange,
+      sourceViewFrequencyRanges,
       state.sourceMode,
     ],
   );

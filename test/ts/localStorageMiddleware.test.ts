@@ -140,12 +140,27 @@ describe("loadPersistedSdrSettings", () => {
 
     const parsed = loadPersistedSdrSettings();
 
-    expect(parsed.txViewerSampleRateHz).toBe(2_400_000);
+    expect(parsed.txViewerSampleRateHz).toBe(3_200_000);
     expect(parsed.txViewerFftSize).toBe(65_536);
     expect(parsed.txViewerFftFrameRate).toBe(60);
     expect(parsed.txViewerFftWindow).toBe("Rectangular");
     expect(parsed.txViewerTemporalResolution).toBe("lossless");
     expect(parsed.txViewerPowerScale).toBe("dBm");
+  });
+
+  it("repairs a persisted 2.4 MHz waveform rate without changing the Tx waveform rate", () => {
+    localStorage.setItem(
+      "napt-sdr-settings-v2",
+      JSON.stringify({
+        txSampleRateHz: 2_400_000,
+        txViewerSampleRateHz: 2_400_000,
+      }),
+    );
+
+    const parsed = loadPersistedSdrSettings();
+
+    expect(parsed.txSampleRateHz).toBe(2_400_000);
+    expect(parsed.txViewerSampleRateHz).toBe(3_200_000);
   });
 
   it("upgrades legacy apt txSignal values to wifi", () => {

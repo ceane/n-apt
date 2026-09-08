@@ -490,6 +490,10 @@ export const createLiveReduxStreamHarness = async (
     if (initialSelection.selectedSourceId !== state.websocket.activeSourceId) {
       await dispatch(sendSelectSource(initialSelection.selectedSourceId));
     }
+    // Keep the integration client’s presentation controller aligned with the
+    // initial tab-local selection. Selecting the backend source alone does not
+    // issue the subscriber-scoped view handoff used by the live UI.
+    await dispatch(sendViewSource(initialSelection.selectedSourceId));
   };
 
   const harness: LiveReduxStreamHarness = {
@@ -628,6 +632,12 @@ export const createLiveReduxStreamHarness = async (
             : state.sourceStatuses[sourceId] === "standby" ||
               state.sourceStatuses[sourceId] === "receiving",
       );
+      if (!enabled) {
+        // The UI requests the retained Mock Tx standby frame after the global
+        // stop transition. Keep this headless harness on the same lifecycle
+        // boundary instead of asserting against the last transmitting frame.
+        await harness.requestNextStandbyFrame({ sourceId });
+      }
     },
 
     async simulateHardwarePresence(present) {
