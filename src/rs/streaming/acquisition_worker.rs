@@ -51,6 +51,21 @@ pub(crate) fn resolve_display_iq(
     .unwrap_or_else(|| fallback.to_vec())
 }
 
+/// A synthesized Tx monitor frame is rendered on the monitor's acquisition
+/// axis, not on the generated waveform's sample-rate axis. A zero monitor
+/// rate means the stream has not supplied a view rate yet, so retain the
+/// processor rate as the safe fallback.
+pub(crate) fn resolve_monitor_frame_sample_rate(
+  processor_sample_rate_hz: u32,
+  monitor_sample_rate_hz: u32,
+) -> u32 {
+  if monitor_sample_rate_hz > 0 {
+    monitor_sample_rate_hz
+  } else {
+    processor_sample_rate_hz.max(1)
+  }
+}
+
 #[derive(Clone)]
 pub struct AcquisitionWorker {
   processor: Arc<Mutex<SdrProcessor>>,
@@ -174,6 +189,7 @@ impl AcquisitionWorker {
       };
 
       let mut center_frequency = processor.get_center_frequency();
+      let mut frame_sample_rate = sample_rate;
       let (waveform, raw_iq) = if streaming_mock_tx_monitor {
         let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
         let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
@@ -199,6 +215,10 @@ impl AcquisitionWorker {
         } else {
           sample_rate
         };
+        frame_sample_rate = resolve_monitor_frame_sample_rate(
+          sample_rate,
+          monitor_sample_rate,
+        );
         let monitor_fft_size =
           crate::server::websocket_server::resolve_mock_tx_monitor_fft_size(
             current_fft_size,
@@ -252,7 +272,7 @@ impl AcquisitionWorker {
         is_mock_apt,
         device_type,
         power_scale,
-        sample_rate,
+        sample_rate: frame_sample_rate,
         raw_iq,
         target_fps: processor.display_frame_rate,
       })
@@ -308,7 +328,8 @@ impl FramePublicationGate {
 #[cfg(test)]
 mod tests {
   use super::{
-    resolve_display_iq, AcquisitionFrame, FramePublicationGate, ProcessedFrame,
+    resolve_display_iq, resolve_monitor_frame_sample_rate, AcquisitionFrame,
+    FramePublicationGate, ProcessedFrame,
   };
   use crate::server::types::PowerScale;
 
@@ -317,6 +338,15 @@ mod tests {
     let fallback = vec![128, 129, 130, 131];
 
     assert_eq!(resolve_display_iq(None, &fallback), fallback);
+  }
+
+  #[test]
+  fn tx_monitor_frame_metadata_uses_monitor_rate_not_waveform_rate() {
+    assert_eq!(
+      resolve_monitor_frame_sample_rate(3_200_000, 4_000_000),
+      4_000_000
+    );
+    assert_eq!(resolve_monitor_frame_sample_rate(3_200_000, 0), 3_200_000);
   }
 
   #[test]

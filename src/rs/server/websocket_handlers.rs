@@ -41,6 +41,7 @@ use crate::sdr::processor::SdrProcessor;
 use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
+const MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ: u32 = 3_200_000;
 const WS_MAX_MESSAGE_BYTES: usize = 64 * 1024;
 // A maximum-size RX frame is 262,144 complex samples = 524,288 interleaved
 // I/Q bytes. The multiplexed stream envelope encrypts and base64-encodes that
@@ -118,6 +119,10 @@ fn is_mock_tx_device_label(device: &str) -> bool {
     || normalized == "mock tx sdr"
 }
 
+fn normalize_mock_tx_monitor_sample_rate(sample_rate_hz: u32) -> u32 {
+  sample_rate_hz.max(MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ)
+}
+
 fn is_tx_preview_source(snapshot: &serde_json::Value, source_id: &str) -> bool {
   snapshot["sources"]
     .as_array()
@@ -126,7 +131,10 @@ fn is_tx_preview_source(snapshot: &serde_json::Value, source_id: &str) -> bool {
     .is_some_and(|capability| capability == "tx" || capability == "tx_rx")
 }
 
-fn apply_tx_preview_settings(message: &WebSocketMessage) {
+fn apply_tx_preview_settings(
+  message: &WebSocketMessage,
+  is_mock_tx_source: bool,
+) {
   let previous_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
 
   if let Some(center_frequency) = message.center_frequency {
@@ -147,8 +155,13 @@ fn apply_tx_preview_settings(message: &WebSocketMessage) {
 
   if let Some(sample_rate) = message.sample_rate {
     if sample_rate.is_finite() && sample_rate > 0.0 {
+      let sample_rate_hz = sample_rate.round().clamp(1.0, u32::MAX as f64) as u32;
       crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(
-        sample_rate.round().clamp(1.0, u32::MAX as f64) as u32,
+        if is_mock_tx_source {
+          normalize_mock_tx_monitor_sample_rate(sample_rate_hz)
+        } else {
+          sample_rate_hz
+        },
         Ordering::Relaxed,
       );
     }
@@ -192,10 +205,12 @@ fn apply_mock_tx_stream_options(options: &TxStreamOptions) {
       .view_center_hz
       .unwrap_or(options.center_frequency_hz) as f64;
   crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(
-    options
-      .view_sample_rate_hz
-      .unwrap_or(options.sample_rate_hz)
-      .max(1),
+    normalize_mock_tx_monitor_sample_rate(
+      options
+        .view_sample_rate_hz
+        .unwrap_or(options.sample_rate_hz)
+        .max(1),
+    ),
     Ordering::Relaxed,
   );
   *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = options.bandwidth_hz as f64;
@@ -245,9 +260,9 @@ fn build_tx_preview_frame_with_status(
     let requested =
       crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed);
     if requested > 0 {
-      requested
+      normalize_mock_tx_monitor_sample_rate(requested)
     } else {
-      sdr_settings.sample_rate.max(1)
+      normalize_mock_tx_monitor_sample_rate(sdr_settings.sample_rate.max(1))
     }
   };
   let view_center_hz = {
@@ -692,7 +707,19 @@ fn active_source_max_sample_rate(shared: &SharedState) -> Option<u32> {
 
 #[cfg(test)]
 mod sample_rate_tests {
-  use super::clamp_sample_rate_to_source;
+  use super::{clamp_sample_rate_to_source, normalize_mock_tx_monitor_sample_rate};
+
+  #[test]
+  fn mock_tx_monitor_rate_never_uses_waveform_rate_below_receive_floor() {
+    assert_eq!(
+      normalize_mock_tx_monitor_sample_rate(2_400_000),
+      3_200_000
+    );
+    assert_eq!(
+      normalize_mock_tx_monitor_sample_rate(4_372_000),
+      4_372_000
+    );
+  }
 
   #[test]
   fn clamps_requested_rate_to_active_source_limit() {
@@ -1874,7 +1901,7 @@ pub(crate) async fn handle_source_iq_connection(
                 let snapshot = build_source_info_snapshot(&shared);
                 let is_tx_source = is_tx_preview_source(&snapshot, &source_id);
                 if is_tx_source {
-                  apply_tx_preview_settings(&message);
+                  apply_tx_preview_settings(&message, source_id == MOCK_TX_SOURCE_ID);
                 }
                 if is_tx_source && source_id != MOCK_TX_SOURCE_ID {
                   let frame = build_tx_preview_frame(&shared, &source_id);
@@ -2225,7 +2252,7 @@ pub fn handle_message(
         // source commits. Mock Tx also wakes immediately so cold-start /
         // pre-pending previews publish on the Tx stream without waiting for
         // select_source; other pending targets still wake after SetActiveSource.
-        apply_tx_preview_settings(&message);
+        apply_tx_preview_settings(&message, source_id == MOCK_TX_SOURCE_ID);
         shared.mark_paused_frame_requested(&source_id);
         if is_active || is_mock_tx_standby || is_tx_capable_source {
           let _ = cmd_tx.send(super::types::SdrCommand::RequestNextFrame);
@@ -2536,12 +2563,15 @@ pub fn handle_message(
           sample_rate.round().clamp(1.0, u32::MAX as f64) as u32;
         if is_mock_tx_device {
           crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
-            .store(sample_rate_hz, Ordering::Relaxed);
+            .store(
+              normalize_mock_tx_monitor_sample_rate(sample_rate_hz),
+              Ordering::Relaxed,
+            );
         }
         let is_mock_tx_active_receiver =
           is_mock_tx_device_label(&shared.device_info.lock().unwrap());
         if is_mock_tx_active_receiver {
-          sdr_settings.sample_rate = sample_rate_hz;
+          sdr_settings.sample_rate = normalize_mock_tx_monitor_sample_rate(sample_rate_hz);
         }
       }
       if let Some(vga_gain) = message.hackrf_vga_gain {
@@ -2684,10 +2714,20 @@ pub fn handle_message(
       if let Some(sr) = message.sample_rate {
         if sr.is_finite() && sr > 0.0 {
           let sr_hz = sr.round().clamp(1.0, u32::MAX as f64) as u32;
-          crate::safety::TX_MONITOR_SAMPLE_RATE_HZ
-            .store(sr_hz, Ordering::Relaxed);
+          crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(
+            if is_mock_tx_device {
+              normalize_mock_tx_monitor_sample_rate(sr_hz)
+            } else {
+              sr_hz
+            },
+          Ordering::Relaxed,
+          );
           if is_mock_tx_active_receiver {
-            sdr_settings.sample_rate = sr_hz;
+            sdr_settings.sample_rate = if is_mock_tx_device {
+              normalize_mock_tx_monitor_sample_rate(sr_hz)
+            } else {
+              sr_hz
+            };
           }
         }
       }
@@ -3756,7 +3796,7 @@ mod tests {
     );
     assert_eq!(
       crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed),
-      2_400_000
+      3_200_000
     );
 
     assert!(shared
@@ -3844,6 +3884,7 @@ mod tests {
     let message: WebSocketMessage = serde_json::from_str(
       r#"{
         "type":"request_next_frame",
+        "source_id":"mock-tx",
         "centerFrequencyHz":137100000,
         "sample_rate":2400000,
         "bandwidthHz":2400000,
@@ -3881,7 +3922,7 @@ mod tests {
     assert_eq!(*crate::safety::TX_IFFT_SIZE.lock().unwrap(), 8192);
     assert_eq!(
       crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.load(Ordering::Relaxed),
-      2_400_000
+      3_200_000
     );
     assert_eq!(
       *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap(),
@@ -4143,7 +4184,7 @@ mod tests {
 
     assert_eq!(frame.source_id, "mock-tx");
     assert_eq!(frame.data_type.as_deref(), Some("iq_raw"));
-    assert_eq!(frame.sample_rate, Some(2_400_000));
+    assert_eq!(frame.sample_rate, Some(3_200_000));
     assert!(!frame.iq_data.is_empty());
   }
 

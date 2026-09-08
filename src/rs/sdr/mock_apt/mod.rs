@@ -958,6 +958,38 @@ fn quantize_mock_apt_sample(
   (128.0 + signed).clamp(0.0, 255.0) as u8
 }
 
+/// Match the standalone Mock Tx monitor's spectral-peak power contract.
+/// ComplexBasebandIQGenerator emits a unit-complex-RMS OFDM block, so its
+/// individual FFT bins are much lower than its RMS. The monitor compensates
+/// for that before rendering; the Mock APT receiver merge must do the same.
+fn mock_tx_overlay_amplitude(
+  power_dbm: f64,
+  block_spectral_peak: f64,
+  power_model: &TxIqPowerModel,
+) -> f64 {
+  let target_rms = crate::server::websocket_server::complex_baseband::
+    mock_tx_monitor_target_rms_from_dbm(power_dbm, power_model);
+  if block_spectral_peak.is_finite() && block_spectral_peak > 0.0 {
+    target_rms / block_spectral_peak
+  } else {
+    0.0
+  }
+}
+
+fn complex_spectral_peak_raw(iq: &[Complex<f32>]) -> f64 {
+  if iq.is_empty() {
+    return 0.0;
+  }
+
+  let mut spectrum = iq.to_vec();
+  let fft = PLANNER.with(|p| p.borrow_mut().plan_fft_forward(spectrum.len()));
+  fft.process(&mut spectrum);
+  spectrum
+    .iter()
+    .map(|bin| bin.norm() as f64 / iq.len() as f64)
+    .fold(0.0_f64, f64::max)
+}
+
 fn constrain_mock_apt_tx_overlay_to_bandwidth(
   i_accumulator: &mut [f64],
   q_accumulator: &mut [f64],
@@ -1369,11 +1401,11 @@ impl MockAptDevice {
       let tx_signal = canonical_complex_baseband_signal_key(&tx_signal);
       let tx_preset = resolve_mock_tx_preset(&tx_signal);
       let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
-      // Mock APT is a verification receiver for Mock Tx, so render the Tx
-      // overlay at the same monitor calibration instead of hiding it behind
-      // an arbitrary coupling loss.
-      let amp = 10.0f64
-        .powf((tx_power_dbm - TxIqPowerModel::default().calibration_db) / 20.0);
+      let power_model = crate::server::websocket_server::complex_baseband::
+        resolve_mock_tx_iq_power_model();
+      // Mock APT is a verification receiver for Mock Tx. Derive the overlay
+      // from the same calibrated Tx contract as the standalone monitor.
+      let amp = mock_tx_overlay_amplitude(tx_power_dbm, 1.0, &power_model);
 
       let hop_enabled = crate::safety::TX_HOP_ENABLED
         .load(std::sync::atomic::Ordering::Relaxed);
@@ -1471,20 +1503,9 @@ impl MockAptDevice {
             let block_cursor =
               (self.frame_log_counter as usize) % render_ifft_size;
             let frame_seed = self.frame_log_counter;
-
-            let mut max_peak = 0.0_f64;
-            for s in block.iter() {
-              let peak = ((s.re * s.re + s.im * s.im) as f64).sqrt();
-              if peak > max_peak {
-                max_peak = peak;
-              }
-            }
-            let peak_env = amp * max_peak;
-            let scale = if peak_env > 0.95 {
-              0.95 / peak_env
-            } else {
-              1.0
-            };
+            let block_peak = complex_spectral_peak_raw(&block);
+            let signal_amplitude =
+              mock_tx_overlay_amplitude(tx_power_dbm, block_peak, &power_model);
 
             for j in 0..fft_size {
               let t = self.total_samples + j as u64;
@@ -1496,13 +1517,11 @@ impl MockAptDevice {
               let motion_gain = wifi_5g_motion_gain(&tx_signal, frame_seed, t);
               let i_sig = (block_sample.re as f64 * cos_p
                 - block_sample.im as f64 * sin_p)
-                * amp
-                * scale
+                * signal_amplitude
                 * motion_gain;
               let q_sig = (block_sample.re as f64 * sin_p
                 + block_sample.im as f64 * cos_p)
-                * amp
-                * scale
+                * signal_amplitude
                 * motion_gain;
 
               self.i_accumulator[j] += i_sig;
@@ -1836,6 +1855,17 @@ mod tests {
   use crate::server::utils::cwd_lock;
   use std::fs;
   use std::thread::sleep;
+
+  #[test]
+  fn mock_tx_overlay_uses_the_monitor_spectral_peak_contract() {
+    let model = TxIqPowerModel::default();
+    let amplitude = super::mock_tx_overlay_amplitude(-25.0, 0.05, &model);
+
+    assert!(
+      (amplitude - 0.2).abs() < f64::EPSILON,
+      "wideband overlay should scale unit-RMS IQ to the requested spectral peak"
+    );
+  }
 
   #[test]
   fn mock_tx_overlay_cache_reuses_plans_when_phase_changes() {

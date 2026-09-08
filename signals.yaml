@@ -149,7 +149,10 @@ signals:
           step: 0.1
       mock_tx:
         duplex_mode: "Simplex"
-        sample_rate: !frequency 2.4MHz
+        # Mock Tx's waveform rate is configured per signal below. The source
+        # monitor is still an SDR display and must expose the valid receive
+        # rate range rather than leaking the 2.4 MHz waveform default.
+        sample_rate: !floor...!channel
         gain_limits:
           min: 0.0
           max: 47.0

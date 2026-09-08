@@ -1095,6 +1095,31 @@ mod tests {
   }
 
   #[test]
+  fn resolves_mock_tx_monitor_sample_rate_options_without_exposing_tx_waveform_rate() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+
+    let profile = DeviceProfile {
+      kind: "mock_tx".to_string(),
+      is_rtl_sdr: false,
+      supports_approx_dbm: true,
+      iq_format: Some(crate::server::types::IqFormat::default()),
+    };
+    let settings = load_sdr_settings();
+    let (max_sample_rate, options) = resolve_device_sample_rate_options(
+      false,
+      "Mock Tx SDR - Rate: 2400000 Hz",
+      &profile,
+      &settings,
+    );
+
+    assert_eq!(max_sample_rate, 20_000_000);
+    assert_eq!(options.first().copied(), Some(3_200_000));
+    assert!(options.contains(&4_000_000));
+    assert!(!options.contains(&2_400_000));
+  }
+
+  #[test]
   fn signals_yaml_sets_mock_apt_max_sample_rate_to_20_mhz() {
     let _guard = cwd_lock().lock().expect("cwd lock");
     clear_signals_config_cache();
