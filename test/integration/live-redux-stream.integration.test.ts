@@ -9,16 +9,19 @@ const waitForMockAptStreaming = async (
 ) =>
   harness.waitFor(
     () => harness.snapshot(),
-    (snapshot) =>
-      ["connected", "receiving", "paused"].includes(
-        snapshot.redux.sourceStatuses[MOCK_APT_SOURCE_ID],
-      ) &&
-      snapshot.managed.rx.sourceId === MOCK_APT_SOURCE_ID &&
-      snapshot.managed.rx.hasSubscription &&
-      snapshot.rxPresentation.hasFrame &&
-      snapshot.rxPresentation.sourceId === MOCK_APT_SOURCE_ID &&
-      snapshot.lifecycle.phase === "ready" &&
-      snapshot.presentationPhase?.phase === "streaming",
+    (snapshot) => {
+      const sourceStatus = snapshot.redux.sourceStatuses[MOCK_APT_SOURCE_ID];
+      return (
+        sourceStatus !== null &&
+        ["connected", "receiving", "paused"].includes(sourceStatus) &&
+        snapshot.managed.rx.sourceId === MOCK_APT_SOURCE_ID &&
+        snapshot.managed.rx.hasSubscription &&
+        snapshot.rxPresentation.hasFrame &&
+        snapshot.rxPresentation.sourceId === MOCK_APT_SOURCE_ID &&
+        snapshot.lifecycle.phase === "ready" &&
+        snapshot.presentationPhase?.phase === "streaming"
+      );
+    },
     20_000,
   );
 
