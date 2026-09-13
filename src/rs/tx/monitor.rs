@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, Mutex};
 use crate::sdr::processor::SdrProcessor;
 use crate::server::shared_state::SharedState;
 use crate::server::stream_manager::{
-  StreamKey, StreamMode, StreamingSourceModeManager,
+  StreamKey, StreamMode, StreamOptions, StreamingSourceModeManager,
 };
 use crate::server::websocket_server::complex_baseband;
 use crate::server::websocket_server::{
@@ -69,6 +69,7 @@ mod status_tests {
 /// controlled by `TxWorker::apply_status` and the safety gates.
 pub(crate) fn spawn_monitor_stream(
   shared_state: Arc<SharedState>,
+  processor: Option<Arc<Mutex<SdrProcessor>>>,
   stream_manager: StreamingSourceModeManager,
 ) -> tokio::task::JoinHandle<()> {
   tokio::spawn(async move {
@@ -123,12 +124,33 @@ pub(crate) fn spawn_monitor_stream(
                     Err(_) => continue,
                 }
       } else if let Some(payload) = stream_manager.tx_payload(&tx_key) {
+        let iq_data = if tx_key.source_id.starts_with("hackrf_one") {
+          let next_iq = synthesize_next_hardware_tx_iq(
+            &shared_state,
+            (payload.iq_data.len() / 2).max(256),
+            payload.center_frequency_hz,
+            payload.sample_rate_hz,
+          );
+          if let Some(processor) = processor.as_ref() {
+            let mut processor = processor.lock().await;
+            let _ = processor.update_transmit_iq(&next_iq);
+          }
+          stream_manager.set_tx_payload(
+            tx_key.clone(),
+            payload.center_frequency_hz,
+            payload.sample_rate_hz,
+            next_iq.clone(),
+          );
+          next_iq
+        } else {
+          (*payload.iq_data).clone()
+        };
         crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
           &shared_state,
           &tx_key.source_id,
           payload.center_frequency_hz as f64,
           payload.sample_rate_hz,
-          (*payload.iq_data).clone(),
+          iq_data,
           false,
         )
       } else {
@@ -145,6 +167,36 @@ pub(crate) fn spawn_monitor_stream(
       }
     }
   })
+}
+
+fn synthesize_next_hardware_tx_iq(
+  shared_state: &SharedState,
+  sample_count: usize,
+  view_center_frequency_hz: u64,
+  sample_rate_hz: u32,
+) -> Vec<u8> {
+  let tx_center_frequency_hz =
+    *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap();
+  let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
+  let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
+  let tx_ifft_size = *crate::safety::TX_IFFT_SIZE.lock().unwrap();
+  let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
+  complex_baseband::synthesize_mock_tx_monitor_iq_shared_phase(
+    sample_count,
+    view_center_frequency_hz as f64,
+    sample_rate_hz,
+    if tx_center_frequency_hz > 0.0 {
+      tx_center_frequency_hz
+    } else {
+      view_center_frequency_hz as f64
+    },
+    tx_bandwidth_hz,
+    &tx_signal,
+    tx_ifft_size,
+    tx_power_dbm,
+    &complex_baseband::resolve_mock_tx_iq_power_model(),
+    &shared_state.mock_tx_phase_accumulator,
+  )
 }
 
 /// Owns transmit-side state changes without coupling them to RX acquisition.
@@ -219,6 +271,17 @@ impl TxWorker {
     // from the TX globals set by the preview request, mirroring the source-I/Q
     // socket behavior for an inactive tx-capable device.
     let hardware_tx_key = StreamKey::new(request_owner.clone(), StreamMode::Tx);
+    // Managed Tx requests do not traverse the legacy status handler. Hydrate
+    // the same synthesis inputs from the source-owned stream options before
+    // building the one-shot, otherwise HackRF standby can be generated with
+    // an old global center/rate and the client correctly rejects it as stale.
+    if let Some(StreamOptions::Tx(options)) =
+      self.stream_manager.options(&hardware_tx_key)
+    {
+      crate::server::websocket_handlers::apply_tx_stream_options(
+        &options, false,
+      );
+    }
     let (frame, published_iq) =
       if let Some(payload) = self.stream_manager.tx_payload(&hardware_tx_key) {
         let frame = crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
@@ -517,3 +580,102 @@ impl TxWorker {
 }
 
 pub use crate::tx::ifft::synthesize_mock_tx_monitor_iq;
+
+#[cfg(test)]
+mod tests {
+  use super::{StandbyPreviewOutcome, TxWorker};
+  use crate::sdr::processor::SdrProcessor;
+  use crate::server::shared_state::SharedState;
+  use crate::server::stream_manager::{
+    SourceStreamCapabilities, StreamEvent, StreamKey, StreamMode,
+    StreamOptions, StreamingSourceModeManager, TxStreamOptions,
+  };
+  use serial_test::serial;
+  use std::sync::atomic::Ordering;
+  use std::sync::Arc;
+  use std::time::Duration;
+  use tokio::sync::{broadcast, Mutex};
+
+  #[tokio::test]
+  #[serial]
+  async fn hardware_standby_preview_uses_managed_tx_geometry_not_rx_globals() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = 1_000_000.0;
+    crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(2_000_000, Ordering::Relaxed);
+
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let stream_manager = StreamingSourceModeManager::new(Duration::from_millis(20));
+    let key = StreamKey::new("hackrf-one-00000001", StreamMode::Tx);
+    stream_manager.register_source(
+      key.source_id.clone(),
+      SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: true,
+        full_duplex: false,
+      },
+    );
+    let options = StreamOptions::Tx(TxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      sample_rate_hz: 4_372_000,
+      bandwidth_hz: 4_372_000,
+      view_center_hz: Some(137_350_000),
+      view_sample_rate_hz: Some(4_372_000),
+      signal: "wifi".to_string(),
+      power_dbm: -18.0,
+      ifft_size: 2048,
+    });
+    let mut subscription = stream_manager
+      .subscribe(key.clone(), options)
+      .expect("HackRF Tx stream should subscribe");
+    shared.mark_paused_frame_requested(&key.source_id);
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let worker = TxWorker::new(
+      Arc::new(Mutex::new(
+        SdrProcessor::new_mock_apt().expect("mock processor"),
+      )),
+      shared,
+      broadcast_tx,
+      stream_manager,
+    );
+
+    assert_eq!(
+      worker.try_publish_standby_preview(),
+      StandbyPreviewOutcome::Published
+    );
+    let event = tokio::time::timeout(Duration::from_millis(100), subscription.recv())
+      .await
+      .expect("standby preview should arrive")
+      .expect("standby preview stream should remain open");
+    match event {
+      StreamEvent::Frame(frame) => {
+        assert_eq!(frame.key, key);
+        assert_eq!(frame.center_frequency_hz, Some(137_350_000));
+        assert_eq!(frame.sample_rate_hz, 4_372_000);
+        assert!(!frame.iq_data.is_empty());
+        assert!(frame.is_tx_preview);
+      }
+      other => panic!("unexpected standby event: {other:?}"),
+    }
+  }
+
+  #[test]
+  fn hardware_tx_monitor_generates_a_new_iq_block_for_each_tick() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let first = super::synthesize_next_hardware_tx_iq(
+      &shared,
+      4096,
+      137_100_000,
+      2_000_000,
+    );
+    let second = super::synthesize_next_hardware_tx_iq(
+      &shared,
+      4096,
+      137_100_000,
+      2_000_000,
+    );
+
+    assert_ne!(first, second);
+  }
+}

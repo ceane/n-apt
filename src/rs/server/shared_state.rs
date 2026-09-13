@@ -584,6 +584,20 @@ impl SharedState {
     *self.rtl_sdr_inventory.lock().unwrap() = inventory;
   }
 
+  pub fn clear_hardware_inventory(&self) {
+    self.set_rtl_sdr_inventory(Vec::new());
+    self.hackrf_inventory.lock().unwrap().clear();
+  }
+
+  pub fn clear_hardware_inventory_for_device_type(&self, device_type: &str) {
+    let normalized = device_type.to_ascii_lowercase();
+    if normalized.starts_with("rtl") {
+      self.set_rtl_sdr_inventory(Vec::new());
+    } else if normalized.starts_with("hackrf") {
+      self.hackrf_inventory.lock().unwrap().clear();
+    }
+  }
+
   pub fn cache_active_rtl_sdr(
     &self,
     serial_number: String,
@@ -760,10 +774,38 @@ fn unsafe_local_user_password() -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::{unsafe_local_user_password, SharedState};
+  use super::{
+    unsafe_local_user_password, HackRfInventoryDevice,
+    RtlSdrInventoryDevice, SharedState,
+  };
   use crate::server::types::SdrProcessorSettings;
   use serial_test::serial;
   use std::sync::atomic::Ordering;
+
+  #[test]
+  #[serial]
+  fn clearing_one_hardware_inventory_does_not_remove_the_other_device() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    let shared = SharedState::new("redis://127.0.0.1:6379");
+    shared.set_rtl_sdr_inventory(vec![RtlSdrInventoryDevice {
+      index: 0,
+      serial_number: "rtl-1".to_string(),
+      manufacturer: "RTL".to_string(),
+      product: "RTL-SDR".to_string(),
+      device_name: "RTL-SDR".to_string(),
+    }]);
+    shared.hackrf_inventory.lock().unwrap().push(
+      HackRfInventoryDevice {
+        serial_number: "hackrf-1".to_string(),
+        index: 0,
+      },
+    );
+
+    shared.clear_hardware_inventory_for_device_type("hackrf_one");
+
+    assert_eq!(shared.rtl_sdr_inventory_snapshot().len(), 1);
+    assert!(shared.hackrf_inventory.lock().unwrap().is_empty());
+  }
 
   #[test]
   #[serial]

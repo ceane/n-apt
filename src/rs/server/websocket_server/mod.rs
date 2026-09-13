@@ -123,10 +123,12 @@ pub(crate) fn resolve_mock_tx_monitor_fft_size(
 
 fn spawn_tx_monitor_stream(
   shared_state: Arc<SharedState>,
+  processor: Option<Arc<Mutex<SdrProcessor>>>,
   stream_manager: StreamingSourceModeManager,
 ) -> tokio::task::JoinHandle<()> {
   crate::tx::monitor::spawn_monitor_stream(
     shared_state,
+    processor,
     stream_manager,
   )
 }
@@ -521,7 +523,7 @@ mod tests {
     );
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
+    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
     let first =
       tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
@@ -542,8 +544,12 @@ mod tests {
     assert_eq!(first.key.source_id, "hackrf_one-test");
     assert_eq!(second.key.source_id, "hackrf_one-test");
     assert!(second.sequence > first.sequence);
-    assert_eq!(first.iq_data.as_ref(), &tx_iq);
-    assert_eq!(second.iq_data, first.iq_data);
+    // Hardware monitor frames are regenerated from the active TX geometry on
+    // every tick so the client sees the actual current waveform, rather than
+    // the short seed payload used to prime the stream manager.
+    assert!(!first.iq_data.is_empty());
+    assert_eq!(first.iq_data.len(), second.iq_data.len());
+    assert_ne!(second.iq_data, first.iq_data);
 
     shared.shutdown.store(true, Ordering::Relaxed);
     monitor
@@ -580,7 +586,7 @@ mod tests {
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
     shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
+    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
     let first =
       tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
@@ -641,7 +647,7 @@ mod tests {
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
     shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
+    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
     let first = tokio::time::timeout(Duration::from_secs(2), subscription.recv())
       .await
       .expect("bound Mock Tx monitor frame should reach its managed subscriber")
@@ -701,7 +707,7 @@ mod tests {
       )
       .expect("managed Tx subscription should open");
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), stream_manager);
+    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
     assert!(
       tokio::time::timeout(Duration::from_millis(100), subscription.recv())
         .await
@@ -1170,6 +1176,7 @@ impl WebSocketServer {
     let mut allow_next_paused_frame = false;
     let tx_monitor_task = spawn_tx_monitor_stream(
       shared_state.clone(),
+      Some(sdr_processor.clone()),
       stream_manager.clone(),
     );
     let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
@@ -1368,7 +1375,7 @@ impl WebSocketServer {
             ppm,
             ..
           } => {
-            tx_worker
+            if let Err(error) = tx_worker
               .apply_status(TxStatusRequest {
                 enabled,
                 device,
@@ -1385,7 +1392,17 @@ impl WebSocketServer {
                 rtl_agc,
                 ppm,
               })
-              .await?;
+              .await
+            {
+              // A device-level TX failure must not unwind the websocket/SDR
+              // loop and take unrelated source runtimes down with it. The
+              // worker leaves the confirmed TX flag conservative; publish a
+              // source recovery state so the UI can offer Restart.
+              log::error!("TX transition failed: {}", error);
+              shared_state.set_device_backend_error(Some(error.to_string()));
+              shared_state.set_device_state("stale", Some("restart"));
+              broadcast_device_status(&shared_state, &_broadcast_tx);
+            }
           }
           _ => {
             warn!("Unhandled command: {:?}", cmd);

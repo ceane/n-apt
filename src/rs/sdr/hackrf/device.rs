@@ -24,7 +24,21 @@ struct RxContext {
   tx: Sender<Vec<u8>>,
 }
 struct TxContext {
-  iq: Vec<u8>,
+  iq: Mutex<Vec<u8>>,
+}
+
+impl TxContext {
+  fn new(iq: Vec<u8>) -> Self {
+    Self { iq: Mutex::new(iq) }
+  }
+
+  fn replace_iq(&self, iq: Vec<u8>) {
+    *self.iq.lock().unwrap() = iq;
+  }
+
+  fn snapshot_iq(&self) -> Vec<u8> {
+    self.iq.lock().unwrap().clone()
+  }
 }
 
 fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
@@ -33,6 +47,10 @@ fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
     payload.push(0);
   }
   payload
+}
+
+fn should_resume_rx_after_tx_stop(tx_started: bool, streaming_started: bool) -> bool {
+  tx_started && !streaming_started
 }
 
 fn drain_rx_queue(rx: &Receiver<Vec<u8>>) -> usize {
@@ -118,7 +136,8 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
       return -1;
     }
     let ctx = unsafe { &*(transfer.rx_ctx as *const TxContext) };
-    if ctx.iq.is_empty() {
+    let iq = ctx.snapshot_iq();
+    if iq.is_empty() {
       return -1;
     }
     let output = unsafe {
@@ -127,7 +146,7 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
         transfer.buffer_length as usize,
       )
     };
-    if crate::tx::repeat_iq_payload_into(&ctx.iq, output).is_err() {
+    if crate::tx::repeat_iq_payload_into(&iq, output).is_err() {
       return -1;
     }
     transfer.valid_length = output.len() as c_int;
@@ -365,7 +384,7 @@ impl SdrDevice for HackRfDevice {
         if payload.is_empty() {
           return Err(anyhow!("HackRF TX requires I/Q samples"));
         }
-        let context = Arc::new(TxContext { iq: payload });
+        let context = Arc::new(TxContext::new(payload));
         let ret = unsafe {
           ffi::hackrf_start_tx(
             self.dev,
@@ -383,10 +402,26 @@ impl SdrDevice for HackRfDevice {
         self.tx_started = true;
       }
       None => {
+        let was_transmitting = self.tx_started;
         self.stop_transmitting();
         self.tx_context = None;
+        if should_resume_rx_after_tx_stop(was_transmitting, self.streaming_started) {
+          self.ensure_streaming()?;
+        }
       }
     }
+    Ok(())
+  }
+
+  fn update_transmit_iq(&mut self, samples: &[u8]) -> Result<()> {
+    let Some(context) = self.tx_context.as_ref() else {
+      return Err(anyhow!("HackRF TX is not active"));
+    };
+    let payload = prepare_hackrf_tx_payload(samples);
+    if payload.is_empty() {
+      return Err(anyhow!("HackRF TX requires I/Q samples"));
+    }
+    context.replace_iq(payload);
     Ok(())
   }
 
@@ -770,5 +805,21 @@ mod tests {
 
     assert_eq!(drain_rx_queue(&rx), 2);
     assert!(rx.try_recv().is_err());
+  }
+
+  #[test]
+  fn stopping_tx_requires_restarting_rx_when_tx_replaced_rx() {
+    assert!(should_resume_rx_after_tx_stop(true, false));
+    assert!(!should_resume_rx_after_tx_stop(true, true));
+    assert!(!should_resume_rx_after_tx_stop(false, false));
+  }
+
+  #[test]
+  fn tx_callback_context_accepts_new_iq_without_restarting_tx() {
+    let context = TxContext::new(vec![1, 2, 3, 4]);
+
+    context.replace_iq(vec![5, 6, 7, 8]);
+
+    assert_eq!(context.snapshot_iq(), vec![5, 6, 7, 8]);
   }
 }

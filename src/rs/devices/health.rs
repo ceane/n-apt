@@ -31,6 +31,14 @@ use crate::server::websocket_server::{
   SourceLifecyclePhase,
 };
 
+fn should_stop_transmit_before_stale(
+  device_type: &str,
+  transmitting: bool,
+) -> bool {
+  transmitting
+    && device_type.to_ascii_lowercase().starts_with("hackrf_one")
+}
+
 /// Runs periodic device recovery without making the websocket loop own the
 /// health policy or hotplug implementation details.
 #[derive(Clone)]
@@ -185,6 +193,18 @@ impl DeviceHealthWorker {
       if should_mark_read_error_stale(&e, streak) && supported_device_present {
         if let Some(read_state) = read_failure_state(&current_state) {
           if current_state != read_state {
+            if should_stop_transmit_before_stale(
+              processor.device_type(),
+              crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed),
+            ) {
+              // A stale RX read is not proof that the HackRF has stopped
+              // transmitting. Stop the physical TX path before exposing the
+              // stale/restart state so the UI cannot leave the hardware live
+              // behind an app-level recovery placeholder.
+              if processor.transmit_iq(None).is_ok() {
+                crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+              }
+            }
             shared_state.set_device_state(read_state, None);
             broadcast_device_status(&shared_state, &_broadcast_tx);
           }
@@ -214,6 +234,9 @@ impl DeviceHealthWorker {
           supported_device_present,
         ) {
           let was_hackrf = processor.device_type() == "hackrf_one";
+          shared_state.clear_hardware_inventory_for_device_type(
+            processor.device_type(),
+          );
           shared_state.set_device_state("disconnected", None);
           if was_hackrf {
             shared_state.set_device_backend_error(Some(
@@ -520,6 +543,9 @@ impl DeviceHealthWorker {
           supported_device_present,
         ) {
           let was_hackrf = processor.device_type() == "hackrf_one";
+          shared_state.clear_hardware_inventory_for_device_type(
+            processor.device_type(),
+          );
           shared_state.set_device_state("disconnected", None);
           if was_hackrf {
             shared_state.set_device_backend_error(Some(
@@ -656,6 +682,16 @@ impl DeviceHealthWorker {
 
 #[cfg(test)]
 mod tests {
+  use super::should_stop_transmit_before_stale;
+
+  #[test]
+  fn stale_hardware_recovery_requires_stopping_active_tx_first() {
+    assert!(should_stop_transmit_before_stale("hackrf_one", true));
+    assert!(should_stop_transmit_before_stale("hackrf_one-serial", true));
+    assert!(!should_stop_transmit_before_stale("hackrf_one", false));
+    assert!(!should_stop_transmit_before_stale("rtl_sdr", true));
+  }
+
   #[test]
   fn read_error_recovery_contains_no_logging_in_the_io_path() {
     let source = include_str!("health.rs");

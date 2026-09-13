@@ -32,7 +32,8 @@ use super::types::{PowerScale, SpectrumData};
 use super::types::{WebSocketMessage, WsQueryParams};
 use super::websocket_server::reconcile_stale_device_snapshot;
 use super::websocket_server::{
-  active_source_id, broadcast_channels, broadcast_signal_display_settings,
+  active_source_id, broadcast_channels, broadcast_device_status,
+  broadcast_signal_display_settings,
   build_channels_snapshot, build_signals_defaults_snapshot,
   build_source_info_snapshot, complex_baseband, resolve_stream_key_source_id,
 };
@@ -197,7 +198,10 @@ fn apply_tx_preview_settings(
 /// its managed stream. A `stream_update_options` command does not carry the
 /// legacy WebSocket message shape, so it must update the synthesis state here
 /// before the following subscriber-scoped one-shot request is serviced.
-fn apply_mock_tx_stream_options(options: &TxStreamOptions) {
+pub(crate) fn apply_tx_stream_options(
+  options: &TxStreamOptions,
+  is_mock_tx: bool,
+) {
   *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() =
     options.center_frequency_hz as f64;
   *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() =
@@ -205,12 +209,19 @@ fn apply_mock_tx_stream_options(options: &TxStreamOptions) {
       .view_center_hz
       .unwrap_or(options.center_frequency_hz) as f64;
   crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(
-    normalize_mock_tx_monitor_sample_rate(
+    if is_mock_tx {
+      normalize_mock_tx_monitor_sample_rate(
+        options
+          .view_sample_rate_hz
+          .unwrap_or(options.sample_rate_hz)
+          .max(1),
+      )
+    } else {
       options
         .view_sample_rate_hz
         .unwrap_or(options.sample_rate_hz)
-        .max(1),
-    ),
+        .max(1)
+    },
     Ordering::Relaxed,
   );
   *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap() = options.bandwidth_hz as f64;
@@ -513,6 +524,8 @@ pub enum StreamCommand {
     #[serde(rename = "subscriptionId")]
     subscription_id: String,
     stream: StreamKey,
+    #[serde(default)]
+    immediate: bool,
   },
   #[serde(rename = "stream_set_paused")]
   SetPaused {
@@ -1042,7 +1055,7 @@ async fn handle_stream_connection(
             };
             if stream.source_id == MOCK_TX_SOURCE_ID {
               if let StreamOptions::Tx(tx_options) = &effective_subscribe_options {
-                apply_mock_tx_stream_options(tx_options);
+              apply_tx_stream_options(tx_options, true);
               }
             }
             let stream_identity =
@@ -1206,7 +1219,7 @@ async fn handle_stream_connection(
               }
               Ok((_, _, true)) => {
                 if let Some(tx_options) = mock_tx_options.as_ref() {
-                  apply_mock_tx_stream_options(tx_options);
+              apply_tx_stream_options(tx_options, true);
                 }
                 if let Some((center_frequency_hz, settings)) = rx_device_settings {
                   // Managed RX options are device-scoped, not presentation-only.
@@ -1340,18 +1353,23 @@ async fn handle_stream_connection(
               let _ = sender.send(Message::Text(response.to_string().into())).await;
             }
           }
-          StreamCommand::Unsubscribe { scope, subscription_id, stream } => {
+          StreamCommand::Unsubscribe { scope, subscription_id, stream, immediate } => {
             if scope != StreamControlScope::Subscriber {
               let error = stream_error_json(&subscription_id, &stream, "scope", "stream unsubscribe is subscriber-scoped");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
             }
-            let Some((active_stream, _, task)) = subscriptions.remove(&subscription_id) else {
+            let Some((active_stream, manager_subscription_id, task)) = subscriptions.remove(&subscription_id) else {
               let error = stream_error_json(&subscription_id, &stream, "missing_stream", "subscription is not active");
               let _ = sender.send(Message::Text(error.to_string().into())).await;
               continue;
             };
             task.abort();
+            manager.unsubscribe(
+              &active_stream,
+              manager_subscription_id,
+              immediate,
+            );
             let response = serde_json::json!({
               "type": "stream_unsubscribe",
               "subscriptionId": subscription_id,
@@ -2731,9 +2749,24 @@ pub fn handle_message(
           }
         }
       }
+      // The Tx worker owns the physical transition. Keep the global flag at
+      // its last confirmed value until `transmit_iq` succeeds, otherwise the
+      // monitor can report transmitting while HackRF never received IQ.
       let was_transmitting = crate::safety::TX_TRANSMITTING
-        .swap(enabled, std::sync::atomic::Ordering::Relaxed);
+        .load(std::sync::atomic::Ordering::Relaxed);
       let tx_status_changed = was_transmitting != enabled;
+
+      if is_mock_tx_device {
+        // Mock Tx has no physical operation that can fail between the control
+        // message and the worker command. Publish its logical status now so
+        // source snapshots do not remain on the old Rx/standby state while
+        // the generated monitor frame is being requested. Physical HackRF
+        // status remains worker-confirmed below.
+        shared
+          .mock_tx_transmitting
+          .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        broadcast_device_status(shared, broadcast_tx);
+      }
 
       let _ = cmd_tx.send(super::types::SdrCommand::SetTransmitStatus {
         enabled,
@@ -2789,29 +2822,6 @@ pub fn handle_message(
         };
         write_global(&entry);
       }
-      if is_mock_tx_device
-        || shared.device_profile.lock().unwrap().kind == "mock_tx"
-      {
-        let mock_tx_was_transmitting = shared
-          .mock_tx_transmitting
-          .swap(enabled, std::sync::atomic::Ordering::Relaxed);
-        let mock_tx_status_changed = mock_tx_was_transmitting != enabled;
-        if mock_tx_status_changed
-          && shared.device_profile.lock().unwrap().kind == "mock_tx"
-        {
-          shared.set_device_state(
-            if enabled { "transmitting" } else { "connected" },
-            None,
-          );
-        }
-        if tx_status_changed || mock_tx_status_changed {
-          super::websocket_server::broadcast_device_status(
-            shared,
-            broadcast_tx,
-          );
-        }
-      }
-
       // Publish the backend's normalized TX result. The frontend treats this
       // as authoritative state; it does not need the private calibration
       // model or device-specific safety tables to render the result.
@@ -3089,7 +3099,7 @@ pub fn handle_message(
 mod tests {
   use super::{
     apply_rx_stream_device_options, build_mock_tx_standby_preview_frame,
-    apply_mock_tx_stream_options,
+    apply_tx_stream_options,
     build_tx_preview_frame, drain_latest_source_iq_frame,
     encode_encrypted_iq_frame, handle_message, is_frame_after_paused_request,
     is_tx_preview_source, live_tune_is_out_of_bounds,
@@ -3938,7 +3948,7 @@ mod tests {
   #[test]
   #[serial]
   fn managed_mock_tx_options_preserve_the_independent_monitor_view() {
-    apply_mock_tx_stream_options(&TxStreamOptions {
+    apply_tx_stream_options(&TxStreamOptions {
       center_frequency_hz: 137_100_000,
       sample_rate_hz: 1_200_000,
       bandwidth_hz: 1_200_000,
@@ -3947,7 +3957,7 @@ mod tests {
       signal: "wifi".to_string(),
       power_dbm: -18.0,
       ifft_size: 2048,
-    });
+    }, true);
 
     assert_eq!(
       *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap(),
@@ -4230,6 +4240,10 @@ mod tests {
     )
     .unwrap();
     handle_message(&cmd_tx, &shared, &broadcast_tx, broken);
+    assert!(
+      !crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed),
+      "status handling must wait for the Tx worker to confirm the hardware write"
+    );
     let broken_frame = build_mock_tx_standby_preview_frame(&shared);
     let broken_peak = broken_frame
       .iq_data

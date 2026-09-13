@@ -89,6 +89,12 @@ pub trait SdrDevice: Send {
     Err(anyhow::anyhow!("This SDR does not support transmission"))
   }
 
+  /// Replace the active TX payload without restarting the device callback.
+  /// Devices that do not support a live payload swap retain the default error.
+  fn update_transmit_iq(&mut self, _samples: &[u8]) -> Result<()> {
+    Err(anyhow::anyhow!("This SDR does not support live TX payload updates"))
+  }
+
   /// Return an owned IQ sample buffer to devices that can reuse it.
   fn recycle_read_buffer(&mut self, _buffer: Vec<u8>) {}
 

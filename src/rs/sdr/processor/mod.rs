@@ -389,6 +389,10 @@ impl SdrProcessor {
     self.device.transmit_iq(samples)
   }
 
+  pub fn update_transmit_iq(&mut self, samples: &[u8]) -> Result<()> {
+    self.device.update_transmit_iq(samples)
+  }
+
   pub fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
     self.device.set_sample_rate(rate)
   }

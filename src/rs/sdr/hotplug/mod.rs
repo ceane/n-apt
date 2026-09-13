@@ -474,6 +474,16 @@ pub(crate) fn should_hold_recovery_for_usb_present_device(
   supported_device_present && should_enter_hardware_recovery(device_type)
 }
 
+pub(crate) fn should_skip_rx_health_during_transmit(
+  device_type: &str,
+  transmitting: bool,
+  device_present: bool,
+) -> bool {
+  transmitting
+    && device_type.to_ascii_lowercase().starts_with("hackrf_one")
+    && device_present
+}
+
 #[cfg(test)]
 #[allow(dead_code)]
 pub(crate) fn should_probe_for_hotplug(device_type: &str) -> bool {
@@ -839,12 +849,19 @@ async fn disconnect_to_mock(
   broadcast_tx: &broadcast::Sender<String>,
 ) -> Result<()> {
   let previous_device_type = processor.device_type();
-  if previous_device_type.to_ascii_lowercase().contains("rtl") {
-    // Remove the disconnected hardware from the source inventory before the
-    // fallback snapshot is broadcast. Otherwise the frontend can observe
-    // Mock APT as active while still seeing the old RTL source and retrying it.
-    shared_state.set_rtl_sdr_inventory(Vec::new());
+  if previous_device_type == "hackrf_one"
+    && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed)
+  {
+    // USB disappearance is not proof that the last TX callback stopped. Make
+    // the safety transition explicit before replacing the processor handle.
+    if processor.transmit_iq(None).is_ok() {
+      crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+    }
   }
+  // Remove disconnected hardware from both inventories before the fallback
+  // snapshot is broadcast. Otherwise the frontend can observe Mock APT as
+  // active while still seeing the old source and retrying it.
+  shared_state.clear_hardware_inventory_for_device_type(previous_device_type);
   shared_state.set_device_state("disconnected", None);
   if previous_device_type == "hackrf_one" {
     shared_state
@@ -909,6 +926,18 @@ pub async fn handle_real_hardware_health(
     // stale source is different: its reader has already crossed the liveness
     // boundary, so the USB inventory/reopen path owns recovery and must not
     // compete by extending the error streak.
+    return;
+  }
+
+  // HackRF stops RX before entering TX, so its RX health bit is expected to
+  // be false during a healthy TX callback. Do not expose Restart or run RX
+  // recovery against that deliberate half-duplex state. A missing device is
+  // still handled by the hotplug probe and the non-present path below.
+  if should_skip_rx_health_during_transmit(
+    processor.device_type(),
+    crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed),
+    active_device_present(processor.device_type(), shared_state),
+  ) {
     return;
   }
 
@@ -1017,6 +1046,9 @@ pub async fn handle_real_hardware_health(
     if !active_device_is_present {
       info!("Supported device disconnected. Falling back to Mock APT.");
       let was_hackrf = processor.device_type() == "hackrf_one";
+      shared_state.clear_hardware_inventory_for_device_type(
+        processor.device_type(),
+      );
       shared_state.set_device_state("disconnected", None);
       if was_hackrf {
         shared_state.set_device_backend_error(Some(
@@ -1320,6 +1352,19 @@ mod tests {
     ));
     assert!(!should_hold_recovery_for_usb_present_device(
       "mock_apt", true
+    ));
+  }
+
+  #[test]
+  fn rx_health_does_not_mark_present_hackrf_tx_as_stale() {
+    assert!(should_skip_rx_health_during_transmit(
+      "hackrf_one", true, true
+    ));
+    assert!(!should_skip_rx_health_during_transmit(
+      "hackrf_one", true, false
+    ));
+    assert!(!should_skip_rx_health_during_transmit(
+      "rtl_sdr", true, true
     ));
   }
 

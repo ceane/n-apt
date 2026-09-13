@@ -802,7 +802,7 @@ impl StreamingSourceModeManager {
     Ok((epoch, revision, true))
   }
 
-  fn unsubscribe(&self, key: &StreamKey, subscription_id: u64) {
+  pub fn unsubscribe(&self, key: &StreamKey, subscription_id: u64, immediate: bool) {
     let mut streams = self.inner.streams.lock().unwrap();
     let Some(entry) = streams.get_mut(key) else {
       return;
@@ -812,6 +812,11 @@ impl StreamingSourceModeManager {
     }
     entry.close_generation = entry.close_generation.wrapping_add(1);
     if !entry.subscribers.is_empty() {
+      return;
+    }
+
+    if immediate {
+      streams.remove(key);
       return;
     }
 
@@ -939,7 +944,17 @@ impl StreamSubscription {
     }
     if let Some(inner) = self.manager.upgrade() {
       StreamingSourceModeManager { inner }
-        .unsubscribe(&self.key, self.subscription_id);
+        .unsubscribe(&self.key, self.subscription_id, false);
+    }
+  }
+
+  pub fn unsubscribe_immediately(&self) {
+    if !self.active.swap(false, Ordering::AcqRel) {
+      return;
+    }
+    if let Some(inner) = self.manager.upgrade() {
+      StreamingSourceModeManager { inner }
+        .unsubscribe(&self.key, self.subscription_id, true);
     }
   }
 }
@@ -1034,6 +1049,18 @@ mod tests {
         .expect("releasing the half-duplex Rx stream must unblock the Tx subscribe");
     });
     assert!(manager.has_stream(&tx_key));
+  }
+
+  #[test]
+  fn immediate_unsubscribe_releases_half_duplex_mode() {
+    let manager = half_duplex_manager();
+    let rx_key = StreamKey::new("hackrf_one-00000001", StreamMode::Rx);
+    let tx_key = StreamKey::new("hackrf_one-00000001", StreamMode::Tx);
+    let rx_subscription = manager.subscribe(rx_key, rx_options()).unwrap();
+
+    rx_subscription.unsubscribe_immediately();
+
+    assert!(manager.subscribe(tx_key, tx_options()).is_ok());
   }
 
   #[test]
