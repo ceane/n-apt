@@ -519,6 +519,7 @@ describe("managed stream option synchronization", () => {
         sdrSettings: null,
       },
       spectrum: {
+        activeSignalArea: "C",
         sampleRateHz: 2_400_000,
         fftSize: 1024,
         fftWindow: "Rectangular",
