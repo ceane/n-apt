@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, lazy, Suspense } from "react";
 import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
-import { Agentation } from "agentation";
 import { theme } from "@n-apt/app-article/consts/theme";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
@@ -35,6 +34,10 @@ import { registerMarkdownHotReload } from "@n-apt/app-article/utils/hmr";
 import { CanvasHarness } from "@n-apt/app-article/components/canvas/CanvasHarness";
 import { ResponsiveKatex, desktopOnlyStyles, mobileOnlyStyles, DesktopOnly, MobileOnly } from "@n-apt/math/ResponsiveKatex";
 import { DEFAULT_MARKDOWN_SOURCE, loadMarkdown } from "@n-apt/app-article/utils/markdown-source";
+
+const DevAgentation = __DEV__
+  ? lazy(() => import("agentation").then(({ Agentation }) => ({ default: Agentation })))
+  : null;
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
@@ -289,8 +292,7 @@ const App: React.FC = () => {
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>
-        {process.env.NODE_ENV === "development" &&
-          <Agentation endpoint="http://localhost:4747" />}
+        {DevAgentation && <DevAgentation endpoint="http://localhost:4747" />}
       </Page>
     </ThemeProvider>
   );
