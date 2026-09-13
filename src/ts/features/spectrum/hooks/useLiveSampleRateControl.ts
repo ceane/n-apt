@@ -41,6 +41,7 @@ export const resolveHackrfBasebandSampleRateHz = ({
 type UseLiveSampleRateControlArgs = {
   sourceMode: "live" | "file";
   supportsWholeChannelSampleRate: boolean;
+  preferWholeChannelOnLiveStart?: boolean;
   manualSampleRateOptions?: number[];
   activeChannelSampleRate: number | null;
   maxSampleRateHz?: number | null;
@@ -217,6 +218,7 @@ const rangeSpanHz = (range: FrequencyRange): number =>
 export const useLiveSampleRateControl = ({
   sourceMode,
   supportsWholeChannelSampleRate,
+  preferWholeChannelOnLiveStart = false,
   manualSampleRateOptions: _manualSampleRateOptions = [],
   activeChannelSampleRate,
   maxSampleRateHz,
@@ -413,6 +415,19 @@ export const useLiveSampleRateControl = ({
     // Whole Channel width. Explicit selector/channel actions call
     // handleSampleRateChange themselves.
     if (currentRate !== null && currentRate > 0) {
+      if (
+        preferWholeChannelOnLiveStart &&
+        sampleRateModeRef.current === null &&
+        currentRate === 3_200_000 &&
+        currentRate !== nextRate
+      ) {
+        handleSampleRateChange(
+          nextRate,
+          "whole",
+          activeSignalAreaBounds ?? undefined,
+        );
+        return;
+      }
       if (currentRate !== nextRate) return;
       if (lastAppliedWholeChannelRateRef.current !== nextRate) {
         onSampleRateApplied?.(nextRate);
@@ -447,6 +462,8 @@ export const useLiveSampleRateControl = ({
     activeSignalAreaBounds,
     applyFrequencyRangeIfChanged,
     frequencyRange,
+    handleSampleRateChange,
+    preferWholeChannelOnLiveStart,
     requestedSampleRateHz,
     setSampleRate,
     onSampleRateApplied,

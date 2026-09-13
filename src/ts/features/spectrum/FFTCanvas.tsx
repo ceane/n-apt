@@ -1239,6 +1239,8 @@ export interface FFTCanvasProps {
   onVizZoomFloorChange?: (zoomFloor: number) => void;
   onVizZoomFloorPanChange?: (pan: number) => void;
   onVizPanChange?: (pan: number) => void;
+  /** Presentation-only pan used to keep a pinch/trackpad zoom anchored. */
+  onVizZoomPanChange?: (pan: number) => void;
   /** Maximum allowed bandwidth for the selection range */
   maxBandwidthHz?: number;
   fftMin?: number;
@@ -1281,8 +1283,18 @@ export const getLatestLiveFrame = <T,>(
 
 export const getLiveFrameSignature = (
   liveFrame: LiveFrameData | null | undefined,
-): LiveFrameData | null => {
+): LiveFrameData | string | null => {
   if (!liveFrame) return null;
+  // The managed WebSocket transport may update one frame object in place as
+  // new v2 packets arrive. Object identity therefore cannot tell the render
+  // loop that the IQ window changed; the negotiated stream coordinates are
+  // the stable per-frame identity.
+  if (
+    typeof liveFrame.stream_epoch === "number" &&
+    typeof liveFrame.sequence === "number"
+  ) {
+    return `${liveFrame.source_id ?? ""}\u0000${liveFrame.stream_epoch}\u0000${liveFrame.sequence}`;
+  }
   return liveFrame;
 };
 
@@ -1496,6 +1508,7 @@ const FFTCanvas = memo(
       onVizZoomFloorChange,
       onVizZoomFloorPanChange,
       onVizPanChange,
+      onVizZoomPanChange,
       maxBandwidthHz,
       fftMin = FFT_MIN_DB,
       fftMax,
@@ -1969,7 +1982,9 @@ const FFTCanvas = memo(
     // paused marker still needs to explain which frame was on screen.
     const lastPausedFrameSourceIdRef = useRef<string | null>(null);
     const hasPresentedStandbySpectrumRef = useRef(false);
-    const lastProcessedFrameSignatureRef = useRef<LiveFrameData | null>(null);
+    const lastProcessedFrameSignatureRef = useRef<
+      LiveFrameData | string | null
+    >(null);
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
     const centerFreqRef = useRef(centerFrequencyHz);
     centerFreqRef.current = centerFrequencyHz;
@@ -2937,6 +2952,7 @@ const FFTCanvas = memo(
       vizPanOffsetRef,
       clampedVizRangeRef,
       onVizPanChange: handleVizPanChange,
+      onVizZoomPanChange,
       onVizPanReanchor: publishVizPanReanchor,
       onHardwareRangeReanchor,
       vizDbMinRef,

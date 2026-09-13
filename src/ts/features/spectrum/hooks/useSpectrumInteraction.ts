@@ -109,6 +109,8 @@ export interface SpectrumInteractionOptions {
   vizDbMaxRef?: React.MutableRefObject<number>;
   onFftDbLimitsChange?: (min: number, max: number) => void;
   onVizZoomChange?: (zoom: number) => void;
+  /** Presentation-only pan used to keep a pinch/trackpad zoom anchored. */
+  onVizZoomPanChange?: (pan: number) => void;
   onVizZoomFloorChange?: (zoomFloor: number) => void;
   /** Callback to update the floor pan offset (auto zoom stability). */
   onVizZoomFloorPanChange?: (pan: number) => void;
@@ -166,6 +168,7 @@ export function useSpectrumInteraction({
   vizDbMaxRef,
   onFftDbLimitsChange,
   onVizZoomChange,
+  onVizZoomPanChange,
   onVizZoomFloorChange,
   onVizZoomFloorPanChange,
   autoZoomStabilityRef,
@@ -985,24 +988,6 @@ export function useSpectrumInteraction({
       }
     };
 
-    const clampRangeToTuningBounds = (
-      range: FrequencyRange,
-    ): FrequencyRange => {
-      const channelBounds = getActiveSignalAreaBounds();
-      const normalized = normalizeFrequencyRangeToHz(
-        clampFrequencyRangeToBounds(
-          clampFrequencyRangeToBounds(range, channelBounds),
-          hardwareSpectrumBounds,
-        ),
-      );
-      return normalized.min < 0
-        ? {
-            min: 0,
-            max: Math.max(0, normalized.max - normalized.min),
-          }
-        : normalized;
-    };
-
     const clampWheelRangeToHardwareBounds = (
       range: FrequencyRange,
     ): FrequencyRange => {
@@ -1015,6 +1000,15 @@ export function useSpectrumInteraction({
             max: Math.max(0, normalized.max - normalized.min),
           }
         : normalized;
+    };
+
+    const isWholeChannelRange = (range: FrequencyRange) => {
+      const channelBounds = getActiveSignalAreaBounds();
+      return (
+        !!channelBounds &&
+        range.min <= channelBounds.min &&
+        range.max >= channelBounds.max
+      );
     };
 
     const getVizPanBounds = (
@@ -1494,7 +1488,8 @@ export function useSpectrumInteraction({
 
         if (newZoom !== vizZoomRef?.current) {
           const currentPan = vizPanOffsetRef?.current || 0;
-          const nextPan = onVizPanChange
+          const publishZoomPan = onVizZoomPanChange ?? onVizPanChange;
+          const nextPan = publishZoomPan
             ? getStableVizPanForZoomChange({
                 currentZoom: vizZoomRef?.current || 1,
                 currentPan,
@@ -1506,8 +1501,8 @@ export function useSpectrumInteraction({
             : currentPan;
 
           onVizZoomChange(newZoom);
-          if (onVizPanChange && nextPan !== currentPan) {
-            onVizPanChange(nextPan);
+          if (publishZoomPan && nextPan !== currentPan) {
+            publishZoomPan(nextPan);
           }
 
           // Keep pinch zoom centered when the view is already near center,
@@ -1863,8 +1858,10 @@ export function useSpectrumInteraction({
 
         const requestedRange = { min: newMinFreq, max: newMaxFreq };
         const newRange = isVfoDraggingRef.current
-          ? clampWheelRangeToHardwareBounds(requestedRange)
-          : clampRangeToTuningBounds(requestedRange);
+          ? isWholeChannelRange(dragStartRangeRef.current)
+            ? requestedRange
+            : clampWheelRangeToHardwareBounds(requestedRange)
+          : clampWheelRangeToHardwareBounds(requestedRange);
         const existingPan = vizPanOffsetRef?.current ?? 0;
         if (existingPan !== 0) {
           onVizPanReanchor?.(0);
@@ -2749,7 +2746,8 @@ export function useSpectrumInteraction({
             onVizZoomChange(newZoom);
 
             // Adjust pan so freqAtAnchor stays under the current anchor position.
-            if (onVizPanChange) {
+            const publishZoomPan = onVizZoomPanChange ?? onVizPanChange;
+            if (publishZoomPan) {
               const newVisualRange = fullRange / newZoom;
               const newVisualMin =
                 freqAtAnchor - (currentAnchorX / width) * newVisualRange;
@@ -2759,7 +2757,7 @@ export function useSpectrumInteraction({
                 const maxPan = fullRange / 2 - newVisualRange / 2;
                 newPan = Math.max(-maxPan, Math.min(maxPan, newPan));
               }
-              onVizPanChange(newPan);
+              publishZoomPan(newPan);
             }
           } else {
             onVizZoomChange(newZoom);
@@ -3038,6 +3036,7 @@ export function useSpectrumInteraction({
     vizDbMaxRef,
     onFftDbLimitsChange,
     onVizZoomChange,
+    onVizZoomPanChange,
     hardwareSpectrumBounds,
     signalAreaBounds,
     allowNegativeFrequencies,

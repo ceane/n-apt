@@ -1403,7 +1403,7 @@ describe("SpectrumRoute file mode", () => {
           fftAndWaterfallMock.mock.calls.length - 1
         ]?.[0];
       expect(standbyProps.placeholderState).toMatchObject({
-        kind: "loading",
+        kind: "top-bar",
       });
       expect(standbyProps.isStandby).toBe(true);
     });
@@ -1431,7 +1431,7 @@ describe("SpectrumRoute file mode", () => {
         txSampleRateHz: 3_400_000,
       });
       expect(narrowedVisualizerProps.placeholderState).toMatchObject({
-        kind: "loading",
+        kind: "top-bar",
       });
       // Keep the last preview painted while the retune one-shot is in flight.
       expect(narrowedVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
@@ -1501,7 +1501,7 @@ describe("SpectrumRoute file mode", () => {
         txSampleRateHz: 1_400_000,
       });
       expect(narrowedVisualizerProps.placeholderState).toMatchObject({
-        kind: "loading",
+        kind: "top-bar",
       });
       expect(narrowedVisualizerProps.dataRef.current).toBe(
         widenedMockTxPreviewFrame,

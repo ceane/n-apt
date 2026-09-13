@@ -216,6 +216,40 @@ export type SourceTransportLifecycle = {
   error: string | null;
 };
 
+/**
+ * A renderability flag belongs to a ready source transport. While a source is
+ * warming or another source owns the slot, a previous canvas frame must not
+ * keep the lifecycle in ready state.
+ */
+export const shouldInvalidateLiveFrameStateForTransport = ({
+  expectedSourceId,
+  transportSourceId,
+  transportPhase,
+}: {
+  expectedSourceId: string | null | undefined;
+  transportSourceId: string | null | undefined;
+  transportPhase: SourceTransportPhase | null | undefined;
+}): boolean =>
+  transportPhase !== "ready" ||
+  (expectedSourceId ?? null) !== (transportSourceId ?? null);
+
+/**
+ * A transport lifecycle notification can lag a frame already accepted from
+ * that same source. Keep that resident frame visible while the transport
+ * catches up; source switches still fail this identity check and clear it.
+ */
+export const shouldPreserveRenderableFrameDuringTransportGap = ({
+  frame,
+  expectedSourceId,
+}: {
+  frame: RenderableLiveFrame | null | undefined;
+  expectedSourceId: string | null | undefined;
+}): boolean => {
+  const expected = normalizeSourceIdentity(expectedSourceId);
+  const owner = normalizeSourceIdentity(frame?.source_id);
+  return Boolean(expected && owner === expected && hasRenderableFramePayload(frame));
+};
+
 /** Low-frequency readiness boundary emitted by the frame pump. */
 export type SourceFrameReadiness = {
   sourceId: string;
@@ -790,7 +824,9 @@ export const resolveLiveSourceLifecycle = ({
   // usable, even if the control-plane source commit is still catching up.
   // Do not hide that frame behind the handoff loader; this is especially
   // important for the Tx one-shot preview that arrives during Rx → Tx.
-  const hasSelectedSourceFrame = readiness?.sourceId === selectedSourceId;
+  const hasSelectedSourceFrame =
+    readiness?.sourceId === selectedSourceId ||
+    (hasRenderableCurrentFrame && presentedSourceId === selectedSourceId);
   if (handoffPending && selectedSourceId !== activeSourceId) {
     const targetTransportIsReady =
       transportSourceId === selectedSourceId && transportPhase === "ready";

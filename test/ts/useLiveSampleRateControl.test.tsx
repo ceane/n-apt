@@ -34,6 +34,32 @@ describe("resolveHackrfBasebandSampleRateHz", () => {
 });
 
 describe("useLiveSampleRateControl", () => {
+  it("initializes a live HackRF at Whole Channel instead of the generic 3.2MHz floor", () => {
+    const setSampleRateWithFrequencyRange = jest.fn();
+    const applyFrequencyRange = jest.fn();
+
+    renderHook(() =>
+      useLiveSampleRateControl({
+        sourceMode: "live",
+        supportsWholeChannelSampleRate: true,
+        preferWholeChannelOnLiveStart: true,
+        activeChannelSampleRate: 4_372_000,
+        activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        sampleRateHz: 3_200_000,
+        maxSampleRateHz: 20_000_000,
+        setSampleRate: jest.fn(),
+        setSampleRateWithFrequencyRange,
+        applyFrequencyRange,
+      }),
+    );
+
+    expect(setSampleRateWithFrequencyRange).toHaveBeenCalledWith(
+      4_372_000,
+      { min: 18_000, max: 4_390_000 },
+    );
+  });
+
   it("derives the Whole Channel sample rate from the clicked range edges", () => {
     const setSampleRateWithFrequencyRange = jest.fn();
     const applyFrequencyRange = jest.fn();

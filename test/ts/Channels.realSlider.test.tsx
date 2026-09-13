@@ -139,7 +139,7 @@ describe("Channels real slider (channel selection)", () => {
     });
   });
 
-  it("does not change the selected channel when the viewport is panned over another channel", () => {
+  it("highlights the channel under the panned viewport while keeping click-to-tune working", () => {
     const sendFrequencyRange = jest.fn();
     const onSampleRateChange = jest.fn();
     const { rerender } = renderChannels({
@@ -180,13 +180,18 @@ describe("Channels real slider (channel selection)", () => {
       </Provider>,
     );
 
-    const channelC = screen.getByText("C").closest("div")?.nextElementSibling;
-    fireEvent.click(channelC as HTMLElement);
+    // The viewport pan moves the highlight to C (range-based). Clicking the
+    // now-inactive A slider tunes back to A's whole channel.
+    const channelA = screen.getByText("A").closest("div")?.nextElementSibling;
+    fireEvent.click(channelA as HTMLElement);
 
-    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(onSampleRateChange).toHaveBeenCalledWith(4_372_000, "whole", {
+      min: 18_000,
+      max: 4_390_000,
+    });
     expect(sendFrequencyRange).toHaveBeenCalledWith({
-      min: 12_275_000,
-      max: 15_475_000,
+      min: 18_000,
+      max: 4_390_000,
     });
   });
 

@@ -6,6 +6,7 @@ import React from "react";
 describe("useSpectrumInteraction Hook", () => {
   const mockOnFrequencyRangeChange = jest.fn();
   const mockOnVizPanChange = jest.fn();
+  const mockOnVizZoomPanChange = jest.fn();
   const mockOnVizZoomChange = jest.fn();
   const mockOnVizZoomFloorChange = jest.fn();
   const mockOnFftDbLimitsChange = jest.fn();
@@ -1320,6 +1321,28 @@ describe("useSpectrumInteraction Hook", () => {
     });
   });
 
+  it("allows Whole Channel dragging below the selected channel start", () => {
+    const localRangeRef = { current: { min: 4_750_000, max: 23_000_000 } };
+
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        frequencyRangeRef: localRangeRef,
+        signalAreaBounds: { TEST: { min: 4_750_000, max: 23_000_000 } },
+        hardwareSpectrumBounds: { min: 0, max: 30_000_000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerPointerDown(500, 590);
+    triggerPointerMove(600, 590);
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
+      min: 2_925_000,
+      max: 21_175_000,
+    });
+  });
+
   it("publishes unzoomed hardware wheel ticks without a debounce queue", () => {
     const localRangeRef = { current: { min: 100, max: 110 } };
 
@@ -1973,6 +1996,33 @@ describe("useSpectrumInteraction Hook", () => {
         mockOnVizZoomChange.mock.calls.length - 1
       ][0];
     expect(zoomCall).toBeGreaterThan(2.2);
+  });
+
+  it("keeps a live Tx pinch anchor local instead of retuning the Tx source", () => {
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        onVizZoomPanChange: mockOnVizZoomPanChange,
+        vizZoomRef: { current: 2 },
+        vizPanOffsetRef: { current: 10 },
+      }),
+    );
+
+    triggerPointerDown(400, 300, 1);
+    triggerPointerDown(600, 300, 2);
+
+    act(() => {
+      listeners["pointermove"]?.({
+        pointerId: 2,
+        clientX: 620,
+        clientY: 300,
+      } as any);
+    });
+
+    expect(mockOnVizZoomChange).toHaveBeenCalled();
+    expect(mockOnVizZoomPanChange).toHaveBeenCalled();
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
   });
 
   it("preserves small pinch zoom offsets during zoom changes", () => {

@@ -1,10 +1,15 @@
 import { useMemo } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
+import type { DeviceActiveMode } from "@n-apt/consts/schemas/websocket";
 import { useSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
 
 export interface SpectrumTransportCommands {
   sendFrequencyRange: (range: FrequencyRange) => void;
-  sendPauseCommand: (isPaused: boolean, sourceId: string) => void;
+  sendPauseCommand: (
+    isPaused: boolean,
+    sourceId: string,
+    activeMode?: DeviceActiveMode,
+  ) => void;
   sendPowerScaleCommand: (scale: "dB" | "dBm") => void;
 }
 

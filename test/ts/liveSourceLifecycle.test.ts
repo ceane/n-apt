@@ -13,6 +13,8 @@ import {
   shouldPresentMockTxStandby,
   selectSourceFrameReadinessForMode,
   selectSourceTransportForMode,
+  shouldInvalidateLiveFrameStateForTransport,
+  shouldPreserveRenderableFrameDuringTransportGap,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import type { SourceTransportLifecycle } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
@@ -28,6 +30,55 @@ const handoffPlaceholder = {
 };
 
 describe("resolveLiveSourceLifecycle", () => {
+  test("invalidates old renderability while the selected transport is warming", () => {
+    expect(
+      shouldInvalidateLiveFrameStateForTransport({
+        expectedSourceId: "rtl-sdr-1",
+        transportSourceId: "rtl-sdr-1",
+        transportPhase: "warming",
+      }),
+    ).toBe(true);
+    expect(
+      shouldInvalidateLiveFrameStateForTransport({
+        expectedSourceId: "rtl-sdr-1",
+        transportSourceId: "rtl-sdr-1",
+        transportPhase: "ready",
+      }),
+    ).toBe(false);
+    expect(
+      shouldInvalidateLiveFrameStateForTransport({
+        expectedSourceId: "rtl-sdr-1",
+        transportSourceId: "mock-apt",
+        transportPhase: "ready",
+      }),
+    ).toBe(true);
+  });
+
+  test("retains a current RX frame while transport readiness catches up", () => {
+    const frame = {
+      source_id: "rtl-sdr-1",
+      iq_data: new Uint8Array([1, 2, 3, 4]),
+    };
+    expect(
+      shouldPreserveRenderableFrameDuringTransportGap({
+        frame,
+        expectedSourceId: "rtl-sdr-1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveRenderableFrameDuringTransportGap({
+        frame,
+        expectedSourceId: "mock-apt",
+      }),
+    ).toBe(false);
+    expect(
+      shouldPreserveRenderableFrameDuringTransportGap({
+        frame: { source_id: "rtl-sdr-1" },
+        expectedSourceId: "rtl-sdr-1",
+      }),
+    ).toBe(false);
+  });
+
   test("selects transport and painted readiness for the presented mode", () => {
     const rxTransport: SourceTransportLifecycle = {
       sourceId: "mock-apt",
@@ -110,6 +161,24 @@ describe("resolveLiveSourceLifecycle", () => {
       kind: "error",
       title: "I/O Device Error",
     });
+  });
+
+  test("keeps a current RX frame visible while its transport is warming", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "rtl-sdr",
+      activeSourceId: "rtl-sdr",
+      transportSourceId: "rtl-sdr",
+      transportPhase: "warming",
+      presentedSourceId: "rtl-sdr",
+      hasValidFrame: true,
+      hasRenderableCurrentFrame: true,
+      deviceStatus: "receiving",
+      sourceLabel: "RTL-SDR",
+      isConnected: true,
+    });
+
+    expect(lifecycle.phase).toBe("ready");
+    expect(lifecycle.placeholder).toBeNull();
   });
 
   test("clears paused standby when the painted frame belongs to the old source", () => {

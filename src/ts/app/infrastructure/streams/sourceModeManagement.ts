@@ -78,6 +78,22 @@ export const isSourceStreamAvailable = (status: unknown): boolean =>
     normalizeToken(status),
   );
 
+/**
+ * A disconnected source can reappear with the same serial-derived id. Drop
+ * its subscriber-local pause bit when the backend removes it, so reconnect is
+ * an automatic resume rather than a hidden paused subscription.
+ */
+export const pruneRemovedSourcePauseState = (
+  previousSources: ReadonlyArray<{ id: string }>,
+  nextSources: ReadonlyArray<{ id: string }>,
+  pauseState: Map<string, boolean>,
+): void => {
+  const nextIds = new Set(nextSources.map((source) => source.id));
+  for (const source of previousSources) {
+    if (!nextIds.has(source.id)) pauseState.delete(source.id);
+  }
+};
+
 export const isSourcePresentationConnected = ({
   controlConnected,
   sourceStatus,

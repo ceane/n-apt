@@ -7,9 +7,22 @@ import {
   shouldUseSourceOwnedTxPreview,
   shouldRetainTxStandbyAfterStop,
   canToggleTransmitMode,
+  pruneRemovedSourcePauseState,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 
 describe("sourceModeManagement", () => {
+  it("drops pause state for a source removed by disconnect fallback", () => {
+    const pauseState = new Map([["rtl-sdr-serial", true]]);
+
+    pruneRemovedSourcePauseState(
+      [{ id: "rtl-sdr-serial" }],
+      [{ id: "mock-apt" }],
+      pauseState,
+    );
+
+    expect(pauseState.has("rtl-sdr-serial")).toBe(false);
+  });
+
   it("keeps the managed stream subscribed while hardware is waiting for its first frame", () => {
     expect(isSourceStreamAvailable("loading")).toBe(true);
   });

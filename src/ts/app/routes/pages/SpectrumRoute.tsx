@@ -17,6 +17,7 @@ import { useSnapshot } from "@n-apt/capture/hooks/useSnapshot";
 import type {
   DeviceProfile,
   FrequencyRange,
+  SourceInfo,
 } from "@n-apt/consts/schemas/websocket";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 
@@ -101,6 +102,18 @@ export const resolveNavigationFrequencyBounds = ({
   return channelBounds;
 };
 
+export const isWholeChannelPan = ({
+  currentRange,
+  channelBounds,
+}: {
+  currentRange: FrequencyRange | null | undefined;
+  channelBounds: FrequencyRange | null | undefined;
+}): boolean =>
+  !!currentRange &&
+  !!channelBounds &&
+  currentRange.min <= channelBounds.min &&
+  currentRange.max >= channelBounds.max;
+
 /** Build an explicit source tune while preserving the current acquisition span. */
 export const resolveExplicitCenterFrequencyRange = (
   currentRange: FrequencyRange | null | undefined,
@@ -120,6 +133,41 @@ export const resolveExplicitCenterFrequencyRange = (
     currentRange.max - currentRange.min,
     0,
   );
+};
+
+/** Keep a paused source's cached acquisition axis with its cached frame. */
+export const resolvePausedFrameFrequencyRange = ({
+  isPaused,
+  isTxMode,
+  frame,
+  sourceViewRange,
+  fallbackRange,
+}: {
+  isPaused: boolean;
+  isTxMode: boolean;
+  frame?: any;
+  sourceViewRange?: FrequencyRange | null;
+  fallbackRange: FrequencyRange | null | undefined;
+}): FrequencyRange | null => {
+  if (!isPaused || isTxMode) return null;
+  const minHz = frame?.min_hz;
+  const maxHz = frame?.max_hz;
+  if (
+    Number.isFinite(minHz) &&
+    Number.isFinite(maxHz) &&
+    maxHz > minHz
+  ) {
+    return { min: minHz, max: maxHz };
+  }
+  if (
+    sourceViewRange &&
+    Number.isFinite(sourceViewRange.min) &&
+    Number.isFinite(sourceViewRange.max) &&
+    sourceViewRange.max > sourceViewRange.min
+  ) {
+    return sourceViewRange;
+  }
+  return null;
 };
 
 /** Publishes a discrete tuning command with local state before the device. */
@@ -246,9 +294,17 @@ import {
   shouldPresentMockTxStandby,
   selectSourceFrameReadinessForMode,
   selectSourceTransportForMode,
+  shouldInvalidateLiveFrameStateForTransport,
+  shouldPreserveRenderableFrameDuringTransportGap,
   useLiveSourceLifecycle,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
+import {
+  LiveStateDiagnostics,
+  shouldRenderLiveStateDiagnostics,
+} from "./spectrum/liveStateDiagnostics";
+import type { LiveStateDiagnosticsInput } from "./spectrum/liveStateDiagnostics";
+import { getManagedStreamDebugSnapshot } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   getMockTxPreviewRequestKey,
   resolveMockTxMonitorFrequencyRange,
@@ -280,6 +336,16 @@ import {
 
 // Kept as re-exports: tests import these helpers via this module.
 export { resolveLiveDevicePlaceholderState } from "@n-apt/spectrum/public/liveSourceLifecycle";
+
+export const resolveSpectrumLimitMarkers = ({
+  activeSourceMarkers,
+  selectedSourceMarkers,
+}: {
+  activeSourceMarkers?: SourceInfo["sdr"]["fft_display"]["markers"] | null;
+  selectedSourceMarkers?:
+    | SourceInfo["sdr"]["fft_display"]["markers"]
+    | null;
+}) => selectedSourceMarkers ?? activeSourceMarkers ?? [];
 export { getMockTxPreviewRequestKey } from "./spectrum/mockTxPreview";
 
 const resolveTxSignalDisplayLabel = (signal: string) => {
@@ -973,8 +1039,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
     null;
   const limitMarkers = useMemo(
-    () => buildSdrLimitMarkers(sdrLimitMarkers),
-    [sdrLimitMarkers],
+    () =>
+      buildSdrLimitMarkers(
+        resolveSpectrumLimitMarkers({
+          activeSourceMarkers: sdrLimitMarkers,
+          selectedSourceMarkers: selectedSource?.sdr?.fft_display?.markers,
+        }),
+      ),
+    [sdrLimitMarkers, selectedSource],
   );
   // themeState removed — FFTCanvas now handles theme reactivity internally
 
@@ -1407,8 +1479,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         channelBounds: activeSignalAreaBounds,
         hardwareBounds: hardwareSpectrumBounds,
       });
+      const isWholeChannel = isWholeChannelPan({
+        currentRange: state.frequencyRange,
+        channelBounds: activeSignalAreaBounds,
+      });
       const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds
+        primaryBounds && !isWholeChannel
           ? clampFrequencyRangeToBounds(range, primaryBounds)
           : range,
       );
@@ -1959,11 +2035,28 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txCenterHz: txCenterFrequencyHz,
     isPreview: isFixedTxPreview,
   });
+  const latestSelectedFrame = getLatestLiveFrame(dataRef.current);
+  const pausedRxFrameFrequencyRange = resolvePausedFrameFrequencyRange({
+    isPaused: manualVisualizerPaused || selectedSource?.paused === true,
+    isTxMode: isSelectedSourceTxMode,
+    frame:
+      latestSelectedFrame?.source_id === selectedSourceId
+        ? latestSelectedFrame
+        : null,
+    sourceViewRange: selectedSourceId
+      ? sourceViewFrequencyRanges?.[selectedSourceId]
+      : null,
+    fallbackRange: sharedFrequencyRange ?? state.frequencyRange,
+  });
   const fftFrequencyRange =
-    mockTxMonitorFrequencyRange ?? sharedFrequencyRange ?? state.frequencyRange;
-  const fftCenterFrequencyHz = mockTxMonitorFrequencyRange
-    ? (mockTxMonitorFrequencyRange.min + mockTxMonitorFrequencyRange.max) / 2
-    : centerFrequencyHz;
+    mockTxMonitorFrequencyRange ??
+    pausedRxFrameFrequencyRange ??
+    sharedFrequencyRange ??
+    state.frequencyRange ?? { min: 0, max: 1 };
+  const fftCenterFrequencyHz =
+    mockTxMonitorFrequencyRange || pausedRxFrameFrequencyRange
+      ? (fftFrequencyRange.min + fftFrequencyRange.max) / 2
+      : centerFrequencyHz;
   const fftHardwareSampleRateHz =
     mockTxMonitorSampleRateHz ??
     resolveCanonicalDisplaySampleRateHz({
@@ -2004,27 +2097,46 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   );
 
   useLayoutEffect(() => {
+    const residentFrame = getLatestLiveFrame(dataRef.current);
+    if (
+      !shouldInvalidateLiveFrameStateForTransport({
+        expectedSourceId: expectedVisualizerSourceId,
+        transportSourceId: sourceTransport?.sourceId ?? null,
+        transportPhase: sourceTransport?.phase ?? null,
+      }) &&
+      streamingSource?.stream_epoch === undefined
+    ) {
+      return;
+    }
+    if (
+      shouldPreserveRenderableFrameDuringTransportGap({
+        frame: residentFrame,
+        expectedSourceId: expectedVisualizerSourceId,
+      })
+    ) {
+      return;
+    }
     setHasPlayedAtLeastOnce(false);
     setHasRenderableCurrentFrame(false);
     setAcceptedFrameSampleRateHz(null);
     setPlayedSourceId(null);
-  }, [streamingSource?.stream_epoch, streamingSourceId]);
+  }, [
+    expectedVisualizerSourceId,
+    sourceTransport?.phase,
+    sourceTransport?.sourceId,
+    streamingSource?.stream_epoch,
+    streamingSourceId,
+  ]);
 
   const handleRenderableLiveFrameChange = useCallback(
     (hasCanvasFrame: boolean) => {
       if (!hasCanvasFrame) return;
+      // FFTCanvas has already admitted this frame against expectedSourceId and
+      // the presentation policy. Re-reading the mutable ref here races the
+      // paint loop: the ref can advance (or be swapped) between the canvas
+      // admission and this callback, causing the route to reject a frame the
+      // renderer has actually accepted and leaving Loading permanently up.
       const latestFrame = getLatestLiveFrame(dataRef.current);
-      const isReady = resolveSelectedSourceFrameReadiness({
-        frame: latestFrame,
-        selectedSourceId: expectedVisualizerSourceId,
-        activeSourceId: activeSourceId || streamingSourceId || null,
-        mode: isSelectedSourceTxMode ? "tx" : "rx",
-        subscriberLocalRxView: isSelectedSubscriberLocalRxView,
-        expectedStreamEpoch: expectedLegacyStreamEpoch,
-        frameCounter: latestFrame?.source_id ? 1 : 0,
-        handoffStartedFrameCounter: 0,
-      });
-      if (!isReady) return;
 
       setHasRenderableCurrentFrame(true);
       setHasPlayedAtLeastOnce(true);
@@ -2627,6 +2739,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       state.sourceMode,
     ],
   );
+  const handleVizZoomPanChange = useCallback(
+    (nextPan: number) => {
+      publishSubscriberLocalVizPan(nextPan, setVizPanOffset);
+    },
+    [setVizPanOffset],
+  );
 
   useEffect(() => {
     if (!isTxOptionsEditing) return;
@@ -2675,6 +2793,99 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     fftHistoryVersion,
   ]);
 
+  const readLiveStateDiagnosticsRuntime = useCallback(() => {
+    const latestFrame = getLatestLiveFrame(dataRef.current);
+    return {
+      renderer: {
+        routeAcceptsLatestFrame: latestFrame
+          ? resolveSelectedSourceFrameReadiness({
+              frame: latestFrame,
+              selectedSourceId: expectedVisualizerSourceId,
+              activeSourceId: activeSourceId || streamingSourceId || null,
+              mode: isSelectedSourceTxMode ? "tx" : "rx",
+              subscriberLocalRxView: isSelectedSubscriberLocalRxView,
+              expectedStreamEpoch: expectedLegacyStreamEpoch,
+              frameCounter: latestFrame.source_id ? 1 : 0,
+              handoffStartedFrameCounter: 0,
+            })
+          : false,
+        latestFrame: latestFrame
+          ? {
+              sourceId: latestFrame.source_id ?? null,
+              streamEpoch: latestFrame.stream_epoch ?? null,
+              sequence: latestFrame.sequence ?? null,
+              frameStatus: latestFrame.frame_status ?? null,
+              iqLength: latestFrame.iq_data?.length ?? null,
+            }
+          : null,
+      },
+      managedStream: getManagedStreamDebugSnapshot(),
+    };
+  }, [
+    activeSourceId,
+    dataRef,
+    expectedLegacyStreamEpoch,
+    expectedVisualizerSourceId,
+    isSelectedSourceTxMode,
+    isSelectedSubscriberLocalRxView,
+    streamingSourceId,
+  ]);
+
+  const liveStateDiagnosticsInput = useMemo<LiveStateDiagnosticsInput>(
+    () => ({
+      redux: {
+        connectionStatus,
+        isConnected,
+        activeSourceId: activeSourceId ?? null,
+        activeSourceStatus: activeSourceId
+          ? (sourceStatuses?.[activeSourceId] ??
+            sources.find((source) => source.id === activeSourceId)?.status ??
+            null)
+          : null,
+        activeSourceMode: state.sourceMode ?? null,
+        availableSourceIds: sources.map((source) => source.id),
+        isPaused: manualVisualizerPaused,
+        selectedSourceId: selectedSourceId ?? null,
+        selectedSourceStatus: selectedSourceStatus ?? null,
+        sourceTransportByMode,
+        sourceFrameReadinessByMode,
+      },
+      renderer: {
+        lifecyclePhase: liveSourceLifecycle.phase,
+        placeholderKind: livePlaceholderState?.kind ?? null,
+        hasRenderableCurrentFrame,
+        hasPlayedAtLeastOnce,
+        expectedSourceId: expectedVisualizerSourceId,
+        expectedStreamEpoch: expectedLegacyStreamEpoch,
+        routeAcceptsLatestFrame: null,
+        latestFrame: null,
+      },
+      managedStream: getManagedStreamDebugSnapshot(),
+    }),
+    [
+      activeSourceId,
+      sources,
+      sourceStatuses,
+      connectionStatus,
+      expectedLegacyStreamEpoch,
+      expectedVisualizerSourceId,
+      hasPlayedAtLeastOnce,
+      hasRenderableCurrentFrame,
+      isConnected,
+      isSelectedSourceTxMode,
+      isSelectedSubscriberLocalRxView,
+      livePlaceholderState?.kind,
+      liveSourceLifecycle.phase,
+      manualVisualizerPaused,
+      selectedSourceId,
+      selectedSourceStatus,
+      sourceFrameReadinessByMode,
+      sourceTransportByMode,
+      streamingSourceId,
+      state.sourceMode,
+    ],
+  );
+
   return (
     <SpectrumContainer>
       <SpectrumContent>
@@ -2682,6 +2893,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           fftFrequencyRange &&
           fftCenterFrequencyHz !== null && (
             <>
+              {shouldRenderLiveStateDiagnostics ? (
+                <LiveStateDiagnostics
+                  input={liveStateDiagnosticsInput}
+                  readRuntimeState={readLiveStateDiagnosticsRuntime}
+                />
+              ) : null}
               <FFTAndWaterfall
                 key={visualizerLifecycleKey}
                 ref={fftCanvasRef}
@@ -2850,6 +3067,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onRenderableFrameChange={handleRenderableLiveFrameChange}
                 isStandby={isStandbyPresentationActive}
                 onVizZoomChange={setVizZoom}
+                onVizZoomPanChange={handleVizZoomPanChange}
                 onVizZoomFloorChange={setVizZoomFloor}
                 onVizZoomFloorPanChange={handleVizZoomFloorPanChange}
                 onVizPanChange={handleVizPanChange}

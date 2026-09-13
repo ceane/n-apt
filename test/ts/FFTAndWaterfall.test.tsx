@@ -403,6 +403,41 @@ describe("FFTAndWaterfall", () => {
     expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
   });
 
+  it("does not deadlock the first live frame behind its own loading gate", () => {
+    render(
+      <FFTAndWaterfall
+        dataRef={{
+          current: {
+            source_id: "rtl-sdr-1",
+            data_type: "iq_raw",
+            iq_data: new Uint8Array([1, 2, 3, 4]),
+          },
+        }}
+        expectedSourceId="rtl-sdr-1"
+        frequencyRange={{ min: 100, max: 101 }}
+        centerFrequencyHz={100_500_000}
+        activeSignalArea="A"
+        isPaused={false}
+        snapshotGridPreference={true}
+        onRenderableFrameChange={jest.fn()}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    act(() => {
+      // FFTCanvas emits this before its actual paint so the parent can remove
+      // the cover and let the frame reach the paint path.
+      fftProps.onRenderableFrameChange(true);
+    });
+
+    const nextWaterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+    expect(nextWaterfallProps?.awaitingDeviceData).toBe(false);
+  });
+
   it("forwards renderability changes only when the state changes", () => {
     const onRenderableFrameChange = jest.fn();
     render(

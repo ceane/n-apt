@@ -210,7 +210,7 @@ describe("Channels", () => {
     });
   });
 
-  it("keeps the explicitly selected channel active while the VFO is panned", () => {
+  it("highlights the channel containing the tuned range while the VFO is panned", () => {
     const store = createTestStore();
     const sendFrequencyRange = jest.fn();
     const dispatch = jest.fn();
@@ -250,11 +250,11 @@ describe("Channels", () => {
 
     expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
       "data-is-active",
-      "true",
+      "false",
     );
     expect(screen.getByRole("button", { name: "B" })).toHaveAttribute(
       "data-is-active",
-      "false",
+      "true",
     );
   });
 
@@ -376,7 +376,7 @@ describe("Channels", () => {
     });
   });
 
-  it("keeps the explicit channel active while mirror panning is nonzero", () => {
+  it("highlights the channel containing the displayed center while mirror panning is nonzero", () => {
     const store = createTestStore();
     store.dispatch(setMirrorIqBasebandBelowZero(true));
     store.dispatch(setVizPan(-1_000_000));
@@ -410,15 +410,15 @@ describe("Channels", () => {
 
     expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
       "data-is-active",
-      "true",
+      "false",
     );
     expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
       "data-is-active",
-      "false",
+      "true",
     );
   });
 
-  it("keeps the explicit channel active when the displayed center is below DC", () => {
+  it("clears the channel highlight when the displayed center is below DC", () => {
     const store = createTestStore();
     store.dispatch(setMirrorIqBasebandBelowZero(true));
     store.dispatch(setVizPan(-7_000_000));
@@ -441,6 +441,50 @@ describe("Channels", () => {
                   { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
                 ],
                 sampleRateHzEffective: 4_372_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: "A" })).toHaveAttribute(
+      "data-is-active",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "C" })).toHaveAttribute(
+      "data-is-active",
+      "false",
+    );
+  });
+
+  it("follows the Redux pan when the context pan copy is stale", () => {
+    const store = createTestStore();
+    // Hardware window sits in C (center 6.35MHz). The Redux pan moves the
+    // displayed center to 1MHz (inside A) while the context copy is stale.
+    store.dispatch(setVizPan(-5_350_000));
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "C",
+                  frequencyRange: { min: 4_750_000, max: 7_950_000 },
+                  vizPanOffset: 0,
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [
+                  { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+                  { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+                ],
+                sampleRateHzEffective: 3_200_000,
                 wsConnection: { sendFrequencyRange: jest.fn() },
               } as any
             }

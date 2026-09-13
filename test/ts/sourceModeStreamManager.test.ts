@@ -142,6 +142,88 @@ describe("SourceModeStreamManager", () => {
     expect(firstSubscription.effectiveOptions).toEqual(rxOptions());
   });
 
+  it("closes the old mode immediately for a half-duplex handoff", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({
+      transportFactory: factory,
+      noSubscriberGraceMs: 10_000,
+    });
+    const rxSubscription = await manager.subscribe(
+      { sourceId: "hackrf-one", mode: "rx" },
+      rxOptions(),
+      () => {
+        // no-op
+      },
+    );
+
+    rxSubscription.unsubscribe({ immediate: true });
+
+    expect(transports[0].sent).toContainEqual(
+      expect.objectContaining({
+        type: "stream_unsubscribe",
+        stream: { sourceId: "hackrf-one", mode: "rx" },
+      }),
+    );
+    expect(transports[0].closed).toBe(true);
+
+    await manager.subscribe(
+      { sourceId: "hackrf-one", mode: "tx" },
+      txOptions(),
+      () => {
+        // no-op
+      },
+    );
+
+    expect(transports).toHaveLength(2);
+    expect(transports[1].sent[0]).toEqual(
+      expect.objectContaining({
+        type: "stream_subscribe",
+        stream: { sourceId: "hackrf-one", mode: "tx" },
+      }),
+    );
+  });
+
+  it("closes the Tx mode immediately when returning to Rx", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({
+      transportFactory: factory,
+      noSubscriberGraceMs: 10_000,
+    });
+    const txSubscription = await manager.subscribe(
+      { sourceId: "hackrf-one", mode: "tx" },
+      txOptions(),
+      () => {
+        // no-op
+      },
+    );
+
+    txSubscription.unsubscribe({ immediate: true });
+
+    expect(transports[0].sent).toContainEqual(
+      expect.objectContaining({
+        type: "stream_unsubscribe",
+        stream: { sourceId: "hackrf-one", mode: "tx" },
+      }),
+    );
+    expect(transports[0].closed).toBe(true);
+
+    await manager.subscribe(
+      { sourceId: "hackrf-one", mode: "rx" },
+      rxOptions(),
+      () => {
+        // no-op
+      },
+    );
+
+    expect(transports).toHaveLength(2);
+    expect(transports[1].sent[0]).toEqual(
+      expect.objectContaining({
+        type: "stream_subscribe",
+        stream: { sourceId: "hackrf-one", mode: "rx" },
+      }),
+    );
+  });
+
   it("requests latest delivery and can upgrade only one logical subscriber", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });

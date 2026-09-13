@@ -233,6 +233,11 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       sourceTransport?.phase === "ready" ||
       hasIncomingData;
     const hasFrameForLoading =
+      // FFTCanvas notifies renderability before the paint pass. This signal is
+      // intentionally what opens the gate so that the incoming frame can
+      // paint; waiting for hasPaintedFrame here deadlocks the first frame
+      // behind the placeholder that is preventing that paint.
+      hasRenderableFrame ||
       hasPaintedFrame ||
       // TX standby intentionally preserves a cached preview beneath its
       // top-bar prompt; live RX must wait for a confirmed paint instead.

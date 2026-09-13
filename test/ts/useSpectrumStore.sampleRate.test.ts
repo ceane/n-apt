@@ -13,6 +13,7 @@ import {
   shouldHydrateLiveSampleRate,
   shouldSendSignalDisplaySettings,
   resolveLiveAcquisitionBounds,
+  resolveLiveSampleRateSourceSnapshot,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { buildLiveSampleRateRange } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 
@@ -342,6 +343,16 @@ describe("buildPausedPreviewSignature", () => {
 });
 
 describe("selectLiveSampleRateForSync", () => {
+  it("uses the selected source instead of the process-wide active source", () => {
+    expect(
+      resolveLiveSampleRateSourceSnapshot({
+        selectedSourceId: "hackrf-1",
+        selectedSource: { sampleRateHz: 4_372_000 },
+        activeSource: { sampleRateHz: 3_200_000 },
+      }),
+    ).toEqual({ sampleRateHz: 4_372_000 });
+  });
+
   it("prefers the live websocket sample rate while connected", () => {
     expect(
       selectLiveSampleRateForSync({

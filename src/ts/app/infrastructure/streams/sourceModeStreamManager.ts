@@ -120,6 +120,7 @@ export type StreamUnsubscribeCommand = {
   scope: "subscriber";
   subscriptionId: string;
   stream: StreamKey;
+  immediate?: boolean;
 };
 
 export type StreamSetPausedCommand = {
@@ -182,7 +183,7 @@ export type StreamSubscription = {
   /** Request one fresh frame without resuming continuous delivery. */
   requestNextFrame(): void;
   setDeliveryPolicy(policy: StreamDeliveryPolicy): void;
-  unsubscribe(): void;
+  unsubscribe(options?: { immediate?: boolean }): void;
   updateOptions(options: StreamOptions): Promise<void>;
 };
 
@@ -525,6 +526,7 @@ export const createSourceModeStreamManager = ({
       scope: "subscriber",
       subscriptionId: entry.transportSubscriptionId,
       stream: entry.key,
+      immediate: true,
     });
     entry.transport.close();
     streams.delete(entryKey);
@@ -648,7 +650,7 @@ export const createSourceModeStreamManager = ({
         subscriber.deliveryPolicy = nextPolicy;
         syncDeliveryPolicy(entry!);
       },
-      unsubscribe: () => {
+      unsubscribe: (options = {}) => {
         if (!active) return;
         active = false;
         rejectOptionsWaiters(
@@ -661,6 +663,15 @@ export const createSourceModeStreamManager = ({
         syncAggregatePausedState(entry!, previousAggregate);
         syncDeliveryPolicy(entry!);
         if (entry!.subscribers.size === 0) {
+          if (options.immediate === true) {
+            const pendingClose = pendingCloseTimers.get(entryKey);
+            if (pendingClose) {
+              clearTimeout(pendingClose);
+              pendingCloseTimers.delete(entryKey);
+            }
+            closeEntry(entryKey);
+            return;
+          }
           const timer = setTimeout(() => {
             pendingCloseTimers.delete(entryKey);
             closeEntry(entryKey);

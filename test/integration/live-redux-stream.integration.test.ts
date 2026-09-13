@@ -117,7 +117,10 @@ describe("live Redux/source-mode stream harness", () => {
     );
     expect(transmitting.managed.tx.sourceId).toBe(MOCK_TX_SOURCE_ID);
     expect(transmitting.managed.tx.hasSubscription).toBe(true);
-    expect(transmitting.managed.rx.sourceId).toBeNull();
+    // RX ownership is client-local. Mock Tx is TX-only, so the selected Mock
+    // APT source remains subscribed for this client while TX runs globally.
+    expect(transmitting.managed.rx.sourceId).toBe(MOCK_APT_SOURCE_ID);
+    expect(transmitting.managed.rx.hasSubscription).toBe(true);
 
     await harness.selectSource(MOCK_APT_SOURCE_ID);
     const rx = await waitForMockAptStreaming(harness);

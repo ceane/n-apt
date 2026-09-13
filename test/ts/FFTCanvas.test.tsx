@@ -1383,6 +1383,23 @@ describe("FFTCanvas Component", () => {
     expect(getLiveFrameSignature(null)).toBeNull();
   });
 
+  it("distinguishes managed frames when the transport reuses the frame object", () => {
+    const frame = {
+      type: "spectrum" as const,
+      protocol_version: 2 as const,
+      source_id: "rtl-sdr-v4",
+      stream_epoch: 7,
+      sequence: 1,
+      data_type: "iq_raw" as const,
+      iq_data: new Uint8Array([1, 2, 3]),
+    };
+
+    const firstSignature = getLiveFrameSignature(frame);
+    frame.sequence = 2;
+
+    expect(getLiveFrameSignature(frame)).not.toBe(firstSignature);
+  });
+
   it("uses route monitor props instead of mock tx frame metadata for live range placement", () => {
     expect(
       resolveLiveFrameRenderableFrequencyRange({

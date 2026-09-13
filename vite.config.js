@@ -214,6 +214,9 @@ export default defineConfig(({ mode }) => {
   );
 
   return {
+  define: {
+    __DEV__: JSON.stringify(mode !== "production"),
+  },
   plugins: [
     injectBrowserEnv(browserEnv),
     styledComponentsFixPlugin(),

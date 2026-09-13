@@ -360,6 +360,10 @@ export const Channels: React.FC<ChannelsProps> = ({
   );
   const reduxVizZoom = useAppSelector((s) => s.spectrum.vizZoom);
   const reduxVizPanOffset = useAppSelector((s) => s.spectrum.vizPanOffset);
+  const reduxFrequencyRange = useAppSelector((s) => s.spectrum.frequencyRange);
+  const reduxTuningPreviewActive = useAppSelector(
+    (s) => s.spectrum.tuningPreviewActive,
+  );
   const {
     state,
     effectiveFrames,
@@ -474,22 +478,35 @@ export const Channels: React.FC<ChannelsProps> = ({
     if (!Array.isArray(frames)) return [];
     return frames.filter((f) => ["A", "B", "C"].includes(f.label));
   }, [effectiveFrames, websocketChannels]);
-  const currentFrequencyRange = state.frequencyRange;
+  const currentFrequencyRange = reduxFrequencyRange ?? state.frequencyRange;
   const currentCenterFrequencyHz = calculateCenterFrequency(
     currentFrequencyRange,
   );
+  // The visual viewport (waterfall + sliders) is driven by the Redux pan:
+  // `ReduxFrequencyRangeSlider` reads `vizPanOffset` from Redux only. The
+  // context value is virtually always a finite number (initially 0), so
+  // preferring it here pins the highlight to a stale pan and ignores user
+  // panning. Prefer Redux, fall back to context, then 0.
   const currentVizPanOffset =
-    typeof state.vizPanOffset === "number" &&
-    Number.isFinite(state.vizPanOffset)
-      ? state.vizPanOffset
-      : reduxVizPanOffset;
+    typeof reduxVizPanOffset === "number" &&
+    Number.isFinite(reduxVizPanOffset)
+      ? reduxVizPanOffset
+      : typeof state.vizPanOffset === "number" &&
+          Number.isFinite(state.vizPanOffset)
+        ? state.vizPanOffset
+        : 0;
   const displayedCenterFrequencyHz =
     typeof currentCenterFrequencyHz === "number" &&
     Number.isFinite(currentCenterFrequencyHz)
       ? currentCenterFrequencyHz + currentVizPanOffset
       : null;
   const channelRanges = useMemo(
-    () => channels.map((ch) => ({ min: ch.min_hz, max: ch.max_hz })),
+    () =>
+      channels.map((ch) => ({
+        label: String(ch.label),
+        min: ch.min_hz,
+        max: ch.max_hz,
+      })),
     [channels],
   );
   const channelForCurrentCenter = findRangeContainingFrequency(
@@ -518,6 +535,29 @@ export const Channels: React.FC<ChannelsProps> = ({
     state.activeSignalArea,
   ]);
 
+  // Highlight follows the tuned range: the channel whose bounds contain the
+  // displayed center is active. `activeSignalArea` stays as the explicit tune
+  // owner (it only changes on channel click/tune) so slider drags — which
+  // dispatch `setFrequencyRange` without touching the signal area — still
+  // move the highlight. During a progressive tune the preview range sweeps
+  // through intermediate channels on its way to the target, so the highlight
+  // pins to the explicit target until the preview commits. Viewport pan only
+  // affects the displayed center, not sample-rate ownership.
+  const tuningPreviewActive =
+    state.tuningPreviewActive ?? reduxTuningPreviewActive ?? false;
+  const shouldShowOtherChannel =
+    typeof displayedCenterFrequencyHz === "number" &&
+    Number.isFinite(displayedCenterFrequencyHz) &&
+    !channelForCurrentCenter;
+  const highlightedSignalArea: string | null = tuningPreviewActive
+    ? activeSignalArea
+    : channelForCurrentCenter
+      ? channelForCurrentCenter.label
+      : shouldShowOtherChannel
+        ? null
+        : activeSignalArea;
+  const effectiveActiveLabel = highlightedSignalArea ?? activeSignalArea;
+
   // Compute information for the active channel box
   // Resolve the active frame robustly from both sources
   const activeFrame =
@@ -525,23 +565,23 @@ export const Channels: React.FC<ChannelsProps> = ({
       ? effectiveFrames.find(
           (f: any) =>
             String(f.label).toLowerCase() ===
-            String(activeSignalArea).toLowerCase(),
+            String(effectiveActiveLabel).toLowerCase(),
         ) ||
         channels.find(
           (f: any) =>
             String(f.label).toLowerCase() ===
-            String(activeSignalArea).toLowerCase(),
+            String(effectiveActiveLabel).toLowerCase(),
         )
       : Array.isArray(websocketChannels)
         ? websocketChannels.find(
             (f: any) =>
               String(f.label).toLowerCase() ===
-              String(activeSignalArea).toLowerCase(),
+              String(effectiveActiveLabel).toLowerCase(),
           ) ||
           channels.find(
             (f: any) =>
               String(f.label).toLowerCase() ===
-              String(activeSignalArea).toLowerCase(),
+              String(effectiveActiveLabel).toLowerCase(),
           )
         : undefined;
   const inferredActiveFrameWholeChannel =
@@ -594,10 +634,6 @@ export const Channels: React.FC<ChannelsProps> = ({
   );
   const formattedDataBandwidth = formatDataRate(bandwidthMBps * 1_000_000);
   const formattedSignalBandwidth = (widthHz / 1_000_000).toFixed(2);
-  const shouldShowOtherChannel =
-    typeof displayedCenterFrequencyHz === "number" &&
-    Number.isFinite(displayedCenterFrequencyHz) &&
-    !channelForCurrentCenter;
   const otherChannelFrequencyLabel =
     typeof displayedCenterFrequencyHz === "number" &&
     Number.isFinite(displayedCenterFrequencyHz)
@@ -651,8 +687,9 @@ export const Channels: React.FC<ChannelsProps> = ({
                   ? Math.min(3_200_000, channelSpan)
                   : channelSampleRateHz;
               const isFrameActive =
-                String(activeSignalArea).toLowerCase() ===
-                String(label).toLowerCase();
+                highlightedSignalArea !== null &&
+                String(highlightedSignalArea).toLowerCase() ===
+                  String(label).toLowerCase();
               const activateChannel = () => {
                 const isTargetWholeChannel =
                   resolveWholeChannelFrame({
@@ -852,8 +889,9 @@ export const Channels: React.FC<ChannelsProps> = ({
         {!isManualMode &&
           channels.map((ch) => {
             const isActive =
-              String(activeSignalArea).toLowerCase() ===
-              String(ch.label).toLowerCase();
+              highlightedSignalArea !== null &&
+              String(highlightedSignalArea).toLowerCase() ===
+                String(ch.label).toLowerCase();
             const isChannelScanning =
               isScanning &&
               scanRange &&

@@ -47,6 +47,7 @@ const makeV2Frame = (
   epoch: number,
   sequence: number,
   encryptedPayload: Uint8Array,
+  frameStatus: "receiving" | "transmitting" = "receiving",
 ) => ({
   type: "spectrum" as const,
   data_type: "iq_raw" as const,
@@ -57,7 +58,7 @@ const makeV2Frame = (
   center_frequency_hz: 137_100_000,
   sample_rate: 2_400_000,
   timestamp: Date.now(),
-  frame_status: "receiving" as const,
+  frame_status: frameStatus,
   iq_data: encryptedPayload,
 });
 
@@ -218,7 +219,7 @@ describe("device swap payload-form integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(liveDataRef.current).toBeNull();
 
-    ingest(makeV2Frame("mock-tx", 12, 1, mockTxPayload));
+    ingest(makeV2Frame("mock-tx", 12, 1, mockTxPayload, "transmitting"));
     await new Promise((resolve) => setTimeout(resolve, 100));
     const txFrame = frameFromRef();
     const txForm = payloadForm(txFrame.iq_data);
@@ -229,7 +230,9 @@ describe("device swap payload-form integration", () => {
       { sourceId: "mock-apt", epoch: 11 },
       { sourceId: "mock-tx", epoch: 12 },
     ]);
-    expect(store.getState().websocket.sourceFrameReadiness).toMatchObject({
+    expect(
+      store.getState().websocket.sourceFrameReadinessByMode?.tx,
+    ).toMatchObject({
       sourceId: "mock-tx",
       streamEpoch: 12,
       sequence: 1,

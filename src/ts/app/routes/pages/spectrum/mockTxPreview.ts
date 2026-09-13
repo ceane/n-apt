@@ -106,6 +106,30 @@ export const resolveMockTxMonitorSampleRateForView = (
 ): number =>
   resolveMockTxMonitorSampleRateHz(viewSampleRateHz, ...sourceCandidates);
 
+/** Prefer the physical source rate for non-Mock Tx previews. */
+export const resolveTxPreviewSampleRateForSource = ({
+  isMockTxSource,
+  viewerSampleRateHz,
+  sourceSampleRateHz,
+  fallbackSampleRateHz,
+}: {
+  isMockTxSource: boolean;
+  viewerSampleRateHz?: number | null;
+  sourceSampleRateHz?: number | null;
+  fallbackSampleRateHz?: number | null;
+}): number =>
+  isMockTxSource
+    ? resolveMockTxMonitorSampleRateForView(
+        viewerSampleRateHz,
+        fallbackSampleRateHz,
+        sourceSampleRateHz,
+      )
+    : resolveMockTxMonitorSampleRateForView(
+        sourceSampleRateHz,
+        viewerSampleRateHz,
+        fallbackSampleRateHz,
+      );
+
 /** Prefer the selected monitor span over a stale Redux viewport span. */
 export const resolveMockTxMonitorViewSampleRateHz = ({
   viewerSampleRateHz,

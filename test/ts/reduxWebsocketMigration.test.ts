@@ -7,8 +7,10 @@ import websocketSlice, {
 import {
   liveDataRef,
   liveDataBySourceRef,
+  presentationController,
   sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
+import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
 import {
   shouldAcceptPausedFrameRequest,
@@ -24,6 +26,7 @@ import {
   resolveTxPreviewSourceId,
   resolveOptimisticTransmitStatus,
   applyOptimisticTxPreviewState,
+  preserveBoundTxStandbyStatuses,
   resolveRxFrameToRestore,
   isBoundTxPreviewStandby,
   preserveTransmittingSourceStatuses,
@@ -33,8 +36,12 @@ import {
   resolveSourceSelectionAfterBackendFallback,
   shouldSyncManagedStreamOptions,
   resolveManagedTxSourceId,
+  shouldUseManagedTxPreviewRequest,
   resolveManagedRxSourceId,
   shouldPublishManagedRxTransportReady,
+  shouldRequestManagedRxStartupFrame,
+  shouldRecoverManagedRxSubscription,
+  shouldImmediatelyResetManagedRxSubscription,
   isCurrentManagedRxTarget,
   txStreamConflictsWithActiveRx,
   handleManagedStreamEvent,
@@ -46,6 +53,7 @@ import {
   processWebSocketMessage,
   CLIENT_ORIGIN_ID,
   __testQueueLiveDataForMiddleware,
+  resolveStaleSpectrumSourceId,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
 import {
@@ -77,6 +85,140 @@ import { waitFor } from "@testing-library/react";
 import * as websocketMiddlewareExports from "@n-apt/redux/middleware/websocketMiddleware";
 
 describe("hardware source transition cleanup", () => {
+  it("arms one startup frame when the active source reaches receiving", () => {
+    expect(
+      shouldRequestManagedRxStartupFrame({
+        activeSourceId: "rtl-sdr-v4",
+        rxSourceId: "rtl-sdr-v4",
+        sourceStatus: "receiving",
+        hasFrame: false,
+        alreadyRequested: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequestManagedRxStartupFrame({
+        activeSourceId: "rtl-sdr-v4",
+        rxSourceId: "rtl-sdr-v4",
+        sourceStatus: "receiving",
+        hasFrame: false,
+        alreadyRequested: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRequestManagedRxStartupFrame({
+        activeSourceId: "mock-apt",
+        rxSourceId: "rtl-sdr-v4",
+        sourceStatus: "receiving",
+        hasFrame: false,
+        alreadyRequested: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("forces a fresh RX subscription after the source target is lost", () => {
+    expect(
+      shouldImmediatelyResetManagedRxSubscription({
+        currentSourceId: "rtl-sdr-v4",
+        nextSourceId: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldImmediatelyResetManagedRxSubscription({
+        currentSourceId: "rtl-sdr-v4",
+        nextSourceId: "rtl-sdr-v4",
+      }),
+    ).toBe(false);
+    expect(
+      shouldImmediatelyResetManagedRxSubscription({
+        currentSourceId: null,
+        nextSourceId: "rtl-sdr-v4",
+      }),
+    ).toBe(false);
+  });
+
+  it("recovers an RX subscription that never receives its epoch acknowledgement", () => {
+    expect(
+      shouldRecoverManagedRxSubscription({
+        expectedSourceId: "rtl-sdr-v4",
+        managedSourceId: "rtl-sdr-v4",
+        sourceStatus: "receiving",
+        streamEpoch: 0,
+        elapsedMs: 3_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverManagedRxSubscription({
+        expectedSourceId: "rtl-sdr-v4",
+        managedSourceId: "rtl-sdr-v4",
+        sourceStatus: "receiving",
+        streamEpoch: 12,
+        elapsedMs: 3_000,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRecoverManagedRxSubscription({
+        expectedSourceId: "rtl-sdr-v4",
+        managedSourceId: "rtl-sdr-v4",
+        sourceStatus: "stale",
+        streamEpoch: 0,
+        elapsedMs: 3_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not globally clear a healthy RTL presentation when HackRF is stale", () => {
+    expect(
+      resolveStaleSpectrumSourceId({
+        deviceState: "stale",
+        activeSourceId: "rtl-sdr-00000001",
+        selectedSourceId: "rtl-sdr-00000001",
+        sourceStatuses: {
+          "rtl-sdr-00000001": "receiving",
+          "hackrf-one-00000001": "stale",
+        },
+      }),
+    ).toBe("hackrf-one-00000001");
+  });
+
+  it("identifies the active stale source when that source owns the view", () => {
+    expect(
+      resolveStaleSpectrumSourceId({
+        deviceState: "disconnected",
+        activeSourceId: "hackrf-one-00000001",
+        selectedSourceId: "hackrf-one-00000001",
+        sourceStatuses: {
+          "rtl-sdr-00000001": "receiving",
+          "hackrf-one-00000001": "disconnected",
+        },
+      }),
+    ).toBe("hackrf-one-00000001");
+  });
+
+  it("falls back to a remaining receive source when the active HackRF disappears", () => {
+    expect(
+      resolveManagedRxSourceId({
+        activeSourceId: "hackrf-one",
+        selectedSourceId: null,
+        sources: [
+          {
+            id: "mock-apt",
+            kind: "mock_apt",
+            capability: "mock",
+            iq_format: { element_type: "u8" },
+            status: "receiving",
+          },
+          {
+            id: "rtl-sdr-00000001",
+            kind: "rtl_sdr",
+            capability: "rx",
+            iq_format: { element_type: "u8" },
+            status: "receiving",
+          },
+        ] as any,
+      }),
+    ).toBe("rtl-sdr-00000001");
+  });
+
   it("follows Mock APT when the backend falls back from the selected hardware", () => {
     expect(
       resolveSourceSelectionAfterBackendFallback({
@@ -934,6 +1076,18 @@ describe("managed stream option synchronization", () => {
     ).toBe("hackrf_one-00000001");
   });
 
+  it("routes an explicit HackRF standby preview through the managed Tx stream", () => {
+    expect(
+      shouldUseManagedTxPreviewRequest({
+        source: {
+          id: "hackrf_one-00000001",
+          kind: "hackrf_one",
+          capability: "tx_rx",
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("does not open a Tx stream for an unbound idle hardware source", () => {
     // Without a Tx-suite binding or an active/selected standby state, a
     // half-duplex device must not hold a Tx subscription open.
@@ -1406,7 +1560,7 @@ describe("Tx preview source state", () => {
     ]);
   });
 
-  it("marks the bound source as paused Tx standby immediately", () => {
+  it("marks the bound source as Tx standby without entering Rx paused state", () => {
     const sources = [
       {
         id: "hackrf-1",
@@ -1421,8 +1575,24 @@ describe("Tx preview source state", () => {
       expect.objectContaining({
         id: "hackrf-1",
         status: "standby",
-        paused: true,
+        paused: false,
       }),
+    ]);
+  });
+
+  it("keeps a bound HackRF in Tx standby when a stale control snapshot says paused", () => {
+    expect(
+      preserveBoundTxStandbyStatuses(
+        [
+          { id: "hackrf-1", capability: "tx_rx", status: "standby" },
+        ] as any,
+        [
+          { id: "hackrf-1", capability: "tx_rx", status: "paused", paused: true },
+        ] as any,
+        "hackrf-1",
+      ),
+    ).toEqual([
+      { id: "hackrf-1", capability: "tx_rx", status: "standby", paused: false },
     ]);
   });
 
@@ -2231,6 +2401,44 @@ describe("Redux WebSocket Migration", () => {
     );
   });
 
+  it("preserves the explicitly selected channel while a managed range is panned", () => {
+    const updates = resolveManagedRxDeviceOptionUpdates({
+      sourceId: "hackrf",
+      options: {
+        mode: "rx",
+        centerFrequencyHz: 2_200_000,
+        sampleRateHz: 18_250_000,
+        fftSize: 1024,
+      },
+      rootState: {
+        websocket: {
+          activeSourceId: "hackrf",
+          sources: [
+            {
+              id: "hackrf",
+              sdr: {
+                settings: {},
+                fft_display: { markers: [] },
+              },
+            },
+          ],
+          channels: [
+            { label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+            { label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+          ],
+        },
+        spectrum: {
+          frequencyRange: { min: 4_750_000, max: 23_000_000 },
+          activeSignalArea: "C",
+        },
+      },
+    });
+
+    expect(updates.spectrum).toEqual(
+      expect.objectContaining({ activeSignalArea: "C" }),
+    );
+  });
+
   it("treats a live server-selected source as resumed", () => {
     expect(isSourceModePaused("live")).toBe(false);
     expect(isSourceModePaused("file")).toBe(true);
@@ -2266,6 +2474,203 @@ describe("Redux WebSocket Migration", () => {
     liveDataBySourceRef.current = {};
     resetPausedFrameRequestGate();
     resetWebSocketMiddlewareState();
+  });
+
+  it("routes a paused HackRF standby request into the Tx slot, not the Rx slot", () => {
+    jest.useFakeTimers();
+    try {
+      const rxFrame = {
+        source_id: "hackrf-1",
+        frame_status: "receiving",
+        sequence: 1,
+      };
+      const txFrame = {
+        source_id: "hackrf-1",
+        frame_status: "standby",
+        is_tx_preview: true,
+        sequence: 2,
+      };
+      presentationController.selectSource("hackrf-1", "rx");
+      presentationController.commitActiveSource("hackrf-1");
+      presentationController.acceptFrame(rxFrame as any, "rx");
+
+      const state = {
+        websocket: {
+          activeSourceId: "rtl-sdr-1",
+          isPaused: true,
+          sourceStatuses: {
+            "rtl-sdr-1": "receiving",
+            "hackrf-1": "paused",
+          },
+          sources: [
+            {
+              id: "rtl-sdr-1",
+              kind: "rtl_sdr",
+              capability: "rx",
+              status: "receiving",
+            },
+            {
+              id: "hackrf-1",
+              kind: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "half_duplex",
+              status: "paused",
+            },
+          ],
+        },
+        sourceRouting: { bindings: { "tx-suite:tx": "hackrf-1" } },
+        sourceSelection: { selectedSourceId: "hackrf-1" },
+        waterfall: { sourceMode: "live" },
+      };
+
+      __testQueueLiveDataForMiddleware(
+        txFrame,
+        store.dispatch as any,
+        () => state,
+      );
+      jest.runOnlyPendingTimers();
+
+      expect(
+        getLiveFrameRefForSource("hackrf-1", "tx").current,
+      ).toBe(txFrame);
+      expect(
+        getLiveFrameRefForSource("hackrf-1", "rx").current,
+      ).toBe(rxFrame);
+    } finally {
+      presentationController.reset();
+      jest.useRealTimers();
+    }
+  });
+
+  it("keeps a late HackRF RX frame out of the transmitting renderer queue", () => {
+    jest.useFakeTimers();
+    try {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }),
+      });
+      middlewareStore.dispatch(
+        updateDeviceState({
+          isPaused: false,
+          activeSourceId: "hackrf-1",
+          sources: [
+            {
+              id: "hackrf-1",
+              kind: "hackrf_one",
+              capability: "tx_rx",
+              duplex_mode: "half_duplex",
+              status: "transmitting",
+            } as any,
+          ],
+          sourceStatuses: { "hackrf-1": "transmitting" },
+        } as any),
+      );
+      presentationController.selectSource("hackrf-1", "tx");
+      presentationController.commitActiveSource("hackrf-1");
+
+      const txFrame = {
+        source_id: "hackrf-1",
+        frame_status: "transmitting",
+        sequence: 2,
+        iq_data: new Uint8Array([20, 21]),
+      };
+      const lateRxFrame = {
+        source_id: "hackrf-1",
+        frame_status: "receiving",
+        sequence: 3,
+        iq_data: new Uint8Array([1, 2]),
+      };
+      __testQueueLiveDataForMiddleware(
+        txFrame,
+        middlewareStore.dispatch as any,
+        middlewareStore.getState as any,
+      );
+      __testQueueLiveDataForMiddleware(
+        lateRxFrame,
+        middlewareStore.dispatch as any,
+        middlewareStore.getState as any,
+      );
+      jest.runOnlyPendingTimers();
+
+      expect(liveDataRef.current).toEqual([txFrame]);
+      expect(getLiveFrameRefForSource("hackrf-1", "tx").current).toBe(
+        txFrame,
+      );
+      expect(getLiveFrameRefForSource("hackrf-1", "rx").current).toBe(
+        lateRxFrame,
+      );
+    } finally {
+      presentationController.reset();
+      jest.useRealTimers();
+    }
+  });
+
+  it("switches the presentation controller to Tx standby and back to cached Rx", () => {
+    const rxFrame = {
+      source_id: "hackrf-1",
+      frame_status: "receiving",
+      sequence: 1,
+    };
+    const middlewareStore = configureStore({
+      reducer: {
+        websocket: websocketSlice,
+        spectrum: spectrumSlice,
+        sourceRouting: sourceRoutingSlice,
+        sourceSelection: sourceSelectionSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          websocketMiddleware,
+        ),
+    });
+    middlewareStore.dispatch(
+      updateDeviceState({
+        activeSourceId: "hackrf-1",
+        sources: [
+          {
+            id: "hackrf-1",
+            name: "HackRF One",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            duplex_mode: "half_duplex",
+            status: "receiving",
+          },
+        ],
+        sourceStatuses: { "hackrf-1": "receiving" },
+      } as any),
+    );
+    middlewareStore.dispatch(setSelectedSourceId("hackrf-1"));
+    sourceVisualizationRuntime.publish(rxFrame as any);
+    liveDataRef.current = rxFrame as any;
+    presentationController.selectSource("hackrf-1", "rx");
+    presentationController.commitActiveSource("hackrf-1");
+
+    middlewareStore.dispatch(
+      setSourceBinding({
+        group: "tx-suite",
+        role: "tx",
+        sourceId: "hackrf-1",
+      }),
+    );
+    middlewareStore.dispatch({ type: "txSuite/requestPreview" });
+    expect(presentationController.getActivePresentation().mode).toBe("tx");
+    expect(liveDataRef.current).toBeNull();
+
+    middlewareStore.dispatch(
+      setSourceBinding({
+        group: "tx-suite",
+        role: "tx",
+        sourceId: null,
+      }),
+    );
+    expect(presentationController.getActivePresentation().mode).toBe("rx");
+    expect(sourceVisualizationRuntime.getSourceRef("hackrf-1").current).toBe(
+      rxFrame,
+    );
   });
 
   it("applies a global source snapshot without dropping the requesting tab's retained source", () => {
@@ -4619,7 +5024,7 @@ describe("Redux WebSocket Migration", () => {
       ).toBe(false);
     });
 
-  it("does not send a global pause command for a subscriber pause", () => {
+    it("does not send a global pause command for a subscriber pause", () => {
       const send = jest.fn();
       (global.WebSocket as unknown as jest.Mock).mockImplementation(() => ({
         readyState: WebSocket.OPEN,
@@ -4672,6 +5077,31 @@ describe("Redux WebSocket Migration", () => {
           duplex_mode: "half_duplex",
         }),
       );
+    });
+
+    it("does not turn HackRF Tx standby into a global Resume Rx state", () => {
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+
+      middlewareStore.dispatch({
+        type: "websocket/setPaused",
+        payload: {
+          isPaused: true,
+          sourceId: "hackrf-one-00000001",
+          duplexMode: "half_duplex",
+          activeMode: "tx",
+        },
+      });
+
+      expect(middlewareStore.getState().websocket.isPaused).toBe(false);
     });
 
     it("tracks pause commands as in flight until the middleware resets", () => {

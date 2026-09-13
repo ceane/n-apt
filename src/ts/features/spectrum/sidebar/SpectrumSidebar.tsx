@@ -1310,6 +1310,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   } = useLiveSampleRateControl({
     sourceMode,
     supportsWholeChannelSampleRate,
+    preferWholeChannelOnLiveStart: isHackrfOne,
     manualSampleRateOptions: liveManualSampleRateOptions,
     activeChannelSampleRate: liveWholeChannelSampleRate,
     maxSampleRateHz: isHackrfOne
@@ -3044,9 +3045,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             // normal Rx card, preserve the existing Pause/Resume toggle.
             if (transition?.actions.includes("request_rx_frame")) {
               if (setLiveVisualizerPause) {
-                setLiveVisualizerPause(false, id);
+                setLiveVisualizerPause(false, id, "rx");
               } else {
-                spectrumTransport.sendPauseCommand(false, id);
+                spectrumTransport.sendPauseCommand(false, id, "rx");
               }
             } else {
               toggleLiveVisualizerPause(id);
@@ -3104,7 +3105,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             // the request when it differs from selectedSourceId for a frame.
             // Stop the live Rx stream first; otherwise its next frame replaces
             // the one-shot Tx preview immediately.
-            spectrumTransport.sendPauseCommand(true, id);
+            setSelectedSourceId(id);
+            spectrumTransport.sendPauseCommand(true, id, "tx");
             setTxPreviewSourceId(id);
             dispatch(
               setSourceBinding({
@@ -3367,6 +3369,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             }
             sampleRate={
               signalDisplaySampleRate ??
+              sampleRateHzForSignalDisplay ??
               sampleRateHzLocal ??
               liveSdrSettingsToUse?.sample_rate ??
               maxSampleRate

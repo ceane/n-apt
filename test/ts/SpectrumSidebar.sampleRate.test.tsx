@@ -2221,6 +2221,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
     // rate stays 3.2 MHz). The range must follow the requested rate exactly
     // once — no repeated range re-anchoring that would freeze the app.
     fireEvent.change(sampleRateSelect, { target: { value: "12800000" } });
+    expect(sampleRateSelect.value).toBe("12800000");
     await waitFor(() => expect(mockLiveState.sampleRateHz).toBe(12_800_000));
 
     await act(async () => {

@@ -212,7 +212,8 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       if (!source) return;
       // Stop the live Rx stream first; otherwise its next frame replaces the
       // one-shot Tx preview immediately.
-      wsConnection.sendPauseCommand?.(true, id);
+      setSelectedSourceId(id);
+      wsConnection.sendPauseCommand?.(true, id, "tx");
       setTxPreviewSourceId(id);
       dispatch(
         setSourceBinding({
@@ -223,7 +224,7 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
       );
       dispatch({ type: "txSuite/requestPreview" });
     },
-    [dispatch, sources, wsConnection.sendPauseCommand],
+    [dispatch, setSelectedSourceId, sources, wsConnection.sendPauseCommand],
   );
 
   const handleFlowSelect = useCallback(

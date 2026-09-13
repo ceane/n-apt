@@ -19,6 +19,25 @@ export const isMultiplexStreamTxPresentationFrame = (
   frame?.is_tx_preview === true ||
   frame?.is_mock_tx_preview === true;
 
+/**
+ * Keep the renderer queue mode-pure. Half-duplex RX and TX frames can overlap
+ * briefly during a handoff; a frame from the other mode must never be allowed
+ * to win the shared latest-frame slot.
+ */
+export const filterMultiplexStreamPresentationFrames = <
+  T extends MultiplexStreamWireFrame & Record<string, unknown>,
+>(
+  frames: T[],
+  txPresentationActive: boolean,
+  allowUntaggedTx = false,
+): T[] =>
+  frames.filter((frame) =>
+    txPresentationActive
+      ? isMultiplexStreamTxPresentationFrame(frame) ||
+        (allowUntaggedTx && !frame.source_id)
+      : !isMultiplexStreamTxPresentationFrame(frame),
+  );
+
 export const hasMultiplexStreamTxPreviewFrame = (
   frames: Array<MultiplexStreamWireFrame & Record<string, unknown>>,
 ): boolean => frames.some((frame) => isMultiplexStreamTxPresentationFrame(frame));

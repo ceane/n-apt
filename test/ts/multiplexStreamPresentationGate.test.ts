@@ -1,4 +1,5 @@
 import {
+  filterMultiplexStreamPresentationFrames,
   filterMultiplexStreamTxPreviewFrames,
   hasMultiplexStreamTxPreviewFrame,
   isMultiplexStreamTxPresentationFrame,
@@ -21,6 +22,28 @@ describe("isMultiplexStreamTxPresentationFrame", () => {
       true,
     );
     expect(isMultiplexStreamTxPresentationFrame(rxFrame)).toBe(false);
+  });
+});
+
+describe("filterMultiplexStreamPresentationFrames", () => {
+  it("does not let an old RX frame enter the TX renderer queue", () => {
+    const rx = {
+      source_id: "hackrf-1",
+      frame_status: "receiving",
+      sequence: 40,
+    };
+    const tx = {
+      source_id: "hackrf-1",
+      frame_status: "transmitting",
+      sequence: 41,
+    };
+
+    expect(filterMultiplexStreamPresentationFrames([rx, tx], true)).toEqual([
+      tx,
+    ]);
+    expect(filterMultiplexStreamPresentationFrames([rx, tx], false)).toEqual([
+      rx,
+    ]);
   });
 });
 

@@ -1,6 +1,8 @@
 import {
   getMockTxPreviewRequestKey,
   resolveLiveDevicePlaceholderState,
+  resolveSpectrumLimitMarkers,
+  resolvePausedFrameFrequencyRange,
   shouldPublishFrequencyRangeForSource,
 } from "@n-apt/app/routes/pages/SpectrumRoute";
 import {
@@ -17,6 +19,60 @@ describe("resolvePausedPreviewRequestSourceId", () => {
     expect(
       resolvePausedPreviewRequestSourceId("mock-apt", "mock-tx"),
     ).toBe("mock-tx");
+  });
+});
+
+describe("resolveSpectrumLimitMarkers", () => {
+  it("uses the selected source markers instead of active RTL markers", () => {
+    const rtlMarkers = [
+      { kind: "rtl_limit", freq_hz: 24_000_000, label: "RTL" },
+    ];
+    const hackrfMarkers = [
+      { kind: "hackrf_limit", freq_hz: 6_000_000_000, label: "HackRF" },
+    ];
+
+    expect(
+      resolveSpectrumLimitMarkers({
+        activeSourceMarkers: rtlMarkers,
+        selectedSourceMarkers: hackrfMarkers,
+      }),
+    ).toBe(hackrfMarkers);
+  });
+});
+
+describe("resolvePausedFrameFrequencyRange", () => {
+  it("uses the selected paused RX frame axis instead of another device's shared range", () => {
+    expect(
+      resolvePausedFrameFrequencyRange({
+        isPaused: true,
+        isTxMode: false,
+        frame: { min_hz: 24_000_000, max_hz: 27_200_000 },
+        fallbackRange: { min: 1_000_000, max: 21_000_000 },
+      }),
+    ).toEqual({ min: 24_000_000, max: 27_200_000 });
+  });
+
+  it("uses the paused source's saved view when the frame has no axis metadata", () => {
+    expect(
+      resolvePausedFrameFrequencyRange({
+        isPaused: true,
+        isTxMode: false,
+        frame: {},
+        sourceViewRange: { min: 24_000_000, max: 27_200_000 },
+        fallbackRange: { min: 1_000_000, max: 21_000_000 },
+      }),
+    ).toEqual({ min: 24_000_000, max: 27_200_000 });
+  });
+
+  it("does not replace the active TX axis with a cached RX frame", () => {
+    expect(
+      resolvePausedFrameFrequencyRange({
+        isPaused: true,
+        isTxMode: true,
+        frame: { min_hz: 24_000_000, max_hz: 27_200_000 },
+        fallbackRange: { min: 2_000_000, max: 3_000_000 },
+      }),
+    ).toBeNull();
   });
 });
 

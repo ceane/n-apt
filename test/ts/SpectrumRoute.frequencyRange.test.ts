@@ -6,6 +6,7 @@ import {
   publishFrequencyRangeImmediately,
   resolveNavigationFrequencyBounds,
   resolveExplicitCenterFrequencyRange,
+  isWholeChannelPan,
 } from "@n-apt/app/routes/pages/SpectrumRoute";
 
 describe("subscriber-local visual pan", () => {
@@ -160,6 +161,26 @@ describe("resolveNavigationFrequencyBounds", () => {
         hardwareBounds,
       }),
     ).toEqual(hardwareBounds);
+  });
+});
+
+describe("isWholeChannelPan", () => {
+  it("recognizes a user pan from a range covering the active channel", () => {
+    expect(
+      isWholeChannelPan({
+        currentRange: { min: 4_750_000, max: 23_000_000 },
+        channelBounds: { min: 4_750_000, max: 23_000_000 },
+      }),
+    ).toBe(true);
+  });
+
+  it("also recognizes typed center-frequency changes", () => {
+    expect(
+      isWholeChannelPan({
+        currentRange: { min: 4_750_000, max: 23_000_000 },
+        channelBounds: { min: 4_750_000, max: 23_000_000 },
+      }),
+    ).toBe(true);
   });
 });
 

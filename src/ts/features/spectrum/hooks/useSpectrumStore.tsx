@@ -1371,6 +1371,16 @@ export const selectLiveSampleRateForSync = ({
   return resolveSourceSampleRateHz({ candidates, maxSampleRateHz });
 };
 
+export const resolveLiveSampleRateSourceSnapshot = <T,>({
+  selectedSourceId,
+  selectedSource,
+  activeSource,
+}: {
+  selectedSourceId: string | null;
+  selectedSource: T | null;
+  activeSource: T;
+}): T => (selectedSourceId && selectedSource ? selectedSource : activeSource);
+
 export const shouldHydrateLiveSampleRate = ({
   rate,
   localSampleRateHz,
@@ -1864,7 +1874,11 @@ export type SpectrumStoreContextValue = {
     error: string | null;
     cryptoCorrupted: boolean;
     sendFrequencyRange: (range: FrequencyRange) => void;
-    sendPauseCommand: (isPaused: boolean, sourceId: string) => void;
+    sendPauseCommand: (
+      isPaused: boolean,
+      sourceId: string,
+      activeMode?: DeviceActiveMode,
+    ) => void;
     sendSettings: (settings: SDRSettings) => void;
     sendRestartDevice: (sourceId?: string) => void;
     sendCaptureCommand: (req: CaptureRequest) => void;
@@ -1911,7 +1925,11 @@ export type SpectrumStoreContextValue = {
     ) => void;
   };
   toggleVisualizerPause: (sourceId?: string) => void;
-  setVisualizerPause?: (paused: boolean, sourceId?: string) => void;
+    setVisualizerPause?: (
+      paused: boolean,
+      sourceId?: string,
+      activeMode?: DeviceActiveMode,
+    ) => void;
   cryptoCorrupted: boolean;
   deviceName: string | null;
   deviceProfile: DeviceProfile | null;
@@ -2645,7 +2663,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
 
     const sendPauseCommand = useCallback(
-      (paused: boolean, sourceId?: string) => {
+      (
+        paused: boolean,
+        sourceId?: string,
+        activeModeOverride?: DeviceActiveMode,
+      ) => {
         const pauseSourceId = resolvePauseTargetSourceId({
           requestedSourceId: sourceId,
           selectedSourceId,
@@ -2662,7 +2684,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           pauseTargetSource?.duplex_mode?.toLowerCase?.() === "half-duplex"
             ? "half_duplex"
             : undefined;
-        const activeMode = resolveDeviceActiveMode(pauseTargetSource);
+        const activeMode =
+          activeModeOverride ?? resolveDeviceActiveMode(pauseTargetSource);
         reduxDispatch({
           type: "websocket/setPaused",
           payload: {
@@ -2817,7 +2840,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sampleRateHz: activeSourceDerived.sampleRateHz,
         supportsBasebandFilter: activeSourceDerived.supportsBasebandFilter,
         sdrSettings: activeSourceDerived.sdrSettings,
-        sdrLimitMarkers: activeSource?.sdr.fft_display.markers ?? [],
+        // Marker limits belong to the tab's presentation source. The active
+        // control source can remain RTL while this tab is viewing HackRF in
+        // a source-owned Tx stream.
+        sdrLimitMarkers:
+          selectedSource?.sdr.fft_display.markers ??
+          activeSource?.sdr.fft_display.markers ??
+          [],
         dataRef,
         spectrumFrames: wsSpectrumFrames,
         sources: effectiveWebsocketSources,
@@ -2840,6 +2869,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         activeSourceId,
         activeSourceDerived.deviceState,
         activeSource,
+        selectedSource,
         activeSourceDerived,
         isPaused,
         serverPaused,
@@ -3620,6 +3650,50 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const hydratedBackendSampleRateRef = useRef(false);
 
+    const liveSampleRateSource = useMemo(
+      () =>
+        resolveLiveSampleRateSourceSnapshot({
+          selectedSourceId: selectedSourceId || null,
+          selectedSource: selectedSource
+            ? {
+                sampleRateHz: selectedSourceDerived.sampleRateHz,
+                sdrSettingsSampleRateHz:
+                  selectedSourceDerived.sdrSettings?.sample_rate,
+                minReceiveSampleRateHz:
+                  selectedSourceDerived.sdrSettings?.min_receive_sample_rate,
+                maxSampleRateHz: selectedSourceDerived.maxSampleRateHz,
+                deviceKind: selectedSourceDerived.deviceProfile?.kind,
+                backend: selectedSourceDerived.backend,
+                deviceName: selectedSourceDerived.deviceName,
+                isRtlSdr: selectedSourceDerived.deviceProfile?.is_rtl_sdr,
+              }
+            : null,
+          activeSource: {
+            sampleRateHz,
+            sdrSettingsSampleRateHz: sdrSettings?.sample_rate,
+            minReceiveSampleRateHz: sdrSettings?.min_receive_sample_rate,
+            maxSampleRateHz,
+            deviceKind: deviceProfile?.kind,
+            backend,
+            deviceName,
+            isRtlSdr: deviceProfile?.is_rtl_sdr,
+          },
+        }),
+      [
+        activeSourceDerived,
+        backend,
+        deviceName,
+        deviceProfile?.is_rtl_sdr,
+        deviceProfile?.kind,
+        maxSampleRateHz,
+        sampleRateHz,
+        sdrSettings,
+        selectedSource,
+        selectedSourceDerived,
+        selectedSourceId,
+      ],
+    );
+
     useEffect(() => {
       hydratedBackendSampleRateRef.current = false;
       pendingLocalSampleRateRef.current = null;
@@ -3635,14 +3709,16 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     useEffect(() => {
       const rate = selectLiveSampleRateForSync({
         isConnected,
-        websocketSampleRateHz: sampleRateHz,
-        sdrSettingsSampleRateHz: sdrSettings?.sample_rate,
-        minReceiveSampleRateHz: sdrSettings?.min_receive_sample_rate,
-        maxSampleRateHz,
-        deviceKind: deviceProfile?.kind,
-        backend,
-        deviceName,
-        isRtlSdr: deviceProfile?.is_rtl_sdr,
+        websocketSampleRateHz: liveSampleRateSource.sampleRateHz,
+        sdrSettingsSampleRateHz:
+          liveSampleRateSource.sdrSettingsSampleRateHz,
+        minReceiveSampleRateHz:
+          liveSampleRateSource.minReceiveSampleRateHz,
+        maxSampleRateHz: liveSampleRateSource.maxSampleRateHz,
+        deviceKind: liveSampleRateSource.deviceKind,
+        backend: liveSampleRateSource.backend,
+        deviceName: liveSampleRateSource.deviceName,
+        isRtlSdr: liveSampleRateSource.isRtlSdr,
       });
       const pendingLocalSampleRateHz = pendingLocalSampleRateRef.current;
       const shouldHydrateRate = shouldHydrateLiveSampleRate({
@@ -3671,8 +3747,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         hydratedBackendSampleRateRef.current = true;
       }
       const minReceiveRate =
-        sdrSettings?.min_receive_sample_rate ??
-        sdrSettings?.sample_rate ??
+        liveSampleRateSource.minReceiveSampleRateHz ??
+        liveSampleRateSource.sdrSettingsSampleRateHz ??
         rate;
       if (
         typeof minReceiveRate === "number" &&
@@ -3682,15 +3758,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         reduxDispatch(setMinReceiveSampleRateAction(minReceiveRate));
       }
     }, [
-      sdrSettings?.sample_rate,
-      sdrSettings?.min_receive_sample_rate,
-      sampleRateHz,
-      maxSampleRateHz,
       isConnected,
-      deviceProfile?.kind,
-      deviceProfile?.is_rtl_sdr,
-      backend,
-      deviceName,
+      liveSampleRateSource,
       state.sampleRateHz,
       state.minReceiveSampleRateHz,
       reduxDispatch,
@@ -3711,14 +3780,15 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const sampleRateHzEffective = resolveEffectiveLiveSampleRateHz({
       localSampleRateHz: mergedState.sampleRateHz,
-      websocketSampleRateHz: sampleRateHz,
-      sdrSettingsSampleRateHz: effectiveSdrSettings?.sample_rate,
-      minReceiveSampleRateHz: effectiveSdrSettings?.min_receive_sample_rate,
-      maxSampleRateHz,
-      deviceKind: deviceProfile?.kind,
-      backend,
-      deviceName,
-      isRtlSdr: deviceProfile?.is_rtl_sdr,
+      websocketSampleRateHz: liveSampleRateSource.sampleRateHz,
+      sdrSettingsSampleRateHz:
+        liveSampleRateSource.sdrSettingsSampleRateHz,
+      minReceiveSampleRateHz: liveSampleRateSource.minReceiveSampleRateHz,
+      maxSampleRateHz: liveSampleRateSource.maxSampleRateHz,
+      deviceKind: liveSampleRateSource.deviceKind,
+      backend: liveSampleRateSource.backend,
+      deviceName: liveSampleRateSource.deviceName,
+      isRtlSdr: liveSampleRateSource.isRtlSdr,
     });
 
     const signalAreaBounds = useMemo(() => {
@@ -3771,7 +3841,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           return normalizeFrequencyRangeToHz(rtlClampedRange);
         }
 
-        if (Number.isFinite(rangeSpan) && rangeSpan > boundsSpan) {
+        // Whole Channel ranges can be translated while keeping exactly the
+        // channel span. Treat equal-span requests as navigation too; clamping
+        // them back to the current acquisition bounds makes every pan and
+        // EditableFrequency entry snap to the channel's lower edge.
+        if (Number.isFinite(rangeSpan) && rangeSpan >= boundsSpan) {
           return normalizeFrequencyRangeToHz(range);
         }
 
@@ -3908,18 +3982,30 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Execute exactly once to absorb backend default configurations (like signals.yaml gain)
     useEffect(() => {
+      const liveSettingsForHydration = selectedSource
+        ? selectedSourceDerived.sdrSettings
+        : sdrSettings;
+      const deviceProfileForHydration = selectedSource
+        ? selectedSourceDerived.deviceProfile
+        : deviceProfile;
+      const backendForHydration = selectedSource
+        ? selectedSourceDerived.backend
+        : backend;
+      const deviceNameForHydration = selectedSource
+        ? selectedSourceDerived.deviceName
+        : deviceName;
       if (
         !isConnected ||
-        !sdrSettings ||
+        !liveSettingsForHydration ||
         hasInitializedBackendSettingsRef.current
       )
         return;
 
       // Validate we actually received meaningful backend config (e.g. valid sample rate)
       if (
-        sdrSettings.sample_rate === 0 &&
-        (sdrSettings.center_frequency === 0 ||
-          sdrSettings.center_frequency === undefined)
+        liveSettingsForHydration.sample_rate === 0 &&
+        (liveSettingsForHydration.center_frequency === 0 ||
+          liveSettingsForHydration.center_frequency === undefined)
       )
         return;
 
@@ -3928,15 +4014,15 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
       const derived = deriveStateFromConfig(
         sampleRateHzEffective ?? 0,
-        sdrSettings,
+        liveSettingsForHydration,
       );
       const initialHackrfBasebandBandwidth = isHackrfDevice({
-        deviceKind: deviceProfile?.kind,
-        backend,
-        deviceName,
-        sourceId: activeSourceId,
+        deviceKind: deviceProfileForHydration?.kind,
+        backend: backendForHydration,
+        deviceName: deviceNameForHydration,
+        sourceId: selectedSource?.id ?? activeSourceId,
       })
-        ? sampleRateHzEffective ?? sdrSettings.sample_rate
+        ? sampleRateHzEffective ?? liveSettingsForHydration.sample_rate
         : derived.hackrfBasebandBandwidth;
       reduxDispatch(setSdrSettingsBundleAction({
           ...derived,
@@ -3954,6 +4040,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [
       isConnected,
       sdrSettings,
+      selectedSource,
+      selectedSourceDerived,
       sampleRateHzEffective,
       reduxDispatch,
       deviceProfile?.kind,
@@ -4061,7 +4149,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }, [isVisualizerRoute, reduxSpectrumState.detectedFrameRate, reduxDispatch]);
 
     const setVisualizerPause = useCallback(
-      (requestedPaused: boolean, sourceId?: string) => {
+      (
+        requestedPaused: boolean,
+        sourceId?: string,
+        activeModeOverride?: DeviceActiveMode,
+      ) => {
         if (mergedState.sourceMode === "file") {
           reduxDispatch(setWaterfallStitchPaused(requestedPaused));
           return;
@@ -4123,7 +4215,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           reduxDispatch(setVisualizerPausedAction(nextPaused));
         }
 
-        wsConnection.sendPauseCommand(nextPaused, pauseTargetSourceId);
+        wsConnection.sendPauseCommand(
+          nextPaused,
+          pauseTargetSourceId,
+          activeModeOverride,
+        );
       },
       [
         activeSourceId,
