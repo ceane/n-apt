@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FIFOWaterfallCanvas from "@n-apt/components/FIFOWaterfallCanvas";
+import FIFOWaterfallCanvas from "@n-apt/spectrum/FIFOWaterfallCanvas";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 
@@ -20,7 +20,23 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfallCanvas", () => {
-  it("renders the paused title, all waterfall layers, and heterodyning highlights", () => {
+  it("does not add standby text to the waterfall header", () => {
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          isStandby={true}
+          setWaterfallGpuCanvasNode={jest.fn()}
+          setWaterfallOverlayCanvasNode={jest.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
+    expect(screen.queryByText("Waterfall Display (Standby)")).not.toBeInTheDocument();
+  });
+
+  it("renders the paused bar without inline paused text", () => {
     const setWaterfallGpuCanvasNode = jest.fn();
     const setWaterfallOverlayCanvasNode = jest.fn();
 
@@ -30,26 +46,19 @@ describe("FIFOWaterfallCanvas", () => {
           isPaused={true}
           setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
           setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
-          heterodyningHighlightedBins={[
-            { start: 0.1, end: 0.2 },
-            { start: 0.7, end: 0.9 },
-          ]}
         />
       </ThemeProvider>,
     );
 
-    expect(
-      screen.getByText(/Waterfall Display \(Paused\)/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
+    expect(screen.queryByText(/\(Paused\)/i)).not.toBeInTheDocument();
     expect(
       container.querySelector("#fft-waterfall-canvas-webgpu"),
     ).toBeInTheDocument();
     expect(
       container.querySelector("#fft-waterfall-canvas-overlay"),
     ).toBeInTheDocument();
-    expect(screen.getAllByTestId("fifo-waterfall-highlight-band")).toHaveLength(
-      2,
-    );
     expect(setWaterfallGpuCanvasNode).toHaveBeenCalledWith(
       expect.any(HTMLCanvasElement),
     );
@@ -111,5 +120,35 @@ describe("FIFOWaterfallCanvas", () => {
         setWaterfallOverlayCanvasNode.mock.calls.length - 1
       ]?.[0],
     ).toBeNull();
+  });
+
+  it("does not rebind canvas nodes forever when the placeholder object changes", () => {
+    const setWaterfallGpuCanvasNode = jest.fn();
+    const setWaterfallOverlayCanvasNode = jest.fn();
+    const { rerender } = render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
+          setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
+          placeholderState={{ kind: "error", reason: "Device disconnected" }}
+        />
+      </ThemeProvider>,
+    );
+
+    const initialGpuCalls = setWaterfallGpuCanvasNode.mock.calls.length;
+    rerender(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          setWaterfallGpuCanvasNode={setWaterfallGpuCanvasNode}
+          setWaterfallOverlayCanvasNode={setWaterfallOverlayCanvasNode}
+          placeholderState={{ kind: "error", reason: "Device disconnected" }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(setWaterfallGpuCanvasNode.mock.calls.length).toBe(initialGpuCalls);
+    expect(setWaterfallOverlayCanvasNode.mock.calls.length).toBe(initialGpuCalls);
   });
 });

@@ -74,11 +74,6 @@ impl MockAptMetalBackend {
     })
   }
 
-  #[allow(dead_code)]
-  pub fn is_available() -> bool {
-    Device::system_default().is_some()
-  }
-
   fn allocate_buffers(
     device: &Device,
     fft_size: usize,

@@ -36,7 +36,7 @@ function extractStrings(content) {
       try {
         const s = m[4].replace(/\\/g, '\\\\').replace(/"/g, '\\"');
         val = JSON.parse(`"${s}"`);
-      } catch (e) {
+      } catch {
         val = m[4];
       }
     } else if (m[6] !== undefined) {
@@ -44,7 +44,7 @@ function extractStrings(content) {
         // single quoted -> convert to double-quoted for JSON.parse
         const s = m[6].replace(/\\/g, '\\\\').replace(/\\'/g, "'").replace(/"/g, '\\"');
         val = JSON.parse(`"${s}"`);
-      } catch (e) {
+      } catch {
         val = m[6];
       }
     }
@@ -54,7 +54,7 @@ function extractStrings(content) {
 }
 
 function sanitize(s) {
-  return s.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+  return s.replace(/[\u200B-\u200D\uFEFF]/g, '');
 }
 
 const files = [];

@@ -15,12 +15,38 @@ const pagesMiddleware: Plugin = {
 
     const publicDir = path.resolve(dirname, "public");
 
-    server.middlewares.use((req, res, next) => {
+    server.middlewares.use(async (req, res, next) => {
       const url = (req.url || "").split("?")[0].split("#")[0];
-      const isPages = url.startsWith("/pages/") || url.startsWith("/md-preview/pages/");
+      if (url === "/" || url === "/md-preview" || url === "/md-preview/" || url === "/article/") {
+        const suffix = (req.url || "").slice(url.length);
+        res.statusCode = 301;
+        res.setHeader("Location", `/article${suffix}`);
+        res.end();
+        return;
+      }
+      if (url === "/article") {
+        const indexPath = path.join(dirname, "src/app-article/index.html");
+        const html = await server.transformIndexHtml("/article/", fs.readFileSync(indexPath, "utf-8"));
+        // transformIndexHtml resolves the relative "./main.tsx" entry against
+        // "/article/", producing "/article/main.tsx", which does not exist under
+        // the app root. Point it at the root-relative entry Vite serves natively.
+        const devHtml = html.replace(
+          'src="./main.tsx"',
+          'src="/main.tsx"',
+        );
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.end(devHtml);
+        return;
+      }
+      const isPages = url.startsWith("/pages/")
+        || url.startsWith("/md-preview/pages/")
+        || url.startsWith("/article/pages/");
       if (isPages) {
         const relativeUrl = url.startsWith("/md-preview/")
           ? url.slice("/md-preview".length).replace(/^\//, "")
+          : url.startsWith("/article/")
+            ? url.slice("/article".length).replace(/^\//, "")
           : url.replace(/^\//, "");
         const filePath = path.join(dirname, relativeUrl);
         if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
@@ -31,8 +57,8 @@ const pagesMiddleware: Plugin = {
         }
       }
 
-        if (url.startsWith("/md-preview/")) {
-          const assetPath = url.replace(/^\/md-preview\//, "");
+        if (url.startsWith("/md-preview/") || url.startsWith("/article/")) {
+          const assetPath = url.replace(/^\/(?:md-preview|article)\//, "");
         const searchPaths = [
           path.join(publicDir, "md-preview", assetPath),
           path.join(publicDir, assetPath), // Direct fallback to public root
@@ -84,7 +110,7 @@ const copyPagesPlugin: Plugin = {
 
     // In production build, we need to transform paths within the copied markdown files
     const productionBase = "/"; // The app helpers will prepend the base URL (e.g. /n-apt/) at runtime
-    const devBase = "/md-preview/";
+    const devBase = "/article/";
 
     const transformFile = (filePath: string) => {
       if (fs.statSync(filePath).isDirectory()) {
@@ -117,15 +143,17 @@ export default defineConfig(({ mode }) => {
   return {
     mode: isProd ? "production" : "development",
     define: {
-      "__APP_BASE_URL__": JSON.stringify(isProd ? "/n-apt/" : "/md-preview/"),
+      "__APP_BASE_URL__": JSON.stringify(isProd ? "/n-apt/" : "/article/"),
       "__DEV__": JSON.stringify(!isProd),
     },
     esbuild: {
       jsx: "automatic",
       drop: isProd ? ["console", "debugger"] : [],
     },
-    base: isProd ? "/n-apt/" : "/md-preview/",
-    root: path.resolve(dirname, "src/md-preview"),
+    // Vite's dev server owns the root namespace; the article app exposes its
+    // canonical browser route through the middleware above.
+    base: isProd ? "/n-apt/" : "/",
+    root: path.resolve(dirname, "src/app-article"),
     envDir: dirname,
     publicDir: path.resolve(dirname, "public"),
     build: {
@@ -139,17 +167,26 @@ export default defineConfig(({ mode }) => {
       alias: [
         ...(isProd ? [{
           find: "react/jsx-dev-runtime",
-          replacement: path.resolve(dirname, "src/md-preview/jsx-shim.js")
+          replacement: path.resolve(dirname, "src/app-article/jsx-shim.js")
         }] : []),
         {
           find: /^@n-apt\/encrypted-modules\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/encrypted-modules")}/$1`
     }, {
-      find: /^@n-apt\/md-preview\/(.*)$/,
-      replacement: `${path.resolve(dirname, "src/md-preview")}/$1`
+      find: /^@n-apt\/app-article\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/app-article")}/$1`
     }, {
       find: /^@n-apt\/public\/(.*)$/,
       replacement: `${path.resolve(dirname, "public")}/$1`
+    }, {
+      find: /^@n-apt\/math\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/ts/shared/math")}/$1`
+    }, {
+      find: /^@n-apt\/ui\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/ts/shared/ui")}/$1`
+    }, {
+      find: /^@n-apt\/learn\/(.*)$/,
+      replacement: `${path.resolve(dirname, "src/ts/features/learn")}/$1`
     }, {
       find: /^@n-apt\/(.*)$/,
       replacement: `${path.resolve(dirname, "src/ts")}/$1`

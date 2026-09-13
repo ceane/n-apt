@@ -1,0 +1,404 @@
+[
+  {
+    "id": "1",
+    "text": "Is it on?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "2",
+    "text": "When did you first notice it was on?",
+    "type": "date",
+    "options": [""]
+  },
+  {
+    "id": "3",
+    "text": "What was it like?",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "4",
+    "text": "Was it intermittent (on/off) or continual but episodic?",
+    "type": "radio",
+    "options": ["Intermittent", "Continual but episodic"]
+  },
+  {
+    "id": "5",
+    "text": "Did it affect anyone else (passerby, people nearby, others on) or just you?",
+    "type": "radio",
+    "options": ["No", "Yes"]
+  },
+  {
+    "id": "6",
+    "text": "If it affected others, how?",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "7",
+    "text": "Was there anyone else on with you?",
+    "type": "radio",
+    "options": ["No", "Yes", "I don't know"]
+  },
+  {
+    "id": "8",
+    "text": "If there was anyone else, did they:",
+    "type": "checkbox",
+    "options": ["Help", "Take advantage", "Antagonize", "Intimidate", "Harass", "Terrorize", "Take advantage by design", "Antagonize by force", "Harass by force", "Terrorize by force", "Other"]
+  },
+  {
+    "id": "9",
+    "text": "Did you report this occurrence to:",
+    "type": "checkbox",
+    "options": ["Law enforcement (FBI, Homeland Security, DOJ, etc.)", "Federal authorities (DNI, Congress, etc.)", "Civil society or legal firms", "Family or associates", "Acquaintances or strangers"]
+  },
+  {
+    "id": "10",
+    "text": "How did the day go with it on?",
+    "type": "radio",
+    "options": ["Terrible", "Moderate", "Fine"]
+  },
+  {
+    "id": "11",
+    "text": "What was its intensity in the beginning?",
+    "type": "checkbox",
+    "options": ["Artificial Irrationality", "Artificial Paranoia", "Artificial Perceptual changes", "Subconsciously ingrained", "Intrusive"]
+  },
+  {
+    "id": "12",
+    "text": "What kinds of features?",
+    "type": "checkbox",
+    "options": ["Heightened perception", "Cinematic perception", "Atmospheric perception", "Perceptual filters", "Emotional changes", "Manufactured states of mind", "Unintelligible background audio", "Coordinated scripts from people speaking", "Physiological movements"]
+  },
+  {
+    "id": "13",
+    "text": "What about afterwards?",
+    "type": "radio",
+    "options": ["It got worse", "No change", "Other"]
+  },
+  {
+    "id": "14",
+    "text": "How hard was it to explain what was going on?",
+    "type": "radio",
+    "options": ["Moderate", "Hard", "Near-impossible"]
+  },
+  {
+    "id": "15",
+    "text": "Did you know why or who was doing it?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "16",
+    "text": "Were you blindsided or co-opted into the experience?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "17",
+    "text": "What features (software to brain functions) did you experience?",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "18",
+    "text": "Did you suspect where it was coming from?",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "19",
+    "text": "Are you aware of selectors and queries?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "20",
+    "text": "Are you aware of minimization and detasking?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "21",
+    "text": "Do you believe the government can be held accountable for their actions?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "22",
+    "text": "Do you believe constitutional protections (First, Fourth, Fifth Amendments) extend to experiences like this?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "23",
+    "text": "How did you process the nature of the experience?",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "24",
+    "text": "How did you find who was responsible?",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "25",
+    "text": "Did you experience rapid heartbeat, palpitations, or chest pressure?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "25a",
+    "text": "Frequency",
+    "type": "radio",
+    "options": ["One-time", "Occasional", "Daily", "Multiple times per day"]
+  },
+  {
+    "id": "25b",
+    "text": "Duration",
+    "type": "radio",
+    "options": ["Seconds", "Minutes", "Longer episodes", "Variable"]
+  },
+  {
+    "id": "25c",
+    "text": "Episodic or continual",
+    "type": "radio",
+    "options": ["Episodic", "Continual"]
+  },
+  {
+    "id": "25d",
+    "text": "Intensity",
+    "type": "radio",
+    "options": ["Mild", "Moderate", "Severe"]
+  },
+  {
+    "id": "25e",
+    "text": "Episode metadata",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "26",
+    "text": "Did you experience intrusive thoughts, perceptual filters, or emotional state changes?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "26a",
+    "text": "Frequency",
+    "type": "radio",
+    "options": ["One-time", "Occasional", "Daily", "Multiple times per day"]
+  },
+  {
+    "id": "26b",
+    "text": "Duration",
+    "type": "radio",
+    "options": ["Seconds", "Minutes", "Longer episodes", "Variable"]
+  },
+  {
+    "id": "26c",
+    "text": "Episodic or continual",
+    "type": "radio",
+    "options": ["Episodic", "Continual"]
+  },
+  {
+    "id": "26d",
+    "text": "Intensity",
+    "type": "radio",
+    "options": ["Mild", "Moderate", "Severe"]
+  },
+  {
+    "id": "26e",
+    "text": "Episode metadata",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "27",
+    "text": "Did you experience fear, shame, helplessness, confusion, or long-term psychological harm?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "27a",
+    "text": "Frequency",
+    "type": "radio",
+    "options": ["One-time", "Occasional", "Daily", "Multiple times per day"]
+  },
+  {
+    "id": "27b",
+    "text": "Duration",
+    "type": "radio",
+    "options": ["Seconds", "Minutes", "Longer episodes", "Variable"]
+  },
+  {
+    "id": "27c",
+    "text": "Episodic or continual",
+    "type": "radio",
+    "options": ["Episodic", "Continual"]
+  },
+  {
+    "id": "27d",
+    "text": "Intensity",
+    "type": "radio",
+    "options": ["Mild", "Moderate", "Severe"]
+  },
+  {
+    "id": "27e",
+    "text": "Episode metadata",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "28",
+    "text": "Did you experience non-consensual sexualized effects?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "28a",
+    "text": "Nature of experience",
+    "type": "checkbox",
+    "options": ["Involuntary arousal", "Forced sensations", "Intrusive imagery", "Sexualized emotional manipulation", "Humiliation", "Loss of discretion", "Inability to resist", "Forced scenarios", "Exposure to sexual content"]
+  },
+  {
+    "id": "28b",
+    "text": "Others present during the same experience (co-exposure)",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "28c",
+    "text": "Secondary exposure from your experience to others",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "28d",
+    "text": "Loss of autonomy, discretion, or resistance",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "28e",
+    "text": "Frequency",
+    "type": "radio",
+    "options": ["One-time", "Occasional", "Daily", "Multiple times per day"]
+  },
+  {
+    "id": "28f",
+    "text": "Duration",
+    "type": "radio",
+    "options": ["Seconds", "Minutes", "Longer episodes", "Variable"]
+  },
+  {
+    "id": "28g",
+    "text": "Episodic or continual",
+    "type": "radio",
+    "options": ["Episodic", "Continual"]
+  },
+  {
+    "id": "28h",
+    "text": "Intensity",
+    "type": "radio",
+    "options": ["Mild", "Moderate", "Severe"]
+  },
+  {
+    "id": "28i",
+    "text": "Episode metadata",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "29",
+    "text": "Did you experience involuntary movements, heightened perception, audio/visual interference, or other body-wide sensations?",
+    "type": "radio",
+    "options": ["Yes", "No"]
+  },
+  {
+    "id": "29a",
+    "text": "Frequency",
+    "type": "radio",
+    "options": ["One-time", "Occasional", "Daily", "Multiple times per day"]
+  },
+  {
+    "id": "29b",
+    "text": "Duration",
+    "type": "radio",
+    "options": ["Seconds", "Minutes", "Longer episodes", "Variable"]
+  },
+  {
+    "id": "29c",
+    "text": "Episodic or continual",
+    "type": "radio",
+    "options": ["Episodic", "Continual"]
+  },
+  {
+    "id": "29d",
+    "text": "Intensity",
+    "type": "radio",
+    "options": ["Mild", "Moderate", "Severe"]
+  },
+  {
+    "id": "29e",
+    "text": "Episode metadata",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "30",
+    "text": "Did the program affect appetite, metabolism, stress responses, or increase risk for heart disease, diabetes, sepsis, or cancer?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "30a",
+    "text": "Frequency",
+    "type": "radio",
+    "options": ["One-time", "Occasional", "Daily", "Multiple times per day"]
+  },
+  {
+    "id": "30b",
+    "text": "Duration",
+    "type": "radio",
+    "options": ["Seconds", "Minutes", "Longer episodes", "Variable"]
+  },
+  {
+    "id": "30c",
+    "text": "Episodic or continual",
+    "type": "radio",
+    "options": ["Episodic", "Continual"]
+  },
+  {
+    "id": "30d",
+    "text": "Intensity",
+    "type": "radio",
+    "options": ["Mild", "Moderate", "Severe"]
+  },
+  {
+    "id": "30e",
+    "text": "Episode metadata",
+    "type": "text",
+    "options": [""]
+  },
+  {
+    "id": "31",
+    "text": "Were others present during the same experience (co-exposure)?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "32",
+    "text": "Did co-presence or perceived co-presence affect your experience?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  },
+  {
+    "id": "33",
+    "text": "Do you believe that others were exposed to sexualized effects originating from your experience?",
+    "type": "radio",
+    "options": ["Yes", "No", "Unsure"]
+  }
+]

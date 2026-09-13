@@ -70,6 +70,10 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 | Full fidelity I/Q Captures with metadata (within sample rate; "Whole Channel" captures work but are variable) |
 | Ability to take snapshots |
 | Works by defined channels to keep signal structure |
+| Automatic device discovery, with Mock APT fallback when no physical SDR is available |
+| A lightweight WebUSB version for connecting to an RTL-SDR directly from a Chromium browser |
+| CLI workflows for discovering devices, taking snapshots, and recording I/Q captures without using the frontend |
+| Recorded I/Q file playback and capture stitching for analysis |
 | Logically implemented features that 100% of SDR software get wrong (frame rate, temporal resolution, power scale, etc.) |
 | Whole app themes, not just dark mode! |
 | Whole suite tailored toward N-APT signals/domain |
@@ -342,6 +346,7 @@ git clone https://github.com/ceane/n-apt.git
 cd n-apt
 npm run setup  # sets up .env.local and fetches Rust dependencies
 npm install     # installs dependencies
+npm run setup:hooks  # enables the tracked signals/article pre-commit hook
 npm run dev    # starts app
 ```
 
@@ -366,6 +371,33 @@ npm run dev
 The web app will be **available at `http://localhost:5173`** with the WebSocket server running on `ws://localhost:8765`.
 
 ### Command-Line Captures
+
+### Agent surfaces and CLI automation
+
+N-APT exposes a route-aware Markdown-for-Agents surface and WebMCP capability
+manifest. Request `text/markdown` from `/agents.md` for the coverage index or
+from a supported app route for its agent instructions:
+
+```bash
+curl -H 'Accept: text/markdown' http://localhost:5173/agents.md
+curl -H 'Accept: text/markdown' http://localhost:5173/visualizer
+```
+
+The CLI exposes the same capability inventory and can retrieve Markdown or
+execute authenticated backend tools:
+
+```bash
+npm run cli -- agent capabilities --json
+npm run cli -- agent markdown --route /visualizer
+npm run cli -- agent call getDeviceStatus --json
+npm run cli -- agent call setGain --params '{"gain":46.9}' --allow-mutations --json
+```
+
+CLI execution is read-only by default. Mutations require `--allow-mutations`;
+transmission and destructive device/storage actions are blocked. Unsupported,
+authenticated-only, legal, onboarding, educational, and demo routes are
+explicitly marked in the capability manifest rather than advertised as
+automatable.
 
 The CLI can discover SDR devices, render signal snapshots, and record I/Q
 captures without opening or operating the frontend UI. Run commands from the

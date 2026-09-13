@@ -1,8 +1,8 @@
-import remarkBodyAttenuationBlocks from "../../src/md-preview/utils/remarkBodyAttenuationBlocks";
-import remarkTimeOfFlightBlocks from "../../src/md-preview/utils/remarkTimeOfFlightBlocks";
-import remarkSignalCanvasBlocks from "../../src/md-preview/utils/remarkSignalCanvasBlocks";
-import remarkLatexCodeBlocks from "../../src/md-preview/utils/remarkLatexCodeBlocks";
-import remarkIconShortcodes from "../../src/md-preview/utils/remarkIconShortcodes";
+import remarkBodyAttenuationBlocks from "@n-apt/app-article/utils/remarkBodyAttenuationBlocks";
+import remarkTimeOfFlightBlocks from "@n-apt/app-article/utils/remarkTimeOfFlightBlocks";
+import remarkSignalCanvasBlocks from "@n-apt/app-article/utils/remarkSignalCanvasBlocks";
+import remarkLatexCodeBlocks from "@n-apt/app-article/utils/remarkLatexCodeBlocks";
+import remarkIconShortcodes from "@n-apt/app-article/utils/remarkIconShortcodes";
 
 const applyPlugin = (plugin: any, tree: any) => {
   if (plugin) {

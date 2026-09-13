@@ -15,12 +15,11 @@ signals:
         label: "A"
         freq_range_hz: [18000.0, 4470000.0]
         description: "Channel A"
-  n_apt:
-    channels:
-      a:
-        label: "A"
-        freq_range_hz: [18000.0, 4390000.0]
-        description: "Channel A"
+  channels:
+    a:
+      label: "A"
+      freq_range_hz: [18000.0, 4390000.0]
+      description: "Channel A"
   sdr:
     sample_rate: !frequency {sample_rate}
     center_frequency: !frequency 1.6MHz

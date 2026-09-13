@@ -1,7 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { ConnectionStatusSection } from "../../src/ts/components/sidebar/ConnectionStatusSection";
+import { ConnectionStatusSection } from "@n-apt/spectrum/sidebar/ConnectionStatusSection";
 import { TestWrapper } from "./testUtils";
 
 describe("ConnectionStatusSection file mode", () => {
@@ -36,6 +36,29 @@ describe("ConnectionStatusSection file mode", () => {
   });
 
   it("shows a stale placeholder instead of the pause button", () => {
+    const onRestartDevice = jest.fn();
+
+    render(
+      <TestWrapper>
+        <ConnectionStatusSection
+          {...baseProps}
+          deviceState="stale"
+          onPauseToggle={jest.fn()}
+          onRestartDevice={onRestartDevice}
+        />
+      </TestWrapper>,
+    );
+
+    const restartButton = screen.getByRole("button", { name: /restart/i });
+    expect(restartButton).toBeEnabled();
+    fireEvent.click(restartButton);
+    expect(onRestartDevice).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: /pause/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps stale status disabled when restart is unavailable", () => {
     render(
       <TestWrapper>
         <ConnectionStatusSection
@@ -47,9 +70,6 @@ describe("ConnectionStatusSection file mode", () => {
     );
 
     expect(screen.getByRole("button", { name: /stale/i })).toBeDisabled();
-    expect(
-      screen.queryByRole("button", { name: /pause/i }),
-    ).not.toBeInTheDocument();
   });
 
   it("shows an Rx spinner instead of pause controls while HackRF loads", () => {
@@ -65,9 +85,11 @@ describe("ConnectionStatusSection file mode", () => {
     );
 
     expect(
-      screen.getByRole("status", { name: /waiting for rx/i }),
+      screen.getByRole("status", { name: /rx active.*first frame/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Waiting for Rx…")).toBeInTheDocument();
+    expect(
+      screen.getByText("Rx active · waiting for first frame…"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /pause|resume/i }),
     ).not.toBeInTheDocument();

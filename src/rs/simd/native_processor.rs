@@ -100,7 +100,7 @@ impl SIMDProcessor for NativeProcessor {
       &mut self.re_buf,
       &mut self.im_buf,
       self.gain,
-      1.0 + (phase_step * self.fft_size as f32 / (2.0 * std::f32::consts::PI)),
+      phase_step,
       self.fft_size,
     );
 
@@ -142,9 +142,17 @@ impl SIMDProcessor for NativeProcessor {
       self.im_buf[i + half] = self.complex_buf[i].im;
     }
 
-    let window_sum =
-      WindowFunctions::get_window_sum(self.window_type, self.fft_size);
-    let inv_norm = 1.0 / (window_sum * window_sum);
+    // Power-conserving PSD normalization (N·Σw²), matching the Rx shader,
+    // the WASM rendering fallback, and PowerSpectrum::to_power_spectrum_db so
+    // summing linear FFT bins recovers complex RMS power on every path. The
+    // previous coherent-gain form ((Σw)²) made the same input read up to
+    // ~2.4 dB differently depending on which processor rendered it.
+    let normalization =
+      WindowFunctions::get_window_power_normalization(
+        self.window_type,
+        self.fft_size,
+      );
+    let inv_norm = 1.0 / normalization.max(1e-12);
 
     crate::simd::arm_optimized_common::ARMOptimizedSIMD::to_power_spectrum_db_arm_optimized(
       &self.re_buf, &self.im_buf, output, inv_norm,

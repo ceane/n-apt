@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#07111f" />
+    <title>N-APT WebUSB probe</title>
+    <style>
+      :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #07111f; color: #e5edf8; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 280px; overflow-x: hidden; }
+      main { min-height: 100vh; padding: clamp(16px, 4vw, 42px); }
+      .card { display: flex; flex-direction: column; width: min(100%, 980px); margin: 0 auto; padding: clamp(16px, 3vw, 28px); border: 1px solid #243b5a; border-radius: 16px; background: #0c1b2e; }
+      .eyebrow { color: #60a5fa; letter-spacing: .12em; font-size: 11px; }
+      h1 { margin: 10px 0; font: 700 clamp(26px, 6vw, 48px)/1.1 system-ui, sans-serif; }
+      p { max-width: 720px; color: #a8bdd8; line-height: 1.55; }
+      .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 12px; margin: 24px 0 16px; }
+      .mobile-landscape-panel { display: contents; }
+      .controls { order: 1; }
+      @media (min-width: 681px) {
+        .controls { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-start; }
+        .controls > label:not(.compact-control) { flex: 0 1 220px; min-width: 170px; }
+        .controls > .compact-control { flex: 0 0 auto; }
+        .snapshot-controls, .iq-capture-controls { flex: 0 1 auto; }
+        .iq-capture-status { flex: 0 1 180px; }
+      }
+      label { display: grid; gap: 6px; font-size: 11px; }
+      .compact-control { min-width: 0; }
+      .compact-control-fft { width: calc(7ch + 48px); }
+      .compact-control-gain { width: calc(7ch + 48px); }
+      .compact-control-ppm { width: calc(7ch + 24px); }
+      .gain-field { display: flex; align-items: center; width: 100%; min-width: 0; min-height: 44px; border: 1px solid #345070; border-radius: 8px; background: #07111f; }
+      .gain-field input { flex: 1 1 auto; width: auto; min-width: 0; border: 0; background: transparent; }
+      .gain-field input:focus { outline: none; }
+      .gain-unit { flex: 0 0 auto; padding-right: 12px; color: #a8bdd8; user-select: none; }
+      .compact-field-ppm { justify-self: start; width: calc(7ch + 24px); min-width: calc(7ch + 24px); }
+      /* The native spinner/arrow is extra chrome; keep the requested text width separate from it. */
+      .compact-field-gain { justify-self: start; width: calc(7ch + 48px); min-width: calc(7ch + 48px); }
+      .compact-field-fft { justify-self: start; width: calc(7ch + 48px); min-width: calc(7ch + 48px); }
+      input, select, button { width: 100%; min-height: 44px; padding: 11px 12px; border-radius: 8px; font: inherit; }
+      input { border: 1px solid #345070; background: #07111f; color: #e5edf8; }
+      select { border: 1px solid #345070; background: #07111f; color: #e5edf8; font: inherit; }
+      .frequency-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+      .frequency-field input { border-radius: 8px 0 0 8px; }
+      .frequency-field select { width: auto; padding: 0 10px; border-left: 0; border-radius: 0 8px 8px 0; }
+      button { align-self: end; border: 0; background: #2563eb; color: #fff; font-weight: 700; cursor: pointer; }
+      button:disabled { cursor: wait; opacity: .65; }
+      .source-pill { display: flex; flex-wrap: wrap; align-items: center; gap: 0; min-height: 42px; margin: 0 0 12px; overflow: visible; border: 1px solid #345070; border-radius: 999px; background: rgba(7, 17, 31, .72); color: #8fa8c4; font-size: 11px; }
+      .source-pill { order: 0; }
+      .source-pill > span { padding: 0 12px; }
+      .source-label { display: inline-flex; align-items: center; gap: 6px; color: #7188a5; font-weight: 700; white-space: nowrap; }
+      .source-icon, .snapshot-icon { flex: 0 0 auto; }
+      .source-device { color: #a8bdd8; white-space: nowrap; }
+      .source-status { flex: 1 1 180px; min-width: 180px; overflow: hidden; color: #7188a5; text-overflow: ellipsis; white-space: nowrap; }
+      .source-pill[data-state="pending"] .source-status { color: #ffd76a; }
+      .source-pill[data-state="connected"] .source-status { color: #4ade80; }
+      .source-pill[data-state="error"] .source-status { color: #fca5a5; }
+      .source-pill button { width: auto; min-height: 40px; border-radius: 0; padding: 0 14px; }
+      .source-divider { width: 1px; align-self: stretch; padding: 0 !important; background: #345070; }
+      .source-pill .option-sync { min-height: 40px; margin-left: auto; border: 0; border-left: 1px solid #345070; border-radius: 0; padding: 0 12px; background: transparent; flex-shrink: 0; }
+      .option-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
+      .option-sync { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 10px; border: 1px solid #345070; border-radius: 999px; color: #7188a5; font-size: 11px; }
+      .option-sync-indicator { display: inline-grid; width: 16px; height: 16px; place-items: center; border-radius: 50%; font-size: 14px; font-weight: 700; }
+      .option-sync[data-state="pending"] { color: #ffd76a; }
+      .option-sync[data-state="pending"] .option-sync-indicator { animation: option-spin 1s linear infinite; }
+      .option-sync[data-state="sent"] { color: #4ade80; }
+      .option-sync[data-state="error"] { color: #ff9a9a; }
+      @keyframes option-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      .canvas-frame { position: relative; order: 5; }
+      canvas { display: block; width: 100%; height: clamp(220px, 56vw, 360px); border: 1px solid #243b5a; border-radius: 10px; }
+      .spectrum-placeholder { position: absolute; inset: 1px; z-index: 2; display: grid; place-items: center; padding: 16px; border-radius: 9px; background: radial-gradient(circle at top, rgba(255, 255, 255, .04), transparent 55%), linear-gradient(180deg, rgba(8, 11, 18, .86), rgba(3, 5, 10, .96)); pointer-events: none; }
+      .spectrum-placeholder[hidden] { display: none; }
+      .placeholder-card { width: min(100%, 420px); padding: 16px 18px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 14px; background: rgba(6, 9, 15, .9); box-shadow: 0 16px 42px rgba(0, 0, 0, .35); color: rgba(244, 247, 252, .94); text-align: center; backdrop-filter: blur(10px); }
+      .placeholder-kicker { margin-bottom: 8px; color: #ffd76a; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; }
+      .spectrum-placeholder[data-kind="error"] .placeholder-kicker { color: #ff9a9a; }
+      .placeholder-title { color: #f3f7ff; font-size: 16px; font-weight: 700; line-height: 1.35; }
+      .spectrum-placeholder[data-kind="error"] .placeholder-title { color: #ffd6d6; }
+      .placeholder-source { margin-top: 12px; color: rgba(219, 225, 235, .9); font-size: 13px; line-height: 1.5; }
+      .placeholder-body { margin-top: 8px; color: rgba(219, 225, 235, .82); font-size: 12px; line-height: 1.6; }
+      .snapshot-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+      .snapshot-controls { order: 3; }
+      .snapshot-controls { margin-bottom: 12px; }
+      .snapshot-pill { display: inline-flex; align-items: stretch; min-height: 42px; overflow: hidden; border: 1px solid #345070; border-radius: 999px; background: rgba(7, 17, 31, .72); color: #e5edf8; }
+      .snapshot-prefix { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 12px; color: #7188a5; font-size: 11px; font-weight: 700; white-space: nowrap; }
+      .source-label, .snapshot-prefix, .signal-options-title { color: #7188a5; font-family: inherit; letter-spacing: 1px; text-transform: uppercase; }
+      .snapshot-pill[data-state="unavailable"] .snapshot-prefix { color: #52647b; }
+      .snapshot-mode, .snapshot-stats-toggle { min-height: 40px; width: auto; border: 0; border-radius: 0; padding: 0 14px; background: transparent; color: #e5edf8; font-size: 11px; font-weight: 700; white-space: nowrap; }
+      .snapshot-mode:first-child { min-width: 150px; }
+      .snapshot-mode:hover, .snapshot-stats-toggle:hover { background: rgba(37, 99, 235, .22); }
+      .snapshot-mode:focus-visible, .snapshot-stats-toggle:focus-visible { outline: 2px solid #60a5fa; outline-offset: -3px; }
+      .snapshot-mode:disabled, .snapshot-stats-toggle:disabled { cursor: wait; color: #7188a5; }
+      .snapshot-divider { width: 1px; align-self: stretch; background: #345070; }
+      .snapshot-stats-toggle { color: #7188a5; }
+      .snapshot-stats-toggle[aria-pressed="true"] { color: #4ade80; }
+      .snapshot-status { display: none; }
+      .snapshot-status { order: 4; }
+      .snapshot-status:empty { display: none; }
+      .snapshot-status[data-error="true"] { color: #fca5a5; }
+      .snapshot-controls, .iq-capture-controls { min-width: 0; }
+      .iq-capture-status:empty { display: none; }
+      .capture-control-row { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 20px; row-gap: 24px; order: 3; min-width: 0; margin-bottom: 14px; }
+      .capture-control-row { margin-top: 20px; margin-bottom: 14px; }
+      .capture-control-row > .snapshot-controls,
+      .capture-control-row > .iq-capture-controls { order: 0; margin-top: 0; margin-bottom: 0; }
+      .capture-control-row > .snapshot-status { order: 2; flex: 1 0 100%; margin: 0; }
+      .iq-capture-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; order: 5; margin: 0 0 14px; }
+      @media (min-width: 681px) {
+        .capture-control-row { flex-wrap: nowrap; }
+        .capture-control-row > .snapshot-controls, .capture-control-row > .iq-capture-controls { flex: 1 1 0; min-width: 0; }
+        .snapshot-pill, .iq-capture-pill { width: 100%; min-width: 0; }
+        .snapshot-prefix, .iq-capture-prefix { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .snapshot-mode, .snapshot-stats-toggle { min-width: 0; padding: 0 8px; }
+        .snapshot-mode:first-child { min-width: 0; }
+        .iq-capture-format { flex: 1 1 auto; min-width: 0; }
+        .iq-capture-format select { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+        .iq-capture-controls button { min-width: 0; }
+      }
+      .iq-capture-pill { display: inline-flex; align-items: stretch; min-height: 42px; overflow: hidden; border: 1px solid #345070; border-radius: 999px; background: rgba(7, 17, 31, .72); color: #e5edf8; }
+      .iq-capture-prefix { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 12px; color: #7188a5; font-size: 11px; font-weight: 700; white-space: nowrap; }
+      .iq-capture-prefix > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .iq-capture-icon { flex: 0 0 auto; }
+      .iq-capture-format { display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; }
+      .iq-capture-format select { width: auto; min-height: 34px; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: #e5edf8; font-size: 11px; }
+      .iq-capture-passphrase-divider { display: none; }
+      .iq-capture-pill[data-format=".napt"] .iq-capture-passphrase-divider { display: block; }
+      .iq-capture-passphrase { display: none; align-items: center; min-height: 40px; padding: 0 8px; }
+      .iq-capture-pill[data-format=".napt"] .iq-capture-passphrase { display: inline-flex; }
+      .iq-capture-passphrase input { width: 132px; min-height: 34px; padding: 5px 8px; border: 1px solid #345070; border-radius: 6px; font-size: 11px; }
+      .iq-capture-controls button { width: auto; min-width: 150px; min-height: 40px; border-radius: 0; padding: 0 14px; }
+      .iq-capture-controls button:disabled { color: #52647b; background: transparent; opacity: 1; }
+      .iq-capture-pill[data-state="unavailable"] { color: #52647b; }
+      .iq-capture-pill[data-state="unavailable"] .iq-capture-prefix,
+      .iq-capture-pill[data-state="unavailable"] .iq-capture-format,
+      .iq-capture-pill[data-state="unavailable"] .iq-capture-format select { color: #52647b; }
+      .iq-capture-status { display: none; }
+      .iq-capture-status[data-error="true"] { color: #fca5a5; }
+      .iq-capture-status[data-success="true"] { color: #4ade80; }
+      .iq-capture-controls select:disabled { cursor: wait; opacity: .65; }
+      .signal-options-title { display: flex; align-items: center; gap: 8px; order: 1; margin-top: 1rem; margin-bottom: 0; color: #7188a5; font-size: 11px; font-weight: 600; letter-spacing: 1px; line-height: 1.2; text-transform: uppercase; }
+      .signal-options-icon { flex: 0 0 auto; color: #7188a5; }
+      .napt-channel-nav { display: flex; align-items: center; gap: 10px; order: 2; min-width: 0; margin-bottom: 16px; }
+      .napt-channel-title { flex: 0 0 auto; color: #7188a5; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+      .napt-channel-buttons { display: flex; flex: 1 1 auto; min-width: 0; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+      .napt-channel-button { flex: 0 0 auto; width: auto; min-height: 36px; padding: 0 10px; border: 1px solid #345070; border-radius: 999px; background: rgba(7, 17, 31, .72); color: #7188a5; font-size: 10px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+      .napt-channel-button:hover, .napt-channel-button:focus-visible { border-color: #60a5fa; color: #e5edf8; }
+      .napt-channel-button[data-active="true"] { border-color: #60a5fa; background: rgba(37, 99, 235, .22); color: #e5edf8; }
+      @media (max-width: 680px) {
+        main { --mobile-card-padding: 14px; height: 100svh; min-height: 100svh; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); padding-left: 0; padding-right: 0; }
+        .card { height: 100%; min-height: 0; display: flex; flex-direction: column; padding: var(--mobile-card-padding); border: 0; border-radius: 0; background: transparent; }
+        .eyebrow, h1, .card > p:first-of-type { display: none; }
+        p { margin: 12px 0; }
+        .controls { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 18px 0 12px; }
+        .controls > label:not(.compact-control) { grid-column: span 3; }
+        .controls > .compact-control { grid-column: span 2; width: 100%; }
+        .source-pill { gap: 4px; padding: 5px; border-radius: 16px; }
+        .source-pill > span { padding: 6px 8px; }
+        .source-divider { display: none; }
+        .source-status { order: 3; flex: 1 0 100%; min-width: 0; padding: 6px 8px !important; }
+        .source-pill button { flex: 1 1 calc(50% - 4px); min-height: 44px; border-radius: 10px; padding: 0 10px; }
+        .source-pill .option-sync { order: 4; flex: 1 0 100%; min-height: 36px; margin: 0; border: 0; border-top: 1px solid #345070; border-radius: 0; padding: 6px 8px; justify-content: center; }
+        .snapshot-controls { width: 100%; min-width: 0; flex: 0 0 auto; margin-top: 10px; }
+        .snapshot-pill { min-width: 0; flex: 1 1 100%; }
+        .snapshot-mode, .snapshot-stats-toggle { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .snapshot-pill { width: 100%; max-width: 100%; display: grid; grid-template-columns: minmax(0, 1.7fr) 1px minmax(0, 1fr) 1px minmax(0, .8fr) 1px minmax(0, 1fr) 1px minmax(0, 1.25fr); border-radius: 16px; overflow: hidden; }
+        .snapshot-prefix { min-width: 0; padding: 0 8px; font-size: 9px; line-height: 1.2; white-space: normal; text-align: center; }
+        .snapshot-mode, .snapshot-stats-toggle { width: 100%; min-width: 0; padding: 0 6px; font-size: 10px; line-height: 1.2; white-space: normal; }
+        .snapshot-mode:first-child { min-width: 0; }
+        .snapshot-divider { width: 1px; }
+        .canvas-frame { flex: 1 1 0; min-height: 0; }
+        .canvas-frame { margin-left: calc(-1 * var(--mobile-card-padding)); margin-right: calc(-1 * var(--mobile-card-padding)); }
+        canvas { height: 100%; min-height: 0; border-left: 0; border-right: 0; border-radius: 0; }
+      }
+      .mobile-landscape-toggle { display: none; }
+      @media (orientation: landscape) and (max-width: 960px) {
+        main { height: 100vh; min-height: 100vh; padding: 0; }
+        .card { position: relative; width: 100%; height: 100%; min-height: 0; padding: 14px; border: 0; border-radius: 0; background: transparent; }
+        .eyebrow, h1, .card > p:first-of-type { display: none; }
+        .canvas-frame { flex: 1 1 0; min-height: 0; margin-left: -14px; margin-right: -14px; }
+        canvas { height: 100%; min-height: 0; border-left: 0; border-right: 0; border-radius: 0; }
+        .mobile-landscape-panel { display: none; }
+        .card[data-landscape-controls="open"]::after { content: ""; position: absolute; inset: 0; z-index: 9; background: rgba(0, 0, 0, .5); backdrop-filter: blur(2px); pointer-events: none; }
+        .mobile-landscape-panel { position: absolute; top: var(--landscape-panel-center-y, 50%); left: var(--landscape-panel-center-x, 50%); right: auto; width: min(92%, 720px); max-height: calc(100% - 16px); transform: translate(-50%, calc(-50% + 12px)); z-index: 10; flex-direction: column; gap: 8px; overflow: auto; padding: 10px; border: 1px solid #345070; border-radius: 14px; background: rgba(12, 27, 46, .5); box-shadow: 0 12px 32px rgba(0, 0, .42); backdrop-filter: blur(2px); }
+        .card[data-landscape-controls="open"] .mobile-landscape-panel { display: flex; }
+        .mobile-landscape-panel .controls, .mobile-landscape-panel .snapshot-controls, .mobile-landscape-panel .snapshot-status { order: 0; margin: 0; }
+        .mobile-landscape-panel .signal-options-title { order: 0; margin: 0 0 8px; }
+        .mobile-landscape-panel .controls { order: 1; }
+        .mobile-landscape-panel .iq-capture-controls { order: 0; margin: 0; }
+        .mobile-landscape-panel .napt-channel-nav { order: 2; margin: 0 0 8px; }
+        .mobile-landscape-panel .capture-control-row { order: 3; }
+        .source-pill { position: relative; z-index: 12; }
+        .mobile-landscape-toggle { position: absolute; top: 8px; right: 8px; z-index: 13; display: block; width: auto; min-height: 40px; padding: 0 12px; border-radius: 999px; font-size: 10px; }
+      }
+      @media (max-width: 380px) {
+        main { padding-left: 8px; padding-right: 8px; }
+        .card { padding: 10px; }
+        .source-pill button { font-size: 10px; }
+      }
+      @media (max-width: 420px) {
+        main { --mobile-card-padding: 10px; height: 100svh; min-height: 100svh; padding: 6px 0; }
+        .card { padding: 10px; }
+        .controls { gap: 6px 8px; margin: 10px 0 8px; }
+        label { gap: 4px; font-size: 10px; }
+        .frequency-field select { padding: 0 8px; }
+        .source-pill { margin-bottom: 8px; }
+        .snapshot-status { display: none; }
+        .iq-capture-controls { width: 100%; min-width: 0; margin: 0 0 10px; }
+        .capture-control-row { width: 100%; flex-direction: column; column-gap: 12px; row-gap: 0; margin-bottom: 10px; }
+        .capture-control-row > .snapshot-controls,
+        .capture-control-row > .iq-capture-controls { width: 100%; margin: 0; }
+        .capture-control-row > .iq-capture-controls { margin-top: 24px; }
+        .iq-capture-pill { width: 100%; min-width: 0; border-radius: 16px; }
+        .iq-capture-prefix { flex: 0 1 118px; max-width: 118px; min-width: 0; padding: 0 8px; font-size: 9px; }
+        .iq-capture-format { flex: 1 1 auto; min-width: 0; }
+        .iq-capture-format select { min-width: 0; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+        .iq-capture-controls button { flex: 1 1 150px; min-width: 0; font-size: 11px; }
+        .napt-channel-nav { gap: 8px; margin-bottom: 10px; }
+        .napt-channel-title { font-size: 10px; }
+        .napt-channel-buttons { gap: 5px; }
+        .napt-channel-button { min-height: 34px; padding: 0 8px; font-size: 9px; }
+      }
+      @media (orientation: portrait) and (max-width: 680px) {
+        main { padding-top: max(4px, env(safe-area-inset-top)); }
+        .card { padding-top: 6px; }
+        .mobile-landscape-panel > * { order: 2; }
+        .source-pill { order: 0; } .canvas-frame { order: 1; flex: 1 1 0; min-height: 0; }
+      }
+      @supports (height: 100dvh) {
+        @media (max-width: 680px) {
+          main { height: 100dvh; min-height: 100dvh; }
+        }
+      }
+      .meta { color: #7188a5; font-size: 11px; }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    </style>
+  </head>
+  <body>
+        <main>
+      <section class="card">
+        <div class="eyebrow">N-APT / VANILLA / WEBUSB</div>
+        <h1>Connect → process → draw</h1>
+            <p>This page has no N-APT app shell. It requests an RTL-SDR, configures the RTL2832U sample path, processes IQ locally, and paints the newest spectrum frame with requestAnimationFrame.</p>
+                <div class="mobile-landscape-panel">
+            <div class="signal-options-title" aria-label="Signal Display and Source Options">
+              <svg aria-hidden="true" class="signal-options-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 8h4"></path>
+                <path d="M12 21v-9"></path>
+                <path d="M12 8V3"></path>
+                <path d="M17 16h4"></path>
+                <path d="M19 12V3"></path>
+                <path d="M19 21v-5"></path>
+                <path d="M3 14h4"></path>
+                <path d="M5 10V3"></path>
+                <path d="M5 21v-7"></path>
+              </svg>
+              <span>Signal Display and Source Options</span>
+            </div>
+            <div class="controls">
+          <label>Center frequency<span class="frequency-field"><input id="center-frequency" type="text" inputmode="decimal" /><select id="center-frequency-unit" aria-label="Center frequency unit"><option>Hz</option><option>kHz</option><option selected>MHz</option><option>GHz</option></select></span></label>
+          <label>Sample rate (max 3.2 MHz)<span class="frequency-field"><input id="sample-rate" type="text" inputmode="decimal" data-max-hz="3200000" /><select id="sample-rate-unit" aria-label="Sample rate unit"><option>Hz</option><option>kHz</option><option selected>MHz</option><option>GHz</option></select></span></label>
+          <label class="compact-control compact-control-fft">FFT size<select id="fft-size" class="compact-field-fft">
+            <option value="2048">2,048</option>
+            <option value="4096">4,096</option>
+            <option value="8192">8,192</option>
+            <option value="16384">16,384</option>
+            <option value="32768" selected>32,768</option>
+            <option value="65536">65,536</option>
+            <option value="131072">131,072</option>
+            <option value="262144">262,144</option>
+            <option value="524288">524,288</option>
+          </select></label>
+          <label class="compact-control compact-control-gain">Gain<span class="gain-field"><input id="gain-db" class="compact-field-gain" type="number" min="0" max="49.6" step="0.1" /><span class="gain-unit" aria-hidden="true">dB</span></span></label>
+          <label class="compact-control compact-control-ppm">PPM<input id="ppm" class="compact-field-ppm" type="number" min="0" step="1" /></label>
+        </div>
+            <div class="napt-channel-nav" aria-label="See N-APT channels">
+              <span class="napt-channel-title">See N-APT</span>
+              <div id="napt-channel-buttons" class="napt-channel-buttons"></div>
+            </div>
+        <div class="capture-control-row">
+        <div class="snapshot-controls" aria-label="Snapshot controls">
+                <div class="snapshot-pill" data-state="unavailable" aria-label="Fast snapshot">
+                <span class="snapshot-prefix">
+                  <svg aria-hidden="true" class="snapshot-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+                    <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+                    <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+                    <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+                    <rect width="10" height="8" x="7" y="8" rx="1"></rect>
+                  </svg>
+                  <span>Take a snapshot</span>
+                </span>
+            <span class="snapshot-divider" aria-hidden="true"></span>
+            <button id="snapshot-image" class="snapshot-mode" aria-label="Save PNG snapshot" type="button" disabled>Image</button>
+            <span class="snapshot-divider" aria-hidden="true"></span>
+            <button id="snapshot-svg" class="snapshot-mode" aria-label="Save SVG snapshot" type="button" disabled>SVG</button>
+            <span class="snapshot-divider" aria-hidden="true"></span>
+            <button id="snapshot-video" class="snapshot-mode" aria-label="Record video snapshot" type="button" disabled>Video</button>
+            <span class="snapshot-divider" aria-hidden="true"></span>
+            <button id="snapshot-stats-toggle" class="snapshot-stats-toggle" type="button" aria-pressed="false">Stats: Off</button>
+          </div>
+        </div>
+        <p id="snapshot-status" class="snapshot-status" role="status" aria-live="polite"></p>
+        <div class="iq-capture-controls" aria-label="I/Q capture controls">
+          <div class="iq-capture-pill" data-state="unavailable">
+            <span class="iq-capture-prefix">
+              <svg aria-hidden="true" class="iq-capture-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path>
+                <path d="M14 2v5a1 1 0 0 0 1 1h5"></path>
+                <path d="M8 15h.01"></path>
+                <path d="M11.5 13.5a2.5 2.5 0 0 1 0 3"></path>
+                <path d="M15 12a5 5 0 0 1 0 6"></path>
+              </svg>
+              <span>I/Q capture</span>
+            </span>
+            <span class="snapshot-divider" aria-hidden="true"></span>
+            <label class="iq-capture-format"><span class="sr-only">Capture format</span><select id="iq-capture-format">
+              <option value=".iq" selected>.iq</option>
+              <option value=".napt">.napt (encrypted)</option>
+            </select></label>
+            <span class="snapshot-divider iq-capture-passphrase-divider" aria-hidden="true"></span>
+            <label class="iq-capture-passphrase"><span class="sr-only">.napt passphrase</span><input id="iq-capture-passphrase" type="password" autocomplete="off" placeholder="Passphrase" /></label>
+            <span class="snapshot-divider iq-capture-passphrase-divider" aria-hidden="true"></span>
+            <button id="iq-capture-toggle" type="button" disabled>Record</button>
+          </div>
+          <span id="iq-capture-status" class="iq-capture-status" role="status" aria-live="polite"></span>
+        </div>
+        </div>
+        </div>
+        <div id="source-pill" class="source-pill" data-state="idle" aria-label="RTL-SDR source">
+          <span id="source-label" class="source-label">
+            <svg aria-hidden="true" class="source-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m19 5 3-3"></path>
+              <path d="m2 22 3-3"></path>
+              <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"></path>
+              <path d="M7.5 13.5 10 11"></path>
+              <path d="M10.5 16.5 13 14"></path>
+              <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"></path>
+            </svg>
+            <span>Source</span>
+          </span>
+          <span class="source-divider" aria-hidden="true"></span>
+          <span id="device" class="source-device">No device</span>
+          <span class="source-divider" aria-hidden="true"></span>
+          <span id="status" class="source-status" role="status" aria-live="polite" title="Ready. Use a Chromium browser over HTTPS or localhost, then connect an RTL-SDR.">Ready. Use a Chromium browser over HTTPS or localhost, then connect an RTL-SDR.</span>
+          <button id="connect" type="button">Connect and stream</button>
+          <button id="stream-toggle" type="button" disabled>Pause</button>
+          <button id="disconnect-source" type="button" hidden disabled>Disconnect</button>
+          <div id="option-sync" class="option-sync" data-state="idle" role="status" aria-live="polite"><span id="option-sync-indicator" class="option-sync-indicator">—</span><span id="option-sync-label">Not connected</span></div>
+        </div>
+          <div class="canvas-frame">
+          <canvas id="spectrum" width="1024" height="360" aria-label="Live RTL-SDR spectrum"></canvas>
+          <div id="spectrum-placeholder" class="spectrum-placeholder" data-kind="disconnected" role="status" aria-live="polite">
+            <div class="placeholder-card">
+              <div id="placeholder-kicker" class="placeholder-kicker">Standby</div>
+              <div id="placeholder-title" class="placeholder-title">Waiting for RTL-SDR</div>
+              <div id="placeholder-source" class="placeholder-source">from WebUSB</div>
+              <div id="placeholder-body" class="placeholder-body">Connect an RTL-SDR to start the live FFT.</div>
+            </div>
+          </div>
+          <button id="mobile-landscape-controls-toggle" class="mobile-landscape-toggle" type="button" aria-expanded="false" hidden>Options</button>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="../webusb/vanillaProbe.ts"></script>
+  </body>
+</html>

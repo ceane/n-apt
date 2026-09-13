@@ -101,7 +101,7 @@ describe("Markdown Preview Assets", () => {
 
   describe("Component Files", () => {
     test("should have all required component files", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
 
       // Check if the directory exists
       expect(fs.existsSync(componentsDir)).toBe(true);
@@ -134,7 +134,7 @@ describe("Markdown Preview Assets", () => {
     });
 
     test("should have valid TypeScript/TSX files", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
       const tsxFiles = fs
         .readdirSync(componentsDir)
         .filter(
@@ -161,7 +161,7 @@ describe("Markdown Preview Assets", () => {
 
   describe("Remark Plugin Structure", () => {
     test("should have properly structured remark plugins", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
       const remarkPlugins = [
         "remarkBodyAttenuationBlocks.ts",
         "remarkTimeOfFlightBlocks.ts",
@@ -183,7 +183,7 @@ describe("Markdown Preview Assets", () => {
     });
 
     test("should have correct canvas language identifiers", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
 
       // Check body attenuation plugin
       const bodyAttenuationContent = fs.readFileSync(
@@ -213,7 +213,7 @@ describe("Markdown Preview Assets", () => {
     });
 
     test("should have proper LaTeX handling", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
       const latexContent = fs.readFileSync(
         resolveCanvasSourcePath(componentsDir, "remarkLatexCodeBlocks.ts"),
         "utf8",
@@ -235,7 +235,7 @@ describe("Markdown Preview Assets", () => {
     });
 
     test("should have proper icon shortcode handling", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
       const iconContent = fs.readFileSync(
         resolveCanvasSourcePath(componentsDir, "remarkIconShortcodes.ts"),
         "utf8",
@@ -250,7 +250,7 @@ describe("Markdown Preview Assets", () => {
 
   describe("Canvas Component Structure", () => {
     test("should have properly structured canvas components", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
       const canvasComponents = [
         "BodyAttenuationCanvas.tsx",
         "BodyAttenuationWebGPUCanvas.tsx",
@@ -277,7 +277,7 @@ describe("Markdown Preview Assets", () => {
     });
 
     test("should have proper asset references", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
 
       // Check body attenuation canvas for character image reference
       const bodyAttenuationContent = fs.readFileSync(
@@ -301,7 +301,7 @@ describe("Markdown Preview Assets", () => {
 
   describe("Integration Points", () => {
     test("should have proper App component integration", () => {
-      const componentsDir = path.join(__dirname, "../../src/md-preview");
+      const componentsDir = path.join(__dirname, "../../src/app-article");
       const appContent = fs.readFileSync(
         path.join(componentsDir, "App.tsx"),
         "utf8",

@@ -2,7 +2,7 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import { TestWrapper } from "./testUtils";
-import { TransmitPrompt } from "../../src/ts/components/prompts/TransmitPrompt";
+import { TransmitPrompt } from "@n-apt/transmit/prompts/TransmitPrompt";
 
 describe("TransmitPrompt", () => {
   it("renders the transmit warning copy and seal assets", () => {

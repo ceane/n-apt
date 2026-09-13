@@ -1,4 +1,4 @@
-import { stitchWholeChannelWaveform } from "@n-apt/utils/antiAliasing";
+import { stitchWholeChannelWaveform } from "@n-apt/math/antiAliasing";
 
 describe("stitchWholeChannelWaveform", () => {
   it("normalizes adjacent segment floors before stitching", async () => {

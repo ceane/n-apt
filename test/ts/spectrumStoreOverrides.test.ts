@@ -1,5 +1,5 @@
-import { applyWaterfallStateOverrides } from "@n-apt/hooks/spectrumStoreOverrides";
-import { INITIAL_SPECTRUM_STATE } from "@n-apt/hooks/useSpectrumStore";
+import { applyWaterfallStateOverrides } from "@n-apt/spectrum/hooks/spectrumStoreOverrides";
+import { INITIAL_SPECTRUM_STATE } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import type { WaterfallState } from "@n-apt/redux/slices/waterfallSlice";
 
 describe("applyWaterfallStateOverrides", () => {

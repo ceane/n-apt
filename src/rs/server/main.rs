@@ -33,6 +33,7 @@ use webauthn_rs::prelude::*;
 
 use crate::authentication::CredentialStore;
 use crate::consts::env::{ws_host, ws_port};
+use crate::infrastructure::redis::{probe as probe_redis, RedisReadiness};
 use crate::session::SessionStore;
 
 // Import sibling modules
@@ -54,14 +55,18 @@ use super::websocket_server;
 pub struct AppState {
   pub shared: Arc<shared_state::SharedState>,
   pub credential_store: CredentialStore,
-  pub pending_passkey_registrations:
-    std::sync::Mutex<HashMap<String, PasskeyRegistration>>,
-  pub pending_passkey_authentications:
-    std::sync::Mutex<HashMap<String, PasskeyAuthentication>>,
+  pub pending_passkey_registrations: std::sync::Mutex<
+    HashMap<String, (std::time::Instant, PasskeyRegistration)>,
+  >,
+  pub pending_passkey_authentications: std::sync::Mutex<
+    HashMap<String, (std::time::Instant, PasskeyAuthentication)>,
+  >,
   pub session_store: SessionStore,
   pub webauthn: Webauthn,
   pub broadcast_tx: broadcast::Sender<String>,
   pub spectrum_tx: broadcast::Sender<Arc<types::SpectrumData>>,
+  pub stream_manager: super::stream_manager::StreamingSourceModeManager,
+  pub source_runtime_manager: super::source_runtime::SourceRuntimeManager,
   pub cmd_tx: std::sync::mpsc::Sender<types::SdrCommand>,
   pub sdr_processor:
     Arc<tokio::sync::Mutex<crate::sdr::processor::SdrProcessor>>,
@@ -127,6 +132,43 @@ fn init_logging() {
 
 fn shutdown_signal_received_message(signal_name: &str) -> String {
   format!("Shutdown signal received ({signal_name}), signaling I/O thread...")
+}
+
+fn spawn_redis_health_monitor(
+  shared: Arc<shared_state::SharedState>,
+  redis_url: String,
+) -> tokio::task::JoinHandle<()> {
+  tokio::spawn(async move {
+    let client = match redis::Client::open(redis_url.as_str()) {
+      Ok(client) => client,
+      Err(error) => {
+        log::error!("Redis health monitor disabled: {error}");
+        shared.set_redis_readiness(RedisReadiness::Unavailable);
+        return;
+      }
+    };
+
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    loop {
+      interval.tick().await;
+      if shared.shutdown.load(Ordering::Relaxed) {
+        break;
+      }
+
+      let next_state = match probe_redis(&client).await {
+        Ok(()) => RedisReadiness::Ready,
+        Err(error) => {
+          log::warn!("Redis health check failed: {error}");
+          RedisReadiness::Unavailable
+        }
+      };
+
+      if shared.redis_readiness() != next_state {
+        log::info!("Redis readiness changed to {}", next_state.as_str());
+        shared.set_redis_readiness(next_state);
+      }
+    }
+  })
 }
 
 fn shutdown_signal_propagated_message(signal_name: &str) -> String {
@@ -264,12 +306,28 @@ impl websocket_server::WebSocketServer {
         post(http_endpoints::stitch_diagnostic_handler),
       )
       .route(
+        "/api/debug/pipeline-performance",
+        get(http_endpoints::pipeline_performance_handler),
+      )
+      .route(
+        "/api/debug/stream-performance",
+        get(http_endpoints::stream_performance_handler),
+      )
+      .route(
         "/api/capture/download",
         get(http_endpoints::capture_download_handler),
       )
       .route(
         "/api/cli/snapshot-frame",
         get(http_endpoints::cli_snapshot_frame_handler),
+      )
+      .route(
+        "/api/debug/mock-tx-power-frame",
+        get(http_endpoints::mock_tx_power_frame_handler),
+      )
+      .route(
+        "/api/debug/hardware-simulation",
+        post(http_endpoints::hardware_simulation_handler),
       )
       .route(
         "/api/towers/bounds",
@@ -291,6 +349,10 @@ impl websocket_server::WebSocketServer {
     // Standard routes that benefit from compression (JSON, text, etc.)
     let compressible_routes = Router::new()
       // Authentication endpoints
+      // SECURITY (known flaw, accepted for local deployments): these /auth/*
+      // routes are unauthenticated and have no rate limiting. N-APT targets
+      // localhost / trusted LANs; add throttling before ever exposing this
+      // server publicly.
       .route(
         "/auth/info",
         get(crate::authentication::auth_handlers::auth_info_handler),
@@ -340,6 +402,7 @@ impl websocket_server::WebSocketServer {
         post(crate::authentication::auth_handlers::passkey_auth_finish_handler),
       )
       .route("/status", get(http_endpoints::status_handler))
+      .route("/api/readiness", get(crate::app::readiness::handler))
       // Agent endpoints
       .route("/api/agent/info", get(http_endpoints::agent_info_handler))
       .route(
@@ -351,6 +414,14 @@ impl websocket_server::WebSocketServer {
       .route(
         "/ws/source/{stream_key}/iq",
         get(websocket_handlers::source_iq_ws_upgrade_handler),
+      )
+      .route(
+        "/ws/streams",
+        get(websocket_handlers::stream_ws_upgrade_handler),
+      )
+      .route(
+        "/ws/streams/{stream_id}",
+        get(websocket_handlers::stream_identity_ws_upgrade_handler),
       )
       .route("/ws", get(websocket_handlers::ws_upgrade_handler))
       .layer(tower_http::compression::CompressionLayer::new());
@@ -371,13 +442,13 @@ impl websocket_server::WebSocketServer {
     let shared = websocket_server.get_shared_state();
     let broadcast_tx = websocket_server.get_broadcast_tx();
     let spectrum_tx = websocket_server.get_spectrum_tx();
-    let credential_store = CredentialStore::new().map_err(|e| {
-      anyhow::anyhow!("Failed to create credential store: {}", e)
-    })?;
+    // Credential path validation and directory creation are deferred until an
+    // authentication endpoint actually needs them, so they cannot delay the
+    // HTTP listener.
+    let credential_store = CredentialStore::deferred();
     let redis_url = std::env::var("REDIS_URL")
       .unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
-    let session_store = SessionStore::new(&redis_url)
-      .map_err(|e| anyhow::anyhow!("Failed to create session store: {}", e))?;
+    let session_store = SessionStore::new_or_degraded(&redis_url);
 
     // Initialize WebAuthn
     let app_url = std::env::var("APP_URL")
@@ -409,6 +480,8 @@ impl websocket_server::WebSocketServer {
       webauthn: webauthn_result,
       broadcast_tx,
       spectrum_tx,
+      stream_manager: websocket_server.get_stream_manager(),
+      source_runtime_manager: websocket_server.get_source_runtime_manager(),
       cmd_tx,
       sdr_processor: websocket_server.get_sdr_processor(),
     });
@@ -431,9 +504,25 @@ impl websocket_server::WebSocketServer {
       }
     };
 
+    let readiness_state = websocket_server.get_shared_state();
+    readiness_state.set_readiness(
+      readiness_state
+        .readiness_state()
+        .transition(crate::app::readiness::ReadinessEvent::HttpBound),
+    );
+
+    let _redis_health_task =
+      spawn_redis_health_monitor(readiness_state.clone(), redis_url);
+
     axum::serve(listener, app)
       .with_graceful_shutdown(shutdown_signal)
       .await?;
+
+    readiness_state.set_readiness(
+      readiness_state
+        .readiness_state()
+        .transition(crate::app::readiness::ReadinessEvent::Shutdown),
+    );
 
     Ok(())
   }

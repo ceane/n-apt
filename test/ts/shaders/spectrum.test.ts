@@ -1,4 +1,4 @@
-import { SPECTRUM_SHADER } from "../../../src/ts/consts/shaders/spectrum";
+import { SPECTRUM_SHADER } from "./shaderSources";
 
 describe("spectrum.wgsl", () => {
   it("stays non-empty", () => {

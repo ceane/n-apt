@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react";
-import { useAudioDemodFM } from "../../src/ts/hooks/useAudioDemodFM";
+import { useAudioDemodFM } from "@n-apt/demodulation/hooks/useAudioDemodFM";
 
 describe("useAudioDemodFM", () => {
   it("keeps silence silent instead of normalizing it into full-scale audio", () => {

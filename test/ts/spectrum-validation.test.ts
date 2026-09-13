@@ -5,7 +5,7 @@
 import {
   validateSpectrumData,
   validateSpectrumDataComprehensive,
-} from "../../src/ts/validation";
+} from "@n-apt/validation";
 
 describe("Spectrum Data Validation", () => {
   describe("Basic Validation", () => {

@@ -1,4 +1,4 @@
-import { buildSnapshotSettingsLabel } from "@n-apt/hooks/useSnapshotListener";
+import { buildSnapshotSettingsLabel } from "@n-apt/capture/hooks/useSnapshotListener";
 
 describe("buildSnapshotSettingsLabel", () => {
   it("uses the HackRF VGA gain and baseband filter bandwidth when present", () => {

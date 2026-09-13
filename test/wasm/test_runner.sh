@@ -46,7 +46,7 @@ run_node_tests() {
     echo "=========================="
     
     # Create backup if browser configuration is present
-    if grep -q "wasm_bindgen_test_configure" src/lib.rs; then
+    if grep -Eq '^[[:space:]]*wasm_bindgen_test::wasm_bindgen_test_configure!' src/lib.rs; then
         cp src/lib.rs src/lib.rs.bak
         # Temporarily remove browser configuration for Node.js testing
         if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -70,9 +70,13 @@ run_browser_tests() {
     echo ""
     echo "🌐 Running browser tests..."
     echo "=========================="
+
+    local added_browser_config=false
     
     # Ensure browser configuration is present
-    if ! grep -q "wasm_bindgen_test_configure" src/lib.rs; then
+    if ! grep -Eq '^[[:space:]]*wasm_bindgen_test::wasm_bindgen_test_configure!' src/lib.rs; then
+        cp src/lib.rs src/lib.rs.bak
+        added_browser_config=true
         # Add browser configuration after the module declaration
         if [[ "$OSTYPE" == "darwin"* ]]; then
             sed -i '' '/pub mod wasm_simd_processor_tests;/a\
@@ -87,20 +91,22 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);' src/lib.rs
     # Try Chrome first, fallback to Firefox if Chrome fails
     if wasm-pack test --headless --chrome; then
         echo "✅ Chrome browser tests passed!"
-        # Clean up backup file if it exists
-        rm -f src/lib.rs.bak
+        if [ "$added_browser_config" = true ] && [ -f src/lib.rs.bak ]; then
+            mv src/lib.rs.bak src/lib.rs
+        fi
         return 0
     else
         echo "Chrome tests failed, trying Firefox..."
         if wasm-pack test --headless --firefox; then
             echo "✅ Firefox browser tests passed!"
-            # Clean up backup file if it exists
-            rm -f src/lib.rs.bak
+            if [ "$added_browser_config" = true ] && [ -f src/lib.rs.bak ]; then
+                mv src/lib.rs.bak src/lib.rs
+            fi
             return 0
         else
             echo "⚠️  Browser tests failed"
             # Restore from backup if it exists
-            if [ -f src/lib.rs.bak ]; then
+            if [ "$added_browser_config" = true ] && [ -f src/lib.rs.bak ]; then
                 mv src/lib.rs.bak src/lib.rs
             fi
             return 1

@@ -4,27 +4,29 @@ import "@testing-library/jest-dom";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import { ThemeProvider } from "styled-components";
-import authSlice from "../../src/ts/redux/slices/authSlice";
-import spectrumSlice from "../../src/ts/redux/slices/spectrumSlice";
-import waterfallSlice from "../../src/ts/redux/slices/waterfallSlice";
-import themeSlice from "../../src/ts/redux/slices/themeSlice";
-import settingsSlice from "../../src/ts/redux/slices/settingsSlice";
-import websocketSlice from "../../src/ts/redux/slices/websocketSlice";
-import { incrementDataFrameCounter } from "../../src/ts/redux/slices/websocketSlice";
-import snapshotSlice from "../../src/ts/redux/slices/snapshotSlice";
-import demodSlice from "../../src/ts/redux/slices/demodSlice";
-import noteCardsSlice from "../../src/ts/redux/slices/noteCardsSlice";
-import notificationsSlice from "../../src/ts/redux/slices/notificationsSlice";
+import authSlice from "@n-apt/redux/slices/authSlice";
+import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import waterfallSlice from "@n-apt/redux/slices/waterfallSlice";
+import themeSlice from "@n-apt/redux/slices/themeSlice";
+import settingsSlice from "@n-apt/redux/slices/settingsSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
+import { incrementDataFrameCounter } from "@n-apt/redux/slices/websocketSlice";
+import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
+import demodSlice from "@n-apt/redux/slices/demodSlice";
+import noteCardsSlice from "@n-apt/redux/slices/noteCardsSlice";
+import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
+import sourceRoutingSlice from "@n-apt/redux/slices/sourceRoutingSlice";
 import {
-  setDeviceKind,
-  setTxCenterFrequencyHz,
   setTxSampleRateHz,
-} from "../../src/ts/redux/slices/spectrumSlice";
-import { requestNextLiveFrame } from "../../src/ts/redux/thunks/websocketThunks";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
-import { THEME_TOKENS } from "../../src/ts/consts";
-import { SpectrumProvider } from "../../src/ts/hooks/useSpectrumStore";
-import { SpectrumRoute } from "../../src/ts/routes/SpectrumRoute";
+} from "@n-apt/redux/slices/spectrumSlice";
+import {
+  requestNextLiveFrame,
+  requestNextPausedFrame,
+} from "@n-apt/redux/thunks/websocketThunks";
+import { buildAppTheme } from "@n-apt/ui/Theme";
+import { THEME_TOKENS } from "@n-apt/consts";
+import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import { SpectrumRoute } from "@n-apt/app/routes/pages/SpectrumRoute";
 
 const fftPlaybackCanvasMock = jest.fn((_props: any) => (
   <div data-testid="fft-playback-canvas" />
@@ -33,7 +35,7 @@ const fftAndWaterfallMock = jest.fn((_props: any) => (
   <div data-testid="fft-and-waterfall" />
 ));
 
-jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
+jest.mock("@n-apt/spectrum/FFTPlaybackCanvas", () => ({
   __esModule: true,
   default: React.forwardRef((props: any, ref: React.Ref<any>) => {
     fftPlaybackCanvasMock(props);
@@ -50,7 +52,7 @@ jest.mock("@n-apt/components/FFTPlaybackCanvas", () => ({
   }),
 }));
 
-jest.mock("@n-apt/components", () => ({
+jest.mock("@n-apt/spectrum", () => ({
   FFTAndWaterfall: React.forwardRef((props: any, ref: React.Ref<any>) => {
     fftAndWaterfallMock(props);
     React.useImperativeHandle(ref, () => ({
@@ -67,7 +69,7 @@ jest.mock("@n-apt/components", () => ({
   NoteCards: () => <div data-testid="note-cards" />,
 }));
 
-jest.mock("@n-apt/components/Layout", () => ({
+jest.mock("@n-apt/app/Layout", () => ({
   InitializingContainer: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="initializing-container">{children}</div>
   ),
@@ -79,11 +81,11 @@ jest.mock("@n-apt/components/Layout", () => ({
   ),
 }));
 
-jest.mock("@n-apt/hooks/useSnapshot", () => ({
+jest.mock("@n-apt/capture/hooks/useSnapshot", () => ({
   useSnapshot: () => ({
     handleSnapshot: jest.fn(),
     isRecording: false,
-    recordingSecondsRemaining: null,
+    recordingCountdown: null,
     supportedVideoFormat: null,
     startFastRecording: jest.fn(),
     stopFastRecording: jest.fn(),
@@ -91,33 +93,36 @@ jest.mock("@n-apt/hooks/useSnapshot", () => ({
   }),
 }));
 
-jest.mock("@n-apt/components/TxSliderOverlay", () => ({
+jest.mock("@n-apt/transmit/TxSliderOverlay", () => ({
   __esModule: true,
   default: () => <div data-testid="tx-slider-overlay" />,
 }));
 
-jest.mock("../../src/ts/redux/thunks/websocketThunks", () => {
+jest.mock("@n-apt/redux/thunks/websocketThunks", () => {
   const actual = jest.requireActual(
-    "../../src/ts/redux/thunks/websocketThunks",
+    "@n-apt/redux/thunks/websocketThunks",
   );
   return {
     ...actual,
     requestNextLiveFrame: jest.fn(() => ({
       type: "mock/requestNextLiveFrame",
     })),
+    requestNextPausedFrame: jest.fn(() => ({
+      type: "mock/requestNextPausedFrame",
+    })),
   };
 });
 
-jest.mock("@n-apt/hooks/useSnapshotListener", () => ({
+jest.mock("@n-apt/capture/hooks/useSnapshotListener", () => ({
   useSnapshotListener: jest.fn(),
   buildSnapshotSettingsLabel: jest.fn(() => "mock-settings-label"),
 }));
 
-jest.mock("@n-apt/hooks/useDeviceConnectionState", () => ({
+jest.mock("@n-apt/app/hooks/useDeviceConnectionState", () => ({
   useDeviceConnectionState: jest.fn(),
 }));
 
-jest.mock("@n-apt/hooks/useCaptureWholeChannelSegments", () => ({
+jest.mock("@n-apt/capture/hooks/useCaptureWholeChannelSegments", () => ({
   useCaptureWholeChannelSegments: () => jest.fn(),
 }));
 
@@ -142,8 +147,16 @@ const createStore = (preloadedState?: any) =>
       notifications: notificationsSlice,
       demod: demodSlice,
       snapshot: snapshotSlice,
+      sourceRouting: sourceRoutingSlice,
     } as any,
-    preloadedState,
+    preloadedState: {
+      ...preloadedState,
+      sourceRouting: {
+        ...sourceRoutingSlice(undefined, { type: "@@INIT" as any }),
+        bindings: { "tx-suite:tx": "mock-tx" },
+        ...preloadedState?.sourceRouting,
+      },
+    },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({ serializableCheck: false }),
   });
@@ -153,6 +166,7 @@ describe("SpectrumRoute file mode", () => {
     fftPlaybackCanvasMock.mockClear();
     fftAndWaterfallMock.mockClear();
     jest.mocked(requestNextLiveFrame).mockClear();
+    jest.mocked(requestNextPausedFrame).mockClear();
   });
 
   it("forwards zoom and temporal resolution state to file playback", async () => {
@@ -167,7 +181,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "high",
+        displayTemporalResolution: "lossless",
         frequencyRange: { min: 137_000_000, max: 138_000_000 },
         activeSignalArea: "A",
         vizZoom: 3.5,
@@ -180,8 +194,6 @@ describe("SpectrumRoute file mode", () => {
         autoZoomStability: false,
         fftFrameRate: 60,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 1,
       },
@@ -245,7 +257,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -254,9 +266,14 @@ describe("SpectrumRoute file mode", () => {
       sources: [],
     } as any;
 
-    const store = createStore();
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
+      },
+    });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -275,7 +292,7 @@ describe("SpectrumRoute file mode", () => {
         fftPlaybackCanvasMock.mock.calls.length - 1
       ]?.[0];
     expect(playbackProps).toMatchObject({
-      displayTemporalResolution: "high",
+        displayTemporalResolution: "lossless",
       fftMin: -120,
       fftMax: 0,
       vizZoom: 3.5,
@@ -301,7 +318,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 0, max: 4_372_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -313,9 +330,8 @@ describe("SpectrumRoute file mode", () => {
         fftWindow: "Rectangular",
         autoZoomStability: false,
         fftFrameRate: 60,
+        showTxSlider: false,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 0,
       },
@@ -340,7 +356,7 @@ describe("SpectrumRoute file mode", () => {
         backend: null,
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [],
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         sdrSettings: { sample_rate: 4_372_000 },
       },
       effectiveFrames: [{ waveform: new Float32Array([0, 1]) }],
@@ -379,7 +395,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -391,12 +407,13 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
         txCenterFrequencyHz: Number.NaN,
       },
     });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -414,30 +431,22 @@ describe("SpectrumRoute file mode", () => {
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
-    expect(visualizerProps.txSlider).toMatchObject({
-      visible: true,
-      signalLabel: "Mock WiFi",
-      visibleMinHz: 0,
-      visibleMaxHz: 4_372_000,
-      txCenterHz: 2_186_000,
-      txSampleRateHz: 2_400_000,
-    });
+    expect(visualizerProps.txSlider).toBeUndefined();
     expect(visualizerProps.limitMarkers).toEqual([]);
     expect(visualizerProps.deviceProfile).toMatchObject({ kind: "mock_tx" });
     expect(visualizerProps.isDeviceConnected).toBe(true);
     expect(visualizerProps.dataRef.current?.iq_data).toBeUndefined();
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
+      kind: "loading",
       sourceLabel: "Mock Tx SDR",
-      message: "Start Tx to view backend-generated monitor I/Q.",
+      message: "Waiting for the first frame to arrive.",
     });
-    expect(mockValue.wsConnection.sendTransmitMode).not.toHaveBeenCalled();
+    expect(mockValue.wsConnection.sendTransmitStatus).not.toHaveBeenCalled();
   });
 
-  it("rejects the stale mock apt frame while retaining its painted GPU presentation", async () => {
-    const requestNextLiveFrameMock = jest.mocked(requestNextLiveFrame);
-    requestNextLiveFrameMock.mockClear();
+  it("clears the stale mock apt frame at the Mock Tx selection boundary", async () => {
+    const requestNextPausedFrameMock = jest.mocked(requestNextPausedFrame);
+    requestNextPausedFrameMock.mockClear();
 
     const liveFrame = {
       type: "spectrum",
@@ -459,7 +468,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 137_000_000, max: 138_000_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -472,8 +481,6 @@ describe("SpectrumRoute file mode", () => {
         autoZoomStability: false,
         fftFrameRate: 60,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 0,
       },
@@ -488,7 +495,7 @@ describe("SpectrumRoute file mode", () => {
         name: "Mock APT SDR",
         kind: "mock_apt",
         capability: "mock",
-        status: "connected",
+        status: "standby",
       } as any,
       selectedSourceDerived: {
         deviceState: "connected",
@@ -497,7 +504,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: "Mock APT SDR",
         backend: "mock_apt",
@@ -542,7 +549,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -625,7 +632,9 @@ describe("SpectrumRoute file mode", () => {
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
     expect(handoffProps.dataRef).toBe(dataRef);
-    expect(dataRef.current).toBe(liveFrame);
+    // Source selection is an ownership boundary; the previous source frame is
+    // cleared until the target source provides its first frame.
+    expect(dataRef.current).toBeNull();
     expect(handoffProps.expectedSourceId).toBe("mock-tx");
     expect(handoffProps.loadingPlaceholderDelayMs).toBe(1_000);
 
@@ -673,22 +682,21 @@ describe("SpectrumRoute file mode", () => {
     );
 
     await waitFor(() => {
-      expect(requestNextLiveFrameMock).toHaveBeenCalled();
+      expect(requestNextPausedFrameMock).toHaveBeenCalled();
     });
+    // The source boundary clears the previous frame until the preview lands.
     expect(dataRef.current).toBeNull();
     const visualizerProps =
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
+    // Without a Mock Tx preview yet, lifecycle owns Loading (not black).
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
-      sourceLabel: "Mock Tx SDR",
-      message: "Start Tx to view backend-generated monitor I/Q.",
+      kind: "loading",
     });
     expect(dispatchSpy.mock.calls.flat()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "mock/requestNextLiveFrame" }),
+        expect.objectContaining({ type: "mock/requestNextPausedFrame" }),
       ]),
     );
   });
@@ -705,7 +713,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 137_000_000, max: 138_000_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -718,8 +726,6 @@ describe("SpectrumRoute file mode", () => {
         autoZoomStability: false,
         fftFrameRate: 30,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 0,
       },
@@ -743,7 +749,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "hackrf_one",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: "HackRF One",
         backend: "hackrf_one",
@@ -788,7 +794,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -799,7 +805,7 @@ describe("SpectrumRoute file mode", () => {
 
     const store = createStore();
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -837,7 +843,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dBm",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 135_500_000, max: 138_700_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -849,9 +855,8 @@ describe("SpectrumRoute file mode", () => {
         fftWindow: "Rectangular",
         autoZoomStability: false,
         fftFrameRate: 60,
+        showTxSlider: true,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 0,
       },
@@ -875,7 +880,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: null,
         backend: "mock_tx",
@@ -903,7 +908,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [3_200_000],
@@ -925,7 +930,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -934,7 +939,7 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_tx",
         is_rtl_sdr: false,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       },
       sources: [],
     } as any;
@@ -942,6 +947,7 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
       },
       websocket: {
@@ -950,7 +956,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -970,10 +976,10 @@ describe("SpectrumRoute file mode", () => {
       ]?.[0];
     expect(visualizerProps.isStandby).toBe(true);
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
+      kind: "loading",
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenCalledWith({
+      sourceId: "mock-tx",
       txSettings: expect.objectContaining({
         centerFrequencyHz: 137_100_000,
         bandwidthHz: 2_400_000,
@@ -1002,7 +1008,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 0, max: 3_200_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -1015,8 +1021,6 @@ describe("SpectrumRoute file mode", () => {
         autoZoomStability: false,
         fftFrameRate: 60,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 0,
       },
@@ -1040,7 +1044,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: null,
         backend: "mock_tx",
@@ -1068,7 +1072,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [3_200_000],
@@ -1090,7 +1094,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -1099,7 +1103,7 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_tx",
         is_rtl_sdr: false,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       },
       sources: [],
     } as any;
@@ -1107,6 +1111,7 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
         txCenterFrequencyHz: 137_100_000,
         txSampleRateHz: 2_400_000,
@@ -1117,7 +1122,7 @@ describe("SpectrumRoute file mode", () => {
       },
     });
 
-    const { rerender } = render(
+    const { rerender: _rerender } = render(
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <SpectrumProvider mockValue={mockValue}>
@@ -1144,6 +1149,7 @@ describe("SpectrumRoute file mode", () => {
     expect(visualizerProps.dataRef.current).toBe(liveMockTxFrame);
     expect(visualizerProps.txSlider).toMatchObject({
       visible: true,
+      isTransmitting: true,
       visibleMinHz: 135_500_000,
       visibleMaxHz: 138_700_000,
       txCenterHz: 137_100_000,
@@ -1177,7 +1183,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 18_000, max: 4_390_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -1189,9 +1195,8 @@ describe("SpectrumRoute file mode", () => {
         fftWindow: "Rectangular",
         autoZoomStability: false,
         fftFrameRate: 60,
+        showTxSlider: true,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 0,
       },
@@ -1206,7 +1211,7 @@ describe("SpectrumRoute file mode", () => {
         name: "Mock Tx SDR",
         kind: "mock_tx",
         capability: "tx",
-        status: "connected",
+        status: "standby",
       } as any,
       selectedSourceDerived: {
         deviceState: "connected",
@@ -1215,7 +1220,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         deviceInfo: null,
         backend: "mock_tx",
@@ -1243,7 +1248,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_tx",
           is_rtl_sdr: false,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         maxSampleRateHz: 20_000_000,
         sampleRateOptions: [4_372_000],
@@ -1265,7 +1270,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -1274,7 +1279,7 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_tx",
         is_rtl_sdr: false,
         supports_approx_dbm: true,
-        supports_raw_iq_stream: true,
+        iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
       },
       sources: [],
     } as any;
@@ -1282,13 +1287,14 @@ describe("SpectrumRoute file mode", () => {
     const store = createStore({
       spectrum: {
         ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
         deviceKind: "mock_tx",
         txCenterFrequencyHz: 137_100_000,
         txSampleRateHz: 2_400_000,
       },
       websocket: {
         ...websocketSlice(undefined, { type: "@@INIT" as any }),
-        sourceStatuses: { "mock-tx": "connected" },
+        sourceStatuses: { "mock-tx": "standby" },
       },
     });
 
@@ -1311,30 +1317,32 @@ describe("SpectrumRoute file mode", () => {
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
     expect(visualizerProps.frequencyRange).toEqual({
-      min: 134_914_000,
-      max: 139_286_000,
+      min: 135_500_000,
+      max: 138_700_000,
     });
     expect(visualizerProps.centerFrequencyHz).toBe(137_100_000);
-    expect(visualizerProps.hardwareSampleRateHz).toBe(4_372_000);
+    expect(visualizerProps.hardwareSampleRateHz).toBe(3_200_000);
     expect(visualizerProps.txSlider).toMatchObject({
       visible: true,
-      visibleMinHz: 134_914_000,
-      visibleMaxHz: 139_286_000,
+      visibleMinHz: 135_500_000,
+      visibleMaxHz: 138_700_000,
       txCenterHz: 137_100_000,
       txSampleRateHz: 2_400_000,
     });
     expect(visualizerProps.isStandby).toBe(true);
-    expect(visualizerProps.dataRef.current).toBeNull();
+    // The standby request retains the generated preview frame while the
+    // source-ownership handoff is still committing, avoiding a black canvas.
+    expect(visualizerProps.dataRef.current).not.toBeNull();
     expect(visualizerProps.placeholderState).toMatchObject({
-      kind: "top-bar",
-      title: "Start Tx to transmit",
+      kind: "loading",
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenCalledWith({
+      sourceId: "mock-tx",
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
         bandwidthHz: 2_400_000,
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1370,8 +1378,7 @@ describe("SpectrumRoute file mode", () => {
           fftAndWaterfallMock.mock.calls.length - 1
         ]?.[0];
       expect(nextVisualizerProps.placeholderState).toMatchObject({
-        kind: "top-bar",
-        title: "Start Tx to transmit",
+        kind: "loading",
       });
       expect(nextVisualizerProps.isStandby).toBe(true);
       expect(nextVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
@@ -1397,7 +1404,6 @@ describe("SpectrumRoute file mode", () => {
         ]?.[0];
       expect(standbyProps.placeholderState).toMatchObject({
         kind: "top-bar",
-        title: "Start Tx to transmit",
       });
       expect(standbyProps.isStandby).toBe(true);
     });
@@ -1426,16 +1432,17 @@ describe("SpectrumRoute file mode", () => {
       });
       expect(narrowedVisualizerProps.placeholderState).toMatchObject({
         kind: "top-bar",
-        title: "Start Tx to transmit",
       });
-      expect(narrowedVisualizerProps.dataRef.current).toBeNull();
+      // Keep the last preview painted while the retune one-shot is in flight.
+      expect(narrowedVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenLastCalledWith({
+      sourceId: "mock-tx",
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
         bandwidthHz: 3_400_000,
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1495,16 +1502,18 @@ describe("SpectrumRoute file mode", () => {
       });
       expect(narrowedVisualizerProps.placeholderState).toMatchObject({
         kind: "top-bar",
-        title: "Start Tx to transmit",
       });
-      expect(narrowedVisualizerProps.dataRef.current).toBeNull();
+      expect(narrowedVisualizerProps.dataRef.current).toBe(
+        widenedMockTxPreviewFrame,
+      );
     });
-    expect(jest.mocked(requestNextLiveFrame)).toHaveBeenLastCalledWith({
+    expect(jest.mocked(requestNextPausedFrame)).toHaveBeenLastCalledWith({
+      sourceId: "mock-tx",
       txSettings: {
         centerFrequencyHz: 137_100_000,
         viewCenterHz: 137_100_000,
         bandwidthHz: 1_400_000,
-        sampleRateHz: 4_372_000,
+        sampleRateHz: 3_200_000,
         powerDbm: -18,
         txSignal: "wifi",
         txIfftSize: 2048,
@@ -1515,7 +1524,7 @@ describe("SpectrumRoute file mode", () => {
   it("syncs canvas Tx bandwidth changes to the active backend transmitter while viewing Mock APT", async () => {
     jest.useFakeTimers();
     try {
-      const sendTransmitMode = jest.fn();
+      const sendTransmitStatus = jest.fn();
       const mockAptSource = {
         id: "mock-apt",
         name: "Mock APT SDR",
@@ -1542,7 +1551,7 @@ describe("SpectrumRoute file mode", () => {
           displayMode: "fft",
           powerScale: "dBm",
           snapshotGridPreference: true,
-          displayTemporalResolution: "medium",
+          displayTemporalResolution: "reduced",
           frequencyRange: { min: 134_914_000, max: 139_286_000 },
           activeSignalArea: "A",
           vizZoom: 1,
@@ -1555,8 +1564,6 @@ describe("SpectrumRoute file mode", () => {
           autoZoomStability: false,
           fftFrameRate: 60,
           showSpikeOverlay: false,
-          heterodyningVerifyRequestId: 0,
-          heterodyningHighlightedBins: [],
           isWaterfallCleared: false,
           selectedFilesCount: 0,
         },
@@ -1574,13 +1581,13 @@ describe("SpectrumRoute file mode", () => {
             kind: "mock_apt",
             is_rtl_sdr: true,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           },
           deviceInfo: null,
           backend: "mock_apt",
           maxSampleRateHz: 4_372_000,
           sampleRateOptions: [4_372_000],
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
           sdrSettings: { sample_rate: 4_372_000 },
         },
         effectiveFrames: [],
@@ -1602,11 +1609,11 @@ describe("SpectrumRoute file mode", () => {
             kind: "mock_apt",
             is_rtl_sdr: true,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           },
           maxSampleRateHz: 4_372_000,
           sampleRateOptions: [4_372_000],
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
           sdrSettings: { sample_rate: 4_372_000 },
           sdrLimitMarkers: [],
           dataRef: { current: null },
@@ -1624,7 +1631,7 @@ describe("SpectrumRoute file mode", () => {
           sendDemodulateCommand: jest.fn(),
           sendTrainingCommand: jest.fn(),
           sendPowerScaleCommand: jest.fn(),
-          sendTransmitMode,
+          sendTransmitStatus,
         },
         toggleVisualizerPause: jest.fn(),
         cryptoCorrupted: false,
@@ -1633,7 +1640,7 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: true,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
         },
         sources: [mockAptSource, mockTxSource],
       } as any;
@@ -1662,15 +1669,15 @@ describe("SpectrumRoute file mode", () => {
         </Provider>,
       );
 
-      expect(sendTransmitMode).toHaveBeenCalledWith(
+      expect(sendTransmitStatus).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
         expect.objectContaining({
           bandwidthHz: 2_400_000,
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
         }),
       );
-      sendTransmitMode.mockClear();
+      sendTransmitStatus.mockClear();
 
       act(() => {
         store.dispatch(setTxSampleRateHz(873_000));
@@ -1688,14 +1695,14 @@ describe("SpectrumRoute file mode", () => {
         jest.advanceTimersByTime(17);
       });
 
-      expect(sendTransmitMode).toHaveBeenCalledWith(
+      expect(sendTransmitStatus).toHaveBeenCalledWith(
         true,
         "Mock Tx SDR",
         expect.objectContaining({
           serialNumber: "mock-tx",
           centerFrequencyHz: 137_100_000,
           bandwidthHz: 873_000,
-          sampleRateHz: 4_372_000,
+          sampleRateHz: 3_200_000,
           powerDbm: -18,
           txSignal: "wifi",
         }),
@@ -1717,7 +1724,7 @@ describe("SpectrumRoute file mode", () => {
         displayMode: "fft",
         powerScale: "dB",
         snapshotGridPreference: true,
-        displayTemporalResolution: "medium",
+        displayTemporalResolution: "reduced",
         frequencyRange: { min: 18_000, max: 4_372_000 },
         activeSignalArea: "A",
         vizZoom: 1,
@@ -1730,8 +1737,6 @@ describe("SpectrumRoute file mode", () => {
         autoZoomStability: false,
         fftFrameRate: 60,
         showSpikeOverlay: false,
-        heterodyningVerifyRequestId: 0,
-        heterodyningHighlightedBins: [],
         isWaterfallCleared: false,
         selectedFilesCount: 0,
       },
@@ -1755,7 +1760,6 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: false,
           supports_approx_dbm: false,
-          supports_raw_iq_stream: false,
         },
         deviceInfo: null,
         backend: "mock_apt",
@@ -1783,7 +1787,6 @@ describe("SpectrumRoute file mode", () => {
           kind: "mock_apt",
           is_rtl_sdr: false,
           supports_approx_dbm: false,
-          supports_raw_iq_stream: false,
         },
         maxSampleRateHz: 3_200_000,
         sampleRateOptions: [3_200_000],
@@ -1805,7 +1808,7 @@ describe("SpectrumRoute file mode", () => {
         sendDemodulateCommand: jest.fn(),
         sendTrainingCommand: jest.fn(),
         sendPowerScaleCommand: jest.fn(),
-        sendTransmitMode: jest.fn(),
+        sendTransmitStatus: jest.fn(),
       },
       toggleVisualizerPause: jest.fn(),
       cryptoCorrupted: false,
@@ -1814,7 +1817,6 @@ describe("SpectrumRoute file mode", () => {
         kind: "mock_apt",
         is_rtl_sdr: false,
         supports_approx_dbm: false,
-        supports_raw_iq_stream: false,
       },
       sources: [],
     } as any;

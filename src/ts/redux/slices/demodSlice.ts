@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import type { DemodAlgorithm } from "@n-apt/demodulation/utils/demodProcessors";
 
 export interface DemodState {
   sourceMode: "live" | "file";
@@ -7,7 +8,7 @@ export interface DemodState {
   spanRange: { min: number; max: number } | null;
   hardwareRange: { min: number; max: number } | null;
   sampleRateHz: number | null;
-  algorithm: "fm" | "apt" | "napt";
+  algorithm: DemodAlgorithm;
   bandwidthKhz: number;
   centerFreqHz: number | null;
   bandwidthCenterFreqHz: number | null;
@@ -17,6 +18,8 @@ export interface DemodState {
   bandwidthHz: number;
   bandwidthStartHz: number;
   alignment: "centered" | "start" | "end";
+  /** Latest FM station selected by the user, awaiting live-frame confirmation. */
+  fmTuneIntentHz: number | null;
 }
 
 const initialState: DemodState = {
@@ -36,6 +39,7 @@ const initialState: DemodState = {
   bandwidthHz: 500_000,
   bandwidthStartHz: 25_750_000,
   alignment: "centered",
+  fmTuneIntentHz: null,
 };
 
 const demodSlice = createSlice({
@@ -70,7 +74,10 @@ const demodSlice = createSlice({
     ) => {
       state.spanRange = action.payload;
     },
-    setAlgorithm: (state, action: PayloadAction<"fm" | "apt" | "napt">) => {
+    setAlgorithm: (
+      state,
+      action: PayloadAction<DemodAlgorithm>,
+    ) => {
       state.algorithm = action.payload;
     },
     setBandwidth: (state, action: PayloadAction<number>) => {
@@ -100,6 +107,12 @@ const demodSlice = createSlice({
     ) => {
       state.alignment = action.payload;
     },
+    setFmTuneIntent: (state, action: PayloadAction<number>) => {
+      state.fmTuneIntentHz = action.payload;
+    },
+    clearFmTuneIntent: (state) => {
+      state.fmTuneIntentHz = null;
+    },
   },
 });
 
@@ -116,6 +129,8 @@ export const {
   setBandwidthHz,
   setBandwidthStartHz,
   setAlignment,
+  setFmTuneIntent,
+  clearFmTuneIntent,
 } = demodSlice.actions;
 
 export default demodSlice.reducer;

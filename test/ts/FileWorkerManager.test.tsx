@@ -218,7 +218,7 @@ describe("FileWorkerManager", () => {
   });
 
   it("should handle worker message parsing errors", async () => {
-    const mockFile = new File(["test data"], "test.napt", {
+    const _mockFile = new File(["test data"], "test.napt", {
       type: "application/octet-stream",
     });
 

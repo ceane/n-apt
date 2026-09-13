@@ -18,7 +18,7 @@ try {
       password = rawPass;
     }
   }
-} catch (e) {
+} catch {
   console.warn('Could not read or parse .env.local, using process.env');
 }
 
@@ -29,7 +29,6 @@ if (!password) {
 
 const SALT = Buffer.from("n-apt-aes-salt-v1");
 const ITERATIONS = 100_000;
-const IV_LENGTH = 12;
 
 // Derive vault key using PBKDF2
 const vaultKey = crypto.pbkdf2Sync(password, SALT, ITERATIONS, 32, 'sha256');
@@ -46,11 +45,11 @@ async function decryptFile(filePath) {
   const newlineIdx = probeBuffer.indexOf(10);
   
   let jsonStr = "";
-  let headerSize = 4096; // Default fallback
+  let _headerSize = 4096; // Default fallback
 
   if (newlineIdx > 0) {
     jsonStr = probeBuffer.subarray(0, newlineIdx).toString();
-    headerSize = 4096; // Most common
+    _headerSize = 4096; // Most common
   } else {
     // Fallback: search for first payload byte (likely after 2048 or 4096)
     // For simplicity, we try common offsets
@@ -60,8 +59,20 @@ async function decryptFile(filePath) {
   const metaObj = JSON.parse(jsonStr);
   const metadata = metaObj.metadata || metaObj;
   
-  // Probe common header sizes until decryption works
-  const candidates = [4096, 2048, 8192, 1024];
+  // Prefer the v4 section index (exact); fall back to probing the historical
+  // fixed header sizes used by older captures.
+  const sectionedBinaryOffset =
+    metaObj.metadata?.sections?.binary?.offset_bytes ??
+    metaObj.sections?.binary?.offset_bytes;
+  const candidates = [
+    ...(typeof sectionedBinaryOffset === "number" && sectionedBinaryOffset > 0
+      ? [sectionedBinaryOffset]
+      : []),
+    4096,
+    2048,
+    8192,
+    1024,
+  ];
   let decrypted = null;
 
   for (const hSize of candidates) {
@@ -100,7 +111,7 @@ async function decryptFile(filePath) {
         console.log(`Successfully decrypted with headerSize: ${hSize}`);
         break;
       }
-    } catch (e) {
+    } catch {
       // Continue probing
     }
   }

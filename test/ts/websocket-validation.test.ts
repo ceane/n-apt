@@ -24,26 +24,74 @@ describe("WebSocket Validation System", () => {
   });
 
   describe("WebSocket Message Validation", () => {
+    test("should validate the atomic signals defaults payload", () => {
+      expect(
+        validateWebSocketMessage({
+          type: "signals_defaults",
+          sdr: {
+            sample_rate: 3_200_000,
+            min_receive_sample_rate: 3_200_000,
+            center_frequency: 1_600_000,
+            gain: {
+              tuner_gain: 46.9,
+              rtl_agc: false,
+              tuner_agc: false,
+              hackrf_lna_gain: null,
+              hackrf_vga_gain: 30,
+              hackrf_amp_enable: false,
+              tuner_bandwidth: 3_200_000,
+            },
+            ppm: 1,
+            fft: {
+              default_size: 2048,
+              default_frame_rate: 60,
+              max_size: 262144,
+              max_frame_rate: 60,
+              size_to_frame_rate: { "2048": 60 },
+            },
+            display: { min_db: -120, max_db: 0, padding: 20 },
+            devices: {},
+            fft_sizes: null,
+          },
+        }),
+      ).toBe(true);
+    });
+
     test("should validate valid WebSocket messages", () => {
       const validMessage = {
         type: "pause",
         paused: false,
         source_id: "mock-apt",
         duplex_mode: "half_duplex",
-        active_mode: "rx",
       };
 
       expect(validateWebSocketMessage(validMessage)).toBe(true);
     });
 
-    test("should validate tx_mode messages using active_mode", () => {
+    test("should validate transmit status messages", () => {
+      expect(
+        validateWebSocketMessage({
+          type: "status",
+          status: "transmitting",
+          txDevice: "Mock Tx SDR",
+        }),
+      ).toBe(true);
+
+      expect(
+        validateWebSocketMessage({
+          type: "status",
+          status: "standby",
+          txDevice: "Mock Tx SDR",
+        }),
+      ).toBe(true);
+
       expect(
         validateWebSocketMessage({
           type: "tx_mode",
           active_mode: "rx_tx",
           txDevice: "Mock Tx SDR",
         }),
-      ).toBe(true);
+      ).toBe(false);
     });
 
     test("should reject invalid WebSocket messages", () => {
@@ -176,7 +224,20 @@ describe("WebSocket Validation System", () => {
             loading_attempt: 0,
             loading_attempt_max: 3,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+            capabilities: {
+              can_receive: true,
+              can_transmit: false,
+              duplex_mode: "Simplex",
+              supports_approx_dbm: true,
+              supported_controls: ["gain", "ppm", "sample_rate", "frequency"],
+              sample_rates: [3200000],
+              max_sample_rate: 3200000,
+              max_instantaneous_sample_rate: 3200000,
+              frequency_range: null,
+              tx_power_dbm: null,
+              gain_limits: null,
+            },
             sdr: {
               max_sample_rate: 3200000,
               sample_rate_options: [3200000],
@@ -184,11 +245,15 @@ describe("WebSocket Validation System", () => {
               settings: {
                 sample_rate: 3200000,
                 center_frequency: 1600000,
-                gain: {
+                  gain: {
                   tuner_gain: 49.6,
                   rtl_agc: false,
                   tuner_agc: false,
                 },
+                hackrf_lna_gain: null,
+                hackrf_vga_gain: null,
+                hackrf_amp_enable: null,
+                tuner_bandwidth: null,
                 fft: {
                   default_size: 2048,
                   default_frame_rate: 30,
@@ -239,17 +304,27 @@ describe("WebSocket Validation System", () => {
       ).toBe(true);
     });
 
-    test("should validate mock tx atomic connected status with retry metadata", () => {
+    test("should validate mock tx atomic standby status with retry metadata", () => {
       const message = {
         type: "status",
         source_id: "mock-tx",
-        status: "connected",
+        status: "standby",
         loading_attempt: 0,
         loading_attempt_max: 2,
       };
 
       expect(isValidSourceStatusMessage(message)).toBe(true);
       expect(validateWebSocketMessage(message)).toBe(true);
+    });
+
+    test("should validate initializing hardware status", () => {
+      expect(
+        isValidSourceStatusMessage({
+          type: "status",
+          source_id: "hackrf-1",
+          status: "initializing",
+        }),
+      ).toBe(true);
     });
   });
 
@@ -505,7 +580,7 @@ describe("WebSocket Validation System", () => {
           loading_attempt: 0,
           loading_attempt_max: 3,
           supports_approx_dbm: true,
-          supports_raw_iq_stream: true,
+          iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
           sdr: {
             max_sample_rate: 3200000,
             sample_rate_options: [3200000],
@@ -578,7 +653,7 @@ describe("WebSocket Validation System", () => {
             loading_attempt: 0,
             loading_attempt_max: 3,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
+            iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
             sdr: {
               max_sample_rate: 10000000,
               sample_rate_options: [10000000],

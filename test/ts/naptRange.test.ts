@@ -1,4 +1,4 @@
-import { isValidNaptRange } from "@n-apt/utils/signals";
+import { isValidNaptRange } from "@n-apt/math/signals";
 
 describe("isValidNaptRange", () => {
   const configuredChannels = [

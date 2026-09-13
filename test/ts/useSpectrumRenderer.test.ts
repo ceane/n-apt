@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { renderHook } from "@testing-library/react";
-import { useSpectrumRenderer } from "@n-apt/hooks/useSpectrumRenderer";
+import { useSpectrumRenderer } from "@n-apt/spectrum/hooks/useSpectrumRenderer";
 
 const drawWebGPUFFTSignalMock = jest.fn(() => true);
 const draw3DWaterfallSignalMock = jest.fn(() => true);
@@ -8,21 +8,21 @@ const drawMarkersOnContextMock = jest.fn();
 const drawTxSliderOnContextMock = jest.fn();
 const drawTxSliderBackdropOnContextMock = jest.fn();
 
-jest.mock("@n-apt/hooks/useDrawWebGPUFFTSignal", () => ({
+jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal", () => ({
   useDrawWebGPUFFTSignal: () => ({
     drawWebGPUFFTSignal: drawWebGPUFFTSignalMock,
     cleanup: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useDraw3DWaterfallSignal", () => ({
+jest.mock("@n-apt/spectrum/hooks/useDraw3DWaterfallSignal", () => ({
   useDraw3DWaterfallSignal: () => ({
     draw3DWaterfallSignal: draw3DWaterfallSignalMock,
     cleanup: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useOverlayRenderer", () => ({
+jest.mock("@n-apt/spectrum/hooks/useOverlayRenderer", () => ({
   useOverlayRenderer: () => ({
     drawGridOnContext: jest.fn(),
     drawMarkersOnContext: drawMarkersOnContextMock,

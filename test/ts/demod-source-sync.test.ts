@@ -3,11 +3,12 @@ import {
   syncDemodSpanFromSourceContext,
   updateSpanStateThunk,
   syncRadioDemodFromSource,
+  shouldPreservePendingFmTune,
   type DemodSourceSyncPayload,
-} from "../../src/ts/redux/thunks/demodThunks";
+} from "@n-apt/redux/thunks/demodThunks";
 import { configureStore } from "@reduxjs/toolkit";
-import demodReducer from "../../src/ts/redux/slices/demodSlice";
-import spectrumReducer from "../../src/ts/redux/slices/spectrumSlice";
+import demodReducer from "@n-apt/redux/slices/demodSlice";
+import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
 
 describe("resolveDemodSourceRange", () => {
   it("uses loaded file metadata before playback processing exists", () => {
@@ -152,6 +153,30 @@ describe("resolveDemodSourceRange", () => {
       range: { min: 24_720_000, max: 29_880_000 },
       reason: "live_frequency_range",
     });
+  });
+
+  it("does not let a stale live frame overwrite a pending FM station", () => {
+    expect(
+      shouldPreservePendingFmTune({
+        sourceMode: "live",
+        algorithm: "fm",
+        pendingCenterHz: 92_700_000,
+        currentSelection: { min: 92_600_000, max: 92_800_000 },
+        incomingRange: { min: 0, max: 3_200_000 },
+      }),
+    ).toBe(true);
+  });
+
+  it("releases the FM tune fence when the selected range is confirmed", () => {
+    expect(
+      shouldPreservePendingFmTune({
+        sourceMode: "live",
+        algorithm: "fm",
+        pendingCenterHz: 92_700_000,
+        currentSelection: { min: 92_600_000, max: 92_800_000 },
+        incomingRange: { min: 92_600_000, max: 92_800_000 },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -488,5 +513,8 @@ describe("syncRadioDemodFromSource - 1.6MHz Regression Prevention", () => {
 
     // For FM tuning, centerFreqHz (hardware/center freq) is updated
     expect(store.getState().demod.centerFreqHz).toBe(98_100_000);
+    expect(store.getState().demod.bandwidthCenterFreqHz).toBe(98_100_000);
+    expect(store.getState().demod.bandwidthHz).toBe(200_000);
+    expect(store.getState().demod.bandwidthStartHz).toBe(98_000_000);
   });
 });

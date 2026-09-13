@@ -1,6 +1,6 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
-import { SimplePretextDemo } from "@n-apt/components/pretext/SimplePretextDemo";
+import { SimplePretextDemo } from "@n-apt/learn/pretext/SimplePretextDemo";
 
 describe("Pretext Integration", () => {
   it("should render SimplePretextDemo without crashing", () => {

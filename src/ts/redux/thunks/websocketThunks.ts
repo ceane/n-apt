@@ -1,11 +1,27 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { RootState } from "@n-apt/redux/store";
-import { SDRSettings, CaptureRequest } from "@n-apt/consts/schemas/websocket";
+import {
+  SDRSettings,
+  CaptureRequest,
+  SourceInfo,
+  SpectrumFrame,
+} from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
 import {
   getFrequencyRangeCenterHz,
   normalizeFrequencyRangeToHz,
-} from "@n-apt/utils/frequency";
+} from "@n-apt/math/frequency";
+import {
+  normalizePositiveHardwareRange,
+} from "@n-apt/math/basebandMirror";
+import {
+  isHackrfDevice,
+  isRtlSdrDevice,
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
+import { DEVICE_CONTROL_SCOPE } from "@n-apt/app/infrastructure/streams/streamContract";
+import { restartRequested } from "@n-apt/redux/slices/websocketSlice";
+import { CLIENT_ORIGIN_ID } from "@n-apt/redux/clientOrigin";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =
@@ -18,19 +34,123 @@ const getSampleRateHz = (state: RootState): number | null => {
 const buildTunedFrequencyPayload = (
   state: RootState,
   range: FrequencyRange,
-): { min_hz: number; max_hz: number; center_frequency: number } => {
-  const normalizedRange = normalizeFrequencyRangeToHz(range);
+): {
+  origin_id: string;
+  min_hz: number;
+  max_hz: number;
+  center_frequency: number;
+} => {
+  // Negative frequencies are a presentation-only mirrored baseband axis.
+  // Convert them to the positive acquisition window before crossing the
+  // WebSocket boundary; the Rust protocol represents absolute RF Hz.
+  const normalizedRange = normalizePositiveHardwareRange(
+    normalizeFrequencyRangeToHz(range),
+  );
   const center_frequency = getFrequencyRangeCenterHz(normalizedRange);
   return {
+    origin_id: CLIENT_ORIGIN_ID,
     min_hz: normalizedRange.min,
     max_hz: normalizedRange.max,
     center_frequency,
   };
 };
 
+export type FrequencyRangeSyncRequest =
+  | FrequencyRange
+  | {
+      range: FrequencyRange;
+      displayRange?: FrequencyRange | null;
+    };
+
+const resolveFrequencyRangeSyncRequest = (
+  request: FrequencyRangeSyncRequest,
+): { range: FrequencyRange; displayRange: FrequencyRange | null } => {
+  if ("range" in request) {
+    return {
+      range: request.range,
+      displayRange: request.displayRange ?? null,
+    };
+  }
+  return { range: request, displayRange: null };
+};
+
+export const buildFrequencyRangeMessageData = (
+  state: RootState,
+  request: FrequencyRangeSyncRequest,
+): Record<string, unknown> => {
+  const { range } = resolveFrequencyRangeSyncRequest(request);
+  // Pan and zoom are subscriber-local presentation state. Only send the
+  // positive RF acquisition window across the device-scoped control socket;
+  // including a signed viewport here makes another browser inherit it when
+  // the backend echoes the authoritative range.
+  return buildTunedFrequencyPayload(state, range);
+};
+
 const optionalIntegerHz = (value: unknown): number | undefined => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
+};
+
+export const resolveWholeChannelSampleRateForSourceSwitch = ({
+  source,
+  channels,
+  activeSignalArea,
+}: {
+  source: Pick<SourceInfo, "id" | "kind" | "name" | "sdr"> | null | undefined;
+  channels: SpectrumFrame[];
+  activeSignalArea?: string | null;
+}): number | null => {
+  if (
+    !source ||
+    isRtlSdrDevice({
+      deviceKind: source.kind,
+      backend: source.kind,
+      deviceName: source.name,
+    })
+  ) {
+    return null;
+  }
+
+  const requestedArea = activeSignalArea?.trim().toLowerCase();
+  const channel =
+    channels.find(
+      (candidate) =>
+        requestedArea &&
+        candidate.label?.trim().toLowerCase() === requestedArea,
+    ) ?? channels[0];
+  if (
+    !channel ||
+    !Number.isFinite(channel.min_hz) ||
+    !Number.isFinite(channel.max_hz)
+  ) {
+    return null;
+  }
+
+  const channelSpan = Math.abs(channel.max_hz - channel.min_hz);
+  if (!Number.isFinite(channelSpan) || channelSpan <= 0) return null;
+
+  // Mock Tx is a synthetic monitor. Its 2.4 MHz Tx waveform does not limit
+  // the visualizer's explicit Whole Channel receive view.
+  if (source.kind === "mock_tx" || source.kind === "mock-tx") {
+    return Math.round(channelSpan);
+  }
+
+  const configuredMaximum = source.sdr?.max_sample_rate;
+  const sourceMaximum =
+    typeof configuredMaximum === "number" &&
+    Number.isFinite(configuredMaximum) &&
+    configuredMaximum > 0
+      ? configuredMaximum
+      : channelSpan;
+  const maximum = isHackrfDevice({
+    deviceKind: source.kind,
+    backend: source.kind,
+    deviceName: source.name,
+  })
+    ? Math.max(sourceMaximum, 20_000_000)
+    : sourceMaximum;
+
+  return Math.round(Math.min(channelSpan, maximum));
 };
 
 // Connect to WebSocket
@@ -60,19 +180,26 @@ export const disconnectWebSocket = createAsyncThunk(
 // Send frequency range to server
 export const sendFrequencyRange = createAsyncThunk(
   "websocket/sendFrequencyRange",
-  async (range: FrequencyRange, { dispatch, getState }) => {
+  async (request: FrequencyRangeSyncRequest, { dispatch, getState }) => {
     const state = getState() as RootState;
-    const tunedRange = buildTunedFrequencyPayload(state, range);
+    const { range } = resolveFrequencyRangeSyncRequest(request);
+    const tunedRange = buildFrequencyRangeMessageData(state, request);
     if (state.websocket.isConnected) {
+      const activeSignalArea = state.spectrum?.activeSignalArea;
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "frequency_range",
           data: {
+            scope: DEVICE_CONTROL_SCOPE,
             ...tunedRange,
             bandwidth_center_frequency: optionalIntegerHz(
               (state as any).demod?.bandwidthCenterFreqHz,
             ),
+            ...(typeof activeSignalArea === "string" &&
+            activeSignalArea.trim().length > 0
+              ? { signal_area: activeSignalArea }
+              : {}),
           },
         },
       });
@@ -82,6 +209,9 @@ export const sendFrequencyRange = createAsyncThunk(
 );
 
 export interface RequestNextLiveFrameOptions {
+  sourceId?: string | null;
+  /** The current viewport associated with a paused one-shot request. */
+  frequencyRange?: FrequencyRange | null;
   txSettings?: {
     centerFrequencyHz?: number | null;
     viewCenterHz?: number | null;
@@ -96,9 +226,12 @@ export interface RequestNextLiveFrameOptions {
 const buildRequestNextFrameData = (
   options?: RequestNextLiveFrameOptions,
 ): Record<string, unknown> => {
-  const txSettings = options?.txSettings;
-  if (!txSettings) return {};
   const data: Record<string, unknown> = {};
+  if (typeof options?.sourceId === "string" && options.sourceId.trim()) {
+    data.source_id = options.sourceId.trim();
+  }
+  const txSettings = options?.txSettings;
+  if (!txSettings) return data;
   if (
     typeof txSettings.centerFrequencyHz === "number" &&
     Number.isFinite(txSettings.centerFrequencyHz)
@@ -151,12 +284,10 @@ export const requestNextLiveFrame = createAsyncThunk(
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
-        type: "websocket/sendMessage",
+        type: "websocket/refreshStream",
         payload: {
-          type: "request_next_frame",
-          data: {
-            ...buildRequestNextFrameData(options),
-          },
+          mode: options?.txSettings ? "tx" : "rx",
+          options: options ? buildRequestNextFrameData(options) : undefined,
         },
       });
     }
@@ -171,13 +302,13 @@ export const requestNextPausedFrame = createAsyncThunk(
   ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      // Standby previews are one-shot. Do not open a continuous managed Tx
+      // stream; that would look like automatic transmission.
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "request_next_frame",
-          data: {
-            ...buildRequestNextFrameData(options),
-          },
+          data: buildRequestNextFrameData(options),
         },
       });
     }
@@ -189,23 +320,35 @@ export const sendCenterFrequency = createAsyncThunk(
   async (centerHz: number, { dispatch, getState }) => {
     const state = getState() as RootState;
     const sampleRateHz = getSampleRateHz(state);
-    const data = sampleRateHz
+    const requestedRange = sampleRateHz
       ? {
-          min_hz: Math.round(centerHz - sampleRateHz / 2),
-          max_hz: Math.round(centerHz + sampleRateHz / 2),
-          center_frequency: Math.round(centerHz),
+          min: centerHz - sampleRateHz / 2,
+          max: centerHz + sampleRateHz / 2,
         }
-      : {
-          min_hz: Math.round(centerHz),
-          max_hz: Math.round(centerHz),
-          center_frequency: Math.round(centerHz),
-        };
+      : { min: centerHz, max: centerHz };
+    const hardwareRange = normalizePositiveHardwareRange(requestedRange);
+    const data = {
+      min_hz: Math.round(hardwareRange.min),
+      max_hz: Math.round(hardwareRange.max),
+      center_frequency: getFrequencyRangeCenterHz({
+        min: Math.round(hardwareRange.min),
+        max: Math.round(hardwareRange.max),
+      }),
+    };
     if (state.websocket.isConnected) {
+      const activeSignalArea = state.spectrum?.activeSignalArea;
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "frequency_range",
-          data,
+          data: {
+            ...data,
+            scope: DEVICE_CONTROL_SCOPE,
+            ...(typeof activeSignalArea === "string" &&
+            activeSignalArea.trim().length > 0
+              ? { signal_area: activeSignalArea }
+              : {}),
+          },
         },
       });
     }
@@ -226,7 +369,11 @@ export const sendPauseCommand = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "pause",
-          data: { paused: payload.isPaused, source_id: payload.sourceId },
+          data: {
+            scope: "subscriber",
+            paused: payload.isPaused,
+            source_id: payload.sourceId,
+          },
         },
       });
     }
@@ -260,7 +407,12 @@ export const sendSettings = createAsyncThunk(
     }
 
     if (isValidPositiveInt(settings.frameRate)) {
-      sanitized.frameRate = Math.floor(settings.frameRate!);
+      sanitized.frameRate = clampFrameRateToProtocolLimit(settings.frameRate!);
+    }
+    if (isValidPositiveInt(settings.maxFrameRate)) {
+      sanitized.maxFrameRate = clampFrameRateToProtocolLimit(
+        settings.maxFrameRate!,
+      );
     }
 
     if (isValidPositiveInt(settings.sampleRate)) {
@@ -298,6 +450,9 @@ export const sendSettings = createAsyncThunk(
     if (typeof settings.rtlAGC === "boolean") {
       sanitized.rtlAGC = settings.rtlAGC;
     }
+    if (typeof settings.mirrorSpectrumBelowZero === "boolean") {
+      sanitized.mirror_spectrum_below_zero = settings.mirrorSpectrumBelowZero;
+    }
 
     if (Object.keys(sanitized).length === 0) {
       console.warn(
@@ -312,7 +467,7 @@ export const sendSettings = createAsyncThunk(
         type: "websocket/sendMessage",
         payload: {
           type: "settings",
-          data: sanitized,
+          data: { ...sanitized, scope: DEVICE_CONTROL_SCOPE },
         },
       });
     }
@@ -321,20 +476,29 @@ export const sendSettings = createAsyncThunk(
   },
 );
 
-// Send device restart command
+// Send device restart command. When `sourceId` is provided the backend
+// restarts only that source (in place, without changing the active source);
+// otherwise it restarts the active device.
 export const sendRestartDevice = createAsyncThunk(
   "websocket/sendRestartDevice",
-  async (_, { dispatch, getState }) => {
+  async (sourceId: string | undefined, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "restart_device",
-          data: {},
+          data: {
+            scope: DEVICE_CONTROL_SCOPE,
+            ...(sourceId ? { source_id: sourceId } : {}),
+          },
         },
       });
+      if (sourceId) {
+        dispatch(restartRequested(sourceId));
+      }
     }
+    return sourceId ?? null;
   },
 );
 
@@ -344,12 +508,55 @@ export const sendSelectSource = createAsyncThunk(
   async (sourceId: string, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      const frontendSampleRate = state.spectrum?.sampleRateHz;
+      const targetSource = state.websocket.sources?.find(
+        (source) => source.id === sourceId,
+      );
+      const targetIsHackRf =
+        targetSource?.kind === "hackrf_one" ||
+        sourceId.toLowerCase().includes("hackrf");
+      const wholeChannelSampleRate =
+        resolveWholeChannelSampleRateForSourceSwitch({
+          source: targetSource,
+          channels: state.websocket.channels ?? [],
+          activeSignalArea: state.spectrum?.activeSignalArea,
+        });
+      const requestedSampleRate =
+        wholeChannelSampleRate ??
+        (targetIsHackRf &&
+        typeof frontendSampleRate === "number" &&
+        Number.isFinite(frontendSampleRate) &&
+        frontendSampleRate > 0
+          ? Math.floor(frontendSampleRate)
+          : null);
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "select_source",
-          data: { source_id: sourceId },
+          data: {
+            scope: DEVICE_CONTROL_SCOPE,
+            source_id: sourceId,
+            ...(requestedSampleRate !== null
+              ? { sample_rate: requestedSampleRate }
+              : {}),
+          },
         },
+      });
+    }
+    return sourceId;
+  },
+);
+
+// Select a source for this page's subscriber-scoped visualization without
+// changing the backend's one-device active-source control path.
+export const sendViewSource = createAsyncThunk(
+  "websocket/sendViewSource",
+  async (sourceId: string, { dispatch, getState }) => {
+    const state = getState() as RootState;
+    if (state.websocket.isConnected) {
+      dispatch({
+        type: "websocket/viewSource",
+        payload: { sourceId },
       });
     }
     return sourceId;
@@ -480,13 +687,18 @@ export const sendScanCommand = createAsyncThunk(
   ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
+      // The backend scan protocol only accepts non-negative absolute
+      // frequencies. VFO panning can briefly produce a negative visual
+      // lower bound near 0 Hz, so sanitize only the wire payload here.
+      const safeMinFreq = Math.max(0, Math.min(minFreq, maxFreq));
+      const safeMaxFreq = Math.max(safeMinFreq, maxFreq);
       dispatch({
         type: "websocket/sendMessage",
         payload: {
           type: "scan",
           job_id: jobId,
-          min_freq: minFreq,
-          max_freq: maxFreq,
+          min_freq: safeMinFreq,
+          max_freq: safeMaxFreq,
           options,
         },
       });

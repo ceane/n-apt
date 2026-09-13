@@ -1,23 +1,14 @@
-import * as presentation from "../../src/ts/utils/liveSourcePresentation";
-
-const isTxStandbyPreviewSource = presentation.isTxStandbyPreviewSource;
-
-const resolveFrameReadiness = (
-  presentation as typeof presentation & {
-    resolveFrameReadiness?: (input: Record<string, unknown>) => boolean;
-  }
-).resolveFrameReadiness;
-const resolveLivePresentationState = (
-  presentation as typeof presentation & {
-    resolveLivePresentationState?: (input: Record<string, unknown>) => {
-      phase: string;
-      placeholder: unknown;
-    };
-  }
-).resolveLivePresentationState;
+import {
+  filterLiveFramesForSource,
+  isTxStandbyPreviewSource,
+  resolveFrameReadiness,
+  resolveLiveSourceLifecycle,
+  type RenderableLiveFrame,
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
+import type { CanvasPlaceholderState } from "@n-apt/ui/CanvasPlaceholder";
 
 describe("resolveFrameReadiness", () => {
-  const currentFrame = {
+  const currentFrame: RenderableLiveFrame = {
     type: "spectrum",
     data_type: "iq_raw",
     source_id: "rtl-sdr-v4",
@@ -29,7 +20,7 @@ describe("resolveFrameReadiness", () => {
 
   it("accepts a renderable frame for the selected source and epoch", () => {
     expect(
-      resolveFrameReadiness?.({
+      resolveFrameReadiness({
         frame: currentFrame,
         selectedSourceId: "rtl-sdr-v4",
         activeSourceId: "rtl-sdr-v4",
@@ -46,8 +37,8 @@ describe("resolveFrameReadiness", () => {
     ["empty payload", { iq_data: new Uint8Array() }],
   ])("rejects a %s frame", (_name, override) => {
     expect(
-      resolveFrameReadiness?.({
-        frame: { ...currentFrame, ...override },
+      resolveFrameReadiness({
+        frame: { ...currentFrame, ...override } as RenderableLiveFrame,
         selectedSourceId: "rtl-sdr-v4",
         activeSourceId: "rtl-sdr-v4",
         expectedStreamEpoch: 7,
@@ -58,13 +49,13 @@ describe("resolveFrameReadiness", () => {
   });
 
   it("accepts an untagged v1 frame only after an agreed-source handoff", () => {
-    const frame = {
+    const frame: RenderableLiveFrame = {
       type: "spectrum",
       data_type: "iq_raw",
       iq_data: new Uint8Array([128, 129]),
     };
     expect(
-      resolveFrameReadiness?.({
+      resolveFrameReadiness({
         frame,
         selectedSourceId: "rtl-sdr-v4",
         activeSourceId: "rtl-sdr-v4",
@@ -73,7 +64,7 @@ describe("resolveFrameReadiness", () => {
       }),
     ).toBe(true);
     expect(
-      resolveFrameReadiness?.({
+      resolveFrameReadiness({
         frame,
         selectedSourceId: "rtl-sdr-v4",
         activeSourceId: "hackrf-one",
@@ -82,7 +73,7 @@ describe("resolveFrameReadiness", () => {
       }),
     ).toBe(false);
     expect(
-      resolveFrameReadiness?.({
+      resolveFrameReadiness({
         frame,
         selectedSourceId: "rtl-sdr-v4",
         activeSourceId: "rtl-sdr-v4",
@@ -94,7 +85,7 @@ describe("resolveFrameReadiness", () => {
 
   it("accepts a source-tagged v1 frame without a per-frame Redux counter", () => {
     expect(
-      resolveFrameReadiness?.({
+      resolveFrameReadiness({
         frame: {
           type: "spectrum",
           data_type: "iq_raw",
@@ -112,7 +103,7 @@ describe("resolveFrameReadiness", () => {
 
   it("does not collapse numbered source identities during rapid switching", () => {
     expect(
-      resolveFrameReadiness?.({
+      resolveFrameReadiness({
         frame: { ...currentFrame, source_id: "rtl-sdr-1" },
         selectedSourceId: "rtl-sdr-2",
         activeSourceId: "rtl-sdr-2",
@@ -121,6 +112,26 @@ describe("resolveFrameReadiness", () => {
         handoffStartedFrameCounter: 10,
       }),
     ).toBe(false);
+  });
+});
+
+describe("live frame source handoff", () => {
+  it("drops delayed frames from the previous device in a mixed batch", () => {
+    const hackrfFrame = { source_id: "hackrf-one", sequence: 41 };
+    const rtlFrame = { source_id: "rtl-sdr-v4", sequence: 1 };
+
+    expect(
+      filterLiveFramesForSource([hackrfFrame, rtlFrame], "rtl-sdr-v4"),
+    ).toEqual([rtlFrame]);
+  });
+
+  it("does not treat an untagged frame as belonging to the new device", () => {
+    expect(
+      filterLiveFramesForSource(
+        [{ sequence: 41 }, { source_id: "rtl-sdr-v4", sequence: 1 }],
+        "rtl-sdr-v4",
+      ),
+    ).toEqual([{ source_id: "rtl-sdr-v4", sequence: 1 }]);
   });
 });
 
@@ -163,24 +174,29 @@ describe("Tx standby preview ownership", () => {
   });
 });
 
-describe("resolveLivePresentationState", () => {
+describe("resolveLiveSourceLifecycle", () => {
   it("gives a validated frame precedence over recovery and handoff states", () => {
     expect(
-      resolveLivePresentationState?.({
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "rtl-sdr-v4",
+        activeSourceId: "hackrf-one",
         hasValidFrame: true,
-        isSourceHandoff: true,
+        deviceStatus: "connected",
         devicePlaceholder: { kind: "loading", paneLabel: "device" },
       }),
-    ).toEqual({ phase: "ready", placeholder: null });
+    ).toMatchObject({ phase: "warming-transport" });
   });
 
   it("keeps explicit failures blocking", () => {
-    const error = { kind: "error", reason: "USB failure" };
+    const error: CanvasPlaceholderState = { kind: "error", reason: "USB failure" };
     expect(
-      resolveLivePresentationState?.({
+      resolveLiveSourceLifecycle({
+        selectedSourceId: "rtl-sdr-v4",
+        activeSourceId: "rtl-sdr-v4",
         hasValidFrame: true,
+        deviceStatus: "connected",
         devicePlaceholder: error,
       }),
-    ).toEqual({ phase: "disconnected", placeholder: error });
+    ).toMatchObject({ phase: "failed", placeholder: error });
   });
 });

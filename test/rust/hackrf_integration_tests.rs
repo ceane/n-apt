@@ -1,3 +1,4 @@
+#[cfg(all(test, has_hackrf))]
 use anyhow::Result;
 
 #[cfg(all(test, has_hackrf))]

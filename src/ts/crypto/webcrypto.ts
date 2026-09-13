@@ -6,7 +6,7 @@
  * in src/crypto/mod.rs.
  */
 
-import { PBKDF2_SALT_VAL } from "../consts/env";
+import { PBKDF2_SALT_VAL } from "@n-apt/consts/env";
 
 const PBKDF2_ITERATIONS = 100_000;
 // Load salt from environment variable (Vite) or fallback to default.

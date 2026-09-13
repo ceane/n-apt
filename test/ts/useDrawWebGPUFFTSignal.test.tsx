@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 import { renderHook } from "@testing-library/react";
-import { useDrawWebGPUFFTSignal } from "@n-apt/hooks/useDrawWebGPUFFTSignal";
+import { useDrawWebGPUFFTSignal } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal";
 
-jest.mock("@n-apt/utils/webgpu", () => ({
+jest.mock("@n-apt/app/infrastructure/visualization/webgpu", () => ({
   configureWebGPUCanvas: jest.fn(() => ({
     configure: jest.fn(),
     getCurrentTexture: jest.fn(() => ({
@@ -117,7 +117,7 @@ describe("useDrawWebGPUFFTSignal", () => {
     ).toBe(true);
 
     const spikePipeline =
-      mockDevice.createComputePipeline.mock.results[1]?.value;
+      mockDevice.createComputePipeline.mock.results[2]?.value;
     expect(computePass.setPipeline).toHaveBeenCalledWith(spikePipeline);
     const displayWorkgroups = Math.ceil(
       (mockCanvas.parentElement.offsetWidth - 40) / 64,
@@ -176,5 +176,29 @@ describe("useDrawWebGPUFFTSignal", () => {
     expect(mockDevice.queue.onSubmittedWorkDone).not.toHaveBeenCalled();
     result.current.cleanup();
     expect(firstOutputBuffer.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not upload an unchanged FFT again for a pan-only GPU resample", async () => {
+    const { result } = renderHook(() => useDrawWebGPUFFTSignal());
+    const waveform = new Float32Array(2048).fill(-50);
+    const draw = (frequencyRange: { min: number; max: number }, waveformDirty: boolean) =>
+      result.current.drawWebGPUFFTSignal({
+        canvas: mockCanvas,
+        device: mockDevice as any,
+        format: "rgba8unorm" as GPUTextureFormat,
+        waveform,
+        waveformDirty,
+        frequencyRange,
+        sourceFrequencyRange: { min: 0, max: 100 },
+        reuseWaveformUpload: true,
+      });
+
+    await draw({ min: 0, max: 50 }, true);
+    await draw({ min: 25, max: 75 }, false);
+
+    const waveformUploads = mockDevice.queue.writeBuffer.mock.calls.filter(
+      (call) => call[2] === waveform.buffer,
+    );
+    expect(waveformUploads).toHaveLength(1);
   });
 });

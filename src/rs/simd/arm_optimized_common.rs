@@ -137,7 +137,8 @@ impl ARMOptimizedSIMD {
       let src_offset = start_bin.max(0);
 
       if data_to_copy > 0 && src_offset < full_waveform.len() {
-        let copy_len = data_to_copy as usize;
+        let copy_len =
+          (data_to_copy as usize).min(full_waveform.len() - src_offset);
         sliced_waveform[dest_offset..dest_offset + copy_len]
           .copy_from_slice(&full_waveform[src_offset..src_offset + copy_len]);
       }
@@ -294,7 +295,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn resample_scalar_impl(input: &[f32], output: &mut [f32], width: usize) {
     let input_len = input.len();
     if input_len == 0 || width == 0 {
@@ -392,7 +393,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn shift_waterfall_scalar_impl(
     buffer: &mut [u8],
     width: usize,
@@ -530,7 +531,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn color_map_scalar_impl(
     amplitudes: &[f32],
     output: &mut [u8],
@@ -567,7 +568,14 @@ impl ARMOptimizedSIMD {
     let fft_height = fft_area_max_y - fft_area_y as f32;
     let plot_width = fft_area_max_x - fft_area_x as f32;
     let vert_range = db_max - db_min;
-    let scale_factor = fft_height / vert_range;
+    // A degenerate (zero-width) dB range would produce inf scale factors and
+    // NaN coordinates that survive .clamp(); a flat range maps every value
+    // to the baseline instead.
+    let scale_factor = if vert_range > 0.0 {
+      fft_height / vert_range
+    } else {
+      0.0
+    };
 
     let mut coords = Vec::with_capacity(data_width);
     let x_base = fft_area_x as f32;
@@ -606,7 +614,14 @@ impl ARMOptimizedSIMD {
     let fft_height = fft_area_max_y - fft_area_y as f32;
     let plot_width = fft_area_max_x - fft_area_x as f32;
     let vert_range = db_max - db_min;
-    let scale_factor = fft_height / vert_range;
+    // A degenerate (zero-width) dB range would produce inf scale factors and
+    // NaN coordinates that survive .clamp(); a flat range maps every value
+    // to the baseline instead.
+    let scale_factor = if vert_range > 0.0 {
+      fft_height / vert_range
+    } else {
+      0.0
+    };
     let x_base = fft_area_x as f32;
     let x_scale = if data_width > 1 {
       plot_width / (data_width as f32 - 1.0)
@@ -624,7 +639,7 @@ impl ARMOptimizedSIMD {
     coords
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn transform_coords_scalar_impl(
     spectrum_data: &[f32],
     canvas_width: usize,
@@ -640,7 +655,14 @@ impl ARMOptimizedSIMD {
     let fft_height = (fft_area_max_y - fft_area_y) as f32;
     let plot_width = (fft_area_max_x - fft_area_x) as f32;
     let vert_range = db_max - db_min;
-    let scale_factor = fft_height / vert_range;
+    // A degenerate (zero-width) dB range would produce inf scale factors and
+    // NaN coordinates that survive .clamp(); a flat range maps every value
+    // to the baseline instead.
+    let scale_factor = if vert_range > 0.0 {
+      fft_height / vert_range
+    } else {
+      0.0
+    };
 
     let mut coords = Vec::with_capacity(data_width);
 
@@ -837,7 +859,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn apply_window_scalar_impl(
     complex_re: &mut [f32],
     complex_im: &mut [f32],
@@ -945,7 +967,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn power_spectrum_db_scalar_impl(
     complex_re: &[f32],
     complex_im: &[f32],
@@ -1112,7 +1134,7 @@ impl ARMOptimizedSIMD {
     }
   }
 
-  #[allow(dead_code)]
+  #[cfg(not(any(target_arch = "wasm32", target_arch = "aarch64")))]
   fn convert_to_complex_scalar_impl(
     data: &[u8],
     complex_re: &mut [f32],

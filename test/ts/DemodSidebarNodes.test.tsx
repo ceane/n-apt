@@ -2,8 +2,8 @@
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
-import { DemodSidebarNodes } from "../../src/ts/components/sidebar/DemodSidebarNodes";
-import { buildAppTheme } from "@n-apt/components/ui/Theme";
+import { DemodSidebarNodes } from "@n-apt/demodulation/sidebar/DemodSidebarNodes";
+import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 
 const theme = buildAppTheme({
@@ -53,6 +53,21 @@ describe("DemodSidebarNodes", () => {
     expect(screen.getByText("Tx")).toBeInTheDocument();
     expect(
       screen.getByText("Configure a transmit signal for controlled demod tests"),
+    ).toBeInTheDocument();
+  });
+
+  it("offers a Waterfall Analysis node", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <DemodSidebarNodes />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Node Library/i }));
+
+    expect(screen.getByText("Waterfall Analysis")).toBeInTheDocument();
+    expect(
+      screen.getByText("Tune and inspect a waterfall signal window"),
     ).toBeInTheDocument();
   });
 });

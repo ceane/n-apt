@@ -1,8 +1,9 @@
 use axum::extract::{Query, State};
-use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use log::{error, info, warn};
+use std::collections::HashMap;
 use std::sync::Arc;
 use webauthn_rs::prelude::*;
 
@@ -14,12 +15,65 @@ use crate::server::types::{
 };
 use uuid::Uuid;
 
+// NOTE (known security flaw, accepted for local deployments): the /auth/*
+// endpoints have no rate limiting. N-APT is designed to run on localhost /
+// trusted LANs where per-IP throttling is not meaningful; if this server is
+// ever exposed publicly, add rate limiting to /auth/challenge, /auth/verify,
+// /auth/passkey/register/* and /auth/passkey/auth/* before doing so — they
+// are unauthenticated and each request performs Redis or WebAuthn work.
+
+/// Abandoned passkey challenges expire after this long. Both start endpoints
+/// are unauthenticated, so without an expiry + cap the pending-state maps
+/// accumulate entries for the lifetime of the process.
+const PENDING_PASSKEY_TTL: std::time::Duration =
+  std::time::Duration::from_secs(300);
+const PENDING_PASSKEY_MAX_ENTRIES: usize = 64;
+
+type PendingPasskeyState<T> = HashMap<String, (std::time::Instant, T)>;
+
+fn insert_pending_passkey_state<T>(
+  map: &mut PendingPasskeyState<T>,
+  challenge_id: String,
+  value: T,
+) {
+  let now = std::time::Instant::now();
+  map.retain(|_, (created_at, _)| {
+    now.duration_since(*created_at) < PENDING_PASSKEY_TTL
+  });
+  if map.len() >= PENDING_PASSKEY_MAX_ENTRIES {
+    // Evict the oldest entries to make room.
+    let mut entries: Vec<(std::time::Instant, String)> = map
+      .iter()
+      .map(|(key, (created_at, _))| (*created_at, key.clone()))
+      .collect();
+    entries.sort();
+    let excess = map.len() + 1 - PENDING_PASSKEY_MAX_ENTRIES;
+    for (_, key) in entries.into_iter().take(excess) {
+      map.remove(&key);
+    }
+  }
+  map.insert(challenge_id, (now, value));
+}
+
+fn take_pending_passkey_state<T>(
+  map: &mut PendingPasskeyState<T>,
+  challenge_id: &str,
+) -> Option<T> {
+  let (created_at, value) = map.remove(challenge_id)?;
+  if std::time::Instant::now().duration_since(created_at) >= PENDING_PASSKEY_TTL
+  {
+    warn!("Expired pending passkey challenge rejected");
+    return None;
+  }
+  Some(value)
+}
+
 /// GET /auth/info — returns whether passkeys are registered (so frontend
 /// knows whether to show passkey button vs password-only).
 pub async fn auth_info_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
-  let has_passkeys = state.credential_store.has_passkeys();
+  let has_passkeys = state.credential_store.has_passkeys().await;
   Json(serde_json::json!({
     "has_passkeys": has_passkeys,
   }))
@@ -32,8 +86,23 @@ pub async fn auth_logout_handler(
   Query(params): Query<LogoutParams>,
 ) -> impl IntoResponse {
   if let Some(token) = params.token {
-    info!("Revoking session token: {}…", &token[..token.len().min(8)]);
-    state.session_store.revoke(&token).await;
+    info!(
+      "Revoking session token: {}…",
+      token.get(..8).unwrap_or(&token)
+    );
+    // Fail closed: if the session cannot be revoked server-side, the client
+    // must not be told it logged out while the token remains valid.
+    if let Err(error) = state.session_store.revoke(&token).await {
+      error!("Logout failed to revoke session: {error}");
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+          "error": "logout_failed",
+          "message": "Session could not be revoked; please try again",
+        })),
+      )
+        .into_response();
+    }
   }
 
   info!("Logout requested, clearing site data and redirecting");
@@ -60,7 +129,12 @@ pub async fn auth_challenge_handler(
 
   // Store the nonce temporarily in Redis (short-lived, 60s)
   let challenge_id = Uuid::new_v4().to_string();
-  if let Err(e) = state.shared.store_challenge(&challenge_id, nonce) {
+  if let Err(e) = state
+    .shared
+    .redis_store
+    .store_challenge(&challenge_id, nonce)
+    .await
+  {
     error!("Failed to store challenge in Redis: {}", e);
     return (
       StatusCode::INTERNAL_SERVER_ERROR,
@@ -85,7 +159,25 @@ pub async fn auth_verify_handler(
   Json(body): Json<AuthVerifyRequest>,
 ) -> impl IntoResponse {
   // Look up the challenge nonce from Redis
-  let nonce = state.shared.take_challenge(&body.challenge_id);
+  let nonce = match state
+    .shared
+    .redis_store
+    .take_challenge(&body.challenge_id)
+    .await
+  {
+    Ok(nonce) => nonce,
+    Err(error) => {
+      error!("Failed to consume auth challenge from Redis: {error}");
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+          "error": "redis_unavailable",
+          "message": "Authentication storage is temporarily unavailable",
+        })),
+      )
+        .into_response();
+    }
+  };
 
   let Some(nonce_bytes) = nonce else {
     return (
@@ -131,14 +223,27 @@ pub async fn auth_verify_handler(
 
   // Authentication successful — create session with a unique key
   let session_key = crate::crypto::generate_nonce(); // 32 random bytes
-  let token = state.session_store.create_session(session_key).await;
+  let token = match state.session_store.create_session(session_key).await {
+    Ok(token) => token,
+    Err(error) => {
+      error!("Failed to persist password-auth session: {error}");
+      return (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+          "error": "redis_unavailable",
+          "message": "Session storage is temporarily unavailable",
+        })),
+      )
+        .into_response();
+    }
+  };
   info!("Password authentication successful, session created");
 
   (
     StatusCode::OK,
     Json(serde_json::json!({
       "token": token,
-      "expires_in": 86400,
+      "expires_in": crate::session::SESSION_TTL_SECS,
     })),
   )
     .into_response()
@@ -172,17 +277,26 @@ pub async fn auth_session_handler(
 
 #[derive(serde::Deserialize)]
 pub struct VaultKeyQuery {
-  pub token: String,
+  pub token: Option<String>,
 }
 
 /// GET /auth/vault-key — returns the password-derived vault key used for file
 /// encryption/decryption in this local environment.
 pub async fn auth_vault_key_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
   axum::extract::Query(query): axum::extract::Query<VaultKeyQuery>,
 ) -> impl IntoResponse {
-  match state.session_store.validate(&query.token).await {
-    Some(_session) => {
+  let token = headers
+    .get(axum::http::header::AUTHORIZATION)
+    .and_then(|header| header.to_str().ok())
+    .and_then(|header| header.strip_prefix("Bearer "))
+    .filter(|token| !token.is_empty())
+    .map(str::to_owned)
+    .or(query.token);
+
+  match token {
+    Some(token) if state.session_store.validate(&token).await.is_some() => {
       info!("Vault key requested and session validated");
       (
         StatusCode::OK,
@@ -192,7 +306,7 @@ pub async fn auth_vault_key_handler(
       )
         .into_response()
     }
-    None => (
+    _ => (
       StatusCode::UNAUTHORIZED,
       Json(serde_json::json!({
         "error": "session_expired",
@@ -208,7 +322,7 @@ pub async fn passkey_register_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
   let user_unique_id = Uuid::new_v4();
-  let existing_keys = state.credential_store.get_passkeys();
+  let existing_keys = state.credential_store.get_passkeys().await;
   let exclude_credentials: Vec<CredentialID> =
     existing_keys.iter().map(|k| k.cred_id().clone()).collect();
 
@@ -220,11 +334,14 @@ pub async fn passkey_register_start_handler(
   ) {
     Ok((ccr, reg_state)) => {
       let challenge_id = Uuid::new_v4().to_string();
-      state
-        .pending_passkey_registrations
-        .lock()
-        .expect("passkey registration state poisoned")
-        .insert(challenge_id.clone(), reg_state);
+      insert_pending_passkey_state(
+        &mut state
+          .pending_passkey_registrations
+          .lock()
+          .expect("passkey registration state poisoned"),
+        challenge_id.clone(),
+        reg_state,
+      );
 
       let ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
         error!("Failed to serialize CCR: {}", e);
@@ -261,21 +378,20 @@ pub async fn passkey_register_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
-  let reg_state: PasskeyRegistration = match state
-    .pending_passkey_registrations
-    .lock()
-    .expect("passkey registration state poisoned")
-    .remove(&body.challenge_id)
-  {
-    Some(s) => s,
-    None => {
-      return (
-        StatusCode::BAD_REQUEST,
-        Json(serde_json::json!({
-          "error": "invalid_challenge",
-        })),
-      );
-    }
+  let reg_state: Option<PasskeyRegistration> = {
+    let mut pending = state
+      .pending_passkey_registrations
+      .lock()
+      .expect("passkey registration state poisoned");
+    take_pending_passkey_state(&mut pending, &body.challenge_id)
+  };
+  let Some(reg_state) = reg_state else {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "invalid_challenge",
+      })),
+    );
   };
 
   match state
@@ -283,7 +399,7 @@ pub async fn passkey_register_finish_handler(
     .finish_passkey_registration(&body.credential, &reg_state)
   {
     Ok(passkey) => {
-      if let Err(e) = state.credential_store.add_passkey(passkey) {
+      if let Err(e) = state.credential_store.add_passkey(passkey).await {
         error!("Failed to store passkey: {}", e);
         return (
           StatusCode::INTERNAL_SERVER_ERROR,
@@ -317,7 +433,7 @@ pub async fn passkey_register_finish_handler(
 pub async fn passkey_auth_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
-  let existing_keys = state.credential_store.get_passkeys();
+  let existing_keys = state.credential_store.get_passkeys().await;
   if existing_keys.is_empty() {
     return (
       StatusCode::BAD_REQUEST,
@@ -331,11 +447,14 @@ pub async fn passkey_auth_start_handler(
   match state.webauthn.start_passkey_authentication(&existing_keys) {
     Ok((rcr, auth_state)) => {
       let challenge_id = Uuid::new_v4().to_string();
-      state
-        .pending_passkey_authentications
-        .lock()
-        .expect("passkey auth state poisoned")
-        .insert(challenge_id.clone(), auth_state);
+      insert_pending_passkey_state(
+        &mut state
+          .pending_passkey_authentications
+          .lock()
+          .expect("passkey auth state poisoned"),
+        challenge_id.clone(),
+        auth_state,
+      );
 
       (
         StatusCode::OK,
@@ -363,21 +482,20 @@ pub async fn passkey_auth_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyAuthFinishRequest>,
 ) -> impl IntoResponse {
-  let auth_state: PasskeyAuthentication = match state
-    .pending_passkey_authentications
-    .lock()
-    .expect("passkey auth state poisoned")
-    .remove(&body.challenge_id)
-  {
-    Some(s) => s,
-    None => {
-      return (
-        StatusCode::BAD_REQUEST,
-        Json(serde_json::json!({
-          "error": "invalid_challenge",
-        })),
-      );
-    }
+  let auth_state: Option<PasskeyAuthentication> = {
+    let mut pending = state
+      .pending_passkey_authentications
+      .lock()
+      .expect("passkey auth state poisoned");
+    take_pending_passkey_state(&mut pending, &body.challenge_id)
+  };
+  let Some(auth_state) = auth_state else {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "invalid_challenge",
+      })),
+    );
   };
 
   match state
@@ -387,14 +505,26 @@ pub async fn passkey_auth_finish_handler(
     Ok(_auth_result) => {
       // Authentication successful — create session with a unique key
       let session_key = crate::crypto::generate_nonce();
-      let token = state.session_store.create_session(session_key).await;
+      let token = match state.session_store.create_session(session_key).await {
+        Ok(token) => token,
+        Err(error) => {
+          error!("Failed to persist passkey-auth session: {error}");
+          return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+              "error": "redis_unavailable",
+              "message": "Session storage is temporarily unavailable",
+            })),
+          );
+        }
+      };
       info!("Passkey authentication successful, session created");
 
       (
         StatusCode::OK,
         Json(serde_json::json!({
           "token": token,
-          "expires_in": 86400,
+          "expires_in": crate::session::SESSION_TTL_SECS,
         })),
       )
     }

@@ -1,13 +1,13 @@
-import { buildCliSnapshotModel } from "./snapshotModel";
+import { buildCliSnapshotModel } from "@n-apt/cli/snapshotModel";
 import {
   buildSnapshotStatsLines,
   renderSpectrumSnapshotCanvas,
   renderStatsRowCanvas,
   renderWaterfallSnapshotCanvas,
-} from "@n-apt/hooks/useSnapshot";
+} from "@n-apt/capture/hooks/useSnapshot";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
-import type { SnapshotData } from "@n-apt/components/FFTCanvas";
-import type { SnapshotTheme } from "@n-apt/utils/rendering/SnapshotRenderer";
+import type { SnapshotData } from "@n-apt/spectrum/FFTCanvas";
+import type { SnapshotTheme } from "@n-apt/layout/rendering/SnapshotRenderer";
 
 type HarnessRequest = {
   iqFrames: number[][];

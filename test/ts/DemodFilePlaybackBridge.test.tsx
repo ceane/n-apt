@@ -2,8 +2,8 @@
 import React from "react";
 import { render } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import DemodFilePlaybackBridge from "@n-apt/components/DemodFilePlaybackBridge";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import DemodFilePlaybackBridge from "@n-apt/capture/DemodFilePlaybackBridge";
+import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
 
 var mockLiveDataRef = { current: null as any };
 const mockUsePlaybackAnimation = jest.fn(() => ({}));
@@ -26,7 +26,7 @@ jest.mock("@n-apt/redux", () => ({
   setActivePlaybackMetadata: () => ({ type: "metadata" }),
 }));
 
-jest.mock("@n-apt/hooks/useStitchingLogic", () => ({
+jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
   useStitchingLogic: () => ({
     hasStitchedData: true,
     channelCount: 1,
@@ -52,7 +52,7 @@ jest.mock("@n-apt/hooks/useStitchingLogic", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/usePlaybackAnimation", () => ({
+jest.mock("@n-apt/capture/hooks/usePlaybackAnimation", () => ({
   usePlaybackAnimation: () => {
     mockUsePlaybackAnimation();
     return {};

@@ -1,380 +1,170 @@
 import * as React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTPlaybackCanvas from "@n-apt/components/FFTPlaybackCanvas";
+import FFTPlaybackCanvas from "@n-apt/spectrum/FFTPlaybackCanvas";
 
-jest.mock("@n-apt/hooks/useWasmSimdMath", () => ({
-  useWasmSimdMath: () => ({
-    isWasmLoaded: true,
-    isSimdAvailable: false,
-    resampleSpectrum: jest.fn(),
-    processIqToSpectrum: jest.fn(),
-    processIqToDbmSpectrum: jest.fn(),
-    shiftWaterfallBuffer: jest.fn(),
-    applyColorMapping: jest.fn(),
-    getZoomedData: jest.fn((params) => ({
-      slicedWaveform: params.fullWaveform,
-      visualRange: params.fullRange,
-      clampedPan: 0,
-    })),
-    transformToScreenCoords: jest.fn(() => []),
-    calculateFrequencyDrag: jest.fn(),
-    detectProminentSpikes: jest.fn(() => []),
-    resampleSpectrumEnhanced: jest.fn(),
-    matchNoiseFloorDb: jest.fn((ref, target) => target),
-  }),
+const dispatchMock = jest.fn();
+
+jest.mock("@n-apt/spectrum", () => ({
+  FFTAndWaterfall: React.forwardRef(() => null),
 }));
 
-// Mock File API
-const createMockFile = (name: string, size: number = 1024): File => {
-  const buffer = new ArrayBuffer(size);
-  const view = new Uint8Array(buffer);
-  // Fill with some mock IQ data
-  for (let i = 0; i < size; i++) {
-    view[i] = Math.floor(Math.random() * 256);
-  }
-  return new File([buffer], name, { type: "application/octet-stream" });
-};
+jest.mock("@n-apt/redux", () => ({
+  useAppDispatch: () => dispatchMock,
+  useAppSelector: (selector: (state: unknown) => unknown) =>
+    selector({
+      waterfall: { stitchStatus: "Ready" },
+      spectrum: { activeSignalArea: "A" },
+      theme: { appMode: "system" },
+    }),
+  selectActiveSignalArea: jest.fn(() => "A"),
+  bumpSnapshotSectionPulse: jest.fn(),
+  setActivePlaybackMetadata: jest.fn(),
+  setPlaybackChannels: jest.fn(),
+  clearActivePlaybackMetadata: jest.fn(),
+  setActiveSignalArea: jest.fn(),
+  setSelectedFiles: jest.fn((files) => ({ type: "files/set", payload: files })),
+  triggerStitch: jest.fn(() => ({ type: "stitch/trigger" })),
+}));
 
-describe("FFTPlaybackCanvas Component", () => {
-  const mockFiles = [
+jest.mock("@n-apt/capture/public/useSnapshot", () => ({
+  useSnapshot: () => ({ handleSnapshot: jest.fn() }),
+}));
+
+jest.mock("@n-apt/capture/public/usePlaybackAnimation", () => ({
+  usePlaybackAnimation: () => ({ animateFrame: jest.fn() }),
+}));
+
+jest.mock("@n-apt/spectrum/hooks/useChannelManagement", () => ({
+  useChannelManagement: () => ({ switchChannel: jest.fn() }),
+}));
+
+jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
+  useSpectrumStore: () => ({ toggleVisualizerPause: jest.fn() }),
+  useOptionalSpectrumStore: () => null,
+}));
+
+jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
+  useStitchingLogic: ({
+    onStitchStatus,
+    stitchTrigger,
+  }: {
+    onStitchStatus?: (status: string) => void;
+    stitchTrigger: number | null;
+  }) => {
+    React.useEffect(() => {
+      onStitchStatus?.(stitchTrigger ? "Processing files" : "Ready");
+    }, [onStitchStatus, stitchTrigger]);
+
+    return {
+      hasStitchedData: false,
+      frequencyRange: { min: 0, max: 3_200_000 },
+      channelCount: 0,
+      activeChannel: 0,
+      hardwareSampleRateHz: 3_200_000,
+      allChannelsRef: { current: [] },
+      workerFileDataCache: { current: [] },
+      workerFreqMap: { current: [] },
+      workerMetadataMap: { current: [] },
+      precomputedFrames: { current: [] },
+      maxFrames: { current: 0 },
+      setChannelCount: jest.fn(),
+      setActiveChannel: jest.fn(),
+      setFrequencyRange: jest.fn(),
+      setHardwareSampleRateHz: jest.fn(),
+      stitchFiles: jest.fn(),
+    };
+  },
+}));
+
+const baseProps = {
+  selectedFiles: [
     { id: "test1", name: "test1.napt" },
     { id: "test2", name: "test2.wav" },
-  ];
+  ],
+  stitchTrigger: 0,
+  stitchSourceSettings: { gain: 0, ppm: 0 },
+  isPaused: false,
+  fftSize: 2048,
+  displayMode: "fft" as const,
+};
 
-  const defaultProps = {
-    selectedFiles: mockFiles,
-    stitchTrigger: 0,
-    stitchSourceSettings: { gain: 0, ppm: 0 },
-    isPaused: false,
-    fftSize: 2048,
-    displayMode: "fft" as const,
-    onStitchStatus: jest.fn(),
-    onStitchPauseToggle: jest.fn(),
-    onSelectedFilesChange: jest.fn(),
-    onStitch: jest.fn(),
-    onClear: jest.fn(),
-  };
-
+describe("FFTPlaybackCanvas", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("should render stitcher canvas", () => {
-    render(<FFTPlaybackCanvas {...defaultProps} />);
+  it("renders the current empty state for selected files", () => {
+    render(<FFTPlaybackCanvas {...baseProps} />);
+
+    expect(screen.getByText("2 files selected")).toBeInTheDocument();
     expect(
-      screen.getByText("N-APT File Stitcher & I/Q Replay"),
+      screen.getByText("Click Stitch/Process to visualize"),
     ).toBeInTheDocument();
   });
 
-  it("should show file selection prompt when no files selected", () => {
-    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={[]} />);
-    expect(
-      screen.getByText("Drop .wav or .napt files here"),
-    ).toBeInTheDocument();
+  it("prompts for files when the selection is empty", () => {
+    render(<FFTPlaybackCanvas {...baseProps} selectedFiles={[]} />);
+
     expect(screen.getByText("No files selected")).toBeInTheDocument();
-  });
-
-  it("should display selected files", () => {
-    render(<FFTPlaybackCanvas {...defaultProps} />);
-    expect(screen.getByText("test1.napt")).toBeInTheDocument();
-    expect(screen.getByText("test2.wav")).toBeInTheDocument();
-  });
-
-  it("should handle file selection", async () => {
-    const { unmount } = render(
-      <FFTPlaybackCanvas {...defaultProps} selectedFiles={[]} />,
-    );
-
-    // Component shows drop zone when no files
     expect(
-      screen.getByText("Drop .wav or .napt files here"),
+      screen.getByText("Drop .napt, .iq, or .wav files here"),
     ).toBeInTheDocument();
-
-    unmount();
   });
 
-  it("should trigger stitching when files are selected", async () => {
-    // Mock doesn't auto-trigger stitching, so test with trigger
-    const props = { ...defaultProps, stitchTrigger: 1 };
-    render(<FFTPlaybackCanvas {...props} />);
-
-    // Should trigger stitching
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Processing"),
-        );
-      },
-      { timeout: 3000 },
-    );
-  });
-
-  it("should handle stitch trigger", () => {
-    const { rerender } = render(
-      <FFTPlaybackCanvas {...defaultProps} stitchTrigger={0} />,
-    );
-
-    rerender(<FFTPlaybackCanvas {...defaultProps} stitchTrigger={1} />);
-
-    // Mock triggers status update instead of onStitch
-    expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-      expect.stringContaining("Processing"),
-    );
-  });
-
-  it("should handle play/pause controls", () => {
-    const props = { ...defaultProps, isPaused: true }; // Start with Play button visible
-    render(<FFTPlaybackCanvas {...props} />);
-
-    const playButton = screen.getByRole("button", { name: /Play/ });
-    expect(playButton).toBeInTheDocument();
-
-    fireEvent.click(playButton);
-    expect(defaultProps.onStitchPauseToggle).toHaveBeenCalled();
-  });
-
-  it("should show processing status during stitching", async () => {
-    const props = { ...defaultProps, stitchTrigger: 1 }; // Trigger stitching
-    render(<FFTPlaybackCanvas {...props} />);
-
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Processing"),
-        );
-      },
-      { timeout: 3000 },
-    );
-  });
-
-  it("should show completed status after stitching", async () => {
-    render(<FFTPlaybackCanvas {...defaultProps} />);
-
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Ready"),
-        );
-      },
-      { timeout: 5000 },
-    );
-  });
-
-  it("should handle clear action", () => {
-    render(<FFTPlaybackCanvas {...defaultProps} />);
-
-    const clearButton = screen.getByRole("button", { name: /Clear/ });
-    fireEvent.click(clearButton);
-
-    expect(defaultProps.onClear).toHaveBeenCalled();
-  });
-
-  it("should handle source settings changes", () => {
-    // Settings are handled internally in the real component
-    // Mock doesn't need to test UI controls
-    expect(true).toBe(true); // Placeholder test
-  });
-
-  it("should handle invalid files gracefully", () => {
-    const invalidFile = new File(["invalid"], "test.txt", {
-      type: "text/plain",
-    });
+  it("reports processing when the parent triggers stitching", async () => {
+    const onStitchStatus = jest.fn();
 
     render(
       <FFTPlaybackCanvas
-        {...defaultProps}
-        selectedFiles={[{ id: "invalid", name: "test.txt" }]}
+        {...baseProps}
+        stitchTrigger={1}
+        onStitchStatus={onStitchStatus}
       />,
     );
 
-    // Should not crash and should show error handling
-    expect(screen.getByText("test.txt")).toBeInTheDocument();
-  });
-
-  it("should handle empty files gracefully", () => {
-    const emptyFile = new File([], "empty.napt", {
-      type: "application/octet-stream",
-    });
-
-    render(
-      <FFTPlaybackCanvas
-        {...defaultProps}
-        selectedFiles={[{ id: "empty", name: "empty.napt" }]}
-      />,
-    );
-
-    // Should not crash
-    expect(screen.getByText("empty.napt")).toBeInTheDocument();
-  });
-
-  it("should handle large files efficiently", () => {
-    const largeFile = createMockFile("large.wav", 1048576); // 1MB file
-
-    render(
-      <FFTPlaybackCanvas
-        {...defaultProps}
-        selectedFiles={[{ id: "large", name: "large.wav" }]}
-      />,
-    );
-
-    // Should not crash with large file
-    expect(screen.getByText("large.wav")).toBeInTheDocument();
-  });
-
-  it("should handle multiple files", () => {
-    const manyFiles = [
-      ...Array.from({ length: 5 }, (_, i) => ({
-        id: `test${i}`,
-        name: `test${i}.napt`,
-      })),
-      ...Array.from({ length: 5 }, (_, i) => ({
-        id: `wav${i}`,
-        name: `wav${i}.wav`,
-      })),
-    ];
-
-    render(<FFTPlaybackCanvas {...defaultProps} selectedFiles={manyFiles} />);
-
-    // Should display all files
-    manyFiles.slice(0, 5).forEach((file, index) => {
-      expect(screen.getByText(`test${index}.napt`)).toBeInTheDocument();
-    });
-    manyFiles.slice(5).forEach((file, index) => {
-      expect(screen.getByText(`wav${index}.wav`)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(onStitchStatus).toHaveBeenCalledWith("Processing files");
     });
   });
 
-  it("should handle playback controls", async () => {
-    const props = { ...defaultProps, isPaused: true }; // Start paused so Play button is visible
-    render(<FFTPlaybackCanvas {...props} />);
+  it("reports ready for the initial untriggered state", async () => {
+    const onStitchStatus = jest.fn();
 
-    // Wait for stitching to complete
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Ready"),
-        );
+    render(<FFTPlaybackCanvas {...baseProps} onStitchStatus={onStitchStatus} />);
+
+    await waitFor(() => {
+      expect(onStitchStatus).toHaveBeenCalledWith("Ready");
+    });
+  });
+
+  it("accepts supported dropped files and dispatches the file actions", () => {
+    const container = render(<FFTPlaybackCanvas {...baseProps} />).container;
+    const file = new File([new Uint8Array([1, 2])], "new.iq");
+
+    fireEvent.drop(container.firstElementChild as Element, {
+      dataTransfer: {
+        files: [file],
+        types: ["Files"],
       },
-      { timeout: 5000 },
-    );
-
-    // Play button should be available
-    const playButton = screen.getByRole("button", { name: /Play/ });
-    expect(playButton).toBeInTheDocument();
-
-    fireEvent.click(playButton);
-
-    // Should start playback
-    expect(defaultProps.onStitchPauseToggle).toHaveBeenCalled();
-  });
-
-  it("should handle frequency mapping", () => {
-    render(<FFTPlaybackCanvas {...defaultProps} />);
-
-    // Frequency mapping should be handled internally
-    expect(screen.getByText("Frequency Range")).toBeInTheDocument();
-  });
-
-  it("should handle frame stepping", async () => {
-    render(<FFTPlaybackCanvas {...defaultProps} />);
-
-    // Wait for stitching to complete
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Ready"),
-        );
-      },
-      { timeout: 5000 },
-    );
-
-    // Frame stepping controls should be available
-    expect(screen.getByText("Frame: 0")).toBeInTheDocument();
-  });
-
-  it("should handle worker communication", async () => {
-    const props = { ...defaultProps, stitchTrigger: 1 }; // Trigger stitching
-    render(<FFTPlaybackCanvas {...props} />);
-
-    // Should use worker for processing (handled internally)
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Processing"),
-        );
-      },
-      { timeout: 3000 },
-    );
-  });
-
-  it("should handle worker fallback", async () => {
-    // Mock worker failure
-    const originalWorker = global.Worker;
-    global.Worker = jest.fn().mockImplementation(() => {
-      throw new Error("Worker unavailable");
     });
 
-    render(<FFTPlaybackCanvas {...defaultProps} />);
-
-    // Should fall back to local processing
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Ready"),
-        );
-      },
-      { timeout: 5000 },
-    );
-
-    // Restore original Worker
-    global.Worker = originalWorker;
+    expect(dispatchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("should cleanup resources on unmount", () => {
-    const { unmount } = render(<FFTPlaybackCanvas {...defaultProps} />);
+  it("keeps the component mountable across file selection changes", () => {
+    const { rerender, unmount } = render(<FFTPlaybackCanvas {...baseProps} />);
 
-    // Should not throw errors during unmount
+    expect(() =>
+      rerender(
+        <FFTPlaybackCanvas
+          {...baseProps}
+          selectedFiles={[{ id: "new", name: "new.napt" }]}
+        />,
+      ),
+    ).not.toThrow();
+
+    expect(screen.getByText("1 file selected")).toBeInTheDocument();
     expect(() => unmount()).not.toThrow();
-  });
-
-  it("should handle rapid file selection changes", () => {
-    const { rerender } = render(<FFTPlaybackCanvas {...defaultProps} />);
-
-    // Rapid file changes
-    const files1 = [{ id: "file1", name: "file1.napt" }];
-    const files2 = [{ id: "file2", name: "file2.wav" }];
-    const files3 = [{ id: "file3", name: "file3.napt" }];
-
-    expect(() =>
-      rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files1} />),
-    ).not.toThrow();
-    expect(() =>
-      rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files2} />),
-    ).not.toThrow();
-    expect(() =>
-      rerender(<FFTPlaybackCanvas {...defaultProps} selectedFiles={files3} />),
-    ).not.toThrow();
-  });
-
-  it("should display progress during file processing", async () => {
-    const props = { ...defaultProps, stitchTrigger: 1 }; // Trigger stitching
-    render(<FFTPlaybackCanvas {...props} />);
-
-    // Should show processing status
-    await waitFor(
-      () => {
-        expect(defaultProps.onStitchStatus).toHaveBeenCalledWith(
-          expect.stringContaining("Processing"),
-        );
-      },
-      { timeout: 3000 },
-    );
-  });
-
-  it("should handle file processing errors gracefully", () => {
-    // Error handling is tested in the real component
-    // Mock focuses on happy path behavior
-    expect(true).toBe(true); // Placeholder test for error handling
   });
 });

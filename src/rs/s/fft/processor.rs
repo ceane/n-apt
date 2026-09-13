@@ -89,7 +89,6 @@ impl Default for FFTProcessor {
   }
 }
 
-#[allow(dead_code)]
 impl FFTProcessor {
   fn configure_simd_processor(
     simd_proc: &mut crate::simd::NativeProcessor,

@@ -1,34 +1,34 @@
 import React, { useEffect } from "react";
 import type { GlobalProvider } from "@ladle/react";
 import { useLadleContext, ThemeState, ActionType } from "@ladle/react";
-import { MemoryRouter } from "react-router-dom";
-import ReduxProvider from "../src/ts/components/ReduxProvider";
-import ReduxThemeProvider from "../src/ts/components/ReduxThemeProvider";
-import { PromptProvider } from "../src/ts/components/ui/PromptProvider";
-import { AuthProvider } from "../src/ts/hooks/useAuthentication";
-import { Model3DProvider } from "../src/ts/hooks/useModel3D";
-import { HotspotEditorProvider } from "../src/ts/hooks/useHotspotEditor";
+import { MemoryRouter } from "react-router";
+import ReduxProvider from "@n-apt/app/ReduxProvider";
+import ReduxThemeProvider from "@n-apt/app/ReduxThemeProvider";
+import { PromptProvider } from "@n-apt/ui/PromptProvider";
+import { AuthProvider } from "@n-apt/app/hooks/useAuthentication";
+import { Model3DProvider } from "@n-apt/three-d/hooks/useModel3D";
+import { Model3DInteractionProvider as HotspotEditorProvider } from "@n-apt/three-d/hooks/useHotspotEditor";
 import {
   SpectrumProvider,
   INITIAL_SPECTRUM_STATE,
-} from "../src/ts/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/hooks/useSpectrumStore";
 import type {
   SpectrumStoreContextValue,
   SpectrumState,
-} from "../src/ts/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/hooks/useSpectrumStore";
 import type {
   DeviceState,
   DeviceLoadingReason,
-} from "../src/ts/hooks/useWebSocket";
-import { store, authActions, themeActions, websocketActions, spectrumActions } from "../src/ts/redux";
-import { setDisconnected, setConnected } from "../src/ts/redux/slices/websocketSlice";
+} from "@n-apt/consts/schemas/websocket";
+import { store, authActions, themeActions, websocketActions, spectrumActions } from "@n-apt/redux";
+import { setDisconnected, setConnected } from "@n-apt/redux/slices/websocketSlice";
 import { createGlobalStyle } from "styled-components";
 import type {
   SpectrumFrame,
   SdrSettingsConfig,
   CaptureRequest,
   CaptureStatus,
-} from "../src/ts/consts/schemas/websocket";
+} from "@n-apt/consts/schemas/websocket";
 
 const GlobalStyle = createGlobalStyle`
   body, button, input, select, textarea {

@@ -2,7 +2,7 @@ import {
   resolveSourceDisplaySampleRate,
   resolveSourceDisplaySignalArea,
   resolveWholeChannelSampleRate,
-} from "@n-apt/utils/sourceSignalDisplay";
+} from "@n-apt/app/infrastructure/visualization/sourceSignalDisplay";
 
 const channels = [
   { label: "A", min_hz: 18_000, max_hz: 4_390_000 },
@@ -66,16 +66,14 @@ describe("source signal display sample rates", () => {
     ).toBe(4_372_000);
   });
 
-  it("resolves a Mock Tx signal's channel as Whole Channel", () => {
+  it("resolves the selected channel for any source as Whole Channel", () => {
     expect(
       resolveWholeChannelSampleRate({
         source: {
-          id: "mock-tx",
-          kind: "mock_tx",
-          mock_tx: { signals: { wifi: { channel: "C" } } },
+          id: "arbitrary-tx-source",
+          kind: "tx",
         },
-        activeSignalArea: "A",
-        txSignal: "wifi",
+        activeSignalArea: "C",
         channels,
       }),
     ).toBe(18_250_000);

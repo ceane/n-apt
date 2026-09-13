@@ -44,6 +44,7 @@ pub struct GlobalMockSettings {
 pub struct MockSignalGenerator {
   frame_counter: u32,
   rng: rand::rngs::ThreadRng,
+  #[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
   total_samples: u64,
 }
 
@@ -53,6 +54,7 @@ impl MockSignalGenerator {
     Self {
       frame_counter: 0,
       rng: ::rand::rng(),
+      #[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
       total_samples: 0,
     }
   }
@@ -540,14 +542,15 @@ impl MockSignalGenerator {
     config: &MockSignalsConfig,
   ) {
     for signal in signals.iter_mut() {
+      // An ACTIVE signal may disappear; an INACTIVE one may appear.
       if signal.active
         && self.rng.random::<f32>()
-          < config.global_settings.signal_appearance_chance as f32
+          < config.global_settings.signal_disappearance_chance as f32
       {
         signal.active = false;
       } else if !signal.active
         && self.rng.random::<f32>()
-          < config.global_settings.signal_disappearance_chance as f32
+          < config.global_settings.signal_appearance_chance as f32
       {
         signal.active = true;
       }
@@ -584,7 +587,8 @@ impl MockSignalGenerator {
     (noise_level_base * noise_scale).clamp(0.001, 0.9)
   }
 
-  /// Generate a single IQ sample
+  /// Generate a single IQ sample for the SIMD tail.
+  #[cfg(any(target_arch = "wasm32", target_arch = "aarch64"))]
   fn generate_sample(
     &mut self,
     _i: usize,

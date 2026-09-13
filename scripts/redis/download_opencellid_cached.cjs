@@ -14,6 +14,7 @@ const { parse } = require('csv-parse/sync');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { resolveSafeMccCsvPath } = require('../shared/opencellidPath.cjs');
 
 // Load environment variables
 require('dotenv').config({ path: '.env.local' });
@@ -25,6 +26,10 @@ if (!OPENCELLID_API_TOKEN) {
   process.exit(1);
 }
 
+// Redis configuration
+const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
+const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
+
 // Cache configuration
 const CACHE_DIR = path.join(__dirname, '../.cache/opencellid');
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 1 week in milliseconds
@@ -35,7 +40,7 @@ if (!fs.existsSync(CACHE_DIR)) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 }
 
-function shouldSkipRun() {
+async function shouldSkipRun() {
   const forceRun = process.argv.includes('--force') || process.env.OPENCELLID_FORCE_REFRESH === '1';
   if (forceRun) {
     console.log('⚠️  Force flag detected; ignoring OpenCellID weekly run guard.');
@@ -53,6 +58,12 @@ function shouldSkipRun() {
 
     const elapsed = Date.now() - lastRunTime;
     if (elapsed < CACHE_DURATION) {
+      const hasExistingData = await hasExistingTowerData();
+      if (!hasExistingData) {
+        console.log('🔁 Weekly guard bypassed because Redis fast/complete DBs are empty.');
+        return false;
+      }
+
       const daysAgo = (elapsed / (24 * 60 * 60 * 1000)).toFixed(1);
       const waitDays = ((CACHE_DURATION - elapsed) / (24 * 60 * 60 * 1000)).toFixed(1);
       console.log(`⏭️  Skipping OpenCellID import; last successful run was ${daysAgo} days ago. (${waitDays} days until next allowed run. Use --force to override.)`);
@@ -68,6 +79,40 @@ function shouldSkipRun() {
 function recordRunTimestamp() {
   const payload = { lastRun: new Date().toISOString() };
   fs.writeFileSync(LAST_RUN_FILE, JSON.stringify(payload, null, 2));
+}
+
+async function hasExistingTowerData() {
+  const fastClient = redis.createClient({ socket: { host: REDIS_HOST, port: REDIS_PORT }, database: 2 });
+  const completeClient = redis.createClient({ socket: { host: REDIS_HOST, port: REDIS_PORT }, database: 3 });
+
+  try {
+    await fastClient.connect();
+    const fastHasData = await hasTowerKeys(fastClient);
+    await fastClient.quit();
+
+    await completeClient.connect();
+    const completeHasData = await hasTowerKeys(completeClient);
+    await completeClient.quit();
+
+    return fastHasData && completeHasData;
+  } catch (error) {
+    console.warn(`⚠️  Unable to verify existing tower data; running full import. (${error.message})`);
+    try { await fastClient.quit(); } catch {}
+    try { await completeClient.quit(); } catch {}
+    return false;
+  }
+}
+
+async function hasTowerKeys(client) {
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await client.scan(cursor, { MATCH: 'tower:*', COUNT: 1 });
+    if (keys.length > 0) {
+      return true;
+    }
+    cursor = nextCursor;
+  } while (cursor !== '0');
+  return false;
 }
 
 // Region definitions
@@ -123,12 +168,12 @@ async function initRedis() {
   
   // Use temporary databases first (db0, db1), then swap to permanent (db2, db3)
   fastRedisClient = redis.createClient({
-    socket: { host: '127.0.0.1', port: 6379 },
+    socket: { host: REDIS_HOST, port: REDIS_PORT },
     database: 0  // Temporary Fast Select DB
   });
   
   completeRedisClient = redis.createClient({
-    socket: { host: '127.0.0.1', port: 6379 },
+    socket: { host: REDIS_HOST, port: REDIS_PORT },
     database: 1  // Temporary Complete DB
   });
   
@@ -140,7 +185,7 @@ async function initRedis() {
 
 // Get cache file path for MCC
 function getCacheFilePath(mcc) {
-  return path.join(CACHE_DIR, `mcc_${mcc}.csv`);
+  return resolveSafeMccCsvPath(CACHE_DIR, mcc, 'mcc_');
 }
 
 // Check if cached data is valid (not expired)
@@ -249,12 +294,11 @@ const LOCAL_CSV_DIR = process.env.LOCAL_OPENCELLID_CSV_DIR || path.join(__dirnam
 
 // Fallback to local CSV files
 async function loadFromLocalCSV(mcc) {
-  const csvPath = path.join(LOCAL_CSV_DIR, `${mcc}.csv`);
-  const fileName = path.basename(csvPath);
+  const csvPath = resolveSafeMccCsvPath(LOCAL_CSV_DIR, mcc);
   
   try {
     if (fs.existsSync(csvPath)) {
-      console.log(`📁 Found local CSV file for MCC ${mcc}: ${fileName} (Source: ${LOCAL_CSV_DIR})`);
+      console.log(`📁 Using local CSV file for MCC ${mcc}: ${csvPath}`);
       stats.localFallbacks++;
       const csvData = fs.readFileSync(csvPath, 'utf8');
       return csvData;
@@ -515,16 +559,8 @@ async function main() {
     console.log('='.repeat(50));
     console.log(`🔑 Using API token: ${OPENCELLID_API_TOKEN.substring(0, 10)}...`);
     
-    if (shouldSkipRun()) {
-      await initRedis();
-      try {
-        const fastCount = await fastRedisClient.dbSize();
-        const completeCount = await completeRedisClient.dbSize();
-        console.log(`TOWER_COUNT=${fastCount + completeCount}`);
-      } finally {
-        await fastRedisClient.quit();
-        await completeRedisClient.quit();
-      }
+    if (await shouldSkipRun()) {
+      console.log('✅ OpenCellID import skipped; existing Redis tower data is still fresh.');
       return;
     }
     

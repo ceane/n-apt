@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { SignalDisplaySection } from "@n-apt/components/sidebar/SignalDisplaySection";
+import { SignalDisplaySection } from "@n-apt/spectrum/sidebar/SignalDisplaySection";
 import { TestWrapper } from "./testUtils";
 
 const baseProps = {
@@ -16,27 +16,51 @@ const baseProps = {
   fftSize: 262144,
   fftSizeOptions: [262144],
   fftWindow: "Rectangular",
-  temporalResolution: "medium" as const,
+  temporalResolution: "reduced" as const,
   autoFftOptions: null,
   backend: "hackrf_one",
   deviceProfile: {
     kind: "hackrf_one" as const,
     is_rtl_sdr: false,
     supports_approx_dbm: false,
-    supports_raw_iq_stream: true,
   },
   powerScale: "dB" as const,
   displayMode: "fft" as const,
+  removeDcSpike: false,
   onFftFrameRateChange: jest.fn(),
   onFftSizeChange: jest.fn(),
   onFftWindowChange: jest.fn(),
   onTemporalResolutionChange: jest.fn(),
   onPowerScaleChange: jest.fn(),
   onDisplayModeChange: jest.fn(),
+  onRemoveDcSpikeChange: jest.fn(),
   scheduleCoupledAdjustment: jest.fn(),
 };
 
 describe("SignalDisplaySection sample rate selector", () => {
+  it("exposes the Remove DC Spike display toggle", () => {
+    const onRemoveDcSpikeChange = jest.fn();
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          sampleRate={3_200_000}
+          onSampleRateChange={jest.fn()}
+          removeDcSpike={false}
+          onRemoveDcSpikeChange={onRemoveDcSpikeChange}
+        />
+      </TestWrapper>,
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Remove DC Spike",
+    });
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+    expect(onRemoveDcSpikeChange).toHaveBeenCalledWith(true);
+  });
+
   it("caps the logical frame-rate control from the live sample rate", () => {
     render(
       <TestWrapper>
@@ -87,7 +111,7 @@ describe("SignalDisplaySection sample rate selector", () => {
     expect(select).toHaveValue("whole-channel");
 
     fireEvent.change(select, { target: { value: "20000000" } });
-    expect(onSampleRateChange).toHaveBeenLastCalledWith(20_000_000);
+    expect(onSampleRateChange).toHaveBeenLastCalledWith(20_000_000, "manual");
 
     rerender(
       <TestWrapper>
@@ -113,7 +137,6 @@ describe("SignalDisplaySection sample rate selector", () => {
             kind: "rtl_sdr" as const,
             is_rtl_sdr: true,
             supports_approx_dbm: true,
-            supports_raw_iq_stream: true,
           }}
           sampleRate={3_200_000}
           wholeChannelSampleRate={3_200_000}
@@ -144,7 +167,29 @@ describe("SignalDisplaySection sample rate selector", () => {
             kind: "mock_apt" as const,
             is_rtl_sdr: true,
             supports_approx_dbm: false,
-            supports_raw_iq_stream: false,
+          }}
+          sampleRate={4_372_000}
+          wholeChannelSampleRate={4_372_000}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByRole("option", { name: "Whole Channel (4.372MHz)" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows whole-channel for a mock backend even if the profile is stale RTL-SDR metadata", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          backend="mock_tx"
+          deviceProfile={{
+            kind: "rtl_sdr" as const,
+            is_rtl_sdr: true,
+            supports_approx_dbm: true,
           }}
           sampleRate={4_372_000}
           wholeChannelSampleRate={4_372_000}

@@ -54,6 +54,10 @@ name = "performance_tests"
 path = "test/rust/performance_tests.rs"
 
 [[test]]
+name = "performance_program_tests"
+path = "test/rust/performance_program_tests.rs"
+
+[[test]]
 name = "frequency_validation_tests"
 path = "test/rust/frequency_validation_tests.rs"
 
@@ -85,6 +89,30 @@ path = "test/rust/hackrf_integration_tests.rs"
 name = "reload_tests"
 path = "test/rust/reload_tests.rs"
 
+[[test]]
+name = "stream_manager_tests"
+path = "test/rust/stream_manager_tests.rs"
+
+[[test]]
+name = "ws_message_proptests"
+path = "test/rust/ws_message_proptests.rs"
+
+[[test]]
+name = "yaml_config_proptests"
+path = "test/rust/yaml_config_proptests.rs"
+
+[[test]]
+name = "iq_frame_codec_proptests"
+path = "test/rust/iq_frame_codec_proptests.rs"
+
+[[test]]
+name = "stream_manager_proptests"
+path = "test/rust/stream_manager_proptests.rs"
+
+[[test]]
+name = "stream_command_proptests"
+path = "test/rust/stream_command_proptests.rs"
+
 [[bin]]
 name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
@@ -92,6 +120,11 @@ path = "src/rs/bin/live_stream_test.rs"
 [[bin]]
 name = "dump_config"
 path = "src/rs/bin/dump_config.rs"
+
+[[bench]]
+name = "pipeline_benchmarks"
+path = "test/benchmarks/pipeline_benchmarks.rs"
+harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rs_decrypted)'] }
@@ -101,15 +134,15 @@ default = []
 mock_apt_metal = ["dep:metal"]
 
 [dependencies]
-paste = "1.0"
 
 # Core dependencies (always included)
 rustfft = "6"
 num-complex = "0.4"
-rand = "0.10"
+rand = ">=0.10.1, <0.11"
+paste = { package = "pastey", version = "0.1.1" }
 rayon = "1.12"
 getrandom = { version = "0.4", features = ["wasm_js"] }
-anyhow = "1.0"
+anyhow = ">=1.0.103, <2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bytemuck = "1.25.0"
@@ -135,7 +168,7 @@ metal = { version = "0.31", optional = true }
 tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.29"
-redis = { version = "1.2", features = ["aio", "tokio-comp"] }
+redis = { version = "1.6", features = ["aio", "tokio-comp"] }
 env_logger = "0.11"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
@@ -156,7 +189,7 @@ tower-http = { version = "0.6", features = ["cors", "set-header", "compression-g
 webauthn-rs = { version = "0.5", default-features = false }
 webauthn-rs-proto = "0.5"
 # Session management
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1.25", features = ["v4"] }
 # Hot reloading and configuration
 notify = "8.2"
 serde_yaml = "0.9"
@@ -175,6 +208,7 @@ doc-comment = "0.3"
 tempfile = "3"
 serial_test = "3.2"
 criterion = { version = "0.8", features = ["html_reports"] }
+proptest = "1.6"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
@@ -223,4 +257,3 @@ overflow-checks = false
 [[bin]]
 name = "test_fft"
 path = "src/rs/bin/test_fft.rs"
-

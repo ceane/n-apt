@@ -1,6 +1,14 @@
-import { resolveSampleRateSpec } from "@n-apt/utils/signals";
+import {
+  computeMaxFrameRate,
+  resolveSampleRateSpec,
+} from "@n-apt/math/signals";
 
 describe("resolveSampleRateSpec", () => {
+  it("allows a configured logical frame-rate ceiling above 60 FPS", () => {
+    expect(computeMaxFrameRate(3_200_000, 32_768, 120)).toBe(97);
+    expect(computeMaxFrameRate(20_000_000, 32_768, 120)).toBe(100);
+  });
+
   it("clamps stale channel-derived rates to the active source maximum", () => {
     expect(
       resolveSampleRateSpec(

@@ -1,16 +1,16 @@
 import React from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
 import {
   deriveStateFromConfig,
   useSdrSettings,
-} from "@n-apt/hooks/useSdrSettings";
-import { SpectrumProvider } from "@n-apt/hooks/useSpectrumStore";
-import { AuthProvider } from "@n-apt/hooks/useAuthentication";
-import type { SdrSettingsConfig } from "@n-apt/hooks/useWebSocket";
-import type { SpectrumState } from "@n-apt/hooks/useSpectrumStore";
+} from "@n-apt/settings/hooks/useSdrSettings";
+import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
+import { AuthProvider } from "@n-apt/app/hooks/useAuthentication";
+import type { SdrSettingsConfig } from "@n-apt/consts/schemas/websocket";
+import type { SpectrumState } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { TestWrapper } from "./testUtils";
 import spectrumSlice, {
   setSdrSettingsBundle,
@@ -25,7 +25,7 @@ describe("N-APT SDR defaults", () => {
   });
 });
 
-testApi.mock("@n-apt/hooks/useAuthentication", () => ({
+testApi.mock("@n-apt/app/hooks/useAuthentication", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
   useAuthentication: () => ({
     isAuthenticated: true,
@@ -47,22 +47,8 @@ const mockSdrSettings = {
     size_to_frame_rate: { "8192": 60, "16384": 42 },
   },
 };
-let mockSendSettings: ReturnType<typeof testApi.fn>;
+let _mockSendSettings: ReturnType<typeof testApi.fn>;
 let mockOnSettingsChange: ReturnType<typeof testApi.fn>;
-
-testApi.mock("@n-apt/hooks/useWebSocket", () => ({
-  useWebSocket: (url: any, key: any, enabled: any) => ({
-    isConnected: enabled,
-    deviceState: "connected",
-    sdrSettings: mockSdrSettings,
-    spectrumFrames: [],
-    dataRef: { current: null },
-    sendSettings: mockSendSettings,
-    sendGetAutoFftOptions: testApi.fn(),
-    sendPauseCommand: testApi.fn(),
-    sendFrequencyRange: testApi.fn(),
-  }),
-}));
 
 type HookHarnessProps = {
   sdrSettings: SdrSettingsConfig;
@@ -144,7 +130,7 @@ const CouplingHarness: React.FC<HookHarnessProps> = (props) => {
 
 describe("useSdrSettings", () => {
   beforeEach(() => {
-    mockSendSettings = testApi.fn();
+    _mockSendSettings = testApi.fn();
     mockOnSettingsChange = testApi.fn();
   });
 
@@ -259,11 +245,16 @@ describe("useSdrSettings", () => {
     });
 
     await waitFor(() => {
+      // Only the capped frame rate is published. The unchanged FFT size must
+      // not be re-sent: a stale local snapshot would clobber device state for
+      // every subscriber (see sendCurrentSettings overrides-only contract).
       expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          fftSize: 16384,
           frameRate: 48,
         }),
+      );
+      expect(mockOnSettingsChange).not.toHaveBeenLastCalledWith(
+        expect.objectContaining({ fftSize: 16384 }),
       );
     });
 
@@ -604,6 +595,183 @@ describe("useSdrSettings", () => {
         tunerBandwidth: 0,
       }),
     );
+  });
+
+  it("keeps a pinned HackRF baseband filter fixed when the sample rate changes", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 16384,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 2_400_000,
+        basebandFilterPinned: true,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    let hookApi: ReturnType<typeof useSdrSettings> | null = null;
+
+    const Harness = () => {
+      hookApi = useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    expect(hookApi).not.toBeNull();
+
+    act(() => {
+      hookApi!.setSampleRate(4_372_000);
+    });
+
+    // Pinned: the baseband value stays at the user's custom setting.
+    expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(2_400_000);
+    expect(store.getState().spectrum.sampleRateHz).toBe(4_372_000);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sampleRate: 4_372_000,
+        tunerBandwidth: 2_400_000,
+      }),
+    );
+  });
+
+  it("does not let stale backend bandwidth clobber the local Baseband setting", async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 16384,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 4_372_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 4_372_000,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <HookHarness
+          deviceType="hackrf_one"
+          currentSampleRateHz={4_372_000}
+          sdrSettings={{
+            ...mockSdrSettings,
+            sample_rate: 4_372_000,
+            gain: {
+              ...mockSdrSettings.gain,
+              tuner_bandwidth: 3_200_000,
+            },
+          }}
+          spectrumStateOverride={store.getState().spectrum as any}
+        />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(
+        4_372_000,
+      );
+    });
+  });
+
+  it("sends only the changed field, never a stale full snapshot", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 2048, // stale: another client changed it to 4096, this one missed the hydration
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: false,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    let hookApi: ReturnType<typeof useSdrSettings> | null = null;
+
+    const Harness = () => {
+      hookApi = useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    expect(hookApi).not.toBeNull();
+
+    act(() => {
+      // The user changes gain. The stale local fftSize (2048) must NOT ride
+      // along in the payload, or every client would be reset to 2048.
+      hookApi!.setGain(30);
+    });
+
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ gain: 30 }),
+    );
+    const lastCall = mockOnSettingsChange.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(lastCall.fftSize).toBeUndefined();
+    expect(lastCall.ppm).toBeUndefined();
+    expect(lastCall.tunerAGC).toBeUndefined();
   });
 
   it("routes HackRF LNA, VGA, and AMP changes through the live settings payload", () => {

@@ -1,4 +1,4 @@
-import { resampleNearestInto } from "../../src/ts/utils/resampleNearest";
+import { resampleNearestInto } from "@n-apt/math/resampleNearest";
 
 describe("resampleNearestInto", () => {
   it("reuses the provided typed output buffer", () => {

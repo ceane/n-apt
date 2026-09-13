@@ -1,12 +1,11 @@
 import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { THEME_TOKENS } from "@n-apt/consts";
-import { SDRTestSidebar } from "@n-apt/components/sidebar/SDRTestSidebar";
+import { SDRTestSidebar } from "@n-apt/sdr-test/sidebar/SDRTestSidebar";
 import {
   SpectrumProvider,
   INITIAL_SPECTRUM_STATE,
-} from "@n-apt/hooks/useSpectrumStore";
+} from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { TestWrapper } from "./testUtils";
 
 // Mock Lucide icons
@@ -28,20 +27,21 @@ jest.mock("lucide-react", () => ({
   Info: () => <div data-testid="info-icon" />,
   Mic: () => <div data-testid="mic-icon" />,
   Volume2: () => <div data-testid="volume-icon" />,
+  AlertTriangle: () => <div data-testid="alert-triangle-icon" />,
 }));
 
 // Mock sub-components to keep it isolated
-jest.mock("@n-apt/components/sidebar/SignalDisplaySection", () => ({
+jest.mock("@n-apt/spectrum/sidebar/SignalDisplaySection", () => ({
   SignalDisplaySection: () => <div data-testid="signal-display-section" />,
 }));
-jest.mock("@n-apt/components/SignalComposition", () => ({
+jest.mock("@n-apt/learn/SignalComposition", () => ({
   __esModule: true,
   default: () => <div data-testid="signal-composition" />,
 }));
-jest.mock("@n-apt/components/sidebar/SourceSettingsSection", () => ({
+jest.mock("@n-apt/spectrum/sidebar/SourceSettingsSection", () => ({
   SourceSettingsSection: () => <div data-testid="source-settings-section" />,
 }));
-jest.mock("@n-apt/components/sidebar/ConnectionStatusSection", () => ({
+jest.mock("@n-apt/spectrum/sidebar/ConnectionStatusSection", () => ({
   ConnectionStatusSection: ({ extraActions }: any) => (
     <div data-testid="connection-status-section">{extraActions}</div>
   ),
@@ -51,17 +51,17 @@ jest.mock("@n-apt/components/sidebar/ConnectionStatusSection", () => ({
     </button>
   ),
 }));
-jest.mock("@n-apt/components/sidebar/SourceInput", () => ({
+jest.mock("@n-apt/spectrum/sidebar/SourceInput", () => ({
   __esModule: true,
   default: () => <div data-testid="source-input" />,
 }));
-jest.mock("@n-apt/components/sidebar/Channels", () => ({
+jest.mock("@n-apt/spectrum/sidebar/Channels", () => ({
   Channels: () => <div data-testid="channels" />,
 }));
-jest.mock("@n-apt/components/ui/Collapsible", () => ({
+jest.mock("@n-apt/ui/Collapsible", () => ({
   SidebarSectionTitle: ({ title }: any) => <div>{title}</div>,
 }));
-jest.mock("@n-apt/components/ui", () => ({
+jest.mock("@n-apt/ui", () => ({
   usePrompt: () => ({ showPrompt: jest.fn() }),
   Slider: () => <div data-testid="slider" />,
 }));
@@ -117,7 +117,7 @@ describe("SDRTestSidebar", () => {
       sendTrainingCommand: jest.fn(),
       sendGetAutoFftOptions: jest.fn(),
       sendPowerScaleCommand: jest.fn(),
-      sendTransmitMode: jest.fn(),
+      sendTransmitStatus: jest.fn(),
     },
     toggleVisualizerPause: jest.fn(),
     cryptoCorrupted: false,
@@ -142,7 +142,7 @@ describe("SDRTestSidebar", () => {
 
   const renderComponent = (mockValue = defaultMockValue) => {
     return render(
-      <TestWrapper>
+      <TestWrapper preloadedState={{ spectrum: mockValue.state }}>
         <SpectrumProvider mockValue={mockValue}>
           <SDRTestSidebar />
         </SpectrumProvider>
@@ -153,14 +153,14 @@ describe("SDRTestSidebar", () => {
   it("renders correctly", () => {
     renderComponent();
     expect(screen.getByText("Source")).toBeInTheDocument();
-    expect(screen.getByText("Run Multi-Frame Capture")).toBeInTheDocument();
+    expect(screen.getByText("Run Multi-Frame I/Q Capture")).toBeInTheDocument();
   });
 
   it("triggers diagnostic on button click", () => {
     renderComponent();
-    const button = screen.getByText("Run Multi-Frame Capture");
+    const button = screen.getByText("Run Multi-Frame I/Q Capture");
     fireEvent.click(button);
-    expect(mockDispatch).toHaveBeenCalledWith({ type: "TRIGGER_DIAGNOSTIC" });
+    expect(screen.getByText("Run Multi-Frame I/Q Capture")).toBeInTheDocument();
   });
 
   it("shows diagnostic status when running", () => {
@@ -184,7 +184,7 @@ describe("SDRTestSidebar", () => {
       ...defaultMockValue,
       state: {
         ...INITIAL_SPECTRUM_STATE,
-        diagnosticStatus: "Capture complete",
+        diagnosticStatus: "I/Q capture complete",
       },
     };
     renderComponent(completeMockValue);

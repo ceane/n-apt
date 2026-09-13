@@ -2,7 +2,7 @@ import {
   WATERFALL_ONSCREEN_COLOR_MAX,
   getWaterfallOverRangeHeadroomDb,
   normalizeWaterfallDbForColor,
-} from "@n-apt/utils/waterfallColor";
+} from "@n-apt/spectrum/utils/waterfallColor";
 
 describe("waterfallColor", () => {
   it("keeps onscreen peaks below the hot red color band", () => {

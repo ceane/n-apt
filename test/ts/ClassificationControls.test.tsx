@@ -1,7 +1,7 @@
 import * as React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import ClassificationControls from "@n-apt/components/ClassificationControls";
+import ClassificationControls from "@n-apt/classification/ClassificationControls";
 
 describe("ClassificationControls Component", () => {
   const defaultProps = {

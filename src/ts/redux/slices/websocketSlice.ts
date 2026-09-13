@@ -8,8 +8,10 @@ import {
   CaptureStatus,
   SourceInfo,
   SourceStatus,
+  SignalsSdrDefaults,
 } from "@n-apt/consts/schemas/websocket";
 import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
+import type { StreamControlMode } from "@n-apt/app/infrastructure/streams/streamContract";
 
 const shallowEqualObject = (
   a: Record<string, unknown> | null | undefined,
@@ -74,6 +76,31 @@ const equalValue = (current: unknown, next: unknown): boolean => {
   return false;
 };
 
+export type SourceTransportState = {
+  sourceId: string | null;
+  phase: "idle" | "warming" | "ready" | "failed";
+  error: string | null;
+};
+
+export type SourceFrameReadinessState = {
+  sourceId: string;
+  streamEpoch: number | null;
+  sequence: number;
+};
+
+const createSourceTransportByMode = (): Record<
+  StreamControlMode,
+  SourceTransportState
+> => ({
+  rx: { sourceId: null, phase: "idle", error: null },
+  tx: { sourceId: null, phase: "idle", error: null },
+});
+
+const createSourceFrameReadinessByMode = (): Record<
+  StreamControlMode,
+  SourceFrameReadinessState | null
+> => ({ rx: null, tx: null });
+
 export interface WebSocketState {
   // Connection state
   isConnected: boolean;
@@ -83,6 +110,8 @@ export interface WebSocketState {
     | "connected"
     | "reconnecting"
     | "error";
+  /** True after at least one successful control-plane open in this page life. */
+  hasConnectedOnce: boolean;
   reconnectAttempts: number;
   maxReconnectAttempts: number;
 
@@ -95,17 +124,21 @@ export interface WebSocketState {
   activeSourceMode: "live" | "file" | null;
   sources: SourceInfo[];
   sourceStatuses: Record<string, SourceStatus>;
+  /**
+   * Sources with an in-flight per-source restart. A source leaves this set
+   * when its status reports out of stale/loading, or on disconnect.
+   */
+  restartPendingSourceIds: string[];
   /** Low-frequency lifecycle of the raw-I/Q transport selected by the UI. */
-  sourceTransport: {
-    sourceId: string | null;
-    phase: "idle" | "warming" | "ready" | "failed";
-    error: string | null;
-  };
-  sourceFrameReadiness: {
-    sourceId: string;
-    streamEpoch: number | null;
-    sequence: number;
-  } | null;
+  sourceTransport: SourceTransportState;
+  /** Per-mode lifecycle; RX and TX events must never share a transport slot. */
+  sourceTransportByMode: Record<StreamControlMode, SourceTransportState>;
+  sourceFrameReadiness: SourceFrameReadinessState | null;
+  /** Painted-frame readiness mirrors the mode selected by the visualizer. */
+  sourceFrameReadinessByMode: Record<
+    StreamControlMode,
+    SourceFrameReadinessState | null
+  >;
   channels: SpectrumFrame[];
 
   // Device info
@@ -117,6 +150,8 @@ export interface WebSocketState {
   sampleRateOptions: number[];
   sampleRateHz: number | null;
   sdrSettings: SdrSettingsConfig | null;
+  /** Effective SDR defaults loaded atomically from signals.yaml. */
+  signalsDefaults: SignalsSdrDefaults | null;
   sdrLimitMarkers: Array<{
     kind: string;
     freq_hz: number;
@@ -145,6 +180,7 @@ export interface WebSocketState {
 const initialState: WebSocketState = {
   isConnected: false,
   connectionStatus: "disconnected",
+  hasConnectedOnce: false,
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
 
@@ -156,8 +192,11 @@ const initialState: WebSocketState = {
   activeSourceMode: null,
   sources: [],
   sourceStatuses: {},
+  restartPendingSourceIds: [],
   sourceTransport: { sourceId: null, phase: "idle", error: null },
+  sourceTransportByMode: createSourceTransportByMode(),
   sourceFrameReadiness: null,
+  sourceFrameReadinessByMode: createSourceFrameReadinessByMode(),
   channels: [],
 
   backend: null,
@@ -168,6 +207,7 @@ const initialState: WebSocketState = {
   sampleRateOptions: [],
   sampleRateHz: null,
   sdrSettings: null,
+  signalsDefaults: null,
   sdrLimitMarkers: [],
 
   spectrumFrames: [],
@@ -190,27 +230,41 @@ const websocketSlice = createSlice({
       state.connectionStatus = "connecting";
       state.error = null;
       state.sourceFrameReadiness = null;
+      state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
     },
 
     setConnected: (state) => {
       state.isConnected = true;
       state.connectionStatus = "connected";
+      state.hasConnectedOnce = true;
       state.reconnectAttempts = 0;
       state.error = null;
       state.cryptoCorrupted = false;
     },
 
+    softDisconnect: (state) => {
+      state.isConnected = false;
+      state.connectionStatus = "disconnected";
+      // Keep hasConnectedOnce, sources, activeSourceId, transport metadata.
+      // Hard reset remains available via setDisconnected/reset.
+    },
+
     setDisconnected: (state) => {
       state.isConnected = false;
       state.connectionStatus = "disconnected";
+      // Keep hasConnectedOnce so a killed backend can show Server Down instead
+      // of the first-boot Loading FFT path.
       state.deviceState = null;
       state.deviceLoadingReason = null;
       state.activeSourceId = null;
       state.activeSourceMode = null;
       state.sources = [];
       state.sourceStatuses = {};
+      state.restartPendingSourceIds = [];
       state.sourceTransport = { sourceId: null, phase: "idle", error: null };
+      state.sourceTransportByMode = createSourceTransportByMode();
       state.sourceFrameReadiness = null;
+      state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
       state.channels = [];
       state.backend = null;
       state.deviceInfo = null;
@@ -235,6 +289,11 @@ const websocketSlice = createSlice({
     setError: (state, action: PayloadAction<string>) => {
       state.error = action.payload;
       state.connectionStatus = "error";
+    },
+
+    /** Stream/source operational failure — keep the control plane connected. */
+    setOperationalError: (state, action: PayloadAction<string>) => {
+      state.error = action.payload || null;
     },
 
     reset: (state) => {
@@ -319,15 +378,42 @@ const websocketSlice = createSlice({
     incrementDataFrameCounter: (state) => {
       state.dataFrameCounter += 1;
     },
+
+    /** Tracks a per-source restart from click until the source reports live. */
+    restartRequested: (state, action: PayloadAction<string>) => {
+      if (!state.restartPendingSourceIds.includes(action.payload)) {
+        state.restartPendingSourceIds.push(action.payload);
+      }
+    },
+
+    /** Drops pending-restart flags for sources that now report a live status. */
+    restartSettled: (
+      state,
+      action: PayloadAction<Record<string, SourceStatus>>,
+    ) => {
+      const statuses = action.payload;
+      state.restartPendingSourceIds = state.restartPendingSourceIds.filter(
+        (sourceId) => {
+          const status = statuses[sourceId];
+          return (
+            status === "stale" ||
+            status === "loading" ||
+            status === "initializing"
+          );
+        },
+      );
+    },
   },
 });
 
 export const {
   setConnecting,
   setConnected,
+  softDisconnect,
   setDisconnected,
   setReconnecting,
   setError,
+  setOperationalError,
   reset,
   updateDeviceState,
   setServerPaused,
@@ -338,6 +424,8 @@ export const {
   clearQueuedMessages,
   setPaused,
   incrementDataFrameCounter,
+  restartRequested,
+  restartSettled,
 } = websocketSlice.actions;
 
 export default websocketSlice.reducer;

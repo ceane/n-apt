@@ -1,7 +1,7 @@
 import {
   configureWebGPUCanvas,
   parseCssColorToRgba,
-} from "../../src/ts/utils/webgpu";
+} from "@n-apt/app/infrastructure/visualization/webgpu";
 
 describe("WebGPU Utilities", () => {
   beforeEach(() => {

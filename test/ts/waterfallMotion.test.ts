@@ -1,6 +1,53 @@
-import { getWaterfallMotion } from "../../src/ts/utils/waterfallMotion";
+import {
+  getWaterfallMotion,
+  resolvePausedWaterfallRow,
+  shouldAppendWaterfallFrame,
+  shouldAppendWaterfallRow,
+} from "@n-apt/spectrum/utils/waterfallMotion";
 
 describe("getWaterfallMotion", () => {
+  test("uses the rebuilt row when pause recovery has no cached waterfall row", () => {
+    const rebuiltRow = new Float32Array([1, 2, 3]);
+
+    expect(
+      resolvePausedWaterfallRow({
+        rebuiltRow,
+        cachedRow: null,
+      }),
+    ).toBe(rebuiltRow);
+  });
+
+  test("appends one row for each new frame even when the viewport is uncovered", () => {
+    expect(
+      shouldAppendWaterfallFrame({
+        hasNewData: true,
+        isStandby: false,
+        isTxPreviewFrame: false,
+        coversDisplay: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("does not append a history row for a presentation-only pan", () => {
+    expect(
+      shouldAppendWaterfallRow({
+        hasNewData: false,
+        isStandby: false,
+        isTxPreviewFrame: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("appends a row when a new FFT frame arrives", () => {
+    expect(
+      shouldAppendWaterfallRow({
+        hasNewData: true,
+        isStandby: false,
+        isTxPreviewFrame: false,
+      }),
+    ).toBe(true);
+  });
+
   test("does not request a motion row without a previous range", () => {
     expect(
       getWaterfallMotion({

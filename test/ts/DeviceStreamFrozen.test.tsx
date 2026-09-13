@@ -1,13 +1,13 @@
 import * as React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTCanvas from "../../src/ts/components/FFTCanvas";
-import { FrequencyRange } from "../../src/ts/consts/types";
-import { MemoryRouter } from "react-router-dom";
+import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
+import { FrequencyRange } from "@n-apt/consts/types";
+import { MemoryRouter } from "react-router";
 import { TestWrapper } from "./testUtils";
 
 // Mock the hooks that FFTCanvas uses
-jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
+jest.mock("@n-apt/spectrum/hooks/useFFTAnimation", () => ({
   useFFTAnimation: () => ({
     isAnimating: false,
     startAnimation: jest.fn(),
@@ -15,14 +15,14 @@ jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/usePauseLogic", () => ({
+jest.mock("@n-apt/spectrum/hooks/usePauseLogic", () => ({
   usePauseLogic: () => ({
     isPaused: false,
     togglePause: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useDrawWebGPUFFTSignal", () => ({
+jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal", () => ({
   useDrawWebGPUFFTSignal: () => ({
     drawWebGPUFFTSignal: jest.fn(),
     cleanup: jest.fn(),
@@ -30,22 +30,22 @@ jest.mock("@n-apt/hooks/useDrawWebGPUFFTSignal", () => ({
   RESAMPLE_WGSL: "",
 }));
 
-jest.mock("@n-apt/hooks/useDrawWebGPUFIFOWaterfall", () => ({
+jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall", () => ({
   useDrawWebGPUFIFOWaterfall: () => ({
     drawWebGPUFIFOWaterfall: jest.fn(),
     cleanup: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useOverlayRenderer", () => ({
+jest.mock("@n-apt/spectrum/hooks/useOverlayRenderer", () => ({
   useOverlayRenderer: () => ({
     renderOverlay: jest.fn(),
     cleanup: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumInteraction", () => ({
+  useSpectrumInteraction: () => ({
     handleMouseDown: jest.fn(),
     handleMouseMove: jest.fn(),
     handleMouseUp: jest.fn(),
@@ -53,7 +53,17 @@ jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
 }));
 
 // Mock WebGPU
-jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
+jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => ({
+  useWebGPULifecycle: () => ({
+    webgpuEnabled: false,
+    webgpuDeviceRef: { current: null },
+    spectrumRendererRef: { current: null },
+    gridOverlayRendererRef: { current: null },
+    markersOverlayRendererRef: { current: null },
+    waterfallRendererRef: { current: null },
+    overlayDirtyRef: { current: { grid: true, markers: true } },
+    overlayLastUploadMsRef: { current: { grid: 0, markers: 0 } },
+  }),
   useWebGPUInit: () => ({
     webgpuEnabled: false,
     webgpuDeviceRef: { current: null },
@@ -67,7 +77,7 @@ jest.mock("@n-apt/hooks/useWebGPUInit", () => ({
 }));
 
 // Mock animation hook
-jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
+jest.mock("@n-apt/spectrum/hooks/useFFTAnimation", () => ({
   useFFTAnimation: () => ({
     animate: jest.fn(),
     forceRender: jest.fn(),
@@ -77,16 +87,12 @@ jest.mock("@n-apt/hooks/useFFTAnimation", () => ({
 }));
 
 // Mock other hooks
-jest.mock("@n-apt/hooks/usePauseLogic", () => ({
+jest.mock("@n-apt/spectrum/hooks/usePauseLogic", () => ({
   usePauseLogic: () => ({ isPaused: false }),
 }));
 
-jest.mock("@n-apt/hooks/useSpectrumRendering", () => ({
-  useSpectrumRendering: () => ({ renderSpectrum: jest.fn() }),
-}));
-
-jest.mock("@n-apt/hooks/useFrequencyDrag", () => ({
-  useFrequencyDrag: () => {},
+jest.mock("@n-apt/spectrum/hooks/useSpectrumInteraction", () => ({
+  useSpectrumInteraction: () => {},
 }));
 
 describe("Device Stream Frozen Scenarios", () => {

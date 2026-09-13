@@ -1,1 +1,1 @@
-export { formatFrequency } from "../utils/frequency";
+export { formatFrequency } from "@n-apt/math/frequency";

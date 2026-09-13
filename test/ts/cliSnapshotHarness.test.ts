@@ -1,4 +1,4 @@
-import { buildCliSnapshotModel } from "@n-apt/capture/snapshotHarness";
+import { buildCliSnapshotModel } from "@n-apt/cli/snapshotModel";
 
 describe("CLI snapshot harness", () => {
   test("converts a Rust IQ frame into spectrum and waterfall snapshot data", () => {

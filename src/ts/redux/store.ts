@@ -13,6 +13,7 @@ import notificationsSlice from "@n-apt/redux/slices/notificationsSlice";
 import demodSlice from "@n-apt/redux/slices/demodSlice";
 import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
 import sourceRoutingSlice from "@n-apt/redux/slices/sourceRoutingSlice";
+import sourceSelectionSlice from "@n-apt/redux/slices/sourceSelectionSlice";
 
 // Import middleware (will be created next)
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
@@ -20,11 +21,20 @@ import noteCardsMiddleware from "@n-apt/redux/middleware/noteCardsMiddleware";
 import localStorageMiddleware, {
   loadPersistedSdrSettings,
   loadPersistedTheme,
+  mergePersistedSdrSettings,
+  loadPersistedSettings,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
 
 const preloadedState = {
-  spectrum: loadPersistedSdrSettings(),
+  spectrum: mergePersistedSdrSettings(
+    spectrumSlice(undefined, { type: "@@INIT" }),
+    loadPersistedSdrSettings(),
+  ),
   theme: loadPersistedTheme() || undefined,
+  settings: {
+    ...settingsSlice(undefined, { type: "@@INIT" }),
+    ...loadPersistedSettings(),
+  },
 };
 
 export const store = configureStore({
@@ -40,6 +50,7 @@ export const store = configureStore({
     demod: demodSlice,
     snapshot: snapshotSlice,
     sourceRouting: sourceRoutingSlice,
+    sourceSelection: sourceSelectionSlice,
   },
   preloadedState,
   middleware: (getDefaultMiddleware) =>

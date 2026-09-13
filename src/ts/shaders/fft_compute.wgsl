@@ -201,9 +201,12 @@ fn fft_power_spectrum(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let complex_val = input_buffer[shifted_idx];
   let magnitude = complex_magnitude(complex_val);
   
-  // Convert to dB scale with normalization
-  let db_value = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
-  
+  // Convert to dB scale with normalization.
+  // Power-referenced PSD convention (N·Σw² normalization): matches the
+  // backend SIMD paths so summing linear bins recovers complex RMS power.
+  let db_value =
+    10.0 * log10(max(magnitude * magnitude / params.normalization, 1e-10));
+
   // Store as real value in output buffer
   output_buffer[idx] = Complex(db_value, 0.0);
 }
@@ -268,7 +271,9 @@ fn waterfall_buffer_update(@builtin(global_invocation_id) global_id: vec3<u32>) 
   for (var i = start_idx; i < end_idx; i = i + 1u) {
     let complex_val = input_buffer[i];
     let magnitude = complex_magnitude(complex_val);
-    let db_val = 20.0 * log10(max(magnitude / params.normalization, 1e-10));
+    // Power-referenced PSD convention — see fft_power_spectrum above.
+    let db_val = 10.0
+      * log10(max(magnitude * magnitude / params.normalization, 1e-10));
     max_db = max(max_db, db_val);
   }
   
@@ -337,7 +342,8 @@ fn fft_bin_frequency_hz(idx: u32) -> f32 {
 fn generic_true_dbm(sample: Complex) -> f32 {
   let power = max(rtl_sdr_complex_power(sample), 1e-20);
   let normalized_power = power / max(params.normalization, 1e-20);
-  return 10.0 * log10(max(normalized_power, 1e-20));
+  return 10.0 * log10(max(normalized_power, 1e-20))
+    + params.base_calibration_db;
 }
 
 fn interpolate_rtl_sdr_gain_offset(gain_db: f32) -> f32 {

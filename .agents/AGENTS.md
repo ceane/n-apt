@@ -3,20 +3,40 @@
 Guidance for AI coding agents working on the N-APT RF spectrum analyzer. Keep
 feature notes and implementation summaries in `.agents/`.
 
+For signal-processing, IQ-capture, FFT, demodulation, `/learn`, or signals CLI
+work, load `.agents/signals/SKILL.md`. It defines the project's plain-language
+terminology, current demod modes, evidence standards, and RX-only safety rules.
+
 ## Working Rules
 
 - The user normally has the dev server running. Do not start or restart it for
   ordinary changes; Vite and Rust hot reload are enabled.
-- Do not run `npm run build`; run `npm run build:markdown` only for markdown
+- Keep changes scoped, avoid scratch files, and keep the workspace clean.
+- Keep changes as device/source agnostic as possible.
+- Do not add unrequested design changes or features.
+- Ensure to update checklists, tasks, etc., as you complete tasks.
+- Do not run `npm run build`; run `npm run build:article` only for markdown
   article changes.
 - Do not use browser automation for testing. If frontend testing is necessary,
   use `http://localhost:5173`; `127.0.0.1` is blocked.
+- Do not preserve backwards compatibility.
 - Prefer inspecting code and focused tests over repeating broad verification.
 - Use the Act MCP tool for repository searches.
-- Do not add unrequested design changes or features.
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
-- Keep changes scoped, avoid scratch files, and keep the workspace clean.
+
+## Real-Time Device I/O
+
+- Do not log from device I/O paths. This includes RTL-SDR/HackRF callbacks,
+  sample reads and writes, acquisition hot paths, reader startup/restart,
+  cancellation, cleanup/drop, and Tx monitor or transmission callbacks.
+- Logger formatting and logger locks can delay USB/libusb work and make the
+  hardware unstable. Use comments to document these constraints, and use
+  returned errors, state, counters, or deferred control-plane diagnostics to
+  surface failures after the I/O operation completes.
+- Keep the global Tx log disabled; do not re-enable it or add logging around
+  physical Tx operations without explicit authorization and device-safety
+  evidence.
 
 ## Mock APT SDR Rules
 
@@ -29,12 +49,12 @@ feature notes and implementation summaries in `.agents/`.
 
 ## I/Q Captures and Privacy
 
-- Never add I/Q capture data to Git. This includes `.napt`, `.wav`, `.iq`, and
-  related extensions such as `.iq.u8` and `.c64`. Keep captures local or in
+- Never add I/Q capture data to Git. This includes `.napt, .iq, .wav`, and
+  related extensions such as `.c64`. Keep captures local or in
   external storage; version only metadata, manifests, and synthetic fixtures.
 - Treat every I/Q capture as potentially sensitive: it may reveal information
   about the recording environment, and some signals may contain exceptionally
-  sensitive or otherwise unparalleled information.
+  sensitive or otherwise private information.
 - Treat N-APT captures as the greatest privacy risk in this project. Minimize
   copying and exposure, and never share, upload, or commit them without the
   user's explicit authorization.
@@ -87,6 +107,7 @@ build merely to validate a local edit.
 ### TypeScript and React
 
 - Use strict TypeScript; prefer `unknown` over `any`.
+- In tests, import `act` from `@testing-library/react`; do not use `react-dom/test-utils`.
 - Use `camelCase` for variables/functions, `PascalCase` for types/components,
   and `UPPER_SNAKE_CASE` for constants.
 - Keep hook dependency arrays correct and use `useCallback` when passing stable
@@ -108,10 +129,31 @@ build merely to validate a local edit.
 - The main app runs on port 5173. The markdown preview runs on port 5174.
 - The login password is `UNSAFE_LOCAL_USER_PASSWORD` in `.env.local`; do not
   print or commit secrets.
-- Rust logs are in `/tmp/rust_log.txt`; Tx logs are in `/tmp/n-apt/tx_log.txt`.
+- Rust logs, both output and errors, are in `/tmp/rust_log.txt`; Tx logs are in `/tmp/n-apt/tx_log.txt`.
 
 ## Repository Conventions
 
 - Use `@n-apt/*` for scoped imports.
 - When adding Vite aliases for static assets, update Jest `moduleNameMapper` so
   tests resolve them through the shared file mock instead of parsing raw assets.
+
+## Learned User Preferences
+
+- Prefer frontend DSP for demodulation so audio/processing changes can be inspected and listened to in real time on the demod route.
+- Treat `liveSourceLifecycle` and `sourcePresentationController` as the source of truth for live placeholder and stream lifecycle; FFT/waterfall canvases should only render those states. Paused Rx keeps the last live Rx frame; Tx standby accepts `request_next_frame` previews; transmitting must unfreeze and follow live Tx frames.
+- When the backend is down or killed, show Server Down / unavailable — not an indefinite Loading FFT state or optimistic Loading flashes from polling.
+- Do not auto-start Tx when opening a Tx device into standby; standby is announce-only until the user explicitly starts transmit.
+- Keep VFO and FrequencyRangeSlider scroll/pan responsive; avoid debounce, timer coalescing, or paint gates that stall live spectrum during hardware retune.
+- Keep mirror I/Q baseband behavior explicit in `test/ts/basebandMirror.test.ts`; the mirror path should stay GPU-resample focused with performance close to mirror-off.
+- Keep build/hot-reload orchestration under `scripts/build`; leave in-app hot-reload notifications in the app code.
+
+## Learned Workspace Facts
+
+- Never lower the hardware sample rate below 3.2 MHz (N-APT Nyquist needs that width); narrower modes such as FM use a bandwidth slice/window inside that sample rate.
+- Span bandwidth is a selected slice within the sample-rate window, not the same thing as sample rate.
+- The available spectrum display range is 0 Hz to 30 GHz; center/span padding and clamps must respect those bounds (including sample_rate/2 from center). With "Mirror I/Q baseband below 0 Hz" enabled, negative-frequency presentation is allowed without changing what the radio is tuned to.
+- Mirror I/Q below 0 Hz is presentation-only: reflect acquired positive baseband across DC via `basebandMirror.ts` and the WebGPU resample path; it must not retune hardware on every pan tick.
+- During VFO/slider retune, paint live IQ on each frame's acquisition axis (`center_frequency_hz ± sample_rate/2`) when the requested viewport and frame center diverge; mapping bins onto the scrolled Redux viewport causes channel-island flatlining.
+- Agent guidance and related docs live under `.agents/` (including `.agents/AGENTS.md`).
+- HackRF One needs LNA/VGA/AMP gain plus baseband bandwidth-filter control, with persistence/control parity similar to other radio gain settings.
+- Avoid eagerly loading heavy `/transformers` / transformers.js paths on app startup; they can hang localhost load and should stay excluded or lazy-loaded.

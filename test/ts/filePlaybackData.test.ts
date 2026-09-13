@@ -1,4 +1,4 @@
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
 import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
 
 describe("filePlaybackDataRef", () => {

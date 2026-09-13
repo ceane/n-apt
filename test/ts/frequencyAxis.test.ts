@@ -1,8 +1,8 @@
-import { composeCanvasWithFrequencyAxis } from "@n-apt/utils/rendering/frequencyAxis";
+import { composeCanvasWithFrequencyAxis } from "@n-apt/layout/rendering/frequencyAxis";
 import {
   drawVfoAxis,
   type VfoAxisContext,
-} from "@n-apt/utils/rendering/vfoAxis";
+} from "@n-apt/layout/rendering/vfoAxis";
 
 describe("frequency axis rendering", () => {
   afterEach(() => {

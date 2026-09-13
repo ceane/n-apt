@@ -68,6 +68,47 @@ export const selectVisualizationSettings = createSelector(
   }),
 );
 
+/** Low-frequency inputs used to label and position analysis views. */
+export const selectAnalysisViewState = createSelector(
+  [selectSpectrumState],
+  (spectrum) => ({
+    activeSignalArea: spectrum.activeSignalArea,
+    frequencyRange: spectrum.frequencyRange,
+    lastKnownRanges: spectrum.lastKnownRanges,
+    vizZoom: spectrum.vizZoom,
+    vizPanOffset: spectrum.vizPanOffset,
+  }),
+);
+
+export const selectSourceMode = createSelector(
+  [selectWaterfallState],
+  (waterfall) => waterfall.sourceMode,
+);
+
+export const selectSelectedSourceId = (state: RootState) =>
+  state?.sourceSelection?.selectedSourceId ?? null;
+const selectSourceSelectionState = (state: RootState) => state?.sourceSelection;
+export const selectSourceSelectionLifecycle = createSelector(
+  [selectSourceSelectionState],
+  (selection) => ({
+    selectedSourceId: selection?.selectedSourceId ?? null,
+    selectionIntentSourceId: selection?.selectionIntentSourceId ?? null,
+    pendingSourceSwitchId: selection?.pendingSourceSwitchId ?? null,
+  }),
+);
+
+/** Backend-confirmed source transport state used by the live visualizer. */
+export const selectSourceTransportSnapshot = createSelector(
+  [selectWebSocketState],
+  (websocket) => ({
+    sourceStatuses: websocket.sourceStatuses,
+    sourceTransport: websocket.sourceTransport,
+    sourceTransportByMode: websocket.sourceTransportByMode,
+    sourceFrameReadiness: websocket.sourceFrameReadiness,
+    sourceFrameReadinessByMode: websocket.sourceFrameReadinessByMode,
+  }),
+);
+
 export const selectSdrSettings = createSelector(
   [selectSpectrumState],
   (spectrum) => ({
@@ -83,6 +124,16 @@ export const selectSdrSettings = createSelector(
 export const selectDrawParams = createSelector(
   [selectWaterfallState],
   (waterfall) => waterfall.drawParams,
+);
+
+/** Inputs consumed by the draw-signal renderer, owned by the waterfall slice. */
+export const selectDrawSignalState = createSelector(
+  [selectWaterfallState],
+  (waterfall) => ({
+    drawParams: waterfall.drawParams,
+    activeClumpIndex: waterfall.activeClumpIndex,
+    globalNoiseFloor: waterfall.globalNoiseFloor,
+  }),
 );
 
 export const selectActiveDrawParams = createSelector(
@@ -143,7 +194,8 @@ export const selectDeviceState = createSelector(
 );
 
 const EMPTY_SOURCE_LIST: SourceInfo[] = [];
-const EMPTY_FILE_LIST: NonNullable<RootState["waterfall"]["selectedFiles"]> = [];
+const EMPTY_FILE_LIST: NonNullable<RootState["waterfall"]["selectedFiles"]> =
+  [];
 
 export const selectWebSocketSources = createSelector(
   [selectWebSocketState],
@@ -213,8 +265,10 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
       backend: null,
       maxSampleRateHz: null,
       sampleRateOptions: [] as number[],
+      fftSizeOptions: [] as number[],
       sampleRateHz: null,
       sdrSettings: null,
+      supportsBasebandFilter: false,
     };
   }
 
@@ -225,14 +279,18 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
       kind: getDeviceKindFromSource(source),
       is_rtl_sdr: source.capability === "rx",
       supports_approx_dbm: source.supports_approx_dbm,
-      supports_raw_iq_stream: source.supports_raw_iq_stream,
+      iq_format: source.iq_format,
     },
     deviceInfo: source.name,
     backend: source.kind,
     maxSampleRateHz: source.sdr.max_sample_rate,
     sampleRateOptions: source.sdr.sample_rate_options,
+    fftSizeOptions: source.capabilities?.fft?.sizes ?? [],
     sampleRateHz: source.sdr.settings.sample_rate ?? null,
     sdrSettings: source.sdr.settings,
+    supportsBasebandFilter:
+      source.capabilities?.supported_controls?.includes("baseband_filter") ??
+      false,
   };
 };
 
@@ -335,8 +393,8 @@ export const selectThemeObject = createSelector(
   },
 );
 
-// selectHighFrequencyData: live frame data is now in liveDataRef (middleware module ref),
-// not in Redux state. Import liveDataRef from websocketMiddleware directly instead.
+// selectHighFrequencyData: live frame data now lives in the frame runtime,
+// not in Redux state. Consumers should use the runtime boundary directly.
 // This selector is kept as a no-op stub for backward compatibility only.
 export const selectHighFrequencyData = (_state: any) => null;
 
@@ -357,7 +415,7 @@ export const selectDeviceCapabilities = createSelector(
   [selectActiveSourceDerivedState],
   (device) => ({
     supportsApproxDbm: device.deviceProfile?.supports_approx_dbm || false,
-    supportsRawIqStream: device.deviceProfile?.supports_raw_iq_stream || false,
+    iqFormat: device.deviceProfile?.iq_format ?? null,
     isRtlSdr: device.deviceProfile?.is_rtl_sdr || false,
   }),
 );

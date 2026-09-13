@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { TrustLevel, ExpectedLatency } from "./types";
 
 // Preprocesses null values to undefined so they map properly to optional types rather than null
-const nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
+const _nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((val) => (val === null ? undefined : val), schema.optional());
 
 // Base schemas
@@ -69,7 +69,7 @@ export const FreqRangeSchema = z.object({
 
 export const SdrSettingsConfigSchema = z.object({
   sample_rate: z.number(),
-  min_receive_sample_rate: z.number().optional(),
+  min_receive_sample_rate: z.number().nullable().optional(),
   center_frequency: z.number(),
   gain: z
     .object({
@@ -99,69 +99,100 @@ export const SdrSettingsConfigSchema = z.object({
       padding: z.number(),
     })
     .optional(),
-  fft_sizes: nullableToOptional(
-    z.array(
-      z.object({
-        base: z.string(),
-        fft_min: z.number().optional(),
-        fft_max: z.number().optional(),
-      }),
-    ),
-  ),
-  devices: nullableToOptional(
-    z.record(
-      z.string(),
-      z.object({
-        sample_rate: z.any(),
-        fft_display: nullableToOptional(z.any()),
-        fft_sizes: nullableToOptional(
-          z.array(
-            z.object({
-              base: z.string(),
-              fft_min: z.number().optional(),
-              fft_max: z.number().optional(),
-            }),
-          ),
-        ),
-        gain_limits: nullableToOptional(
-          z.object({
-            min: nullableToOptional(z.number()),
-            max: nullableToOptional(z.number()),
-            step: nullableToOptional(z.number()),
-            lna_min: nullableToOptional(z.number()),
-            lna_max: nullableToOptional(z.number()),
-            lna_step: nullableToOptional(z.number()),
-            vga_min: nullableToOptional(z.number()),
-            vga_max: nullableToOptional(z.number()),
-            vga_step: nullableToOptional(z.number()),
-          }),
-        ),
-      }),
-    ),
-  ),
 });
 
 export const DeviceProfileSchema = z.object({
   kind: z.string(),
   is_rtl_sdr: z.boolean(),
   supports_approx_dbm: z.boolean(),
-  supports_raw_iq_stream: z.boolean(),
+  iq_format: z
+    .object({
+      element_type: z.literal("u8"),
+      layout: z.literal("interleaved_iq"),
+      typed_array: z.literal("Uint8Array"),
+    })
+    .optional(),
 });
 
 export const SourceCapabilitySchema = z.enum(["rx", "tx", "tx_rx", "mock"]);
+export const DeviceActiveModeSchema = z.enum(["rx", "tx", "rx_tx"]);
+
+export const SourceCapabilitiesSchema = z.object({
+  can_receive: z.boolean(),
+  can_transmit: z.boolean(),
+  supports_tx_monitor: z.boolean().optional(),
+  // Source inventory carries the configured device label (for example
+  // "Simplex" or "Half-duplex"), not the normalized pause-command enum.
+  duplex_mode: z.string().min(1).nullable().optional(),
+  active_duplex_mode: DeviceActiveModeSchema.nullable().optional(),
+  active_duplex_modes: z.array(DeviceActiveModeSchema).nullable().optional(),
+  supports_approx_dbm: z.boolean(),
+  iq_format: z
+    .object({
+      element_type: z.literal("u8"),
+      layout: z.literal("interleaved_iq"),
+      typed_array: z.literal("Uint8Array"),
+    })
+    .optional(),
+  supported_controls: z.array(z.string()),
+  sample_rates: z.array(z.number()),
+  max_sample_rate: z.number(),
+  max_instantaneous_sample_rate: z.number(),
+  frequency_range: z
+    .object({ min: z.number(), max: z.number() })
+    .nullable()
+    .optional(),
+  tx_power_dbm: z
+    .object({ min: z.number().optional(), max: z.number().optional() })
+    .nullable()
+    .optional(),
+  gain_limits: z
+    .object({
+      min: z.number().nullable().optional(),
+      max: z.number().nullable().optional(),
+      step: z.number().nullable().optional(),
+      lna_min: z.number().nullable().optional(),
+      lna_max: z.number().nullable().optional(),
+      lna_step: z.number().nullable().optional(),
+      vga_min: z.number().nullable().optional(),
+      vga_max: z.number().nullable().optional(),
+      vga_step: z.number().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  fft: z
+    .object({
+      sizes: z.array(z.number()),
+      default_size: z.number(),
+      default_frame_rate: z.number(),
+      max_size: z.number(),
+      max_frame_rate: z.number(),
+      size_to_frame_rate: z.record(z.string(), z.number()).optional(),
+    })
+    .optional(),
+  display: z
+    .object({
+      min_db: z.number(),
+      max_db: z.number(),
+      padding: z.number(),
+    })
+    .optional(),
+});
 
 export const SourceStatusSchema = z.enum([
   "connected",
+  "initializing",
   "loading",
-  "loose",
   "disconnected",
   "stale",
   "error",
+  "receiving",
+  "paused",
+  "standby",
   "transmitting",
   "streaming",
 ]);
 
-export const DeviceActiveModeSchema = z.enum(["rx", "tx", "rx_tx"]);
 export const DeviceDuplexModeSchema = z.enum(["half_duplex"]);
 
 export const SourceSdrSettingsSchema = z.object({
@@ -185,18 +216,17 @@ export const SourceSdrSettingsSchema = z.object({
       }),
     ])
     .optional(),
-  hackrf_lna_gain: z.number().optional(),
-  hackrf_vga_gain: z.number().optional(),
-  hackrf_amp_enable: z.boolean().optional(),
+  hackrf_lna_gain: z.number().nullable().optional(),
+  hackrf_vga_gain: z.number().nullable().optional(),
+  hackrf_amp_enable: z.boolean().nullable().optional(),
   ppm: z.number().optional(),
   tuner_agc: z.boolean().optional(),
   rtl_agc: z.boolean().optional(),
   offset_tuning: z.boolean().optional(),
   direct_sampling: z.number().optional(),
-  tuner_bandwidth: z.number().optional(),
-  fft: SdrSettingsConfigSchema.shape.fft,
-  display: SdrSettingsConfigSchema.shape.display,
-  devices: SdrSettingsConfigSchema.shape.devices,
+  tuner_bandwidth: z.number().nullable().optional(),
+  fft: SdrSettingsConfigSchema.shape.fft.optional(),
+  display: SdrSettingsConfigSchema.shape.display.optional(),
 });
 
 export const SourceInfoSchema = z.object({
@@ -204,12 +234,22 @@ export const SourceInfoSchema = z.object({
   name: z.string(),
   kind: z.string(),
   capability: SourceCapabilitySchema,
+  duplex_mode: z.string().nullable().optional(),
+  active_duplex_mode: DeviceActiveModeSchema.nullable().optional(),
+  active_duplex_modes: z.array(DeviceActiveModeSchema).nullable().optional(),
   status: SourceStatusSchema.nullable(),
   paused: z.boolean().optional(),
   loading_attempt: z.number().int().nonnegative(),
   loading_attempt_max: z.number().int().nonnegative(),
   supports_approx_dbm: z.boolean(),
-  supports_raw_iq_stream: z.boolean(),
+  iq_format: z
+    .object({
+      element_type: z.literal("u8"),
+      layout: z.literal("interleaved_iq"),
+      typed_array: z.literal("Uint8Array"),
+    })
+    .optional(),
+  capabilities: SourceCapabilitiesSchema.optional(),
   stream_key: z.string().optional(),
   stream_key_kind: z.enum(["serial", "source_id"]).optional(),
   iq_stream_protocols: z
@@ -239,6 +279,20 @@ export const SourceInfoMessageSchema = z.object({
   sources: z.array(SourceInfoSchema),
 });
 
+export const TxSafetyResultSchema = z.object({
+  type: z.literal("tx_safety"),
+  source_id: z.string(),
+  effective_power_dbm: z.number(),
+  maximum_safe_power_dbm: z.number(),
+  minimum_iq_power_floor_dbm: z.number(),
+  recommended_ifft_size: z.number().int(),
+  effective_ifft_size: z.number().int(),
+  vga_gain_db: z.number().optional(),
+  amp_enabled: z.boolean().optional(),
+  safety_clamped: z.boolean(),
+  validation_errors: z.array(z.string()),
+});
+
 export const ActiveSourceMessageSchema = z.object({
   type: z.literal("active_source"),
   source_id: z.string(),
@@ -261,6 +315,98 @@ export const SourceSdrSettingsMessageSchema = z.object({
   sdr: SourceSdrSettingsSchema,
 });
 
+const SdrSampleRateSpecSchema = z.union([
+  z.number(),
+  z.string(),
+  z.array(z.string()),
+  z.object({ value: z.string(), min: z.string(), max: z.string() }),
+]);
+
+const SignalsSdrDefaultsSchema = z.object({
+  sample_rate: z.number(),
+  min_receive_sample_rate: z.number().nullable().optional(),
+  center_frequency: z.number(),
+  gain: z.object({
+    tuner_gain: z.number(),
+    rtl_agc: z.boolean(),
+    tuner_agc: z.boolean(),
+    hackrf_lna_gain: z.number().nullable().optional(),
+    hackrf_vga_gain: z.number().nullable().optional(),
+    hackrf_amp_enable: z.boolean().nullable().optional(),
+    tuner_bandwidth: z.number().nullable().optional(),
+  }),
+  ppm: z.number(),
+  fft: z.object({
+    default_size: z.number(),
+    default_frame_rate: z.number(),
+    max_size: z.number(),
+    max_frame_rate: z.number(),
+    size_to_frame_rate: z.record(z.string(), z.number()),
+  }),
+  display: z.object({
+    min_db: z.number(),
+    max_db: z.number(),
+    padding: z.number(),
+  }),
+  devices: z.record(
+    z.string(),
+    z.object({
+      duplex_mode: z.string().nullable().optional(),
+      max_sample_rate: z.number().nullable().optional(),
+      sample_rate: SdrSampleRateSpecSchema,
+      fft_display: z
+        .object({
+          markers: z.array(
+            z.object({
+              kind: z.string(),
+              freq_hz: z.number(),
+              label: z.string().nullable().optional(),
+            }),
+          ),
+        })
+        .nullable()
+        .optional(),
+      gain_limits: z
+        .record(z.string(), z.number().nullable())
+        .nullable()
+        .optional(),
+      fft_sizes: z
+        .array(
+          z.object({
+            base: z.string(),
+            fft_min: z.number().nullable().optional(),
+            fft_max: z.number().nullable().optional(),
+          }),
+        )
+        .nullable()
+        .optional(),
+      _tx_power_mapping: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .optional(),
+      _tx_iq_power_model: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .optional(),
+    }),
+  ),
+  fft_sizes: z
+    .array(
+      z.object({
+        base: z.string(),
+        fft_min: z.number().nullable().optional(),
+        fft_max: z.number().nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
+});
+
+export const SignalsDefaultsMessageSchema = z.object({
+  type: z.literal("signals_defaults"),
+  sdr: SignalsSdrDefaultsSchema,
+});
+
 export const SourceErrorMessageSchema = z.object({
   type: z.literal("error"),
   source_id: z.string(),
@@ -279,8 +425,27 @@ export const SpectrumFrameSchema = z.object({
 export const ChannelsMessageSchema = z.object({
   type: z.literal("channels"),
   source_id: z.string(),
+  origin_id: z.string().nullable().optional(),
   channels: z.array(SpectrumFrameSchema),
   active_signal_area: z.string().nullable().optional(),
+  frequency_range: z
+    .object({ min: z.number(), max: z.number() })
+    .nullable()
+    .optional(),
+  display_range: z
+    .object({
+      min: z.number(),
+      max: z.number(),
+      pan_hz: z.number().optional(),
+      zoom: z.number().positive().optional(),
+      crosses_dc: z.boolean().optional(),
+      direction_negative: z.boolean().optional(),
+      mirror_below_zero: z.boolean().optional(),
+    })
+    .nullable()
+    .optional(),
+  sample_rate: z.number().positive().optional(),
+  mirror_spectrum_below_zero: z.boolean().optional(),
   error: z.string().nullable().optional(),
 });
 
@@ -341,30 +506,50 @@ export const EnhancedCaptureRequestSchema = CaptureRequestSchema.extend({
 
 // WebSocket message union schema
 export const WebSocketMessageSchema = z.union([
+  TxSafetyResultSchema,
   z.object({
     type: z.literal("frequency_range"),
+    scope: z.literal("device").optional(),
     min_hz: z.number().int(),
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
     bandwidth_center_frequency: z.number().int().optional(),
+    signal_area: z.string().optional(),
+    display_min_hz: z.number().int().optional(),
+    display_max_hz: z.number().int().optional(),
+    display_pan_hz: z.number().int().optional(),
+    display_zoom: z.number().positive().optional(),
+    display_crosses_dc: z.boolean().optional(),
+    display_direction_negative: z.boolean().optional(),
+    mirror_spectrum_below_zero: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("set_frequency_range"),
+    scope: z.literal("device").optional(),
     min_hz: z.number().int(),
     max_hz: z.number().int(),
     center_frequency: z.number().int().optional(),
     bandwidth_center_frequency: z.number().int().optional(),
+    signal_area: z.string().optional(),
+    display_min_hz: z.number().int().optional(),
+    display_max_hz: z.number().int().optional(),
+    display_pan_hz: z.number().int().optional(),
+    display_zoom: z.number().positive().optional(),
+    display_crosses_dc: z.boolean().optional(),
+    display_direction_negative: z.boolean().optional(),
+    mirror_spectrum_below_zero: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("pause"),
+    scope: z.literal("subscriber").optional(),
     paused: z.boolean(),
     source_id: z.string(),
     duplex_mode: DeviceDuplexModeSchema.optional(),
-    active_mode: DeviceActiveModeSchema.optional(),
   }),
   z.object({
-    type: z.literal("tx_mode"),
-    active_mode: DeviceActiveModeSchema,
+    type: z.literal("status"),
+    scope: z.literal("device").optional(),
+    status: z.enum(["standby", "transmitting"]),
     txDevice: z.string().optional(),
     serialNumber: z.string().optional(),
     centerFrequencyHz: z.number().optional(),
@@ -390,10 +575,12 @@ export const WebSocketMessageSchema = z.union([
   }),
   z.object({
     type: z.literal("gain"),
+    scope: z.literal("device").optional(),
     gain: z.number(),
   }),
   z.object({
     type: z.literal("ppm"),
+    scope: z.literal("device").optional(),
     ppm: z.number().int().nonnegative(),
   }),
   z.object({
@@ -402,12 +589,23 @@ export const WebSocketMessageSchema = z.union([
     sample_rate: z.number(),
     fft_size: z.number(),
     frame_rate: z.number(),
+    fft_window: z.string().nullable().optional(),
+    gain: z.number().nullable().optional(),
+    hackrf_lna_gain: z.number().nullable().optional(),
+    hackrf_vga_gain: z.number().nullable().optional(),
+    hackrf_amp_enable: z.boolean().nullable().optional(),
+    tuner_bandwidth: z.number().nullable().optional(),
+    ppm: z.number().nullable().optional(),
+    tuner_agc: z.boolean().nullable().optional(),
+    rtl_agc: z.boolean().nullable().optional(),
   }),
   z.object({
     type: z.literal("settings"),
+    scope: z.literal("device").optional(),
     fftSize: z.number().optional(),
     fftWindow: z.string().optional(),
     frameRate: z.number().optional(),
+    maxFrameRate: z.number().positive().optional(),
     gain: z.number().optional(),
     hackrfLnaGain: z.number().min(0).max(49.6).optional(),
     hackrfVgaGain: z.number().min(0).max(62).optional(),
@@ -416,13 +614,18 @@ export const WebSocketMessageSchema = z.union([
     ppm: z.number().int().nonnegative().optional(),
     tunerAGC: z.boolean().optional(),
     rtlAGC: z.boolean().optional(),
+    mirrorSpectrumBelowZero: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("restart_device"),
+    scope: z.literal("device").optional(),
+    source_id: z.string().optional(),
   }),
   z.object({
     type: z.literal("select_source"),
+    scope: z.literal("device").optional(),
     source_id: z.string(),
+    sample_rate: z.number().positive().optional(),
   }),
   z.object({
     type: z.literal("training_capture"),
@@ -445,6 +648,7 @@ export const WebSocketMessageSchema = z.union([
   ChannelsMessageSchema,
   SourceStatusMessageSchema,
   SourceSdrSettingsMessageSchema,
+  SignalsDefaultsMessageSchema,
   SourceErrorMessageSchema,
 ]);
 
@@ -513,6 +717,12 @@ export const isValidSourceSdrSettingsMessage = (
   data: unknown,
 ): data is z.infer<typeof SourceSdrSettingsMessageSchema> => {
   return SourceSdrSettingsMessageSchema.safeParse(data).success;
+};
+
+export const isValidSignalsDefaultsMessage = (
+  data: unknown,
+): data is z.infer<typeof SignalsDefaultsMessageSchema> => {
+  return SignalsDefaultsMessageSchema.safeParse(data).success;
 };
 
 export const isValidSourceErrorMessage = (

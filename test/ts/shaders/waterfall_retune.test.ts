@@ -1,5 +1,5 @@
-import { WATERFALL_RETUNE_WGSL } from "../../../src/ts/consts/shaders/waterfall_retune";
-import { synthesizeWaterfallTransitionRow } from "../../../src/ts/utils/waterfallRows";
+import { WATERFALL_RETUNE_WGSL } from "./shaderSources";
+import { synthesizeWaterfallTransitionRow } from "@n-apt/spectrum/utils/waterfallRows";
 
 describe("waterfall_retune.wgsl", () => {
   it("stays non-empty", () => {

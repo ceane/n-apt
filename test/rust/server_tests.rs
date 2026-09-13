@@ -2,9 +2,11 @@ use axum_test::TestServer;
 use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::server::main::AppState;
 use n_apt_backend::server::shared_state::SharedState;
+use n_apt_backend::server::source_runtime::SourceRuntimeManager;
+use n_apt_backend::server::stream_manager::StreamingSourceModeManager;
 use n_apt_backend::server::types::{DeviceProfile, TxIqPowerModel};
 use n_apt_backend::server::websocket_server::build_source_info_snapshot;
-use n_apt_backend::server::websocket_server::mock_tx::synthesize_mock_tx_monitor_iq;
+use n_apt_backend::server::websocket_server::complex_baseband::synthesize_mock_tx_monitor_iq;
 use n_apt_backend::server::websocket_server::WebSocketServer;
 use n_apt_backend::server::websocket_server::MOCK_TX_MONITOR_SAMPLE_CURSOR;
 use n_apt_backend::session::SessionStore;
@@ -130,7 +132,7 @@ fn source_info_reports_hackrf_duplex_mode() {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
     },
   );
 
@@ -148,7 +150,7 @@ fn source_info_reports_hackrf_duplex_mode() {
 
 #[test]
 #[serial]
-fn source_info_reports_loose_hardware_as_loading() {
+fn source_info_reports_stale_hardware_as_stale() {
   ensure_test_password();
   let shared = SharedState::new("redis://127.0.0.1:6379");
   shared.update_device_status(
@@ -158,10 +160,10 @@ fn source_info_reports_loose_hardware_as_loading() {
       kind: "hackrf_one".to_string(),
       is_rtl_sdr: false,
       supports_approx_dbm: true,
-      supports_raw_iq_stream: true,
+      iq_format: Some(n_apt_backend::server::types::IqFormat::default()),
     },
   );
-  shared.set_device_state("loose", None);
+  shared.set_device_state("stale", None);
 
   let snapshot = build_source_info_snapshot(&shared);
   let sources = snapshot["sources"].as_array().expect("sources array");
@@ -170,7 +172,7 @@ fn source_info_reports_loose_hardware_as_loading() {
     .find(|source| source["kind"].as_str() == Some("hackrf_one"))
     .expect("active HackRF source");
 
-  assert_eq!(active["status"], "loading");
+  assert_eq!(active["status"], "stale");
 }
 
 async fn setup_test_server() -> (TestServer, Arc<AppState>, RedisGuard) {
@@ -211,6 +213,10 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>, RedisGuard) {
     webauthn,
     broadcast_tx,
     spectrum_tx,
+    stream_manager: StreamingSourceModeManager::new(
+      std::time::Duration::from_millis(250),
+    ),
+    source_runtime_manager: SourceRuntimeManager::new(),
     cmd_tx,
     sdr_processor,
   });
@@ -284,7 +290,11 @@ async fn test_auth_logout_endpoint() {
   let (server, state, _guard) = setup_test_server().await;
 
   // 1. Create a session first to verify revocation
-  let token = state.session_store.create_session([0u8; 32]).await;
+  let token = state
+    .session_store
+    .create_session([0u8; 32])
+    .await
+    .expect("test Redis must be available");
   assert!(
     state.session_store.validate(&token).await.is_some(),
     "Session should be valid after creation"

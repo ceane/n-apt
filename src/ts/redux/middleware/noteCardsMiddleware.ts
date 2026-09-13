@@ -1,5 +1,5 @@
 import type { Middleware } from "@reduxjs/toolkit";
-import { persistNoteCards } from "@n-apt/utils/noteCardStorage";
+import { persistNoteCards } from "@n-apt/app/infrastructure/services/noteCardStorage";
 
 const PERSIST_DEBOUNCE_MS = 200;
 

@@ -2,9 +2,9 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
-import FileSelectionSidebar from "../../src/ts/components/sidebar/FileSelectionSidebar";
-import { buildAppTheme } from "../../src/ts/components/ui/Theme";
-import { THEME_TOKENS } from "../../src/ts/consts";
+import FileSelectionSidebar from "@n-apt/capture/sidebar/FileSelectionSidebar";
+import { buildAppTheme } from "@n-apt/ui/Theme";
+import { THEME_TOKENS } from "@n-apt/consts";
 
 const theme = buildAppTheme({
   accentColor: THEME_TOKENS.colors.dark.primary,

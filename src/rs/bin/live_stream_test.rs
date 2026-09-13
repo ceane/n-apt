@@ -7,7 +7,16 @@ use anyhow::Result;
 use clap::{Arg, Command};
 use log::{error, info, LevelFilter};
 
-use n_apt_backend::live_stream_test::LiveStreamTester;
+// The shared crypto module is compiled into this standalone binary too; most
+// of its API serves the server lib, so unused-in-binary warnings are expected.
+#[allow(dead_code)]
+#[path = "../crypto/mod.rs"]
+mod crypto;
+
+#[path = "../live_stream_test/mod.rs"]
+mod live_stream_test_support;
+
+use live_stream_test_support::LiveStreamTester;
 
 fn default_passkey() -> String {
   std::env::var("UNSAFE_LOCAL_USER_PASSWORD")

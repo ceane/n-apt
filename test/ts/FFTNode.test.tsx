@@ -26,6 +26,7 @@ const mockUseNodes = jest.fn((): any[] => []);
 const mockUseNodeConnections = jest.fn((): any[] => []);
 const mockNodeLookup = new Map<string, any>();
 const mockFFTCanvasProps = jest.fn();
+let mockFFTCanvasMounts = 0;
 const mockSendFrequencyRange = jest.fn((range: unknown) => ({
   type: "mock/sendFrequencyRange",
   payload: range,
@@ -37,11 +38,14 @@ jest.mock("@xyflow/react", () => ({
   useStore: (selector: (state: { nodeLookup: Map<string, unknown> }) => unknown) =>
     selector({ nodeLookup: mockNodeLookup }),
 }));
-jest.mock("@n-apt/components/FFTCanvas", () => {
+jest.mock("@n-apt/spectrum/FFTCanvas", () => {
   const React = require("react");
   return {
     __esModule: true,
     default: React.forwardRef((props: unknown, _ref: unknown) => {
+      React.useEffect(() => {
+        mockFFTCanvasMounts += 1;
+      }, []);
       mockFFTCanvasProps(props);
       return React.createElement("div", { "data-testid": "fft-canvas" });
     }),
@@ -59,12 +63,12 @@ import {
   getFftNodeRoleRange,
   getFftNodeResolvedRange,
   getFftNodeSourceRange,
-} from "@n-apt/components/react-flow/nodes/FFTNode";
+} from "@n-apt/demodulation/react-flow/nodes/FFTNode";
 import {
   isFilePlaybackPaused,
   shouldRestorePausedFrameSnapshot,
-} from "@n-apt/hooks/liveSourceLifecycle";
-import { getSourcePresentationSessionKey } from "@n-apt/utils/liveSourcePresentation";
+} from "@n-apt/spectrum/public/liveSourceLifecycle";
+import { getSourcePresentationSessionKey } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { TestWrapper } from "./testUtils";
 
 describe("FFTNode", () => {
@@ -81,6 +85,7 @@ describe("FFTNode", () => {
     mockNodeLookup.clear();
     mockUseNodeConnections.mockReturnValue([]);
     mockFFTCanvasProps.mockClear();
+    mockFFTCanvasMounts = 0;
   });
 
   it("keeps the canvas center aligned with its edge-panned display range", () => {
@@ -282,6 +287,27 @@ describe("FFTNode", () => {
     ).toEqual(
       expect.objectContaining({ awaitingDeviceData: false }),
     );
+  });
+
+  it("keeps the canvas mounted while the source presentation session changes", () => {
+    const view = render(
+      <TestWrapper>
+        <FFTNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    expect(mockFFTCanvasMounts).toBe(1);
+
+    view.rerender(
+      <TestWrapper>
+        <FFTNode
+          {...defaultProps}
+          data={{ ...defaultProps.data, sourceRole: "tx" }}
+        />
+      </TestWrapper>,
+    );
+
+    expect(mockFFTCanvasMounts).toBe(1);
   });
 
   it("renders its FFT canvas at the normal device backing resolution", () => {

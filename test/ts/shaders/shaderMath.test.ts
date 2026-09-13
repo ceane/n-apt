@@ -1,9 +1,9 @@
-import { FFT_COMPUTE_SHADER } from "../../../src/ts/consts/shaders/fft_compute";
-import { SPECTRUM_SHADER } from "../../../src/ts/consts/shaders/spectrum";
 import {
+  FFT_COMPUTE_SHADER,
+  SPECTRUM_SHADER,
   WATERFALL_3D_FRAGMENT_SHADER,
   WATERFALL_3D_VERTEX_SHADER,
-} from "../../../src/ts/consts/shaders/waterfall3d";
+} from "./shaderSources";
 
 const EPSILON = 1e-6;
 
@@ -156,7 +156,7 @@ describe("shader math fidelity", () => {
       frameSpacing: 0.02,
     };
 
-    const nearDepth = (0 / fftParams.frameCount) * 2 - 1;
+    const nearDepth = -1;
     const farDepth = (9 / fftParams.frameCount) * 2 - 1;
 
     const screenX =
@@ -169,7 +169,7 @@ describe("shader math fidelity", () => {
       ((-40 - fftParams.minDb) / (fftParams.maxDb - fftParams.minDb)) * 2 - 1;
 
     const nearPerspectiveY =
-      screenY * (1 + nearDepth * 0.3) + 0 * fftParams.frameSpacing;
+      screenY * (1 + nearDepth * 0.3);
     const farPerspectiveY =
       screenY * (1 + farDepth * 0.3) + 9 * fftParams.frameSpacing;
 

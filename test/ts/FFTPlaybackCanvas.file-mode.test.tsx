@@ -1,15 +1,16 @@
 import * as React from "react";
 import { render, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import FFTPlaybackCanvas from "../../src/ts/components/FFTPlaybackCanvas";
-import { filePlaybackDataRef } from "@n-apt/utils/filePlaybackData";
+import FFTPlaybackCanvas from "@n-apt/spectrum/FFTPlaybackCanvas";
+import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
 
 const fftAndWaterfallMock = jest.fn((_props: any) => (
   <div data-testid="fft-and-waterfall" />
 ));
 const observedInitialFrames: unknown[] = [];
+const triggerSnapshotRenderMock = jest.fn();
 
-jest.mock("@n-apt/components", () => ({
+jest.mock("@n-apt/spectrum", () => ({
   FFTAndWaterfall: React.forwardRef((props: any, ref: React.Ref<any>) => {
     fftAndWaterfallMock(props);
     observedInitialFrames.push(props.dataRef.current);
@@ -18,7 +19,7 @@ jest.mock("@n-apt/components", () => ({
       getWaterfallCanvas: () => null,
       getSpectrumOverlayCanvas: () => null,
       getWaterfallOverlayCanvas: () => null,
-      triggerSnapshotRender: jest.fn(),
+      triggerSnapshotRender: triggerSnapshotRenderMock,
       getSnapshotData: () => null,
       getCompositeSnapshot: () => null,
     }));
@@ -26,7 +27,7 @@ jest.mock("@n-apt/components", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/useStitchingLogic", () => ({
+jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
   useStitchingLogic: () => ({
     hasStitchedData: true,
     frequencyRange: { min: 137_000_000, max: 138_000_000 },
@@ -68,25 +69,25 @@ jest.mock("@n-apt/hooks/useStitchingLogic", () => ({
   }),
 }));
 
-jest.mock("@n-apt/hooks/usePlaybackAnimation", () => ({
+jest.mock("@n-apt/capture/public/usePlaybackAnimation", () => ({
   usePlaybackAnimation: () => ({
     animateFrame: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useChannelManagement", () => ({
+jest.mock("@n-apt/spectrum/hooks/useChannelManagement", () => ({
   useChannelManagement: () => ({
     switchChannel: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useSnapshot", () => ({
+jest.mock("@n-apt/capture/public/useSnapshot", () => ({
   useSnapshot: () => ({
     handleSnapshot: jest.fn(),
   }),
 }));
 
-jest.mock("@n-apt/hooks/useSpectrumStore", () => ({
+jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
   useSpectrumStore: () => ({
     state: { activeSignalArea: "A" },
     toggleVisualizerPause: jest.fn(),
@@ -109,6 +110,9 @@ jest.mock("@n-apt/redux", () => ({
 
 describe("FFTPlaybackCanvas file mode", () => {
   beforeEach(() => {
+    triggerSnapshotRenderMock.mockClear();
+  });
+  beforeEach(() => {
     fftAndWaterfallMock.mockClear();
     observedInitialFrames.length = 0;
     filePlaybackDataRef.current = null;
@@ -129,7 +133,6 @@ describe("FFTPlaybackCanvas file mode", () => {
         displayMode="fft"
         powerScale="dB"
         onStitchStatus={jest.fn()}
-        onStitchProgress={jest.fn()}
         onFrequencyRangeChange={jest.fn()}
         onFftDbLimitsChange={jest.fn()}
         snapshotGridPreference
@@ -194,6 +197,25 @@ describe("FFTPlaybackCanvas file mode", () => {
     });
   });
 
+  it("requests a render after the seeded first frame is mounted", async () => {
+    const canvasRef = React.createRef<any>();
+    render(
+      <FFTPlaybackCanvas
+        ref={canvasRef}
+        selectedFiles={[{ id: "file-1", name: "capture.napt" }]}
+        stitchTrigger={1}
+        stitchSourceSettings={{ gain: 0, ppm: 0 }}
+        isPaused={true}
+        fftSize={2048}
+        displayMode="fft"
+        powerScale="dB"
+        onStitchStatus={jest.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(triggerSnapshotRenderMock).toHaveBeenCalled());
+  });
+
   it("passes file playback metadata into the FFT status row", async () => {
     render(
       <FFTPlaybackCanvas
@@ -205,7 +227,6 @@ describe("FFTPlaybackCanvas file mode", () => {
         displayMode="fft"
         powerScale="dB"
         onStitchStatus={jest.fn()}
-        onStitchProgress={jest.fn()}
         onFrequencyRangeChange={jest.fn()}
         onFftDbLimitsChange={jest.fn()}
         snapshotGridPreference

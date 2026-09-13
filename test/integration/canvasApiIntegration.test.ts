@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { act, renderHook } from "@testing-library/react";
-import { useDrawWebGPUFIFOWaterfall } from "@n-apt/hooks/useDrawWebGPUFIFOWaterfall";
+import { useDrawWebGPUFIFOWaterfall } from "@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall";
 
 describe("canvas API integration", () => {
   it("tracks WebGL draw calls", () => {

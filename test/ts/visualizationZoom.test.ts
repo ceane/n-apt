@@ -1,7 +1,24 @@
 import {
+  clampVizZoom,
   getRetunedVizPanForZoomChange,
   getStableVizPanForZoomChange,
-} from "../../src/ts/utils/visualizationZoom";
+  getZoomedViewForCenterFrequency,
+} from "@n-apt/spectrum/public/visualizationZoom";
+
+it("allows the VisualizerSliders zoom maximum to reach 1,125x", () => {
+  expect(clampVizZoom(1125)).toBe(1125);
+});
+
+it("zooms the viewport to show a center frequency inside the hardware bounds", () => {
+  expect(
+    getZoomedViewForCenterFrequency({
+      hardwareRange: { min: 0, max: 100 },
+      currentZoom: 1,
+      currentPan: 0,
+      requestedCenterHz: 75,
+    }),
+  ).toEqual({ zoom: 2, pan: 25 });
+});
 
 describe("getStableVizPanForZoomChange", () => {
   it("keeps pan stable when zooming from the center", () => {
@@ -65,6 +82,19 @@ describe("getStableVizPanForZoomChange", () => {
         rangeMax: 200,
       }),
     ).toBe(0);
+  });
+
+  it("preserves a reversible negative display pan when enabled", () => {
+    expect(
+      getStableVizPanForZoomChange({
+        currentZoom: 2,
+        currentPan: -25,
+        nextZoom: 1,
+        rangeMin: 0,
+        rangeMax: 100,
+        allowNegativeFrequencies: true,
+      }),
+    ).toBe(-25);
   });
 
   it("retunes the hardware window when zooming out would otherwise clamp the visual center", () => {

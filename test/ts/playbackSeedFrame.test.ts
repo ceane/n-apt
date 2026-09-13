@@ -1,4 +1,4 @@
-import { buildPlaybackSeedFrame } from "../../src/ts/utils/playbackSeedFrame";
+import { buildPlaybackSeedFrame } from "@n-apt/app/infrastructure/io/playbackSeedFrame";
 
 describe("buildPlaybackSeedFrame", () => {
   it("uses the first precomputed FFT frame in fft mode", () => {

@@ -1,5 +1,4 @@
 import katex from 'katex';
-import fs from 'fs';
 
 function lintKatex(expr: string) {
   try {
