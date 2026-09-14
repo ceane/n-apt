@@ -288,6 +288,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       setChannelCount,
       setActiveChannel,
       setFrequencyRange,
+      playIntegrityFailedFile,
     } = useStitchingLogic({
       selectedFiles,
       stitchTrigger,
@@ -764,7 +765,17 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
                 ? "No files selected"
                 : `${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""} selected`}
             </FileCountText>
-            {stitchStatus.toLowerCase().includes("decryption") ? (
+            {stitchStatus.toLowerCase().includes("integrity failed") ? (
+              <div style={{ maxWidth: "420px", margin: "0 auto" }}>
+                <HelpText>
+                  This file appears corrupted or modified. Its contents do not
+                  match the integrity record.
+                </HelpText>
+                <Button onClick={() => void playIntegrityFailedFile()}>
+                  Play anyway
+                </Button>
+              </div>
+            ) : stitchStatus.toLowerCase().includes("decryption") ? (
               <div style={{ maxWidth: "400px", margin: "0 auto" }}>
                 <DecryptionFallback
                   moduleName="File Processing"

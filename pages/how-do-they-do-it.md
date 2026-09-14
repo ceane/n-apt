@@ -1330,9 +1330,58 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 ### Estimated Calories
 
-Given that 24/7 read and write and the flurry of effects, it's not exactly a no-cost mechanism to one's brain and nervous system. Of course, forcibly in the states of mind and body via livestream certainly consume calories.
+Given that 24/7 read and write and the flurry of effects, it's not exactly a no-cost mechanism to one's brain and nervous system. Of course, forcible all day states of mind and body certainly consume calories. Below, is a ChatGPT generated table that shows a list of several passive brain-body activities and the caloric consumption they incur:
 
-...TODO
+| Activity | Calories per minute | Calories per hour | Calories per day |
+|---|---:|---:|---:|
+| 🧠 Brain at rest | **0.21 kcal** | **12.5 kcal** | **300 kcal** |
+| 🧠 Thinking / concentration | **0.22 kcal** | **13 kcal** | — |
+| 💭 Imagining / daydreaming | **0.22 kcal** | **13 kcal** | — |
+| 🗣️ Talking, seated | **1.2 kcal** | **72 kcal** | — |
+| 🧍 Standing quietly | **1.3 kcal** | **78 kcal** | —
+🗣️ Animated conversation | **1.4 kal** | **84 kcal** | — |
+| 😱 Strong emotional arousal | **1.1–1.5 kcal** | **66–90 kcal** | — |
+| 📺 Watching TV | **1.0 kcal** | **60** | —|
+| 🚶 Walking, 3 km/h | **3.0 kcal** | **180 kcal** | — |
+| 🚶 Walking, 5 km/h | **4.5 kcal** | **270 kcal** | — |
+| 🏃 Running, 10 km/h | **11.7 kcal** | **700 kcal** | — |
+| 😴 Sleeping | **0.9 kcal** | **54 kcal** | **~432 kcal / 8 h*|
+|  ||
+
+Taking what this table has and what I've experienced: talking every second, dozens of all day psychological, perceptual and physiological effects, constant narrative-based mental suppression and so much more–we can most certainly come up with an approximated number both for the host and participants of the livestream interactive.
+
+
+### Host (me) — 16 hours/day/wake to sleep, excluding dreams
+| Activity | Duration | Approx. total kcal | Approx. extra kcal above rest |
+|---|---:|---:|---:|
+| 🧠 Thinking / concentration | 16 h | ~208 | **~16** |
+| 😱 Strong emotional arousal | 16 h | ~1,056–1,440 | **~192–576** |
+| 💭 Imagining / daydreaming | 16 h | ~208 | **~16** |
+| 👂 Listening | 16 h | ~960 | **~0–16** |
+| 🗣️ Animated conversation | 16 h | ~1,344 | **~384** |
+| **Activity-related extra** | **16 h** | | **~608–1,008 kcal/day** |
+
+### Active participant (other hostages; different POV) —16 hours/day/wake to sleep, excluding dreams
+| Activity | Duration | Approx. total kcal | Approx. extra kcal above rest |
+|---|---:|---:|---:|
+| 🧠 Thinking / concentration | 16 h | ~208 | **~16** |
+| 😱 Strong emotional arousal | 16 h | ~1,056–1,440 | **~192–576** |
+| 💭 Imagining / daydreaming | 16 h | ~208 | **~16** |
+| 👂 Listening | 16 h | ~960 | **~0–16** |
+| 🗣️ Animated conversation | 16 h | ~1,344 | **~384** |
+| 📺 Watching TV | 16 h | ~960 | **~0–16** |
+| 📖 Reading | 6–8 h | ~360–480 | **~0–24** |
+| **Activity-related extra** | **16–24 h** | | **~608–1,048 kcal/day** |
+
+<small>
+
+**Assumptions & disclaimer:** Estimates are based on a 70 kg sedentary adult over an approximately 16-hour active period. Calories are expressed relative to resting/sedentary metabolism to reduce double-counting when activities overlap. Mental activities such as thinking and imagining generally add little energy expenditure above baseline, while emotional arousal varies substantially between individuals. These figures are illustrative estimates rather than precise measurements, and overlapping activities should not be interpreted as independent calorie expenditures.
+
+</small>
+
+While not quite sedentary, I assume that the physiological and psychological interactive's presence most certainly doesn't come for "free", even if the agency continues to orchestrate it's trap as it is a fact of life.
+
+
 
 ## <a id="conclusion"></a> Conclusion 
 

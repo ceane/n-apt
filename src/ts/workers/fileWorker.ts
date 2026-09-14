@@ -5,6 +5,7 @@
 import { parseFrequency } from "@n-apt/math/frequency";
 import { base64ToBytes } from "@n-apt/crypto/webcrypto";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
+import { verifyStampedIntegrity } from "@n-apt/webusb/iqIntegrity";
 
 let currentFftSize = 8192;
 
@@ -83,6 +84,30 @@ type FileMetadata = {
   }[];
 };
 
+type IntegrityStatus = "verified" | "failed" | "unavailable";
+
+const verifyFileIntegrity = async (
+  fileData: ArrayBuffer,
+  metadata: FileMetadata,
+): Promise<IntegrityStatus> => {
+  if ((metadata.format_version ?? 3) < 5) return "unavailable";
+  const trailer = metadata.trailer as { integrity?: {
+    algorithm?: string;
+    scope?: string;
+    digest?: string;
+  } } | null;
+  const integrity = trailer?.integrity;
+  if (
+    !integrity ||
+    integrity.algorithm !== "SHA-256" ||
+    integrity.scope !== "file-with-integrity-digest-placeholder" ||
+    !integrity.digest
+  ) return "failed";
+  return (await verifyStampedIntegrity(new Uint8Array(fileData), integrity.digest))
+    ? "verified"
+    : "failed";
+};
+
 type WavLoadResult = {
   raw: Uint8Array;
   metadata: FileMetadata | null;
@@ -136,6 +161,9 @@ async function loadIqFile(
     const trailerLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));
     if (trailerLength + 24 !== trailerBytes.length) throw new Error("Invalid IQ v4 trailer length");
     metadata.trailer = JSON.parse(new TextDecoder().decode(trailerBytes.slice(24)));
+    if (trailerSection.version === 2 && (await verifyFileIntegrity(fileData, metadata)) === "failed") {
+      throw new Error("INTEGRITY_FAILED: file appears corrupted or modified");
+    }
   }
   const frameUpdates = JSON.parse(new TextDecoder().decode(
     new Uint8Array(fileData, framesStart, framesLength),
@@ -622,7 +650,7 @@ self.onmessage = async function (e) {
   try {
     switch (type) {
       case "loadFile": {
-        const { fileData, fileName, aesKey: rawAesKey } = data;
+        const { fileData, fileName, aesKey: rawAesKey, allowIntegrityFailure = false } = data;
         const aesKey = rawAesKey
           ? await crypto.subtle.importKey(
               "raw",
@@ -723,6 +751,9 @@ self.onmessage = async function (e) {
             const trailerJsonLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));
             if (trailerJsonLength + 24 !== trailerBytes.length) throw new Error("Invalid NAPT v4 trailer length");
             metadata.trailer = JSON.parse(new TextDecoder().decode(trailerBytes.slice(24)));
+            if (!allowIntegrityFailure && (await verifyFileIntegrity(fileData, metadata)) === "failed") {
+              throw new Error("INTEGRITY_FAILED: file appears corrupted or modified");
+            }
             naptBinaryFileData = fileData.slice(0, trailer.offset_bytes);
           }
           const isEncrypted =
@@ -847,6 +878,7 @@ self.onmessage = async function (e) {
           fftSize,
           aesKey: rawAesKey,
           sampleRateOptions,
+          allowIntegrityFailure,
         } = data;
         let aesKey: CryptoKey | null = null;
 
@@ -994,6 +1026,9 @@ self.onmessage = async function (e) {
                 const trailerJsonLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));
                 if (trailerJsonLength + 24 !== trailerBytes.length) throw new Error("Invalid NAPT v4 trailer length");
                 metadata.trailer = JSON.parse(new TextDecoder().decode(trailerBytes.slice(24)));
+                if (!allowIntegrityFailure && (await verifyFileIntegrity(file.fileData, metadata)) === "failed") {
+                  throw new Error("INTEGRITY_FAILED: file appears corrupted or modified");
+                }
                 naptBinaryFileData = file.fileData.slice(0, trailer.offset_bytes);
               }
               const isEncrypted = !!(
