@@ -3,6 +3,7 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { appRuntimeDirectory, backendHandoffLockPath, backendTargetPath } from "./runtimePaths";
 
 // Force the Node entrypoint. Jest's jsdom environment otherwise resolves the
 // package "browser" stub, which exports an empty object.
@@ -191,9 +192,10 @@ if (isMainModule) {
   for (let index = 2; index < process.argv.length - 1; index += 2) {
     args.set(process.argv[index], process.argv[index + 1]);
   }
-  const targetFile = path.resolve(args.get("--target-file") || ".n-apt-backend-target.json");
+  const targetFile = path.resolve(args.get("--target-file") || backendTargetPath);
   const listenPort = Number(args.get("--port") || 8765);
-  const lockFile = path.resolve(".n-apt-backend-handoff-proxy.lock");
+  fs.mkdirSync(appRuntimeDirectory, { recursive: true });
+  const lockFile = backendHandoffLockPath;
   const releaseLock = acquireProxyLock(lockFile);
   process.once("exit", releaseLock);
   const server = createBackendHandoffProxy({ listenPort, targetFile });

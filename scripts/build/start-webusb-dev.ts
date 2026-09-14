@@ -3,13 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { isProjectBuildOrchestratorCommand } from "./webusbDevOwnership";
+import { buildOrchestratorLockPath } from "./runtimePaths";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "../..");
-const orchestratorLockPath = path.join(
-  projectRoot,
-  ".n-apt-build-orchestrator.lock",
-);
+const orchestratorLockPath = buildOrchestratorLockPath;
 const orchestratorScriptPath = path.join(
   scriptDirectory,
   "build-orchestrator.tsx",

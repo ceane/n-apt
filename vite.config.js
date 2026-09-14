@@ -129,7 +129,7 @@ const rebuildStatusPlugin = () => ({
 
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Access-Control-Allow-Origin", "*");
-      const statusFile = path.resolve(dirname, ".rebuild_status.json");
+      const statusFile = path.resolve(dirname, ".n-apt", "rebuild_status.json");
       if (fs.existsSync(statusFile)) {
         res.end(fs.readFileSync(statusFile));
       } else {

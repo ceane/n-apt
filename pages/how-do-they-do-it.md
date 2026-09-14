@@ -1328,6 +1328,12 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 </div>
 
+### Estimated Calories
+
+Given that 24/7 read and write and the flurry of effects, it's not exactly a no-cost mechanism to one's brain and nervous system. Of course, forcibly in the states of mind and body via livestream certainly consume calories.
+
+...TODO
+
 ## <a id="conclusion"></a> Conclusion 
 
 TODO
