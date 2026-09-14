@@ -233,6 +233,7 @@ export const SourceInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
   kind: z.string(),
+  is_mock: z.boolean().optional(),
   capability: SourceCapabilitySchema,
   duplex_mode: z.string().nullable().optional(),
   active_duplex_mode: DeviceActiveModeSchema.nullable().optional(),

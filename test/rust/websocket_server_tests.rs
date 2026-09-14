@@ -312,6 +312,7 @@ fn source_info_snapshot_includes_mock_tx_device() {
 
   assert_eq!(mock_tx["name"], "Mock Tx SDR");
   assert_eq!(mock_tx["kind"], "mock_tx");
+  assert_eq!(mock_tx["is_mock"], true);
   assert_eq!(mock_tx["capability"], "tx");
   assert_eq!(mock_tx["status"], "connected");
   assert_eq!(mock_tx["product"], "Mock Tx SDR");
