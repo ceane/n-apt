@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 
 const MAGIC: &[u8; 8] = b"NAPT-IQ3";
 const HEADER_SIZE: usize = 40;
 const TRAILER_MAGIC: &[u8; 8] = b"NAPTTRLR";
 const TRAILER_HEADER_SIZE: usize = 24;
+const INTEGRITY_PLACEHOLDER: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IqMetadata {
@@ -69,7 +71,7 @@ pub fn encode(
   file: &IqFile,
   key: Option<&[u8; 32]>,
 ) -> Result<Vec<u8>, String> {
-  encode_versioned(file, key, 4)
+  encode_versioned(file, key, 5)
 }
 
 fn encode_versioned(
@@ -110,12 +112,18 @@ fn encode_versioned(
       .map_err(|e| format!("IQ encryption failed: {e}"))?;
   }
   let trailer_json = if version >= 4 {
-    serde_json::to_vec(
-      &file
-        .trailer
-        .clone()
-        .unwrap_or_else(|| serde_json::json!({})),
-    )
+    let mut trailer = file
+      .trailer
+      .clone()
+      .unwrap_or_else(|| serde_json::json!({}));
+    if version >= 5 {
+      trailer["integrity"] = serde_json::json!({
+        "algorithm": "SHA-256",
+        "scope": "file-with-integrity-digest-placeholder",
+        "digest": INTEGRITY_PLACEHOLDER,
+      });
+    }
+    serde_json::to_vec(&trailer)
     .map_err(|e| e.to_string())?
   } else {
     Vec::new()
@@ -134,7 +142,7 @@ fn encode_versioned(
         "sections".into(),
         serde_json::json!({
           "binary": { "offset_bytes": binary_offset, "length_bytes": payload.len(), "encoding": "iq_u8_interleaved", "encrypted": key.is_some() },
-          "trailer": { "offset_bytes": trailer_offset, "length_bytes": trailer_len, "encoding": "utf8_json", "version": 1 }
+          "trailer": { "offset_bytes": trailer_offset, "length_bytes": trailer_len, "encoding": "utf8_json", "version": if version >= 5 { 2 } else { 1 } }
         }),
       );
     }
@@ -162,10 +170,18 @@ fn encode_versioned(
   out.extend_from_slice(&payload);
   if version >= 4 {
     out.extend_from_slice(TRAILER_MAGIC);
-    out.push(1);
+    out.push(if version >= 5 { 2 } else { 1 });
     out.extend_from_slice(&[0; 7]);
     out.extend_from_slice(&(trailer_json.len() as u64).to_le_bytes());
     out.extend_from_slice(&trailer_json);
+  }
+  if version >= 5 {
+    let digest = sha2::Sha256::digest(&out);
+    let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let placeholder = INTEGRITY_PLACEHOLDER.as_bytes();
+    let offset = out.windows(placeholder.len()).position(|window| window == placeholder)
+      .ok_or("missing IQ integrity placeholder")?;
+    out[offset..offset + placeholder.len()].copy_from_slice(digest.as_bytes());
   }
   Ok(out)
 }
@@ -395,9 +411,16 @@ mod tests {
 
     let encoded = encode(&file, None).expect("encode v4 IQ");
     let decoded = decode(&encoded, None).expect("decode v4 IQ");
-    assert_eq!(decoded.metadata.format_version, 4);
+    assert_eq!(decoded.metadata.format_version, 5);
     assert_eq!(decoded.chunks[0].data, vec![1, 2, 3, 4]);
-    assert_eq!(decoded.trailer, file.trailer);
+    assert_eq!(
+      decoded.trailer.as_ref().and_then(|trailer| trailer["processing"].as_object()),
+      file.trailer.as_ref().and_then(|trailer| trailer["processing"].as_object())
+    );
+    assert_eq!(
+      decoded.trailer.as_ref().and_then(|trailer| trailer["integrity"]["algorithm"].as_str()),
+      Some("SHA-256")
+    );
 
     let sections = decoded
       .metadata

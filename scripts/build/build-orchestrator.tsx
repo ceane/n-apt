@@ -47,6 +47,7 @@ import {
   type RebuildStatusStep,
 } from './cargoBuildProgress';
 import { startDevStatusServer, type DevStatusServerHandle } from './devStatusServer';
+import { appRuntimeDirectory, backendTargetPath, buildOrchestratorLockPath, rebuildStatusPath } from './runtimePaths';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +55,7 @@ const isMainModule = import.meta.url === `file://${process.argv[1]}`;
 const hasInteractiveTty = Boolean(isMainModule && process.stdin.isTTY && process.stdout.isTTY);
 const backendProxyPort = 8765;
 const backendInitialPort = 8766;
-const backendTargetFile = path.resolve('.n-apt-backend-target.json');
+const backendTargetFile = backendTargetPath;
 
 const findAvailableTcpPort = async (startingPort: number): Promise<number> => {
   for (let port = startingPort; port <= 65535; port += 1) {
@@ -437,7 +438,7 @@ const BuildOrchestrator = () => {
   const writeRebuildStatus = useCallback((patch: Partial<RebuildStatusPayload>) => {
     rebuildStatusRef.current = { ...rebuildStatusRef.current, ...patch };
     try {
-      fs.writeFileSync('.rebuild_status.json', `${JSON.stringify(rebuildStatusRef.current)}\n`);
+      fs.writeFileSync(rebuildStatusPath, `${JSON.stringify(rebuildStatusRef.current)}\n`);
     } catch {
       // Best-effort status for the Vite /rebuild-status endpoint.
     }
@@ -2595,7 +2596,7 @@ async function runNonTtyBuild() {
   let nonTtyStartedAt = 0;
   const writeNonTtyStatus = (patch: Partial<RebuildStatusPayload>) => {
     try {
-      fs.writeFileSync('.rebuild_status.json', `${JSON.stringify({
+      fs.writeFileSync(rebuildStatusPath, `${JSON.stringify({
         rebuilding: true,
         buildStartedAt: nonTtyStartedAt || Date.now(),
         errorCount: errorDetails.length,
@@ -2664,7 +2665,8 @@ async function runNonTtyBuild() {
 
 // Main execution
 const startOrchestrator = async () => {
-  const orchestratorLockPath = path.resolve('.n-apt-build-orchestrator.lock');
+  fs.mkdirSync(appRuntimeDirectory, { recursive: true });
+  const orchestratorLockPath = buildOrchestratorLockPath;
   const releaseOrchestratorLock = await acquireBuildOrchestratorLock(orchestratorLockPath);
   process.once('exit', releaseOrchestratorLock);
 

@@ -377,6 +377,7 @@ export interface SourceInfo {
   id: string;
   name: string;
   kind: string;
+  is_mock?: boolean;
   capability: SourceCapability;
   duplex_mode?: string | null;
   /** Backend-reported hardware mode; view mode remains UI-owned. */

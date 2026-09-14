@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
+import { rebuildStatusPath } from "./runtimePaths";
 
 export interface DevStatusServerOptions {
   port?: number;
@@ -248,7 +249,7 @@ export function startDevStatusServer(
   options: DevStatusServerOptions = {},
 ): Promise<DevStatusServerHandle | null> {
   const port = options.port ?? 5173;
-  const statusPath = options.statusPath ?? ".rebuild_status.json";
+  const statusPath = options.statusPath ?? rebuildStatusPath;
 
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {

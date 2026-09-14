@@ -36,7 +36,8 @@ interface StitchingResult {
   setActiveChannel: (channel: number) => void;
   setFrequencyRange: (range: { min: number; max: number }) => void;
   setHardwareSampleRateHz: (hz: number | undefined) => void;
-  stitchFiles: () => Promise<void>;
+  stitchFiles: (allowIntegrityFailure?: boolean) => Promise<void>;
+  playIntegrityFailedFile: () => Promise<void>;
 }
 
 export const useStitchingLogic = ({
@@ -176,7 +177,7 @@ export const useStitchingLogic = ({
     onProcessedDataChange?.(true);
   }
 
-  const stitchFiles = useCallback(async () => {
+  const stitchFiles = useCallback(async (allowIntegrityFailure = false) => {
     const currentFiles = selectedFilesRef.current;
     if (currentFiles.length === 0) {
       setStitchStatus("No files selected for stitching");
@@ -217,6 +218,7 @@ export const useStitchingLogic = ({
         },
         aesKeyRef.current,
         sampleRateOptions, // Pass dynamic sample rate options
+        allowIntegrityFailure,
       );
 
       if (!result.stitchedData) {
@@ -307,7 +309,9 @@ export const useStitchingLogic = ({
       console.error("Stitch error:", error);
       const msg = error.message || String(error);
       setStitchStatus(
-        msg.toLowerCase().includes("decryption")
+        msg.toLowerCase().includes("integrity_failed")
+          ? "File integrity failed: file appears corrupted or modified"
+          : msg.toLowerCase().includes("decryption")
           ? "File decryption failed, wrong key"
           : msg,
       );
@@ -326,6 +330,11 @@ export const useStitchingLogic = ({
     onChannelsChange,
     onProcessedDataChange,
   ]);
+
+  const playIntegrityFailedFile = useCallback(
+    () => stitchFiles(true),
+    [stitchFiles],
+  );
 
   // Trigger: respond to parent's stitch button click
   useEffect(() => {
@@ -367,5 +376,6 @@ export const useStitchingLogic = ({
     setFrequencyRange,
     setHardwareSampleRateHz,
     stitchFiles,
+    playIntegrityFailedFile,
   };
 };

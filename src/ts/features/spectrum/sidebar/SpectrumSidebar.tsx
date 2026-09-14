@@ -623,6 +623,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceName: liveDeviceName,
     deviceProfile: liveDeviceProfile,
   } = useSpectrumStore();
+  const isMockSource = selectedSource?.is_mock === true;
   const spectrumTransport = useSpectrumTransport();
   const lastTxToggleTimeRef = useRef(0);
   const pendingTxStopSourceIdRef = useRef<string | null>(null);
@@ -2583,7 +2584,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     }
 
     let geolocationData = undefined;
-    if (captureFileTypeState === ".napt" && captureGeolocation) {
+    if (captureGeolocation) {
       try {
         const location = await getLocation();
         geolocationData = location || undefined;
@@ -2616,7 +2617,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
-      encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
+      encrypted:
+        !isMockSource &&
+        (captureFileTypeState === ".napt" || captureEncrypted),
       fftSize,
       fftWindow,
       geolocation: geolocationData,
@@ -2632,6 +2635,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     captureDurationMode,
     captureDurationS,
     captureFileTypeState,
+    isMockSource,
     acquisitionMode,
     maxSampleRate,
     liveDeviceProfileToUse?.kind,
@@ -3157,6 +3161,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             captureDurationMode={captureDurationMode}
             captureDurationS={captureDurationS}
             captureFileType={captureFileTypeState}
+            isMockSource={isMockSource}
             acquisitionMode={acquisitionMode}
             captureEncrypted={captureEncrypted}
             capturePlayback={capturePlayback}

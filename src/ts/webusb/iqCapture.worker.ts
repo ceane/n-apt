@@ -120,7 +120,7 @@ const completeCapture = async (state: CaptureState): Promise<void> => {
   const metadata = makeFinalMetadata(state);
   let bytes: Uint8Array;
   if (state.format === ".iq") {
-    bytes = encodeIqCaptureV4({
+    bytes = await encodeIqCaptureV4({
       metadata,
       frameUpdates: state.frameUpdates,
       chunks: state.chunks,

@@ -158,6 +158,7 @@ export class FileWorkerManager {
       maxSampleRateHz: number;
       currentSampleRateHz: number;
     },
+    allowIntegrityFailure = false,
   ): Promise<any> {
     const filesData = [];
 
@@ -180,6 +181,7 @@ export class FileWorkerManager {
         settings,
         fftSize,
         aesKey: aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null,
+        allowIntegrityFailure,
         sampleRateOptions, // Pass current sample rate options dynamically
       },
       onProgress,
