@@ -81,11 +81,8 @@ This purpose of this repository is to provide tooling to inspect, visualize, and
 
 
 > [!NOTE]
-> **By default 99.9% of people will not be able to see a real, live N-APT signal (unless you find me around San Francisco and are EVIL enough to snag the waves)**.
->
-> Whatever our RTL-SDR receives will be different (or just Mock APT signals what the app will show when an RTL-SDR device isn't plugged in).
->
-> **The I/Q captures are encrypted and password protected**, if you want the password you can just send me a message and at my discretion I'll give the right people (university researcher, RF enthusiast, civil society, tech journalists, etc.) the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).
+> >
+> **The N-APT sample I/Q captures within the repo are encrypted and password protected**, if you want the password you can just send me a message and at my discretion I'll give the right people (university researcher, RF enthusiast, civil society, tech journalists, etc.) the password (Read [RESPONSIBLE USE](RESPONSIBLE_USE.md)).
 
 
 ## How The NSA's neurotechnological technique works (Shorthand)
@@ -304,7 +301,7 @@ They are specifially segmented this way because A and B are similar in shape (an
 
 - npm installs are delayed by 7 days for newly published package versions via `.npmrc`'s `min-release-age`.
 
-### Downloading Cell Tower Dataset
+### Optional: Download the Cell Tower Dataset 
 
 To use cell tower mapping features, download the [OpenCellID dataset](https://www.opencellid.org/downloads; search and grab all the US files after getting an API token). **The data should be unzipped and in your `~/Downloads` folder** (or `Downloads` folder on Windows): *(It looks like `310.csv, 314.csv`, etc.)*
 
