@@ -237,8 +237,6 @@ export const useLiveSampleRateControl = ({
   const sampleRateModeRef = useRef<SampleRateMode | null>(null);
   const lastAppliedWholeChannelRateRef = useRef<number | null>(null);
   const lastAppliedFrequencyRangeKeyRef = useRef<string | null>(null);
-  const lastObservedFrequencyRangeKeyRef = useRef<string | null>(null);
-  const lastExplicitChannelFocusRangeKeyRef = useRef<string | null>(null);
   const pendingSampleRateRef = useRef<number | null>(null);
   const requestedSampleRateHz = pendingSampleRateRef.current ?? sampleRateHz;
 
@@ -318,13 +316,6 @@ export const useLiveSampleRateControl = ({
             ? nextWholeChannelRate
             : nextSampleRate;
       pendingSampleRateRef.current = resolvedSampleRate;
-      if (requestedMode === "whole" && frequencyRangeOverride) {
-        const normalizedOverride = normalizeFrequencyRangeToHz(
-          frequencyRangeOverride,
-        );
-        lastExplicitChannelFocusRangeKeyRef.current =
-          `${normalizedOverride.min}:${normalizedOverride.max}`;
-      }
 
       if (requestedMode) {
         sampleRateModeRef.current = requestedMode;
@@ -485,13 +476,6 @@ export const useLiveSampleRateControl = ({
     }
 
     const currentSpan = rangeSpanHz(frequencyRange);
-    const normalizedCurrentRange =
-      normalizeFrequencyRangeToHz(frequencyRange);
-    const currentRangeKey = `${normalizedCurrentRange.min}:${normalizedCurrentRange.max}`;
-    const rangeChangedSinceObservation =
-      lastObservedFrequencyRangeKeyRef.current !== null &&
-      lastObservedFrequencyRangeKeyRef.current !== currentRangeKey;
-    lastObservedFrequencyRangeKeyRef.current = currentRangeKey;
 
     if (canUseWholeChannel) {
       const targetRate =
@@ -506,28 +490,13 @@ export const useLiveSampleRateControl = ({
           ? startingAnchorPosition
           : "center",
       });
-      const wholeChannelEdgesDiffer =
-        normalizedCurrentRange.min !== nextRange.min ||
-        normalizedCurrentRange.max !== nextRange.max;
-      const nextRangeKey = `${nextRange.min}:${nextRange.max}`;
-      const isExplicitChannelFocus =
-        lastExplicitChannelFocusRangeKeyRef.current === nextRangeKey;
-      if (
-        isExplicitChannelFocus &&
-        rangeChangedSinceObservation &&
-        lastAppliedFrequencyRangeKeyRef.current !== currentRangeKey
-      ) {
-        // A changed live range is a new observation. If it does not equal the
-        // range we last requested, allow Whole Channel edge reconciliation to
-        // publish again rather than treating the old request as an ACK.
-        lastAppliedFrequencyRangeKeyRef.current = null;
-      }
 
-      if (
-        (isWholeChannelMode && isExplicitChannelFocus)
-          ? wholeChannelEdgesDiffer
-          : rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)
-      ) {
+      // Reconcile only the acquisition span. Re-anchoring the position here
+      // republished a channel-anchored range on every frequencyRange change, so
+      // a user pan was undone on the next render and the viewport snapped back
+      // to the channel edges. Position belongs to explicit channel and
+      // sample-rate actions, not to this reconciliation.
+      if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
         applyFrequencyRangeIfChanged(nextRange);
       }
     } else if (currentSpan > requestedSampleRateHz) {

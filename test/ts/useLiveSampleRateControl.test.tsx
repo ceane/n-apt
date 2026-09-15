@@ -178,7 +178,7 @@ describe("useLiveSampleRateControl", () => {
     });
   });
 
-  it("repairs Whole Channel edges even when a stale range has the same span", () => {
+  it("keeps a same-span acquisition window instead of snapping back to the channel edges", () => {
     const applyFrequencyRange = jest.fn();
     const initialProps = {
       sourceMode: "live" as const,
@@ -204,6 +204,9 @@ describe("useLiveSampleRateControl", () => {
     });
     applyFrequencyRange.mockClear();
 
+    // A scrolled window that keeps its span equal to the sample rate is a valid
+    // acquisition window. Re-anchoring it to the channel edges here is what made
+    // the viewport elastically snap back while browsing the spectrum.
     rerender({
       ...initialProps,
       activeChannelSampleRate: 18_250_000,
@@ -212,10 +215,7 @@ describe("useLiveSampleRateControl", () => {
       sampleRateHz: 18_250_000,
     });
 
-    expect(applyFrequencyRange).toHaveBeenCalledWith({
-      min: 4_750_000,
-      max: 23_000_000,
-    });
+    expect(applyFrequencyRange).not.toHaveBeenCalled();
   });
 
   it("notifies dependent controls whenever the sample rate is applied", () => {
