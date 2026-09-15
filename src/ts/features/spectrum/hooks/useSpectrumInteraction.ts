@@ -1067,6 +1067,12 @@ export function useSpectrumInteraction({
       return { min: minPan, max: maxPan };
     };
 
+    // Navigation/VFO pan is bounded by the device spectrum, never by the active
+    // channel. Falling back to channel bounds here trapped panning inside the
+    // selected channel before the hardware bounds hydrated.
+    const navigationPanBounds = (): FrequencyRange =>
+      hardwareSpectrumBounds ?? getAvailableSpectrumBounds(null);
+
     const clampVizPan = (
       pan: number,
       sourceRange: FrequencyRange,
@@ -1207,7 +1213,7 @@ export function useSpectrumInteraction({
         nextPan - (newHardwareCenter - currentHardwareCenter),
         clampedHardwareRange,
         zoom,
-        hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+        navigationPanBounds(),
       );
       onVizPanReanchor?.(remainingPan);
       if (!onVizPanReanchor) onVizPanChange(remainingPan);
@@ -1730,8 +1736,7 @@ export function useSpectrumInteraction({
                       newPan,
                       bounds,
                       zoom,
-                      hardwareSpectrumBounds ??
-                        signalAreaBounds?.[activeSignalArea],
+                      navigationPanBounds(),
                     );
               onVizPanChange(clampedPan);
               if (vizPanOffsetRef) {
@@ -1813,7 +1818,7 @@ export function useSpectrumInteraction({
               desiredPan,
               frequencyRangeRef.current,
               zoom,
-              hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+              navigationPanBounds(),
             );
         onVizPanChange(clampedPan);
         if (vizPanOffsetRef) {
@@ -2865,7 +2870,7 @@ export function useSpectrumInteraction({
                 newPan,
                 frequencyRangeRef.current,
                 zoom,
-                hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+                navigationPanBounds(),
               );
           onVizPanChange(newPan);
           vizPanOffsetRef.current = newPan;

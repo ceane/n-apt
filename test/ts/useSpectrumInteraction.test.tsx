@@ -1321,6 +1321,25 @@ describe("useSpectrumInteraction Hook", () => {
     });
   });
 
+  it("does not trap zoomed wheel panning inside the active channel without hardware bounds", () => {
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 0, max: 100 } },
+        signalAreaBounds: { TEST: { min: 40, max: 60 } },
+        hardwareSpectrumBounds: null,
+        vizZoomRef: { current: 2 },
+        vizPanOffsetRef: { current: 0 },
+      }),
+    );
+
+    // A wheel outside the VFO rows pans the viewport. The channel [40, 60]
+    // must not cap the pan: the acquisition window [0, 100] is the bound.
+    triggerWheel({ clientX: 500, clientY: 10, deltaY: 200 });
+
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(10);
+  });
+
   it("allows Whole Channel dragging below the selected channel start", () => {
     const localRangeRef = { current: { min: 4_750_000, max: 23_000_000 } };
 

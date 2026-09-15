@@ -77,6 +77,7 @@ import { selectTxHopChannels } from "@n-apt/redux/selectors/spectrumSelectors";
 import {
   clampFrequencyRangeToBounds,
   buildCenteredFrequencyRange,
+  getAvailableSpectrumBounds,
   normalizeFrequencyRangeToHz,
   resolveCenteredFrequencyHz,
 } from "@n-apt/math/frequency";
@@ -87,19 +88,16 @@ import {
 } from "@n-apt/math/basebandMirror";
 
 export const resolveNavigationFrequencyBounds = ({
-  channelBounds,
   hardwareBounds,
 }: {
-  channelBounds: FrequencyRange | null;
   hardwareBounds: FrequencyRange | null;
-}): FrequencyRange | null => {
+}): FrequencyRange => {
   // The live VFO is a device acquisition control, not a subscriber-local
-  // channel selector. Using channelBounds at 1x made zoom level decide whether
-  // 0 Hz was reachable, so two clients could show the same center with
-  // different lower edges. Keep the device bounds at every zoom level; the
-  // channel is still used when hardware bounds have not hydrated yet.
-  if (hardwareBounds) return hardwareBounds;
-  return channelBounds;
+  // channel selector. The active channel must never bound navigation: falling
+  // back to channelBounds trapped scrolling inside the selected channel
+  // whenever the hardware range had not hydrated. Use the device bounds when
+  // known, otherwise the global spectrum bounds the backend advertises.
+  return hardwareBounds ?? getAvailableSpectrumBounds(null);
 };
 
 export const isWholeChannelPan = ({
@@ -231,8 +229,11 @@ export const createLiveFrequencyRangePublisher = (
     },
     equals: (left, right) =>
       left.min === right.min && left.max === right.max,
-    intervalMs: 50,
-    idleFlushMs: 80,
+    // One display frame. The frame rate governs scroll responsiveness; a coarser
+    // cadence made scrolling feel bogged down, and the backend already coalesces
+    // retunes to the latest value.
+    intervalMs: 16,
+    idleFlushMs: 16,
   });
 
   return {
@@ -664,9 +665,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       source: "user-pan" | "mode-enter" | "typed" = "user-pan",
     ) => {
       // The canvas keeps the live view in refs while a gesture is in flight.
-      // Coalesce Redux and device updates to one latest-value publish every
-      // 50 ms. The interaction hook already updates the live refs and asks
-      // the canvas to repaint synchronously, so this does not slow the drag.
+      // Coalesce Redux and device updates to one latest-value publish per
+      // display frame. The interaction hook already updates the live refs and
+      // asks the canvas to repaint synchronously, so this does not slow the drag.
       const publisher = liveFrequencyRangePublisherRef.current;
       if (source === "user-pan") {
         if (publisher) {
@@ -1476,7 +1477,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       }
 
       const primaryBounds = resolveNavigationFrequencyBounds({
-        channelBounds: activeSignalAreaBounds,
         hardwareBounds: hardwareSpectrumBounds,
       });
       const isWholeChannel = isWholeChannelPan({
@@ -1484,7 +1484,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         channelBounds: activeSignalAreaBounds,
       });
       const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds && !isWholeChannel
+        !isWholeChannel
           ? clampFrequencyRangeToBounds(range, primaryBounds)
           : range,
       );

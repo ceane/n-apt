@@ -189,13 +189,10 @@ export const useFrequencyTuning = (options: UseFrequencyTuningOptions) => {
       }
 
       const primaryBounds = resolveNavigationFrequencyBounds({
-        channelBounds: activeSignalAreaBounds,
         hardwareBounds: hardwareSpectrumBounds,
       });
       const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds
-          ? clampFrequencyRangeToBounds(range, primaryBounds)
-          : range,
+        clampFrequencyRangeToBounds(range, primaryBounds),
       );
       publishFrequencyRange(clampedRange, source);
       applyTxMonitorForRange(clampedRange, source);

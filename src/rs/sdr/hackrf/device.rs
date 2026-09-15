@@ -541,26 +541,14 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
-    let was_streaming = self.streaming_started;
-    if !was_streaming {
-      return self.set_center_frequency(freq);
-    }
-
-    // HackRF's native frequency setter is not a safe in-flight RX control
-    // operation. Stop the native stream before changing the LO, then restart
-    // it before returning to the acquisition worker. A failed tune still
-    // attempts to restore RX so one bad channel selection cannot strand the
-    // device in a frozen state.
-    self.stop_streaming();
+    // hackrf_set_freq is a synchronous control transfer and stays valid while
+    // RX is streaming. Stopping and restarting the native stream here
+    // (hackrf_stop_rx can block in firmware) turned every VFO tick into a full
+    // stream restart and stalled scrolling. Retune in place, then drop chunks
+    // already buffered at the old LO so the next frame is new-frequency content.
+    self.set_center_frequency(freq)?;
     self.flush_read_queue();
-    let tune_result = self.set_center_frequency(freq);
-    let restart_result = self.ensure_streaming();
-
-    match (tune_result, restart_result) {
-      (Err(error), _) => Err(error),
-      (Ok(()), Err(error)) => Err(error),
-      (Ok(()), Ok(())) => Ok(()),
-    }
+    Ok(())
   }
 
   fn set_gain(&mut self, gain: f64) -> Result<()> {

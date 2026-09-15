@@ -21,7 +21,7 @@ describe("subscriber-local visual pan", () => {
 });
 
 describe("createLiveFrequencyRangePublisher", () => {
-  it("publishes a leading pan and throttles the latest value to 20Hz", () => {
+  it("publishes a leading pan and throttles the latest value to one frame", () => {
     jest.useFakeTimers();
     const setFrequencyRange = jest.fn();
     const sendFrequencyRange = jest.fn();
@@ -41,7 +41,8 @@ describe("createLiveFrequencyRangePublisher", () => {
       expect(sendFrequencyRange).toHaveBeenCalledTimes(1);
       expect(sendFrequencyRange).toHaveBeenCalledWith(firstRange);
 
-      jest.advanceTimersByTime(50);
+      // One display frame, not the old 50 ms / 20 Hz cap.
+      jest.advanceTimersByTime(16);
 
       expect(setFrequencyRange).toHaveBeenCalledTimes(2);
       expect(setFrequencyRange).toHaveBeenLastCalledWith(latestRange);
@@ -143,24 +144,19 @@ describe("publishFrequencyRangeBySource", () => {
 
 describe("resolveNavigationFrequencyBounds", () => {
   const channelBounds = { min: 18_000, max: 4_390_000 };
-  const hardwareBounds = { min: 0, max: 30_000_000 };
+  const hardwareBounds = { min: 0, max: 6_000_000_000 };
 
-  it("lets mirror-mode display navigation acquire beyond the active channel", () => {
-    expect(
-      resolveNavigationFrequencyBounds({
-        channelBounds,
-        hardwareBounds,
-      }),
-    ).toEqual(hardwareBounds);
+  it("uses the hydrated device bounds", () => {
+    expect(resolveNavigationFrequencyBounds({ hardwareBounds })).toEqual(
+      hardwareBounds,
+    );
   });
 
-  it("keeps the device acquisition bounds at 1x so every subscriber can reach the same edge", () => {
-    expect(
-      resolveNavigationFrequencyBounds({
-        channelBounds,
-        hardwareBounds,
-      }),
-    ).toEqual(hardwareBounds);
+  it("falls back to the global spectrum bounds instead of the active channel", () => {
+    const bounds = resolveNavigationFrequencyBounds({ hardwareBounds: null });
+
+    expect(bounds).toEqual({ min: 0, max: 30_000_000_000 });
+    expect(bounds).not.toEqual(channelBounds);
   });
 });
 
