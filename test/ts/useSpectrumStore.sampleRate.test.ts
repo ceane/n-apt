@@ -134,13 +134,19 @@ describe("resolveSourceSwitchDisplaySettings", () => {
 });
 
 describe("resolveLiveAcquisitionBounds", () => {
-  it("prefers the device bounds over a subscriber-local channel frame", () => {
+  it("uses the hydrated device bounds", () => {
     expect(
       resolveLiveAcquisitionBounds({
         hardwareBounds: { min: 0, max: 30_000_000_000 },
-        channelBounds: { min: 6_780, max: 4_390_000 },
       }),
     ).toEqual({ min: 0, max: 30_000_000_000 });
+  });
+
+  it("falls back to the global spectrum bounds instead of a channel frame", () => {
+    expect(resolveLiveAcquisitionBounds({ hardwareBounds: null })).toEqual({
+      min: 0,
+      max: 30_000_000_000,
+    });
   });
 });
 

@@ -115,6 +115,7 @@ import {
 } from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
 import {
   clampFrequencyRangeToBounds,
+  getAvailableSpectrumBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/math/frequency";
 import {
@@ -1094,17 +1095,17 @@ const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
 ];
 
 /**
- * Live acquisition bounds are device-scoped. A channel frame is only a
- * hydration fallback; letting it win at 1x makes a subscriber's zoom history
- * decide whether the shared source can reach an edge such as 0 Hz.
+ * Live acquisition bounds are device-scoped, never subscriber-local. The active
+ * channel must not constrain acquisition: clamping to a channel frame trapped
+ * the acquisition window inside the channel whenever the device bounds had not
+ * hydrated, so every scroll snapped back. Use the device bounds when known,
+ * otherwise the global spectrum bounds the backend advertises.
  */
 export const resolveLiveAcquisitionBounds = ({
   hardwareBounds,
-  channelBounds,
 }: {
   hardwareBounds?: FrequencyRange | null;
-  channelBounds?: FrequencyRange | null;
-}): FrequencyRange | null => {
+}): FrequencyRange => {
   if (
     hardwareBounds &&
     Number.isFinite(hardwareBounds.min) &&
@@ -1113,7 +1114,12 @@ export const resolveLiveAcquisitionBounds = ({
   ) {
     return hardwareBounds;
   }
-  return channelBounds ?? null;
+  // The active channel must never bound live acquisition. Falling back to a
+  // subscriber-local channel frame trapped the acquisition window inside the
+  // channel whenever the device bounds had not hydrated, so every scroll
+  // snapped back to the channel. Fall back to the global spectrum bounds the
+  // backend advertises, exactly like navigation bounds do.
+  return getAvailableSpectrumBounds(null);
 };
 
 // Every persisted source-view field is subscriber-local and safe to restore
@@ -3805,11 +3811,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       return bounds;
     }, [effectiveFrames]);
 
-    const activeSignalAreaBounds =
-      signalAreaBounds?.[mergedState.activeSignalArea] ??
-      signalAreaBounds?.[mergedState.activeSignalArea?.toLowerCase?.()] ??
-      null;
-
     const clampLiveFrequencyRange = useCallback(
       (range: FrequencyRange) => {
         if (range.min < 0) {
@@ -3819,9 +3820,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         }
         const bounds = resolveLiveAcquisitionBounds({
           hardwareBounds: hardwareSpectrumBounds,
-          channelBounds: activeSignalAreaBounds,
         });
-        if (!bounds) return normalizeFrequencyRangeToHz(range);
 
         const rangeSpan = range.max - range.min;
         const boundsSpan = bounds.max - bounds.min;
@@ -3854,7 +3853,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         );
       },
       [
-        activeSignalAreaBounds,
         backend,
         deviceName,
         deviceProfile?.is_rtl_sdr,
