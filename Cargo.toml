@@ -139,7 +139,7 @@ mock_apt_metal = ["dep:metal"]
 rustfft = "6"
 num-complex = "0.4"
 rand = ">=0.10.1, <0.11"
-paste = { package = "pastey", version = "0.1.1" }
+paste = { package = "pastey", version = "0.2.3" }
 rayon = "1.12"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 anyhow = ">=1.0.103, <2"
@@ -161,14 +161,14 @@ js-sys = "0.3.98"
 web-sys = { version = "0.3.98", features = ["console"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-metal = { version = "0.31", optional = true }
+metal = { version = "0.33", optional = true }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
-tokio-tungstenite = "0.29"
-redis = { version = "1.6", features = ["aio", "tokio-comp"] }
+tokio-tungstenite = "0.30"
+redis = { version = "1.7", features = ["aio", "tokio-comp"] }
 env_logger = "0.11"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
@@ -177,14 +177,14 @@ aes-gcm = "0.10"
 hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
-base64 = "0.22"
+base64 = "0.23"
 zip = { version = "8", default-features = false }
 # HTTP client for CoreML service communication
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "set-header", "compression-gzip"] }
+tower-http = { version = "0.7", features = ["cors", "set-header", "compression-gzip"] }
 # WebAuthn passkey authentication
 webauthn-rs = { version = "0.5", default-features = false }
 webauthn-rs-proto = "0.5"
@@ -195,10 +195,10 @@ notify = "8.2"
 serde_yaml = "0.9"
 regex = "1"
 # Input validation and sanitization
-validator = { version = "0.20", features = ["derive"] }
+validator = { version = "0.21", features = ["derive"] }
 indexmap = { version = "2.14", features = ["serde"] }
 crossbeam-channel = "0.5"
-yawc = { version = "0.3.3", features = ["axum", "zlib"] }
+yawc = { version = "0.4", features = ["axum", "zlib"] }
 tempfile = "3"
 serde_urlencoded = "0.7"
 rusb = "0.9"
@@ -206,13 +206,13 @@ rusb = "0.9"
 [dev-dependencies]
 doc-comment = "0.3"
 tempfile = "3"
-serial_test = "3.2"
+serial_test = "4"
 criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1.6"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-test = "0.4"
-axum-test = { version = "20", features = ["ws"] }
+axum-test = { version = "21", features = ["ws"] }
 tower = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
