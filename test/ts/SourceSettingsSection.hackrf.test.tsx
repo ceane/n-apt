@@ -75,17 +75,18 @@ describe("SourceSettingsSection HackRF controls", () => {
     const lnaInput = within(lnaRow).getByRole("spinbutton");
     const vgaInput = within(vgaRow).getByRole("spinbutton");
     const ampInput = within(ampRow).getByRole("checkbox");
-    const basebandToggle = within(basebandRow).getByRole("checkbox");
 
     fireEvent.change(lnaInput, { target: { value: "40.0" } });
     fireEvent.change(vgaInput, { target: { value: "62" } });
     fireEvent.click(ampInput);
-    fireEvent.click(basebandToggle);
 
     expect(onHackrfLnaGainChange).toHaveBeenLastCalledWith(40.0);
     expect(onHackrfVgaGainChange).toHaveBeenLastCalledWith(62);
     expect(onHackrfAmpEnabledChange).toHaveBeenLastCalledWith(true);
-    expect(onHackrfBasebandBandwidthChange).toHaveBeenLastCalledWith(3_200_000);
+
+    // The baseband filter is a value control, not a toggle: it always mirrors
+    // the sample rate unless a custom value is typed.
+    expect(within(basebandRow).getByRole("textbox")).toBeInTheDocument();
   });
 
   it("shows a baseband warning when the filter is narrower than the sample rate", () => {
@@ -518,9 +519,13 @@ describe("SourceSettingsSection HackRF controls", () => {
     fireEvent.change(basebandInput, { target: { value: "2.4" } });
     expect(onPinnedChange).toHaveBeenLastCalledWith(true);
 
-    // Clearing to zero resumes auto-tracking.
+    // Clearing the field resumes automatic tracking. The hardware is never
+    // asked for a zero width (that is what failed the filter set and tore the
+    // live stream down); the sample rate is published instead.
     rerender(section(true));
     fireEvent.change(basebandInput, { target: { value: "0" } });
     expect(onPinnedChange).toHaveBeenLastCalledWith(false);
+    expect(onBasebandChange).toHaveBeenLastCalledWith(3_200_000);
+    expect(onBasebandChange).not.toHaveBeenCalledWith(0);
   });
 });

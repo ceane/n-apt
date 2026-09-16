@@ -343,10 +343,9 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     sourceMode === "live" &&
     (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
   const basebandBandwidthVal = hackrfBasebandBandwidth ?? 0;
-  const isHackrfBasebandEnabled = basebandBandwidthVal > 0;
   const showBasebandWarning =
     isHackrfLive &&
-    isHackrfBasebandEnabled &&
+    basebandBandwidthVal > 0 &&
     hackrfCurrentSampleRate > 0 &&
     basebandBandwidthVal < hackrfCurrentSampleRate;
 
@@ -469,20 +468,6 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
 
   const handleHackrfAmpChange = (enabled: boolean) => {
     onHackrfAmpEnabledChange?.(enabled);
-  };
-
-  const _handleHackrfBasebandBandwidthChange = (raw: string) => {
-    const val = raw === "" ? 0 : Number(raw);
-    onHackrfBasebandBandwidthChange?.(
-      Math.max(0, Number.isFinite(val) ? Math.round(val) : 0),
-    );
-  };
-
-  const handleHackrfBasebandToggle = (enabled: boolean) => {
-    if (!onHackrfBasebandBandwidthChange) return;
-    onHackrfBasebandBandwidthChange(
-      enabled ? Math.max(0, Math.round(hackrfCurrentSampleRate || 0)) : 0,
-    );
   };
 
   const handleTunerAGCChange = (enabled: boolean) => {
@@ -677,29 +662,32 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           }
         >
           <InputGroup>
-            <ToggleSwitch $disabled={!isConnected}>
-              <ToggleSwitchInput
-                type="checkbox"
-                checked={isHackrfBasebandEnabled}
-                onChange={(e) => handleHackrfBasebandToggle(e.target.checked)}
-                disabled={!isConnected}
-              />
-              <ToggleSwitchSlider $disabled={!isConnected} />
-            </ToggleSwitch>
-            {isHackrfBasebandEnabled && (
-              <CompactFrequencyInput
-                valueHz={basebandBandwidthVal}
-                onChangeHz={(val) => {
-                  // Typing a custom value pins the filter; clearing it to 0
-                  // resumes automatic tracking (the toggle below re-enables it).
-                  onBasebandFilterPinnedChange?.(val !== 0);
-                  onHackrfBasebandBandwidthChange?.(val);
-                }}
-                disabled={!isConnected}
-                minHz={0}
-                maxHz={20000000}
-              />
-            )}
+            <CompactFrequencyInput
+              valueHz={basebandBandwidthVal}
+              onChangeHz={(val) => {
+                // Typing a custom value pins the filter. Clearing the field
+                // resumes automatic tracking: the filter mirrors the active
+                // sample rate again. Zero is never sent to the hardware — it is
+                // not a valid MAX2837 width and asking for it tears the stream
+                // down — so the auto value is published instead of the clear.
+                if (val === 0) {
+                  const nextAutoBandwidth = Math.max(
+                    0,
+                    Math.round(hackrfCurrentSampleRate || 0),
+                  );
+                  onBasebandFilterPinnedChange?.(false);
+                  if (nextAutoBandwidth > 0) {
+                    onHackrfBasebandBandwidthChange?.(nextAutoBandwidth);
+                  }
+                  return;
+                }
+                onBasebandFilterPinnedChange?.(true);
+                onHackrfBasebandBandwidthChange?.(val);
+              }}
+              disabled={!isConnected}
+              minHz={0}
+              maxHz={20000000}
+            />
           </InputGroup>
         </Row>
       )}

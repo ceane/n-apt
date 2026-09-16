@@ -538,7 +538,7 @@ describe("useSdrSettings", () => {
     localStorage.removeItem("napt-spectrum-view-v1:hackrf_one");
   });
 
-  it("does not re-enable HackRF baseband filtering when sample rate changes while disabled", () => {
+  it("follows the sample rate instead of publishing a zero baseband width", () => {
     const store = configureStore({
       reducer: {
         spectrum: spectrumSlice,
@@ -554,6 +554,8 @@ describe("useSdrSettings", () => {
         hackrfLnaGain: 0,
         hackrfVgaGain: 30,
         hackrfAmpEnabled: false,
+        // A stale zero (the removed "disabled" state) must not survive: the
+        // filter has no off state, so it mirrors the sample rate unless pinned.
         hackrfBasebandBandwidth: 0,
         ppm: 2,
         tunerAGC: false,
@@ -588,12 +590,15 @@ describe("useSdrSettings", () => {
       hookApi!.setSampleRate(5_200_000);
     });
 
-    expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(0);
+    expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(5_200_000);
     expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
         sampleRate: 5_200_000,
-        tunerBandwidth: 0,
+        tunerBandwidth: 5_200_000,
       }),
+    );
+    expect(mockOnSettingsChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tunerBandwidth: 0 }),
     );
   });
 

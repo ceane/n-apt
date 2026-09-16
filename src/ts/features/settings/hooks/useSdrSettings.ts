@@ -281,9 +281,7 @@ export const useSdrSettings = ({
         const basebandIsPinned = stateRef.current.basebandFilterPinned;
         const nextHackrfBasebandBandwidth = basebandIsPinned
           ? stateRef.current.hackrfBasebandBandwidth
-          : stateRef.current.hackrfBasebandBandwidth === 0
-            ? 0
-            : sampleRate;
+          : sampleRate;
         dispatch(
           setSdrSettingsBundle({
             sampleRateHz: sampleRate,
@@ -343,10 +341,19 @@ export const useSdrSettings = ({
   );
   const setHackrfBasebandBandwidth = useCallback(
     (hackrfBasebandBandwidth: number | null) => {
-      dispatch(setSdrSettingsBundle({ hackrfBasebandBandwidth }));
-      sendCurrentSettings({
-        tunerBandwidth: hackrfBasebandBandwidth ?? undefined,
-      });
+      // A zero width is not a valid MAX2837 filter: it is the "resume auto"
+      // sentinel. Publishing it to the device errors the stream, so a cleared
+      // value only stops pinning — the filter keeps following the sample rate.
+      const nextBandwidth =
+        typeof hackrfBasebandBandwidth === "number" &&
+        Number.isFinite(hackrfBasebandBandwidth) &&
+        hackrfBasebandBandwidth > 0
+          ? Math.round(hackrfBasebandBandwidth)
+          : null;
+
+      dispatch(setSdrSettingsBundle({ hackrfBasebandBandwidth: nextBandwidth }));
+      if (nextBandwidth === null) return;
+      sendCurrentSettings({ tunerBandwidth: nextBandwidth });
     },
     [dispatch, sendCurrentSettings],
   );
