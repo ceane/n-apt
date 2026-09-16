@@ -78,10 +78,11 @@ pub fn encrypt_payload_binary(
     .map_err(|e| anyhow!("cipher init: {e}"))?;
 
   let iv_bytes: [u8; 12] = ::rand::random();
-  let nonce = Nonce::from_slice(&iv_bytes);
+  let nonce =
+    Nonce::try_from(&iv_bytes[..]).map_err(|e| anyhow!("nonce init: {e}"))?;
 
   let ciphertext = cipher
-    .encrypt(nonce, plaintext)
+    .encrypt(&nonce, plaintext)
     .map_err(|e| anyhow!("encrypt: {e}"))?;
 
   // Wire format: IV || ciphertext (which includes the GCM tag)
@@ -113,10 +114,11 @@ pub fn decrypt_payload_binary(
     .map_err(|e| anyhow!("cipher init: {e}"))?;
 
   let (iv_bytes, ciphertext) = payload.split_at(12);
-  let nonce = Nonce::from_slice(iv_bytes);
+  let nonce =
+    Nonce::try_from(iv_bytes).map_err(|e| anyhow!("nonce init: {e}"))?;
 
   let plaintext = cipher
-    .decrypt(nonce, ciphertext)
+    .decrypt(&nonce, ciphertext)
     .map_err(|e| anyhow!("decrypt: {e}"))?;
 
   Ok(plaintext)

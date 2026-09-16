@@ -173,7 +173,7 @@ env_logger = "0.11"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 # Encryption: AES-256-GCM for payload encryption, HMAC/PBKDF2 for auth
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
