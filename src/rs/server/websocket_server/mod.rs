@@ -1143,6 +1143,9 @@ impl WebSocketServer {
       self
         .shared_state
         .set_device_backend_error(Some(error.to_string()));
+      // Hardware was never handed to this process, so shutdown must not wait
+      // on a release that will never happen.
+      self.shared_state.mark_device_released();
       return Err(error);
     }
 
@@ -1656,6 +1659,18 @@ impl WebSocketServer {
     }
 
     self.source_runtime_manager.stop_all();
+    // Release the exclusive USB SDR before teardown. hackrf_close() stops the
+    // native stream and tells the firmware to stop; without it the device keeps
+    // streaming and the next backend cannot claim the interface
+    // (usb_claim_interface error -3/-99). HackRfDevice::cleanup() is idempotent,
+    // so the later Drop cannot double-exit the native session.
+    {
+      let mut processor = sdr_processor.lock().await;
+      if let Err(error) = processor.cleanup() {
+        warn!("Failed to release SDR during shutdown: {}", error);
+      }
+    }
+    self.shared_state.mark_device_released();
     tx_monitor_task.abort();
     let _ = tx_monitor_task.await;
     Ok(())

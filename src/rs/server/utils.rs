@@ -2785,7 +2785,7 @@ mod dynamic_header_tests {
       .expect("header newline");
     let header: serde_json::Value =
       serde_json::from_slice(&file[..newline]).expect("parse header json");
-    assert_eq!(header["metadata"]["format_version"], 4);
+    assert_eq!(header["metadata"]["format_version"], 5);
 
     // Header size is a 1024-multiple >= 4096 that covers the JSON + newline.
     let binary_offset = header["metadata"]["sections"]["binary"]["offset_bytes"]

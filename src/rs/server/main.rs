@@ -502,6 +502,16 @@ impl websocket_server::WebSocketServer {
       while !shutdown_state.shutdown.load(Ordering::Relaxed) {
         tokio::time::sleep(Duration::from_millis(50)).await;
       }
+      // axum completing here lets run_server return and the process exit. The
+      // SDR I/O thread owns the exclusive USB device, so wait (bounded) until it
+      // has released it: exiting first leaves a HackRF still streaming and the
+      // replacement backend cannot claim the interface.
+      let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+      while !shutdown_state.device_released()
+        && tokio::time::Instant::now() < deadline
+      {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+      }
     };
 
     let readiness_state = websocket_server.get_shared_state();
@@ -548,14 +558,14 @@ pub async fn run_server() -> Result<()> {
   let _broadcast_tx = websocket_server.get_broadcast_tx();
 
   // Install signal handler: on shutdown signals, signal the I/O thread to
-  // shut down so it can release the RTL-SDR device cleanly before exit.
+  // shut down so it can release the SDR device cleanly before exit. The HTTP
+  // server's graceful-shutdown future waits for that release before the
+  // process is allowed to exit.
   let shutdown_shared = shared.clone();
   tokio::spawn(async move {
     let signal_name = wait_for_shutdown_signal().await;
     info!("{}", shutdown_signal_received_message(signal_name));
     shutdown_shared.shutdown.store(true, Ordering::Relaxed);
-    // Give the I/O thread time to observe the shutdown flag and unwind.
-    tokio::time::sleep(Duration::from_millis(250)).await;
     info!("{}", shutdown_signal_propagated_message(signal_name));
   });
 
