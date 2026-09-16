@@ -7,10 +7,10 @@ import { spawn, spawnSync } from 'child_process';
 import net from 'node:net';
 import os from 'node:os';
 import chalk from 'chalk';
-import notifier from 'node-notifier';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { notify } from './desktopNotify';
 import {
   getDeviceAwareRuntimeSummaryState,
   getRuntimeSummaryState,
@@ -30,6 +30,14 @@ import {
   runRustHotReloadValidation,
   type RustHotReloadPhase,
 } from './rustHotReloadGate';
+import {
+  HOT_RELOAD_USB_RELEASE_SETTLE_MS,
+  extractDeviceState,
+  formatSdrReadyFailure,
+  signalProcessTree,
+  waitForProcessExit,
+  waitForSdrReady,
+} from './rustHotReloadHandoff';
 import { acquireBuildOrchestratorLock } from './buildOrchestratorLock';
 import { writeBackendTarget } from './backend-handoff-proxy';
 import { removeActiveChild } from './processLifecycle';
@@ -410,7 +418,7 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput, hotReloadL
       {shouldShowOutput && process.buildOutput && process.buildOutput.length > 0 && (
         <Box flexDirection="column" marginLeft={4} marginTop={0}>
           {process.buildOutput.slice(-10).map((line, idx) => (
-            <Text key={idx} color="gray" dim>{line}</Text>
+            <Text key={idx} color="gray" dimColor>{line}</Text>
           ))}
         </Box>
       )}
@@ -426,6 +434,7 @@ const BuildOrchestrator = () => {
   const activeChildrenRef = useRef<Array<ReturnType<typeof spawn>>>([]);
   const buildStartedRef = useRef(false);
   const intentionalRustKillRef = useRef(false);
+  const intentionalRustCandidateKillRef = useRef(false);
   const rustPidRef = useRef<number | undefined>(undefined);
   const rustCandidatePidRef = useRef<number | undefined>(undefined);
   const backendPortRef = useRef(backendInitialPort);
@@ -866,6 +875,9 @@ const BuildOrchestrator = () => {
     const args = typeof command === 'string' ? [] : command.args;
     const shouldUseShell = typeof command === 'string' && !isRustBackendBinary;
     return new Promise((resolve) => {
+      // Declared outside the try so the catch below can settle the promise
+      // instead of throwing a ReferenceError while handling a spawn failure.
+      let resolved = false;
       try {
         if (pidKey === 'redisPid') {
           fs.mkdirSync('.redis_data', { recursive: true });
@@ -878,7 +890,6 @@ const BuildOrchestrator = () => {
           cwd: './', // Run from project root
           env: typeof command === 'string' ? process.env : { ...process.env, ...command.env },
         }));
-        let resolved = false;
         let crashReported = false;
         const reportCrash = (reason: string) => {
           if (crashReported || shutdownRequestedRef.current) return;
@@ -945,6 +956,17 @@ const BuildOrchestrator = () => {
           }
 
           if (shutdownRequestedRef.current) {
+            return;
+          }
+
+          if (pidKey === 'rustCandidatePid') {
+            if (intentionalRustCandidateKillRef.current) {
+              intentionalRustCandidateKillRef.current = false;
+              return;
+            }
+            addLog(chalk.red(`${description} exited unexpectedly (${statusText}).`));
+            appendErrorDetail(`${description} exited unexpectedly (${statusText})`);
+            setBuildState(prev => ({ ...prev, rustCandidatePid: undefined }));
             return;
           }
 
@@ -1467,7 +1489,13 @@ exit 1
       } else if (step.isBackground && step.pidKey) {
         success = await startBackgroundProcess(step.command, step.description, step.pidKey);
       } else if (step.isBackground) {
-        success = await startBackgroundProcess(step.command, step.description, 'vitePid');
+        const backgroundCommand = step.command;
+        if (backgroundCommand === undefined) {
+          appendErrorDetail(`${stepLabel}: background steps require a command`);
+          success = false;
+        } else {
+          success = await startBackgroundProcess(backgroundCommand, step.description, 'vitePid');
+        }
       } else {
         const _stepIndex = step.index;
         if (typeof step.command !== 'string') {
@@ -1612,16 +1640,23 @@ exit 1
     message: string;
   }> => {
     try {
-      const response = await fetch('http://localhost:8765/status');
-      const data = await response.json();
+      const response = await fetch('http://localhost:8765/api/agent/status');
+      const payload = await response.json();
+      const device = extractDeviceState(payload);
+      if (!device) {
+        return {
+          deviceState: null,
+          message: 'Backend not responding',
+        };
+      }
       return {
-        deviceState: typeof data.device_state === 'string' ? data.device_state : null,
+        deviceState: device.state || null,
         message:
-          data.device_state === 'loading'
-            ? 'RTL-SDR Connecting'
-            : data.device_connected
-              ? 'RTL-SDR Connected'
-              : 'RTL-SDR Disconnected, Mock APT Running',
+          device.connected
+            ? `${device.info || 'SDR'} Connected`
+            : device.state === 'loading'
+              ? 'SDR Connecting'
+              : 'SDR Disconnected, Mock APT Running',
       };
     } catch {
       return {
@@ -1675,7 +1710,7 @@ exit 1
         const msg = !hadServicesRef.current 
           ? `✓ Finished building and running at http://localhost:5173`
           : `✓ ${deviceStatus}`;
-        notifier.notify({
+        notify({
           title: 'N-APT  🧠',
           message: msg,
           icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -1787,6 +1822,7 @@ exit 1
         if (
           waitStartedAt != null
           && isRebuildStatusStale({
+            rebuilding: false,
             pending: true,
             phase: 'waiting',
             startedAt: waitStartedAt,
@@ -1815,8 +1851,7 @@ exit 1
       }
 
       const oldPid = rustPidRef.current ?? buildState.rustPid;
-      const oldPort = backendPortRef.current;
-      const newPort = await findAvailableTcpPort(oldPort + 1);
+      const newPort = await findAvailableTcpPort(backendPortRef.current + 1);
       const candidateCommand: BackgroundCommand = {
         executable: isNativeWindows
           ? path.resolve('target/dev-fast/n-apt-backend.exe')
@@ -1827,6 +1862,31 @@ exit 1
         },
       };
 
+      // A USB SDR is exclusive: the outgoing backend has to release the
+      // interface before the replacement probes for it, or every open attempt
+      // collides (`usb_claim_interface error -3`) and the replacement silently
+      // falls back to Mock APT while still answering HTTP. Stop the old owner
+      // first and wait for it to actually exit.
+      if (oldPid) {
+        intentionalRustKillRef.current = true;
+        addLogRef.current(chalk.green('[Watcher] Stopping current Rust backend to release the SDR...'));
+        signalProcessTree(oldPid, 'SIGTERM');
+
+        if (!(await waitForProcessExit({ pid: oldPid }))) {
+          addLogRef.current(chalk.yellow('[Watcher] Old Rust backend did not exit gracefully; forcing shutdown.'));
+          signalProcessTree(oldPid, 'SIGKILL');
+          await waitForProcessExit({ pid: oldPid, timeoutMs: 2000 });
+        }
+      }
+
+      rustPidRef.current = undefined;
+      setBuildState(prev => ({ ...prev, rustPid: undefined }));
+
+      // Give the OS/USB stack a beat to finish tearing down the old handle.
+      await new Promise((resolve) => setTimeout(resolve, HOT_RELOAD_USB_RELEASE_SETTLE_MS));
+
+      if (shutdownRequestedRef.current) return false;
+
       addLogRef.current(chalk.green(`[Watcher] Starting replacement Rust backend on ${newPort}...`));
       const candidateStarted = await startBackgroundProcessRef.current(
         candidateCommand,
@@ -1835,6 +1895,12 @@ exit 1
       );
       const candidatePid = rustCandidatePidRef.current;
       if (!candidateStarted || !candidatePid) return false;
+
+      const abortCandidate = () => {
+        intentionalRustCandidateKillRef.current = true;
+        signalProcessTree(candidatePid, 'SIGTERM');
+        rustCandidatePidRef.current = undefined;
+      };
 
       const waitForBackendReady = async (timeoutMs = 15000) => {
         const deadline = Date.now() + timeoutMs;
@@ -1852,16 +1918,39 @@ exit 1
       };
 
       if (!(await waitForBackendReady())) {
-        addLogRef.current(chalk.yellow('[Watcher] Replacement Rust backend did not become ready; keeping the old backend.'));
-        try {
-          process.kill(-candidatePid, 'SIGTERM');
-        } catch {
-          try { process.kill(candidatePid, 'SIGTERM'); } catch {}
-        }
+        addLogRef.current(chalk.yellow('[Watcher] Replacement Rust backend did not become ready.'));
+        abortCandidate();
         return false;
       }
 
-      if (shutdownRequestedRef.current) return false;
+      if (shutdownRequestedRef.current) {
+        abortCandidate();
+        return false;
+      }
+
+      // HTTP readiness is not enough. The backend answers /status while running
+      // Mock APT, so a failed handoff would otherwise look like a successful
+      // reload. Wait until the replacement actually owns a supported radio (or
+      // until the source inventory proves that none is attached).
+      const sdrReady = await waitForSdrReady({
+        baseUrl: `http://127.0.0.1:${newPort}`,
+        isCancelled: () => shutdownRequestedRef.current,
+      });
+      if (!sdrReady.ok) {
+        addLogRef.current(chalk.yellow(
+          `[Watcher] Replacement Rust backend did not acquire the SDR: ${formatSdrReadyFailure(sdrReady)}.`,
+        ));
+        abortCandidate();
+        return false;
+      }
+      if (sdrReady.outcome === 'connected') {
+        addLogRef.current(chalk.green('[Watcher] Replacement Rust backend owns the SDR.'));
+      }
+
+      if (shutdownRequestedRef.current) {
+        abortCandidate();
+        return false;
+      }
 
       writeBackendTarget(backendTargetFile, { host: '127.0.0.1', port: newPort });
       backendPortRef.current = newPort;
@@ -1876,50 +1965,8 @@ exit 1
       addLogRef.current(chalk.green('[Watcher] Replacement Rust backend is ready; switched proxy target.'));
 
       // Proxy closes existing websockets on target change; give clients a beat
-      // to land on the replacement before shutting down the old process.
+      // to land on the replacement backend.
       await new Promise((resolve) => setTimeout(resolve, 250));
-
-      if (shutdownRequestedRef.current) return false;
-
-      if (oldPid) {
-        try {
-          intentionalRustKillRef.current = true;
-          process.kill(-oldPid, 'SIGTERM');
-        } catch {
-          try { process.kill(oldPid, 'SIGTERM'); } catch {}
-        }
-
-        const deadline = Date.now() + 5000;
-        let exited = false;
-        while (Date.now() < deadline) {
-          try {
-            process.kill(oldPid, 0);
-          } catch {
-            exited = true;
-            break;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        if (!exited) {
-          addLogRef.current(chalk.yellow('[Watcher] Old Rust backend did not exit gracefully; forcing shutdown.'));
-          try { process.kill(-oldPid, 'SIGKILL'); } catch {}
-          try { process.kill(oldPid, 'SIGKILL'); } catch {}
-        }
-      }
-
-      try {
-        const response = await fetch(`http://127.0.0.1:${newPort}/status`, {
-          method: 'GET',
-          cache: 'no-store',
-        });
-        if (!response.ok) {
-          addLogRef.current(chalk.yellow('[Watcher] Replacement backend lost readiness after cutover.'));
-          return false;
-        }
-      } catch {
-        addLogRef.current(chalk.yellow('[Watcher] Replacement backend unreachable after cutover.'));
-        return false;
-      }
 
       return true;
     };
@@ -2099,7 +2146,7 @@ exit 1
       }
 
       if (!buildTimedOut && validationResult.stage === 'restarted') {
-        notifier.notify({
+        notify({
           title: 'N-APT',
           message: '✓ Rust backend reloaded successfully',
           icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2115,6 +2162,7 @@ exit 1
 
     try {
       watcher = fs.watch(srcRsPath, { recursive: true }, (_eventType, filename) => {
+        if (filename === null) return;
         if (!isRustSourceChange(srcRsPath, filename)) return;
         hotReloadGate.recordChange(filename.toString());
         scheduleRebuild();
@@ -2429,7 +2477,7 @@ async function runNonTtyBuild() {
   };
 
   // Notify build started
-  notifier.notify({
+  notify({
     title: 'N-APT',
     message: 'Staring build...',
     icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2539,7 +2587,7 @@ async function runNonTtyBuild() {
       index: 7,
       description: 'Building and starting Rust backend',
       run: async () => {
-        notifier.notify({
+        notify({
           title: 'N-APT',
           message: 'Almost done building...',
           icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2644,7 +2692,7 @@ async function runNonTtyBuild() {
         ? `Failed to build, error with ${failedComponents[0]}`
         : `Failed to build, errors with ${failedComponents.slice(0, -1).join(', ')} and ${failedComponents[failedComponents.length - 1]}`;
       
-      notifier.notify({
+      notify({
         title: 'N-APT',
         message: errorMsg,
         icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2653,7 +2701,7 @@ async function runNonTtyBuild() {
     }
   }
 
-  notifier.notify({
+  notify({
     title: 'N-APT  🧠',
     message: '✓ Finished building and running at http://localhost:5173',
     icon: path.join(__dirname, 'public/icon-5112.png'),

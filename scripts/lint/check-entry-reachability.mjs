@@ -145,6 +145,20 @@ const scriptText =
   JSON.stringify(pkg.dependencies || {}) +
   JSON.stringify(pkg.devDependencies || {});
 
+// A package.json script that runs a repo file is a real entry point: the CLI is
+// invoked by hand rather than imported from an app route. Without seeding these,
+// modules consumed only by scripts/ look unreachable and get deleted.
+const scriptEntryFiles = new Set();
+const scriptTargetRe = /(scripts\/[A-Za-z0-9_/.-]+\.(?:tsx?|mjs|cjs|js))/g;
+for (const cmd of Object.values(pkg.scripts || {})) {
+  for (const mm of cmd.matchAll(scriptTargetRe)) {
+    const target = path.normalize(mm[1]);
+    if (!/\.(ts|tsx)$/.test(target) || !fs.existsSync(target)) continue;
+    scriptEntryFiles.add(target);
+    if (!files.includes(target)) files.push(target);
+  }
+}
+
 const prodSeeds = new Set(
   files.filter(
     (f) =>
@@ -157,6 +171,7 @@ const prodSeeds = new Set(
         scriptText.includes(path.basename(f, path.extname(f)))),
   ),
 );
+for (const f of scriptEntryFiles) prodSeeds.add(f);
 for (const f of prodSeeds) {
   routeRefs(f).forEach((r) => prodSeeds.add(r));
 }

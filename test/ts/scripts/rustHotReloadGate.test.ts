@@ -1,6 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import {
-  buildRustBackendStopCommand,
   canKeepRustHotReloadWatcherAttached,
   createRustHotReloadGate,
   getRustHotReloadProcessLabel,
@@ -178,13 +177,6 @@ describe("Rust hot reload gate", () => {
     expect(cargoBuild).toHaveBeenCalledTimes(1);
     expect(restart).not.toHaveBeenCalled();
     expect(result.stage).toBe("build_failed");
-  });
-
-  it("builds a targeted rust backend stop command for hot reload", () => {
-    expect(buildRustBackendStopCommand(38510, "darwin")).toContain("38510");
-    expect(buildRustBackendStopCommand(38510, "win32")).toContain("38510");
-    expect(buildRustBackendStopCommand(38510, "darwin")).not.toContain("pkill");
-    expect(buildRustBackendStopCommand(38510, "win32")).not.toContain("pkill");
   });
 
   it("formats hot-reload process and runtime labels separately", () => {

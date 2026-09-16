@@ -150,17 +150,6 @@ export function createRustHotReloadGate(
   };
 }
 
-export function buildRustBackendStopCommand(
-  pid: number,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  if (platform === "win32") {
-    return `taskkill /PID ${pid} /T /F`;
-  }
-
-  return `kill -TERM -${pid} || kill -TERM ${pid}`;
-}
-
 export async function runRustHotReloadValidation(
   deps: RustHotReloadValidationDependencies,
 ): Promise<RustHotReloadValidationResult> {

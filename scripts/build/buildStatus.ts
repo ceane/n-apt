@@ -1,7 +1,7 @@
 export type FailingServices = 'Vite' | 'Rust' | 'Redis' | 'WebAssembly';
 
 export interface BuildProcessLike {
-  status: 'pending' | 'running' | 'success' | 'error';
+  status: 'pending' | 'running' | 'success' | 'warning' | 'error';
   message?: string;
 }
 

@@ -27,10 +27,11 @@ export const getDefaultBackendProxyUrl = (): string => "http://127.0.0.1:8765";
 
 export function readBackendTarget(targetFile: string): BackendTarget {
   const parsed = JSON.parse(fs.readFileSync(targetFile, "utf8")) as Partial<BackendTarget>;
-  if (typeof parsed.host !== "string" || !Number.isInteger(parsed.port) || parsed.port <= 0 || parsed.port > 65535) {
+  const port = parsed.port;
+  if (typeof parsed.host !== "string" || typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) {
     throw new Error(`Invalid backend target in ${targetFile}`);
   }
-  return { host: parsed.host, port: parsed.port };
+  return { host: parsed.host, port };
 }
 
 export function writeBackendTarget(targetFile: string, target: BackendTarget): void {

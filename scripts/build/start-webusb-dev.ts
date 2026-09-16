@@ -25,8 +25,9 @@ function readLock(): OrchestratorLock | null {
     const parsed = JSON.parse(
       fs.readFileSync(orchestratorLockPath, "utf8"),
     ) as Partial<OrchestratorLock>;
-    if (!Number.isInteger(parsed.pid) || (parsed.pid ?? 0) <= 0) return null;
-    return { pid: parsed.pid, startedAt: parsed.startedAt };
+    const pid = parsed.pid;
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return null;
+    return { pid, startedAt: parsed.startedAt };
   } catch {
     return null;
   }
