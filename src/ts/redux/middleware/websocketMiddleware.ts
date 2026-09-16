@@ -4452,6 +4452,13 @@ const createWebSocketMiddleware =
               pendingManagedTxOptions = previewOptions;
               pendingManagedTxPreviewOptions =
                 previewOptions as ManagedTxStreamOptions;
+              // A status transition can tear this subscription down and reopen
+              // it while the option update is still unacknowledged. That
+              // rejects the in-flight update, so awaiting it before arming the
+              // one-shot would drop the request and leave the Tx canvas on its
+              // loading placeholder. Arm the source-scoped request up front so
+              // the replacement subscription replays it on hydration.
+              pendingManagedTxFrameRequestSourceId = requestedSourceId;
               const previewSubscription = managedTxSubscription;
               void previewSubscription
                 .updateOptions(previewOptions)
@@ -4464,6 +4471,7 @@ const createWebSocketMiddleware =
                     managedTxSubscription === previewSubscription &&
                     managedTxSourceId === requestedSourceId
                   ) {
+                    pendingManagedTxFrameRequestSourceId = null;
                     previewSubscription.requestNextFrame();
                   }
                 })
@@ -4706,7 +4714,6 @@ const createWebSocketMiddleware =
               ? managedTxSubscription
               : null;
           if (activeSubscription) {
-            pendingManagedTxFrameRequestSourceId = null;
             void activeSubscription
               .updateOptions(previewOptions)
               .then(() => {
@@ -4714,6 +4721,7 @@ const createWebSocketMiddleware =
                   managedTxSubscription === activeSubscription &&
                   managedTxSourceId === sourceId
                 ) {
+                  pendingManagedTxFrameRequestSourceId = null;
                   activeSubscription.requestNextFrame();
                 }
               })

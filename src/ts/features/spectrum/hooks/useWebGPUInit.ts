@@ -269,6 +269,31 @@ export function useWebGPULifecycle({
   const overlayDirtyRef = useRef({ grid: true, markers: true, spikes: true });
   const overlayLastUploadMsRef = useRef({ grid: 0, markers: 0, spikes: 0 });
 
+  /**
+   * The overlay textures (grid, markers, spikes) are composed in the same pass
+   * as the spectrum itself. They must exist before the canvas is allowed to
+   * paint: creating them from an effect leaves the first painted frame without
+   * a grid, and the axis/label chrome pops in a frame later. A rebuilt renderer
+   * starts with no texture, so the dirty flags are re-armed with it.
+   */
+  const buildOverlayRenderers = useCallback(
+    (device: GPUDevice, format: GPUTextureFormat) => {
+      const rendererRefs = [
+        gridOverlayRendererRef,
+        markersOverlayRendererRef,
+        spikesOverlayRendererRef,
+      ];
+      for (const rendererRef of rendererRefs) {
+        rendererRef.current?.destroy();
+        rendererRef.current = new OverlayTextureRenderer(device, format);
+      }
+      overlayDirtyRef.current.grid = true;
+      overlayDirtyRef.current.markers = true;
+      overlayDirtyRef.current.spikes = true;
+    },
+    [],
+  );
+
   const initializeResamplePipeline = useCallback(
     async (device: GPUDevice) => {
       try {
@@ -351,9 +376,12 @@ export function useWebGPULifecycle({
         }
 
         webgpuDeviceRef.current = device;
-        webgpuFormatRef.current = getPreferredCanvasFormat();
+        const format = getPreferredCanvasFormat();
+        webgpuFormatRef.current = format;
         webgpuContextLostRef.current = false;
         webgpuRetryCountRef.current = 0;
+
+        buildOverlayRenderers(device, format);
 
         device.onuncapturederror = () => {
           webgpuContextLostRef.current = true;
@@ -415,41 +443,7 @@ export function useWebGPULifecycle({
       cancelled = true;
       clearTimeout(retryTimerId);
     };
-  }, []);
-
-  // Create overlay renderers once device/format are ready
-  useEffect(() => {
-    if (!webgpuEnabled || webgpuContextLostRef.current) return;
-    const device = webgpuDeviceRef.current;
-    const format = webgpuFormatRef.current;
-    if (!device || !format) return;
-
-    // Reset all overlay renderers to force fresh initialization
-    if (!webgpuContextLostRef.current) {
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-      overlayDirtyRef.current.spikes = true;
-    }
-
-    if (!gridOverlayRendererRef.current) {
-      gridOverlayRendererRef.current = new OverlayTextureRenderer(
-        device,
-        format,
-      );
-    }
-    if (!markersOverlayRendererRef.current) {
-      markersOverlayRendererRef.current = new OverlayTextureRenderer(
-        device,
-        format,
-      );
-    }
-    if (!spikesOverlayRendererRef.current) {
-      spikesOverlayRendererRef.current = new OverlayTextureRenderer(
-        device,
-        format,
-      );
-    }
-  }, [webgpuEnabled, webgpuDeviceRef.current, webgpuFormatRef.current]);
+  }, [buildOverlayRenderers]);
 
   return {
     isInitialized,

@@ -181,7 +181,7 @@ describe("sourceModeManagement", () => {
     });
   });
 
-  it("returns a deterministic Rx handoff that clears Tx and requests an Rx frame", () => {
+  it("holds Rx paused when a half-duplex device leaves Tx", () => {
     expect(
       resolveSourceModeTransition({
         sourceId: "hackrf-1",
@@ -195,10 +195,44 @@ describe("sourceModeManagement", () => {
       toMode: "rx",
       actions: [
         "clear_tx_binding",
-        "resume_rx",
+        "pause_rx",
         "request_rx_mode",
         "request_rx_frame",
       ],
+    });
+  });
+
+  it("never pauses Rx when leaving Tx on a source that kept it streaming", () => {
+    for (const duplexMode of ["duplex", "simplex"] as const) {
+      expect(
+        resolveSourceModeTransition({
+          sourceId: "device-1",
+          duplexMode,
+          fromMode: "tx",
+          toMode: "rx",
+        }),
+      ).toEqual({
+        sourceId: "device-1",
+        fromMode: "tx",
+        toMode: "rx",
+        actions: ["clear_tx_binding", "request_rx_mode", "request_rx_frame"],
+      });
+    }
+  });
+
+  it("reports no actions when the mode does not change", () => {
+    expect(
+      resolveSourceModeTransition({
+        sourceId: "hackrf-1",
+        duplexMode: "half_duplex",
+        fromMode: "rx",
+        toMode: "rx",
+      }),
+    ).toEqual({
+      sourceId: "hackrf-1",
+      fromMode: "rx",
+      toMode: "rx",
+      actions: [],
     });
   });
 

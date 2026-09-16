@@ -482,28 +482,25 @@ export const useLiveSampleRateControl = ({
         isWholeChannelMode && typeof wholeChannelSampleRate === "number"
           ? wholeChannelSampleRate
           : requestedSampleRateHz;
+      // Span-only reconciliation, anchored on the current centre. The channel
+      // bounds deliberately do NOT participate: passing them made the builder
+      // clamp the window back inside the active channel (and re-publish whenever
+      // that clamp moved the window), which fought every scroll past the channel
+      // and could oscillate. Position belongs to explicit channel/sample-rate
+      // actions; this effect only keeps the acquisition width equal to the rate.
       const nextRange = buildLiveSampleRateRange({
         currentRange: frequencyRange,
         sampleRateHz: targetRate,
-        channelBounds: activeSignalAreaBounds,
-        startingAnchorPosition: isWholeChannelMode
-          ? startingAnchorPosition
-          : "center",
+        startingAnchorPosition: "center",
       });
 
-      // Reconcile only the acquisition span. Re-anchoring the position here
-      // republished a channel-anchored range on every frequencyRange change, so
-      // a user pan was undone on the next render and the viewport snapped back
-      // to the channel edges. Position belongs to explicit channel and
-      // sample-rate actions, not to this reconciliation.
-      if (rangeSpanHz(frequencyRange) !== rangeSpanHz(nextRange)) {
+      if (currentSpan !== rangeSpanHz(nextRange)) {
         applyFrequencyRangeIfChanged(nextRange);
       }
     } else if (currentSpan > requestedSampleRateHz) {
       const nextRange = buildLiveSampleRateRange({
         currentRange: frequencyRange,
         sampleRateHz: requestedSampleRateHz,
-        channelBounds: activeSignalAreaBounds,
         startingAnchorPosition: "center",
       });
 
@@ -516,8 +513,13 @@ export const useLiveSampleRateControl = ({
     applyFrequencyRangeIfChanged,
     canUseWholeChannel,
     frequencyRange,
+    // Both are read below and both are derived from `sampleRateModeRef`, which
+    // does not trigger a render on its own. Leaving them out let this effect run
+    // with a stale whole-channel snapshot until an unrelated render refreshed it.
+    isWholeChannelMode,
     requestedSampleRateHz,
     startingAnchorPosition,
+    wholeChannelSampleRate,
   ]);
 
   return {

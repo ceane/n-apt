@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { SourceSettingsSection } from "@n-apt/spectrum/sidebar/SourceSettingsSection";
 import { TestWrapper } from "./testUtils";
 
@@ -610,6 +610,72 @@ describe("SourceSettingsSection HackRF controls", () => {
     const basebandRow = screen.getByText("Baseband filter").closest("div")
       ?.parentElement as HTMLElement;
 
+    expect(within(basebandRow).getByRole("textbox")).toHaveValue("3.2");
+  });
+
+  it("repopulates the sample rate when a cleared baseband field is blurred", () => {
+    const pinnedCalls: boolean[] = [];
+    const Harness = () => {
+      const [pinned, setPinned] = React.useState(true);
+      const [value, setValue] = React.useState(2_400_000);
+      return (
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={30}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={value}
+          hackrfCurrentSampleRate={3_200_000}
+          basebandFilterPinned={pinned}
+          onBasebandFilterPinnedChange={(next) => {
+            pinnedCalls.push(next);
+            setPinned(next);
+          }}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={setValue}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      );
+    };
+
+    render(
+      <TestWrapper>
+        <Harness />
+      </TestWrapper>,
+    );
+
+    const basebandRow = screen.getByText("Baseband filter").closest("div")
+      ?.parentElement as HTMLElement;
+    const basebandInput = within(basebandRow).getByRole("textbox");
+    expect(basebandInput).toHaveValue("2.4");
+
+    // Clearing the field must resolve back to the current sample rate, not the
+    // previous custom value. An emptied field emits no change event at all, so
+    // the pin is released on blur.
+    act(() => {
+      basebandInput.focus();
+    });
+    fireEvent.change(basebandInput, { target: { value: "" } });
+    act(() => {
+      basebandInput.blur();
+    });
+
+    expect(pinnedCalls[pinnedCalls.length - 1]).toBe(false);
+    // The field is remounted on blur, so re-query rather than reusing the node.
     expect(within(basebandRow).getByRole("textbox")).toHaveValue("3.2");
   });
 });

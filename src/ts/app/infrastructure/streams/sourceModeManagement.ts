@@ -10,7 +10,6 @@ export type SourceViewMode = "rx" | "tx";
 export type SourceModeAction =
   | "clear_tx_binding"
   | "pause_rx"
-  | "resume_rx"
   | "bind_tx"
   | "enter_tx_standby"
   | "request_rx_mode"
@@ -265,13 +264,17 @@ export const resolveSourceModeTransition = ({
   }
 
   if (toMode === "rx") {
+    // A half-duplex device stopped Rx to transmit, so returning to Rx lands on
+    // a held pause: the client owns that latch and surfaces it as "Resume Rx"
+    // plus the paused banner. Resuming here instead paints a live-looking Rx
+    // over a stream the device has not restarted yet.
     return {
       sourceId,
       fromMode,
       toMode,
       actions: [
         "clear_tx_binding",
-        ...(duplexMode === "half_duplex" ? ["resume_rx" as const] : []),
+        ...(duplexMode === "half_duplex" ? ["pause_rx" as const] : []),
         "request_rx_mode",
         "request_rx_frame",
       ],

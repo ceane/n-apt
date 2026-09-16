@@ -841,8 +841,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       transportSourceId: sourceTransport?.sourceId ?? null,
       transportPhase: sourceTransport?.phase ?? "idle",
     }) || isSelectedTxPreviewStandby;
+  // A `standby` report is only Tx chrome while the source is actually bound to
+  // the Tx suite. A lingering standby snapshot after an Rx handoff is an Rx
+  // presentation, and painting the Tx bar there would mask the paused banner.
   const isSelectedSourceTxStandby =
-    selectedSourceStatus === "standby" || selectedSource?.status === "standby";
+    (selectedSourceStatus === "standby" || selectedSource?.status === "standby") &&
+    (isSelectedMockTxSource || txSuiteSourceId === selectedSourceId);
   const isSelectedSourceTxStatus =
     isSelectedSourceTxStandby ||
     isSelectedTxPreviewStandby ||

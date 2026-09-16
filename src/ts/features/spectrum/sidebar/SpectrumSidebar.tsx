@@ -584,6 +584,13 @@ export const resolveSidebarSourcePausedState = ({
 }): boolean =>
   sourceId === selectedSourceId ? clientPaused : (backendPaused ?? false);
 
+// Whether the current file-mode session was opened by the `?source=fileSelection`
+// deep link. This lives at module scope (like the sidebar scroll flags) because
+// the sidebar unmounts and remounts as the shell switches routes; a `useRef`
+// would be re-derived from the URL and a manual File Selection would then be
+// mistaken for a deep-link exit on the next remount.
+let fileSelectionDeepLinkOwnsFileMode = false;
+
 export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   onCreateNoteCard,
   visualizerLoading = false,
@@ -625,7 +632,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   } = useSpectrumStore();
   const isMockSource = selectedSource?.is_mock === true;
   const spectrumTransport = useSpectrumTransport();
-  const lastTxToggleTimeRef = useRef(0);
   const pendingTxStopSourceIdRef = useRef<string | null>(null);
   const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
   const txSettingsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -1605,11 +1611,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       if (!isConnected) {
         return;
       }
-      const now = Date.now();
-      if (nextEnabled && now - lastTxToggleTimeRef.current < 800) {
-        console.warn("Throttling rapid transmit mode toggle request");
-        return;
-      }
 
       const source =
         selectedSource?.id === sourceId
@@ -1749,7 +1750,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       };
 
       if (nextEnabled) {
-        lastTxToggleTimeRef.current = now;
         if (hasAcceptedTransmitWarning()) {
           applyToggle();
           return;
@@ -1768,7 +1768,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         return;
       }
 
-      lastTxToggleTimeRef.current = 0;
       applyToggle();
     },
     [
@@ -2300,11 +2299,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const handleSourceModeChange = useCallback(
     (mode: "live" | "file") => {
-      if (mode === "file") {
-        setLivePreviewStage(0);
-      } else {
-        setLivePreviewStage(0);
+      if (mode === "live") {
+        // Leaving file mode releases the deep link's ownership, so a later
+        // remount does not treat a manual File Selection as a deep-link exit.
+        fileSelectionDeepLinkOwnsFileMode = false;
       }
+      setLivePreviewStage(0);
       dispatch(setSourceMode(mode));
     },
     [dispatch],
@@ -2327,28 +2327,30 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     handleSourceModeChange("file");
   }, [fileSelectionRequested, handleSourceModeChange, sourceMode]);
 
-  // Tracks whether the file-selection deep link drove source mode within this
-  // mount. Leaving the deep link (param removed) resets back to live sources,
-  // but a manual File Selection on the regular app never sets this, so it is
-  // not reset.
-  const fileDeepLinkActiveRef = useRef(fileSelectionSourceRequested);
+  // Claims the `?source=fileSelection` deep link once per activation so a user
+  // switch back to a live source is not immediately overridden.
+  const fileDeepLinkClaimedForParamRef = useRef(false);
 
   useEffect(() => {
     if (fileSelectionSourceRequested) {
-      fileDeepLinkActiveRef.current = true;
-      if (sourceMode !== "file") handleSourceModeChange("file");
+      if (!fileDeepLinkClaimedForParamRef.current) {
+        fileDeepLinkClaimedForParamRef.current = true;
+        fileSelectionDeepLinkOwnsFileMode = true;
+        if (sourceMode !== "file") handleSourceModeChange("file");
+      }
       return;
     }
+
+    fileDeepLinkClaimedForParamRef.current = false;
     // Leaving the file-selection deep link (e.g. navigating back to the start
     // page) should return the source to live SDR/mock sources instead of
     // leaving the app stuck in file mode. Skip when the sidebarSection=file
     // deep link is still requesting file mode, so the two don't fight.
     if (
-      fileDeepLinkActiveRef.current &&
+      fileSelectionDeepLinkOwnsFileMode &&
       !fileSelectionRequested &&
       sourceMode === "file"
     ) {
-      fileDeepLinkActiveRef.current = false;
       handleSourceModeChange("live");
     }
   }, [
@@ -2359,12 +2361,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   // Returning to the spectrum view (a fresh mount) after navigating back from
-  // the file-selection deep link should return to live SDR/mock sources. The
-  // transition effect above only survives within a mount, so this covers the
-  // unmount/remount path. It runs once per mount, so a manual File Selection
-  // made later on the regular app is never reset.
+  // the file-selection deep link should return to live SDR/mock sources. Only a
+  // deep-link-owned file session is reset: a manual File Selection leaves the
+  // ownership flag clear, so a remount keeps the files the user picked instead
+  // of falling back to the first source.
   useEffect(() => {
     if (
+      fileSelectionDeepLinkOwnsFileMode &&
       !fileSelectionSourceRequested &&
       !fileSelectionRequested &&
       sourceMode === "file"
@@ -3044,14 +3047,17 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               dispatch(setTxHopEnabled(false));
               handleToggleTransmitMode(id, false);
             }
-            // Leaving Tx is an explicit Rx handoff. Do not invert the
-            // backend's possibly stale paused flag in that branch. For a
-            // normal Rx card, preserve the existing Pause/Resume toggle.
+            // Leaving Tx is an explicit Rx handoff: the transition contract
+            // says whether Rx comes back held paused. Setting that latch here
+            // keeps the pill label and the canvas banner in agreement with the
+            // frozen stream on the first render. For a normal Rx card, preserve
+            // the existing Pause/Resume toggle.
             if (transition?.actions.includes("request_rx_frame")) {
+              const landPaused = transition.actions.includes("pause_rx");
               if (setLiveVisualizerPause) {
-                setLiveVisualizerPause(false, id, "rx");
+                setLiveVisualizerPause(landPaused, id, "rx");
               } else {
-                spectrumTransport.sendPauseCommand(false, id, "rx");
+                spectrumTransport.sendPauseCommand(landPaused, id, "rx");
               }
             } else {
               toggleLiveVisualizerPause(id);

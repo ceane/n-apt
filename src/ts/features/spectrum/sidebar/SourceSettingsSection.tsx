@@ -724,7 +724,16 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                   onBasebandFilterPinnedChange?.(true);
                   onHackrfBasebandBandwidthChange?.(val);
                 }}
-                onBlur={() => setBasebandInputRevision((n) => n + 1)}
+                onBlur={(draftHz) => {
+                  // An emptied — or zeroed — field means "resume automatic
+                  // tracking". An empty field emits no change event at all, so
+                  // the pin has to be released here; the remount below then
+                  // shows the current sample rate instead of the previous value.
+                  if (draftHz === null || draftHz === 0) {
+                    onBasebandFilterPinnedChange?.(false);
+                  }
+                  setBasebandInputRevision((n) => n + 1);
+                }}
                 disabled={!isConnected}
                 minHz={0}
                 maxHz={20000000}

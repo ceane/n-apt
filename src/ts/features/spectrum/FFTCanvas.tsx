@@ -3665,7 +3665,18 @@ const FFTCanvas = memo(
 
         if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {
           if (isPaused) {
-            if (!recoverPausedWaveformRef.current()) {
+            // A retained paused frame must keep painting. Overlay chrome that
+            // is invalidated after the last pass — the grid, axes and labels
+            // live in an overlay texture that is only re-uploaded from a draw
+            // — would otherwise never come back and the canvas would stay
+            // stranded with a stale presentation. Snapshot recovery only
+            // supplies a waveform when the retained frame has none, and file
+            // playback disables it, so a cached waveform is paintable on its
+            // own.
+            const hasCachedWaveform =
+              !!renderWaveformRef.current &&
+              renderWaveformRef.current.length > 0;
+            if (!hasCachedWaveform && !recoverPausedWaveformRef.current()) {
               return;
             }
           } else if (!mirrorPanOnlyRedraw && !viewportOnlyRedraw) {
