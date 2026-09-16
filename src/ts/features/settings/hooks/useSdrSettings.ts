@@ -294,8 +294,10 @@ export const useSdrSettings = ({
         sendCurrentSettings({
           sampleRate,
           frameRate: nextFrameRate,
-          ...(nextHackrfBasebandBandwidth !== null &&
-          nextHackrfBasebandBandwidth !== undefined
+          // A disabled filter (0) is held in state but never published: zero is
+          // not a valid MAX2837 width and would fail the hardware filter set.
+          ...(typeof nextHackrfBasebandBandwidth === "number" &&
+          nextHackrfBasebandBandwidth > 0
             ? { tunerBandwidth: nextHackrfBasebandBandwidth }
             : {}),
         });
@@ -341,18 +343,18 @@ export const useSdrSettings = ({
   );
   const setHackrfBasebandBandwidth = useCallback(
     (hackrfBasebandBandwidth: number | null) => {
-      // A zero width is not a valid MAX2837 filter: it is the "resume auto"
-      // sentinel. Publishing it to the device errors the stream, so a cleared
-      // value only stops pinning — the filter keeps following the sample rate.
+      // Zero is the "filter off" sentinel: it is kept in state so the control
+      // can render the disabled filter, but it is never published to the
+      // device. A zero width is not a valid MAX2837 filter — writing it fails
+      // the hardware filter set and tears the live stream down.
       const nextBandwidth =
         typeof hackrfBasebandBandwidth === "number" &&
-        Number.isFinite(hackrfBasebandBandwidth) &&
-        hackrfBasebandBandwidth > 0
-          ? Math.round(hackrfBasebandBandwidth)
+        Number.isFinite(hackrfBasebandBandwidth)
+          ? Math.max(0, Math.round(hackrfBasebandBandwidth))
           : null;
 
       dispatch(setSdrSettingsBundle({ hackrfBasebandBandwidth: nextBandwidth }));
-      if (nextBandwidth === null) return;
+      if (nextBandwidth === null || nextBandwidth === 0) return;
       sendCurrentSettings({ tunerBandwidth: nextBandwidth });
     },
     [dispatch, sendCurrentSettings],

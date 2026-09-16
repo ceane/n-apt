@@ -75,18 +75,64 @@ describe("SourceSettingsSection HackRF controls", () => {
     const lnaInput = within(lnaRow).getByRole("spinbutton");
     const vgaInput = within(vgaRow).getByRole("spinbutton");
     const ampInput = within(ampRow).getByRole("checkbox");
+    const basebandToggle = within(basebandRow).getByRole("checkbox");
 
     fireEvent.change(lnaInput, { target: { value: "40.0" } });
     fireEvent.change(vgaInput, { target: { value: "62" } });
     fireEvent.click(ampInput);
+    fireEvent.click(basebandToggle);
 
     expect(onHackrfLnaGainChange).toHaveBeenLastCalledWith(40.0);
     expect(onHackrfVgaGainChange).toHaveBeenLastCalledWith(62);
     expect(onHackrfAmpEnabledChange).toHaveBeenLastCalledWith(true);
+    expect(onHackrfBasebandBandwidthChange).toHaveBeenLastCalledWith(3_200_000);
+  });
 
-    // The baseband filter is a value control, not a toggle: it always mirrors
-    // the sample rate unless a custom value is typed.
-    expect(within(basebandRow).getByRole("textbox")).toBeInTheDocument();
+  it("holds the baseband filter off instead of letting auto-tracking switch it back on", () => {
+    const onPinnedChange = jest.fn();
+    const onBasebandChange = jest.fn();
+
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={30}
+          hackrfAmpEnabled={false}
+          hackrfBasebandBandwidth={3_200_000}
+          hackrfCurrentSampleRate={3_200_000}
+          basebandFilterPinned={false}
+          onBasebandFilterPinnedChange={onPinnedChange}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={onBasebandChange}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const basebandRow = screen.getByText("Baseband filter").closest("div")
+      ?.parentElement as HTMLElement;
+    fireEvent.click(within(basebandRow).getByRole("checkbox"));
+
+    // Off must pin the disabled state. Without the pin the auto-tracking effect
+    // sees 0 !== sampleRate and switches the filter straight back on, which made
+    // the toggle look dead until a custom value was typed.
+    expect(onPinnedChange).toHaveBeenLastCalledWith(true);
+    expect(onBasebandChange).toHaveBeenLastCalledWith(0);
   });
 
   it("shows a baseband warning when the filter is narrower than the sample rate", () => {
@@ -519,13 +565,51 @@ describe("SourceSettingsSection HackRF controls", () => {
     fireEvent.change(basebandInput, { target: { value: "2.4" } });
     expect(onPinnedChange).toHaveBeenLastCalledWith(true);
 
-    // Clearing the field resumes automatic tracking. The hardware is never
-    // asked for a zero width (that is what failed the filter set and tore the
-    // live stream down); the sample rate is published instead.
+    // Clearing the field resumes automatic tracking. It must not publish a zero
+    // width (that is what failed the filter set and tore the live stream down);
+    // the derived sample-rate value repopulates the field on blur.
     rerender(section(true));
     fireEvent.change(basebandInput, { target: { value: "0" } });
     expect(onPinnedChange).toHaveBeenLastCalledWith(false);
-    expect(onBasebandChange).toHaveBeenLastCalledWith(3_200_000);
     expect(onBasebandChange).not.toHaveBeenCalledWith(0);
+  });
+
+  it("shows the active sample rate while the filter is following it", () => {
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="hackrf_one"
+          ppm={1}
+          gain={0}
+          hackrfLnaGain={0}
+          hackrfVgaGain={30}
+          hackrfAmpEnabled={false}
+          // A stale published width: while unpinned the sample rate is the value.
+          hackrfBasebandBandwidth={1_000_000}
+          hackrfCurrentSampleRate={3_200_000}
+          basebandFilterPinned={false}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected={true}
+          onPpmChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onHackrfLnaGainChange={jest.fn()}
+          onHackrfVgaGainChange={jest.fn()}
+          onHackrfAmpEnabledChange={jest.fn()}
+          onHackrfBasebandBandwidthChange={jest.fn()}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const basebandRow = screen.getByText("Baseband filter").closest("div")
+      ?.parentElement as HTMLElement;
+
+    expect(within(basebandRow).getByRole("textbox")).toHaveValue("3.2");
   });
 });

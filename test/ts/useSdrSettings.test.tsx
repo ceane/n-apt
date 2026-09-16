@@ -602,6 +602,126 @@ describe("useSdrSettings", () => {
     );
   });
 
+  it("holds the disabled baseband sentinel out of the device payload", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 16384,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        hackrfBasebandBandwidth: 3_200_000,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: true,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    let hookApi: ReturnType<typeof useSdrSettings> | null = null;
+
+    const Harness = () => {
+      hookApi = useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    mockOnSettingsChange.mockClear();
+
+    act(() => {
+      hookApi!.setHackrfBasebandBandwidth(0);
+    });
+
+    // The sentinel is held in state so the control can render the filter off...
+    expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(0);
+    // ...but a zero width is never published to the hardware, where it is not a
+    // valid MAX2837 filter and would fail the filter set.
+    expect(mockOnSettingsChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tunerBandwidth: 0 }),
+    );
+  });
+
+  it("does not re-enable a disabled baseband filter when the sample rate changes", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+      },
+    });
+
+    store.dispatch(
+      setSdrSettingsBundle({
+        fftSize: 16384,
+        fftWindow: "Rectangular",
+        fftFrameRate: 42,
+        gain: 49.6,
+        hackrfLnaGain: 0,
+        hackrfVgaGain: 30,
+        hackrfAmpEnabled: false,
+        // Off is a held, pinned state: the filter must stay disabled.
+        hackrfBasebandBandwidth: 0,
+        basebandFilterPinned: true,
+        ppm: 2,
+        tunerAGC: false,
+        rtlAGC: true,
+        sampleRateHz: 3_200_000,
+      }),
+    );
+
+    let hookApi: ReturnType<typeof useSdrSettings> | null = null;
+
+    const Harness = () => {
+      hookApi = useSdrSettings({
+        maxSampleRate: 20_000_000,
+        currentSampleRateHz: 3_200_000,
+        deviceType: "hackrf_one",
+        onSettingsChange: mockOnSettingsChange as any,
+        sdrSettings: mockSdrSettings,
+        spectrumStateOverride: store.getState().spectrum as any,
+      });
+      return null;
+    };
+
+    render(
+      <Provider store={store}>
+        <Harness />
+      </Provider>,
+    );
+
+    mockOnSettingsChange.mockClear();
+
+    act(() => {
+      hookApi!.setSampleRate(5_200_000);
+    });
+
+    expect(store.getState().spectrum.hackrfBasebandBandwidth).toBe(0);
+    expect(mockOnSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sampleRate: 5_200_000 }),
+    );
+    expect(mockOnSettingsChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tunerBandwidth: 0 }),
+    );
+  });
+
   it("keeps a pinned HackRF baseband filter fixed when the sample rate changes", () => {
     const store = configureStore({
       reducer: {

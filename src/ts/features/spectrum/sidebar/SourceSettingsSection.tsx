@@ -343,9 +343,25 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     sourceMode === "live" &&
     (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
   const basebandBandwidthVal = hackrfBasebandBandwidth ?? 0;
+  const isHackrfBasebandEnabled = basebandBandwidthVal > 0;
+  const autoBasebandBandwidth = Math.max(
+    0,
+    Math.round(hackrfCurrentSampleRate || 0),
+  );
+  // While the filter is enabled and not pinned, the sample rate is the value —
+  // derive it instead of trusting the published prop. Publishing the same rate
+  // again does not change the prop, so the field would otherwise keep whatever
+  // the user last typed (e.g. a cleared "0").
+  const displayedBasebandBandwidth =
+    isHackrfBasebandEnabled && !basebandFilterPinned
+      ? autoBasebandBandwidth
+      : basebandBandwidthVal;
+  // Remount the input on blur so an in-progress edit that resolves back to the
+  // automatic value (cleared to zero) repopulates instead of sticking at 0.
+  const [basebandInputRevision, setBasebandInputRevision] = React.useState(0);
   const showBasebandWarning =
     isHackrfLive &&
-    basebandBandwidthVal > 0 &&
+    isHackrfBasebandEnabled &&
     hackrfCurrentSampleRate > 0 &&
     basebandBandwidthVal < hackrfCurrentSampleRate;
 
@@ -468,6 +484,26 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
 
   const handleHackrfAmpChange = (enabled: boolean) => {
     onHackrfAmpEnabledChange?.(enabled);
+  };
+
+  const handleHackrfBasebandToggle = (enabled: boolean) => {
+    if (!onHackrfBasebandBandwidthChange) return;
+
+    if (enabled) {
+      // Switching it back on resumes automatic tracking from the current rate.
+      onBasebandFilterPinnedChange?.(false);
+      onHackrfBasebandBandwidthChange(
+        Math.max(0, Math.round(hackrfCurrentSampleRate || 0)),
+      );
+      return;
+    }
+
+    // Switching it off must HOLD the disabled state: pin it, otherwise the
+    // auto-tracking effect sees `0 !== sampleRate` and immediately switches the
+    // filter back on, which made the toggle look dead. Zero is only the UI
+    // sentinel here — the settings hook never publishes it to the device.
+    onBasebandFilterPinnedChange?.(true);
+    onHackrfBasebandBandwidthChange(0);
   };
 
   const handleTunerAGCChange = (enabled: boolean) => {
@@ -662,32 +698,38 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           }
         >
           <InputGroup>
-            <CompactFrequencyInput
-              valueHz={basebandBandwidthVal}
-              onChangeHz={(val) => {
-                // Typing a custom value pins the filter. Clearing the field
-                // resumes automatic tracking: the filter mirrors the active
-                // sample rate again. Zero is never sent to the hardware — it is
-                // not a valid MAX2837 width and asking for it tears the stream
-                // down — so the auto value is published instead of the clear.
-                if (val === 0) {
-                  const nextAutoBandwidth = Math.max(
-                    0,
-                    Math.round(hackrfCurrentSampleRate || 0),
-                  );
-                  onBasebandFilterPinnedChange?.(false);
-                  if (nextAutoBandwidth > 0) {
-                    onHackrfBasebandBandwidthChange?.(nextAutoBandwidth);
+            <ToggleSwitch $disabled={!isConnected}>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={isHackrfBasebandEnabled}
+                onChange={(e) => handleHackrfBasebandToggle(e.target.checked)}
+                disabled={!isConnected}
+              />
+              <ToggleSwitchSlider $disabled={!isConnected} />
+            </ToggleSwitch>
+            {isHackrfBasebandEnabled && (
+              <CompactFrequencyInput
+                key={basebandInputRevision}
+                valueHz={displayedBasebandBandwidth}
+                onChangeHz={(val) => {
+                  // Typing a custom value pins the filter. Clearing the field to
+                  // zero resumes automatic tracking: unpinning lets the derived
+                  // sample-rate value take over (and repopulate on blur). Zero is
+                  // never published — it is not a valid MAX2837 width and asking
+                  // the hardware for it tears the stream down.
+                  if (val === 0) {
+                    onBasebandFilterPinnedChange?.(false);
+                    return;
                   }
-                  return;
-                }
-                onBasebandFilterPinnedChange?.(true);
-                onHackrfBasebandBandwidthChange?.(val);
-              }}
-              disabled={!isConnected}
-              minHz={0}
-              maxHz={20000000}
-            />
+                  onBasebandFilterPinnedChange?.(true);
+                  onHackrfBasebandBandwidthChange?.(val);
+                }}
+                onBlur={() => setBasebandInputRevision((n) => n + 1)}
+                disabled={!isConnected}
+                minHz={0}
+                maxHz={20000000}
+              />
+            )}
           </InputGroup>
         </Row>
       )}
