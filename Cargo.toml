@@ -257,3 +257,11 @@ overflow-checks = false
 [[bin]]
 name = "test_fft"
 path = "src/rs/bin/test_fft.rs"
+
+# `metal` (used by the `mock_apt_metal` feature) depends on `block`, whose latest
+# release 0.1.6 trips the deny-by-default `uninhabited_static` future-incompat lint
+# (`static _NSConcreteStackBlock: Class` with an empty `enum Class { }`). No upstream
+# release fixes it, so vendor a one-line patched copy (opaque struct instead of an
+# uninhabited enum). Drop this once `metal` no longer pulls in `block`.
+[patch.crates-io]
+block = { path = "vendor/block" }
