@@ -152,13 +152,13 @@ clap = { version = "4.6", features = ["derive"] }
 byteorder = "1.5"
 env_logger = "0.11"
 dotenvy = "0.15"
-wasm-bindgen = "0.2.121"
+wasm-bindgen = "0.2.128"
 serde-wasm-bindgen = "0.6"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.98"
-web-sys = { version = "0.3.98", features = ["console"] }
+js-sys = "0.3.105"
+web-sys = { version = "0.3.105", features = ["console"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = { version = "0.33", optional = true }
