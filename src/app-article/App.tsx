@@ -250,6 +250,13 @@ const App: React.FC = () => {
       );
       return hasBlockElement ? <>{children}</> : <p {...props} className="markdown-para" />;
     },
+    h3: ({ node: _node, children, ...props }) => {
+      const headingText = React.Children.toArray(children).join("").trim();
+      const className = headingText === "How long have I been trapped?"
+        ? "days-since-heading"
+        : undefined;
+      return <h3 {...props} className={className}>{children}</h3>;
+    },
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
     "latex-block": ({ node: _node, ...props }: any) => <LatexBlock {...(props as LatexBlockProps)} />,
     "body-attenuation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <BodyAttenuationCanvas {...props} /> </Suspense>,
@@ -435,6 +442,10 @@ const ArticleContent = styled.article`
 
   h3 {
     font-size: clamp(1.3rem, 3vw, 1.8rem);
+  }
+
+  .days-since-heading {
+    margin: 0;
   }
 
   .dropcap {
