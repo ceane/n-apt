@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import {
   clampFrequencyRangeToBounds,
@@ -234,21 +234,30 @@ export const useLiveSampleRateControl = ({
   setFftFrameRate,
   applyFrequencyRange,
 }: UseLiveSampleRateControlArgs) => {
-  const sampleRateModeRef = useRef<SampleRateMode | null>(null);
+  // The selected mode and the pending local rate are rendered by this hook, so
+  // they are state rather than refs. A ref mutation does not re-render, which let
+  // effects run against a stale mode/rate until an unrelated render refreshed
+  // them ("stale until you keep interacting"). Both change only on explicit
+  // user actions, never per frame, so the extra renders are gesture-frequency.
+  const [sampleRateMode, setSampleRateMode] = useState<SampleRateMode | null>(
+    null,
+  );
   const lastAppliedWholeChannelRateRef = useRef<number | null>(null);
   const lastAppliedFrequencyRangeKeyRef = useRef<string | null>(null);
-  const pendingSampleRateRef = useRef<number | null>(null);
-  const requestedSampleRateHz = pendingSampleRateRef.current ?? sampleRateHz;
+  const [pendingSampleRateHz, setPendingSampleRateHz] = useState<number | null>(
+    null,
+  );
+  const requestedSampleRateHz = pendingSampleRateHz ?? sampleRateHz;
 
   useEffect(() => {
     if (
-      pendingSampleRateRef.current !== null &&
+      pendingSampleRateHz !== null &&
       typeof sampleRateHz === "number" &&
-      Math.round(sampleRateHz) === Math.round(pendingSampleRateRef.current)
+      Math.round(sampleRateHz) === Math.round(pendingSampleRateHz)
     ) {
-      pendingSampleRateRef.current = null;
+      setPendingSampleRateHz(null);
     }
-  }, [sampleRateHz]);
+  }, [pendingSampleRateHz, sampleRateHz]);
 
   const canUseWholeChannel =
     sourceMode === "live" &&
@@ -263,8 +272,8 @@ export const useLiveSampleRateControl = ({
 
   const isWholeChannelMode =
     canUseWholeChannel &&
-    (sampleRateModeRef.current === "whole" ||
-      (sampleRateModeRef.current !== "manual" &&
+    (sampleRateMode === "whole" ||
+      (sampleRateMode !== "manual" &&
         resolveWholeChannelMode({
           supportsWholeChannel: true,
           sampleRateHz: requestedSampleRateHz,
@@ -315,17 +324,17 @@ export const useLiveSampleRateControl = ({
           Math.round(nextWholeChannelRate) === Math.round(nextSampleRate)
             ? nextWholeChannelRate
             : nextSampleRate;
-      pendingSampleRateRef.current = resolvedSampleRate;
+      setPendingSampleRateHz(resolvedSampleRate);
 
       if (requestedMode) {
-        sampleRateModeRef.current = requestedMode;
+        setSampleRateMode(requestedMode);
       } else if (
         wholeChannelSampleRate &&
         Math.round(wholeChannelSampleRate) !== Math.round(resolvedSampleRate)
       ) {
-        sampleRateModeRef.current = "manual";
+        setSampleRateMode("manual");
       } else {
-        sampleRateModeRef.current = "whole";
+        setSampleRateMode("whole");
       }
 
       let nextRange: FrequencyRange | null = null;
@@ -408,7 +417,7 @@ export const useLiveSampleRateControl = ({
     if (currentRate !== null && currentRate > 0) {
       if (
         preferWholeChannelOnLiveStart &&
-        sampleRateModeRef.current === null &&
+        sampleRateMode === null &&
         currentRate === 3_200_000 &&
         currentRate !== nextRate
       ) {
@@ -429,7 +438,7 @@ export const useLiveSampleRateControl = ({
 
     if (!Number.isFinite(nextRate) || nextRate <= 0) return;
 
-    if (sampleRateModeRef.current === "manual") {
+    if (sampleRateMode === "manual") {
       return;
     }
     if (lastAppliedWholeChannelRateRef.current === nextRate) return;
@@ -458,6 +467,7 @@ export const useLiveSampleRateControl = ({
     requestedSampleRateHz,
     setSampleRate,
     onSampleRateApplied,
+    sampleRateMode,
     sourceMode,
     startingAnchorPosition,
     wholeChannelSampleRate,
@@ -513,8 +523,8 @@ export const useLiveSampleRateControl = ({
     applyFrequencyRangeIfChanged,
     canUseWholeChannel,
     frequencyRange,
-    // Both are read below and both are derived from `sampleRateModeRef`, which
-    // does not trigger a render on its own. Leaving them out let this effect run
+    // Both are read below and both are derived from the selected mode and the
+    // channel span — not from the range. Leaving them out let this effect run
     // with a stale whole-channel snapshot until an unrelated render refreshed it.
     isWholeChannelMode,
     requestedSampleRateHz,
