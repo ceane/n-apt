@@ -40,6 +40,7 @@ import {
   resolveManagedRxSourceId,
   shouldPublishManagedRxTransportReady,
   shouldRequestManagedRxStartupFrame,
+  shouldRequestPausedManagedRxFrame,
   shouldRecoverManagedRxSubscription,
   shouldImmediatelyResetManagedRxSubscription,
   isCurrentManagedRxTarget,
@@ -110,6 +111,33 @@ describe("hardware source transition cleanup", () => {
         rxSourceId: "rtl-sdr-v4",
         sourceStatus: "receiving",
         hasFrame: false,
+        alreadyRequested: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("arms a one-shot for a paused subscription that reopens without a frame", () => {
+    // A paused stream publishes nothing, so an idle socket drop (backgrounded
+    // tab) followed by a reopen left the canvas on the Loading placeholder even
+    // though the source was healthy. The pause contract owes exactly one frame
+    // per request_next_frame, so the reopened paused subscription must arm it.
+    expect(
+      shouldRequestPausedManagedRxFrame({
+        paused: true,
+        alreadyRequested: false,
+      }),
+    ).toBe(true);
+    // The standard startup-frame path already armed one; do not double-request.
+    expect(
+      shouldRequestPausedManagedRxFrame({
+        paused: true,
+        alreadyRequested: true,
+      }),
+    ).toBe(false);
+    // A playing subscription streams on its own.
+    expect(
+      shouldRequestPausedManagedRxFrame({
+        paused: false,
         alreadyRequested: false,
       }),
     ).toBe(false);
@@ -2261,6 +2289,7 @@ describe("Redux WebSocket Migration", () => {
             label: "A",
             min_hz: 18_000,
             max_hz: 4_390_000,
+            description: "APT A",
           },
         ],
         active_signal_area: "A",
@@ -2273,6 +2302,9 @@ describe("Redux WebSocket Migration", () => {
       ([action]) =>
         action?.type === "spectrum/setSdrSettingsBundle" ||
         action?.type === "spectrum/setDeviceSdrSettingsBundle",
+    );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "websocket/updateDeviceState" }),
     );
     // The self-echoes may carry the authoritative selection once; they must not
     // each rewrite the bundle with the same value on every cycle.
@@ -6113,6 +6145,59 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Paused frame batching", () => {
+    it.each(["accepted", "foreign", "file"])(
+      "consumes an armed paused request before the next batch when %s",
+      (scenario) => {
+        jest.useFakeTimers();
+        store.dispatch(updateDeviceState({
+          isPaused: true,
+          activeSourceId: "rx",
+        }));
+        let sourceMode = scenario === "file" ? "file" : "live";
+        const getState = () => ({
+          websocket: (store.getState() as any).websocket,
+          waterfall: { sourceMode },
+        });
+        const frame = {
+          source_id: scenario === "foreign" ? "other" : "rx",
+          frame_status: "receiving",
+          sequence: 1,
+        };
+        expect(shouldAcceptPausedFrameRequest()).toBe(true);
+        __testQueueLiveDataForMiddleware(frame, store.dispatch, getState);
+        jest.advanceTimersByTime(16);
+        expect(liveDataRef.current).toEqual(scenario === "accepted" ? frame : null);
+        sourceMode = "live";
+        __testQueueLiveDataForMiddleware(
+          { ...frame, source_id: "rx", sequence: 2 }, store.dispatch, getState,
+        );
+        jest.advanceTimersByTime(16);
+        expect(liveDataRef.current).toEqual(scenario === "accepted" ? frame : null);
+        expect(shouldAcceptPausedFrameRequest()).toBe(true);
+        jest.useRealTimers();
+      },
+    );
+
+    it("does not mistake an untagged transmitting frame for a standby preview", () => {
+      jest.useFakeTimers();
+      store.dispatch(updateDeviceState({
+        isPaused: true,
+        activeSourceId: "mock-tx",
+        sourceStatuses: { "mock-tx": "standby" },
+      }));
+      __testQueueLiveDataForMiddleware({
+        source_id: "mock-tx", frame_status: "transmitting", sequence: 1,
+      }, store.dispatch, store.getState);
+      jest.advanceTimersByTime(16);
+      expect(liveDataRef.current).toBeNull();
+      const preview = {
+        source_id: "mock-tx", frame_status: "transmitting", is_tx_preview: true, sequence: 2,
+      };
+      __testQueueLiveDataForMiddleware(preview, store.dispatch, store.getState);
+      jest.advanceTimersByTime(16);
+      expect(liveDataRef.current).toBe(preview);
+      jest.useRealTimers();
+    });
     it("collapses a paused batch to the latest frame", () => {
       const firstFrame = {
         data_type: "iq_raw",
@@ -6143,6 +6228,28 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Status message deduplication", () => {
+    it.each([
+      ["flat objects", { a: 1 }, { a: 1 }, true],
+      ["changed values", { a: 1 }, { a: 2 }, false],
+      ["nested arrays", [[1, { a: 2 }]], [[1, { a: 2 }]], true],
+      ["nested objects stay shallow", { a: { b: 1 } }, { a: { b: 1 } }, false],
+      ["object array members stay shallow", [{ a: [1] }], [{ a: [1] }], false],
+      ["undefined keys retain legacy equality", { a: undefined }, { b: undefined }, true],
+      ["different key counts", {}, { a: undefined }, false],
+      ["array/object comparison", [1], { 0: 1 }, true],
+      ["array NaN values", [NaN], [NaN], false],
+      ["signed zero", { a: 0 }, { a: -0 }, true],
+      ["null and undefined", null, undefined, false],
+    ])("preserves status equality for %s", (_name, current, next, equal) => {
+      const before = websocketSlice(undefined, updateDeviceState({
+        sourceStatuses: current,
+      } as any));
+      const after = websocketSlice(before, updateDeviceState({
+        sourceStatuses: next,
+      } as any));
+      expect(after === before).toBe(equal);
+    });
+
     it("identical status updates do not trigger Redux dispatch", () => {
       const initialStatus = {
         jobId: "test-job",

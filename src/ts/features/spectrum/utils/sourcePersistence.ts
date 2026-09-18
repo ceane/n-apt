@@ -87,6 +87,11 @@ export const loadStoredJson = <T>(key: string): T | null => {
   }
 };
 
+export const loadStoredActiveSignalArea = (sourceId: string): string | null =>
+  loadStoredJson<{ activeSignalArea?: string | null }>(
+    getSourceViewStorageKey(sourceId),
+  )?.activeSignalArea ?? null;
+
 export const saveStoredJson = (key: string, value: unknown): void => {
   safeWriteStorage(key, JSON.stringify(value));
 };

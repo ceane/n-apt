@@ -107,6 +107,31 @@ export const hasRenderableFramePayload = (
       (frame.data?.length ?? 0) > 0)
   );
 
+/**
+ * Stream epochs are monotonic per source: a recreated stream publishes a higher
+ * epoch. The client's expected epoch lags whenever the backend recycles a
+ * stream without an accompanying source transition — which is what happens to a
+ * stream that is recycled while this tab is backgrounded. Exact matching then
+ * gates out every arriving frame forever and the display sticks on Loading, so
+ * a same-source frame at or above the expected epoch counts as fresh. Only an
+ * older epoch fails; a nullish value on either side means "no constraint".
+ *
+ * This is the numeric form of `acceptsMultiplexStreamFrame`'s ingress rule
+ * (`./frameGate`), which is the single owner of that contract. Keep the two in
+ * step: lifecycle readiness had drifted to exact matching, which is the bug.
+ */
+export const isStreamEpochCurrent = ({
+  frameEpoch,
+  expectedEpoch,
+}: {
+  frameEpoch?: number | null;
+  expectedEpoch?: number | null;
+}): boolean => {
+  if (typeof expectedEpoch !== "number") return true;
+  if (typeof frameEpoch !== "number") return true;
+  return frameEpoch >= expectedEpoch;
+};
+
 export const resolveFrameReadiness = ({
   frame,
   selectedSourceId,
@@ -131,8 +156,10 @@ export const resolveFrameReadiness = ({
   if (frame?.protocol_version === 2) {
     return (
       owner === selected &&
-      (typeof expectedStreamEpoch !== "number" ||
-        frame.stream_epoch === expectedStreamEpoch)
+      isStreamEpochCurrent({
+        frameEpoch: frame.stream_epoch,
+        expectedEpoch: expectedStreamEpoch,
+      })
     );
   }
   if (owner === selected) return true;
@@ -532,12 +559,10 @@ export const isCurrentSourceFrameReady = ({
   ) {
     return false;
   }
-  return (
-    readiness.streamEpoch === null ||
-    expectedStreamEpoch === null ||
-    typeof expectedStreamEpoch === "undefined" ||
-    readiness.streamEpoch === expectedStreamEpoch
-  );
+  return isStreamEpochCurrent({
+    frameEpoch: readiness.streamEpoch,
+    expectedEpoch: expectedStreamEpoch,
+  });
 };
 
 /**
@@ -571,12 +596,10 @@ export const isSelectedSourceFrameReady = ({
   ) {
     return false;
   }
-  return (
-    readiness.streamEpoch === null ||
-    expectedStreamEpoch === null ||
-    typeof expectedStreamEpoch === "undefined" ||
-    readiness.streamEpoch === expectedStreamEpoch
-  );
+  return isStreamEpochCurrent({
+    frameEpoch: readiness.streamEpoch,
+    expectedEpoch: expectedStreamEpoch,
+  });
 };
 
 /** Same readiness boundary for the frame callback that gates canvas painting. */

@@ -1,4 +1,5 @@
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import { evaluateSequenceStep } from "@n-apt/math/sequenceStep";
 import {
   STREAM_CONTROL_CONTRACT,
   type StreamSubscriberContract,
@@ -419,19 +420,12 @@ export const createSourceModeStreamManager = ({
         entry.streamEpoch = event.streamEpoch;
         entry.lastSequence = null;
       }
-      if (
-        entry.lastSequence !== null &&
-        event.sequence <= entry.lastSequence
-      ) {
+      const step = evaluateSequenceStep(entry.lastSequence, event.sequence);
+      if (!step.accepted) {
         entry.metrics.rejected += 1;
         return;
       }
-      if (
-        entry.lastSequence !== null &&
-        event.sequence > entry.lastSequence + 1
-      ) {
-        entry.metrics.sequenceGaps += event.sequence - entry.lastSequence - 1;
-      }
+      entry.metrics.sequenceGaps += step.sequenceGaps;
       entry.lastSequence = event.sequence;
       entry.metrics.accepted += 1;
       notify(entry, event);

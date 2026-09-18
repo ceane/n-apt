@@ -6,6 +6,7 @@ import {
   resolveTxStopTransition,
   shouldUseSourceOwnedTxPreview,
   shouldRetainTxStandbyAfterStop,
+  shouldHoldSourceSubscription,
   canToggleTransmitMode,
   pruneRemovedSourcePauseState,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
@@ -25,6 +26,19 @@ describe("sourceModeManagement", () => {
 
   it("keeps the managed stream subscribed while hardware is waiting for its first frame", () => {
     expect(isSourceStreamAvailable("loading")).toBe(true);
+  });
+
+  it("holds the Rx subscription through a stale device without calling it available", () => {
+    // Acquisition is subscriber-driven: dropping the last subscriber on a stale
+    // device idles the hardware, so the fresh frame that would clear the stale
+    // state can never arrive and the UI sits on Loading forever.
+    expect(shouldHoldSourceSubscription("stale")).toBe(true);
+    expect(shouldHoldSourceSubscription("receiving")).toBe(true);
+    expect(shouldHoldSourceSubscription("disconnected")).toBe(false);
+    expect(shouldHoldSourceSubscription("error")).toBe(false);
+    // The UI invariant this must not break: a stale device is not a usable
+    // stream, so the loading placeholder still covers the canvas.
+    expect(isSourceStreamAvailable("stale")).toBe(false);
   });
 
   it("blocks starting TX without a Tx-suite node binding but permits stopping", () => {

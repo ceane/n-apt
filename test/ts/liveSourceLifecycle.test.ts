@@ -431,6 +431,71 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(true);
   });
 
+  test("accepts a newer same-source epoch after the backend recycles the stream", () => {
+    // A stream recycled while this tab was backgrounded republishes a higher
+    // epoch, but the client only learns of it from a source transition. Exact
+    // matching gated out every frame and stranded the display on the Loading
+    // placeholder until a manual reload recreated the subscription.
+    expect(
+      isCurrentSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 4,
+        readiness: { sourceId: "mock-apt", streamEpoch: 5, sequence: 1 },
+      }),
+    ).toBe(true);
+    expect(
+      isSelectedSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        mode: "rx",
+        expectedStreamEpoch: 4,
+        readiness: { sourceId: "mock-apt", streamEpoch: 9, sequence: 2 },
+      }),
+    ).toBe(true);
+    expect(
+      resolveFrameReadiness({
+        frame: {
+          source_id: "mock-apt",
+          protocol_version: 2,
+          stream_epoch: 11,
+          iq_data: new Uint8Array([128, 129]),
+        },
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 4,
+        frameCounter: 1,
+        handoffStartedFrameCounter: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("still rejects an older epoch and a foreign source's newer epoch", () => {
+    expect(
+      isCurrentSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 6,
+        readiness: { sourceId: "mock-apt", streamEpoch: 5, sequence: 9 },
+      }),
+    ).toBe(false);
+    expect(
+      resolveFrameReadiness({
+        frame: {
+          source_id: "rtl-sdr-1",
+          protocol_version: 2,
+          stream_epoch: 99,
+          iq_data: new Uint8Array([128, 129]),
+        },
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 4,
+        frameCounter: 1,
+        handoffStartedFrameCounter: 0,
+      }),
+    ).toBe(false);
+  });
+
   test("accepts subscriber-local Tx readiness while RX remains globally active", () => {
     expect(
       isSelectedSourceFrameReady({

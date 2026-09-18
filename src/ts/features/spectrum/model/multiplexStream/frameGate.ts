@@ -17,6 +17,7 @@ import {
   type MultiplexStreamFrameId,
   type MultiplexStreamLifecycle,
 } from "./frameIdentity";
+import { evaluateSequenceStep } from "@n-apt/math/sequenceStep";
 
 export {
   multiplexStreamFrameIdFromWire,
@@ -108,18 +109,13 @@ export const createMultiplexStreamSequenceGate = () => {
       if (frame.sequence === undefined || frame.sequence === null) {
         return true;
       }
-      if (
-        lastSequence?.epoch === frame.streamEpoch &&
-        frame.sequence <= lastSequence.value
-      ) {
-        duplicatesRejected += 1;
-        return false;
-      }
-      if (
-        lastSequence?.epoch === frame.streamEpoch &&
-        frame.sequence > lastSequence.value + 1
-      ) {
-        sequenceGaps += frame.sequence - lastSequence.value - 1;
+      if (lastSequence?.epoch === frame.streamEpoch) {
+        const step = evaluateSequenceStep(lastSequence.value, frame.sequence);
+        if (!step.accepted) {
+          duplicatesRejected += 1;
+          return false;
+        }
+        sequenceGaps += step.sequenceGaps;
       }
       lastSequence = { epoch: frame.streamEpoch, value: frame.sequence };
       return true;

@@ -1,4 +1,7 @@
 import { Middleware, Dispatch } from "@reduxjs/toolkit";
+import { equalValue } from "../websocketEquality";
+import { buildReconnectSettingsMessage } from "../settingsWire";
+import { loadStoredActiveSignalArea as getPersistedActiveSignalArea } from "@n-apt/spectrum/public/sourcePersistence";
 import {
   setConnecting,
   setConnected,
@@ -56,6 +59,7 @@ import {
   normalizeSourceDuplexMode,
   pruneRemovedSourcePauseState,
   resolveSourceModeManagement,
+  shouldHoldSourceSubscription,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 import type { StreamControlMode } from "@n-apt/app/infrastructure/streams/streamContract";
 import {
@@ -65,6 +69,10 @@ import {
 import { filterLiveFramesForSource } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   filterMultiplexStreamPresentationFrames,
+  filterMultiplexStreamTxPreviewFrames,
+  isMultiplexStreamTxPresentationFrame as isTxPresentationFrame,
+  isMultiplexStreamTxPreviewFrame,
+  resolveMultiplexStreamPresentationBatch,
 } from "@n-apt/spectrum/model/multiplexStream";
 import {
   createSourceModeStreamManager,
@@ -157,57 +165,6 @@ let requestedSourceId: string | null = null;
 /** Keep the client frame gate aligned with the server's active-source mode. */
 export const isSourceModePaused = (sourceMode: unknown): boolean =>
   sourceMode === "file";
-
-const shallowEqualObject = (
-  a: Record<string, unknown> | null | undefined,
-  b: Record<string, unknown> | null | undefined,
-): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const key of aKeys) {
-    if (a[key] !== b[key]) return false;
-  }
-  return true;
-};
-
-const equalArrayValues = (
-  a: unknown[] | null | undefined,
-  b: unknown[] | null | undefined,
-): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    const left = a[i];
-    const right = b[i];
-    if (!equalValue(left, right)) {
-      return false;
-    }
-  }
-  return true;
-};
-
-const equalValue = (current: unknown, next: unknown): boolean => {
-  if (current === next) return true;
-  if (Array.isArray(current) && Array.isArray(next)) {
-    return equalArrayValues(current, next);
-  }
-  if (
-    current &&
-    next &&
-    typeof current === "object" &&
-    typeof next === "object"
-  ) {
-    return shallowEqualObject(
-      current as Record<string, unknown>,
-      next as Record<string, unknown>,
-    );
-  }
-  return false;
-};
 
 const deriveLegacyStateFromSource = (source: SourceInfo) => {
   const sourceStatus = source.status ?? "disconnected";
@@ -690,6 +647,51 @@ let lastExpectedPauseState: boolean | null = null;
 // Visualizer pause is a subscriber concern. Keep it separate from the
 // backend's source pause bit so one browser window cannot pause another.
 const subscriberPausedBySource = new Map<string, boolean>();
+// Pause is an explicit user intent, so it must outlive a page/hot reload: a
+// fresh module scope would otherwise resume a stream the user had paused.
+const SUBSCRIBER_PAUSE_STORAGE_KEY = "n-apt:subscriber-pause-intent";
+let subscriberPauseIntentRestored = false;
+
+const pauseIntentStorage = (): Storage | null => {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const persistSubscriberPauseIntent = (): void => {
+  const storage = pauseIntentStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(
+      SUBSCRIBER_PAUSE_STORAGE_KEY,
+      JSON.stringify(Object.fromEntries(subscriberPausedBySource)),
+    );
+  } catch {
+    // Best effort: a blocked or full store must not disturb the stream.
+  }
+};
+
+/** Re-assert the persisted intent once per page load, before any subscribe. */
+const restoreSubscriberPauseIntent = (): void => {
+  if (subscriberPauseIntentRestored) return;
+  subscriberPauseIntentRestored = true;
+  const storage = pauseIntentStorage();
+  if (!storage) return;
+  try {
+    const raw = storage.getItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const [sourceId, paused] of Object.entries(parsed ?? {})) {
+      if (typeof paused === "boolean") {
+        subscriberPausedBySource.set(sourceId, paused);
+      }
+    }
+  } catch {
+    // A malformed record is not worth failing over; the source simply resumes.
+  }
+};
 const MAX_RETAINED_LIVE_FRAMES = 1;
 const DISCONNECT_GRACE_MS = 150;
 const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
@@ -913,6 +915,8 @@ export const resetWebSocketMiddlewareState = (): void => {
   lastPauseCommandTime = 0;
   lastExpectedPauseState = null;
   subscriberPausedBySource.clear();
+  subscriberPauseIntentRestored = false;
+  pauseIntentStorage()?.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
@@ -1008,11 +1012,6 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     });
     const isActiveTxPreviewBinding =
       !!activeSourceId && boundTxSourceId === activeSourceId;
-    const isTxPresentationFrame = (frame: any): boolean =>
-      frame?.frame_status === "standby" ||
-      frame?.frame_status === "transmitting" ||
-      frame?.is_tx_preview === true ||
-      frame?.is_mock_tx_preview === true;
     const isActiveTxPresentation =
       (selectedTxPresentationSourceId !== null &&
         (requestedSourceId === null ||
@@ -1186,45 +1185,31 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       );
     }
     const hasTxPreviewFrame = presentationFrames.some(
-      (f: any) =>
-        f?.frame_status === "standby" ||
-        f?.is_tx_preview === true ||
-        f?.is_mock_tx_preview === true,
+      isMultiplexStreamTxPreviewFrame,
     );
+    const presentationBatch = resolveMultiplexStreamPresentationBatch({
+      frameCount: presentationFrames.length,
+      isFileSource,
+      isPaused,
+      pausedRequestInFlight: isPausedOneShotFrame,
+      isActiveTxMonitorStandby,
+      isActiveBoundTxPreviewStandby,
+      isSelectedTxPresentationStandby,
+      isActiveTxMonitorTransmitting,
+      isSelectedTxPresentationTransmitting,
+      hasTxPreviewFrame,
+    });
     // A paused Rx source publishes exactly one frame per request_next_frame.
     // It has no Tx-preview tag, so gate acceptance on the armed request. Consume
     // the gate after the first frame so idle background frames cannot bleed in.
-    const shouldAcceptPausedFrame = hasTxPreviewFrame || isPausedOneShotFrame;
     if (isPausedOneShotFrame) {
       pausedFrameRequestInFlight = false;
     }
 
-    if (
-      presentationFrames.length > 0 &&
-      ((!isPaused &&
-        !isActiveTxMonitorStandby &&
-        !isActiveBoundTxPreviewStandby &&
-        !isSelectedTxPresentationStandby) ||
-        shouldAcceptPausedFrame ||
-        isActiveTxMonitorTransmitting) &&
-      !isFileSource
-    ) {
-      if (
-        (isPaused ||
-          isActiveTxMonitorStandby ||
-          isActiveBoundTxPreviewStandby ||
-          isSelectedTxPresentationStandby) &&
-        (shouldAcceptPausedFrame || hasTxPreviewFrame) &&
-        !isActiveTxMonitorTransmitting &&
-        !isSelectedTxPresentationTransmitting
-      ) {
+    if (presentationBatch.accept) {
+      if (presentationBatch.replacePausedPresentation) {
         const framesToUse = hasTxPreviewFrame
-          ? presentationFrames.filter(
-              (f: any) =>
-                f?.frame_status === "standby" ||
-                f?.is_tx_preview === true ||
-                f?.is_mock_tx_preview === true,
-            )
+          ? filterMultiplexStreamTxPreviewFrames(presentationFrames)
           : presentationFrames;
         liveDataRef.current = collapsePausedFrameBatch(framesToUse);
         // A requested untagged standby frame is still a one-frame response.
@@ -1394,22 +1379,7 @@ export const getFrequencyRequestCenterHz = (
   return null;
 };
 
-const getPersistedActiveSignalArea = (sourceId: string): string | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const trimmed = sourceId?.trim();
-    const scope = trimmed ? trimmed : "default";
-    const key = `napt-spectrum-view-v1:${scope}`;
-    const stored = window.localStorage.getItem(key);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return parsed?.activeSignalArea ?? null;
-    }
-  } catch {
-    // Ignore
-  }
-  return null;
-};
+
 
 const shouldSuppressDuplicateFrequencyRangeSend = (
   type: string,
@@ -2107,6 +2077,23 @@ export const shouldRequestManagedRxStartupFrame = ({
   !alreadyRequested;
 
 /**
+ * A paused subscriber that (re)opens its transport has nothing to show: the
+ * pause gate suppressed the stream, and the presentation slot went with the
+ * transport. The pause contract publishes exactly one frame per
+ * `request_next_frame`, so a paused subscription must arm its own one-shot —
+ * otherwise the canvas sits on a Loading placeholder over a healthy source,
+ * which is what a paused stream does after its idle socket is dropped while the
+ * tab is backgrounded and then reopens.
+ */
+export const shouldRequestPausedManagedRxFrame = ({
+  paused,
+  alreadyRequested,
+}: {
+  paused: boolean;
+  alreadyRequested: boolean;
+}): boolean => paused && !alreadyRequested;
+
+/**
  * A lost hardware source must not leave its transport entry in the short
  * subscriber grace period. Reusing that entry after a quick replug skips the
  * backend subscribe/initialization handshake and strands the renderer at the
@@ -2250,6 +2237,31 @@ const clearManagedRxAckRecoveryTimer = (): void => {
   }
 };
 
+/**
+ * Drop the current managed Rx subscription so the next sync re-establishes it.
+ *
+ * `immediate` releases the transport instead of waiting for a graceful close.
+ * `cancelPending` also drops the ack-recovery timer and any queued device-option
+ * publish — required when the desired source changes, but pointless from the
+ * ack-recovery timer itself, which is already firing.
+ */
+const dropManagedRxSubscription = ({
+  immediate,
+  cancelPending,
+}: {
+  immediate: boolean;
+  cancelPending: boolean;
+}): void => {
+  if (cancelPending) {
+    clearManagedRxAckRecoveryTimer();
+    managedRxOptionsScheduler.cancel();
+  }
+  managedRxSubscription?.unsubscribe({ immediate });
+  managedRxSubscription = null;
+  managedRxSourceId = null;
+  managedRxStartupFrameRequestSourceId = null;
+};
+
 const armManagedRxAckRecovery = (
   sourceId: string,
   dispatch: Dispatch,
@@ -2277,10 +2289,7 @@ const armManagedRxAckRecovery = (
       return;
     }
 
-    managedRxSubscription?.unsubscribe({ immediate: true });
-    managedRxSubscription = null;
-    managedRxSourceId = null;
-    managedRxStartupFrameRequestSourceId = null;
+    dropManagedRxSubscription({ immediate: true, cancelPending: false });
     syncManagedStreamSubscriptions(dispatch, getState);
   }, 3_000);
 };
@@ -2368,23 +2377,22 @@ const syncManagedStreamSubscriptions = (
   const wantsRx =
     !!desiredRxSource?.iq_format &&
     desiredRxSource.capabilities?.can_receive !== false &&
-    isSourceStreamAvailable(
+    // Hold the transport through a stale device: acquisition is
+    // subscriber-driven, so unsubscribing here would idle the device and make
+    // the stale state permanent (permanent Loading in the UI).
+    shouldHoldSourceSubscription(
       state.sourceStatuses?.[desiredRxSource.id] ?? desiredRxSource.status,
     ) &&
     !txSourceConflictsWithActiveRx;
   const rxSourceId = wantsRx ? desiredRxSource.id : null;
   if (managedRxSourceId !== rxSourceId) {
-    clearManagedRxAckRecoveryTimer();
-    managedRxOptionsScheduler.cancel();
-    managedRxSubscription?.unsubscribe({
+    dropManagedRxSubscription({
       immediate: shouldImmediatelyResetManagedRxSubscription({
         currentSourceId: managedRxSourceId,
         nextSourceId: rxSourceId,
       }),
+      cancelPending: true,
     });
-    managedRxSubscription = null;
-    managedRxSourceId = null;
-    managedRxStartupFrameRequestSourceId = null;
   }
   if (
     rxSourceId &&
@@ -2451,6 +2459,10 @@ const syncManagedStreamSubscriptions = (
           latestState.sourceFrameReadiness ??
           null;
         if (
+          shouldRequestPausedManagedRxFrame({
+            paused: paused === true,
+            alreadyRequested: managedRxStartupFrameRequestSourceId === rxSourceId,
+          }) ||
           shouldRequestManagedRxStartupFrame({
             activeSourceId: latestState.activeSourceId,
             rxSourceId,
@@ -3137,6 +3149,7 @@ export const processWebSocketMessage = (
         sources,
         subscriberPausedBySource,
       );
+      persistSubscriberPauseIntent();
       const requestedSourceWasRemoved = shouldRetireRemovedSourceRequest({
         requestedSourceId,
         sources,
@@ -3943,6 +3956,9 @@ const createWebSocketMiddleware =
         sourceModeStreamManager = createSourceModeStreamManager({
           transportFactory: multiplexedStreamTransport.transportFactory,
         });
+        // Re-assert the persisted pause intent before any subscription is
+        // synced, so a reloaded page cannot silently resume a paused stream.
+        restoreSubscriberPauseIntent();
         installDeliveryDemandListener();
 
         const connect = () => {
@@ -4024,51 +4040,8 @@ const createWebSocketMiddleware =
 
                 const spectrumSettings = state.spectrum;
                 if (spectrumSettings) {
-                  const sdrSettingsPayload: Record<string, any> = {
-                    type: "settings",
-                    scope: "device",
-                  };
-                  if (
-                    typeof spectrumSettings.fftSize === "number" &&
-                    spectrumSettings.fftSize > 0
-                  ) {
-                    sdrSettingsPayload.fftSize = spectrumSettings.fftSize;
-                  }
-                  if (
-                    typeof spectrumSettings.fftWindow === "string" &&
-                    spectrumSettings.fftWindow.length > 0
-                  ) {
-                    sdrSettingsPayload.fftWindow = spectrumSettings.fftWindow;
-                  }
-                  if (
-                    typeof spectrumSettings.fftFrameRate === "number" &&
-                    spectrumSettings.fftFrameRate > 0
-                  ) {
-                    sdrSettingsPayload.frameRate = clampFrameRateToProtocolLimit(
-                      spectrumSettings.fftFrameRate,
-                    );
-                  }
-                  if (
-                    typeof spectrumSettings.sampleRateHz === "number" &&
-                    spectrumSettings.sampleRateHz > 0
-                  ) {
-                    sdrSettingsPayload.sampleRate = spectrumSettings.sampleRateHz;
-                  }
-                  if (
-                    typeof spectrumSettings.gain === "number" &&
-                    spectrumSettings.gain >= 0
-                  ) {
-                    sdrSettingsPayload.gain = spectrumSettings.gain;
-                  }
-                  if (typeof spectrumSettings.ppm === "number") {
-                    sdrSettingsPayload.ppm = spectrumSettings.ppm;
-                  }
-                  if (typeof spectrumSettings.tunerAGC === "boolean") {
-                    sdrSettingsPayload.tunerAGC = spectrumSettings.tunerAGC;
-                  }
-                  if (typeof spectrumSettings.rtlAGC === "boolean") {
-                    sdrSettingsPayload.rtlAGC = spectrumSettings.rtlAGC;
-                  }
+                  const sdrSettingsPayload =
+                    buildReconnectSettingsMessage(spectrumSettings);
                   if (Object.keys(sdrSettingsPayload).length > 1) {
                     ws.send(JSON.stringify(sdrSettingsPayload));
                   }
@@ -4583,6 +4556,7 @@ const createWebSocketMiddleware =
 
         if (sourceId) {
           subscriberPausedBySource.set(sourceId, isPaused);
+          persistSubscriberPauseIntent();
           presentationController.setPaused(sourceId, mode, isPaused);
           if (managedRxSubscription?.stream.sourceId === sourceId) {
             managedRxSubscription.setPaused(isPaused);

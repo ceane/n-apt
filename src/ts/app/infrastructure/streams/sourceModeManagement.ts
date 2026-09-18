@@ -78,6 +78,24 @@ export const isSourceStreamAvailable = (status: unknown): boolean =>
   );
 
 /**
+ * Whether the managed Rx transport must stay subscribed for a source.
+ *
+ * Deliberately wider than `isSourceStreamAvailable`: backend acquisition is
+ * subscriber-driven, so dropping the last subscriber on a `stale` device idles
+ * acquisition and the device can never produce the fresh frame that would clear
+ * the stale state — a livelock the UI reports as a permanent Loading
+ * placeholder. Hold the transport open instead and let the lifecycle placeholder
+ * cover the canvas until the backend recovers.
+ *
+ * `isSourceStreamAvailable` itself must NOT treat `stale` as available: its
+ * callers use it to mean "a usable stream exists right now", and a stale device
+ * flipping that to true would suppress the loading placeholder over a dead
+ * canvas.
+ */
+export const shouldHoldSourceSubscription = (status: unknown): boolean =>
+  isSourceStreamAvailable(status) || normalizeToken(status) === "stale";
+
+/**
  * A disconnected source can reappear with the same serial-derived id. Drop
  * its subscriber-local pause bit when the backend removes it, so reconnect is
  * an automatic resume rather than a hidden paused subscription.
