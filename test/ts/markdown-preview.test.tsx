@@ -8,6 +8,11 @@ jest.mock("remark-gfm", () => jest.fn(() => null));
 jest.mock("rehype-highlight", () => jest.fn(() => null));
 jest.mock("rehype-raw", () => jest.fn(() => null));
 jest.mock("rehype-katex", () => jest.fn(() => null));
+jest.mock("@n-apt/app-article/utils/markdown-sanitize", () => ({
+  __esModule: true,
+  rehypeSanitizeArticle: () => (tree: unknown) => tree,
+  rehypeArticleAnchors: () => (tree: unknown) => tree,
+}));
 jest.mock("katex", () => ({
   __esModule: true,
   default: {

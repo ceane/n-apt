@@ -6,6 +6,7 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
+import { rehypeSanitizeArticle, rehypeArticleAnchors } from "@n-apt/app-article/utils/markdown-sanitize";
 import katex from "katex";
 import { Bug, RadioTower } from "lucide-react"; // Explicit imports: only the icons used by the article's shortcodes ship in the bundle.
 import "katex/dist/katex.min.css";
@@ -333,7 +334,7 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({
         remarkTimeOfFlightBlocks,
         remarkSignalCanvasBlocks as any,
       ]}
-      rehypePlugins={[rehypeRaw, rehypeKatex]}
+      rehypePlugins={[rehypeRaw, rehypeSanitizeArticle, rehypeArticleAnchors, rehypeKatex]}
       components={components}
     >
       {loadError ? `# Could not load markdown\n\n${loadError}` : (markdown || "_Fetching markdown…_")}
