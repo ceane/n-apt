@@ -8,7 +8,10 @@ import {
   getVisualizerDefaultDbLimits,
 } from "@n-apt/consts/visualizerControls";
 import { sanitizeMirroredPanOffset } from "@n-apt/math/basebandMirror";
-import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import {
+  MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
+  isValidSampleRateHz,
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 const DEFAULT_DB_LIMITS = getVisualizerDefaultDbLimits("dB");
 
@@ -166,7 +169,6 @@ export interface LocalSpectrumState {
   // Visualization state (local)
   visualizerPaused: boolean;
   detectedFrameRate: number | null;
-  isWaterfallCleared: boolean;
   showSpikeOverlay: boolean;
   removeDcSpike: boolean;
   gpuSpikeCount: number;
@@ -262,10 +264,18 @@ const SETTINGS_BUNDLE_NUMERIC_KEYS = new Set([
   "gpuSpikeCount",
 ]);
 
+/** Receive rates in a bundle: a non-positive value is never a usable window. */
+const SETTINGS_BUNDLE_SAMPLE_RATE_KEYS = new Set([
+  "sampleRateHz",
+  "minReceiveSampleRateHz",
+]);
+
 /**
  * Keep settings bundles from ever pushing non-finite numbers or wrong-typed
  * values into the slice: numeric keys accept only finite numbers; everything
- * else accepts only non-null scalars.
+ * else accepts only non-null scalars. Receive rates additionally require a
+ * value above zero, so a bundle cannot carry a zero rate in as a "missing"
+ * value that quietly pins the floor.
  */
 function sanitizeSettingsBundle(
   payload: Partial<SpectrumState>,
@@ -274,6 +284,12 @@ function sanitizeSettingsBundle(
   for (const [key, val] of Object.entries(payload)) {
     if (SETTINGS_BUNDLE_NUMERIC_KEYS.has(key)) {
       if (typeof val !== "number" || !Number.isFinite(val)) continue;
+      if (SETTINGS_BUNDLE_SAMPLE_RATE_KEYS.has(key) && val <= 0) {
+        console.error(
+          `Ignoring invalid ${key} in settings bundle: ${val} (expected a finite number greater than 0)`,
+        );
+        continue;
+      }
     } else if (val === null || typeof val === "function") {
       continue;
     }
@@ -289,6 +305,7 @@ function sanitizeSettingsBundle(
 }
 
 const initialState: SpectrumState = {
+  ...LIVE_CONTROL_DEFAULTS,
   activeSignalArea: "A",
   frequencyRange: null,
   sourceViewFrequencyRanges: {},
@@ -296,48 +313,11 @@ const initialState: SpectrumState = {
   lastKnownRanges: {},
   deviceFrequencyRangeRevision: 0,
 
-  displayTemporalResolution: "reduced",
-  powerScale: "dB",
-  vizZoom: FRONTEND_VISUALIZER_DEFAULTS.zoom,
-  maxVizZoom: FRONTEND_VISUALIZER_DEFAULTS.maxZoom,
-  vizZoomFloor: FRONTEND_VISUALIZER_DEFAULTS.zoomFloor,
-  vizZoomFloorPan: FRONTEND_VISUALIZER_DEFAULTS.zoomFloorPan,
-  autoZoomStability: true,
-  vizPanOffset: 0,
   displayMode: "fft",
-
-  fftMinDb: DEFAULT_DB_LIMITS.min,
-  fftMaxDb: DEFAULT_DB_LIMITS.max, // This will be updated based on powerScale
   fftSize: 2048,
-  fftSizeOptions: [],
-  fftWindow: "Rectangular",
   fftFrameRate: 60,
-  fftAvgEnabled: false,
-  fftSmoothEnabled: false,
-  wfSmoothEnabled: false,
 
   gain: 49.6,
-  txSignal: "wifi",
-  txSampleRateHz: 2_400_000,
-  txIfftSize: 2048,
-  txViewerSampleRateHz: MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
-  txViewerFftSize: 65_536,
-  txViewerFftFrameRate: 60,
-  txViewerFftWindow: "Rectangular",
-  txViewerTemporalResolution: "lossless",
-  txViewerPowerScale: "dBm",
-  txCenterFrequencyHz: 137_100_000,
-  txPowerDbm: -18,
-  txVgaGain: 16,
-  txSafetyEnabled: false,
-  txSafetyLimit: "room",
-  txSafetyResult: null,
-  txHopType: "range",
-  txHopStartFrequencyHz: 10_000_000,
-  txHopEndFrequencyHz: 20_000_000,
-  txHopChannels: ["a"],
-  txHopRateHz: 10,
-  txHopEnabled: false,
   hackrfLnaGain: 0.0,
   hackrfVgaGain: 30.0,
   hackrfAmpEnabled: false,
@@ -352,14 +332,12 @@ const initialState: SpectrumState = {
 
   visualizerPaused: false,
   detectedFrameRate: null,
-  isWaterfallCleared: false,
   showSpikeOverlay: false,
   removeDcSpike: false,
   gpuSpikeCount: 0,
   gpuSpikeAnalysis: null,
   hoveredSpikeIndex: null,
   showTxSlider: true,
-  previewRange: null,
   previewAlignment: "centered",
   stitchOptions: {
     phaseCorrection: true,
@@ -837,7 +815,17 @@ const spectrumSlice = createSlice({
     },
 
     setSampleRate: (state, action: PayloadAction<number>) => {
-      if (!Number.isFinite(action.payload)) return;
+      if (!isValidSampleRateHz(action.payload)) {
+        // Producers assert before dispatching; this is the defensive net for
+        // hydrated or remote values. Never throw from a reducer (a dispatch
+        // during render would take the tree down) and never drop silently
+        // either: a discarded rate used to look like "the picker snapped back
+        // and nothing logged".
+        console.error(
+          `Ignoring invalid sample rate ${String(action.payload)}; keeping ${state.sampleRateHz} Hz`,
+        );
+        return;
+      }
       state.sampleRateHz = action.payload;
 
       const managedRxFrequencyRange = (
@@ -866,7 +854,16 @@ const spectrumSlice = createSlice({
     },
 
     setMinReceiveSampleRate: (state, action: PayloadAction<number>) => {
-      if (!Number.isFinite(action.payload)) return;
+      if (!isValidSampleRateHz(action.payload)) {
+        // Unlike the selector rate, this one is device-reported (it arrives
+        // from source metadata), so there is no producer to assert against and
+        // it must not throw from here. It must not be invisible either: a bad
+        // floor silently pinning the rate options is the same failure shape.
+        console.error(
+          `Ignoring invalid minimum receive sample rate ${String(action.payload)}; keeping ${state.minReceiveSampleRateHz} Hz`,
+        );
+        return;
+      }
       state.minReceiveSampleRateHz = action.payload;
     },
 
@@ -920,14 +917,6 @@ const spectrumSlice = createSlice({
         action.payload === null || Number.isFinite(action.payload)
           ? action.payload
           : null;
-    },
-
-    clearWaterfall: (state) => {
-      state.isWaterfallCleared = true;
-    },
-
-    resetWaterfallCleared: (state) => {
-      state.isWaterfallCleared = false;
     },
 
     leaveVisualizer: (state) => {
@@ -1144,8 +1133,6 @@ export const {
   setBasebandFilterPinned,
   setVisualizerPaused,
   setDetectedFrameRate,
-  clearWaterfall,
-  resetWaterfallCleared,
   leaveVisualizer,
   setDiagnosticStatus,
   setDiagnosticRunning,

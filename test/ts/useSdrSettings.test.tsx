@@ -209,6 +209,33 @@ describe("useSdrSettings", () => {
     );
   });
 
+  it.each(["fftSize", "frameRate"] as const)("publishes one correction for a %s adjustment", (trigger) => {
+    jest.useFakeTimers();
+    const store = configureStore({ reducer: { spectrum: spectrumSlice } });
+    const { unmount } = render(
+      <Provider store={store}>
+        <CouplingHarness sdrSettings={mockSdrSettings} />
+      </Provider>,
+    );
+
+    try {
+      mockOnSettingsChange.mockClear();
+      expect(hookApi).not.toBeNull();
+
+      act(() => {
+        hookApi!.scheduleCoupledAdjustment(trigger, 16384, 999);
+        jest.advanceTimersByTime(300);
+      });
+
+      expect(mockOnSettingsChange).toHaveBeenCalledTimes(1);
+      expect(mockOnSettingsChange).toHaveBeenCalledWith({ frameRate: 48 });
+      expect(store.getState().spectrum.fftFrameRate).toBe(48);
+    } finally {
+      unmount();
+      jest.useRealTimers();
+    }
+  });
+
   it("caps logical frame rate without changing fft size when the requested rate is too high", async () => {
     jest.useFakeTimers();
 

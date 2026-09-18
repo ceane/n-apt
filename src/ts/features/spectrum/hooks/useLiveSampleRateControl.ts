@@ -7,6 +7,7 @@ import {
 } from "@n-apt/math/frequency";
 import { computeMaxFrameRate } from "@n-apt/math/signals";
 import { resolveWholeChannelMode } from "@n-apt/spectrum/utils/wholeChannelControl";
+import { assertValidSampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 export type SampleRateMode = "whole" | "manual";
 export type SampleRateAnchorPosition = "start" | "center" | "end";
@@ -123,7 +124,16 @@ export const buildLiveSampleRateRange = ({
   forceStartingAnchor = false,
 }: BuildSampleRateRangeArgs): FrequencyRange => {
   const centerHz = getFrequencyRangeCenterHz(currentRange);
-  const requestedSpan = Math.max(1, Math.round(sampleRateHz));
+  // A non-finite or non-positive rate is a stale/broken reference, not a
+  // request to collapse the window. Deriving NaN straight through produced a
+  // zero-width window, which blanks the view instead of failing visibly.
+  const requestedSpan =
+    Number.isFinite(sampleRateHz) && sampleRateHz > 0
+      ? Math.max(1, Math.round(sampleRateHz))
+      : Math.max(
+          1,
+          Math.round(Math.max(0, currentRange.max - currentRange.min)),
+        );
   const channelSpan =
     channelBounds && channelBounds.max > channelBounds.min
       ? channelBounds.max - channelBounds.min
@@ -270,18 +280,23 @@ export const useLiveSampleRateControl = ({
     ? getWholeChannelSampleRate(activeChannelSampleRate)
     : null;
 
+  // Whole Channel is derived from the live rate, not from the last gesture.
+  // A sticky `whole` mode kept claiming Whole Channel after the active channel
+  // changed underneath it, so the selector showed one channel's width while the
+  // source was still acquiring another's (the "Whole Channel, but stuck at
+  // 3.2MHz" report). `manual` stays sticky because it is an explicit
+  // acquisition choice that panning must not reinterpret as a channel request.
   const isWholeChannelMode =
     canUseWholeChannel &&
-    (sampleRateMode === "whole" ||
-      (sampleRateMode !== "manual" &&
-        resolveWholeChannelMode({
-          supportsWholeChannel: true,
-          sampleRateHz: requestedSampleRateHz,
-          activeChannelBounds: {
-            min: 0,
-            max: wholeChannelSampleRate ?? 0,
-          },
-        })));
+    sampleRateMode !== "manual" &&
+    resolveWholeChannelMode({
+      supportsWholeChannel: true,
+      sampleRateHz: requestedSampleRateHz,
+      activeChannelBounds: {
+        min: 0,
+        max: wholeChannelSampleRate ?? 0,
+      },
+    });
 
   const applyFrequencyRangeIfChanged = useCallback(
     (range: FrequencyRange) => {
@@ -302,6 +317,8 @@ export const useLiveSampleRateControl = ({
       requestedMode?: SampleRateMode,
       frequencyRangeOverride?: FrequencyRange,
     ) => {
+      // Every selector, channel-click and preset rate enters through here.
+      assertValidSampleRateHz(nextSampleRate, "the sample-rate control");
       const nextWholeChannelRate = getWholeChannelSampleRate(
         activeChannelSampleRate,
       );

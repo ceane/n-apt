@@ -11,6 +11,7 @@ import {
   clampFrameRateToLogicalMax,
   getLogicalMaxFrameRate,
 } from "@n-apt/math/signals";
+import { assertValidSampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
@@ -268,6 +269,10 @@ export const useSdrSettings = ({
   );
   const setSampleRate = useCallback(
     (sampleRate: number) => {
+      // The device-write funnel: whatever reaches the hardware settings and
+      // Redux must be a real rate, so a bad value fails here rather than
+      // becoming a silently dropped Redux write.
+      assertValidSampleRateHz(sampleRate, "the SDR settings hook");
       const currentFftSize = stateRef.current.fftSize;
       const nextFrameRate = getLogicalMaxFrameRate(
         sampleRate,
@@ -457,7 +462,6 @@ export const useSdrSettings = ({
           );
           if (desiredFrameRate !== nextFrameRate) {
             setFftFrameRate(desiredFrameRate);
-            sendCurrentSettings({ frameRate: desiredFrameRate });
           }
           return;
         }
@@ -473,7 +477,6 @@ export const useSdrSettings = ({
         );
         if (desiredFrameRate !== nextFrameRate) {
           setFftFrameRate(desiredFrameRate);
-          sendCurrentSettings({ frameRate: desiredFrameRate });
         }
       }, 300);
     },
@@ -481,7 +484,6 @@ export const useSdrSettings = ({
       maxSampleRate,
       currentSampleRateHz,
       sdrSettings,
-      sendCurrentSettings,
       setFftFrameRate,
       setFftSize,
     ],
