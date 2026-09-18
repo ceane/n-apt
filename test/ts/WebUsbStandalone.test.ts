@@ -186,6 +186,24 @@ describe("standalone WebUSB SDR transport", () => {
     session.resume();
     expect(session.isPaused()).toBe(false);
     expect(device.controlTransferIn).toHaveBeenCalled();
+    expect(device.controlTransferOut.mock.calls.some(([setup, data]) =>
+      setup.index === 0x11 && setup.value === 0xb120 &&
+      data !== undefined && new Uint8Array(data)[0] === 0x1a,
+    )).toBe(true);
+    expect(device.controlTransferOut.mock.calls.some(([setup, data]) =>
+      setup.index === 0x10 && setup.value === 0x0820 &&
+      data !== undefined && new Uint8Array(data)[0] === 0x4d,
+    )).toBe(true);
+    device.controlTransferOut.mock.calls.forEach(([setup], index) => {
+      if (setup.index !== 0x10 && setup.index !== 0x11) return;
+      const writeOrder = device.controlTransferOut.mock.invocationCallOrder[index];
+      const flushIndex = device.controlTransferIn.mock.invocationCallOrder.indexOf(writeOrder + 1);
+      expect(flushIndex).toBeGreaterThanOrEqual(0);
+      expect(device.controlTransferIn.mock.calls[flushIndex]).toEqual([
+        { requestType: "vendor", recipient: "device", request: 0, value: 0x0120, index: 0x0a },
+        1,
+      ]);
+    });
     expect(
       device.controlTransferOut.mock.calls.some(
         ([setup, data]) =>
