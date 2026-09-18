@@ -631,49 +631,141 @@ let lastExpectedPauseState: boolean | null = null;
 // Visualizer pause is a subscriber concern. Keep it separate from the
 // backend's source pause bit so one browser window cannot pause another.
 const subscriberPausedBySource = new Map<string, boolean>();
-// Pause is an explicit user intent, so it must outlive a page/hot reload: a
-// fresh module scope would otherwise resume a stream the user had paused.
+// Pause is an explicit user intent, so it must outlive a Fast Refresh of this
+// module: a fresh module scope would otherwise resume a stream the user had
+// paused. It must NOT outlive the document, though. sessionStorage keeps the
+// record per tab, matching the client pause latch, so a second window never
+// inherits another window's pause.
 const SUBSCRIBER_PAUSE_STORAGE_KEY = "n-apt:subscriber-pause-intent";
 let subscriberPauseIntentRestored = false;
 
+/** Stamped into the record so intent cannot leak past the document that wrote it. */
+type PersistedPauseIntent = {
+  page: string | null;
+  paused: Record<string, boolean>;
+};
+
 const pauseIntentStorage = (): Storage | null => {
   try {
-    return typeof window === "undefined" ? null : window.localStorage;
+    return typeof window === "undefined" ? null : window.sessionStorage;
   } catch {
     return null;
   }
+};
+
+/**
+ * Identifies the current document. A Fast Refresh re-evaluates this module
+ * inside the same document, so `timeOrigin` is unchanged and the intent is
+ * re-asserted; a full reload (or a second tab) is a new document and must not
+ * inherit it.
+ */
+const currentPageGeneration = (): string | null => {
+  try {
+    const origin = globalThis.performance?.timeOrigin;
+    return typeof origin === "number" && Number.isFinite(origin)
+      ? String(origin)
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * A persisted pause belongs to the document that wrote it. Restoring it in a
+ * different document pauses a subscription whose client state starts playing:
+ * the backend publishes no frames, the display strands on the Loading
+ * placeholder, and the user has to toggle pause/resume twice before the stream
+ * returns.
+ */
+export const shouldRestorePersistedPauseIntent = ({
+  storedPage,
+  currentPage,
+}: {
+  storedPage?: string | null;
+  currentPage?: string | null;
+}): boolean => !!storedPage && !!currentPage && storedPage === currentPage;
+
+/**
+ * Parses a persisted record into the subscriber pause map to apply, or null
+ * when it is malformed or belongs to another document.
+ */
+export const resolvePersistedPauseIntent = ({
+  raw,
+  currentPage,
+}: {
+  raw: string | null;
+  currentPage: string | null;
+}): Record<string, boolean> | null => {
+  if (!raw) return null;
+  let parsed: Partial<PersistedPauseIntent> | null = null;
+  try {
+    parsed = JSON.parse(raw) as Partial<PersistedPauseIntent>;
+  } catch {
+    return null;
+  }
+  if (
+    !shouldRestorePersistedPauseIntent({
+      storedPage: parsed?.page ?? null,
+      currentPage,
+    })
+  ) {
+    return null;
+  }
+  const paused = parsed?.paused;
+  if (!paused || typeof paused !== "object") return null;
+  const restored: Record<string, boolean> = {};
+  for (const [sourceId, value] of Object.entries(paused)) {
+    if (typeof value === "boolean") {
+      restored[sourceId] = value;
+    }
+  }
+  return restored;
 };
 
 const persistSubscriberPauseIntent = (): void => {
   const storage = pauseIntentStorage();
   if (!storage) return;
   try {
-    storage.setItem(
-      SUBSCRIBER_PAUSE_STORAGE_KEY,
-      JSON.stringify(Object.fromEntries(subscriberPausedBySource)),
-    );
+    const record: PersistedPauseIntent = {
+      page: currentPageGeneration(),
+      paused: Object.fromEntries(subscriberPausedBySource),
+    };
+    storage.setItem(SUBSCRIBER_PAUSE_STORAGE_KEY, JSON.stringify(record));
   } catch {
     // Best effort: a blocked or full store must not disturb the stream.
   }
 };
 
-/** Re-assert the persisted intent once per page load, before any subscribe. */
+/** Re-assert the persisted intent once per document, before any subscribe. */
 const restoreSubscriberPauseIntent = (): void => {
   if (subscriberPauseIntentRestored) return;
   subscriberPauseIntentRestored = true;
   const storage = pauseIntentStorage();
   if (!storage) return;
+  let raw: string | null = null;
   try {
-    const raw = storage.getItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const [sourceId, paused] of Object.entries(parsed ?? {})) {
-      if (typeof paused === "boolean") {
-        subscriberPausedBySource.set(sourceId, paused);
+    raw = storage.getItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+  } catch {
+    return;
+  }
+  const restored = resolvePersistedPauseIntent({
+    raw,
+    currentPage: currentPageGeneration(),
+  });
+  if (!restored) {
+    // Malformed, or left behind by another document. This page starts playing,
+    // so drop the record instead of pausing a fresh stream.
+    if (raw) {
+      try {
+        storage.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+      } catch {
+        // A blocked store must not disturb the stream.
       }
     }
-  } catch {
-    // A malformed record is not worth failing over; the source simply resumes.
+    return;
+  }
+  for (const [sourceId, paused] of Object.entries(restored)) {
+    subscriberPausedBySource.set(sourceId, paused);
   }
 };
 const MAX_RETAINED_LIVE_FRAMES = 1;
