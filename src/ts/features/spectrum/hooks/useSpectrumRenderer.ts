@@ -39,6 +39,7 @@ const getMarkersOverlaySignature = ({
   isStandby = false,
   fftMin,
   fftMax,
+  overlayGeneration = 0,
 }: Pick<
   SpectrumRendererOptions,
   | "centerFrequencyHz"
@@ -64,6 +65,8 @@ const getMarkersOverlaySignature = ({
   width: number;
   height: number;
   dpr: number;
+  /** Identity of the renderer owning the target texture; see the class doc. */
+  overlayGeneration?: number;
 }) => {
   const markerSignature = limitMarkers
     .map((marker) => `${marker.freq}:${marker.kind ?? ""}:${marker.label}`)
@@ -127,6 +130,7 @@ const getMarkersOverlaySignature = ({
     isStandby ? "standby" : "active",
     finiteOrEmpty(fftMin),
     finiteOrEmpty(fftMax),
+    overlayGeneration,
   ].join("|");
 };
 
@@ -341,6 +345,9 @@ export function useSpectrumRenderer() {
             reservedBottomPx,
             overlayOpacity,
             mirrorEnabled ? "mirror" : "direct",
+            // A rebuilt grid renderer starts with no texture even when every
+            // draw input is unchanged, so its identity belongs in the cache key.
+            gridOverlayRenderer.generation,
           ].join("|");
           const gridOverlayInputsChanged =
             gridOverlaySignature !== lastGridOverlaySignatureRef.current;
@@ -391,6 +398,7 @@ export function useSpectrumRenderer() {
           isStandby,
           fftMin,
           fftMax,
+          overlayGeneration: markersOverlayRenderer?.generation ?? 0,
         });
         const markersOverlayInputsChanged =
           markersOverlaySignature !== lastMarkersOverlaySignatureRef.current;

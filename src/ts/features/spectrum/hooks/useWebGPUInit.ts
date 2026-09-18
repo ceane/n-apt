@@ -30,8 +30,16 @@ fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 `;
 
+/**
+ * Monotonic identity for overlay renderer instances. A rebuilt renderer starts
+ * with no texture, so any cache deciding whether the overlay must be redrawn
+ * has to treat a new instance as new content — see `useSpectrumRenderer`.
+ */
+let overlayRendererGeneration = 0;
+
 // Inlined OverlayTextureRenderer class as type
 export class OverlayTextureRenderer {
+  readonly generation: number;
   private device: GPUDevice;
   private pipeline: GPURenderPipeline;
   private sampler: GPUSampler;
@@ -44,6 +52,7 @@ export class OverlayTextureRenderer {
   private texHeight = 0;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
+    this.generation = ++overlayRendererGeneration;
     this.device = device;
 
     this.offscreen = new OffscreenCanvas(1, 1);
@@ -155,7 +164,11 @@ export class OverlayTextureRenderer {
   }
 
   renderInPass(pass: GPURenderPassEncoder): void {
-    if (!this.bindGroup) return;
+    // The bind group holds a view of `texture`. A destroyed renderer must never
+    // composite: drawing a dead texture view drops the overlay (grid, markers)
+    // while the spectrum trace, which uploads fresh resources every frame,
+    // keeps painting.
+    if (!this.texture || !this.bindGroup) return;
     pass.setPipeline(this.pipeline);
     pass.setBindGroup(0, this.bindGroup);
     pass.draw(4);
@@ -166,6 +179,7 @@ export class OverlayTextureRenderer {
       this.texture.destroy();
       this.texture = null;
     }
+    this.bindGroup = null;
   }
 }
 
@@ -326,17 +340,26 @@ export function useWebGPULifecycle({
     [resampleWgsl, resampleComputePipelineRef, resampleParamsBufferRef],
   );
 
+  const initializationAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    initializationAbortRef.current = controller;
+    return () => controller.abort();
+  }, []);
+
   const initializeWebGPU = useCallback(async () => {
-    if (webgpuReady) return;
+    const signal = initializationAbortRef.current?.signal;
+    if (webgpuReady || !signal || signal.aborted) return;
 
     try {
       const device = await getWebGPUDevice();
-      if (!device) return;
+      if (!device || signal.aborted) return;
 
       webgpuDeviceRef.current = device;
       setWebgpuReady(true);
 
       await initializeResamplePipeline(device);
+      if (signal.aborted) return;
 
       for (let i = 0; i < 2; i++) {
         const buffer = device.createBuffer({
@@ -351,6 +374,7 @@ export function useWebGPULifecycle({
         shaderCache.clearCache();
       }
     } catch (error) {
+      if (signal.aborted) return;
       console.error("WebGPU initialization failed:", error);
       setWebgpuReady(false);
     }
@@ -367,13 +391,30 @@ export function useWebGPULifecycle({
     if (!isWebGPUSupported()) return;
 
     let cancelled = false;
+    let attempt = 0;
     let retryTimerId: ReturnType<typeof setTimeout> | undefined;
+    let detachDeviceListener: (() => void) | undefined;
+
+    const scheduleRetry = (retryCount: number) => {
+      if (cancelled || retryTimerId !== undefined || retryCount >= maxWebgpuRetries) return;
+      const nextRetry = retryCount + 1;
+      webgpuRetryCountRef.current = nextRetry;
+      retryTimerId = setTimeout(() => {
+        retryTimerId = undefined;
+        if (!cancelled) void doInit(nextRetry);
+      }, 1000 * nextRetry);
+    };
+
     const doInit = async (retryCount = 0) => {
+      if (cancelled) return;
+      const currentAttempt = ++attempt;
+      detachDeviceListener?.();
+      detachDeviceListener = undefined;
+      const isCurrent = () => !cancelled && currentAttempt === attempt;
       try {
         const device = await getWebGPUDevice();
-        if (!device || cancelled) {
-          throw new Error("Failed to get WebGPU device");
-        }
+        if (!isCurrent()) return;
+        if (!device) throw new Error("Failed to get WebGPU device");
 
         webgpuDeviceRef.current = device;
         const format = getPreferredCanvasFormat();
@@ -383,65 +424,35 @@ export function useWebGPULifecycle({
 
         buildOverlayRenderers(device, format);
 
-        device.onuncapturederror = () => {
+        const handleDeviceFailure = () => {
+          if (!isCurrent()) return;
           webgpuContextLostRef.current = true;
           setWebgpuEnabled(false);
           setIsInitializingWebGPU(false);
-
-          if (webgpuRetryCountRef.current < maxWebgpuRetries) {
-            webgpuRetryCountRef.current++;
-            retryTimerId = setTimeout(() => {
-              if (!cancelled) {
-                doInit(webgpuRetryCountRef.current);
-              }
-            }, 1000 * webgpuRetryCountRef.current);
-          }
+          scheduleRetry(webgpuRetryCountRef.current);
         };
 
-        device.lost?.then(() => {
-          webgpuContextLostRef.current = true;
-          setWebgpuEnabled(false);
-          setIsInitializingWebGPU(false);
+        device.addEventListener("uncapturederror", handleDeviceFailure);
+        detachDeviceListener = () => device.removeEventListener("uncapturederror", handleDeviceFailure);
+        void device.lost?.then(handleDeviceFailure);
 
-          if (webgpuRetryCountRef.current < maxWebgpuRetries) {
-            webgpuRetryCountRef.current++;
-            retryTimerId = setTimeout(() => {
-              if (!cancelled) {
-                doInit(webgpuRetryCountRef.current);
-              }
-            }, 1000 * webgpuRetryCountRef.current);
-          }
-        });
-
-        if (!cancelled) {
-          setWebgpuEnabled(true);
-          setIsInitializingWebGPU(false);
-        }
+        setWebgpuEnabled(true);
+        setIsInitializingWebGPU(false);
       } catch {
+        if (!isCurrent()) return;
         webgpuContextLostRef.current = true;
-        if (!cancelled) {
-          setWebgpuEnabled(false);
-          setIsInitializingWebGPU(false);
-        }
-
-        if (retryCount < maxWebgpuRetries) {
-          retryTimerId = setTimeout(
-            () => {
-              if (!cancelled) {
-                doInit(retryCount + 1);
-              }
-            },
-            1000 * (retryCount + 1),
-          );
-        }
+        setWebgpuEnabled(false);
+        setIsInitializingWebGPU(false);
+        scheduleRetry(retryCount);
       }
     };
 
-    doInit();
+    void doInit();
 
     return () => {
       cancelled = true;
       clearTimeout(retryTimerId);
+      detachDeviceListener?.();
     };
   }, [buildOverlayRenderers]);
 

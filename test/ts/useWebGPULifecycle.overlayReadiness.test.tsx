@@ -24,6 +24,8 @@ jest.mock("@n-apt/app/infrastructure/visualization/webgpuDevicePool", () => {
       copyExternalImageToTexture: jest.fn(),
       submit: jest.fn(),
     },
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
     lost: new Promise(() => {}),
   };
 
