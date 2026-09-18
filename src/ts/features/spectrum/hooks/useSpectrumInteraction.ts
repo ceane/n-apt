@@ -2806,11 +2806,12 @@ export function useSpectrumInteraction({
         const rawDelta =
           Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
         // Synthetic/native events without deltaMode already use CSS-pixel
-        // deltas. Preserve that legacy path while normalizing explicit line or
-        // page units from real browser wheel events.
+        // deltas. Normalizing explicit line or page units still applies the
+        // per-event cap; the raw path is held to one viewport so a synthetic
+        // event cannot scroll the window without bound.
         const deltaPx =
           e.deltaMode === undefined
-            ? rawDelta
+            ? Math.max(-rect.width, Math.min(rect.width, rawDelta))
             : normalizeWheelPanDelta(rawDelta, e.deltaMode, rect.height);
 
         const canvas = getActiveSpectrumCanvas();

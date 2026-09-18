@@ -442,10 +442,18 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
+    // One wheel event is capped at a viewport, so pan past the mirrored
+    // extent with two ticks rather than a single outsized delta.
     triggerWheel({
       clientX: 500,
       clientY: 590,
-      deltaY: -2000,
+      deltaY: -1000,
+      ctrlKey: false,
+    } as any);
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: -1000,
       ctrlKey: false,
     } as any);
 
@@ -456,6 +464,33 @@ describe("useSpectrumInteraction Hook", () => {
     // Previously clamped near -10 Hz (mirrored extent of [0, 10]); unbounded
     // mirror pan must keep scrolling past that edge.
     expect(lastPan).toBeLessThan(-10);
+  });
+
+  it("caps a single synthetic wheel event at one viewport", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: -5000,
+      ctrlKey: false,
+    } as any);
+
+    const lastPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    // A synthetic event that omits deltaMode must not scroll without bound:
+    // the raw path is held to one viewport (10 Hz here) per event.
+    expect(Math.abs(lastPan)).toBeLessThanOrEqual(10);
   });
 
   it("retunes when mirror-on scroll crosses DC on an uncovered acquisition", () => {
