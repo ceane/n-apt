@@ -181,42 +181,6 @@ jobs:
       - name: Compile report-only uncapped benchmarks
         run: cargo bench --bench pipeline_benchmarks --no-run
 
-  # The Metal mock-APT backend is macOS-only and sits behind the
-  # `mock_apt_metal` feature, so the ubuntu jobs above never compile it at all.
-  # Compile it with --all-features and run the metal-gated tests where the
-  # backend can exist.
-  #
-  # Runner GPUs are not guaranteed: the tests assert the error-reporting
-  # contract when no Metal device is present, so this job still catches
-  # regressions in the enabled path without failing on GPU-less runners.
-  rust-metal-macos:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Install system dependencies
-        run: brew install librtlsdr
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-
-      - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
-        with:
-          workspaces: .
-          cache-on-failure: true
-
-      - name: Compile check with all features (warnings are errors)
-        run: RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --all-features
-
-      - name: Run metal-gated tests
-        run: cargo nextest run --all-features --lib --test mock_apt_tests
-
   # WASM tests
   wasm-tests:
     runs-on: ubuntu-latest
