@@ -91,6 +91,26 @@ describe("computeIqToDbSpectrumScalar", () => {
 });
 
 describe("useWasmSimdMath", () => {
+  it("preserves scalar pooling, upsampling, non-finite fallback and output reuse", async () => {
+    const { result } = renderHook(() => useWasmSimdMath({
+      fftSize: 64, enableSimd: false, fallbackToScalar: true,
+    }));
+    await waitFor(() => expect(result.current.isWasmLoaded).toBe(true));
+    const output = new Float32Array(3);
+    result.current.resampleSpectrum(new Float32Array([-100, -20, -80, -30, -70, -10, -90]), output);
+    expect(Array.from(output)).toEqual([-20, -30, -10]);
+    result.current.resampleSpectrum(new Float32Array([NaN, Infinity, Infinity, -40, -Infinity, NaN]), output);
+    expect(Array.from(output)).toEqual([NaN, -40, -Infinity]);
+    result.current.resampleSpectrum(new Float32Array([]), output);
+    expect(Array.from(output)).toEqual([-150, -150, -150]);
+    const upsampled = new Float32Array(5);
+    result.current.resampleSpectrum(new Float32Array([-20, -40]), upsampled);
+    expect(Array.from(upsampled)).toEqual([-20, -20, -20, -40, -40]);
+    const rounding = new Float32Array(22);
+    result.current.resampleSpectrum(Float32Array.from({ length: 30 }, (_, i) => i), rounding);
+    expect(rounding[10]).toBe(14);
+  });
+
   it("uses the WASM FFT for the requested frontend size, not only the hook default", () => {
     expect(
       shouldUseWasmIqPath({

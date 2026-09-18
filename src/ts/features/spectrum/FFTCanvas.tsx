@@ -101,6 +101,7 @@ import {
 } from "@n-apt/spectrum/utils/waterfallMotion";
 import {
   copyValidWaterfallRow,
+  repackWaterfallBytes,
   resolveWaterfallDisplayRow,
 } from "@n-apt/spectrum/utils/waterfallRows";
 import {
@@ -115,6 +116,7 @@ import {
 } from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
 import { formatFrequency, roundDbValue } from "@n-apt/math/frequency";
 import { findBestFrequencyRange } from "@n-apt/consts";
+import { resizeCanvasBackingStore } from "@n-apt/layout/rendering/canvasSize";
 import { Vfo } from "@n-apt/layout/vfo/Vfo";
 import { getFrontendFftSize } from "@n-apt/spectrum/utils/frontendFftSize";
 import { computeHackrfApproxDbmOffsetDb } from "@n-apt/spectrum/utils/hackrfCalibration";
@@ -1637,7 +1639,9 @@ const FFTCanvas = memo(
     const explicitPlaceholderStateRef = useRef<CanvasPlaceholderState | null>(
       explicitPlaceholderState,
     );
-    explicitPlaceholderStateRef.current = explicitPlaceholderState;
+    useLayoutEffect(() => {
+      explicitPlaceholderStateRef.current = explicitPlaceholderState;
+    }, [explicitPlaceholderState]);
     const pendingTxSliderDispatchRef = useRef<{
       centerHz?: number;
       sampleRateHz?: number;
@@ -1793,7 +1797,9 @@ const FFTCanvas = memo(
     const powerLineDbRef = useRef<number | null>(null);
     const isPowerLineHeldRef = useRef(false);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
-    txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
+    useLayoutEffect(() => {
+      txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
+    }, [effectiveTxSlider]);
     const [txSliderVisualRevision, setTxSliderVisualRevision] = useState(0);
     const setPowerLineDb = useCallback((nextPowerLineDb: number | null) => {
       const wasActive = powerLineDbRef.current !== null;
@@ -1846,75 +1852,6 @@ const FFTCanvas = memo(
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       },
       [getCached2DContext],
-    );
-
-    const _drawTxSliderOnContext = useCallback(
-      (
-        ctx: CanvasRenderingContext2D,
-        width: number,
-        height: number,
-        visualRange: FrequencyRange,
-        slider: CanvasTxSliderState | null,
-      ) => {
-        if (
-          !slider?.visible ||
-          !Number.isFinite(slider.visibleMinHz) ||
-          !Number.isFinite(slider.visibleMaxHz) ||
-          slider.visibleMaxHz <= slider.visibleMinHz ||
-          !Number.isFinite(slider.txCenterHz) ||
-          !Number.isFinite(slider.txSampleRateHz)
-        ) {
-          return;
-        }
-
-        const plotLeft = Math.min(50, width);
-        const plotRight = Math.max(plotLeft, width - 40);
-        const left = 4;
-        const right = Math.max(left, width - 4);
-        const top = Math.max(0, height - TX_SLIDER_ROW_HEIGHT);
-        const bottom = Math.max(top + 1, height - 4);
-        const trackLeft = plotLeft;
-        const trackRight = Math.max(trackLeft + 80, plotRight);
-        const trackWidth = Math.max(1, trackRight - trackLeft);
-        const visibleSpan = visualRange.max - visualRange.min;
-        const bandwidth = Math.max(1, slider.txSampleRateHz);
-        const bandMin = slider.txCenterHz - bandwidth / 2;
-        const bandMax = slider.txCenterHz + bandwidth / 2;
-        const toX = (hz: number) =>
-          trackLeft + ((hz - visualRange.min) / visibleSpan) * trackWidth;
-        const rawBandLeft = toX(bandMin);
-        const rawBandRight = toX(bandMax);
-        const bandLeft = Math.max(trackLeft, Math.min(trackRight, rawBandLeft));
-        const bandRight = Math.max(
-          trackLeft,
-          Math.min(trackRight, rawBandRight),
-        );
-        const boundaryDashColor = slider.isTransmitting
-          ? "rgba(0, 212, 255, 0.98)"
-          : "rgba(148, 163, 184, 0.96)";
-        const plotBottom = Math.max(0, top - 40);
-        const plotTop = Math.min(20, height);
-
-        ctx.save();
-        ctx.clearRect(left - 2, top - 2, right - left + 4, bottom - top + 4);
-        if (bandRight > bandLeft) {
-          ctx.save();
-          ctx.strokeStyle = boundaryDashColor;
-          ctx.lineWidth = 1.75;
-          ctx.lineCap = "round";
-          ctx.setLineDash([4, 4]);
-          for (const x of [rawBandLeft, rawBandRight]) {
-            if (x < trackLeft - 0.5 || x > trackRight + 0.5) continue;
-            ctx.beginPath();
-            ctx.moveTo(x, plotTop);
-            ctx.lineTo(x, plotBottom);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-        ctx.restore();
-      },
-      [resolvedThemeMode],
     );
 
     const drawLoadingPlaceholder = useCallback(
@@ -1987,7 +1924,9 @@ const FFTCanvas = memo(
     >(null);
     const frequencyRangeRef = useRef<FrequencyRange>(frequencyRange);
     const centerFreqRef = useRef(centerFrequencyHz);
-    centerFreqRef.current = centerFrequencyHz;
+    useLayoutEffect(() => {
+      centerFreqRef.current = centerFrequencyHz;
+    }, [centerFrequencyHz]);
     const renderableFrequencyRange = useMemo(
       () =>
         resolveRenderableFrequencyRange({
@@ -2148,7 +2087,9 @@ const FFTCanvas = memo(
     }, [frequencyRange, currentVizZoom, vizPanOffset]);
 
     const clampedVizRangeRef = useRef<FrequencyRange>(currentVisualRange);
-    clampedVizRangeRef.current = currentVisualRange;
+    useLayoutEffect(() => {
+      clampedVizRangeRef.current = currentVisualRange;
+    }, [currentVisualRange]);
 
     const wfSmoothEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.wfSmoothEnabled,
@@ -2181,30 +2122,31 @@ const FFTCanvas = memo(
     const vizDbMinRef = useRef(vizDbMin);
     const vizPanOffsetRef = useRef(vizPanOffset);
     const onVizPanChangeRef = useRef(onVizPanChange);
-    onVizPanChangeRef.current = onVizPanChange;
+    useLayoutEffect(() => {
+      onVizPanChangeRef.current = onVizPanChange;
+    }, [onVizPanChange]);
 
     /** True while mirror-mode pan is held in the ref ahead of the Redux write. */
     const mirrorPanPendingPublishRef = useRef(false);
     const mirrorPanLastPublishedRef = useRef(vizPanOffset);
     const lastPaintedMirrorPanRef = useRef(vizPanOffset);
     const lastPaintedZoomRef = useRef(currentVizZoom);
-    const vizPanSchedulerRef = useRef<DeviceOptionScheduler<number> | null>(
-      null,
+    const vizPanScheduler = useMemo<DeviceOptionScheduler<number>>(
+      () =>
+        createVizPanScheduler((pan) => {
+          mirrorPanLastPublishedRef.current = pan;
+          // Publish the coalesced value to the parent exactly once. Calling the
+          // local interaction handler here would submit back into this same
+          // scheduler and recurse on the first wheel event. Keep the local ref
+          // authoritative until the published prop is acknowledged below;
+          // clearing pending here creates a render-sized stale-prop rewind.
+          onVizPanChangeRef.current?.(pan);
+        }),
+      // onVizPanChangeRef is stable (updated in layout effect above)
+      [],
     );
-    if (!vizPanSchedulerRef.current) {
-      vizPanSchedulerRef.current = createVizPanScheduler((pan) => {
-        mirrorPanLastPublishedRef.current = pan;
-        // Publish the coalesced value to the parent exactly once. Calling the
-        // local interaction handler here would submit back into this same
-        // scheduler and recurse on the first wheel event. Keep the local ref
-        // authoritative until the published prop is acknowledged below;
-        // clearing pending here creates a render-sized stale-prop rewind.
-        onVizPanChangeRef.current?.(pan);
-      });
-    }
-    const vizPanScheduler = vizPanSchedulerRef.current;
 
-    // Cancel timers on cleanup, but keep the ref-backed scheduler reusable
+    // Cancel timers on cleanup, but keep the memoized scheduler reusable
     // across React Strict Mode's mount probe and callback refreshes.
     useEffect(() => () => vizPanScheduler.cancel(), [vizPanScheduler]);
     const previousPowerScaleRef = useRef(effectivePowerScale);
@@ -2215,16 +2157,15 @@ const FFTCanvas = memo(
     const lastEmittedDbLimitsRef = useRef<{ min: number; max: number } | null>(
       null,
     );
-    vizZoomRef.current = currentVizZoom;
-    vizZoomFloorRef.current = vizZoomFloor;
-    vizDbMaxRef.current = vizDbMax;
-    vizDbMinRef.current = vizDbMin;
-    // Do not clobber a live mirror pan with a stale Redux value. Live frames
-    // re-render this component constantly; syncing every render undid the
-    // in-flight pan and made the paint loop fight the gesture.
-    if (!mirrorPanPendingPublishRef.current) {
-      vizPanOffsetRef.current = vizPanOffset;
-    }
+    useLayoutEffect(() => {
+      vizZoomRef.current = currentVizZoom;
+      vizZoomFloorRef.current = vizZoomFloor;
+      vizDbMaxRef.current = vizDbMax;
+      vizDbMinRef.current = vizDbMin;
+      if (!mirrorPanPendingPublishRef.current) {
+        vizPanOffsetRef.current = vizPanOffset;
+      }
+    }, [currentVizZoom, vizZoomFloor, vizDbMax, vizDbMin, vizPanOffset]);
 
     const isLoadingPlaceholder =
       !placeholderErrorReason &&
@@ -2513,6 +2454,31 @@ const FFTCanvas = memo(
           forceRenderRef.current?.();
         });
       }
+    }, [overlayDirtyRef]);
+
+    // The spectrum trace uploads its resources on every draw, but the grid and
+    // markers are composited from cached overlay textures whose source canvases
+    // a browser may reclaim while the tab is hidden. The overlay signature cache
+    // then sees no input change and never rewrites them, leaving the trace
+    // painted over a missing graph. Re-arm the overlays on the way back.
+    useEffect(() => {
+      if (typeof document === "undefined") return;
+      const repaintOverlays = () => {
+        if (document.visibilityState !== "visible") return;
+        if (overlayDirtyRef.current) {
+          overlayDirtyRef.current.grid = true;
+          overlayDirtyRef.current.markers = true;
+        }
+        forceRenderRef.current?.();
+      };
+      document.addEventListener("visibilitychange", repaintOverlays);
+      // Window occlusion can keep visibilityState "visible" when focus moves to
+      // another window, so cover that path too. One repaint per focus is cheap.
+      window.addEventListener("focus", repaintOverlays);
+      return () => {
+        document.removeEventListener("visibilitychange", repaintOverlays);
+        window.removeEventListener("focus", repaintOverlays);
+      };
     }, [overlayDirtyRef]);
 
     const spectrumWebgpuEnabled = webgpuEnabled;
@@ -4289,30 +4255,15 @@ const FFTCanvas = memo(
                 if (oldSnapshot && oldMeta) {
                   // Repack the circular buffer by display age so the visible history
                   // stays in the same order after a height change. Matches WebGPU logic.
-                  const prevH = oldMeta.height;
-                  const needH = waterfallDims.height;
-                  const prevRenderRow =
-                    prevH > 0 ? (oldMeta.writeRow - 1 + prevH) % prevH : 0;
-                  const nextRenderRow =
-                    needH > 0 ? (oldMeta.writeRow - 1 + needH) % needH : 0;
-
-                  for (let age = 0; age < needH; age++) {
-                    const srcAge = Math.max(
-                      0,
-                      Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
-                    );
-                    const srcY =
-                      prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
-                    const dstY = (nextRenderRow - age + needH) % needH;
-
-                    const srcOff = srcY * textureBytesPerRow;
-                    const dstOff = dstY * textureBytesPerRow;
-                    newSnapshot.set(
-                      oldSnapshot.subarray(srcOff, srcOff + textureBytesPerRow),
-                      dstOff,
-                    );
-                  }
-                  newWriteRow = Math.min(oldMeta.writeRow, needH - 1);
+                  repackWaterfallBytes(
+                    oldSnapshot,
+                    newSnapshot,
+                    textureBytesPerRow,
+                    oldMeta.height,
+                    waterfallDims.height,
+                    oldMeta.writeRow,
+                  );
+                  newWriteRow = Math.min(oldMeta.writeRow, waterfallDims.height - 1);
                 }
 
                 waterfallTextureSnapshotRef.current = newSnapshot;
@@ -4348,36 +4299,14 @@ const FFTCanvas = memo(
                   restoreBytes.length >= restoreW * restoreH * 4
                 ) {
                   // Height may differ; repack chronologically to match WebGPU logic.
-                  const prevH = restoreH;
-                  const needH = waterfallDims.height;
-                  const prevRenderRow =
-                    prevH > 0
-                      ? (restoreTexture.writeRow - 1 + prevH) % prevH
-                      : 0;
-                  const nextRenderRow =
-                    needH > 0
-                      ? (restoreTexture.writeRow - 1 + needH) % needH
-                      : 0;
-
-                  for (let age = 0; age < needH; age++) {
-                    const srcAge = Math.max(
-                      0,
-                      Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
-                    );
-                    const srcY =
-                      prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
-                    const dstY = (nextRenderRow - age + needH) % needH;
-
-                    const srcOff = srcY * textureBytesPerRow;
-                    const dstOff = dstY * textureBytesPerRow;
-                    snapshot.set(
-                      restoreBytes.subarray(
-                        srcOff,
-                        srcOff + textureBytesPerRow,
-                      ),
-                      dstOff,
-                    );
-                  }
+                  repackWaterfallBytes(
+                    restoreBytes,
+                    snapshot,
+                    textureBytesPerRow,
+                    restoreH,
+                    waterfallDims.height,
+                    restoreTexture.writeRow,
+                  );
                 }
                 meta.writeRow = Math.max(
                   0,
@@ -4624,7 +4553,9 @@ const FFTCanvas = memo(
       enabled: pauseSnapshotEnabled,
       pausedSnapshotRef,
     });
-    hydratePausedSnapshotRef.current = hydratePauseSnapshot;
+    useLayoutEffect(() => {
+      hydratePausedSnapshotRef.current = hydratePauseSnapshot;
+    }, [hydratePauseSnapshot]);
 
     const { recoverPausedWaveform } = usePausedSpectrumRecovery({
       enabled: pauseSnapshotEnabled,
@@ -4640,7 +4571,9 @@ const FFTCanvas = memo(
       fallbackBinCount: 1024,
       fallbackDb: FFT_MIN_DB,
     });
-    recoverPausedWaveformRef.current = recoverPausedWaveform;
+    useLayoutEffect(() => {
+      recoverPausedWaveformRef.current = recoverPausedWaveform;
+    }, [recoverPausedWaveform]);
 
     // Build a serializable snapshot of current visualizer state for session persistence.
     // Includes waveform data, waterfall texture, and dimensional metadata.
@@ -4972,9 +4905,7 @@ const FFTCanvas = memo(
           const canvas = spectrumOverlayCanvasRef.current;
           const targetW = spectrumRect.width * dpr;
           const targetH = spectrumRect.height * dpr;
-          if (canvas.width !== targetW || canvas.height !== targetH) {
-            canvas.width = targetW;
-            canvas.height = targetH;
+          if (resizeCanvasBackingStore(canvas, targetW, targetH)) {
             canvas.style.width = `${spectrumRect.width}px`;
             canvas.style.height = `${spectrumRect.height}px`;
             getCached2DContext(canvas)?.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -4984,9 +4915,7 @@ const FFTCanvas = memo(
         if (spectrumRect && spectrumWebgpuEnabled && gpuCanvas) {
           const targetW = Math.max(1, Math.round(spectrumRect.width * dpr));
           const targetH = Math.max(1, Math.round(spectrumRect.height * dpr));
-          if (gpuCanvas.width !== targetW || gpuCanvas.height !== targetH) {
-            gpuCanvas.width = targetW;
-            gpuCanvas.height = targetH;
+          if (resizeCanvasBackingStore(gpuCanvas, targetW, targetH)) {
             gpuCanvas.style.width = `${spectrumRect.width}px`;
             gpuCanvas.style.height = `${spectrumRect.height}px`;
           }
@@ -5001,9 +4930,7 @@ const FFTCanvas = memo(
           const canvas = waterfallOverlayCanvasRef.current;
           const targetW = waterfallRect.width * dpr;
           const targetH = waterfallRect.height * dpr;
-          if (canvas.width !== targetW || canvas.height !== targetH) {
-            canvas.width = targetW;
-            canvas.height = targetH;
+          if (resizeCanvasBackingStore(canvas, targetW, targetH)) {
             canvas.style.width = `${waterfallRect.width}px`;
             canvas.style.height = `${waterfallRect.height}px`;
             getCached2DContext(canvas)?.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -5014,9 +4941,7 @@ const FFTCanvas = memo(
           const canvas = waterfallGpuCanvasRef.current;
           const targetW = Math.max(1, Math.round(waterfallRect.width * dpr));
           const targetH = Math.max(1, Math.round(waterfallRect.height * dpr));
-          if (canvas.width !== targetW || canvas.height !== targetH) {
-            canvas.width = targetW;
-            canvas.height = targetH;
+          if (resizeCanvasBackingStore(canvas, targetW, targetH)) {
             canvas.style.width = `${waterfallRect.width}px`;
             canvas.style.height = `${waterfallRect.height}px`;
           }

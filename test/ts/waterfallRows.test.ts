@@ -1,9 +1,49 @@
 import {
   copyValidWaterfallRow,
+  forEachRepackedWaterfallRow,
+  repackWaterfallBytes,
   peakResampleWaterfallRow,
   resolveWaterfallDisplayRow,
   synthesizeWaterfallTransitionRow,
 } from "@n-apt/spectrum/utils/waterfallRows";
+
+describe("circular waterfall resize", () => {
+  it.each([
+    [4, 6, 0, [[3, 5], [3, 4], [2, 3], [1, 2], [1, 1], [0, 0]]],
+    [4, 6, 2, [[1, 1], [1, 0], [0, 5], [3, 4], [3, 3], [2, 2]]],
+    [6, 3, 5, [[4, 1], [2, 0], [0, 2]]],
+    [6, 3, 0, [[5, 2], [3, 1], [1, 0]]],
+    [4, 4, 2, [[1, 1], [0, 0], [3, 3], [2, 2]]],
+    [1, 3, 0, [[0, 2], [0, 1], [0, 0]]],
+    [3, 1, 2, [[1, 0]]],
+    [0, 2, 0, [[0, 1], [0, 0]]],
+    [4, 0, 2, []],
+  ])("maps %i rows to %i with write row %i in display-age order", (prevH, needH, writeRow, expected) => {
+    const copies: number[][] = [];
+    forEachRepackedWaterfallRow(prevH, needH, writeRow, (srcY, dstY) => {
+      copies.push([srcY, dstY]);
+    });
+    expect(copies).toEqual(expected);
+  });
+
+  it("copies raw row bytes into the supplied target without mutating the source", () => {
+    const source = new Uint8Array([10, 11, 20, 21, 30, 31, 40, 41]);
+    const target = new Uint8Array(12).fill(255);
+    const buffer = target.buffer;
+    repackWaterfallBytes(source, target, 2, 4, 6, 2);
+    expect(target.buffer).toBe(buffer);
+    expect(Array.from(target)).toEqual([20, 21, 20, 21, 30, 31, 40, 41, 40, 41, 10, 11]);
+    expect(Array.from(source)).toEqual([10, 11, 20, 21, 30, 31, 40, 41]);
+  });
+
+  it("retains set/subarray behavior for a short or empty source", () => {
+    const target = new Uint8Array(4).fill(99);
+    repackWaterfallBytes(new Uint8Array([7]), target, 2, 0, 2, 0);
+    expect(Array.from(target)).toEqual([7, 99, 7, 99]);
+    repackWaterfallBytes(new Uint8Array(), target, 2, 0, 2, 0);
+    expect(Array.from(target)).toEqual([7, 99, 7, 99]);
+  });
+});
 
 describe("waterfallRows", () => {
   it("peak resamples synchronously so every paint gets a complete row", () => {

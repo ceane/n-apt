@@ -3,6 +3,8 @@ import {
   Range,
 } from "@n-apt/layout/rendering/CoordinateMapper";
 import { findBestFrequencyRange } from "@n-apt/consts";
+import { drawHardwareSampleRateBlocks } from "@n-apt/layout/rendering/hardwareSampleRateGrid";
+import { maxPoolDecimateInto } from "@n-apt/layout/rendering/maxPool";
 import { formatFrequency, roundDbValue } from "@n-apt/math/frequency";
 import { escapeAttr, sanitizePath } from "@n-apt/ui/sanitization";
 import {
@@ -543,16 +545,7 @@ export class SnapshotRenderer {
     const len = waveform.length;
     if (len <= targetWidth * 2 || targetWidth <= 0) return waveform;
     const out = borrowScratch("decimate", targetWidth);
-    const factor = len / targetWidth;
-    for (let i = 0; i < targetWidth; i++) {
-      const start = Math.floor(i * factor);
-      const end = Math.min(len, Math.floor((i + 1) * factor));
-      let max = -Infinity;
-      for (let j = start; j < end; j++) {
-        if (waveform[j] > max) max = waveform[j];
-      }
-      out[i] = max === -Infinity ? -120 : max;
-    }
+    maxPoolDecimateInto(waveform, out, -120);
     return out;
   }
 
@@ -741,40 +734,20 @@ export class SnapshotRenderer {
     const fmtOff = (hz: number) =>
       formatFrequency(hz, { trimTrailingZeros: true });
 
-    let cur = anchorRange.min;
-    while (cur < anchorRange.max - 1) {
-      const bStart = cur;
-      const bEnd = Math.min(bStart + hwSpanHz, anchorRange.max);
-      const bWidth = bEnd - bStart;
-      const isFull = bWidth >= hwSpanHz - 1;
-
-      if (bEnd > freqRange.min && bStart < freqRange.max) {
-        if (
-          bStart > anchorRange.min + 0.001 &&
-          bStart >= freqRange.min &&
-          bStart <= freqRange.max
-        ) {
-          const lx = this.mapper.freqToX(bStart);
-          dc.beginPath();
-          dc.moveTo(lx, area.y);
-          dc.lineTo(lx, area.y + area.height);
-          dc.stroke();
-        }
-
-        const visibleStart = Math.max(bStart, freqRange.min);
-        const visibleEnd = Math.min(bEnd, freqRange.max);
-        const visibleCenter = (visibleStart + visibleEnd) / 2;
-
-        if (visibleCenter >= freqRange.min && visibleCenter <= freqRange.max) {
-          const cx = this.mapper.freqToX(visibleCenter);
-          const label = isFull ? "Hardware Sample Rate" : "Next Sample";
-          const subLabel = fmtOff(bWidth);
-          dc.fillText(label, cx, area.y + 7);
-          dc.fillText(subLabel, cx, area.y + 19);
-        }
-      }
-      cur = bEnd;
-    }
+    drawHardwareSampleRateBlocks(dc, {
+      anchorRange,
+      visibleRange: freqRange,
+      sampleSpan: hwSpanHz,
+      blockEpsilon: 1,
+      boundaryEpsilon: 0.001,
+      drawRightBoundary: false,
+      toX: (frequency) => this.mapper.freqToX(frequency),
+      top: area.y,
+      bottom: area.y + area.height,
+      labelY: area.y + 7,
+      subLabelY: area.y + 19,
+      formatWidth: fmtOff,
+    });
     dc.restore();
   }
 

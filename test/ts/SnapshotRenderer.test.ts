@@ -10,6 +10,28 @@ import { CoordinateMapper } from "@n-apt/layout/rendering/CoordinateMapper";
 import { SnapshotRenderer } from "@n-apt/layout/rendering/SnapshotRenderer";
 
 describe("SnapshotRenderer", () => {
+  it("retains the two-times threshold, physical-width ceil and scratch storage", () => {
+    const renderer = new SnapshotRenderer(
+      new CoordinateMapper({ x: 0, y: 0, width: 1.1, height: 120 }, { min: 0, max: 1 }, { min: -120, max: 0 }, 1.5),
+      { bg: "#000", grid: "#111", line: "#222", shadow: "#333", text: "#fff", hwLine: "#444", hwText: "#555", cfText: "#666" },
+    );
+    const traces: (number[] | Float32Array)[] = [];
+    const smooth = jest.spyOn(renderer as any, "drawTraceSmooth").mockImplementation((_ctx, data) => {
+      traces.push(data as Float32Array);
+    });
+    const ctx = { setLineJoin: jest.fn() } as any;
+    const atThreshold = new Float32Array([-80, -20, -60, -40]);
+    renderer.drawTrace(ctx, atThreshold);
+    expect(traces[0]).toBe(atThreshold);
+    renderer.drawTrace(ctx, [NaN, -Infinity, Infinity, -30, -20]);
+    expect(Array.from(traces[1])).toEqual([-120, Infinity]);
+    const scratch = (traces[1] as Float32Array).buffer;
+    renderer.drawTrace(ctx, [-100, -20, -60, -30, -40]);
+    expect(Array.from(traces[2])).toEqual([-20, -30]);
+    expect((traces[2] as Float32Array).buffer).toBe(scratch);
+    smooth.mockRestore();
+  });
+
   it("draws the DC marker as a dotted labeled seam when the view crosses zero", () => {
     const renderer = new SnapshotRenderer(
       new CoordinateMapper(
