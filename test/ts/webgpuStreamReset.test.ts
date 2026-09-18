@@ -13,6 +13,7 @@ import {
   shouldResetVisualPresentationForSelection,
   shouldPreserveWaterfallOnTxStandby,
   shouldClearWebGpuForPlaceholder,
+  shouldPreserveRetainedPausedPresentation,
 } from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
 
 describe("WebGPU stream reset", () => {
@@ -31,6 +32,40 @@ describe("WebGPU stream reset", () => {
     expect(shouldClearWebGpuForPlaceholder(null)).toBe(false);
     expect(shouldClearWebGpuForPlaceholder("error")).toBe(true);
     expect(shouldClearWebGpuForPlaceholder("disconnected")).toBe(true);
+  });
+
+  test("keeps a paused frozen frame across transient device churn on the same source", () => {
+    expect(
+      shouldPreserveRetainedPausedPresentation({
+        retainsFramePresentation: true,
+        sameSource: true,
+        hasRetainedWaveform: true,
+      }),
+    ).toBe(true);
+    // A source change is an ownership boundary: never carry the frozen frame.
+    expect(
+      shouldPreserveRetainedPausedPresentation({
+        retainsFramePresentation: true,
+        sameSource: false,
+        hasRetainedWaveform: true,
+      }),
+    ).toBe(false);
+    // Nothing to preserve without an actual waveform.
+    expect(
+      shouldPreserveRetainedPausedPresentation({
+        retainsFramePresentation: true,
+        sameSource: true,
+        hasRetainedWaveform: false,
+      }),
+    ).toBe(false);
+    // A live canvas follows the normal clear paths.
+    expect(
+      shouldPreserveRetainedPausedPresentation({
+        retainsFramePresentation: false,
+        sameSource: true,
+        hasRetainedWaveform: true,
+      }),
+    ).toBe(false);
   });
 
   test("commits a pending source reset only with the replacement frame", () => {

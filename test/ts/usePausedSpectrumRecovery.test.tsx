@@ -27,8 +27,6 @@ describe("usePausedSpectrumRecovery", () => {
         dbmOffset: 0,
         fftSize: 1024,
         fftWindow: "Rectangular",
-        fallbackBinCount: 1024,
-        fallbackDb: -120,
       }),
     );
 
@@ -60,12 +58,68 @@ describe("usePausedSpectrumRecovery", () => {
         dbmOffset: 0,
         fftSize: 1024,
         fftWindow: "Rectangular",
-        fallbackBinCount: 1024,
-        fallbackDb: -120,
       }),
     );
 
     expect(result.current.recoverPausedWaveform()).toBe(true);
     expect(processCalls).toBe(0);
+  });
+
+  it("never fabricates a flat floor line when nothing is recoverable", () => {
+    const renderWaveformRef = { current: null as Float32Array | null };
+    const spectrumOutputBufferRef = { current: null as Float32Array | null };
+    let processCalls = 0;
+    const { result } = renderHook(() =>
+      usePausedSpectrumRecovery({
+        enabled: true,
+        isPaused: true,
+        renderWaveformRef,
+        spectrumOutputBufferRef,
+        lastProcessedFrameRef: { current: null },
+        pausedSnapshotRef: { current: null },
+        processIqToDbmSpectrum: () => {
+          processCalls++;
+          return new Float32Array([1]);
+        },
+        dbmOffset: 0,
+        fftSize: 1024,
+        fftWindow: "Rectangular",
+      }),
+    );
+
+    let recovered = true;
+    act(() => {
+      recovered = result.current.recoverPausedWaveform();
+    });
+
+    expect(recovered).toBe(false);
+    expect(processCalls).toBe(0);
+    // The placeholder (not a synthetic all-floor spectrum) must take over.
+    expect(renderWaveformRef.current).toBeNull();
+    expect(spectrumOutputBufferRef.current).toBeNull();
+  });
+
+  it("reports failure when the recovered spectrum is empty", () => {
+    const renderWaveformRef = { current: null as Float32Array | null };
+    const { result } = renderHook(() =>
+      usePausedSpectrumRecovery({
+        enabled: true,
+        isPaused: true,
+        renderWaveformRef,
+        spectrumOutputBufferRef: { current: null },
+        lastProcessedFrameRef: { current: { iq_data: new Uint8Array([1, 2]) } },
+        pausedSnapshotRef: { current: null },
+        processIqToDbmSpectrum: () => new Float32Array(0),
+        dbmOffset: 0,
+        fftSize: 1024,
+        fftWindow: "Rectangular",
+      }),
+    );
+
+    act(() => {
+      expect(result.current.recoverPausedWaveform()).toBe(false);
+    });
+
+    expect(renderWaveformRef.current).toBeNull();
   });
 });

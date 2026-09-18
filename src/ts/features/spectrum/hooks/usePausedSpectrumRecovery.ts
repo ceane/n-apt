@@ -20,11 +20,17 @@ export interface PausedSpectrumRecoveryOptions {
   dbmOffset: number;
   fftSize: number;
   fftWindow: string | undefined;
-  fallbackBinCount: number;
-  fallbackDb: number;
 }
 
-/** Ensures paused rendering has a waveform without reading persistent storage. */
+/**
+ * Rebuilds a paused canvas waveform from real I/Q only.
+ *
+ * A synthesized all-floor waveform is indistinguishable from a genuinely dead
+ * input, so this never invents one: when neither the retained frame nor the
+ * pause snapshot supplies I/Q, it reports failure and leaves the waveform
+ * empty. The caller then falls back to the placeholder / a fresh
+ * `request_next_frame` instead of painting a fake flat spectrum.
+ */
 export function usePausedSpectrumRecovery({
   enabled,
   isPaused,
@@ -36,8 +42,6 @@ export function usePausedSpectrumRecovery({
   dbmOffset,
   fftSize,
   fftWindow,
-  fallbackBinCount,
-  fallbackDb,
 }: PausedSpectrumRecoveryOptions) {
   const recoverPausedWaveform = useCallback((): boolean => {
     if (!enabled || !isPaused) return false;
@@ -49,30 +53,23 @@ export function usePausedSpectrumRecovery({
       lastProcessedFrameRef.current?.iq_data ??
       pausedSnapshotRef.current?.iqData ??
       null;
-    if (iqData && iqData.length >= 2) {
-      const restored = processIqToDbmSpectrum(
-        iqData,
-        dbmOffset,
-        fftSize,
-        fftWindow,
-        spectrumOutputBufferRef.current ?? undefined,
-      );
-      if (restored.length > 0) {
-        spectrumOutputBufferRef.current = restored;
-        renderWaveformRef.current = new Float32Array(restored);
-        return true;
-      }
-    }
+    if (!iqData || iqData.length < 2) return false;
 
-    renderWaveformRef.current = new Float32Array(fallbackBinCount).fill(
-      fallbackDb,
+    const restored = processIqToDbmSpectrum(
+      iqData,
+      dbmOffset,
+      fftSize,
+      fftWindow,
+      spectrumOutputBufferRef.current ?? undefined,
     );
+    if (restored.length === 0) return false;
+
+    spectrumOutputBufferRef.current = restored;
+    renderWaveformRef.current = new Float32Array(restored);
     return true;
   }, [
     dbmOffset,
     enabled,
-    fallbackBinCount,
-    fallbackDb,
     fftSize,
     fftWindow,
     isPaused,

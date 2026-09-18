@@ -111,6 +111,7 @@ import {
   getInitialHandledWebGpuResetEpoch,
   resetWebGpuStreamTemporalHistory,
   shouldCommitSourcePresentationReset,
+  shouldPreserveRetainedPausedPresentation,
   shouldPreserveWaterfallOnTxStandby,
   shouldRestoreWebGpuStreamState,
 } from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
@@ -1620,6 +1621,11 @@ const FFTCanvas = memo(
       );
     }, [explicitIsStandby, explicitPlaceholderState]);
     const retainsFramePresentation = isPaused || isStandby;
+    // Latches across the pause/standby -> live edge so the frozen frame keeps
+    // painting until the first live frame replaces it (no timer, so there is no
+    // window for the placeholder to flash through). Cleared by a source change,
+    // an epoch change, or the first new frame.
+    const resumeRetentionRef = useRef(false);
     const canTransmit = useMemo(() => {
       return (
         reduxDeviceKind === "hackrf_one" ||
@@ -2409,6 +2415,42 @@ const FFTCanvas = memo(
     const waveformFloatRef = useRef<Float32Array | null>(null);
     const renderWaveformRef = useRef<Float32Array | null>(null);
     const pausedSnapshotRef = useRef<PauseSnapshot | null>(null);
+    // Hold the frozen frame across the pause/standby -> live edge until a live
+    // frame paints. This is a latch, not a timer: it opens only when a frozen
+    // waveform actually exists and closes on a source/epoch change or the first
+    // new frame, so it cannot race the placeholder delay.
+    const previousRetainsFramePresentationRef = useRef(
+      retainsFramePresentation,
+    );
+    useLayoutEffect(() => {
+      const wasRetaining = previousRetainsFramePresentationRef.current;
+      previousRetainsFramePresentationRef.current = retainsFramePresentation;
+      if (wasRetaining && !retainsFramePresentation) {
+        resumeRetentionRef.current = !!(
+          renderWaveformRef.current && renderWaveformRef.current.length > 0
+        );
+        return;
+      }
+      if (retainsFramePresentation) {
+        resumeRetentionRef.current = false;
+      }
+    }, [retainsFramePresentation]);
+    // True when the canvas holds a frozen frame it must keep across transient
+    // device churn on the same source. Recomputed at call time so it always
+    // reflects the current refs.
+    const shouldPreserveRetainedPaused = useCallback(() => {
+      const presentedSourceId = lastPresentedSourceIdRef.current;
+      return shouldPreserveRetainedPausedPresentation({
+        retainsFramePresentation,
+        hasRetainedWaveform: !!(
+          renderWaveformRef.current && renderWaveformRef.current.length > 0
+        ),
+        sameSource:
+          presentedSourceId === null ||
+          expectedSourceId === null ||
+          presentedSourceId === expectedSourceId,
+      });
+    }, [expectedSourceId, retainsFramePresentation]);
     const fullChannelWaveformRef = useRef<Float32Array | null>(null);
     const fullChannelRangeRef = useRef<FrequencyRange | null>(null);
     const waterfallDimsRef = useRef<{ width: number; height: number } | null>(
@@ -2813,17 +2855,23 @@ const FFTCanvas = memo(
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
       if (!isDeviceConnected) {
-        lastProcessedDataRef.current = null;
-        lastProcessedFrameSignatureRef.current = null;
+        // A paused/standby canvas holds the only copy of its frozen frame: the
+        // backend publishes nothing while paused, so a transient disconnect
+        // must not discard the presentation that the repaint depends on.
+        const preserveRetainedPaused = shouldPreserveRetainedPaused();
         lastIncomingFrameRef.current = null;
-        renderWaveformRef.current = null;
-        waveformFloatRef.current = null;
-        fullChannelWaveformRef.current = null;
-        fullChannelRangeRef.current = null;
-        frameBufferRef.current = [];
+        if (!preserveRetainedPaused) {
+          lastProcessedDataRef.current = null;
+          lastProcessedFrameSignatureRef.current = null;
+          renderWaveformRef.current = null;
+          waveformFloatRef.current = null;
+          fullChannelWaveformRef.current = null;
+          fullChannelRangeRef.current = null;
+          frameBufferRef.current = [];
+        }
         forceRenderRef.current?.();
       }
-    }, [isDeviceConnected]);
+    }, [isDeviceConnected, shouldPreserveRetainedPaused]);
 
     useEffect(() => {
       overlayDirtyRef.current.markers = true;
@@ -2847,10 +2895,19 @@ const FFTCanvas = memo(
     );
     useEffect(() => {
       if (awaitingDeviceData || placeholderErrorReason) {
-        setHasRenderedSpectrumFrame(false);
-        notifyRenderableFrame(false);
+        // Never drop the retained paused presentation for transient device
+        // churn: the paused repaint is the only thing that can restore it.
+        if (!shouldPreserveRetainedPaused()) {
+          setHasRenderedSpectrumFrame(false);
+          notifyRenderableFrame(false);
+        }
       }
-    }, [awaitingDeviceData, notifyRenderableFrame, placeholderErrorReason]);
+    }, [
+      awaitingDeviceData,
+      notifyRenderableFrame,
+      placeholderErrorReason,
+      shouldPreserveRetainedPaused,
+    ]);
 
     useLayoutEffect(() => {
       // Loading / standby chrome must cover the last painted graph — never wipe
@@ -2863,19 +2920,24 @@ const FFTCanvas = memo(
         return;
       }
 
-      setHasRenderedSpectrumFrame(false);
-      notifyRenderableFrame(false);
-      lastProcessedDataRef.current = null;
-      lastProcessedFrameSignatureRef.current = null;
-      hasPresentedSpectrumFrameRef.current = false;
-      lastPresentedSourceIdRef.current = null;
-      hasPresentedStandbySpectrumRef.current = false;
-      frameBufferRef.current = [];
-      renderWaveformRef.current = null;
-      waveformFloatRef.current = null;
-      fullChannelWaveformRef.current = null;
-      fullChannelRangeRef.current = null;
-      resetTemporalAveragingState();
+      // Error / disconnected chrome is transient device churn. A paused canvas
+      // must keep its frozen frame so the paused repaint can restore it once the
+      // device returns; only a real source boundary may clear the CPU copy.
+      if (!shouldPreserveRetainedPaused()) {
+        setHasRenderedSpectrumFrame(false);
+        notifyRenderableFrame(false);
+        lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
+        hasPresentedSpectrumFrameRef.current = false;
+        lastPresentedSourceIdRef.current = null;
+        hasPresentedStandbySpectrumRef.current = false;
+        frameBufferRef.current = [];
+        renderWaveformRef.current = null;
+        waveformFloatRef.current = null;
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
+        resetTemporalAveragingState();
+      }
       clearSpectrumBackbuffer();
     }, [
       clearSpectrumBackbuffer,
@@ -2884,6 +2946,7 @@ const FFTCanvas = memo(
       notifyRenderableFrame,
       placeholderErrorReason,
       resetTemporalAveragingState,
+      shouldPreserveRetainedPaused,
       webGpuStreamResetEpoch,
     ]);
 
@@ -3117,7 +3180,7 @@ const FFTCanvas = memo(
           recoverPausedWaveformRef.current();
         }
         const hasRetainedPausedPresentation = !!(
-          retainsFramePresentation &&
+          (retainsFramePresentation || resumeRetentionRef.current) &&
           renderWaveformRef.current &&
           renderWaveformRef.current.length > 0
         );
@@ -3354,6 +3417,11 @@ const FFTCanvas = memo(
           (!!currentFrame.iq_data ||
             !!(currentFrame as any).waveform ||
             !!(currentFrame as any).data);
+        // The resume latch has served its purpose once a real live frame is in
+        // hand: release it so the placeholder / loading contract resumes.
+        if (hasNewData) {
+          resumeRetentionRef.current = false;
+        }
         const shouldReprocessCurrentFrame = !!(
           !isExplicitStandbyPlaceholder &&
           currentFrame &&
@@ -3630,7 +3698,7 @@ const FFTCanvas = memo(
           });
 
         if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {
-          if (isPaused) {
+          if (isPaused || resumeRetentionRef.current) {
             // A retained paused frame must keep painting. Overlay chrome that
             // is invalidated after the last pass — the grid, axes and labels
             // live in an overlay texture that is only re-uploaded from a draw
@@ -3638,7 +3706,8 @@ const FFTCanvas = memo(
             // stranded with a stale presentation. Snapshot recovery only
             // supplies a waveform when the retained frame has none, and file
             // playback disables it, so a cached waveform is paintable on its
-            // own.
+            // own. The resume latch reuses this path so the frozen frame holds
+            // until the first live frame replaces it.
             const hasCachedWaveform =
               !!renderWaveformRef.current &&
               renderWaveformRef.current.length > 0;
@@ -4569,8 +4638,6 @@ const FFTCanvas = memo(
       dbmOffset: effectiveDbmOffsetDb,
       fftSize: frontendFftSize,
       fftWindow,
-      fallbackBinCount: 1024,
-      fallbackDb: FFT_MIN_DB,
     });
     useLayoutEffect(() => {
       recoverPausedWaveformRef.current = recoverPausedWaveform;
@@ -4760,11 +4827,40 @@ const FFTCanvas = memo(
         return;
       }
       lastWebGpuStreamResetEpochRef.current = webGpuStreamResetEpoch;
+      // An epoch advance is a stream boundary; the resume latch must not outlive
+      // it (a same-source paused frame is preserved separately below).
+      resumeRetentionRef.current = false;
+      // A same-source reconnect advances the epoch but is not an ownership
+      // boundary. A paused canvas holds the only copy of its frozen frame, so
+      // the epoch clear must not discard it — otherwise the paused repaint has
+      // nothing to restore and the canvas flatlines.
+      const preserveRetainedPaused = shouldPreserveRetainedPaused();
+      const retainedWaveform = preserveRetainedPaused
+        ? renderWaveformRef.current
+        : null;
+      const retainedWaveformFloat = preserveRetainedPaused
+        ? waveformFloatRef.current
+        : null;
+      const retainedProcessedFrame = preserveRetainedPaused
+        ? lastProcessedDataRef.current
+        : null;
+      const retainedProcessedSignature = preserveRetainedPaused
+        ? lastProcessedFrameSignatureRef.current
+        : null;
+
       visualizerMachine?.clear(visualizerSessionKey);
       clearLocalVisualizerSession();
+
+      if (preserveRetainedPaused) {
+        renderWaveformRef.current = retainedWaveform;
+        waveformFloatRef.current = retainedWaveformFloat;
+        lastProcessedDataRef.current = retainedProcessedFrame;
+        lastProcessedFrameSignatureRef.current = retainedProcessedSignature;
+      }
+
       lastIncomingFrameRef.current = null;
       // A paused canvas is still renderable: the paused recovery path repaints
-      // a waveform from the snapshot / floor fallback. Flipping this to false
+      // a waveform from the snapshot / retained frame. Flipping this to false
       // while paused strands the canvas under a loading placeholder (or blank)
       // because no live frame will arrive to flip it back until resume.
       if (!isPaused) {
@@ -4778,6 +4874,7 @@ const FFTCanvas = memo(
       clearLocalVisualizerSession,
       clearSpectrumBackbuffer,
       notifyRenderableFrame,
+      shouldPreserveRetainedPaused,
       visualizerMachine,
       visualizerSessionKey,
       webGpuStreamResetEpoch,
@@ -5097,6 +5194,9 @@ const FFTCanvas = memo(
     useEffect(() => {
       if (expectedSourceId !== lastExpectedSourceIdRef.current) {
         lastExpectedSourceIdRef.current = expectedSourceId;
+        // A source change is an ownership boundary: never carry a resume-held
+        // frame from the previous source into the new one.
+        resumeRetentionRef.current = false;
         lastProcessedDataRef.current = null;
         lastProcessedFrameSignatureRef.current = null;
         lastRenderableFrameRef.current = null;
