@@ -536,6 +536,50 @@ export const shouldRequestMockTxStandbyPreview = ({
   phase !== "failed";
 
 /**
+ * A paused, connected, subscriber-owned RX source whose frozen frame is gone
+ * must re-seat it with one `request_next_frame`. The backend publishes nothing
+ * while paused, so a presentation lost to a reconnect cannot come back on its
+ * own: without this the canvas has nothing to paint and would show a stale or
+ * synthetic spectrum. Mock Tx owns its own one-shot preview path and is
+ * excluded, as is a source whose transport has not finished warming.
+ */
+export const shouldRecoverPausedFrame = ({
+  sourceMode,
+  isPaused,
+  isConnected,
+  isTxMode,
+  isMockTxSource,
+  hasSalvageableFrame,
+  hasIqFormat,
+  transportPhase,
+  selectedSourceId,
+  activeSourceId,
+}: {
+  sourceMode: "live" | "file";
+  isPaused: boolean;
+  isConnected: boolean;
+  isTxMode: boolean;
+  isMockTxSource: boolean;
+  /** The presentation slot still holds a frozen or live frame to paint. */
+  hasSalvageableFrame: boolean;
+  /** The backend can synthesize a one-shot frame for this source. */
+  hasIqFormat: boolean;
+  transportPhase: SourceTransportPhase;
+  selectedSourceId: string | null | undefined;
+  activeSourceId: string | null | undefined;
+}): boolean =>
+  sourceMode === "live" &&
+  isPaused &&
+  isConnected &&
+  !isTxMode &&
+  !isMockTxSource &&
+  !hasSalvageableFrame &&
+  hasIqFormat &&
+  !!selectedSourceId &&
+  transportPhase !== "warming" &&
+  (!activeSourceId || selectedSourceId === activeSourceId);
+
+/**
  * Confirms that the frame pump has accepted data for the selected lifecycle.
  * V2 requires the current epoch; v1 remains valid once source ownership is
  * aligned because it has no epoch field.

@@ -15,6 +15,7 @@ import {
   selectSourceTransportForMode,
   shouldInvalidateLiveFrameStateForTransport,
   shouldPreserveRenderableFrameDuringTransportGap,
+  shouldRecoverPausedFrame,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import type { SourceTransportLifecycle } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
@@ -1120,5 +1121,65 @@ describe("resolveLiveSourceLifecycle", () => {
       phase: "failed",
       placeholder: { kind: "error", reason: "Mock Tx failed to start" },
     });
+  });
+});
+
+describe("shouldRecoverPausedFrame", () => {
+  const base = {
+    sourceMode: "live" as const,
+    isPaused: true,
+    isConnected: true,
+    isTxMode: false,
+    isMockTxSource: false,
+    hasSalvageableFrame: false,
+    hasIqFormat: true,
+    transportPhase: "ready" as const,
+    selectedSourceId: "mock-apt",
+    activeSourceId: "mock-apt",
+  };
+
+  test("re-seats a paused RX source whose frozen frame was lost", () => {
+    expect(shouldRecoverPausedFrame(base)).toBe(true);
+  });
+
+  test("does not request while the frozen frame is still paintable", () => {
+    expect(
+      shouldRecoverPausedFrame({ ...base, hasSalvageableFrame: true }),
+    ).toBe(false);
+  });
+
+  test("does not request when playing, disconnected, or warming", () => {
+    expect(shouldRecoverPausedFrame({ ...base, isPaused: false })).toBe(false);
+    expect(shouldRecoverPausedFrame({ ...base, isConnected: false })).toBe(
+      false,
+    );
+    expect(
+      shouldRecoverPausedFrame({ ...base, transportPhase: "warming" }),
+    ).toBe(false);
+  });
+
+  test("leaves Tx views and Mock Tx to their own one-shot preview paths", () => {
+    expect(shouldRecoverPausedFrame({ ...base, isTxMode: true })).toBe(false);
+    expect(shouldRecoverPausedFrame({ ...base, isMockTxSource: true })).toBe(
+      false,
+    );
+  });
+
+  test("requires an owned, requestable source", () => {
+    expect(
+      shouldRecoverPausedFrame({ ...base, activeSourceId: "rtl-sdr-1" }),
+    ).toBe(false);
+    expect(shouldRecoverPausedFrame({ ...base, hasIqFormat: false })).toBe(
+      false,
+    );
+    expect(shouldRecoverPausedFrame({ ...base, selectedSourceId: null })).toBe(
+      false,
+    );
+  });
+
+  test("never requests from file playback", () => {
+    expect(shouldRecoverPausedFrame({ ...base, sourceMode: "file" })).toBe(
+      false,
+    );
   });
 });

@@ -133,6 +133,12 @@ export const resolveExplicitCenterFrequencyRange = (
   );
 };
 
+// A paused source that lost its frozen frame is re-seated with a bounded number
+// of one-shot `request_next_frame` attempts. The cap keeps a backend that cannot
+// serve the frame from turning recovery into a request loop.
+const PAUSED_FRAME_RECOVERY_MAX_ATTEMPTS = 3;
+const PAUSED_FRAME_RECOVERY_RETRY_MS = 700;
+
 /** Keep a paused source's cached acquisition axis with its cached frame. */
 export const resolvePausedFrameFrequencyRange = ({
   isPaused,
@@ -297,6 +303,7 @@ import {
   selectSourceTransportForMode,
   shouldInvalidateLiveFrameStateForTransport,
   shouldPreserveRenderableFrameDuringTransportGap,
+  shouldRecoverPausedFrame,
   useLiveSourceLifecycle,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
@@ -2666,6 +2673,66 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txPowerDbm,
     txSampleRateHz,
     txSignal,
+  ]);
+
+  // A paused live RX source whose frozen frame is gone (a reconnect resets the
+  // presentation controller and drops the stream, and the backend publishes
+  // nothing while paused) must re-seat it with a real one-shot frame. Without
+  // this the canvas has nothing to paint and would show a stale or synthetic
+  // spectrum. The request is bounded so a source that cannot serve a frame
+  // cannot drive a request loop.
+  const pausedRxSlot = selectedSourceId
+    ? presentationController.getSlot(selectedSourceId, "rx")
+    : null;
+  const hasSalvageablePausedFrame = !!(
+    pausedRxSlot &&
+    (pausedRxSlot.frozenFrame !== null || pausedRxSlot.liveFrameRef.current)
+  );
+  const shouldRecoverLostPausedFrame = shouldRecoverPausedFrame({
+    sourceMode: state.sourceMode,
+    isPaused: manualVisualizerPaused,
+    isConnected,
+    isTxMode: isSelectedSourceTxMode,
+    isMockTxSource: isMockTxMonitorActive,
+    hasSalvageableFrame: hasSalvageablePausedFrame,
+    hasIqFormat: selectedSource?.iq_format != null,
+    transportPhase: sourceTransport.phase,
+    selectedSourceId,
+    activeSourceId,
+  });
+  useEffect(() => {
+    if (!shouldRecoverLostPausedFrame) return;
+
+    let attempts = 0;
+    let timeoutId: number | null = null;
+
+    const scheduleNext = () => {
+      timeoutId = window.setTimeout(() => {
+        attempts += 1;
+        reduxDispatch(
+          requestNextPausedFrame({
+            sourceId: selectedSourceId ?? undefined,
+            frequencyRange: fftFrequencyRange,
+          }),
+        );
+        if (attempts < PAUSED_FRAME_RECOVERY_MAX_ATTEMPTS) {
+          scheduleNext();
+        }
+      }, PAUSED_FRAME_RECOVERY_RETRY_MS);
+    };
+
+    scheduleNext();
+    return () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [
+    fftFrequencyRange.max,
+    fftFrequencyRange.min,
+    reduxDispatch,
+    selectedSourceId,
+    shouldRecoverLostPausedFrame,
+    state.fftSize,
+    webGpuStreamResetEpoch,
   ]);
 
   useEffect(() => {
