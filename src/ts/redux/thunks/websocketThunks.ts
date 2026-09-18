@@ -18,7 +18,7 @@ import {
   isHackrfDevice,
   isRtlSdrDevice,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
-import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
+import { buildSettingsWireData } from "@n-apt/redux/settingsWire";
 import { DEVICE_CONTROL_SCOPE } from "@n-apt/app/infrastructure/streams/streamContract";
 import { restartRequested } from "@n-apt/redux/slices/websocketSlice";
 import { CLIENT_ORIGIN_ID } from "@n-apt/redux/clientOrigin";
@@ -388,71 +388,7 @@ export const sendSettings = createAsyncThunk(
     const state = getState() as RootState;
 
     // Validate and sanitize settings
-    const sanitized: Record<string, unknown> = {};
-
-    const isValidPositiveInt = (value: unknown) =>
-      typeof value === "number" && Number.isFinite(value) && value > 0;
-    const isValidNonNegative = (value: unknown) =>
-      typeof value === "number" && Number.isFinite(value) && value >= 0;
-
-    if (isValidPositiveInt(settings.fftSize)) {
-      sanitized.fftSize = Math.floor(settings.fftSize!);
-    }
-
-    if (
-      typeof settings.fftWindow === "string" &&
-      settings.fftWindow.trim().length > 0
-    ) {
-      sanitized.fftWindow = settings.fftWindow;
-    }
-
-    if (isValidPositiveInt(settings.frameRate)) {
-      sanitized.frameRate = clampFrameRateToProtocolLimit(settings.frameRate!);
-    }
-    if (isValidPositiveInt(settings.maxFrameRate)) {
-      sanitized.maxFrameRate = clampFrameRateToProtocolLimit(
-        settings.maxFrameRate!,
-      );
-    }
-
-    if (isValidPositiveInt(settings.sampleRate)) {
-      sanitized.sampleRate = Math.floor(settings.sampleRate!);
-    }
-
-    if (isValidNonNegative(settings.gain)) {
-      sanitized.gain = settings.gain;
-    }
-    if (isValidNonNegative(settings.hackrfLnaGain)) {
-      sanitized.hackrfLnaGain = settings.hackrfLnaGain;
-    }
-    if (isValidNonNegative(settings.hackrfVgaGain)) {
-      sanitized.hackrfVgaGain = settings.hackrfVgaGain;
-    }
-    if (typeof settings.hackrfAmpEnabled === "boolean") {
-      sanitized.hackrfAmpEnabled = settings.hackrfAmpEnabled;
-    }
-    if (
-      typeof settings.tunerBandwidth === "number" &&
-      Number.isFinite(settings.tunerBandwidth) &&
-      settings.tunerBandwidth >= 0
-    ) {
-      sanitized.tunerBandwidth = Math.round(settings.tunerBandwidth);
-    }
-
-    if (typeof settings.ppm === "number" && Number.isFinite(settings.ppm)) {
-      sanitized.ppm = Math.round(settings.ppm);
-    }
-
-    if (typeof settings.tunerAGC === "boolean") {
-      sanitized.tunerAGC = settings.tunerAGC;
-    }
-
-    if (typeof settings.rtlAGC === "boolean") {
-      sanitized.rtlAGC = settings.rtlAGC;
-    }
-    if (typeof settings.mirrorSpectrumBelowZero === "boolean") {
-      sanitized.mirror_spectrum_below_zero = settings.mirrorSpectrumBelowZero;
-    }
+    const sanitized = buildSettingsWireData(settings);
 
     if (Object.keys(sanitized).length === 0) {
       console.warn(

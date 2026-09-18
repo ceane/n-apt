@@ -21,9 +21,13 @@ import noteCardsMiddleware from "@n-apt/redux/middleware/noteCardsMiddleware";
 import localStorageMiddleware, {
   loadPersistedSdrSettings,
   loadPersistedTheme,
+  loadPersistedSnapshotGrid,
   mergePersistedSdrSettings,
   loadPersistedSettings,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
+
+const persistedSnapshotGrid = loadPersistedSnapshotGrid();
+const waterfallDefaults = waterfallSlice(undefined, { type: "@@INIT" });
 
 const preloadedState = {
   spectrum: mergePersistedSdrSettings(
@@ -35,6 +39,10 @@ const preloadedState = {
     ...settingsSlice(undefined, { type: "@@INIT" }),
     ...loadPersistedSettings(),
   },
+  waterfall:
+    persistedSnapshotGrid === null
+      ? waterfallDefaults
+      : { ...waterfallDefaults, snapshotGridPreference: persistedSnapshotGrid },
 };
 
 export const store = configureStore({

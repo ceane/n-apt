@@ -5,7 +5,6 @@ import spectrumReducer, {
   type SpectrumState,
 } from "@n-apt/redux/slices/spectrumSlice";
 import {
-  FRONTEND_VISUALIZER_DEFAULTS,
   VISUALIZER_MAX_ZOOM_LIMITS,
 } from "@n-apt/consts/visualizerControls";
 import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
@@ -112,18 +111,18 @@ export const normalizePersistedTxViewerSettings = (parsed: any) => {
   }
 
   if (!Number.isFinite(parsed.txViewerFftSize) || parsed.txViewerFftSize <= 0) {
-    parsed.txViewerFftSize = 65_536;
+    parsed.txViewerFftSize = initialState.txViewerFftSize;
   }
 
   if (
     !Number.isFinite(parsed.txViewerFftFrameRate) ||
     parsed.txViewerFftFrameRate <= 0
   ) {
-    parsed.txViewerFftFrameRate = 60;
+    parsed.txViewerFftFrameRate = initialState.txViewerFftFrameRate;
   }
 
   if (typeof parsed.txViewerFftWindow !== "string") {
-    parsed.txViewerFftWindow = "Rectangular";
+    parsed.txViewerFftWindow = initialState.txViewerFftWindow;
   }
 
   if (
@@ -131,11 +130,11 @@ export const normalizePersistedTxViewerSettings = (parsed: any) => {
     parsed.txViewerTemporalResolution !== "reduced" &&
     parsed.txViewerTemporalResolution !== "lossless"
   ) {
-    parsed.txViewerTemporalResolution = "lossless";
+    parsed.txViewerTemporalResolution = initialState.txViewerTemporalResolution;
   }
 
   if (parsed.txViewerPowerScale !== "dB" && parsed.txViewerPowerScale !== "dBm") {
-    parsed.txViewerPowerScale = "dBm";
+    parsed.txViewerPowerScale = initialState.txViewerPowerScale;
   }
 
   return parsed;
@@ -355,24 +354,8 @@ export const loadPersistedSdrSettings = () => {
       delete parsed[key];
     }
 
-    if (!Number.isFinite(parsed.txSampleRateHz)) {
-      parsed.txSampleRateHz = 2_400_000;
-    }
-
-    if (!Number.isFinite(parsed.txCenterFrequencyHz)) {
-      parsed.txCenterFrequencyHz = 137_100_000;
-    }
-
-    if (!Number.isFinite(parsed.txPowerDbm)) {
-      parsed.txPowerDbm = -18;
-    }
-
-    if (!Number.isFinite(parsed.txVgaGain)) {
-      parsed.txVgaGain = 16;
-    }
-
     if (!Number.isFinite(parsed.maxVizZoom)) {
-      parsed.maxVizZoom = FRONTEND_VISUALIZER_DEFAULTS.maxZoom;
+      parsed.maxVizZoom = initialState.maxVizZoom;
     }
     parsed.maxVizZoom = Math.min(
       VISUALIZER_MAX_ZOOM_LIMITS.max,
@@ -386,21 +369,24 @@ export const loadPersistedSdrSettings = () => {
     // Repair numeric display/FFT fields. Non-finite or wrong-typed values are
     // dropped so they can never reach preloadedState (the slice defaults fill
     // the gap via mergePersistedSdrSettings).
-    const repairFiniteNumber = (key: string, fallback: number) => {
+    for (const key of [
+      "vizZoom",
+      "vizZoomFloor",
+      "fftMinDb",
+      "fftMaxDb",
+      "txIfftSize",
+      "txSampleRateHz",
+      "txCenterFrequencyHz",
+      "txPowerDbm",
+      "txVgaGain",
+      "txHopStartFrequencyHz",
+      "txHopEndFrequencyHz",
+      "txHopRateHz",
+    ] as const) {
       if (!Number.isFinite(parsed[key])) {
-        parsed[key] = fallback;
+        parsed[key] = initialState[key];
       }
-    };
-    repairFiniteNumber("vizZoom", initialState.vizZoom);
-    repairFiniteNumber("vizZoomFloor", initialState.vizZoomFloor);
-    repairFiniteNumber("fftMinDb", initialState.fftMinDb);
-    repairFiniteNumber("fftMaxDb", initialState.fftMaxDb);
-    // Tx fields not already covered by the pre-existing tx* guards above.
-    repairFiniteNumber("txIfftSize", initialState.txIfftSize);
-    repairFiniteNumber("txSampleRateHz", initialState.txSampleRateHz);
-    repairFiniteNumber("txCenterFrequencyHz", initialState.txCenterFrequencyHz);
-    repairFiniteNumber("txPowerDbm", initialState.txPowerDbm);
-    repairFiniteNumber("txVgaGain", initialState.txVgaGain);
+    }
 
     // Enum-valued string fields.
     if (
@@ -413,35 +399,23 @@ export const loadPersistedSdrSettings = () => {
 
     // Boolean fields. Strict literal checks: NaN/[]/"false" must not pass.
     if (parsed.txSafetyEnabled !== true && parsed.txSafetyEnabled !== false) {
-      parsed.txSafetyEnabled = false;
+      parsed.txSafetyEnabled = initialState.txSafetyEnabled;
     }
 
     if (typeof parsed.txSafetyLimit !== "string") {
-      parsed.txSafetyLimit = "room";
+      parsed.txSafetyLimit = initialState.txSafetyLimit;
     }
 
     if (typeof parsed.txHopType !== "string") {
-      parsed.txHopType = "range";
-    }
-
-    if (!Number.isFinite(parsed.txHopStartFrequencyHz)) {
-      parsed.txHopStartFrequencyHz = 10_000_000;
-    }
-
-    if (!Number.isFinite(parsed.txHopEndFrequencyHz)) {
-      parsed.txHopEndFrequencyHz = 20_000_000;
+      parsed.txHopType = initialState.txHopType;
     }
 
     if (!Array.isArray(parsed.txHopChannels)) {
-      parsed.txHopChannels = ["a"];
-    }
-
-    if (!Number.isFinite(parsed.txHopRateHz)) {
-      parsed.txHopRateHz = 10;
+      parsed.txHopChannels = [...initialState.txHopChannels];
     }
 
     if (parsed.txHopEnabled !== true && parsed.txHopEnabled !== false) {
-      parsed.txHopEnabled = false;
+      parsed.txHopEnabled = initialState.txHopEnabled;
     }
 
     return parsed;
@@ -514,3 +488,14 @@ export const loadPersistedSignalsDefaults = (): SignalsSdrDefaults | null => {
 
 const localStorageMiddleware = createLocalStorageMiddleware();
 export default localStorageMiddleware;
+
+export const loadPersistedSnapshotGrid = (): boolean | null => {
+  const stored = safeGetItem("napt-snapshot-grid");
+  if (stored === null) return null;
+  try {
+    const parsed = JSON.parse(stored);
+    return typeof parsed === "boolean" ? parsed : null;
+  } catch {
+    return null;
+  }
+};

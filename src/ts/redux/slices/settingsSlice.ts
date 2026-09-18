@@ -2,13 +2,7 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 export interface SettingsState {
   // App preferences
-  snapshotGridPreference: boolean;
   mirrorIqBasebandBelowZero: boolean;
-
-  // Diagnostic state
-  diagnosticStatus: string;
-  isDiagnosticRunning: boolean;
-  diagnosticTrigger: number;
 
   // Device info (cached from WebSocket)
   deviceName: string | null;
@@ -16,12 +10,7 @@ export interface SettingsState {
 }
 
 const initialState: SettingsState = {
-  snapshotGridPreference: true,
   mirrorIqBasebandBelowZero: false,
-
-  diagnosticStatus: "Ready",
-  isDiagnosticRunning: false,
-  diagnosticTrigger: 0,
 
   deviceName: null,
   deviceProfile: null,
@@ -31,24 +20,8 @@ const settingsSlice = createSlice({
   name: "settings",
   initialState,
   reducers: {
-    setSnapshotGrid: (state, action: PayloadAction<boolean>) => {
-      state.snapshotGridPreference = action.payload;
-    },
-
     setMirrorIqBasebandBelowZero: (state, action: PayloadAction<boolean>) => {
       state.mirrorIqBasebandBelowZero = action.payload;
-    },
-
-    setDiagnosticStatus: (state, action: PayloadAction<string>) => {
-      state.diagnosticStatus = action.payload;
-    },
-
-    setDiagnosticRunning: (state, action: PayloadAction<boolean>) => {
-      state.isDiagnosticRunning = action.payload;
-    },
-
-    triggerDiagnostic: (state) => {
-      state.diagnosticTrigger += 1;
     },
 
     setDeviceInfo: (
@@ -69,11 +42,7 @@ const settingsSlice = createSlice({
 });
 
 export const {
-  setSnapshotGrid,
   setMirrorIqBasebandBelowZero,
-  setDiagnosticStatus,
-  setDiagnosticRunning,
-  triggerDiagnostic,
   setDeviceInfo,
   resetSettings,
 } = settingsSlice.actions;
