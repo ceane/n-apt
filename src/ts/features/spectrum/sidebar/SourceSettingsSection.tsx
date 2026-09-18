@@ -8,17 +8,14 @@ import {
   Pipette,
   SlidersVertical,
   TriangleAlert,
-  type LucideIcon,
 } from "lucide-react";
-
-const Section = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  gap: inherit;
-  box-sizing: border-box;
-  width: 100%;
-`;
+import {
+  SectionGrid as Section,
+  CheckboxSwitch as ToggleSwitch,
+  CheckboxSwitchInput as ToggleSwitchInput,
+  CheckboxSwitchSlider as ToggleSwitchSlider,
+  IconLabel,
+} from "@n-apt/ui/SidebarPrimitives";
 
 const SectionTitle = styled.div`
   font-size: 11px;
@@ -64,62 +61,6 @@ const SettingInput = styled.input`
   }
 `;
 
-const ToggleSwitch = styled.label<{ $disabled?: boolean }>`
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  opacity: ${(props) => (props.$disabled ? 0.4 : 1)};
-`;
-
-const ToggleSwitchInput = styled.input`
-  opacity: 0;
-  width: 44px;
-  height: 24px;
-  position: absolute;
-  z-index: 2;
-  margin: 0;
-  padding: 0;
-  cursor: ${(props) => (props.disabled ? "not-allowed" : "pointer")};
-
-  &:checked + span {
-    background-color: ${(props) => props.theme.primary};
-  }
-
-  &:checked + span:before {
-    transform: translateX(20px);
-  }
-
-  &:disabled + span {
-    cursor: not-allowed;
-  }
-`;
-
-const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
-  position: absolute;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: ${(props) => props.theme.borderHover};
-  transition: 0.2s;
-  border-radius: 24px;
-
-  &:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: 0.2s;
-    border-radius: 50%;
-  }
-`;
-
 const NarrowSettingInput = styled(SettingInput)`
   width: 60px;
 `;
@@ -139,19 +80,6 @@ const UnitLabel = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
-`;
-
-const LabelWithIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-
-  svg {
-    width: 14px;
-    height: 14px;
-    color: ${(props) => props.theme.textSecondary};
-    opacity: 0.5;
-  }
 `;
 
 const GainWarningIcon = styled(TriangleAlert)`
@@ -201,16 +129,6 @@ const BasebandWarning: React.FC = () => (
     content={BASEBAND_WARNING_CONTENT}
     trigger={<BasebandWarningIcon />}
   />
-);
-
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
-  icon: IconComponent,
-  text,
-}) => (
-  <LabelWithIcon>
-    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
-    {text}
-  </LabelWithIcon>
 );
 
 export interface GainLimits {
@@ -537,7 +455,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
         <SectionText>Source Settings</SectionText>
       </SectionTitle>
       <Row
-        label={<IconLabel icon={Pipette} text="PPM" />}
+        label={<IconLabel $inheritLineHeight icon={Pipette} text="PPM" />}
         tooltipTitle="PPM Correction"
         tooltip="Frequency alignment. Parts per million correction for precise tuning to signal frequencies."
       >
@@ -552,7 +470,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
       </Row>
       {!isHackrfLive && (
         <Row
-          label={<IconLabel icon={ArrowBigUp} text="Gain" />}
+          label={<IconLabel $inheritLineHeight icon={ArrowBigUp} text="Gain" />}
           tooltipTitle="Gain Setting"
           tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
         >
@@ -592,7 +510,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           <Row
             label={
               <>
-                <IconLabel icon={ArrowBigUp} text="LNA gain" />
+                <IconLabel $inheritLineHeight icon={ArrowBigUp} text="LNA gain" />
                 {showLnaWarning && <GainWarning />}
               </>
             }
@@ -622,7 +540,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           <Row
             label={
               <>
-                <IconLabel icon={ArrowBigUp} text="VGA gain" />
+                <IconLabel $inheritLineHeight icon={ArrowBigUp} text="VGA gain" />
                 {showVgaWarning && <GainWarning />}
               </>
             }

@@ -27,7 +27,6 @@ import {
   PanelLeftDashed,
   Scan,
   Trash2,
-  type LucideIcon,
 } from "lucide-react";
 import {
   Row,
@@ -35,6 +34,13 @@ import {
   ChannelsSelector,
 } from "@n-apt/ui";
 import { RadioTabs } from "@n-apt/ui/RadioTabs";
+import {
+  CheckboxSwitch as ToggleSwitch,
+  CheckboxSwitchInput as ToggleSwitchInput,
+  CheckboxSwitchSlider as ToggleSwitchSlider,
+  SettingSelect,
+  IconLabel,
+} from "@n-apt/ui/SidebarPrimitives";
 import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
 
 const Section = styled.div`
@@ -138,124 +144,6 @@ const SettingValue = styled.span`
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-`;
-
-const LabelWithIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  line-height: 1.2;
-
-  svg {
-    width: 14px;
-    height: 14px;
-    color: ${(props) => props.theme.textSecondary};
-    opacity: 0.5;
-  }
-`;
-
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
-  icon: IconComponent,
-  text,
-}) => (
-  <LabelWithIcon>
-    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
-    {text}
-  </LabelWithIcon>
-);
-
-const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: ${(props) => props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
-  min-width: 80px;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-  box-sizing: border-box;
-  max-width: 100%;
-  min-width: 0;
-
-  &:hover {
-    border-color: ${(props) => props.theme.borderHover};
-  }
-
-  &:focus {
-    outline: none;
-    border-color: ${(props) => props.theme.primary};
-    background-color: ${(props) => props.theme.primary}0d;
-  }
-
-  option {
-    background-color: ${(props) => props.theme.surface};
-    color: ${(props) => props.theme.textPrimary};
-    font-family: ${(props) => props.theme.typography.mono};
-  }
-`;
-
-const ToggleSwitch = styled.label<{ $disabled?: boolean }>`
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  opacity: ${(props) => (props.$disabled ? 0.4 : 1)};
-`;
-
-const ToggleSwitchInput = styled.input`
-  opacity: 0;
-  width: 44px;
-  height: 24px;
-  position: absolute;
-  z-index: 2;
-  margin: 0;
-  padding: 0;
-  cursor: ${(props) => (props.disabled ? "not-allowed" : "pointer")};
-
-  &:checked + span {
-    background-color: ${(props) => props.theme.primary};
-  }
-
-  &:checked + span:before {
-    transform: translateX(20px);
-  }
-
-  &:disabled + span {
-    cursor: not-allowed;
-  }
-`;
-
-const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
-  position: absolute;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: ${(props) => props.theme.borderHover};
-  transition: 0.2s;
-  border-radius: 24px;
-
-  &:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: 0.2s;
-    border-radius: 50%;
-  }
 `;
 
 const DurationUnit = styled.span`

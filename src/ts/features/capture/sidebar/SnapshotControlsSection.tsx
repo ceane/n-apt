@@ -2,6 +2,14 @@ import React from "react";
 import styled, { keyframes } from "styled-components";
 import { Row, Collapsible } from "@n-apt/ui";
 import {
+  SectionGrid as Section,
+  CheckboxSwitch as ToggleSwitch,
+  CheckboxSwitchInput,
+  CheckboxSwitchSlider as ToggleSwitchSlider,
+  SettingSelect as SettingSelectBase,
+  IconLabel,
+} from "@n-apt/ui/SidebarPrimitives";
+import {
   BookA,
   Fullscreen,
   Grid2X2,
@@ -22,129 +30,22 @@ export type SnapshotAspectRatio =
   | "16:9"
   | "19.5:9";
 
-const Section = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  gap: inherit;
-  box-sizing: border-box;
-  width: 100%;
-`;
-
-const LabelWithIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  line-height: 1.2;
-
-  svg {
-    width: 14px;
-    height: 14px;
-    color: ${(props) => props.theme.textSecondary};
-    opacity: 0.5;
-  }
-`;
-
-const IconLabel: React.FC<{ icon: React.ComponentType<any>; text: string }> = ({
-  icon: IconComponent,
-  text,
-}) => (
-  <LabelWithIcon>
-    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
-    {text}
-  </LabelWithIcon>
-);
-
-const SettingSelect = styled.select<{ $disabled?: boolean }>`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
+const SettingSelect = styled(SettingSelectBase)<{ $disabled?: boolean }>`
   color: ${(props) =>
     props.$disabled ? props.theme.textMuted : props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
   min-width: 80px;
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-  box-sizing: border-box;
-  max-width: 100%;
   opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
 
   &:hover {
     border-color: ${(props) =>
       props.$disabled ? "transparent" : props.theme.borderHover};
   }
-
-  &:focus {
-    outline: none;
-    border-color: ${(props) => props.theme.primary};
-    background-color: ${(props) => props.theme.primary}0d;
-  }
-
-  option {
-    background-color: ${(props) => props.theme.surface};
-    color: ${(props) => props.theme.textPrimary};
-    font-family: ${(props) => props.theme.typography.mono};
-  }
 `;
 
-const ToggleSwitch = styled.label`
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  cursor: pointer;
-`;
-
-const ToggleSwitchInput = styled.input`
-  opacity: 0;
-  width: 44px;
-  height: 24px;
-  position: absolute;
-  z-index: 2;
-  margin: 0;
-  padding: 0;
-  cursor: pointer;
-
-  &:checked + span {
-    background-color: ${(props) => props.theme.primary};
-  }
-
-  &:checked + span:before {
-    transform: translateX(20px);
-  }
-`;
-
-const ToggleSwitchSlider = styled.span`
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: ${(props) => props.theme.borderHover};
-  transition: 0.2s;
-  border-radius: 24px;
-
-  &:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: 0.2s;
-    border-radius: 50%;
-  }
-`;
+const ToggleSwitchInput = styled(CheckboxSwitchInput).attrs({
+  $plainDisabled: true,
+})``;
 
 const PauseButton = styled.button<{ $paused: boolean }>`
   flex: 0 0 25%;

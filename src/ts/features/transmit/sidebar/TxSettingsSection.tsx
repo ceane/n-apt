@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { Row, ChannelsGrid, Tooltip } from "@n-apt/ui";
 import { FrequencyInput } from "@n-apt/ui/FrequencyInput";
 import { Toggle } from "@n-apt/ui/Toggle";
+import { SectionGrid as Section } from "@n-apt/ui/SidebarPrimitives";
 import { useAppSelector } from "@n-apt/redux/store";
 import {
   buildCenteredFrequencyRange,
@@ -44,15 +45,6 @@ export function getTxFrequencyRangeForBandwidth(
   }
   return buildCenteredFrequencyRange(centerFrequencyHz, bandwidthHz);
 }
-
-const Section = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  gap: inherit;
-  box-sizing: border-box;
-  width: 100%;
-`;
 
 const NumericInput = styled.input`
   background-color: transparent;
