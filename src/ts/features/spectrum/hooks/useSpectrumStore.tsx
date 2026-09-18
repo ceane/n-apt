@@ -1422,7 +1422,6 @@ export const shouldHydrateLiveSampleRate = ({
 };
 
 type SignalDisplaySettings = {
-  sampleRateHz: number | null;
   fftSize: number | null;
   frameRate: number | null;
 };
@@ -1435,7 +1434,6 @@ export const shouldSendSignalDisplaySettings = ({
   next: SignalDisplaySettings;
 }): boolean =>
   previous === null ||
-  previous.sampleRateHz !== next.sampleRateHz ||
   previous.fftSize !== next.fftSize ||
   previous.frameRate !== next.frameRate;
 
@@ -3397,7 +3395,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       if (!isConnected || reduxSpectrumState.detectedFrameRate == null || !activeSourceId)
         return;
       const nextSettings: SignalDisplaySettings = {
-        sampleRateHz: state.sampleRateHz ?? null,
         fftSize: state.fftSize ?? null,
         frameRate: Math.round(reduxSpectrumState.detectedFrameRate),
       };
@@ -3415,7 +3412,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           type: "signal_display_settings",
           data: {
             source_id: activeSourceId,
-            sample_rate: nextSettings.sampleRateHz,
             fft_size: state.fftSize,
             frame_rate: nextSettings.frameRate,
           },
@@ -3426,7 +3422,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       isConnected,
       reduxDispatch,
       reduxSpectrumState.detectedFrameRate,
-      state.sampleRateHz,
       state.fftSize,
       activeSourceId,
     ]);

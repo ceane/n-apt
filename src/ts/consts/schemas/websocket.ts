@@ -166,7 +166,6 @@ export type ChannelsMessage = {
   active_signal_area?: string | null;
   frequency_range?: { min: number; max: number } | null;
   display_range?: MirroredDisplayRange | null;
-  sample_rate?: number;
   /** Device-scoped display convention shared by all subscribers. */
   mirror_spectrum_below_zero?: boolean;
   /** Origin tag of the client that performed the last live tune. */
@@ -458,7 +457,6 @@ export interface SourceErrorMessage {
 export interface SignalDisplaySettingsMessage {
   type: "signal_display_settings";
   source_id: string;
-  sample_rate: number;
   fft_size: number;
   frame_rate: number;
   fft_window?: string | null;
@@ -539,7 +537,6 @@ export type WebSocketMessage =
       type: "select_source";
       scope?: "device";
       source_id: string;
-      sample_rate?: number;
     }
   | {
       type: "training_capture";

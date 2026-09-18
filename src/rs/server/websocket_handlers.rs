@@ -698,29 +698,9 @@ fn stream_source_capabilities(
   })
 }
 
-fn clamp_sample_rate_to_source(
-  requested: u32,
-  max_sample_rate: Option<u32>,
-) -> u32 {
-  requested.min(max_sample_rate.unwrap_or(u32::MAX).max(1))
-}
-
-fn active_source_max_sample_rate(shared: &SharedState) -> Option<u32> {
-  let source_id = active_source_id(shared);
-  let snapshot = build_source_info_snapshot(shared);
-  snapshot["sources"]
-    .as_array()?
-    .iter()
-    .find(|source| source["id"].as_str() == Some(source_id.as_str()))?
-    .get("sdr")?
-    .get("max_sample_rate")?
-    .as_u64()
-    .and_then(|rate| u32::try_from(rate).ok())
-}
-
 #[cfg(test)]
 mod sample_rate_tests {
-  use super::{clamp_sample_rate_to_source, normalize_mock_tx_monitor_sample_rate};
+  use super::normalize_mock_tx_monitor_sample_rate;
 
   #[test]
   fn mock_tx_monitor_rate_never_uses_waveform_rate_below_receive_floor() {
@@ -734,21 +714,6 @@ mod sample_rate_tests {
     );
   }
 
-  #[test]
-  fn clamps_requested_rate_to_active_source_limit() {
-    assert_eq!(
-      clamp_sample_rate_to_source(4_372_000, Some(3_200_000)),
-      3_200_000
-    );
-  }
-
-  #[test]
-  fn preserves_requested_rate_when_source_has_capacity() {
-    assert_eq!(
-      clamp_sample_rate_to_source(4_372_000, Some(20_000_000)),
-      4_372_000
-    );
-  }
 }
 
 pub fn stream_event_json(
@@ -2320,26 +2285,6 @@ pub fn handle_message(
           None
         }
       });
-      let sample_rate = message.sample_rate.and_then(|rate| {
-        let rounded_rate = rate.round() as u32;
-        if (1_000_000..=20_000_000).contains(&rounded_rate) {
-          let effective_rate = clamp_sample_rate_to_source(
-            rounded_rate,
-            active_source_max_sample_rate(shared),
-          );
-          if effective_rate != rounded_rate {
-            warn!(
-              "Clamping sample rate {} Hz to active source limit {} Hz",
-              rounded_rate, effective_rate
-            );
-          }
-          Some(effective_rate)
-        } else {
-          warn!("Ignoring invalid sample_rate from client: {}", rate);
-          None
-        }
-      });
-
       let gain = message.gain.and_then(|g| {
         if g.is_finite() && g >= 0.0 {
           Some(g)
@@ -2387,7 +2332,6 @@ pub fn handle_message(
         && hackrf_amp_enable.is_none()
         && message.tuner_bandwidth.is_none()
         && ppm.is_none()
-        && sample_rate.is_none()
         && message.tuner_agc.is_none()
         && message.rtl_agc.is_none()
         && mirror_spectrum_below_zero.is_none()
@@ -2415,7 +2359,6 @@ pub fn handle_message(
         && hackrf_amp_enable.is_none()
         && message.tuner_bandwidth.is_none()
         && ppm.is_none()
-        && sample_rate.is_none()
         && message.tuner_agc.is_none()
         && message.rtl_agc.is_none()
       {
@@ -2428,7 +2371,7 @@ pub fn handle_message(
         fft_window: message.fft_window,
         frame_rate,
         max_frame_rate,
-        sample_rate,
+        sample_rate: None,
         gain,
         hackrf_lna_gain,
         hackrf_vga_gain,
@@ -2450,7 +2393,7 @@ pub fn handle_message(
         device,
         serial_number,
         Some(current_settings.center_frequency as u64),
-        Some(sample_rate.unwrap_or(current_settings.sample_rate) as u64),
+        Some(current_settings.sample_rate as u64),
         gain,
         hackrf_lna_gain,
         hackrf_vga_gain,
@@ -2473,9 +2416,6 @@ pub fn handle_message(
       }
       if let Some(max) = max_frame_rate {
         sdr_settings.fft.max_frame_rate = max;
-      }
-      if let Some(sr) = sample_rate {
-        sdr_settings.sample_rate = sr;
       }
       if let Some(g) = gain {
         sdr_settings.gain.tuner_gain = g;
@@ -2510,15 +2450,13 @@ pub fn handle_message(
       );
       drop(sdr_settings);
       let source_id = active_source_id(shared);
-      if let (Some(fft_size), Some(frame_rate), Some(sample_rate)) = (
+      if let (Some(fft_size), Some(frame_rate)) = (
         settings_payload.fft_size,
         settings_payload.frame_rate,
-        settings_payload.sample_rate,
       ) {
         broadcast_signal_display_settings(
           shared,
           broadcast_tx,
-          sample_rate,
           fft_size,
           frame_rate,
         );
@@ -2526,7 +2464,6 @@ pub fn handle_message(
         let payload = serde_json::json!({
           "type": "signal_display_settings",
           "source_id": source_id,
-          "sample_rate": shared.sdr_settings.lock().unwrap().sample_rate,
           "fft_size": shared.sdr_settings.lock().unwrap().fft.default_size,
           "frame_rate": shared.sdr_settings.lock().unwrap().fft.default_frame_rate,
         });
@@ -2884,40 +2821,13 @@ pub fn handle_message(
           );
           return;
         }
-        let requested_sample_rate = message.sample_rate.and_then(|rate| {
-          let rounded_rate = rate.round() as u32;
-          if rate.is_finite()
-            && (1_000_000..=20_000_000).contains(&rounded_rate)
-          {
-            Some(rounded_rate)
-          } else {
-            warn!(
-              "Ignoring invalid source-switch sample_rate from client: {}",
-              rate
-            );
-            None
-          }
-        });
-        if let Some(sample_rate) = requested_sample_rate {
-          // The frontend's selected rate must be visible before the blocking
-          // swap command runs. The processor reads shared settings while it
-          // opens the target, so queue this command and publish the requested
-          // value before SetActiveSource.
-          let _ = cmd_tx.send(super::types::SdrCommand::ApplySettings(
-            super::types::SdrProcessorSettings {
-              sample_rate: Some(sample_rate),
-              ..Default::default()
-            },
-          ));
-          shared.sdr_settings.lock().unwrap().sample_rate = sample_rate;
-        }
         // Fence the old stream before queueing the blocking swap command.
         // This closes the refresh/device-switch window in which the frame
         // loop could otherwise publish a Mock APT frame to a Mock Tx client.
         shared.request_source_switch(&source_id);
         match cmd_tx.send(super::types::SdrCommand::SetActiveSource {
           source_id: source_id.clone(),
-          sample_rate: requested_sample_rate,
+          sample_rate: None,
         }) {
           Ok(()) => {
             info!("Queued source switch: {}", source_id);
@@ -3361,7 +3271,7 @@ mod tests {
     assert_eq!(snapshot["active_signal_area"], "B");
     assert_eq!(snapshot["frequency_range"]["min"], 24_100_000.0);
     assert_eq!(snapshot["frequency_range"]["max"], 30_370_000.0);
-    assert!(snapshot["sample_rate"].as_u64().is_some());
+    assert!(snapshot.get("sample_rate").is_none());
   }
 
   #[test]
@@ -3596,7 +3506,7 @@ mod tests {
 
   #[test]
   #[serial]
-  fn forwards_sample_rate_and_tuner_bandwidth_in_settings() {
+  fn ignores_sample_rate_in_legacy_settings_but_forwards_tuner_bandwidth() {
     let shared = test_shared_state();
     let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
 
@@ -3614,7 +3524,7 @@ mod tests {
     let cmd = cmd_rx.recv().expect("expected ApplySettings command");
     match cmd {
       SdrCommand::ApplySettings(settings) => {
-        assert_eq!(settings.sample_rate, Some(5_200_000));
+        assert_eq!(settings.sample_rate, None);
         assert_eq!(settings.tuner_bandwidth, Some(5_200_000));
       }
       other => panic!("unexpected command: {:?}", other),
@@ -3681,7 +3591,7 @@ mod tests {
 
   #[test]
   #[serial]
-  fn forwards_frontend_sample_rate_before_selecting_source() {
+  fn ignores_legacy_sample_rate_when_selecting_source() {
     let shared = test_shared_state();
     let (cmd_tx, cmd_rx, broadcast_tx) = test_channels();
     let message: WebSocketMessage = serde_json::from_str(
@@ -3695,22 +3605,13 @@ mod tests {
 
     handle_message(&cmd_tx, &shared, &broadcast_tx, message);
 
-    match cmd_rx.recv().expect("expected frontend rate command first") {
-      SdrCommand::ApplySettings(settings) => {
-        assert_eq!(settings.sample_rate, Some(18_250_000));
-      }
-      other => panic!(
-        "expected ApplySettings before source switch, got {:?}",
-        other
-      ),
-    }
     match cmd_rx.recv().expect("expected source switch command") {
       SdrCommand::SetActiveSource {
         source_id,
         sample_rate,
       } => {
         assert_eq!(source_id, "hackrf-1");
-        assert_eq!(sample_rate, Some(18_250_000));
+        assert_eq!(sample_rate, None);
       }
       other => panic!("unexpected command: {:?}", other),
     }

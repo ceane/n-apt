@@ -331,28 +331,9 @@ export const resolveManagedRxDeviceOptionUpdates = ({
 
 export const resolveManagedRxOptionsOverride = (
   settings: Record<string, unknown> | null | undefined,
-  state?: any,
 ): Partial<Omit<RxDeviceOptions, "mode">> => {
   if (!settings) return {};
   const overrides: Partial<Omit<RxDeviceOptions, "mode">> = {};
-  if (
-    typeof settings.sampleRate === "number" &&
-    Number.isFinite(settings.sampleRate) &&
-    settings.sampleRate > 0
-  ) {
-    overrides.sampleRateHz = settings.sampleRate;
-    const range = state?.spectrum?.frequencyRange;
-    if (
-      range &&
-      typeof range.min === "number" &&
-      typeof range.max === "number" &&
-      Number.isFinite(range.min) &&
-      Number.isFinite(range.max) &&
-      range.max > range.min
-    ) {
-      overrides.centerFrequencyHz = (range.min + range.max) / 2;
-    }
-  }
   if (
     typeof settings.fftSize === "number" &&
     Number.isFinite(settings.fftSize) &&
@@ -3077,7 +3058,6 @@ export const processWebSocketMessage = (
 
   if (parsedData?.type === "signal_display_settings") {
     const deviceSettings = {
-      sampleRateHz: parsedData.sample_rate,
       fftSize: parsedData.fft_size,
       fftFrameRate: parsedData.frame_rate,
       ...(typeof parsedData.gain === "number" ? { gain: parsedData.gain } : {}),
@@ -3517,12 +3497,6 @@ export const processWebSocketMessage = (
         );
       }
 
-      const incomingSampleRate =
-        typeof parsedData.sample_rate === "number" &&
-        Number.isFinite(parsedData.sample_rate) &&
-        parsedData.sample_rate > 0
-          ? parsedData.sample_rate
-          : null;
       const targetSourceIdForState =
         parsedData.source_id || getState().websocket.activeSourceId;
       const centerFrequency =
@@ -3532,7 +3506,7 @@ export const processWebSocketMessage = (
           : null;
       const nextSources =
         !isMockTxTarget &&
-        (incomingSampleRate !== null || centerFrequency !== null)
+        centerFrequency !== null
           ? currentSources.map((source) =>
               source.id === targetSourceIdForState
                 ? {
@@ -3541,9 +3515,6 @@ export const processWebSocketMessage = (
                       ...source.sdr,
                       settings: {
                         ...source.sdr.settings,
-                        ...(incomingSampleRate !== null
-                          ? { sample_rate: incomingSampleRate }
-                          : {}),
                         ...(centerFrequency !== null
                           ? {
                               center_frequency:
@@ -3565,12 +3536,6 @@ export const processWebSocketMessage = (
       dispatch(
         updateDeviceState({
           ...(isSelectedSource ? { channels } : {}),
-          ...(!isMockTxTarget &&
-          !isLocalEcho &&
-          isSelectedSource &&
-          incomingSampleRate !== null
-            ? { sampleRateHz: incomingSampleRate }
-            : {}),
           ...(!isLocalEcho && nextSources.length > 0
             ? { sources: nextSources }
             : {}),
@@ -3580,13 +3545,10 @@ export const processWebSocketMessage = (
         !isLocalEcho &&
         !isMockTxTarget &&
         isSelectedSource &&
-        (incomingSampleRate !== null || hasAuthoritativeSelection)
+        hasAuthoritativeSelection
       ) {
         dispatch(
           setSdrSettingsBundle({
-            ...(incomingSampleRate !== null
-              ? { sampleRateHz: incomingSampleRate }
-              : {}),
             ...(hasAuthoritativeSelection
               ? { frequencyRange: selectedRange }
               : {}),
@@ -4522,7 +4484,7 @@ const createWebSocketMiddleware =
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
           if (type === "settings") {
             const rxOptionsOverride =
-              resolveManagedRxOptionsOverride(normalizedData, getState());
+              resolveManagedRxOptionsOverride(normalizedData);
             if (Object.keys(rxOptionsOverride).length > 0) {
               syncManagedStreamSubscriptions(
                 dispatch,

@@ -562,25 +562,25 @@ describe("shouldSendSignalDisplaySettings", () => {
     expect(
       shouldSendSignalDisplaySettings({
         previous: null,
-        next: { sampleRateHz: 3_200_000, fftSize: 262_144, frameRate: 12 },
+        next: { fftSize: 262_144, frameRate: 12 },
       }),
     ).toBe(true);
   });
 
-  it("sends when Whole Channel changes the sample rate without changing frame rate", () => {
+  it("does not send a legacy display packet for a sample-rate-only change", () => {
     expect(
       shouldSendSignalDisplaySettings({
-        previous: { sampleRateHz: 3_200_000, fftSize: 262_144, frameRate: 12 },
-        next: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
+        previous: { fftSize: 262_144, frameRate: 12 },
+        next: { fftSize: 262_144, frameRate: 12 },
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not resend unchanged display settings", () => {
     expect(
       shouldSendSignalDisplaySettings({
-        previous: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
-        next: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
+        previous: { fftSize: 262_144, frameRate: 12 },
+        next: { fftSize: 262_144, frameRate: 12 },
       }),
     ).toBe(false);
   });

@@ -717,7 +717,7 @@ describe("managed stream option synchronization", () => {
     ).toBe(true);
   });
 
-  it("converts device-scoped settings into managed RX option overrides", () => {
+  it("keeps sample rate out of legacy settings overrides", () => {
     expect(
       resolveManagedRxOptionsOverride({
         sampleRate: 5_200_000,
@@ -728,7 +728,6 @@ describe("managed stream option synchronization", () => {
         vizZoom: 4,
       }),
     ).toEqual({
-      sampleRateHz: 5_200_000,
       fftSize: 2048,
       fftWindow: "Hann",
       frameRate: 12,
@@ -748,20 +747,12 @@ describe("managed stream option synchronization", () => {
     });
   });
 
-  it("keeps the managed center when the follow-up settings write carries a new rate", () => {
+  it("does not let a legacy settings write carry a sample rate", () => {
     expect(
       resolveManagedRxOptionsOverride(
         { sampleRate: 3_200_000 },
-        {
-          spectrum: {
-            frequencyRange: { min: 26_020_000, max: 29_220_000 },
-          },
-        },
       ),
-    ).toEqual({
-      sampleRateHz: 3_200_000,
-      centerFrequencyHz: 27_620_000,
-    });
+    ).toEqual({});
   });
 
   it("sends RX device settings through the managed stream transport", async () => {
@@ -863,8 +854,11 @@ describe("managed stream option synchronization", () => {
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"type":"stream_subscribe"'),
     );
-    expect(streamSocket.send).toHaveBeenCalledWith(
+    expect(streamSocket.send).not.toHaveBeenCalledWith(
       expect.stringContaining('"sampleRateHz":5200000'),
+    );
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"sampleRateHz":2400000'),
     );
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"fftSize":2048'),
@@ -1236,7 +1230,6 @@ describe("signal_display_settings device-scoped hydration", () => {
     processWebSocketMessage(dispatch, () => state, {
       type: "signal_display_settings",
       source_id: "mock-apt",
-      sample_rate: 5_200_000,
       fft_size: 4096,
       frame_rate: 12,
       fft_window: "Hann",
@@ -1254,7 +1247,6 @@ describe("signal_display_settings device-scoped hydration", () => {
       expect.objectContaining({
         type: "spectrum/setDeviceSdrSettingsBundle",
         payload: {
-          sampleRateHz: 5_200_000,
           fftSize: 4096,
           fftFrameRate: 12,
           gain: 24,
@@ -1306,7 +1298,6 @@ describe("signal_display_settings device-scoped hydration", () => {
     processWebSocketMessage(dispatch, () => state, {
       type: "signal_display_settings",
       source_id: "mock-apt",
-      sample_rate: 5_200_000,
       fft_size: 4096,
       frame_rate: 12,
       gain: 24,
@@ -1794,7 +1785,6 @@ describe("Redux WebSocket Migration", () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: "spectrum/setSdrSettingsBundle",
       payload: {
-        sampleRateHz: 6_270_000,
         frequencyRange: { min: 24_100_000, max: 30_370_000 },
       },
     });
@@ -1938,7 +1928,7 @@ describe("Redux WebSocket Migration", () => {
     );
   });
 
-  it("still applies the sample rate from a foreign subscriber's channels message", () => {
+  it("ignores the sample rate from a foreign subscriber's legacy channels message", () => {
     const dispatch = jest.fn();
     const state = {
       websocket: {
@@ -1970,13 +1960,13 @@ describe("Redux WebSocket Migration", () => {
       sample_rate: 6_270_000,
     });
 
-    expect(dispatch).toHaveBeenCalledWith(
+    expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "spectrum/setSdrSettingsBundle",
         payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),
       }),
     );
-    expect(dispatch).toHaveBeenCalledWith(
+    expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "websocket/updateDeviceState",
         payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),

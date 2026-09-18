@@ -12,7 +12,7 @@ const buildCommonSettingsWireData = (
     typeof value === "number" &&
     (policy === "reconnect" || Number.isFinite(value));
 
-  for (const key of ["fftSize", "sampleRate"] as const) {
+  for (const key of ["fftSize"] as const) {
     const value = settings[key];
     if (isNumber(value) && value > 0) {
       data[key] = policy === "update" ? Math.floor(value) : value;
@@ -73,7 +73,6 @@ export const buildReconnectSettingsMessage = (
     fftSize: spectrum.fftSize,
     fftWindow: spectrum.fftWindow,
     frameRate: spectrum.fftFrameRate,
-    sampleRate: spectrum.sampleRateHz,
     gain: spectrum.gain,
     ppm: spectrum.ppm,
     tunerAGC: spectrum.tunerAGC,
