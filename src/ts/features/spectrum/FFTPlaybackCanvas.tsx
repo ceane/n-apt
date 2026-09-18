@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useLayoutEffect,
   useRef,
   useMemo,
   forwardRef,
@@ -267,7 +268,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     const activeSignalArea = useAppSelector(selectActiveSignalArea);
     const [snapshotButtonsLoading, setSnapshotButtonsLoading] = useState(false);
     const isPausedRef = useRef(isPaused);
-    isPausedRef.current = isPaused;
+    useEffect(() => {
+      isPausedRef.current = isPaused;
+    }, [isPaused]);
     const animateFrameRef = useRef<
       ((timestamp: number, forceFrame?: boolean) => void) | null
     >(null);
@@ -329,11 +332,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
      */
     const fftCanvasDataRef = fileFrameRuntime.ref;
     const seededPlaybackKeyRef = useRef<string | null>(null);
-
-    // Seed the ref during the render that mounts FFTAndWaterfall. Writing the
-    // first frame only from an effect creates a race: the child can start its
-    // canvas loop while dataRef is still null and remain behind the loading
-    // placeholder until another playback tick arrives.
     const playbackSeedKey = useMemo(
       () =>
         `${selectedFiles
@@ -342,10 +340,16 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
           .join("|")}:${stitchTrigger ?? "none"}:${displayMode}:${activeChannel}`,
       [selectedFiles, stitchTrigger, displayMode, activeChannel],
     );
-    if (!hasStitchedData) {
-      fftCanvasDataRef.current = null;
-      seededPlaybackKeyRef.current = null;
-    } else if (seededPlaybackKeyRef.current !== playbackSeedKey) {
+
+    useLayoutEffect(() => {
+      if (!hasStitchedData) {
+        if (seededPlaybackKeyRef.current !== null) {
+          fftCanvasDataRef.current = null;
+          seededPlaybackKeyRef.current = null;
+        }
+        return;
+      }
+      if (seededPlaybackKeyRef.current === playbackSeedKey) return;
       const channelData =
         allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
       fftCanvasDataRef.current = buildPlaybackSeedFrame({
@@ -355,17 +359,20 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         fftSize,
       });
       seededPlaybackKeyRef.current = playbackSeedKey;
-    }
-
-    useEffect(() => {
-      if (!hasStitchedData) return;
-      const renderId = window.setTimeout(() => {
-        if (forwardedRef && "current" in forwardedRef) {
-          forwardedRef.current?.triggerSnapshotRender();
-        }
-      }, 0);
-      return () => window.clearTimeout(renderId);
-    }, [forwardedRef, hasStitchedData, playbackSeedKey]);
+      if (forwardedRef && "current" in forwardedRef) {
+        forwardedRef.current?.triggerSnapshotRender();
+      }
+    }, [
+      activeChannel,
+      allChannelsRef,
+      displayMode,
+      fftCanvasDataRef,
+      fftSize,
+      forwardedRef,
+      hasStitchedData,
+      playbackSeedKey,
+      precomputedFrames,
+    ]);
 
     // ── Memoized callbacks for hook stability ──
     const handleChannelMetadataChange = useCallback(
@@ -386,7 +393,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       fftCanvasDataRef,
       displayMode,
     });
-    animateFrameRef.current = animateFrame;
+    useLayoutEffect(() => {
+      animateFrameRef.current = animateFrame;
+    }, [animateFrame]);
 
     useEffect(() => {
       return () => {

@@ -1,6 +1,7 @@
 import React, {
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useMemo,
@@ -2162,21 +2163,23 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Capture the leaving source before SpectrumRoute effects jump Mock Tx
     // geometry onto the shared frequencyRange (would otherwise poison APT).
-    const leavingSourceViewSnapshot = resolveLeavingSourceViewSnapshot({
-      previousSelectedSourceId: previousSelectedSourceIdForViewRef.current,
-      nextSelectedSourceId: selectedSourceId,
-      previousSourceViewKey: selectedSourceViewKeyRef.current,
-      state,
-    });
-    if (leavingSourceViewSnapshot) {
-      saveStoredJson(
-        leavingSourceViewSnapshot.key,
-        leavingSourceViewSnapshot.view,
-      );
-    }
-    if (previousSelectedSourceIdForViewRef.current !== (selectedSourceId || null)) {
-      previousSelectedSourceIdForViewRef.current = selectedSourceId || null;
-    }
+    useLayoutEffect(() => {
+      const leavingSourceViewSnapshot = resolveLeavingSourceViewSnapshot({
+        previousSelectedSourceId: previousSelectedSourceIdForViewRef.current,
+        nextSelectedSourceId: selectedSourceId,
+        previousSourceViewKey: selectedSourceViewKeyRef.current,
+        state,
+      });
+      if (leavingSourceViewSnapshot) {
+        saveStoredJson(
+          leavingSourceViewSnapshot.key,
+          leavingSourceViewSnapshot.view,
+        );
+      }
+      if (previousSelectedSourceIdForViewRef.current !== (selectedSourceId || null)) {
+        previousSelectedSourceIdForViewRef.current = selectedSourceId || null;
+      }
+    }, [selectedSourceId, state]);
     const deferredFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const pauseReplaySentForSourceIdRef = useRef<string | null>(null);
@@ -2950,21 +2953,16 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
     });
 
-    const cachedSdrSettingsRef = useRef<SourceSdrSettings | null>(null);
-    const cachedSdrSettingsHydratedRef = useRef(false);
-    if (!cachedSdrSettingsHydratedRef.current) {
-      cachedSdrSettingsHydratedRef.current = true;
-      cachedSdrSettingsRef.current = (() => {
-        if (typeof window === "undefined") return null;
-        try {
-          const raw = sessionStorage.getItem("napt-sdr-settings");
-          if (!raw) return null;
-          return JSON.parse(raw) as SourceSdrSettings;
-        } catch {
-          return null;
-        }
-      })();
-    }
+    const [cachedSdrSettings, setCachedSdrSettings] = useState<SourceSdrSettings | null>(() => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = sessionStorage.getItem("napt-sdr-settings");
+        if (!raw) return null;
+        return JSON.parse(raw) as SourceSdrSettings;
+      } catch {
+        return null;
+      }
+    });
     const lastLiveSourceIdRef = useRef<string | null>(null);
 
     const syncSelectedSourcePauseState = useCallback(
@@ -3630,7 +3628,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     useEffect(() => {
       if (!isConnected) {
-        cachedSdrSettingsRef.current = null;
+        setCachedSdrSettings(null);
         try {
           sessionStorage.removeItem("napt-sdr-settings");
         } catch {
@@ -3639,9 +3637,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
       if (!sdrSettings) return;
-      cachedSdrSettingsRef.current = resolveCachedSdrSettings(
-        cachedSdrSettingsRef.current,
-        sdrSettings,
+      setCachedSdrSettings((current) =>
+        resolveCachedSdrSettings(current, sdrSettings),
       );
       try {
         sessionStorage.setItem(
@@ -3781,7 +3778,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const effectiveSdrSettings = resolveEffectiveSdrSettingsForConnection({
       isConnected,
       liveSettings: sdrSettings,
-      cachedSettings: cachedSdrSettingsRef.current,
+      cachedSettings: cachedSdrSettings,
     });
 
     const sampleRateHzEffective = resolveEffectiveLiveSampleRateHz({

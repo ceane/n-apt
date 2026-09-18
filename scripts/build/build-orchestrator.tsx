@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ''} --no-deprecation`.trim();
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import { render } from 'ink';
 import { Box, Static, Text, useAnimation, useApp, useInput } from 'ink';
 import { spawn, spawnSync } from 'child_process';
@@ -1727,11 +1727,13 @@ exit 1
   const startBackgroundProcessRef = useRef(startBackgroundProcess);
   const addLogRef = useRef(addLog);
   const writeRebuildStatusRef = useRef(writeRebuildStatus);
-  updateProcessStatusRef.current = updateProcessStatus;
-  executeForegroundCommandRef.current = executeForegroundCommand;
-  startBackgroundProcessRef.current = startBackgroundProcess;
-  addLogRef.current = addLog;
-  writeRebuildStatusRef.current = writeRebuildStatus;
+  useLayoutEffect(() => {
+    updateProcessStatusRef.current = updateProcessStatus;
+    executeForegroundCommandRef.current = executeForegroundCommand;
+    startBackgroundProcessRef.current = startBackgroundProcess;
+    addLogRef.current = addLog;
+    writeRebuildStatusRef.current = writeRebuildStatus;
+  }, [updateProcessStatus, executeForegroundCommand, startBackgroundProcess, addLog, writeRebuildStatus]);
 
   // Watcher for Rust source files (Hot Reloading).
   // Intentionally depends on vite/redis PIDs only — rustPid updates mid-handoff

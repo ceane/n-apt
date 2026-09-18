@@ -649,10 +649,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       (range) => sendLiveFrequencyRangeRef.current(range),
     );
   }
-  setLiveFrequencyRangeRef.current = (nextRange) => {
-    reduxDispatch(setFrequencyRange(nextRange));
-  };
-  sendLiveFrequencyRangeRef.current = sendFrequencyRange;
+  useLayoutEffect(() => {
+    setLiveFrequencyRangeRef.current = (nextRange) => {
+      reduxDispatch(setFrequencyRange(nextRange));
+    };
+    sendLiveFrequencyRangeRef.current = sendFrequencyRange;
+  }, [reduxDispatch, sendFrequencyRange]);
   useEffect(
     () => () => {
       liveFrequencyRangePublisherRef.current?.cancel();

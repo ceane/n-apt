@@ -2895,8 +2895,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const stickyWrapperRef = useRef<HTMLDivElement>(null);
   const [isSticky, setIsSticky] = useState(false);
   const [sourceListExpanded, setSourceListExpanded] = useState(false);
-  const sourceListExpandedRef = useRef(false);
-  sourceListExpandedRef.current = sourceListExpanded;
 
   useEffect(() => {
     if (!isSticky) {
@@ -2937,9 +2935,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       setIsSticky((current) =>
         current === nextIsSticky ? current : nextIsSticky,
       );
-      if (sourceListExpandedRef.current) {
-        setSourceListExpanded(false);
-      }
+      setSourceListExpanded(false);
     };
 
     updateStickyState();

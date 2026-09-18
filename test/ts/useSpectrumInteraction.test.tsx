@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, render, act } from "@testing-library/react";
 import { useSpectrumInteraction } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import React from "react";
 
@@ -1787,6 +1787,46 @@ describe("useSpectrumInteraction Hook", () => {
     expect(lastPan()).toBe(0);
     expect(lastRange().min).toBeGreaterThan(0);
     triggerPointerUp(500, 550);
+  });
+
+  it("keeps native listeners on committed callbacks while an update suspends", () => {
+    const committedPublish = jest.fn();
+    const pendingPublish = jest.fn();
+    const committedRepaint = jest.fn();
+    const pendingRepaint = jest.fn();
+    const suspended = new Promise<void>(() => {});
+    const bounds = { min: 0, max: 1000 };
+    const Probe = ({ pending, suspend }: { pending: boolean; suspend: boolean }) => {
+      useSpectrumInteraction({
+        ...defaultOptions,
+        hardwareSpectrumBounds: bounds,
+        onFrequencyRangeChange: pending ? pendingPublish : committedPublish,
+        onDragRepaint: pending ? pendingRepaint : committedRepaint,
+      });
+      if (suspend) throw suspended;
+      return null;
+    };
+    const view = render(<React.Suspense fallback={null}><Probe pending={false} suspend={false} /></React.Suspense>);
+    const bindings = spectrumContainerRef.current.addEventListener.mock.calls.length;
+    act(() => {
+      React.startTransition(() => {
+        view.rerender(<React.Suspense fallback={null}><Probe pending suspend /></React.Suspense>);
+      });
+    });
+    triggerWheel({ clientY: 590, deltaY: 100 });
+    expect(committedPublish).toHaveBeenCalledTimes(1);
+    expect(committedRepaint).toHaveBeenCalledTimes(1);
+    expect(pendingPublish).not.toHaveBeenCalled();
+    expect(pendingRepaint).not.toHaveBeenCalled();
+    expect(spectrumContainerRef.current.addEventListener.mock.calls).toHaveLength(bindings);
+    view.rerender(<React.Suspense fallback={null}><Probe pending suspend={false} /></React.Suspense>);
+    triggerWheel({ clientY: 590, deltaY: 100 });
+    flushHardwareRetune();
+    expect(pendingPublish).toHaveBeenCalledTimes(1);
+    expect(pendingRepaint).toHaveBeenCalledTimes(1);
+    const committedBindings = spectrumContainerRef.current.addEventListener.mock.calls.length;
+    view.rerender(<React.Suspense fallback={null}><Probe pending suspend={false} /></React.Suspense>);
+    expect(spectrumContainerRef.current.addEventListener.mock.calls).toHaveLength(committedBindings);
   });
 
   it("repaints the VFO overlay on hardware wheel ticks without waiting for a timer", () => {

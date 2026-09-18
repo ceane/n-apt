@@ -9,11 +9,16 @@ const fftAndWaterfallMock = jest.fn((_props: any) => (
 ));
 const observedInitialFrames: unknown[] = [];
 const triggerSnapshotRenderMock = jest.fn();
+let suspendVisualizer = false;
+const pendingVisualizer = new Promise(() => {});
 
 jest.mock("@n-apt/spectrum", () => ({
   FFTAndWaterfall: React.forwardRef((props: any, ref: React.Ref<any>) => {
     fftAndWaterfallMock(props);
-    observedInitialFrames.push(props.dataRef.current);
+    if (suspendVisualizer) throw pendingVisualizer;
+    React.useEffect(() => {
+      observedInitialFrames.push(props.dataRef.current);
+    }, []);
     React.useImperativeHandle(ref, () => ({
       getSpectrumCanvas: () => null,
       getWaterfallCanvas: () => null,
@@ -120,6 +125,30 @@ describe("FFTPlaybackCanvas file mode", () => {
 
   afterEach(() => {
     filePlaybackDataRef.current = null;
+  });
+
+  it("does not replace the shared playback frame when rendering is suspended before commit", () => {
+    const existingFrame = { waveform: new Float32Array([-12]) };
+    filePlaybackDataRef.current = existingFrame as any;
+    suspendVisualizer = true;
+    try {
+      render(
+        <React.Suspense fallback={<div>Loading</div>}>
+          <FFTPlaybackCanvas
+            selectedFiles={[{ id: "1", name: "capture.napt" }]}
+            stitchTrigger={0}
+            stitchSourceSettings={{ gain: 0, ppm: 0 }}
+            isPaused
+            fftSize={2048}
+            displayMode="fft"
+          />
+        </React.Suspense>,
+      );
+      expect(filePlaybackDataRef.current).toBe(existingFrame);
+      expect(triggerSnapshotRenderMock).not.toHaveBeenCalled();
+    } finally {
+      suspendVisualizer = false;
+    }
   });
 
   it("never marks stitched file playback as awaiting device data", async () => {

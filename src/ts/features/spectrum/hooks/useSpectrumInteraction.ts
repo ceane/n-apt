@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import {
   clampVizZoom,
@@ -195,7 +195,9 @@ export function useSpectrumInteraction({
   // Native listeners are registered once; pause toggles must not re-bind them,
   // so the current value is mirrored into a ref the handlers read.
   const isPausedRef = useRef(isPaused);
-  isPausedRef.current = isPaused;
+  useLayoutEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
   const txSliderHandleRef = useRef<"left" | "right" | "body" | null>(null);
   const txSliderBodyDragOffsetHzRef = useRef(0);
   const pendingTxGeometryRef = useRef<{
@@ -278,9 +280,11 @@ export function useSpectrumInteraction({
   // below additionally limits browser-side momentum fan-out to one range per
   // animation frame.
   const onFrequencyRangeChangeRef = useRef(onFrequencyRangeChange);
-  onFrequencyRangeChangeRef.current = onFrequencyRangeChange;
   const onDragRepaintRef = useRef(onDragRepaint);
-  onDragRepaintRef.current = onDragRepaint;
+  useLayoutEffect(() => {
+    onFrequencyRangeChangeRef.current = onFrequencyRangeChange;
+    onDragRepaintRef.current = onDragRepaint;
+  }, [onFrequencyRangeChange, onDragRepaint]);
   const wheelRangePublicationFrameRef = useRef<number | null>(null);
   const wheelRangePublicationPendingRef = useRef<FrequencyRange | null>(null);
   const wheelRangePublicationSentRef = useRef(false);
