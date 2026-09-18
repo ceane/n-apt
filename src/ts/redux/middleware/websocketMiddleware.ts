@@ -3639,13 +3639,7 @@ export const processWebSocketMessage = (
         isSelectedSource &&
         hasAuthoritativeSelection
       ) {
-        dispatch(
-          setSdrSettingsBundle({
-            ...(hasAuthoritativeSelection
-              ? { frequencyRange: selectedRange }
-              : {}),
-          }),
-        );
+        dispatch(setSdrSettingsBundle({ frequencyRange: selectedRange }));
       }
       if (parsedData.error) {
         dispatch(setOperationalError(`Error: ${parsedData.error}`));

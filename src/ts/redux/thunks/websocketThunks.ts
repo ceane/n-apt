@@ -3,7 +3,6 @@ import { RootState } from "@n-apt/redux/store";
 import {
   SDRSettings,
   CaptureRequest,
-  SourceInfo,
 } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
 import {
