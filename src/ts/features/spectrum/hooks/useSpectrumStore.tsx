@@ -1390,13 +1390,13 @@ export const resolveLiveSampleRateSourceSnapshot = <T,>({
 
 export const shouldHydrateLiveSampleRate = ({
   rate,
-  localSampleRateHz,
-  pendingLocalSampleRateHz,
+  globalSampleRateHz,
+  pendingGlobalSampleRateHz,
   hydratedBackendSampleRate,
 }: {
   rate?: number | null;
-  localSampleRateHz?: number | null;
-  pendingLocalSampleRateHz?: number | null;
+  globalSampleRateHz?: number | null;
+  pendingGlobalSampleRateHz?: number | null;
   hydratedBackendSampleRate: boolean;
 }): boolean => {
   if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
@@ -1404,21 +1404,21 @@ export const shouldHydrateLiveSampleRate = ({
   }
 
   if (
-    typeof pendingLocalSampleRateHz === "number" &&
-    Number.isFinite(pendingLocalSampleRateHz) &&
-    pendingLocalSampleRateHz > 0 &&
-    Math.round(rate) !== Math.round(pendingLocalSampleRateHz)
+    typeof pendingGlobalSampleRateHz === "number" &&
+    Number.isFinite(pendingGlobalSampleRateHz) &&
+    pendingGlobalSampleRateHz > 0 &&
+    Math.round(rate) !== Math.round(pendingGlobalSampleRateHz)
   ) {
-    // The local selector is already showing an intentional request. A stale
-    // source snapshot must not turn that request back into a device update.
+    // The global selector is already showing an intentional device request. A
+    // stale source snapshot must not turn that request back into an update.
     return false;
   }
 
-  const hasValidLocalRate =
-    typeof localSampleRateHz === "number" &&
-    Number.isFinite(localSampleRateHz) &&
-    localSampleRateHz > 0;
-  return !hasValidLocalRate || !hydratedBackendSampleRate;
+  const hasValidGlobalRate =
+    typeof globalSampleRateHz === "number" &&
+    Number.isFinite(globalSampleRateHz) &&
+    globalSampleRateHz > 0;
+  return !hasValidGlobalRate || !hydratedBackendSampleRate;
 };
 
 type SignalDisplaySettings = {
@@ -1507,7 +1507,7 @@ export const resolveEffectiveSdrSettingsForConnection = ({
 
 
 export const resolveEffectiveLiveSampleRateHz = ({
-  localSampleRateHz,
+  globalSampleRateHz,
   websocketSampleRateHz,
   sdrSettingsSampleRateHz,
   minReceiveSampleRateHz,
@@ -1517,7 +1517,7 @@ export const resolveEffectiveLiveSampleRateHz = ({
   deviceName,
   isRtlSdr,
 }: {
-  localSampleRateHz?: number | null;
+  globalSampleRateHz?: number | null;
   websocketSampleRateHz?: number | null;
   sdrSettingsSampleRateHz?: number | null;
   minReceiveSampleRateHz?: number | null;
@@ -1533,22 +1533,22 @@ export const resolveEffectiveLiveSampleRateHz = ({
     deviceName,
     isRtlSdr,
   });
-  // The accepted source rate owns the live display. A local selector value is
-  // only a request until source_info acknowledges it; allowing local intent to
-  // win indefinitely leaves the sidebar in Whole Channel while frames still
-  // arrive at 3.2 MHz and re-arms the channel/rate feedback loop.
+  // The accepted source rate owns the live display. The global Redux mirror is
+  // only a request until source_info acknowledges it; allowing global intent
+  // to win indefinitely leaves the sidebar in Whole Channel while frames
+  // still arrive at 3.2 MHz and re-arms the channel/rate feedback loop.
   const candidates = isRtlDevice
     ? [
         minReceiveSampleRateHz,
         sdrSettingsSampleRateHz,
-        localSampleRateHz,
+        globalSampleRateHz,
         maxSampleRateHz,
         websocketSampleRateHz,
       ]
     : [
         websocketSampleRateHz,
         sdrSettingsSampleRateHz,
-        localSampleRateHz,
+        globalSampleRateHz,
         maxSampleRateHz,
       ];
 
@@ -2153,7 +2153,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
     const previousInventorySourceIdsRef = useRef<Set<string>>(new Set());
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
-    const pendingLocalSampleRateRef = useRef<number | null>(null);
+    const pendingGlobalSampleRateRef = useRef<number | null>(null);
 
     useEffect(
       () => () => {
@@ -2514,7 +2514,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             reduxDispatch(setFftFrameRate(action.fftFrameRate));
             return;
           case "SET_SAMPLE_RATE":
-            pendingLocalSampleRateRef.current = action.sampleRateHz;
+            pendingGlobalSampleRateRef.current = action.sampleRateHz;
             reduxDispatch({
               ...setSampleRateAction(action.sampleRateHz),
               ...(action.frequencyRange
@@ -3699,7 +3699,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     useEffect(() => {
       hydratedBackendSampleRateRef.current = false;
-      pendingLocalSampleRateRef.current = null;
+      pendingGlobalSampleRateRef.current = null;
       hasInitializedBackendSettingsRef.current = false;
       // Force re-sending the current frequency range to the newly activated
       // device so it tunes to the user's last frequency, not the backend default.
@@ -3723,11 +3723,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         deviceName: liveSampleRateSource.deviceName,
         isRtlSdr: liveSampleRateSource.isRtlSdr,
       });
-      const pendingLocalSampleRateHz = pendingLocalSampleRateRef.current;
+      const pendingGlobalSampleRateHz = pendingGlobalSampleRateRef.current;
       const shouldHydrateRate = shouldHydrateLiveSampleRate({
         rate,
-        localSampleRateHz: state.sampleRateHz,
-        pendingLocalSampleRateHz,
+        globalSampleRateHz: state.sampleRateHz,
+        pendingGlobalSampleRateHz,
         hydratedBackendSampleRate: hydratedBackendSampleRateRef.current,
       });
 
@@ -3739,12 +3739,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         reduxDispatch(setSampleRateAction(rate));
       }
       if (
-        typeof pendingLocalSampleRateHz === "number" &&
+        typeof pendingGlobalSampleRateHz === "number" &&
         typeof rate === "number" &&
         Number.isFinite(rate) &&
-        Math.round(rate) === Math.round(pendingLocalSampleRateHz)
+        Math.round(rate) === Math.round(pendingGlobalSampleRateHz)
       ) {
-        pendingLocalSampleRateRef.current = null;
+        pendingGlobalSampleRateRef.current = null;
       }
       if (typeof rate === "number" && rate > 0) {
         hydratedBackendSampleRateRef.current = true;
@@ -3782,7 +3782,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     });
 
     const sampleRateHzEffective = resolveEffectiveLiveSampleRateHz({
-      localSampleRateHz: mergedState.sampleRateHz,
+      globalSampleRateHz: mergedState.sampleRateHz,
       websocketSampleRateHz: liveSampleRateSource.sampleRateHz,
       sdrSettingsSampleRateHz:
         liveSampleRateSource.sdrSettingsSampleRateHz,

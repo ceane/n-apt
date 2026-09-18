@@ -2781,11 +2781,17 @@ export function useSpectrumInteraction({
       // through to page scrolling or a different canvas interaction.
       const isOverVfo =
         !fullPlotSelection && y >= rect.height - getVfoInteractionHeight();
+      const isOverPlotBody =
+        x >= plot.left &&
+        x <= plot.right &&
+        y >= plot.top &&
+        y <= plot.bottom;
       const isOverMargin =
         x < 50 ||
         x > rect.width - 40 ||
         y < 20 ||
         y > rect.height - 40 - getReservedBottomHeight() ||
+        isOverPlotBody ||
         isOverVfo;
 
       if (isOverMargin) {

@@ -579,6 +579,9 @@ let managedRxAckRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let managedTxSubscribePending = false;
 let managedTxSubscribePendingSourceId: string | null = null;
 let pendingManagedTxOptions: ManagedTxStreamOptions | null = null;
+let pendingManagedRxSubscribeOverrides:
+  | Partial<Omit<RxDeviceOptions, "mode">>
+  | null = null;
 let unsubscribeDeliveryDemandListener: (() => void) | null = null;
 const managedRxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
   publish: (options) => {
@@ -903,6 +906,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   pendingManagedTxFrameRequestSourceId = null;
   pendingManagedTxPreviewOptions = null;
   pendingManagedTxOptions = null;
+  pendingManagedRxSubscribeOverrides = null;
   managedRxOptionsScheduler.cancel();
   managedTxOptionsScheduler.cancel();
   unsubscribeDeliveryDemandListener?.();
@@ -1604,7 +1608,7 @@ const buildManagedRxOptions = (
 
 /**
  * Existing managed RX subscriptions already contain the backend-accepted
- * device options. Merge an explicit local change into that snapshot so an
+ * device options. Merge an explicit device-scoped change into that snapshot so an
  * unrelated action cannot re-publish stale source hydration over the stream.
  */
 export const mergeManagedRxOptions = (
@@ -1614,6 +1618,19 @@ export const mergeManagedRxOptions = (
   ...current,
   ...overrides,
   mode: "rx",
+});
+
+/**
+ * Preserve a device-scoped RX change that arrives while the subscription is
+ * still opening. Redux has already accepted the action, but the initial
+ * subscribe payload may have been built from the previous source snapshot.
+ */
+export const resolveManagedRxSubscribeOverrides = (
+  pending: Partial<Omit<RxDeviceOptions, "mode">> | null | undefined,
+  next: Partial<Omit<RxDeviceOptions, "mode">> | null | undefined,
+): Partial<Omit<RxDeviceOptions, "mode">> => ({
+  ...(pending ?? {}),
+  ...(next ?? {}),
 });
 
 export const buildManagedTxOptions = (
@@ -2255,6 +2272,7 @@ const dropManagedRxSubscription = ({
   if (cancelPending) {
     clearManagedRxAckRecoveryTimer();
     managedRxOptionsScheduler.cancel();
+    pendingManagedRxSubscribeOverrides = null;
   }
   managedRxSubscription?.unsubscribe({ immediate });
   managedRxSubscription = null;
@@ -2385,6 +2403,16 @@ const syncManagedStreamSubscriptions = (
     ) &&
     !txSourceConflictsWithActiveRx;
   const rxSourceId = wantsRx ? desiredRxSource.id : null;
+  if (
+    rxSourceId &&
+    rxOptionsOverride &&
+    managedRxSubscribePendingSourceId === rxSourceId
+  ) {
+    pendingManagedRxSubscribeOverrides = resolveManagedRxSubscribeOverrides(
+      pendingManagedRxSubscribeOverrides,
+      rxOptionsOverride,
+    );
+  }
   if (managedRxSourceId !== rxSourceId) {
     dropManagedRxSubscription({
       immediate: shouldImmediatelyResetManagedRxSubscription({
@@ -2400,6 +2428,11 @@ const syncManagedStreamSubscriptions = (
     !managedRxSubscription &&
     managedRxSubscribePendingSourceId !== rxSourceId
   ) {
+    const subscribeOverrides = resolveManagedRxSubscribeOverrides(
+      pendingManagedRxSubscribeOverrides,
+      rxOptionsOverride,
+    );
+    pendingManagedRxSubscribeOverrides = null;
     managedRxSubscribePending = true;
     managedRxSubscribePendingSourceId = rxSourceId;
     const key = { sourceId: rxSourceId, mode: "rx" as const };
@@ -2409,7 +2442,7 @@ const syncManagedStreamSubscriptions = (
         buildManagedRxOptions(
           getState(),
           desiredRxSource,
-          rxOptionsOverride ?? {},
+          subscribeOverrides,
         ),
         (event) =>
           handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
@@ -2499,7 +2532,7 @@ const syncManagedStreamSubscriptions = (
   ) {
     // Existing subscriptions already own the backend's effective options.
     // Status/frame hydration must not replay this client's cached center as a
-    // device-wide write; only an explicit local option action supplies an
+    // device-wide write; only an explicit device-scoped option action supplies an
     // override and is allowed to enter the scheduler.
     const currentOptions = managedRxSubscription.effectiveOptions;
     if (currentOptions.mode === "rx") {

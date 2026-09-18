@@ -1321,6 +1321,31 @@ describe("useSpectrumInteraction Hook", () => {
     });
   });
 
+  it("pans the spectrum when the wheel is over the plot body", () => {
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 100, max: 110 } },
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 300,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 102,
+      max: 112,
+    });
+  });
+
   it("does not trap zoomed wheel panning inside the active channel without hardware bounds", () => {
     renderHook(() =>
       useSpectrumInteraction({

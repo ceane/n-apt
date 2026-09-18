@@ -48,6 +48,7 @@ import {
   handleManagedStreamEvent,
   resolveManagedRxDeviceOptionUpdates,
   resolveManagedRxOptionsOverride,
+  resolveManagedRxSubscribeOverrides,
   resolveLocalRxTuningOverride,
   buildManagedTxOptions,
   shouldApplySourceStatusToPresentation,
@@ -732,6 +733,18 @@ describe("managed stream option synchronization", () => {
       fftWindow: "Hann",
       frameRate: 12,
       gain: 18,
+    });
+  });
+
+  it("retains the first global rate change while RX subscription is opening", () => {
+    expect(
+      resolveManagedRxSubscribeOverrides(
+        { sampleRateHz: 3_200_000 },
+        { sampleRateHz: 4_372_000, centerFrequencyHz: 2_204_000 },
+      ),
+    ).toEqual({
+      sampleRateHz: 4_372_000,
+      centerFrequencyHz: 2_204_000,
     });
   });
 

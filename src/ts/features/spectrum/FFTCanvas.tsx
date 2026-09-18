@@ -3742,6 +3742,7 @@ const FFTCanvas = memo(
           const paintContract = resolveLiveSpectrumPaintContract({
             requestedViewRange,
             sourceFrequencyRange,
+            activeSampleRateHz: hardwareSampleRateHz,
             zoom: vizZoomRef.current || 1,
             panOffsetHz: vizPanOffsetRef.current,
             mirrorEnabled: allowNegativeFrequencies,

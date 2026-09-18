@@ -1067,7 +1067,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const signalDisplayTemporalResolution = isMockTxLiveSource
     ? txViewerTemporalResolution
     : displayTemporalResolution;
-  const sampleRateHzLocal =
+  const sampleRateHzGlobalFallback =
     (typeof sampleRateHzEffective === "number" &&
     Number.isFinite(sampleRateHzEffective) &&
     sampleRateHzEffective > 0
@@ -1103,31 +1103,31 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 )
               : maxSampleRate) || null;
 
-  // The acquisition control follows the locally requested rate immediately.
-  // sampleRateHzLocal prefers the backend-accepted effective rate, which can
+  // The acquisition control follows the global device rate immediately.
+  // sampleRateHzGlobalFallback prefers the backend-accepted effective rate, which can
   // lag one round trip behind a manual change; feeding that stale value into
   // useLiveSampleRateControl re-anchors the frequency range back to the old
   // span after every gesture and retune-oscillates the device.
-  const sampleRateHzRequestedLocal =
-    (typeof sampleRateHz === "number" &&
-    Number.isFinite(sampleRateHz) &&
-    sampleRateHz > 0
+  const sampleRateHzRequestedGlobal =
+    (typeof liveState.sampleRateHz === "number" &&
+    Number.isFinite(liveState.sampleRateHz) &&
+    liveState.sampleRateHz > 0
       ? clampSampleRateToSourceMaximum(
-          sampleRateHz,
+          liveState.sampleRateHz,
           sampleRateControlMaximumHz,
         )
-      : typeof liveState.sampleRateHz === "number" &&
-          Number.isFinite(liveState.sampleRateHz) &&
-          liveState.sampleRateHz > 0
+      : typeof sampleRateHz === "number" &&
+          Number.isFinite(sampleRateHz) &&
+          sampleRateHz > 0
         ? clampSampleRateToSourceMaximum(
-            liveState.sampleRateHz,
+            sampleRateHz,
             sampleRateControlMaximumHz,
           )
-        : sampleRateHzLocal) || null;
+        : sampleRateHzGlobalFallback) || null;
 
   const sampleRateHzForSignalDisplay = isMockTxLiveSource
     ? signalDisplaySampleRate
-    : sampleRateHzRequestedLocal;
+    : sampleRateHzRequestedGlobal;
 
   useEffect(() => {
     if (
@@ -2404,7 +2404,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       const match = f.name.match(/iq_([\d._]+[a-zA-Z]*)/);
       if (match) {
         const freq = parseFrequency(match[1], "MHz") || 0;
-        const sampleRate = sampleRateHzLocal ?? 3_200_000; // Use current sample rate or fallback
+        const sampleRate = sampleRateHzGlobalFallback ?? 3_200_000; // Use current sample rate or fallback
         minFreq = Math.min(minFreq, freq - sampleRate / 2);
         maxFreq = Math.max(maxFreq, freq + sampleRate / 2);
       }
@@ -2441,10 +2441,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const hardwareMin = activeFrame?.min_hz ?? frequencyRange.min;
     const hardwareMax = activeFrame?.max_hz ?? frequencyRange.max;
     const configuredSampleRate =
-      typeof sampleRateHzLocal === "number" &&
-      Number.isFinite(sampleRateHzLocal) &&
-      sampleRateHzLocal > 0
-        ? sampleRateHzLocal
+      typeof sampleRateHzGlobalFallback === "number" &&
+      Number.isFinite(sampleRateHzGlobalFallback) &&
+      sampleRateHzGlobalFallback > 0
+        ? sampleRateHzGlobalFallback
         : null;
     const hardwareSpan = configuredSampleRate
       ? Math.min(
@@ -3150,7 +3150,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               sampleRateHzEffective ??
               liveSdrSettingsToUse?.sample_rate ??
               sampleRateHz ??
-              sampleRateHzLocal ??
+              sampleRateHzGlobalFallback ??
               null
             }
             wholeChannelMode={isWholeChannelMode}
@@ -3359,7 +3359,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 hopRateHz={txHopRateHz}
                 onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
                 rxSampleRateHz={
-                  sampleRateHzLocal ??
+                  sampleRateHzGlobalFallback ??
                   liveSdrSettingsToUse?.sample_rate ??
                   sampleRateHzEffective ??
                   maxSampleRate
@@ -3377,7 +3377,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             sampleRate={
               signalDisplaySampleRate ??
               sampleRateHzForSignalDisplay ??
-              sampleRateHzLocal ??
+              sampleRateHzGlobalFallback ??
               liveSdrSettingsToUse?.sample_rate ??
               maxSampleRate
             }
@@ -3502,7 +3502,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               minReceiveSampleRate:
                 liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
               sampleRate:
-                sampleRateHzLocal ??
+                sampleRateHzGlobalFallback ??
                 liveSdrSettingsToUse?.sample_rate ??
                 maxSampleRate,
               sampleRateOptions: signalDisplaySampleRateOptions,

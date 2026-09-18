@@ -5,6 +5,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { Provider } from "react-redux";
 import { act, renderHook } from "@testing-library/react";
 import spectrumReducer, {
+  setFrequencyRange,
   setTuningPreviewActive,
 } from "@n-apt/redux/slices/spectrumSlice";
 import { useChannelTuner } from "@n-apt/spectrum/hooks/useChannelManagement";
@@ -139,6 +140,41 @@ describe("useChannelTuner lifecycle", () => {
     });
 
     expect(cancelFrame).toHaveBeenCalledWith(17);
+    requestFrame.mockRestore();
+    cancelFrame.mockRestore();
+  });
+
+  it("cancels the progressive trajectory when the user scrolls to a new range", () => {
+    const requestFrame = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 17);
+    const cancelFrame = jest
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation(() => undefined);
+    const store = configureStore({
+      reducer: { spectrum: spectrumReducer },
+    });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const { result } = renderHook(() => useChannelTuner(), { wrapper });
+
+    act(() => {
+      result.current.tuneChannels(
+        [{ label: "A", min: 18_000, max: 4_390_000 }],
+        undefined,
+        { min: 18_000, max: 4_390_000 },
+        undefined,
+        { durationMs: 500, inertia: "ease-out" },
+      );
+    });
+
+    act(() => {
+      store.dispatch(setFrequencyRange({ min: 2_000_000, max: 6_372_000 }));
+    });
+
+    expect(cancelFrame).toHaveBeenCalledWith(17);
+    expect(store.getState().spectrum.tuningPreviewActive).toBe(false);
     requestFrame.mockRestore();
     cancelFrame.mockRestore();
   });
