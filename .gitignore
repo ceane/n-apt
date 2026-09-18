@@ -452,3 +452,6 @@ test/fixtures/napt-classifier/captures/
 fix_*
 patch.diff
 *.diff
+
+# Machine-managed learned preferences; keep local, never commit
+.commandcode/taste/
