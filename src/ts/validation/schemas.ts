@@ -233,6 +233,7 @@ export const SourceInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
   kind: z.string(),
+  is_mock: z.boolean().optional(),
   capability: SourceCapabilitySchema,
   duplex_mode: z.string().nullable().optional(),
   active_duplex_mode: DeviceActiveModeSchema.nullable().optional(),
@@ -444,7 +445,6 @@ export const ChannelsMessageSchema = z.object({
     })
     .nullable()
     .optional(),
-  sample_rate: z.number().positive().optional(),
   mirror_spectrum_below_zero: z.boolean().optional(),
   error: z.string().nullable().optional(),
 });
@@ -586,7 +586,6 @@ export const WebSocketMessageSchema = z.union([
   z.object({
     type: z.literal("signal_display_settings"),
     source_id: z.string(),
-    sample_rate: z.number(),
     fft_size: z.number(),
     frame_rate: z.number(),
     fft_window: z.string().nullable().optional(),
@@ -625,7 +624,6 @@ export const WebSocketMessageSchema = z.union([
     type: z.literal("select_source"),
     scope: z.literal("device").optional(),
     source_id: z.string(),
-    sample_rate: z.number().positive().optional(),
   }),
   z.object({
     type: z.literal("training_capture"),

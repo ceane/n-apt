@@ -176,6 +176,7 @@ export interface LiveSpectrumPaintContract {
 export const resolveLiveSpectrumPaintContract = ({
   requestedViewRange,
   sourceFrequencyRange,
+  activeSampleRateHz,
   zoom,
   panOffsetHz,
   mirrorEnabled,
@@ -183,6 +184,8 @@ export const resolveLiveSpectrumPaintContract = ({
 }: {
   requestedViewRange: { min: number; max: number };
   sourceFrequencyRange: { min: number; max: number };
+  /** Global rate selected for the live source, if known. */
+  activeSampleRateHz?: number | null;
   zoom: number;
   panOffsetHz: number;
   mirrorEnabled: boolean;
@@ -213,19 +216,45 @@ export const resolveLiveSpectrumPaintContract = ({
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const safePan = Number.isFinite(panOffsetHz) ? panOffsetHz : 0;
   const requestedBaseSpan = safeRequestedRange.max - safeRequestedRange.min;
+  const sourceSpan = safeSourceRange.max - safeSourceRange.min;
+  const activeRate =
+    typeof activeSampleRateHz === "number" &&
+    Number.isFinite(activeSampleRateHz) &&
+    activeSampleRateHz > 0
+      ? activeSampleRateHz
+      : null;
+  // A live frame carries the accepted acquisition axis. If the selector has
+  // already moved to that same rate but Redux still exposes the previous
+  // positive-only 3.2 MHz range, keep the complete frame on screen immediately
+  // instead of waiting for pause/recovery to hydrate the axis.
+  const acceptedFrameMatchesActiveRate =
+    activeRate !== null &&
+    sourceSpan > 0 &&
+    Math.abs(sourceSpan - activeRate) <= Math.max(1_000, sourceSpan * 0.001);
+  const stalePositiveWholeView =
+    safeZoom <= 1.0001 &&
+    safeRequestedRange.min >= 0 &&
+    requestedBaseSpan > 0 &&
+    sourceSpan > requestedBaseSpan + 1 &&
+    acceptedFrameMatchesActiveRate;
+  const requestedViewportRange = stalePositiveWholeView
+    ? safeSourceRange
+    : safeRequestedRange;
   const pausedRetuneUsesUniversalRange =
-    isPaused && safeRequestedRange.min >= 0 && requestedBaseSpan > 0;
+    isPaused && requestedViewportRange.min >= 0 && requestedBaseSpan > 0;
   // Pause is a subscriber delivery mode, not another coordinate system. A
   // A paused retune updates the global center immediately, while the current
   // values remain pixel-anchored until request_next_frame replaces them. Use
   // the universal requested axis even when the retained frame's span differs
   // (for example during a Whole Channel or DC transition), otherwise the old
   // frame axis produces a partial island and floors the uncovered canvas.
-  const presentationSourceRange = pausedRetuneUsesUniversalRange
-    ? safeRequestedRange
+  const presentationSourceRange = stalePositiveWholeView
+    ? safeSourceRange
+    : pausedRetuneUsesUniversalRange
+      ? safeRequestedRange
     : safeSourceRange;
   const gestureView = resolveLiveSpectrumCoordinateModel({
-    viewportBaseRange: safeRequestedRange,
+    viewportBaseRange: requestedViewportRange,
     sourceRange: presentationSourceRange,
     zoom: safeZoom,
     panOffsetHz: safePan,
@@ -233,7 +262,7 @@ export const resolveLiveSpectrumPaintContract = ({
   });
   const requestedDisplaySpan =
     gestureView.displayRange.max - gestureView.displayRange.min;
-  const sourceSpan =
+  const presentationSourceSpan =
     presentationSourceRange.max - presentationSourceRange.min;
   const mirrorGestureCovered = sourceCoversMirroredDisplay(
     presentationSourceRange,
@@ -269,8 +298,8 @@ export const resolveLiveSpectrumPaintContract = ({
       : safeSourceRange
     : Number.isFinite(requestedDisplaySpan) &&
         Number.isFinite(sourceSpan) &&
-        sourceSpan > 0 &&
-        requestedDisplaySpan > sourceSpan + 1
+        presentationSourceSpan > 0 &&
+        requestedDisplaySpan > presentationSourceSpan + 1
       ? mirrorEnabled
         ? residentMirrorRange
         : safeSourceRange

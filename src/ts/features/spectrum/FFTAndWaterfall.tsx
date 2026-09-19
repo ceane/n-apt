@@ -585,8 +585,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
                     sourceLabel: props.placeholderSourceLabel,
                   }
                 : sharedPlaceholderState?.kind === "loading" &&
-                    !shouldShowLoadingPlaceholder &&
-                    (!props.placeholderState || retainsFramePresentation)
+                    !shouldShowLoadingPlaceholder
                   ? undefined
                   : sharedPlaceholderState?.kind === "loading"
                     ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }

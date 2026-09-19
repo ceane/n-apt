@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
 import type { FFTCanvasHandle } from "@n-apt/spectrum/FFTCanvas";
@@ -151,6 +151,12 @@ jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => ({
   }),
 }));
 
+// Captured so a test can drive one render pass without changing props, which
+// is how a steady paused canvas is repainted in the running app.
+export const mockCoordinatorForceRenderRefs: Array<{
+  current: (() => void) | null;
+}> = [];
+
 jest.mock("@n-apt/spectrum/hooks/useFftRenderCoordinator", () => {
   const React = require("react") as typeof import("react");
   return {
@@ -166,7 +172,10 @@ jest.mock("@n-apt/spectrum/hooks/useFftRenderCoordinator", () => {
         [onRenderFrame],
       );
       React.useEffect(() => {
-        if (forceRenderRef) forceRenderRef.current = render;
+        if (forceRenderRef) {
+          forceRenderRef.current = render;
+          mockCoordinatorForceRenderRefs.push(forceRenderRef);
+        }
         render();
         return () => {
           if (forceRenderRef?.current === render) forceRenderRef.current = null;
@@ -1021,6 +1030,70 @@ describe("FFTCanvas Component", () => {
     for (const call of processIqCalls) {
       expect(Array.from(call[0] ?? [])).not.toEqual([200, 201, 199, 198]);
     }
+  }, 10000);
+
+  it("repaints a paused file-playback preview frame from its retained waveform", async () => {
+    // File playback disables live pause-snapshot recovery, so nothing else
+    // repaints the paused canvas. Overlay chrome that is invalidated after the
+    // last pass — the grid, axes and labels live in an overlay texture that is
+    // only re-uploaded from a draw — must still come back while the preview
+    // frame sits paused. Otherwise the frame keeps its waveform and background
+    // with no graph until playback resumes.
+    drawSpectrumMock.mockClear();
+    processIqToDbmSpectrumMock.mockClear();
+    mockCoordinatorForceRenderRefs.length = 0;
+
+    const playbackFrame = {
+      source_id: "file-playback",
+      iq_data: new Uint8Array([128, 129, 127, 126]),
+      center_frequency_hz: 2_186_000,
+      sample_rate: 4_372_000,
+    };
+    const dataRef = { current: playbackFrame as any };
+    const renderCanvas = (
+      props: Partial<React.ComponentProps<typeof FFTCanvas>>,
+    ) => (
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={dataRef}
+                frequencyRange={{ min: 0, max: 4_372_000 }}
+                centerFrequencyHz={2_186_000}
+                expectedSourceId="file-playback"
+                pauseSnapshotEnabled={false}
+                {...props}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+    const { rerender } = render(renderCanvas({ isPaused: false }));
+    await waitFor(() => expect(drawSpectrumMock).toHaveBeenCalled());
+
+    // Stitching a file always lands paused: the preview frame is frozen, with
+    // no further frames arriving to drive the next pass.
+    rerender(renderCanvas({ isPaused: true }));
+    await waitFor(() => expect(drawSpectrumMock).toHaveBeenCalled());
+
+    drawSpectrumMock.mockClear();
+    const forceRender =
+      mockCoordinatorForceRenderRefs[
+        mockCoordinatorForceRenderRefs.length - 1
+      ]?.current;
+    expect(forceRender).toBeTruthy();
+
+    // One steady paused repaint with no prop change and no new frame: the
+    // retained preview frame must still be served, and it must not be stale.
+    act(() => {
+      forceRender?.();
+    });
+
+    expect(drawSpectrumMock).toHaveBeenCalled();
   }, 10000);
 
   it("draws Mock Tx standby preview spectrum unchanged from backend I/Q processing", async () => {

@@ -34,6 +34,7 @@
  *
  */
 import { useCallback, useRef } from "react";
+import { readCssColor as readUncachedCssColor } from "@n-apt/layout/rendering/cssColor";
 import { OverlayTextureRenderer } from "@n-apt/spectrum/hooks/useWebGPUInit";
 import { LINE_COLOR, SHADOW_COLOR, FFT_AREA_MIN } from "@n-apt/consts";
 import {
@@ -88,10 +89,7 @@ const readCssColor = (name: string, fallback: string) => {
   const cached = cssColorCache.get(name);
   if (cached !== undefined) return cached;
   installCssObserver();
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  const result = value || fallback;
+  const result = readUncachedCssColor(name, fallback);
   cssColorCache.set(name, result);
   return result;
 };

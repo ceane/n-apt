@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import type React from "react";
+import { getContainerRelativeScrollTop } from "@n-apt/ui/scrollAlignment";
 
 const STICKY_HEADER_CLEARANCE_PX = 12;
 
@@ -145,14 +146,13 @@ export const useSettingsSectionScrollSpy = ({
       );
       if (!element) return;
 
-      const containerRect = container.getBoundingClientRect();
-      const elementRect = element.getBoundingClientRect();
-      const targetTop =
-        container.scrollTop +
-        (elementRect.top - containerRect.top) -
-        STICKY_HEADER_CLEARANCE_PX;
+      const targetTop = getContainerRelativeScrollTop(
+        container,
+        element,
+        STICKY_HEADER_CLEARANCE_PX,
+      );
 
-      container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      container.scrollTo({ top: targetTop, behavior: "smooth" });
       setActiveSectionId(sectionId);
     },
     [containerRef],

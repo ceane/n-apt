@@ -1187,7 +1187,7 @@ mod tests {
     let first = manager.subscribe(key.clone(), rx_options()).unwrap();
     let second_options = StreamOptions::Rx(RxStreamOptions {
       center_frequency_hz: 101_000_000,
-      sample_rate_hz: 2_400_000,
+      sample_rate_hz: 5_000_000,
       fft_size: 4096,
       fft_window: None,
       frame_rate: None,

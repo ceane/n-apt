@@ -12,6 +12,15 @@ jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   }),
 }));
 
+jest.mock("@n-apt/maps/public/useGeolocation", () => ({
+  useGeolocation: () => ({
+    isSupported: true,
+    requestPermission: jest.fn().mockResolvedValue(true),
+    error: null,
+    isLoading: false,
+  }),
+}));
+
 const defaultProps = {
   activeCaptureAreas: [],
   availableCaptureAreas: [{ label: "Area A", min: 10, max: 20 }],
@@ -251,6 +260,41 @@ describe("IQCaptureControlsSection", () => {
     fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     expect(screen.getByRole("option", { name: "Whole Sample" })).toBeInTheDocument();
+  });
+
+  it("does not offer encrypted .napt captures for mock sources", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          isMockSource
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.queryByRole("option", { name: /^\.napt/ })).toBeDisabled();
+    expect(screen.getByRole("option", { name: ".iq" })).toBeEnabled();
+    expect(screen.getByRole("option", { name: ".wav" })).toBeEnabled();
+    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+    expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+  });
+
+  it("keeps geolocation available for every capture format", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          captureFileType=".iq"
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.getByText("Geolocation")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[1]).toBeEnabled();
   });
 
   it("should handle duration change", () => {

@@ -85,6 +85,29 @@ export const shouldClearStandbySourcePresentation = ({
   presentedSourceId !== expectedSourceId;
 
 /**
+ * A paused/standby canvas owns the only copy of its frozen frame: the backend
+ * publishes nothing while paused, so no replacement frame will arrive to
+ * rebuild it. Transient device churn (a disconnect flip, an error placeholder,
+ * or a same-source reconnect epoch bump) must therefore not discard the
+ * retained CPU waveform; only a source change is a real ownership boundary.
+ *
+ * Requires an actual waveform: "preserving" an empty presentation would keep
+ * the canvas claiming renderability with nothing to paint.
+ */
+export const shouldPreserveRetainedPausedPresentation = ({
+  retainsFramePresentation,
+  sameSource,
+  hasRetainedWaveform,
+}: {
+  /** The canvas is paused or in standby, so it retains a frozen frame. */
+  retainsFramePresentation: boolean;
+  /** The presented source is unchanged (or unknown) across the transition. */
+  sameSource: boolean;
+  /** A non-empty CPU waveform is still available to repaint from. */
+  hasRetainedWaveform: boolean;
+}): boolean => retainsFramePresentation && sameSource && hasRetainedWaveform;
+
+/**
  * A same-source standby/transmit toggle keeps the same TX presentation.
  * Preserve its temporal waterfall history; only a foreign frame or a source
  * boundary should clear the visualizer.

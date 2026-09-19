@@ -1,4 +1,7 @@
 import { Middleware, Dispatch } from "@reduxjs/toolkit";
+import { equalValue } from "../websocketEquality";
+import { buildReconnectSettingsMessage } from "../settingsWire";
+import { loadStoredActiveSignalArea as getPersistedActiveSignalArea } from "@n-apt/spectrum/public/sourcePersistence";
 import {
   setConnecting,
   setConnected,
@@ -56,6 +59,7 @@ import {
   normalizeSourceDuplexMode,
   pruneRemovedSourcePauseState,
   resolveSourceModeManagement,
+  shouldHoldSourceSubscription,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 import type { StreamControlMode } from "@n-apt/app/infrastructure/streams/streamContract";
 import {
@@ -65,6 +69,10 @@ import {
 import { filterLiveFramesForSource } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   filterMultiplexStreamPresentationFrames,
+  filterMultiplexStreamTxPreviewFrames,
+  isMultiplexStreamTxPresentationFrame as isTxPresentationFrame,
+  isMultiplexStreamTxPreviewFrame,
+  resolveMultiplexStreamPresentationBatch,
 } from "@n-apt/spectrum/model/multiplexStream";
 import {
   createSourceModeStreamManager,
@@ -157,57 +165,6 @@ let requestedSourceId: string | null = null;
 /** Keep the client frame gate aligned with the server's active-source mode. */
 export const isSourceModePaused = (sourceMode: unknown): boolean =>
   sourceMode === "file";
-
-const shallowEqualObject = (
-  a: Record<string, unknown> | null | undefined,
-  b: Record<string, unknown> | null | undefined,
-): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const key of aKeys) {
-    if (a[key] !== b[key]) return false;
-  }
-  return true;
-};
-
-const equalArrayValues = (
-  a: unknown[] | null | undefined,
-  b: unknown[] | null | undefined,
-): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    const left = a[i];
-    const right = b[i];
-    if (!equalValue(left, right)) {
-      return false;
-    }
-  }
-  return true;
-};
-
-const equalValue = (current: unknown, next: unknown): boolean => {
-  if (current === next) return true;
-  if (Array.isArray(current) && Array.isArray(next)) {
-    return equalArrayValues(current, next);
-  }
-  if (
-    current &&
-    next &&
-    typeof current === "object" &&
-    typeof next === "object"
-  ) {
-    return shallowEqualObject(
-      current as Record<string, unknown>,
-      next as Record<string, unknown>,
-    );
-  }
-  return false;
-};
 
 const deriveLegacyStateFromSource = (source: SourceInfo) => {
   const sourceStatus = source.status ?? "disconnected";
@@ -374,28 +331,9 @@ export const resolveManagedRxDeviceOptionUpdates = ({
 
 export const resolveManagedRxOptionsOverride = (
   settings: Record<string, unknown> | null | undefined,
-  state?: any,
 ): Partial<Omit<RxDeviceOptions, "mode">> => {
   if (!settings) return {};
   const overrides: Partial<Omit<RxDeviceOptions, "mode">> = {};
-  if (
-    typeof settings.sampleRate === "number" &&
-    Number.isFinite(settings.sampleRate) &&
-    settings.sampleRate > 0
-  ) {
-    overrides.sampleRateHz = settings.sampleRate;
-    const range = state?.spectrum?.frequencyRange;
-    if (
-      range &&
-      typeof range.min === "number" &&
-      typeof range.max === "number" &&
-      Number.isFinite(range.min) &&
-      Number.isFinite(range.max) &&
-      range.max > range.min
-    ) {
-      overrides.centerFrequencyHz = (range.min + range.max) / 2;
-    }
-  }
   if (
     typeof settings.fftSize === "number" &&
     Number.isFinite(settings.fftSize) &&
@@ -622,6 +560,9 @@ let managedRxAckRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let managedTxSubscribePending = false;
 let managedTxSubscribePendingSourceId: string | null = null;
 let pendingManagedTxOptions: ManagedTxStreamOptions | null = null;
+let pendingManagedRxSubscribeOverrides:
+  | Partial<Omit<RxDeviceOptions, "mode">>
+  | null = null;
 let unsubscribeDeliveryDemandListener: (() => void) | null = null;
 const managedRxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
   publish: (options) => {
@@ -690,6 +631,143 @@ let lastExpectedPauseState: boolean | null = null;
 // Visualizer pause is a subscriber concern. Keep it separate from the
 // backend's source pause bit so one browser window cannot pause another.
 const subscriberPausedBySource = new Map<string, boolean>();
+// Pause is an explicit user intent, so it must outlive a Fast Refresh of this
+// module: a fresh module scope would otherwise resume a stream the user had
+// paused. It must NOT outlive the document, though. sessionStorage keeps the
+// record per tab, matching the client pause latch, so a second window never
+// inherits another window's pause.
+const SUBSCRIBER_PAUSE_STORAGE_KEY = "n-apt:subscriber-pause-intent";
+let subscriberPauseIntentRestored = false;
+
+/** Stamped into the record so intent cannot leak past the document that wrote it. */
+type PersistedPauseIntent = {
+  page: string | null;
+  paused: Record<string, boolean>;
+};
+
+const pauseIntentStorage = (): Storage | null => {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Identifies the current document. A Fast Refresh re-evaluates this module
+ * inside the same document, so `timeOrigin` is unchanged and the intent is
+ * re-asserted; a full reload (or a second tab) is a new document and must not
+ * inherit it.
+ */
+const currentPageGeneration = (): string | null => {
+  try {
+    const origin = globalThis.performance?.timeOrigin;
+    return typeof origin === "number" && Number.isFinite(origin)
+      ? String(origin)
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * A persisted pause belongs to the document that wrote it. Restoring it in a
+ * different document pauses a subscription whose client state starts playing:
+ * the backend publishes no frames, the display strands on the Loading
+ * placeholder, and the user has to toggle pause/resume twice before the stream
+ * returns.
+ */
+export const shouldRestorePersistedPauseIntent = ({
+  storedPage,
+  currentPage,
+}: {
+  storedPage?: string | null;
+  currentPage?: string | null;
+}): boolean => !!storedPage && !!currentPage && storedPage === currentPage;
+
+/**
+ * Parses a persisted record into the subscriber pause map to apply, or null
+ * when it is malformed or belongs to another document.
+ */
+export const resolvePersistedPauseIntent = ({
+  raw,
+  currentPage,
+}: {
+  raw: string | null;
+  currentPage: string | null;
+}): Record<string, boolean> | null => {
+  if (!raw) return null;
+  let parsed: Partial<PersistedPauseIntent> | null = null;
+  try {
+    parsed = JSON.parse(raw) as Partial<PersistedPauseIntent>;
+  } catch {
+    return null;
+  }
+  if (
+    !shouldRestorePersistedPauseIntent({
+      storedPage: parsed?.page ?? null,
+      currentPage,
+    })
+  ) {
+    return null;
+  }
+  const paused = parsed?.paused;
+  if (!paused || typeof paused !== "object") return null;
+  const restored: Record<string, boolean> = {};
+  for (const [sourceId, value] of Object.entries(paused)) {
+    if (typeof value === "boolean") {
+      restored[sourceId] = value;
+    }
+  }
+  return restored;
+};
+
+const persistSubscriberPauseIntent = (): void => {
+  const storage = pauseIntentStorage();
+  if (!storage) return;
+  try {
+    const record: PersistedPauseIntent = {
+      page: currentPageGeneration(),
+      paused: Object.fromEntries(subscriberPausedBySource),
+    };
+    storage.setItem(SUBSCRIBER_PAUSE_STORAGE_KEY, JSON.stringify(record));
+  } catch {
+    // Best effort: a blocked or full store must not disturb the stream.
+  }
+};
+
+/** Re-assert the persisted intent once per document, before any subscribe. */
+const restoreSubscriberPauseIntent = (): void => {
+  if (subscriberPauseIntentRestored) return;
+  subscriberPauseIntentRestored = true;
+  const storage = pauseIntentStorage();
+  if (!storage) return;
+  let raw: string | null = null;
+  try {
+    raw = storage.getItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+  } catch {
+    return;
+  }
+  const restored = resolvePersistedPauseIntent({
+    raw,
+    currentPage: currentPageGeneration(),
+  });
+  if (!restored) {
+    // Malformed, or left behind by another document. This page starts playing,
+    // so drop the record instead of pausing a fresh stream.
+    if (raw) {
+      try {
+        storage.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+      } catch {
+        // A blocked store must not disturb the stream.
+      }
+    }
+    return;
+  }
+  for (const [sourceId, paused] of Object.entries(restored)) {
+    subscriberPausedBySource.set(sourceId, paused);
+  }
+};
 const MAX_RETAINED_LIVE_FRAMES = 1;
 const DISCONNECT_GRACE_MS = 150;
 const DUPLICATE_FREQUENCY_RANGE_SUPPRESSION_MS = 500;
@@ -901,6 +979,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   pendingManagedTxFrameRequestSourceId = null;
   pendingManagedTxPreviewOptions = null;
   pendingManagedTxOptions = null;
+  pendingManagedRxSubscribeOverrides = null;
   managedRxOptionsScheduler.cancel();
   managedTxOptionsScheduler.cancel();
   unsubscribeDeliveryDemandListener?.();
@@ -913,6 +992,8 @@ export const resetWebSocketMiddlewareState = (): void => {
   lastPauseCommandTime = 0;
   lastExpectedPauseState = null;
   subscriberPausedBySource.clear();
+  subscriberPauseIntentRestored = false;
+  pauseIntentStorage()?.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
@@ -1008,11 +1089,6 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
     });
     const isActiveTxPreviewBinding =
       !!activeSourceId && boundTxSourceId === activeSourceId;
-    const isTxPresentationFrame = (frame: any): boolean =>
-      frame?.frame_status === "standby" ||
-      frame?.frame_status === "transmitting" ||
-      frame?.is_tx_preview === true ||
-      frame?.is_mock_tx_preview === true;
     const isActiveTxPresentation =
       (selectedTxPresentationSourceId !== null &&
         (requestedSourceId === null ||
@@ -1186,45 +1262,31 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       );
     }
     const hasTxPreviewFrame = presentationFrames.some(
-      (f: any) =>
-        f?.frame_status === "standby" ||
-        f?.is_tx_preview === true ||
-        f?.is_mock_tx_preview === true,
+      isMultiplexStreamTxPreviewFrame,
     );
+    const presentationBatch = resolveMultiplexStreamPresentationBatch({
+      frameCount: presentationFrames.length,
+      isFileSource,
+      isPaused,
+      pausedRequestInFlight: isPausedOneShotFrame,
+      isActiveTxMonitorStandby,
+      isActiveBoundTxPreviewStandby,
+      isSelectedTxPresentationStandby,
+      isActiveTxMonitorTransmitting,
+      isSelectedTxPresentationTransmitting,
+      hasTxPreviewFrame,
+    });
     // A paused Rx source publishes exactly one frame per request_next_frame.
     // It has no Tx-preview tag, so gate acceptance on the armed request. Consume
     // the gate after the first frame so idle background frames cannot bleed in.
-    const shouldAcceptPausedFrame = hasTxPreviewFrame || isPausedOneShotFrame;
     if (isPausedOneShotFrame) {
       pausedFrameRequestInFlight = false;
     }
 
-    if (
-      presentationFrames.length > 0 &&
-      ((!isPaused &&
-        !isActiveTxMonitorStandby &&
-        !isActiveBoundTxPreviewStandby &&
-        !isSelectedTxPresentationStandby) ||
-        shouldAcceptPausedFrame ||
-        isActiveTxMonitorTransmitting) &&
-      !isFileSource
-    ) {
-      if (
-        (isPaused ||
-          isActiveTxMonitorStandby ||
-          isActiveBoundTxPreviewStandby ||
-          isSelectedTxPresentationStandby) &&
-        (shouldAcceptPausedFrame || hasTxPreviewFrame) &&
-        !isActiveTxMonitorTransmitting &&
-        !isSelectedTxPresentationTransmitting
-      ) {
+    if (presentationBatch.accept) {
+      if (presentationBatch.replacePausedPresentation) {
         const framesToUse = hasTxPreviewFrame
-          ? presentationFrames.filter(
-              (f: any) =>
-                f?.frame_status === "standby" ||
-                f?.is_tx_preview === true ||
-                f?.is_mock_tx_preview === true,
-            )
+          ? filterMultiplexStreamTxPreviewFrames(presentationFrames)
           : presentationFrames;
         liveDataRef.current = collapsePausedFrameBatch(framesToUse);
         // A requested untagged standby frame is still a one-frame response.
@@ -1394,22 +1456,7 @@ export const getFrequencyRequestCenterHz = (
   return null;
 };
 
-const getPersistedActiveSignalArea = (sourceId: string): string | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const trimmed = sourceId?.trim();
-    const scope = trimmed ? trimmed : "default";
-    const key = `napt-spectrum-view-v1:${scope}`;
-    const stored = window.localStorage.getItem(key);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return parsed?.activeSignalArea ?? null;
-    }
-  } catch {
-    // Ignore
-  }
-  return null;
-};
+
 
 const shouldSuppressDuplicateFrequencyRangeSend = (
   type: string,
@@ -1634,7 +1681,7 @@ const buildManagedRxOptions = (
 
 /**
  * Existing managed RX subscriptions already contain the backend-accepted
- * device options. Merge an explicit local change into that snapshot so an
+ * device options. Merge an explicit device-scoped change into that snapshot so an
  * unrelated action cannot re-publish stale source hydration over the stream.
  */
 export const mergeManagedRxOptions = (
@@ -1644,6 +1691,19 @@ export const mergeManagedRxOptions = (
   ...current,
   ...overrides,
   mode: "rx",
+});
+
+/**
+ * Preserve a device-scoped RX change that arrives while the subscription is
+ * still opening. Redux has already accepted the action, but the initial
+ * subscribe payload may have been built from the previous source snapshot.
+ */
+export const resolveManagedRxSubscribeOverrides = (
+  pending: Partial<Omit<RxDeviceOptions, "mode">> | null | undefined,
+  next: Partial<Omit<RxDeviceOptions, "mode">> | null | undefined,
+): Partial<Omit<RxDeviceOptions, "mode">> => ({
+  ...(pending ?? {}),
+  ...(next ?? {}),
 });
 
 export const buildManagedTxOptions = (
@@ -2107,6 +2167,23 @@ export const shouldRequestManagedRxStartupFrame = ({
   !alreadyRequested;
 
 /**
+ * A paused subscriber that (re)opens its transport has nothing to show: the
+ * pause gate suppressed the stream, and the presentation slot went with the
+ * transport. The pause contract publishes exactly one frame per
+ * `request_next_frame`, so a paused subscription must arm its own one-shot —
+ * otherwise the canvas sits on a Loading placeholder over a healthy source,
+ * which is what a paused stream does after its idle socket is dropped while the
+ * tab is backgrounded and then reopens.
+ */
+export const shouldRequestPausedManagedRxFrame = ({
+  paused,
+  alreadyRequested,
+}: {
+  paused: boolean;
+  alreadyRequested: boolean;
+}): boolean => paused && !alreadyRequested;
+
+/**
  * A lost hardware source must not leave its transport entry in the short
  * subscriber grace period. Reusing that entry after a quick replug skips the
  * backend subscribe/initialization handshake and strands the renderer at the
@@ -2250,6 +2327,32 @@ const clearManagedRxAckRecoveryTimer = (): void => {
   }
 };
 
+/**
+ * Drop the current managed Rx subscription so the next sync re-establishes it.
+ *
+ * `immediate` releases the transport instead of waiting for a graceful close.
+ * `cancelPending` also drops the ack-recovery timer and any queued device-option
+ * publish — required when the desired source changes, but pointless from the
+ * ack-recovery timer itself, which is already firing.
+ */
+const dropManagedRxSubscription = ({
+  immediate,
+  cancelPending,
+}: {
+  immediate: boolean;
+  cancelPending: boolean;
+}): void => {
+  if (cancelPending) {
+    clearManagedRxAckRecoveryTimer();
+    managedRxOptionsScheduler.cancel();
+    pendingManagedRxSubscribeOverrides = null;
+  }
+  managedRxSubscription?.unsubscribe({ immediate });
+  managedRxSubscription = null;
+  managedRxSourceId = null;
+  managedRxStartupFrameRequestSourceId = null;
+};
+
 const armManagedRxAckRecovery = (
   sourceId: string,
   dispatch: Dispatch,
@@ -2277,10 +2380,7 @@ const armManagedRxAckRecovery = (
       return;
     }
 
-    managedRxSubscription?.unsubscribe({ immediate: true });
-    managedRxSubscription = null;
-    managedRxSourceId = null;
-    managedRxStartupFrameRequestSourceId = null;
+    dropManagedRxSubscription({ immediate: true, cancelPending: false });
     syncManagedStreamSubscriptions(dispatch, getState);
   }, 3_000);
 };
@@ -2368,23 +2468,32 @@ const syncManagedStreamSubscriptions = (
   const wantsRx =
     !!desiredRxSource?.iq_format &&
     desiredRxSource.capabilities?.can_receive !== false &&
-    isSourceStreamAvailable(
+    // Hold the transport through a stale device: acquisition is
+    // subscriber-driven, so unsubscribing here would idle the device and make
+    // the stale state permanent (permanent Loading in the UI).
+    shouldHoldSourceSubscription(
       state.sourceStatuses?.[desiredRxSource.id] ?? desiredRxSource.status,
     ) &&
     !txSourceConflictsWithActiveRx;
   const rxSourceId = wantsRx ? desiredRxSource.id : null;
+  if (
+    rxSourceId &&
+    rxOptionsOverride &&
+    managedRxSubscribePendingSourceId === rxSourceId
+  ) {
+    pendingManagedRxSubscribeOverrides = resolveManagedRxSubscribeOverrides(
+      pendingManagedRxSubscribeOverrides,
+      rxOptionsOverride,
+    );
+  }
   if (managedRxSourceId !== rxSourceId) {
-    clearManagedRxAckRecoveryTimer();
-    managedRxOptionsScheduler.cancel();
-    managedRxSubscription?.unsubscribe({
+    dropManagedRxSubscription({
       immediate: shouldImmediatelyResetManagedRxSubscription({
         currentSourceId: managedRxSourceId,
         nextSourceId: rxSourceId,
       }),
+      cancelPending: true,
     });
-    managedRxSubscription = null;
-    managedRxSourceId = null;
-    managedRxStartupFrameRequestSourceId = null;
   }
   if (
     rxSourceId &&
@@ -2392,6 +2501,11 @@ const syncManagedStreamSubscriptions = (
     !managedRxSubscription &&
     managedRxSubscribePendingSourceId !== rxSourceId
   ) {
+    const subscribeOverrides = resolveManagedRxSubscribeOverrides(
+      pendingManagedRxSubscribeOverrides,
+      rxOptionsOverride,
+    );
+    pendingManagedRxSubscribeOverrides = null;
     managedRxSubscribePending = true;
     managedRxSubscribePendingSourceId = rxSourceId;
     const key = { sourceId: rxSourceId, mode: "rx" as const };
@@ -2401,7 +2515,7 @@ const syncManagedStreamSubscriptions = (
         buildManagedRxOptions(
           getState(),
           desiredRxSource,
-          rxOptionsOverride ?? {},
+          subscribeOverrides,
         ),
         (event) =>
           handleManagedStreamEvent(rxSourceId, "rx", event, dispatch, getState),
@@ -2451,6 +2565,10 @@ const syncManagedStreamSubscriptions = (
           latestState.sourceFrameReadiness ??
           null;
         if (
+          shouldRequestPausedManagedRxFrame({
+            paused: paused === true,
+            alreadyRequested: managedRxStartupFrameRequestSourceId === rxSourceId,
+          }) ||
           shouldRequestManagedRxStartupFrame({
             activeSourceId: latestState.activeSourceId,
             rxSourceId,
@@ -2487,7 +2605,7 @@ const syncManagedStreamSubscriptions = (
   ) {
     // Existing subscriptions already own the backend's effective options.
     // Status/frame hydration must not replay this client's cached center as a
-    // device-wide write; only an explicit local option action supplies an
+    // device-wide write; only an explicit device-scoped option action supplies an
     // override and is allowed to enter the scheduler.
     const currentOptions = managedRxSubscription.effectiveOptions;
     if (currentOptions.mode === "rx") {
@@ -3032,7 +3150,6 @@ export const processWebSocketMessage = (
 
   if (parsedData?.type === "signal_display_settings") {
     const deviceSettings = {
-      sampleRateHz: parsedData.sample_rate,
       fftSize: parsedData.fft_size,
       fftFrameRate: parsedData.frame_rate,
       ...(typeof parsedData.gain === "number" ? { gain: parsedData.gain } : {}),
@@ -3137,6 +3254,7 @@ export const processWebSocketMessage = (
         sources,
         subscriberPausedBySource,
       );
+      persistSubscriberPauseIntent();
       const requestedSourceWasRemoved = shouldRetireRemovedSourceRequest({
         requestedSourceId,
         sources,
@@ -3471,12 +3589,6 @@ export const processWebSocketMessage = (
         );
       }
 
-      const incomingSampleRate =
-        typeof parsedData.sample_rate === "number" &&
-        Number.isFinite(parsedData.sample_rate) &&
-        parsedData.sample_rate > 0
-          ? parsedData.sample_rate
-          : null;
       const targetSourceIdForState =
         parsedData.source_id || getState().websocket.activeSourceId;
       const centerFrequency =
@@ -3486,7 +3598,7 @@ export const processWebSocketMessage = (
           : null;
       const nextSources =
         !isMockTxTarget &&
-        (incomingSampleRate !== null || centerFrequency !== null)
+        centerFrequency !== null
           ? currentSources.map((source) =>
               source.id === targetSourceIdForState
                 ? {
@@ -3495,9 +3607,6 @@ export const processWebSocketMessage = (
                       ...source.sdr,
                       settings: {
                         ...source.sdr.settings,
-                        ...(incomingSampleRate !== null
-                          ? { sample_rate: incomingSampleRate }
-                          : {}),
                         ...(centerFrequency !== null
                           ? {
                               center_frequency:
@@ -3519,12 +3628,6 @@ export const processWebSocketMessage = (
       dispatch(
         updateDeviceState({
           ...(isSelectedSource ? { channels } : {}),
-          ...(!isMockTxTarget &&
-          !isLocalEcho &&
-          isSelectedSource &&
-          incomingSampleRate !== null
-            ? { sampleRateHz: incomingSampleRate }
-            : {}),
           ...(!isLocalEcho && nextSources.length > 0
             ? { sources: nextSources }
             : {}),
@@ -3534,18 +3637,9 @@ export const processWebSocketMessage = (
         !isLocalEcho &&
         !isMockTxTarget &&
         isSelectedSource &&
-        (incomingSampleRate !== null || hasAuthoritativeSelection)
+        hasAuthoritativeSelection
       ) {
-        dispatch(
-          setSdrSettingsBundle({
-            ...(incomingSampleRate !== null
-              ? { sampleRateHz: incomingSampleRate }
-              : {}),
-            ...(hasAuthoritativeSelection
-              ? { frequencyRange: selectedRange }
-              : {}),
-          }),
-        );
+        dispatch(setSdrSettingsBundle({ frequencyRange: selectedRange }));
       }
       if (parsedData.error) {
         dispatch(setOperationalError(`Error: ${parsedData.error}`));
@@ -3943,6 +4037,9 @@ const createWebSocketMiddleware =
         sourceModeStreamManager = createSourceModeStreamManager({
           transportFactory: multiplexedStreamTransport.transportFactory,
         });
+        // Re-assert the persisted pause intent before any subscription is
+        // synced, so a reloaded page cannot silently resume a paused stream.
+        restoreSubscriberPauseIntent();
         installDeliveryDemandListener();
 
         const connect = () => {
@@ -4024,51 +4121,8 @@ const createWebSocketMiddleware =
 
                 const spectrumSettings = state.spectrum;
                 if (spectrumSettings) {
-                  const sdrSettingsPayload: Record<string, any> = {
-                    type: "settings",
-                    scope: "device",
-                  };
-                  if (
-                    typeof spectrumSettings.fftSize === "number" &&
-                    spectrumSettings.fftSize > 0
-                  ) {
-                    sdrSettingsPayload.fftSize = spectrumSettings.fftSize;
-                  }
-                  if (
-                    typeof spectrumSettings.fftWindow === "string" &&
-                    spectrumSettings.fftWindow.length > 0
-                  ) {
-                    sdrSettingsPayload.fftWindow = spectrumSettings.fftWindow;
-                  }
-                  if (
-                    typeof spectrumSettings.fftFrameRate === "number" &&
-                    spectrumSettings.fftFrameRate > 0
-                  ) {
-                    sdrSettingsPayload.frameRate = clampFrameRateToProtocolLimit(
-                      spectrumSettings.fftFrameRate,
-                    );
-                  }
-                  if (
-                    typeof spectrumSettings.sampleRateHz === "number" &&
-                    spectrumSettings.sampleRateHz > 0
-                  ) {
-                    sdrSettingsPayload.sampleRate = spectrumSettings.sampleRateHz;
-                  }
-                  if (
-                    typeof spectrumSettings.gain === "number" &&
-                    spectrumSettings.gain >= 0
-                  ) {
-                    sdrSettingsPayload.gain = spectrumSettings.gain;
-                  }
-                  if (typeof spectrumSettings.ppm === "number") {
-                    sdrSettingsPayload.ppm = spectrumSettings.ppm;
-                  }
-                  if (typeof spectrumSettings.tunerAGC === "boolean") {
-                    sdrSettingsPayload.tunerAGC = spectrumSettings.tunerAGC;
-                  }
-                  if (typeof spectrumSettings.rtlAGC === "boolean") {
-                    sdrSettingsPayload.rtlAGC = spectrumSettings.rtlAGC;
-                  }
+                  const sdrSettingsPayload =
+                    buildReconnectSettingsMessage(spectrumSettings);
                   if (Object.keys(sdrSettingsPayload).length > 1) {
                     ws.send(JSON.stringify(sdrSettingsPayload));
                   }
@@ -4452,6 +4506,13 @@ const createWebSocketMiddleware =
               pendingManagedTxOptions = previewOptions;
               pendingManagedTxPreviewOptions =
                 previewOptions as ManagedTxStreamOptions;
+              // A status transition can tear this subscription down and reopen
+              // it while the option update is still unacknowledged. That
+              // rejects the in-flight update, so awaiting it before arming the
+              // one-shot would drop the request and leave the Tx canvas on its
+              // loading placeholder. Arm the source-scoped request up front so
+              // the replacement subscription replays it on hydration.
+              pendingManagedTxFrameRequestSourceId = requestedSourceId;
               const previewSubscription = managedTxSubscription;
               void previewSubscription
                 .updateOptions(previewOptions)
@@ -4464,6 +4525,7 @@ const createWebSocketMiddleware =
                     managedTxSubscription === previewSubscription &&
                     managedTxSourceId === requestedSourceId
                   ) {
+                    pendingManagedTxFrameRequestSourceId = null;
                     previewSubscription.requestNextFrame();
                   }
                 })
@@ -4508,7 +4570,7 @@ const createWebSocketMiddleware =
           wsInstance.ws.send(JSON.stringify({ type, ...normalizedData }));
           if (type === "settings") {
             const rxOptionsOverride =
-              resolveManagedRxOptionsOverride(normalizedData, getState());
+              resolveManagedRxOptionsOverride(normalizedData);
             if (Object.keys(rxOptionsOverride).length > 0) {
               syncManagedStreamSubscriptions(
                 dispatch,
@@ -4575,6 +4637,7 @@ const createWebSocketMiddleware =
 
         if (sourceId) {
           subscriberPausedBySource.set(sourceId, isPaused);
+          persistSubscriberPauseIntent();
           presentationController.setPaused(sourceId, mode, isPaused);
           if (managedRxSubscription?.stream.sourceId === sourceId) {
             managedRxSubscription.setPaused(isPaused);
@@ -4706,7 +4769,6 @@ const createWebSocketMiddleware =
               ? managedTxSubscription
               : null;
           if (activeSubscription) {
-            pendingManagedTxFrameRequestSourceId = null;
             void activeSubscription
               .updateOptions(previewOptions)
               .then(() => {
@@ -4714,6 +4776,7 @@ const createWebSocketMiddleware =
                   managedTxSubscription === activeSubscription &&
                   managedTxSourceId === sourceId
                 ) {
+                  pendingManagedTxFrameRequestSourceId = null;
                   activeSubscription.requestNextFrame();
                 }
               })

@@ -29,6 +29,13 @@ const TRAILER_MAGIC = new TextEncoder().encode("NAPTTRLR");
 const TRAILER_HEADER_SIZE = 24;
 const PBKDF2_ITERATIONS = 100_000;
 const PBKDF2_SALT = new TextEncoder().encode("n-apt-aes-salt-v1");
+import {
+  NAPT_FORMAT_VERSION,
+  NAPT_TRAILER_VERSION,
+  INTEGRITY_SCOPE,
+  integrityPlaceholder,
+  stampIntegrity,
+} from "./iqIntegrity";
 type CaptureBytes = Uint8Array<ArrayBuffer>;
 
 const copyBytes = (bytes: Uint8Array): CaptureBytes => {
@@ -82,7 +89,7 @@ const base64 = (bytes: Uint8Array): string => {
 
 const createIqMetadata = (metadata: CaptureMetadata): CaptureMetadata => ({
   format: "iq",
-  format_version: 4,
+  format_version: NAPT_FORMAT_VERSION,
   interleaving: "IQ",
   sample_encoding: {
     element_type: "integer",
@@ -114,7 +121,7 @@ const encodeIqPayload = (
   return concatBytes(...parts);
 };
 
-export const encodeIqCaptureV4 = ({
+export const encodeIqCaptureV4 = async ({
   metadata,
   frameUpdates,
   chunks,
@@ -124,14 +131,20 @@ export const encodeIqCaptureV4 = ({
   frameUpdates: IqCaptureFrameUpdate[];
   chunks: IqCaptureChunk[];
   privateMetadata?: Record<string, unknown>;
-}): Uint8Array => {
+}): Promise<Uint8Array> => {
   const metadataObject = createIqMetadata({ ...metadata, encrypted: false });
   const framesBytes = utf8(JSON.stringify(frameUpdates));
   const payload = encodeIqPayload(chunks, privateMetadata);
   let binaryOffset = 0;
   let trailerOffset = 0;
   let metadataBytes = new Uint8Array(0);
-  const trailerBytes = utf8("{}");
+  const trailerBytes = utf8(JSON.stringify({
+    integrity: {
+      algorithm: "SHA-256",
+      scope: INTEGRITY_SCOPE,
+      digest: integrityPlaceholder(),
+    },
+  }));
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
     metadataObject.sections = {
@@ -145,7 +158,7 @@ export const encodeIqCaptureV4 = ({
         offset_bytes: trailerOffset,
         length_bytes: TRAILER_HEADER_SIZE + trailerBytes.byteLength,
         encoding: "utf8_json",
-        version: 1,
+        version: NAPT_TRAILER_VERSION,
       },
     };
     metadataBytes = utf8(JSON.stringify(metadataObject));
@@ -175,7 +188,7 @@ export const encodeIqCaptureV4 = ({
     writeU64(trailerBytes.byteLength),
     trailerBytes,
   );
-  return header;
+  return stampIntegrity(header);
 };
 
 export const decodeIqCaptureHeader = (
@@ -301,14 +314,22 @@ export const encodeNaptCaptureV4 = async ({
   const metadataObject: CaptureMetadata = {
     ...metadata,
     format: "napt",
-    format_version: 4,
+    format_version: NAPT_FORMAT_VERSION,
     encrypted: true,
     interleaving: "IQ",
     channels: channelMetadata,
     wrapped_dek: base64(wrappedDek),
   };
   const trailerJson = utf8(
-    JSON.stringify({ processing: { operation: "capture" }, tool_version: "0.5.0" }),
+    JSON.stringify({
+      processing: { operation: "capture" },
+      tool_version: "0.5.0",
+      integrity: {
+        algorithm: "SHA-256",
+        scope: INTEGRITY_SCOPE,
+        digest: integrityPlaceholder(),
+      },
+    }),
   );
   let headerSize = Math.max(
     4096,
@@ -328,7 +349,7 @@ export const encodeNaptCaptureV4 = async ({
         offset_bytes: trailerOffset,
         length_bytes: TRAILER_HEADER_SIZE + trailerJson.byteLength,
         encoding: "utf8_json",
-        version: 1,
+        version: NAPT_TRAILER_VERSION,
       },
     };
     completeJson = JSON.stringify({ metadata: metadataObject });
@@ -342,7 +363,7 @@ export const encodeNaptCaptureV4 = async ({
   const headerBytes = utf8(completeJson);
   const padding = new Uint8Array(Math.max(0, headerSize - headerBytes.byteLength - 1));
   padding.fill(0x20);
-  return concatBytes(
+  return stampIntegrity(concatBytes(
     headerBytes,
     Uint8Array.of(0x0a),
     padding,
@@ -352,5 +373,5 @@ export const encodeNaptCaptureV4 = async ({
     new Uint8Array(7),
     writeU64(trailerJson.byteLength),
     trailerJson,
-  );
+  ));
 };

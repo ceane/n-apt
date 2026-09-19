@@ -1,0 +1,83 @@
+version: 2
+
+# Several decisions here mirror constraints that already exist in the repo:
+#
+# * `.npmrc` sets `min-release-age=7`, so Dependabot is given the same 7-day
+#   cooldown rather than proposing versions the install would refuse.
+# * The repo pins exact versions (`save-exact=true`), so version updates are
+#   expected to arrive as explicit bumps rather than range widenings.
+# * `mock_apt_metal` and the WASM crate train move in lockstep, so related
+#   packages are grouped to avoid half-applied upgrades.
+# * Note: `Cargo.lock` is currently gitignored (see .gitignore). Dependabot's
+#   cargo support expects a lockfile it can reason about, so that entry may not
+#   produce useful PRs until Cargo.lock is committed.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # The vitest cluster must move as one unit: the coverage and browser
+      # providers peer on the vitest major.
+      vitest:
+        patterns:
+          - vitest
+          - "@vitest/*"
+      # These trios are version-locked in practice.
+      react-router:
+        patterns:
+          - react-router
+          - "@react-router/*"
+      tailwind:
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/*"
+      radix:
+        patterns:
+          - "@radix-ui/*"
+      playwright:
+        patterns:
+          - playwright
+          - "@playwright/test"
+      # Type packages trail their runtime by design (e.g. @types/three must not
+      # outrun three), so keep them together rather than interleaved.
+      types:
+        patterns:
+          - "@types/*"
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"

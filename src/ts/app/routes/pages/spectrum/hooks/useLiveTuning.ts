@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch } from "@reduxjs/toolkit";
 import type {
   FrequencyRange,
@@ -91,10 +91,12 @@ export const useFrequencyTuning = (options: UseFrequencyTuningOptions) => {
       (range) => sendLiveFrequencyRangeRef.current(range),
     );
   }
-  setLiveFrequencyRangeRef.current = (nextRange) => {
-    reduxDispatch(setFrequencyRange(nextRange));
-  };
-  sendLiveFrequencyRangeRef.current = sendFrequencyRange;
+  useLayoutEffect(() => {
+    setLiveFrequencyRangeRef.current = (nextRange) => {
+      reduxDispatch(setFrequencyRange(nextRange));
+    };
+    sendLiveFrequencyRangeRef.current = sendFrequencyRange;
+  }, [reduxDispatch, sendFrequencyRange]);
   useEffect(
     () => () => {
       liveFrequencyRangePublisherRef.current?.cancel();
@@ -189,13 +191,10 @@ export const useFrequencyTuning = (options: UseFrequencyTuningOptions) => {
       }
 
       const primaryBounds = resolveNavigationFrequencyBounds({
-        channelBounds: activeSignalAreaBounds,
         hardwareBounds: hardwareSpectrumBounds,
       });
       const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds
-          ? clampFrequencyRangeToBounds(range, primaryBounds)
-          : range,
+        clampFrequencyRangeToBounds(range, primaryBounds),
       );
       publishFrequencyRange(clampedRange, source);
       applyTxMonitorForRange(clampedRange, source);

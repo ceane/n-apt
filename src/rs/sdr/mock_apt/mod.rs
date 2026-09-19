@@ -2007,15 +2007,37 @@ signals:
     sleep(Duration::from_millis(300));
     write_test_signals_yaml(&yaml_path, 500_000, -95, true);
     crate::server::utils::clear_signals_config_cache();
-    let metal_device = MockAptDevice::new();
+    let mut metal_device = MockAptDevice::new();
 
     if MockAptDevice::metal_backend_available() {
       assert!(metal_device.gpu_backend_enabled());
       assert_eq!(metal_device.device_type(), "Mock APT SDR (Metal)");
       assert_eq!(metal_device.generation_backend_label(), "Metal");
+      assert!(
+        metal_device.gpu_backend_error().is_none(),
+        "Metal is enabled but also carries an error: {:?}",
+        metal_device.gpu_backend_error()
+      );
+
+      // Drive the GPU pipeline end to end: frames must come back at the
+      // requested geometry and must keep advancing.
+      metal_device.read_samples(1024).expect("prime Metal frame");
+      let frame1 = metal_device.read_samples(32_768).expect("Metal frame 1");
+      let frame2 = metal_device.read_samples(32_768).expect("Metal frame 2");
+      assert_eq!(frame1.data.len(), 32_768 * 2);
+      assert_eq!(frame2.data.len(), 32_768 * 2);
+      assert_ne!(
+        frame1.data, frame2.data,
+        "Metal-backed frames should continue advancing"
+      );
     } else {
+      // Configured on, but unusable on this host: the backend must report why
+      // rather than silently degrading to the CPU path.
       assert!(!metal_device.gpu_backend_enabled());
-      assert!(metal_device.gpu_backend_error().is_some());
+      assert!(
+        metal_device.gpu_backend_error().is_some(),
+        "gpu_gen_via_metal is true but no gpu_backend_error() was recorded"
+      );
     }
 
     sleep(Duration::from_millis(300));

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import {
   clampVizZoom,
@@ -195,7 +195,9 @@ export function useSpectrumInteraction({
   // Native listeners are registered once; pause toggles must not re-bind them,
   // so the current value is mirrored into a ref the handlers read.
   const isPausedRef = useRef(isPaused);
-  isPausedRef.current = isPaused;
+  useLayoutEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
   const txSliderHandleRef = useRef<"left" | "right" | "body" | null>(null);
   const txSliderBodyDragOffsetHzRef = useRef(0);
   const pendingTxGeometryRef = useRef<{
@@ -278,9 +280,11 @@ export function useSpectrumInteraction({
   // below additionally limits browser-side momentum fan-out to one range per
   // animation frame.
   const onFrequencyRangeChangeRef = useRef(onFrequencyRangeChange);
-  onFrequencyRangeChangeRef.current = onFrequencyRangeChange;
   const onDragRepaintRef = useRef(onDragRepaint);
-  onDragRepaintRef.current = onDragRepaint;
+  useLayoutEffect(() => {
+    onFrequencyRangeChangeRef.current = onFrequencyRangeChange;
+    onDragRepaintRef.current = onDragRepaint;
+  }, [onFrequencyRangeChange, onDragRepaint]);
   const wheelRangePublicationFrameRef = useRef<number | null>(null);
   const wheelRangePublicationPendingRef = useRef<FrequencyRange | null>(null);
   const wheelRangePublicationSentRef = useRef(false);
@@ -1067,6 +1071,12 @@ export function useSpectrumInteraction({
       return { min: minPan, max: maxPan };
     };
 
+    // Navigation/VFO pan is bounded by the device spectrum, never by the active
+    // channel. Falling back to channel bounds here trapped panning inside the
+    // selected channel before the hardware bounds hydrated.
+    const navigationPanBounds = (): FrequencyRange =>
+      hardwareSpectrumBounds ?? getAvailableSpectrumBounds(null);
+
     const clampVizPan = (
       pan: number,
       sourceRange: FrequencyRange,
@@ -1207,7 +1217,7 @@ export function useSpectrumInteraction({
         nextPan - (newHardwareCenter - currentHardwareCenter),
         clampedHardwareRange,
         zoom,
-        hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+        navigationPanBounds(),
       );
       onVizPanReanchor?.(remainingPan);
       if (!onVizPanReanchor) onVizPanChange(remainingPan);
@@ -1730,8 +1740,7 @@ export function useSpectrumInteraction({
                       newPan,
                       bounds,
                       zoom,
-                      hardwareSpectrumBounds ??
-                        signalAreaBounds?.[activeSignalArea],
+                      navigationPanBounds(),
                     );
               onVizPanChange(clampedPan);
               if (vizPanOffsetRef) {
@@ -1813,7 +1822,7 @@ export function useSpectrumInteraction({
               desiredPan,
               frequencyRangeRef.current,
               zoom,
-              hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+              navigationPanBounds(),
             );
         onVizPanChange(clampedPan);
         if (vizPanOffsetRef) {
@@ -2772,11 +2781,17 @@ export function useSpectrumInteraction({
       // through to page scrolling or a different canvas interaction.
       const isOverVfo =
         !fullPlotSelection && y >= rect.height - getVfoInteractionHeight();
+      const isOverPlotBody =
+        x >= plot.left &&
+        x <= plot.right &&
+        y >= plot.top &&
+        y <= plot.bottom;
       const isOverMargin =
         x < 50 ||
         x > rect.width - 40 ||
         y < 20 ||
         y > rect.height - 40 - getReservedBottomHeight() ||
+        isOverPlotBody ||
         isOverVfo;
 
       if (isOverMargin) {
@@ -2791,11 +2806,12 @@ export function useSpectrumInteraction({
         const rawDelta =
           Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
         // Synthetic/native events without deltaMode already use CSS-pixel
-        // deltas. Preserve that legacy path while normalizing explicit line or
-        // page units from real browser wheel events.
+        // deltas. Normalizing explicit line or page units still applies the
+        // per-event cap; the raw path is held to one viewport so a synthetic
+        // event cannot scroll the window without bound.
         const deltaPx =
           e.deltaMode === undefined
-            ? rawDelta
+            ? Math.max(-rect.width, Math.min(rect.width, rawDelta))
             : normalizeWheelPanDelta(rawDelta, e.deltaMode, rect.height);
 
         const canvas = getActiveSpectrumCanvas();
@@ -2865,7 +2881,7 @@ export function useSpectrumInteraction({
                 newPan,
                 frequencyRangeRef.current,
                 zoom,
-                hardwareSpectrumBounds ?? signalAreaBounds?.[activeSignalArea],
+                navigationPanBounds(),
               );
           onVizPanChange(newPan);
           vizPanOffsetRef.current = newPan;

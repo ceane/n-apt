@@ -129,7 +129,7 @@ const rebuildStatusPlugin = () => ({
 
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Access-Control-Allow-Origin", "*");
-      const statusFile = path.resolve(dirname, ".rebuild_status.json");
+      const statusFile = path.resolve(dirname, ".n-apt", "rebuild_status.json");
       if (fs.existsSync(statusFile)) {
         res.end(fs.readFileSync(statusFile));
       } else {
@@ -233,9 +233,47 @@ export default defineConfig(({ mode }) => {
     })
   ],
   optimizeDeps: {
-    include: ['styled-components', 'react', 'react-dom'],
+    // Every bare import in the app graph belongs here. A dependency Vite meets
+    // for the first time mid-session (on navigating to a lazy route) makes it
+    // re-optimize and hard reload the page, which reads as the app constantly
+    // "refreshing itself". Keep this list in step with the import graph.
+    include: [
+      'styled-components',
+      'react',
+      'react-dom',
+      'react-redux',
+      '@reduxjs/toolkit',
+      'react-router',
+      'react-helmet-async',
+      'lucide-react',
+      'framer-motion',
+      'zod',
+      'zustand',
+      'dexie',
+      'dompurify',
+      'leaflet',
+      'react-leaflet',
+      'three',
+      'three-stdlib',
+      '@react-three/fiber',
+      '@react-three/drei',
+      '@react-three/postprocessing',
+      '@xyflow/react',
+      'leva',
+      'gsap',
+      'katex',
+      'react-katex',
+      'react-markdown',
+      'remark-gfm',
+      'rehype-raw',
+      'rehype-katex',
+      'unified',
+      'unist-util-visit',
+      '@chenglou/pretext',
+    ],
     // Heavy / route-lazy packages: keep out of cold Rolldown prebundle so
-    // Vite can serve the app before these are needed.
+    // Vite can serve the app before these are needed. `exclude` skips
+    // prebundling entirely, so these never trigger a re-optimize reload.
     exclude: [
       '@huggingface/transformers',
       'elkjs',

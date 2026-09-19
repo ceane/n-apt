@@ -48,6 +48,18 @@ describe("filterMultiplexStreamPresentationFrames", () => {
 });
 
 describe("has/filter tx preview frames", () => {
+  it("retains the broader legacy has predicate but excludes untagged transmitting frames from previews", () => {
+    expect(hasMultiplexStreamTxPreviewFrame([transmittingFrame])).toBe(true);
+    expect(filterMultiplexStreamTxPreviewFrames([transmittingFrame])).toEqual([]);
+    const taggedTransmit = { ...transmittingFrame, is_tx_preview: true };
+    expect(filterMultiplexStreamTxPreviewFrames([
+      transmittingFrame, taggedTransmit, standbyPreview, legacyAliasPreview,
+    ])).toEqual([taggedTransmit, standbyPreview, legacyAliasPreview]);
+    expect(filterMultiplexStreamTxPreviewFrames([
+      { is_tx_preview: 1 }, { is_mock_tx_preview: "true" },
+    ])).toEqual([]);
+  });
+
   it("detects preview frames inside a mixed batch", () => {
     const frames = [rxFrame, standbyPreview];
     expect(hasMultiplexStreamTxPreviewFrame(frames)).toBe(true);
@@ -72,6 +84,38 @@ describe("resolveMultiplexStreamPresentationBatch", () => {
     isSelectedTxPresentationTransmitting: false,
     hasTxPreviewFrame: false,
   };
+
+  it("matches the inline middleware predicates for every boolean combination", () => {
+    const flags = [
+      "isFileSource", "isPaused", "pausedRequestInFlight",
+      "isActiveTxMonitorStandby", "isActiveBoundTxPreviewStandby",
+      "isSelectedTxPresentationStandby", "isActiveTxMonitorTransmitting",
+      "isSelectedTxPresentationTransmitting", "hasTxPreviewFrame",
+    ] as const;
+    for (const frameCount of [0, 1, 3]) {
+      for (let mask = 0; mask < 2 ** flags.length; mask += 1) {
+        const input = { ...liveInput, frameCount };
+        flags.forEach((flag, index) => {
+          input[flag] = (mask & (1 << index)) !== 0;
+        });
+        const shouldAcceptPausedFrame = input.hasTxPreviewFrame ||
+          (input.isPaused && input.pausedRequestInFlight);
+        const accept = frameCount > 0 &&
+          ((!input.isPaused && !input.isActiveTxMonitorStandby &&
+            !input.isActiveBoundTxPreviewStandby && !input.isSelectedTxPresentationStandby) ||
+            shouldAcceptPausedFrame || input.isActiveTxMonitorTransmitting) &&
+          !input.isFileSource;
+        const replacePausedPresentation = accept &&
+          (input.isPaused || input.isActiveTxMonitorStandby ||
+            input.isActiveBoundTxPreviewStandby || input.isSelectedTxPresentationStandby) &&
+          (shouldAcceptPausedFrame || input.hasTxPreviewFrame) &&
+          !input.isActiveTxMonitorTransmitting && !input.isSelectedTxPresentationTransmitting;
+        expect(resolveMultiplexStreamPresentationBatch(input)).toEqual({
+          accept, replacePausedPresentation,
+        });
+      }
+    }
+  });
 
   it("accepts ordinary live streaming batches in append mode", () => {
     expect(resolveMultiplexStreamPresentationBatch(liveInput)).toEqual({

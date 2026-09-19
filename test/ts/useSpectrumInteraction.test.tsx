@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, render, act } from "@testing-library/react";
 import { useSpectrumInteraction } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import React from "react";
 
@@ -442,10 +442,18 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
+    // One wheel event is capped at a viewport, so pan past the mirrored
+    // extent with two ticks rather than a single outsized delta.
     triggerWheel({
       clientX: 500,
       clientY: 590,
-      deltaY: -2000,
+      deltaY: -1000,
+      ctrlKey: false,
+    } as any);
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: -1000,
       ctrlKey: false,
     } as any);
 
@@ -456,6 +464,33 @@ describe("useSpectrumInteraction Hook", () => {
     // Previously clamped near -10 Hz (mirrored extent of [0, 10]); unbounded
     // mirror pan must keep scrolling past that edge.
     expect(lastPan).toBeLessThan(-10);
+  });
+
+  it("caps a single synthetic wheel event at one viewport", () => {
+    frequencyRangeRef.current = { min: 0, max: 10 };
+    defaultOptions.vizPanOffsetRef.current = 0;
+
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        allowNegativeFrequencies: true,
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 590,
+      deltaY: -5000,
+      ctrlKey: false,
+    } as any);
+
+    const lastPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    // A synthetic event that omits deltaMode must not scroll without bound:
+    // the raw path is held to one viewport (10 Hz here) per event.
+    expect(Math.abs(lastPan)).toBeLessThanOrEqual(10);
   });
 
   it("retunes when mirror-on scroll crosses DC on an uncovered acquisition", () => {
@@ -1321,6 +1356,50 @@ describe("useSpectrumInteraction Hook", () => {
     });
   });
 
+  it("pans the spectrum when the wheel is over the plot body", () => {
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 100, max: 110 } },
+        signalAreaBounds: { TEST: { min: 100, max: 110 } },
+        hardwareSpectrumBounds: { min: 0, max: 1000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 300,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 102,
+      max: 112,
+    });
+  });
+
+  it("does not trap zoomed wheel panning inside the active channel without hardware bounds", () => {
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 0, max: 100 } },
+        signalAreaBounds: { TEST: { min: 40, max: 60 } },
+        hardwareSpectrumBounds: null,
+        vizZoomRef: { current: 2 },
+        vizPanOffsetRef: { current: 0 },
+      }),
+    );
+
+    // A wheel outside the VFO rows pans the viewport. The channel [40, 60]
+    // must not cap the pan: the acquisition window [0, 100] is the bound.
+    triggerWheel({ clientX: 500, clientY: 10, deltaY: 200 });
+
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(10);
+  });
+
   it("allows Whole Channel dragging below the selected channel start", () => {
     const localRangeRef = { current: { min: 4_750_000, max: 23_000_000 } };
 
@@ -1768,6 +1847,46 @@ describe("useSpectrumInteraction Hook", () => {
     expect(lastPan()).toBe(0);
     expect(lastRange().min).toBeGreaterThan(0);
     triggerPointerUp(500, 550);
+  });
+
+  it("keeps native listeners on committed callbacks while an update suspends", () => {
+    const committedPublish = jest.fn();
+    const pendingPublish = jest.fn();
+    const committedRepaint = jest.fn();
+    const pendingRepaint = jest.fn();
+    const suspended = new Promise<void>(() => {});
+    const bounds = { min: 0, max: 1000 };
+    const Probe = ({ pending, suspend }: { pending: boolean; suspend: boolean }) => {
+      useSpectrumInteraction({
+        ...defaultOptions,
+        hardwareSpectrumBounds: bounds,
+        onFrequencyRangeChange: pending ? pendingPublish : committedPublish,
+        onDragRepaint: pending ? pendingRepaint : committedRepaint,
+      });
+      if (suspend) throw suspended;
+      return null;
+    };
+    const view = render(<React.Suspense fallback={null}><Probe pending={false} suspend={false} /></React.Suspense>);
+    const bindings = spectrumContainerRef.current.addEventListener.mock.calls.length;
+    act(() => {
+      React.startTransition(() => {
+        view.rerender(<React.Suspense fallback={null}><Probe pending suspend /></React.Suspense>);
+      });
+    });
+    triggerWheel({ clientY: 590, deltaY: 100 });
+    expect(committedPublish).toHaveBeenCalledTimes(1);
+    expect(committedRepaint).toHaveBeenCalledTimes(1);
+    expect(pendingPublish).not.toHaveBeenCalled();
+    expect(pendingRepaint).not.toHaveBeenCalled();
+    expect(spectrumContainerRef.current.addEventListener.mock.calls).toHaveLength(bindings);
+    view.rerender(<React.Suspense fallback={null}><Probe pending suspend={false} /></React.Suspense>);
+    triggerWheel({ clientY: 590, deltaY: 100 });
+    flushHardwareRetune();
+    expect(pendingPublish).toHaveBeenCalledTimes(1);
+    expect(pendingRepaint).toHaveBeenCalledTimes(1);
+    const committedBindings = spectrumContainerRef.current.addEventListener.mock.calls.length;
+    view.rerender(<React.Suspense fallback={null}><Probe pending suspend={false} /></React.Suspense>);
+    expect(spectrumContainerRef.current.addEventListener.mock.calls).toHaveLength(committedBindings);
   });
 
   it("repaints the VFO overlay on hardware wheel ticks without waiting for a timer", () => {

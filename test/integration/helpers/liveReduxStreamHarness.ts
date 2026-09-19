@@ -126,6 +126,14 @@ export type LiveReduxStreamHarness = {
   simulateHardwarePresence(present: boolean): Promise<void>;
   setFftSize(fftSize: number, timeoutMs?: number): Promise<void>;
   retuneCenterFrequency(centerHz: number): Promise<number>;
+  /**
+   * Block until the managed stream topology stops changing: both mode
+   * subscriptions are open and the stream epochs, presentation target and
+   * lifecycle phase have held steady across consecutive polls. Tests use this
+   * as a barrier so a late transition from one scenario cannot land in the
+   * middle of the next one.
+   */
+  quiesce(timeoutMs?: number): Promise<void>;
   waitFor<T>(
     read: () => T,
     predicate: (value: T) => boolean,
@@ -711,6 +719,42 @@ export const createLiveReduxStreamHarness = async (
       );
 
       return performance.now() - startedAt;
+    },
+
+    async quiesce(timeoutMs = 15_000) {
+      const deadline = Date.now() + timeoutMs;
+      // A request_next_frame answer is a whole epoch away: the backend opens a
+      // stream, publishes one frame and can be superseded by the next request.
+      // Requiring a sustained quiet window rather than two adjacent polls keeps
+      // a straggler from that request out of the next scenario.
+      const requiredStableMs = 300;
+      let previousTopology: string | null = null;
+      let stableSince = 0;
+      while (Date.now() < deadline) {
+        const snapshot = harness.snapshot();
+        const subscriptionsOpen =
+          !snapshot.managed.rx.subscribePending &&
+          !snapshot.managed.tx.subscribePending;
+        // Deliberately excludes frame sequences: a streaming source advances
+        // them forever without the topology changing.
+        const topology = JSON.stringify({
+          rxEpoch: snapshot.managed.rx.streamEpoch,
+          txEpoch: snapshot.managed.tx.streamEpoch,
+          target: snapshot.presentationTarget,
+          phase: snapshot.lifecycle.phase,
+        });
+        const now = Date.now();
+        if (subscriptionsOpen && topology === previousTopology) {
+          if (now - stableSince >= requiredStableMs) return;
+        } else {
+          stableSince = now;
+        }
+        previousTopology = topology;
+        await sleep(pollIntervalMs);
+      }
+      throw new Error(
+        "Timed out waiting for the live stream harness to quiesce",
+      );
     },
 
     async waitFor(read, predicate, timeoutMs = 15_000) {

@@ -7,7 +7,12 @@ import React, {
   createContext,
   useContext,
 } from "react";
-import type { AuthState } from "@n-apt/app/routes/pages/AuthenticationRoute";
+import {
+  getAuthTransition,
+  contextAuthPolicy,
+  type AuthAction,
+  type AuthenticationState,
+} from "@n-apt/app/auth/authTransitions";
 import {
   getStoredSession,
   validateSession,
@@ -22,38 +27,12 @@ import {
 } from "@n-apt/app/infrastructure/services/auth";
 import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
 
-interface UseAuthenticationReturn {
-  authState: AuthState;
-  isAuthenticated: boolean;
-  authError: string | null;
-  sessionToken: string | null;
-  aesKey: CryptoKey | null;
-  hasPasskeys: boolean;
-  isInitialAuthCheck: boolean;
+interface UseAuthenticationReturn extends AuthenticationState {
   handlePasswordAuth: (password: string) => Promise<void>;
   handlePasskeyAuth: () => Promise<void>;
   handleRegisterPasskey: () => Promise<void>;
   logout: () => void;
 }
-
-interface AuthInternalState {
-  authState: AuthState;
-  isAuthenticated: boolean;
-  authError: string | null;
-  sessionToken: string | null;
-  aesKey: CryptoKey | null;
-  hasPasskeys: boolean;
-  isInitialAuthCheck: boolean;
-}
-
-type AuthAction =
-  | { type: "AUTHENTICATING" }
-  | { type: "AUTH_SUCCESS"; sessionToken: string; aesKey: CryptoKey }
-  | { type: "AUTH_FAILED"; error: string }
-  | { type: "SERVER_DOWN" }
-  | { type: "READY"; hasPasskeys?: boolean }
-  | { type: "SET_PASSKEYS"; hasPasskeys: boolean }
-  | { type: "REGISTER_SUCCESS"; hasPasskeys: boolean };
 
 const getInitialHasPasskeys = () => {
   if (typeof localStorage === "undefined") {
@@ -68,7 +47,7 @@ const getInitialHasPasskeys = () => {
   }
 };
 
-const initialState: AuthInternalState = {
+const initialState: AuthenticationState = {
   authState: "connecting",
   isAuthenticated: false,
   authError: null,
@@ -79,48 +58,10 @@ const initialState: AuthInternalState = {
 };
 
 function authReducer(
-  state: AuthInternalState,
+  state: AuthenticationState,
   action: AuthAction,
-): AuthInternalState {
-  switch (action.type) {
-    case "AUTHENTICATING":
-      return { ...state, authState: "authenticating", authError: null };
-    case "AUTH_SUCCESS":
-      return {
-        ...state,
-        sessionToken: action.sessionToken,
-        aesKey: action.aesKey,
-        isAuthenticated: true,
-        authState: "ready",
-        isInitialAuthCheck: false,
-      };
-    case "AUTH_FAILED":
-      return { ...state, authState: "failed", authError: action.error };
-    case "SERVER_DOWN":
-      return {
-        ...state,
-        authState: "server_down",
-        authError: "Server is down",
-        isInitialAuthCheck: false,
-      };
-    case "READY":
-      return {
-        ...state,
-        authState: "ready",
-        isInitialAuthCheck: false,
-        ...(action.hasPasskeys !== undefined && {
-          hasPasskeys: action.hasPasskeys,
-        }),
-      };
-    case "SET_PASSKEYS":
-      return { ...state, hasPasskeys: action.hasPasskeys };
-    case "REGISTER_SUCCESS":
-      return {
-        ...state,
-        hasPasskeys: action.hasPasskeys,
-        authState: "ready",
-      };
-  }
+): AuthenticationState {
+  return { ...state, ...getAuthTransition(action, contextAuthPolicy) };
 }
 
 const AuthContext = createContext<UseAuthenticationReturn | undefined>(

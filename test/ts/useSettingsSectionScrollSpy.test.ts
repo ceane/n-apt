@@ -163,6 +163,51 @@ describe("useSettingsSectionScrollSpy", () => {
     }
   });
 
+  it.each([
+    { scrollTop: 80, containerTop: 100, elementTop: 350, expected: 318 },
+    { scrollTop: 0, containerTop: 100, elementTop: 105, expected: 0 },
+  ])(
+    "uses container-relative geometry with 12px clearance: $expected",
+    ({ scrollTop, containerTop, elementTop, expected }) => {
+      const container = buildContainer();
+      const element = container.querySelector<HTMLElement>(
+        '[data-settings-section="snapshot"]',
+      )!;
+      container.scrollTop = scrollTop;
+      container.getBoundingClientRect = () =>
+        ({ top: containerTop }) as DOMRect;
+      element.getBoundingClientRect = () => ({ top: elementTop }) as DOMRect;
+      container.scrollTo = jest.fn();
+      const { result } = renderHook(() =>
+        useSettingsSectionScrollSpy({
+          containerRef: { current: container },
+          sectionIds: SECTION_IDS,
+        }),
+      );
+      act(() => result.current.scrollToSection("snapshot"));
+      expect(container.scrollTo).toHaveBeenCalledTimes(1);
+      expect(container.scrollTo).toHaveBeenCalledWith({
+        top: expected,
+        behavior: "smooth",
+      });
+      expect(result.current.activeSectionId).toBe("snapshot");
+    },
+  );
+
+  it("does not scroll or change active state for a missing section", () => {
+    const container = buildContainer();
+    container.scrollTo = jest.fn();
+    const { result } = renderHook(() =>
+      useSettingsSectionScrollSpy({
+        containerRef: { current: container },
+        sectionIds: SECTION_IDS,
+      }),
+    );
+    act(() => result.current.scrollToSection("missing"));
+    expect(container.scrollTo).not.toHaveBeenCalled();
+    expect(result.current.activeSectionId).toBe("theme");
+  });
+
   it("scrollToSection smooth-scrolls to the section and sets it active", () => {
     const containerRef = createRef<HTMLDivElement>();
     const container = buildContainer();

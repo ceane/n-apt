@@ -7,6 +7,7 @@ import { PREFERENCES_SECTIONS } from "@n-apt/settings/settingsSections";
 import { ThemeSection } from "@n-apt/settings/sidebar/ThemeSection";
 import { Row, Toggle } from "@n-apt/ui";
 import { RowLabel, RowControl, RowContainer } from "@n-apt/ui/Row";
+import { SettingSelect } from "@n-apt/ui/SidebarPrimitives";
 import { useSettingsSectionScrollSpy } from "@n-apt/settings/hooks/useSettingsSectionScrollSpy";
 import {
   useAppDispatch,
@@ -33,6 +34,7 @@ import {
   getVisualizerDefaultDbLimits,
 } from "@n-apt/consts/visualizerControls";
 import { formatFrequency } from "@n-apt/consts/sdr";
+import { assertValidSampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 import type { PowerScale } from "@n-apt/redux/slices/spectrumSlice";
 import type { CaptureFileType } from "@n-apt/consts/schemas/websocket";
@@ -217,44 +219,6 @@ const ReadOnlyValue = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
   text-align: right;
-`;
-
-const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: ${(props) => props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
-  min-width: 80px;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-  box-sizing: border-box;
-  max-width: 100%;
-  min-width: 0;
-
-  &:hover {
-    border-color: ${(props) => props.theme.borderHover};
-  }
-
-  &:focus {
-    outline: none;
-    border-color: ${(props) => props.theme.primary};
-    background-color: ${(props) => props.theme.primary}0d;
-  }
-
-  option {
-    background-color: ${(props) => props.theme.surface};
-    color: ${(props) => props.theme.textPrimary};
-    font-family: ${(props) => props.theme.typography.mono};
-  }
 `;
 
 const NumberInput = styled.input`
@@ -607,7 +571,12 @@ const SdrSettingsSection: React.FC = () => {
             aria-label="Sample Rate"
             value={sampleRateValue}
             onChange={(e) => {
-              const value = Number(e.target.value);
+              // An empty option list yields Number("") === 0 here; fail at the
+              // producer instead of dispatching a rate the reducer must drop.
+              const value = assertValidSampleRateHz(
+                Number(e.target.value),
+                "the SDR settings form",
+              );
               dispatch(setSampleRate(value));
               dispatch(setSdrSettingsBundle({ sampleRateHz: value }));
               dispatch(

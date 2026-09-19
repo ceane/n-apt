@@ -3,7 +3,6 @@ import websocketSlice from "@n-apt/redux/slices/websocketSlice";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import {
   requestNextLiveFrame,
-  resolveWholeChannelSampleRateForSourceSwitch,
   sendSelectSource,
 } from "@n-apt/redux/thunks/websocketThunks";
 
@@ -134,37 +133,9 @@ describe("requestNextLiveFrame thunk", () => {
         action?.type === "websocket/sendMessage" &&
         action?.payload?.type === "select_source",
     );
-    expect(selectAction?.payload?.data).toMatchObject({
+    expect(selectAction?.payload?.data).toEqual({
+      scope: "device",
       source_id: "hackrf-1",
-      sample_rate: 18_250_000,
     });
-  });
-
-  it("carries the active Whole Channel rate into Mock Tx", () => {
-    expect(
-      resolveWholeChannelSampleRateForSourceSwitch({
-        source: {
-          id: "mock-tx",
-          kind: "mock_tx",
-          name: "Mock Tx SDR",
-          sdr: {
-            max_sample_rate: 2_400_000,
-            sample_rate_options: [2_400_000],
-            settings: {
-              sample_rate: 2_400_000,
-            },
-          },
-        } as any,
-        channels: [
-          {
-            id: "channel-a",
-            label: "A",
-            min_hz: 18_000,
-            max_hz: 4_390_000,
-          } as any,
-        ],
-        activeSignalArea: "A",
-      }),
-    ).toBe(4_372_000);
   });
 });

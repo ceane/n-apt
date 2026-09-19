@@ -3,8 +3,6 @@ import { RootState } from "@n-apt/redux/store";
 import {
   SDRSettings,
   CaptureRequest,
-  SourceInfo,
-  SpectrumFrame,
 } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
 import {
@@ -14,11 +12,7 @@ import {
 import {
   normalizePositiveHardwareRange,
 } from "@n-apt/math/basebandMirror";
-import {
-  isHackrfDevice,
-  isRtlSdrDevice,
-} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
-import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
+import { buildSettingsWireData } from "@n-apt/redux/settingsWire";
 import { DEVICE_CONTROL_SCOPE } from "@n-apt/app/infrastructure/streams/streamContract";
 import { restartRequested } from "@n-apt/redux/slices/websocketSlice";
 import { CLIENT_ORIGIN_ID } from "@n-apt/redux/clientOrigin";
@@ -29,6 +23,11 @@ const getSampleRateHz = (state: RootState): number | null => {
   return Number.isFinite(sampleRateHz) && sampleRateHz > 0
     ? sampleRateHz
     : null;
+};
+
+const optionalIntegerHz = (value: unknown): number | undefined => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
 };
 
 const buildTunedFrequencyPayload = (
@@ -84,73 +83,6 @@ export const buildFrequencyRangeMessageData = (
   // including a signed viewport here makes another browser inherit it when
   // the backend echoes the authoritative range.
   return buildTunedFrequencyPayload(state, range);
-};
-
-const optionalIntegerHz = (value: unknown): number | undefined => {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
-};
-
-export const resolveWholeChannelSampleRateForSourceSwitch = ({
-  source,
-  channels,
-  activeSignalArea,
-}: {
-  source: Pick<SourceInfo, "id" | "kind" | "name" | "sdr"> | null | undefined;
-  channels: SpectrumFrame[];
-  activeSignalArea?: string | null;
-}): number | null => {
-  if (
-    !source ||
-    isRtlSdrDevice({
-      deviceKind: source.kind,
-      backend: source.kind,
-      deviceName: source.name,
-    })
-  ) {
-    return null;
-  }
-
-  const requestedArea = activeSignalArea?.trim().toLowerCase();
-  const channel =
-    channels.find(
-      (candidate) =>
-        requestedArea &&
-        candidate.label?.trim().toLowerCase() === requestedArea,
-    ) ?? channels[0];
-  if (
-    !channel ||
-    !Number.isFinite(channel.min_hz) ||
-    !Number.isFinite(channel.max_hz)
-  ) {
-    return null;
-  }
-
-  const channelSpan = Math.abs(channel.max_hz - channel.min_hz);
-  if (!Number.isFinite(channelSpan) || channelSpan <= 0) return null;
-
-  // Mock Tx is a synthetic monitor. Its 2.4 MHz Tx waveform does not limit
-  // the visualizer's explicit Whole Channel receive view.
-  if (source.kind === "mock_tx" || source.kind === "mock-tx") {
-    return Math.round(channelSpan);
-  }
-
-  const configuredMaximum = source.sdr?.max_sample_rate;
-  const sourceMaximum =
-    typeof configuredMaximum === "number" &&
-    Number.isFinite(configuredMaximum) &&
-    configuredMaximum > 0
-      ? configuredMaximum
-      : channelSpan;
-  const maximum = isHackrfDevice({
-    deviceKind: source.kind,
-    backend: source.kind,
-    deviceName: source.name,
-  })
-    ? Math.max(sourceMaximum, 20_000_000)
-    : sourceMaximum;
-
-  return Math.round(Math.min(channelSpan, maximum));
 };
 
 // Connect to WebSocket
@@ -388,71 +320,7 @@ export const sendSettings = createAsyncThunk(
     const state = getState() as RootState;
 
     // Validate and sanitize settings
-    const sanitized: Record<string, unknown> = {};
-
-    const isValidPositiveInt = (value: unknown) =>
-      typeof value === "number" && Number.isFinite(value) && value > 0;
-    const isValidNonNegative = (value: unknown) =>
-      typeof value === "number" && Number.isFinite(value) && value >= 0;
-
-    if (isValidPositiveInt(settings.fftSize)) {
-      sanitized.fftSize = Math.floor(settings.fftSize!);
-    }
-
-    if (
-      typeof settings.fftWindow === "string" &&
-      settings.fftWindow.trim().length > 0
-    ) {
-      sanitized.fftWindow = settings.fftWindow;
-    }
-
-    if (isValidPositiveInt(settings.frameRate)) {
-      sanitized.frameRate = clampFrameRateToProtocolLimit(settings.frameRate!);
-    }
-    if (isValidPositiveInt(settings.maxFrameRate)) {
-      sanitized.maxFrameRate = clampFrameRateToProtocolLimit(
-        settings.maxFrameRate!,
-      );
-    }
-
-    if (isValidPositiveInt(settings.sampleRate)) {
-      sanitized.sampleRate = Math.floor(settings.sampleRate!);
-    }
-
-    if (isValidNonNegative(settings.gain)) {
-      sanitized.gain = settings.gain;
-    }
-    if (isValidNonNegative(settings.hackrfLnaGain)) {
-      sanitized.hackrfLnaGain = settings.hackrfLnaGain;
-    }
-    if (isValidNonNegative(settings.hackrfVgaGain)) {
-      sanitized.hackrfVgaGain = settings.hackrfVgaGain;
-    }
-    if (typeof settings.hackrfAmpEnabled === "boolean") {
-      sanitized.hackrfAmpEnabled = settings.hackrfAmpEnabled;
-    }
-    if (
-      typeof settings.tunerBandwidth === "number" &&
-      Number.isFinite(settings.tunerBandwidth) &&
-      settings.tunerBandwidth >= 0
-    ) {
-      sanitized.tunerBandwidth = Math.round(settings.tunerBandwidth);
-    }
-
-    if (typeof settings.ppm === "number" && Number.isFinite(settings.ppm)) {
-      sanitized.ppm = Math.round(settings.ppm);
-    }
-
-    if (typeof settings.tunerAGC === "boolean") {
-      sanitized.tunerAGC = settings.tunerAGC;
-    }
-
-    if (typeof settings.rtlAGC === "boolean") {
-      sanitized.rtlAGC = settings.rtlAGC;
-    }
-    if (typeof settings.mirrorSpectrumBelowZero === "boolean") {
-      sanitized.mirror_spectrum_below_zero = settings.mirrorSpectrumBelowZero;
-    }
+    const sanitized = buildSettingsWireData(settings);
 
     if (Object.keys(sanitized).length === 0) {
       console.warn(
@@ -508,27 +376,6 @@ export const sendSelectSource = createAsyncThunk(
   async (sourceId: string, { dispatch, getState }) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
-      const frontendSampleRate = state.spectrum?.sampleRateHz;
-      const targetSource = state.websocket.sources?.find(
-        (source) => source.id === sourceId,
-      );
-      const targetIsHackRf =
-        targetSource?.kind === "hackrf_one" ||
-        sourceId.toLowerCase().includes("hackrf");
-      const wholeChannelSampleRate =
-        resolveWholeChannelSampleRateForSourceSwitch({
-          source: targetSource,
-          channels: state.websocket.channels ?? [],
-          activeSignalArea: state.spectrum?.activeSignalArea,
-        });
-      const requestedSampleRate =
-        wholeChannelSampleRate ??
-        (targetIsHackRf &&
-        typeof frontendSampleRate === "number" &&
-        Number.isFinite(frontendSampleRate) &&
-        frontendSampleRate > 0
-          ? Math.floor(frontendSampleRate)
-          : null);
       dispatch({
         type: "websocket/sendMessage",
         payload: {
@@ -536,9 +383,6 @@ export const sendSelectSource = createAsyncThunk(
           data: {
             scope: DEVICE_CONTROL_SCOPE,
             source_id: sourceId,
-            ...(requestedSampleRate !== null
-              ? { sample_rate: requestedSampleRate }
-              : {}),
           },
         },
       });

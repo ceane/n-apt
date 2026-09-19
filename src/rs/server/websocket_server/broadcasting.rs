@@ -81,7 +81,6 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
   let frequency_range = shared
     .active_frequency_range()
     .map(|(min, max)| serde_json::json!({ "min": min, "max": max }));
-  let sample_rate = shared.sdr_settings.lock().unwrap().sample_rate;
   let origin_id = shared.last_tune_origin_id.lock().unwrap().clone();
   serde_json::json!({
     "type": "channels",
@@ -89,7 +88,6 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
     "channels": channels,
     "active_signal_area": active_signal_area,
     "frequency_range": frequency_range,
-    "sample_rate": sample_rate,
     "mirror_spectrum_below_zero": shared
       .mirror_spectrum_below_zero
       .load(std::sync::atomic::Ordering::Relaxed),
@@ -99,8 +97,9 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
 }
 
 /// Broadcast the full device settings snapshot so every subscriber adopts the
-/// same device-scoped configuration (FFT size/frame rate, sample rate, gain,
-/// PPM, AGC, baseband filter). The FFT window is a local viewer choice and is
+/// same device-scoped configuration (FFT size/frame rate, gain, PPM, AGC,
+/// baseband filter). Sample rate is owned exclusively by the managed stream
+/// options. The FFT window is a local viewer choice and is
 /// intentionally not included, as are temporal resolution, DC spike removal,
 /// power scale, display mode, and zoom/pan. The signed baseband convention is
 /// broadcast in the channels snapshot because it must be shared by every
@@ -108,7 +107,6 @@ pub fn build_channels_snapshot(shared: &SharedState) -> serde_json::Value {
 pub fn broadcast_signal_display_settings(
   shared: &SharedState,
   broadcast_tx: &broadcast::Sender<String>,
-  sample_rate: u32,
   fft_size: usize,
   frame_rate: u32,
 ) {
@@ -116,7 +114,6 @@ pub fn broadcast_signal_display_settings(
   let payload = serde_json::json!({
     "type": "signal_display_settings",
     "source_id": active_source_id(shared),
-    "sample_rate": sample_rate,
     "fft_size": fft_size,
     "frame_rate": frame_rate,
     "gain": sdr_settings.gain.tuner_gain,
@@ -131,7 +128,7 @@ pub fn broadcast_signal_display_settings(
   drop(sdr_settings);
   // A settings broadcast is a state change, not a status heartbeat: it must
   // reach every client even when the previous broadcast carried the same
-  // sample_rate/fft_size/frame_rate triple (e.g. a gain-only change).
+  // display-settings values (e.g. a gain-only change).
   let _ = broadcast_tx.send(payload.to_string());
 }
 
@@ -269,7 +266,6 @@ mod tests {
     broadcast_signal_display_settings(
       &shared,
       &broadcast_tx,
-      5_200_000,
       4096,
       12,
     );
@@ -277,7 +273,7 @@ mod tests {
     let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
     assert_eq!(payload["type"], "signal_display_settings");
-    assert_eq!(payload["sample_rate"], 5_200_000);
+    assert!(payload.get("sample_rate").is_none());
     assert_eq!(payload["fft_size"], 4096);
     assert_eq!(payload["frame_rate"], 12);
     assert_eq!(payload["gain"], 18.5);

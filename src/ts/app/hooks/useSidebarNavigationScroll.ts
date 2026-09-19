@@ -1,6 +1,10 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 import type React from "react";
 import { useLocation, useNavigate } from "react-router";
+import {
+  getContainerRelativeScrollTop,
+  retryAnimationFrame,
+} from "@n-apt/ui/scrollAlignment";
 
 let hasInitializedSidebarScroll = false;
 let lastSidebarScrollTop = 0;
@@ -52,13 +56,10 @@ const getScrollTopForTab = (
   tabElement: HTMLElement,
   stickyToggle: HTMLElement | null,
 ) => {
-  const containerRect = container.getBoundingClientRect();
-  const tabRect = tabElement.getBoundingClientRect();
-  const targetTop = getRequiredTopClearance(container, stickyToggle);
-
-  return Math.max(
-    0,
-    container.scrollTop + (tabRect.top - containerRect.top) - targetTop,
+  return getContainerRelativeScrollTop(
+    container,
+    tabElement,
+    getRequiredTopClearance(container, stickyToggle),
   );
 };
 
@@ -190,11 +191,6 @@ export const useSidebarNavigationScroll = ({
     // compact File Selection row stays visible. Retry over a few frames because
     // the sidebar content (and the sticky source header) may not be laid out
     // yet on first mount.
-    let cancelled = false;
-    let frameId = 0;
-    let retryAttempts = 0;
-    const maxRetryAttempts = 60;
-
     const findStickyHeader = () =>
       container.querySelector<HTMLElement>("[data-sidebar-sticky-header]");
 
@@ -203,11 +199,10 @@ export const useSidebarNavigationScroll = ({
       const header = findStickyHeader();
       if (!currentContainer || !header) return;
 
-      const containerRect = currentContainer.getBoundingClientRect();
-      const headerRect = header.getBoundingClientRect();
-      const scrollTop = Math.max(
+      const scrollTop = getContainerRelativeScrollTop(
+        currentContainer,
+        header,
         0,
-        currentContainer.scrollTop + (headerRect.top - containerRect.top),
       );
 
       if (Math.abs(currentContainer.scrollTop - scrollTop) > 1) {
@@ -217,23 +212,13 @@ export const useSidebarNavigationScroll = ({
       hasInitializedSidebarScroll = true;
     };
 
-    const waitForHeaderThenAlign = () => {
-      if (cancelled) return;
+    return retryAnimationFrame(() => {
       if (findStickyHeader()) {
         alignStickyHeader();
-        return;
+        return true;
       }
-      retryAttempts += 1;
-      if (retryAttempts >= maxRetryAttempts) return;
-      frameId = window.requestAnimationFrame(waitForHeaderThenAlign);
-    };
-
-    waitForHeaderThenAlign();
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(frameId);
-    };
+      return false;
+    }, 60);
   }, [fileSelectionDeepLink]);
 
   useLayoutEffect(() => {
@@ -268,8 +253,6 @@ export const useSidebarNavigationScroll = ({
 
     let cancelled = false;
     let frameId = 0;
-    let retryAttempts = 0;
-    const maxRetryAttempts = 60;
 
     const getClearanceAnchor = (currentContainer: HTMLDivElement) =>
       getSidebarStickyClearanceAnchor(currentContainer) ??
@@ -326,24 +309,16 @@ export const useSidebarNavigationScroll = ({
       frameId = window.requestAnimationFrame(stabilizeAlignment);
     };
 
-    const waitForSectionThenAlign = () => {
-      if (cancelled) return;
-
+    const cancelSectionRetry = retryAnimationFrame(() => {
       const sectionElement = findSectionElement();
-      if (sectionElement) {
-        runSectionAlignment(sectionElement);
-        return;
-      }
-
-      retryAttempts += 1;
-      if (retryAttempts >= maxRetryAttempts) return;
-      frameId = window.requestAnimationFrame(waitForSectionThenAlign);
-    };
-
-    waitForSectionThenAlign();
+      if (!sectionElement) return false;
+      runSectionAlignment(sectionElement);
+      return true;
+    }, 60);
 
     return () => {
       cancelled = true;
+      cancelSectionRetry();
       window.cancelAnimationFrame(frameId);
     };
   }, [location.pathname, location.search, navigate, path, sidebarSection]);

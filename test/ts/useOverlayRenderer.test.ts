@@ -58,6 +58,32 @@ describe("useOverlayRenderer Hook", () => {
     computedStyleSpy.mockRestore();
   });
 
+  it("refreshes cached theme colors on explicit invalidation and hook rerender", () => {
+    const property = "--color-spectrum-overlay";
+    const { result, rerender } = renderHook(() => useOverlayRenderer());
+    const draw = () => result.current.drawSelectionOverlayOnContext(
+      mockCtx, 1000, 600, { min: 0, max: 100 },
+      { minFrequencyHz: 20, maxFrequencyHz: 80 },
+    );
+    const fills: string[] = [];
+    mockCtx.fillRect.mockImplementation(() => fills.push(mockCtx.fillStyle));
+    try {
+      document.documentElement.style.setProperty(property, "#123456");
+      draw();
+      document.documentElement.style.setProperty(property, "#abcdef");
+      draw();
+      invalidateOverlayThemeColorCache();
+      draw();
+      document.documentElement.style.setProperty(property, "#789abc");
+      rerender();
+      draw();
+      expect(fills).toEqual(["#123456", "#123456", "#abcdef", "#789abc"]);
+    } finally {
+      document.documentElement.style.removeProperty(property);
+      mockCtx.fillRect.mockReset();
+    }
+  });
+
   it("should draw hardware sample rate lines when appropriate", () => {
     const { result } = renderHook(() => useOverlayRenderer());
 

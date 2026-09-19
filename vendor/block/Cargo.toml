@@ -1,0 +1,26 @@
+[package]
+name = "block"
+version = "0.1.6"
+authors = ["Steven Sheldon"]
+
+description = "Rust interface for Apple's C language extension of blocks."
+keywords = ["blocks", "osx", "ios", "objective-c"]
+readme = "README.md"
+repository = "http://github.com/SSheldon/rust-block"
+documentation = "http://ssheldon.github.io/rust-objc/block/"
+license = "MIT"
+
+exclude = [
+  ".gitignore",
+  ".travis.yml",
+  "travis_install.sh",
+  "travis_test.sh",
+  "tests-ios/**",
+]
+
+# This vendored copy builds as a path dependency, so cargo no longer applies the
+# `--cap-lints allow` it uses for registry crates and upstream's bare `extern`
+# declarations would surface as `missing_abi` warnings. Keep them quiet rather than
+# touching more of the upstream source, so the patch stays a minimal diff.
+[lints.rust]
+missing_abi = "allow"

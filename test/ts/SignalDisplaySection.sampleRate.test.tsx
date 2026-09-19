@@ -38,6 +38,25 @@ const baseProps = {
 };
 
 describe("SignalDisplaySection sample rate selector", () => {
+  it("preserves compact and wide select sizing", () => {
+    render(
+      <TestWrapper>
+        <SignalDisplaySection
+          {...baseProps}
+          sampleRate={3_200_000}
+          onSampleRateChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+    const styles = screen.getAllByRole("combobox").map((select) => getComputedStyle(select));
+    expect(styles.some((style) => style.minWidth === "80px")).toBe(true);
+    expect(styles.some((style) => style.minWidth === "120px" && style.width === "100%" && style.textAlignLast === "right")).toBe(true);
+    for (const style of styles) {
+      expect(style.maxWidth).toBe("100%");
+      expect(style.boxSizing).toBe("border-box");
+    }
+  });
+
   it("exposes the Remove DC Spike display toggle", () => {
     const onRemoveDcSpikeChange = jest.fn();
     render(

@@ -4,6 +4,7 @@ import { FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { type AppStyledTheme } from "@n-apt/ui/Theme";
 import Tooltip from "@n-apt/ui/Tooltip";
+import { maxPoolDecimateInto } from "@n-apt/layout/rendering/maxPool";
 
 const Card = styled.div`
   width: 100%;
@@ -115,17 +116,7 @@ const decimateWaveform = (
   const len = waveform.length;
   if (len <= targetWidth * 1.5 || targetWidth <= 0) return waveform;
   const out = Array.from({ length: targetWidth }, () => 0);
-  const factor = len / targetWidth;
-  for (let i = 0; i < targetWidth; i++) {
-    const start = Math.floor(i * factor);
-    const end = Math.min(len, Math.floor((i + 1) * factor));
-    let max = -Infinity;
-    for (let j = start; j < end; j++) {
-      const v = waveform[j];
-      if (v > max) max = v;
-    }
-    out[i] = max === -Infinity ? -120 : max;
-  }
+  maxPoolDecimateInto(waveform, out, -120);
   return out;
 };
 

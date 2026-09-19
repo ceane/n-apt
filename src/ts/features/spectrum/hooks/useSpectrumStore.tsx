@@ -1,6 +1,7 @@
 import React, {
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useMemo,
@@ -115,6 +116,7 @@ import {
 } from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
 import {
   clampFrequencyRangeToBounds,
+  getAvailableSpectrumBounds,
   normalizeFrequencyRangeToHz,
 } from "@n-apt/math/frequency";
 import {
@@ -1094,17 +1096,17 @@ const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
 ];
 
 /**
- * Live acquisition bounds are device-scoped. A channel frame is only a
- * hydration fallback; letting it win at 1x makes a subscriber's zoom history
- * decide whether the shared source can reach an edge such as 0 Hz.
+ * Live acquisition bounds are device-scoped, never subscriber-local. The active
+ * channel must not constrain acquisition: clamping to a channel frame trapped
+ * the acquisition window inside the channel whenever the device bounds had not
+ * hydrated, so every scroll snapped back. Use the device bounds when known,
+ * otherwise the global spectrum bounds the backend advertises.
  */
 export const resolveLiveAcquisitionBounds = ({
   hardwareBounds,
-  channelBounds,
 }: {
   hardwareBounds?: FrequencyRange | null;
-  channelBounds?: FrequencyRange | null;
-}): FrequencyRange | null => {
+}): FrequencyRange => {
   if (
     hardwareBounds &&
     Number.isFinite(hardwareBounds.min) &&
@@ -1113,7 +1115,12 @@ export const resolveLiveAcquisitionBounds = ({
   ) {
     return hardwareBounds;
   }
-  return channelBounds ?? null;
+  // The active channel must never bound live acquisition. Falling back to a
+  // subscriber-local channel frame trapped the acquisition window inside the
+  // channel whenever the device bounds had not hydrated, so every scroll
+  // snapped back to the channel. Fall back to the global spectrum bounds the
+  // backend advertises, exactly like navigation bounds do.
+  return getAvailableSpectrumBounds(null);
 };
 
 // Every persisted source-view field is subscriber-local and safe to restore
@@ -1383,13 +1390,13 @@ export const resolveLiveSampleRateSourceSnapshot = <T,>({
 
 export const shouldHydrateLiveSampleRate = ({
   rate,
-  localSampleRateHz,
-  pendingLocalSampleRateHz,
+  globalSampleRateHz,
+  pendingGlobalSampleRateHz,
   hydratedBackendSampleRate,
 }: {
   rate?: number | null;
-  localSampleRateHz?: number | null;
-  pendingLocalSampleRateHz?: number | null;
+  globalSampleRateHz?: number | null;
+  pendingGlobalSampleRateHz?: number | null;
   hydratedBackendSampleRate: boolean;
 }): boolean => {
   if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
@@ -1397,25 +1404,24 @@ export const shouldHydrateLiveSampleRate = ({
   }
 
   if (
-    typeof pendingLocalSampleRateHz === "number" &&
-    Number.isFinite(pendingLocalSampleRateHz) &&
-    pendingLocalSampleRateHz > 0 &&
-    Math.round(rate) !== Math.round(pendingLocalSampleRateHz)
+    typeof pendingGlobalSampleRateHz === "number" &&
+    Number.isFinite(pendingGlobalSampleRateHz) &&
+    pendingGlobalSampleRateHz > 0 &&
+    Math.round(rate) !== Math.round(pendingGlobalSampleRateHz)
   ) {
-    // The local selector is already showing an intentional request. A stale
-    // source snapshot must not turn that request back into a device update.
+    // The global selector is already showing an intentional device request. A
+    // stale source snapshot must not turn that request back into an update.
     return false;
   }
 
-  const hasValidLocalRate =
-    typeof localSampleRateHz === "number" &&
-    Number.isFinite(localSampleRateHz) &&
-    localSampleRateHz > 0;
-  return !hasValidLocalRate || !hydratedBackendSampleRate;
+  const hasValidGlobalRate =
+    typeof globalSampleRateHz === "number" &&
+    Number.isFinite(globalSampleRateHz) &&
+    globalSampleRateHz > 0;
+  return !hasValidGlobalRate || !hydratedBackendSampleRate;
 };
 
 type SignalDisplaySettings = {
-  sampleRateHz: number | null;
   fftSize: number | null;
   frameRate: number | null;
 };
@@ -1428,7 +1434,6 @@ export const shouldSendSignalDisplaySettings = ({
   next: SignalDisplaySettings;
 }): boolean =>
   previous === null ||
-  previous.sampleRateHz !== next.sampleRateHz ||
   previous.fftSize !== next.fftSize ||
   previous.frameRate !== next.frameRate;
 
@@ -1500,7 +1505,7 @@ export const resolveEffectiveSdrSettingsForConnection = ({
 
 
 export const resolveEffectiveLiveSampleRateHz = ({
-  localSampleRateHz,
+  globalSampleRateHz,
   websocketSampleRateHz,
   sdrSettingsSampleRateHz,
   minReceiveSampleRateHz,
@@ -1510,7 +1515,7 @@ export const resolveEffectiveLiveSampleRateHz = ({
   deviceName,
   isRtlSdr,
 }: {
-  localSampleRateHz?: number | null;
+  globalSampleRateHz?: number | null;
   websocketSampleRateHz?: number | null;
   sdrSettingsSampleRateHz?: number | null;
   minReceiveSampleRateHz?: number | null;
@@ -1526,22 +1531,22 @@ export const resolveEffectiveLiveSampleRateHz = ({
     deviceName,
     isRtlSdr,
   });
-  // The accepted source rate owns the live display. A local selector value is
-  // only a request until source_info acknowledges it; allowing local intent to
-  // win indefinitely leaves the sidebar in Whole Channel while frames still
-  // arrive at 3.2 MHz and re-arms the channel/rate feedback loop.
+  // The accepted source rate owns the live display. The global Redux mirror is
+  // only a request until source_info acknowledges it; allowing global intent
+  // to win indefinitely leaves the sidebar in Whole Channel while frames
+  // still arrive at 3.2 MHz and re-arms the channel/rate feedback loop.
   const candidates = isRtlDevice
     ? [
         minReceiveSampleRateHz,
         sdrSettingsSampleRateHz,
-        localSampleRateHz,
+        globalSampleRateHz,
         maxSampleRateHz,
         websocketSampleRateHz,
       ]
     : [
         websocketSampleRateHz,
         sdrSettingsSampleRateHz,
-        localSampleRateHz,
+        globalSampleRateHz,
         maxSampleRateHz,
       ];
 
@@ -2146,7 +2151,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
     const previousInventorySourceIdsRef = useRef<Set<string>>(new Set());
     const skipNextSourceViewPersistRef = useRef<string | null>(null);
-    const pendingLocalSampleRateRef = useRef<number | null>(null);
+    const pendingGlobalSampleRateRef = useRef<number | null>(null);
 
     useEffect(
       () => () => {
@@ -2156,21 +2161,23 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     // Capture the leaving source before SpectrumRoute effects jump Mock Tx
     // geometry onto the shared frequencyRange (would otherwise poison APT).
-    const leavingSourceViewSnapshot = resolveLeavingSourceViewSnapshot({
-      previousSelectedSourceId: previousSelectedSourceIdForViewRef.current,
-      nextSelectedSourceId: selectedSourceId,
-      previousSourceViewKey: selectedSourceViewKeyRef.current,
-      state,
-    });
-    if (leavingSourceViewSnapshot) {
-      saveStoredJson(
-        leavingSourceViewSnapshot.key,
-        leavingSourceViewSnapshot.view,
-      );
-    }
-    if (previousSelectedSourceIdForViewRef.current !== (selectedSourceId || null)) {
-      previousSelectedSourceIdForViewRef.current = selectedSourceId || null;
-    }
+    useLayoutEffect(() => {
+      const leavingSourceViewSnapshot = resolveLeavingSourceViewSnapshot({
+        previousSelectedSourceId: previousSelectedSourceIdForViewRef.current,
+        nextSelectedSourceId: selectedSourceId,
+        previousSourceViewKey: selectedSourceViewKeyRef.current,
+        state,
+      });
+      if (leavingSourceViewSnapshot) {
+        saveStoredJson(
+          leavingSourceViewSnapshot.key,
+          leavingSourceViewSnapshot.view,
+        );
+      }
+      if (previousSelectedSourceIdForViewRef.current !== (selectedSourceId || null)) {
+        previousSelectedSourceIdForViewRef.current = selectedSourceId || null;
+      }
+    }, [selectedSourceId, state]);
     const deferredFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const pauseReplaySentForSourceIdRef = useRef<string | null>(null);
@@ -2505,7 +2512,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             reduxDispatch(setFftFrameRate(action.fftFrameRate));
             return;
           case "SET_SAMPLE_RATE":
-            pendingLocalSampleRateRef.current = action.sampleRateHz;
+            pendingGlobalSampleRateRef.current = action.sampleRateHz;
             reduxDispatch({
               ...setSampleRateAction(action.sampleRateHz),
               ...(action.frequencyRange
@@ -2944,21 +2951,16 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       }
     });
 
-    const cachedSdrSettingsRef = useRef<SourceSdrSettings | null>(null);
-    const cachedSdrSettingsHydratedRef = useRef(false);
-    if (!cachedSdrSettingsHydratedRef.current) {
-      cachedSdrSettingsHydratedRef.current = true;
-      cachedSdrSettingsRef.current = (() => {
-        if (typeof window === "undefined") return null;
-        try {
-          const raw = sessionStorage.getItem("napt-sdr-settings");
-          if (!raw) return null;
-          return JSON.parse(raw) as SourceSdrSettings;
-        } catch {
-          return null;
-        }
-      })();
-    }
+    const [cachedSdrSettings, setCachedSdrSettings] = useState<SourceSdrSettings | null>(() => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = sessionStorage.getItem("napt-sdr-settings");
+        if (!raw) return null;
+        return JSON.parse(raw) as SourceSdrSettings;
+      } catch {
+        return null;
+      }
+    });
     const lastLiveSourceIdRef = useRef<string | null>(null);
 
     const syncSelectedSourcePauseState = useCallback(
@@ -3393,7 +3395,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       if (!isConnected || reduxSpectrumState.detectedFrameRate == null || !activeSourceId)
         return;
       const nextSettings: SignalDisplaySettings = {
-        sampleRateHz: state.sampleRateHz ?? null,
         fftSize: state.fftSize ?? null,
         frameRate: Math.round(reduxSpectrumState.detectedFrameRate),
       };
@@ -3411,7 +3412,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           type: "signal_display_settings",
           data: {
             source_id: activeSourceId,
-            sample_rate: nextSettings.sampleRateHz,
             fft_size: state.fftSize,
             frame_rate: nextSettings.frameRate,
           },
@@ -3422,7 +3422,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       isConnected,
       reduxDispatch,
       reduxSpectrumState.detectedFrameRate,
-      state.sampleRateHz,
       state.fftSize,
       activeSourceId,
     ]);
@@ -3624,7 +3623,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     useEffect(() => {
       if (!isConnected) {
-        cachedSdrSettingsRef.current = null;
+        setCachedSdrSettings(null);
         try {
           sessionStorage.removeItem("napt-sdr-settings");
         } catch {
@@ -3633,9 +3632,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
       if (!sdrSettings) return;
-      cachedSdrSettingsRef.current = resolveCachedSdrSettings(
-        cachedSdrSettingsRef.current,
-        sdrSettings,
+      setCachedSdrSettings((current) =>
+        resolveCachedSdrSettings(current, sdrSettings),
       );
       try {
         sessionStorage.setItem(
@@ -3696,7 +3694,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     useEffect(() => {
       hydratedBackendSampleRateRef.current = false;
-      pendingLocalSampleRateRef.current = null;
+      pendingGlobalSampleRateRef.current = null;
       hasInitializedBackendSettingsRef.current = false;
       // Force re-sending the current frequency range to the newly activated
       // device so it tunes to the user's last frequency, not the backend default.
@@ -3720,11 +3718,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         deviceName: liveSampleRateSource.deviceName,
         isRtlSdr: liveSampleRateSource.isRtlSdr,
       });
-      const pendingLocalSampleRateHz = pendingLocalSampleRateRef.current;
+      const pendingGlobalSampleRateHz = pendingGlobalSampleRateRef.current;
       const shouldHydrateRate = shouldHydrateLiveSampleRate({
         rate,
-        localSampleRateHz: state.sampleRateHz,
-        pendingLocalSampleRateHz,
+        globalSampleRateHz: state.sampleRateHz,
+        pendingGlobalSampleRateHz,
         hydratedBackendSampleRate: hydratedBackendSampleRateRef.current,
       });
 
@@ -3736,12 +3734,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         reduxDispatch(setSampleRateAction(rate));
       }
       if (
-        typeof pendingLocalSampleRateHz === "number" &&
+        typeof pendingGlobalSampleRateHz === "number" &&
         typeof rate === "number" &&
         Number.isFinite(rate) &&
-        Math.round(rate) === Math.round(pendingLocalSampleRateHz)
+        Math.round(rate) === Math.round(pendingGlobalSampleRateHz)
       ) {
-        pendingLocalSampleRateRef.current = null;
+        pendingGlobalSampleRateRef.current = null;
       }
       if (typeof rate === "number" && rate > 0) {
         hydratedBackendSampleRateRef.current = true;
@@ -3775,11 +3773,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const effectiveSdrSettings = resolveEffectiveSdrSettingsForConnection({
       isConnected,
       liveSettings: sdrSettings,
-      cachedSettings: cachedSdrSettingsRef.current,
+      cachedSettings: cachedSdrSettings,
     });
 
     const sampleRateHzEffective = resolveEffectiveLiveSampleRateHz({
-      localSampleRateHz: mergedState.sampleRateHz,
+      globalSampleRateHz: mergedState.sampleRateHz,
       websocketSampleRateHz: liveSampleRateSource.sampleRateHz,
       sdrSettingsSampleRateHz:
         liveSampleRateSource.sdrSettingsSampleRateHz,
@@ -3805,11 +3803,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       return bounds;
     }, [effectiveFrames]);
 
-    const activeSignalAreaBounds =
-      signalAreaBounds?.[mergedState.activeSignalArea] ??
-      signalAreaBounds?.[mergedState.activeSignalArea?.toLowerCase?.()] ??
-      null;
-
     const clampLiveFrequencyRange = useCallback(
       (range: FrequencyRange) => {
         if (range.min < 0) {
@@ -3819,9 +3812,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         }
         const bounds = resolveLiveAcquisitionBounds({
           hardwareBounds: hardwareSpectrumBounds,
-          channelBounds: activeSignalAreaBounds,
         });
-        if (!bounds) return normalizeFrequencyRangeToHz(range);
 
         const rangeSpan = range.max - range.min;
         const boundsSpan = bounds.max - bounds.min;
@@ -3854,7 +3845,6 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         );
       },
       [
-        activeSignalAreaBounds,
         backend,
         deviceName,
         deviceProfile?.is_rtl_sdr,

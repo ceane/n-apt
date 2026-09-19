@@ -193,7 +193,7 @@ class EntityValidator {
     }
 
     // Check if it's a full state name
-    const stateCode = Array.from(this.US_STATES.entries()).find(([_, name]) => name === cleanedState)?.[0];
+    const stateCode = Array.from(this.US_STATES.entries()).find(([, name]) => name === cleanedState)?.[0];
     if (stateCode) {
       return { 
         isValid: true, 

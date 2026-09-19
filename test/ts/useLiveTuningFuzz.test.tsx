@@ -124,10 +124,23 @@ describe("useSpectrumInteraction gesture fuzz", () => {
 
   let listeners: Record<string, Function> = {};
   const listenerCallbacks = new Map<string, Set<Function>>();
+  // Wheel distance (CSS px) delivered since the last published range. The rAF
+  // coalescer in publishHardwareRangeFromWheel folds every tick in a frame into
+  // one publication, so a publication is not a tick: the step bound has to
+  // scale with the distance actually scrolled, not a fixed one-tick allowance.
+  const CANVAS_WIDTH = 1000;
+  let wheelPxSinceLastPublish = 0;
+  let publishedWheelPx: number[] = [];
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
+    wheelPxSinceLastPublish = 0;
+    publishedWheelPx = [];
+    mockOnFrequencyRangeChange.mockImplementation((_range: any) => {
+      publishedWheelPx.push(wheelPxSinceLastPublish);
+      wheelPxSinceLastPublish = 0;
+    });
     listeners = {};
     listenerCallbacks.clear();
     frequencyRangeRef.current = { ...ACQUISITION };
@@ -175,6 +188,15 @@ describe("useSpectrumInteraction gesture fuzz", () => {
     ctrlKey?: boolean;
   }) => {
     const handler = containerHandler("wheel");
+    // Pinch-zoom (ctrlKey) never pans, so it must not count toward the
+    // scroll-distance budget. Otherwise mirror the handler's axis choice.
+    if (!payload.ctrlKey) {
+      const rawDelta =
+        Math.abs(payload.deltaX ?? 0) > Math.abs(payload.deltaY ?? 0)
+          ? payload.deltaX ?? 0
+          : payload.deltaY ?? 0;
+      wheelPxSinceLastPublish += Math.abs(rawDelta);
+    }
     act(() => {
       handler({
         preventDefault: jest.fn(),
@@ -251,21 +273,27 @@ describe("useSpectrumInteraction gesture fuzz", () => {
       );
     }
 
-    // Step-escalation detector: one wheel tick must not move the published
-    // window center by more than a couple of viewports.
+    // Step-escalation detector: the published window center may only move as
+    // far as the wheel distance delivered since the previous publication can
+    // justify. The rAF coalescer folds several ticks into one publication, so
+    // the bound scales with that distance plus a couple of viewports of slack.
+    // A jump beyond that is a ratchet / step escalation, not a legitimate
+    // scroll.
     const published = mockOnFrequencyRangeChange.mock.calls;
     if (published.length >= 2) {
       const previous = published[published.length - 2][0];
       const latest = published[published.length - 1][0];
       const previousCenter = (previous.min + previous.max) / 2;
       const latestCenter = (latest.min + latest.max) / 2;
-      const maxStep =
-        ((latest.max - latest.min) / vizZoomRef.current) * 2 + 2;
+      const viewport = (latest.max - latest.min) / vizZoomRef.current;
+      const scrolledViewports =
+        (publishedWheelPx[publishedWheelPx.length - 1] ?? 0) / CANVAS_WIDTH;
+      const maxStep = viewport * (2 + scrolledViewports) + 2;
       if (Math.abs(latestCenter - previousCenter) > maxStep) {
         throw fail(
           `window center jumped ${Math.abs(
             latestCenter - previousCenter,
-          )} in one tick (max ${maxStep})`,
+          )} between publications (max ${maxStep})`,
         );
       }
     }

@@ -584,6 +584,13 @@ export const resolveSidebarSourcePausedState = ({
 }): boolean =>
   sourceId === selectedSourceId ? clientPaused : (backendPaused ?? false);
 
+// Whether the current file-mode session was opened by the `?source=fileSelection`
+// deep link. This lives at module scope (like the sidebar scroll flags) because
+// the sidebar unmounts and remounts as the shell switches routes; a `useRef`
+// would be re-derived from the URL and a manual File Selection would then be
+// mistaken for a deep-link exit on the next remount.
+let fileSelectionDeepLinkOwnsFileMode = false;
+
 export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   onCreateNoteCard,
   visualizerLoading = false,
@@ -623,8 +630,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceName: liveDeviceName,
     deviceProfile: liveDeviceProfile,
   } = useSpectrumStore();
+  const isMockSource = selectedSource?.is_mock === true;
   const spectrumTransport = useSpectrumTransport();
-  const lastTxToggleTimeRef = useRef(0);
   const pendingTxStopSourceIdRef = useRef<string | null>(null);
   const lastTxSettingsSyncKeyRef = useRef<string | null>(null);
   const txSettingsSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -1060,7 +1067,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const signalDisplayTemporalResolution = isMockTxLiveSource
     ? txViewerTemporalResolution
     : displayTemporalResolution;
-  const sampleRateHzLocal =
+  const sampleRateHzGlobalFallback =
     (typeof sampleRateHzEffective === "number" &&
     Number.isFinite(sampleRateHzEffective) &&
     sampleRateHzEffective > 0
@@ -1096,31 +1103,31 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 )
               : maxSampleRate) || null;
 
-  // The acquisition control follows the locally requested rate immediately.
-  // sampleRateHzLocal prefers the backend-accepted effective rate, which can
+  // The acquisition control follows the global device rate immediately.
+  // sampleRateHzGlobalFallback prefers the backend-accepted effective rate, which can
   // lag one round trip behind a manual change; feeding that stale value into
   // useLiveSampleRateControl re-anchors the frequency range back to the old
   // span after every gesture and retune-oscillates the device.
-  const sampleRateHzRequestedLocal =
-    (typeof sampleRateHz === "number" &&
-    Number.isFinite(sampleRateHz) &&
-    sampleRateHz > 0
+  const sampleRateHzRequestedGlobal =
+    (typeof liveState.sampleRateHz === "number" &&
+    Number.isFinite(liveState.sampleRateHz) &&
+    liveState.sampleRateHz > 0
       ? clampSampleRateToSourceMaximum(
-          sampleRateHz,
+          liveState.sampleRateHz,
           sampleRateControlMaximumHz,
         )
-      : typeof liveState.sampleRateHz === "number" &&
-          Number.isFinite(liveState.sampleRateHz) &&
-          liveState.sampleRateHz > 0
+      : typeof sampleRateHz === "number" &&
+          Number.isFinite(sampleRateHz) &&
+          sampleRateHz > 0
         ? clampSampleRateToSourceMaximum(
-            liveState.sampleRateHz,
+            sampleRateHz,
             sampleRateControlMaximumHz,
           )
-        : sampleRateHzLocal) || null;
+        : sampleRateHzGlobalFallback) || null;
 
   const sampleRateHzForSignalDisplay = isMockTxLiveSource
     ? signalDisplaySampleRate
-    : sampleRateHzRequestedLocal;
+    : sampleRateHzRequestedGlobal;
 
   useEffect(() => {
     if (
@@ -1604,11 +1611,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       if (!isConnected) {
         return;
       }
-      const now = Date.now();
-      if (nextEnabled && now - lastTxToggleTimeRef.current < 800) {
-        console.warn("Throttling rapid transmit mode toggle request");
-        return;
-      }
 
       const source =
         selectedSource?.id === sourceId
@@ -1748,7 +1750,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       };
 
       if (nextEnabled) {
-        lastTxToggleTimeRef.current = now;
         if (hasAcceptedTransmitWarning()) {
           applyToggle();
           return;
@@ -1767,7 +1768,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         return;
       }
 
-      lastTxToggleTimeRef.current = 0;
       applyToggle();
     },
     [
@@ -2299,11 +2299,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   const handleSourceModeChange = useCallback(
     (mode: "live" | "file") => {
-      if (mode === "file") {
-        setLivePreviewStage(0);
-      } else {
-        setLivePreviewStage(0);
+      if (mode === "live") {
+        // Leaving file mode releases the deep link's ownership, so a later
+        // remount does not treat a manual File Selection as a deep-link exit.
+        fileSelectionDeepLinkOwnsFileMode = false;
       }
+      setLivePreviewStage(0);
       dispatch(setSourceMode(mode));
     },
     [dispatch],
@@ -2326,28 +2327,30 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     handleSourceModeChange("file");
   }, [fileSelectionRequested, handleSourceModeChange, sourceMode]);
 
-  // Tracks whether the file-selection deep link drove source mode within this
-  // mount. Leaving the deep link (param removed) resets back to live sources,
-  // but a manual File Selection on the regular app never sets this, so it is
-  // not reset.
-  const fileDeepLinkActiveRef = useRef(fileSelectionSourceRequested);
+  // Claims the `?source=fileSelection` deep link once per activation so a user
+  // switch back to a live source is not immediately overridden.
+  const fileDeepLinkClaimedForParamRef = useRef(false);
 
   useEffect(() => {
     if (fileSelectionSourceRequested) {
-      fileDeepLinkActiveRef.current = true;
-      if (sourceMode !== "file") handleSourceModeChange("file");
+      if (!fileDeepLinkClaimedForParamRef.current) {
+        fileDeepLinkClaimedForParamRef.current = true;
+        fileSelectionDeepLinkOwnsFileMode = true;
+        if (sourceMode !== "file") handleSourceModeChange("file");
+      }
       return;
     }
+
+    fileDeepLinkClaimedForParamRef.current = false;
     // Leaving the file-selection deep link (e.g. navigating back to the start
     // page) should return the source to live SDR/mock sources instead of
     // leaving the app stuck in file mode. Skip when the sidebarSection=file
     // deep link is still requesting file mode, so the two don't fight.
     if (
-      fileDeepLinkActiveRef.current &&
+      fileSelectionDeepLinkOwnsFileMode &&
       !fileSelectionRequested &&
       sourceMode === "file"
     ) {
-      fileDeepLinkActiveRef.current = false;
       handleSourceModeChange("live");
     }
   }, [
@@ -2358,12 +2361,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   ]);
 
   // Returning to the spectrum view (a fresh mount) after navigating back from
-  // the file-selection deep link should return to live SDR/mock sources. The
-  // transition effect above only survives within a mount, so this covers the
-  // unmount/remount path. It runs once per mount, so a manual File Selection
-  // made later on the regular app is never reset.
+  // the file-selection deep link should return to live SDR/mock sources. Only a
+  // deep-link-owned file session is reset: a manual File Selection leaves the
+  // ownership flag clear, so a remount keeps the files the user picked instead
+  // of falling back to the first source.
   useEffect(() => {
     if (
+      fileSelectionDeepLinkOwnsFileMode &&
       !fileSelectionSourceRequested &&
       !fileSelectionRequested &&
       sourceMode === "file"
@@ -2400,7 +2404,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       const match = f.name.match(/iq_([\d._]+[a-zA-Z]*)/);
       if (match) {
         const freq = parseFrequency(match[1], "MHz") || 0;
-        const sampleRate = sampleRateHzLocal ?? 3_200_000; // Use current sample rate or fallback
+        const sampleRate = sampleRateHzGlobalFallback ?? 3_200_000; // Use current sample rate or fallback
         minFreq = Math.min(minFreq, freq - sampleRate / 2);
         maxFreq = Math.max(maxFreq, freq + sampleRate / 2);
       }
@@ -2437,10 +2441,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const hardwareMin = activeFrame?.min_hz ?? frequencyRange.min;
     const hardwareMax = activeFrame?.max_hz ?? frequencyRange.max;
     const configuredSampleRate =
-      typeof sampleRateHzLocal === "number" &&
-      Number.isFinite(sampleRateHzLocal) &&
-      sampleRateHzLocal > 0
-        ? sampleRateHzLocal
+      typeof sampleRateHzGlobalFallback === "number" &&
+      Number.isFinite(sampleRateHzGlobalFallback) &&
+      sampleRateHzGlobalFallback > 0
+        ? sampleRateHzGlobalFallback
         : null;
     const hardwareSpan = configuredSampleRate
       ? Math.min(
@@ -2583,7 +2587,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     }
 
     let geolocationData = undefined;
-    if (captureFileTypeState === ".napt" && captureGeolocation) {
+    if (captureGeolocation) {
       try {
         const location = await getLocation();
         geolocationData = location || undefined;
@@ -2616,7 +2620,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
-      encrypted: captureFileTypeState === ".napt" ? true : captureEncrypted,
+      encrypted:
+        !isMockSource &&
+        (captureFileTypeState === ".napt" || captureEncrypted),
       fftSize,
       fftWindow,
       geolocation: geolocationData,
@@ -2632,6 +2638,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     captureDurationMode,
     captureDurationS,
     captureFileTypeState,
+    isMockSource,
     acquisitionMode,
     maxSampleRate,
     liveDeviceProfileToUse?.kind,
@@ -2888,8 +2895,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const stickyWrapperRef = useRef<HTMLDivElement>(null);
   const [isSticky, setIsSticky] = useState(false);
   const [sourceListExpanded, setSourceListExpanded] = useState(false);
-  const sourceListExpandedRef = useRef(false);
-  sourceListExpandedRef.current = sourceListExpanded;
 
   useEffect(() => {
     if (!isSticky) {
@@ -2930,9 +2935,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       setIsSticky((current) =>
         current === nextIsSticky ? current : nextIsSticky,
       );
-      if (sourceListExpandedRef.current) {
-        setSourceListExpanded(false);
-      }
+      setSourceListExpanded(false);
     };
 
     updateStickyState();
@@ -3040,14 +3043,17 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               dispatch(setTxHopEnabled(false));
               handleToggleTransmitMode(id, false);
             }
-            // Leaving Tx is an explicit Rx handoff. Do not invert the
-            // backend's possibly stale paused flag in that branch. For a
-            // normal Rx card, preserve the existing Pause/Resume toggle.
+            // Leaving Tx is an explicit Rx handoff: the transition contract
+            // says whether Rx comes back held paused. Setting that latch here
+            // keeps the pill label and the canvas banner in agreement with the
+            // frozen stream on the first render. For a normal Rx card, preserve
+            // the existing Pause/Resume toggle.
             if (transition?.actions.includes("request_rx_frame")) {
+              const landPaused = transition.actions.includes("pause_rx");
               if (setLiveVisualizerPause) {
-                setLiveVisualizerPause(false, id, "rx");
+                setLiveVisualizerPause(landPaused, id, "rx");
               } else {
-                spectrumTransport.sendPauseCommand(false, id, "rx");
+                spectrumTransport.sendPauseCommand(landPaused, id, "rx");
               }
             } else {
               toggleLiveVisualizerPause(id);
@@ -3144,7 +3150,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               sampleRateHzEffective ??
               liveSdrSettingsToUse?.sample_rate ??
               sampleRateHz ??
-              sampleRateHzLocal ??
+              sampleRateHzGlobalFallback ??
               null
             }
             wholeChannelMode={isWholeChannelMode}
@@ -3157,6 +3163,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             captureDurationMode={captureDurationMode}
             captureDurationS={captureDurationS}
             captureFileType={captureFileTypeState}
+            isMockSource={isMockSource}
             acquisitionMode={acquisitionMode}
             captureEncrypted={captureEncrypted}
             capturePlayback={capturePlayback}
@@ -3352,7 +3359,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 hopRateHz={txHopRateHz}
                 onHopRateHzChange={(value) => dispatch(setTxHopRateHz(value))}
                 rxSampleRateHz={
-                  sampleRateHzLocal ??
+                  sampleRateHzGlobalFallback ??
                   liveSdrSettingsToUse?.sample_rate ??
                   sampleRateHzEffective ??
                   maxSampleRate
@@ -3370,7 +3377,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             sampleRate={
               signalDisplaySampleRate ??
               sampleRateHzForSignalDisplay ??
-              sampleRateHzLocal ??
+              sampleRateHzGlobalFallback ??
               liveSdrSettingsToUse?.sample_rate ??
               maxSampleRate
             }
@@ -3495,7 +3502,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               minReceiveSampleRate:
                 liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined,
               sampleRate:
-                sampleRateHzLocal ??
+                sampleRateHzGlobalFallback ??
                 liveSdrSettingsToUse?.sample_rate ??
                 maxSampleRate,
               sampleRateOptions: signalDisplaySampleRateOptions,
