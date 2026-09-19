@@ -40,7 +40,7 @@ const LUT_SIZE = 256;
 
 /**
  * Fully saturated hue wheel. Phase is cyclic, so -180° and +180° must render
- * as the same colour; the first and last LUT entries are therefore both red.
+ * as the same color; the first and last LUT entries are therefore both red.
  */
 const hueToRgb = (hueDegrees: number): RgbTuple => {
   const hue = ((hueDegrees % 360) + 360) % 360;
@@ -175,7 +175,7 @@ const HeaderIconButton = styled.button<{ $active?: boolean }>`
 `;
 
 /**
- * Phase waterfall: the phase of every FFT bin over time, coloured by angle.
+ * Phase waterfall: the phase of every FFT bin over time, colored by angle.
  *
  * Rows are produced through the imperative `waveformFeed` (not React state), so
  * a new frame appends a history row without re-rendering the node.

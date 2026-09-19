@@ -22,7 +22,7 @@ export interface VfoTunerOptions {
    * and tuning is pan-first. When false, gestures retune the receiver directly.
    */
   zoomPanEnabled: boolean;
-  /** Changing this clears user tuning, so the VFO re-centres on the range. */
+  /** Changing this clears user tuning, so the VFO re-centers on the range. */
   sessionKey: string | number;
   /** testid of the VFO axis, used to decide whether a wheel intends to tune. */
   vfoTestId: string;
@@ -39,11 +39,11 @@ export interface VfoTuner {
   setPanHz: React.Dispatch<React.SetStateAction<number>>;
   vfoFrequency: number;
   setVfoFrequency: (frequencyHz: number) => void;
-  /** Acquisition window clamped around the tuned centre. */
+  /** Acquisition window clamped around the tuned center. */
   vfoFrequencyRange: FrequencyRange;
   /** Window actually on screen: `vfoFrequencyRange` with zoom/pan applied. */
   visibleRange: FrequencyRange;
-  /** Centre the axis should label for the visible window. */
+  /** Center the axis should label for the visible window. */
   displayCenterFrequencyHz: number;
   isLocked: boolean;
   setIsLocked: React.Dispatch<React.SetStateAction<boolean>>;
@@ -51,7 +51,7 @@ export interface VfoTuner {
   setIsEditorOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openEditor: () => void;
   closeEditor: () => void;
-  /** Clears the "user tuned" latch so the VFO re-centres on the next range change. */
+  /** Clears the "user tuned" latch so the VFO re-centers on the next range change. */
   resetUserTuning: () => void;
   /** Live drag feedback for the VFO cursor line. */
   cursorOffsetPx: number;
@@ -80,8 +80,8 @@ export interface VfoTuner {
 }
 
 /**
- * Owns the waterfall-style tuning surface: VFO centre, view zoom/pan, drag and
- * pinch gestures, and the centre-frequency editor state. Shared by the waterfall
+ * Owns the waterfall-style tuning surface: VFO center, view zoom/pan, drag and
+ * pinch gestures, and the center-frequency editor state. Shared by the waterfall
  * and phase waterfall nodes so both behave identically.
  */
 export const useVfoTuner = ({
@@ -122,7 +122,7 @@ export const useVfoTuner = ({
     userTunedRef.current = false;
   }, [sessionKey]);
 
-  // Track the range centre without letting a re-render clobber user tuning.
+  // Track the range center without letting a re-render clobber user tuning.
   useEffect(() => {
     if (!userTunedRef.current) {
       setVfoFrequency((frequencyRange.min + frequencyRange.max) / 2);

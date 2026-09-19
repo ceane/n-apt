@@ -882,7 +882,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       sourceFrequencyRange,
     ],
   );
-  // Tuning surface (VFO centre, view zoom/pan, gestures, centre editor) is
+  // Tuning surface (VFO center, view zoom/pan, gestures, center editor) is
   // shared with the phase waterfall node; see useVfoTuner.
   const {
     zoom: waterfallZoom,

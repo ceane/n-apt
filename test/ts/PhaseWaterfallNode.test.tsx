@@ -116,7 +116,7 @@ describe("PhaseWaterfallNode", () => {
     expect(typeof props.waveformFeed.getCurrent).toBe("function");
   });
 
-  it("uses a cycling hue wheel so both phase poles share a colour", () => {
+  it("uses a cycling hue wheel so both phase poles share a color", () => {
     renderNode({ frequencyRange: FREQUENCY_RANGE });
 
     const { colormap } = latestProps();

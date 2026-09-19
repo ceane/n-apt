@@ -96,12 +96,12 @@ describe("PhaseWaterfallNode VFO", () => {
     fireEvent.wheel(vfo(), { deltaY: 200 });
 
     const after = latestProps().frequencyRange;
-    // Scrolling down lowers the tuned centre.
+    // Scrolling down lowers the tuned center.
     expect(after.min).toBeLessThan(before.min);
     expect(after.max).toBeLessThan(before.max);
   });
 
-  it("opens the centre-frequency editor on double click and closes on Escape", () => {
+  it("opens the center-frequency editor on double click and closes on Escape", () => {
     renderNode();
 
     expect(
