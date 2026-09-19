@@ -22,9 +22,7 @@ import {
   useAppDispatch,
   useAppSelector,
 } from "@n-apt/redux";
-import { setFrequencyRange } from "@n-apt/redux/slices/spectrumSlice";
 import { setWaterfallTheme } from "@n-apt/redux/slices/themeSlice";
-import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
 import {
   Brush,
   ListFilter,
@@ -39,7 +37,6 @@ import { Popover } from "@n-apt/ui/Popover";
 import { useWasmSimdMath } from "@n-apt/spectrum/public/useWasmSimdMath";
 import {
   clampCenteredFrequencyRange,
-  formatFrequency,
   getFrequencyRangeCenterHz,
 } from "@n-apt/math/frequency";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
@@ -49,7 +46,6 @@ import { isFilePlaybackPaused } from "@n-apt/spectrum/public/liveSourceLifecycle
 import { getSourcePresentationSessionKey } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 import { Vfo } from "@n-apt/layout/vfo/Vfo";
-import { mapDisplayFrequencyToSource } from "@n-apt/math/basebandMirror";
 import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
@@ -63,8 +59,13 @@ import {
 import {
   getVisualizerDefaultDbLimits,
   VISUALIZER_DEFAULT_ZOOM,
-  VISUALIZER_MAX_ZOOM,
 } from "@n-apt/consts/visualizerControls";
+import {
+  formatMiniVfoFrequency,
+  getWaterfallVfoDisplayFrequency,
+  getWaterfallZoomBoxView,
+} from "@n-apt/demodulation/react-flow/nodes/waterfallView";
+import { useVfoTuner } from "@n-apt/demodulation/react-flow/nodes/useVfoTuner";
 
 interface WaterfallNodeProps {
   data: {
@@ -515,16 +516,6 @@ const BrushOverlay = styled.svg<{ $active: boolean }>`
 const formatBinSubsetLabel = (parity: WaterfallBinSubset["parity"]) =>
   `${parity === "even" ? "Even" : "Odd"} Bins`;
 
-export const formatMiniVfoFrequency = (frequencyHz: number) =>
-  formatFrequency(frequencyHz, {
-    showUnits: true,
-    // Preserve Hz-level VFO changes while keeping the compact unit display.
-    precisionMHz: 6,
-    precisionGHz: 6,
-    precisionKHz: 3,
-    trimTrailingZeros: true,
-  }).replace(/(\d)(?=[A-Za-z])/g, "$1 ");
-
 const formatDb = (value: number, unit = "dB") =>
   `${value.toFixed(0)} ${unit}`;
 
@@ -532,184 +523,6 @@ const getIqMutationMarker = (iq: Uint8Array | null | undefined): string => {
   if (!iq || iq.length === 0) return "";
   const middle = iq[Math.floor(iq.length / 2)] ?? 0;
   return `${iq.length}:${iq[0] ?? 0}:${middle}:${iq[iq.length - 1] ?? 0}`;
-};
-
-export const getCenteredWaterfallZoomView = (
-  waveform: Float32Array,
-  zoom: number,
-): Float32Array => {
-  if (zoom <= 1 || waveform.length <= 1) return waveform;
-  const visibleLength = Math.max(1, Math.floor(waveform.length / zoom));
-  const start = Math.max(0, Math.floor((waveform.length - visibleLength) / 2));
-  return waveform.subarray(start, start + visibleLength);
-};
-
-export const getWaterfallZoomBoxView = ({
-  hardwareRange,
-  currentZoom,
-  currentPanHz,
-  selectionStartX,
-  selectionEndX,
-  allowNegativeFrequencies = false,
-}: {
-  hardwareRange: FrequencyRange;
-  currentZoom: number;
-  currentPanHz: number;
-  selectionStartX: number;
-  selectionEndX: number;
-  allowNegativeFrequencies?: boolean;
-}): {
-  zoom: number;
-  panHz: number;
-  visibleRange: FrequencyRange;
-} => {
-  const fullSpan = hardwareRange.max - hardwareRange.min;
-  const safeCurrentZoom = Math.max(1, currentZoom);
-  const selectionSpan = Math.max(
-    0.001,
-    Math.abs(selectionEndX - selectionStartX),
-  );
-  const zoom = Math.min(
-    VISUALIZER_MAX_ZOOM,
-    Math.round((safeCurrentZoom / selectionSpan) * 1_000_000) / 1_000_000,
-  );
-  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
-  const currentVisibleSpan = fullSpan / safeCurrentZoom;
-  const currentVisibleMin =
-    hardwareCenter + currentPanHz - currentVisibleSpan / 2;
-  const selectionCenterX = (selectionStartX + selectionEndX) / 2;
-  const targetCenter =
-    currentVisibleMin + selectionCenterX * currentVisibleSpan;
-  const visibleSpan = fullSpan / zoom;
-  const minPanHz = allowNegativeFrequencies
-    ? Number.NEGATIVE_INFINITY
-    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
-  const maxPanHz = allowNegativeFrequencies
-    ? Number.POSITIVE_INFINITY
-    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
-  const panHz = Math.max(
-    minPanHz,
-    Math.min(maxPanHz, targetCenter - hardwareCenter),
-  );
-  const visibleCenter = hardwareCenter + panHz;
-
-  return {
-    zoom,
-    panHz,
-    visibleRange: {
-      min: visibleCenter - visibleSpan / 2,
-      max: visibleCenter + visibleSpan / 2,
-    },
-  };
-};
-
-export const getWaterfallVfoDisplayFrequency = ({
-  hardwareCenterHz,
-  visibleRange,
-}: {
-  hardwareCenterHz: number;
-  visibleRange: FrequencyRange;
-}): number =>
-  Number.isFinite(visibleRange.min) &&
-  Number.isFinite(visibleRange.max) &&
-  visibleRange.max > visibleRange.min
-    ? (visibleRange.min + visibleRange.max) / 2
-    : hardwareCenterHz;
-
-export const getWaterfallScrollPan = ({
-  hardwareRange,
-  zoom,
-  currentPanHz,
-  deltaY,
-  allowNegativeFrequencies = false,
-}: {
-  hardwareRange: FrequencyRange;
-  zoom: number;
-  currentPanHz: number;
-  deltaY: number;
-  allowNegativeFrequencies?: boolean;
-}): number => {
-  const fullSpan = hardwareRange.max - hardwareRange.min;
-  const safeZoom = Math.max(1, zoom);
-  const visibleSpan = fullSpan / safeZoom;
-  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
-  const minPanHz = allowNegativeFrequencies
-    ? Number.NEGATIVE_INFINITY
-    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
-  const maxPanHz = allowNegativeFrequencies
-    ? Number.POSITIVE_INFINITY
-    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
-  const nextPan = currentPanHz - (deltaY * visibleSpan) / 40;
-  return Math.max(minPanHz, Math.min(maxPanHz, nextPan));
-};
-
-export const getWaterfallVfoDragPan = ({
-  hardwareRange,
-  zoom,
-  startPanHz,
-  dragDistancePx,
-  viewportWidthPx,
-  allowNegativeFrequencies = false,
-}: {
-  hardwareRange: FrequencyRange;
-  zoom: number;
-  startPanHz: number;
-  dragDistancePx: number;
-  viewportWidthPx: number;
-  allowNegativeFrequencies?: boolean;
-}): number => {
-  const fullSpan = hardwareRange.max - hardwareRange.min;
-  const visibleSpan = fullSpan / Math.max(1, zoom);
-  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
-  const minPanHz = allowNegativeFrequencies
-    ? Number.NEGATIVE_INFINITY
-    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
-  const maxPanHz = allowNegativeFrequencies
-    ? Number.POSITIVE_INFINITY
-    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
-  const nextPan =
-    startPanHz + (dragDistancePx / Math.max(1, viewportWidthPx)) * visibleSpan;
-  return Math.max(minPanHz, Math.min(maxPanHz, nextPan));
-};
-
-export const getWaterfallPinchZoomView = ({
-  hardwareRange,
-  startZoom,
-  centerFrequencyHz,
-  startDistancePx,
-  currentDistancePx,
-  allowNegativeFrequencies = false,
-}: {
-  hardwareRange: FrequencyRange;
-  startZoom: number;
-  centerFrequencyHz: number;
-  startDistancePx: number;
-  currentDistancePx: number;
-  allowNegativeFrequencies?: boolean;
-}): { zoom: number; panHz: number } => {
-  const fullSpan = hardwareRange.max - hardwareRange.min;
-  const safeStartZoom = Math.max(1, startZoom);
-  const zoom = Math.max(
-    1,
-    Math.min(
-      VISUALIZER_MAX_ZOOM,
-      safeStartZoom *
-        (Math.max(1, currentDistancePx) / Math.max(1, startDistancePx)),
-    ),
-  );
-  const visibleSpan = fullSpan / zoom;
-  const hardwareCenter = (hardwareRange.min + hardwareRange.max) / 2;
-  const minPanHz = allowNegativeFrequencies
-    ? Number.NEGATIVE_INFINITY
-    : hardwareRange.min + visibleSpan / 2 - hardwareCenter;
-  const maxPanHz = allowNegativeFrequencies
-    ? Number.POSITIVE_INFINITY
-    : hardwareRange.max - visibleSpan / 2 - hardwareCenter;
-  const panHz = Math.max(
-    minPanHz,
-    Math.min(maxPanHz, centerFrequencyHz - hardwareCenter),
-  );
-  return { zoom, panHz };
 };
 
 const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
@@ -799,10 +612,6 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   );
   const [waterfallDbMin, setWaterfallDbMin] = useState(fftMinDb);
   const [waterfallDbMax, setWaterfallDbMax] = useState(fftMaxDb);
-  const [waterfallZoom, setWaterfallZoom] = useState<number>(
-    VISUALIZER_DEFAULT_ZOOM,
-  );
-  const [waterfallPanHz, setWaterfallPanHz] = useState(0);
   const waterfallDbUnit = powerScale === "dBm" ? "dBm" : "dB";
   const _formatWaterfallDb = useCallback(
     (value: number) => formatDb(value, waterfallDbUnit),
@@ -1073,22 +882,37 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       sourceFrequencyRange,
     ],
   );
-  const [vfoFrequency, setVfoFrequency] = useState(0);
-  const vfoUserTunedRef = useRef(false);
-  const [vfoDragOffsetPx, setVfoDragOffsetPx] = useState(0);
-  const vfoDragStartFrequencyRef = useRef<number | null>(null);
-  const vfoDragStartXRef = useRef(0);
-  const vfoDragStartPanRef = useRef(0);
-  const vfoDragViewportWidthRef = useRef(1);
-  const vfoDragDistancePxRef = useRef(0);
-  const pinchPointersRef = useRef(new Map<number, { x: number; y: number }>());
-  const pinchStartRef = useRef<{
-    distancePx: number;
-    zoom: number;
-    centerFrequencyHz: number;
-  } | null>(null);
-  const [showVfoEditor, setShowVfoEditor] = useState(false);
-  const [isVfoLocked, setIsVfoLocked] = useState(false);
+  // Tuning surface (VFO centre, view zoom/pan, gestures, centre editor) is
+  // shared with the phase waterfall node; see useVfoTuner.
+  const {
+    zoom: waterfallZoom,
+    setZoom: setWaterfallZoom,
+    panHz: waterfallPanHz,
+    setPanHz: setWaterfallPanHz,
+    vfoFrequency,
+    setVfoFrequency,
+    vfoFrequencyRange,
+    visibleRange: zoomedFrequencyRange,
+    isLocked: isVfoLocked,
+    setIsLocked: setIsVfoLocked,
+    isEditorOpen: showVfoEditor,
+    setIsEditorOpen: setShowVfoEditor,
+    cursorOffsetPx: vfoDragOffsetPx,
+    tuneVfo,
+    viewportHandlers: vfoViewportHandlers,
+    vfoHandlers,
+    resetUserTuning: resetVfoUserTuning,
+  } = useVfoTuner({
+    frequencyRange,
+    allowNegativeFrequencies,
+    zoomPanEnabled: Boolean(data.analysisOptions),
+    sessionKey: waterfallSessionKey,
+    vfoTestId: "waterfall-analysis-vfo",
+    // A pinch over the viewport supersedes any in-flight brush stroke.
+    onPinchStart: () => {
+      brushDragRef.current = null;
+    },
+  });
   const [isBrushEnabled, setIsBrushEnabled] = useState(false);
   const [isNormalizationEnabled, setIsNormalizationEnabled] = useState(false);
   const [isZoomBoxEnabled, setIsZoomBoxEnabled] = useState(false);
@@ -1171,197 +995,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     setWaterfallDbMax(defaultDbLimits.max);
     setWaterfallZoom(VISUALIZER_DEFAULT_ZOOM);
     setWaterfallPanHz(0);
-    vfoUserTunedRef.current = false;
+    resetVfoUserTuning();
     setVfoFrequency((frequencyRange.min + frequencyRange.max) / 2);
     setIsVfoLocked(false);
     setShowVfoEditor(false);
   }, [frequencyRange.max, frequencyRange.min, powerScale]);
-  useEffect(() => {
-    vfoUserTunedRef.current = false;
-  }, [waterfallSessionKey]);
-  useEffect(() => {
-    if (!vfoUserTunedRef.current) {
-      setVfoFrequency((frequencyRange.min + frequencyRange.max) / 2);
-    }
-  }, [frequencyRange.min, frequencyRange.max]);
-  const tuneVfo = useCallback(
-    (frequency: number, forceHardwareTune = false) => {
-      if (isVfoLocked) return;
-      if (!Number.isFinite(frequency)) return;
-      const sourceFrequency = mapDisplayFrequencyToSource(frequency);
-      if (data.analysisOptions && !forceHardwareTune) {
-        const sourceCenter =
-          (frequencyRange.min + frequencyRange.max) / 2;
-        const visibleSpan =
-          (frequencyRange.max - frequencyRange.min) /
-          Math.max(1, waterfallZoom);
-        const minPan = allowNegativeFrequencies
-          ? Number.NEGATIVE_INFINITY
-          : frequencyRange.min + visibleSpan / 2 - sourceCenter;
-        const maxPan = allowNegativeFrequencies
-          ? Number.POSITIVE_INFINITY
-          : frequencyRange.max - visibleSpan / 2 - sourceCenter;
-        setWaterfallPanHz(
-          Math.max(minPan, Math.min(maxPan, frequency - sourceCenter)),
-        );
-        setVfoFrequency(frequency);
-        return;
-      }
-      const span = frequencyRange.max - frequencyRange.min;
-      const range = clampCenteredFrequencyRange(
-        sourceFrequency,
-        span,
-        0,
-      );
-      const hardwareRangeUnchanged =
-        range.min === frequencyRange.min && range.max === frequencyRange.max;
-      if (data.analysisOptions && forceHardwareTune && hardwareRangeUnchanged) {
-        const sourceCenter =
-          (frequencyRange.min + frequencyRange.max) / 2;
-        const visibleSpan =
-          (frequencyRange.max - frequencyRange.min) /
-          Math.max(1, waterfallZoom);
-        const minPan = allowNegativeFrequencies
-          ? Number.NEGATIVE_INFINITY
-          : frequencyRange.min + visibleSpan / 2 - sourceCenter;
-        const maxPan = allowNegativeFrequencies
-          ? Number.POSITIVE_INFINITY
-          : frequencyRange.max - visibleSpan / 2 - sourceCenter;
-        setWaterfallPanHz(
-          Math.max(minPan, Math.min(maxPan, frequency - sourceCenter)),
-        );
-        setVfoFrequency(frequency);
-        return;
-      }
-      dispatch(setFrequencyRange(range));
-      dispatch(sendFrequencyRange(range));
-      vfoUserTunedRef.current = true;
-      setVfoFrequency(frequency);
-    },
-    [
-      data.analysisOptions,
-      dispatch,
-      frequencyRange,
-      isVfoLocked,
-      waterfallPanHz,
-      waterfallZoom,
-      allowNegativeFrequencies,
-    ],
-  );
-  const vfoFrequencyRange = useMemo(() => {
-    if (!Number.isFinite(vfoFrequency) || vfoFrequency === 0) {
-      return frequencyRange;
-    }
-    const span = frequencyRange.max - frequencyRange.min;
-    return clampCenteredFrequencyRange(
-      mapDisplayFrequencyToSource(vfoFrequency),
-      span,
-      0,
-    );
-  }, [allowNegativeFrequencies, frequencyRange, vfoFrequency]);
-  const zoomedFrequencyRange = useMemo(() => {
-    if (!data.analysisOptions || waterfallZoom <= 1) return vfoFrequencyRange;
-    const fullSpan = vfoFrequencyRange.max - vfoFrequencyRange.min;
-    const halfSpan = fullSpan / waterfallZoom / 2;
-    const sourceCenter =
-      (vfoFrequencyRange.min + vfoFrequencyRange.max) / 2;
-    const minPanHz = allowNegativeFrequencies
-      ? Number.NEGATIVE_INFINITY
-      : vfoFrequencyRange.min + halfSpan - sourceCenter;
-    const maxPanHz = allowNegativeFrequencies
-      ? Number.POSITIVE_INFINITY
-      : vfoFrequencyRange.max - halfSpan - sourceCenter;
-    const clampedPanHz = Math.max(
-      minPanHz,
-      Math.min(maxPanHz, waterfallPanHz),
-    );
-    const center = sourceCenter + clampedPanHz;
-    return { min: center - halfSpan, max: center + halfSpan };
-  }, [
-    allowNegativeFrequencies,
-    data.analysisOptions,
-    vfoFrequencyRange,
-    waterfallPanHz,
-    waterfallZoom,
-  ]);
-  const handlePinchPointerDownCapture = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (
-        !data.analysisOptions ||
-        isVfoLocked ||
-        event.pointerType === "mouse"
-      ) {
-        return;
-      }
-      pinchPointersRef.current.set(event.pointerId, {
-        x: event.clientX,
-        y: event.clientY,
-      });
-      if (pinchPointersRef.current.size !== 2) return;
-
-      const [first, second] = Array.from(pinchPointersRef.current.values());
-      pinchStartRef.current = {
-        distancePx: Math.hypot(second.x - first.x, second.y - first.y),
-        zoom: waterfallZoom,
-        centerFrequencyHz:
-          (vfoFrequencyRange.min + vfoFrequencyRange.max) / 2 + waterfallPanHz,
-      };
-      vfoDragStartFrequencyRef.current = null;
-      vfoDragDistancePxRef.current = 0;
-      setVfoDragOffsetPx(0);
-      brushDragRef.current = null;
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    [
-      data.analysisOptions,
-      isVfoLocked,
-      vfoFrequencyRange.max,
-      vfoFrequencyRange.min,
-      waterfallPanHz,
-      waterfallZoom,
-    ],
-  );
-  const handlePinchPointerMoveCapture = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!pinchPointersRef.current.has(event.pointerId)) return;
-      pinchPointersRef.current.set(event.pointerId, {
-        x: event.clientX,
-        y: event.clientY,
-      });
-      const pinchStart = pinchStartRef.current;
-      if (!pinchStart || pinchPointersRef.current.size < 2) return;
-
-      const [first, second] = Array.from(pinchPointersRef.current.values());
-      const nextView = getWaterfallPinchZoomView({
-        hardwareRange: vfoFrequencyRange,
-        startZoom: pinchStart.zoom,
-        centerFrequencyHz: pinchStart.centerFrequencyHz,
-        startDistancePx: pinchStart.distancePx,
-        currentDistancePx: Math.hypot(second.x - first.x, second.y - first.y),
-        allowNegativeFrequencies,
-      });
-      setWaterfallZoom(nextView.zoom);
-      setWaterfallPanHz(nextView.panHz);
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    [allowNegativeFrequencies, vfoFrequencyRange],
-  );
-  const handlePinchPointerEndCapture = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const wasPinching = pinchStartRef.current !== null;
-      pinchPointersRef.current.delete(event.pointerId);
-      if (pinchPointersRef.current.size < 2) {
-        pinchStartRef.current = null;
-      }
-      if (!wasPinching) return;
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    [],
-  );
-
   const handleDbMinChange = useCallback(
     (value: number) => setWaterfallDbMin(Math.min(value, waterfallDbMax - 5)),
     [waterfallDbMax],
@@ -1602,48 +1240,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
             $analysis={data.analysisOptions}
             className="nodrag nopan nowheel"
             data-testid="waterfall-analysis-viewport"
-            onPointerDownCapture={handlePinchPointerDownCapture}
-            onPointerMoveCapture={handlePinchPointerMoveCapture}
-            onPointerUpCapture={handlePinchPointerEndCapture}
-            onPointerCancelCapture={handlePinchPointerEndCapture}
-            onWheel={(event) => {
-              if (!data.analysisOptions) return;
-              event.preventDefault();
-              event.stopPropagation();
-              if (isVfoLocked) return;
-              if (event.ctrlKey) {
-                const scale = Math.exp(-event.deltaY * 0.003);
-                const nextView = getWaterfallPinchZoomView({
-                  hardwareRange: vfoFrequencyRange,
-                  startZoom: waterfallZoom,
-                  centerFrequencyHz:
-                    (zoomedFrequencyRange.min + zoomedFrequencyRange.max) / 2,
-                  startDistancePx: 100,
-                  currentDistancePx: 100 * scale,
-                  allowNegativeFrequencies,
-                });
-                setWaterfallZoom(nextView.zoom);
-                setWaterfallPanHz(nextView.panHz);
-                return;
-              }
-              const target = event.target as HTMLElement;
-              if (!target.closest?.('[data-testid="waterfall-analysis-vfo"]')) {
-                return;
-              }
-              if (waterfallZoom > 1) {
-                setWaterfallPanHz((panHz) =>
-                  getWaterfallScrollPan({
-                    hardwareRange: vfoFrequencyRange,
-                    zoom: waterfallZoom,
-                    currentPanHz: panHz,
-                    deltaY: event.deltaY,
-                    allowNegativeFrequencies,
-                  }),
-                );
-                return;
-              }
-              tuneVfo(vfoFrequency - event.deltaY * 1000);
-            }}
+            {...vfoViewportHandlers}
           >
             {!data.analysisOptions &&
               data.miniVfoPosition !== "bottom" &&
@@ -1684,69 +1281,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                 style={{ height: 56, flex: "0 0 56px" }}
                 className="nodrag nopan"
                 data-testid="waterfall-analysis-vfo"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  setVfoDragOffsetPx(0);
-                  vfoDragStartFrequencyRef.current = vfoFrequency;
-                  vfoDragStartXRef.current = event.clientX;
-                  vfoDragStartPanRef.current = waterfallPanHz;
-                  vfoDragViewportWidthRef.current =
-                    event.currentTarget.getBoundingClientRect().width || 1;
-                  vfoDragDistancePxRef.current = 0;
-                  event.currentTarget.setPointerCapture?.(event.pointerId);
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-                onWheel={(event) => {
-                  if (isVfoLocked) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }
-                }}
-                onDoubleClick={(event) => {
-                  event.stopPropagation();
-                  setShowVfoEditor(true);
-                }}
-                onPointerMove={(event) => {
-                  if (vfoDragStartFrequencyRef.current !== null) {
-                    vfoDragDistancePxRef.current =
-                      vfoDragStartXRef.current - event.clientX;
-                    setVfoDragOffsetPx(vfoDragDistancePxRef.current);
-                    if (waterfallZoom > 1) {
-                      setWaterfallPanHz(
-                        getWaterfallVfoDragPan({
-                          hardwareRange: vfoFrequencyRange,
-                          zoom: waterfallZoom,
-                          startPanHz: vfoDragStartPanRef.current,
-                          dragDistancePx: vfoDragDistancePxRef.current,
-                          viewportWidthPx: vfoDragViewportWidthRef.current,
-                          allowNegativeFrequencies,
-                        }),
-                      );
-                      return;
-                    }
-                    const startFrequency =
-                      vfoDragStartFrequencyRef.current ?? vfoFrequency;
-                    const fullSpan =
-                      vfoFrequencyRange.max - vfoFrequencyRange.min;
-                    tuneVfo(
-                      startFrequency +
-                        (vfoDragDistancePxRef.current /
-                          vfoDragViewportWidthRef.current) *
-                          fullSpan,
-                      true,
-                    );
-                  }
-                }}
-                onPointerUp={() => {
-                  setVfoDragOffsetPx(0);
-                  vfoDragStartFrequencyRef.current = null;
-                  vfoDragDistancePxRef.current = 0;
-                }}
-                onPointerCancel={() => {
-                  setVfoDragOffsetPx(0);
-                  vfoDragStartFrequencyRef.current = null;
-                  vfoDragDistancePxRef.current = 0;
-                }}
+                {...vfoHandlers}
               />
             )}
             <FIFOWaterfall
