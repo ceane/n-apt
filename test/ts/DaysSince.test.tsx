@@ -120,6 +120,26 @@ describe("DaysSince copyable image", () => {
     }
   });
 
+  it("swaps the rolling digit columns for plain copyable text once the roll settles", async () => {
+    const { container } = render(<DaysSince />);
+
+    // Each rolled digit is a clipped 0-9 column, so the rendered text is the
+    // whole digit strip rather than the value.
+    const digitStrips = () =>
+      Array.from(container.querySelectorAll("span")).filter(
+        (el) => el.textContent === "0123456789",
+      ).length;
+
+    expect(digitStrips()).toBeGreaterThan(0);
+
+    // The roll runs 2s with a 0.1s delay before the digits become static text.
+    await waitFor(() => expect(digitStrips()).toBe(0), { timeout: 10_000 });
+
+    const values = Array.from(container.querySelectorAll<HTMLElement>("div.top-value"));
+    expect(values).toHaveLength(3);
+    values.forEach((value) => expect(value.textContent).toMatch(/^[\d,]+(hrs|days)$/));
+  }, 15_000);
+
   it("wraps long comparison text and renders a device-pixel-scaled canvas", () => {
     const drawCalls: Array<{ text: string; x: number; y: number }> = [];
     const context = {

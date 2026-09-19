@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { fileWorkerManager } from "@n-apt/workers/fileWorkerManager";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import {
@@ -36,7 +36,8 @@ interface StitchingResult {
   setActiveChannel: (channel: number) => void;
   setFrequencyRange: (range: { min: number; max: number }) => void;
   setHardwareSampleRateHz: (hz: number | undefined) => void;
-  stitchFiles: () => Promise<void>;
+  stitchFiles: (allowIntegrityFailure?: boolean) => Promise<void>;
+  playIntegrityFailedFile: () => Promise<void>;
 }
 
 export const useStitchingLogic = ({
@@ -64,10 +65,12 @@ export const useStitchingLogic = ({
 
   // Refs for data that changes rapidly
   const selectedFilesRef = useRef(selectedFiles);
-  selectedFilesRef.current = selectedFiles;
   const stitchSourceSettingsRef = useRef(stitchSourceSettings);
-  stitchSourceSettingsRef.current = stitchSourceSettings;
-  const lastTriggerRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    selectedFilesRef.current = selectedFiles;
+    stitchSourceSettingsRef.current = stitchSourceSettings;
+  }, [selectedFiles, stitchSourceSettings]);
+  const lastTriggerRef = useRef(stitchTrigger);
   const selectedFileNamesKey = useMemo(
     () =>
       selectedFiles
@@ -89,13 +92,6 @@ export const useStitchingLogic = ({
     selectedFileNamesKey ? selectedFileNamesKey.split("|") : [],
   );
 
-  // Worker data refs
-  const workerFileDataCache = useRef<[string, Uint8Array | number[]][]>([]);
-  const workerFreqMap = useRef<[string, number][]>([]);
-  const workerMetadataMap = useRef<[string, any][]>([]);
-  const precomputedFrames = useRef<any[]>([]);
-  const maxFrames = useRef<number>(0);
-  const allChannelsRef = useRef<any[]>([]);
   const stitchSessionKey = useMemo(
     () =>
       createStitchSessionKey({
@@ -107,12 +103,20 @@ export const useStitchingLogic = ({
     [fftSize, sampleRateOptions, selectedFiles, stitchSourceSettings],
   );
 
-  // Unify restoration and trigger logic
-  // Restore from cache immediately to prevent 1-frame flickering
-  const cachedOnMount = useMemo(
-    () => getStitchSession(stitchSessionKey),
-    [stitchSessionKey],
+  const [mountSeed] = useState(() => ({
+    key: stitchSessionKey,
+    identityKey: selectedFileIdentityKey,
+    session: getStitchSession(stitchSessionKey),
+  }));
+  const cachedOnMount = mountSeed.session;
+  const workerFileDataCache = useRef<[string, Uint8Array | number[]][]>(
+    cachedOnMount?.workerFileDataCache ?? [],
   );
+  const workerFreqMap = useRef<[string, number][]>(cachedOnMount?.workerFreqMap ?? []);
+  const workerMetadataMap = useRef<[string, any][]>(cachedOnMount?.workerMetadataMap ?? []);
+  const precomputedFrames = useRef<any[]>(cachedOnMount?.precomputedFrames ?? []);
+  const maxFrames = useRef(cachedOnMount?.maxFrames ?? 0);
+  const allChannelsRef = useRef<any[]>(cachedOnMount?.allChannels ?? []);
 
   // State - initialize from cache if available
   const [hasStitchedData, setHasStitchedData] = useState(!!cachedOnMount);
@@ -129,7 +133,10 @@ export const useStitchingLogic = ({
     number | undefined
   >(cachedOnMount?.hardwareSampleRateHz);
   const frequencyRangeRef = useRef(frequencyRange);
-  frequencyRangeRef.current = frequencyRange;
+  useLayoutEffect(() => {
+    frequencyRangeRef.current = frequencyRange;
+  }, [frequencyRange]);
+
 
   const setStitchStatus = useCallback((status: string) => {
     onStitchStatusRef.current?.(status);
@@ -161,22 +168,23 @@ export const useStitchingLogic = ({
     }
   }, [activeChannel, frequencyRange, hasStitchedData, stitchSessionKey]);
 
-  // Sync refs if we have a cache on mount
-  if (cachedOnMount && !restoredSessionKeyRef.current) {
+  // Restore cached session data and publish to parents exactly once, during
+  // the commit phase before paint; never from render, so a suspended first
+  // published render cannot publish before it is committed.
+  useLayoutEffect(() => {
+    if (!cachedOnMount || restoredSessionKeyRef.current) return;
     workerFileDataCache.current = cachedOnMount.workerFileDataCache;
     workerFreqMap.current = cachedOnMount.workerFreqMap;
     workerMetadataMap.current = cachedOnMount.workerMetadataMap;
     precomputedFrames.current = cachedOnMount.precomputedFrames;
     maxFrames.current = cachedOnMount.maxFrames;
     allChannelsRef.current = cachedOnMount.allChannels;
-    restoredSessionKeyRef.current = stitchSessionKey;
-
-    // Trigger callback once on mount
+    restoredSessionKeyRef.current = mountSeed.key;
     onChannelsChange?.(cachedOnMount.allChannels);
     onProcessedDataChange?.(true);
-  }
+  }, []);
 
-  const stitchFiles = useCallback(async () => {
+  const stitchFiles = useCallback(async (allowIntegrityFailure = false) => {
     const currentFiles = selectedFilesRef.current;
     if (currentFiles.length === 0) {
       setStitchStatus("No files selected for stitching");
@@ -217,6 +225,7 @@ export const useStitchingLogic = ({
         },
         aesKeyRef.current,
         sampleRateOptions, // Pass dynamic sample rate options
+        allowIntegrityFailure,
       );
 
       if (!result.stitchedData) {
@@ -307,7 +316,9 @@ export const useStitchingLogic = ({
       console.error("Stitch error:", error);
       const msg = error.message || String(error);
       setStitchStatus(
-        msg.toLowerCase().includes("decryption")
+        msg.toLowerCase().includes("integrity_failed")
+          ? "File integrity failed: file appears corrupted or modified"
+          : msg.toLowerCase().includes("decryption")
           ? "File decryption failed, wrong key"
           : msg,
       );
@@ -327,6 +338,11 @@ export const useStitchingLogic = ({
     onProcessedDataChange,
   ]);
 
+  const playIntegrityFailedFile = useCallback(
+    () => stitchFiles(true),
+    [stitchFiles],
+  );
+
   // Trigger: respond to parent's stitch button click
   useEffect(() => {
     if (lastTriggerRef.current === null) {
@@ -345,7 +361,13 @@ export const useStitchingLogic = ({
   useEffect(() => {
     if (!selectedFileIdentityKey) return;
     if (lastAutoStitchKeyRef.current === selectedFileIdentityKey) return;
-
+    if (
+      lastAutoStitchKeyRef.current === null &&
+      restoredSessionKeyRef.current === mountSeed.key
+    ) {
+      lastAutoStitchKeyRef.current = selectedFileIdentityKey;
+      return;
+    }
     lastAutoStitchKeyRef.current = selectedFileIdentityKey;
     void stitchFiles();
   }, [selectedFileIdentityKey, stitchFiles]);
@@ -367,5 +389,6 @@ export const useStitchingLogic = ({
     setFrequencyRange,
     setHardwareSampleRateHz,
     stitchFiles,
+    playIntegrityFailedFile,
   };
 };

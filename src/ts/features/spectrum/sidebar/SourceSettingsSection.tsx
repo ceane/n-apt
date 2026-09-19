@@ -8,17 +8,14 @@ import {
   Pipette,
   SlidersVertical,
   TriangleAlert,
-  type LucideIcon,
 } from "lucide-react";
-
-const Section = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  gap: inherit;
-  box-sizing: border-box;
-  width: 100%;
-`;
+import {
+  SectionGrid as Section,
+  CheckboxSwitch as ToggleSwitch,
+  CheckboxSwitchInput as ToggleSwitchInput,
+  CheckboxSwitchSlider as ToggleSwitchSlider,
+  IconLabel,
+} from "@n-apt/ui/SidebarPrimitives";
 
 const SectionTitle = styled.div`
   font-size: 11px;
@@ -64,62 +61,6 @@ const SettingInput = styled.input`
   }
 `;
 
-const ToggleSwitch = styled.label<{ $disabled?: boolean }>`
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  opacity: ${(props) => (props.$disabled ? 0.4 : 1)};
-`;
-
-const ToggleSwitchInput = styled.input`
-  opacity: 0;
-  width: 44px;
-  height: 24px;
-  position: absolute;
-  z-index: 2;
-  margin: 0;
-  padding: 0;
-  cursor: ${(props) => (props.disabled ? "not-allowed" : "pointer")};
-
-  &:checked + span {
-    background-color: ${(props) => props.theme.primary};
-  }
-
-  &:checked + span:before {
-    transform: translateX(20px);
-  }
-
-  &:disabled + span {
-    cursor: not-allowed;
-  }
-`;
-
-const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
-  position: absolute;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: ${(props) => props.theme.borderHover};
-  transition: 0.2s;
-  border-radius: 24px;
-
-  &:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: 0.2s;
-    border-radius: 50%;
-  }
-`;
-
 const NarrowSettingInput = styled(SettingInput)`
   width: 60px;
 `;
@@ -139,19 +80,6 @@ const UnitLabel = styled.span`
   font-size: 12px;
   color: ${(props) => props.theme.textPrimary};
   font-weight: 500;
-`;
-
-const LabelWithIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-
-  svg {
-    width: 14px;
-    height: 14px;
-    color: ${(props) => props.theme.textSecondary};
-    opacity: 0.5;
-  }
 `;
 
 const GainWarningIcon = styled(TriangleAlert)`
@@ -201,16 +129,6 @@ const BasebandWarning: React.FC = () => (
     content={BASEBAND_WARNING_CONTENT}
     trigger={<BasebandWarningIcon />}
   />
-);
-
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
-  icon: IconComponent,
-  text,
-}) => (
-  <LabelWithIcon>
-    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
-    {text}
-  </LabelWithIcon>
 );
 
 export interface GainLimits {
@@ -344,6 +262,21 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
   const basebandBandwidthVal = hackrfBasebandBandwidth ?? 0;
   const isHackrfBasebandEnabled = basebandBandwidthVal > 0;
+  const autoBasebandBandwidth = Math.max(
+    0,
+    Math.round(hackrfCurrentSampleRate || 0),
+  );
+  // While the filter is enabled and not pinned, the sample rate is the value —
+  // derive it instead of trusting the published prop. Publishing the same rate
+  // again does not change the prop, so the field would otherwise keep whatever
+  // the user last typed (e.g. a cleared "0").
+  const displayedBasebandBandwidth =
+    isHackrfBasebandEnabled && !basebandFilterPinned
+      ? autoBasebandBandwidth
+      : basebandBandwidthVal;
+  // Remount the input on blur so an in-progress edit that resolves back to the
+  // automatic value (cleared to zero) repopulates instead of sticking at 0.
+  const [basebandInputRevision, setBasebandInputRevision] = React.useState(0);
   const showBasebandWarning =
     isHackrfLive &&
     isHackrfBasebandEnabled &&
@@ -471,18 +404,24 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
     onHackrfAmpEnabledChange?.(enabled);
   };
 
-  const _handleHackrfBasebandBandwidthChange = (raw: string) => {
-    const val = raw === "" ? 0 : Number(raw);
-    onHackrfBasebandBandwidthChange?.(
-      Math.max(0, Number.isFinite(val) ? Math.round(val) : 0),
-    );
-  };
-
   const handleHackrfBasebandToggle = (enabled: boolean) => {
     if (!onHackrfBasebandBandwidthChange) return;
-    onHackrfBasebandBandwidthChange(
-      enabled ? Math.max(0, Math.round(hackrfCurrentSampleRate || 0)) : 0,
-    );
+
+    if (enabled) {
+      // Switching it back on resumes automatic tracking from the current rate.
+      onBasebandFilterPinnedChange?.(false);
+      onHackrfBasebandBandwidthChange(
+        Math.max(0, Math.round(hackrfCurrentSampleRate || 0)),
+      );
+      return;
+    }
+
+    // Switching it off must HOLD the disabled state: pin it, otherwise the
+    // auto-tracking effect sees `0 !== sampleRate` and immediately switches the
+    // filter back on, which made the toggle look dead. Zero is only the UI
+    // sentinel here — the settings hook never publishes it to the device.
+    onBasebandFilterPinnedChange?.(true);
+    onHackrfBasebandBandwidthChange(0);
   };
 
   const handleTunerAGCChange = (enabled: boolean) => {
@@ -516,7 +455,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
         <SectionText>Source Settings</SectionText>
       </SectionTitle>
       <Row
-        label={<IconLabel icon={Pipette} text="PPM" />}
+        label={<IconLabel $inheritLineHeight icon={Pipette} text="PPM" />}
         tooltipTitle="PPM Correction"
         tooltip="Frequency alignment. Parts per million correction for precise tuning to signal frequencies."
       >
@@ -531,7 +470,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
       </Row>
       {!isHackrfLive && (
         <Row
-          label={<IconLabel icon={ArrowBigUp} text="Gain" />}
+          label={<IconLabel $inheritLineHeight icon={ArrowBigUp} text="Gain" />}
           tooltipTitle="Gain Setting"
           tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
         >
@@ -571,7 +510,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           <Row
             label={
               <>
-                <IconLabel icon={ArrowBigUp} text="LNA gain" />
+                <IconLabel $inheritLineHeight icon={ArrowBigUp} text="LNA gain" />
                 {showLnaWarning && <GainWarning />}
               </>
             }
@@ -601,7 +540,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           <Row
             label={
               <>
-                <IconLabel icon={ArrowBigUp} text="VGA gain" />
+                <IconLabel $inheritLineHeight icon={ArrowBigUp} text="VGA gain" />
                 {showVgaWarning && <GainWarning />}
               </>
             }
@@ -688,12 +627,30 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
             </ToggleSwitch>
             {isHackrfBasebandEnabled && (
               <CompactFrequencyInput
-                valueHz={basebandBandwidthVal}
+                key={basebandInputRevision}
+                valueHz={displayedBasebandBandwidth}
                 onChangeHz={(val) => {
-                  // Typing a custom value pins the filter; clearing it to 0
-                  // resumes automatic tracking (the toggle below re-enables it).
-                  onBasebandFilterPinnedChange?.(val !== 0);
+                  // Typing a custom value pins the filter. Clearing the field to
+                  // zero resumes automatic tracking: unpinning lets the derived
+                  // sample-rate value take over (and repopulate on blur). Zero is
+                  // never published — it is not a valid MAX2837 width and asking
+                  // the hardware for it tears the stream down.
+                  if (val === 0) {
+                    onBasebandFilterPinnedChange?.(false);
+                    return;
+                  }
+                  onBasebandFilterPinnedChange?.(true);
                   onHackrfBasebandBandwidthChange?.(val);
+                }}
+                onBlur={(draftHz) => {
+                  // An emptied — or zeroed — field means "resume automatic
+                  // tracking". An empty field emits no change event at all, so
+                  // the pin has to be released here; the remount below then
+                  // shows the current sample rate instead of the previous value.
+                  if (draftHz === null || draftHz === 0) {
+                    onBasebandFilterPinnedChange?.(false);
+                  }
+                  setBasebandInputRevision((n) => n + 1);
                 }}
                 disabled={!isConnected}
                 minHz={0}

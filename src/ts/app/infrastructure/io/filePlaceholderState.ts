@@ -35,6 +35,14 @@ export const getFilePlaceholderState = ({
     !/success|processed|stitched/i.test(normalizedStatus) &&
     !/no files selected/i.test(normalizedStatus)
   ) {
+    if (/integrity|corrupt|modified/i.test(normalizedStatus)) {
+      return {
+        kind: "error",
+        reason: "File integrity failed",
+        title: "File appears corrupted or modified",
+        message: "Its contents do not match the integrity record.",
+      };
+    }
     return {
       kind: "error",
       reason: "File processing error",

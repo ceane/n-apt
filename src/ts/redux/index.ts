@@ -329,6 +329,7 @@ export {
   resetDrawParams,
   resetTrainingCapture,
   setGlobalNoiseFloor,
+  setSnapshotGrid,
   clearWaterfall,
   resetWaterfallCleared,
   setDrawParams,
@@ -371,7 +372,6 @@ export const themeActions = {
 };
 
 export {
-  setSnapshotGrid,
   setMirrorIqBasebandBelowZero,
   setDeviceInfo,
   resetSettings,

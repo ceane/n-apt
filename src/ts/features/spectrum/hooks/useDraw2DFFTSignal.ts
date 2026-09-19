@@ -1,4 +1,8 @@
 import { useCallback, useRef } from "react";
+import { readCssColor } from "@n-apt/layout/rendering/cssColor";
+import { drawHardwareSampleRateBlocks } from "@n-apt/layout/rendering/hardwareSampleRateGrid";
+import { drawFrequencyGrid } from "@n-apt/layout/rendering/frequencyGrid";
+import { getTxBandGeometry } from "@n-apt/layout/rendering/txBandGeometry";
 import {
   createCanvasVfoAxisContext,
   drawVfoAxis,
@@ -153,50 +157,6 @@ export function drawLiveCanvasStatusRow(
   return status;
 }
 
-const readCssColor = (name: string, fallback: string) => {
-  if (typeof window === "undefined" || typeof document === "undefined")
-    return fallback;
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return value || fallback;
-};
-
-const _getDarkerColor = (colorStr: string) => {
-  if (!colorStr) return "rgba(170, 30, 30, 0.8)";
-  if (colorStr.startsWith("rgba")) {
-    const match = colorStr.match(
-      /rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/,
-    );
-    if (match) {
-      const r = Math.max(0, Math.round(parseInt(match[1]) * 0.75));
-      const g = Math.max(0, Math.round(parseInt(match[2]) * 0.75));
-      const b = Math.max(0, Math.round(parseInt(match[3]) * 0.75));
-      return `rgba(${r}, ${g}, ${b}, 0.8)`;
-    }
-  }
-  if (colorStr.startsWith("rgb")) {
-    const match = colorStr.match(
-      /rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/,
-    );
-    if (match) {
-      const r = Math.max(0, Math.round(parseInt(match[1]) * 0.75));
-      const g = Math.max(0, Math.round(parseInt(match[2]) * 0.75));
-      const b = Math.max(0, Math.round(parseInt(match[3]) * 0.75));
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-  }
-  if (colorStr.startsWith("#")) {
-    const hex = colorStr.substring(1);
-    const num = parseInt(hex, 16);
-    const r = Math.max(0, Math.round(((num >> 16) & 0xff) * 0.75));
-    const g = Math.max(0, Math.round(((num >> 8) & 0xff) * 0.75));
-    const b = Math.max(0, Math.round((num & 0xff) * 0.75));
-    return `rgb(${r}, ${g}, ${b})`;
-  }
-  return "rgba(170, 30, 30, 0.8)";
-};
-
 const getCanvasThemeColors = () => ({
   backgroundColor: readCssColor("--color-fft-background", "#000"),
   textColor: readCssColor("--color-fft-text", "#fff"),
@@ -326,8 +286,6 @@ export function useDraw2DFFTSignal() {
       const viewBandwidth = maxFreq - minFreq;
       const range = findBestFrequencyRange(viewBandwidth, 10);
       const tickPrecision = tickPrecisionForStep(range);
-      const lowerFreq = Math.ceil(minFreq / range) * range;
-      const upperFreq = maxFreq;
       const freqToX = (freq: number) =>
         leftPad + ((freq - minFreq) / viewBandwidth) * plotWidth;
 
@@ -365,81 +323,32 @@ export function useDraw2DFFTSignal() {
 
       const visualCenterFreq = (minFreq + maxFreq) / 2;
 
-      // ── Collision Avoidance Setup ──────────────────────────────────────────
-      const occupiedRects: { x1: number; x2: number }[] = [];
-      const startLabel = formatFreq(minFreq);
-      const endLabel = formatFreq(maxFreq);
-      const centerLabelText =
+      const centerFreqLabel =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
           ? "-- MHz"
           : formatFreq(visualCenterFreq);
 
-      const startW = ctx.measureText(startLabel).width;
-      const endW = ctx.measureText(endLabel).width;
-      const centerW = ctx.measureText(`✋  ${centerLabelText}`).width;
-
-      occupiedRects.push({
-        x1: leftPad - 5,
-        x2: leftPad + startW + 15,
+      // Edge lines/labels, grid lines, tick marks and collision-avoided tick
+      // labels are shared with the overlay renderer. This canvas snaps geometry
+      // to whole pixels and draws an opaque grid.
+      drawFrequencyGrid({
+        ctx,
+        minFreq,
+        maxFreq,
+        stepHz: range,
+        plotLeft: leftPad,
+        plotRight: fftAreaMax.x,
+        canvasWidth: width,
+        top: topPad,
+        bottom: fftAreaMax.y,
+        gridColor: canvasTheme.gridColor,
+        tickColor: textColor ?? canvasTheme.textColor,
+        labelColor: textColor ?? canvasTheme.textColor,
+        formatEdgeLabel: formatFreq,
+        formatTickLabel: formatFreq,
+        centerLabelText: `✋  ${centerFreqLabel}`,
+        roundX: true,
       });
-      occupiedRects.push({
-        x1: fftAreaMax.x - endW - 15,
-        x2: fftAreaMax.x + 5,
-      });
-      occupiedRects.push({
-        x1: width / 2 - centerW / 2 - 15,
-        x2: width / 2 + centerW / 2 + 15,
-      });
-
-      const isColliding = (x: number, text: string) => {
-        const tw = ctx.measureText(text).width;
-        const x1 = x - tw / 2 - 10;
-        const x2 = x + tw / 2 + 10;
-        return occupiedRects.some((r) => x1 < r.x2 && x2 > r.x1);
-      };
-      // ───────────────────────────────────────────────────────────────────────
-
-      // Draw Start Line + Label
-      ctx.textAlign = "left";
-      ctx.beginPath();
-      ctx.moveTo(leftPad, topPad);
-      ctx.lineTo(leftPad, fftAreaMax.y + 7);
-      ctx.stroke();
-      ctx.fillText(startLabel, leftPad, fftAreaMax.y + 25);
-
-      // Draw End Line + Label
-      ctx.textAlign = "right";
-      ctx.beginPath();
-      ctx.moveTo(fftAreaMax.x, topPad);
-      ctx.lineTo(fftAreaMax.x, fftAreaMax.y + 7);
-      ctx.stroke();
-      ctx.fillText(endLabel, fftAreaMax.x, fftAreaMax.y + 25);
-
-      ctx.textAlign = "center";
-      for (let freq = lowerFreq; freq < upperFreq - 0.0001; freq += range) {
-        const xPos = freqToX(freq);
-        const ix = Math.round(xPos);
-
-        // Grid line
-        ctx.strokeStyle = canvasTheme.gridColor;
-        ctx.beginPath();
-        ctx.moveTo(ix, topPad);
-        ctx.lineTo(ix, fftAreaMax.y);
-        ctx.stroke();
-
-        // Tick mark
-        ctx.strokeStyle = textColor ?? canvasTheme.textColor;
-        ctx.beginPath();
-        ctx.moveTo(ix, fftAreaMax.y);
-        ctx.lineTo(ix, fftAreaMax.y + 7);
-        ctx.stroke();
-
-        // Tick label
-        const tickLabel = formatFreq(freq);
-        if (!isColliding(xPos, tickLabel)) {
-          ctx.fillText(tickLabel, ix, fftAreaMax.y + 25);
-        }
-      }
 
       ctx.strokeStyle = canvasTheme.textColor;
       ctx.lineWidth = 1.0 / dpr;
@@ -519,58 +428,20 @@ export function useDraw2DFFTSignal() {
           return `${Math.round(mhz * 1_000_000)}Hz`;
         };
 
-        let currentFreq = anchorRange.min;
-        while (currentFreq < anchorRange.max - 0.001) {
-          const blockStart = currentFreq;
-          const blockEnd = Math.min(blockStart + hwSpanMHz, anchorRange.max);
-          const blockWidth = blockEnd - blockStart;
-          const isFullBlock = blockWidth >= hwSpanMHz - 0.001;
-
-          // Only draw if visible in the current zoomed frequency range
-          if (blockEnd > minFreq && blockStart < maxFreq) {
-            // Draw left boundary
-            if (
-              blockStart > anchorRange.min + 0.0001 &&
-              blockStart >= minFreq &&
-              blockStart <= maxFreq
-            ) {
-              const lx = Math.round(freqToX(blockStart));
-              ctx.beginPath();
-              ctx.moveTo(lx, topPad);
-              ctx.lineTo(lx, fftAreaMax.y);
-              ctx.stroke();
-            }
-
-            // Draw right boundary
-            if (
-              blockEnd < anchorRange.max - 0.0001 &&
-              blockEnd >= minFreq &&
-              blockEnd <= maxFreq
-            ) {
-              const rx = Math.round(freqToX(blockEnd));
-              ctx.beginPath();
-              ctx.moveTo(rx, topPad);
-              ctx.lineTo(rx, fftAreaMax.y);
-              ctx.stroke();
-            }
-
-            // Draw center label - clamp to visible region so it doesn't disappear when zoomed
-            const visibleStart = Math.max(blockStart, minFreq);
-            const visibleEnd = Math.min(blockEnd, maxFreq);
-            const visibleCenter = (visibleStart + visibleEnd) / 2;
-
-            if (visibleCenter >= minFreq && visibleCenter <= maxFreq) {
-              const cx = Math.round(freqToX(visibleCenter));
-              const label = isFullBlock
-                ? "Hardware Sample Rate"
-                : "Next Sample";
-              const subLabel = formatOffset(blockWidth);
-              ctx.fillText(label, cx, topPad + 19);
-              ctx.fillText(subLabel, cx, topPad + 16);
-            }
-          }
-          currentFreq = blockEnd;
-        }
+        drawHardwareSampleRateBlocks(ctx, {
+          anchorRange,
+          visibleRange: { min: minFreq, max: maxFreq },
+          sampleSpan: hwSpanMHz,
+          blockEpsilon: 0.001,
+          boundaryEpsilon: 0.0001,
+          drawRightBoundary: true,
+          toX: (frequency) => Math.round(freqToX(frequency)),
+          top: topPad,
+          bottom: fftAreaMax.y,
+          labelY: topPad + 19,
+          subLabelY: topPad + 16,
+          formatWidth: formatOffset,
+        });
         ctx.restore();
       }
     },
@@ -811,7 +682,6 @@ export function useDraw2DFFTSignal() {
       const bottom = Math.max(top + 1, height - 4);
       const trackLeft = FFT_AREA_MIN.x;
       const trackRight = Math.max(trackLeft + 80, width - 40);
-      const trackWidth = Math.max(1, trackRight - trackLeft);
       const visRange = visualRange || {
         min: slider.visibleMinHz,
         max: slider.visibleMaxHz,
@@ -821,17 +691,12 @@ export function useDraw2DFFTSignal() {
         1,
         Math.min(visibleSpan, slider.txSampleRateHz),
       );
-      const bandMin = slider.txCenterHz - bandwidth / 2;
-      const bandMax = slider.txCenterHz + bandwidth / 2;
-      const toX = (hz: number) =>
-        trackLeft + ((hz - visRange.min) / visibleSpan) * trackWidth;
-      const rawBandLeft = toX(bandMin);
-      const rawBandRight = toX(bandMax);
-      const bandLeft = Math.max(trackLeft, Math.min(trackRight, rawBandLeft));
-      const bandRight = Math.max(trackLeft, Math.min(trackRight, rawBandRight));
-      const centerX = Math.max(
+      const { bandLeft, bandRight, centerX } = getTxBandGeometry(
         trackLeft,
-        Math.min(trackRight, toX(slider.txCenterHz)),
+        trackRight,
+        visRange,
+        slider.txCenterHz,
+        bandwidth,
       );
       const trackY = top + 30;
       const labelY = top + 14;

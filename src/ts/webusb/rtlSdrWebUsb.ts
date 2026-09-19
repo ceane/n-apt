@@ -45,7 +45,7 @@ export interface WebUsbDeviceLike {
     },
     data?: ArrayBuffer,
   ): Promise<{ status: UsbTransferStatus; bytesWritten: number }>;
-  controlTransferIn(
+  controlTransferIn?(
     setup: {
       requestType: "vendor";
       recipient: "device";
@@ -101,6 +101,18 @@ export const SPECTRUM_LEFT_PAD = 48;
 export const SPECTRUM_TOP_PAD = 20;
 export const SPECTRUM_RIGHT_PAD = 16;
 export const SPECTRUM_BOTTOM_PAD = 40;
+
+export type RtlSdrInitProfile = "r82xx" | "experiment-demod-only";
+
+const RTL_INIT_PROFILES = {
+  r82xx: { registerB1: 0x1a, demodFlush: true, lowIf: true, programTuner: true },
+  "experiment-demod-only": {
+    registerB1: 0x1b,
+    demodFlush: false,
+    lowIf: false,
+    programTuner: false,
+  },
+} as const;
 
 const RTL_INTERFACE = 0;
 const RTL_BULK_IN_ENDPOINT = 1;
@@ -186,6 +198,7 @@ async function writeDemodRegister(
   address: number,
   value: number,
   bytes = 1,
+  profile: RtlSdrInitProfile = "r82xx",
 ): Promise<void> {
   await writeRegister(device, {
     block: page,
@@ -194,18 +207,18 @@ async function writeDemodRegister(
     bytes,
     bigEndian: true,
   });
-  // Match librtlsdr's demod-write transaction boundary. Its implementation
-  // reads a harmless demod register after every write; this flush is
-  // especially important for the live sample stream before PPM correction.
-  await readRegister(device, 0x0a, 0x0120, 1);
+  if (RTL_INIT_PROFILES[profile].demodFlush) {
+    await readRegister(device, 0x0a, 0x0120, 1);
+  }
 }
 
 async function initializeRtl2832u(
   device: WebUsbDeviceLike,
   sampleRateHz: number,
+  profile: RtlSdrInitProfile,
 ): Promise<void> {
-  // Initialize the RTL2832U demodulator and USB FIFO. The R82xx adapter below
-  // owns tuner-specific I2C programming and runs after this baseband setup.
+  const writeDemod = (page: number, address: number, value: number, bytes = 1) =>
+    writeDemodRegister(device, page, address, value, bytes, profile);
   const registers: RegisterWrite[] = [
     { block: 0x100, register: 0x2000, value: 0x09, bytes: 1 },
     { block: 0x100, register: 0x2158, value: 0x0200, bytes: 2 },
@@ -216,12 +229,12 @@ async function initializeRtl2832u(
 
   for (const register of registers) await writeRegister(device, register);
 
-  await writeDemodRegister(device, 1, 0x01, 0x14);
-  await writeDemodRegister(device, 1, 0x01, 0x10);
-  await writeDemodRegister(device, 1, 0x15, 0x00);
+  await writeDemod(1, 0x01, 0x14);
+  await writeDemod(1, 0x01, 0x10);
+  await writeDemod(1, 0x15, 0x00);
 
   for (const address of [0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b]) {
-    await writeDemodRegister(device, 1, address, 0x00);
+    await writeDemod(1, address, 0x00);
   }
 
   const lpfCoefficients = [
@@ -229,7 +242,7 @@ async function initializeRtl2832u(
     0x71, 0x11, 0x14, 0x71, 0x74, 0x19, 0x41, 0xa5,
   ];
   for (const [offset, value] of lpfCoefficients.entries()) {
-    await writeDemodRegister(device, 1, 0x1c + offset, value);
+    await writeDemod(1, 0x1c + offset, value);
   }
 
   const remainingRegisters: Array<[number, number, number]> = [
@@ -240,28 +253,27 @@ async function initializeRtl2832u(
     [1, 0x04, 0x00],
     [0, 0x61, 0x60],
     [0, 0x06, 0x80],
-    [1, 0xb1, 0x1a],
+    [1, 0xb1, RTL_INIT_PROFILES[profile].registerB1],
     [0, 0x0d, 0x83],
   ];
   for (const [page, address, value] of remainingRegisters) {
-    await writeDemodRegister(device, page, address, value);
+    await writeDemod(page, address, value);
   }
 
-  // R820T/R828D uses a 3.57 MHz low-IF path. The previous transport spike
-  // left the demodulator in zero-IF mode, which can produce a valid bulk IQ
-  // stream while placing tuned RF energy in the wrong place.
-  await writeDemodRegister(device, 0, 0x08, 0x4d);
-  const ifFrequency = -Math.floor(
-    (R82XX_IF_FREQUENCY_HZ * (1 << 22)) / RTL_XTAL_HZ,
-  );
-  await writeDemodRegister(device, 1, 0x19, (ifFrequency >> 16) & 0x3f);
-  await writeDemodRegister(device, 1, 0x1a, (ifFrequency >> 8) & 0xff);
-  await writeDemodRegister(device, 1, 0x1b, ifFrequency & 0xff);
-  await writeDemodRegister(device, 1, 0x15, 0x01);
+  if (RTL_INIT_PROFILES[profile].lowIf) {
+    await writeDemod(0, 0x08, 0x4d);
+    const ifFrequency = -Math.floor(
+      (R82XX_IF_FREQUENCY_HZ * (1 << 22)) / RTL_XTAL_HZ,
+    );
+    await writeDemod(1, 0x19, (ifFrequency >> 16) & 0x3f);
+    await writeDemod(1, 0x1a, (ifFrequency >> 8) & 0xff);
+    await writeDemod(1, 0x1b, ifFrequency & 0xff);
+    await writeDemod(1, 0x15, 0x01);
+  }
 
-  await applySampleRate(device, sampleRateHz);
-  await writeDemodRegister(device, 1, 0x01, 0x14);
-  await writeDemodRegister(device, 1, 0x01, 0x10);
+  await applySampleRate(device, sampleRateHz, profile);
+  await writeDemod(1, 0x01, 0x14);
+  await writeDemod(1, 0x01, 0x10);
 
   await writeRegister(device, {
     block: 0x100,
@@ -280,11 +292,12 @@ async function initializeRtl2832u(
 async function applySampleRate(
   device: WebUsbDeviceLike,
   sampleRateHz: number,
+  profile: RtlSdrInitProfile = "r82xx",
 ): Promise<void> {
   const ratio =
     Math.floor((RTL_XTAL_HZ * (1 << 22)) / sampleRateHz) & 0x0ffffffc;
-  await writeDemodRegister(device, 1, 0x9f, (ratio >> 16) & 0xffff, 2);
-  await writeDemodRegister(device, 1, 0xa1, ratio & 0xffff, 2);
+  await writeDemodRegister(device, 1, 0x9f, (ratio >> 16) & 0xffff, 2, profile);
+  await writeDemodRegister(device, 1, 0xa1, ratio & 0xffff, 2, profile);
 }
 
 async function applyPpmCorrection(
@@ -309,6 +322,9 @@ async function readRegister(
   register: number,
   length: number,
 ): Promise<Uint8Array> {
+  if (!device.controlTransferIn) {
+    throw new Error("RTL-SDR control reads are unavailable.");
+  }
   const result = await device.controlTransferIn(
     {
       requestType: "vendor",
@@ -463,7 +479,10 @@ export class RtlSdrWebUsbSession {
   private connection: RtlSdrConnection | null = null;
   private tuner: R82xxTuner | null = null;
 
-  public constructor(usb = getWebUsb()) {
+  public constructor(
+    usb = getWebUsb(),
+    private readonly profile: RtlSdrInitProfile = "r82xx",
+  ) {
     if (!usb) {
       throw new Error(
         "WebUSB is unavailable. Use a Chromium browser on HTTPS or localhost.",
@@ -477,9 +496,9 @@ export class RtlSdrWebUsbSession {
   ): Promise<RtlSdrConnection> {
     if (this.device) throw new Error("The WebUSB SDR is already connected.");
 
-    const sampleRateHz = normalizeSampleRateHz(
-      options.sampleRateHz ?? DEFAULT_SAMPLE_RATE_HZ,
-    );
+    const sampleRateHz = this.profile === "experiment-demod-only"
+      ? options.sampleRateHz ?? 1_024_000
+      : normalizeSampleRateHz(options.sampleRateHz ?? DEFAULT_SAMPLE_RATE_HZ);
     const fftSize = normalizeFftSize(options.fftSize ?? DEFAULT_FFT_SIZE);
     const gainDb = normalizeGainDb(options.gainDb ?? DEFAULT_GAIN_DB);
     const ppm = normalizePpm(options.ppm ?? DEFAULT_PPM);
@@ -491,22 +510,25 @@ export class RtlSdrWebUsbSession {
     const device = await selectRtlSdrDevice(this.usb);
     let opened = false;
     try {
-      if (!device.opened) {
+      if (!device.opened || this.profile === "experiment-demod-only") {
         await device.open();
       }
       opened = true;
       if (!device.configuration) await device.selectConfiguration(1);
       await device.claimInterface(RTL_INTERFACE);
       this.interfaceClaimed = true;
-      await initializeRtl2832u(device, sampleRateHz);
-      const tuner = new R82xxTuner(createR82xxTransport(device), {
-        blogV4: isRtlSdrBlogV4(device),
-      });
-      await tuner.probe();
-      await tuner.initialize();
-      await tuner.setFrequency(centerFrequencyHz);
-      await tuner.setGainTenthsDb(gainDb * 10);
-      if (ppm !== DEFAULT_PPM) await applyPpmCorrection(device, ppm);
+      await initializeRtl2832u(device, sampleRateHz, this.profile);
+      let tuner: R82xxTuner | null = null;
+      if (RTL_INIT_PROFILES[this.profile].programTuner) {
+        tuner = new R82xxTuner(createR82xxTransport(device), {
+          blogV4: isRtlSdrBlogV4(device),
+        });
+        await tuner.probe();
+        await tuner.initialize();
+        await tuner.setFrequency(centerFrequencyHz);
+        await tuner.setGainTenthsDb(gainDb * 10);
+        if (ppm !== DEFAULT_PPM) await applyPpmCorrection(device, ppm);
+      }
 
       this.device = device;
       this.tuner = tuner;
@@ -549,6 +571,10 @@ export class RtlSdrWebUsbSession {
     const current = this.connection;
     if (!device || !current) {
       throw new Error("Connect the WebUSB SDR before updating options.");
+    }
+
+    if (this.profile === "experiment-demod-only") {
+      throw new Error("The demod-only experiment does not support live option updates.");
     }
 
     const nextSampleRateHz = normalizeSampleRateHz(
@@ -647,6 +673,10 @@ export class RtlSdrWebUsbSession {
 
     this.streaming = false;
     this.paused = false;
+    if (this.profile === "experiment-demod-only" && !this.streamTask && this.interfaceClaimed) {
+      await device.releaseInterface(RTL_INTERFACE).catch(() => undefined);
+      this.interfaceClaimed = false;
+    }
     // close() aborts an outstanding transferIn. The loop treats that abort as
     // normal because streaming has already been set to false.
     if (this.opened) await device.close().catch(() => undefined);

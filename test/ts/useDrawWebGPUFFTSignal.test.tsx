@@ -102,6 +102,58 @@ describe("useDrawWebGPUFFTSignal", () => {
     jest.clearAllMocks();
   });
 
+  it("invalidates cached CSS reads on root attributes and head mutations", async () => {
+    const { result } = renderHook(() => useDrawWebGPUFFTSignal());
+    const computedStyle = jest.spyOn(window, "getComputedStyle");
+    const root = document.documentElement;
+    const oldTheme = root.getAttribute("data-theme");
+    const oldClass = root.getAttribute("class");
+    const oldStyle = root.getAttribute("style");
+    const style = document.createElement("style");
+    const draw = () => result.current.drawWebGPUFFTSignal({
+      canvas: mockCanvas,
+      device: mockDevice as any,
+      format: "rgba8unorm",
+      waveform: new Float32Array(2048).fill(-50),
+      frequencyRange: { min: 0, max: 1 },
+    });
+    try {
+      root.style.setProperty("--color-fft-background", "#123456");
+      await Promise.resolve();
+      await draw();
+      const firstReads = computedStyle.mock.calls.length;
+      expect(firstReads).toBeGreaterThan(0);
+      await draw();
+      expect(computedStyle).toHaveBeenCalledTimes(firstReads);
+      for (const [attribute, value] of [["data-theme", "test"], ["class", "test-render"]]) {
+        root.setAttribute(attribute, value);
+        await Promise.resolve();
+        const reads = computedStyle.mock.calls.length;
+        await draw();
+        expect(computedStyle).toHaveBeenCalledTimes(reads + 1);
+      }
+      root.style.setProperty("--color-fft-background", "#654321");
+      await Promise.resolve();
+      const styleReads = computedStyle.mock.calls.length;
+      await draw();
+      expect(computedStyle).toHaveBeenCalledTimes(styleReads + 1);
+      document.head.appendChild(style);
+      await Promise.resolve();
+      const headReads = computedStyle.mock.calls.length;
+      await draw();
+      expect(computedStyle).toHaveBeenCalledTimes(headReads + 1);
+    } finally {
+      style.remove();
+      const attributes: [string, string | null][] = [["data-theme", oldTheme], ["class", oldClass], ["style", oldStyle]];
+      for (const [attribute, value] of attributes) {
+        if (value === null) root.removeAttribute(attribute);
+        else root.setAttribute(attribute, value);
+      }
+      computedStyle.mockRestore();
+      result.current.cleanup();
+    }
+  });
+
   it("runs both spike-detection passes against one resampled FFT frame", async () => {
     const { result } = renderHook(() => useDrawWebGPUFFTSignal());
 

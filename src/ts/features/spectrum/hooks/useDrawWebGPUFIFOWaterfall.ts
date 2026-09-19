@@ -1,5 +1,7 @@
+import { forEachRepackedWaterfallRow } from "@n-apt/spectrum/utils/waterfallRows";
 import { WATERFALL_FIFO_WGSL } from "@n-apt/shaders";
 import { useCallback, useRef } from "react";
+import { readCssColor } from "@n-apt/layout/rendering/cssColor";
 import { validateSpectrumDataComprehensive } from "@n-apt/validation";
 import type { WaterfallBinSubset } from "@n-apt/spectrum/public/waterfallBinSubset";
 
@@ -39,15 +41,6 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
     ];
   }
   return [0, 0, 0, 1];
-}
-
-function readCssColor(name: string, fallback: string): string {
-  if (typeof window === "undefined" || typeof document === "undefined")
-    return fallback;
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return value || fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,24 +396,14 @@ export function useDrawWebGPUFIFOWaterfall() {
             // Repack the circular buffer by display age so the visible history
             // stays in the same order after a height change (only for real size changes)
             const enc = device.createCommandEncoder();
-            const prevRenderRow =
-              prevH > 0 ? (s.writeRow - 1 + prevH) % prevH : 0;
-            const nextRenderRow =
-              needH > 0 ? (s.writeRow - 1 + needH) % needH : 0;
-            for (let age = 0; age < needH; age++) {
-              const srcAge = Math.max(
-                0,
-                Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
-              );
-              const srcY =
-                prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
-              const dstY = (nextRenderRow - age + needH) % needH;
+            const nextTex = s.dataTex;
+            forEachRepackedWaterfallRow(prevH, needH, s.writeRow, (srcY, dstY) => {
               enc.copyTextureToTexture(
                 { texture: prevTex, origin: { x: 0, y: srcY } },
-                { texture: s.dataTex, origin: { x: 0, y: dstY } },
+                { texture: nextTex, origin: { x: 0, y: dstY } },
                 { width: s.texW, height: 1 },
               );
-            }
+            });
             device.queue.submit([enc.finish()]);
             s.writeRow = Math.min(s.writeRow, s.texH - 1);
           } else {

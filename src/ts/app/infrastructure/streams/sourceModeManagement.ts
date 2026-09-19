@@ -10,7 +10,6 @@ export type SourceViewMode = "rx" | "tx";
 export type SourceModeAction =
   | "clear_tx_binding"
   | "pause_rx"
-  | "resume_rx"
   | "bind_tx"
   | "enter_tx_standby"
   | "request_rx_mode"
@@ -77,6 +76,24 @@ export const isSourceStreamAvailable = (status: unknown): boolean =>
   ["connected", "loading", "receiving", "streaming", "transmitting", "standby", "paused"].includes(
     normalizeToken(status),
   );
+
+/**
+ * Whether the managed Rx transport must stay subscribed for a source.
+ *
+ * Deliberately wider than `isSourceStreamAvailable`: backend acquisition is
+ * subscriber-driven, so dropping the last subscriber on a `stale` device idles
+ * acquisition and the device can never produce the fresh frame that would clear
+ * the stale state — a livelock the UI reports as a permanent Loading
+ * placeholder. Hold the transport open instead and let the lifecycle placeholder
+ * cover the canvas until the backend recovers.
+ *
+ * `isSourceStreamAvailable` itself must NOT treat `stale` as available: its
+ * callers use it to mean "a usable stream exists right now", and a stale device
+ * flipping that to true would suppress the loading placeholder over a dead
+ * canvas.
+ */
+export const shouldHoldSourceSubscription = (status: unknown): boolean =>
+  isSourceStreamAvailable(status) || normalizeToken(status) === "stale";
 
 /**
  * A disconnected source can reappear with the same serial-derived id. Drop
@@ -265,13 +282,17 @@ export const resolveSourceModeTransition = ({
   }
 
   if (toMode === "rx") {
+    // A half-duplex device stopped Rx to transmit, so returning to Rx lands on
+    // a held pause: the client owns that latch and surfaces it as "Resume Rx"
+    // plus the paused banner. Resuming here instead paints a live-looking Rx
+    // over a stream the device has not restarted yet.
     return {
       sourceId,
       fromMode,
       toMode,
       actions: [
         "clear_tx_binding",
-        ...(duplexMode === "half_duplex" ? ["resume_rx" as const] : []),
+        ...(duplexMode === "half_duplex" ? ["pause_rx" as const] : []),
         "request_rx_mode",
         "request_rx_frame",
       ],

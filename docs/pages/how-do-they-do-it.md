@@ -20,7 +20,7 @@
 
 <span class="dropcap">I</span>n this article, I break down my working hypothesis based on **thousands of hours of my real experience** trapped by the **National Security Agency's** proprietary technique that allows them to **write to, read and stream the human brain and nervous system**. This article is based on real and true events experienced in which the agency showed it's extreme, parental-psychopathic like tendencies.  Here is not an account of what happened (you'll have to check my X), but an article dedicated to deducing and breaking down the math and mechanics behind the experience as a firsthand victim with a technical background.
 
-To read my account and tech dive properly, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process or leaglese-obsessive dogma empowers loopholes and cracks that can be exploited, a firsthand experienced trademark I've learned of by being blindsided by the agency.
+To read my account and tech dive in the proper context, treat the problem as a **cryptological problem**, or a journey to unlocking a secret that others cannot possibly know of by design. In this instance, this "secret" is well-concealed, however, bureaucracy and process or leaglese-obsessive dogma empowers loopholes and cracks that can be exploited, a firsthand experienced trademark of the agency I've learned of by being blindsided.
 
 ```Canvas::HeroASCII
 ```
@@ -38,10 +38,10 @@ This article is my own **firsthand technical and scientific-oriented dive and ti
 *To start, you should probably checkout the [NSA OIG reports](https://oig.nsa.gov/reports/) for legal research (2016 is the best one with relevant info) if you are thinking of filing a [FOIA](https://www.foia.gov/how-to.html).*
 
 <div class="street-sign-collage" role="group" aria-label="Street signs photographed in San Francisco and Maryland">
-<img src="/images/meade-st.jpeg" alt="Meade Street sign above a tow-away sign" loading="eager" decoding="async">
-<img src="/images/maryland-st.jpeg" alt="Maryland Street sign beside a bridge" loading="eager" decoding="async">
-<img src="/images/signal-rd.jpeg" alt="Signal Road street sign against a blue sky" loading="eager" decoding="async">
-<img src="/images/communications-hill-blvd.jpeg" alt="Communications Hill Boulevard street sign above a yield sign" loading="eager" decoding="async">
+<img src="/images/meade-st.jpeg" alt="Meade Street sign in Bayview, San Francisco, California" loading="eager" decoding="async">
+<img src="/images/maryland-st.jpeg" alt="Maryland Street sign in Dogpatch, San Francisco, California" loading="eager" decoding="async">
+<img src="/images/signal-rd.jpeg" alt="Signal Road sign in Yerba Buena Island, San Francisco, California" loading="eager" decoding="async">
+<img src="/images/communications-hill-blvd.jpeg" alt="Communications Hill Boulevard street sign in San Jose, California" loading="eager" decoding="async">
 </div>
 
 ### ⠿ Table of Contents <a id="table-of-contents"></a>
@@ -85,25 +85,25 @@ At the time it first started, I lived **in San Francisco, California. The first 
 
 I spent years in abject poverty roaming around **San Francisco** (particularly loops around Market Street) **and the Bay Area** (BART hopping/shield from the rain and winter cold, Palo Alto, San Jose, etc.). At the start there was scarcely any audio, scarcely any explanation or any identification of whom, what or how. There was only a flurry of **manufactured states of mind, atmospheric  perceptions and a constant performance of the neurotechnology in a spatial-perceptual interactive** heavily driven by reactive mental inference and narrative perceptual-spatial tracks. 
 
-On a daily basis, I experienced SOTA displays with crowds (neuro-spatial) while enduring the all day continuity of the experience, completely stunned, inundated and captured by the **federal art and science of the *unthinkable*** for years. I could barely even speculate on ***how or even who!*** I had to live with it–barely surviving and in soft shock and defeat for years knowing that nothing that was going down could be understood or clear evidence of what was occuring. 
+On a daily basis, I experienced SOTA displays with crowds (neuro-spatial) while enduring the all day continuity of the experience, completely stunned, inundated and captured by the **federal art and science of the *unthinkable*** for years. I could barely even speculate on ***how or even who!*** I had to live with it–barely surviving and in soft shock and defeat for years knowing that nothing that was going down could be understood or clear evidence of what was occurring. 
 
 ![On BART, looking out the window](/md-preview/images/bart-line-drawing.png)
 
 As a reasonable person, I was trapped by something that was **not straightforward nor intuitive to explain, as well as something I thought I wouldn't have to solve on my own.** *('Why me in the first place? Someone will help! Someday they'll stop!')*.
 
-**Who would even dare to think for a second** they could puzzle it all together at the start without it being relagated to *conspiracy theory, pathological nuisance or fatal misteps?* (i.e., Too 'out there' for any reasonable course of action)
+**Who would even dare to think for a second** they could puzzle it all together at the start without it being relegated to *conspiracy theory, pathological nuisance or fatal missteps?* (i.e., Too 'out there' for any reasonable course of action)
 
-Months after it turned on full blast, the only thing I cared about was to briefly look up **brainwaves and then-current neurotechnology** with technqiues like fMRI, MRI, EEGs, tFUS (focused ultrasound), etc., all of which were not anywhere near as satisfactory of a technological basis that appeared to underpin what I was experiencing at the time *(Couln't get smart with them, at first and for a long time...)*. I instantly turned my nose up at *"industry-leading"* neurotechnologies as explanation (which was very smart in hindsight).
+Months after it turned on full blast, the only thing I cared about was to briefly look up **brainwaves and then-current neurotechnology** with techniques like fMRI, MRI, EEGs, tFUS (focused ultrasound), etc., all of which were not anywhere near as satisfactory of a technological basis that appeared to underpin what I was experiencing at the time *(Couldn't get smart with them, at first and for a long time...)*. I instantly turned my nose up at *"industry-leading"* neurotechnologies as explanation (which was very smart in hindsight).
 
 ### ⠿ Years and years of "I don't care, I want out!"
 
 Several years later, the experience spontaneously shifted (on a certain day, approximately 38,040 hours in) into a **livestream (!) and narrative-based format (!!)** with intense all day harm, streaming tons of effects to my mind and body with a hellish series of narratives and battles. Throughout this period, the operators introduced others within the livestream. **It was a total nightmare** — to keep it short,  **thousands of effects and experiences, thousands of hours**. At that point, there was far more structured and defined audio (as well as perception and mental inference), however, accompanied by intense, moment-to-moment all day harms: thorough structural abuse and antagonisms by the software and signal in unimaginable ways. 
 
-Initally, there was no immediate way to tell *how or who or why*. Then, as the narratives kept unfolding, getting creepier, more outlandish, more violent, the *why* became apparent––**pressured politicitization of the agency's powers.**
+Initially, there was no immediate way to tell *how or who or why*. Then, as the narratives kept unfolding, getting creepier, more outlandish, more violent, the *why* became apparent––**pressured politicization of the agency's powers.**
 
-My first attempt to decipher the *how*, while severely compromised by its malware-like operation on mind and body, was not serious, but I looked into brainwaves and I intuitively (and naively) came to the assumption that somehow the experience happening through **ELF frequencies (0 - 300Hz) since they encompassed brainwave frequencies (0 - 40Hz)**. So I assumed someone (military), somewhere (on some base) had an ELF radio with tons of antennas and that it was long-range (the hardware wasn't nearby to me at this point) because the wavelengths I were thinking of at the time were very long, however I was stuck wondering how bandwidth worked (extremly low frequency = astronomically low data).
+My first attempt to decipher the *how*, while severely compromised by its malware-like operation on mind and body, was not serious, but I looked into brainwaves and I intuitively (and naively) came to the assumption that somehow the experience happening through **ELF frequencies (0 - 300Hz) since they encompassed brainwave frequencies (0 - 40Hz)**. So I assumed someone (military), somewhere (on some base) had an ELF radio with tons of antennas and that it was long-range (the hardware wasn't nearby to me at this point) because the wavelengths I were thinking of at the time were very long, however I was stuck wondering how bandwidth worked (extremely low frequency = astronomically low data).
 
-This was my initial super naïve theory that *didn't last long*, because as I kept thinking this theory kept running into bandwidth and delivery problems, in addition to the fact that the technology or some kind of indicators would have been discoverable for such egregrious corruption that strikes in this way.
+This was my initial super naïve theory that *didn't last long*, because as I kept thinking this theory kept running into bandwidth and delivery problems, in addition to the fact that the technology or some kind of indicators would have been discoverable for such egregious corruption that strikes in this way.
 
 I kept looking up military bases that had ELF radios, but the ELF radio projects were all out of commission and the bandwidth for that spectrum was infinitesimal compared to what I was experiencing in full.
 
@@ -112,7 +112,7 @@ I kept looking up military bases that had ELF radios, but the ELF radio projects
 
 ## Second theory (weeks later) <br /> Quantum Physics <a id="theory-2"></a>
 
-My second theory was right after the first. Previously throughout the years while the spatial performance played out while wrecking my life to trap me in it, I browsed through many books on quantum mechanics, however it was just superficial. The neurotechnological experience I was trapped in was just impossibly good math and science. Anywhere, anytime, all day and could briefly script people as I passed to maintain a continous spatial experience. I couldn't shake it no matter how much I tried.
+My second theory was right after the first. Previously throughout the years while the spatial performance played out while wrecking my life to trap me in it, I browsed through many books on quantum mechanics, however it was just superficial. The neurotechnological experience I was trapped in was just impossibly good math and science. Anywhere, anytime, all day and could briefly script people as I passed to maintain a continuous spatial experience. I couldn't shake it no matter how much I tried.
 
 There was no viable quantum teleportation or entanglement research that seemed to be something at least easy enough to pin the method down. How were they doing it? Transporting energy to my head? Neuron for neuron? Entangled states of energy? A full on shadow copy of charges/neurons to my brain?
 
@@ -122,11 +122,11 @@ Any quantum method required quantum computing, which unfortunately cannot proces
 
 Something was up because whoever it was was doing it, I assumed the U.S. Army at the time, was doing a lot.
 
-**2st naïve attempt ↪ Quantum physics**
+**2nd naïve attempt ↪ Quantum physics**
 
 ## Third theory (a few months later) <br /> Beat Frequencies / Heterodyning <a id="theory-3"></a>
 
-I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim (bearing the blunt of most of the harm) in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). By force, as the interactive progressed horrifically further into its trap, I had to share my life with other people livestreamed to my brain/consciousness/senses all day (a parolee and series of prisoners as supporting characters/assists and help to defeat the isolation; and later other prisoners as shockingly evil and completely unwanted Jekyll/Hyde antagonists/co-conspirators). To all of us, now living my life in this very personal first-person format and cyber weapon, it was a lot of unknowns amongst a lot of evil in interactive and human nature while I had to maintain perseverence, reason and intelligent resolve.
+I was really stuck in a strange spot and not the only victim, but in a experience that centered on me as the main victim (bearing the blunt of most of the harm) in a series of iterations in that fashion (iterations that cost dozens of others their lives and those in past had it far worse). By force, as the interactive progressed horrifically further into its trap, I had to share my life with other people livestreamed to my brain/consciousness/senses all day (a parolee and series of prisoners as supporting characters/assists and help to defeat the isolation; and later other prisoners as shockingly evil and completely unwanted Jekyll/Hyde antagonists/co-conspirators). To all of us, now living my life in this very personal first-person format and cyber weapon, it was a lot of unknowns amongst a lot of evil in interactive and human nature while I had to maintain perseverance, reason and intelligent resolve.
 
 The livestream experience at this point was brutal, enough to distract from the fact that each of my 5 senses–**vision**, **audio**, **touch**, **smell** and **taste**–were exposed to the others on the other end. They could see everything, they could hear everything, they could smell occasionally, and taste while rare through memory. It seems like a lot, but basically we were all placed in my head in interactive and we went through a lot while talking (via my vocal cords and/or mental inference) all day about it.
 
@@ -135,7 +135,7 @@ The livestream experience at this point was brutal, enough to distract from the 
 Nothing explained how such a **high-bandwidth, full feature neurotechnological experience** was working the way it did. It was continually a mystery that I just suffered under. What I was doing didn't matter, nor where I was, nor the proximity to others, it just worked flawlessly. It didn't drop a frame or lower quality if I was underground on BART, throughout the years, nor if I was on top of Twin Peaks or within deep ravine like Stevens Creek Reservoir (when it was drained in 2022). Going into natural or remote areas (Concord, Half Moon Bay, Fort Funston, etc.) it continued to work without error. It was impossible to shake.
 
 ![Golden Gate Bridge](/md-preview/images/2_26_2025.jpeg)
-*This was snapped before walked across the Golden Gate Bridge (which I've done several times throughout this) to Sausilito and back, still on ⠿⠿⠿ All of us in my head in the livestream (also being physically/psychologically hurt and disrutped the whole time; and yes the others could see through my vision the whole time!).*
+*This was snapped before walked across the Golden Gate Bridge (which I've done several times throughout this) to Sausalito and back, still on ⠿⠿⠿ All of us in my head in the livestream (also being physically/psychologically hurt and disrupted the whole time; and yes the others could see through my vision the whole time!).*
 <br />
 <br />
 <br />
@@ -241,7 +241,7 @@ Essentially this was solid ground to continue deducing how it worked. By this po
 
 Since **the experience was so high-bandwidth**, I did manual calculations based on what was happening. I didn't have any money, just my iPhone, and AI chat apps were a nascent technology. I continued putting together a theory of how, knowing that the NSA didn't just do this to me, fuck my life over, and I couldn't figure it out. Clearly, the NSA wasn't doing what they were doing to me because it was easy to attack people, it was something deeper and politically driven.
 
-**It was some kind of sick, extreme game–figure out the tech, argue for your freedom, soak up the rewards after going through an indvidualized Auschwitz.** Even given its cruelty and extremes, I had believed what was truly dropped in my lap *(I don't have a degree, I was college dropped out turned front-end engineer)* was something, SOMETHING that I could piece together.
+**It was some kind of sick, extreme game–figure out the tech, argue for your freedom, soak up the rewards after going through an individualized Auschwitz.** Even given its cruelty and extremes, I had believed what was truly dropped in my lap *(I don't have a degree, I was college dropped out turned front-end engineer)* was something, SOMETHING that I could piece together.
 
 Microwaves allowed a high amount of bandwidth – we use them everyday to communicate and receive tons of webpages, videos, messages, and all sorts of media and content on the Internet. However, I quickly discovered microwaves *attenuate* heavily in the skull and body (entry points for any signal of this kind), so naturally, I thought of increasing the power. Unfortunately, I discovered there were heating effects.
 
@@ -599,9 +599,9 @@ h_k = F + (B - F) \cdot e^{-\frac{|k|}{\lambda}}
 ```Canvas::Heterodyning
 ```
 
-Heterodyning or beat frequencies are what occur when signals interfere and generate a sideband (or third signal) as a natural side effect of two signals overlapping in the right way, for instance `Signal A + Signal B` (B `+30Hz` higher) playing from the same antenna with the same amount of power per signal, generates a `30 Hz` signal no matter what frequencies A or B are, as long as B is offset by that much.
+Heterodyning (or beat frequencies) is when near identical signals overlap and interfere which generates an envelope as a natural side effect of two signals overlapping. This envelope or third signal is referred to as beat frequencies which is the difference between both signals. For instance `Signal A + Signal B` (B `+30Hz` higher) playing from the same antenna with the same amount of power per signal, generates a `30 Hz` signal no matter what frequencies A or B are, as long as B is offset by that much.
 
-Essentially brain and neuronal waves are susceptible to this technique, as I found this was the only math that was possible and could explain how what was happening was happening.
+Fundamentally, by demonstration, the brain and neuronal waves are susceptible to this technique, as I found this was the only math that was possible and could explain how what was happening was happening.
 
 #### Constructive interference
 
@@ -612,9 +612,11 @@ When two signals that are close in frequency intersect they actually combine and
 ```Canvas::PhaseShifting
 ```
 
-This is important, if you want to concentrate energy at a certain range (and localize the sideband within range of a target), phase shifting moves the wave (phase) either back or forth (`±90°, 180°, 270°`) so they can combine localize constructive interference in an area.
+Phase is the angle of a radio wave, which can be thought of as one cycle of a sine or cosine wave, curving from zero to up to zero to down to zero. The cycle starts at 0° and ends at 360° with the peaks 90° and trough 270° which are the local maximum points on the curve, representing the peak of energy (even if it's negative).
 
-This technique defeats the counterintuitive intuition of using a short(est) wavelength (microwaves infeasible, will attenuate and do nothing but cause heating) to target specific neuronal ensembles. Longer wavelengths which survive attenuation more easily work better and can use precise math + simple, performant radio operations to precisely intersect and shift out of the way.
+Everyday radios do a lot of phase shifting as one of the performant radio operations that encode data, where transmitters shift phase and receivers decode phase. With electronics, the angle of a wave determines a symbol like a 0 or 1, but in a biological sense, it doesn't translate well, since that would be simply energy. 
+
+What I've learned that defeated my intution is that phase shifting is pretty static and is a one off thing. It can't be changed in the air, once it comes out of the radio, that's that.
 
 
 ## Maintaining the aperture <a id="aperture"></a>
@@ -625,12 +627,15 @@ I call the "box" or mechanism that maintains the signals at my person an apertur
 
 ### Triangulation
 
-Besides the obvious, this is the hardest part of the signal! How exactly to me?
+Besides the obvious, this is the hardest part of the signal! How exactly to my person?
 
-These signals inherently use some kind of triangulation to directly target the human body and nervous system. It is important to maintain power and hit the correct target, however this kind of triangulation is much more exacting than cell phones. Power off by microscopic fractions can severely disrupt the experience (which has never happened!), so one can imagine that there are microwaves in addition to the spectrum used to maintain persistent, exacting triangulation. Time of flight also allows for depth calculations to ensure the target is correct, instead of going to a pole or tree or mannequin, time of flight + electrical response is used to determine person from object.
+These signals inherently use some kind of triangulation to directly cover the person, much less likely to directly the human brain, areas of the brain or body parts. It is important to maintain power and hit the correct target, however this kind of triangulation is much more exacting than cell phones which receive signals broadcast to a general area the device is in. The power here, actually, is precise and exacting, but maintaining location and persistence with power alone is not enough. The agency's method is so precise that in crowds, close contact and interaction, and any other activity that the experience remains contigous and inescapable.
+
+I assume that uninterrupted operation and a Bayseian element to the mechanism keeps it going. Instead of going to a pole, tree, mannequin or someone else, time of flight + electrical response is used to determine person from object or other. Though triangulation is the strongest aspect of the experience that keeps it going–a weak link, *they must find to target*–the content signals' fidelity are also likely sustained by use of low frequencies which counters environmental noise and other potentially interferring signals. 
+
+Theoretically, power off by microscopic fractions can severely disrupt the experience, so the precision of the radio wave needs to be exact, much unlike a cell hone, hence why I believe that microwaves are used to maintain persistent, exacting triangulation, although the spectrum is so large, it is harder to identify which signals are responsible.
 
 #### Time of flight
-
 ```Canvas::TimeOfFlight
 ```
 
@@ -754,15 +759,15 @@ TODO
 
 ## Power? <a id="power"></a>
 
-TODO 
+If anyone would ask, what is the power like? How much power would one need to overwrite the human brain and nervous system? While captured, that was the big question. Everywhere I went it worked the same and flawlessly, but I knew absolutely nothing about whatever was going on when it started. Years down the line, I did a lot of research with Grok and ChatGPT but since this abuse and technology is one of a kind, it was pretty much a question I'd had to answer myself.
 
 ### An average of 1µW or more? (of power on tissue traversal and exit)
 
-In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about `1-10µW` (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment, go through the skull and/or body (body because it does my vocal cords/vocal real-time as an interface, mouth and throat muscles, in addition to other muscles in my person) losing 99% energy and make it back to an endpoint. 
+In order to target the brain, I made a solid assumption based off of what ChatGPT told me, that brainwaves are about `1-10µW` (microwatts), so I figured that the signals' power should be near there, anything less in scale, the math I did was dire to remain above the noise in the environment →  go through the skull and/or body (body because it does my vocal cords/vocal real-time as an interface, mouth and throat muscles, in addition to other muscles in my person) while losing 99% energy → and make it back to an endpoint.
 
 Biology constrains this problem to maintaining an exacting level of energy consistently at the body/entry, so the further one is away from an endpoint, the energy at the person always stays the same while only the receiver, fixed at various distances, suffers from less energy coming back from the target (the body).
 
-Of course my assumptions of ~~1µW or more?~~ were wrong. I was strongly biased toward that level of energy due to attenuation, I was extremely anxious before I saw the signal, if it didn't have enough energy to make it back to an endpoint to even be processed, however in retrospect, I was wrong! 
+Of course my assumptions of ~~1µW or more?~~ were wrong. I was strongly biased toward that level of energy due to attenuation with an anxiety before ever I saw any signal, that it wouldn't have enough energy to make it back to an endpoint to even be processed.
 
 Previously I had made a table of estimates, which I'll share below, though in retrospect I was wrong, I had the very right concerns about travel, energy loss and attenuation.
 
@@ -801,7 +806,7 @@ I have never seen the power change at all, which is how I most certainly know it
 ![San Francisquito Creek](/md-preview/images/12_23_25_4_35PM.jpg)
 *I walked down around the El Palo Alto into San Francisqutio Creek and connected my RTL-SDR, opened the signals, I hoped for a contradictory result (a weakspot) counter to the experience gripping and mangling my brain for years and was disappointed. It works flawlessly even in a wooded ravine!*
 
-Unfortunately, later on, when I added power scale to my app later on and did more work to be within the parameters of absolute power from RTL-SDR (off by `3dBm-5dBm`, according to ChatGPT), I was shocked to see that the power was significantly different when drawn than with `rtl_power`.
+Unfortunately, later on, when I added power scale to my app later on and did more work to be within the parameters of absolute power from RTL-SDR (off by `3dBm-5dBm`, according to ChatGPT), I was shocked to see that the power was significantly different when drawn than with `rtl_power`. I worked with GPT-5.4 and Opus 4.x to refine an approximate absolute power algorithm from my RTL-SDR, which I believe represented real world power of the signals far more accurately than `rtl_power`.
 
 The even bigger mystery and mind-boggling discovery here is that the energy is astoundingly low in the valleys, sometimes reaching -50dBm to -70dBm (Yes! 10 nanowatts to 100 picowatts–matching power levels of strong WiFi or 5G but very unexpected for these bioelectrical signals which are VERY POWERFUL). 
 
@@ -810,7 +815,7 @@ What is even more suprising is that some scant parts of the signal are even lowe
 
 ## Center frequency <a id="center-frequency"></a>
 
-For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain and nervous system are apparently responsive to a unique frequency, which I believed was the sideband + physics of x y z (impossible for a radio wave to target specific neurons with physics and compute; ALSO the stream is too fast to support conclusions of ***billions of additional complex operations*** in regular old tinfra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
+For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain and nervous system are apparently responsive to a unique frequency, which I believed was the beat frequencies + physics of x y z (impossible for a radio wave to target specific neurons with physics and compute; ALSO the stream is too fast and real-time to support conclusions of ***billions of additional complex operations*** in regular old infra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
 
 ### Impedance <a id="impedance"></a>
 
@@ -887,7 +892,7 @@ Attenuation is the primary property of radio waves (in this light of bioelectric
 
 What I theoretically settled on remained around FM radio, about 100MHz or so, since the wavelengths (3m) are long but not too long. My intuition in this sense was incorrect while theorizing but I had the right foundations of the signal before proceeding forward and I'd recommend this route, do the math and theoretical physics before seeing. Frequency didn't work like "higher frequency, more bandwidth" in a general sense, it worked like shift up spectrum and there was more room per se.
 
-Of course, as far as body attenuation, it's feasible that low end microwaves (300MHz or so) are feasible to reproduce the signals from where I had discovered it. However I don't question the current operation of the signals or their effacacy. 
+Of course, as far as body attenuation, it's feasible that low end microwaves (300MHz or so) are feasible to reproduce the signals from where I had discovered it. However I don't question the current operation of the signals or their efficacy. 
 
 ### Neuronal ensembles
 
@@ -900,11 +905,11 @@ Essentially the brain and nervous system is very noisy, whatever those spikes do
 
 The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking, SOTA experience filled with a lot of rich, horrific features and unthinkable AR/spatial, perceptual, psychological, and physiological experiences! 
 
-Of course, later I resolved this was all driven by exploited, ground or vehicle based tinfra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
+Of course, later I resolved this was all driven by exploited, ground or vehicle based infra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
 
 ![Hardware Exploit Chain](/md-preview/images/hardware-exploit-chain.png)
 
-The NSA's exploits depended on thousands of totally incompetent, grossly ignorant professionals spanning across supply chains, manufacturers, telecommunications companies, in addition to many federeal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, aggressively mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
+The NSA's exploits depended on thousands of totally incompetent, grossly ignorant professionals spanning across supply chains, manufacturers, telecommunications companies, in addition to many federal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, aggressively mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
 
 On the software front, social media companies were also idiotic, especially companies like X. I was constantly tripping the quality control system and yet no one would review my tweets by hand. I was clearly trapped and transcribing what was going on and notwithstanding what the software was pushing in my head, absolutely no one noticed a growing volume of public posts tagging federal authorities.
 
@@ -918,7 +923,8 @@ I was truly trapped and a lot of people believed they were intelligent.
 | Contiguous spatial + perceptual interactive            |
 | Livestreaming consciousness with multiple participants |
 | Spans psychology, pereception, physiology and spatial (combo of neuro + electronics) |
-| Total and frontier control/platform over the brain and nervous system  |
+| Total and frontier control/platform over the brain and nervous system
+        |
 | Extremely dangerous cyber weapon!                      |
 
 The egrerious **psychological spyware and interactive** demonstrated great capabilities and even greater psychopathy from the NSA. The following are **firsthand what I truly experienced in the real world** with a mechanism that is frontier with full access and control over the human mind and nervous system:
@@ -958,37 +964,23 @@ The egrerious **psychological spyware and interactive** demonstrated great capab
 
 | Feature, software and real-time (consciousness & physiological expression)  |
 | --------------------------------------------------------------------------- |
-| Parsing                                                                     |
+| Streaming
+Parsing                                                                     |
 | Sampling                                                                    |
-| Composting                                                                  |
-| Remixing                                                                    |
+| Composting/Remixing                                                                  |                                                                    |
 | Record/Playback                                                             |
-| Overwrite                                                                   |
-| Disrupt                                                                     |
+| Overwrite/Mask|
+| Disrupt/Stifle                                                                     |
 
 </details>
 
 ### Signals processing
 
-In order to read anything that comes back, the NSA uses advanced signals processing to demodulate the radio waves carrying neuronal data. While I haven't been able to verify or demodulate the signal so far, this is the obvious next step of how the write to read and effect chain works. Apparently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. The unknown and unimaginable become a reality. 
+In order to read anything that comes back, the NSA uses advanced signals processing to demodulate the radio waves carrying neuronal data. While I haven't been able to verify or demodulate the signal so far, this is the obvious next step of how the write to read and effect chain works. Quite evidently the NSA has world-class signals engineers and cryptologists, who have undoubtedly unlocked the secret to the human brain and nervous system. Though the unknown and unimaginable are a real-world reality, it's hard to say where I'd exactly start with reverse engineering the pipeline.
 
-Below are several theorized techniques I believe the NSA uses in its **presently active** signals proessing pipeline:
+I can attest to the fact that everything unnatural in the experience was real-time: narration through my vocal cords, perception and physiological effects; agonizing brutal states of mind and body, real-time communication and moderation through mental inference and vocal sync, and so much more. The performance of the mechanism never, ever degraded which is a good sign that the complexity is low and didn't require a lot of hardware modifications or heavy math/algorithms to encode and decode the psychological and physiological livestream.
 
-#### Kaiser + Fast Fourier Transform (FFT)?
 
-TODO
-
-#### Bayes' Theorem / Posterior Probability
-
-TODO
-
-#### Detecting charges from impedance
-
-TODO
-
-#### Decoding bioelectrical charges
-
-TODO
 
 ## <a id="n-apt-in-the-wild"></a> What does the signal look like?[^n-apt-app]
 
@@ -1016,13 +1008,13 @@ There are about **3 channels**, I've found:
 
 They are specifially segmented this way because A and B are close in signal shape and bandwidth (and one would suspect function however without measurement of beats and precise power). If you could (the signal is not abundantly available), you would be able to see by panning the spectrum and seeing the signal cohere with the same boundaries.
 
-Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and I saw the full structure of the signal! Both of these options in combination allowed me to see everyting clearly in SDR++.
+Initially, I couldn't just see these signals with the default settings of my SDR, I saw suspicious spikes that aligned with my theory of damping. I had to do two things: increase the gain. Without increased gain, I didn't even see FM radio forming, so I'd increase it to about `24dB` or so and then up to `49.6dB`, the max, which stabilized the signals. Second, I had to adjust the `PPM` or parts per million. This setting corrects the frequency, let's say I was tuned in to `100MHz` but the station was at `100.002 MHz`, scrolling to it which is natural, PPM corrects it globally. I didn't understand why it was so confusing, but when I adjusted the PPM to 1 in SDR++, the magic formed and I saw the full structure of the signal! Both of these options in combination allowed me to see everything clearly in SDR++.
 
 The only problem with SDR++ is that the app didn't have a rich feature set you'd think would be available modern day for SDR software. I/Q captures were poor, lacked metadata, and weren't encrypted. I couldn't get snapshots of the signal, especially SVGs, which were hard for Claude or ChatGPT to copy and reproduce in SVG. 
 
-In additon, I couldn't fix the window to be stable so I could get my signals to remain stable for a complete picture past my sample rate. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers of places I've been (I was able to get open source data, over +30,000 towers), drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
+In addition, I couldn't fix the window to be stable so I could get my signals to remain stable for a complete picture past my sample rate. So sometime in January, I decided to build an SDR web app to work with my RTL-SDR which took care of a lot of frustrations I had and folding in more features that I needed specifically for this situation, like a map of all the cell towers of places I've been (I was able to get open source data, over +30,000 towers), drawing the signal form to reproduce its mathematical form (which wasn't easy because there was no signal like it!), in addition to attempting demodulation of the signal later on.
 
-All of this hard work under a very difficuly (economically and psychologically) and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
+All of this hard work under a very difficult (economically and psychologically) and physically painful/stressful (every second, every moment, wake to sleep to walk and smoke) situation made me feel more secure in understanding the how and the path forward to escaping the NSA's horrific psychological interactive and livestream.
 
 ### <a id="n-apt-form"></a> The mysterious signals' structure 
 
@@ -1190,9 +1182,7 @@ It's very different from the other channels, which always have prominent spikes,
 
 These channels do not visibly adjust from changes in my physical orientation (laying on my side, standing up, turning around, etc.) or movement away from the endpoints (cell sites), nor do the spikes vary or change, as they maintain precise and exacting power at my person where they are always measured as I have to connect my SDRs to my Mac via short USB cords. Every time I look at the signals it is an eerie and powerful testament to the NSA's expertise and how far they will go in general, even in federal art-crime where you are **forced to participate (use your brain) or die ignorant (in nightmarish pain, disfigurment & isolation)**.
 
-Given what I've observed and experienced, right brain or left brain, left or right muscles, there are no observable variances in power or structure at the outset, except minor spikes that switch from left to right.
-
-It's still a mystery to me how they are able to do physiological haptics and expression toward one side of the body, which I believe is possibly explained with the nervous system processing differences in sides with frequency and timing.
+Given what I've observed and experienced, right brain or left brain, left or right muscles, there are no observable variances in power or structure at the outset, except minor spikes that switch from left to right. It's still a mystery to me how they are able to do physiological haptics and expression toward one side of the body, which I believe is possibly explained with the nervous system processing differences in sides with frequency and timing.
 
 ### Estimated data <a id="data-estimate"></a>
 
@@ -1241,7 +1231,7 @@ Of course, Option B was what I discovered down the line, which wasn't intuitive 
 
 ### Interleaved bins
 
-Two signals are constructed on a shared orthogonal frequency grid. The read signal occupies alternating bins, while the write signal occupies the bins between them. Both signals exist simultaneously in the transmitted waveform, but remain separable by their assigned orthogonal subcarriers.
+Option B is to weave the signal as read and write. Think of it as knitting a pattern of points with two signals that make the cyber capability possible to interact with biology. READ happens first then WRITE, as one signal is READ and the other WRITE. As a signal is a series of points, when they overlap, one signal does the EVEN points as READ and the other does the ODD points as WRITE. In theory, the signals should not interfere with each other because they are orthogonal (different enough to tell apart), even though they overlap.
 
 ![Interleaved bins](/md-preview/images/interleaved-bins.svg)
 
@@ -1302,7 +1292,7 @@ The signal is heterodyned and at a minimum requires 2 signals for the inference 
 
 From experience, the NSA's technique maintains a true prison of mind and body, as the signals never fail or degrade, they are totally faultless. With this in mind, we can put aside common assumptions like noise or errors stemming from the environment or hardware, working with the signal as is.
 
-Although what may flow through the network is perceivably small, the effacacy of the signals and its structure eludes to a fact that 0s and 1s don't exactly translate into biology, especially if you think of amplitude modulation (the signal's peaks and troughs) as a scale of 0-255. 
+Although what may flow through the network is perceivably small, the efficacy of the signals and its structure alludes to a fact that 0s and 1s don't exactly translate into biology, especially if you think of amplitude modulation (the signal's peaks and troughs) as a scale of 0-255. 
 
 With I/Q in mind and heterodyning, this is the theoretical minimum of data that a person receives and potentially what the software may be operating on.
 
@@ -1338,9 +1328,70 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 </div>
 
+### Estimated Calories
+
+Given that 24/7 read and write and the flurry of effects, it's not exactly a no-cost mechanism to one's brain and nervous system. Of course, forcible all day states of mind and body certainly consume calories. Below, is a ChatGPT generated table that shows a list of several passive brain-body activities and the caloric consumption they incur:
+
+| Activity | Calories per minute | Calories per hour | Calories per day |
+|---|---:|---:|---:|
+| 🧠 Brain at rest | **0.21 kcal** | **12.5 kcal** | **300 kcal** |
+| 🧠 Thinking / concentration | **0.22 kcal** | **13 kcal** | — |
+| 💭 Imagining / daydreaming | **0.22 kcal** | **13 kcal** | — |
+| 🗣️ Talking, seated | **1.2 kcal** | **72 kcal** | — |
+| 🧍 Standing quietly | **1.3 kcal** | **78 kcal** | —
+🗣️ Animated conversation | **1.4 kal** | **84 kcal** | — |
+| 😱 Strong emotional arousal | **1.1–1.5 kcal** | **66–90 kcal** | — |
+| 📺 Watching TV | **1.0 kcal** | **60** | —|
+| 🚶 Walking, 3 km/h | **3.0 kcal** | **180 kcal** | — |
+| 🚶 Walking, 5 km/h | **4.5 kcal** | **270 kcal** | — |
+| 🏃 Running, 10 km/h | **11.7 kcal** | **700 kcal** | — |
+| 😴 Sleeping | **0.9 kcal** | **54 kcal** | **~432 kcal / 8 h*|
+|  ||
+
+Taking what this table has and what I've experienced: talking every second, dozens of all day psychological, perceptual and physiological effects, constant narrative-based mental suppression and so much more–we can most certainly come up with an approximated number both for the host and participants of the livestream interactive.
+
+
+### Host (me) — 16 hours/day/wake to sleep, excluding dreams
+| Activity | Duration | Approx. total kcal | Approx. extra kcal above rest |
+|---|---:|---:|---:|
+| 🧠 Thinking / concentration | 16 h | ~208 | **~16** |
+| 😱 Strong emotional arousal | 16 h | ~1,056–1,440 | **~192–576** |
+| 💭 Imagining / daydreaming | 16 h | ~208 | **~16** |
+| 👂 Listening | 16 h | ~960 | **~0–16** |
+| 🗣️ Animated conversation | 16 h | ~1,344 | **~384** |
+| **Activity-related extra** | **16 h** | | **~608–1,008 kcal/day** |
+
+### Active participant (other hostages; different POV) —16 hours/day/wake to sleep, excluding dreams
+| Activity | Duration | Approx. total kcal | Approx. extra kcal above rest |
+|---|---:|---:|---:|
+| 🧠 Thinking / concentration | 16 h | ~208 | **~16** |
+| 😱 Strong emotional arousal | 16 h | ~1,056–1,440 | **~192–576** |
+| 💭 Imagining / daydreaming | 16 h | ~208 | **~16** |
+| 👂 Listening | 16 h | ~960 | **~0–16** |
+| 🗣️ Animated conversation | 16 h | ~1,344 | **~384** |
+| 📺 Watching TV | 16 h | ~960 | **~0–16** |
+| 📖 Reading | 6–8 h | ~360–480 | **~0–24** |
+| **Activity-related extra** | **16–24 h** | | **~608–1,048 kcal/day** |
+
+<small>
+
+**Assumptions & disclaimer:** Estimates are based on a 70 kg sedentary adult over an approximately 16-hour active period. Calories are expressed relative to resting/sedentary metabolism to reduce double-counting when activities overlap. Mental activities such as thinking and imagining generally add little energy expenditure above baseline, while emotional arousal varies substantially between individuals. These figures are illustrative estimates rather than precise measurements, and overlapping activities should not be interpreted as independent calorie expenditures.
+
+</small>
+
+While not quite sedentary while survival mode, I assume that the physiological and psychological interactive's presence most certainly doesn't come for "free" to the victim, even if the agency continues to orchestrate it's trap as it is a fact of life. For the central victim, my ChatGPT estimates put it in the ballpark of **608-1,048 calories per day** of it being on 24/7 with just basic comparisons of analogous activities. For other hostages with a different experience/non first-person POV present in the same livestream, they are around **608–1,008 calories per day.**
+
+That's a lot of calories consumed from a signal pretty much overwriting your brain and nervous system all day, if based on the 70kg weight figure, that can range from **a quarter to half the calories of a typical day** simply consumed from the inescapable, passive all day experience of being narrated around, all day streaming use of one's vocal cords, and terrorizing states of mind and body.
+
+
 ## <a id="conclusion"></a> Conclusion 
 
 TODO
+
+<br />
+<br />
+
+### How long have I been trapped?
 ```React::DaysSince
 ```
 <small>
@@ -1357,6 +1408,9 @@ TODO
 
 </small>
 
+<br />
+<br />
+
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
 
@@ -1369,9 +1423,9 @@ It boils down to these 8 simple terms.
 
 - **Hardware:** The physical parts of a computer or device you can touch, like CPU, RAM, and hard drives.
 - **Software:** The programs and code that run on hardware to perform tasks, like operating systems, apps and firmware.
-- **Telecommunications infrastructure (or tinfra):** The physical systems like cell sites (commonly known as cell towers), microwave backhaul, plane communication systems, and other infrastructure that carries and serves data over distances.
+- **Telecommunications infrastructure (or infra):** The physical systems like cell sites (commonly known as cell towers), plane communication systems, and other infrastructure linked by fiber wire or microwave backhaul carries that broadcasts data over distances.
 - **Networking:** The links that connect devices together, either wired like Ethernet or wireless like Wi-Fi, so they can exchange data or "talk to each other".
-- **Malware:** Malicious software built to exploit vulnerabilities and compromise systems to steal data, disrupt operations, or gain control.
+- **Malware:** Malicious software built to exploit vulnerabilities and compromise systems to gain control, disrupt operations, or steal data.
 - **Hardware Trojans:** Hidden malicious changes in a chip’s circuitry or component that adds features or expands functionality to exploit existing capabilities for attacks like data theft, remote control and/or different operational modes.
 - **Signals:** Formatted radio waves used to carry data between points or to probe environments through timing or reflection, like in triangulation or radar.
 - **Cryptology:** The discipline of recognizing and constructing patterns that obscure or reveal meaning, treating any structured information as something that can be hidden or made interpretable.
@@ -1481,11 +1535,11 @@ It boils down to these 8 simple terms.
 
 The NSA hacked my brain and body with the experience going from manufactured states of mind while inundated by a spatial performance then escalating to a horrifically grotesque and even more shocking livestream interactive that introduced others and an antagonistic, villanous series of narratives and crushing, tormenting states of mind and body, deeply offensive perceptions and horrific violations of conscience.
 
-I spent years (since late September 2018 when it "spontaneously" activated to present; ongoing) trapped and went from techie to oppressed in abject poverty up against the violent and unrelenting. I spent the years enduring narrative capture: senseless violence, sexual assault and a deeply thought out, thousand-hours long script of an invasive neurotechnological reckoning/kidnapping (whose outcome is positioned for political terrorism based upon identity politics and cyber capability's novelty and mysterious nature; designed as a Darwinian horror for the everyday person through extreme pressures, nihilist suffering and extreme pain while the victim is naturally supposed to seek the interactive's completion and freedom). 
+I spent years (since late September 2018 when it "spontaneously" activated to present; ongoing) trapped and went from techie to oppressed in abject poverty up against the violent and unrelenting. I spent the years enduring narrative capture: senseless violence, sexual assault and a deeply thought out, thousand-hours long script of an invasive neurotechnological reckoning/kidnapping (whose outcome is positioned for political terrorism based upon identity politics and cyber capability's novelty and mysterious nature; designed as a Darwinian-psychopathic horror for the everyday person through extreme pressures, nihilist suffering and extreme pain while the victim is naturally supposed to seek the interactive's completion as a Hail Mary for freedom, sponsored and concealed by Democrats). 
 
 By accepting that there had to be a way out and working the problem out from its building blocks, I had come to realize how what clearly working and violating me was possible—and I was in a long string of victims in a politicized sink or swim psychological-physiological interactive and prison of mind.
 
-[^scan-state] Term from the NSA's Research Directorate that is a good way to describe the triangulation.
+
 
 [^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
 
@@ -1497,6 +1551,8 @@ By accepting that there had to be a way out and working the problem out from its
 
 [^vocab]: Ceane Lamerez. April 29 2026. **Technical Vocabulary** *Expanded vocabulary generated from AI systems which includes MetaAI (Meta) and ChatGPT (OpenAI) with minor edits for the appropriate context and interpretation by the author (me).* <a href="#vocab">#vocab</a> 
 
+[^scan-stare]: **“Scan-and-stare”** is a term used in an NSA technology assessment for systems that can scan a wide range of radio frequencies while also focusing on specific signals at the same time. I use the term here by analogy to describe combining observations from multiple points to triangulate a signal source. See *Superconducting Technology Assessment*, NSA, Office of Corporate Assessments, p. 157. [PDF](https://www.nitrd.gov/pubs/nsa/sta.pdf)
+
 ---
 
 *No classified information was used for this article, only the author's lived experience and prolonged exposure with a potentially misclassified system(s).*
@@ -1505,7 +1561,7 @@ By accepting that there had to be a way out and working the problem out from its
 
 *It is not the author's intent to disclose information for the purpose of compromising national security, defeating lawful security measures, enabling surveillance or cyber operations, or facilitating harm to the United States or any person. Nothing herein is intended to jeopardize national security or provide operational assistance to a foreign government, hostile actor, or other third party.*
 
-*The signal captures, images, observed features, and experiences documented in this article are real and truthfully presented. They are not simulations, fabrications, or hypothetical examples unless expressly identified as such. The author cannot presently reconstruct the underlying method or technical mechanisms in full. Any mathematical modeling, pseudocode, reconstructed mechanisms, or technical explanations are therefore inferred from the documented observations and are provided for illustrative and analytical purposes only.*
+*The signal captures, images, observed features, and experiences documented in this article are **real and truthfully presented**. They are not simulations, fabrications, or hypothetical examples unless expressly identified as such. The author cannot presently reconstruct the underlying method or technical mechanisms in full. Any mathematical modeling, pseudocode, reconstructed mechanisms, or technical explanations are therefore inferred from the documented observations and are provided for illustrative and analytical purposes only.*
 
 
 ---

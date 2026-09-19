@@ -77,6 +77,7 @@ import { selectTxHopChannels } from "@n-apt/redux/selectors/spectrumSelectors";
 import {
   clampFrequencyRangeToBounds,
   buildCenteredFrequencyRange,
+  getAvailableSpectrumBounds,
   normalizeFrequencyRangeToHz,
   resolveCenteredFrequencyHz,
 } from "@n-apt/math/frequency";
@@ -87,19 +88,16 @@ import {
 } from "@n-apt/math/basebandMirror";
 
 export const resolveNavigationFrequencyBounds = ({
-  channelBounds,
   hardwareBounds,
 }: {
-  channelBounds: FrequencyRange | null;
   hardwareBounds: FrequencyRange | null;
-}): FrequencyRange | null => {
+}): FrequencyRange => {
   // The live VFO is a device acquisition control, not a subscriber-local
-  // channel selector. Using channelBounds at 1x made zoom level decide whether
-  // 0 Hz was reachable, so two clients could show the same center with
-  // different lower edges. Keep the device bounds at every zoom level; the
-  // channel is still used when hardware bounds have not hydrated yet.
-  if (hardwareBounds) return hardwareBounds;
-  return channelBounds;
+  // channel selector. The active channel must never bound navigation: falling
+  // back to channelBounds trapped scrolling inside the selected channel
+  // whenever the hardware range had not hydrated. Use the device bounds when
+  // known, otherwise the global spectrum bounds the backend advertises.
+  return hardwareBounds ?? getAvailableSpectrumBounds(null);
 };
 
 export const isWholeChannelPan = ({
@@ -134,6 +132,12 @@ export const resolveExplicitCenterFrequencyRange = (
     0,
   );
 };
+
+// A paused source that lost its frozen frame is re-seated with a bounded number
+// of one-shot `request_next_frame` attempts. The cap keeps a backend that cannot
+// serve the frame from turning recovery into a request loop.
+const PAUSED_FRAME_RECOVERY_MAX_ATTEMPTS = 3;
+const PAUSED_FRAME_RECOVERY_RETRY_MS = 700;
 
 /** Keep a paused source's cached acquisition axis with its cached frame. */
 export const resolvePausedFrameFrequencyRange = ({
@@ -231,8 +235,11 @@ export const createLiveFrequencyRangePublisher = (
     },
     equals: (left, right) =>
       left.min === right.min && left.max === right.max,
-    intervalMs: 50,
-    idleFlushMs: 80,
+    // One display frame. The frame rate governs scroll responsiveness; a coarser
+    // cadence made scrolling feel bogged down, and the backend already coalesces
+    // retunes to the latest value.
+    intervalMs: 16,
+    idleFlushMs: 16,
   });
 
   return {
@@ -296,6 +303,7 @@ import {
   selectSourceTransportForMode,
   shouldInvalidateLiveFrameStateForTransport,
   shouldPreserveRenderableFrameDuringTransportGap,
+  shouldRecoverPausedFrame,
   useLiveSourceLifecycle,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { requestNextPausedFrame } from "@n-apt/redux/thunks/websocketThunks";
@@ -648,10 +656,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       (range) => sendLiveFrequencyRangeRef.current(range),
     );
   }
-  setLiveFrequencyRangeRef.current = (nextRange) => {
-    reduxDispatch(setFrequencyRange(nextRange));
-  };
-  sendLiveFrequencyRangeRef.current = sendFrequencyRange;
+  useLayoutEffect(() => {
+    setLiveFrequencyRangeRef.current = (nextRange) => {
+      reduxDispatch(setFrequencyRange(nextRange));
+    };
+    sendLiveFrequencyRangeRef.current = sendFrequencyRange;
+  }, [reduxDispatch, sendFrequencyRange]);
   useEffect(
     () => () => {
       liveFrequencyRangePublisherRef.current?.cancel();
@@ -664,9 +674,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       source: "user-pan" | "mode-enter" | "typed" = "user-pan",
     ) => {
       // The canvas keeps the live view in refs while a gesture is in flight.
-      // Coalesce Redux and device updates to one latest-value publish every
-      // 50 ms. The interaction hook already updates the live refs and asks
-      // the canvas to repaint synchronously, so this does not slow the drag.
+      // Coalesce Redux and device updates to one latest-value publish per
+      // display frame. The interaction hook already updates the live refs and
+      // asks the canvas to repaint synchronously, so this does not slow the drag.
       const publisher = liveFrequencyRangePublisherRef.current;
       if (source === "user-pan") {
         if (publisher) {
@@ -840,8 +850,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       transportSourceId: sourceTransport?.sourceId ?? null,
       transportPhase: sourceTransport?.phase ?? "idle",
     }) || isSelectedTxPreviewStandby;
+  // A `standby` report is only Tx chrome while the source is actually bound to
+  // the Tx suite. A lingering standby snapshot after an Rx handoff is an Rx
+  // presentation, and painting the Tx bar there would mask the paused banner.
   const isSelectedSourceTxStandby =
-    selectedSourceStatus === "standby" || selectedSource?.status === "standby";
+    (selectedSourceStatus === "standby" || selectedSource?.status === "standby") &&
+    (isSelectedMockTxSource || txSuiteSourceId === selectedSourceId);
   const isSelectedSourceTxStatus =
     isSelectedSourceTxStandby ||
     isSelectedTxPreviewStandby ||
@@ -1476,7 +1490,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       }
 
       const primaryBounds = resolveNavigationFrequencyBounds({
-        channelBounds: activeSignalAreaBounds,
         hardwareBounds: hardwareSpectrumBounds,
       });
       const isWholeChannel = isWholeChannelPan({
@@ -1484,7 +1497,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         channelBounds: activeSignalAreaBounds,
       });
       const clampedRange = normalizeFrequencyRangeToHz(
-        primaryBounds && !isWholeChannel
+        !isWholeChannel
           ? clampFrequencyRangeToBounds(range, primaryBounds)
           : range,
       );
@@ -2660,6 +2673,66 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txPowerDbm,
     txSampleRateHz,
     txSignal,
+  ]);
+
+  // A paused live RX source whose frozen frame is gone (a reconnect resets the
+  // presentation controller and drops the stream, and the backend publishes
+  // nothing while paused) must re-seat it with a real one-shot frame. Without
+  // this the canvas has nothing to paint and would show a stale or synthetic
+  // spectrum. The request is bounded so a source that cannot serve a frame
+  // cannot drive a request loop.
+  const pausedRxSlot = selectedSourceId
+    ? presentationController.getSlot(selectedSourceId, "rx")
+    : null;
+  const hasSalvageablePausedFrame = !!(
+    pausedRxSlot &&
+    (pausedRxSlot.frozenFrame !== null || pausedRxSlot.liveFrameRef.current)
+  );
+  const shouldRecoverLostPausedFrame = shouldRecoverPausedFrame({
+    sourceMode: state.sourceMode,
+    isPaused: manualVisualizerPaused,
+    isConnected,
+    isTxMode: isSelectedSourceTxMode,
+    isMockTxSource: isMockTxMonitorActive,
+    hasSalvageableFrame: hasSalvageablePausedFrame,
+    hasIqFormat: selectedSource?.iq_format != null,
+    transportPhase: sourceTransport.phase,
+    selectedSourceId,
+    activeSourceId,
+  });
+  useEffect(() => {
+    if (!shouldRecoverLostPausedFrame) return;
+
+    let attempts = 0;
+    let timeoutId: number | null = null;
+
+    const scheduleNext = () => {
+      timeoutId = window.setTimeout(() => {
+        attempts += 1;
+        reduxDispatch(
+          requestNextPausedFrame({
+            sourceId: selectedSourceId ?? undefined,
+            frequencyRange: fftFrequencyRange,
+          }),
+        );
+        if (attempts < PAUSED_FRAME_RECOVERY_MAX_ATTEMPTS) {
+          scheduleNext();
+        }
+      }, PAUSED_FRAME_RECOVERY_RETRY_MS);
+    };
+
+    scheduleNext();
+    return () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [
+    fftFrequencyRange.max,
+    fftFrequencyRange.min,
+    reduxDispatch,
+    selectedSourceId,
+    shouldRecoverLostPausedFrame,
+    state.fftSize,
+    webGpuStreamResetEpoch,
   ]);
 
   useEffect(() => {

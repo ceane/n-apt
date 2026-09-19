@@ -40,6 +40,7 @@ import {
   resolveManagedRxSourceId,
   shouldPublishManagedRxTransportReady,
   shouldRequestManagedRxStartupFrame,
+  shouldRequestPausedManagedRxFrame,
   shouldRecoverManagedRxSubscription,
   shouldImmediatelyResetManagedRxSubscription,
   isCurrentManagedRxTarget,
@@ -47,6 +48,7 @@ import {
   handleManagedStreamEvent,
   resolveManagedRxDeviceOptionUpdates,
   resolveManagedRxOptionsOverride,
+  resolveManagedRxSubscribeOverrides,
   resolveLocalRxTuningOverride,
   buildManagedTxOptions,
   shouldApplySourceStatusToPresentation,
@@ -110,6 +112,33 @@ describe("hardware source transition cleanup", () => {
         rxSourceId: "rtl-sdr-v4",
         sourceStatus: "receiving",
         hasFrame: false,
+        alreadyRequested: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("arms a one-shot for a paused subscription that reopens without a frame", () => {
+    // A paused stream publishes nothing, so an idle socket drop (backgrounded
+    // tab) followed by a reopen left the canvas on the Loading placeholder even
+    // though the source was healthy. The pause contract owes exactly one frame
+    // per request_next_frame, so the reopened paused subscription must arm it.
+    expect(
+      shouldRequestPausedManagedRxFrame({
+        paused: true,
+        alreadyRequested: false,
+      }),
+    ).toBe(true);
+    // The standard startup-frame path already armed one; do not double-request.
+    expect(
+      shouldRequestPausedManagedRxFrame({
+        paused: true,
+        alreadyRequested: true,
+      }),
+    ).toBe(false);
+    // A playing subscription streams on its own.
+    expect(
+      shouldRequestPausedManagedRxFrame({
+        paused: false,
         alreadyRequested: false,
       }),
     ).toBe(false);
@@ -688,7 +717,7 @@ describe("managed stream option synchronization", () => {
     ).toBe(true);
   });
 
-  it("converts device-scoped settings into managed RX option overrides", () => {
+  it("keeps sample rate out of legacy settings overrides", () => {
     expect(
       resolveManagedRxOptionsOverride({
         sampleRate: 5_200_000,
@@ -699,7 +728,6 @@ describe("managed stream option synchronization", () => {
         vizZoom: 4,
       }),
     ).toEqual({
-      sampleRateHz: 5_200_000,
       fftSize: 2048,
       fftWindow: "Hann",
       frameRate: 12,
@@ -707,20 +735,24 @@ describe("managed stream option synchronization", () => {
     });
   });
 
-  it("keeps the managed center when the follow-up settings write carries a new rate", () => {
+  it("retains the first global rate change while RX subscription is opening", () => {
+    expect(
+      resolveManagedRxSubscribeOverrides(
+        { sampleRateHz: 3_200_000 },
+        { sampleRateHz: 4_372_000, centerFrequencyHz: 2_204_000 },
+      ),
+    ).toEqual({
+      sampleRateHz: 4_372_000,
+      centerFrequencyHz: 2_204_000,
+    });
+  });
+
+  it("does not let a legacy settings write carry a sample rate", () => {
     expect(
       resolveManagedRxOptionsOverride(
         { sampleRate: 3_200_000 },
-        {
-          spectrum: {
-            frequencyRange: { min: 26_020_000, max: 29_220_000 },
-          },
-        },
       ),
-    ).toEqual({
-      sampleRateHz: 3_200_000,
-      centerFrequencyHz: 27_620_000,
-    });
+    ).toEqual({});
   });
 
   it("sends RX device settings through the managed stream transport", async () => {
@@ -822,8 +854,11 @@ describe("managed stream option synchronization", () => {
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"type":"stream_subscribe"'),
     );
-    expect(streamSocket.send).toHaveBeenCalledWith(
+    expect(streamSocket.send).not.toHaveBeenCalledWith(
       expect.stringContaining('"sampleRateHz":5200000'),
+    );
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"sampleRateHz":2400000'),
     );
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"fftSize":2048'),
@@ -1195,7 +1230,6 @@ describe("signal_display_settings device-scoped hydration", () => {
     processWebSocketMessage(dispatch, () => state, {
       type: "signal_display_settings",
       source_id: "mock-apt",
-      sample_rate: 5_200_000,
       fft_size: 4096,
       frame_rate: 12,
       fft_window: "Hann",
@@ -1213,7 +1247,6 @@ describe("signal_display_settings device-scoped hydration", () => {
       expect.objectContaining({
         type: "spectrum/setDeviceSdrSettingsBundle",
         payload: {
-          sampleRateHz: 5_200_000,
           fftSize: 4096,
           fftFrameRate: 12,
           gain: 24,
@@ -1265,7 +1298,6 @@ describe("signal_display_settings device-scoped hydration", () => {
     processWebSocketMessage(dispatch, () => state, {
       type: "signal_display_settings",
       source_id: "mock-apt",
-      sample_rate: 5_200_000,
       fft_size: 4096,
       frame_rate: 12,
       gain: 24,
@@ -1753,7 +1785,6 @@ describe("Redux WebSocket Migration", () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: "spectrum/setSdrSettingsBundle",
       payload: {
-        sampleRateHz: 6_270_000,
         frequencyRange: { min: 24_100_000, max: 30_370_000 },
       },
     });
@@ -1897,7 +1928,7 @@ describe("Redux WebSocket Migration", () => {
     );
   });
 
-  it("still applies the sample rate from a foreign subscriber's channels message", () => {
+  it("ignores the sample rate from a foreign subscriber's legacy channels message", () => {
     const dispatch = jest.fn();
     const state = {
       websocket: {
@@ -1929,13 +1960,13 @@ describe("Redux WebSocket Migration", () => {
       sample_rate: 6_270_000,
     });
 
-    expect(dispatch).toHaveBeenCalledWith(
+    expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "spectrum/setSdrSettingsBundle",
         payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),
       }),
     );
-    expect(dispatch).toHaveBeenCalledWith(
+    expect(dispatch).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "websocket/updateDeviceState",
         payload: expect.objectContaining({ sampleRateHz: 6_270_000 }),
@@ -2261,6 +2292,7 @@ describe("Redux WebSocket Migration", () => {
             label: "A",
             min_hz: 18_000,
             max_hz: 4_390_000,
+            description: "APT A",
           },
         ],
         active_signal_area: "A",
@@ -2273,6 +2305,9 @@ describe("Redux WebSocket Migration", () => {
       ([action]) =>
         action?.type === "spectrum/setSdrSettingsBundle" ||
         action?.type === "spectrum/setDeviceSdrSettingsBundle",
+    );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "websocket/updateDeviceState" }),
     );
     // The self-echoes may carry the authoritative selection once; they must not
     // each rewrite the bundle with the same value on every cycle.
@@ -6113,6 +6148,59 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Paused frame batching", () => {
+    it.each(["accepted", "foreign", "file"])(
+      "consumes an armed paused request before the next batch when %s",
+      (scenario) => {
+        jest.useFakeTimers();
+        store.dispatch(updateDeviceState({
+          isPaused: true,
+          activeSourceId: "rx",
+        }));
+        let sourceMode = scenario === "file" ? "file" : "live";
+        const getState = () => ({
+          websocket: (store.getState() as any).websocket,
+          waterfall: { sourceMode },
+        });
+        const frame = {
+          source_id: scenario === "foreign" ? "other" : "rx",
+          frame_status: "receiving",
+          sequence: 1,
+        };
+        expect(shouldAcceptPausedFrameRequest()).toBe(true);
+        __testQueueLiveDataForMiddleware(frame, store.dispatch, getState);
+        jest.advanceTimersByTime(16);
+        expect(liveDataRef.current).toEqual(scenario === "accepted" ? frame : null);
+        sourceMode = "live";
+        __testQueueLiveDataForMiddleware(
+          { ...frame, source_id: "rx", sequence: 2 }, store.dispatch, getState,
+        );
+        jest.advanceTimersByTime(16);
+        expect(liveDataRef.current).toEqual(scenario === "accepted" ? frame : null);
+        expect(shouldAcceptPausedFrameRequest()).toBe(true);
+        jest.useRealTimers();
+      },
+    );
+
+    it("does not mistake an untagged transmitting frame for a standby preview", () => {
+      jest.useFakeTimers();
+      store.dispatch(updateDeviceState({
+        isPaused: true,
+        activeSourceId: "mock-tx",
+        sourceStatuses: { "mock-tx": "standby" },
+      }));
+      __testQueueLiveDataForMiddleware({
+        source_id: "mock-tx", frame_status: "transmitting", sequence: 1,
+      }, store.dispatch, store.getState);
+      jest.advanceTimersByTime(16);
+      expect(liveDataRef.current).toBeNull();
+      const preview = {
+        source_id: "mock-tx", frame_status: "transmitting", is_tx_preview: true, sequence: 2,
+      };
+      __testQueueLiveDataForMiddleware(preview, store.dispatch, store.getState);
+      jest.advanceTimersByTime(16);
+      expect(liveDataRef.current).toBe(preview);
+      jest.useRealTimers();
+    });
     it("collapses a paused batch to the latest frame", () => {
       const firstFrame = {
         data_type: "iq_raw",
@@ -6143,6 +6231,28 @@ describe("Redux WebSocket Migration", () => {
   });
 
   describe("Status message deduplication", () => {
+    it.each([
+      ["flat objects", { a: 1 }, { a: 1 }, true],
+      ["changed values", { a: 1 }, { a: 2 }, false],
+      ["nested arrays", [[1, { a: 2 }]], [[1, { a: 2 }]], true],
+      ["nested objects stay shallow", { a: { b: 1 } }, { a: { b: 1 } }, false],
+      ["object array members stay shallow", [{ a: [1] }], [{ a: [1] }], false],
+      ["undefined keys retain legacy equality", { a: undefined }, { b: undefined }, true],
+      ["different key counts", {}, { a: undefined }, false],
+      ["array/object comparison", [1], { 0: 1 }, true],
+      ["array NaN values", [NaN], [NaN], false],
+      ["signed zero", { a: 0 }, { a: -0 }, true],
+      ["null and undefined", null, undefined, false],
+    ])("preserves status equality for %s", (_name, current, next, equal) => {
+      const before = websocketSlice(undefined, updateDeviceState({
+        sourceStatuses: current,
+      } as any));
+      const after = websocketSlice(before, updateDeviceState({
+        sourceStatuses: next,
+      } as any));
+      expect(after === before).toBe(equal);
+    });
+
     it("identical status updates do not trigger Redux dispatch", () => {
       const initialStatus = {
         jobId: "test-job",

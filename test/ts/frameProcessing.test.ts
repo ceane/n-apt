@@ -878,6 +878,44 @@ describe("resolveLiveSpectrumPaintContract", () => {
 
     expect(contract.displayRange).toEqual({ min: 0, max: 4_372_000 });
   });
+
+  describe("stale accepted-frame axis recovery", () => {
+    it("repairs a stale positive whole-view range from the accepted frame rate", () => {
+      const contract = resolveLiveSpectrumPaintContract({
+        // The global selector is already 10 MHz, but the live view briefly
+        // retained the old 3.2 MHz positive-only range. Pause used to repair
+        // this by replacing the range with frame metadata.
+        requestedViewRange: { min: 0, max: 3_200_000 },
+        sourceFrequencyRange: { min: -3_400_000, max: 6_600_000 },
+        activeSampleRateHz: 10_000_000,
+        zoom: 1,
+        panOffsetHz: 0,
+        mirrorEnabled: false,
+      });
+
+      expect(contract.displayRange).toEqual({
+        min: -3_400_000,
+        max: 6_600_000,
+      });
+      expect(contract.paintViewportRange).toEqual({
+        min: -3_400_000,
+        max: 6_600_000,
+      });
+    });
+
+    it("keeps an intentional narrower whole-view rate when it differs from the frame", () => {
+      const contract = resolveLiveSpectrumPaintContract({
+        requestedViewRange: { min: 0, max: 3_200_000 },
+        sourceFrequencyRange: { min: -3_400_000, max: 6_600_000 },
+        activeSampleRateHz: 3_200_000,
+        zoom: 1,
+        panOffsetHz: 0,
+        mirrorEnabled: false,
+      });
+
+      expect(contract.displayRange).toEqual({ min: 0, max: 3_200_000 });
+    });
+  });
 });
 
 describe("shouldClearSpectrumWaveformForRangeChange", () => {

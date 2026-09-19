@@ -308,6 +308,10 @@ const CounterWrapper = styled.span`
   font-variant-numeric: tabular-nums;
 `;
 
+const ROLL_DURATION_S = 2;
+const ROLL_DELAY_S = 0.1; // brief delay to start rolling after fade-in starts
+const ROLL_SETTLE_MS = (ROLL_DURATION_S + ROLL_DELAY_S) * 1000;
+
 const RollingCounter: React.FC<{ value: string | number; animateActive: boolean }> = ({ value, animateActive }) => {
   const str = String(value);
 
@@ -323,8 +327,8 @@ const RollingCounter: React.FC<{ value: string | number; animateActive: boolean 
                 initial={{ y: '0%' }}
                 animate={{ y: animateActive ? `-${digit * 10}%` : '0%' }}
                 transition={{
-                  duration: 2,
-                  delay: 0.1, // brief delay to start rolling after fade-in starts
+                  duration: ROLL_DURATION_S,
+                  delay: ROLL_DELAY_S,
                   ease: [0.1, 1.0, 0.1, 1.0], // cubic-bezier(0.1, 1, 0.1, 1)
                 }}
               >
@@ -339,6 +343,20 @@ const RollingCounter: React.FC<{ value: string | number; animateActive: boolean 
       })}
     </CounterWrapper>
   );
+};
+
+// The rolling digits are 0-9 columns clipped to one digit, so selecting them
+// copies the whole strip instead of the value. Once the roll settles the value
+// is swapped for plain text so the stats can be copied directly.
+const StatValue: React.FC<{ value: string | number; animateActive: boolean; settled: boolean }> = ({
+  value,
+  animateActive,
+  settled,
+}) => {
+  if (settled) {
+    return <CounterWrapper>{String(value)}</CounterWrapper>;
+  }
+  return <RollingCounter value={value} animateActive={animateActive} />;
 };
 
 const formatNumber = (num: number) => {
@@ -831,6 +849,8 @@ export const DaysSince: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const isInView = useInView(containerRef, { once: true, amount: 0.1 });
 
+  const [countersSettled, setCountersSettled] = useState(false);
+
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -839,6 +859,14 @@ export const DaysSince: React.FC = () => {
       setNow(new Date());
     }, 1000);
     return () => clearInterval(timer);
+  }, [isInView]);
+
+  useEffect(() => {
+    if (!isInView) return;
+    const timer = window.setTimeout(() => {
+      setCountersSettled(true);
+    }, ROLL_SETTLE_MS);
+    return () => window.clearTimeout(timer);
   }, [isInView]);
 
   const minModels = CHANNEL_SAMPLE_RATES_HZ.map((sampleRateHz) =>
@@ -1061,7 +1089,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Hours Total</Label>
           <Value className="top-value">
-            <RollingCounter value={formatNumber(stats.totalHours)} animateActive={isInView} />
+            <StatValue value={formatNumber(stats.totalHours)} animateActive={isInView} settled={countersSettled} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
@@ -1073,7 +1101,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Since Escalation</Label>
           <Value className="top-value">
-            <RollingCounter value={formatNumber(stats.escalationHours)} animateActive={isInView} />
+            <StatValue value={formatNumber(stats.escalationHours)} animateActive={isInView} settled={countersSettled} />
             <span className="unit">hrs</span>
           </Value>
         </StatBox>
@@ -1085,7 +1113,7 @@ export const DaysSince: React.FC = () => {
         >
           <Label>Days Total</Label>
           <Value className="top-value">
-            <RollingCounter value={formatNumber(stats.totalDays)} animateActive={isInView} />
+            <StatValue value={formatNumber(stats.totalDays)} animateActive={isInView} settled={countersSettled} />
             <span className="unit">days</span>
           </Value>
         </StatBox>
@@ -1102,7 +1130,7 @@ export const DaysSince: React.FC = () => {
             <div>
               <SubLabel>Min<sup>†</sup></SubLabel>
               <Value>
-                <RollingCounter value={dataMin.val} animateActive={isInView} />
+                <StatValue value={dataMin.val} animateActive={isInView} settled={countersSettled} />
                 <span className="unit">{dataMin.unit}</span>
               </Value>
               <SubValue>{totalComparisonTextMin}</SubValue>
@@ -1110,7 +1138,7 @@ export const DaysSince: React.FC = () => {
             <div>
               <SubLabel>Max<sup>‡</sup></SubLabel>
               <Value>
-                <RollingCounter value={dataMax.val} animateActive={isInView} />
+                <StatValue value={dataMax.val} animateActive={isInView} settled={countersSettled} />
                 <span className="unit">{dataMax.unit}</span>
               </Value>
               <SubValue>{totalComparisonTextMax}</SubValue>
@@ -1128,7 +1156,7 @@ export const DaysSince: React.FC = () => {
             <div>
               <SubLabel>Min<sup>†</sup></SubLabel>
               <Value>
-                <RollingCounter value={dailyDataMin.val} animateActive={isInView} />
+                <StatValue value={dailyDataMin.val} animateActive={isInView} settled={countersSettled} />
                 <span className="unit">{dailyDataMin.unit}</span>
               </Value>
               <SubValue>{dailyComparisonTextMin}</SubValue>
@@ -1136,7 +1164,7 @@ export const DaysSince: React.FC = () => {
             <div>
               <SubLabel>Max<sup>‡</sup></SubLabel>
               <Value>
-                <RollingCounter value={dailyDataMax.val} animateActive={isInView} />
+                <StatValue value={dailyDataMax.val} animateActive={isInView} settled={countersSettled} />
                 <span className="unit">{dailyDataMax.unit}</span>
               </Value>
               <SubValue>{dailyComparisonTextMax}</SubValue>
@@ -1156,13 +1184,13 @@ export const DaysSince: React.FC = () => {
             <div>
               <SubLabel>Min<sup>†</sup></SubLabel>
               <Value>
-                <RollingCounter value={costs.totalMin} animateActive={isInView} />
+                <StatValue value={costs.totalMin} animateActive={isInView} settled={countersSettled} />
               </Value>
             </div>
             <div>
               <SubLabel>Max<sup>‡</sup></SubLabel>
               <Value>
-                <RollingCounter value={costs.totalMax} animateActive={isInView} />
+                <StatValue value={costs.totalMax} animateActive={isInView} settled={countersSettled} />
               </Value>
             </div>
           </MinMaxGrid>
@@ -1178,14 +1206,14 @@ export const DaysSince: React.FC = () => {
             <div>
               <SubLabel>Min<sup>†</sup></SubLabel>
               <Value>
-                <RollingCounter value={costs.dailyMin} animateActive={isInView} />
+                <StatValue value={costs.dailyMin} animateActive={isInView} settled={countersSettled} />
                 <span className="unit">/day</span>
               </Value>
             </div>
             <div>
               <SubLabel>Max<sup>‡</sup></SubLabel>
               <Value>
-                <RollingCounter value={costs.dailyMax} animateActive={isInView} />
+                <StatValue value={costs.dailyMax} animateActive={isInView} settled={countersSettled} />
                 <span className="unit">/day</span>
               </Value>
             </div>

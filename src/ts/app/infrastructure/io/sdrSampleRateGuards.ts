@@ -18,6 +18,34 @@ interface DeviceIdentity {
 const normalize = (value?: string | null) =>
   value?.toLowerCase().replace(/[_\s]+/g, "-") ?? "";
 
+/** A usable acquisition rate is a finite number above zero. */
+export const isValidSampleRateHz = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
+/**
+ * Assert a sample rate at the point it is produced.
+ *
+ * Rates originate from a handful of gesture/form sites (the Signal Display
+ * selector, channel clicks, presets, the Settings form). A non-finite or
+ * non-positive value there is a programming error, not user input. It used to
+ * travel to the reducer, get dropped by its `Number.isFinite` guard, and leave
+ * the control showing the previous rate with nothing logged — so "I changed the
+ * rate and it stayed at 3.2 MHz" had no trace anywhere. Throwing here surfaces
+ * it with a stack trace at the producer, while the reducer stays defensive as
+ * the last resort for hydrated values that must never crash a render.
+ */
+export const assertValidSampleRateHz = (
+  value: number,
+  source: string,
+): number => {
+  if (!isValidSampleRateHz(value)) {
+    throw new Error(
+      `Invalid sample rate from ${source}: ${String(value)} (expected a finite number greater than 0)`,
+    );
+  }
+  return value;
+};
+
 export const resolveSourceSampleRateHz = ({
   candidates,
   maxSampleRateHz,

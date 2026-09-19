@@ -2,6 +2,8 @@ use n_apt_backend::sdr::mock_apt::MockAptDevice;
 use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::sdr::SdrDevice;
 use n_apt_backend::server::types::MockAptRealisticRfConfig;
+#[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
+use n_apt_backend::server::utils::load_mock_apt_settings;
 use rustfft::{num_complex::Complex, FftPlanner};
 #[cfg(test)]
 mod tests {
@@ -1069,32 +1071,70 @@ mod tests {
     assert!(profile.estimated_bytes_per_frame >= 32768 * 2);
   }
 
+  /// Metal is macOS-only, so this test only exists where the backend can.
+  ///
+  /// It deliberately does not chdir to a temp config to force
+  /// `gpu_gen_via_metal` on: `load_mock_apt_settings` is process-global and
+  /// this binary runs other tests in parallel that build a `MockAptDevice`
+  /// from the ambient config, so flipping the flag underneath them would
+  /// silently move their generator onto the GPU path. Config-controlled Metal
+  /// coverage lives in
+  /// `sdr::mock_apt::tests::gpu_gen_via_metal_controls_mock_apt_backend`,
+  /// which owns its cwd and takes `cwd_lock`.
+  ///
+  /// This test guards the *silent degradation* contract: whenever Metal was
+  /// asked for but is not running, an error must be recorded.
   #[cfg(all(feature = "mock_apt_metal", target_os = "macos"))]
   #[test]
   fn test_mock_apt_metal_backend_smoke() {
+    let settings = load_mock_apt_settings();
+    let host_supports_metal = MockAptDevice::metal_backend_available();
     let mut device = MockAptDevice::new_with_seed_and_gpu_backend(12345);
-    if !device.gpu_backend_enabled() {
-      eprintln!(
-        "Metal backend unavailable; skipping smoke assertions: {}",
-        device
-          .gpu_backend_error()
-          .unwrap_or("unknown initialization error")
+
+    if device.gpu_backend_enabled() {
+      // The only path that genuinely exercises Metal.
+      assert!(
+        host_supports_metal,
+        "device reports the Metal backend enabled but the host probe failed"
+      );
+      assert_eq!(device.device_type(), "Mock APT SDR (Metal)");
+      assert_eq!(device.generation_backend_label(), "Metal");
+
+      device.read_samples(1024).expect("prime Metal frame");
+      let frame1 = device.read_samples(32_768).expect("Metal frame 1");
+      let frame2 = device.read_samples(32_768).expect("Metal frame 2");
+
+      assert_eq!(frame1.data.len(), 32_768 * 2);
+      assert_eq!(frame2.data.len(), 32_768 * 2);
+      assert_ne!(
+        frame1.data, frame2.data,
+        "Metal-backed frames should continue advancing"
       );
       return;
     }
 
-    assert_eq!(device.device_type(), "Mock APT SDR (Metal)");
-
-    device.read_samples(1024).unwrap();
-    let frame1 = device.read_samples(32_768).unwrap();
-    let frame2 = device.read_samples(32_768).unwrap();
-
-    assert_eq!(frame1.data.len(), 32_768 * 2);
-    assert_eq!(frame2.data.len(), 32_768 * 2);
-    assert_ne!(
-      frame1.data, frame2.data,
-      "Metal-backed frames should continue advancing"
-    );
+    // Metal is not running. Only two explanations are acceptable, and neither
+    // may be silent.
+    if settings.gpu_gen_via_metal {
+      assert!(
+        !host_supports_metal,
+        "gpu_gen_via_metal is true and Metal is available, yet the device fell \
+         back to the CPU path"
+      );
+      let reason = device.gpu_backend_error().expect(
+        "gpu_gen_via_metal is enabled and Metal is unavailable, so the backend \
+         must record gpu_backend_error() rather than degrade silently",
+      );
+      eprintln!(
+        "gpu_gen_via_metal is enabled but Metal is unavailable on this host: {reason}"
+      );
+    } else {
+      assert_ne!(device.device_type(), "Mock APT SDR (Metal)");
+      eprintln!(
+        "gpu_gen_via_metal is false in signals.yaml; this test did not exercise \
+         the Metal path (see gpu_gen_via_metal_controls_mock_apt_backend)"
+      );
+    }
   }
 
   #[test]

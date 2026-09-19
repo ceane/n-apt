@@ -64,6 +64,8 @@ let mockSignalAreaBounds: Record<string, { min: number; max: number }> | null;
 let mockWsConnection: any;
 let mockStoreDispatch: jest.Mock;
 let mockToggleVisualizerPause: jest.Mock;
+let mockSetVisualizerPause: jest.Mock;
+let mockManualVisualizerPaused: boolean | null;
 let mockShowPrompt: jest.Mock;
 let mockEffectiveSampleRateHz: number | null;
 
@@ -117,8 +119,9 @@ jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
       mockEffectiveSampleRateHz ?? mockLiveState.sampleRateHz,
     signalAreaBounds: mockSignalAreaBounds,
     wsConnection: mockWsConnection,
-    manualVisualizerPaused: null,
+    manualVisualizerPaused: mockManualVisualizerPaused,
     toggleVisualizerPause: mockToggleVisualizerPause,
+    setVisualizerPause: mockSetVisualizerPause,
     cryptoCorrupted: false,
     deviceName: mockWsConnection?.deviceName ?? "HackRF One",
     deviceProfile: mockWsConnection?.deviceProfile ?? { kind: "hackrf_one" },
@@ -164,7 +167,9 @@ jest.mock("@n-apt/spectrum/sidebar/SourceInput", () => ({
   default: ({
     devices = [],
     onSelectedDeviceChange,
+    onToggleDeviceRxPause,
     onToggleDeviceTxMode,
+    onPreviewDeviceTx,
     selectedDeviceId,
     onSourceModeChange,
   }: {
@@ -177,7 +182,9 @@ jest.mock("@n-apt/spectrum/sidebar/SourceInput", () => ({
       };
     }>;
     onSelectedDeviceChange?: (id: string) => void;
+    onToggleDeviceRxPause?: (id: string) => void;
     onToggleDeviceTxMode?: (id: string) => void;
+    onPreviewDeviceTx?: (id: string) => void;
     selectedDeviceId?: string;
     onSourceModeChange?: (mode: "live" | "file") => void;
   }) => (
@@ -206,6 +213,27 @@ jest.mock("@n-apt/spectrum/sidebar/SourceInput", () => ({
               {device.status.actionLabel}
             </button>
           ) : null}
+          <button
+            type="button"
+            data-testid={`to-rx-${device.id}`}
+            onClick={() => onToggleDeviceRxPause?.(device.id)}
+          >
+            {`to-rx-${device.id}`}
+          </button>
+          <button
+            type="button"
+            data-testid={`to-tx-${device.id}`}
+            onClick={() => onToggleDeviceTxMode?.(device.id)}
+          >
+            {`to-tx-${device.id}`}
+          </button>
+          <button
+            type="button"
+            data-testid={`preview-tx-${device.id}`}
+            onClick={() => onPreviewDeviceTx?.(device.id)}
+          >
+            {`preview-tx-${device.id}`}
+          </button>
         </div>
       ))}
     </div>
@@ -342,6 +370,8 @@ const initMockState = () => {
     sendSettings: jest.fn(),
     sendFrequencyRange: jest.fn(),
     sendTransmitStatus: jest.fn(),
+    sendPauseCommand: jest.fn(),
+    sendPowerScaleCommand: jest.fn(),
   };
   mockStoreDispatch = jest.fn((action: any) => {
     if (action?.type === "SET_SDR_SETTINGS_BUNDLE" && action.settings) {
@@ -393,6 +423,8 @@ const initMockState = () => {
     }
   });
   mockToggleVisualizerPause = jest.fn();
+  mockSetVisualizerPause = jest.fn();
+  mockManualVisualizerPaused = null;
 };
 
 describe("SpectrumSidebar sample rate behavior", () => {
@@ -2313,5 +2345,158 @@ describe("SpectrumSidebar sample rate behavior", () => {
     fireEvent.click(screen.getByTestId("select-file-mode"));
 
     expect(store.getState().waterfall.sourceMode).toBe("file");
+  });
+
+  it("keeps a manual File Selection across a sidebar remount", () => {
+    const store = createStore();
+    // Model the app already being in file mode opened from the sidebar, with no
+    // deep link in the URL.
+    mockLiveState = { ...mockLiveState, sourceMode: "file" };
+    store.dispatch(setSourceMode("file"));
+
+    const tree = () => (
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter initialEntries={["/"]}>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>
+    );
+
+    const { unmount } = render(tree());
+    expect(store.getState().waterfall.sourceMode).toBe("file");
+
+    // The shell remounts the sidebar on route/nav changes. A manual File
+    // Selection must survive so the user is not dropped back onto the first
+    // live source with their picked files still loaded.
+    unmount();
+    render(tree());
+
+    expect(store.getState().waterfall.sourceMode).toBe("file");
+  });
+
+  it("resets a deep-link-owned File Selection when it remounts without the deep link", () => {
+    const store = createStore();
+    mockLiveState = { ...mockLiveState, sourceMode: "file" };
+    store.dispatch(setSourceMode("file"));
+
+    const tree = (entries: string[]) => (
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter initialEntries={entries}>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>
+    );
+
+    const { unmount } = render(tree(["/?source=fileSelection"]));
+    expect(store.getState().waterfall.sourceMode).toBe("file");
+
+    // Remounting after the deep link is gone still returns to live sources.
+    unmount();
+    render(tree(["/"]));
+
+    expect(store.getState().waterfall.sourceMode).toBe("live");
+  });
+});
+
+describe("SpectrumSidebar Tx/Rx switch handlers", () => {
+  const buildHackRfSource = () => ({
+    id: "hackrf-1",
+    kind: "hackrf_one",
+    backend: "hackrf",
+    name: "HackRF One",
+    deviceName: "HackRF One",
+    capability: "tx_rx",
+    duplex_mode: "Half-duplex",
+    status: "receiving",
+    sdr: { settings: { sample_rate: 3_200_000 } },
+  });
+
+  const mountSidebar = async (
+    source: { id: string } & Record<string, unknown>,
+  ) => {
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: source.id,
+      sourceMode: "live",
+      sources: [source],
+    };
+    mockWsConnection = { ...mockWsConnection, sources: [source] };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: source.id,
+        activeSourceMode: "live",
+        sources: [source],
+      } as any),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    return source;
+  };
+
+  const flush = async () => {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  };
+
+  beforeEach(() => {
+    initMockState();
+    mockShowPrompt = jest.fn();
+    window.localStorage.removeItem(TRANSMIT_WARNING_ACK_KEY);
+  });
+
+  it("lands Rx paused instead of reporting a live stream when a half-duplex HackRF leaves Tx", async () => {
+    const source = await mountSidebar(buildHackRfSource());
+
+    // Preview Tx binds the source to the Tx suite and enters Tx standby.
+    fireEvent.click(screen.getByTestId(`preview-tx-${source.id}`));
+    await flush();
+
+    // Leaving Tx is an explicit Rx handoff. Resuming here paints "Pause Rx"
+    // (and hides the paused banner) over a stream the device has not restarted
+    // yet, which is the reported ghost state.
+    fireEvent.click(screen.getByTestId(`to-rx-${source.id}`));
+    await flush();
+
+    expect(mockSetVisualizerPause).toHaveBeenCalledWith(true, source.id, "rx");
+    expect(mockSetVisualizerPause).not.toHaveBeenCalledWith(
+      false,
+      source.id,
+      "rx",
+    );
+  });
+
+  it("registers every rapid Tx start instead of throttling the switch", async () => {
+    // The Tx-suite binding guard deliberately gates a physical HackRF, so the
+    // throttle itself is exercised on a Tx source that reaches the control path
+    // directly. Every click must land as its own request.
+    const source = { id: "tx-1", kind: "mock_tx", capability: "tx" };
+    await mountSidebar(source);
+
+    fireEvent.click(screen.getByTestId(`to-tx-${source.id}`));
+    fireEvent.click(screen.getByTestId(`to-tx-${source.id}`));
+    await flush();
+
+    expect(mockShowPrompt).toHaveBeenCalledTimes(2);
   });
 });

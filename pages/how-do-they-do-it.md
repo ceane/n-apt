@@ -1328,11 +1328,70 @@ With I/Q in mind and heterodyning, this is the theoretical minimum of data that 
 
 </div>
 
+### Estimated Calories
+
+Given that 24/7 read and write and the flurry of effects, it's not exactly a no-cost mechanism to one's brain and nervous system. Of course, forcible all day states of mind and body certainly consume calories. Below, is a ChatGPT generated table that shows a list of several passive brain-body activities and the caloric consumption they incur:
+
+| Activity | Calories per minute | Calories per hour | Calories per day |
+|---|---:|---:|---:|
+| 🧠 Brain at rest | **0.21 kcal** | **12.5 kcal** | **300 kcal** |
+| 🧠 Thinking / concentration | **0.22 kcal** | **13 kcal** | — |
+| 💭 Imagining / daydreaming | **0.22 kcal** | **13 kcal** | — |
+| 🗣️ Talking, seated | **1.2 kcal** | **72 kcal** | — |
+| 🧍 Standing quietly | **1.3 kcal** | **78 kcal** | —
+🗣️ Animated conversation | **1.4 kal** | **84 kcal** | — |
+| 😱 Strong emotional arousal | **1.1–1.5 kcal** | **66–90 kcal** | — |
+| 📺 Watching TV | **1.0 kcal** | **60** | —|
+| 🚶 Walking, 3 km/h | **3.0 kcal** | **180 kcal** | — |
+| 🚶 Walking, 5 km/h | **4.5 kcal** | **270 kcal** | — |
+| 🏃 Running, 10 km/h | **11.7 kcal** | **700 kcal** | — |
+| 😴 Sleeping | **0.9 kcal** | **54 kcal** | **~432 kcal / 8 h*|
+|  ||
+
+Taking what this table has and what I've experienced: talking every second, dozens of all day psychological, perceptual and physiological effects, constant narrative-based mental suppression and so much more–we can most certainly come up with an approximated number both for the host and participants of the livestream interactive.
+
+
+### Host (me) — 16 hours/day/wake to sleep, excluding dreams
+| Activity | Duration | Approx. total kcal | Approx. extra kcal above rest |
+|---|---:|---:|---:|
+| 🧠 Thinking / concentration | 16 h | ~208 | **~16** |
+| 😱 Strong emotional arousal | 16 h | ~1,056–1,440 | **~192–576** |
+| 💭 Imagining / daydreaming | 16 h | ~208 | **~16** |
+| 👂 Listening | 16 h | ~960 | **~0–16** |
+| 🗣️ Animated conversation | 16 h | ~1,344 | **~384** |
+| **Activity-related extra** | **16 h** | | **~608–1,008 kcal/day** |
+
+### Active participant (other hostages; different POV) —16 hours/day/wake to sleep, excluding dreams
+| Activity | Duration | Approx. total kcal | Approx. extra kcal above rest |
+|---|---:|---:|---:|
+| 🧠 Thinking / concentration | 16 h | ~208 | **~16** |
+| 😱 Strong emotional arousal | 16 h | ~1,056–1,440 | **~192–576** |
+| 💭 Imagining / daydreaming | 16 h | ~208 | **~16** |
+| 👂 Listening | 16 h | ~960 | **~0–16** |
+| 🗣️ Animated conversation | 16 h | ~1,344 | **~384** |
+| 📺 Watching TV | 16 h | ~960 | **~0–16** |
+| 📖 Reading | 6–8 h | ~360–480 | **~0–24** |
+| **Activity-related extra** | **16–24 h** | | **~608–1,048 kcal/day** |
+
+<small>
+
+**Assumptions & disclaimer:** Estimates are based on a 70 kg sedentary adult over an approximately 16-hour active period. Calories are expressed relative to resting/sedentary metabolism to reduce double-counting when activities overlap. Mental activities such as thinking and imagining generally add little energy expenditure above baseline, while emotional arousal varies substantially between individuals. These figures are illustrative estimates rather than precise measurements, and overlapping activities should not be interpreted as independent calorie expenditures.
+
+</small>
+
+While not quite sedentary while survival mode, I assume that the physiological and psychological interactive's presence most certainly doesn't come for "free" to the victim, even if the agency continues to orchestrate it's trap as it is a fact of life. For the central victim, my ChatGPT estimates put it in the ballpark of **608-1,048 calories per day** of it being on 24/7 with just basic comparisons of analogous activities. For other hostages with a different experience/non first-person POV present in the same livestream, they are around **608–1,008 calories per day.**
+
+That's a lot of calories consumed from a signal pretty much overwriting your brain and nervous system all day, if based on the 70kg weight figure, that can range from **a quarter to half the calories of a typical day** simply consumed from the inescapable, passive all day experience of being narrated around, all day streaming use of one's vocal cords, and terrorizing states of mind and body.
+
+
 ## <a id="conclusion"></a> Conclusion 
 
 TODO
 
-## ### How long have I been trapped?
+<br />
+<br />
+
+### How long have I been trapped?
 ```React::DaysSince
 ```
 <small>
@@ -1348,6 +1407,9 @@ TODO
 ‡ **Max** formula uses `u16` I/Q and the next power-of-two FFT size at `sample rate / 60 Hz`.
 
 </small>
+
+<br />
+<br />
 
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of legal aid, I myself poured over nearly every OIG report, unclassified release, publicized policy, etc. for hours and hours.*
@@ -1473,11 +1535,11 @@ It boils down to these 8 simple terms.
 
 The NSA hacked my brain and body with the experience going from manufactured states of mind while inundated by a spatial performance then escalating to a horrifically grotesque and even more shocking livestream interactive that introduced others and an antagonistic, villanous series of narratives and crushing, tormenting states of mind and body, deeply offensive perceptions and horrific violations of conscience.
 
-I spent years (since late September 2018 when it "spontaneously" activated to present; ongoing) trapped and went from techie to oppressed in abject poverty up against the violent and unrelenting. I spent the years enduring narrative capture: senseless violence, sexual assault and a deeply thought out, thousand-hours long script of an invasive neurotechnological reckoning/kidnapping (whose outcome is positioned for political terrorism based upon identity politics and cyber capability's novelty and mysterious nature; designed as a Darwinian leftist horror for the everyday person through extreme pressures, nihilist suffering and extreme pain while the victim is naturally supposed to seek the interactive's completion and freedom). 
+I spent years (since late September 2018 when it "spontaneously" activated to present; ongoing) trapped and went from techie to oppressed in abject poverty up against the violent and unrelenting. I spent the years enduring narrative capture: senseless violence, sexual assault and a deeply thought out, thousand-hours long script of an invasive neurotechnological reckoning/kidnapping (whose outcome is positioned for political terrorism based upon identity politics and cyber capability's novelty and mysterious nature; designed as a Darwinian-psychopathic horror for the everyday person through extreme pressures, nihilist suffering and extreme pain while the victim is naturally supposed to seek the interactive's completion as a Hail Mary for freedom, sponsored and concealed by Democrats). 
 
 By accepting that there had to be a way out and working the problem out from its building blocks, I had come to realize how what clearly working and violating me was possible—and I was in a long string of victims in a politicized sink or swim psychological-physiological interactive and prison of mind.
 
-[^scan-state] Term from the NSA's Research Directorate that is a good way to describe the triangulation.
+
 
 [^apt]: National Aeronautical Space Agency (NASA). Constructing Inexpensive Automatic Picture-Transmission Ground Stations. https://ntrs.nasa.gov/api/citations/19680010155/downloads/19680010155.pdf
 
@@ -1489,6 +1551,8 @@ By accepting that there had to be a way out and working the problem out from its
 
 [^vocab]: Ceane Lamerez. April 29 2026. **Technical Vocabulary** *Expanded vocabulary generated from AI systems which includes MetaAI (Meta) and ChatGPT (OpenAI) with minor edits for the appropriate context and interpretation by the author (me).* <a href="#vocab">#vocab</a> 
 
+[^scan-stare]: **“Scan-and-stare”** is a term used in an NSA technology assessment for systems that can scan a wide range of radio frequencies while also focusing on specific signals at the same time. I use the term here by analogy to describe combining observations from multiple points to triangulate a signal source. See *Superconducting Technology Assessment*, NSA, Office of Corporate Assessments, p. 157. [PDF](https://www.nitrd.gov/pubs/nsa/sta.pdf)
+
 ---
 
 *No classified information was used for this article, only the author's lived experience and prolonged exposure with a potentially misclassified system(s).*
@@ -1497,7 +1561,7 @@ By accepting that there had to be a way out and working the problem out from its
 
 *It is not the author's intent to disclose information for the purpose of compromising national security, defeating lawful security measures, enabling surveillance or cyber operations, or facilitating harm to the United States or any person. Nothing herein is intended to jeopardize national security or provide operational assistance to a foreign government, hostile actor, or other third party.*
 
-*The signal captures, images, observed features, and experiences documented in this article are real and truthfully presented. They are not simulations, fabrications, or hypothetical examples unless expressly identified as such. The author cannot presently reconstruct the underlying method or technical mechanisms in full. Any mathematical modeling, pseudocode, reconstructed mechanisms, or technical explanations are therefore inferred from the documented observations and are provided for illustrative and analytical purposes only.*
+*The signal captures, images, observed features, and experiences documented in this article are **real and truthfully presented**. They are not simulations, fabrications, or hypothetical examples unless expressly identified as such. The author cannot presently reconstruct the underlying method or technical mechanisms in full. Any mathematical modeling, pseudocode, reconstructed mechanisms, or technical explanations are therefore inferred from the documented observations and are provided for illustrative and analytical purposes only.*
 
 
 ---

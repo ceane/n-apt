@@ -690,6 +690,84 @@ describe("SourceModeStreamManager", () => {
     expect(txEvents[0]).toEqual(expect.objectContaining({ mode: "tx" }));
   });
 
+  it("resets ordering on revision or epoch advances without adopting stale metadata", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const events: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), (event) =>
+      events.push(event),
+    );
+    const send = (streamEpoch: number, optionsRevision: number, sequence: number) => {
+      transports[0].onEvent({
+        ...streamFrame(key.sourceId, key.mode, sequence, new Uint8Array([1, 2])),
+        streamEpoch,
+        optionsRevision,
+      });
+    };
+
+    send(3, 2, 10);
+    send(2, 9, 1);
+    send(9, 1, 1);
+    expect(subscription.streamEpoch).toBe(3);
+    send(3, 2, 12);
+    send(3, 3, 1);
+    send(4, 3, 1);
+    send(4, 3, 1);
+    send(4, 3, 0);
+    send(4, 3, 3);
+
+    expect(events).toHaveLength(5);
+    expect(subscription.streamEpoch).toBe(4);
+    expect(manager.getMetrics(key)).toEqual({
+      accepted: 5,
+      rejected: 2,
+      sequenceGaps: 2,
+      subscribers: 1,
+    });
+    manager.dispose();
+  });
+
+  it("resets the sequence cursor for local options and their acknowledgement", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const events: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), (event) =>
+      events.push(event),
+    );
+    transports[0].onEvent({
+      type: "stream_opened",
+      ...key,
+      streamEpoch: 1,
+      optionsRevision: 1,
+    });
+    transports[0].onEvent(streamFrame(key.sourceId, key.mode, 10, new Uint8Array()));
+    const update = subscription.updateOptions(rxOptions(101_000_000));
+    const frame = {
+      ...streamFrame(key.sourceId, key.mode, 1, new Uint8Array()),
+      optionsRevision: 2,
+    };
+    transports[0].onEvent(frame);
+    transports[0].onEvent({
+      type: "stream_options_applied",
+      ...key,
+      streamEpoch: 1,
+      optionsRevision: 2,
+      options: rxOptions(101_000_000),
+    });
+    await update;
+    transports[0].onEvent(frame);
+
+    expect(events.filter((event) => event.type === "stream_frame")).toHaveLength(3);
+    expect(manager.getMetrics(key)).toMatchObject({
+      accepted: 3,
+      rejected: 0,
+      sequenceGaps: 0,
+    });
+    manager.dispose();
+  });
+
   it("rejects stale frames and records sequence gaps", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({ transportFactory: factory });

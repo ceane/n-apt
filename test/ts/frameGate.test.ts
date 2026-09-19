@@ -104,6 +104,50 @@ describe("createMultiplexStreamSequenceGate", () => {
     expect(gate.accept({ sourceId: "s" })).toBe(true);
   });
 
+  it("leaves the cursor unchanged when either metadata field is missing", () => {
+    const gate = createMultiplexStreamSequenceGate();
+    const tagged = { sourceId: "s", streamEpoch: 3, sequence: 10 };
+    gate.accept(tagged);
+    for (const frame of [
+      { sourceId: "s" },
+      { sourceId: "s", sequence: 1 },
+      { sourceId: "s", streamEpoch: null, sequence: 99 },
+      { sourceId: "s", streamEpoch: 4 },
+      { sourceId: "s", streamEpoch: 4, sequence: null },
+    ]) {
+      expect(gate.accept(frame)).toBe(true);
+    }
+    expect(gate.accept(tagged)).toBe(false);
+    expect(gate.accept({ ...tagged, sequence: 12 })).toBe(true);
+    expect(gate.stats()).toEqual({ duplicatesRejected: 1, sequenceGaps: 1 });
+  });
+
+  it("leaves old epoch rejection to ingress and restarts ordering on any epoch change", () => {
+    const gate = createMultiplexStreamSequenceGate();
+    const old = { sourceId: "s", streamEpoch: 2, sequence: 1 };
+    gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 10 });
+    expect(acceptsMultiplexStreamFrame(old, { sourceId: "s", streamEpoch: 3 })).toBe(false);
+    expect(gate.accept(old)).toBe(true);
+    expect(gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 1 })).toBe(true);
+    expect(gate.stats()).toEqual({ duplicatesRejected: 0, sequenceGaps: 0 });
+  });
+
+  it("resets only its own cursor and boundary while retaining accumulated statistics", () => {
+    const first = createMultiplexStreamSequenceGate();
+    const second = createMultiplexStreamSequenceGate();
+    const frame = { sourceId: "s", streamEpoch: 3, sequence: 10 };
+    expect(first.accept(frame)).toBe(true);
+    expect(second.accept(frame)).toBe(true);
+    first.accept({ ...frame, sequence: 12 });
+    first.accept(frame);
+    first.consumeFirstFrameBoundary(frame);
+    first.reset();
+    expect(first.stats()).toEqual({ duplicatesRejected: 1, sequenceGaps: 1 });
+    expect(first.accept(frame)).toBe(true);
+    expect(second.accept(frame)).toBe(false);
+    expect(first.consumeFirstFrameBoundary(frame)).toBe("s:3");
+  });
+
   it("fires the first-frame boundary once per source:epoch transition", () => {
     const gate = createMultiplexStreamSequenceGate();
     const frame = (epoch: number) => ({ sourceId: "mock-apt", streamEpoch: epoch });

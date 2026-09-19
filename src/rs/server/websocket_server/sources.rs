@@ -598,6 +598,7 @@ fn build_source_payload(
     "id": source_id,
     "name": name,
     "kind": kind,
+    "is_mock": kind.starts_with("mock"),
     "capability": source_capability_for_kind_and_duplex(kind, duplex_mode),
     "duplex_mode": duplex_mode,
     "status": source_status_for_entry(

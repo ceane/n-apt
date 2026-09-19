@@ -47,6 +47,33 @@ describe("live Redux/source-mode stream harness", () => {
     harness?.close();
   });
 
+  // Every scenario below drives global state: the shared Tx transmitter, the
+  // subscriber pause, and this client's view handoff. A transition that was
+  // still in flight when a scenario ended would otherwise land inside the next
+  // one, which is what turned a single race into a multi-test cascade. Return
+  // to one baseline and let the stream topology settle before each scenario.
+  const resetToBaseline = async () => {
+    const snapshot = harness.snapshot();
+    if (snapshot.redux.sourceStatuses[MOCK_TX_SOURCE_ID] === "transmitting") {
+      await harness.setTransmit(false, MOCK_TX_SOURCE_ID);
+    }
+    if (snapshot.sourcePause[MOCK_APT_SOURCE_ID]) {
+      await harness.setPaused(false, MOCK_APT_SOURCE_ID);
+    }
+    // Only re-home the view when something left it elsewhere, so the first
+    // scenarios still exercise the initial selection the harness connected
+    // with instead of one this hook made.
+    const target = harness.snapshot().presentationTarget;
+    if (target.sourceId !== MOCK_APT_SOURCE_ID || target.mode !== "rx") {
+      await harness.selectSource(MOCK_APT_SOURCE_ID);
+      await harness.viewSource(MOCK_APT_SOURCE_ID);
+    }
+    await waitForMockAptStreaming(harness);
+    await harness.quiesce();
+  };
+
+  beforeEach(resetToBaseline);
+
   test("loads both built-in mock sources on control-plane connect", async () => {
     const snapshot = harness.snapshot();
     expect(snapshot.hasConnectedOnce).toBe(true);
@@ -398,9 +425,18 @@ describe("live Redux/source-mode stream harness", () => {
     // used to briefly replace the accepted preview with the full Loading UI.
     await new Promise((resolve) => setTimeout(resolve, 150));
     const settled = harness.snapshot();
-    expect(settled.txPresentation.sequence).toBeGreaterThanOrEqual(
-      preview.txPresentation.sequence!,
-    );
+    // Every request_next_frame opens a fresh stream epoch, so a later preview
+    // legitimately restarts its sequence counter. Compare epochs first and only
+    // fall back to sequence within one epoch — the same ordering the
+    // varied-geometry scenario below relies on.
+    const settledIsAtLeastPreview =
+      (settled.txPresentation.streamEpoch ?? 0) >
+        (preview.txPresentation.streamEpoch ?? 0) ||
+      ((settled.txPresentation.streamEpoch ?? 0) ===
+        (preview.txPresentation.streamEpoch ?? 0) &&
+        (settled.txPresentation.sequence ?? 0) >=
+          (preview.txPresentation.sequence ?? 0));
+    expect(settledIsAtLeastPreview).toBe(true);
     expect(settled.lifecycle.phase).toBe("standby");
     expect(settled.lifecycle.placeholderKind).toBe("top-bar");
   });

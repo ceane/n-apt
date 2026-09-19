@@ -24,4 +24,33 @@ mod hackrf_integration_tests {
     }
     Ok(())
   }
+
+  /// A live VFO retune must retune in place: no RX stop/restart, and the next
+  /// read must carry new samples instead of the reader being stranded stopped.
+  #[test]
+  fn live_retune_keeps_the_reader_streaming() -> Result<()> {
+    let device = HackRfDevice::open_first();
+    let Ok(mut dev) = device else {
+      eprintln!("Skipping live HackRF One retune exercise: no device attached");
+      return Ok(());
+    };
+
+    dev.set_sample_rate(3_200_000)?;
+    dev.set_center_frequency(100_000_000)?;
+    dev.initialize()?;
+
+    let first = dev.read_samples(2048)?;
+    assert!(!first.data.is_empty(), "initial HackRF RX frame was empty");
+
+    dev.set_center_frequency_live(101_000_000)?;
+    assert_eq!(dev.get_center_frequency(), 101_000_000);
+    let second = dev.read_samples(2048)?;
+    assert!(
+      !second.data.is_empty(),
+      "RX stream did not continue after a live retune"
+    );
+
+    dev.cleanup()?;
+    Ok(())
+  }
 }

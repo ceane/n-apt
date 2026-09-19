@@ -11,24 +11,7 @@ import {
 } from "@n-apt/redux";
 import { selectDrawSignalState } from "@n-apt/redux/selectors/performanceSelectors";
 
-const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: ${(props) => props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
-  min-width: 0;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-`;
+import { CompactSelect as SettingSelect } from "@n-apt/ui/SidebarPrimitives";
 
 const Wrap = styled.div`
   height: 100%;

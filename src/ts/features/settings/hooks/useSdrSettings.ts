@@ -11,6 +11,7 @@ import {
   clampFrameRateToLogicalMax,
   getLogicalMaxFrameRate,
 } from "@n-apt/math/signals";
+import { assertValidSampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
@@ -268,6 +269,10 @@ export const useSdrSettings = ({
   );
   const setSampleRate = useCallback(
     (sampleRate: number) => {
+      // The device-write funnel: whatever reaches the hardware settings and
+      // Redux must be a real rate, so a bad value fails here rather than
+      // becoming a silently dropped Redux write.
+      assertValidSampleRateHz(sampleRate, "the SDR settings hook");
       const currentFftSize = stateRef.current.fftSize;
       const nextFrameRate = getLogicalMaxFrameRate(
         sampleRate,
@@ -281,9 +286,7 @@ export const useSdrSettings = ({
         const basebandIsPinned = stateRef.current.basebandFilterPinned;
         const nextHackrfBasebandBandwidth = basebandIsPinned
           ? stateRef.current.hackrfBasebandBandwidth
-          : stateRef.current.hackrfBasebandBandwidth === 0
-            ? 0
-            : sampleRate;
+          : sampleRate;
         dispatch(
           setSdrSettingsBundle({
             sampleRateHz: sampleRate,
@@ -296,8 +299,10 @@ export const useSdrSettings = ({
         sendCurrentSettings({
           sampleRate,
           frameRate: nextFrameRate,
-          ...(nextHackrfBasebandBandwidth !== null &&
-          nextHackrfBasebandBandwidth !== undefined
+          // A disabled filter (0) is held in state but never published: zero is
+          // not a valid MAX2837 width and would fail the hardware filter set.
+          ...(typeof nextHackrfBasebandBandwidth === "number" &&
+          nextHackrfBasebandBandwidth > 0
             ? { tunerBandwidth: nextHackrfBasebandBandwidth }
             : {}),
         });
@@ -343,10 +348,19 @@ export const useSdrSettings = ({
   );
   const setHackrfBasebandBandwidth = useCallback(
     (hackrfBasebandBandwidth: number | null) => {
-      dispatch(setSdrSettingsBundle({ hackrfBasebandBandwidth }));
-      sendCurrentSettings({
-        tunerBandwidth: hackrfBasebandBandwidth ?? undefined,
-      });
+      // Zero is the "filter off" sentinel: it is kept in state so the control
+      // can render the disabled filter, but it is never published to the
+      // device. A zero width is not a valid MAX2837 filter — writing it fails
+      // the hardware filter set and tears the live stream down.
+      const nextBandwidth =
+        typeof hackrfBasebandBandwidth === "number" &&
+        Number.isFinite(hackrfBasebandBandwidth)
+          ? Math.max(0, Math.round(hackrfBasebandBandwidth))
+          : null;
+
+      dispatch(setSdrSettingsBundle({ hackrfBasebandBandwidth: nextBandwidth }));
+      if (nextBandwidth === null || nextBandwidth === 0) return;
+      sendCurrentSettings({ tunerBandwidth: nextBandwidth });
     },
     [dispatch, sendCurrentSettings],
   );
@@ -448,7 +462,6 @@ export const useSdrSettings = ({
           );
           if (desiredFrameRate !== nextFrameRate) {
             setFftFrameRate(desiredFrameRate);
-            sendCurrentSettings({ frameRate: desiredFrameRate });
           }
           return;
         }
@@ -464,7 +477,6 @@ export const useSdrSettings = ({
         );
         if (desiredFrameRate !== nextFrameRate) {
           setFftFrameRate(desiredFrameRate);
-          sendCurrentSettings({ frameRate: desiredFrameRate });
         }
       }, 300);
     },
@@ -472,7 +484,6 @@ export const useSdrSettings = ({
       maxSampleRate,
       currentSampleRateHz,
       sdrSettings,
-      sendCurrentSettings,
       setFftFrameRate,
       setFftSize,
     ],

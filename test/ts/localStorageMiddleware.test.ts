@@ -5,6 +5,7 @@ import websocketSlice, {
 } from "@n-apt/redux/slices/websocketSlice";
 import {
   loadPersistedSdrSettings,
+  loadPersistedSnapshotGrid,
   loadPersistedSignalsDefaults,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
 import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddleware";
@@ -12,6 +13,7 @@ import spectrumSlice, {
   setSdrSettingsBundle,
   setSignalAreaAndRange,
 } from "@n-apt/redux/slices/spectrumSlice";
+import waterfallSlice, { setSnapshotGrid } from "@n-apt/redux/slices/waterfallSlice";
 
 describe("loadPersistedSdrSettings", () => {
   beforeEach(() => {
@@ -107,6 +109,27 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.frequencyRange).toBeUndefined();
     expect(parsed.fftSize).toBeUndefined();
     expect(parsed.gain).toBeUndefined();
+  });
+
+  it("repairs persisted defaults to match initialization without tightening valid legacy values", () => {
+    localStorage.setItem("napt-sdr-settings-v2", "{}");
+    const defaults = spectrumSlice(undefined, { type: "@@INIT" });
+    const repaired = loadPersistedSdrSettings();
+    for (const key of Object.keys(repaired)) {
+      expect(repaired[key]).toEqual(defaults[key as keyof typeof defaults]);
+    }
+    repaired.txHopChannels.push("b");
+    expect(loadPersistedSdrSettings().txHopChannels).toEqual(["a"]);
+    expect(defaults.txHopChannels).toEqual(["a"]);
+
+    const legacy = {
+      txSampleRateHz: -1, txCenterFrequencyHz: 0, txPowerDbm: 100,
+      txVgaGain: -3, txIfftSize: 0, txHopType: "legacy",
+      txSafetyLimit: "legacy", txHopRateHz: -2, txHopChannels: [7],
+      txViewerFftWindow: "", txViewerFftSize: 12.5,
+    };
+    localStorage.setItem("napt-sdr-settings-v2", JSON.stringify(legacy));
+    expect(loadPersistedSdrSettings()).toMatchObject(legacy);
   });
 
   it("restores Tx defaults when persisted spectrum state is partial", () => {
@@ -216,6 +239,35 @@ describe("loadPersistedSdrSettings", () => {
     store.dispatch(setDisconnected());
 
     expect(localStorage.getItem("napt-spectrum-frames")).toBeNull();
+  });
+});
+
+describe("loadPersistedSnapshotGrid", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("round-trips the snapshot grid preference for the next session", () => {
+    const store = configureStore({
+      reducer: { waterfall: waterfallSlice },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          localStorageMiddleware,
+        ),
+    });
+
+    store.dispatch(setSnapshotGrid(false));
+    expect(loadPersistedSnapshotGrid()).toBe(false);
+
+    store.dispatch(setSnapshotGrid(true));
+    expect(loadPersistedSnapshotGrid()).toBe(true);
+
+    for (const raw of ["null", "not-json", "1", '"false"']) {
+      localStorage.setItem("napt-snapshot-grid", raw);
+      expect(loadPersistedSnapshotGrid()).toBeNull();
+    }
+    localStorage.removeItem("napt-snapshot-grid");
+    expect(loadPersistedSnapshotGrid()).toBeNull();
   });
 });
 

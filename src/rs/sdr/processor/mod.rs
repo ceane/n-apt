@@ -1319,7 +1319,11 @@ impl SdrProcessor {
       self.device.set_direct_sampling(direct_sampling)?;
     }
 
-    if let Some(bandwidth) = settings.tuner_bandwidth {
+    // A zero width is not a valid hardware filter (the MAX2837 has discrete
+    // widths starting at 1.75 MHz): it is the UI's "resume auto" sentinel.
+    // Forwarding it to the device fails the retune and tears the stream down,
+    // so treat it as "leave the filter alone".
+    if let Some(bandwidth) = settings.tuner_bandwidth.filter(|bw| *bw > 0) {
       self.device.set_tuner_bandwidth(bandwidth)?;
     }
 
@@ -2372,7 +2376,7 @@ mod hackrf_settings_tests {
   }
 
   #[test]
-  fn apply_settings_routes_disabled_tuner_bandwidth_to_hardware_calls() {
+  fn apply_settings_skips_a_zero_tuner_bandwidth_instead_of_touching_the_device() {
     let device = RecordingDevice::default();
     let calls = device.calls.clone();
     let mut processor =
@@ -2387,10 +2391,9 @@ mod hackrf_settings_tests {
       })
       .expect("apply settings");
 
-    assert_eq!(
-      *calls.lock().unwrap(),
-      vec!["tuner_bandwidth:0".to_string(),],
-    );
+    // Zero is the UI's "resume auto" sentinel, not a hardware width. Writing it
+    // would fail the MAX2837 filter set and tear the live stream down.
+    assert!(calls.lock().unwrap().is_empty());
   }
 
   #[test]

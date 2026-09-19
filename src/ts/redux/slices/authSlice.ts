@@ -1,23 +1,16 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import {
+  getAuthTransition,
+  reduxAuthPolicy,
+  type AuthenticationState,
+} from "@n-apt/app/auth/authTransitions";
 
-export type AuthState =
-  | "connecting"
-  | "server_down"
-  | "authenticating"
-  | "ready"
-  | "failed";
+export type {
+  AuthState,
+  AuthenticationState as AuthSliceState,
+} from "@n-apt/app/auth/authTransitions";
 
-export interface AuthSliceState {
-  authState: AuthState;
-  isAuthenticated: boolean;
-  authError: string | null;
-  sessionToken: string | null;
-  aesKey: CryptoKey | null;
-  hasPasskeys: boolean;
-  isInitialAuthCheck: boolean;
-}
-
-const initialState: AuthSliceState = {
+const initialState: AuthenticationState = {
   authState: "connecting",
   isAuthenticated: false,
   authError: null,
@@ -33,46 +26,64 @@ const authSlice = createSlice({
   reducers: {
     // Authentication flow
     setAuthenticating: (state) => {
-      state.authState = "authenticating";
-      state.authError = null;
+      Object.assign(
+        state,
+        getAuthTransition({ type: "AUTHENTICATING" }, reduxAuthPolicy),
+      );
     },
 
     setAuthSuccess: (
       state,
       action: PayloadAction<{ sessionToken: string; aesKey: CryptoKey }>,
     ) => {
-      state.sessionToken = action.payload.sessionToken;
-      state.aesKey = action.payload.aesKey;
-      state.isAuthenticated = true;
-      state.authState = "ready";
-      state.isInitialAuthCheck = false;
-      state.authError = null;
+      Object.assign(
+        state,
+        getAuthTransition(
+          { type: "AUTH_SUCCESS", ...action.payload },
+          reduxAuthPolicy,
+        ),
+      );
     },
 
     setAuthFailed: (state, action: PayloadAction<string>) => {
-      state.authState = "failed";
-      state.authError = action.payload;
-      state.isAuthenticated = false;
-      state.sessionToken = null;
-      state.aesKey = null;
+      Object.assign(
+        state,
+        getAuthTransition(
+          { type: "AUTH_FAILED", error: action.payload },
+          reduxAuthPolicy,
+        ),
+      );
     },
 
     setAuthReady: (state, action: PayloadAction<{ hasPasskeys?: boolean }>) => {
-      state.authState = "ready";
-      state.isInitialAuthCheck = false;
-      if (action.payload.hasPasskeys !== undefined) {
-        state.hasPasskeys = action.payload.hasPasskeys;
-      }
+      Object.assign(
+        state,
+        getAuthTransition({ type: "READY", ...action.payload }, reduxAuthPolicy),
+      );
     },
 
     // Passkey management
     setHasPasskeys: (state, action: PayloadAction<boolean>) => {
-      state.hasPasskeys = action.payload;
+      Object.assign(
+        state,
+        getAuthTransition(
+          { type: "SET_PASSKEYS", hasPasskeys: action.payload },
+          reduxAuthPolicy,
+        ),
+      );
     },
 
-    setPasskeyRegistrationSuccess: (state, action: PayloadAction<boolean>) => {
-      state.hasPasskeys = action.payload;
-      state.authState = "ready";
+    setPasskeyRegistrationSuccess: (
+      state,
+      action: PayloadAction<boolean>,
+    ) => {
+      Object.assign(
+        state,
+        getAuthTransition(
+          { type: "REGISTER_SUCCESS", hasPasskeys: action.payload },
+          reduxAuthPolicy,
+        ),
+      );
     },
 
     // Session management

@@ -3,6 +3,7 @@ import {
   computeComplexIqSpectrum,
   normalizeWindowType,
 } from "@n-apt/spectrum/fft/complexSpectrum";
+import { maxInBinRange } from "@n-apt/layout/rendering/maxPool";
 
 // Types for mathematical operations
 export interface SpectrumMathOptions {
@@ -261,15 +262,7 @@ export function useSpectrumMath(
             start + 1,
             Math.floor(((x + 1) * srcLen) / outLen),
           );
-          let maxVal = -Infinity;
-
-          for (let i = start; i < end && i < srcLen; i++) {
-            const v = input[i];
-            if (Number.isFinite(v) && v > maxVal) {
-              maxVal = v;
-            }
-          }
-
+          const maxVal = maxInBinRange(input, start, end, true);
           output[x] =
             maxVal !== -Infinity
               ? maxVal

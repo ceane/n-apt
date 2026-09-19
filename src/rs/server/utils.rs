@@ -1755,6 +1755,10 @@ impl<W: std::io::Write> HashingWriter<W> {
       .collect::<String>();
     (checksum, self.bytes_written)
   }
+
+  fn finalize_with_inner(self) -> (W, u64) {
+    (self.inner, self.bytes_written)
+  }
 }
 
 impl<W: std::io::Write> std::io::Write for HashingWriter<W> {
@@ -1828,7 +1832,7 @@ pub fn save_capture_file_multi(
     "data_format": "iq_u8",
     "spectrum_shifted": true,
     "format": if result.file_type == ".iq" { "iq" } else if result.file_type == ".wav" { "wav" } else { "napt" },
-    "format_version": if result.file_type == ".wav" { 3 } else { 4 },
+    "format_version": if result.file_type == ".wav" { 3 } else { 5 },
     "interleaving": "IQ",
     "device_profile": {
       "kind": result.source_device,
@@ -1978,6 +1982,11 @@ pub fn save_capture_file_multi(
     let trailer_json = serde_json::json!({
       "processing": { "operation": "capture" },
       "tool_version": env!("CARGO_PKG_VERSION"),
+      "integrity": {
+        "algorithm": "SHA-256",
+        "scope": "file-with-integrity-digest-placeholder",
+        "digest": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
     })
     .to_string();
     let encrypted_data =
@@ -2012,7 +2021,7 @@ pub fn save_capture_file_multi(
           "offset_bytes": trailer_offset,
           "length_bytes": trailer_length,
           "encoding": "utf8_json",
-          "version": 1
+          "version": 2
         }
       });
 
@@ -2024,9 +2033,7 @@ pub fn save_capture_file_multi(
       header_size = needed;
     };
 
-    let file = std::fs::File::create(&path)
-      .map_err(|e| format!("Failed to create file: {}", e))?;
-    let mut writer = HashingWriter::new(file);
+    let mut writer = HashingWriter::new(Vec::<u8>::new());
 
     // Write the plaintext JSON header
     writer
@@ -2049,7 +2056,7 @@ pub fn save_capture_file_multi(
       .map_err(|e| format!("Failed to write encrypted data: {}", e))?;
 
     writer.write_all(TRAILER_MAGIC).map_err(|e| e.to_string())?;
-    writer.write_all(&[1u8; 1]).map_err(|e| e.to_string())?;
+    writer.write_all(&[2u8; 1]).map_err(|e| e.to_string())?;
     writer.write_all(&[0u8; 7]).map_err(|e| e.to_string())?;
     writer
       .write_all(&(trailer_json.len() as u64).to_le_bytes())
@@ -2062,7 +2069,20 @@ pub fn save_capture_file_multi(
       .flush()
       .map_err(|e| format!("Failed to flush file: {}", e))?;
 
-    let (checksum, file_size) = writer.finalize();
+    let (mut encoded, _) = writer.finalize_with_inner();
+    let placeholder = b"0000000000000000000000000000000000000000000000000000000000000000";
+    let offset = encoded.windows(placeholder.len()).position(|window| window == placeholder)
+      .ok_or("Missing capture integrity placeholder")?;
+    let digest = sha2::Sha256::digest(&encoded);
+    let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    encoded[offset..offset + placeholder.len()].copy_from_slice(digest.as_bytes());
+    let checksum = sha2::Sha256::digest(&encoded)
+      .iter()
+      .map(|byte| format!("{byte:02x}"))
+      .collect::<String>();
+    let file_size = encoded.len() as u64;
+    std::fs::write(&path, &encoded)
+      .map_err(|e| format!("Failed to write encrypted capture: {}", e))?;
 
     info!(
       "Saved encrypted capture: {} ({} bytes, sha256:{})",
@@ -2765,7 +2785,7 @@ mod dynamic_header_tests {
       .expect("header newline");
     let header: serde_json::Value =
       serde_json::from_slice(&file[..newline]).expect("parse header json");
-    assert_eq!(header["metadata"]["format_version"], 4);
+    assert_eq!(header["metadata"]["format_version"], 5);
 
     // Header size is a 1024-multiple >= 4096 that covers the JSON + newline.
     let binary_offset = header["metadata"]["sections"]["binary"]["offset_bytes"]

@@ -92,6 +92,10 @@ pub struct HackRfDevice {
   audio_tap: AudioIqTap,
   streaming_started: bool,
   serial_number: String,
+  /// True while this handle owns the process-wide hackrf session opened by
+  /// `hackrf_init`. Guards the exit so an explicit `cleanup()` followed by the
+  /// later `Drop` cannot tear the native session down twice.
+  native_session_active: bool,
 }
 
 unsafe impl Send for HackRfDevice {}
@@ -250,6 +254,7 @@ impl HackRfDevice {
         audio_tap: AudioIqTap::new(),
         streaming_started: false,
         serial_number,
+        native_session_active: true,
       })
     }
   }
@@ -343,7 +348,10 @@ impl HackRfDevice {
     }
     let _ = self.rx_context.take();
     let _ = self.tx_context.take();
-    let _ = unsafe { ffi::hackrf_exit() };
+    if self.native_session_active {
+      self.native_session_active = false;
+      let _ = unsafe { ffi::hackrf_exit() };
+    }
   }
 }
 
@@ -541,26 +549,14 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
-    let was_streaming = self.streaming_started;
-    if !was_streaming {
-      return self.set_center_frequency(freq);
-    }
-
-    // HackRF's native frequency setter is not a safe in-flight RX control
-    // operation. Stop the native stream before changing the LO, then restart
-    // it before returning to the acquisition worker. A failed tune still
-    // attempts to restore RX so one bad channel selection cannot strand the
-    // device in a frozen state.
-    self.stop_streaming();
+    // hackrf_set_freq is a synchronous control transfer and stays valid while
+    // RX is streaming. Stopping and restarting the native stream here
+    // (hackrf_stop_rx can block in firmware) turned every VFO tick into a full
+    // stream restart and stalled scrolling. Retune in place, then drop chunks
+    // already buffered at the old LO so the next frame is new-frequency content.
+    self.set_center_frequency(freq)?;
     self.flush_read_queue();
-    let tune_result = self.set_center_frequency(freq);
-    let restart_result = self.ensure_streaming();
-
-    match (tune_result, restart_result) {
-      (Err(error), _) => Err(error),
-      (Ok(()), Err(error)) => Err(error),
-      (Ok(()), Ok(())) => Ok(()),
-    }
+    Ok(())
   }
 
   fn set_gain(&mut self, gain: f64) -> Result<()> {
@@ -788,6 +784,7 @@ mod tests {
       tx_started: false,
       streaming_started: false,
       serial_number: String::new(),
+      native_session_active: false,
     };
 
     let first_ptr = device.rx_context_ptr();
@@ -795,6 +792,35 @@ mod tests {
 
     assert_eq!(first_ptr, second_ptr);
     assert!(device.rx_context.is_some());
+  }
+
+  #[test]
+  fn repeated_cleanup_does_not_reenter_the_native_session() {
+    // The shutdown path calls `cleanup()` explicitly and `Drop` calls it again.
+    // The second pass must not tear the hackrf session down twice.
+    let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    let mut device = HackRfDevice {
+      dev: ptr::null_mut(),
+      rx_queue: rx,
+      rx_context: None,
+      last_error: None,
+      sample_rate: HACKRF_MIN_SAMPLE_RATE,
+      center_frequency: 0,
+      requested_center_frequency: 0,
+      ppm: 0,
+      iq_buffer: Vec::new(),
+      audio_tap: AudioIqTap::new(),
+      tx_context: None,
+      tx_started: false,
+      streaming_started: false,
+      serial_number: String::new(),
+      native_session_active: false,
+    };
+
+    assert!(device.cleanup().is_ok());
+    assert!(device.cleanup().is_ok());
+    assert!(!device.native_session_active);
+    assert!(device.dev.is_null());
   }
 
   #[test]

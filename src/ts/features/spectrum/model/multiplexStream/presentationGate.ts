@@ -42,17 +42,19 @@ export const hasMultiplexStreamTxPreviewFrame = (
   frames: Array<MultiplexStreamWireFrame & Record<string, unknown>>,
 ): boolean => frames.some((frame) => isMultiplexStreamTxPresentationFrame(frame));
 
+export const isMultiplexStreamTxPreviewFrame = (
+  frame: MultiplexStreamWireFrame & Record<string, unknown>,
+): boolean =>
+  frame?.frame_status === "standby" ||
+  frame?.is_tx_preview === true ||
+  frame?.is_mock_tx_preview === true;
+
 export const filterMultiplexStreamTxPreviewFrames = <
   T extends MultiplexStreamWireFrame & Record<string, unknown>,
 >(
   frames: T[],
 ): T[] =>
-  frames.filter(
-    (frame) =>
-      frame?.frame_status === "standby" ||
-      frame?.is_tx_preview === true ||
-      frame?.is_mock_tx_preview === true,
-  );
+  frames.filter(isMultiplexStreamTxPreviewFrame);
 
 export type MultiplexStreamPresentationBatchInput = {
   /** Frames left after source/mode filtering; zero short-circuits to reject. */

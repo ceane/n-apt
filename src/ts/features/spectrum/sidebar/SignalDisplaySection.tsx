@@ -11,7 +11,6 @@ import {
   Grip,
   CircleOff,
   Zap,
-  type LucideIcon,
 } from "lucide-react";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import { formatFrequency } from "@n-apt/math/frequency";
@@ -25,15 +24,11 @@ import {
   isMockBackend,
   showsApproxDbmToggle,
 } from "@n-apt/app/infrastructure/services/deviceCapabilities";
-
-const Section = styled.div`
-  display: grid;
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  gap: inherit;
-  box-sizing: border-box;
-  width: 100%;
-`;
+import {
+  SectionGrid as Section,
+  SettingSelect as SettingSelectBase,
+  IconLabel,
+} from "@n-apt/ui/SidebarPrimitives";
 
 const SectionTitle = styled.div`
   font-size: 11px;
@@ -55,41 +50,8 @@ const SectionText = styled.span`
   align-items: center;
 `;
 
-const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: ${(props) => props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
+const SettingSelect = styled(SettingSelectBase)`
   min-width: 80px;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-  box-sizing: border-box;
-  max-width: 100%;
-
-  &:hover {
-    border-color: ${(props) => props.theme.borderHover};
-  }
-
-  &:focus {
-    outline: none;
-    border-color: ${(props) => props.theme.primary};
-    background-color: ${(props) => props.theme.primary}0d;
-  }
-
-  option {
-    background-color: ${(props) => props.theme.surface};
-    color: ${(props) => props.theme.textPrimary};
-    font-family: ${(props) => props.theme.typography.mono};
-  }
 `;
 
 const SettingInput = styled.input`
@@ -137,30 +99,6 @@ const WideSettingSelect = styled(SettingSelect)`
   width: 100%;
   text-align-last: right;
 `;
-
-const LabelWithIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  line-height: 1.2;
-
-  svg {
-    width: 14px;
-    height: 14px;
-    color: ${(props) => props.theme.textSecondary};
-    opacity: 0.5;
-  }
-`;
-
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
-  icon: IconComponent,
-  text,
-}) => (
-  <LabelWithIcon>
-    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
-    {text}
-  </LabelWithIcon>
-);
 
 interface SignalDisplaySectionProps {
   variant?: "default" | "diagnostic";
@@ -283,10 +221,14 @@ export const SignalDisplaySection: React.FC<SignalDisplaySectionProps> = ({
     const rates = new Set(sampleRateOptionsOverride ?? sampleRateOptions);
     return Array.from(rates).sort((a, b) => a - b);
   }, [sampleRateOptions, sampleRateOptionsOverride]);
+  // Fail closed: a Whole Channel claim without a renderable Whole Channel
+  // option (RTL-SDR, or a source that reported no channel width) would make the
+  // browser fall back to the first option while state says "whole-channel".
   const isWholeChannelSelected =
-    isWholeChannelMode !== undefined
+    showWholeChannelOption &&
+    (isWholeChannelMode !== undefined
       ? isWholeChannelMode
-      : showWholeChannelOption && Math.round(sampleRate) === wholeChannelValue;
+      : Math.round(sampleRate) === wholeChannelValue);
   const sampleRateSelectValue = isWholeChannelSelected
     ? "whole-channel"
     : String(sampleRate);

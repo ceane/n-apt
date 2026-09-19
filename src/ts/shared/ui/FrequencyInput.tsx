@@ -164,7 +164,13 @@ interface FrequencyInputProps {
   placeholder?: string;
   autoFocus?: boolean;
   commitOnBlur?: boolean;
-  onBlur?: () => void;
+  /**
+   * Called when the input loses focus. Receives the draft value parsed from the
+   * field (`null` when the field was left empty or unparseable) so a parent can
+   * distinguish "cleared" from "typed a value" — an emptied field emits no
+   * `onChangeHz` at all.
+   */
+  onBlur?: (draftHz: number | null) => void;
   onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   disabled?: boolean;
   className?: string;
@@ -413,6 +419,12 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       );
     };
 
+    const resolveDraftHz = (): number | null => {
+      const parsed = parseFloat(displayValue.replace(/\s+/g, ""));
+      if (!Number.isFinite(parsed)) return null;
+      return parsed * getFrequencyUnitScale(displayUnit as any);
+    };
+
     const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>): void => {
       if (disabled) return;
 
@@ -424,18 +436,19 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       setIsUnitMenuOpen(false);
       isFocusedRef.current = false;
 
+      // Capture the draft before the display is reset so the parent learns what
+      // the field actually held (empty clears emit no onChangeHz).
+      const draftHz = resolveDraftHz();
+
       if (commitOnBlur) {
-        const val = parseFloat(displayValue.replace(/\s+/g, ""));
-        if (Number.isFinite(val)) {
-          const multiplier = getFrequencyUnitScale(displayUnit as any);
-          const newHz = val * multiplier;
-          handleUpdate(newHz, true);
+        if (draftHz !== null) {
+          handleUpdate(draftHz, true);
         } else {
           const { value, unit } = getOptimalFrequencyScale(hzRef.current);
           setDisplayValue(trimNumericString(formatFrequencyValue(value)));
           setDisplayUnit(unit);
         }
-        onBlur?.();
+        onBlur?.(draftHz);
         return;
       }
 
@@ -446,7 +459,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
           ? formatFrequencyHz(hzRef.current)
           : trimNumericString(formatFrequencyValue(value)),
       );
-      onBlur?.();
+      onBlur?.(draftHz);
     };
 
     const unitButtonRef = useRef<HTMLButtonElement>(null);

@@ -2,6 +2,40 @@ import { extendSpectrumBelowZero } from "@n-apt/math/basebandMirror";
 
 export const DEFAULT_WATERFALL_FLOOR_DB = -200;
 
+export function forEachRepackedWaterfallRow(
+  prevH: number,
+  needH: number,
+  writeRow: number,
+  copyRow: (srcY: number, dstY: number) => void,
+): void {
+  const prevRenderRow = prevH > 0 ? (writeRow - 1 + prevH) % prevH : 0;
+  const nextRenderRow = needH > 0 ? (writeRow - 1 + needH) % needH : 0;
+  for (let age = 0; age < needH; age++) {
+    const srcAge = Math.max(
+      0,
+      Math.min(prevH - 1, Math.floor((age * prevH) / needH)),
+    );
+    const srcY = prevH > 0 ? (prevRenderRow - srcAge + prevH) % prevH : 0;
+    const dstY = (nextRenderRow - age + needH) % needH;
+    copyRow(srcY, dstY);
+  }
+}
+
+export function repackWaterfallBytes(
+  source: Uint8Array,
+  target: Uint8Array,
+  bytesPerRow: number,
+  prevH: number,
+  needH: number,
+  writeRow: number,
+): void {
+  forEachRepackedWaterfallRow(prevH, needH, writeRow, (srcY, dstY) => {
+    const srcOff = srcY * bytesPerRow;
+    const dstOff = dstY * bytesPerRow;
+    target.set(source.subarray(srcOff, srcOff + bytesPerRow), dstOff);
+  });
+}
+
 export const peakResampleWaterfallRow = (
   source: ArrayLike<number>,
   target: Float32Array,

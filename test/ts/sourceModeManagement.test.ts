@@ -6,6 +6,7 @@ import {
   resolveTxStopTransition,
   shouldUseSourceOwnedTxPreview,
   shouldRetainTxStandbyAfterStop,
+  shouldHoldSourceSubscription,
   canToggleTransmitMode,
   pruneRemovedSourcePauseState,
 } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
@@ -25,6 +26,19 @@ describe("sourceModeManagement", () => {
 
   it("keeps the managed stream subscribed while hardware is waiting for its first frame", () => {
     expect(isSourceStreamAvailable("loading")).toBe(true);
+  });
+
+  it("holds the Rx subscription through a stale device without calling it available", () => {
+    // Acquisition is subscriber-driven: dropping the last subscriber on a stale
+    // device idles the hardware, so the fresh frame that would clear the stale
+    // state can never arrive and the UI sits on Loading forever.
+    expect(shouldHoldSourceSubscription("stale")).toBe(true);
+    expect(shouldHoldSourceSubscription("receiving")).toBe(true);
+    expect(shouldHoldSourceSubscription("disconnected")).toBe(false);
+    expect(shouldHoldSourceSubscription("error")).toBe(false);
+    // The UI invariant this must not break: a stale device is not a usable
+    // stream, so the loading placeholder still covers the canvas.
+    expect(isSourceStreamAvailable("stale")).toBe(false);
   });
 
   it("blocks starting TX without a Tx-suite node binding but permits stopping", () => {
@@ -181,7 +195,7 @@ describe("sourceModeManagement", () => {
     });
   });
 
-  it("returns a deterministic Rx handoff that clears Tx and requests an Rx frame", () => {
+  it("holds Rx paused when a half-duplex device leaves Tx", () => {
     expect(
       resolveSourceModeTransition({
         sourceId: "hackrf-1",
@@ -195,10 +209,44 @@ describe("sourceModeManagement", () => {
       toMode: "rx",
       actions: [
         "clear_tx_binding",
-        "resume_rx",
+        "pause_rx",
         "request_rx_mode",
         "request_rx_frame",
       ],
+    });
+  });
+
+  it("never pauses Rx when leaving Tx on a source that kept it streaming", () => {
+    for (const duplexMode of ["duplex", "simplex"] as const) {
+      expect(
+        resolveSourceModeTransition({
+          sourceId: "device-1",
+          duplexMode,
+          fromMode: "tx",
+          toMode: "rx",
+        }),
+      ).toEqual({
+        sourceId: "device-1",
+        fromMode: "tx",
+        toMode: "rx",
+        actions: ["clear_tx_binding", "request_rx_mode", "request_rx_frame"],
+      });
+    }
+  });
+
+  it("reports no actions when the mode does not change", () => {
+    expect(
+      resolveSourceModeTransition({
+        sourceId: "hackrf-1",
+        duplexMode: "half_duplex",
+        fromMode: "rx",
+        toMode: "rx",
+      }),
+    ).toEqual({
+      sourceId: "hackrf-1",
+      fromMode: "rx",
+      toMode: "rx",
+      actions: [],
     });
   });
 

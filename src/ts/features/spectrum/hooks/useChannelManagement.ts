@@ -42,6 +42,9 @@ export const useChannelTuner = (
   const tuningPreviewActive = useAppSelector(
     (state) => state.spectrum.tuningPreviewActive,
   );
+  const frequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
   const previewRangeRef = useRef<TuningFrequencyRange | null>(null);
   const activeTuneRef = useRef<{ area: string } | null>(null);
   const progressiveControllerRef = useRef<ProgressiveTuningController | null>(
@@ -89,6 +92,26 @@ export const useChannelTuner = (
     previewRangeRef.current = null;
   }, [tuningPreviewActive]);
 
+  useEffect(() => {
+    if (!tuningPreviewActive || !activeTuneRef.current || !frequencyRange) {
+      return;
+    }
+
+    const previewRange = previewRangeRef.current;
+    const previewOwnsRange =
+      previewRange &&
+      previewRange.min === frequencyRange.min &&
+      previewRange.max === frequencyRange.max;
+    if (previewOwnsRange) return;
+
+    // A wheel/drag/sample-rate change is an explicit user takeover. The
+    // animation must not publish its next preview frame over that new range.
+    progressiveControllerRef.current?.cancel();
+    reduxDispatch(setTuningPreviewActive(false));
+    activeTuneRef.current = null;
+    previewRangeRef.current = null;
+  }, [frequencyRange, reduxDispatch, tuningPreviewActive]);
+
   const tuneChannels = useCallback(
     (
       channels: ChannelDescriptor[],
@@ -124,6 +147,7 @@ export const useChannelTuner = (
           targetRange;
 
         activeTuneRef.current = { area: primaryLabel };
+        previewRangeRef.current = range;
         reduxDispatch(setTuningPreviewActive(true));
         // Commit the requested acquisition window immediately. The animation
         // then updates the preview range while the device catches up, so

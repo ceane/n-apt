@@ -15,6 +15,7 @@ import {
   selectSourceTransportForMode,
   shouldInvalidateLiveFrameStateForTransport,
   shouldPreserveRenderableFrameDuringTransportGap,
+  shouldRecoverPausedFrame,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import type { SourceTransportLifecycle } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
@@ -429,6 +430,71 @@ describe("resolveLiveSourceLifecycle", () => {
         handoffStartedFrameCounter: 0,
       }),
     ).toBe(true);
+  });
+
+  test("accepts a newer same-source epoch after the backend recycles the stream", () => {
+    // A stream recycled while this tab was backgrounded republishes a higher
+    // epoch, but the client only learns of it from a source transition. Exact
+    // matching gated out every frame and stranded the display on the Loading
+    // placeholder until a manual reload recreated the subscription.
+    expect(
+      isCurrentSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 4,
+        readiness: { sourceId: "mock-apt", streamEpoch: 5, sequence: 1 },
+      }),
+    ).toBe(true);
+    expect(
+      isSelectedSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        mode: "rx",
+        expectedStreamEpoch: 4,
+        readiness: { sourceId: "mock-apt", streamEpoch: 9, sequence: 2 },
+      }),
+    ).toBe(true);
+    expect(
+      resolveFrameReadiness({
+        frame: {
+          source_id: "mock-apt",
+          protocol_version: 2,
+          stream_epoch: 11,
+          iq_data: new Uint8Array([128, 129]),
+        },
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 4,
+        frameCounter: 1,
+        handoffStartedFrameCounter: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("still rejects an older epoch and a foreign source's newer epoch", () => {
+    expect(
+      isCurrentSourceFrameReady({
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 6,
+        readiness: { sourceId: "mock-apt", streamEpoch: 5, sequence: 9 },
+      }),
+    ).toBe(false);
+    expect(
+      resolveFrameReadiness({
+        frame: {
+          source_id: "rtl-sdr-1",
+          protocol_version: 2,
+          stream_epoch: 99,
+          iq_data: new Uint8Array([128, 129]),
+        },
+        selectedSourceId: "mock-apt",
+        activeSourceId: "mock-apt",
+        expectedStreamEpoch: 4,
+        frameCounter: 1,
+        handoffStartedFrameCounter: 0,
+      }),
+    ).toBe(false);
   });
 
   test("accepts subscriber-local Tx readiness while RX remains globally active", () => {
@@ -1055,5 +1121,65 @@ describe("resolveLiveSourceLifecycle", () => {
       phase: "failed",
       placeholder: { kind: "error", reason: "Mock Tx failed to start" },
     });
+  });
+});
+
+describe("shouldRecoverPausedFrame", () => {
+  const base = {
+    sourceMode: "live" as const,
+    isPaused: true,
+    isConnected: true,
+    isTxMode: false,
+    isMockTxSource: false,
+    hasSalvageableFrame: false,
+    hasIqFormat: true,
+    transportPhase: "ready" as const,
+    selectedSourceId: "mock-apt",
+    activeSourceId: "mock-apt",
+  };
+
+  test("re-seats a paused RX source whose frozen frame was lost", () => {
+    expect(shouldRecoverPausedFrame(base)).toBe(true);
+  });
+
+  test("does not request while the frozen frame is still paintable", () => {
+    expect(
+      shouldRecoverPausedFrame({ ...base, hasSalvageableFrame: true }),
+    ).toBe(false);
+  });
+
+  test("does not request when playing, disconnected, or warming", () => {
+    expect(shouldRecoverPausedFrame({ ...base, isPaused: false })).toBe(false);
+    expect(shouldRecoverPausedFrame({ ...base, isConnected: false })).toBe(
+      false,
+    );
+    expect(
+      shouldRecoverPausedFrame({ ...base, transportPhase: "warming" }),
+    ).toBe(false);
+  });
+
+  test("leaves Tx views and Mock Tx to their own one-shot preview paths", () => {
+    expect(shouldRecoverPausedFrame({ ...base, isTxMode: true })).toBe(false);
+    expect(shouldRecoverPausedFrame({ ...base, isMockTxSource: true })).toBe(
+      false,
+    );
+  });
+
+  test("requires an owned, requestable source", () => {
+    expect(
+      shouldRecoverPausedFrame({ ...base, activeSourceId: "rtl-sdr-1" }),
+    ).toBe(false);
+    expect(shouldRecoverPausedFrame({ ...base, hasIqFormat: false })).toBe(
+      false,
+    );
+    expect(shouldRecoverPausedFrame({ ...base, selectedSourceId: null })).toBe(
+      false,
+    );
+  });
+
+  test("never requests from file playback", () => {
+    expect(shouldRecoverPausedFrame({ ...base, sourceMode: "file" })).toBe(
+      false,
+    );
   });
 });

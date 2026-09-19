@@ -27,7 +27,6 @@ import {
   PanelLeftDashed,
   Scan,
   Trash2,
-  type LucideIcon,
 } from "lucide-react";
 import {
   Row,
@@ -35,6 +34,13 @@ import {
   ChannelsSelector,
 } from "@n-apt/ui";
 import { RadioTabs } from "@n-apt/ui/RadioTabs";
+import {
+  CheckboxSwitch as ToggleSwitch,
+  CheckboxSwitchInput as ToggleSwitchInput,
+  CheckboxSwitchSlider as ToggleSwitchSlider,
+  SettingSelect,
+  IconLabel,
+} from "@n-apt/ui/SidebarPrimitives";
 import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
 
 const Section = styled.div`
@@ -43,6 +49,84 @@ const Section = styled.div`
   grid-column: 1 / -1;
   gap: inherit;
 `;
+
+const CAPTURE_DOWNLOADS_STORAGE_KEY = "napt.iq-capture-downloads.v1";
+const CAPTURE_DOWNLOAD_RETENTION_MS = 48 * 60 * 60 * 1000;
+
+type PersistedCaptureDownload = {
+  jobId: string;
+  downloadUrl: string;
+  filename?: string;
+  fileSize?: number;
+  duration?: number;
+  timestamp: number;
+};
+
+const loadPersistedCaptureDownloads = (): PersistedCaptureDownload[] => {
+  try {
+    const raw = window.localStorage.getItem(CAPTURE_DOWNLOADS_STORAGE_KEY);
+    if (!raw) return [];
+    const now = Date.now();
+    const parsed = JSON.parse(raw) as PersistedCaptureDownload[];
+    return parsed.filter(
+      (download) =>
+        typeof download.jobId === "string" &&
+        typeof download.downloadUrl === "string" &&
+        typeof download.timestamp === "number" &&
+        now - download.timestamp < CAPTURE_DOWNLOAD_RETENTION_MS,
+    );
+  } catch {
+    return [];
+  }
+};
+
+const persistCaptureDownloads = (downloads: PersistedCaptureDownload[]) => {
+  try {
+    window.localStorage.setItem(
+      CAPTURE_DOWNLOADS_STORAGE_KEY,
+      JSON.stringify(downloads),
+    );
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
+  }
+};
+
+const formatRelativeCaptureTime = (timestamp: number, now: number): string => {
+  const elapsedSeconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours} hrs ago`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  const remainingHours = elapsedHours % 24;
+  if (elapsedDays === 1 && remainingHours >= 18) {
+    return "almost 2 days ago";
+  }
+  if (elapsedDays === 1 && remainingHours >= 12) {
+    return "1 day and a half ago";
+  }
+  if (remainingHours === 0) {
+    return `${elapsedDays} ${elapsedDays === 1 ? "day" : "days"} ago`;
+  }
+  return `${elapsedDays} ${elapsedDays === 1 ? "day" : "days"}, ${remainingHours} hrs ago`;
+};
+
+const useCaptureDownloadClock = () => {
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const updateClock = () => setNow(Date.now());
+    const timer = window.setInterval(updateClock, 60_000);
+    document.addEventListener("visibilitychange", updateClock);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", updateClock);
+    };
+  }, []);
+
+  return now;
+};
 
 // Channel descriptor used to trim a multi-channel capture header end-to-end
 export interface ChannelDescriptor {
@@ -60,124 +144,6 @@ const SettingValue = styled.span`
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-`;
-
-const LabelWithIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  line-height: 1.2;
-
-  svg {
-    width: 14px;
-    height: 14px;
-    color: ${(props) => props.theme.textSecondary};
-    opacity: 0.5;
-  }
-`;
-
-const IconLabel: React.FC<{ icon: LucideIcon; text: string }> = ({
-  icon: IconComponent,
-  text,
-}) => (
-  <LabelWithIcon>
-    <IconComponent size={14} strokeWidth={1.75} aria-hidden="true" />
-    {text}
-  </LabelWithIcon>
-);
-
-const SettingSelect = styled.select`
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: ${(props) => props.theme.textPrimary};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 6px;
-  min-width: 80px;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 2px center;
-  background-size: 12px;
-  padding-right: 20px;
-  box-sizing: border-box;
-  max-width: 100%;
-  min-width: 0;
-
-  &:hover {
-    border-color: ${(props) => props.theme.borderHover};
-  }
-
-  &:focus {
-    outline: none;
-    border-color: ${(props) => props.theme.primary};
-    background-color: ${(props) => props.theme.primary}0d;
-  }
-
-  option {
-    background-color: ${(props) => props.theme.surface};
-    color: ${(props) => props.theme.textPrimary};
-    font-family: ${(props) => props.theme.typography.mono};
-  }
-`;
-
-const ToggleSwitch = styled.label<{ $disabled?: boolean }>`
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  opacity: ${(props) => (props.$disabled ? 0.4 : 1)};
-`;
-
-const ToggleSwitchInput = styled.input`
-  opacity: 0;
-  width: 44px;
-  height: 24px;
-  position: absolute;
-  z-index: 2;
-  margin: 0;
-  padding: 0;
-  cursor: ${(props) => (props.disabled ? "not-allowed" : "pointer")};
-
-  &:checked + span {
-    background-color: ${(props) => props.theme.primary};
-  }
-
-  &:checked + span:before {
-    transform: translateX(20px);
-  }
-
-  &:disabled + span {
-    cursor: not-allowed;
-  }
-`;
-
-const ToggleSwitchSlider = styled.span<{ $disabled?: boolean }>`
-  position: absolute;
-  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: ${(props) => props.theme.borderHover};
-  transition: 0.2s;
-  border-radius: 24px;
-
-  &:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: 0.2s;
-    border-radius: 50%;
-  }
 `;
 
 const DurationUnit = styled.span`
@@ -317,6 +283,16 @@ const InfoCardTitle = styled.div`
   font-family: ${(props) => props.theme.typography.mono};
 `;
 
+const CaptureAvailableDot = styled.span`
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: ${(props) => props.theme.primary};
+  vertical-align: middle;
+`;
+
 const InfoRow = styled.div`
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -338,12 +314,13 @@ const DownloadMeta = styled.div`
   font-family: ${(props) => props.theme.typography.mono};
 `;
 
-const DownloadCard = styled.div`
+const DownloadCard = styled.div<{ $latest?: boolean }>`
   display: grid;
   gap: 12px;
   padding: 10px 12px;
   border-radius: 6px;
   min-width: 0;
+  opacity: ${(props) => (props.$latest ? 1 : 0.85)};
 `;
 
 const DownloadLink = styled.a`
@@ -452,6 +429,7 @@ interface IQCaptureControlsSectionProps {
   captureDurationMode: "timed" | "manual";
   captureDurationS: number;
   captureFileType: CaptureFileType;
+  isMockSource?: boolean;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   captureEncrypted: boolean;
   capturePlayback: boolean;
@@ -489,6 +467,7 @@ export const IQCaptureControlsSection: React.FC<
   captureDurationMode,
   captureDurationS,
   captureFileType,
+  isMockSource = false,
   acquisitionMode,
   captureEncrypted,
   capturePlayback,
@@ -513,6 +492,10 @@ export const IQCaptureControlsSection: React.FC<
   channels,
   onCaptureWithChannels,
 }) => {
+  const captureDownloadNow = useCaptureDownloadClock();
+  const [persistedDownloads, setPersistedDownloads] = React.useState<
+    PersistedCaptureDownload[]
+  >(loadPersistedCaptureDownloads);
   // Build derived channels from the capture range segments when channels aren't provided
   const derivedChannels: ChannelDescriptor[] = React.useMemo(() => {
     if (!captureRange?.segments) return [];
@@ -664,6 +647,10 @@ export const IQCaptureControlsSection: React.FC<
 
   // Raw .iq is the lossless default fallback when .napt eligibility is lost.
   React.useEffect(() => {
+    if (isMockSource && captureFileType === ".napt") {
+      onCaptureFileTypeChange(".iq");
+      return;
+    }
     if (
       captureFileType === ".napt" &&
       !naptValidation.isValid &&
@@ -674,6 +661,7 @@ export const IQCaptureControlsSection: React.FC<
   }, [
     naptValidation.isValid,
     captureFileType,
+    isMockSource,
     onCaptureFileTypeChange,
     activeCaptureAreas.length,
   ]);
@@ -743,6 +731,34 @@ export const IQCaptureControlsSection: React.FC<
     }
   }, [captureStatus, dispatch]);
 
+  React.useEffect(() => {
+    if (captureStatus?.status !== "done" || !captureStatus.downloadUrl) return;
+    const download: PersistedCaptureDownload = {
+      jobId: captureStatus.jobId,
+      downloadUrl: captureStatus.downloadUrl,
+      filename: captureStatus.filename,
+      fileSize: captureStatus.fileSize,
+      duration: captureStatus.duration,
+      timestamp: captureStatus.timestamp ?? Date.now(),
+    };
+    setPersistedDownloads((current) => {
+      const next = [
+        download,
+        ...current.filter((item) => item.jobId !== download.jobId),
+      ].filter(
+        (item) => Date.now() - item.timestamp < CAPTURE_DOWNLOAD_RETENTION_MS,
+      );
+      persistCaptureDownloads(next);
+      return next;
+    });
+  }, [captureStatus]);
+
+  const clearPersistedDownloads = () => {
+    setPersistedDownloads([]);
+    persistCaptureDownloads([]);
+    onClearStatus();
+  };
+
   // Calculate capture range span to determine appropriate mode
   const captureRangeSpan = captureRange.max - captureRange.min;
   const hardwareSampleRateHz = maxSampleRate;
@@ -805,7 +821,7 @@ export const IQCaptureControlsSection: React.FC<
     (!isCaptureActive && !hasSelectedCaptureAreas);
 
   const handleGeolocationToggle = async (enabled: boolean) => {
-    if (enabled && captureFileType === ".napt") {
+    if (enabled) {
       const hasPermission = await requestPermission();
       if (!hasPermission) {
         // If permission denied, keep toggle off
@@ -886,7 +902,7 @@ export const IQCaptureControlsSection: React.FC<
               onCaptureFileTypeChange(e.target.value as CaptureFileType)
             }
           >
-            <option value=".napt" disabled={!naptValidation.isValid}>
+            <option value=".napt" disabled={isMockSource || !naptValidation.isValid}>
               .napt {!naptValidation.isValid ? "(Invalid)" : ""}
             </option>
             <option value=".iq">.iq</option>
@@ -936,40 +952,43 @@ export const IQCaptureControlsSection: React.FC<
       <Row
         label={<IconLabel icon={LockKeyhole} text="Encrypted (AES-256-GCM)" />}
       >
-        <ToggleSwitch $disabled={captureFileType === ".napt"}>
+        <ToggleSwitch
+          $disabled={isMockSource || captureFileType === ".napt"}
+        >
           <ToggleSwitchInput
             type="checkbox"
-            checked={captureFileType === ".napt" ? true : captureEncrypted}
-            disabled={captureFileType === ".napt"}
+            checked={!isMockSource &&
+              (captureFileType === ".napt" || captureEncrypted)}
+            disabled={isMockSource || captureFileType === ".napt"}
             onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
           />
-          <ToggleSwitchSlider $disabled={captureFileType === ".napt"} />
+          <ToggleSwitchSlider
+            $disabled={isMockSource || captureFileType === ".napt"}
+          />
         </ToggleSwitch>
       </Row>
 
       <Row
         label={<IconLabel icon={MapPin} text="Geolocation" />}
         tooltipTitle="Location data (lat, long, accuracy, altitude)"
-        tooltip="Only available for .napt files. Requires browser permission to access location."
+        tooltip="Adds your current location to the capture metadata. Requires browser permission to access location."
       >
         <ToggleSwitch
-          $disabled={captureFileType !== ".napt" || !isSupported || geoLoading}
+          $disabled={!isSupported || geoLoading}
         >
           <ToggleSwitchInput
             type="checkbox"
-            checked={captureFileType === ".napt" ? captureGeolocation : false}
-            disabled={captureFileType !== ".napt" || !isSupported || geoLoading}
+            checked={captureGeolocation}
+            disabled={!isSupported || geoLoading}
             onChange={(e) => handleGeolocationToggle(e.target.checked)}
           />
           <ToggleSwitchSlider
-            $disabled={
-              captureFileType !== ".napt" || !isSupported || geoLoading
-            }
+            $disabled={!isSupported || geoLoading}
           />
         </ToggleSwitch>
       </Row>
 
-      {geoError && captureFileType === ".napt" && (
+      {geoError && (
         <Row label="">
           <ErrorSettingValue>{geoError}</ErrorSettingValue>
         </Row>
@@ -999,52 +1018,45 @@ export const IQCaptureControlsSection: React.FC<
         <DownloadsHeader>
           <InfoCardTitle>Downloads</InfoCardTitle>
           <ClearStatusButton
-            onClick={onClearStatus}
+            onClick={clearPersistedDownloads}
             title="Clear capture status"
           >
             <Trash2 size={12} /> Clear
           </ClearStatusButton>
         </DownloadsHeader>
-        {captureStatus?.downloadUrl && isAuthenticated ? (
-          <DownloadCard>
-            <InfoRow>
-              <div style={{ minWidth: 0 }}>
-                <DownloadLink
-                  href={buildSafeDownloadUrl(
-                    captureStatus.downloadUrl,
-                    sessionToken,
-                  )}
-                  download={captureStatus.filename || "capture"}
-                  rel="noopener noreferrer"
-                  title={captureStatus.filename || "Download"}
-                >
-                  {captureStatus.filename || "Download"}
-                </DownloadLink>
-                <DownloadMeta>
-                  {typeof captureStatus.fileSize === "number" &&
-                    formatFileSize(captureStatus.fileSize)}
-                  {" / "}
-                  {typeof captureStatus.duration === "number" &&
-                    formatDurationMs(captureStatus.duration)}
-                </DownloadMeta>
-              </div>
-              <StatusValue
-                $tone={
-                  captureStatus?.status === "done"
-                    ? "success"
-                    : captureStatus?.status === "failed"
-                      ? "error"
-                      : "warning"
-                }
-              >
-                {captureStatus?.status === "done"
-                  ? "Complete"
-                  : captureStatus?.status === "failed"
-                    ? "Failed"
-                    : "In progress..."}
-              </StatusValue>
-            </InfoRow>
-          </DownloadCard>
+        {persistedDownloads.length > 0 && isAuthenticated ? (
+          persistedDownloads.map((download) => (
+            <DownloadCard
+              key={download.jobId}
+              $latest={download.jobId === persistedDownloads[0]?.jobId}
+            >
+              <InfoRow>
+                <div style={{ minWidth: 0 }}>
+                  <DownloadLink
+                    href={buildSafeDownloadUrl(download.downloadUrl, sessionToken)}
+                    download={download.filename || "capture"}
+                    rel="noopener noreferrer"
+                    title={download.filename || "Download"}
+                  >
+                    {download.filename || "Download"}
+                  </DownloadLink>
+                  <DownloadMeta>
+                    {formatRelativeCaptureTime(
+                      download.timestamp,
+                      captureDownloadNow,
+                    )}
+                    {" / "}
+                    {typeof download.fileSize === "number" &&
+                      formatFileSize(download.fileSize)}
+                    {" / "}
+                    {typeof download.duration === "number" &&
+                      formatDurationMs(download.duration)}
+                  </DownloadMeta>
+                </div>
+                <StatusValue $tone="success">Complete</StatusValue>
+              </InfoRow>
+            </DownloadCard>
+          ))
         ) : (
           <InfoRow>
             <InfoLabel>
@@ -1066,7 +1078,14 @@ export const IQCaptureControlsSection: React.FC<
       {variant === "sidebar" ? (
         <Collapsible
           icon={<FileSignal size={14} />}
-          label="Take an I/Q Capture"
+          label={
+            <>
+              Take an I/Q Capture
+              {persistedDownloads.length > 0 && (
+                <CaptureAvailableDot title="Saved captures available" />
+              )}
+            </>
+          }
           defaultOpen={defaultOpen}
           open={open}
           sectionId="iq-capture"

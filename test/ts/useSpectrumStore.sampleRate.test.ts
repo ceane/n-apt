@@ -134,13 +134,19 @@ describe("resolveSourceSwitchDisplaySettings", () => {
 });
 
 describe("resolveLiveAcquisitionBounds", () => {
-  it("prefers the device bounds over a subscriber-local channel frame", () => {
+  it("uses the hydrated device bounds", () => {
     expect(
       resolveLiveAcquisitionBounds({
         hardwareBounds: { min: 0, max: 30_000_000_000 },
-        channelBounds: { min: 6_780, max: 4_390_000 },
       }),
     ).toEqual({ min: 0, max: 30_000_000_000 });
+  });
+
+  it("falls back to the global spectrum bounds instead of a channel frame", () => {
+    expect(resolveLiveAcquisitionBounds({ hardwareBounds: null })).toEqual({
+      min: 0,
+      max: 30_000_000_000,
+    });
   });
 });
 
@@ -375,12 +381,12 @@ describe("selectLiveSampleRateForSync", () => {
     ).toBe(3_200_000);
   });
 
-  it("does not accept a stale backend rate over a pending local request", () => {
+  it("does not accept a stale backend rate over a pending global request", () => {
     expect(
       shouldHydrateLiveSampleRate({
         rate: 3_200_000,
-        localSampleRateHz: 18_250_000,
-        pendingLocalSampleRateHz: 18_250_000,
+        globalSampleRateHz: 18_250_000,
+        pendingGlobalSampleRateHz: 18_250_000,
         hydratedBackendSampleRate: false,
       }),
     ).toBe(false);
@@ -390,8 +396,8 @@ describe("selectLiveSampleRateForSync", () => {
     expect(
       shouldHydrateLiveSampleRate({
         rate: 18_250_000,
-        localSampleRateHz: 18_250_000,
-        pendingLocalSampleRateHz: 18_250_000,
+        globalSampleRateHz: 18_250_000,
+        pendingGlobalSampleRateHz: 18_250_000,
         hydratedBackendSampleRate: false,
       }),
     ).toBe(true);
@@ -439,7 +445,7 @@ describe("selectLiveSampleRateForSync", () => {
     );
   });
 
-  it("never hydrates a stale backend rate during fuzzed local requests", () => {
+  it("never hydrates a stale backend rate during fuzzed global requests", () => {
     const rates = [
       3_200_000,
       4_372_000,
@@ -459,8 +465,8 @@ describe("selectLiveSampleRateForSync", () => {
           expect(
             shouldHydrateLiveSampleRate({
               rate: backendRate,
-              localSampleRateHz: requestedRate,
-              pendingLocalSampleRateHz: requestedRate,
+              globalSampleRateHz: requestedRate,
+              pendingGlobalSampleRateHz: requestedRate,
               hydratedBackendSampleRate: false,
             }),
           ).toBe(isAcknowledgement);
@@ -470,10 +476,10 @@ describe("selectLiveSampleRateForSync", () => {
     );
   });
 
-  it("keeps the accepted source rate over an unacknowledged local Whole Channel request", () => {
+  it("keeps the accepted source rate over an unacknowledged global Whole Channel request", () => {
     expect(
       resolveEffectiveLiveSampleRateHz({
-        localSampleRateHz: 4_372_000,
+        globalSampleRateHz: 4_372_000,
         websocketSampleRateHz: 3_200_000,
         sdrSettingsSampleRateHz: 3_200_000,
         maxSampleRateHz: 20_000_000,
@@ -484,7 +490,7 @@ describe("selectLiveSampleRateForSync", () => {
   it("keeps RTL-SDR whole-channel state from inheriting a stale connected rate", () => {
     expect(
       resolveEffectiveLiveSampleRateHz({
-        localSampleRateHz: 4_372_000,
+        globalSampleRateHz: 4_372_000,
         websocketSampleRateHz: 4_372_000,
         sdrSettingsSampleRateHz: 3_200_000,
         minReceiveSampleRateHz: 3_200_000,
@@ -498,7 +504,7 @@ describe("selectLiveSampleRateForSync", () => {
   it("caps an invalid RTL-SDR configured whole-channel rate at the device maximum", () => {
     expect(
       resolveEffectiveLiveSampleRateHz({
-        localSampleRateHz: 6_270_000,
+        globalSampleRateHz: 6_270_000,
         websocketSampleRateHz: 6_270_000,
         sdrSettingsSampleRateHz: 6_270_000,
         minReceiveSampleRateHz: 6_270_000,
@@ -512,7 +518,7 @@ describe("selectLiveSampleRateForSync", () => {
   it("falls back to websocket/backend rates when no local rate has been selected", () => {
     expect(
       resolveEffectiveLiveSampleRateHz({
-        localSampleRateHz: null,
+        globalSampleRateHz: null,
         websocketSampleRateHz: 20_000_000,
         sdrSettingsSampleRateHz: 3_200_000,
         maxSampleRateHz: 20_000_000,
@@ -556,25 +562,25 @@ describe("shouldSendSignalDisplaySettings", () => {
     expect(
       shouldSendSignalDisplaySettings({
         previous: null,
-        next: { sampleRateHz: 3_200_000, fftSize: 262_144, frameRate: 12 },
+        next: { fftSize: 262_144, frameRate: 12 },
       }),
     ).toBe(true);
   });
 
-  it("sends when Whole Channel changes the sample rate without changing frame rate", () => {
+  it("does not send a legacy display packet for a sample-rate-only change", () => {
     expect(
       shouldSendSignalDisplaySettings({
-        previous: { sampleRateHz: 3_200_000, fftSize: 262_144, frameRate: 12 },
-        next: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
+        previous: { fftSize: 262_144, frameRate: 12 },
+        next: { fftSize: 262_144, frameRate: 12 },
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not resend unchanged display settings", () => {
     expect(
       shouldSendSignalDisplaySettings({
-        previous: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
-        next: { sampleRateHz: 4_372_000, fftSize: 262_144, frameRate: 12 },
+        previous: { fftSize: 262_144, frameRate: 12 },
+        next: { fftSize: 262_144, frameRate: 12 },
       }),
     ).toBe(false);
   });

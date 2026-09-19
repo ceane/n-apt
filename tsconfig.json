@@ -93,7 +93,7 @@
       "@n-apt/encrypted-modules/*": ["./src/encrypted-modules/*"],
     }
   },
-  "include": ["src/ts", "src/app-article", "src/app-game", "src/app-legal", ".react-router/types/**/*", "src/ts/types", "src/types", "test/ts", "test/integration"],
+  "include": ["src/ts", "src/app-article", "src/app-game", "src/app-legal", ".react-router/types/**/*", "src/ts/types", "src/types", "test/ts", "test/integration", "scripts"],
   "exclude": ["src/encrypted-modules", "src/app-article/components/canvas/ascii-motion-animation.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

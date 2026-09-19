@@ -98,6 +98,10 @@ pub struct SharedState {
   pub pending_center_freq_notify: Notify,
   /// Shutdown signal — I/O thread checks this each iteration
   pub shutdown: AtomicBool,
+  /// Set by the I/O thread once the exclusive USB SDR has been released.
+  /// Shutdown must not complete before this, or the process can exit while a
+  /// HackRF is still streaming and the next backend cannot claim it.
+  pub device_released: AtomicBool,
   /// Device info string (set once at init)
   pub device_info: Mutex<String>,
   /// USB serial number of the active SDR device
@@ -257,6 +261,7 @@ impl SharedState {
       pending_center_freq_dirty: AtomicBool::new(false),
       pending_center_freq_notify: Notify::new(),
       shutdown: AtomicBool::new(false),
+      device_released: AtomicBool::new(false),
       device_info: Mutex::new(String::new()),
       device_serial: Mutex::new(String::new()),
       device_manufacturer: Mutex::new(String::new()),
@@ -578,6 +583,15 @@ impl SharedState {
 
   pub fn set_device_backend_error(&self, error: Option<String>) {
     *self.device_backend_error.lock().unwrap() = error;
+  }
+
+  /// Record that the exclusive USB SDR is no longer owned by this process.
+  pub fn mark_device_released(&self) {
+    self.device_released.store(true, Ordering::Release);
+  }
+
+  pub fn device_released(&self) -> bool {
+    self.device_released.load(Ordering::Acquire)
   }
 
   pub fn set_rtl_sdr_inventory(&self, inventory: Vec<RtlSdrInventoryDevice>) {

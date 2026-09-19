@@ -8,15 +8,15 @@ repository = "https://github.com/ceane/n-apt"
 crate-type = ["cdylib"]
 
 [dependencies.web-sys]
-version = "0.3.97"
+version = "0.3.105"
 features = ["console"]
 
 [dependencies]
-wasm-bindgen = "0.2.120"
-wasm-bindgen-test = "0.3.70"
-js-sys = "0.3.97"
+wasm-bindgen = "0.2.128"
+wasm-bindgen-test = "0.3.78"
+js-sys = "0.3.105"
 n-apt-backend = { path = "../../" }
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 
