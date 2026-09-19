@@ -7,7 +7,6 @@ import { spawn, spawnSync } from 'child_process';
 import net from 'node:net';
 import os from 'node:os';
 import chalk from 'chalk';
-import notifier from 'node-notifier';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +46,7 @@ import {
   type RebuildStatusStep,
 } from './cargoBuildProgress';
 import { startDevStatusServer, type DevStatusServerHandle } from './devStatusServer';
+import { notifyBestEffort } from './notifyBestEffort';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1674,7 +1674,7 @@ exit 1
         const msg = !hadServicesRef.current 
           ? `✓ Finished building and running at http://localhost:5173`
           : `✓ ${deviceStatus}`;
-        notifier.notify({
+        notifyBestEffort({
           title: 'N-APT  🧠',
           message: msg,
           icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2098,7 +2098,7 @@ exit 1
       }
 
       if (!buildTimedOut && validationResult.stage === 'restarted') {
-        notifier.notify({
+        notifyBestEffort({
           title: 'N-APT',
           message: '✓ Rust backend reloaded successfully',
           icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2428,7 +2428,7 @@ async function runNonTtyBuild() {
   };
 
   // Notify build started
-  notifier.notify({
+  notifyBestEffort({
     title: 'N-APT',
     message: 'Staring build...',
     icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2538,7 +2538,7 @@ async function runNonTtyBuild() {
       index: 7,
       description: 'Building and starting Rust backend',
       run: async () => {
-        notifier.notify({
+        notifyBestEffort({
           title: 'N-APT',
           message: 'Almost done building...',
           icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2643,7 +2643,7 @@ async function runNonTtyBuild() {
         ? `Failed to build, error with ${failedComponents[0]}`
         : `Failed to build, errors with ${failedComponents.slice(0, -1).join(', ')} and ${failedComponents[failedComponents.length - 1]}`;
       
-      notifier.notify({
+      notifyBestEffort({
         title: 'N-APT',
         message: errorMsg,
         icon: path.join(__dirname, 'public/icon-5112.png'),
@@ -2652,7 +2652,7 @@ async function runNonTtyBuild() {
     }
   }
 
-  notifier.notify({
+  notifyBestEffort({
     title: 'N-APT  🧠',
     message: '✓ Finished building and running at http://localhost:5173',
     icon: path.join(__dirname, 'public/icon-5112.png'),
