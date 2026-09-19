@@ -13,6 +13,7 @@ import {
   RadioIcon,
   Brain,
   Activity,
+  AudioWaveform,
   Zap,
   Cpu,
   Waves,
@@ -175,6 +176,21 @@ const availableNodes: NodeType[] = [
       description:
         "Turns signal measurements like amplitude and phase into symbols that represent bits.",
       symbolOptions: true,
+    },
+  },
+  {
+    id: "phase",
+    type: "custom",
+    label: "Phase",
+    description:
+      "Phase-angle waterfall: hue shows the phase of each frequency over time—spot repeating or drifting phase patterns.",
+    icon: <AudioWaveform size={16} />,
+    position: { x: 550, y: 850 },
+    data: {
+      label: "Phase",
+      description:
+        "Phase-angle waterfall: hue shows the phase of each frequency over time—spot repeating or drifting phase patterns.",
+      phaseOptions: true,
     },
   },
   {

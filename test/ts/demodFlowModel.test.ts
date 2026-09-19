@@ -154,6 +154,18 @@ describe("demod flow visualization persistence", () => {
     ).toBe(false);
   });
 
+  it("keeps the phase waterfall mounted so its history survives panning", () => {
+    expect(
+      shouldVirtualizeDemodFlowNodes([
+        {
+          id: "phase",
+          position: { x: 0, y: 0 },
+          data: { phaseOptions: true },
+        },
+      ]),
+    ).toBe(false);
+  });
+
   it("retains visible-node virtualization for ordinary stateless flows", () => {
     expect(
       shouldVirtualizeDemodFlowNodes([

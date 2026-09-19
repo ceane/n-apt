@@ -29,6 +29,7 @@ import {
   DefaultDemodNodeContent,
   DemodNodeSuspense,
   LazyBitstreamViewer,
+  LazyPhaseWaterfallNode,
   LazySymbolsTable,
   hasPendingDemodLazyNodeContent,
   resolveDemodNodeEntry,
@@ -237,6 +238,39 @@ const FrequencyAwareNode = React.memo(
       );
     }
 
+    if (data.phaseOptions) {
+      return (
+        <NodeContainer data-nodeid={id}>
+          <Handle
+            type="target"
+            position={Position.Top}
+            style={{
+              background: "#666",
+              border: "1px solid #999",
+              width: "8px",
+              height: "8px",
+            }}
+          />
+          <DemodNodeSuspense label={data.label}>
+            <LazyPhaseWaterfallNode
+              data={data}
+              frequencyRange={frequencyRange}
+            />
+          </DemodNodeSuspense>
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            style={{
+              background: "#666",
+              border: "1px solid #999",
+              width: "8px",
+              height: "8px",
+            }}
+          />
+        </NodeContainer>
+      );
+    }
+
     return (
       <NodeContainer data-nodeid={id}>
         <Handle
@@ -269,7 +303,11 @@ const FrequencyAwareNode = React.memo(
 
 const NODE_TYPES = {
   custom: (nodeProps: { data: any; id: string }) => {
-    if (nodeProps.data?.symbolOptions || nodeProps.data?.bitstreamOptions) {
+    if (
+      nodeProps.data?.symbolOptions ||
+      nodeProps.data?.bitstreamOptions ||
+      nodeProps.data?.phaseOptions
+    ) {
       return <FrequencyAwareNode {...nodeProps} />;
     }
 

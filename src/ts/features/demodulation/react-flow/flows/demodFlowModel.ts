@@ -63,11 +63,13 @@ export const DEMOD_FIT_VIEW_OPTIONS = {
 
 /** Waterfalls own temporal history in their mounted canvas runtime. Keep every
  * waterfall mounted when zooming moves it outside the viewport. Tx Suite FFTs
- * are also source-bound runtime producers for their adjacent waterfalls. */
+ * are also source-bound runtime producers for their adjacent waterfalls. The
+ * phase waterfall keeps its history the same way, so it is exempt too. */
 export const shouldVirtualizeDemodFlowNodes = (nodes: Node[]): boolean =>
   !nodes.some(
     (node) =>
       node.data?.waterfallOptions === true ||
+      node.data?.phaseOptions === true ||
       (node.data?.sourceBindingGroup === "tx-suite" &&
         node.data?.fftOptions === true),
   );

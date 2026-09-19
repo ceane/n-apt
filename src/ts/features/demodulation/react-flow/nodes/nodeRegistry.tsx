@@ -115,6 +115,11 @@ export const LazyBitstreamViewer = React.lazy(() =>
     default: m.BitstreamViewer,
   })),
 );
+export const LazyPhaseWaterfallNode = React.lazy(() =>
+  import("@n-apt/demodulation/react-flow/nodes/PhaseWaterfallNode").then(
+    (m) => ({ default: m.PhaseWaterfallNode }),
+  ),
+);
 
 interface DemodNodeRegistryEntry {
   flag: string;
