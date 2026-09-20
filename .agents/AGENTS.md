@@ -24,6 +24,7 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
 - Use the Act MCP tool for repository searches.
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
+- This project and the author uses American English, not British English. color not colour.
 
 ## Real-Time Device I/O
 
