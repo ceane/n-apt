@@ -71,6 +71,8 @@ redis/backups
 
 # Local app runtime metadata
 .n-apt/
+.n-apt-backend-target.json
+.rebuild_status.json
 
 # Rust-specific files
 *.pdb
