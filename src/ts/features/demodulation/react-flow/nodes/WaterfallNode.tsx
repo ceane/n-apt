@@ -899,6 +899,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     setIsEditorOpen: setShowVfoEditor,
     cursorOffsetPx: vfoDragOffsetPx,
     tuneVfo,
+    viewportRef: vfoViewportRef,
     viewportHandlers: vfoViewportHandlers,
     vfoHandlers,
     resetUserTuning: resetVfoUserTuning,
@@ -1237,6 +1238,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       <CanvasContainer $analysis={data.analysisOptions}>
         <AnalysisLayout>
           <AnalysisViewport
+            ref={vfoViewportRef}
             $analysis={data.analysisOptions}
             className="nodrag nopan nowheel"
             data-testid="waterfall-analysis-viewport"
