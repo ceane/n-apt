@@ -7,6 +7,10 @@ import { clampCenteredFrequencyRange } from "@n-apt/math/frequency";
 import { mapDisplayFrequencyToSource } from "@n-apt/math/basebandMirror";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import {
+  createDeviceOptionScheduler,
+  type DeviceOptionScheduler,
+} from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
+import {
   getWaterfallPinchZoomView,
   getWaterfallScrollPan,
   getWaterfallVfoDisplayFrequency,
@@ -61,8 +65,12 @@ export interface VfoTuner {
    * clamped window is unchanged, in which case it also just pans.
    */
   tuneVfo: (frequency: number, forceHardwareTune?: boolean) => void;
+  /**
+   * Attach to the element that owns the tuning surface. Wheel is bound natively
+   * here (React's `onWheel` is passive, which makes `preventDefault` a no-op).
+   */
+  viewportRef: React.RefObject<HTMLDivElement | null>;
   viewportHandlers: {
-    onWheel: React.WheelEventHandler<HTMLDivElement>;
     onPointerDownCapture: React.PointerEventHandler<HTMLDivElement>;
     onPointerMoveCapture: React.PointerEventHandler<HTMLDivElement>;
     onPointerUpCapture: React.PointerEventHandler<HTMLDivElement>;
@@ -75,7 +83,6 @@ export interface VfoTuner {
     onPointerCancel: React.PointerEventHandler<HTMLDivElement>;
     onDoubleClick: React.MouseEventHandler<HTMLDivElement>;
     onMouseDown: React.MouseEventHandler<HTMLDivElement>;
-    onWheel: React.WheelEventHandler<HTMLDivElement>;
   };
 }
 
@@ -102,6 +109,7 @@ export const useVfoTuner = ({
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
 
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const userTunedRef = useRef(false);
   const dragStartFrequencyRef = useRef<number | null>(null);
   const dragStartXRef = useRef(0);
@@ -116,6 +124,34 @@ export const useVfoTuner = ({
   } | null>(null);
   const onPinchStartRef = useRef(onPinchStart);
   onPinchStartRef.current = onPinchStart;
+
+  // A scroll or drag burst emits far more events than the receiver can usefully
+  // retune on. Publish the first value immediately (so a gesture stays
+  // responsive), coalesce the rest to a bounded cadence, and flush the final
+  // value once the gesture goes idle — the same contract the spectrum pan uses.
+  const publishRangeRef = useRef<(range: FrequencyRange) => void>(() => {});
+  publishRangeRef.current = (range) => {
+    if (tuneHardware) {
+      tuneHardware(range);
+      return;
+    }
+    dispatch(setFrequencyRange(range));
+    dispatch(sendFrequencyRange(range));
+  };
+  const rangePublisherRef =
+    useRef<DeviceOptionScheduler<FrequencyRange> | null>(null);
+  if (!rangePublisherRef.current) {
+    rangePublisherRef.current = createDeviceOptionScheduler<FrequencyRange>({
+      publish: (range) => publishRangeRef.current(range),
+      equals: (left, right) => left.min === right.min && left.max === right.max,
+    });
+  }
+  useEffect(
+    () => () => {
+      rangePublisherRef.current?.dispose();
+    },
+    [],
+  );
 
   // A new session drops any tuning the user did in the previous one.
   useEffect(() => {
@@ -171,12 +207,7 @@ export const useVfoTuner = ({
         return;
       }
 
-      if (tuneHardware) {
-        tuneHardware(range);
-      } else {
-        dispatch(setFrequencyRange(range));
-        dispatch(sendFrequencyRange(range));
-      }
+      rangePublisherRef.current?.submit(range);
       userTunedRef.current = true;
       setVfoFrequency(frequency);
     },
@@ -305,9 +336,27 @@ export const useVfoTuner = ({
     [],
   );
 
-  const onWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      if (!zoomPanEnabled) return;
+  // Bound natively with `passive: false`: React registers wheel listeners on the
+  // root as passive, so a `preventDefault` inside `onWheel` is ignored (and logs
+  // "Unable to preventDefault inside passive event listener"), letting the page
+  // scroll instead of the view tuning.
+  const handleViewportWheel = useCallback(
+    (event: WheelEvent) => {
+      const overVfoAxis = Boolean(
+        (event.target as Element | null)?.closest?.(
+          `[data-testid="${vfoTestId}"]`,
+        ),
+      );
+
+      // Live view: only the axis itself swallows the wheel, and only while locked.
+      if (!zoomPanEnabled) {
+        if (isLocked && overVfoAxis) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+
       event.preventDefault();
       event.stopPropagation();
       if (isLocked) return;
@@ -327,8 +376,7 @@ export const useVfoTuner = ({
         return;
       }
 
-      const target = event.target as HTMLElement;
-      if (!target.closest?.(`[data-testid="${vfoTestId}"]`)) return;
+      if (!overVfoAxis) return;
 
       if (zoom > 1) {
         setPanHz((current) =>
@@ -357,6 +405,13 @@ export const useVfoTuner = ({
       zoomPanEnabled,
     ],
   );
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) return;
+    node.addEventListener("wheel", handleViewportWheel, { passive: false });
+    return () => node.removeEventListener("wheel", handleViewportWheel);
+  }, [handleViewportWheel]);
 
   const onVfoPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -410,16 +465,6 @@ export const useVfoTuner = ({
     dragDistancePxRef.current = 0;
   }, []);
 
-  const onVfoWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      if (isLocked) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    },
-    [isLocked],
-  );
-
   const onVfoMouseDown = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
     [],
@@ -433,13 +478,12 @@ export const useVfoTuner = ({
 
   const viewportHandlers = useMemo(
     () => ({
-      onWheel,
       onPointerDownCapture,
       onPointerMoveCapture,
       onPointerUpCapture: onPointerEndCapture,
       onPointerCancelCapture: onPointerEndCapture,
     }),
-    [onPointerDownCapture, onPointerEndCapture, onPointerMoveCapture, onWheel],
+    [onPointerDownCapture, onPointerEndCapture, onPointerMoveCapture],
   );
 
   const vfoHandlers = useMemo(
@@ -453,14 +497,12 @@ export const useVfoTuner = ({
         openEditor();
       },
       onMouseDown: onVfoMouseDown,
-      onWheel: onVfoWheel,
     }),
     [
       endVfoDrag,
       onVfoMouseDown,
       onVfoPointerDown,
       onVfoPointerMove,
-      onVfoWheel,
       openEditor,
     ],
   );
@@ -484,6 +526,7 @@ export const useVfoTuner = ({
     resetUserTuning,
     cursorOffsetPx,
     tuneVfo,
+    viewportRef,
     viewportHandlers,
     vfoHandlers,
   };

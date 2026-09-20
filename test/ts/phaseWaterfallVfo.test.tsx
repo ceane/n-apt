@@ -118,6 +118,21 @@ describe("PhaseWaterfallNode VFO", () => {
     expect(range.max).toBe(100_800_000);
   });
 
+  it("coalesces a burst of scroll retunes instead of publishing each one", () => {
+    const store = renderNode({ passRangeProp: false });
+
+    fireEvent.wheel(vfo(), { deltaY: 200 });
+    fireEvent.wheel(vfo(), { deltaY: 200 });
+    fireEvent.wheel(vfo(), { deltaY: 200 });
+
+    // Only the leading value of the burst is published immediately; the later
+    // values are coalesced into one pending write that flushes on idle.
+    expect(store.getState().spectrum.frequencyRange).toEqual({
+      min: 99_800_000,
+      max: 100_800_000,
+    });
+  });
+
   it("opens the center-frequency editor on double click and closes on Escape", () => {
     renderNode();
 
