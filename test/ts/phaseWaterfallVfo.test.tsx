@@ -182,5 +182,7 @@ describe("PhaseWaterfallNode VFO", () => {
     expect(props.fftMax).toBe(180);
     expect(props.colormapName).toBe("phase");
     expect(props.waterfallHistoryFill).toBe("immutable");
+    // Matches the waterfall node, so a retune drifts the history sideways.
+    expect(props.retuneSmear).toBe(1);
   });
 });

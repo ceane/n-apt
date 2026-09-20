@@ -34,6 +34,13 @@ export interface VfoTunerOptions {
   onPinchStart?: () => void;
   /** Override for the hardware retune. Defaults to the redux frequency dispatch. */
   tuneHardware?: (range: FrequencyRange) => void;
+  /**
+   * What an unzoomed gesture does. At 1x there is no window to pan, so the host
+   * decides: the phase view has nothing to pan and must retune the receiver to
+   * move the band, while the waterfall keeps its pan-first behavior so its row
+   * feed keeps flowing smoothly.
+   */
+  retuneWhenUnzoomed?: boolean;
 }
 
 export interface VfoTuner {
@@ -99,6 +106,7 @@ export const useVfoTuner = ({
   vfoTestId,
   onPinchStart,
   tuneHardware,
+  retuneWhenUnzoomed = false,
 }: VfoTunerOptions): VfoTuner => {
   const dispatch = useAppDispatch();
 
@@ -175,10 +183,9 @@ export const useVfoTuner = ({
       if (!Number.isFinite(frequency)) return;
 
       const span = rangeMax - rangeMin;
-      // Only a zoomed-in view has a window to pan; at 1x a gesture must retune
-      // the receiver, otherwise scrolling would relabel the axis while the
-      // rendered history stayed exactly where it was.
-      const pansView = zoomPanEnabled && zoom > 1;
+      // Only a zoomed-in view has a window to pan; at 1x the host decides
+      // whether the gesture retunes instead (see retuneWhenUnzoomed).
+      const pansView = zoomPanEnabled && (zoom > 1 || !retuneWhenUnzoomed);
       const panView = () => {
         const visibleSpan = span / Math.max(1, zoom);
         const minPan = allowNegativeFrequencies
@@ -218,6 +225,7 @@ export const useVfoTuner = ({
       rangeCenter,
       rangeMax,
       rangeMin,
+      retuneWhenUnzoomed,
       tuneHardware,
       zoom,
       zoomPanEnabled,

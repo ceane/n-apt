@@ -249,6 +249,9 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
     allowNegativeFrequencies,
     // The phase waterfall always retains history, so gestures zoom/pan it.
     zoomPanEnabled: true,
+    // At 1x there is nothing to pan, so a gesture must retune the receiver for
+    // the band to move at all.
+    retuneWhenUnzoomed: true,
     sessionKey: `${sourceMode}:${activeSourceId ?? "none"}`,
     vfoTestId: "phase-waterfall-vfo",
   });
@@ -344,6 +347,7 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
         </HeaderMeta>
       </Header>
       <Viewport
+        ref={vfo.viewportRef}
         className="nodrag nopan nowheel"
         data-testid="phase-waterfall-viewport"
         {...vfo.viewportHandlers}
@@ -373,7 +377,7 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
             frequencyRange={vfo.visibleRange}
             fftMin={MIN_PHASE_DEG}
             fftMax={MAX_PHASE_DEG}
-            retuneSmear={0}
+            retuneSmear={1}
             isPaused={false}
             isVisible
             waterfallHistoryFill="immutable"
