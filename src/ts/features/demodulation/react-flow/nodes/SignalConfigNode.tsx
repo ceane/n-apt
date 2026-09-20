@@ -6,6 +6,7 @@ import {
   setFftWindow,
   setFrequencyRange,
   setPowerScale,
+  setRemoveDcSpike,
   setSampleRate,
   setTemporalResolution,
 } from "@n-apt/redux";
@@ -241,6 +242,10 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         }}
         onPowerScaleChange={(value) => {
           dispatch(setPowerScale(value));
+        }}
+        removeDcSpike={spectrum.removeDcSpike}
+        onRemoveDcSpikeChange={(enabled) => {
+          dispatch(setRemoveDcSpike(enabled));
         }}
         scheduleCoupledAdjustment={settings.scheduleCoupledAdjustment}
       />
