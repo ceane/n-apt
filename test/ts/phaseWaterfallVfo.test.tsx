@@ -30,7 +30,9 @@ const theme = buildAppTheme({
 
 const FREQUENCY_RANGE = { min: 100_000_000, max: 101_000_000 };
 
-const renderNode = () => {
+const renderNode = ({
+  passRangeProp = true,
+}: { passRangeProp?: boolean } = {}) => {
   const spectrumState = spectrumSlice(undefined, { type: "@@INIT" } as any);
   const store = createTestStore({
     spectrum: {
@@ -43,7 +45,9 @@ const renderNode = () => {
   render(
     <Provider store={store}>
       <ThemeProvider theme={theme}>
-        <PhaseWaterfallNode frequencyRange={FREQUENCY_RANGE} />
+        <PhaseWaterfallNode
+          frequencyRange={passRangeProp ? FREQUENCY_RANGE : undefined}
+        />
       </ThemeProvider>
     </Provider>,
   );
@@ -99,6 +103,19 @@ describe("PhaseWaterfallNode VFO", () => {
     // Scrolling down lowers the tuned center.
     expect(after.min).toBeLessThan(before.min);
     expect(after.max).toBeLessThan(before.max);
+  });
+
+  it("retunes the receiver when scrolling an unzoomed VFO", () => {
+    // The store owns the range here, so a dispatch is observable.
+    const store = renderNode({ passRangeProp: false });
+    expect(store.getState().spectrum.frequencyRange).toEqual(FREQUENCY_RANGE);
+
+    fireEvent.wheel(vfo(), { deltaY: 200 });
+
+    const range = store.getState().spectrum.frequencyRange!;
+    // Center moves down by deltaY * 1000 Hz, so the whole window shifts.
+    expect(range.min).toBe(99_800_000);
+    expect(range.max).toBe(100_800_000);
   });
 
   it("opens the center-frequency editor on double click and closes on Escape", () => {

@@ -139,7 +139,11 @@ export const useVfoTuner = ({
       if (!Number.isFinite(frequency)) return;
 
       const span = rangeMax - rangeMin;
-      const clampPanForVisibleSpan = () => {
+      // Only a zoomed-in view has a window to pan; at 1x a gesture must retune
+      // the receiver, otherwise scrolling would relabel the axis while the
+      // rendered history stayed exactly where it was.
+      const pansView = zoomPanEnabled && zoom > 1;
+      const panView = () => {
         const visibleSpan = span / Math.max(1, zoom);
         const minPan = allowNegativeFrequencies
           ? Number.NEGATIVE_INFINITY
@@ -147,12 +151,14 @@ export const useVfoTuner = ({
         const maxPan = allowNegativeFrequencies
           ? Number.POSITIVE_INFINITY
           : rangeMax - visibleSpan / 2 - rangeCenter;
-        return Math.max(minPan, Math.min(maxPan, frequency - rangeCenter));
+        setPanHz(Math.max(minPan, Math.min(maxPan, frequency - rangeCenter)));
+        setVfoFrequency(frequency);
+        // An explicit gesture: don't let a later range change recenter it.
+        userTunedRef.current = true;
       };
 
-      if (zoomPanEnabled && !forceHardwareTune) {
-        setPanHz(clampPanForVisibleSpan());
-        setVfoFrequency(frequency);
+      if (pansView && !forceHardwareTune) {
+        panView();
         return;
       }
 
@@ -161,8 +167,7 @@ export const useVfoTuner = ({
       const hardwareRangeUnchanged =
         range.min === rangeMin && range.max === rangeMax;
       if (zoomPanEnabled && forceHardwareTune && hardwareRangeUnchanged) {
-        setPanHz(clampPanForVisibleSpan());
-        setVfoFrequency(frequency);
+        panView();
         return;
       }
 
