@@ -34,6 +34,24 @@ pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 /// stream; past this budget the terminal fallback path runs instead.
 pub const MAX_READER_RESTARTS: u32 = 8;
 
+/// Overall watchdog for an active-device restart. Bounds how long a restart may
+/// hold the processor lock before the UI is resolved to an actionable state
+/// instead of pinning on the `loading`/`restart` placeholder.
+pub const DEVICE_RESTART_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(8);
+
+/// Bound on the native device open performed inside a restart. librtlsdr's open
+/// can block well past any internal retry budget on a busy or half-detached
+/// USB handle; this caps how long the processor lock can be held for it.
+pub const DEVICE_OPEN_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(5);
+
+/// Bound on releasing the previous device during a restart. The close itself is
+/// unbounded in librtlsdr, so the wait is capped and an overrunning handle is
+/// left to unwind in the background.
+pub const DEVICE_RELEASE_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(5);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HackRfInventoryDevice {
   pub serial_number: String,

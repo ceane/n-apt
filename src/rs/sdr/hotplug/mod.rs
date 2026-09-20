@@ -474,6 +474,16 @@ pub(crate) fn should_hold_recovery_for_usb_present_device(
   supported_device_present && should_enter_hardware_recovery(device_type)
 }
 
+/// Whether a `stale` source should leave recovery to the hotplug/inventory
+/// path. While the device is still on the bus that path owns reopening it; once
+/// it is absent the health path must fall through to the confirmed-disconnect
+/// fallback instead of waiting on a reopen that can never succeed.
+pub(crate) fn should_defer_stale_recovery_to_hotplug(
+  device_present: bool,
+) -> bool {
+  device_present
+}
+
 pub(crate) fn should_skip_rx_health_during_transmit(
   device_type: &str,
   transmitting: bool,
@@ -916,16 +926,23 @@ pub async fn handle_real_hardware_health(
   }
 
   let current_state = shared_state.device_state.lock().unwrap().clone();
-  if matches!(
-    current_state.as_str(),
-    "initializing" | "disconnected" | "stale"
-  ) {
+  if matches!(current_state.as_str(), "initializing" | "disconnected") {
     // `loading` is deliberately health-checked. A real reader can fail before
     // its first frame (for example, librtlsdr can exit with USB error -3), and
-    // skipping health checks here strands the source in Loading forever. A
-    // stale source is different: its reader has already crossed the liveness
-    // boundary, so the USB inventory/reopen path owns recovery and must not
-    // compete by extending the error streak.
+    // skipping health checks here strands the source in Loading forever.
+    return;
+  }
+  if current_state == "stale"
+    && should_defer_stale_recovery_to_hotplug(active_device_present(
+      processor.device_type(),
+      shared_state,
+    ))
+  {
+    // A stale source whose reader has already crossed the liveness boundary is
+    // owned by the USB inventory/reopen path, which must not compete by
+    // extending the error streak. Once the device is gone from the bus that
+    // path has nothing left to reopen, so a stale source must still fall
+    // through to the confirmed-disconnect mock fallback below.
     return;
   }
 
@@ -1238,6 +1255,15 @@ mod tests {
   fn stale_real_source_reconciles_even_when_usb_count_is_unchanged() {
     assert!(should_reconcile_hotplug_state(1, 1, false, "stale"));
     assert!(!should_reconcile_hotplug_state(1, 1, false, "connected"));
+  }
+
+  #[test]
+  fn stale_recovery_defers_only_while_the_device_is_present() {
+    assert!(should_defer_stale_recovery_to_hotplug(true));
+    assert!(
+      !should_defer_stale_recovery_to_hotplug(false),
+      "a stale device that left the bus must reach the mock fallback"
+    );
   }
 
   #[test]

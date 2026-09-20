@@ -336,7 +336,12 @@ const websocketSlice = createSlice({
       }
     },
 
-    /** Drops pending-restart flags for sources that now report a live status. */
+    /**
+     * Drops pending-restart flags for sources the restart can no longer make
+     * progress on. Only a genuinely loading source keeps the spinner: `stale`
+     * is the actionable retry state, so holding the flag there would leave the
+     * Restart button permanently disabled.
+     */
     restartSettled: (
       state,
       action: PayloadAction<Record<string, SourceStatus>>,
@@ -345,11 +350,7 @@ const websocketSlice = createSlice({
       state.restartPendingSourceIds = state.restartPendingSourceIds.filter(
         (sourceId) => {
           const status = statuses[sourceId];
-          return (
-            status === "stale" ||
-            status === "loading" ||
-            status === "initializing"
-          );
+          return status === "loading" || status === "initializing";
         },
       );
     },

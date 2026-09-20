@@ -414,6 +414,28 @@ mod tests {
   use serial_test::serial;
 
   #[test]
+  fn restart_dispatch_never_invokes_the_blocking_restart_on_the_reactor() {
+    // The SDR worker drives a `current_thread` runtime. The blocking restart
+    // takes the processor lock with `blocking_lock`, which panics inside a
+    // runtime context, so dispatching it inline unwinds the worker and freezes
+    // frames, health checks, and hotplug fallback together. It must go through
+    // the deadline-bounded, blocking-pool entry point instead.
+    // The needles are assembled at runtime so this test's own source text
+    // cannot satisfy or trip the scan.
+    let source = include_str!("mod.rs");
+    let blocking_entry = format!(".{}(&shared_state", "restart");
+    let off_reactor_entry = format!(".{}_off_reactor(&shared_state", "restart");
+    assert!(
+      !source.contains(&blocking_entry),
+      "RestartDevice must not call the blocking restart inline"
+    );
+    assert!(
+      source.contains(&off_reactor_entry),
+      "RestartDevice must dispatch through restart_off_reactor"
+    );
+  }
+
+  #[test]
   fn mock_tx_request_next_frame_uses_monitor_synthesis_when_not_transmitting() {
     assert!(should_synthesize_mock_tx_monitor_frame(
       "mock-tx", false, true
@@ -1292,9 +1314,26 @@ impl WebSocketServer {
                 .await;
               }
               _ => {
-                self
+                // The restart performs blocking USB work under the processor
+                // lock, so it runs on the blocking pool behind a deadline.
+                // Calling it inline stalls this current-thread reactor, which
+                // takes the frame loop, health checks, and hotplug fallback
+                // down with it.
+                //
+                // The restart detaches the device and releases the lock while
+                // it reopens, so the hotplug poll would otherwise race it with
+                // an open of its own. Arm the retry cooldown for the duration.
+                hotplug_state.last_failure_at = Some(Instant::now());
+                let restarted = self
                   .device_supervisor
-                  .restart(&shared_state, &_broadcast_tx, &mut hotplug_state);
+                  .restart_off_reactor(&shared_state, &_broadcast_tx)
+                  .await;
+                if restarted {
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_failure_at = None;
+                } else {
+                  hotplug_state.last_failure_at = Some(Instant::now());
+                }
               }
             }
           }

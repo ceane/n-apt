@@ -277,10 +277,40 @@ pub struct CaptureResult {
   pub device_profile: Option<serde_json::Value>,
 }
 
+/// A device taken out of the processor so its native teardown can run without
+/// holding the processor lock.
+pub struct DetachedDevice {
+  /// Generation the processor reached at detach time. Pass it back to
+  /// [`SdrProcessor::attach_device`] so a stale installer is rejected.
+  pub generation: u64,
+  pub device: Box<dyn SdrDevice>,
+}
+
+/// Outcome of installing a device produced after a detach.
+pub enum DeviceAttachOutcome {
+  /// The replacement was installed and configured.
+  Installed,
+  /// A newer device was installed first. The handle was not taken and is
+  /// returned so the caller can retire it off-lock.
+  Superseded(Box<dyn SdrDevice>),
+  /// The handle was installed but could not be configured.
+  ConfigureFailed(anyhow::Error),
+}
+
 /// SDR processor that works with any SDR device implementation
 pub struct SdrProcessor {
   /// The actual SDR device (mock or real hardware)
   device: Box<dyn SdrDevice>,
+  /// Monotonic id of the installed device. Every replacement bumps it so a
+  /// detach/attach pair cannot install a handle over a newer device.
+  device_generation: u64,
+  /// Sample rate the active device was running at when it was detached, so its
+  /// replacement can preserve the rate the user was actually using.
+  detached_sample_rate: Option<u32>,
+  /// Whether the installed device is a detach placeholder rather than real
+  /// hardware. Reads fail while set, so recovery cannot splatter the display
+  /// with simulated frames.
+  detached: bool,
   /// FFT processor for signal processing
   pub fft_processor: FFTProcessor,
   /// Hot per-frame state.
@@ -493,6 +523,9 @@ impl SdrProcessor {
       current_ppm: u32::MAX,   // Force first update
       current_tuner_agc: false,
       current_rtl_agc: false,
+      device_generation: 1,
+      detached_sample_rate: None,
+      detached: false,
       last_phase_spectrum: None,
       phase_coherence_history: Vec::new(),
       enable_phase_stitching: true,
@@ -585,6 +618,8 @@ impl SdrProcessor {
     // new reader touch the same USB handle.
     stop_warm_device(device.as_mut())?;
     let previous_device = std::mem::replace(&mut self.device, device);
+    self.device_generation += 1;
+    self.detached = false;
     let previous_gain_db = self.current_gain_db;
     let previous_ppm = self.current_ppm;
     let previous_tuner_agc = self.current_tuner_agc;
@@ -697,6 +732,8 @@ impl SdrProcessor {
     }
 
     let mut previous_device = std::mem::replace(&mut self.device, device);
+    self.device_generation += 1;
+    self.detached = false;
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
@@ -723,6 +760,71 @@ impl SdrProcessor {
     // this 150ms is more than enough for libusb/FFI to free the interface.
     std::thread::sleep(std::time::Duration::from_millis(150));
 
+    self.apply_runtime_config(runtime_sample_rate)
+  }
+
+  /// Take the active device out of the processor so its native teardown can run
+  /// without holding the processor lock.
+  ///
+  /// A mock placeholder keeps the slot readable, so frame production, health
+  /// polling, and hotplug reconciliation keep running while the old handle is
+  /// retired. The placeholder is inert — [`SdrProcessor::read_and_process_frame`]
+  /// fails until a replacement is installed — so recovery cannot splatter the
+  /// display with simulated frames. Retiring a wedged USB handle can block for
+  /// an unbounded time, so callers are expected to run the teardown somewhere
+  /// they are willing to abandon; this method itself never blocks.
+  pub fn detach_device(&mut self) -> DetachedDevice {
+    let runtime_sample_rate = self.device.get_sample_rate();
+    let device = std::mem::replace(
+      &mut self.device,
+      SdrDeviceFactory::create_mock_device(),
+    );
+    self.device_generation += 1;
+    self.detached_sample_rate = Some(runtime_sample_rate);
+    self.detached = true;
+    DetachedDevice {
+      generation: self.device_generation,
+      device,
+    }
+  }
+
+  /// Install a device produced after [`SdrProcessor::detach_device`].
+  ///
+  /// Rejects the handle when a newer device has been installed in the meantime,
+  /// so a late installer cannot clobber a fresher one.
+  pub fn attach_device(
+    &mut self,
+    device: Box<dyn SdrDevice>,
+    expected_generation: u64,
+  ) -> DeviceAttachOutcome {
+    if self.device_generation != expected_generation {
+      return DeviceAttachOutcome::Superseded(device);
+    }
+
+    let runtime_sample_rate = self
+      .detached_sample_rate
+      .take()
+      .unwrap_or_else(|| device.get_sample_rate());
+
+    // The placeholder left by `detach_device` is a mock, so dropping it
+    // releases no USB resources.
+    drop(std::mem::replace(&mut self.device, device));
+    self.device_generation += 1;
+    self.detached = false;
+
+    // Reset tracked state to force re-application to the new hardware
+    self.current_gain_db = -1.0;
+    self.current_ppm = u32::MAX;
+
+    match self.apply_runtime_config(runtime_sample_rate) {
+      Ok(()) => DeviceAttachOutcome::Installed,
+      Err(error) => DeviceAttachOutcome::ConfigureFailed(error),
+    }
+  }
+
+  /// Initialize the installed device and push the configuration the user was
+  /// actually running onto it.
+  fn apply_runtime_config(&mut self, runtime_sample_rate: u32) -> Result<()> {
     // Initialize the new device now that the old interface is released
     self.device.initialize()?;
 
@@ -776,6 +878,10 @@ impl SdrProcessor {
   pub fn take_audio_iq(
     &mut self,
   ) -> Option<crate::sdr::audio_iq_tap::AudioIqBlock> {
+    if self.detached {
+      // Simulated audio would be demodulated as if it were the real signal.
+      return None;
+    }
     self.device.take_audio_iq()
   }
 
@@ -840,6 +946,13 @@ impl SdrProcessor {
     force_noise: bool,
     requested_iq_samples: Option<usize>,
   ) -> Result<Vec<f32>> {
+    // A detached device has no samples to give. This must precede the noise
+    // fallbacks below: those return synthesized frames, which would splatter
+    // the display with mock spectrum while real hardware is being reopened.
+    if self.detached {
+      return Err(anyhow::anyhow!("SDR device is detached for recovery"));
+    }
+
     let fft_size = self.fft_processor.config().fft_size;
     let sample_rate = self.get_sample_rate();
 
@@ -2153,6 +2266,8 @@ mod hackrf_settings_tests {
     center_frequency: u32,
     kind: Option<&'static str>,
     standby_error: bool,
+    /// Simulates a native teardown that will not return promptly.
+    standby_sleep: Option<std::time::Duration>,
     rx_active: bool,
     initialize_error: bool,
   }
@@ -2183,6 +2298,9 @@ mod hackrf_settings_tests {
 
     fn enter_standby(&mut self) -> Result<()> {
       self.record("standby");
+      if let Some(delay) = self.standby_sleep {
+        std::thread::sleep(delay);
+      }
       if self.standby_error {
         return Err(anyhow::anyhow!("reader is still stopping"));
       }
@@ -2325,6 +2443,144 @@ mod hackrf_settings_tests {
         "amp:true".to_string(),
       ],
     );
+  }
+
+  #[test]
+  fn detach_device_installs_a_placeholder_and_bumps_the_generation() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let generation = processor.device_generation;
+
+    let detached = processor.detach_device();
+
+    assert_eq!(detached.generation, generation + 1);
+    assert_eq!(detached.device.device_type(), "hackrf_one");
+    assert!(
+      processor.is_mock(),
+      "a detached slot must keep producing a readable device"
+    );
+  }
+
+  #[test]
+  fn attach_device_rejects_a_handle_superseded_by_a_newer_device() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let detached = processor.detach_device();
+
+    // A newer replacement lands while the detached handle is being reopened.
+    processor
+      .swap_device(Box::new(RecordingDevice {
+        sample_rate: 2_400_000,
+        center_frequency: 100_000_000,
+        ..Default::default()
+      }))
+      .expect("replacement swap");
+    let generation_after_swap = processor.device_generation;
+
+    match processor.attach_device(detached.device, detached.generation) {
+      DeviceAttachOutcome::Superseded(device) => {
+        assert_eq!(device.device_type(), "hackrf_one");
+      }
+      _ => panic!("a stale installer must not replace the newer device"),
+    }
+    assert_eq!(
+      processor.device_generation, generation_after_swap,
+      "a rejected install must leave the installed device untouched"
+    );
+  }
+
+  #[test]
+  fn attach_device_installs_a_matching_handle() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let detached = processor.detach_device();
+
+    let replacement = RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      kind: Some("rtl-sdr"),
+      ..Default::default()
+    };
+
+    let outcome =
+      processor.attach_device(Box::new(replacement), detached.generation);
+
+    assert!(matches!(outcome, DeviceAttachOutcome::Installed));
+    assert_eq!(processor.device_type(), "rtl-sdr");
+    assert!(!processor.is_mock());
+    assert!(
+      processor.device_generation > detached.generation,
+      "an installed device must invalidate any other pending installer"
+    );
+  }
+
+  #[test]
+  fn a_detached_device_emits_no_frames() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    processor.detach_device();
+
+    // The placeholder must not hand back simulated spectrum while real hardware
+    // is being reopened.
+    assert!(
+      processor.read_and_process_frame().is_err(),
+      "a detached device must not produce frames"
+    );
+    assert!(processor.take_audio_iq().is_none());
+  }
+
+  #[test]
+  fn an_installed_device_resumes_emitting_frames() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let detached = processor.detach_device();
+
+    let replacement = RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    };
+    assert!(matches!(
+      processor.attach_device(Box::new(replacement), detached.generation),
+      DeviceAttachOutcome::Installed
+    ));
+
+    assert!(
+      processor.read_and_process_frame().is_ok(),
+      "recovery must restore the frame stream"
+    );
+  }
+
+  #[test]
+  fn a_plain_mock_device_still_emits_frames() {
+    // Suppression is scoped to a detached placeholder. Selecting the simulated
+    // source is legitimate and must keep streaming.
+    let mut processor = SdrProcessor::with_device(
+      SdrDeviceFactory::create_mock_device(),
+    )
+    .expect("mock processor");
+
+    assert!(processor.read_and_process_frame().is_ok());
   }
 
   #[test]
