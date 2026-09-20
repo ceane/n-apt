@@ -97,6 +97,15 @@ describe("PhaseWaterfallNode", () => {
     liveFrameRuntime.ref.current = null;
   });
 
+  it("shows the device name and FFT size in the header", () => {
+    renderNode({ frequencyRange: FREQUENCY_RANGE });
+
+    expect(screen.getByText("SDR Device")).toBeInTheDocument();
+    expect(screen.getByText("FFT SIZE:").parentElement).toHaveTextContent(
+      `${FFT_SIZE}`,
+    );
+  });
+
   it("drives the waterfall on the cyclic phase scale", () => {
     renderNode({
       data: { label: "Phase Probe" },

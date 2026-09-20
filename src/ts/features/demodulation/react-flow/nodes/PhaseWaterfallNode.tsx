@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
+import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 import {
   fileFrameRuntime,
   liveFrameRuntime,
@@ -88,6 +89,38 @@ const HeaderMeta = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
+`;
+
+const HeaderLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+`;
+
+const DeviceTitle = styled.div`
+  color: ${({ theme }) => theme.colors.textPrimary};
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const MetaText = styled.div`
+  font-size: 10px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+`;
+
+const MetaInfoLabel = styled.span`
+  color: ${({ theme }) => theme.colors.primary};
+  margin-right: 6px;
 `;
 
 const Title = styled.div`
@@ -186,6 +219,8 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
 }) => {
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
+  const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const deviceName = activeSourceDerived.deviceName || "SDR Device";
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
@@ -283,8 +318,14 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
   return (
     <OuterContainer data-testid="phase-waterfall-node">
       <Header>
-        <Title>{data?.label ?? "Phase"}</Title>
+        <HeaderLeft>
+          <Title>{data?.label ?? "Phase"}</Title>
+          <DeviceTitle>{deviceName}</DeviceTitle>
+        </HeaderLeft>
         <HeaderMeta>
+          <MetaText>
+            <MetaInfoLabel>FFT SIZE:</MetaInfoLabel> {fftSize}
+          </MetaText>
           <Legend>
             <span>{MIN_PHASE_DEG}°</span>
             <LegendGradient />
