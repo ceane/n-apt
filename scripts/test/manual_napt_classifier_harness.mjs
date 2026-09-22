@@ -12,6 +12,7 @@
 import { existsSync, readFileSync as readFileSyncNode } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
+import { transformSync } from "esbuild";
 import {
   aggregateClassifierFrames,
   evaluateRegressionCase,
@@ -23,7 +24,11 @@ const DEFAULT_DISPLAY_WIDTH = 1024;
 const MAX_SPIKES = 1024;
 
 function parseArgs(argv) {
-  const options = { manifest_dirs: [] };
+  const options = {
+    manifest_dirs: [],
+    expected_interference: [],
+    expected_napt: [],
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") return { help: true };
@@ -41,6 +46,8 @@ function parseArgs(argv) {
     if (!value || value.startsWith("--")) throw new Error(`Missing value for --${key.replaceAll("_", "-")}`);
     index += 1;
     if (key === "manifest_dir") options.manifest_dirs.push(value);
+    else if (key === "expected_interference") options.expected_interference.push(value);
+    else if (key === "expected_napt") options.expected_napt.push(value);
     else if (key === "regression_manifest") options.regression_manifest = value;
     else options[key] = value;
   }
@@ -168,11 +175,14 @@ Usage:
 
 Options:
   --manifest-dir PATH  Directory containing manifest.json and raw.iq.u8; repeatable
+  --expected-interference high|low  Expected interference polarity per capture; repeatable
+  --expected-napt high|low  Expected N-APT confidence per capture; repeatable
   --regression-manifest PATH  Explicit labeled capture regression manifest
   --assert              Exit non-zero when a labeled regression case fails
   --frames LIST        Frame indices or 'all' (default: 0)
   --display-width N    GPU resample width (default: 1024)
   --url URL            Local app URL (default: ${DEFAULT_URL})
+  --executable-path PATH  Browser binary override when Playwright Chromium is not installed
   --headed             Show Chromium while running
   --help               Show this help
 
@@ -181,12 +191,26 @@ and marks a result invalid if the readback is not populated.
 `);
 }
 
-async function scoreCapture(page, capture, shaderCode, displayWidth) {
-  return page.evaluate(async ({ shaderCode, displayWidth, maxSpikes, frames, frequencyMin, frequencyMax }) => {
+async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacingModule) {
+  return page.evaluate(async ({ shaderCode, displayWidth, maxSpikes, frames, frequencyMin, frequencyMax, spikeSpacingModule }) => {
     if (!navigator.gpu) return { available: false, reason: "navigator.gpu unavailable" };
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) return { available: false, reason: "WebGPU adapter unavailable" };
     const device = await adapter.requestDevice();
+    const moduleUrl = URL.createObjectURL(
+      new Blob([spikeSpacingModule], { type: "text/javascript" }),
+    );
+    const {
+      analyzeSpikeSpacing,
+      measureBroadFloorVariation,
+      measureSpikeInterference,
+      measureSpikeValleyFill,
+      measureInterferencePresence,
+      measureSpikeTrackPersistence,
+      measureSpikeCombPersistence,
+      selectTallSpikes,
+    } = await import(moduleUrl);
+    URL.revokeObjectURL(moduleUrl);
     const NAPT_TEMPORAL_HISTORY_LENGTH = 32;
     const errors = [];
     device.addEventListener("uncapturederror", (event) => errors.push(event.error.message));
@@ -234,18 +258,19 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       return buffer;
     };
     const readback = (size) => device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    const temporalHistoryBuffer = storage(NAPT_TEMPORAL_HISTORY_LENGTH * 32);
+    const temporalHistoryBuffer = storage(NAPT_TEMPORAL_HISTORY_LENGTH * 36);
     const temporalParamsBuffer = uniform(new Uint32Array([NAPT_TEMPORAL_HISTORY_LENGTH, 0, 0, 0]));
-    const temporalDecisionBuffer = storage(32);
-    const temporalReadbackBuffer = readback(32);
+    const temporalDecisionBuffer = storage(64);
+    const temporalReadbackBuffer = readback(64);
     device.queue.writeBuffer(
       temporalHistoryBuffer,
       0,
-      new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 8),
+      new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
     );
     let temporalHistoryIndex = 0;
     let temporalHistoryCount = 0;
     const result = [];
+    const spikePresenceHistory = [];
     const gpuErrorScope = async (label) => {
       const error = await device.popErrorScope();
       if (error) errors.push(`${label}: ${error.message}`);
@@ -258,11 +283,21 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       device.queue.writeBuffer(rawBuffer, 0, input);
       const waveformBuffer = storage(displayWidth * 4);
       const peakIndexBuffer = storage(displayWidth * 4);
-      const resampleParams = new Uint32Array([sourceLength, displayWidth, 0, 0]);
+      const resampleParams = new ArrayBuffer(48);
+      const resampleParamsView = new DataView(resampleParams);
+      resampleParamsView.setUint32(0, sourceLength, true);
+      resampleParamsView.setUint32(4, displayWidth, true);
+      resampleParamsView.setUint32(8, 0, true);
+      resampleParamsView.setUint32(12, 0, true);
+      resampleParamsView.setFloat32(16, frequencyMin, true);
+      resampleParamsView.setFloat32(20, frequencyMax, true);
+      resampleParamsView.setFloat32(24, frequencyMin, true);
+      resampleParamsView.setFloat32(28, frequencyMax, true);
+      resampleParamsView.setFloat32(32, -120, true);
       const resampleGroup = device.createBindGroup({ layout: resampleLayout, entries: [
         { binding: 0, resource: { buffer: rawBuffer } },
         { binding: 1, resource: { buffer: waveformBuffer } },
-        { binding: 2, resource: { buffer: uniform(resampleParams) } },
+        { binding: 2, resource: { buffer: uniform(new Uint8Array(resampleParams)) } },
         { binding: 3, resource: { buffer: peakIndexBuffer } },
       ] });
       const floorBuffer = storage(12);
@@ -321,6 +356,8 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         { binding: 4, resource: { buffer: temporalDecisionBuffer } },
       ] });
       const resultReadback = readback(132);
+      const waveformReadback = readback(displayWidth * 4);
+      const spikeReadback = readback(maxSpikes * 16);
       const decisionReadback = readback(8);
       const temporalReadback = temporalReadbackBuffer;
       const countReadback = readback(4);
@@ -352,8 +389,10 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       pass.setPipeline(temporalPipeline); pass.setBindGroup(0, temporalGroup); pass.dispatchWorkgroups(1);
       pass.end();
       encoder.copyBufferToBuffer(resultBuffer, 0, resultReadback, 0, 132);
+      encoder.copyBufferToBuffer(waveformBuffer, 0, waveformReadback, 0, displayWidth * 4);
+      encoder.copyBufferToBuffer(metricsBuffer, 0, spikeReadback, 0, maxSpikes * 16);
       encoder.copyBufferToBuffer(decisionBuffer, 0, decisionReadback, 0, 8);
-      encoder.copyBufferToBuffer(temporalDecisionBuffer, 0, temporalReadback, 0, 32);
+      encoder.copyBufferToBuffer(temporalDecisionBuffer, 0, temporalReadback, 0, 64);
       encoder.copyBufferToBuffer(spikeCountBuffer, 0, countReadback, 0, 4);
       device.queue.submit([encoder.finish()]);
       await device.queue.onSubmittedWorkDone();
@@ -361,6 +400,9 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       await resultReadback.mapAsync(GPUMapMode.READ);
       const resultView = new DataView(resultReadback.getMappedRange().slice(0));
       resultReadback.unmap();
+      await waveformReadback.mapAsync(GPUMapMode.READ);
+      const waveform = new Float32Array(waveformReadback.getMappedRange().slice(0));
+      waveformReadback.unmap();
       await decisionReadback.mapAsync(GPUMapMode.READ);
       const decisionView = new DataView(decisionReadback.getMappedRange().slice(0));
       decisionReadback.unmap();
@@ -370,6 +412,47 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
       await countReadback.mapAsync(GPUMapMode.READ);
       const count = new Uint32Array(countReadback.getMappedRange().slice(0))[0];
       countReadback.unmap();
+      await spikeReadback.mapAsync(GPUMapMode.READ);
+      const spikeView = new DataView(spikeReadback.getMappedRange().slice(0));
+      const spikes = Array.from({ length: Math.min(count, maxSpikes) }, (_, index) => {
+        const offset = index * 16;
+        return {
+          frequencyHz: spikeView.getFloat32(offset, true),
+          powerDbm: spikeView.getFloat32(offset + 4, true),
+          index: spikeView.getUint32(offset + 8, true),
+        };
+      }).sort((left, right) => left.index - right.index);
+      spikeReadback.unmap();
+      const floorDbm = resultView.getFloat32(40, true);
+      const spacing = analyzeSpikeSpacing(spikes, floorDbm);
+      spikePresenceHistory.push(
+        selectTallSpikes(spikes, floorDbm).map((spike) => spike.frequencyHz),
+      );
+      if (spikePresenceHistory.length > 8) spikePresenceHistory.shift();
+      const spikeTrackPersistence = measureSpikeTrackPersistence(
+        spikePresenceHistory,
+        Math.max(2_000, ((frequencyMax - frequencyMin) / waveform.length) * 1.5),
+      );
+      const spikeCombPersistence = spacing.spacingHz === null
+        ? 0
+        : measureSpikeCombPersistence(
+            spikeTrackPersistence,
+            spacing.score,
+          );
+      const spikeValleyFill = measureSpikeValleyFill(
+        spikes,
+        floorDbm,
+        spacing.spacingHz,
+        { samples: waveform, minFrequencyHz: frequencyMin, maxFrequencyHz: frequencyMax },
+      );
+      const offGridRatio = measureSpikeInterference(spikes, floorDbm, spacing.spacingHz);
+      const aboveFloorFraction = resultView.getFloat32(44, true);
+      const broadFloorVariation = measureBroadFloorVariation(waveform);
+      const interferenceScore = measureInterferencePresence(
+        aboveFloorFraction,
+        spikeValleyFill,
+        broadFloorVariation ?? 0,
+      );
       result.push({
         frame: frame.index,
         pointCount: Math.min(count, maxSpikes),
@@ -380,7 +463,8 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         uDip: resultView.getFloat32(72, true),
         floorRelativePower: resultView.getFloat32(76, true),
         temporalStability: resultView.getFloat32(80, true),
-        aboveFloorFraction: resultView.getFloat32(44, true),
+        aboveFloorFraction,
+        broadFloorVariation,
         periodicity: resultView.getFloat32(48, true),
         envelopeFit: resultView.getFloat32(88, true),
         envelopeResidual: resultView.getFloat32(92, true),
@@ -392,7 +476,15 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         apexProminence: resultView.getFloat32(120, true),
         shoulderSymmetry: resultView.getFloat32(124, true),
         captureQuality: resultView.getFloat32(128, true),
-        floorDbm: resultView.getFloat32(40, true),
+        floorDbm,
+        spacingHz: spacing.spacingHz,
+        spacingScore: spacing.score,
+        spacingSupport: spacing.support,
+        spikeTrackPersistence,
+        spikeCombPersistence,
+        spikeValleyFill,
+        offGridInterference: offGridRatio,
+        interferenceScore,
         confidence: temporalView.getFloat32(12, true),
         isNapt: temporalView.getUint32(4, true) !== 0,
         baselineConfidence: decisionView.getFloat32(4, true),
@@ -410,7 +502,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
         NAPT_TEMPORAL_HISTORY_LENGTH,
         temporalHistoryCount + 1,
       );
-      for (const buffer of [rawBuffer, waveformBuffer, peakIndexBuffer, floorBuffer, floorParamsBuffer, spikeBuffer, spikeCountBuffer, resultBuffer, metricsBuffer, decisionBuffer, resultReadback, decisionReadback, countReadback]) buffer.destroy();
+      for (const buffer of [rawBuffer, waveformBuffer, peakIndexBuffer, floorBuffer, floorParamsBuffer, spikeBuffer, spikeCountBuffer, resultBuffer, metricsBuffer, decisionBuffer, resultReadback, waveformReadback, spikeReadback, decisionReadback, countReadback]) buffer.destroy();
     }
     for (const buffer of [temporalHistoryBuffer, temporalParamsBuffer, temporalDecisionBuffer, temporalReadbackBuffer]) buffer.destroy();
     const valid = errors.length === 0 && result.length > 0 && result.every((frame) =>
@@ -423,6 +515,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth) {
     frequencyMin: capture.frequencyMin,
     frequencyMax: capture.frequencyMax,
     maxSpikes: MAX_SPIKES,
+    spikeSpacingModule,
   });
 }
 
@@ -431,6 +524,17 @@ async function run() {
   if (args.help) return help();
   if (args.manifest_dirs.length === 0 && !args.regression_manifest) {
     throw new Error("--manifest-dir or --regression-manifest is required");
+  }
+  for (const [name, labels] of [
+    ["expected-interference", args.expected_interference],
+    ["expected-napt", args.expected_napt],
+  ]) {
+    if (labels.length > 0 && labels.length !== args.manifest_dirs.length) {
+      throw new Error(`Pass one --${name} label per --manifest-dir`);
+    }
+    if (labels.some((label) => !["high", "low"].includes(label))) {
+      throw new Error(`--${name} labels must be high or low`);
+    }
   }
   const displayWidth = Number.parseInt(args.display_width ?? DEFAULT_DISPLAY_WIDTH, 10);
   if (!Number.isInteger(displayWidth) || displayWidth <= 0) throw new Error("--display-width must be a positive integer");
@@ -446,7 +550,7 @@ async function run() {
     ? regressionManifest.cases.map((testCase) => ({ testCase, directory: testCase.capture_dir }))
     : args.manifest_dirs.map((directory) => ({ directory: path.resolve(directory) }));
   const captures = captureSpecs.map(({ directory }) =>
-    loadCapture(directory, args.frames ?? (regressionManifest ? "all" : "0")));
+    loadCapture(directory, args.frames ?? (regressionManifest || args.assert ? "all" : "0")));
   const shaderRoot = path.resolve("src/ts/shaders");
   const shaderCode = {
     resample: readFileSyncNode(path.join(shaderRoot, "resample.wgsl"), "utf8"),
@@ -456,8 +560,13 @@ async function run() {
     detect: readFileSyncNode(path.join(shaderRoot, "napt_detect.wgsl"), "utf8"),
     temporal: readFileSyncNode(path.join(shaderRoot, "napt_temporal.wgsl"), "utf8"),
   };
+  const spikeSpacingModule = transformSync(
+    readFileSyncNode(path.resolve("src/ts/features/spectrum/fft/spikeSpacing.ts"), "utf8"),
+    { loader: "ts", format: "esm" },
+  ).code;
   const browser = await chromium.launch({
     headless: args.headed ? false : true,
+    ...(args.executable_path ? { executablePath: path.resolve(args.executable_path) } : {}),
     args: ["--enable-unsafe-webgpu", "--disable-gpu-sandbox"],
   });
   try {
@@ -466,7 +575,13 @@ async function run() {
     const output = [];
     for (let index = 0; index < captures.length; index += 1) {
       const capture = captures[index];
-      const score = await scoreCapture(page, capture, shaderCode, displayWidth);
+      const score = await scoreCapture(
+        page,
+        capture,
+        shaderCode,
+        displayWidth,
+        spikeSpacingModule,
+      );
       const testCase = captureSpecs[index].testCase;
       if (testCase) {
         const aggregate = score.valid
@@ -477,11 +592,84 @@ async function run() {
           : { ok: false, failures: ["GPU score readback was invalid"] };
         output.push({ id: testCase.id, expected: testCase.expected, ...score, aggregate, assertions });
       } else {
-        output.push({ label: capture.manifest.input_file, ...score });
+        const interferenceLabel = args.expected_interference[index] ?? null;
+        const naptLabel = args.expected_napt[index] ?? null;
+        const { frames, ...scoreSummary } = score;
+        const mean = (values) => values.length
+          ? values.reduce((sum, value) => sum + value, 0) / values.length
+          : null;
+        const interferenceValues = (frames ?? [])
+          .map((frame) => frame.interferenceScore)
+          .filter(Number.isFinite);
+        const valleyFillValues = (frames ?? [])
+          .map((frame) => frame.spikeValleyFill)
+          .filter(Number.isFinite);
+        const offGridValues = (frames ?? [])
+          .map((frame) => frame.offGridInterference)
+          .filter(Number.isFinite);
+        const aboveFloorValues = (frames ?? [])
+          .map((frame) => frame.aboveFloorFraction)
+          .filter(Number.isFinite);
+        const floorVariationValues = (frames ?? [])
+          .map((frame) => frame.broadFloorVariation)
+          .filter(Number.isFinite);
+        const spikeTrackPersistenceValues = (frames ?? [])
+          .map((frame) => frame.spikeTrackPersistence)
+          .filter(Number.isFinite);
+        const spikeCombPersistenceValues = (frames ?? [])
+          .map((frame) => frame.spikeCombPersistence)
+          .filter(Number.isFinite);
+        const naptConfidenceValues = (frames ?? [])
+          .map((frame) => frame.multiFrameConfidence)
+          .filter(Number.isFinite);
+        const interferenceScore = mean(interferenceValues);
+        const naptConfidence = mean(naptConfidenceValues);
+        const failures = [];
+        if (interferenceLabel === "high" && !(interferenceScore >= 0.75)) {
+          failures.push(`expected high interference; mean score was ${interferenceScore}`);
+        }
+        if (interferenceLabel === "low" && !(interferenceScore <= 0.09)) {
+          failures.push(`expected single-digit interference; mean score was ${interferenceScore}`);
+        }
+        if (naptLabel === "high" && !(naptConfidence >= 0.75)) {
+          failures.push(`expected high N-APT confidence; mean score was ${naptConfidence}`);
+        }
+        if (naptLabel === "low" && !(naptConfidence <= 0.5)) {
+          failures.push(`expected low N-APT confidence; mean score was ${naptConfidence}`);
+        }
+        output.push({
+          label: capture.manifest.input_file,
+          ...scoreSummary,
+          frame_summary: {
+            count: frames?.length ?? 0,
+            mean_interference: interferenceScore,
+            mean_valley_fill: mean(valleyFillValues),
+            mean_off_grid: mean(offGridValues),
+            mean_above_floor_fraction: mean(aboveFloorValues),
+            mean_broad_floor_variation: mean(floorVariationValues),
+            mean_spike_track_persistence: mean(spikeTrackPersistenceValues),
+            mean_spike_comb_persistence: mean(spikeCombPersistenceValues),
+            min_interference: interferenceValues.length ? Math.min(...interferenceValues) : null,
+            max_interference: interferenceValues.length ? Math.max(...interferenceValues) : null,
+            mean_napt_confidence: naptConfidence,
+            napt_yes_fraction: mean((frames ?? []).map((frame) => Number(frame.multiFrameIsNapt))),
+          },
+          acceptance: {
+            expected_interference: interferenceLabel,
+            expected_napt: naptLabel,
+            mean_interference_score: interferenceScore,
+            mean_napt_confidence: naptConfidence,
+            failures,
+            ok: failures.length === 0,
+          },
+        });
       }
     }
     console.log(JSON.stringify({ manual: true, display_width: displayWidth, captures: output }, null, 2));
-    if (args.assert && output.some((capture) => capture.assertions && !capture.assertions.ok)) {
+    if (args.assert && output.some((capture) =>
+      (capture.assertions && !capture.assertions.ok) ||
+      (capture.acceptance && !capture.acceptance.ok),
+    )) {
       process.exitCode = 1;
     }
   } finally {

@@ -122,12 +122,15 @@ const StripedRows = styled.div`
   gap: 2px;
 `;
 
-const StripedMetricRow = styled(MetricRow)`
+const StripedMetricRow = styled(MetricRow)<{ $positive?: boolean }>`
   padding: 5px 6px;
   border-radius: 4px;
+  background: ${({ theme, $positive }) =>
+    $positive ? `${theme.colors.primary}0d` : "transparent"};
 
   &:nth-child(even) {
-    background: rgba(0, 0, 0, 0.15);
+    background: ${({ theme, $positive }) =>
+      $positive ? `${theme.colors.primary}14` : "rgba(0, 0, 0, 0.15)"};
   }
 `;
 
@@ -139,9 +142,8 @@ const NaptRowLabel = styled(ResultLabel)`
   font-size: inherit;
 `;
 
-const MetricValue = styled.span<{ $positive?: boolean }>`
-  color: ${({ theme, $positive }) =>
-    $positive ? theme.colors.primary : theme.colors.textPrimary};
+const MetricValue = styled.span`
+  color: ${({ theme }) => theme.colors.textPrimary};
   font-weight: 700;
 `;
 
@@ -196,10 +198,14 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
     (state) => state.spectrum.gpuSpikeAnalysis,
   );
   const [hoveredSpike, setHoveredSpike] = useState<number | null>(null);
-  const diagnosticPercent = (value: number | undefined) =>
-    value !== undefined && Number.isFinite(value)
-      ? `${Math.max(0, Math.min(1, value)) * 100 | 0}%`
+  const diagnosticPercent = (value: number | null | undefined) =>
+    value !== null && value !== undefined && Number.isFinite(value)
+      ? `${(Math.max(0, Math.min(1, value)) * 100) | 0}%`
       : "—";
+  const scoreIsYes = (value: number | null | undefined) =>
+    value !== null && value !== undefined && Number.isFinite(value) && value >= 0.75;
+  const artifactPenaltyIsAcceptable = (value: number | undefined) =>
+    value !== undefined && Number.isFinite(value) && value <= 0.25;
   const naptLabel = gpuSpikeAnalysis
     ? gpuSpikeAnalysis.isNapt
       ? "Yes"
@@ -207,6 +213,24 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
         ? "Likely"
         : "No"
     : "—";
+  const spacingLabel =
+    gpuSpikeAnalysis?.spacingHz !== null &&
+    gpuSpikeAnalysis?.spacingHz !== undefined &&
+    Number.isFinite(gpuSpikeAnalysis.spacingHz)
+      ? `${formatFrequency(gpuSpikeAnalysis.spacingHz, {
+          trimTrailingZeros: true,
+        })} (${diagnosticPercent(gpuSpikeAnalysis.spacingScore)})`
+      : "—";
+  const floorStabilityScore = gpuSpikeAnalysis?.floorStabilityScore;
+  const interferenceReady =
+    (gpuSpikeAnalysis?.interferenceEvidenceFrames ?? 0) >= 4;
+  const interferenceScore = interferenceReady
+    ? gpuSpikeAnalysis?.interferenceScore
+    : null;
+  const interferenceLabel =
+    interferenceScore === null || interferenceScore === undefined
+      ? "—"
+      : `${interferenceScore >= 0.75 ? "Present" : interferenceScore >= 0.5 ? "Possible" : "No"} (${diagnosticPercent(interferenceScore)})`;
 
   useEffect(() => {
     dispatch(setPowerScale("dBm"));
@@ -278,85 +302,206 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
         </ResultCard>
 
         <ResultCard>
-          <ResultLabel>Classifier diagnostics</ResultLabel>
+          <ResultLabel>N-APT Classifier Features</ResultLabel>
+          <HelperText>
+            Primary evidence (22% each): suspension bridge, U-dip,
+            floor-relative power, spacing, and recurring spike locations.
+            Spike persistence combines recurring fixed peaks with their
+            confirmed spacing through pulse-off frames; it does not inspect
+            valley contents. The temporal score contributes 10%; recurrent
+            Coherence / Truncation adds up to 2% when present.
+            Tuning persistence holds through brief dropouts; it adds no score.
+            Interference requires both broad floor lift and a frequency-local
+            floor change; valley fill adds support. Off-cadence teeth or a
+            coherent bridge shape alone do not count. A level floor is
+            evidence against interference.
+          </HelperText>
           <StripedRows>
-            <StripedMetricRow>
-              <span>Suspension bridge</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.suspensionBridgeScore)}</MetricValue>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.suspensionBridgeScore)}
+            >
+              <span>Suspension bridge · primary evidence</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.suspensionBridgeScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.uDipScore)}
+            >
+              <span>U-dip · primary evidence</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.uDipScore)}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.floorRelativePowerScore)}
+            >
+              <span>Floor-relative power · primary evidence</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.floorRelativePowerScore)}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.spacingScore)}
+            >
+              <span>Spacing · primary evidence</span>
+              <MetricValue>{spacingLabel}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.spikePresenceScore)}
+            >
+              <span>Spike persistence × spacing · primary evidence</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.spikePresenceScore)}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(floorStabilityScore)}
+            >
+              <span>Floor stability · interference evidence</span>
+              <MetricValue>{diagnosticPercent(floorStabilityScore)}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(interferenceScore)}
+            >
+              <span>Interference · hump/valley masking</span>
+              <MetricValue>{interferenceLabel}</MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.spikeValleyFillScore)}
+            >
+              <span>Valley fill between spike blades</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.spikeValleyFillScore)}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.multiFramePersistence)}
+            >
+              <span>Multi-frame persistence</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.multiFramePersistence)}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.unimodalBridgeScore)}
+            >
               <span>Unimodal bridge</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.unimodalBridgeScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.unimodalBridgeScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.partialBridgeScore)}
+            >
               <span>Partial bridge branch</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.partialBridgeScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.partialBridgeScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.apexProminenceScore)}
+            >
               <span>Apex prominence</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.apexProminenceScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.apexProminenceScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.shoulderSymmetryScore)}
+            >
               <span>Shoulder symmetry</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.shoulderSymmetryScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.shoulderSymmetryScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
-              <span>U-dip</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.uDipScore)}</MetricValue>
-            </StripedMetricRow>
-            <StripedMetricRow>
-              <span>Floor-relative power</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.floorRelativePowerScore)}</MetricValue>
-            </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={artifactPenaltyIsAcceptable(
+                gpuSpikeAnalysis?.sincPenaltyScore,
+              )}
+            >
               <span>Sinc artifact penalty</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.sincPenaltyScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.sincPenaltyScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.captureQualityScore)}
+            >
               <span>Capture quality</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.captureQualityScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.captureQualityScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
-              <span>Temporal stability</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.temporalStability)}</MetricValue>
-            </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={gpuSpikeAnalysis?.baselineIsNapt === true}
+            >
               <span>One-frame baseline</span>
               <MetricValue>
                 {gpuSpikeAnalysis
                   ? gpuSpikeAnalysis.baselineIsNapt
                     ? "Yes"
                     : "No"
-                : "—"}
+                  : "—"}
               </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
-              <span>Multi-frame persistence</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.multiFramePersistence)}</MetricValue>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.temporalStability)}
+            >
+              <span>Temporal stability</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.temporalStability)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.coalescingScore)}
+            >
+              <span>Coherence / Truncation · supporting</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.coalescingScore)}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.tuningPersistence)}
+            >
+              <span>Tuning persistence · hold only</span>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.tuningPersistence)}
+              </MetricValue>
+            </StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.envelopeFitScore)}
+            >
               <span>Envelope fit</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.envelopeFitScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.envelopeFitScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.envelopeResidualScore)}
+            >
               <span>Envelope residual</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.envelopeResidualScore)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.envelopeResidualScore)}
+              </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow>
+            <StripedMetricRow
+              $positive={scoreIsYes(gpuSpikeAnalysis?.confidence)}
+            >
               <span>Confidence</span>
-              <MetricValue>{diagnosticPercent(gpuSpikeAnalysis?.confidence)}</MetricValue>
+              <MetricValue>
+                {diagnosticPercent(gpuSpikeAnalysis?.confidence)}
+              </MetricValue>
             </StripedMetricRow>
           </StripedRows>
         </ResultCard>
 
         <ResultCard>
           <StripedRows>
-                <NaptMetricRow>
-                  <NaptRowLabel>Is N-APT?</NaptRowLabel>
-                  <MetricValue $positive={gpuSpikeAnalysis?.isNapt || naptLabel === "Likely"}>
-                    {naptLabel}
-                  </MetricValue>
-                </NaptMetricRow>
+            <NaptMetricRow $positive={gpuSpikeAnalysis?.isNapt === true}>
+              <NaptRowLabel>Is N-APT?</NaptRowLabel>
+              <MetricValue>{naptLabel}</MetricValue>
+            </NaptMetricRow>
             <StripedMetricRow>
               <ResultLabel>Floor at</ResultLabel>
               <MetricValue>
@@ -409,7 +554,9 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
               );
             })}
           </SpikeList>
-          {!gpuSpikeAnalysis?.spikes.length && <HelperText>No spike readback yet.</HelperText>}
+          {!gpuSpikeAnalysis?.spikes.length && (
+            <HelperText>No spike readback yet.</HelperText>
+          )}
         </ResultCard>
 
         <HelperText>

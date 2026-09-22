@@ -120,7 +120,8 @@ const shaderFingerprint = (source: string): string => {
   return `${source.length}:${hash >>> 0}`;
 };
 
-const NAPT_CLASSIFIER_SHADER_FINGERPRINT = shaderFingerprint(NAPT_CLASSIFY_WGSL);
+const NAPT_CLASSIFIER_SHADER_FINGERPRINT =
+  shaderFingerprint(NAPT_CLASSIFY_WGSL);
 
 // Shaders imported from @n-apt/shaders/
 
@@ -150,8 +151,26 @@ export interface SpikeAnalysis {
   multiFrameFrameCount: number;
   multiFrameBridgeScore: number;
   multiFrameUDipScore: number;
+  multiFrameUnimodalBridgeScore?: number;
+  multiFramePartialBridgeScore?: number;
+  multiFrameApexProminenceScore?: number;
+  multiFrameShoulderSymmetryScore?: number;
+  multiFrameSincPenaltyScore?: number;
+  multiFrameCoalescingScore?: number;
+  aboveFloorFraction: number;
   floorDbm: number;
   spikes: Array<{ frequencyHz: number; powerDbm: number; index: number }>;
+  spacingHz?: number | null;
+  spacingToleranceHz?: number | null;
+  spacingScore?: number;
+  spacingSupport?: number;
+  floorStabilityScore?: number | null;
+  floorStabilityFrames?: number;
+  spikeValleyFillScore?: number | null;
+  interferenceScore?: number | null;
+  interferenceEvidenceFrames?: number;
+  interferenceMissingFrames?: number;
+  spikePresenceScore?: number;
   suspensionBridgeScore: number;
   clumpCount: number;
   bridgeWidthScore: number;
@@ -312,9 +331,9 @@ export function useDrawWebGPUFFTSignal() {
   const onSpikeCountRef = useRef<((count: number) => void) | undefined>(
     undefined,
   );
-  const onSpikeAnalysisRef = useRef<((analysis: SpikeAnalysis) => void) | undefined>(
-    undefined,
-  );
+  const onSpikeAnalysisRef = useRef<
+    ((analysis: SpikeAnalysis) => void) | undefined
+  >(undefined);
   const retiredBuffersRef = useRef<GPUBuffer[]>([]);
   const lastDataRef = useRef<{
     waveform: Float32Array;
@@ -373,7 +392,7 @@ export function useDrawWebGPUFFTSignal() {
       }
 
       const bindGroupLayout = device.createBindGroupLayout({
-          entries: [
+        entries: [
           {
             binding: 0,
             visibility: GPUShaderStage.VERTEX,
@@ -750,7 +769,10 @@ export function useDrawWebGPUFFTSignal() {
       });
       const spikeMetricsBuffer = device.createBuffer({
         size: MAX_GPU_SPIKES * 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.COPY_SRC |
+          GPUBufferUsage.COPY_DST,
       });
       const spikeMetricsReadbackBuffer = device.createBuffer({
         size: MAX_GPU_SPIKES * 16,
@@ -761,74 +783,144 @@ export function useDrawWebGPUFFTSignal() {
       });
       const naptClassifyBindGroupLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-          { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-          { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "uniform" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 3,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
+          {
+            binding: 4,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
+          {
+            binding: 5,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
         ],
       });
       const naptClassifyPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [naptClassifyBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [naptClassifyBindGroupLayout],
+        }),
         compute: { module: naptClassifyModule, entryPoint: "classify" },
       });
       const naptClassifyFinalizePipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [naptClassifyBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [naptClassifyBindGroupLayout],
+        }),
         compute: { module: naptClassifyModule, entryPoint: "finalize" },
       });
       const naptDecisionBuffer = device.createBuffer({
         size: 8,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.COPY_SRC |
+          GPUBufferUsage.COPY_DST,
       });
       const naptDecisionReadbackBuffer = device.createBuffer({
         size: 8,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
-      const naptDetectModule = device.createShaderModule({ code: NAPT_DETECT_WGSL });
+      const naptDetectModule = device.createShaderModule({
+        code: NAPT_DETECT_WGSL,
+      });
       const naptDetectBindGroupLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
         ],
       });
       const naptDetectPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [naptDetectBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [naptDetectBindGroupLayout],
+        }),
         compute: { module: naptDetectModule, entryPoint: "main" },
       });
       const naptTemporalHistoryBuffer = device.createBuffer({
-        size: NAPT_TEMPORAL_HISTORY_LENGTH * 32,
+        size: NAPT_TEMPORAL_HISTORY_LENGTH * 36,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
       device.queue.writeBuffer(
         naptTemporalHistoryBuffer,
         0,
-        new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 8),
+        new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
       );
       const naptTemporalParamsBuffer = device.createBuffer({
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       const naptTemporalDecisionBuffer = device.createBuffer({
-        size: 32,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        size: 64,
+        usage:
+          GPUBufferUsage.STORAGE |
+          GPUBufferUsage.COPY_SRC |
+          GPUBufferUsage.COPY_DST,
       });
       const naptTemporalReadbackBuffer = device.createBuffer({
-        size: 32,
+        size: 64,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
-      const naptTemporalModule = device.createShaderModule({ code: NAPT_TEMPORAL_WGSL });
+      const naptTemporalModule = device.createShaderModule({
+        code: NAPT_TEMPORAL_WGSL,
+      });
       const naptTemporalBindGroupLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-          { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 1,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "read-only-storage" },
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
+          {
+            binding: 3,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "uniform" },
+          },
+          {
+            binding: 4,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: "storage" },
+          },
         ],
       });
       const naptTemporalPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [naptTemporalBindGroupLayout] }),
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [naptTemporalBindGroupLayout],
+        }),
         compute: { module: naptTemporalModule, entryPoint: "main" },
       });
 
@@ -1031,7 +1123,7 @@ export function useDrawWebGPUFFTSignal() {
         state.device.queue.writeBuffer(
           state.naptTemporalHistoryBuffer,
           0,
-          new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 8),
+          new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
         );
       }
 
@@ -1076,7 +1168,7 @@ export function useDrawWebGPUFFTSignal() {
           state.device.queue.writeBuffer(
             state.naptTemporalHistoryBuffer,
             0,
-            new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 8),
+            new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
           );
           state.naptTemporalFrequencyMin = frequencyRange.min;
           state.naptTemporalFrequencyMax = frequencyRange.max;
@@ -1093,7 +1185,8 @@ export function useDrawWebGPUFFTSignal() {
           buffersChanged = true;
         }
 
-        if (removeDcSpike &&
+        if (
+          removeDcSpike &&
           (!state.dcSpikeOutputBuffer || srcLen > state.dcSpikeInputLength)
         ) {
           retireBuffer(state.dcSpikeOutputBuffer);
@@ -1153,9 +1246,18 @@ export function useDrawWebGPUFFTSignal() {
             ? state.device.createBindGroup({
                 layout: state.dcSpikeBindGroupLayout,
                 entries: [
-                  { binding: 0, resource: { buffer: state.resampleInputBuffer } },
-                  { binding: 1, resource: { buffer: state.dcSpikeOutputBuffer! } },
-                  { binding: 2, resource: { buffer: state.dcSpikeParamsBuffer } },
+                  {
+                    binding: 0,
+                    resource: { buffer: state.resampleInputBuffer },
+                  },
+                  {
+                    binding: 1,
+                    resource: { buffer: state.dcSpikeOutputBuffer! },
+                  },
+                  {
+                    binding: 2,
+                    resource: { buffer: state.dcSpikeParamsBuffer },
+                  },
                 ],
               })
             : null;
@@ -1244,9 +1346,15 @@ export function useDrawWebGPUFFTSignal() {
             layout: state.naptClassifyBindGroupLayout,
             entries: [
               { binding: 0, resource: { buffer: state.resampleOutputBuffer! } },
-              { binding: 1, resource: { buffer: state.naptClassifyParamsBuffer } },
+              {
+                binding: 1,
+                resource: { buffer: state.naptClassifyParamsBuffer },
+              },
               { binding: 2, resource: { buffer: state.spikeBuffer! } },
-              { binding: 3, resource: { buffer: state.naptClassifyResultBuffer } },
+              {
+                binding: 3,
+                resource: { buffer: state.naptClassifyResultBuffer },
+              },
               { binding: 4, resource: { buffer: state.spikeCountBuffer! } },
               { binding: 5, resource: { buffer: state.spikeMetricsBuffer } },
             ],
@@ -1254,7 +1362,10 @@ export function useDrawWebGPUFFTSignal() {
           state.naptDetectBindGroup = state.device.createBindGroup({
             layout: state.naptDetectBindGroupLayout,
             entries: [
-              { binding: 0, resource: { buffer: state.naptClassifyResultBuffer } },
+              {
+                binding: 0,
+                resource: { buffer: state.naptClassifyResultBuffer },
+              },
               { binding: 1, resource: { buffer: state.naptDecisionBuffer } },
             ],
           });
@@ -1262,10 +1373,22 @@ export function useDrawWebGPUFFTSignal() {
             layout: state.naptTemporalBindGroupLayout,
             entries: [
               { binding: 0, resource: { buffer: state.naptDecisionBuffer } },
-              { binding: 1, resource: { buffer: state.naptClassifyResultBuffer } },
-              { binding: 2, resource: { buffer: state.naptTemporalHistoryBuffer } },
-              { binding: 3, resource: { buffer: state.naptTemporalParamsBuffer } },
-              { binding: 4, resource: { buffer: state.naptTemporalDecisionBuffer } },
+              {
+                binding: 1,
+                resource: { buffer: state.naptClassifyResultBuffer },
+              },
+              {
+                binding: 2,
+                resource: { buffer: state.naptTemporalHistoryBuffer },
+              },
+              {
+                binding: 3,
+                resource: { buffer: state.naptTemporalParamsBuffer },
+              },
+              {
+                binding: 4,
+                resource: { buffer: state.naptTemporalDecisionBuffer },
+              },
             ],
           });
 
@@ -1392,10 +1515,8 @@ export function useDrawWebGPUFFTSignal() {
         }
         if (showSpikeOverlay) {
           state.scratchNaptTemporalParams[0] = NAPT_TEMPORAL_HISTORY_LENGTH;
-          state.scratchNaptTemporalParams[1] =
-            state.naptTemporalHistoryIndex;
-          state.scratchNaptTemporalParams[2] =
-            state.naptTemporalHistoryCount;
+          state.scratchNaptTemporalParams[1] = state.naptTemporalHistoryIndex;
+          state.scratchNaptTemporalParams[2] = state.naptTemporalHistoryCount;
           state.scratchNaptTemporalParams[3] = 0;
           state.device.queue.writeBuffer(
             state.naptTemporalParamsBuffer,
@@ -1497,7 +1618,7 @@ export function useDrawWebGPUFFTSignal() {
             0,
             state.naptTemporalReadbackBuffer,
             0,
-            32,
+            64,
           );
           encoder.copyBufferToBuffer(
             state.spikeMetricsBuffer,
@@ -1576,7 +1697,11 @@ export function useDrawWebGPUFFTSignal() {
         state.uniformValues[8] = lineR;
         state.uniformValues[9] = lineG;
         state.uniformValues[10] = lineB;
-        state.uniformValues[11] = useDottedLine ? (lineA > 0 ? -lineA : -1.0) : lineA;
+        state.uniformValues[11] = useDottedLine
+          ? lineA > 0
+            ? -lineA
+            : -1.0
+          : lineA;
         state.uniformValues[12] = fillR;
         state.uniformValues[13] = fillG;
         state.uniformValues[14] = fillB;
@@ -1667,7 +1792,10 @@ export function useDrawWebGPUFFTSignal() {
               const floorDbm = result.getFloat32(40, true);
               const aboveFloorFraction = result.getFloat32(44, true);
               const periodicity = result.getFloat32(48, true);
-              const count = Math.min(result.getUint32(52, true), MAX_GPU_SPIKES);
+              const count = Math.min(
+                result.getUint32(52, true),
+                MAX_GPU_SPIKES,
+              );
               const suspensionBridgeScore = result.getFloat32(56, true);
               const clumpCount = result.getUint32(60, true);
               const bridgeWidthScore = result.getFloat32(64, true);
@@ -1686,82 +1814,102 @@ export function useDrawWebGPUFFTSignal() {
               const shoulderSymmetryScore = result.getFloat32(124, true);
               const captureQualityScore = result.getFloat32(128, true);
               resultBuffer.unmap();
-              return state.naptDecisionReadbackBuffer.mapAsync(GPUMapMode.READ).then(() => {
-              const decision = new DataView(
-                  state.naptDecisionReadbackBuffer.getMappedRange(),
-                );
-                const baselineIsNapt = decision.getUint32(0, true) !== 0;
-                const baselineConfidence = decision.getFloat32(4, true);
-                state.naptDecisionReadbackBuffer.unmap();
-                return state.naptTemporalReadbackBuffer
-                  .mapAsync(GPUMapMode.READ)
-                  .then(() => {
-                    const temporal = new DataView(
-                      state.naptTemporalReadbackBuffer.getMappedRange(),
-                    );
-                    const temporalIsNapt =
-                      temporal.getUint32(4, true) !== 0;
-                    const temporalConfidence = temporal.getFloat32(12, true);
-                    const multiFramePersistence = temporal.getFloat32(16, true);
-                    const multiFrameBridgeScore = temporal.getFloat32(20, true);
-                    const multiFrameUDipScore = temporal.getFloat32(24, true);
-                    const multiFrameFrameCount = temporal.getUint32(28, true);
-                    state.naptTemporalReadbackBuffer.unmap();
-                    return spikeBuffer.mapAsync(GPUMapMode.READ).then(() => ({
-                      floorDbm,
-                      confidence: temporalConfidence,
-                      baselineIsNapt,
-                      baselineConfidence,
-                      multiFrameIsNapt: temporalIsNapt,
-                      multiFrameConfidence: temporalConfidence,
-                      multiFramePersistence,
-                      multiFrameFrameCount,
-                      multiFrameBridgeScore,
-                      multiFrameUDipScore,
-                      suspensionBridgeScore,
-                      clumpCount,
-                      bridgeWidthScore,
-                      bridgeShoulderScore,
-                      uDipScore,
-                      floorRelativePowerScore,
-                      temporalStability,
-                      bandwidthPrior,
-                      envelopeFitScore,
-                      envelopeResidualScore,
-                      envelopeSupportCount,
-                      sincPenaltyScore,
-                      unimodalBridgeScore,
-                      partialBridgeScore,
-                      apexProminenceScore,
-                      shoulderSymmetryScore,
-                      captureQualityScore,
-                      aboveFloorFraction,
-                      periodicity,
-                      isNapt: temporalIsNapt,
-                      count,
-                      data: spikeBuffer.getMappedRange(),
-                    }));
-                  });
-              });
+              return state.naptDecisionReadbackBuffer
+                .mapAsync(GPUMapMode.READ)
+                .then(() => {
+                  const decision = new DataView(
+                    state.naptDecisionReadbackBuffer.getMappedRange(),
+                  );
+                  const baselineIsNapt = decision.getUint32(0, true) !== 0;
+                  const baselineConfidence = decision.getFloat32(4, true);
+                  state.naptDecisionReadbackBuffer.unmap();
+                  return state.naptTemporalReadbackBuffer
+                    .mapAsync(GPUMapMode.READ)
+                    .then(() => {
+                      const temporal = new DataView(
+                        state.naptTemporalReadbackBuffer.getMappedRange(),
+                      );
+                      const temporalIsNapt = temporal.getUint32(4, true) !== 0;
+                      const temporalConfidence = temporal.getFloat32(12, true);
+                      const multiFramePersistence = temporal.getFloat32(
+                        16,
+                        true,
+                      );
+                      const multiFrameBridgeScore = temporal.getFloat32(
+                        20,
+                        true,
+                      );
+                      const multiFrameUDipScore = temporal.getFloat32(24, true);
+                      const multiFrameFrameCount = temporal.getUint32(28, true);
+                      const multiFrameUnimodalBridgeScore = temporal.getFloat32(
+                        32,
+                        true,
+                      );
+                      const multiFramePartialBridgeScore = temporal.getFloat32(
+                        36,
+                        true,
+                      );
+                      const multiFrameApexProminenceScore = temporal.getFloat32(
+                        40,
+                        true,
+                      );
+                      const multiFrameShoulderSymmetryScore =
+                        temporal.getFloat32(44, true);
+                      const multiFrameSincPenaltyScore = temporal.getFloat32(
+                        48,
+                        true,
+                      );
+                      const multiFrameCoalescingScore = temporal.getFloat32(
+                        52,
+                        true,
+                      );
+                      state.naptTemporalReadbackBuffer.unmap();
+                      return spikeBuffer.mapAsync(GPUMapMode.READ).then(() => ({
+                        floorDbm,
+                        confidence: temporalConfidence,
+                        baselineIsNapt,
+                        baselineConfidence,
+                        multiFrameIsNapt: temporalIsNapt,
+                        multiFrameConfidence: temporalConfidence,
+                        multiFramePersistence,
+                        multiFrameFrameCount,
+                        multiFrameBridgeScore,
+                        multiFrameUDipScore,
+                        multiFrameUnimodalBridgeScore,
+                        multiFramePartialBridgeScore,
+                        multiFrameApexProminenceScore,
+                        multiFrameShoulderSymmetryScore,
+                        multiFrameSincPenaltyScore,
+                        multiFrameCoalescingScore,
+                        suspensionBridgeScore,
+                        clumpCount,
+                        bridgeWidthScore,
+                        bridgeShoulderScore,
+                        uDipScore,
+                        floorRelativePowerScore,
+                        temporalStability,
+                        bandwidthPrior,
+                        envelopeFitScore,
+                        envelopeResidualScore,
+                        envelopeSupportCount,
+                        sincPenaltyScore,
+                        unimodalBridgeScore,
+                        partialBridgeScore,
+                        apexProminenceScore,
+                        shoulderSymmetryScore,
+                        captureQualityScore,
+                        aboveFloorFraction,
+                        periodicity,
+                        isNapt: temporalIsNapt,
+                        count,
+                        data: spikeBuffer.getMappedRange(),
+                      }));
+                    });
+                });
             })
-            .then(({ floorDbm, confidence, baselineIsNapt, baselineConfidence, multiFrameIsNapt, multiFrameConfidence, multiFramePersistence, multiFrameFrameCount, multiFrameBridgeScore, multiFrameUDipScore, suspensionBridgeScore, clumpCount, bridgeWidthScore, bridgeShoulderScore, uDipScore, floorRelativePowerScore, temporalStability, bandwidthPrior, envelopeFitScore, envelopeResidualScore, envelopeSupportCount, sincPenaltyScore, unimodalBridgeScore, partialBridgeScore, apexProminenceScore, shoulderSymmetryScore, captureQualityScore, aboveFloorFraction, periodicity, isNapt, count, data }) => {
-              const values = new DataView(data);
-              const spikes = Array.from({ length: count }, (_, index) => {
-                const offset = index * 16;
-                const frequencyHz = values.getFloat32(offset, true);
-                const powerDbm = values.getFloat32(offset + 4, true);
-                const rawIndex = values.getUint32(offset + 8, true);
-                return {
-                  index: rawIndex,
-                  frequencyHz,
-                  powerDbm,
-                };
-              }).sort((a, b) => a.index - b.index);
-              spikeBuffer.unmap();
-              state.naptClassifyReadbackInFlight = false;
-              state.naptTemporalReadbackInFlight = false;
-              onSpikeAnalysisRef.current?.({
-                isNapt,
+            .then(
+              ({
+                floorDbm,
                 confidence,
                 baselineIsNapt,
                 baselineConfidence,
@@ -1771,7 +1919,12 @@ export function useDrawWebGPUFFTSignal() {
                 multiFrameFrameCount,
                 multiFrameBridgeScore,
                 multiFrameUDipScore,
-                floorDbm,
+                multiFrameUnimodalBridgeScore,
+                multiFramePartialBridgeScore,
+                multiFrameApexProminenceScore,
+                multiFrameShoulderSymmetryScore,
+                multiFrameSincPenaltyScore,
+                multiFrameCoalescingScore,
                 suspensionBridgeScore,
                 clumpCount,
                 bridgeWidthScore,
@@ -1789,11 +1942,68 @@ export function useDrawWebGPUFFTSignal() {
                 apexProminenceScore,
                 shoulderSymmetryScore,
                 captureQualityScore,
-                spikes,
-              });
-              void aboveFloorFraction;
-              void periodicity;
-            })
+                aboveFloorFraction,
+                periodicity,
+                isNapt,
+                count,
+                data,
+              }) => {
+                const values = new DataView(data);
+                const spikes = Array.from({ length: count }, (_, index) => {
+                  const offset = index * 16;
+                  const frequencyHz = values.getFloat32(offset, true);
+                  const powerDbm = values.getFloat32(offset + 4, true);
+                  const rawIndex = values.getUint32(offset + 8, true);
+                  return {
+                    index: rawIndex,
+                    frequencyHz,
+                    powerDbm,
+                  };
+                }).sort((a, b) => a.index - b.index);
+                spikeBuffer.unmap();
+                state.naptClassifyReadbackInFlight = false;
+                state.naptTemporalReadbackInFlight = false;
+                onSpikeAnalysisRef.current?.({
+                  isNapt,
+                  confidence,
+                  baselineIsNapt,
+                  baselineConfidence,
+                  multiFrameIsNapt,
+                  multiFrameConfidence,
+                  multiFramePersistence,
+                  multiFrameFrameCount,
+                  multiFrameBridgeScore,
+                  multiFrameUDipScore,
+                  multiFrameUnimodalBridgeScore,
+                  multiFramePartialBridgeScore,
+                  multiFrameApexProminenceScore,
+                  multiFrameShoulderSymmetryScore,
+                  multiFrameSincPenaltyScore,
+                  multiFrameCoalescingScore,
+                  aboveFloorFraction,
+                  floorDbm,
+                  suspensionBridgeScore,
+                  clumpCount,
+                  bridgeWidthScore,
+                  bridgeShoulderScore,
+                  uDipScore,
+                  floorRelativePowerScore,
+                  temporalStability,
+                  bandwidthPrior,
+                  envelopeFitScore,
+                  envelopeResidualScore,
+                  envelopeSupportCount,
+                  sincPenaltyScore,
+                  unimodalBridgeScore,
+                  partialBridgeScore,
+                  apexProminenceScore,
+                  shoulderSymmetryScore,
+                  captureQualityScore,
+                  spikes,
+                });
+                void periodicity;
+              },
+            )
             .catch(() => {
               state.naptClassifyReadbackInFlight = false;
               state.naptTemporalReadbackInFlight = false;

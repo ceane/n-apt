@@ -2657,12 +2657,37 @@ const FFTCanvas = memo(
     const stableSpikeClassifierRef = useRef<{
       confidence: number;
       suspensionBridgeScore: number;
+      unimodalBridgeScore: number;
+      partialBridgeScore: number;
+      apexProminenceScore: number;
+      shoulderSymmetryScore: number;
+      coalescingScore: number;
       uDipScore: number;
       floorRelativePowerScore: number;
       sincPenaltyScore: number;
       captureQualityScore: number;
       envelopeFitScore: number;
       envelopeResidualScore: number;
+      tuningPersistence: number;
+      tuningPersistenceArmed: boolean;
+      tuningPersistenceMissingFrames: number;
+      spacingScore: number;
+      spacingHz: number | null;
+      spacingToleranceHz: number | null;
+      spacingSupport: number;
+      spacingMissingFrames: number;
+      spacingPendingHz: number | null;
+      spacingPendingFrames: number;
+      spacingStableFrames: number;
+      spacingCenterFrequencyHz: number | null;
+      floorStabilityScore: number | null;
+      floorStabilityFrames: number;
+      spikeValleyFillScore: number | null;
+      interferenceScore: number | null;
+      interferenceEvidenceFrames: number;
+      interferenceMissingFrames: number;
+      spikePresenceHistory: number[][];
+      spikePresenceScore: number;
     } | null>(null);
     const stableSpikeDecisionRef = useRef(false);
     const floorLinePercent = useMemo(() => {
@@ -4000,6 +4025,12 @@ const FFTCanvas = memo(
                       stableSpikeClassifierRef.current,
                       stableSpikeDecisionRef.current,
                       stableSpikeFloorDbmRef.current,
+                      currentFrame?.center_frequency_hz ?? null,
+                      {
+                        samples: displayWaveform,
+                        minFrequencyHz: displayVisualRange.min,
+                        maxFrequencyHz: displayVisualRange.max,
+                      },
                     );
                     if (!presented) return;
                     stableSpikeFloorDbmRef.current = presented.floorDbm;

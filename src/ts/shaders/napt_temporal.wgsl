@@ -5,6 +5,9 @@
 // metrics. It deliberately tracks structural presence (ordered bridge support
 // and U support), not raw amplitude, so the expected N-APT pulse can breathe
 // without being treated as temporal instability.
+// Classification is frequency-agnostic: do not use absolute RF frequency,
+// channel identity, or a preferred location in the captured spectrum as a
+// prior. The same normalized shape and persistence evidence applies anywhere.
 
 // Keep enough history to cover a full visible N-APT structure while tuning.
 // A single FFT frame can hide the U-dip behind a bridge peak, and a short
@@ -60,18 +63,17 @@ struct Metrics {
 }
 
 struct HistoryFrame {
-  suspension_bridge_score: f32,
+  unimodal_bridge_score: f32,
   u_dip_score: f32,
   baseline_confidence: f32,
-  baseline_is_napt: u32,
+  partial_bridge_score: f32,
   clump_count: u32,
-  // This slot was previously an unused copy of above_floor_fraction. Keep
-  // the history stride at 32 bytes, but use it for the structural support
-  // that the one-frame bridge score can under-report when tall spikes crowd
-  // out the lower members of a low-rise clump.
+  // Structural support can remain visible when pulsing peaks crowd out the
+  // lower members of a low-rise clump in an individual frame.
   bridge_shape_support: f32,
-  envelope_fit_score: f32,
+  apex_prominence_score: f32,
   sinc_penalty_score: f32,
+  shoulder_symmetry_score: f32,
 }
 
 struct Params {
@@ -92,6 +94,12 @@ struct TemporalDecision {
   bridge_mean: f32,
   u_dip_mean: f32,
   frame_count: u32,
+  unimodal_bridge_score: f32,
+  partial_bridge_score: f32,
+  apex_prominence_score: f32,
+  shoulder_symmetry_score: f32,
+  sinc_penalty_score: f32,
+  coalescing_score: f32,
 }
 
 @group(0) @binding(0) var<storage, read> baseline: Decision;
@@ -138,14 +146,15 @@ fn main() {
     full_bridge_support,
     max(partial_bridge_support, low_rise_bridge_support));
   history[write_index] = HistoryFrame(
-    metrics.suspension_bridge_score,
+    metrics.unimodal_bridge_score,
     metrics.u_dip_score,
     baseline.confidence,
-    baseline.is_napt,
+    metrics.partial_bridge_score,
     metrics.clump_count,
     validated_bridge_shape_support,
-    metrics.envelope_fit_score,
+    metrics.apex_prominence_score,
     metrics.sinc_penalty_score,
+    metrics.shoulder_symmetry_score,
   );
 
   let frame_count = min(history_length, previous_count + 1u);
@@ -157,6 +166,14 @@ fn main() {
   var u_dip_active_count = 0u;
   var sinc_penalty_sum = 0.0;
   var confidence_sum = 0.0;
+  var unimodal_bridge_sum = 0.0;
+  var partial_bridge_sum = 0.0;
+  var apex_prominence_sum = 0.0;
+  var shoulder_symmetry_sum = 0.0;
+  var active_unimodal_bridge_sum = 0.0;
+  var active_partial_bridge_sum = 0.0;
+  var active_apex_prominence_sum = 0.0;
+  var active_shoulder_symmetry_sum = 0.0;
   var active_bridge_sum = 0.0;
   var previous_active_index = 0u;
   var has_previous_active = false;
@@ -165,6 +182,8 @@ fn main() {
   var low_rise_event_count = 0u;
   var last_low_rise_index = 0u;
   var low_rise_event_score = 0.0;
+  var coalescing_sum = 0.0;
+  var coalescing_frame_count = 0u;
   for (var index = 0u; index < HISTORY_LENGTH; index = index + 1u) {
     if (index >= frame_count) { continue; }
     // The history buffer is a ring. Walk it oldest-to-newest so cadence and
@@ -186,6 +205,24 @@ fn main() {
     bridge_sum = bridge_sum + frame_bridge_score;
     u_dip_sum = u_dip_sum + frame.u_dip_score;
     sinc_penalty_sum = sinc_penalty_sum + frame.sinc_penalty_score;
+    unimodal_bridge_sum = unimodal_bridge_sum + frame.unimodal_bridge_score;
+    partial_bridge_sum = partial_bridge_sum + frame.partial_bridge_score;
+    apex_prominence_sum = apex_prominence_sum + frame.apex_prominence_score;
+    shoulder_symmetry_sum = shoulder_symmetry_sum + frame.shoulder_symmetry_score;
+    // Frames with partial bridge geometry count as positive coalescing
+    // evidence. Frames without it are omitted, so loss of alignment cannot
+    // subtract from the score.
+    let partial_bridge_evidence = max(
+      frame.unimodal_bridge_score,
+      frame.partial_bridge_score);
+    let bilateral_shape_support = min(
+      frame.apex_prominence_score,
+      frame.shoulder_symmetry_score);
+    if (frame.clump_count >= 1u && partial_bridge_evidence >= 0.12) {
+      coalescing_sum = coalescing_sum + sqrt(
+        partial_bridge_evidence * max(0.0, bilateral_shape_support));
+      coalescing_frame_count = coalescing_frame_count + 1u;
+    }
     u_dip_peak = max(u_dip_peak, frame.u_dip_score);
     if (frame.u_dip_score >= 0.35) {
       u_dip_active_sum = u_dip_active_sum + frame.u_dip_score;
@@ -195,6 +232,10 @@ fn main() {
     if (structural_bridge_present(frame)) {
       active_count = active_count + 1u;
       active_bridge_sum = active_bridge_sum + frame_bridge_score;
+      active_unimodal_bridge_sum = active_unimodal_bridge_sum + frame.unimodal_bridge_score;
+      active_partial_bridge_sum = active_partial_bridge_sum + frame.partial_bridge_score;
+      active_apex_prominence_sum = active_apex_prominence_sum + frame.apex_prominence_score;
+      active_shoulder_symmetry_sum = active_shoulder_symmetry_sum + frame.shoulder_symmetry_score;
       if (has_previous_active) {
         let gap = index - previous_active_index;
         last_active_gap = gap;
@@ -243,10 +284,32 @@ fn main() {
   // It recognizes a repeated pulsed bridge while requiring at least three
   // nearby events before pulse support can reach 1.0.
   let persistence = max(raw_persistence, pulse_support);
+  // Require repeated partial geometry, while averaging only frames where it
+  // is present. Quiet or out-of-alignment frames are neutral, not negative.
+  let coalescing_score = select(
+    0.0,
+    coalescing_sum / f32(coalescing_frame_count),
+    coalescing_frame_count >= 2u);
   let bridge_mean = bridge_sum / f32(max(1u, frame_count));
   let u_dip_mean = u_dip_sum / f32(max(1u, frame_count));
   let sinc_penalty_mean = sinc_penalty_sum /
     f32(max(1u, frame_count));
+  let recurrent_feature_weight = select(
+    persistence,
+    min(1.0, persistence + 0.25),
+    active_count >= 2u);
+  let unimodal_bridge_temporal_score = max(
+    unimodal_bridge_sum / f32(max(1u, frame_count)),
+    active_unimodal_bridge_sum / f32(max(1u, active_count)) * recurrent_feature_weight);
+  let partial_bridge_temporal_score = max(
+    partial_bridge_sum / f32(max(1u, frame_count)),
+    active_partial_bridge_sum / f32(max(1u, active_count)) * recurrent_feature_weight);
+  let apex_prominence_temporal_score = max(
+    apex_prominence_sum / f32(max(1u, frame_count)),
+    active_apex_prominence_sum / f32(max(1u, active_count)) * recurrent_feature_weight);
+  let shoulder_symmetry_temporal_score = max(
+    shoulder_symmetry_sum / f32(max(1u, frame_count)),
+    active_shoulder_symmetry_sum / f32(max(1u, active_count)) * recurrent_feature_weight);
   let u_dip_event_mean = u_dip_active_sum /
     f32(max(1u, u_dip_active_count));
   // A broad U-like envelope alone is common in Mock/hardware responses. Keep
@@ -365,4 +428,10 @@ fn main() {
     u_dip_temporal_score,
     u_dip_shape_confidence);
   decision.frame_count = frame_count;
+  decision.unimodal_bridge_score = clamp(unimodal_bridge_temporal_score, 0.0, 1.0);
+  decision.partial_bridge_score = clamp(partial_bridge_temporal_score, 0.0, 1.0);
+  decision.apex_prominence_score = clamp(apex_prominence_temporal_score, 0.0, 1.0);
+  decision.shoulder_symmetry_score = clamp(shoulder_symmetry_temporal_score, 0.0, 1.0);
+  decision.sinc_penalty_score = clamp(sinc_penalty_mean, 0.0, 1.0);
+  decision.coalescing_score = clamp(coalescing_score, 0.0, 1.0);
 }
