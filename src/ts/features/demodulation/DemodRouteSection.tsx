@@ -19,7 +19,7 @@ import {
   BackgroundVariant,
   Handle,
   Position,
-  useNodesInitialized,
+  useOnViewportChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useDemodAnalysis } from "@n-apt/demodulation/context/DemodAnalysisContext";
@@ -40,9 +40,17 @@ import {
 } from "@n-apt/demodulation/react-flow/flows";
 import {
   DEMOD_FIT_VIEW_OPTIONS,
+  DEMOD_FLOW_VIEWPORT_SESSION_KEY,
+  getDemodFlowGraphKey,
+  isDefaultDemodFlowViewport,
+  parseDemodFlowViewport,
+  serializeDemodFlowViewport,
+  shouldReusePersistedDemodViewport,
   shouldRunDemodAutoLayout,
   shouldDeferDemodAutoLayout,
   shouldVirtualizeDemodFlowNodes,
+  type DemodFlowViewport,
+  type PersistedDemodFlowViewport,
 } from "@n-apt/demodulation/react-flow/flows/demodFlowModel";
 // Removed local buildDemodFlowGraph call
 
@@ -316,15 +324,41 @@ const NODE_TYPES = {
 };
 
 const DEMOD_LAYOUT_CACHE_LIMIT = 8;
+/** How long a framing pass waits for React Flow to report node boxes before
+ * falling back to whatever it has. A node type that cannot measure itself must
+ * not leave the graph unframed at the identity transform. */
+const DEMOD_MEASUREMENT_GRACE_MS = 400;
+/** A fit waits for the graph to stop changing shape (lazy node content and the
+ * layout both move boxes after mount). Fitting mid-change frames a too-small
+ * bounding box, which is what zoomed the graph in. */
+const DEMOD_FIT_SETTLE_MS = 250;
+const DEMOD_FIT_SETTLE_CAP_MS = 1200;
+
+const readPersistedDemodViewport = (): PersistedDemodFlowViewport | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    return parseDemodFlowViewport(
+      window.sessionStorage.getItem(DEMOD_FLOW_VIEWPORT_SESSION_KEY),
+    );
+  } catch {
+    // Session storage can be unavailable in private or restricted contexts.
+    return null;
+  }
+};
 
 // Inner component that uses React Flow hooks
 const DemodRouteSectionInner: React.FC = () => {
   const { analysisSession } = useDemodAnalysis();
   const { flowVersion } = useDemodFlow();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { deleteElements, fitView, screenToFlowPosition } = useReactFlow();
-  const nodesInitialized = useNodesInitialized();
-  const _sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const {
+    deleteElements,
+    fitView,
+    getViewport,
+    screenToFlowPosition,
+    setViewport,
+  } = useReactFlow();
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const activeSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea,
   );
@@ -348,6 +382,9 @@ const DemodRouteSectionInner: React.FC = () => {
   const onKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => {});
   const layoutRunIdRef = useRef(0);
   const shouldFitAfterLayoutRef = useRef(true);
+  // Set when a layout pass had to wait for node measurements, so it is retried
+  // as soon as they are available instead of being dropped.
+  const deferredLayoutRef = useRef(false);
   const layoutCacheRef = useRef<Map<string, any>>(new Map()); // Cache layout results
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -384,6 +421,184 @@ const DemodRouteSectionInner: React.FC = () => {
   const [isFlowTransitioning, setIsFlowTransitioning] = useState(false);
   const [fitViewEpoch, setFitViewEpoch] = useState(0);
 
+  // React Flow keeps its viewport in memory, so any remount (dev hot reload,
+  // route re-entry) would drop the graph back to the identity transform and
+  // strand the already-laid-out nodes off screen. Persist the framing per
+  // source mode and restore it for the revision it was captured for.
+  const persistedViewportRef = useRef<
+    PersistedDemodFlowViewport | null | undefined
+  >(undefined);
+  if (persistedViewportRef.current === undefined) {
+    persistedViewportRef.current = readPersistedDemodViewport();
+  }
+  const restoredViewportRef = useRef(false);
+  const latestViewportRef = useRef<PersistedDemodFlowViewport | null>(null);
+  const viewportPersistTimerRef = useRef<number | null>(null);
+  const sourceModeRef = useRef(sourceMode);
+  sourceModeRef.current = sourceMode;
+  const flowVersionRef = useRef(flowVersion);
+  flowVersionRef.current = flowVersion;
+  const graphKey = useMemo(
+    () => getDemodFlowGraphKey(nodes, edges),
+    [edges, nodes],
+  );
+  const graphKeyRef = useRef(graphKey);
+  graphKeyRef.current = graphKey;
+
+  // Hand the persisted framing to React Flow as its initial viewport. Setting it
+  // from an effect races the canvas coming up (and a `setViewport` that lands
+  // before the pan/zoom exists is dropped), which left the graph at the identity
+  // transform — 1:1 off the origin, which reads as nodes zoomed in.
+  const defaultViewport = useMemo(() => {
+    const persisted = persistedViewportRef.current;
+    return shouldReusePersistedDemodViewport(
+      persisted,
+      sourceMode,
+      flowVersion,
+      graphKey,
+    )
+      ? persisted.viewport
+      : undefined;
+  }, [flowVersion, graphKey, sourceMode]);
+
+  // A remount re-measures every node, and lazy node content arrives late: a fit
+  // taken while boxes are still changing frames whatever exists at that instant,
+  // and a too-small box is what zooms the graph in. Fit only after the graph has
+  // stopped changing shape, with a bounded wait so it can never stall.
+  const frameSignature = useMemo(
+    () =>
+      nodes
+        .map(
+          (node) =>
+            `${node.id}:${Math.round(node.position.x)},${Math.round(
+              node.position.y,
+            )},${node.measured?.width ?? 0}x${node.measured?.height ?? 0}`,
+        )
+        .join("|"),
+    [nodes],
+  );
+  const [graphSettled, setGraphSettled] = useState(false);
+  const unsettledSinceRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const now = Date.now();
+    if (unsettledSinceRef.current === null) unsettledSinceRef.current = now;
+    const overdue =
+      now - (unsettledSinceRef.current ?? now) >= DEMOD_FIT_SETTLE_CAP_MS;
+    const timer = window.setTimeout(
+      () => {
+        unsettledSinceRef.current = null;
+        setGraphSettled(true);
+      },
+      overdue ? 0 : DEMOD_FIT_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [frameSignature]);
+
+  useEffect(() => {
+    setGraphSettled(false);
+  }, [graphKey]);
+
+  // React Flow reports a node's box only after measuring it, and a remount can
+  // adopt nodes before that pass runs. Fitting in that window frames whatever
+  // subset already has a box — a too-small bounding box is what zoomed the graph
+  // in — so a fit waits for real, positive boxes on every visible node.
+  const nodesMeasured = useMemo(
+    () =>
+      nodes.length > 0 &&
+      nodes.every((node) => {
+        if (node.hidden) return true;
+        const width = node.measured?.width ?? node.width;
+        const height = node.measured?.height ?? node.height;
+        return (
+          typeof width === "number" &&
+          width > 0 &&
+          typeof height === "number" &&
+          height > 0
+        );
+      }),
+    [nodes],
+  );
+  const nodesMeasuredRef = useRef(nodesMeasured);
+  nodesMeasuredRef.current = nodesMeasured;
+
+  // Off-screen nodes are unmounted by virtual rendering, and an unmounted node
+  // reports no box. React Flow then keeps `nodesInitialized` false forever, and
+  // both its fit and every measurement-gated pass here are queued on that flag,
+  // so the graph could never be framed at all. Keep every node mounted until the
+  // graph has been framed once; virtual rendering resumes afterwards and the
+  // measured boxes stay on the nodes.
+  const [graphFramed, setGraphFramed] = useState(false);
+  const graphFramedRef = useRef(false);
+  const markGraphFramed = useCallback(() => {
+    if (graphFramedRef.current) return;
+    graphFramedRef.current = true;
+    setGraphFramed(true);
+  }, []);
+  useEffect(() => {
+    // A different graph has to be framed from scratch.
+    graphFramedRef.current = false;
+    setGraphFramed(false);
+  }, [graphKey]);
+
+  const flushPersistedViewport = useCallback(() => {
+    if (viewportPersistTimerRef.current !== null) {
+      window.clearTimeout(viewportPersistTimerRef.current);
+      viewportPersistTimerRef.current = null;
+    }
+    const snapshot = latestViewportRef.current;
+    if (!snapshot || typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(
+        DEMOD_FLOW_VIEWPORT_SESSION_KEY,
+        serializeDemodFlowViewport(snapshot),
+      );
+    } catch {
+      // Session storage can be unavailable in private or restricted contexts.
+    }
+  }, []);
+
+  const persistViewport = useCallback(
+    (viewport: DemodFlowViewport) => {
+      if (isDefaultDemodFlowViewport(viewport)) {
+        // React Flow's initial transform, not a framing the user chose.
+        return;
+      }
+      const snapshot: PersistedDemodFlowViewport = {
+        sourceMode: sourceModeRef.current,
+        flowVersion: flowVersionRef.current,
+        graphKey: graphKeyRef.current,
+        viewport,
+      };
+      latestViewportRef.current = snapshot;
+      persistedViewportRef.current = snapshot;
+      if (typeof window === "undefined") return;
+      if (viewportPersistTimerRef.current !== null) {
+        window.clearTimeout(viewportPersistTimerRef.current);
+      }
+      viewportPersistTimerRef.current = window.setTimeout(() => {
+        viewportPersistTimerRef.current = null;
+        flushPersistedViewport();
+      }, 150);
+    },
+    [flushPersistedViewport],
+  );
+
+  const persistViewportRef = useRef(persistViewport);
+  persistViewportRef.current = persistViewport;
+  const handleViewportChange = useCallback((viewport: DemodFlowViewport) => {
+    persistViewportRef.current(viewport);
+  }, []);
+  useOnViewportChange({ onChange: handleViewportChange });
+
+  useEffect(
+    () => () => {
+      // A navigation inside the debounce window must not lose the last framing.
+      flushPersistedViewport();
+    },
+    [flushPersistedViewport],
+  );
+
   const [menu, setMenu] = React.useState<{
     id: string;
     type: string;
@@ -413,8 +628,62 @@ const DemodRouteSectionInner: React.FC = () => {
     setMenu(null);
   }, []);
 
+  /** Frame the graph after a layout pass. A layout pass on the same graph must
+   * never move the camera: ELK only re-seats nodes, so re-fitting there is what
+   * zoomed the graph in under the user after a layout ran. The camera moves for
+   * a different graph (the persisted framing no longer matches) or an explicit
+   * reframe (`refit`, i.e. a container geometry change). */
+  const frameAfterLayout = useCallback(
+    (refit: boolean) => {
+      const persisted = persistedViewportRef.current;
+      const keepFraming =
+        !refit &&
+        shouldReusePersistedDemodViewport(
+          persisted,
+          sourceModeRef.current,
+          flowVersionRef.current,
+          graphKeyRef.current,
+        );
+      if (keepFraming) {
+        void setViewport(persisted.viewport, { duration: 0 }).then(() =>
+          markGraphFramed(),
+        );
+        return;
+      }
+      setFitViewEpoch((epoch) => epoch + 1);
+    },
+    [markGraphFramed, setViewport],
+  );
+
+  /** Restore the framing captured for the current revision, otherwise fit. */
+  const frameForCurrentRevision = useCallback(() => {
+    const persisted = persistedViewportRef.current;
+    if (
+      shouldReusePersistedDemodViewport(
+        persisted,
+        sourceModeRef.current,
+        flowVersionRef.current,
+        graphKeyRef.current,
+      )
+    ) {
+      void setViewport(persisted.viewport, { duration: 0 }).then(() =>
+        markGraphFramed(),
+      );
+      return;
+    }
+    void fitView({ ...DEMOD_FIT_VIEW_OPTIONS }).then(() => {
+      if (!nodesMeasuredRef.current) return;
+      markGraphFramed();
+      persistViewportRef.current(getViewport());
+    });
+  }, [fitView, getViewport, markGraphFramed, setViewport]);
+
   const measureAndLayout = useCallback(
-    async (force: boolean = false, remeasure: boolean = false) => {
+    async (
+      force: boolean = false,
+      remeasure: boolean = false,
+      refit: boolean = false,
+    ) => {
       if (!reactFlowWrapper.current) return;
       const wrapper = reactFlowWrapper.current;
       const currentRunId = ++layoutRunIdRef.current;
@@ -461,6 +730,23 @@ const DemodRouteSectionInner: React.FC = () => {
         if (domSz) return domSz;
         return { w: 400, h: 300 };
       };
+
+      // A node React Flow has not measured yet has no real box. Laying out with
+      // the 400x300 placeholder produces a compacted graph, and the fit that
+      // follows then frames those wrong bounds — the "hot reload moved my nodes
+      // and zoomed in" look. Defer instead: the measurement pass re-runs this
+      // through nodesInitialized / the node-resize event.
+      const hasUnmeasuredNodes = nodesRef.current.some(
+        (node) =>
+          !node.hidden &&
+          !(node.measured?.width && node.measured?.height) &&
+          !sizeMap.has(node.id),
+      );
+      if (hasUnmeasuredNodes) {
+        lastMeasuredSizesRef.current = new Map();
+        deferredLayoutRef.current = true;
+        return;
+      }
 
       const sizesChanged = (() => {
         if (sizeMap.size !== lastMeasuredSizesRef.current.size) return true;
@@ -513,7 +799,7 @@ const DemodRouteSectionInner: React.FC = () => {
             return { ...node, position: { x: position.x, y: position.y } };
           }),
         );
-        setFitViewEpoch((epoch) => epoch + 1);
+        frameAfterLayout(refit);
         return;
       }
 
@@ -605,7 +891,7 @@ const DemodRouteSectionInner: React.FC = () => {
           if (layoutRunIdRef.current !== currentRunId) {
             return;
           }
-          setFitViewEpoch((epoch) => epoch + 1);
+          frameAfterLayout(refit);
         } else {
           setIsLaidOut(true);
           setIsFlowTransitioning(false);
@@ -615,49 +901,153 @@ const DemodRouteSectionInner: React.FC = () => {
         console.error("Layout error:", error);
       }
     },
-    [setNodesLocal, setEdgesLocal],
+    [frameAfterLayout, setNodesLocal, setEdgesLocal],
   );
 
   const nodeTypes = useMemo(() => NODE_TYPES, []);
 
   const scheduleMeasureAndLayout = useCallback(
-    (force: boolean = false, remeasure: boolean = false) => {
+    (
+      force: boolean = false,
+      remeasure: boolean = false,
+      refit: boolean = false,
+    ) => {
       if (layoutFrameRef.current !== null && typeof window !== "undefined") {
         window.cancelAnimationFrame(layoutFrameRef.current);
       }
 
       if (typeof window === "undefined") {
-        void measureAndLayout(force, remeasure);
+        void measureAndLayout(force, remeasure, refit);
         return;
       }
 
       layoutFrameRef.current = window.requestAnimationFrame(() => {
         layoutFrameRef.current = null;
-        void measureAndLayout(force, remeasure);
+        void measureAndLayout(force, remeasure, refit);
       });
     },
     [measureAndLayout],
   );
 
+  // A fit needs real boxes, and a node type that never reports one must not hold
+  // every framing pass off (that leaves the graph at 1:1 off the origin), so the
+  // wait for measurement is bounded.
+  const [measurementGraceElapsed, setMeasurementGraceElapsed] = useState(false);
+  const nodesReady = nodesMeasured || measurementGraceElapsed;
+
+  useEffect(() => {
+    if (nodesMeasured || nodes.length === 0) {
+      setMeasurementGraceElapsed(false);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setMeasurementGraceElapsed(true),
+      DEMOD_MEASUREMENT_GRACE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [nodes.length, nodesMeasured]);
+
+  // Retry a layout pass that had to wait for node measurements (a remount
+  // remeasures every node, so the first pass after a hot reload can arrive
+  // before the DOM has boxes).
+  useEffect(() => {
+    if (!nodesMeasured || !deferredLayoutRef.current) return;
+    deferredLayoutRef.current = false;
+    scheduleMeasureAndLayout(true);
+  }, [nodesMeasured, scheduleMeasureAndLayout]);
+
   useEffect(() => {
     if (fitViewEpoch === 0) return;
+    // A fit needs real boxes, and it must not run while the graph is still
+    // changing shape: either way it frames a partial bounding box, which is what
+    // zoomed the graph in. Both waits are bounded (measurement grace, settle
+    // cap) so the graph can never be left unframed at the origin.
+    if (!nodesReady || !graphSettled) return;
     setIsLaidOut(true);
     setIsFlowTransitioning(false);
     hasLaidOut.current = true;
     shouldFitAfterLayoutRef.current = false;
+    // Virtual rendering waits for this fit to land: `fitView` only resolves once
+    // React Flow has measured every node. Record what it produced so the next
+    // remount can restore this framing instead of fitting again — but only if
+    // the fit framed real boxes, never a partially measured graph.
     void fitView({
       ...DEMOD_FIT_VIEW_OPTIONS,
+    }).then(() => {
+      if (!nodesMeasuredRef.current) return;
+      markGraphFramed();
+      persistViewportRef.current(getViewport());
     });
-  }, [fitViewEpoch, fitView]);
+  }, [
+    fitView,
+    fitViewEpoch,
+    getViewport,
+    graphSettled,
+    markGraphFramed,
+    nodesReady,
+  ]);
+
+  // Restore the persisted framing for an unchanged revision (a remount, e.g. a
+  // dev hot reload) instead of re-fitting or re-running ELK over it. A viewport
+  // is a transform, so it does not depend on node measurement: restoring it must
+  // not wait for the measurement pass the way a fit has to.
+  useEffect(() => {
+    if (restoredViewportRef.current) return;
+    const persisted = persistedViewportRef.current;
+    if (
+      !shouldReusePersistedDemodViewport(
+        persisted,
+        sourceMode,
+        flowVersion,
+        graphKey,
+      )
+    ) {
+      return;
+    }
+    if (nodes.length === 0) return;
+    void setViewport(persisted.viewport, { duration: 0 }).then((applied) => {
+      // Without a pan/zoom to apply to yet there is nothing to restore here;
+      // `defaultViewport` is what frames the canvas in that case.
+      if (!applied) return;
+      restoredViewportRef.current = true;
+      hasLaidOut.current = true;
+      shouldFitAfterLayoutRef.current = false;
+      markGraphFramed();
+    });
+  }, [
+    flowVersion,
+    graphKey,
+    markGraphFramed,
+    nodes.length,
+    setViewport,
+    sourceMode,
+  ]);
 
   useEffect(() => {
+    // The graph is already laid out for this revision and its framing is being
+    // restored: keep it instead of relayouting and re-centering (which is what
+    // dropped the nodes out of frame on hot reload).
+    if (
+      !restoredViewportRef.current &&
+      shouldReusePersistedDemodViewport(
+        persistedViewportRef.current,
+        sourceMode,
+        flowVersion,
+        graphKey,
+      )
+    ) {
+      hasLaidOut.current = true;
+      setIsFlowTransitioning(false);
+      return;
+    }
     if (hasPendingDemodLazyNodeContent()) {
       return;
     }
     if (
       shouldDeferDemodAutoLayout({
         hasNodes: nodes.length > 0,
-        nodesInitialized,
+        // Measured, or the bounded wait for measurement has expired.
+        nodesInitialized: nodesReady,
       })
     ) {
       return;
@@ -667,9 +1057,7 @@ const DemodRouteSectionInner: React.FC = () => {
       shouldFitAfterLayoutRef.current = false;
       setIsFlowTransitioning(false);
       const frame = window.requestAnimationFrame(() => {
-        void fitView({
-          ...DEMOD_FIT_VIEW_OPTIONS,
-        });
+        frameForCurrentRevision();
       });
       return () => window.cancelAnimationFrame(frame);
     }
@@ -685,10 +1073,12 @@ const DemodRouteSectionInner: React.FC = () => {
   }, [
     edges.length,
     nodes.length,
-    nodesInitialized,
     flowVersion,
-    fitView,
+    frameForCurrentRevision,
+    graphKey,
+    nodesReady,
     scheduleMeasureAndLayout,
+    sourceMode,
   ]);
 
   // Re-layout on window resize with debouncing
@@ -701,7 +1091,7 @@ const DemodRouteSectionInner: React.FC = () => {
       // Debounce resize to 200ms
       debounceTimerRef.current = setTimeout(() => {
         shouldFitAfterLayoutRef.current = true;
-        scheduleMeasureAndLayout(true, true);
+        scheduleMeasureAndLayout(true, true, true);
       }, 200);
     };
     window.addEventListener("resize", onResize);
@@ -961,8 +1351,9 @@ const DemodRouteSectionInner: React.FC = () => {
           panOnDrag={true}
           selectionOnDrag={false}
           elementsSelectable={true}
+          defaultViewport={defaultViewport}
           onlyRenderVisibleElements={
-            isFlowTransitioning
+            isFlowTransitioning || !graphFramed
               ? false
               : shouldVirtualizeDemodFlowNodes(nodes)
           }

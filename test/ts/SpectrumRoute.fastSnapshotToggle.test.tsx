@@ -422,3 +422,36 @@ describe("SpectrumRoute fast snapshot three-state toggle", () => {
     });
   });
 });
+
+describe("SpectrumRoute spike overlay scope", () => {
+  it("never wires the demod-owned spike overlay into the visualizer canvas", async () => {
+    // The overlay flag can be left on by the demod route (or restored from a
+    // persisted source view). The visualizer must not run the spike compute and
+    // render passes because of it.
+    const mockValue = baseMockValue();
+    mockValue.state.showSpikeOverlay = true;
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const calls = fftAndWaterfallMock.mock.calls;
+    expect(calls[calls.length - 1]?.[0]?.showSpikeOverlay).toBe(false);
+  });
+});

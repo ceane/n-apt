@@ -3157,7 +3157,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 onFftDbLimitsChange={handleFftDbLimitsChange}
                 onSnapshot={handleNoopSnapshot}
                 snapshotGridPreference={state.snapshotGridPreference}
-                showSpikeOverlay={state.showSpikeOverlay}
+                // Spike detection belongs to the demod flow, which owns the
+                // toggle (SpikeDetectionNode) and shows the markers in its own
+                // FFT node. Wiring the shared flag through here made the
+                // visualizer run the same spike compute/render passes and paint
+                // the same floor line and spike markers.
+                showSpikeOverlay={false}
                 fftFrameRate={state.fftFrameRate}
                 isWaterfallCleared={state.isWaterfallCleared}
                 onResetWaterfallCleared={handleResetWaterfallCleared}

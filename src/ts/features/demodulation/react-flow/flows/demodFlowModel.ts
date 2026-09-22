@@ -51,6 +51,104 @@ export const serializeDemodFlow = (
   edges: Edge[],
 ): string => JSON.stringify({ sourceMode, nodes, edges });
 
+/** React Flow keeps its viewport in memory only. Persisting it next to the
+ * flow lets a remount (notably a dev hot reload) come back to the exact framing
+ * instead of dropping to the identity transform.
+ *
+ * v3: a fit taken while node boxes were still arriving was framed on a partial
+ * bounding box and persisted as if it were the user's framing, so every remount
+ * restored a zoomed-in view. Bumping the key drops those captures. */
+export const DEMOD_FLOW_VIEWPORT_SESSION_KEY = "n-apt:demod-flow-viewport:v3";
+
+export interface DemodFlowViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface PersistedDemodFlowViewport {
+  sourceMode: SourceMode;
+  flowVersion: number;
+  /** The graph this framing was captured for; see getDemodFlowGraphKey. */
+  graphKey: string;
+  viewport: DemodFlowViewport;
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+/** Identity of the node/edge set a framing belongs to. Positions are not part
+ * of it: a layout pass that only moves nodes still frames the same graph. */
+export const getDemodFlowGraphKey = (nodes: Node[], edges: Edge[]): string =>
+  `${nodes
+    .map((node) => node.id)
+    .sort()
+    .join(",")}|${edges
+    .map((edge) => edge.id)
+    .sort()
+    .join(",")}`;
+
+export const serializeDemodFlowViewport = (
+  persisted: PersistedDemodFlowViewport,
+): string => JSON.stringify(persisted);
+
+/** React Flow's untouched transform is not a framing. Persisting it would make
+ * the next remount "restore" the graph at 1:1 off the origin instead of framing
+ * it, which reads as nodes zoomed in on one corner of the flow. */
+export const isDefaultDemodFlowViewport = (viewport: DemodFlowViewport): boolean =>
+  viewport.x === 0 && viewport.y === 0 && viewport.zoom === 1;
+
+export const parseDemodFlowViewport = (
+  raw: string | null | undefined,
+): PersistedDemodFlowViewport | null => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      sourceMode?: unknown;
+      flowVersion?: unknown;
+      graphKey?: unknown;
+      viewport?: { x?: unknown; y?: unknown; zoom?: unknown };
+    };
+    const viewport = parsed?.viewport;
+    if (
+      typeof parsed?.sourceMode !== "string" ||
+      typeof parsed?.graphKey !== "string" ||
+      !viewport ||
+      !isFiniteNumber(viewport.x) ||
+      !isFiniteNumber(viewport.y) ||
+      !isFiniteNumber(viewport.zoom) ||
+      viewport.zoom <= 0
+    ) {
+      return null;
+    }
+    return {
+      sourceMode: parsed.sourceMode as SourceMode,
+      flowVersion: isFiniteNumber(parsed.flowVersion) ? parsed.flowVersion : 0,
+      graphKey: parsed.graphKey,
+      viewport: { x: viewport.x, y: viewport.y, zoom: viewport.zoom },
+    };
+  } catch {
+    return null;
+  }
+};
+
+/** A persisted viewport frames the graph it was captured for. Revision 0 is the
+ * flow restored from session storage, which is that same graph — a remount (a
+ * dev hot reload, a route re-entry) resets the revision counter, so the
+ * framing still applies and re-running ELK over it would only move the nodes
+ * the user was looking at. */
+export const shouldReusePersistedDemodViewport = (
+  persisted: PersistedDemodFlowViewport | null | undefined,
+  sourceMode: SourceMode,
+  flowVersion: number,
+  graphKey: string,
+): persisted is PersistedDemodFlowViewport => {
+  if (!persisted) return false;
+  if (persisted.sourceMode !== sourceMode) return false;
+  if (persisted.graphKey !== graphKey) return false;
+  return persisted.flowVersion === flowVersion || flowVersion === 0;
+};
+
 export const DEMOD_FIT_VIEW_OPTIONS = {
   padding: 0.15,
   includeHiddenNodes: true,
