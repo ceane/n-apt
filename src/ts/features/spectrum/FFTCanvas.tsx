@@ -52,9 +52,7 @@ import {
   isRtlSdrDevice,
   resolveRenderableFrequencyRange,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
-import {
-  subscribeFrameArrivals,
-} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { subscribeFrameArrivals } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
   createDeviceOptionScheduler,
   type DeviceOptionScheduler,
@@ -151,18 +149,69 @@ export const resolveMirrorPanPropSync = ({
   pendingPublish,
   incomingPan,
   lastPublishedPan,
+  livePan,
 }: {
   pendingPublish: boolean;
   incomingPan: number;
   lastPublishedPan: number;
+  /** The gesture ref's current value — what is actually on screen. */
+  livePan: number;
 }): { applyIncomingPan: boolean; clearPendingPublish: boolean } => {
-  if (incomingPan === lastPublishedPan) {
+  // Converged: the live ref already sits at the incoming value, so there is
+  // nothing to move. Acknowledge (clears the pending guard) either way.
+  if (incomingPan === livePan) {
     return { applyIncomingPan: true, clearPendingPublish: true };
+  }
+  // Stale echo of our own flush behind a live gesture: the scheduler
+  // publishes at cadence while ticks keep advancing the ref, so the echo is
+  // older than what is on screen. Applying it would rewind the viewport to
+  // an older pan on every flush (scroll jumps back, then re-advances).
+  if (incomingPan === lastPublishedPan) {
+    return { applyIncomingPan: false, clearPendingPublish: false };
   }
   if (pendingPublish) {
     return { applyIncomingPan: false, clearPendingPublish: false };
   }
   return { applyIncomingPan: true, clearPendingPublish: false };
+};
+
+/**
+ * Tracks hardware ranges a gesture published ahead of Redux, so lagging
+ * echoes can be told apart from genuine external tunes. Echoes arrive
+ * through renders one (or more) ticks behind a scroll burst; adopting one
+ * over the live ref would rewind the gesture base and make the next tick
+ * publish a backward window (scroll jumps back, then re-advances).
+ */
+export interface GestureRangeEchoTracker {
+  record(range: { min: number; max: number }): void;
+  /**
+   * Consumes one outstanding record matching `range`. Returns true when the
+   * incoming range is an echo of our own burst (possibly stale) rather than
+   * an external change.
+   */
+  consume(range: { min: number; max: number }): boolean;
+}
+
+export const createGestureRangeEchoTracker = (
+  cap = 32,
+): GestureRangeEchoTracker => {
+  const keys: string[] = [];
+  const keyOf = (range: { min: number; max: number }) =>
+    `${range.min}:${range.max}`;
+  return {
+    record(range) {
+      const key = keyOf(range);
+      if (keys[keys.length - 1] !== key) keys.push(key);
+      while (keys.length > cap) keys.shift();
+    },
+    consume(range) {
+      const key = keyOf(range);
+      const index = keys.indexOf(key);
+      if (index === -1) return false;
+      keys.splice(index, 1);
+      return true;
+    },
+  };
 };
 
 type FrameRenderRangeInput = {
@@ -1804,7 +1853,9 @@ const FFTCanvas = memo(
     const isPowerLineHeldRef = useRef(false);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
     useLayoutEffect(() => {
-      txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
+      txSliderRef.current = effectiveTxSlider?.visible
+        ? effectiveTxSlider
+        : null;
     }, [effectiveTxSlider]);
     const [txSliderVisualRevision, setTxSliderVisualRevision] = useState(0);
     const setPowerLineDb = useCallback((nextPowerLineDb: number | null) => {
@@ -1954,7 +2005,6 @@ const FFTCanvas = memo(
         deviceName,
       ],
     );
-
 
     const effectivePowerScale = powerScale ?? "dB";
     const _isHackrfDevice = deviceProfile?.kind === "hackrf_one";
@@ -2135,6 +2185,18 @@ const FFTCanvas = memo(
     /** True while mirror-mode pan is held in the ref ahead of the Redux write. */
     const mirrorPanPendingPublishRef = useRef(false);
     const mirrorPanLastPublishedRef = useRef(vizPanOffset);
+    /**
+     * Hardware ranges the gesture published ahead of Redux. Wheel/drag ticks
+     * advance `frequencyRangeRef` synchronously while Redux echoes lag a
+     * burst; without this the range effect below adopts a stale echo over
+     * the live ref and the next tick publishes a backward window.
+     */
+    const gestureRangeEchoTrackerRef = useRef<GestureRangeEchoTracker | null>(
+      null,
+    );
+    if (!gestureRangeEchoTrackerRef.current) {
+      gestureRangeEchoTrackerRef.current = createGestureRangeEchoTracker();
+    }
     const lastPaintedMirrorPanRef = useRef(vizPanOffset);
     const lastPaintedZoomRef = useRef(currentVizZoom);
     const vizPanScheduler = useMemo<DeviceOptionScheduler<number>>(
@@ -2790,11 +2852,17 @@ const FFTCanvas = memo(
       vizPanScheduler.flush();
     }, [vizPanScheduler]);
 
-    const onHardwareRangeReanchor = useCallback((range: FrequencyRange) => {
-      frequencyRangeRef.current = range;
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-    }, [overlayDirtyRef]);
+    const onHardwareRangeReanchor = useCallback(
+      (range: FrequencyRange) => {
+        frequencyRangeRef.current = range;
+        // Record the gesture publish so the range effect can tell a lagging
+        // echo of our own burst apart from a genuine external tune.
+        gestureRangeEchoTrackerRef.current?.record(range);
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+      },
+      [overlayDirtyRef],
+    );
 
     const publishVizPanReanchor = useCallback(
       (pan: number) => {
@@ -2859,6 +2927,7 @@ const FFTCanvas = memo(
         pendingPublish: mirrorPanPendingPublishRef.current,
         incomingPan: vizPanOffset,
         lastPublishedPan: mirrorPanLastPublishedRef.current,
+        livePan: vizPanOffsetRef.current,
       });
       if (sync.clearPendingPublish) {
         mirrorPanPendingPublishRef.current = false;
@@ -3198,8 +3267,7 @@ const FFTCanvas = memo(
         const incomingFrame = getLatestLiveFrame(currentData);
         if (
           retainsFramePresentation &&
-          (!renderWaveformRef.current ||
-            renderWaveformRef.current.length === 0)
+          (!renderWaveformRef.current || renderWaveformRef.current.length === 0)
         ) {
           hydratePausedSnapshotRef.current();
           recoverPausedWaveformRef.current();
@@ -3483,27 +3551,26 @@ const FFTCanvas = memo(
         // acquisition axis; an outrun mirror viewport is painted directly and
         // the resampler handles any uncovered bins at the noise floor.
 
-        if (
-          shouldReprocessForPaint &&
-          currentFrame?.iq_data
-        ) {
+        if (shouldReprocessForPaint && currentFrame?.iq_data) {
           // Unified IQ→spectrum path: all live data is iq_data (Uint8Array).
           // The only variable is the dB offset for the power scale.
           const iqBytes = currentFrame?.iq_data;
           if (!iqBytes || iqBytes.length < 2) return;
 
           const requestedFrameRange = frequencyRangeRef.current;
-          const frameRenderableRange = resolveLiveFrameRenderableFrequencyRange({
-            currentFrame,
-            requestedRange: requestedFrameRange,
-            propsCenterFrequencyHz: centerFreqRef.current,
-            propsHardwareSampleRateHz: hardwareSampleRateHz,
-            preferRequestedRange: isIqRecordingActive,
-            deviceKind: deviceProfile?.kind,
-            backend: deviceBackend,
-            deviceName,
-            isRtlSdr: deviceProfile?.is_rtl_sdr,
-          });
+          const frameRenderableRange = resolveLiveFrameRenderableFrequencyRange(
+            {
+              currentFrame,
+              requestedRange: requestedFrameRange,
+              propsCenterFrequencyHz: centerFreqRef.current,
+              propsHardwareSampleRateHz: hardwareSampleRateHz,
+              preferRequestedRange: isIqRecordingActive,
+              deviceKind: deviceProfile?.kind,
+              backend: deviceBackend,
+              deviceName,
+              isRtlSdr: deviceProfile?.is_rtl_sdr,
+            },
+          );
           // A frame from the previous hardware window is still useful for
           // demodulation, but it must not take ownership of the displayed
           // frequency axis. Leave the requested range intact until the
@@ -3846,8 +3913,8 @@ const FFTCanvas = memo(
           // prepareSpectrumRenderData only when visual.min < 0.
           const mirrorOnGpu = Boolean(
             allowNegativeFrequencies &&
-              spectrumWebgpuEnabled &&
-              webgpuDeviceRef.current,
+            spectrumWebgpuEnabled &&
+            webgpuDeviceRef.current,
           );
           const resampleOnGpu = Boolean(
             spectrumWebgpuEnabled && webgpuDeviceRef.current,
@@ -3867,8 +3934,7 @@ const FFTCanvas = memo(
             // the spectrum while EditableCenterFrequency still updated Redux.
             // Live spectrum rendering is WebGPU-only. Do not run the CPU
             // snapshot resampler while the GPU is still initializing.
-            allowNegativeFrequencies:
-              allowNegativeFrequencies && mirrorOnGpu,
+            allowNegativeFrequencies: allowNegativeFrequencies && mirrorOnGpu,
             mirrorOnGpu,
             resampleOnGpu,
             getZoomedData,
@@ -3923,7 +3989,7 @@ const FFTCanvas = memo(
               }
             : null;
           const displaySelection = selectionOverlayRef.current
-              ? { ...selectionOverlayRef.current }
+            ? { ...selectionOverlayRef.current }
             : null;
           const bottomReservedPx = nodePreview
             ? 0
@@ -3946,15 +4012,15 @@ const FFTCanvas = memo(
               waveformDirty: processedCurrentFrame,
               frequencyRange: displayVisualRange,
               sourceFrequencyRange: resampleOnGpu
-                // The paint contract may intentionally rebase a retained
-                // paused frame onto the new universal range. Passing the raw
-                // frame acquisition range here makes the GPU floor the
-                // uncovered tail until request_next_frame arrives, which is
-                // the visible gap during VFO scrolling. The renderer must
-                // receive the same source axis that the contract used to
-                // derive displayVisualRange so the resident frame fills the
-                // canvas continuously while the replacement frame is fetched.
-                ? paintContract.sourceFrequencyRange
+                ? // The paint contract may intentionally rebase a retained
+                  // paused frame onto the new universal range. Passing the raw
+                  // frame acquisition range here makes the GPU floor the
+                  // uncovered tail until request_next_frame arrives, which is
+                  // the visible gap during VFO scrolling. The renderer must
+                  // receive the same source axis that the contract used to
+                  // derive displayVisualRange so the resident frame fills the
+                  // canvas continuously while the replacement frame is fetched.
+                  paintContract.sourceFrequencyRange
                 : undefined,
               mirrorEnabled: gpuMirrorActive,
               reuseWaveformUpload: resampleOnGpu,
@@ -4260,13 +4326,12 @@ const FFTCanvas = memo(
               const isTxPreviewFrame =
                 (currentFrame as any)?.is_tx_preview === true ||
                 (currentFrame as any)?.is_mock_tx_preview === true;
-              const shouldUpdateWaterfallRow =
-                shouldAppendWaterfallFrame({
-                  hasNewData,
-                  isStandby,
-                  isTxPreviewFrame,
-                  coversDisplay: preparedSpectrum.coversDisplay,
-                });
+              const shouldUpdateWaterfallRow = shouldAppendWaterfallFrame({
+                hasNewData,
+                isStandby,
+                isTxPreviewFrame,
+                coversDisplay: preparedSpectrum.coversDisplay,
+              });
 
               // Waterfall texture strategy: Always resample to constant 4096 bins.
               // This 'bakes' the zoom into each row permanently, avoiding WebGPU
@@ -4330,7 +4395,6 @@ const FFTCanvas = memo(
                     lastWaterfallRowRef.current,
                   );
                 }
-
               } else {
                 // Paused or no new data: keep the last complete row.
                 waterfallBins = resolvePausedWaterfallRow({
@@ -4364,7 +4428,10 @@ const FFTCanvas = memo(
                     waterfallDims.height,
                     oldMeta.writeRow,
                   );
-                  newWriteRow = Math.min(oldMeta.writeRow, waterfallDims.height - 1);
+                  newWriteRow = Math.min(
+                    oldMeta.writeRow,
+                    waterfallDims.height - 1,
+                  );
                 }
 
                 waterfallTextureSnapshotRef.current = newSnapshot;
@@ -4947,32 +5014,46 @@ const FFTCanvas = memo(
     // center frequency or delays the graph axis until a replacement frame.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
+      const rangesMatch =
+        renderableFrequencyRange &&
+        prevRange &&
+        renderableFrequencyRange.min === prevRange.min &&
+        renderableFrequencyRange.max === prevRange.max;
+      if (rangesMatch) {
+        gestureRangeEchoTrackerRef.current?.consume(renderableFrequencyRange);
+      } else if (
+        renderableFrequencyRange &&
+        gestureRangeEchoTrackerRef.current?.consume(renderableFrequencyRange)
+      ) {
+        // Stale echo of our own scroll/drag burst behind the live ref: the
+        // gesture already advanced past this window, so adopting it would
+        // rewind the gesture base and the next tick would publish a backward
+        // window (viewport jumps back, then re-advances). Keep the live ref;
+        // the converged echo is a no-op when it lands.
+        return;
+      }
       frequencyRangeRef.current = renderableFrequencyRange;
 
-        if (
-          renderableFrequencyRange &&
-          prevRange &&
-          (prevRange.min !== renderableFrequencyRange.min ||
-            prevRange.max !== renderableFrequencyRange.max) &&
-          shouldClearSpectrumWaveformForRangeChange({ isPaused })
-        ) {
-          lastProcessedDataRef.current = null;
-          lastProcessedFrameSignatureRef.current = null;
-          frameBufferRef.current = [];
-          renderWaveformRef.current = null;
-          waveformFloatRef.current = null;
-          fullChannelWaveformRef.current = null;
-          fullChannelRangeRef.current = null;
-        }
+      if (
+        renderableFrequencyRange &&
+        prevRange &&
+        (prevRange.min !== renderableFrequencyRange.min ||
+          prevRange.max !== renderableFrequencyRange.max) &&
+        shouldClearSpectrumWaveformForRangeChange({ isPaused })
+      ) {
+        lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
+        frameBufferRef.current = [];
+        renderWaveformRef.current = null;
+        waveformFloatRef.current = null;
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
+      }
 
       if (isPaused) {
         forceRender();
       }
-    }, [
-      renderableFrequencyRange,
-      isPaused,
-      forceRender,
-    ]);
+    }, [renderableFrequencyRange, isPaused, forceRender]);
 
     // Effect: Tracks when new data frames arrive while paused.
     // Frame arrival is an imperative notification; the live (non-paused) case
@@ -5187,13 +5268,7 @@ const FFTCanvas = memo(
       if (isPaused) {
         forceRender();
       }
-    }, [
-      vizDbMin,
-      vizDbMax,
-      currentVizZoom,
-      isPaused,
-      forceRender,
-    ]);
+    }, [vizDbMin, vizDbMax, currentVizZoom, isPaused, forceRender]);
 
     // Effect: Handles power scale (dB vs dBm) switches separately for immediate updates.
     // Preserves render buffers to redraw from existing IQ frame rather than showing blank.

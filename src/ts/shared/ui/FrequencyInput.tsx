@@ -153,6 +153,84 @@ const UnitOption = styled.button<{ $active?: boolean }>`
 
 const FREQUENCY_UNITS: FrequencyUnit[] = ["Hz", "kHz", "MHz", "GHz"];
 
+/** Complete denomination words a typed suffix may spell. */
+const FREQUENCY_WORDS = ["hz", "khz", "mhz", "ghz"] as const;
+
+const FREQUENCY_WORD_UNITS: Record<string, FrequencyUnit> = {
+  hz: "Hz",
+  khz: "kHz",
+  mhz: "MHz",
+  ghz: "GHz",
+};
+
+/**
+ * Resolves a (possibly partial) typed suffix to its denomination. Every
+ * valid prefix is unambiguous: k/kh/khz -> kHz, m/mh/mhz -> MHz,
+ * g/gh/ghz -> GHz, h/hz -> Hz. Returns undefined for an empty suffix or one
+ * that cannot start/continue a denomination word.
+ */
+export const resolveFrequencySuffixUnit = (
+  suffix: string,
+): FrequencyUnit | undefined => {
+  if (!suffix) return undefined;
+  const word = FREQUENCY_WORDS.find((candidate) =>
+    candidate.startsWith(suffix.toLowerCase()),
+  );
+  return word ? FREQUENCY_WORD_UNITS[word] : undefined;
+};
+
+/** Splits a draft into its numeric head and trailing unit letters. */
+export const splitFrequencyDraft = (draft: string): {
+  head: string;
+  suffix: string;
+} => {
+  const spaceless =
+    typeof draft === "string" ? draft.replace(/[\s_,]+/g, "") : "";
+  const match = spaceless.match(/^(.*?)([a-zA-Z]*)$/);
+  if (!match) return { head: spaceless, suffix: "" };
+  return { head: match[1], suffix: match[2].toLowerCase() };
+};
+
+/**
+ * Whether raw box text is typeable: digits (with sign/decimal) optionally
+ * followed by a letter run that starts or continues a denomination word.
+ * Anything else ("x", "k5", "kHzx") must be rejected, never adopted.
+ */
+export const isValidFrequencyDraftText = (text: string): boolean => {
+  if (typeof text !== "string") return false;
+  const spaceless = text.replace(/[\s_,]+/g, "");
+  if (!spaceless) return true;
+  const { head, suffix } = splitFrequencyDraft(spaceless);
+  if (suffix && !resolveFrequencySuffixUnit(suffix)) return false;
+  if (head && !/^-?[\d.]*$/.test(head)) return false;
+  return true;
+};
+
+/**
+ * Parses a typed draft that may embed its own unit ("360k", "360 kHz",
+ * "2.4M", "-1.2 MHz", including half-typed "360kh"). Falls back to
+ * `fallbackUnit` when the draft carries a bare number. Returns NaN when
+ * unparseable.
+ */
+export const parseFrequencyDraftHz = (
+  draft: string,
+  fallbackUnit: string,
+): number => {
+  if (typeof draft !== "string") return NaN;
+  // Strip separators/whitespace first so "2 5" types as 25 and "360 kHz"
+  // still resolves its suffix.
+  const { head, suffix } = splitFrequencyDraft(draft);
+  if (!head) return NaN;
+  const value = parseFloat(head);
+  if (!Number.isFinite(value)) return NaN;
+  if (!suffix) {
+    return value * getFrequencyUnitScale((fallbackUnit as any) ?? "Hz");
+  }
+  const unit = resolveFrequencySuffixUnit(suffix);
+  if (!unit) return NaN;
+  return value * getFrequencyUnitScale(unit);
+};
+
 interface FrequencyInputProps {
   valueHz: number;
   onChangeHz: (hz: number) => void;
@@ -344,6 +422,34 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (disabled) return;
+      if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        (e.nativeEvent as unknown as { isComposing?: boolean } | null)
+          ?.isComposing !== true &&
+        e.key.length === 1 &&
+        /[a-zA-Z]/.test(e.key)
+      ) {
+        // Reject a letter keystroke that could never spell a denomination:
+        // the first letter must be h/k/m/g and the rest must continue that
+        // word (hz/khz/mhz/ghz). Preventing it here keeps the caret where it
+        // is; the change handler reverts anything that slips through (paste,
+        // drop, IME commit).
+        const input = e.currentTarget;
+        const value = input.value ?? "";
+        const start = input.selectionStart ?? value.length;
+        const end = input.selectionEnd ?? value.length;
+        const predicted = (
+          value.slice(0, start) +
+          e.key +
+          value.slice(end)
+        ).replace(/\s+/g, "");
+        if (!isValidFrequencyDraftText(predicted)) {
+          e.preventDefault();
+          return;
+        }
+      }
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.stopPropagation();
         e.preventDefault();
@@ -373,21 +479,50 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (disabled) return;
-      const valStr = e.target.value.replace(/\s+/g, "");
+      const rawStr = e.target.value;
+      const valStr = rawStr.replace(/\s+/g, "");
+
+      // Reject letters that cannot start or continue a denomination word
+      // (first letter must be h/k/m/g, then only that word's letters): revert
+      // the change instead of adopting text that could never parse. Paste,
+      // drop and IME paths all funnel through here; the keyDown filter below
+      // stops single bad keystrokes even earlier. Never interfere with an
+      // in-progress IME composition.
+      const isComposing =
+        (e.nativeEvent as unknown as { isComposing?: boolean } | null)
+          ?.isComposing === true;
+      if (!isComposing && !isValidFrequencyDraftText(valStr)) {
+        e.target.value = displayValue;
+        return;
+      }
       setDisplayValue(valStr);
+
+      // A typed unit suffix switches the denomination live without touching
+      // the digits ("360" [MHz] + "k" -> "360k" [kHz]). Only the unit button
+      // is updated here; the text (and its digits) is never reformatted
+      // mid-typing, and an unrecognized trailing run ("mh" halfway through
+      // "mhz") leaves the current denomination alone.
+      const { suffix } = splitFrequencyDraft(valStr);
+      const typedUnit = resolveFrequencySuffixUnit(suffix);
+      if (typedUnit && typedUnit !== displayUnit) {
+        setDisplayUnit(typedUnit);
+      }
 
       if (commitOnBlur) {
         return;
       }
 
-      const val = parseFloat(valStr);
-      if (Number.isFinite(val)) {
-        const multiplier = getFrequencyUnitScale(displayUnit as any);
-        const newHz = val * multiplier;
-        const cappedHz = clampFrequencyHz(newHz, minHz, maxHz);
+      // Accept an embedded unit suffix while typing ("360k" -> 360 kHz) so
+      // the field does not need the unit button for quick jumps. A bare
+      // number keeps the currently selected unit.
+      const parsedHz = parseFrequencyDraftHz(rawStr, displayUnit);
+      if (Number.isFinite(parsedHz)) {
+        const cappedHz = clampFrequencyHz(parsedHz, minHz, maxHz);
 
         // Don't refresh the UI string while typing unless it's clamped
-        if (Math.abs(cappedHz - newHz) > 0.1) {
+        if (Math.abs(cappedHz - parsedHz) > 0.1) {
+          const activeUnit = typedUnit ?? (displayUnit as any);
+          const multiplier = getFrequencyUnitScale(activeUnit);
           setDisplayValue(
             trimNumericString(formatFrequencyValue(cappedHz / multiplier)),
           );
@@ -420,9 +555,9 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     };
 
     const resolveDraftHz = (): number | null => {
-      const parsed = parseFloat(displayValue.replace(/\s+/g, ""));
+      const parsed = parseFrequencyDraftHz(displayValue, displayUnit);
       if (!Number.isFinite(parsed)) return null;
-      return parsed * getFrequencyUnitScale(displayUnit as any);
+      return parsed;
     };
 
     const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>): void => {

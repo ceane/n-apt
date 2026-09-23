@@ -2,6 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { Search, Zap } from "lucide-react";
 import { formatFrequency, formatPowerDbm } from "@n-apt/math/frequency";
+import {
+  readStoredClassifierOpen,
+  writeStoredClassifierOpen,
+} from "@n-apt/demodulation/react-flow/nodes/spikeClassifierDetailsState";
 
 interface SpikeDetectionNodeProps {
   data: {
@@ -74,6 +78,49 @@ const ResultCard = styled.div`
   background: rgba(255, 255, 255, 0.03);
 `;
 
+const ClassifierFeatures = styled.details`
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  background: rgba(255, 255, 255, 0.03);
+`;
+
+const ClassifierFeaturesSummary = styled.summary`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &::after {
+    content: "+";
+    color: ${({ theme }) => theme.colors.textSecondary};
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  details[open] &::after {
+    content: "−";
+  }
+`;
+
+const ClassifierFeaturesTitle = styled.span`
+  font-size: 12px;
+  font-weight: 700;
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+const ClassifierFeaturesContent = styled.div`
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+`;
+
 const ResultHeader = styled.div`
   display: flex;
   align-items: center;
@@ -134,12 +181,21 @@ const StripedMetricRow = styled(MetricRow)<{ $positive?: boolean }>`
   }
 `;
 
-const NaptMetricRow = styled(StripedMetricRow)`
-  font-size: 14.3px;
+const VerdictRows = styled.div`
+  display: grid;
+  gap: 2px;
 `;
 
-const NaptRowLabel = styled(ResultLabel)`
-  font-size: inherit;
+const VerdictMetricRow = styled(StripedMetricRow)`
+  font-size: 14.3px;
+  color: ${({ theme, $positive }) =>
+    $positive ? theme.colors.primary : theme.colors.textSecondary};
+
+  & > span:last-child {
+    color: ${({ theme, $positive }) =>
+      $positive ? theme.colors.primary : theme.colors.textPrimary};
+    font-size: 16px;
+  }
 `;
 
 const MetricValue = styled.span`
@@ -198,6 +254,18 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
     (state) => state.spectrum.gpuSpikeAnalysis,
   );
   const [hoveredSpike, setHoveredSpike] = useState<number | null>(null);
+  const [isClassifierOpen, setIsClassifierOpen] = useState(
+    readStoredClassifierOpen,
+  );
+  const handleClassifierToggle = (
+    event: React.SyntheticEvent<HTMLDetailsElement>,
+  ) => {
+    const next = event.currentTarget.open;
+    setIsClassifierOpen((current) => {
+      if (current !== next) writeStoredClassifierOpen(next);
+      return next;
+    });
+  };
   const diagnosticPercent = (value: number | null | undefined) =>
     value !== null && value !== undefined && Number.isFinite(value)
       ? `${(Math.max(0, Math.min(1, value)) * 100) | 0}%`
@@ -301,21 +369,28 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
           <HelperText>{scanStatus}</HelperText>
         </ResultCard>
 
-        <ResultCard>
-          <ResultLabel>N-APT Classifier Features</ResultLabel>
-          <HelperText>
-            Primary evidence (22% each): suspension bridge, U-dip,
-            floor-relative power, spacing, and recurring spike locations.
-            Spike persistence combines recurring fixed peaks with their
-            confirmed spacing through pulse-off frames; it does not inspect
-            valley contents. The temporal score contributes 10%; recurrent
-            Coherence / Truncation adds up to 2% when present.
-            Tuning persistence holds through brief dropouts; it adds no score.
-            Interference requires both broad floor lift and a frequency-local
-            floor change; valley fill adds support. Off-cadence teeth or a
-            coherent bridge shape alone do not count. A level floor is
-            evidence against interference.
-          </HelperText>
+        <ClassifierFeatures
+          open={isClassifierOpen}
+          onToggle={handleClassifierToggle}
+        >
+          <ClassifierFeaturesSummary>
+            <ClassifierFeaturesTitle as="span">
+              N-APT Classifier Features
+            </ClassifierFeaturesTitle>
+          </ClassifierFeaturesSummary>
+          <ClassifierFeaturesContent>
+            <HelperText>
+              Primary evidence (22% each): suspension bridge, U-dip,
+              floor-relative power, spacing, and recurring spike locations.
+              Spike persistence combines recurring fixed peaks with their
+              confirmed spacing through pulse-off frames; it does not inspect
+              valley contents. The temporal score contributes 10%; recurrent
+              Coherence / Truncation adds up to 2% when present.
+              Tuning persistence holds through brief dropouts; it adds no score.
+              Interference requires a broad floor change, with valley fill as
+              supporting evidence. A level floor is evidence against
+              interference.
+            </HelperText>
           <StripedRows>
             <StripedMetricRow
               $positive={scoreIsYes(gpuSpikeAnalysis?.suspensionBridgeScore)}
@@ -485,23 +560,26 @@ export const SpikeDetectionNode: React.FC<SpikeDetectionNodeProps> = ({
                 {diagnosticPercent(gpuSpikeAnalysis?.envelopeResidualScore)}
               </MetricValue>
             </StripedMetricRow>
-            <StripedMetricRow
+          </StripedRows>
+          </ClassifierFeaturesContent>
+        </ClassifierFeatures>
+
+        <ResultCard>
+          <VerdictRows>
+            <VerdictMetricRow $positive={gpuSpikeAnalysis?.isNapt === true}>
+              <span>Is N-APT?</span>
+              <MetricValue>{naptLabel}</MetricValue>
+            </VerdictMetricRow>
+            <VerdictMetricRow
               $positive={scoreIsYes(gpuSpikeAnalysis?.confidence)}
             >
               <span>Confidence</span>
               <MetricValue>
                 {diagnosticPercent(gpuSpikeAnalysis?.confidence)}
               </MetricValue>
-            </StripedMetricRow>
-          </StripedRows>
-        </ResultCard>
-
-        <ResultCard>
+            </VerdictMetricRow>
+          </VerdictRows>
           <StripedRows>
-            <NaptMetricRow $positive={gpuSpikeAnalysis?.isNapt === true}>
-              <NaptRowLabel>Is N-APT?</NaptRowLabel>
-              <MetricValue>{naptLabel}</MetricValue>
-            </NaptMetricRow>
             <StripedMetricRow>
               <ResultLabel>Floor at</ResultLabel>
               <MetricValue>

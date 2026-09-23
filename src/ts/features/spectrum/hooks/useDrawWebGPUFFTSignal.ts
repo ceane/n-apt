@@ -167,7 +167,9 @@ export interface SpikeAnalysis {
   floorStabilityScore?: number | null;
   floorStabilityFrames?: number;
   spikeValleyFillScore?: number | null;
+  broadFloorVariationScore?: number;
   interferenceScore?: number | null;
+  frameInterferenceScore?: number | null;
   interferenceEvidenceFrames?: number;
   interferenceMissingFrames?: number;
   spikePresenceScore?: number;
@@ -757,14 +759,14 @@ export function useDrawWebGPUFFTSignal() {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       const naptClassifyResultBuffer = device.createBuffer({
-        size: 132,
+        size: 160,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_DST |
           GPUBufferUsage.COPY_SRC,
       });
       const naptClassifyReadbackBuffer = device.createBuffer({
-        size: 132,
+        size: 160,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
       const spikeMetricsBuffer = device.createBuffer({
@@ -862,13 +864,13 @@ export function useDrawWebGPUFFTSignal() {
         compute: { module: naptDetectModule, entryPoint: "main" },
       });
       const naptTemporalHistoryBuffer = device.createBuffer({
-        size: NAPT_TEMPORAL_HISTORY_LENGTH * 36,
+        size: NAPT_TEMPORAL_HISTORY_LENGTH * 40,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
       device.queue.writeBuffer(
         naptTemporalHistoryBuffer,
         0,
-        new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
+        new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 10),
       );
       const naptTemporalParamsBuffer = device.createBuffer({
         size: 16,
@@ -1123,7 +1125,7 @@ export function useDrawWebGPUFFTSignal() {
         state.device.queue.writeBuffer(
           state.naptTemporalHistoryBuffer,
           0,
-          new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
+          new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 10),
         );
       }
 
@@ -1168,7 +1170,7 @@ export function useDrawWebGPUFFTSignal() {
           state.device.queue.writeBuffer(
             state.naptTemporalHistoryBuffer,
             0,
-            new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
+            new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 10),
           );
           state.naptTemporalFrequencyMin = frequencyRange.min;
           state.naptTemporalFrequencyMax = frequencyRange.max;
@@ -1604,7 +1606,7 @@ export function useDrawWebGPUFFTSignal() {
             0,
             state.naptClassifyReadbackBuffer,
             0,
-            132,
+            160,
           );
           encoder.copyBufferToBuffer(
             state.naptDecisionBuffer,
@@ -1813,6 +1815,16 @@ export function useDrawWebGPUFFTSignal() {
               const apexProminenceScore = result.getFloat32(120, true);
               const shoulderSymmetryScore = result.getFloat32(124, true);
               const captureQualityScore = result.getFloat32(128, true);
+              const spacingHzRaw = result.getFloat32(132, true);
+              const spacingScore = result.getFloat32(136, true);
+              const spacingSupport = result.getFloat32(140, true);
+              const spacingToleranceHzRaw = result.getFloat32(144, true);
+              const spikeValleyFillScore = result.getFloat32(148, true);
+              const broadFloorVariationScore = result.getFloat32(152, true);
+              const frameInterferenceScore = result.getFloat32(156, true);
+              const spacingHz = spacingHzRaw > 0 ? spacingHzRaw : null;
+              const spacingToleranceHz =
+                spacingToleranceHzRaw > 0 ? spacingToleranceHzRaw : null;
               resultBuffer.unmap();
               return state.naptDecisionReadbackBuffer
                 .mapAsync(GPUMapMode.READ)
@@ -1863,6 +1875,11 @@ export function useDrawWebGPUFFTSignal() {
                         52,
                         true,
                       );
+                      const interferenceScore = temporal.getFloat32(56, true);
+                      const interferenceEvidenceFrames = temporal.getUint32(
+                        60,
+                        true,
+                      );
                       state.naptTemporalReadbackBuffer.unmap();
                       return spikeBuffer.mapAsync(GPUMapMode.READ).then(() => ({
                         floorDbm,
@@ -1898,6 +1915,15 @@ export function useDrawWebGPUFFTSignal() {
                         apexProminenceScore,
                         shoulderSymmetryScore,
                         captureQualityScore,
+                        spacingHz,
+                        spacingToleranceHz,
+                        spacingScore,
+                        spacingSupport,
+                        spikeValleyFillScore,
+                        broadFloorVariationScore,
+                        interferenceScore,
+                        frameInterferenceScore,
+                        interferenceEvidenceFrames,
                         aboveFloorFraction,
                         periodicity,
                         isNapt: temporalIsNapt,

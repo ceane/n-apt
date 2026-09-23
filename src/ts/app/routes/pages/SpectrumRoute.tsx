@@ -86,6 +86,7 @@ import {
   resolveMirroredDisplayCenter,
   resolveMirroredTuning,
 } from "@n-apt/math/basebandMirror";
+import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
 
 export const resolveNavigationFrequencyBounds = ({
   hardwareBounds,
@@ -1596,10 +1597,36 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           displaySpanHz: visualSpan,
           sourceRange: state.frequencyRange,
         });
+        const finalRange = mirrored.needsRetune
+          ? mirrored.range
+          : state.frequencyRange;
         if (mirrored.needsRetune) {
-          handleFrequencyRangeChange(mirrored.range, "user-pan");
+          // Typed entries are discrete commands: flush any pending pan so an
+          // older gesture cannot arrive after the explicit frequency.
+          handleFrequencyRangeChange(mirrored.range, "typed");
         }
-        setVizPanOffset(mirrored.panOffsetHz);
+        const finalCenter =
+          (finalRange.min + finalRange.max) / 2;
+        if (nextCenterFrequencyHz < 0) {
+          // Below DC is display-only mirroring: keep the current zoom and
+          // present the requested signed center from the (possibly retuned)
+          // positive acquisition.
+          setVizPanOffset(nextCenterFrequencyHz - finalCenter);
+          return;
+        }
+        // Typing a center near the acquisition edge at 1x cannot stay at 1x:
+        // the viewport would have to hang past the bound. Zoom just enough
+        // that the requested center fits (e.g. 360 kHz in a [0, 3.2 MHz]
+        // window focuses to ~4.4x on [0, 720 kHz] instead of snapping back
+        // to the 1.6 MHz hardware center).
+        const view = getZoomedViewForCenterFrequency({
+          hardwareRange: finalRange,
+          currentZoom: state.vizZoom,
+          currentPan: mirrored.needsRetune ? 0 : state.vizPanOffset,
+          requestedCenterHz: nextCenterFrequencyHz,
+        });
+        setVizZoom(view.zoom);
+        setVizPanOffset(view.pan);
         return;
       }
 
@@ -1612,17 +1639,33 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       );
       if (!nextRange) return;
 
-      // Explicit center entry is a source tune, not a zoom gesture. Keep the
-      // current acquisition width, move the source window to the requested
-      // center, and leave subscriber-local zoom/pan untouched.
-      setVizPanOffset(0);
-      handleFrequencyRangeChange(nextRange, "typed");
+      // Explicit center entry is a source tune, not a zoom gesture. Preserve
+      // the acquisition width and move the source window to the requested
+      // center — then zoom/pan so the requested center is actually on screen.
+      // Without the second step, typing 360 kHz into a [0, 3.2 MHz] window
+      // retunes to [0, 3.2 MHz] with pan 0 and the display snaps back to the
+      // 1.6 MHz hardware center instead of focusing on 360 kHz.
+      const hardwareChanged =
+        nextRange.min !== state.frequencyRange.min ||
+        nextRange.max !== state.frequencyRange.max;
+      if (hardwareChanged) {
+        handleFrequencyRangeChange(nextRange, "typed");
+      }
+      const view = getZoomedViewForCenterFrequency({
+        hardwareRange: nextRange,
+        currentZoom: state.vizZoom,
+        currentPan: 0,
+        requestedCenterHz: sourceCenterFrequencyHz,
+      });
+      setVizZoom(view.zoom);
+      setVizPanOffset(view.pan);
     },
     [
       handleFrequencyRangeChange,
       allowNegativeFrequencies,
       isMockTxMonitorActive,
       setVizPanOffset,
+      setVizZoom,
       state.frequencyRange,
       state.vizPanOffset,
       state.vizZoom,
@@ -3037,6 +3080,14 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                         onCenterFrequencyChange={handleCenterFrequencyChange}
                         onClose={() => setIsCenterFrequencyEditing(false)}
                         allowNegativeFrequencies={allowNegativeFrequencies}
+                        windowSpanHz={
+                          fftFrequencyRange
+                            ? Math.max(
+                                1,
+                                fftFrequencyRange.max - fftFrequencyRange.min,
+                              )
+                            : null
+                        }
                       />
                     ) : null}
                     {isTxOptionsEditing && txSliderDefaults ? (

@@ -310,4 +310,83 @@ describe("negative-direction scroll panning regression", () => {
       ]?.[0];
     expect(firstRange.max).toBe(SPECTRUM_MAX_HZ);
   });
+
+  it("keeps a zoomed VFO scroll as a visual pan instead of snapping to hardware center", () => {    // User report: zoomed into a 3.2 MHz window (hardware center 1.6 MHz),
+    // panned left toward 0 Hz, then any scroll over the VFO snapped the
+    // display back to 1.6 MHz. With the mirror off, every VFO gesture took
+    // the hardware-retune path, which re-anchored the window and zeroed the
+    // pan — even when the clamp left the window unmoved.
+    frequencyRangeRef.current = { min: 0, max: 3_200_000 };
+    vizZoomRef.current = 4;
+    vizPanOffsetRef.current = -500_000;
+    renderHook(() =>
+      useSpectrumInteraction(
+        buildOptions({
+          allowNegativeFrequencies: false,
+          hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
+        }),
+      ),
+    );
+
+    wheelTick(120);
+
+    // No hardware retune: the acquisition window stays put.
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    // The pan advances left instead of being zeroed to hardware center.
+    expect(mockOnVizPanChange).toHaveBeenCalled();
+    const lastPan =
+      mockOnVizPanChange.mock.calls[
+        mockOnVizPanChange.mock.calls.length - 1
+      ]?.[0];
+    expect(lastPan).toBeLessThan(-500_000);
+    expect(lastPan).toBeGreaterThan(-1_200_000);
+    expect(vizPanOffsetRef.current).toBe(lastPan);
+    // Display center moves toward 0 Hz, not back to 1.6 MHz.
+    const displayCenter =
+      (frequencyRangeRef.current.min +
+        frequencyRangeRef.current.max) /
+        2 +
+      lastPan;
+    expect(displayCenter).toBeLessThan(1_600_000);
+  });
+
+  it("does not republish a pinned window on every tick at the acquisition edge", () => {
+    // Mirror off, zoomed 4x into [0, 3.2 MHz] (pan bounds +/-1.2 MHz),
+    // panning left into the pinned 0 Hz edge. The tuning bounds leave the
+    // window unmoved, so each tick must be a pure visual-pan clamp — queuing
+    // an identical hardware range per tick feeds the echo cycle with zero
+    // motion and the viewport flickers between stale windows.
+    frequencyRangeRef.current = { min: 0, max: 3_200_000 };
+    vizZoomRef.current = 4;
+    vizPanOffsetRef.current = -1_100_000;
+    renderHook(() =>
+      useSpectrumInteraction(
+        buildOptions({
+          allowNegativeFrequencies: false,
+          hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
+        }),
+      ),
+    );
+
+    for (let tick = 0; tick < 6; tick += 1) {
+      wheelTick(120);
+    }
+
+    // No hardware range publish: the window never moved.
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(frequencyRangeRef.current).toEqual({ min: 0, max: 3_200_000 });
+
+    // The pan advances contiguously past the acquisition edge (device-scale
+    // navigation bounds, same as plot-body scrolling) — strictly decreasing,
+    // never snapping back, never resetting to hardware center.
+    const pans = mockOnVizPanChange.mock.calls.map((call) => call[0]);
+    expect(pans.length).toBeGreaterThan(0);
+    for (const pan of pans) {
+      expect(pan).toBeLessThan(-1_100_000);
+    }
+    for (let i = 1; i < pans.length; i += 1) {
+      expect(pans[i]).toBeLessThan(pans[i - 1]);
+    }
+    expect(vizPanOffsetRef.current).toBe(pans[pans.length - 1]);
+  });
 });

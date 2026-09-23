@@ -21,6 +21,7 @@ import {
 
 const DEFAULT_URL = "http://localhost:5173/";
 const DEFAULT_DISPLAY_WIDTH = 1024;
+const DEFAULT_SAMPLE_RATE_HZ = 3_200_000;
 const MAX_SPIKES = 1024;
 
 function parseArgs(argv) {
@@ -67,6 +68,34 @@ export function parseFrameSelection(selection, frameCount) {
       seen.add(index);
       selected.push(index);
     }
+  }
+  return selected;
+}
+
+export function resolveCaptureSampleRateHz(manifest, override = null) {
+  const metadata = manifest?.capture_metadata ?? {};
+  const candidates = [
+    override,
+    metadata.sample_rate_hz,
+    metadata.capture_sample_rate_hz,
+    metadata.hardware_sample_rate_hz,
+    metadata.sample_rate,
+    manifest?.sample_rate_hz,
+    manifest?.capture_sample_rate_hz,
+    manifest?.hardware_sample_rate_hz,
+    manifest?.sample_rate,
+  ];
+  const sampleRateHz = candidates.find(
+    (value) => Number.isFinite(Number(value)) && Number(value) > 0,
+  );
+  return sampleRateHz === undefined ? DEFAULT_SAMPLE_RATE_HZ : Number(sampleRateHz);
+}
+
+export function selectRegressionCases(cases, caseId = null) {
+  if (!caseId) return cases;
+  const selected = cases.filter((testCase) => testCase.id === caseId);
+  if (selected.length === 0) {
+    throw new Error(`No regression case found with id: ${caseId}`);
   }
   return selected;
 }
@@ -127,7 +156,7 @@ function fftFrame(iq, frameIndex, fftSize) {
   return waveform;
 }
 
-function loadCapture(manifestDir, frameSelection) {
+function loadCapture(manifestDir, frameSelection, sampleRateOverride) {
   const manifestPath = path.join(manifestDir, "manifest.json");
   const rawPath = path.join(manifestDir, "raw.iq.u8");
   if (!existsSync(manifestPath) || !existsSync(rawPath)) {
@@ -141,14 +170,7 @@ function loadCapture(manifestDir, frameSelection) {
   }
   const indices = parseFrameSelection(frameSelection, completeFrameCount);
   const iq = new Uint8Array(readFileSyncNode(rawPath));
-  const sampleRate = Number(
-    manifest.capture_metadata?.sample_rate_hz ??
-    manifest.capture_metadata?.capture_sample_rate_hz ??
-    manifest.capture_metadata?.hardware_sample_rate_hz ??
-    manifest.sample_rate_hz ??
-    manifest.capture_sample_rate_hz ??
-    0,
-  );
+  const sampleRate = resolveCaptureSampleRateHz(manifest, sampleRateOverride);
   const centerFrequency = Number(manifest.capture_metadata?.center_frequency_hz ?? manifest.capture_metadata?.center_frequency ?? 0);
   const frequencyMin = centerFrequency - sampleRate / 2;
   const frequencyMax = centerFrequency + sampleRate / 2;
@@ -178,9 +200,11 @@ Options:
   --expected-interference high|low  Expected interference polarity per capture; repeatable
   --expected-napt high|low  Expected N-APT confidence per capture; repeatable
   --regression-manifest PATH  Explicit labeled capture regression manifest
+  --case-id ID         Run one case from the regression manifest
   --assert              Exit non-zero when a labeled regression case fails
   --frames LIST        Frame indices or 'all' (default: 0)
   --display-width N    GPU resample width (default: 1024)
+  --sample-rate-hz N  Override capture sample rate when metadata is missing
   --url URL            Local app URL (default: ${DEFAULT_URL})
   --executable-path PATH  Browser binary override when Playwright Chromium is not installed
   --headed             Show Chromium while running
@@ -201,11 +225,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
       new Blob([spikeSpacingModule], { type: "text/javascript" }),
     );
     const {
-      analyzeSpikeSpacing,
-      measureBroadFloorVariation,
       measureSpikeInterference,
-      measureSpikeValleyFill,
-      measureInterferencePresence,
       measureSpikeTrackPersistence,
       measureSpikeCombPersistence,
       selectTallSpikes,
@@ -258,14 +278,14 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
       return buffer;
     };
     const readback = (size) => device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    const temporalHistoryBuffer = storage(NAPT_TEMPORAL_HISTORY_LENGTH * 36);
+    const temporalHistoryBuffer = storage(NAPT_TEMPORAL_HISTORY_LENGTH * 40);
     const temporalParamsBuffer = uniform(new Uint32Array([NAPT_TEMPORAL_HISTORY_LENGTH, 0, 0, 0]));
     const temporalDecisionBuffer = storage(64);
     const temporalReadbackBuffer = readback(64);
     device.queue.writeBuffer(
       temporalHistoryBuffer,
       0,
-      new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 9),
+      new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 10),
     );
     let temporalHistoryIndex = 0;
     let temporalHistoryCount = 0;
@@ -326,7 +346,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
       ] });
       const primarySpikeGroup = spikeGroup(spikeParams);
       const recoverySpikeGroup = spikeGroup(recoveryParams);
-      const resultBuffer = storage(132);
+      const resultBuffer = storage(160);
       const metricsBuffer = storage(maxSpikes * 16);
       const countBuffer = spikeCountBuffer;
       const classifyParams = new ArrayBuffer(16);
@@ -355,7 +375,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
         { binding: 3, resource: { buffer: temporalParamsBuffer } },
         { binding: 4, resource: { buffer: temporalDecisionBuffer } },
       ] });
-      const resultReadback = readback(132);
+      const resultReadback = readback(160);
       const waveformReadback = readback(displayWidth * 4);
       const spikeReadback = readback(maxSpikes * 16);
       const decisionReadback = readback(8);
@@ -388,7 +408,7 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
       pass.setPipeline(detectPipeline); pass.setBindGroup(0, detectGroup); pass.dispatchWorkgroups(1);
       pass.setPipeline(temporalPipeline); pass.setBindGroup(0, temporalGroup); pass.dispatchWorkgroups(1);
       pass.end();
-      encoder.copyBufferToBuffer(resultBuffer, 0, resultReadback, 0, 132);
+      encoder.copyBufferToBuffer(resultBuffer, 0, resultReadback, 0, 160);
       encoder.copyBufferToBuffer(waveformBuffer, 0, waveformReadback, 0, displayWidth * 4);
       encoder.copyBufferToBuffer(metricsBuffer, 0, spikeReadback, 0, maxSpikes * 16);
       encoder.copyBufferToBuffer(decisionBuffer, 0, decisionReadback, 0, 8);
@@ -424,7 +444,25 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
       }).sort((left, right) => left.index - right.index);
       spikeReadback.unmap();
       const floorDbm = resultView.getFloat32(40, true);
-      const spacing = analyzeSpikeSpacing(spikes, floorDbm);
+      const orderedSpikePowers = spikes
+        .map((spike) => spike.powerDbm)
+        .filter(Number.isFinite)
+        .sort((left, right) => left - right);
+      const medianSpikePowerDbm = orderedSpikePowers.length
+        ? orderedSpikePowers[Math.floor(orderedSpikePowers.length / 2)]
+        : null;
+      const spacingHzValue = resultView.getFloat32(132, true);
+      const spacing = {
+        spacingHz: spacingHzValue > 0 ? spacingHzValue : null,
+        score: resultView.getFloat32(136, true),
+        support: resultView.getFloat32(140, true),
+        toleranceHz: resultView.getFloat32(144, true),
+      };
+      const spikeValleyFill = resultView.getFloat32(148, true);
+      const broadFloorVariation = resultView.getFloat32(152, true);
+      const frameInterferenceScore = resultView.getFloat32(156, true);
+      const interferenceScore = temporalView.getFloat32(56, true);
+      const interferenceEvidenceFrames = temporalView.getUint32(60, true);
       spikePresenceHistory.push(
         selectTallSpikes(spikes, floorDbm).map((spike) => spike.frequencyHz),
       );
@@ -439,20 +477,8 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
             spikeTrackPersistence,
             spacing.score,
           );
-      const spikeValleyFill = measureSpikeValleyFill(
-        spikes,
-        floorDbm,
-        spacing.spacingHz,
-        { samples: waveform, minFrequencyHz: frequencyMin, maxFrequencyHz: frequencyMax },
-      );
       const offGridRatio = measureSpikeInterference(spikes, floorDbm, spacing.spacingHz);
       const aboveFloorFraction = resultView.getFloat32(44, true);
-      const broadFloorVariation = measureBroadFloorVariation(waveform);
-      const interferenceScore = measureInterferencePresence(
-        aboveFloorFraction,
-        spikeValleyFill,
-        broadFloorVariation ?? 0,
-      );
       result.push({
         frame: frame.index,
         pointCount: Math.min(count, maxSpikes),
@@ -462,6 +488,10 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
         bridgeShoulder: resultView.getFloat32(68, true),
         uDip: resultView.getFloat32(72, true),
         floorRelativePower: resultView.getFloat32(76, true),
+        medianSpikePowerDbm,
+        medianSpikeFloorMarginDb: medianSpikePowerDbm === null
+          ? null
+          : medianSpikePowerDbm - floorDbm,
         temporalStability: resultView.getFloat32(80, true),
         aboveFloorFraction,
         broadFloorVariation,
@@ -485,6 +515,8 @@ async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacin
         spikeValleyFill,
         offGridInterference: offGridRatio,
         interferenceScore,
+        frameInterferenceScore,
+        interferenceEvidenceFrames,
         confidence: temporalView.getFloat32(12, true),
         isNapt: temporalView.getUint32(4, true) !== 0,
         baselineConfidence: decisionView.getFloat32(4, true),
@@ -547,10 +579,15 @@ async function run() {
     );
   }
   const captureSpecs = regressionManifest
-    ? regressionManifest.cases.map((testCase) => ({ testCase, directory: testCase.capture_dir }))
+    ? selectRegressionCases(regressionManifest.cases, args.case_id)
+        .map((testCase) => ({ testCase, directory: testCase.capture_dir }))
     : args.manifest_dirs.map((directory) => ({ directory: path.resolve(directory) }));
   const captures = captureSpecs.map(({ directory }) =>
-    loadCapture(directory, args.frames ?? (regressionManifest || args.assert ? "all" : "0")));
+    loadCapture(
+      directory,
+      args.frames ?? (regressionManifest || args.assert ? "all" : "0"),
+      args.sample_rate_hz === undefined ? null : Number(args.sample_rate_hz),
+    ));
   const shaderRoot = path.resolve("src/ts/shaders");
   const shaderCode = {
     resample: readFileSyncNode(path.join(shaderRoot, "resample.wgsl"), "utf8"),
@@ -601,6 +638,9 @@ async function run() {
         const interferenceValues = (frames ?? [])
           .map((frame) => frame.interferenceScore)
           .filter(Number.isFinite);
+        const frameInterferenceValues = (frames ?? [])
+          .map((frame) => frame.frameInterferenceScore)
+          .filter(Number.isFinite);
         const valleyFillValues = (frames ?? [])
           .map((frame) => frame.spikeValleyFill)
           .filter(Number.isFinite);
@@ -613,6 +653,19 @@ async function run() {
         const floorVariationValues = (frames ?? [])
           .map((frame) => frame.broadFloorVariation)
           .filter(Number.isFinite);
+        const floorDbmValues = (frames ?? [])
+          .map((frame) => frame.floorDbm)
+          .filter(Number.isFinite);
+        const floorStepValues = (frames ?? [])
+          .slice(1)
+          .map((frame, frameIndex) => Math.abs(frame.floorDbm - frames[frameIndex].floorDbm))
+          .filter(Number.isFinite);
+        const floorRelativePowerValues = (frames ?? [])
+          .map((frame) => frame.floorRelativePower)
+          .filter(Number.isFinite);
+        const spikeFloorMarginValues = (frames ?? [])
+          .map((frame) => frame.medianSpikeFloorMarginDb)
+          .filter(Number.isFinite);
         const spikeTrackPersistenceValues = (frames ?? [])
           .map((frame) => frame.spikeTrackPersistence)
           .filter(Number.isFinite);
@@ -623,13 +676,33 @@ async function run() {
           .map((frame) => frame.multiFrameConfidence)
           .filter(Number.isFinite);
         const interferenceScore = mean(interferenceValues);
+        const strongFrameCount = frameInterferenceValues.filter((value) => value >= 0.75).length;
+        let bestStrongWindowCount = 0;
+        for (let start = 0; start + 5 <= frameInterferenceValues.length; start += 1) {
+          const strongCount = frameInterferenceValues
+            .slice(start, start + 5)
+            .filter((value) => value >= 0.75).length;
+          bestStrongWindowCount = Math.max(bestStrongWindowCount, strongCount);
+        }
+        const maxInterferenceScore = interferenceValues.length
+          ? Math.max(...interferenceValues)
+          : null;
+        const confirmedInterferenceValues = interferenceValues.slice(2);
+        const confirmedInterferenceMean = mean(confirmedInterferenceValues);
+        const confirmedPresentFraction = confirmedInterferenceValues.length
+          ? confirmedInterferenceValues.filter((value) => value >= 0.75).length /
+            confirmedInterferenceValues.length
+          : 0;
         const naptConfidence = mean(naptConfidenceValues);
         const failures = [];
-        if (interferenceLabel === "high" && !(interferenceScore >= 0.75)) {
-          failures.push(`expected high interference; mean score was ${interferenceScore}`);
+        if (interferenceLabel === "high" && !(confirmedInterferenceMean >= 0.75)) {
+          failures.push(`expected confirmed high interference; mean score was ${confirmedInterferenceMean}`);
         }
-        if (interferenceLabel === "low" && !(interferenceScore <= 0.09)) {
-          failures.push(`expected single-digit interference; mean score was ${interferenceScore}`);
+        if (interferenceLabel === "high" && !(confirmedPresentFraction >= 0.75)) {
+          failures.push(`expected Present for at least 75% of confirmed frames; fraction was ${confirmedPresentFraction}`);
+        }
+        if (interferenceLabel === "low" && !(maxInterferenceScore <= 0.0901)) {
+          failures.push(`expected every displayed score at or below 9%; peak was ${maxInterferenceScore}`);
         }
         if (naptLabel === "high" && !(naptConfidence >= 0.75)) {
           failures.push(`expected high N-APT confidence; mean score was ${naptConfidence}`);
@@ -643,10 +716,35 @@ async function run() {
           frame_summary: {
             count: frames?.length ?? 0,
             mean_interference: interferenceScore,
+            max_interference: maxInterferenceScore,
+            mean_frame_interference: mean(frameInterferenceValues),
+            max_frame_interference: frameInterferenceValues.length
+              ? Math.max(...frameInterferenceValues)
+              : null,
+            strong_interference_frame_count: strongFrameCount,
+            strong_interference_frame_fraction: frameInterferenceValues.length
+              ? strongFrameCount / frameInterferenceValues.length
+              : null,
+            max_strong_frames_in_5: bestStrongWindowCount,
+            confirmed_mean_interference: confirmedInterferenceMean,
+            confirmed_present_fraction: confirmedPresentFraction,
             mean_valley_fill: mean(valleyFillValues),
             mean_off_grid: mean(offGridValues),
             mean_above_floor_fraction: mean(aboveFloorValues),
             mean_broad_floor_variation: mean(floorVariationValues),
+            max_broad_floor_variation: floorVariationValues.length
+              ? Math.max(...floorVariationValues)
+              : null,
+            mean_floor_dbm: mean(floorDbmValues),
+            floor_dbm_range: floorDbmValues.length
+              ? Math.max(...floorDbmValues) - Math.min(...floorDbmValues)
+              : null,
+            mean_floor_step_db: mean(floorStepValues),
+            max_floor_step_db: floorStepValues.length
+              ? Math.max(...floorStepValues)
+              : null,
+            mean_floor_relative_power_score: mean(floorRelativePowerValues),
+            mean_spike_floor_margin_db: mean(spikeFloorMarginValues),
             mean_spike_track_persistence: mean(spikeTrackPersistenceValues),
             mean_spike_comb_persistence: mean(spikeCombPersistenceValues),
             min_interference: interferenceValues.length ? Math.min(...interferenceValues) : null,

@@ -1211,6 +1211,18 @@ export function useSpectrumInteraction({
         max: currentHardwareCenter + overflowPan + halfHardware,
       });
 
+      // Pinned edge: the tuning bounds left the window unmoved. Publishing
+      // the identical window (and re-anchoring pan) on every tick feeds the
+      // echo cycle with zero motion — each render pairs another Redux write
+      // with the same range while the gesture advances. Let the caller apply
+      // its normal visual-pan clamp instead.
+      if (
+        clampedHardwareRange.min === frequencyRangeRef.current.min &&
+        clampedHardwareRange.max === frequencyRangeRef.current.max
+      ) {
+        return false;
+      }
+
       const newHardwareCenter =
         (clampedHardwareRange.min + clampedHardwareRange.max) / 2;
       const remainingPan = clampVizPan(
@@ -1257,6 +1269,16 @@ export function useSpectrumInteraction({
       zoom > 1 || displayNeedsMirror(pan, zoom);
 
     const shouldKeepVfoPanLocal = (pan: number, zoom: number) => {
+      // Zoomed gestures are pan-first regardless of the mirror setting (same
+      // contract as the demod waterfall nodes and the plot-body path): there
+      // is a viewport window to pan, so a VFO drag/scroll must stay a
+      // subscriber-local visual pan. Forcing the hardware-retune path here
+      // re-anchored the window and zeroed the pan, snapping the display back
+      // to the hardware center (e.g. 1.6 MHz on a 3.2 MHz window) on every
+      // scroll tick. maybeRetuneHardwareWindow inside the visual branch still
+      // retunes the shared window when the viewport actually outruns the
+      // acquisition.
+      if (zoom > 1) return true;
       if (!allowNegativeFrequencies) return false;
 
       const displayRange = resolveDisplayRangeForPanOffset({
@@ -1264,19 +1286,27 @@ export function useSpectrumInteraction({
         zoom,
         panOffsetHz: pan,
       });
+      // Retunes are still global: once the viewport outruns the resident
+      // acquisition the shared range must move (otherwise paused canvases
+      // expose a floor-filled tail).
+      if (
+        !sourceCoversMirroredDisplay(
+          frequencyRangeRef.current,
+          displayRange,
+        )
+      ) {
+        return false;
+      }
+      // Unzoomed positive pans stay global so mirror-on scrolling keeps the
+      // hardware-retune fast path; only a viewport actually reaching below
+      // DC stays local at 1x.
       // A negative pan is not automatically a mirrored view: an ordinary
       // positive-frequency viewport can be panned left while still remaining
       // entirely above DC. Keep that movement global. A mirrored VFO motion
       // stays local only while the resident acquisition covers |display|;
       // once it outruns the sample-rate window, retune the shared range so
       // paused canvases do not expose a floor-filled tail.
-      return (
-        displayNeedsMirror(pan, zoom) &&
-        sourceCoversMirroredDisplay(
-          frequencyRangeRef.current,
-          displayRange,
-        )
-      );
+      return displayNeedsMirror(pan, zoom);
     };
     const shouldKeepWheelVfoPanLocal = (pan: number, zoom: number) => {
       if (shouldKeepVfoPanLocal(pan, zoom)) return true;
@@ -1871,12 +1901,21 @@ export function useSpectrumInteraction({
             ? requestedRange
             : clampWheelRangeToHardwareBounds(requestedRange)
           : clampWheelRangeToHardwareBounds(requestedRange);
+        // Edge-clamped no-op (same guard as the wheel path): when the tuning
+        // bounds pin the window in place the window did not move, so zeroing
+        // the pan would snap a zoomed view back to the hardware center.
+        const dragHardwareMoved =
+          newRange.min !== frequencyRangeRef.current.min ||
+          newRange.max !== frequencyRangeRef.current.max;
         const existingPan = vizPanOffsetRef?.current ?? 0;
-        if (existingPan !== 0) {
+        if (existingPan !== 0 && dragHardwareMoved) {
           onVizPanReanchor?.(0);
           if (!onVizPanReanchor) onVizPanChange?.(0);
         }
-        if (vizPanOffsetRef) vizPanOffsetRef.current = 0;
+        if (dragHardwareMoved && vizPanOffsetRef) vizPanOffsetRef.current = 0;
+        if (!dragHardwareMoved) {
+          return;
+        }
         frequencyRangeRef.current = newRange;
         publishHardwareRange(newRange);
       } else if (onVizPanChange) {
@@ -2939,17 +2978,29 @@ export function useSpectrumInteraction({
           // Hardware movement consumes visual pan immediately. Paused mode
           // still uses the same global center/range and only changes whether
           // frames arrive continuously or as subscriber-scoped one-shots.
+          // Edge-clamped no-op: when the tuning bounds pin the window in
+          // place (e.g. scrolling a zoomed VFO past 0 Hz with the mirror
+          // off), the window did not move, so zeroing the pan would snap the
+          // display back to the hardware center (1.6 MHz on a 3.2 MHz
+          // window). Leave the pan alone instead.
+          const hardwareMoved =
+            clampedRange.min !== currentRange.min ||
+            clampedRange.max !== currentRange.max;
           const existingPan = vizPanOffsetRef?.current ?? 0;
-          if (existingPan !== 0) {
+          if (existingPan !== 0 && hardwareMoved) {
             onVizPanReanchor?.(0);
           }
           if (
             existingPan !== 0 &&
+            hardwareMoved &&
             !onVizPanReanchor
           ) {
             onVizPanChange?.(0);
           }
-          if (vizPanOffsetRef) vizPanOffsetRef.current = 0;
+          if (hardwareMoved && vizPanOffsetRef) vizPanOffsetRef.current = 0;
+          if (!hardwareMoved) {
+            return;
+          }
           const publishWheelRange =
             allowNegativeFrequencies
               ? publishHardwareRangeFromWheel

@@ -138,6 +138,7 @@ export const calculateVisibleFrequencyRange = ({
   sampleRateHz,
   vizZoom,
   vizPanOffset,
+  allowNegativeFrequencies = false,
 }: {
   activeSignalArea: string;
   frequencyRange: { min: number; max: number } | null;
@@ -145,9 +146,13 @@ export const calculateVisibleFrequencyRange = ({
   sampleRateHz: number;
   vizZoom: number;
   vizPanOffset: number;
+  allowNegativeFrequencies?: boolean;
 }) => {
-  const minFreq = 0;
   const maxFreq = 2_000_000_000; // 2GHz max
+  // Mirror mode presents a signed display axis around DC (same contract as
+  // the spectrum route's mirrored pan bounds): the viewport may reach below
+  // 0 Hz instead of stopping at it.
+  const minFreq = allowNegativeFrequencies ? -maxFreq : 0;
   const hardwareSpan = sampleRateHz > 0 ? sampleRateHz : 3_200_000;
   const areaKey = activeSignalArea || "A";
   const safeZoom = Number.isFinite(vizZoom) && vizZoom > 0 ? vizZoom : 1;
@@ -371,6 +376,9 @@ const DemodRouteSectionInner: React.FC = () => {
   const sampleRateHz = useAppSelector((state) => state.spectrum.sampleRateHz);
   const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
   const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
+  const allowNegativeFrequencies = useAppSelector(
+    (state) => state.settings?.mirrorIqBasebandBelowZero ?? false,
+  );
   const nodesRef = useRef<Node[]>([]);
   const edgesRef = useRef<Edge[]>([]);
 
@@ -397,6 +405,7 @@ const DemodRouteSectionInner: React.FC = () => {
         sampleRateHz,
         vizZoom,
         vizPanOffset,
+        allowNegativeFrequencies,
       }),
     [
       activeSignalArea,
@@ -405,6 +414,7 @@ const DemodRouteSectionInner: React.FC = () => {
       sampleRateHz,
       vizZoom,
       vizPanOffset,
+      allowNegativeFrequencies,
     ],
   );
 

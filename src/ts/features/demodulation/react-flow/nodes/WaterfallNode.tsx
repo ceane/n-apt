@@ -1012,6 +1012,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   const handleWaterfallZoomChange = useCallback(
     (zoom: number) => {
       setWaterfallZoom(zoom);
+      // Mirror mode pans on an unbounded signed display axis (same contract
+      // as the spectrum route's getStableVizPanForZoomChange and useVfoTuner):
+      // clamping here would snap a below-DC view back across DC on every
+      // slider tick.
+      if (allowNegativeFrequencies) return;
       const fullSpan = vfoFrequencyRange.max - vfoFrequencyRange.min;
       const maxPanHz = Math.max(
         0,
@@ -1021,7 +1026,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         Math.max(-maxPanHz, Math.min(maxPanHz, panHz)),
       );
     },
-    [vfoFrequencyRange.max, vfoFrequencyRange.min],
+    [
+      vfoFrequencyRange.max,
+      vfoFrequencyRange.min,
+      allowNegativeFrequencies,
+    ],
   );
   const performScalarResampling = useCallback(
     (

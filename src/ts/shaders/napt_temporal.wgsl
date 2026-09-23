@@ -60,6 +60,14 @@ struct Metrics {
   partial_bridge_score: f32,
   apex_prominence_score: f32,
   shoulder_symmetry_score: f32,
+  capture_quality_score: f32,
+  spacing_hz: f32,
+  spacing_score: f32,
+  spacing_support: f32,
+  spacing_tolerance_hz: f32,
+  valley_fill_score: f32,
+  broad_floor_variation_score: f32,
+  interference_score: f32,
 }
 
 struct HistoryFrame {
@@ -74,6 +82,7 @@ struct HistoryFrame {
   apex_prominence_score: f32,
   sinc_penalty_score: f32,
   shoulder_symmetry_score: f32,
+  interference_score: f32,
 }
 
 struct Params {
@@ -100,6 +109,8 @@ struct TemporalDecision {
   shoulder_symmetry_score: f32,
   sinc_penalty_score: f32,
   coalescing_score: f32,
+  interference_score: f32,
+  interference_evidence_frames: u32,
 }
 
 @group(0) @binding(0) var<storage, read> baseline: Decision;
@@ -155,6 +166,7 @@ fn main() {
     metrics.apex_prominence_score,
     metrics.sinc_penalty_score,
     metrics.shoulder_symmetry_score,
+    metrics.interference_score,
   );
 
   let frame_count = min(history_length, previous_count + 1u);
@@ -198,7 +210,12 @@ fn main() {
     let is_low_rise_event = frame.bridge_shape_support >= 0.48 &&
       frame.bridge_shape_support < 0.50;
     if (is_low_rise_event) {
-      low_rise_event_count = low_rise_event_count + 1u;
+      // Consecutive frames are one sustained event, not repeated events. This
+      // keeps the short low-rise hold available without counting every frame
+      // as independent confirmation.
+      if (low_rise_event_count == 0u || index > last_low_rise_index + 1u) {
+        low_rise_event_count = low_rise_event_count + 1u;
+      }
       last_low_rise_index = index;
       low_rise_event_score = max(low_rise_event_score, frame.bridge_shape_support);
     }
@@ -340,6 +357,8 @@ fn main() {
     0.0,
     1.0);
   let event_bridge_mean = active_bridge_sum / f32(max(1u, active_count));
+  let recurrent_bridge_score =
+    max(bridge_mean, event_bridge_mean) * persistence;
   let event_shape_confidence = clamp(
     (event_bridge_mean - 0.25) / 0.30,
     0.0,
@@ -374,9 +393,9 @@ fn main() {
   // itself. The temporal pass needs repeated validated bridge geometry before
   // it can raise the decision above the negative band.
   let temporal_shape_supported = low_rise_hold ||
-    (active_count >= 2u &&
+    (active_count >= 3u &&
       persistence >= 0.60 &&
-      (bridge_mean >= 0.30 || event_bridge_mean >= 0.30) &&
+      recurrent_bridge_score >= 0.70 &&
       (raw_persistence >= 0.60 || cadence_hits >= 1u));
   let shape_guarded_confidence = select(
     min(temporal_confidence, 0.49),
@@ -392,11 +411,12 @@ fn main() {
   // important when tuning or hardware filtering reveals only part of the
   // suspension_bridge in an individual FFT frame.
   let temporal_is_napt = select(
-    baseline_is_napt,
+    0u,
     select(0u, 1u,
           (low_rise_hold ||
             (temporal_shape_supported &&
-              ((raw_persistence >= 0.60 && bridge_mean >= 0.40) ||
+              recurrent_bridge_score >= 0.70 &&
+              (raw_persistence >= 0.60 || cadence_hits >= 1u ||
                 pulse_support >= 0.75) &&
               sinc_penalty_mean < 0.45 &&
               temporal_decision_confidence >= 0.60))),
@@ -421,12 +441,10 @@ fn main() {
   // is only trusted in proportion to event persistence. A real bridge that
   // coheres across frames remains high; a one-frame Mock coincidence cannot
   // flash a 100% bridge score before the history has validated it.
-  decision.bridge_mean = max(
-    bridge_mean,
-    max(bridge_shape_confidence, event_shape_confidence) * persistence);
-  decision.u_dip_mean = max(
-    u_dip_temporal_score,
-    u_dip_shape_confidence);
+  // Report measured recurrent bridge support, not an affine transform that
+  // turns a moderate Mock comb into a near-perfect bridge score.
+  decision.bridge_mean = clamp(recurrent_bridge_score, 0.0, 1.0);
+  decision.u_dip_mean = clamp(u_dip_temporal_score, 0.0, 1.0);
   decision.frame_count = frame_count;
   decision.unimodal_bridge_score = clamp(unimodal_bridge_temporal_score, 0.0, 1.0);
   decision.partial_bridge_score = clamp(partial_bridge_temporal_score, 0.0, 1.0);
@@ -434,4 +452,72 @@ fn main() {
   decision.shoulder_symmetry_score = clamp(shoulder_symmetry_temporal_score, 0.0, 1.0);
   decision.sinc_penalty_score = clamp(sinc_penalty_mean, 0.0, 1.0);
   decision.coalescing_score = clamp(coalescing_score, 0.0, 1.0);
+
+  // Interference requires three strong frames in the recent five-frame
+  // window. Once confirmed, three consecutive weak frames clear the state.
+  // A candidate that has not persisted is deliberately reported in the
+  // single-digit range, so a pulsing or one-frame hump cannot flash Possible.
+  var interference_active = false;
+  var interference_weak_run = 0u;
+  for (var index = 0u; index < HISTORY_LENGTH; index = index + 1u) {
+    if (index >= frame_count) { continue; }
+    let history_slot = (
+      write_index + history_length - frame_count + 1u + index) % history_length;
+    let score = history[history_slot].interference_score;
+    if (interference_active) {
+      if (score <= 0.50) {
+        interference_weak_run = interference_weak_run + 1u;
+        if (interference_weak_run >= 3u) {
+          interference_active = false;
+          interference_weak_run = 0u;
+        }
+      } else {
+        interference_weak_run = 0u;
+      }
+    } else {
+      let window_start = select(0u, index - 4u, index >= 4u);
+      var strong_count = 0u;
+      for (var sample = window_start; sample <= index; sample = sample + 1u) {
+        let sample_slot = (
+          write_index + history_length - frame_count + 1u + sample) % history_length;
+        if (history[sample_slot].interference_score >= 0.75) {
+          strong_count = strong_count + 1u;
+        }
+      }
+      if (strong_count >= 3u) {
+        interference_active = true;
+        interference_weak_run = 0u;
+      }
+    }
+  }
+
+  let interference_sample_count = min(frame_count, 5u);
+  let interference_sample_start = frame_count - interference_sample_count;
+  var recent_interference_scores: array<f32, 5>;
+  for (var sample = 0u; sample < interference_sample_count; sample = sample + 1u) {
+    let history_index = interference_sample_start + sample;
+    let history_slot = (
+      write_index + history_length - frame_count + 1u + history_index) % history_length;
+    recent_interference_scores[sample] = history[history_slot].interference_score;
+  }
+  for (var left = 0u; left < interference_sample_count; left = left + 1u) {
+    var smallest = left;
+    for (var right = left + 1u; right < interference_sample_count; right = right + 1u) {
+      if (recent_interference_scores[right] < recent_interference_scores[smallest]) {
+        smallest = right;
+      }
+    }
+    let value = recent_interference_scores[left];
+    recent_interference_scores[left] = recent_interference_scores[smallest];
+    recent_interference_scores[smallest] = value;
+  }
+  let interference_median = select(
+    0.0,
+    recent_interference_scores[interference_sample_count / 2u],
+    interference_sample_count > 0u);
+  decision.interference_score = select(
+    min(interference_median, 0.09),
+    interference_median,
+    interference_active);
+  decision.interference_evidence_frames = frame_count;
 }

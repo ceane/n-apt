@@ -1,20 +1,13 @@
 import type { SpikeAnalysis } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal";
 import {
-  analyzeSpikeSpacing,
-  measureBroadFloorVariation,
-  measureInterferencePresence,
   measureSpikeCombPersistence,
   measureSpikeTrackPersistence,
-  measureSpikeValleyFill,
   selectTallSpikes,
 } from "@n-apt/spectrum/fft/spikeSpacing";
 
 const SPACING_HOLD_FRAMES = 8;
 const SPACING_SWITCH_CONFIRMATIONS = 3;
 const SPACING_STABILITY_FRAMES = 12;
-const INTERFERENCE_READY_FRAMES = 4;
-const INTERFERENCE_HOLD_FRAMES = 8;
-const INTERFERENCE_SCORE_SMOOTHING = 0.2;
 const FLOOR_STABILITY_SMOOTHING = 0.12;
 const TUNING_PERSISTENCE_HOLD_FRAMES = 12;
 // Verdict bands: below 50% is No, 50-74% is Likely, and 75%+ is Yes.
@@ -27,6 +20,7 @@ const YES_CONFIDENCE_THRESHOLD = 0.75;
 const PRIMARY_FEATURE_WEIGHT = 0.22;
 const CORE_CONFIDENCE_WEIGHT = 0.1;
 const COALESCING_CONFIDENCE_WEIGHT = 0.02;
+const MIN_VALIDATED_BRIDGE_SCORE = 0.7;
 
 const scoreRepeatedSpacing = (frameScore: number, stableFrames: number) => {
   const temporalSupport =
@@ -101,7 +95,32 @@ export function presentSpikeAnalysis(
   },
 ): SpikeAnalysisPresentation | null {
   if (!Number.isFinite(analysis.floorDbm)) return null;
-  const spacing = analyzeSpikeSpacing(analysis.spikes, analysis.floorDbm);
+  // Spacing is measured from the GPU's finalized frame metrics. This layer
+  // retains and stabilizes the cadence across pulse-off frames, but does not
+  // independently reclassify marker gaps on the CPU.
+  const measuredSpacingHz =
+    analysis.spacingHz !== null &&
+    analysis.spacingHz !== undefined &&
+    Number.isFinite(analysis.spacingHz) &&
+    analysis.spacingHz > 0
+      ? analysis.spacingHz
+      : null;
+  const spacing = {
+    spacingHz: measuredSpacingHz,
+    toleranceHz:
+      analysis.spacingToleranceHz !== null &&
+      analysis.spacingToleranceHz !== undefined &&
+      Number.isFinite(analysis.spacingToleranceHz) &&
+      analysis.spacingToleranceHz > 0
+        ? analysis.spacingToleranceHz
+        : null,
+    score: Number.isFinite(analysis.spacingScore)
+      ? analysis.spacingScore ?? 0
+      : 0,
+    support: Number.isFinite(analysis.spacingSupport)
+      ? analysis.spacingSupport ?? 0
+      : 0,
+  };
   const centerFrequencyChanged =
     centerFrequencyHz !== null &&
     previousClassifier?.spacingCenterFrequencyHz !== null &&
@@ -281,44 +300,19 @@ export function presentSpikeAnalysis(
     ? (analysis.multiFrameShoulderSymmetryScore ??
       analysis.shoulderSymmetryScore)
     : analysis.shoulderSymmetryScore;
-  const spikeValleyFillScore = spectrum
-    ? measureSpikeValleyFill(
-        analysis.spikes,
-        analysis.floorDbm,
-        spacingHz,
-        spectrum,
-      )
+  // Per-frame valley-fill and broad-floor evidence are computed by the GPU
+  // classifier. This layer only stabilizes those frame-local outputs.
+  const spikeValleyFillScore = Number.isFinite(analysis.spikeValleyFillScore)
+    ? analysis.spikeValleyFillScore ?? null
     : null;
-  const measuredInterferenceScore = measureInterferencePresence(
-    analysis.aboveFloorFraction,
-    spikeValleyFillScore,
-    spectrum ? measureBroadFloorVariation(spectrum.samples) ?? 0 : 0,
-  );
-  let interferenceEvidenceFrames = sameAcquisitionCenter
-    ? (previousClassifier?.interferenceEvidenceFrames ?? 0)
-    : 0;
-  let interferenceMissingFrames = sameAcquisitionCenter
-    ? (previousClassifier?.interferenceMissingFrames ?? 0)
-    : 0;
-  let interferenceScore = sameAcquisitionCenter
-    ? (previousClassifier?.interferenceScore ?? null)
+  const measuredInterferenceScore = Number.isFinite(analysis.interferenceScore)
+    ? analysis.interferenceScore ?? null
     : null;
-  if (measuredInterferenceScore !== null) {
-    interferenceEvidenceFrames += 1;
-    interferenceMissingFrames = 0;
-    interferenceScore =
-      interferenceScore === null
-        ? measuredInterferenceScore
-        : interferenceScore +
-          (measuredInterferenceScore - interferenceScore) *
-            INTERFERENCE_SCORE_SMOOTHING;
-  } else if (interferenceScore !== null) {
-    interferenceMissingFrames += 1;
-    if (interferenceMissingFrames > INTERFERENCE_HOLD_FRAMES) {
-      interferenceScore = null;
-      interferenceEvidenceFrames = 0;
-    }
-  }
+  // Interference confirmation and clearing are performed by the GPU temporal
+  // pass. Do not smooth this score again on the CPU or reintroduce stale holds.
+  const interferenceScore = measuredInterferenceScore;
+  const interferenceEvidenceFrames = analysis.interferenceEvidenceFrames ?? 0;
+  const interferenceMissingFrames = analysis.interferenceMissingFrames ?? 0;
   const floorDbm =
     previousFloorDbm === null
       ? analysis.floorDbm
@@ -367,11 +361,14 @@ export function presentSpikeAnalysis(
         ? coalescingEvidence * COALESCING_CONFIDENCE_WEIGHT
         : 0)) /
     confidenceWeight;
-  const characteristicShapeScore = Math.max(
-    analysis.suspensionBridgeScore,
-    shapeApexScore,
-    shapeShoulderScore,
-  );
+  // Peak prominence and shoulder symmetry describe individual teeth. They
+  // cannot substitute for connected bridge morphology in a regularly spaced
+  // but malformed Mock comb.
+  const characteristicShapeScore = temporalReady
+    ? analysis.multiFrameBridgeScore
+    : analysis.suspensionBridgeScore;
+  const validatedBridgeShape =
+    characteristicShapeScore >= MIN_VALIDATED_BRIDGE_SCORE;
   const combPersistenceScore = Math.max(
     analysis.multiFramePersistence,
     analysis.temporalStability,
@@ -397,7 +394,7 @@ export function presentSpikeAnalysis(
     spacingStableFrames >= 4 &&
     spacingMissingFrames <= SPACING_HOLD_FRAMES &&
     combPersistenceScore >= 0.7 &&
-    characteristicShapeScore >= 0.7 &&
+    validatedBridgeShape &&
     analysis.sincPenaltyScore <= 0.7;
   const sincPenaltyScore = smooth(
     temporalReady
@@ -490,15 +487,22 @@ export function presentSpikeAnalysis(
     spikePresenceHistory,
     spikePresenceScore,
   };
-  const rawDecision = temporalReady
-    ? analysis.multiFrameIsNapt
-    : analysis.baselineIsNapt;
+  // The one-frame baseline is diagnostic only. The final UI verdict waits for
+  // the GPU history window so a baseline-only pulse cannot flash Yes.
+  const rawDecision = temporalReady && analysis.multiFrameIsNapt;
+  if (!rawDecision && !validatedBridgeShape) {
+    // Keep a negative structural decision out of the Yes band even when
+    // cadence, power, coalescing, or generic peak-shape diagnostics saturate.
+    classifier.confidence = Math.min(classifier.confidence, 0.49);
+  }
   // A pulsing N-APT comb can retain its frequency cadence while individual
   // spikes rise and fall between frames. When the GPU decision is held back by
   // the artifact penalty, promote only if the cadence is well-supported and
   // the independent bridge/U evidence is already strong.
   const spacingRescue =
     !rawDecision &&
+    temporalReady &&
+    validatedBridgeShape &&
     spacingScore >= 0.55 &&
     spacingSupport >= 0.5 &&
     spacingHz !== null &&
@@ -514,6 +518,7 @@ export function presentSpikeAnalysis(
   // metrics only; it must not favor Channel A/B or any absolute RF location.
   const coalescingRescue =
     !rawDecision &&
+    validatedBridgeShape &&
     temporalReady &&
     (analysis.multiFrameCoalescingScore ?? 0) >= 0.72 &&
     classifier.floorRelativePowerScore >= 0.7 &&
@@ -523,9 +528,10 @@ export function presentSpikeAnalysis(
   // All positive paths, including a prior-Yes frame, require the same
   // confidence. Hysteresis stabilizes the measurements; it must not lower
   // the evidence needed to report Yes.
-  const classifierDecision =
+  const positiveCandidate =
     (rawDecision || spacingRescue || coalescingRescue || repeatedStrongComb) &&
     classifier.confidence >= YES_CONFIDENCE_THRESHOLD;
+  const classifierDecision = positiveCandidate;
   const priorFloorPowerScore =
     previousClassifier?.floorRelativePowerScore ??
     analysis.floorRelativePowerScore;
