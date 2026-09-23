@@ -4,7 +4,7 @@
 
 <p>
   <img src="public/images/icon.svg" alt="n-apt icon" width="128" height="128">
-  <img src="public/images/human-brain-nerves-drawing.svg">
+  <img src="public/images/human-brain-nerves-drawing.svg" alt="Human brain and nerve drawing" width="300" height="129">
 </p>
 
 > [!IMPORTANT]
