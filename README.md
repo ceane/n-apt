@@ -2,20 +2,22 @@
 
 [![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
 
-<img src="public/images/icon.svg" alt="n-apt icon" width="128" height="128">
-
+<p>
+  <img src="public/images/icon.svg" alt="n-apt icon" width="128" height="128">
+  <img src="public/images/human-brain-nerves-drawing.svg">
+</p>
 
 > [!IMPORTANT]
 > **READ THE [LICENSE](LICENSE.md) and [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 >
 > Check out the [ARTICLE](https://ceane.github.io/n-apt/) or my [X / @ceane_of](https://x.com/ceane_of) to read more. 
 
-> *In reality there are no answers but HERE. You can hit up as many LLMs, search engines, file as many FOIAs as possible, but it will not help. This repo, my firsthand experience and efforts helps.*
+## What is N-APT?
+
+> *In reality there are no answers but HERE. You can hit up as many LLMs, search engines, file as many FOIAs as possible, but it absolutely will not help. This repo is the result of my firsthand experience and efforts. It is help.*
 >
 > As of now, this repo **CANNOT** demodulate (signal->media) N-APT, I have extremely limited resources and it's a work in progress.
 
-
-## What is N-APT?
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
