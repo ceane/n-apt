@@ -362,11 +362,11 @@ const resolveTxSignalDisplayLabel = (signal: string) => {
     case "d":
       return "D";
     case "wifi":
-      return "Mock WiFi";
+      return "Naive WiFi";
     case "d_sharp":
       return "D#";
     case "5g":
-      return "Mock 5G";
+      return "Naive 5G";
     default:
       return signal.toUpperCase();
   }
@@ -3214,6 +3214,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 // visualizer run the same spike compute/render passes and paint
                 // the same floor line and spike markers.
                 showSpikeOverlay={false}
+                showNativeClassifier
                 fftFrameRate={state.fftFrameRate}
                 isWaterfallCleared={state.isWaterfallCleared}
                 onResetWaterfallCleared={handleResetWaterfallCleared}

@@ -814,6 +814,8 @@ export const IQCaptureControlsSection: React.FC<
           : "Idle";
   const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
   const isCaptureActive = captureStatus?.status === "started";
+  const encryptionLocked =
+    isMockSource || captureFileType === ".napt" || captureFileType === ".wav";
   const isCaptureDisabled =
     !isConnected ||
     deviceState === "loading" ||
@@ -953,17 +955,17 @@ export const IQCaptureControlsSection: React.FC<
         label={<IconLabel icon={LockKeyhole} text="Encrypted (AES-256-GCM)" />}
       >
         <ToggleSwitch
-          $disabled={isMockSource || captureFileType === ".napt"}
+          $disabled={encryptionLocked}
         >
           <ToggleSwitchInput
             type="checkbox"
             checked={!isMockSource &&
-              (captureFileType === ".napt" || captureEncrypted)}
-            disabled={isMockSource || captureFileType === ".napt"}
+              (captureFileType === ".napt" || (captureFileType === ".iq" && captureEncrypted))}
+            disabled={encryptionLocked}
             onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
           />
           <ToggleSwitchSlider
-            $disabled={isMockSource || captureFileType === ".napt"}
+            $disabled={encryptionLocked}
           />
         </ToggleSwitch>
       </Row>

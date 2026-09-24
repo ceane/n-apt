@@ -16,6 +16,8 @@ import {
   clearQueuedMessages,
   setSpectrumFrames,
   restartSettled,
+  setAppliedStreamOptions,
+  clearAppliedStreamOptions,
 } from "../slices/websocketSlice";
 import {
   setSelectedSourceId,
@@ -2016,6 +2018,15 @@ const handleManagedStreamEvent = (
   dispatch: Dispatch,
   getState: () => any,
 ): void => {
+  if (mode === "rx" && (event.type === "stream_opened" ||
+      (event.type === "stream_options_applied" && event.origin !== "local")) &&
+      event.options?.mode === "rx") {
+    dispatch(setAppliedStreamOptions({ sourceId, streamEpoch: event.streamEpoch,
+      optionsRevision: event.optionsRevision, options: event.options }));
+  }
+  if (event.type === "stream_state" && (event.state === "unavailable" || event.state === "error")) {
+    dispatch(clearAppliedStreamOptions(sourceId));
+  }
   if (
     mode === "rx" &&
     event.type === "stream_options_applied" &&

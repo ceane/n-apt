@@ -10,6 +10,7 @@ import {
   SourceInfo,
   SourceStatus,
   SignalsSdrDefaults,
+  IqAppliedStreamOptions,
 } from "@n-apt/consts/schemas/websocket";
 import { validateCaptureStatus, isValidSpectrumFrame } from "@n-apt/validation";
 import type { StreamControlMode } from "@n-apt/app/infrastructure/streams/streamContract";
@@ -36,6 +37,12 @@ export type SourceFrameReadinessState = {
   sourceId: string;
   streamEpoch: number | null;
   sequence: number;
+};
+
+export type AppliedStreamOptionsState = {
+  streamEpoch: number;
+  optionsRevision: number;
+  options: IqAppliedStreamOptions;
 };
 
 const createSourceTransportByMode = (): Record<
@@ -89,6 +96,7 @@ export interface WebSocketState {
     StreamControlMode,
     SourceFrameReadinessState | null
   >;
+  appliedStreamOptionsBySource: Record<string, AppliedStreamOptionsState>;
   channels: SpectrumFrame[];
 
   // Device info
@@ -147,6 +155,7 @@ const initialState: WebSocketState = {
   sourceTransportByMode: createSourceTransportByMode(),
   sourceFrameReadiness: null,
   sourceFrameReadinessByMode: createSourceFrameReadinessByMode(),
+  appliedStreamOptionsBySource: {},
   channels: [],
 
   backend: null,
@@ -181,6 +190,7 @@ const websocketSlice = createSlice({
       state.error = null;
       state.sourceFrameReadiness = null;
       state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
+      state.appliedStreamOptionsBySource = {};
     },
 
     setConnected: (state) => {
@@ -195,6 +205,7 @@ const websocketSlice = createSlice({
     softDisconnect: (state) => {
       state.isConnected = false;
       state.connectionStatus = "disconnected";
+      state.appliedStreamOptionsBySource = {};
       // Keep hasConnectedOnce, sources, activeSourceId, transport metadata.
       // Hard reset remains available via setDisconnected/reset.
     },
@@ -215,6 +226,7 @@ const websocketSlice = createSlice({
       state.sourceTransportByMode = createSourceTransportByMode();
       state.sourceFrameReadiness = null;
       state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
+      state.appliedStreamOptionsBySource = {};
       state.channels = [];
       state.backend = null;
       state.deviceInfo = null;
@@ -354,6 +366,18 @@ const websocketSlice = createSlice({
         },
       );
     },
+    setAppliedStreamOptions: (state, action: PayloadAction<{ sourceId: string; streamEpoch: number; optionsRevision: number; options: IqAppliedStreamOptions }>) => {
+      const current = state.appliedStreamOptionsBySource[action.payload.sourceId];
+      if (current && (action.payload.streamEpoch < current.streamEpoch ||
+        (action.payload.streamEpoch === current.streamEpoch && action.payload.optionsRevision < current.optionsRevision))) return;
+      state.appliedStreamOptionsBySource[action.payload.sourceId] = {
+        streamEpoch: action.payload.streamEpoch, optionsRevision: action.payload.optionsRevision,
+        options: { ...action.payload.options },
+      };
+    },
+    clearAppliedStreamOptions: (state, action: PayloadAction<string>) => {
+      delete state.appliedStreamOptionsBySource[action.payload];
+    },
   },
 });
 
@@ -377,6 +401,8 @@ export const {
   incrementDataFrameCounter,
   restartRequested,
   restartSettled,
+  setAppliedStreamOptions,
+  clearAppliedStreamOptions,
 } = websocketSlice.actions;
 
 export default websocketSlice.reducer;

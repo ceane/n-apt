@@ -83,8 +83,8 @@ export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
     });
   }, [isTransmitting, transmitSource, transmitSourceId, tx, wsConnection]);
   const signalOptions = [
-    { value: "wifi", label: "Mock WiFi" },
-    { value: "5g", label: "Mock 5G" },
+    { value: "wifi", label: "Naive WiFi" },
+    { value: "5g", label: "Naive 5G" },
     { value: "d", label: "D" },
     { value: "d_sharp", label: "D#" },
   ];

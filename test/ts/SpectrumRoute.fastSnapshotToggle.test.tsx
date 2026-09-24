@@ -453,5 +453,6 @@ describe("SpectrumRoute spike overlay scope", () => {
 
     const calls = fftAndWaterfallMock.mock.calls;
     expect(calls[calls.length - 1]?.[0]?.showSpikeOverlay).toBe(false);
+    expect(calls[calls.length - 1]?.[0]?.showNativeClassifier).toBe(true);
   });
 });

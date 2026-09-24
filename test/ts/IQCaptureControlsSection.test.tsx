@@ -281,6 +281,20 @@ describe("IQCaptureControlsSection", () => {
     expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
   });
 
+  it("disables encryption for WAV even when stale encrypted state is true", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} captureFileType=".wav" captureEncrypted />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    const encryptionToggle = screen.getAllByRole("checkbox")[0];
+    expect(encryptionToggle).toBeDisabled();
+    expect(encryptionToggle).not.toBeChecked();
+  });
+
   it("keeps geolocation available for every capture format", () => {
     render(
       <TestWrapper>

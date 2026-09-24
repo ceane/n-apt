@@ -1554,8 +1554,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     return [
       { value: "d", label: "D" },
       { value: "d_sharp", label: "D#" },
-      { value: "wifi", label: "Mock WiFi" },
-      { value: "5g", label: "Mock 5G" },
+      { value: "wifi", label: "Naive WiFi" },
+      { value: "5g", label: "Naive 5G" },
     ];
   }, [mockTxSource]);
 
@@ -2622,7 +2622,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       acquisitionMode: effectiveAcquisitionMode,
       encrypted:
         !isMockSource &&
-        (captureFileTypeState === ".napt" || captureEncrypted),
+        (captureFileTypeState === ".napt" || (captureFileTypeState === ".iq" && captureEncrypted)),
       fftSize,
       fftWindow,
       geolocation: geolocationData,
@@ -3128,6 +3128,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           txPreviewSourceId={txPreviewSourceId}
         />
       </StickyHeaderWrapper>
+
+      <Section role="region" aria-label="N-APT Signal Classifier" data-testid="classifier-sidebar-section">
+        <SectionTitle $fileMode={sourceMode === "file"}>
+          <SectionIcon>
+            <SatelliteDish size={14} />
+          </SectionIcon>
+          <SectionText>N-APT Signal Classifier</SectionText>
+        </SectionTitle>
+        <div id="native-classifier-sidebar-slot" data-testid="native-classifier-sidebar-slot" />
+      </Section>
 
       {sourceMode === "live" ? (
         <>

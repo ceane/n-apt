@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
 import type { FFTCanvasHandle } from "@n-apt/spectrum/FFTCanvas";
@@ -437,6 +437,20 @@ describe("FFTCanvas Component", () => {
         bandwidthAlignment: "centered",
       }),
     ).toBeNull();
+  });
+
+  it("shows native classifier diagnostics independently of the spike overlay", () => {
+    const classifierSlot = document.createElement("div");
+    classifierSlot.id = "native-classifier-sidebar-slot";
+    document.body.append(classifierSlot);
+    const { unmount } = render(
+      <TestWrapper><MemoryRouter><SpectrumProvider>
+        <FFTCanvas {...defaultProps} {...{ showNativeClassifier: true }} showSpikeOverlay={false} />
+      </SpectrumProvider></MemoryRouter></TestWrapper>,
+    );
+    expect(within(classifierSlot).getByRole('region', { name: 'Experimental native resolution classifier' })).toBeInTheDocument();
+    unmount();
+    classifierSlot.remove();
   });
 
   it("keeps the FFT node selection status in a separate bottom row", async () => {
@@ -1181,7 +1195,7 @@ describe("FFTCanvas Component", () => {
                   visibleMaxHz: 138_300_000,
                   txCenterHz: 137_100_000,
                   txSampleRateHz,
-                  signalLabel: "Mock WiFi",
+                  signalLabel: "Naive WiFi",
                   powerDbm: -18,
                 }}
               />

@@ -464,6 +464,23 @@ describe("SpectrumSidebar sample rate behavior", () => {
     ).toBeTruthy();
   });
 
+  it("provides the N-APT Signal Classifier slot immediately after Sources", () => {
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const sourceInput = screen.getByTestId("source-input");
+    const classifierSection = screen.getByRole("region", { name: "N-APT Signal Classifier" });
+    expect(sourceInput.compareDocumentPosition(classifierSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(classifierSection).toContainElement(screen.getByTestId("native-classifier-sidebar-slot"));
+  });
+
   it("renders the Settings navigation cards at the bottom in order", () => {
     render(
       <Provider store={createStore()}>
