@@ -22,6 +22,18 @@ use crate::stitching::SignalStitcher;
 
 use super::{SdrDevice, SdrDeviceFactory};
 
+fn append_capture_bytes(
+  iq_data: &mut Vec<u8>,
+  updates: &mut Vec<crate::server::iq_format::FrameUpdate>,
+  update: Option<crate::server::iq_format::FrameUpdate>,
+  frame_bytes: &[u8],
+) {
+  if let Some(update) = update {
+    updates.push(update);
+  }
+  iq_data.extend_from_slice(frame_bytes);
+}
+
 fn should_retire_device_synchronously(device_type: &str) -> bool {
   let device_type = device_type.to_ascii_lowercase();
   device_type.contains("rtl") || device_type.contains("hackrf")
@@ -1126,21 +1138,29 @@ impl SdrProcessor {
           );
           patch.insert("fft_window".into(), serde_json::json!(signature.2));
           patch.insert("gain".into(), serde_json::json!(self.capture_gain));
-          self.capture_frame_updates.push(
-            crate::server::iq_format::FrameUpdate {
+          let update = crate::server::iq_format::FrameUpdate {
               sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
               timestamp_us: self
                 .capture_start
                 .map(|s| s.elapsed().as_micros() as u64)
                 .unwrap_or(0),
               patch: serde_json::Value::Object(patch),
-            },
+            };
+          append_capture_bytes(
+            &mut self.capture_channels[ch_idx].iq_data,
+            &mut self.capture_frame_updates,
+            Some(update),
+            &display_samples.data,
           );
           self.capture_last_frame_signature = Some(signature);
+        } else {
+          append_capture_bytes(
+            &mut self.capture_channels[ch_idx].iq_data,
+            &mut self.capture_frame_updates,
+            None,
+            &display_samples.data,
+          );
         }
-        self.capture_channels[ch_idx]
-          .iq_data
-          .extend_from_slice(&display_samples.data);
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(spectrum);
@@ -2257,6 +2277,23 @@ mod hackrf_settings_tests {
   use crate::s::fft::types::RawSamples;
   use crate::server::types::SdrProcessorSettings;
   use std::sync::{Arc, Mutex};
+
+  #[test]
+  fn capture_update_byte_offset_and_processing_timestamp_precede_new_frame_bytes() {
+    let mut iq_data = vec![1u8, 2, 3, 4];
+    let mut updates = Vec::new();
+    let processing_timestamp_us = 12_345;
+    let update = crate::server::iq_format::FrameUpdate {
+      sample_offset: iq_data.len() as u64,
+      timestamp_us: processing_timestamp_us,
+      patch: serde_json::json!({ "center_frequency_hz": 137_100_000 }),
+    };
+    append_capture_bytes(&mut iq_data, &mut updates, Some(update), &[5, 6, 7, 8]);
+
+    assert_eq!(updates[0].sample_offset, 4, "legacy sample_offset is a byte offset");
+    assert_eq!(updates[0].timestamp_us, processing_timestamp_us);
+    assert_eq!(&iq_data[updates[0].sample_offset as usize..], &[5, 6, 7, 8]);
+  }
 
   #[derive(Clone, Default)]
   struct RecordingDevice {

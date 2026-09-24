@@ -1793,6 +1793,15 @@ pub fn save_capture_file_multi(
   {
     return Err(format!("Unsupported file_type: '{}'", result.file_type));
   }
+  match (result.file_type.as_str(), result.encrypted) {
+    (".napt", false) => {
+      return Err("Unencrypted .napt captures are not supported".into());
+    }
+    (".wav", true) => {
+      return Err("Encrypted .wav captures are not supported".into());
+    }
+    _ => {}
+  }
 
   // Create temp directory if it doesn't exist
   let temp_dir = std::env::temp_dir().join("n-apt-captures");
@@ -1802,7 +1811,7 @@ pub fn save_capture_file_multi(
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
   let filename = if result.file_type == ".iq" {
     format!("capture_{}_{}.iq", result.job_id, timestamp)
-  } else if result.encrypted && result.file_type == ".napt" {
+  } else if result.file_type == ".napt" {
     format!("capture_{}_{}.napt", result.job_id, timestamp)
   } else {
     // default to wav for non-encrypted capture

@@ -46,7 +46,9 @@ impl Default for IqMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FrameUpdate {
+  /// Byte offset into the concatenated raw I/Q payload (despite the legacy field name).
   pub sample_offset: u64,
+  /// Elapsed capture-processing time in microseconds when this update was observed; not a hardware sample clock.
   pub timestamp_us: u64,
   pub patch: serde_json::Value,
 }

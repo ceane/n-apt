@@ -88,6 +88,7 @@ const base64 = (bytes: Uint8Array): string => {
 };
 
 const createIqMetadata = (metadata: CaptureMetadata): CaptureMetadata => ({
+  ...metadata,
   format: "iq",
   format_version: NAPT_FORMAT_VERSION,
   interleaving: "IQ",
@@ -98,7 +99,6 @@ const createIqMetadata = (metadata: CaptureMetadata): CaptureMetadata => ({
     byte_order: "little",
     normalization: "(value - 128) / 127",
   },
-  ...metadata,
 });
 
 const encodeIqPayload = (
@@ -183,7 +183,7 @@ export const encodeIqCaptureV4 = async ({
     framesBytes,
     payload,
     TRAILER_MAGIC,
-    Uint8Array.of(1),
+    Uint8Array.of(NAPT_TRAILER_VERSION),
     new Uint8Array(7),
     writeU64(trailerBytes.byteLength),
     trailerBytes,
@@ -369,7 +369,7 @@ export const encodeNaptCaptureV4 = async ({
     padding,
     encryptedData,
     TRAILER_MAGIC,
-    Uint8Array.of(1),
+    Uint8Array.of(NAPT_TRAILER_VERSION),
     new Uint8Array(7),
     writeU64(trailerJson.byteLength),
     trailerJson,

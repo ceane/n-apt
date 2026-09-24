@@ -36,7 +36,7 @@ function sectionedFile(options: {
   } }) + "\n"));
   bytes.set(samples.slice(0, binaryLength), 4096);
   bytes.set(encoder.encode("NAPTTRLR"), trailerOffset);
-  bytes[trailerOffset + 8] = 1;
+  bytes[trailerOffset + 8] = options.trailerVersion ?? 1;
   new DataView(bytes.buffer).setBigUint64(trailerOffset + 16, BigInt(trailerJson.length), true);
   bytes.set(trailerJson, trailerOffset + 24);
   return bytes.buffer;
@@ -111,12 +111,17 @@ describe.each(["loadFile", "stitchFiles"] as const)("%s NAPT decoding", (type) =
     expect(metadata.trailer).toEqual({ processing: { operation: "capture" } });
   });
 
+  it("accepts the v2 trailer marker used by V6 captures", async () => {
+    const result = await run(type, sectionedFile({ formatVersion: 6, trailerVersion: 2 }), { allowIntegrityFailure: true });
+    expect(result.type).toBe("result");
+  });
+
   it.each(["marker", "version", "length", "truncated", "json"])("rejects malformed trailer: %s", async (failure) => {
     let file = sectionedFile(failure === "json" ? { trailerJson: "{" } : {});
     const bytes = new Uint8Array(file);
     const start = 4096 + samples.length;
     if (failure === "marker") bytes[start] = 0;
-    if (failure === "version") bytes[start + 8] = 2;
+    if (failure === "version") bytes[start + 8] = 3;
     if (failure === "length") new DataView(file).setBigUint64(start + 16, 0n, true);
     if (failure === "truncated") file = file.slice(0, -1);
     const result = await run(type, file, { allowIntegrityFailure: true });

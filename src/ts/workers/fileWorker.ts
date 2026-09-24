@@ -202,7 +202,8 @@ function decodeIndexedTrailer(
   format: "IQ" | "NAPT",
 ) {
   const trailerBytes = new Uint8Array(fileData, trailer.offset_bytes, trailer.length_bytes);
-  if (new TextDecoder().decode(trailerBytes.slice(0, 8)) !== "NAPTTRLR" || trailerBytes[8] !== 1) {
+  if (new TextDecoder().decode(trailerBytes.slice(0, 8)) !== "NAPTTRLR" ||
+      (trailerBytes[8] !== 1 && trailerBytes[8] !== 2)) {
     throw new Error(`Invalid ${format} v4 trailer marker`);
   }
   const trailerJsonLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));

@@ -66,6 +66,10 @@ name = "iq_capture_integration_tests"
 path = "test/rust/iq_capture_integration_tests.rs"
 
 [[test]]
+name = "iq_capture_format_acceptance"
+path = "test/rust/iq_capture_format_acceptance.rs"
+
+[[test]]
 name = "hardware_failure_recovery_tests"
 path = "test/rust/hardware_failure_recovery_tests.rs"
 
