@@ -6,6 +6,7 @@ const HEADER_SIZE: usize = 40;
 const TRAILER_MAGIC: &[u8; 8] = b"NAPTTRLR";
 const TRAILER_HEADER_SIZE: usize = 24;
 const INTEGRITY_PLACEHOLDER: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+pub const IQ_FORMAT_VERSION: u16 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IqMetadata {
@@ -46,10 +47,13 @@ impl Default for IqMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FrameUpdate {
-  /// Byte offset into the concatenated raw I/Q payload (despite the legacy field name).
+  /// Byte offset into the raw I/Q stream; channel-scoped updates use their channel's local stream.
   pub sample_offset: u64,
   /// Elapsed capture-processing time in microseconds when this update was observed; not a hardware sample clock.
   pub timestamp_us: u64,
+  /// Channel index when sample_offset is channel-local. Omitted for legacy/global updates.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub channel: Option<u32>,
   pub patch: serde_json::Value,
 }
 
@@ -73,7 +77,7 @@ pub fn encode(
   file: &IqFile,
   key: Option<&[u8; 32]>,
 ) -> Result<Vec<u8>, String> {
-  encode_versioned(file, key, 5)
+  encode_versioned(file, key, IQ_FORMAT_VERSION)
 }
 
 fn encode_versioned(
@@ -356,6 +360,7 @@ mod tests {
       frames: vec![FrameUpdate {
         sample_offset: 4,
         timestamp_us: 25,
+        channel: None,
         patch: serde_json::json!({"center_frequency_hz": 137500000}),
       }],
       chunks: vec![IqChunk {
@@ -395,7 +400,7 @@ mod tests {
   }
 
   #[test]
-  fn v4_round_trips_section_index_and_readable_trailer() {
+  fn v6_round_trips_section_index_and_readable_trailer() {
     let file = IqFile {
       metadata: IqMetadata::default(),
       private_metadata: None,
@@ -413,7 +418,7 @@ mod tests {
 
     let encoded = encode(&file, None).expect("encode v4 IQ");
     let decoded = decode(&encoded, None).expect("decode v4 IQ");
-    assert_eq!(decoded.metadata.format_version, 5);
+    assert_eq!(decoded.metadata.format_version, 6);
     assert_eq!(decoded.chunks[0].data, vec![1, 2, 3, 4]);
     assert_eq!(
       decoded.trailer.as_ref().and_then(|trailer| trailer["processing"].as_object()),
@@ -431,6 +436,34 @@ mod tests {
       .expect("section index");
     assert!(sections["binary"]["length_bytes"].as_u64().unwrap() > 0);
     assert!(sections["trailer"]["length_bytes"].as_u64().unwrap() > 0);
+  }
+
+  #[test]
+  fn v6_preserves_channel_identity_for_frame_updates() {
+    let frame: FrameUpdate = serde_json::from_value(serde_json::json!({
+      "sample_offset": 4,
+      "timestamp_us": 25,
+      "channel": 1,
+      "patch": { "center_frequency_hz": 137500000 }
+    }))
+    .expect("decode channel-scoped frame update");
+    let file = IqFile {
+      metadata: IqMetadata::default(),
+      private_metadata: None,
+      frames: vec![frame],
+      chunks: vec![IqChunk {
+        sample_offset: 0,
+        channel: 1,
+        data: vec![1, 2, 3, 4],
+      }],
+      trailer: None,
+    };
+
+    let decoded = decode(&encode(&file, None).expect("encode V6"), None)
+      .expect("decode V6");
+    let decoded_frame = serde_json::to_value(&decoded.frames[0])
+      .expect("serialize decoded frame update");
+    assert_eq!(decoded_frame["channel"], 1);
   }
 
   #[test]

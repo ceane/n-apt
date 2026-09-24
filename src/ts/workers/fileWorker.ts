@@ -53,6 +53,7 @@ type FileMetadata = {
   frame_updates?: {
     sample_offset: number;
     timestamp_us?: number;
+    channel?: number;
     patch: Record<string, unknown>;
   }[];
   center_frequency_hz?: number;
@@ -676,6 +677,7 @@ function stitchAdjacentChannels(
       frame_rate: first.frame_rate,
       hardware_sample_rate_hz: first.hardware_sample_rate_hz,
       label: first.label,
+      frame_updates: first.frame_updates,
     };
   });
 }
@@ -1039,6 +1041,13 @@ self.onmessage = async function (e) {
                     bins_per_frame: ch.bins_per_frame,
                     frame_rate: metadata?.frame_rate,
                     hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
+                    frame_updates: (metadata?.frame_updates ?? [])
+                      .filter((update) =>
+                        update.channel === undefined
+                          ? channelsMetadata.length === 1
+                          : update.channel === j,
+                      )
+                      .map(({ channel: _channel, ...update }) => update),
                     frequency_range: ch.requested_min_freq_hz
                       ? [ch.requested_min_freq_hz, ch.requested_max_freq_hz]
                       : undefined,

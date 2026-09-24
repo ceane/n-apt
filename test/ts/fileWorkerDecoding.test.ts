@@ -20,6 +20,13 @@ function sectionedFile(options: {
   binaryLength?: number;
   trailerVersion?: number;
   trailerJson?: string;
+  frameUpdates?: Array<{ sample_offset: number; timestamp_us: number; patch: Record<string, unknown> }>;
+  channels?: Array<(typeof channels)[number] & {
+    iq_length?: number;
+    requested_min_freq_hz?: number;
+    requested_max_freq_hz?: number;
+    bins_per_frame?: number;
+  }>;
 } = {}): ArrayBuffer {
   const trailerJson = encoder.encode(options.trailerJson ?? '{"processing":{"operation":"capture"}}');
   const binaryLength = options.binaryLength ?? samples.length;
@@ -28,7 +35,8 @@ function sectionedFile(options: {
   bytes.set(encoder.encode(JSON.stringify({ metadata: {
     format_version: options.formatVersion ?? 4,
     encrypted: false,
-    channels,
+    channels: options.channels ?? channels,
+    frame_updates: options.frameUpdates,
     sections: {
       binary: { offset_bytes: 4096, length_bytes: binaryLength },
       trailer: { offset_bytes: trailerOffset, length_bytes: 24 + trailerJson.length, version: options.trailerVersion ?? 1 },
@@ -114,6 +122,61 @@ describe.each(["loadFile", "stitchFiles"] as const)("%s NAPT decoding", (type) =
   it("accepts the v2 trailer marker used by V6 captures", async () => {
     const result = await run(type, sectionedFile({ formatVersion: 6, trailerVersion: 2 }), { allowIntegrityFailure: true });
     expect(result.type).toBe("result");
+  });
+
+  it("attaches V6 frame patches to the channel data used by playback", async () => {
+    const frameUpdates = [
+      {
+        sample_offset: 4,
+        timestamp_us: 250,
+        patch: { center_frequency_hz: 100_000 },
+      },
+    ];
+    const result = await run(
+      "stitchFiles",
+      sectionedFile({
+        formatVersion: 6,
+        trailerVersion: 2,
+        frameUpdates,
+        channels: [{ ...channels[0], offset_iq: 0, iq_length: 16 }],
+      }),
+      { allowIntegrityFailure: true },
+    );
+
+    expect(result.type).toBe("result");
+    if (type === "loadFile") return;
+    const metadata = result.data.metadataMap[0][1];
+    expect(metadata.channels_data[0].frame_updates).toEqual(frameUpdates);
+  });
+
+  it("routes channel-scoped V6 frame patches only to their matching channel", async () => {
+    const frameUpdates = [
+      { sample_offset: 4, timestamp_us: 250, channel: 0, patch: { center_frequency_hz: 100_000 } },
+      { sample_offset: 8, timestamp_us: 500, channel: 1, patch: { center_frequency_hz: 200_000 } },
+    ];
+    const result = await run(
+      "stitchFiles",
+      sectionedFile({
+        formatVersion: 6,
+        trailerVersion: 2,
+        frameUpdates,
+        channels: [
+          { ...channels[0], offset_iq: 0, iq_length: 16 },
+          { ...channels[1], offset_iq: 16, iq_length: 16 },
+        ],
+      }),
+      { allowIntegrityFailure: true },
+    );
+
+    expect(result.type).toBe("result");
+    const metadata = result.data.metadataMap[0][1];
+    expect(metadata.channels_data).toHaveLength(2);
+    expect(metadata.channels_data[0].frame_updates).toEqual([
+      { sample_offset: 4, timestamp_us: 250, patch: { center_frequency_hz: 100_000 } },
+    ]);
+    expect(metadata.channels_data[1].frame_updates).toEqual([
+      { sample_offset: 8, timestamp_us: 500, patch: { center_frequency_hz: 200_000 } },
+    ]);
   });
 
   it.each(["marker", "version", "length", "truncated", "json"])("rejects malformed trailer: %s", async (failure) => {

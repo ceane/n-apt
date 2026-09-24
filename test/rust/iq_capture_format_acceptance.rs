@@ -44,6 +44,7 @@ fn capture(file_type: &str, encrypted: bool, case: &str) -> CaptureResult {
     frame_updates: vec![iq_format::FrameUpdate {
       sample_offset: 0,
       timestamp_us: 1_234,
+      channel: None,
       patch: serde_json::json!({ "center_frequency_hz": 137_500_000 }),
     }],
     device_profile: Some(serde_json::json!({ "kind": "Acceptance SDR" })),
@@ -90,7 +91,8 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
       ".napt" => {
         let header = napt_header(&bytes);
         assert_eq!(header["metadata"]["format"], "napt");
-        assert_eq!(header["metadata"]["format_version"], 5);
+        assert_eq!(header["metadata"]["format_version"], 6);
+        assert_eq!(header["metadata"]["frame_updates"], serde_json::json!(input.frame_updates));
         assert_eq!(header["metadata"]["encrypted"], true);
         assert_eq!(header["metadata"]["sections"]["binary"]["encrypted"], true);
       }
@@ -99,6 +101,7 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
         assert_eq!(bytes[32] != 0, encrypted);
         let decoded = iq_format::decode(&bytes, encrypted.then_some(&key))
           .expect("written IQ should decode with matching key policy");
+        assert_eq!(decoded.metadata.format_version, 6);
         assert_eq!(decoded.chunks[0].data, input.channels[0].iq_data);
         assert_eq!(decoded.frames, input.frame_updates);
       }
@@ -133,4 +136,56 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
     }
     fs::remove_file(artifact.path).expect("remove acceptance artifact");
   }
+}
+
+#[test]
+fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes() {
+  let mut input = capture(".iq", false, "multi_channel_offsets");
+  input.channels.push(CaptureChannel {
+    center_freq_hz: 138_000_000.0,
+    sample_rate_hz: 3_200_000.0,
+    requested_min_freq_hz: None,
+    requested_max_freq_hz: None,
+    iq_data: vec![120, 121, 122, 123],
+    spectrum_data: Vec::new(),
+    bins_per_frame: 2,
+    label: None,
+  });
+  input.frame_updates = vec![
+    serde_json::from_value(serde_json::json!({
+      "sample_offset": 0,
+      "timestamp_us": 10,
+      "channel": 0,
+      "patch": { "center_frequency_hz": 137500000 }
+    }))
+    .expect("first channel patch"),
+    serde_json::from_value(serde_json::json!({
+      "sample_offset": 2,
+      "timestamp_us": 20,
+      "channel": 1,
+      "patch": { "center_frequency_hz": 138000000 }
+    }))
+    .expect("second channel patch"),
+  ];
+
+  let artifact = save_capture_file_multi(&input, &key())
+    .expect("write multichannel V6 IQ");
+  let bytes = fs::read(&artifact.path).expect("read multichannel V6 IQ");
+  let decoded = iq_format::decode(&bytes, None).expect("decode multichannel V6 IQ");
+
+  assert_eq!(
+    decoded.chunks.iter().map(|chunk| chunk.sample_offset).collect::<Vec<_>>(),
+    vec![0, 0],
+    "chunk sample offsets are relative to each channel"
+  );
+  let updates = decoded
+    .frames
+    .iter()
+    .map(serde_json::to_value)
+    .collect::<Result<Vec<_>, _>>()
+    .expect("serialize updates");
+  assert_eq!(updates[0]["sample_offset"], 0);
+  assert_eq!(updates[0]["channel"], 0);
+  assert_eq!(updates[1]["sample_offset"], 10);
+  assert_eq!(updates[1]["channel"], 1);
 }

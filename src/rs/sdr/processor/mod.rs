@@ -1144,6 +1144,7 @@ impl SdrProcessor {
                 .capture_start
                 .map(|s| s.elapsed().as_micros() as u64)
                 .unwrap_or(0),
+              channel: Some(ch_idx as u32),
               patch: serde_json::Value::Object(patch),
             };
           append_capture_bytes(
@@ -2286,6 +2287,7 @@ mod hackrf_settings_tests {
     let update = crate::server::iq_format::FrameUpdate {
       sample_offset: iq_data.len() as u64,
       timestamp_us: processing_timestamp_us,
+      channel: None,
       patch: serde_json::json!({ "center_frequency_hz": 137_100_000 }),
     };
     append_capture_bytes(&mut iq_data, &mut updates, Some(update), &[5, 6, 7, 8]);
