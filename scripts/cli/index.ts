@@ -2,14 +2,15 @@
 import process from "node:process";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import dotenv from "dotenv";
 import {
   hasNaptReceiveDefaults,
   resolveCliCaptureFftSize,
+  resolveCliCaptureFrequencySpan,
   resolveNaptReceiveDefaults,
   resolveRequestedDevice,
 } from "@n-apt/capture/policy";
@@ -18,8 +19,26 @@ import {
   fetchAgentMarkdown,
   printAgentCapabilities,
 } from "./agent";
+import { cliVersion, renderCliHelp, resolveCliHelpTopic } from "./help";
+import { CliUsageError, validateCliArguments } from "./options";
+import { verifyCaptureArtifact } from "./artifact";
+import {
+  assertAspectMountAvailable,
+  getCaptureOutputPath,
+  loadCaptureDestination,
+  saveCaptureDestination,
+  writeCaptureArtifact,
+} from "./destinations";
 import { prepareDemodulation, runDemodulationAlgorithm, type DemodAlgorithm } from "@n-apt/demodulation/utils/demodHarness";
 import { inspectSignalFile, summarizeSignal, validateSignalInput } from "@n-apt/cli/signalCli";
+import { resolveCliSnapshotFrameCount } from "@n-apt/cli/snapshotPolicy";
+import {
+  DEMODULATION_QUALITY_PROFILE,
+  CLASSIFIER_TRAINING_QUALITY_PROFILE,
+  IQ_CAPTURE_CLI_QUALITY_PROFILE,
+  resolveCapturePreflightOptions,
+  validateCapturePreflightAcknowledgement,
+} from "@n-apt/features/capture/quality";
 
 const backend = process.env.N_APT_BACKEND_URL ?? "http://localhost:8765";
 const frontend = process.env.N_APT_FRONTEND_URL ?? "http://localhost:5173";
@@ -27,17 +46,7 @@ dotenv.config({ path: ".env.local", quiet: true });
 dotenv.config({ quiet: true });
 
 function usage(): never {
-  console.error(`Usage: npm run cli -- devices
-       npm run cli -- capture <snapshot|iq> [options]
-       npm run cli -- signals inspect <input> [--json]
-       npm run cli -- signals spectrum <input> [--json]
-       npm run cli -- signals demod <input> [options]
-       npm run cli -- signals capture [options] --allow-mutations
-       npm run cli -- signals validate <input> [--json]
-       npm run cli -- agent capabilities [--json]
-       npm run cli -- agent markdown --route <path> [--json]
-       npm run cli -- agent tools [--json]
-       npm run cli -- agent call <tool> [--params <json>] [--allow-mutations] [--json]`);
+  console.error(renderCliHelp("root"));
   process.exit(2);
 }
 
@@ -74,7 +83,7 @@ async function signals(args: string[]) {
     if (!args.includes("--allow-mutations")) {
       throw new Error("signals capture requires --allow-mutations; RX capture changes device state");
     }
-    await ensureAppRunning();
+    await requireAppRunning("backend");
     const sources = await fetchSources();
     const selected = resolveRequestedDevice({
       requested: await resolveDeviceArgument(args, sources),
@@ -110,13 +119,27 @@ async function signals(args: string[]) {
   usage();
 }
 
-async function fetchSources() {
+type BackendStatus = {
+  activeSource: string | null;
+  sources: any[];
+};
+
+async function fetchBackendStatus(): Promise<BackendStatus> {
   const response = await fetch(`${backend}/status`);
   if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}`);
-  const body = (await response.json()) as { status?: { sources?: unknown[] } };
+  const body = (await response.json()) as {
+    status?: { active_source?: string | null; sources?: unknown[] };
+  };
   const sources = body.status?.sources;
   if (!Array.isArray(sources)) throw new Error("Backend status did not include sources");
-  return sources as any[];
+  return {
+    activeSource: body.status?.active_source ?? null,
+    sources: sources as any[],
+  };
+}
+
+async function fetchSources() {
+  return (await fetchBackendStatus()).sources;
 }
 
 async function isReady(url: string): Promise<boolean> {
@@ -128,25 +151,25 @@ async function isReady(url: string): Promise<boolean> {
   }
 }
 
-/** Starts the project's normal development orchestrator when either app is absent. */
-async function ensureAppRunning() {
-  if ((await isReady(`${backend}/status`)) && (await isReady(frontend))) return;
+type ServiceRequirement = "backend" | "frontend" | "both";
 
-  console.log("N-APT is not running; starting the app...");
-  const child = spawn("npm", ["run", "dev"], {
-    cwd: process.cwd(),
-    detached: true,
-    stdio: "ignore",
-    env: { ...process.env, N_APT_CLI_STARTED: "1" },
-  });
-  child.unref();
+function requiredServices(requirement: ServiceRequirement): string[] {
+  if (requirement === "backend") return [`${backend}/status`];
+  if (requirement === "frontend") return [frontend];
+  return [`${backend}/status`, frontend];
+}
 
-  const deadline = Date.now() + 120_000;
-  while (Date.now() < deadline) {
-    if (await isReady(`${backend}/status`) && (await isReady(frontend))) return;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  throw new Error("Timed out waiting for N-APT to start on localhost:8765 and localhost:5173");
+async function requiredServicesReady(requirement: ServiceRequirement): Promise<boolean> {
+  const checks = await Promise.all(requiredServices(requirement).map(isReady));
+  return checks.every(Boolean);
+}
+
+async function requireAppRunning(requirement: ServiceRequirement = "both") {
+  if (await requiredServicesReady(requirement)) return;
+  const service = requirement === "both" ? "backend and frontend" : requirement;
+  throw new Error(
+    `Required N-APT ${service} service is not running. Start the Rust backend and frontend with \`npm run dev\` from the repository root.`,
+  );
 }
 
 async function selectDevice(
@@ -236,8 +259,8 @@ async function authenticateCli(): Promise<string> {
   return result.token;
 }
 
-async function fetchSnapshotFrames(token: string, fftSize: number) {
-  const query = new URLSearchParams({ frames: "64", fft_size: String(fftSize) });
+async function fetchSnapshotFrames(token: string, fftSize: number, frameCount: 1 | 64) {
+  const query = new URLSearchParams({ frames: String(frameCount), fft_size: String(fftSize) });
   const response = await fetch(`${backend}/api/cli/snapshot-frame?${query}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -260,7 +283,8 @@ async function snapshot(args: string[], selected: any) {
   }
   const token = await authenticateCli();
   const fftSize = resolveCliCaptureFftSize(args);
-  const frames = await fetchSnapshotFrames(token, fftSize);
+  const frameCount = resolveCliSnapshotFrameCount(args.includes("--waterfall"));
+  const frames = await fetchSnapshotFrames(token, fftSize, frameCount);
   const frame = frames[frames.length - 1];
   if (!frame?.iq_data?.length) throw new Error("Rust returned no usable I/Q frames");
   const gainDb = Number(flag(args, "--gain", String(receiveDefaults.gainDb)));
@@ -322,7 +346,53 @@ async function snapshot(args: string[], selected: any) {
 }
 
 async function iqCapture(args: string[], deviceId: string, selected: any) {
+  const destinationArg = flag(args, "--destination", "");
+  const outputOverride = flag(args, "--output", "") || undefined;
+  const destination: "local" | "aspect" = destinationArg
+    ? (destinationArg as "local" | "aspect")
+    : (await loadCaptureDestination()) === "aspect"
+      ? "aspect"
+      : "local";
+  if (destinationArg) await saveCaptureDestination(destination);
+  if (destination === "aspect" && !outputOverride) {
+    const aspectPath = process.env.N_APT_ASPECT_PATH;
+    if (!aspectPath) {
+      throw new Error(
+        "Aspect destination is not configured; set N_APT_ASPECT_PATH to its mounted captures folder",
+      );
+    }
+    await assertAspectMountAvailable(aspectPath);
+  }
   const receiveDefaults = resolveNaptReceiveDefaults(selected);
+  const { centerFrequencyHz: center, sampleRateHz: rate } =
+    resolveCliCaptureFrequencySpan(args, selected);
+  const fftSize = resolveCliCaptureFftSize(args);
+  const profileName = flag(args, "--quality-profile", "iq-capture-cli");
+  const profile = ({ "iq-capture-cli": IQ_CAPTURE_CLI_QUALITY_PROFILE, demodulation: DEMODULATION_QUALITY_PROFILE,
+    "classifier-training": CLASSIFIER_TRAINING_QUALITY_PROFILE } as const)[profileName as "iq-capture-cli" | "demodulation" | "classifier-training"];
+  if (!profile) throw new Error(`Unknown --quality-profile ${profileName}; choose iq-capture-cli, demodulation, or classifier-training`);
+  const requestedFrameRate = flag(args, "--frame-rate", "");
+  const preflight = resolveCapturePreflightOptions({
+    profile,
+    requested: {
+      sampleRateHz: rate,
+      fftSize,
+      ...(requestedFrameRate ? { frameRateHz: Number(requestedFrameRate) } : {}),
+      fftWindow: flag(args, "--fft-window", selected.sdr?.settings?.fft_window ?? "Rectangular"),
+      temporalResolution: "lossless",
+    },
+    sourceCapabilities: {
+      minSampleRateHz: selected.sdr?.settings?.min_receive_sample_rate ?? undefined,
+      maxSampleRateHz: selected.capabilities?.max_sample_rate ?? selected.sdr?.max_sample_rate,
+      fftSizes: selected.capabilities?.fft?.sizes,
+      maxFrameRateHz: selected.capabilities?.fft?.max_frame_rate,
+    },
+  });
+  console.log(`Capture preflight options: ${JSON.stringify(preflight)}`);
+  if (preflight.fit !== "ready" || !preflight.options) {
+    throw new Error(`Capture quality profile ${profile.id} is not supported: ${preflight.reasons.join(" ")}`);
+  }
+  const options = preflight.options;
   if (deviceId !== "mock-apt") {
     await selectDevice(deviceId, receiveDefaults);
     await waitForDeviceSettings(deviceId, receiveDefaults);
@@ -330,9 +400,6 @@ async function iqCapture(args: string[], deviceId: string, selected: any) {
   const token = await authenticateCli();
   const { WebSocket } = await import("ws");
   const jobId = `cli_${randomUUID()}`;
-  const rate = Number(flag(args, "--sample-rate", String(selected.sdr?.sample_rate_options?.[0] ?? selected.sdr?.max_sample_rate ?? 3200000)));
-  const center = Number(flag(args, "--center-frequency", "0"));
-  const fftSize = resolveCliCaptureFftSize(args);
   const request: Record<string, unknown> = {
     type: "capture",
     jobId,
@@ -341,7 +408,10 @@ async function iqCapture(args: string[], deviceId: string, selected: any) {
     fileType: flag(args, "--file-type", ".napt"),
     encrypted: true,
     acquisitionMode: flag(args, "--acquisition-mode", "stepwise"),
-    fftSize,
+    sampleRateHz: options.sampleRateHz,
+    frameRate: options.frameRateHz,
+    fftSize: options.fftSize,
+    fftWindow: options.fftWindow,
     gain: Number(flag(args, "--gain", String(receiveDefaults.gainDb))),
     ppm: Number(flag(args, "--ppm", String(receiveDefaults.ppm))),
     tunerAGC: false,
@@ -353,18 +423,46 @@ async function iqCapture(args: string[], deviceId: string, selected: any) {
   const completed = await new Promise<{
     downloadUrl?: string;
     filename?: string;
+    checksum?: string;
+    fileSize?: number;
   }>((resolve, reject) => {
     const socket = new WebSocket(`${backend.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(token)}`);
     const timeout = setTimeout(() => { socket.close(); reject(new Error("Timed out waiting for I/Q capture")); }, (Number(request.durationS) + 30) * 1000);
+    let acknowledged = false;
     socket.on("open", () => socket.send(JSON.stringify({ ...request, source_id: sourceId })));
     socket.on("message", (raw) => {
       let message: any;
       try { message = JSON.parse(raw.toString()); } catch { return; }
       const status = message.type === "capture_status" ? message.status : null;
-      if (status?.jobId === jobId && status.status === "done") {
+      if (status?.jobId !== jobId) return;
+      if (status.status === "started") {
+        const validation = validateCapturePreflightAcknowledgement(options, status);
+        if (status.sourceId && status.sourceId !== sourceId) {
+          clearTimeout(timeout);
+          socket.send(JSON.stringify({ type: "capture_stop", jobId }));
+          socket.close();
+          reject(new Error(`Capture acknowledgement source ${status.sourceId} does not match ${sourceId}`));
+          return;
+        }
+        if (!validation.valid) {
+          clearTimeout(timeout);
+          socket.send(JSON.stringify({ type: "capture_stop", jobId }));
+          socket.close();
+          reject(new Error(validation.reason ?? "Capture preflight acknowledgement failed"));
+          return;
+        }
+        acknowledged = true;
+      }
+      if (status.status === "done") {
+        if (!acknowledged) {
+          clearTimeout(timeout);
+          socket.close();
+          reject(new Error("Capture completed without a preflight settings acknowledgement"));
+          return;
+        }
         clearTimeout(timeout); socket.close(); resolve(status);
       }
-      if (status?.jobId === jobId && status.status === "failed") {
+      if (status.status === "failed" || status.status === "error") {
         clearTimeout(timeout); socket.close(); reject(new Error(status.error ?? status.message ?? "I/Q capture failed"));
       }
     });
@@ -382,18 +480,30 @@ async function iqCapture(args: string[], deviceId: string, selected: any) {
   if (!response.ok) {
     throw new Error(`Capture download failed: HTTP ${response.status}`);
   }
-  const captureOutput = flag(
-    args,
-    "--output",
-    join(
-      process.env.HOME ?? ".",
-      "Downloads",
-      completed.filename ?? `n-apt_capture_${Date.now()}.napt`,
-    ),
+  if (!completed.filename || completed.fileSize === undefined || !completed.checksum) {
+    throw new Error("Capture completion is missing artifact verification metadata");
+  }
+  const captureOutput = getCaptureOutputPath({
+    destination,
+    filename: completed.filename,
+    downloadsDirectory: join(process.env.HOME ?? homedir(), "Downloads"),
+    aspectPath: process.env.N_APT_ASPECT_PATH,
+    outputOverride,
+  });
+  const artifact = new Uint8Array(await response.arrayBuffer());
+  const verification = await verifyCaptureArtifact(artifact, {
+    filename: completed.filename,
+    fileSize: completed.fileSize,
+    checksum: completed.checksum,
+  });
+  await writeCaptureArtifact(
+    captureOutput,
+    artifact,
+    destination === "aspect" && !outputOverride ? "aspect" : "local",
   );
-  await mkdir(dirname(captureOutput), { recursive: true });
-  await writeFile(captureOutput, Buffer.from(await response.arrayBuffer()));
-  console.log(`Saved I/Q capture: ${captureOutput}`);
+  console.log(
+    `Saved verified ${verification.format.toUpperCase()} V${verification.formatVersion} capture to ${destination === "aspect" ? "Aspect" : "Local Downloads"}: ${captureOutput} (${verification.frameUpdateCount} frame updates)`,
+  );
 }
 
 function flag(args: string[], name: string, fallback: string) {
@@ -432,7 +542,22 @@ async function resolveDeviceArgument(args: string[], sources: any[]) {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  const helpTopic = resolveCliHelpTopic(rawArgs);
+  if (helpTopic) {
+    console.log(renderCliHelp(helpTopic));
+    return;
+  }
+  if (rawArgs.length === 1 && rawArgs[0] === "--version") {
+    console.log(cliVersion());
+    return;
+  }
+  if (!new Set(["devices", "capture", "signals", "agent", "demod"]).has(rawArgs[0])) usage();
+  if (rawArgs[0] === "capture" && rawArgs[1] !== "snapshot" && rawArgs[1] !== "iq") usage();
+  if (rawArgs[0] === "signals" && !new Set(["inspect", "spectrum", "validate", "demod", "capture"]).has(rawArgs[1])) usage();
+  if (rawArgs[0] === "agent" && !new Set(["capabilities", "tools", "markdown", "call"]).has(rawArgs[1])) usage();
+
+  const args = validateCliArguments(rawArgs);
   if (args[0] === "demod") { await demod(args); return; }
   if (args[0] === "signals") { await signals(args); return; }
   if (args[0] === "agent") {
@@ -444,7 +569,7 @@ async function main() {
     }
     if (command === "markdown") {
       const route = flag(args, "--route", "/");
-      await ensureAppRunning();
+      await requireAppRunning("frontend");
       const result = await fetchAgentMarkdown(frontend, route);
       console.log(json ? JSON.stringify(result, null, 2) : result.body);
       return;
@@ -455,7 +580,7 @@ async function main() {
       const paramsText = flag(args, "--params", "{}");
       let params: unknown;
       try { params = JSON.parse(paramsText); } catch { throw new Error("--params must be valid JSON"); }
-      await ensureAppRunning();
+      await requireAppRunning("backend");
       const token = await authenticateCli();
       const result = await executeAgentTool(backend, token, name, params, args.includes("--allow-mutations"));
       console.log(json ? JSON.stringify(result, null, 2) : JSON.stringify(result));
@@ -465,24 +590,40 @@ async function main() {
   }
   if (args[0] !== "devices" && args[0] !== "capture") usage();
 
-  await ensureAppRunning();
-  const sources = await fetchSources();
+  const operation = args[1];
+  if (args[0] === "capture" && operation !== "snapshot" && operation !== "iq") usage();
+  if (args[0] === "capture" && operation === "iq" && !args.includes("--allow-mutations")) {
+    throw new Error("capture iq requires --allow-mutations; RX capture changes device state");
+  }
+
+  await requireAppRunning(operation === "snapshot" ? "both" : "backend");
+  const status = await fetchBackendStatus();
+  const sources = status.sources.map((source) => ({
+    ...source,
+    active: source.id === status.activeSource,
+  }));
   if (args[0] === "devices") {
-    console.table(
-      sources.map((source) => ({
-        id: source.id,
-        name: source.name,
-        kind: source.kind,
-        status: source.status,
-        serial: source.serial_number ?? "",
-        active: source.id === (sources as any).active_source,
-      })),
-    );
+    if (args.includes("--json")) {
+      console.log(JSON.stringify({
+        schemaVersion: 1,
+        activeSource: status.activeSource,
+        sources,
+      }));
+    } else {
+      console.table(
+        sources.map((source) => ({
+          id: source.id,
+          name: source.name,
+          kind: source.kind,
+          status: source.status,
+          serial: source.serial_number ?? "",
+          active: source.active,
+        })),
+      );
+    }
     return;
   }
 
-  const operation = args[1];
-  if (operation !== "snapshot" && operation !== "iq") usage();
   const selected = resolveRequestedDevice({
     requested: await resolveDeviceArgument(args, sources),
     sources,
@@ -493,6 +634,12 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
+  if (error instanceof CliUsageError) {
+    console.error(error.message);
+    console.error("Run `npm run cli -- --help` for usage.");
+    process.exitCode = error.exitCode;
+    return;
+  }
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

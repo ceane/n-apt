@@ -6,6 +6,8 @@ feature notes and implementation summaries in `.agents/`.
 For signal-processing, IQ-capture, FFT, demodulation, `/learn`, or signals CLI
 work, load `.agents/signals/SKILL.md`. It defines the project's plain-language
 terminology, current demod modes, evidence standards, and RX-only safety rules.
+For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
+`.agents/CLI.md`.
 
 ## Working Rules
 

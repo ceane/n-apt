@@ -2,6 +2,8 @@ import { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/hooks/useWasmSimdMa
 import { dbToColor } from "@n-apt/capture/hooks/useSnapshot";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 
+export { resolveCliSnapshotFrameCount } from "@n-apt/cli/snapshotPolicy";
+
 export interface CliSnapshotFrame {
   iqData: Uint8Array;
   centerFrequencyHz: number;
