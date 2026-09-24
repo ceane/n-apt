@@ -8,7 +8,7 @@ Continue the user's approved implementation plan, starting from the shared nativ
 
 The offline CLI/trainer and a live-browser shadow-scoring panel have been implemented. A synthetic plumbing model was trained, but **no model has been trained on independently labeled recordings and no real-capture accuracy has been measured**. Feature scales and rules remain provisional. The original 17-case acceptance suite was run unchanged against the legacy browser classifier; only 3 cases passed, with morphology misses, mock-negative false positives, and interference-boundary failures. These acceptance captures are not independent evaluation data.
 
-All work is currently uncommitted/untracked in the existing checkout. Continue in this checkout; a fresh worktree or branch checkout from committed HEAD will not contain these files. Preserve unrelated changes and follow AGENTS.md. No commit or push was requested.
+The classifier pipeline files described below are tracked at the current branch HEAD. Inspect `git status -sb` before editing and preserve unrelated work. The user has authorized pushes for the current V6 capture fix; that approval does not approve an ML method choice, model promotion, or changes to classifier acceptance labels. Follow `AGENTS.md` for scoped commits.
 
 ## Requirements already decided with the user
 
@@ -121,5 +121,18 @@ All work is currently uncommitted/untracked in the existing checkout. Continue i
 - Combined focused regression/classifier tests: **5 Jest suites / 42 tests pass**, plus **4 Python** and **4 Node I/Q pipeline tests**.
 
 ## Suggested next work
+
+### First: agree on the learning method
+
+The trainer currently contains logistic-regression and 16-unit ReLU-network prototypes, but these are engineering candidates, not a method the user has reviewed or selected. Before fitting real recordings or presenting the pipeline as a finished ML design, write a short decision note that explains in plain language:
+
+- What the target means (recognizable N-APT morphology, real negative, or insufficient evidence), how uncertain labels and unavailable features are handled, and which feature vector is being learned.
+- How logistic regression learns its weights and how the neural candidate uses backpropagation plus gradient descent; compare their objective, optimizer, regularization, session/recording weighting, stopping rule, and interpretability.
+- How validation balanced accuracy selects the decision threshold, how probabilities are calibrated or explicitly left uncalibrated, and why the untouched session split remains untouched.
+- What the small-model browser cost and failure/fallback behavior are, and what evidence would justify choosing the more complex network over logistic regression.
+
+Keep current models shadow-only while that decision is open. Do not infer a preferred optimizer from the existence of the current trainer implementation.
+
+### Then: independent evidence and measured comparison
 
 Collect independently labeled positive and real-negative sessions at 3.2 MS/s, keeping sessions separate across train/validation/test. Compare the old classifier, improved deterministic rules, and learned models on the same timestamped native FFT frames, broken out by FFT size and crop visibility. Address the legacy failures from independent evidence rather than special-casing acceptance recordings. Then measure latency/render impact with the connected SDR. The current browser panel is shadow-only and its rules are diagnostic, not a promoted classifier.
