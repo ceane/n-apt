@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Train/evaluate native morphology models from classifier feature JSONL."""
 import argparse
+import datetime
 import hashlib
+import importlib.metadata
 import json
 import pathlib
+import platform
+import subprocess
 import sys
 
 import numpy as np
@@ -223,6 +227,56 @@ def usable(rows, split):
     return [row for row in labeled_rows(rows, split) if row.get('status') == 'ready']
 
 
+def split_monitor_sessions(rows, fraction=0.2, seed=1729):
+    """Hold out whole training sessions while retaining both labels on both sides."""
+    if not 0 < fraction < 1:
+        raise ValueError('Monitor fraction must be between zero and one')
+    session_labels = {}
+    for row in rows:
+        if row.get('label') not in LABELS or not row.get('session'):
+            raise ValueError('Monitor splitting requires labeled rows with session IDs')
+        session_labels.setdefault(str(row['session']), set()).add(row['label'])
+    label_sessions = {label: [session for session, labels in session_labels.items() if label in labels]
+                      for label in LABELS}
+    if any(len(sessions) < 2 for sessions in label_sessions.values()):
+        return list(rows), [], {'available':False,'reason':'fewer_than_two_sessions_per_class',
+                                'fitSessions':sorted(session_labels),'monitorSessions':[]}
+
+    rng = np.random.default_rng(seed)
+    order = list(np.asarray(sorted(session_labels), dtype=object)[rng.permutation(len(session_labels))])
+    monitor_sessions = set()
+    for label in LABELS:
+        if any(label in session_labels[session] for session in monitor_sessions):
+            continue
+        for candidate in order:
+            if candidate in monitor_sessions or label not in session_labels[candidate]:
+                continue
+            remaining = set(session_labels) - monitor_sessions - {candidate}
+            if any(label in session_labels[session] for session in remaining):
+                monitor_sessions.add(candidate)
+                break
+
+    target = max(len(monitor_sessions), int(np.ceil(fraction * len(session_labels))))
+    for candidate in order:
+        if len(monitor_sessions) >= target:
+            break
+        if candidate in monitor_sessions:
+            continue
+        remaining = set(session_labels) - monitor_sessions - {candidate}
+        if all(any(label in session_labels[session] for session in remaining) for label in LABELS):
+            monitor_sessions.add(candidate)
+
+    fit_rows = [row for row in rows if str(row['session']) not in monitor_sessions]
+    monitor_rows = [row for row in rows if str(row['session']) in monitor_sessions]
+    if not monitor_rows or {row['label'] for row in fit_rows} != set(LABELS) or {row['label'] for row in monitor_rows} != set(LABELS):
+        return list(rows), [], {'available':False,'reason':'unable_to_preserve_both_classes',
+                                'fitSessions':sorted(session_labels),'monitorSessions':[]}
+    return fit_rows, monitor_rows, {'available':True,'reason':None,
+        'fitSessions':sorted({str(row['session']) for row in fit_rows}),
+        'monitorSessions':sorted(monitor_sessions),'requestedFraction':fraction,
+        'actualFraction':len(monitor_sessions) / len(session_labels)}
+
+
 def _identity(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), default=str)
 
@@ -315,18 +369,38 @@ def fit_logistic(x, y, weight, max_iter=5000, l2=1e-3, tolerance=1e-8):
             'bias':[float(bias)],'trainingDiagnostics':{'updates':updates,'convergence':reason,'lossCurve':loss_curve}}
 
 
-def fit_mlp(x, y, weight, seed=1729, device='auto', max_epochs=2000, l2=1e-3, learning_rate=1e-3):
+def mlp_weighted_loss(x, y, weight, params, l2):
+    values = np.asarray(x, dtype=float)
+    w1, b1, w2, b2 = (np.asarray(parameter, dtype=float) for parameter in params)
+    hidden = np.maximum(values @ w1.T + b1, 0)
+    logits = hidden @ w2 + float(b2.reshape(-1)[0])
+    return weighted_logit_loss(logits, y, weight, [w1, w2], l2)
+
+
+def fit_mlp(x, y, weight, seed=1729, device='auto', max_epochs=2000, l2=1e-3,
+            learning_rate=1e-3, monitor=None, patience=50, min_delta=1e-5):
     values = np.asarray(x, dtype=float)
     labels = np.asarray(y, dtype=float)
     sample_weight = np.asarray(weight, dtype=float)
     mean, scale = fit_normalization(values, sample_weight)
     standardized = standardize_features(values, mean, scale)
-    if max_epochs < 1 or not np.isfinite(learning_rate) or learning_rate <= 0 or not np.isfinite(l2) or l2 < 0:
-        raise ValueError('MLP training requires positive epochs/rate and nonnegative L2')
+    if max_epochs < 1 or patience < 1 or not np.isfinite(learning_rate) or learning_rate <= 0 or not np.isfinite(l2) or l2 < 0 or not np.isfinite(min_delta) or min_delta < 0:
+        raise ValueError('MLP training requires positive epochs/patience/rate and nonnegative finite L2/min-delta')
+    monitor_values = monitor_labels = monitor_weight = None
+    if monitor is not None:
+        raw_monitor_x, monitor_labels, monitor_weight = monitor
+        monitor_values = standardize_features(raw_monitor_x, mean, scale)
+        monitor_labels = np.asarray(monitor_labels, dtype=float)
+        monitor_weight = np.asarray(monitor_weight, dtype=float)
+        if monitor_values.shape[0] != monitor_labels.size or monitor_labels.size != monitor_weight.size or not monitor_labels.size:
+            raise ValueError('Monitor features, labels, and weights must have the same nonzero length')
+        weighted_logit_loss(np.zeros(monitor_labels.size), monitor_labels, monitor_weight)
     try:
         import torch
     except ImportError:
         torch = None
+    if torch is None and device in ('cpu','mps'):
+        raise RuntimeError(f'PyTorch is required for explicitly requested {device} training')
     if torch is not None and device != 'numpy':
         torch.manual_seed(seed)
         backend = 'mps' if torch.backends.mps.is_available() else 'cpu'
@@ -336,12 +410,19 @@ def fit_mlp(x, y, weight, seed=1729, device='auto', max_epochs=2000, l2=1e-3, le
         tx = torch.tensor(standardized, dtype=torch.float32, device=backend)
         ty = torch.tensor(labels[:, None], dtype=torch.float32, device=backend)
         tw = torch.tensor(sample_weight[:, None], dtype=torch.float32, device=backend)
+        if monitor_values is not None:
+            tmx = torch.tensor(monitor_values, dtype=torch.float32, device=backend)
+            tmy = torch.tensor(monitor_labels[:, None], dtype=torch.float32, device=backend)
+            tmw = torch.tensor(monitor_weight[:, None], dtype=torch.float32, device=backend)
         first = torch.nn.Linear(values.shape[1], 16)
         last = torch.nn.Linear(16, 1)
         model = torch.nn.Sequential(first, torch.nn.ReLU(), last).to(backend)
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-8)
-        loss_curve = []
-        for _ in range(max_epochs):
+        loss_curve, monitor_curve = [], []
+        best_state, best_loss, best_epoch, stale_epochs = None, float('inf'), None, 0
+        stop_reason = 'maximum_epochs'
+        epochs_run = 0
+        for epoch in range(1, max_epochs + 1):
             optimizer.zero_grad()
             logits = model(tx)
             data_loss = (torch.nn.functional.binary_cross_entropy_with_logits(logits, ty, reduction='none') * tw).sum() / tw.sum()
@@ -349,13 +430,35 @@ def fit_mlp(x, y, weight, seed=1729, device='auto', max_epochs=2000, l2=1e-3, le
             loss.backward()
             optimizer.step()
             loss_curve.append(float(loss.detach().cpu()))
+            epochs_run = epoch
+            if monitor_values is not None:
+                with torch.no_grad():
+                    monitor_logits = model(tmx)
+                    monitor_data_loss = (torch.nn.functional.binary_cross_entropy_with_logits(monitor_logits, tmy, reduction='none') * tmw).sum() / tmw.sum()
+                    monitor_loss = monitor_data_loss + 0.5 * l2 * (first.weight.square().sum() + last.weight.square().sum())
+                    current_monitor_loss = float(monitor_loss.detach().cpu())
+                monitor_curve.append(current_monitor_loss)
+                if current_monitor_loss < best_loss - min_delta:
+                    best_loss = current_monitor_loss
+                    best_epoch = epoch
+                    best_state = {key:value.detach().clone() for key,value in model.state_dict().items()}
+                    stale_epochs = 0
+                else:
+                    stale_epochs += 1
+                    if stale_epochs >= patience:
+                        stop_reason = 'patience'
+                        break
+        if best_state is not None:
+            model.load_state_dict(best_state)
         first_layer, last_layer = [layer for layer in model.modules() if isinstance(layer, torch.nn.Linear)]
         return {'kind':'mlp','mean':mean.tolist(),'scale':scale.tolist(),
                 'weights':first_layer.weight.detach().cpu().numpy().tolist(),
                 'bias':first_layer.bias.detach().cpu().numpy().tolist(),
                 'outputWeights':last_layer.weight.detach().cpu().numpy()[0].tolist(),
                 'outputBias':float(last_layer.bias.detach().cpu().numpy()[0]),
-                'trainingDevice':backend,'trainingDiagnostics':{'epochs':max_epochs,'lossCurve':loss_curve}}
+                'trainingDevice':backend,'trainingDiagnostics':{'epochsRun':epochs_run,'maximumEpochs':max_epochs,
+                    'bestEpoch':best_epoch,'stopReason':stop_reason,'trainingLossCurve':loss_curve,
+                    'monitorLossCurve':monitor_curve,'monitoringUsed':monitor_values is not None}}
 
     rng = np.random.default_rng(seed)
     w1 = rng.normal(0, np.sqrt(2 / standardized.shape[1]), (16, standardized.shape[1]))
@@ -365,7 +468,10 @@ def fit_mlp(x, y, weight, seed=1729, device='auto', max_epochs=2000, l2=1e-3, le
     params = [w1, b1, w2, b2]
     first_moment = [np.zeros_like(parameter) for parameter in params]
     second_moment = [np.zeros_like(parameter) for parameter in params]
-    loss_curve = []
+    loss_curve, monitor_curve = [], []
+    best_params, best_loss, best_epoch, stale_epochs = None, float('inf'), None, 0
+    stop_reason = 'maximum_epochs'
+    epochs_run = 0
     for step in range(1, max_epochs + 1):
         loss, gradients = mlp_loss_and_grad(standardized, labels, sample_weight, params, l2)
         loss_curve.append(loss)
@@ -375,15 +481,74 @@ def fit_mlp(x, y, weight, seed=1729, device='auto', max_epochs=2000, l2=1e-3, le
             corrected_first = first_moment[index] / (1 - 0.9 ** step)
             corrected_second = second_moment[index] / (1 - 0.999 ** step)
             parameter -= learning_rate * corrected_first / (np.sqrt(corrected_second) + 1e-8)
+        epochs_run = step
+        if monitor_values is not None:
+            current_monitor_loss = mlp_weighted_loss(monitor_values, monitor_labels, monitor_weight, params, l2)
+            monitor_curve.append(current_monitor_loss)
+            if current_monitor_loss < best_loss - min_delta:
+                best_loss = current_monitor_loss
+                best_epoch = step
+                best_params = [parameter.copy() for parameter in params]
+                stale_epochs = 0
+            else:
+                stale_epochs += 1
+                if stale_epochs >= patience:
+                    stop_reason = 'patience'
+                    break
+    if best_params is not None:
+        w1, b1, w2, b2 = best_params
     return {'kind':'mlp','mean':mean.tolist(),'scale':scale.tolist(),'weights':w1.tolist(),'bias':b1.tolist(),
             'outputWeights':w2.tolist(),'outputBias':float(b2[0]),'trainingDevice':'numpy',
-            'trainingDiagnostics':{'epochs':max_epochs,'lossCurve':loss_curve}}
+            'trainingDiagnostics':{'epochsRun':epochs_run,'maximumEpochs':max_epochs,'bestEpoch':best_epoch,
+                'stopReason':stop_reason,'trainingLossCurve':loss_curve,'monitorLossCurve':monitor_curve,
+                'monitoringUsed':monitor_values is not None}}
 
 
 def write_json(path, value):
     output = pathlib.Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(value, indent=2, allow_nan=False) + '\n')
+
+
+def _revision_metadata():
+    repository = pathlib.Path(__file__).resolve().parents[2]
+    try:
+        revision = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=repository, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        dirty = bool(subprocess.run(['git', 'status', '--porcelain'], cwd=repository, check=True,
+                                    capture_output=True, text=True).stdout.strip())
+    except (OSError, subprocess.CalledProcessError):
+        revision, dirty = None, None
+    return revision, dirty
+
+
+def _package_version(name):
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def build_run_manifest(feature_path, rows, configuration, model):
+    content = pathlib.Path(feature_path).read_bytes()
+    revision, dirty = _revision_metadata()
+    split_manifest = {}
+    for split in sorted({row['split'] for row in rows}):
+        selected = [row for row in rows if row['split'] == split]
+        split_manifest[split] = {'rows':len(selected),
+                                 'sessions':sorted({str(row['session']) for row in selected})}
+    return {'createdAtUtc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'datasetSha256':hashlib.sha256(content).hexdigest(),
+            'featureFileRows':len(rows),
+            'splitManifest':split_manifest,
+            'preprocessing':PREPROCESSING,'featureNames':FEATURE_NAMES,
+            'codeRevision':revision,'worktreeDirty':dirty,
+            'trainerSha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
+            'runtime':{'python':platform.python_version(),'numpy':np.__version__,
+                       'torch':_package_version('torch')},
+            'objective':'hierarchically weighted binary cross-entropy with explicit L2 penalty',
+            'configuration':configuration,
+            'normalization':{'mean':model['mean'],'scale':model['scale']}}
 
 
 def coverage(rows):
@@ -402,16 +567,43 @@ def train_command(args):
     tr, va = usable(rows, 'train'), usable(rows, 'validation')
     if not tr or not va or {row['label'] for row in tr} != set(LABELS) or {row['label'] for row in va} != set(LABELS):
         raise ValueError('Train and validation splits each require both explicit ready labels')
-    x = np.asarray([row['features'] for row in tr], dtype=float)
-    y = np.asarray([LABELS[row['label']] for row in tr], dtype=float)
-    weight = balanced_weights(tr)
+    config = {'monitorFraction':getattr(args, 'monitor_fraction', 0.2),
+              'seed':getattr(args, 'seed', 1729),
+              'device':getattr(args, 'device', 'auto'),
+              'logistic':{'maxIterations':getattr(args, 'logistic_max_iter', 5000),
+                          'tolerance':getattr(args, 'logistic_tolerance', 1e-8),
+                          'l2':getattr(args, 'logistic_l2', 1e-3)},
+              'mlp':{'hiddenUnits':16,'maximumEpochs':getattr(args, 'mlp_epochs', 2000),
+                     'patience':getattr(args, 'mlp_patience', 50),
+                     'minimumMonitorImprovement':getattr(args, 'mlp_min_delta', 1e-5),
+                     'l2':getattr(args, 'mlp_l2', 1e-3),
+                     'learningRate':getattr(args, 'learning_rate', 1e-3)}}
+    fit_rows, monitor_rows, monitoring = split_monitor_sessions(
+        tr, fraction=config['monitorFraction'], seed=config['seed'])
+    if not monitoring['available']:
+        fit_rows = tr
+    x = np.asarray([row['features'] for row in fit_rows], dtype=float)
+    y = np.asarray([LABELS[row['label']] for row in fit_rows], dtype=float)
+    weight = balanced_weights(fit_rows)
+    monitor = None
+    if monitoring['available']:
+        mx = np.asarray([row['features'] for row in monitor_rows], dtype=float)
+        my = np.asarray([LABELS[row['label']] for row in monitor_rows], dtype=float)
+        mw = balanced_weights(monitor_rows)
+        monitor = (mx, my, mw)
     vx = np.asarray([row['features'] for row in va], dtype=float)
     vy = np.asarray([LABELS[row['label']] for row in va], dtype=int)
     validation_sessions = [row['session'] for row in va]
     synthetic_only = bool(tr_all + va_all) and all(row.get('syntheticOnly') is True for row in tr_all + va_all)
     candidates = []
-    for kind, fit in [('logistic', fit_logistic), ('mlp', lambda a,b,c: fit_mlp(a,b,c,device=args.device))]:
-        params = fit(x, y, weight)
+    logistic = fit_logistic(x, y, weight,
+        max_iter=config['logistic']['maxIterations'], l2=config['logistic']['l2'],
+        tolerance=config['logistic']['tolerance'])
+    mlp = fit_mlp(x, y, weight, seed=config['seed'], device=config['device'],
+        max_epochs=config['mlp']['maximumEpochs'], l2=config['mlp']['l2'],
+        learning_rate=config['mlp']['learningRate'], monitor=monitor,
+        patience=config['mlp']['patience'], min_delta=config['mlp']['minimumMonitorImprovement'])
+    for params in (logistic, mlp):
         training_diagnostics = params.pop('trainingDiagnostics', {})
         training_device = params.pop('trainingDevice', 'numpy')
         scores = predict(params, vx)
@@ -420,17 +612,28 @@ def train_command(args):
         observed_rates = sorted(set(row['analysisSampleRateHz'] for row in va if row.get('analysisSampleRateHz') is not None))
         artifact = {**params,'version':1,'preprocessing':PREPROCESSING,'featureNames':FEATURE_NAMES,'threshold':threshold,
                     'validatedSampleRatesHz':[],'syntheticOnly':synthetic_only,
-                    'trainingSessions':sorted(set(row['session'] for row in tr)),
+                    'trainingSessions':sorted(set(row['session'] for row in fit_rows)),
+                    'monitorSessions':monitoring['monitorSessions'],
                     'validationSessions':sorted(set(validation_sessions))}
+        canonical = json.dumps(artifact, sort_keys=True, separators=(',',':'))
+        artifact['id'] = hashlib.sha256(canonical.encode()).hexdigest()[:16]
         candidates.append((artifact, validation_report, {'device':training_device, **training_diagnostics,
                                                          'observedValidationSampleRatesHz':observed_rates}))
     candidates.sort(key=lambda item: ((item[1]['sessionBalancedAccuracy'] if item[1]['sessionBalancedAccuracy'] is not None else -1),
                                       item[0]['kind'] == 'logistic'), reverse=True)
     model = candidates[0][0]
-    canonical = json.dumps(model, sort_keys=True, separators=(',',':'))
-    model['id'] = hashlib.sha256(canonical.encode()).hexdigest()[:16]
     write_json(args.model, model)
+    candidate_directory = getattr(args, 'candidates_dir', None)
+    if candidate_directory:
+        for artifact, _, _ in candidates:
+            write_json(pathlib.Path(candidate_directory) / f"{artifact['kind']}.json", artifact)
+    run_manifest = build_run_manifest(args.features, rows, config, model)
+    monitoring_report = {**monitoring,'available':bool(monitoring['available']),
+                         'fitRows':len(fit_rows),'monitorRows':len(monitor_rows),
+                         'patience':config['mlp']['patience'],
+                         'minimumImprovement':config['mlp']['minimumMonitorImprovement']}
     write_json(args.report, {'selectedModel':model['kind'],'selectedTraining':candidates[0][2],
+        'selectedModelId':model['id'],'runManifest':run_manifest,'trainingMonitoring':monitoring_report,
         'validation':candidates[0][1],
         'candidates':[{'kind':artifact['kind'],'validation':report,'training':diagnostics}
                       for artifact,report,diagnostics in candidates],
@@ -513,6 +716,17 @@ def main():
     train.add_argument('--model', required=True)
     train.add_argument('--report', required=True)
     train.add_argument('--device', choices=['auto','numpy','cpu','mps'], default='auto')
+    train.add_argument('--monitor-fraction', type=float, default=0.2)
+    train.add_argument('--seed', type=int, default=1729)
+    train.add_argument('--logistic-max-iter', type=int, default=5000)
+    train.add_argument('--logistic-tolerance', type=float, default=1e-8)
+    train.add_argument('--logistic-l2', type=float, default=1e-3)
+    train.add_argument('--mlp-epochs', type=int, default=2000)
+    train.add_argument('--mlp-patience', type=int, default=50)
+    train.add_argument('--mlp-min-delta', type=float, default=1e-5)
+    train.add_argument('--mlp-l2', type=float, default=1e-3)
+    train.add_argument('--learning-rate', type=float, default=1e-3)
+    train.add_argument('--candidates-dir')
     train.set_defaults(run=train_command)
     evaluate = sub.add_parser('evaluate')
     evaluate.add_argument('--features', required=True)

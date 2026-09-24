@@ -2,7 +2,7 @@
 
 ## Task and current stopping point
 
-**Latest priority (2026-09-24):** The first trainer-correctness slice from [TRAINING_PLAN.md](./TRAINING_PLAN.md) is implemented in the current worktree. It fixes weighted normalization, the sample-weight hierarchy, stable losses and gradients, NumPy/PyTorch MLP export, validation thresholding, abstention coverage, and sample-rate claims. Remaining trainer work is grouped early stopping/checkpoint restore, exposed search/run configuration, and TS/WGSL parity for trained artifacts. No real recordings were fitted.
+**Latest priority (2026-09-24):** The trainer now has a second WIP slice for reproducibility. It reserves whole training sessions for MLP monitoring when both classes can stay on both sides, stops on monitor patience and restores the best checkpoint, exposes training controls, can write both candidate artifacts, records a feature-dataset/split/runtime/code manifest, and checks trained logistic/MLP artifact parity through TypeScript CPU inference. The default Python suite passes 23 tests with three optional PyTorch tests skipped. A temporary CPython 3.14/PyTorch 2.14 environment passes all 23 tests, including CPU early-stopping/checkpoint restore; this host reports MPS unavailable. No real recordings were fitted. Remaining work is the predeclared multi-seed/L2 search and trained-artifact WGSL/WebGPU parity.
 
 Capture context: see [LUNA_RECORDING_HANDOFF.md](./LUNA_RECORDING_HANDOFF.md) for the guarded Lossless I/Q recorder, source/staleness controls, and browser-export preparation integration. See [CAPTURE_QUALITY_HANDOFF.md](./CAPTURE_QUALITY_HANDOFF.md) for the proposed universal configurable quality contract spanning demodulation and classification. Live SDR observations and backend logs are in [LIVE_VALIDATION.md](./LIVE_VALIDATION.md). The native classifier has its own enable flag; the main spectrum route deliberately disables spike detection. The normal backend capture command applies settings and tunes the receiver, so it is not part of passive recording.
 
@@ -33,7 +33,7 @@ The shared worktree also contains unrelated demod/audio-survey edits; preserve t
 - `src/ts/shaders/native_features.wgsl`, `native_model.wgsl`: feature and inference shaders.
 - `scripts/classifier/browser.ts`, `runner.mjs`: shared extractor in an ephemeral loopback headless-browser harness; no running app required.
 - `scripts/classifier/io.mjs`: raw u8/s16le/f32le decoding and dataset/session validation; re-exports shared FFT.
-- `scripts/classifier/train.py`: NumPy logistic regression and 16-unit ReLU MLP, optional PyTorch/MPS path, hierarchical class/session/recording/window/variant weighting, weighted normalization, session-balanced threshold selection, and abstention-aware grouped evaluation.
+- `scripts/classifier/train.py`: NumPy logistic regression and 16-unit ReLU MLP, optional PyTorch/MPS path, hierarchical class/session/recording/window/variant weighting, weighted normalization, group-disjoint early stopping/checkpoint restore, session-balanced threshold selection, run manifests, optional candidate exports, and abstention-aware grouped evaluation.
 - `scripts/classifier/README.md`, `test/ts/nativeClassifier.test.ts`, `test/ts/NativeClassifierPanel.test.tsx`, `test/classifier/io.test.mjs`, `test/classifier/test_training.py`, `test/classifier/gpu-parity.mjs`: commands, schema and parity/tests.
 
 ## Ordered implementation checklist
@@ -76,7 +76,9 @@ The shared worktree also contains unrelated demod/audio-survey edits; preserve t
 - [ ] Evaluate once on held-out test sessions; report precision, recall, confusion matrix, balanced accuracy, insufficient-evidence coverage, and breakdowns by session, FFT resolution, and visible fraction. Do not hide abstentions by reporting only classified rows.
 - [ ] Compare the old classifier on the same FFT frames with the same crop and recorded timestamps. Reuse/extract the actual WGSL harness in `scripts/test/manual_napt_classifier_harness.mjs`; do not approximate the old classifier with new rules. Its `scoreCapture` is currently private and the CLI runs at module bottom, so make any import refactor safe and preserve existing behavior/tests.
 - [ ] Calibrate the new deterministic threshold on validation data too. Keep current acceptance assertions unchanged.
-- [ ] Add NumPy vs TS vs WGSL inference parity for both exported model kinds, not only hand-written weights. Train on a synthetic fixture to prove plumbing, label the resulting model/report synthetic-only, and do not promote it into the app.
+- [x] Add Python vs TypeScript CPU inference parity for trained logistic and MLP artifacts using synthetic-only training rows. This proves model serialization/inference plumbing, not signal accuracy.
+- [ ] Add WGSL/WebGPU inference parity for both trained artifact kinds; test bias and out-of-range inputs.
+- [ ] Implement the predeclared multi-seed/L2 search runner and its selection/provenance tests. Keep the untouched evaluation split out of candidate selection.
 
 ### 4. Wire browser shadow inference (implemented; live SDR proof remains)
 
@@ -119,17 +121,17 @@ The shared worktree also contains unrelated demod/audio-survey edits; preserve t
 - `node --test test/classifier/io.test.mjs`: **5 tests pass**.
 - `node test/classifier/gpu-parity.mjs`: **passes on actual local Chromium WebGPU** for 1,024/4,096/16,384 bins, full/cropped frames, logistic and 16-unit MLP. Maximum per-bin feature difference ~1.29e-5; inference difference ~6.62e-8. Warm extraction including readback ~2.8–3.2 ms in this small run; first call ~97 ms. This is not a broad benchmark or live SDR result.
 - Chromium required sandbox escalation for macOS Mach/GPU services. The test launches an isolated temporary profile, not the user's browser.
-- `python3 -m unittest discover -s test/classifier -p 'test_training.py'`: **17 tests pass, 2 optional PyTorch tests skipped** with the default Python environment.
-- The same Python test suite in an isolated temporary CPython 3.14 environment with PyTorch 2.14: **17 tests pass**, including CPU model fit/export and NumPy-versus-PyTorch autograd checks. This host reports MPS unavailable; no MPS execution was claimed. The temporary environment was removed after testing.
+- `python3 -m unittest discover -s test/classifier -p 'test_training.py'`: **23 tests pass, 3 optional PyTorch tests skipped** with the default Python environment. The added coverage checks whole-session monitor splits, NumPy/PyTorch MLP early stopping and checkpoint restore, candidate artifacts, dataset/split provenance, explicit unavailable-MPS failure, and Python-to-TypeScript parity for both exported model kinds. The TypeScript check uses the local Node/tsx project runtime and CPU `core.ts`; it does not execute WebGPU.
+- The same Python suite in a temporary CPython 3.14/PyTorch 2.14 environment: **23 tests pass**. It used CPU; `torch.backends.mps.is_available()` returned false. The temporary environment was removed after the run.
 - The trainer round-trip used tiny generated feature rows only. No recording, acceptance fixture, SDR capture, or real-data accuracy claim was used.
 - `node node_modules/typescript/bin/tsc --noEmit --ignoreDeprecations 6.0 --pretty false`: **passes** after replacing two ES target compatibility calls in the new core.
 - Combined focused regression/classifier tests: **5 Jest suites / 42 tests pass**, plus **4 Python** and **4 Node I/Q pipeline tests**.
 
 ## Suggested next work
 
-The [learning and evaluation plan](./TRAINING_PLAN.md) now supplies the method discussion and concrete proposed experiment. Its defaults are starting points, not measured optimum settings. Implement in this order:
+The [learning and evaluation plan](./TRAINING_PLAN.md) supplies the method discussion and concrete proposed experiment. Its defaults are starting points, not measured optimum settings. Continue in this order:
 
-1. Finish trainer reproducibility: reserve group-disjoint training-monitor sessions, add early stopping/checkpoint restore, expose settings and predeclared search controls, emit a run manifest, and verify trained-model TypeScript/WGSL parity.
+1. Add the predeclared multi-seed/L2 search and verify trained-artifact WGSL/WebGPU parity.
 2. Verify V6 capture option/interruption boundaries and external label provenance through offline extraction.
 3. Audit feature sufficiency, especially pulsing and availability. Learning combinations of existing features cannot recover information the extractor discarded.
 4. Collect independently labeled positive and real RF negative sessions at 3.2 MS/s; compare rules and both candidates on shared frames. Use validation session-balanced balanced accuracy, preserve all session splits, and evaluate the selected model once on untouched sessions. Synthetic mocks remain a separate challenge set.

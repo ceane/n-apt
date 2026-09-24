@@ -1,6 +1,9 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -132,6 +135,21 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(len(model['outputWeights']), 16)
         self.assertTrue(np.isfinite(training.predict(model, x)).all())
 
+    def test_torch_mlp_monitoring_restores_best_checkpoint_when_available(self):
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            self.skipTest('PyTorch is not installed in this environment')
+        x = np.array([[-1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+        y = np.array([0.0, 1.0, 1.0])
+        model = training.fit_mlp(x, y, np.ones(3), seed=11, device='cpu', max_epochs=10,
+                                 monitor=(x, y, np.ones(3)), patience=2, min_delta=1000.0)
+        diagnostic = model['trainingDiagnostics']
+        self.assertTrue(diagnostic['monitoringUsed'])
+        self.assertEqual(diagnostic['stopReason'], 'patience')
+        self.assertEqual(diagnostic['bestEpoch'], 1)
+        self.assertEqual(diagnostic['epochsRun'], 3)
+
     def test_numpy_mlp_loss_and_gradients_match_torch_autograd_when_available(self):
         try:
             import torch
@@ -196,6 +214,106 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(report['observedValidationSampleRatesHz'], [3_200_000])
         self.assertIn('sessionBalancedAccuracy', report['validation'])
         self.assertIn('lossCurve', report['selectedTraining'])
+        self.assertEqual(report['trainingMonitoring']['available'], False)
+        self.assertTrue(report['runManifest']['datasetSha256'])
+
+    def test_monitor_split_keeps_whole_sessions_separate_and_both_classes_in_each_side(self):
+        rows = []
+        for session, label in [('positive-a','matching'),('positive-b','matching'),
+                               ('negative-a','nonmatching'),('negative-b','nonmatching')]:
+            rows.extend(self._feature_row(f'{session}-{frame}', label, 'ready', float(frame), session, 'train')
+                        for frame in range(3))
+        fit_rows, monitor_rows, report = training.split_monitor_sessions(rows, fraction=0.25, seed=13)
+        self.assertTrue(report['available'])
+        self.assertEqual({row['session'] for row in fit_rows} & {row['session'] for row in monitor_rows}, set())
+        self.assertEqual({row['label'] for row in fit_rows}, {'matching', 'nonmatching'})
+        self.assertEqual({row['label'] for row in monitor_rows}, {'matching', 'nonmatching'})
+        again = training.split_monitor_sessions(rows, fraction=0.25, seed=13)
+        self.assertEqual([row['session'] for row in monitor_rows], [row['session'] for row in again[1]])
+
+    def test_monitor_split_reports_session_shortfall_without_splitting_frames(self):
+        rows = [self._feature_row('positive','matching','ready',0.2,'positive','train'),
+                self._feature_row('negative','nonmatching','ready',0.8,'negative','train')]
+        fit_rows, monitor_rows, report = training.split_monitor_sessions(rows)
+        self.assertFalse(report['available'])
+        self.assertEqual(report['reason'], 'fewer_than_two_sessions_per_class')
+        self.assertEqual(fit_rows, rows)
+        self.assertEqual(monitor_rows, [])
+
+    def test_mlp_restores_best_group_monitor_checkpoint_after_patience(self):
+        x = np.array([[-1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+        y = np.array([0.0, 1.0, 1.0])
+        model = training.fit_mlp(x, y, np.ones(3), seed=11, device='numpy', max_epochs=10,
+                                 monitor=(x, y, np.ones(3)), patience=2, min_delta=1000.0)
+        diagnostic = model['trainingDiagnostics']
+        self.assertEqual(diagnostic['stopReason'], 'patience')
+        self.assertEqual(diagnostic['bestEpoch'], 1)
+        self.assertEqual(diagnostic['epochsRun'], 3)
+
+    def test_explicit_mps_request_fails_when_backend_is_unavailable(self):
+        try:
+            import torch
+        except ImportError:
+            expected_message = 'PyTorch'
+        else:
+            if torch.backends.mps.is_available():
+                self.skipTest('MPS is available in this environment')
+            expected_message = 'MPS'
+        with self.assertRaisesRegex(RuntimeError, expected_message):
+            training.fit_mlp(np.zeros((2, 2)), np.array([0.0, 1.0]), np.ones(2),
+                             device='mps', max_epochs=1)
+
+    @unittest.skipUnless(shutil.which('node') and (Path(__file__).parents[2] / 'node_modules/tsx').exists(),
+                         'Node.js project runtime is not installed')
+    def test_trained_logistic_and_mlp_artifacts_match_typescript_inference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            feature_path, model_path, report_path, candidate_dir = [root / name for name in
+                ('features.jsonl','selected.json','report.json','candidates')]
+            rows = []
+            for split, prefix in [('train','training'),('validation','validation')]:
+                for label, token, score in [('matching','positive',0.8),('nonmatching','negative',0.2)]:
+                    sessions = [f'{prefix}-{token}']
+                    if split == 'train':
+                        sessions.append(f'{prefix}-{token}-second')
+                    for session in sessions:
+                        for frame in range(2):
+                            row = self._feature_row(f'{session}-{frame}', label, 'ready', score,
+                                                    session, split)
+                            row['frameIndex'] = frame
+                            row['timestampMs'] = frame * 100
+                            rows.append(row)
+            feature_path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            training.train_command(SimpleNamespace(features=feature_path, model=model_path, report=report_path,
+                candidates_dir=candidate_dir, device='numpy', mlp_epochs=5, monitor_fraction=0.25, seed=13,
+                logistic_max_iter=30, logistic_tolerance=1e-8, logistic_l2=0.001, mlp_l2=0.001,
+                learning_rate=0.001, mlp_patience=2, mlp_min_delta=1e-5))
+            probe = np.zeros((3, len(training.FEATURE_NAMES)), dtype=float)
+            probe[:, 0] = [0.2, 0.8, 120.0]
+            ts = """
+                import { readFileSync } from 'node:fs';
+                import { pathToFileURL } from 'node:url';
+                const core = await import(pathToFileURL(process.env.NAPT_CORE_TS).href);
+                const model = JSON.parse(readFileSync(process.env.NAPT_MODEL, 'utf8'));
+                const features = JSON.parse(process.env.NAPT_PROBES);
+                console.log(JSON.stringify(features.map(row => core.inferModel(core.validateModel(model), row))));
+            """
+            for artifact_path in sorted(candidate_dir.glob('*.json')):
+                model = json.loads(artifact_path.read_text())
+                expected = training.predict(model, probe)
+                environment = {**os.environ, 'NAPT_MODEL':str(artifact_path),
+                               'NAPT_CORE_TS':str(Path(__file__).parents[2] / 'src/ts/features/classification/native/core.ts'),
+                               'NAPT_PROBES':json.dumps(probe.tolist())}
+                result = subprocess.run(['node','--import','tsx','--input-type=module','-e',ts], cwd=Path(__file__).parents[2],
+                                        env=environment, check=True, capture_output=True, text=True)
+                np.testing.assert_allclose(json.loads(result.stdout), expected, rtol=1e-12, atol=1e-12)
+            self.assertEqual({path.stem for path in candidate_dir.glob('*.json')}, {'logistic','mlp'})
+            report = json.loads(report_path.read_text())
+            self.assertTrue(report['trainingMonitoring']['available'])
+            self.assertIn('configuration', report['runManifest'])
+            self.assertEqual(report['runManifest']['normalization']['mean'],
+                             json.loads(model_path.read_text())['mean'])
+            self.assertTrue(all(json.loads(path.read_text()).get('id') for path in candidate_dir.glob('*.json')))
 
     def _feature_row(self, identifier, label, status, rule_score, session=None, split='test'):
         features = np.zeros(len(training.FEATURE_NAMES), dtype=float)
