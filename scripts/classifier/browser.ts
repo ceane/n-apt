@@ -21,6 +21,23 @@ export async function initialize() {
       return { ...result, metadata, modelScore: score, modelDecision: score === null ? null : score >= model!.threshold,
         sampleRateValidated: !!model?.validatedSampleRatesHz.includes(metadata.analysisSampleRateHz), latencyMs: performance.now() - start };
     },
+    async inferParity(models: core.NativeModel[], probes: number[][]) {
+      const comparisons = [];
+      let maxInferenceError = 0;
+      for (const artifact of models) {
+        const model = core.validateModel(artifact);
+        for (let probeIndex = 0; probeIndex < probes.length; probeIndex++) {
+          const features = probes[probeIndex];
+          const typescriptScore = core.inferModel(model, features);
+          const webgpuScore = await gpu.infer(model, features);
+          const error = Math.abs(webgpuScore - typescriptScore);
+          maxInferenceError = Math.max(maxInferenceError, error);
+          comparisons.push({ modelId: model.id, kind: model.kind, probeIndex,
+            typescriptScore, webgpuScore, error });
+        }
+      }
+      return { maxInferenceError, comparisons };
+    },
     async parity() {
       let maxFeatureError = 0, maxInferenceError = 0;
       const latencies: number[] = [];

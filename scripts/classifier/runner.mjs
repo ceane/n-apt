@@ -21,6 +21,7 @@ export async function createRunner() {
     return {
       extract: (spectrum, metadata, model) => page.evaluate(({ spectrum, metadata, model }) => window.classifier.extract(spectrum, metadata, model), { spectrum: Array.from(spectrum), metadata, model }),
       parity: () => page.evaluate(() => window.classifier.parity()),
+      inferParity: (models, probes) => page.evaluate(({ models, probes }) => window.classifier.inferParity(models, probes), { models, probes }),
       close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); },
     };
   } catch (error) { await browser?.close(); await new Promise(resolve => server.close(resolve)); throw error; }

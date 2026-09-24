@@ -375,6 +375,9 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(report['runManifest']['normalization']['mean'],
                              json.loads(model_path.read_text())['mean'])
             self.assertTrue(all(json.loads(path.read_text()).get('id') for path in candidate_dir.glob('*.json')))
+            if os.environ.get('NAPT_RUN_WEBGPU_PARITY') == '1':
+                subprocess.run(['node','test/classifier/trained-model-gpu-parity.mjs',str(candidate_dir)],
+                               cwd=Path(__file__).parents[2], check=True)
 
     def _feature_row(self, identifier, label, status, rule_score, session=None, split='test'):
         features = np.zeros(len(training.FEATURE_NAMES), dtype=float)
