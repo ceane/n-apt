@@ -2,7 +2,7 @@
 
 ## Task and current stopping point
 
-**Latest priority (2026-09-24):** Follow [TRAINING_PLAN.md](./TRAINING_PLAN.md) for the proposed learning method, forward/backpropagation explanation, gradient-descent/Adam recipe, trainer defects, and ordered implementation tasks. Start with trainer correctness before fitting real recordings. The existing logistic and neural candidates are prototypes, not validated models.
+**Latest priority (2026-09-24):** The first trainer-correctness slice from [TRAINING_PLAN.md](./TRAINING_PLAN.md) is implemented in the current worktree. It fixes weighted normalization, the sample-weight hierarchy, stable losses and gradients, NumPy/PyTorch MLP export, validation thresholding, abstention coverage, and sample-rate claims. Remaining trainer work is grouped early stopping/checkpoint restore, exposed search/run configuration, and TS/WGSL parity for trained artifacts. No real recordings were fitted.
 
 Capture context: see [LUNA_RECORDING_HANDOFF.md](./LUNA_RECORDING_HANDOFF.md) for the guarded Lossless I/Q recorder, source/staleness controls, and browser-export preparation integration. See [CAPTURE_QUALITY_HANDOFF.md](./CAPTURE_QUALITY_HANDOFF.md) for the proposed universal configurable quality contract spanning demodulation and classification. Live SDR observations and backend logs are in [LIVE_VALIDATION.md](./LIVE_VALIDATION.md). The native classifier has its own enable flag; the main spectrum route deliberately disables spike detection. The normal backend capture command applies settings and tunes the receiver, so it is not part of passive recording.
 
@@ -10,7 +10,7 @@ Continue the user's approved implementation plan, starting from the shared nativ
 
 The offline CLI/trainer and a live-browser shadow-scoring panel have been implemented. A synthetic plumbing model was trained, but **no model has been trained on independently labeled recordings and no real-capture accuracy has been measured**. Feature scales and rules remain provisional. The original 17-case acceptance suite was run unchanged against the legacy browser classifier; only 3 cases passed, with morphology misses, mock-negative false positives, and interference-boundary failures. These acceptance captures are not independent evaluation data.
 
-The classifier pipeline files described below are tracked at the current branch HEAD. Inspect `git status -sb` before editing and preserve unrelated work. The user has authorized pushes for the current V6 capture fix; that approval does not approve an ML method choice, model promotion, or changes to classifier acceptance labels. Follow `AGENTS.md` for scoped commits.
+The shared worktree also contains unrelated demod/audio-survey edits; preserve those. This trainer step is scoped to the classifier trainer, its Python tests, and classifier handoff/plan docs. Inspect `git status -sb` before editing. The user has authorized pushes for the current V6 capture fix; that approval does not approve an ML method choice, model promotion, or changes to classifier acceptance labels. Follow `AGENTS.md` for scoped commits.
 
 ## Requirements already decided with the user
 
@@ -33,7 +33,7 @@ The classifier pipeline files described below are tracked at the current branch 
 - `src/ts/shaders/native_features.wgsl`, `native_model.wgsl`: feature and inference shaders.
 - `scripts/classifier/browser.ts`, `runner.mjs`: shared extractor in an ephemeral loopback headless-browser harness; no running app required.
 - `scripts/classifier/io.mjs`: raw u8/s16le/f32le decoding and dataset/session validation; re-exports shared FFT.
-- `scripts/classifier/train.py`: NumPy logistic regression and 16-unit ReLU MLP, optional PyTorch/MPS path, session-safe splitting, validation threshold choice, and grouped evaluation.
+- `scripts/classifier/train.py`: NumPy logistic regression and 16-unit ReLU MLP, optional PyTorch/MPS path, hierarchical class/session/recording/window/variant weighting, weighted normalization, session-balanced threshold selection, and abstention-aware grouped evaluation.
 - `scripts/classifier/README.md`, `test/ts/nativeClassifier.test.ts`, `test/ts/NativeClassifierPanel.test.tsx`, `test/classifier/io.test.mjs`, `test/classifier/test_training.py`, `test/classifier/gpu-parity.mjs`: commands, schema and parity/tests.
 
 ## Ordered implementation checklist
@@ -116,10 +116,12 @@ The classifier pipeline files described below are tracked at the current branch 
 ## Verification already performed
 
 - `node node_modules/jest/bin/jest.js test/ts/nativeClassifier.test.ts --runInBand --silent`: **12 tests pass**. Includes metadata/cropping, acquired resolution, invalid bins, coarse-resolution availability, gain invariance, basic history, model validation, and offline FFT vs existing browser scalar FFT for five windows with full/incomplete input.
-- `node --test test/classifier/io.test.mjs`: **4 tests pass**.
+- `node --test test/classifier/io.test.mjs`: **5 tests pass**.
 - `node test/classifier/gpu-parity.mjs`: **passes on actual local Chromium WebGPU** for 1,024/4,096/16,384 bins, full/cropped frames, logistic and 16-unit MLP. Maximum per-bin feature difference ~1.29e-5; inference difference ~6.62e-8. Warm extraction including readback ~2.8–3.2 ms in this small run; first call ~97 ms. This is not a broad benchmark or live SDR result.
 - Chromium required sandbox escalation for macOS Mach/GPU services. The test launches an isolated temporary profile, not the user's browser.
-- `python3 -m unittest discover -s test/classifier -p 'test_*.py'`: **4 tests pass**; model fit and report must still be exercised on independently labeled captures.
+- `python3 -m unittest discover -s test/classifier -p 'test_training.py'`: **17 tests pass, 2 optional PyTorch tests skipped** with the default Python environment.
+- The same Python test suite in an isolated temporary CPython 3.14 environment with PyTorch 2.14: **17 tests pass**, including CPU model fit/export and NumPy-versus-PyTorch autograd checks. This host reports MPS unavailable; no MPS execution was claimed. The temporary environment was removed after testing.
+- The trainer round-trip used tiny generated feature rows only. No recording, acceptance fixture, SDR capture, or real-data accuracy claim was used.
 - `node node_modules/typescript/bin/tsc --noEmit --ignoreDeprecations 6.0 --pretty false`: **passes** after replacing two ES target compatibility calls in the new core.
 - Combined focused regression/classifier tests: **5 Jest suites / 42 tests pass**, plus **4 Python** and **4 Node I/Q pipeline tests**.
 
@@ -127,11 +129,10 @@ The classifier pipeline files described below are tracked at the current branch 
 
 The [learning and evaluation plan](./TRAINING_PLAN.md) now supplies the method discussion and concrete proposed experiment. Its defaults are starting points, not measured optimum settings. Implement in this order:
 
-1. Repair and test fitting/export correctness, gradients, normalization, weighting, and abstention handling.
-2. Verify V6 capture options/interruption boundaries and external label provenance through offline extraction.
+1. Finish trainer reproducibility: reserve group-disjoint training-monitor sessions, add early stopping/checkpoint restore, expose settings and predeclared search controls, emit a run manifest, and verify trained-model TypeScript/WGSL parity.
+2. Verify V6 capture option/interruption boundaries and external label provenance through offline extraction.
 3. Audit feature sufficiency, especially pulsing and availability. Learning combinations of existing features cannot recover information the extractor discarded.
-4. Make the logistic gradient-descent and neural backpropagation/Adam runs reproducible, bounded, and numerically consistent with TS/WGSL inference.
-5. Collect independently labeled positive and real RF negative sessions at 3.2 MS/s; compare rules and both candidates on shared frames. Use validation balanced accuracy, preserve all session splits, and evaluate the selected model once on untouched sessions. Synthetic mocks remain a separate challenge set.
-6. Measure browser latency/render impact in shadow mode before considering promotion. Prefer logistic regression when the neural candidate does not justify its added complexity.
+4. Collect independently labeled positive and real RF negative sessions at 3.2 MS/s; compare rules and both candidates on shared frames. Use validation session-balanced balanced accuracy, preserve all session splits, and evaluate the selected model once on untouched sessions. Synthetic mocks remain a separate challenge set.
+5. Measure browser latency/render impact in shadow mode before considering promotion. Prefer logistic regression when the neural candidate does not justify its added complexity.
 
-The next bounded implementation task is **trainer correctness**, not model promotion or a large training run. The plan update changes documentation only; the listed code defects remain to be fixed.
+The next bounded implementation task is **the reproducible experiment runner and trained-artifact parity**, not model promotion or real-capture training. This trainer step is a focused classifier commit; unrelated demod/audio-survey work remains outside it.

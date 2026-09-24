@@ -1,6 +1,6 @@
 # N-APT classifier: learning and evaluation plan
 
-Updated 2026-09-24. This is the proposed next implementation plan, based on inspection of `train.py`, the browser feature/model contract, and the current training tests. It does not claim trained-model accuracy. Existing trainer implementations are prototypes; the repairs below precede real-data fitting.
+Updated 2026-09-24. This plan records the learning method, evaluation contract, and implementation status. The initial trainer correctness repairs are in place and covered with synthetic tests; they do not establish trained-model accuracy. No independently labeled real recordings have been used for fitting or evaluation.
 
 ## Recommended first experiment
 
@@ -83,26 +83,26 @@ Run labeled synthetic sinc, comb, tone, and app-mock challenges separately from 
 
 Promotion requires passing unchanged acceptance assertions, improvement on independent evaluation without material resolution/visibility regressions, and measured browser latency/render impact. Agree numerical regression and latency budgets before viewing evaluation results. Until then, keep shadow mode and the compatible deterministic fallback. Standalone GPU timing is not proof of live SDR performance.
 
-## Current trainer findings to repair first
+## Trainer repair status
 
-These are source-inspection findings from 2026-09-24, not claims of a new runtime test run. The four existing Python tests cover threshold selection, split leakage, metric availability, and hand-written inference; they do not establish training-loop correctness.
+The source-inspection findings from 2026-09-24 now have focused regressions in `test/classifier/test_training.py`:
 
-| Finding | Required regression/repair |
+| Finding | Current status |
 | --- | --- |
-| PyTorch export uses `first,last=list(model)` for a three-module Linear/ReLU/Linear sequence | Exercise fitting through export and select the two linear modules correctly |
-| NumPy stores output bias in `params[3]` but continues using/exporting the unchanged scalar `b2` | Prove the output bias updates; finite-difference-check every parameter group and exported predictions |
-| Fitting clips standardized inputs to `[-20,20]`; Python prediction and TS/WGSL do not | Adopt one preprocessing contract and test extremes through all runtimes |
-| `balanced_weights` applies multiple count inverses that do not implement its stated equal-session objective | Replace with the explicit hierarchy above; test duplication/session/variant invariance |
-| `usable` filters labels/split but not evidence status; evaluation still predicts insufficient rows | Separate fitting eligibility, classified metrics, and abstention/coverage reporting |
-| `validatedSampleRatesHz` is populated merely from validation-row rates | Export tested evidence/coverage and only mark rates validated when explicit criteria are met |
-| Fixed loop counts, different NumPy/PyTorch optimizer settings, and no monitored checkpoint | Make configuration explicit, comparable, bounded, and reproducible; record convergence |
+| PyTorch export used the Sequential container rather than its two Linear layers | Fixed; CPU fit/export regression passes. |
+| NumPy output bias was not read back from the updated parameter array | Fixed; output-bias and finite-difference tests pass. |
+| Training clipped standardized inputs while prediction did not | Fixed; training and inference share weighted training normalization and the unclipped affine transform. |
+| Sampling weights did not implement the stated hierarchy | Fixed; class/session/recording-interval/base-window/variant weighting is tested. |
+| Insufficient evidence entered fitting and scored evaluation as a decision | Fixed; fitting uses ready rows and evaluation reports abstention coverage separately. |
+| Validation-row sample rates were called validated | Fixed; artifacts claim no validated rates; observed rates are reported separately. |
+| Optimizer settings diverged and training returned no usable convergence details | Partly fixed; NumPy and PyTorch now share weighted logits loss, explicit L2, and Adam settings; logistic uses backtracking, MLP is bounded, and the report retains loss curves. Group-disjoint MLP monitoring/checkpoint restore, CLI search controls, and the run manifest remain. |
 
 ## Implementation handoff: small, testable tasks
 
-1. **Trainer correctness:** add failing tests for the findings above, gradient checks, stable weighted logits loss, and fit/export round trips. Run NumPy always and PyTorch CPU/MPS when available; skipped acceleration must be explicit. No real-capture training yet.
+1. **Trainer correctness (core repairs complete):** failing tests now cover the original defects, finite-difference gradients, stable weighted logits loss, fit/export, and abstentions. NumPy tests pass; PyTorch CPU fit and autograd parity pass in the temporary test environment. MPS is unavailable here. Finish group-disjoint monitoring/checkpoint restore, CLI search controls/run manifest, and trained-model TS/WGSL parity. No real-capture training yet.
 2. **Capture-to-feature provenance:** verify V6 patches/interruption boundaries through prepare/extract; reconcile actual timestamps, masks, labels, and session splits. Add malformed capture, stale/gap, crop, and variable-FFT cases. Confirm TS/WGSL feature parity before changing features.
 3. **Feature sufficiency:** inventory pulse/spacing/power measurements and missing support. Define a separate versioned extension only where needed; compare information content without tuning to acceptance fixtures.
-4. **Reproducible experiment runner:** expose the proposed loss/optimizer/stopping/search settings, weighting, monitoring split, and run manifest. Add end-to-end exported-model parity using trained synthetic models, including bias and extreme-input cases. Synthetic results prove plumbing only.
+4. **Reproducible experiment runner:** expose the remaining loss/optimizer/stopping/search settings, weighting, group-disjoint monitoring split, and run manifest. Add end-to-end exported-model parity using trained synthetic models, including bias and extreme-input cases. Synthetic results prove plumbing only.
 5. **Data and comparison:** collect independent labeled sessions, freeze the split/search/metric rules, train both candidates, select on validation, and issue one untouched evaluation report with resolution/visibility/session breakdowns. Report missing real-negative data honestly.
 6. **Browser measurement:** load the selected artifact in shadow mode, measure cold/warm extraction and inference, drops, and render impact. Then assess promotion against the predeclared criteria.
 
