@@ -199,6 +199,7 @@ export type IqRawFrameV1 = IqRawFramePayload & {
   source_id?: string;
   stream_epoch?: undefined;
   sequence?: undefined;
+  options_revision?: number;
 };
 
 /** Negotiated v2 frame with explicit source and lifecycle ordering metadata. */
@@ -207,7 +208,12 @@ export type IqRawFrameV2 = IqRawFramePayload & {
   source_id: string;
   stream_epoch: number;
   sequence: number;
+  options_revision?: number;
 };
+
+export type IqAppliedStreamOptions =
+  | { mode: "rx"; centerFrequencyHz: number; sampleRateHz: number; fftSize: number; fftWindow?: string; frameRate?: number; gain?: number }
+  | { mode: "tx"; centerFrequencyHz: number; sampleRateHz: number; bandwidthHz: number; viewCenterHz?: number; viewSampleRateHz?: number; signal: string; powerDbm: number; ifftSize: number };
 
 /** Compatible raw I/Q publication shape discriminated by wire protocol. */
 export type IqRawFrame = IqRawFrameV1 | IqRawFrameV2;
@@ -229,6 +235,7 @@ export type CaptureDurationMode = "timed" | "manual";
 
 export type CaptureRequest = {
   jobId: string;
+  sourceId?: string;
   fragments: { minFreq: number; maxFreq: number }[];
   bandwidth?: number;
   bandwidthCenterFrequency?: number;
@@ -237,8 +244,10 @@ export type CaptureRequest = {
   fileType: CaptureFileType;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   encrypted: boolean;
+  sampleRateHz?: number;
   fftSize: number;
   fftWindow: string;
+  frameRate?: number;
   geolocation?: GeolocationData;
   refBasedDemodBaseline?:
     | "audio_hearing"
@@ -248,9 +257,21 @@ export type CaptureRequest = {
   liveMode?: boolean;
 };
 
+export type CaptureEffectiveSettings = {
+  sampleRateHz: number;
+  fftSize: number;
+  fftWindow: string;
+  frameRateHz: number;
+};
+
 export type CaptureStatus = {
   jobId: string;
+  sourceId?: string;
   status: "started" | "progress" | "failed" | "done";
+  settingsApplied?: boolean;
+  requestedSettings?: CaptureEffectiveSettings;
+  effectiveSettings?: CaptureEffectiveSettings;
+  code?: string;
   message?: string;
   progress?: number;
   error?: string;
@@ -260,6 +281,7 @@ export type CaptureStatus = {
   ephemeral?: boolean;
   timestamp?: number;
   fileSize?: number;
+  checksum?: string;
   /** Capture length in seconds (server-computed). */
   duration?: number;
 } | null;

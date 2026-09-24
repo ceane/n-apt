@@ -13,16 +13,36 @@ describe("SpikeDetectionNode classifier diagnostics layout", () => {
   it("uses compact spaced rows with an alternating darker diagnostic background", () => {
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("const StripedRows");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("const StripedMetricRow");
-    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("const NaptMetricRow");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("const VerdictMetricRow");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("font-size: 14.3px");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("gap: 2px");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("padding: 5px 6px");
-    expect(SPIKE_DETECTION_NODE_SOURCE).toContain(
-      "background: rgba(0, 0, 0, 0.15)",
-    );
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("rgba(0, 0, 0, 0.15)");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain(":nth-child(even)");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("<StripedRows>");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("<StripedMetricRow>");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain(
+      "<span>Spacing · primary evidence</span>",
+    );
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain(
+      "<span>Spike persistence × spacing · primary evidence</span>",
+    );
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("N-APT Classifier Features");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("const ClassifierFeatures = styled.details");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("<ClassifierFeaturesSummary>");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("const VerdictRows = styled.div");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("<VerdictMetricRow");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("$positive={scoreIsYes(gpuSpikeAnalysis?.confidence)}");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("font-size: 14.3px;");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("font-size: 16px;");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("spacingHz");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("spacingScore");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain(
+      "const StripedMetricRow = styled(MetricRow)<{ $positive?: boolean }>",
+    );
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("$positive ?");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("theme.colors.primary}0d");
+    expect(SPIKE_DETECTION_NODE_SOURCE).toContain("theme.colors.primary}14");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("gap: 2px;");
     expect(SPIKE_DETECTION_NODE_SOURCE).toContain("padding: 5px 6px");
   });

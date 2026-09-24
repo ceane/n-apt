@@ -449,6 +449,13 @@ export const ChannelsMessageSchema = z.object({
   error: z.string().nullable().optional(),
 });
 
+export const CaptureEffectiveSettingsSchema = z.object({
+  sampleRateHz: z.number().int().positive(),
+  fftSize: z.number().int().positive(),
+  fftWindow: z.string().min(1),
+  frameRateHz: z.number().int().positive(),
+});
+
 export const CaptureRequestSchema = z.object({
   jobId: z.string(),
   fragments: z.array(
@@ -464,8 +471,10 @@ export const CaptureRequestSchema = z.object({
   fileType: z.enum([".napt", ".wav", ".iq"]),
   acquisitionMode: z.enum(["stepwise", "interleaved", "whole_sample"]),
   encrypted: z.boolean(),
+  sampleRateHz: z.number().int().positive().optional(),
   fftSize: z.number(),
   fftWindow: z.string(),
+  frameRate: z.number().int().positive().max(100).optional(),
   geolocation: GeolocationDataSchema.optional(),
   refBasedDemodBaseline: z
     .enum(["audio_hearing", "audio_internal", "speech", "vision"])
@@ -475,7 +484,12 @@ export const CaptureRequestSchema = z.object({
 
 export const CaptureStatusSchema = z.object({
   jobId: z.string(),
+  sourceId: z.string().optional(),
   status: z.enum(["started", "progress", "failed", "done"]),
+  settingsApplied: z.boolean().optional(),
+  requestedSettings: CaptureEffectiveSettingsSchema.optional(),
+  effectiveSettings: CaptureEffectiveSettingsSchema.optional(),
+  code: z.string().optional(),
   message: z.string().optional(),
   progress: z.number().optional(),
   error: z.string().optional(),
@@ -485,6 +499,7 @@ export const CaptureStatusSchema = z.object({
   ephemeral: z.boolean().optional(),
   timestamp: z.number().optional(),
   fileSize: z.number().optional(),
+  checksum: z.string().regex(/^[0-9a-f]{64}$/i).optional(),
   duration: z.number().optional(),
 });
 

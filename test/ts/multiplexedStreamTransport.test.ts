@@ -1,5 +1,6 @@
 import {
   createMultiplexedStreamTransport,
+  makeFrame,
 } from "@n-apt/app/infrastructure/streams/multiplexedStreamTransport";
 import type { StreamKey } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
@@ -11,6 +12,17 @@ jest.mock("@n-apt/crypto/webcrypto", () => ({
 describe("multiplexed stream transport", () => {
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("preserves the applied options revision on the raw frame", async () => {
+    (decryptPayloadBytes as jest.Mock).mockResolvedValueOnce(Uint8Array.from([1, 2]));
+    const options = { mode: "rx", centerFrequencyHz: 1_610_000, sampleRateHz: 3_200_000, fftSize: 4096, fftWindow: "hann", frameRate: 25 };
+    const event = await makeFrame({ sourceId: "rtl-1", mode: "rx", streamEpoch: 9, optionsRevision: 7, sequence: 0,
+      timestamp: 123, centerFrequencyHz: options.centerFrequencyHz, sampleRateHz: options.sampleRateHz, options, iqData: "encoded" }, {} as CryptoKey);
+    expect(event.type).toBe("stream_frame");
+    if (event.type !== "stream_frame") throw new Error("expected frame");
+    expect(event.optionsRevision).toBe(7);
+    expect(event.frame).toMatchObject({ options_revision: 7, stream_epoch: 9, sequence: 0 });
   });
 
   it("uses one socket for independent source/mode subscriptions", () => {

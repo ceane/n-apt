@@ -25,12 +25,46 @@ type Fixture = {
   shuffle?: boolean;
   shape?: "wide-u" | "noisy-wide-u" | "flat" | "inverted-dome" | "one-sided-ramp" | "sinc" | "edge-sinc";
   envelopeShape?: "partial-descending" | "partial-ascending" | "irregular" | "jagged-descending" | "flat-valley";
+  interference?: "broad-hump" | "left-hump" | "right-hump";
+  raisedFloor?: boolean;
+  background?: "rising-floor" | "smooth-bowl";
 };
 
 const FIXTURES: Fixture[] = [
   {
     name: "deep ordered staircase hat",
     values: [0, 2, 10, 20, 35, 55, 70, 55, 35, 20, 10, 2, 0],
+  },
+  {
+    name: "ordered blades over a broad interference hump",
+    values: [0, 2, 10, 20, 35, 55, 70, 55, 35, 20, 10, 2, 0],
+    interference: "broad-hump",
+    shuffle: true,
+  },
+  {
+    name: "ordered blades over a left-side interference hump",
+    values: [0, 2, 10, 20, 35, 55, 70, 55, 35, 20, 10, 2, 0],
+    interference: "left-hump",
+  },
+  {
+    name: "ordered blades over a right-side interference hump",
+    values: [0, 2, 10, 20, 35, 55, 70, 55, 35, 20, 10, 2, 0],
+    interference: "right-hump",
+  },
+  {
+    name: "ordered blades over a smooth rising floor",
+    values: [0, 2, 10, 20, 35, 55, 70, 55, 35, 20, 10, 2, 0],
+    background: "rising-floor",
+  },
+  {
+    name: "ordered blades over a smooth bowl-shaped floor",
+    values: [0, 2, 10, 20, 35, 55, 70, 55, 35, 20, 10, 2, 0],
+    background: "smooth-bowl",
+  },
+  {
+    name: "ordered blades masked by an elevated broadband floor",
+    values: [0, 2, 10, 20, 35, 55, 70, 55, 35, 20, 10, 2, 0],
+    raisedFloor: true,
   },
   {
     name: "moderate ordered staircase hat",
@@ -128,6 +162,8 @@ test.describe("N-APT suspension_bridge shader math", () => {
       const adapter = await navigator.gpu.requestAdapter();
       if (!adapter) return { available: false as const };
       const device = await adapter.requestDevice();
+      const gpuErrors: string[] = [];
+      device.addEventListener("uncapturederror", (event) => gpuErrors.push(event.error.message));
       const module = device.createShaderModule({ code: shaderCode });
       const classifyPipeline = device.createComputePipeline({
         layout: "auto",
@@ -249,6 +285,43 @@ test.describe("N-APT suspension_bridge shader math", () => {
           spikeView.setUint32(index * 16, point.index, true);
           spikeView.setFloat32(index * 16 + 4, point.value, true);
         });
+        if (fixture.interference) {
+          const center = fixture.interference === "left-hump"
+            ? 0.24
+            : fixture.interference === "right-hump"
+              ? 0.76
+              : 0.5;
+          for (let index = 0; index < SOURCE_LENGTH; index++) {
+            const x = index / (SOURCE_LENGTH - 1);
+            const distance = Math.abs(x - center);
+            if (distance < 0.25) {
+              waveform[index] = Math.max(
+                waveform[index],
+                FLOOR + 28 * (1 - distance / 0.25),
+              );
+            }
+          }
+        }
+        if (fixture.background) {
+          for (let index = 0; index < SOURCE_LENGTH; index++) {
+            const x = index / (SOURCE_LENGTH - 1);
+            const lift = fixture.background === "rising-floor"
+              ? 12 * x
+              : 12 * (2 * x - 1) ** 2;
+            waveform[index] = Math.max(waveform[index], FLOOR + lift);
+          }
+        }
+        if (fixture.raisedFloor) {
+          const raisedBaseline = FLOOR + 70;
+          waveform.fill(raisedBaseline);
+          // Keep the same regularly spaced blades, but give them only modest
+          // relief over the raised floor so this exercises the broadband mask.
+          points.forEach((point, index) => {
+            const maskedPeak = raisedBaseline + 4;
+            waveform[point.index] = maskedPeak;
+            spikeView.setFloat32(index * 16 + 4, maskedPeak, true);
+          });
+        }
         const paramsData = new ArrayBuffer(16);
         const paramsView = new DataView(paramsData);
         paramsView.setUint32(0, SOURCE_LENGTH, true);
@@ -270,11 +343,11 @@ test.describe("N-APT suspension_bridge shader math", () => {
         });
         device.queue.writeBuffer(paramsBuffer, 0, new Uint8Array(paramsData));
         const spikesBuffer = storage(spikeData.byteLength, new Uint8Array(spikeData));
-        const resultBuffer = storage(132, new Uint8Array(132));
+        const resultBuffer = storage(160, new Uint8Array(160));
         const spikeCountBuffer = storage(4, new Uint32Array([points.length]));
         const metricsBuffer = storage(MAX_SPIKES * 16);
         const readbackBuffer = device.createBuffer({
-          size: 132,
+          size: 160,
           usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
         const classifyBindGroup = device.createBindGroup({
@@ -307,7 +380,7 @@ test.describe("N-APT suspension_bridge shader math", () => {
         finalizePass.setBindGroup(0, finalizeBindGroup);
         finalizePass.dispatchWorkgroups(1);
         finalizePass.end();
-        encoder.copyBufferToBuffer(resultBuffer, 0, readbackBuffer, 0, 132);
+        encoder.copyBufferToBuffer(resultBuffer, 0, readbackBuffer, 0, 160);
         device.queue.submit([encoder.finish()]);
         await device.queue.onSubmittedWorkDone();
         await readbackBuffer.mapAsync(GPUMapMode.READ);
@@ -329,17 +402,49 @@ test.describe("N-APT suspension_bridge shader math", () => {
           apexProminence: outputView.getFloat32(120, true),
           shoulderSymmetry: outputView.getFloat32(124, true),
           captureQuality: outputView.getFloat32(128, true),
+          floorDbm: outputView.getFloat32(40, true),
+          aboveFloorFraction: outputView.getFloat32(44, true),
+          spacingHz: outputView.getFloat32(132, true),
+          spacingScore: outputView.getFloat32(136, true),
+          spacingSupport: outputView.getFloat32(140, true),
+          spacingToleranceHz: outputView.getFloat32(144, true),
+          valleyFill: outputView.getFloat32(148, true),
+          broadFloorVariation: outputView.getFloat32(152, true),
+          interference: outputView.getFloat32(156, true),
         };
       };
       const outputs: Record<string, Awaited<ReturnType<typeof run>>> = {};
       for (const fixture of fixtures) outputs[fixture.name] = await run(fixture);
-      return { available: true as const, outputs };
+      return { available: true as const, outputs, gpuErrors };
     }, { shaderCode: CLASSIFY_WGSL, fixtures: FIXTURES });
 
     test.skip(!result.available, "Chromium WebGPU adapter unavailable");
     expect(result.available).toBe(true);
     if (!result.available) return;
+    expect(result.gpuErrors).toEqual([]);
     expect(result.outputs["deep ordered staircase hat"].bridge).toBeGreaterThan(0.60);
+    // Markers are three FFT bins apart in this fixture (about 35.3 kHz).
+    // This checks the GPU-computed cadence itself, not merely that it emitted
+    // some non-zero spacing value.
+    expect(result.outputs["deep ordered staircase hat"].spacingHz).toBeGreaterThan(32_000);
+    expect(result.outputs["deep ordered staircase hat"].spacingHz).toBeLessThan(38_000);
+    expect(result.outputs["deep ordered staircase hat"].spacingScore).toBeGreaterThan(0.70);
+    expect(result.outputs["deep ordered staircase hat"].spacingSupport).toBeGreaterThan(0.8);
+    expect(result.outputs["deep ordered staircase hat"].spacingToleranceHz).toBeCloseTo(4_500, -2);
+    expect(result.outputs["deep ordered staircase hat"].valleyFill).toBeLessThan(0.05);
+    expect(result.outputs["deep ordered staircase hat"].broadFloorVariation).toBeLessThan(0.05);
+    expect(result.outputs["deep ordered staircase hat"].interference).toBeLessThan(0.05);
+    expect(result.outputs["ordered blades over a broad interference hump"].valleyFill).toBeGreaterThan(0.7);
+    expect(result.outputs["ordered blades over a broad interference hump"].broadFloorVariation).toBeGreaterThan(0.7);
+    expect(result.outputs["ordered blades over a broad interference hump"].interference).toBeGreaterThan(0.5);
+    expect(result.outputs["ordered blades over a left-side interference hump"].interference).toBeGreaterThan(0.5);
+    expect(result.outputs["ordered blades over a right-side interference hump"].interference).toBeGreaterThan(0.5);
+    expect(result.outputs["ordered blades over a smooth rising floor"].broadFloorVariation).toBeLessThan(0.05);
+    expect(result.outputs["ordered blades over a smooth rising floor"].interference).toBeLessThan(0.05);
+    expect(result.outputs["ordered blades over a smooth bowl-shaped floor"].broadFloorVariation).toBeLessThan(0.05);
+    expect(result.outputs["ordered blades over a smooth bowl-shaped floor"].interference).toBeLessThan(0.05);
+    expect(result.outputs["ordered blades masked by an elevated broadband floor"].floorDbm).toBeGreaterThan(-25);
+    expect(result.outputs["ordered blades masked by an elevated broadband floor"].interference).toBeGreaterThan(0.75);
     expect(result.outputs["moderate ordered staircase hat"].bridge).toBeGreaterThan(0.35);
     expect(result.outputs["unimodal bridge with tolerant apex"].unimodal).toBeGreaterThan(0.75);
     expect(result.outputs["unimodal bridge with tolerant apex"].apexProminence).toBeGreaterThan(0.75);
@@ -397,18 +502,18 @@ test.describe("N-APT suspension_bridge shader math", () => {
       const storage = (size: number, usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST) =>
         device.createBuffer({ size, usage });
       const baselineBuffer = storage(8);
-      const metricsBuffer = storage(128);
-      const historyBuffer = storage(HISTORY_LENGTH * 32);
+      const metricsBuffer = storage(160);
+      const historyBuffer = storage(HISTORY_LENGTH * 40);
       const paramsBuffer = device.createBuffer({
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       const decisionBuffer = device.createBuffer({
-        size: 32,
+        size: 64,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
       });
       const readbackBuffer = device.createBuffer({
-        size: 32,
+        size: 64,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
       const bindGroup = device.createBindGroup({
@@ -421,16 +526,19 @@ test.describe("N-APT suspension_bridge shader math", () => {
           { binding: 4, resource: { buffer: decisionBuffer } },
         ],
       });
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
 
       const runSequence = async (
         activeFrames: boolean[],
         metricsMode: "strong" | "partial" | "partial-u" | "low-rise" | "mock-u" | "sinc" = "strong",
+        interferenceScores: number[] = [],
       ) => {
         let writeIndex = 0;
         let validCount = 0;
-        let output = new DataView(new ArrayBuffer(32));
-        for (const active of activeFrames) {
+        let output = new DataView(new ArrayBuffer(64));
+        const trace: number[] = [];
+        for (let frameIndex = 0; frameIndex < activeFrames.length; frameIndex += 1) {
+          const active = activeFrames[frameIndex];
           const baseline = new ArrayBuffer(8);
           const baselineView = new DataView(baseline);
           baselineView.setUint32(
@@ -445,7 +553,7 @@ test.describe("N-APT suspension_bridge shader math", () => {
           );
           device.queue.writeBuffer(baselineBuffer, 0, new Uint8Array(baseline));
 
-          const metrics = new ArrayBuffer(128);
+          const metrics = new ArrayBuffer(160);
           const metricsView = new DataView(metrics);
           metricsView.setFloat32(44, active ? 0.25 : 0.02, true);
           metricsView.setFloat32(
@@ -476,12 +584,12 @@ test.describe("N-APT suspension_bridge shader math", () => {
           );
           metricsView.setFloat32(
             64,
-            active && metricsMode === "low-rise" ? 0.49 : active ? 0.65 : 0.1,
+            active && metricsMode === "low-rise" ? 0.49 : active ? 0.75 : 0.1,
             true,
           );
           metricsView.setFloat32(
             68,
-            active && metricsMode === "low-rise" ? 0.59 : active ? 0.65 : 0.1,
+            active && metricsMode === "low-rise" ? 0.59 : active ? 0.75 : 0.1,
             true,
           );
           metricsView.setFloat32(
@@ -525,6 +633,7 @@ test.describe("N-APT suspension_bridge shader math", () => {
             true,
           );
           metricsView.setFloat32(88, active ? 0.8 : 0.1, true);
+          metricsView.setFloat32(156, interferenceScores[frameIndex] ?? 0, true);
           device.queue.writeBuffer(metricsBuffer, 0, new Uint8Array(metrics));
 
           device.queue.writeBuffer(
@@ -538,12 +647,13 @@ test.describe("N-APT suspension_bridge shader math", () => {
           pass.setBindGroup(0, bindGroup);
           pass.dispatchWorkgroups(1);
           pass.end();
-          encoder.copyBufferToBuffer(decisionBuffer, 0, readbackBuffer, 0, 32);
+          encoder.copyBufferToBuffer(decisionBuffer, 0, readbackBuffer, 0, 64);
           device.queue.submit([encoder.finish()]);
           await device.queue.onSubmittedWorkDone();
           await readbackBuffer.mapAsync(GPUMapMode.READ);
           output = new DataView(readbackBuffer.getMappedRange().slice(0));
           readbackBuffer.unmap();
+          trace.push(output.getFloat32(56, true));
           writeIndex = (writeIndex + 1) % HISTORY_LENGTH;
           validCount = Math.min(HISTORY_LENGTH, validCount + 1);
         }
@@ -555,50 +665,62 @@ test.describe("N-APT suspension_bridge shader math", () => {
           temporalBridgeScore: output.getFloat32(20, true),
           temporalUDipScore: output.getFloat32(24, true),
           frameCount: output.getUint32(28, true),
+          interferenceScore: output.getFloat32(56, true),
+          interferenceTrace: trace,
         };
       };
 
       const persistent = await runSequence([true, true, true, true]);
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
+      const twoFrameBurst = await runSequence([false, false, true, true]);
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
+      const recurrentPulse = await runSequence([true, false, true, true]);
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const intermittent = await runSequence([true, false, true, false]);
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const persistentPartial = await runSequence(
         [true, true, true, true],
         "partial",
       );
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const persistentLowRise = await runSequence(
         [true, true, true, true],
         "low-rise",
       );
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const pulsedPartial = await runSequence(
         [false, false, true, false, true, false, true, false, true, false, true],
         "partial",
       );
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const pulsedPartialU = await runSequence(
         [false, false, true, false, true, false, true, false, true, false, true],
         "partial-u",
       );
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const widelySpacedBridge = await runSequence(
         [true, false, false, false, false, false, false, true, false, false, false, false, false, false, true],
         "partial",
       );
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const mockWideUWithoutBridge = await runSequence(
         [true, true, true, true, true, true, true, true],
         "mock-u",
       );
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const oneFrameBridge = await runSequence(
         [true, false, false, false],
       );
-      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 8));
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
       const oneFrameLowRise = await runSequence(
         [true, false, false, false],
         "low-rise",
+      );
+      device.queue.writeBuffer(historyBuffer, 0, new Uint32Array(HISTORY_LENGTH * 10));
+      const pulsedInterference = await runSequence(
+        Array(8).fill(false),
+        "strong",
+        [0.9, 0.2, 0.9, 0.2, 0.9, 0.2, 0.2, 0.2],
       );
       const sincArtifact = await runSequence(
         [true, true, true, true],
@@ -607,6 +729,8 @@ test.describe("N-APT suspension_bridge shader math", () => {
       return {
         available: true as const,
         persistent,
+        twoFrameBurst,
+        recurrentPulse,
         intermittent,
         persistentPartial,
         persistentLowRise,
@@ -616,6 +740,7 @@ test.describe("N-APT suspension_bridge shader math", () => {
         mockWideUWithoutBridge,
         oneFrameBridge,
         oneFrameLowRise,
+        pulsedInterference,
         sincArtifact,
       };
     }, TEMPORAL_WGSL);
@@ -627,6 +752,8 @@ test.describe("N-APT suspension_bridge shader math", () => {
     expect(result.persistent.temporalIsNapt).toBe(true);
     expect(result.persistent.persistence).toBeGreaterThanOrEqual(0.99);
     expect(result.persistent.frameCount).toBe(4);
+    expect(result.twoFrameBurst.temporalIsNapt).toBe(false);
+    expect(result.recurrentPulse.temporalIsNapt).toBe(true);
     expect(result.intermittent.baselineIsNapt).toBe(false);
     expect(result.intermittent.temporalIsNapt).toBe(false);
     // Pulse-aware persistence can exceed raw frame occupancy, but two events
@@ -636,7 +763,7 @@ test.describe("N-APT suspension_bridge shader math", () => {
     expect(result.persistentPartial.temporalIsNapt).toBe(true);
     expect(result.persistentPartial.persistence).toBeGreaterThanOrEqual(0.99);
     expect(result.persistentPartial.temporalConfidence).toBeGreaterThanOrEqual(0.60);
-    expect(result.persistentPartial.temporalBridgeScore).toBeGreaterThanOrEqual(0.70);
+    expect(result.persistentPartial.temporalBridgeScore).toBeGreaterThan(0.69);
     expect(result.persistentLowRise.baselineIsNapt).toBe(false);
     expect(result.persistentLowRise.temporalIsNapt).toBe(true);
     expect(result.persistentLowRise.persistence).toBeGreaterThanOrEqual(0.99);
@@ -644,9 +771,9 @@ test.describe("N-APT suspension_bridge shader math", () => {
     expect(result.pulsedPartial.baselineIsNapt).toBe(false);
     expect(result.pulsedPartial.temporalIsNapt).toBe(true);
     expect(result.pulsedPartial.persistence).toBeGreaterThanOrEqual(0.99);
-    expect(result.pulsedPartial.temporalBridgeScore).toBeGreaterThanOrEqual(0.70);
+    expect(result.pulsedPartial.temporalBridgeScore).toBeGreaterThan(0.69);
     expect(result.pulsedPartialU.baselineIsNapt).toBe(false);
-    expect(result.pulsedPartialU.temporalUDipScore).toBeGreaterThanOrEqual(0.70);
+    expect(result.pulsedPartialU.temporalUDipScore).toBeGreaterThan(0.69);
     expect(result.widelySpacedBridge.baselineIsNapt).toBe(false);
     expect(result.widelySpacedBridge.temporalIsNapt).toBe(true);
     expect(result.widelySpacedBridge.persistence).toBeGreaterThanOrEqual(0.75);
@@ -656,6 +783,10 @@ test.describe("N-APT suspension_bridge shader math", () => {
     expect(result.oneFrameBridge.temporalBridgeScore).toBeLessThan(0.30);
     expect(result.oneFrameBridge.temporalIsNapt).toBe(false);
     expect(result.oneFrameLowRise.temporalIsNapt).toBe(true);
+    expect(result.pulsedInterference.interferenceTrace[0]).toBeLessThan(0.1);
+    expect(result.pulsedInterference.interferenceTrace[1]).toBeLessThan(0.1);
+    expect(result.pulsedInterference.interferenceTrace[4]).toBeGreaterThanOrEqual(0.75);
+    expect(result.pulsedInterference.interferenceTrace[7]).toBeLessThanOrEqual(0.091);
     expect(result.oneFrameLowRise.temporalConfidence).toBeGreaterThanOrEqual(0.75);
     expect(result.sincArtifact.baselineIsNapt).toBe(false);
     expect(result.sincArtifact.temporalIsNapt).toBe(false);

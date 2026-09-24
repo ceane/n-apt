@@ -6,6 +6,8 @@ feature notes and implementation summaries in `.agents/`.
 For signal-processing, IQ-capture, FFT, demodulation, `/learn`, or signals CLI
 work, load `.agents/signals/SKILL.md`. It defines the project's plain-language
 terminology, current demod modes, evidence standards, and RX-only safety rules.
+For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
+`.agents/CLI.md`.
 
 ## Working Rules
 
@@ -24,6 +26,7 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
 - Use the Act MCP tool for repository searches.
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
+- This project and the author uses American English, not British English. color not colour.
 
 ## Real-Time Device I/O
 

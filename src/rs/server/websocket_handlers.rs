@@ -2889,6 +2889,7 @@ pub fn handle_message(
           .job_id
           .clone()
           .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        source_id: message.source_id.clone(),
         fragments: message
           .fragments
           .as_ref()
@@ -2909,6 +2910,7 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
+        sample_rate: message.sample_rate.map(|rate| rate as u32),
         fft_size: message
           .fft_size
           .unwrap_or(current_settings.fft.default_size),
@@ -2916,6 +2918,7 @@ pub fn handle_message(
           .fft_window
           .clone()
           .unwrap_or_else(|| "hann".to_string()),
+        frame_rate: message.frame_rate,
         geolocation: message.geolocation,
         ref_based_demod_baseline: message.ref_based_demod_baseline,
         is_ephemeral: message.live_mode.unwrap_or(false),
@@ -3036,6 +3039,37 @@ mod tests {
   use std::sync::mpsc;
   use std::sync::Arc;
   use std::time::Duration;
+
+  #[test]
+  fn capture_preflight_settings_reach_start_capture_command() {
+    let message: WebSocketMessage = serde_json::from_value(serde_json::json!({
+      "type": "capture",
+      "jobId": "cli_preflight",
+      "fragments": [{ "minFreq": 1_000_000.0, "maxFreq": 4_200_000.0 }],
+      "durationMode": "timed",
+      "durationS": 1.0,
+      "fileType": ".iq",
+      "acquisitionMode": "whole_sample",
+      "encrypted": false,
+      "sampleRateHz": 3_200_000.0,
+      "fftSize": 65_536,
+      "fftWindow": "hanning",
+      "frameRate": 48
+    }))
+    .expect("capture preflight message");
+    assert!(message.validate().is_ok());
+    let (cmd_tx, cmd_rx) = mpsc::channel();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let shared = test_shared_state();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+    let command = cmd_rx.recv().expect("StartCapture command");
+    let debug = format!("{command:?}");
+
+    assert!(debug.contains("sample_rate: Some(3200000)"), "{debug}");
+    assert!(debug.contains("frame_rate: Some(48)"), "{debug}");
+    assert!(debug.contains("fft_window: \"hanning\""), "{debug}");
+  }
 
   #[test]
   fn stream_subscribe_honors_camel_case_delivery_policy() {

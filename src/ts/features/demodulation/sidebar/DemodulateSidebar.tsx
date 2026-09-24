@@ -251,11 +251,21 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
   const isTxSuiteFlow = nodes.some(
     (node) => node.data?.sourceBindingGroup === "tx-suite",
   );
-  const routedSourceIds = useAppSelector((state) =>
-    [
-      state.sourceRouting.bindings["tx-suite:rx"],
-      state.sourceRouting.bindings["tx-suite:tx"],
-    ].filter((id): id is string => Boolean(id)),
+  // Select the two bindings as primitives: a selector that returns a fresh
+  // array (here, a filtered one) makes every store change look like a new value
+  // and re-renders this sidebar for nothing.
+  const txSuiteRxSourceId = useAppSelector(
+    (state) => state.sourceRouting.bindings["tx-suite:rx"] ?? null,
+  );
+  const txSuiteTxSourceId = useAppSelector(
+    (state) => state.sourceRouting.bindings["tx-suite:tx"] ?? null,
+  );
+  const routedSourceIds = useMemo(
+    () =>
+      [txSuiteRxSourceId, txSuiteTxSourceId].filter((id): id is string =>
+        Boolean(id),
+      ),
+    [txSuiteRxSourceId, txSuiteTxSourceId],
   );
 
   useEffect(() => {

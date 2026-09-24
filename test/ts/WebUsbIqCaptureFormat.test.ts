@@ -1,4 +1,6 @@
 import {
+  advanceIqCaptureByteOffset,
+  advanceIqCaptureSampleOffset,
   decodeIqCaptureHeader,
   encodeIqCaptureV4,
   encodeNaptCaptureV4,
@@ -26,9 +28,17 @@ const metadata = {
 };
 
 describe("standalone IQ capture containers", () => {
-  it("writes an app-compatible NAPT-IQ3 v5 container with chunk offsets", async () => {
+  it("advances frame-patch offsets in bytes", () => {
+    expect(advanceIqCaptureByteOffset(4, Uint8Array.of(1, 2, 3, 4))).toBe(8);
+  });
+
+  it("advances IQ chunk offsets in complex samples", () => {
+    expect(advanceIqCaptureSampleOffset(2, Uint8Array.of(1, 2, 3, 4))).toBe(4);
+  });
+
+  it("writes an app-compatible NAPT-IQ3 v6 container with chunk offsets and matching trailer version", async () => {
     const bytes = await encodeIqCaptureV4({
-      metadata,
+      metadata: { ...metadata, format_version: 5, encrypted: true },
       frameUpdates: [
         {
           sample_offset: 0,
@@ -37,7 +47,11 @@ describe("standalone IQ capture containers", () => {
         },
       ],
       chunks: [
-        { sample_offset: 0, channel: 0, data: Uint8Array.of(128, 127, 129, 126) },
+        {
+          sample_offset: 0,
+          channel: 0,
+          data: Uint8Array.of(128, 127, 129, 126),
+        },
         { sample_offset: 2, channel: 0, data: Uint8Array.of(130, 125) },
       ],
     });
@@ -45,7 +59,8 @@ describe("standalone IQ capture containers", () => {
     const decoded = decodeIqCaptureHeader(bytes);
     expect(decoded.metadata).toMatchObject({
       format: "iq",
-      format_version: 5,
+      format_version: 6,
+      encrypted: false,
       interleaving: "IQ",
       center_frequency_hz: 1_600_000,
       capture_sample_rate_hz: 3_200_000,
@@ -58,6 +73,12 @@ describe("standalone IQ capture containers", () => {
       },
     ]);
     expect(decoded.payload.byteLength).toBe(46);
+    const sections = decoded.metadata.sections as {
+      trailer: { version: number; offset_bytes: number };
+    };
+    expect(sections.trailer.version).toBe(2);
+    const trailerOffset = sections.trailer.offset_bytes;
+    expect(bytes[trailerOffset + 8]).toBe(2);
     const payloadView = new DataView(
       decoded.payload.buffer,
       decoded.payload.byteOffset,
@@ -75,9 +96,16 @@ describe("standalone IQ capture containers", () => {
     expect(decoded.payload.slice(44)).toEqual(Uint8Array.of(130, 125));
   });
 
-  it("writes an encrypted v5 NAPT container with indexed binary data", async () => {
+  it("writes an encrypted v6 NAPT container with indexed binary data and matching trailer version", async () => {
+    const frameUpdates = [
+      {
+        sample_offset: 0,
+        timestamp_us: 0,
+        patch: { center_frequency_hz: 1_600_000 },
+      },
+    ];
     const bytes = await encodeNaptCaptureV4({
-      metadata: { ...metadata, encrypted: true },
+      metadata: { ...metadata, format_version: 5, encrypted: false },
       channels: [
         {
           center_freq_hz: 1_600_000,
@@ -90,6 +118,7 @@ describe("standalone IQ capture containers", () => {
       ],
       data: Uint8Array.of(128, 127, 129, 126),
       passphrase: "capture-passphrase",
+      frameUpdates,
     });
 
     const firstLine = new TextDecoder().decode(bytes).split("\n", 1)[0];
@@ -98,10 +127,11 @@ describe("standalone IQ capture containers", () => {
     };
     expect(root.metadata).toMatchObject({
       format: "napt",
-      format_version: 5,
+      format_version: 6,
       encrypted: true,
       data_format: "iq_u8",
       channels: [{ offset_iq: 0, iq_length: 4, label: null }],
+      frame_updates: frameUpdates,
     });
     expect(root.metadata.wrapped_dek).toEqual(expect.any(String));
     expect(root.metadata.sections.binary).toMatchObject({
@@ -109,6 +139,8 @@ describe("standalone IQ capture containers", () => {
       encrypted: true,
     });
     expect(root.metadata.sections.trailer.encoding).toBe("utf8_json");
+    expect(root.metadata.sections.trailer.version).toBe(2);
+    expect(bytes[root.metadata.sections.trailer.offset_bytes + 8]).toBe(2);
     expect(bytes.slice(root.metadata.sections.binary.offset_bytes)).toEqual(
       expect.any(Uint8Array),
     );

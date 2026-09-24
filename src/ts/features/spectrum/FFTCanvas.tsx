@@ -11,6 +11,7 @@ import {
   Suspense,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { Lock, Unlock, Zap } from "lucide-react";
 import { useFftRenderCoordinator } from "@n-apt/spectrum/hooks/useFftRenderCoordinator";
@@ -19,6 +20,7 @@ import {
   type LiveCanvasStatusRow,
 } from "@n-apt/spectrum/hooks/useDraw2DFFTSignal";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
+import { CLASSIFIER_TRAINING_QUALITY_PROFILE, evaluateCaptureQuality } from "@n-apt/features/capture/quality";
 import { usePauseLogic } from "@n-apt/spectrum/hooks/usePauseLogic";
 import { usePausedSpectrumRecovery } from "@n-apt/spectrum/hooks/usePausedSpectrumRecovery";
 import { useFftCanvasInvalidation } from "@n-apt/spectrum/hooks/useFftCanvasInvalidation";
@@ -45,6 +47,8 @@ import CanvasPlaceholder, {
 } from "@n-apt/ui/CanvasPlaceholder";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
+import { normalizeWindowType } from "@n-apt/spectrum/fft/complexSpectrum";
+import * as NativeClassifier from "@n-apt/classification";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
 import type { FFTCanvasWaterfallBindings } from "@n-apt/types/canvas";
 import type { SdrLimitMarker } from "@n-apt/math/sdrLimitMarkers";
@@ -52,9 +56,7 @@ import {
   isRtlSdrDevice,
   resolveRenderableFrequencyRange,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
-import {
-  subscribeFrameArrivals,
-} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { subscribeFrameArrivals } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
   createDeviceOptionScheduler,
   type DeviceOptionScheduler,
@@ -151,18 +153,69 @@ export const resolveMirrorPanPropSync = ({
   pendingPublish,
   incomingPan,
   lastPublishedPan,
+  livePan,
 }: {
   pendingPublish: boolean;
   incomingPan: number;
   lastPublishedPan: number;
+  /** The gesture ref's current value — what is actually on screen. */
+  livePan: number;
 }): { applyIncomingPan: boolean; clearPendingPublish: boolean } => {
-  if (incomingPan === lastPublishedPan) {
+  // Converged: the live ref already sits at the incoming value, so there is
+  // nothing to move. Acknowledge (clears the pending guard) either way.
+  if (incomingPan === livePan) {
     return { applyIncomingPan: true, clearPendingPublish: true };
+  }
+  // Stale echo of our own flush behind a live gesture: the scheduler
+  // publishes at cadence while ticks keep advancing the ref, so the echo is
+  // older than what is on screen. Applying it would rewind the viewport to
+  // an older pan on every flush (scroll jumps back, then re-advances).
+  if (incomingPan === lastPublishedPan) {
+    return { applyIncomingPan: false, clearPendingPublish: false };
   }
   if (pendingPublish) {
     return { applyIncomingPan: false, clearPendingPublish: false };
   }
   return { applyIncomingPan: true, clearPendingPublish: false };
+};
+
+/**
+ * Tracks hardware ranges a gesture published ahead of Redux, so lagging
+ * echoes can be told apart from genuine external tunes. Echoes arrive
+ * through renders one (or more) ticks behind a scroll burst; adopting one
+ * over the live ref would rewind the gesture base and make the next tick
+ * publish a backward window (scroll jumps back, then re-advances).
+ */
+export interface GestureRangeEchoTracker {
+  record(range: { min: number; max: number }): void;
+  /**
+   * Consumes one outstanding record matching `range`. Returns true when the
+   * incoming range is an echo of our own burst (possibly stale) rather than
+   * an external change.
+   */
+  consume(range: { min: number; max: number }): boolean;
+}
+
+export const createGestureRangeEchoTracker = (
+  cap = 32,
+): GestureRangeEchoTracker => {
+  const keys: string[] = [];
+  const keyOf = (range: { min: number; max: number }) =>
+    `${range.min}:${range.max}`;
+  return {
+    record(range) {
+      const key = keyOf(range);
+      if (keys[keys.length - 1] !== key) keys.push(key);
+      while (keys.length > cap) keys.shift();
+    },
+    consume(range) {
+      const key = keyOf(range);
+      const index = keys.indexOf(key);
+      if (index === -1) return false;
+      keys.splice(index, 1);
+      return true;
+    },
+  };
 };
 
 type FrameRenderRangeInput = {
@@ -204,11 +257,11 @@ const resolveTxSignalDisplayLabel = (signal: string) => {
     case "d":
       return "D";
     case "wifi":
-      return "Mock WiFi";
+      return "Naive WiFi";
     case "d_sharp":
       return "D#";
     case "5g":
-      return "Mock 5G";
+      return "Naive 5G";
     default:
       return signal.toUpperCase();
   }
@@ -1231,6 +1284,8 @@ export interface FFTCanvasProps {
   /** Emits the actual placeholder/loading state owned by the FFT canvas. */
   onCanvasLoadingChange?: (isLoading: boolean) => void;
   showSpikeOverlay?: boolean;
+  /** Native classification is independent of demod spike detection. */
+  showNativeClassifier?: boolean;
   isStandby?: boolean;
   vizZoom?: number;
   vizZoomFloor?: number;
@@ -1489,6 +1544,7 @@ const FFTCanvas = memo(
       onSnapshot: _onSnapshot,
       snapshotGridPreference,
       showSpikeOverlay = false,
+      showNativeClassifier = false,
       headerActionContent,
       txSlider,
       txSliderAllowed = true,
@@ -1605,6 +1661,15 @@ const FFTCanvas = memo(
     const reduxWebsocketSources = useAppSelector(
       (reduxState) => reduxState.websocket.sources,
     );
+    const nativeCaptureSelectedId = useAppSelector((state) => state.sourceSelection?.selectedSourceId ?? null);
+    const nativeCaptureActiveId = useAppSelector((state) => state.websocket.activeSourceId);
+    const nativeCaptureActiveMode = useAppSelector((state) => state.websocket.activeSourceMode);
+    const nativeCaptureSourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+    const nativeCaptureConnected = useAppSelector((state) => state.websocket.isConnected);
+    const nativeCaptureServerPaused = useAppSelector((state) => state.websocket.serverPaused || state.websocket.isPaused);
+    const nativeCaptureSource = useAppSelector((state) => state.websocket.sources.find((source) => source.id === nativeCaptureSelectedId) ?? null);
+    const nativeAppliedStream = useAppSelector((state) => nativeCaptureSelectedId ? state.websocket.appliedStreamOptionsBySource[nativeCaptureSelectedId] ?? null : null);
+    const nativeCaptureSourceStatus = useAppSelector((state) => nativeCaptureSelectedId ? state.websocket.sourceStatuses[nativeCaptureSelectedId] ?? nativeCaptureSource?.status ?? null : null);
     const isTransmittingGlobal = useMemo(() => {
       return reduxWebsocketSources.some(
         (source) => source.status === "transmitting",
@@ -1796,6 +1861,187 @@ const FFTCanvas = memo(
     const pendingSourcePresentationResetRef = useRef(false);
     const [hasRenderedSpectrumFrame, setHasRenderedSpectrumFrame] =
       useState(false);
+    const nativeExtractorRef = useRef<{ device: GPUDevice; extractor: NativeClassifier.NativeGpuExtractor } | null>(null);
+    const nativeTemporalRef = useRef(new NativeClassifier.TemporalClassifier());
+    const nativeLastStartMsRef = useRef(0);
+    const nativeRequestRef = useRef('');
+    const nativeModelRef = useRef<NativeClassifier.NativeModel | null>(null);
+    const [nativeModel, setNativeModel] = useState<NativeClassifier.NativeModel | null>(null);
+    const [nativeShadowResult, setNativeShadowResult] = useState<NativeClassifier.NativeShadowResult | null>(null);
+    const [nativeShadowError, setNativeShadowError] = useState('');
+    const nativeCaptureRef = useRef(new NativeClassifier.NativeTrainingCaptureSession());
+    const nativeCaptureEligibilityRef = useRef(false);
+    const nativeCaptureLatestFrameRef = useRef<{ sourceId: string; streamEpoch: number; optionsRevision: number; appliedOptions: Extract<import('@n-apt/consts/schemas/websocket').IqAppliedStreamOptions, { mode: 'rx' }>; sequence: number; timestampMs: number; status: string; sampleRateHz: number; centerFrequencyHz: number; configuredFftSize: number; fftSize: number; validSamples: number; rawIqByteCount: number; window: NativeClassifier.FrameMetadata['window'] } | null>(null);
+    const [nativeClassifierSidebarTarget, setNativeClassifierSidebarTarget] = useState<HTMLElement | null>(null);
+    const [nativeLatestFrameFresh, setNativeLatestFrameFresh] = useState(false);
+    const [nativeLatestFrameRevision, setNativeLatestFrameRevision] = useState(0);
+    const [nativeCaptureUi, setNativeCaptureUi] = useState({ active: false, frameCount: 0, status: '' });
+    useEffect(() => {
+      if (typeof document !== 'undefined') {
+        setNativeClassifierSidebarTarget(document.getElementById('native-classifier-sidebar-slot'));
+      }
+    }, []);
+    const nativeCaptureIdentity = nativeCaptureSource ? isRtlSdrDevice({ deviceKind: nativeCaptureSource.kind, backend: nativeCaptureSource.kind, deviceName: nativeCaptureSource.name }) : false;
+    const nativeCaptureEligibility: NativeClassifier.NativeTrainingCaptureEligibility = {
+      selectedSourceId: nativeCaptureSelectedId,
+      activeSourceId: nativeCaptureActiveId,
+      expectedSourceId,
+      sourceMode: nativeCaptureActiveMode === 'live' && nativeCaptureSourceMode === 'live' ? 'live' : 'file',
+      temporalResolution: displayTemporalResolution,
+      sourceCapability: nativeCaptureSource?.capability ?? '',
+      sourceIsMock: nativeCaptureSource?.is_mock === true || nativeCaptureSource?.capability === 'mock',
+      sourceStatus: nativeCaptureSourceStatus,
+      sourcePaused: nativeCaptureSource?.paused === true || nativeCaptureServerPaused,
+      deviceConnected: nativeCaptureConnected && isDeviceConnected === true,
+      canvasPaused: isPaused,
+      isRtlSdr: nativeCaptureIdentity,
+    };
+    const nativeLatest = nativeCaptureLatestFrameRef.current;
+    const nativeLatestAgeMs = nativeLatest ? Date.now() - nativeLatest.timestampMs : Number.POSITIVE_INFINITY;
+    const nativeLatestSettingsMismatches = nativeLatest ? [
+      ...(nativeLatest.sourceId !== nativeCaptureSelectedId ? [`frame source ${nativeLatest.sourceId} != selected source ${nativeCaptureSelectedId ?? 'none'}`] : []),
+      ...(nativeLatest.sampleRateHz !== nativeCaptureSource?.sdr.settings.sample_rate ? [`frame rate ${nativeLatest.sampleRateHz} != source rate ${nativeCaptureSource?.sdr.settings.sample_rate}`] : []),
+      ...(nativeLatest.centerFrequencyHz !== nativeCaptureSource?.sdr.settings.center_frequency ? [`frame center ${nativeLatest.centerFrequencyHz} != source center ${nativeCaptureSource?.sdr.settings.center_frequency}`] : []),
+      ...(nativeLatest.configuredFftSize !== (nativeCaptureSource?.sdr.settings.fft_size ?? fftSize) ? [`frame FFT setting ${nativeLatest.configuredFftSize} != selected FFT setting ${nativeCaptureSource?.sdr.settings.fft_size ?? fftSize}`] : []),
+      ...(nativeLatestAgeMs < 0 || nativeLatestAgeMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS ? ['frame timestamp is stale or in the future'] : []),
+    ] : [];
+    const nativeLatestMatchesSelection = !!nativeLatest && nativeLatest.sourceId === nativeCaptureSelectedId &&
+      nativeLatest.status === 'receiving' &&
+      !!nativeAppliedStream && nativeAppliedStream.streamEpoch === nativeLatest.streamEpoch && nativeAppliedStream.optionsRevision === nativeLatest.optionsRevision &&
+      nativeLatest.validSamples > 0 && nativeLatestAgeMs >= 0 && nativeLatestAgeMs <= NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS &&
+      nativeLatest.appliedOptions.centerFrequencyHz === nativeLatest.centerFrequencyHz && nativeLatest.appliedOptions.sampleRateHz === nativeLatest.sampleRateHz &&
+      nativeLatest.sampleRateHz === nativeCaptureSource?.sdr.settings.sample_rate &&
+      nativeLatest.centerFrequencyHz === nativeCaptureSource?.sdr.settings.center_frequency &&
+      nativeLatest.configuredFftSize === (nativeCaptureSource?.sdr.settings.fft_size ?? fftSize) &&
+      nativeLatest.window === (normalizeWindowType(nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular') === 'hanning' ? 'hann' : normalizeWindowType(nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular'));
+    const classifierQuality = evaluateCaptureQuality({
+      profile: CLASSIFIER_TRAINING_QUALITY_PROFILE,
+      selectedSourceId: nativeCaptureSelectedId,
+      sourceMode: nativeCaptureActiveMode === 'live' && nativeCaptureSourceMode === 'live' ? 'live' : 'file',
+      source: nativeCaptureSource ? {
+        id: nativeCaptureSource.id, capability: nativeCaptureSource.capability,
+        isMock: nativeCaptureSource.is_mock === true || nativeCaptureSource.capability === 'mock',
+        connected: nativeCaptureConnected && isDeviceConnected === true,
+        receiving: nativeCaptureSourceStatus === 'receiving',
+        paused: nativeCaptureSource.paused === true || nativeCaptureServerPaused,
+        maxSampleRateHz: nativeCaptureSource.capabilities?.max_sample_rate ?? nativeCaptureSource.sdr.max_sample_rate,
+        minSampleRateHz: nativeCaptureSource.sdr.settings.min_receive_sample_rate ?? undefined,
+        fftSizes: nativeCaptureSource.capabilities?.fft?.sizes,
+        maxFrameRateHz: nativeCaptureSource.capabilities?.fft?.max_frame_rate,
+      } : null,
+      requested: { sampleRateHz: nativeCaptureSource?.sdr.settings.sample_rate, fftSize: nativeCaptureSource?.sdr.settings.fft_size, frameRateHz: nativeCaptureSource?.sdr.settings.frame_rate, window: nativeCaptureSource?.sdr.settings.fft_window, temporalResolution: displayTemporalResolution },
+      configured: { sampleRateHz: nativeCaptureSource?.sdr.settings.sample_rate, fftSize: nativeCaptureSource?.sdr.settings.fft_size, frameRateHz: nativeCaptureSource?.sdr.settings.frame_rate, window: nativeCaptureSource?.sdr.settings.fft_window, temporalResolution: displayTemporalResolution },
+      frames: nativeLatest ? [{
+        sourceId: nativeLatest.sourceId, streamEpoch: nativeLatest.streamEpoch, sequence: nativeLatest.sequence,
+        timestampMs: nativeLatest.timestampMs, status: nativeLatest.status, sampleRateHz: nativeLatest.sampleRateHz,
+        centerFrequencyHz: nativeLatest.centerFrequencyHz, fftSize: nativeLatest.fftSize, window: nativeLatest.window,
+        acquiredSampleCount: nativeLatest.validSamples, rawIqByteCount: nativeLatest.rawIqByteCount,
+      }] : [],
+      nowTimestampMs: Date.now(),
+    });
+    const nativeCaptureAvailable = NativeClassifier.canStartNativeTrainingCapture(nativeCaptureEligibility) && classifierQuality.fit !== 'unmet' && nativeLatestFrameFresh && nativeLatestMatchesSelection;
+    nativeCaptureEligibilityRef.current = NativeClassifier.canStartNativeTrainingCapture(nativeCaptureEligibility);
+    const nativeCaptureConfig = useMemo<NativeClassifier.NativeTrainingCaptureConfig | null>(() => {
+      const applied = nativeLatest?.appliedOptions;
+      const sampleRateHz = nativeLatest?.sampleRateHz;
+      const centerFrequencyHz = nativeLatest?.centerFrequencyHz;
+      const configuredFftSize = applied?.fftSize;
+      const configuredFrameRateHz = applied?.frameRate ?? null;
+      const windowName = normalizeWindowType(applied?.fftWindow ?? 'Rectangular');
+      const window = windowName === 'hanning' ? 'hann' : windowName === 'nuttall' ? 'nuttall' : windowName;
+      const streamEpoch = NativeClassifier.resolveNativeTrainingEpoch(nativeLatest?.streamEpoch, nativeCaptureSource?.stream_epoch);
+      if (!nativeCaptureAvailable || !nativeLatest || !applied || applied.mode !== 'rx' || !nativeCaptureSelectedId || typeof streamEpoch !== 'number' ||
+        typeof sampleRateHz !== 'number' || typeof centerFrequencyHz !== 'number' || typeof configuredFftSize !== 'number' ||
+        !['rectangular', 'hann', 'hamming', 'blackman', 'nuttall'].includes(window)) return null;
+      return { sessionId: '', visualizerSessionKey, sourceId: nativeCaptureSelectedId, streamEpoch, optionsRevision: nativeLatest.optionsRevision, appliedOptions: { ...applied },
+        sampleRateHz, centerFrequencyHz, configuredFrameRateHz, configuredFftSize, fftSize: nativeLatest.fftSize,
+        window: window as NativeClassifier.FrameMetadata['window'], temporalResolution: 'lossless' };
+    }, [nativeCaptureSource, nativeAppliedStream, nativeCaptureAvailable, nativeCaptureSelectedId, nativeLatest, fftSize, fftWindow, fftFrameRate, visualizerSessionKey, nativeLatestFrameRevision]);
+    const nativeCaptureBlockReason = !nativeCaptureEligibility.selectedSourceId
+      ? 'Select the active RTL-SDR source.'
+      : nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.activeSourceId || nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.expectedSourceId
+        ? 'The selected, active, and displayed source must match.'
+        : nativeCaptureEligibility.sourceMode !== 'live' || nativeCaptureEligibility.sourceCapability !== 'rx' || nativeCaptureEligibility.sourceIsMock || nativeCaptureEligibility.sourceStatus !== 'receiving' || nativeCaptureEligibility.sourcePaused || !nativeCaptureEligibility.deviceConnected || nativeCaptureEligibility.canvasPaused || !nativeCaptureEligibility.isRtlSdr
+          ? 'A connected, unpaused RTL-SDR must be receiving live frames.'
+          : displayTemporalResolution !== 'lossless'
+            ? 'Set Temporal Resolution to Lossless.'
+            : classifierQuality.fit === 'unmet'
+              ? classifierQuality.reasons.join(' ')
+              : !nativeLatestMatchesSelection
+                ? `Latest frame mismatch: ${nativeLatestSettingsMismatches.join('; ') || 'metadata or window does not match.'}`
+                : !nativeLatestFrameFresh
+                  ? 'Waiting for a fresh, complete I/Q frame.'
+                  : nativeCaptureConfig === null
+                    ? 'Waiting for complete acquisition metadata.'
+                    : '';
+    const nativeCaptureConfigRef = useRef(nativeCaptureConfig);
+    nativeCaptureConfigRef.current = nativeCaptureConfig;
+    const stopNativeCapture = useCallback((reason: string) => {
+      nativeCaptureRef.current.stop(reason);
+      setNativeCaptureUi({ active: false, frameCount: nativeCaptureRef.current.frameCount, status: reason });
+    }, []);
+    const toggleNativeCapture = useCallback((annotations: NativeClassifier.NativeTrainingCaptureAnnotations) => {
+      if (nativeCaptureRef.current.active) { stopNativeCapture('user-stopped'); return; }
+      const latest = nativeCaptureLatestFrameRef.current;
+      const latestAgeMs = latest ? Date.now() - latest.timestampMs : Number.POSITIVE_INFINITY;
+      if (!nativeCaptureAvailable || !nativeCaptureConfig || !latest || latestAgeMs < 0 || latestAgeMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS ||
+        latest.sourceId !== nativeCaptureSelectedId || latest.status !== 'receiving' || !NativeClassifier.isCompleteNativeTrainingFrame(latest)) return;
+      const sessionId = globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const started = nativeCaptureRef.current.start({ ...nativeCaptureConfig, sessionId }, performance.now(), Date.now(), annotations);
+      if (started) setNativeCaptureUi({ active: true, frameCount: 0, status: 'Waiting for a new live frame.' });
+    }, [nativeCaptureAvailable, nativeCaptureConfig, nativeCaptureSelectedId, nativeCaptureSource, stopNativeCapture]);
+    const updateNativeCaptureAnnotations = useCallback((annotations: NativeClassifier.NativeTrainingCaptureAnnotations) => {
+      nativeCaptureRef.current.updateAnnotations(annotations, Date.now());
+    }, []);
+    const exportNativeCapture = useCallback(() => {
+      const data = nativeCaptureRef.current.toExportObject();
+      if (!data) return;
+      const annotations = nativeCaptureRef.current.toAnnotationSidecar();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `n-apt-iq-capture-${data.sessionId}.json`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      if (annotations) {
+        const sidecarUrl = URL.createObjectURL(new Blob([JSON.stringify(annotations)], { type: 'application/json' }));
+        const sidecarAnchor = document.createElement('a');
+        sidecarAnchor.href = sidecarUrl;
+        sidecarAnchor.download = `n-apt-annotations-${data.sessionId}.json`;
+        sidecarAnchor.click();
+        setTimeout(() => URL.revokeObjectURL(sidecarUrl), 1_000);
+      }
+      nativeCaptureRef.current.clear();
+      setNativeCaptureUi({ active: false, frameCount: 0, status: '' });
+    }, []);
+    useEffect(() => {
+      const timer = setInterval(() => {
+        const latest = nativeCaptureLatestFrameRef.current;
+        const latestAgeMs = latest ? Date.now() - latest.timestampMs : Number.POSITIVE_INFINITY;
+        const fresh = !!latest && latestAgeMs >= 0 && latestAgeMs <= NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS &&
+          latest.sourceId === nativeCaptureSelectedId &&
+          latest.status === 'receiving' && NativeClassifier.isCompleteNativeTrainingFrame(latest);
+        setNativeLatestFrameFresh((current) => current === fresh ? current : fresh);
+        if (!nativeCaptureUi.active) return;
+        const session = nativeCaptureRef.current;
+        if (!session.active) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' }); return; }
+        const pinned = session.snapshot()?.config;
+        if (!nativeCaptureEligibilityRef.current || !latest || Date.now() - latest.timestampMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS) {
+          session.stop(!nativeCaptureEligibilityRef.current ? 'source-disconnected-or-ineligible' : 'stale-frame');
+          setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' });
+          return;
+        }
+        if (session.stopIfStale(performance.now())) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: 'no-new-frames' }); return; }
+        setNativeCaptureUi((state) => state.frameCount === session.frameCount ? state : { ...state, frameCount: session.frameCount });
+      }, 250);
+      return () => clearInterval(timer);
+    }, [nativeCaptureUi.active, nativeCaptureConfig, nativeCaptureSelectedId, nativeCaptureSource, stopNativeCapture]);
+    useEffect(() => () => {
+      nativeCaptureRef.current.stop('canvas-unmounted');
+      nativeExtractorRef.current?.extractor.dispose();
+      nativeExtractorRef.current = null;
+      nativeTemporalRef.current.reset();
+    }, []);
 
     const [isTxSliderLocked, setIsTxSliderLocked] = useState(false);
     const [_fontLoadedTrigger, setFontLoadedTrigger] = useState(0);
@@ -1804,7 +2050,9 @@ const FFTCanvas = memo(
     const isPowerLineHeldRef = useRef(false);
     const txSliderRef = useRef<CanvasTxSliderState | null>(null);
     useLayoutEffect(() => {
-      txSliderRef.current = effectiveTxSlider?.visible ? effectiveTxSlider : null;
+      txSliderRef.current = effectiveTxSlider?.visible
+        ? effectiveTxSlider
+        : null;
     }, [effectiveTxSlider]);
     const [txSliderVisualRevision, setTxSliderVisualRevision] = useState(0);
     const setPowerLineDb = useCallback((nextPowerLineDb: number | null) => {
@@ -1954,7 +2202,6 @@ const FFTCanvas = memo(
         deviceName,
       ],
     );
-
 
     const effectivePowerScale = powerScale ?? "dB";
     const _isHackrfDevice = deviceProfile?.kind === "hackrf_one";
@@ -2135,6 +2382,18 @@ const FFTCanvas = memo(
     /** True while mirror-mode pan is held in the ref ahead of the Redux write. */
     const mirrorPanPendingPublishRef = useRef(false);
     const mirrorPanLastPublishedRef = useRef(vizPanOffset);
+    /**
+     * Hardware ranges the gesture published ahead of Redux. Wheel/drag ticks
+     * advance `frequencyRangeRef` synchronously while Redux echoes lag a
+     * burst; without this the range effect below adopts a stale echo over
+     * the live ref and the next tick publishes a backward window.
+     */
+    const gestureRangeEchoTrackerRef = useRef<GestureRangeEchoTracker | null>(
+      null,
+    );
+    if (!gestureRangeEchoTrackerRef.current) {
+      gestureRangeEchoTrackerRef.current = createGestureRangeEchoTracker();
+    }
     const lastPaintedMirrorPanRef = useRef(vizPanOffset);
     const lastPaintedZoomRef = useRef(currentVizZoom);
     const vizPanScheduler = useMemo<DeviceOptionScheduler<number>>(
@@ -2505,6 +2764,9 @@ const FFTCanvas = memo(
     // painted over a missing graph. Re-arm the overlays on the way back.
     useEffect(() => {
       if (typeof document === "undefined") return;
+      const stopCaptureOnBackground = () => {
+        if (document.visibilityState === 'hidden' && nativeCaptureRef.current.active) stopNativeCapture('backgrounded');
+      };
       const repaintOverlays = () => {
         if (document.visibilityState !== "visible") return;
         if (overlayDirtyRef.current) {
@@ -2513,15 +2775,17 @@ const FFTCanvas = memo(
         }
         forceRenderRef.current?.();
       };
+      document.addEventListener('visibilitychange', stopCaptureOnBackground);
       document.addEventListener("visibilitychange", repaintOverlays);
       // Window occlusion can keep visibilityState "visible" when focus moves to
       // another window, so cover that path too. One repaint per focus is cheap.
       window.addEventListener("focus", repaintOverlays);
       return () => {
+        document.removeEventListener('visibilitychange', stopCaptureOnBackground);
         document.removeEventListener("visibilitychange", repaintOverlays);
         window.removeEventListener("focus", repaintOverlays);
       };
-    }, [overlayDirtyRef]);
+    }, [overlayDirtyRef, stopNativeCapture]);
 
     const spectrumWebgpuEnabled = webgpuEnabled;
     const activeScaleDbMin = vizDbMin;
@@ -2657,12 +2921,37 @@ const FFTCanvas = memo(
     const stableSpikeClassifierRef = useRef<{
       confidence: number;
       suspensionBridgeScore: number;
+      unimodalBridgeScore: number;
+      partialBridgeScore: number;
+      apexProminenceScore: number;
+      shoulderSymmetryScore: number;
+      coalescingScore: number;
       uDipScore: number;
       floorRelativePowerScore: number;
       sincPenaltyScore: number;
       captureQualityScore: number;
       envelopeFitScore: number;
       envelopeResidualScore: number;
+      tuningPersistence: number;
+      tuningPersistenceArmed: boolean;
+      tuningPersistenceMissingFrames: number;
+      spacingScore: number;
+      spacingHz: number | null;
+      spacingToleranceHz: number | null;
+      spacingSupport: number;
+      spacingMissingFrames: number;
+      spacingPendingHz: number | null;
+      spacingPendingFrames: number;
+      spacingStableFrames: number;
+      spacingCenterFrequencyHz: number | null;
+      floorStabilityScore: number | null;
+      floorStabilityFrames: number;
+      spikeValleyFillScore: number | null;
+      interferenceScore: number | null;
+      interferenceEvidenceFrames: number;
+      interferenceMissingFrames: number;
+      spikePresenceHistory: number[][];
+      spikePresenceScore: number;
     } | null>(null);
     const stableSpikeDecisionRef = useRef(false);
     const floorLinePercent = useMemo(() => {
@@ -2765,11 +3054,17 @@ const FFTCanvas = memo(
       vizPanScheduler.flush();
     }, [vizPanScheduler]);
 
-    const onHardwareRangeReanchor = useCallback((range: FrequencyRange) => {
-      frequencyRangeRef.current = range;
-      overlayDirtyRef.current.grid = true;
-      overlayDirtyRef.current.markers = true;
-    }, [overlayDirtyRef]);
+    const onHardwareRangeReanchor = useCallback(
+      (range: FrequencyRange) => {
+        frequencyRangeRef.current = range;
+        // Record the gesture publish so the range effect can tell a lagging
+        // echo of our own burst apart from a genuine external tune.
+        gestureRangeEchoTrackerRef.current?.record(range);
+        overlayDirtyRef.current.grid = true;
+        overlayDirtyRef.current.markers = true;
+      },
+      [overlayDirtyRef],
+    );
 
     const publishVizPanReanchor = useCallback(
       (pan: number) => {
@@ -2834,6 +3129,7 @@ const FFTCanvas = memo(
         pendingPublish: mirrorPanPendingPublishRef.current,
         incomingPan: vizPanOffset,
         lastPublishedPan: mirrorPanLastPublishedRef.current,
+        livePan: vizPanOffsetRef.current,
       });
       if (sync.clearPendingPublish) {
         mirrorPanPendingPublishRef.current = false;
@@ -3173,8 +3469,7 @@ const FFTCanvas = memo(
         const incomingFrame = getLatestLiveFrame(currentData);
         if (
           retainsFramePresentation &&
-          (!renderWaveformRef.current ||
-            renderWaveformRef.current.length === 0)
+          (!renderWaveformRef.current || renderWaveformRef.current.length === 0)
         ) {
           hydratePausedSnapshotRef.current();
           recoverPausedWaveformRef.current();
@@ -3458,27 +3753,26 @@ const FFTCanvas = memo(
         // acquisition axis; an outrun mirror viewport is painted directly and
         // the resampler handles any uncovered bins at the noise floor.
 
-        if (
-          shouldReprocessForPaint &&
-          currentFrame?.iq_data
-        ) {
+        if (shouldReprocessForPaint && currentFrame?.iq_data) {
           // Unified IQ→spectrum path: all live data is iq_data (Uint8Array).
           // The only variable is the dB offset for the power scale.
           const iqBytes = currentFrame?.iq_data;
           if (!iqBytes || iqBytes.length < 2) return;
 
           const requestedFrameRange = frequencyRangeRef.current;
-          const frameRenderableRange = resolveLiveFrameRenderableFrequencyRange({
-            currentFrame,
-            requestedRange: requestedFrameRange,
-            propsCenterFrequencyHz: centerFreqRef.current,
-            propsHardwareSampleRateHz: hardwareSampleRateHz,
-            preferRequestedRange: isIqRecordingActive,
-            deviceKind: deviceProfile?.kind,
-            backend: deviceBackend,
-            deviceName,
-            isRtlSdr: deviceProfile?.is_rtl_sdr,
-          });
+          const frameRenderableRange = resolveLiveFrameRenderableFrequencyRange(
+            {
+              currentFrame,
+              requestedRange: requestedFrameRange,
+              propsCenterFrequencyHz: centerFreqRef.current,
+              propsHardwareSampleRateHz: hardwareSampleRateHz,
+              preferRequestedRange: isIqRecordingActive,
+              deviceKind: deviceProfile?.kind,
+              backend: deviceBackend,
+              deviceName,
+              isRtlSdr: deviceProfile?.is_rtl_sdr,
+            },
+          );
           // A frame from the previous hardware window is still useful for
           // demodulation, but it must not take ownership of the displayed
           // frequency axis. Leave the requested range intact until the
@@ -3489,8 +3783,9 @@ const FFTCanvas = memo(
 
           let waveform: Float32Array;
 
+          const nativeIqWindow = newestIqWindow(iqBytes, frontendFftSize);
           const rawSpectrum = resolveSpectrumWaveform({
-            source: { iq_data: newestIqWindow(iqBytes, frontendFftSize) },
+            source: { iq_data: nativeIqWindow },
             processIq: (iqData) =>
               processIqToDbmSpectrum(
                 iqData,
@@ -3502,6 +3797,122 @@ const FFTCanvas = memo(
           });
           if (!rawSpectrum) return;
           spectrumOutputBufferRef.current = rawSpectrum;
+          const nativeTimestamp = currentFrame.timestamp;
+          const nativeRate = currentFrame.sample_rate;
+          const nativeCenter = currentFrame.center_frequency_hz;
+          const configuredWindowName = normalizeWindowType(nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular');
+          const configuredWindow = configuredWindowName === 'hanning' ? 'hann' : configuredWindowName === 'nuttall' ? 'nuttall' : configuredWindowName;
+          if (currentFrame.source_id && typeof currentFrame.stream_epoch === 'number' &&
+            typeof currentFrame.sequence === 'number' && Number.isFinite(nativeTimestamp) &&
+            typeof nativeRate === 'number' && typeof nativeCenter === 'number' &&
+            typeof currentFrame.options_revision === 'number' &&
+            nativeAppliedStream?.streamEpoch === currentFrame.stream_epoch &&
+            nativeAppliedStream!.optionsRevision === currentFrame.options_revision && nativeAppliedStream!.options.mode === 'rx') {
+            const previousLatest = nativeCaptureLatestFrameRef.current;
+            const nextLatest = {
+              sourceId: currentFrame.source_id, streamEpoch: currentFrame.stream_epoch, optionsRevision: currentFrame.options_revision,
+              appliedOptions: { ...nativeAppliedStream!.options }, sequence: currentFrame.sequence,
+              timestampMs: nativeTimestamp!, status: currentFrame.frame_status ?? 'unknown', sampleRateHz: nativeRate!,
+              centerFrequencyHz: nativeCenter!, configuredFftSize: nativeAppliedStream!.options.fftSize,
+              fftSize: rawSpectrum.length, validSamples: Math.floor(currentFrame.iq_data.length / 2), rawIqByteCount: currentFrame.iq_data.length,
+              window: (nativeAppliedStream!.options.fftWindow === 'hanning' ? 'hann' : nativeAppliedStream!.options.fftWindow ?? 'rectangular') as NativeClassifier.FrameMetadata['window'],
+            };
+            nativeCaptureLatestFrameRef.current = nextLatest;
+            if (!nativeLatestFrameFresh || !previousLatest || previousLatest.sourceId !== nextLatest.sourceId ||
+              previousLatest.streamEpoch !== nextLatest.streamEpoch || previousLatest.sampleRateHz !== nextLatest.sampleRateHz ||
+              previousLatest.optionsRevision !== nextLatest.optionsRevision ||
+              previousLatest.centerFrequencyHz !== nextLatest.centerFrequencyHz || previousLatest.configuredFftSize !== nextLatest.configuredFftSize ||
+              previousLatest.fftSize !== nextLatest.fftSize || previousLatest.window !== nextLatest.window) {
+              setNativeLatestFrameFresh(true);
+              setNativeLatestFrameRevision((revision) => revision + 1);
+            }
+          }
+          if (nativeCaptureRef.current.active) {
+            const pinned = nativeCaptureRef.current.snapshot()?.config;
+            const appliedState = nativeAppliedStream;
+            const applied = !!appliedState && appliedState.streamEpoch === currentFrame.stream_epoch &&
+              appliedState.optionsRevision === currentFrame.options_revision && appliedState.options.mode === 'rx'
+              ? appliedState.options : null;
+            if (!applied || !pinned || typeof currentFrame.options_revision !== 'number') {
+              stopNativeCapture('applied-options-unavailable');
+            } else {
+              const frameWindowName = normalizeWindowType(applied.fftWindow ?? 'Rectangular');
+              const frameWindow = frameWindowName === 'hanning' ? 'hann' : frameWindowName === 'nuttall' ? 'nuttall' : frameWindowName;
+              const outcome = nativeCaptureRef.current.append({
+                sourceId: currentFrame.source_id ?? '', streamEpoch: currentFrame.stream_epoch ?? -1,
+                optionsRevision: currentFrame.options_revision, appliedOptions: { ...applied },
+                sequence: currentFrame.sequence ?? -1, timestampMs: nativeTimestamp ?? Number.NaN,
+                status: currentFrame.frame_status ?? 'unknown', sampleRateHz: nativeRate ?? Number.NaN,
+                centerFrequencyHz: nativeCenter ?? Number.NaN, configuredFrameRateHz: applied.frameRate ?? null,
+                configuredFftSize: applied.fftSize, fftSize: rawSpectrum.length,
+                window: frameWindow as NativeClassifier.FrameMetadata['window'], temporalResolution: 'lossless',
+                validSamples: Math.floor(currentFrame.iq_data.length / 2), iqBytes: currentFrame.iq_data,
+              }, performance.now(), Date.now());
+              if (outcome === 'stopped') {
+                const stoppedCapture = nativeCaptureRef.current.snapshot();
+                const tune = stoppedCapture?.tuneEvents[stoppedCapture.tuneEvents.length - 1];
+                const optionsEvent = stoppedCapture?.optionsAppliedEvents[stoppedCapture.optionsAppliedEvents.length - 1];
+                const status = tune ? `center-frequency-changed:${tune.fromCenterFrequencyHz}:${tune.toCenterFrequencyHz}`
+                  : optionsEvent ? `options-applied:${optionsEvent.changedFields.join(',')}:rev-${optionsEvent.fromRevision}-to-${optionsEvent.toRevision}:${optionsEvent.fromFrameSequence ?? 'start'}:${optionsEvent.toFrameSequence}`
+                    : stoppedCapture?.stopReason ?? 'stopped';
+                setNativeCaptureUi({ active: false, frameCount: nativeCaptureRef.current.frameCount, status });
+              }
+            }
+          }
+          const nativeDevice = webgpuDeviceRef.current;
+          if (
+            showNativeClassifier && nativeDevice && currentFrame.source_id &&
+            Number.isFinite(nativeTimestamp) && Number.isFinite(nativeRate) && nativeRate! > 0 &&
+            Number.isFinite(nativeCenter) && performance.now() - nativeLastStartMsRef.current >= 250
+          ) {
+            const sourceId = `${currentFrame.source_id}:${currentFrame.stream_epoch ?? ''}`;
+            const frameId = String(currentFrame.sequence ?? nativeTimestamp);
+            const analysisSize = rawSpectrum.length;
+            const binHz = nativeRate! / analysisSize;
+            const acquisitionMin = nativeCenter! - nativeRate! / 2;
+            const requested = frequencyRangeRef.current;
+            const cropStart = Math.max(0, Math.min(analysisSize, Math.floor((requested.min - acquisitionMin) / binHz)));
+            const cropEnd = Math.max(cropStart, Math.min(analysisSize, Math.ceil((requested.max - acquisitionMin) / binHz)));
+            const windowName = normalizeWindowType(fftWindow ?? 'Rectangular');
+            const nativeWindow = windowName === 'hanning' ? 'hann' : windowName === 'nuttall' ? 'nuttall' : windowName;
+            if (cropEnd - cropStart >= 8 && ['rectangular','hann','hamming','blackman','nuttall'].includes(nativeWindow)) {
+              try {
+                if (nativeExtractorRef.current?.device !== nativeDevice) {
+                  nativeExtractorRef.current?.extractor.dispose();
+                  nativeExtractorRef.current = { device: nativeDevice, extractor: new NativeClassifier.NativeGpuExtractor(nativeDevice) };
+                  nativeTemporalRef.current.reset();
+                }
+                const token = `${sourceId}:${frameId}:${analysisSize}:${cropStart}:${cropEnd}:${windowName}`;
+                nativeRequestRef.current = token;
+                nativeLastStartMsRef.current = performance.now();
+                const nativeFrame = {
+                  spectrum: new Float32Array(rawSpectrum.subarray(cropStart, cropEnd)),
+                  metadata: {
+                    sourceId, frameId, timestampMs: nativeTimestamp!, acquisitionSampleRateHz: nativeRate!,
+                    analysisSampleRateHz: nativeRate!, fftSize: analysisSize, validSamples: Math.min(analysisSize, Math.floor(nativeIqWindow.length / 2)),
+                    window: nativeWindow as NativeClassifier.FrameMetadata['window'], centerFrequencyHz: nativeCenter!,
+                    retainedStartBin: cropStart, retainedEndBin: cropEnd,
+                  } satisfies NativeClassifier.FrameMetadata,
+                };
+                void nativeExtractorRef.current.extractor.extract(nativeFrame).then(async bins => {
+                  const summary = NativeClassifier.summarizeFeatures(nativeFrame, bins);
+                  const temporal = nativeTemporalRef.current.update(nativeFrame.metadata, summary);
+                  if (!temporal || nativeRequestRef.current !== token) return;
+                  const model = nativeModelRef.current;
+                  const score = model && temporal.status === 'ready'
+                    ? await nativeExtractorRef.current?.extractor.infer(model, temporal.values) ?? null
+                    : null;
+                  if (nativeRequestRef.current !== token) return;
+                  setNativeShadowError('');
+                  setNativeShadowResult({ summary: temporal, frameMetadata: nativeFrame.metadata, score, modelId: model?.id ?? null,
+                    sampleRateValidated: !!model?.validatedSampleRatesHz.includes(nativeRate!),
+                    latencyMs: performance.now() - nativeLastStartMsRef.current, ruleScore: temporal.ruleScore });
+                }).catch(error => {
+                  if (nativeRequestRef.current === token) setNativeShadowError(error instanceof Error ? error.message : String(error));
+                });
+              } catch (error) { setNativeShadowError(error instanceof Error ? error.message : String(error)); }
+            }
+          }
           waveform = removeDcSpike
             ? removeDcSpikeFromSpectrum(
                 rawSpectrum,
@@ -3821,8 +4232,8 @@ const FFTCanvas = memo(
           // prepareSpectrumRenderData only when visual.min < 0.
           const mirrorOnGpu = Boolean(
             allowNegativeFrequencies &&
-              spectrumWebgpuEnabled &&
-              webgpuDeviceRef.current,
+            spectrumWebgpuEnabled &&
+            webgpuDeviceRef.current,
           );
           const resampleOnGpu = Boolean(
             spectrumWebgpuEnabled && webgpuDeviceRef.current,
@@ -3842,8 +4253,7 @@ const FFTCanvas = memo(
             // the spectrum while EditableCenterFrequency still updated Redux.
             // Live spectrum rendering is WebGPU-only. Do not run the CPU
             // snapshot resampler while the GPU is still initializing.
-            allowNegativeFrequencies:
-              allowNegativeFrequencies && mirrorOnGpu,
+            allowNegativeFrequencies: allowNegativeFrequencies && mirrorOnGpu,
             mirrorOnGpu,
             resampleOnGpu,
             getZoomedData,
@@ -3898,7 +4308,7 @@ const FFTCanvas = memo(
               }
             : null;
           const displaySelection = selectionOverlayRef.current
-              ? { ...selectionOverlayRef.current }
+            ? { ...selectionOverlayRef.current }
             : null;
           const bottomReservedPx = nodePreview
             ? 0
@@ -3921,15 +4331,15 @@ const FFTCanvas = memo(
               waveformDirty: processedCurrentFrame,
               frequencyRange: displayVisualRange,
               sourceFrequencyRange: resampleOnGpu
-                // The paint contract may intentionally rebase a retained
-                // paused frame onto the new universal range. Passing the raw
-                // frame acquisition range here makes the GPU floor the
-                // uncovered tail until request_next_frame arrives, which is
-                // the visible gap during VFO scrolling. The renderer must
-                // receive the same source axis that the contract used to
-                // derive displayVisualRange so the resident frame fills the
-                // canvas continuously while the replacement frame is fetched.
-                ? paintContract.sourceFrequencyRange
+                ? // The paint contract may intentionally rebase a retained
+                  // paused frame onto the new universal range. Passing the raw
+                  // frame acquisition range here makes the GPU floor the
+                  // uncovered tail until request_next_frame arrives, which is
+                  // the visible gap during VFO scrolling. The renderer must
+                  // receive the same source axis that the contract used to
+                  // derive displayVisualRange so the resident frame fills the
+                  // canvas continuously while the replacement frame is fetched.
+                  paintContract.sourceFrequencyRange
                 : undefined,
               mirrorEnabled: gpuMirrorActive,
               reuseWaveformUpload: resampleOnGpu,
@@ -4000,6 +4410,12 @@ const FFTCanvas = memo(
                       stableSpikeClassifierRef.current,
                       stableSpikeDecisionRef.current,
                       stableSpikeFloorDbmRef.current,
+                      currentFrame?.center_frequency_hz ?? null,
+                      {
+                        samples: displayWaveform,
+                        minFrequencyHz: displayVisualRange.min,
+                        maxFrequencyHz: displayVisualRange.max,
+                      },
                     );
                     if (!presented) return;
                     stableSpikeFloorDbmRef.current = presented.floorDbm;
@@ -4229,13 +4645,12 @@ const FFTCanvas = memo(
               const isTxPreviewFrame =
                 (currentFrame as any)?.is_tx_preview === true ||
                 (currentFrame as any)?.is_mock_tx_preview === true;
-              const shouldUpdateWaterfallRow =
-                shouldAppendWaterfallFrame({
-                  hasNewData,
-                  isStandby,
-                  isTxPreviewFrame,
-                  coversDisplay: preparedSpectrum.coversDisplay,
-                });
+              const shouldUpdateWaterfallRow = shouldAppendWaterfallFrame({
+                hasNewData,
+                isStandby,
+                isTxPreviewFrame,
+                coversDisplay: preparedSpectrum.coversDisplay,
+              });
 
               // Waterfall texture strategy: Always resample to constant 4096 bins.
               // This 'bakes' the zoom into each row permanently, avoiding WebGPU
@@ -4299,7 +4714,6 @@ const FFTCanvas = memo(
                     lastWaterfallRowRef.current,
                   );
                 }
-
               } else {
                 // Paused or no new data: keep the last complete row.
                 waterfallBins = resolvePausedWaterfallRow({
@@ -4333,7 +4747,10 @@ const FFTCanvas = memo(
                     waterfallDims.height,
                     oldMeta.writeRow,
                   );
-                  newWriteRow = Math.min(oldMeta.writeRow, waterfallDims.height - 1);
+                  newWriteRow = Math.min(
+                    oldMeta.writeRow,
+                    waterfallDims.height - 1,
+                  );
                 }
 
                 waterfallTextureSnapshotRef.current = newSnapshot;
@@ -4916,32 +5333,46 @@ const FFTCanvas = memo(
     // center frequency or delays the graph axis until a replacement frame.
     useEffect(() => {
       const prevRange = frequencyRangeRef.current;
+      const rangesMatch =
+        renderableFrequencyRange &&
+        prevRange &&
+        renderableFrequencyRange.min === prevRange.min &&
+        renderableFrequencyRange.max === prevRange.max;
+      if (rangesMatch) {
+        gestureRangeEchoTrackerRef.current?.consume(renderableFrequencyRange);
+      } else if (
+        renderableFrequencyRange &&
+        gestureRangeEchoTrackerRef.current?.consume(renderableFrequencyRange)
+      ) {
+        // Stale echo of our own scroll/drag burst behind the live ref: the
+        // gesture already advanced past this window, so adopting it would
+        // rewind the gesture base and the next tick would publish a backward
+        // window (viewport jumps back, then re-advances). Keep the live ref;
+        // the converged echo is a no-op when it lands.
+        return;
+      }
       frequencyRangeRef.current = renderableFrequencyRange;
 
-        if (
-          renderableFrequencyRange &&
-          prevRange &&
-          (prevRange.min !== renderableFrequencyRange.min ||
-            prevRange.max !== renderableFrequencyRange.max) &&
-          shouldClearSpectrumWaveformForRangeChange({ isPaused })
-        ) {
-          lastProcessedDataRef.current = null;
-          lastProcessedFrameSignatureRef.current = null;
-          frameBufferRef.current = [];
-          renderWaveformRef.current = null;
-          waveformFloatRef.current = null;
-          fullChannelWaveformRef.current = null;
-          fullChannelRangeRef.current = null;
-        }
+      if (
+        renderableFrequencyRange &&
+        prevRange &&
+        (prevRange.min !== renderableFrequencyRange.min ||
+          prevRange.max !== renderableFrequencyRange.max) &&
+        shouldClearSpectrumWaveformForRangeChange({ isPaused })
+      ) {
+        lastProcessedDataRef.current = null;
+        lastProcessedFrameSignatureRef.current = null;
+        frameBufferRef.current = [];
+        renderWaveformRef.current = null;
+        waveformFloatRef.current = null;
+        fullChannelWaveformRef.current = null;
+        fullChannelRangeRef.current = null;
+      }
 
       if (isPaused) {
         forceRender();
       }
-    }, [
-      renderableFrequencyRange,
-      isPaused,
-      forceRender,
-    ]);
+    }, [renderableFrequencyRange, isPaused, forceRender]);
 
     // Effect: Tracks when new data frames arrive while paused.
     // Frame arrival is an imperative notification; the live (non-paused) case
@@ -5156,13 +5587,7 @@ const FFTCanvas = memo(
       if (isPaused) {
         forceRender();
       }
-    }, [
-      vizDbMin,
-      vizDbMax,
-      currentVizZoom,
-      isPaused,
-      forceRender,
-    ]);
+    }, [vizDbMin, vizDbMax, currentVizZoom, isPaused, forceRender]);
 
     // Effect: Handles power scale (dB vs dBm) switches separately for immediate updates.
     // Preserves render buffers to redraw from existing IQ frame rather than showing blank.
@@ -5455,6 +5880,28 @@ const FFTCanvas = memo(
                       </SectionTitleActions>
                     )}
                   </SectionTitleRow>
+                )}
+                {!nodePreview && showNativeClassifier && nativeClassifierSidebarTarget && createPortal(
+                  <>
+                    <NativeClassifier.NativeClassifierPanel
+                      result={nativeShadowResult}
+                      legacy={gpuSpikeAnalysis ? { isNapt: gpuSpikeAnalysis.isNapt, confidence: gpuSpikeAnalysis.confidence } : null}
+                      captureAvailable={nativeCaptureAvailable && nativeCaptureConfig !== null}
+                      captureActive={nativeCaptureUi.active}
+                      captureFrameCount={nativeCaptureUi.frameCount}
+                      captureStatus={nativeCaptureUi.status || (!nativeCaptureAvailable ? nativeCaptureBlockReason : '')}
+                      onToggleCapture={toggleNativeCapture}
+                      onExportCapture={exportNativeCapture}
+                      onAnnotationsChange={updateNativeCaptureAnnotations}
+                      onModel={(model) => { nativeModelRef.current = model; setNativeModel(model); setNativeShadowResult(null); }}
+                    />
+                    {nativeShadowError && !compact && showNativeClassifier && (
+                      <div role="status" style={{ padding: '4px 10px', color: '#ff9988', fontFamily: 'monospace', fontSize: 11 }}>
+                        Native shadow classifier unavailable: {nativeShadowError}
+                      </div>
+                    )}
+                  </>,
+                  nativeClassifierSidebarTarget,
                 )}
                 <SpectrumRow>
                   <CanvasWrapper

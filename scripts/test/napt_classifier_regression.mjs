@@ -35,9 +35,18 @@ function validateThresholds(thresholds, caseId) {
     }
   }
   const napt = thresholds.napt;
-  if (!napt || typeof napt !== "object") throw new Error(`case ${caseId} requires thresholds.napt`);
+  if (napt !== undefined && (!napt || typeof napt !== "object")) throw new Error(`case ${caseId}.napt thresholds must be an object`);
   for (const key of ["confidence_min", "confidence_max", "yes_fraction_min", "yes_fraction_max"]) {
-    if (napt[key] !== undefined) finiteNumber(napt[key], `${caseId}.napt.${key}`);
+    if (napt?.[key] !== undefined) finiteNumber(napt[key], `${caseId}.napt.${key}`);
+  }
+  const interference = thresholds.interference;
+  if (interference) {
+    for (const key of ["peak_max", "mean_min", "present_fraction_min"]) {
+      if (interference[key] !== undefined) finiteNumber(interference[key], `${caseId}.interference.${key}`);
+    }
+    if (interference.peak_max === undefined && interference.mean_min === undefined && interference.present_fraction_min === undefined) {
+      throw new Error(`case ${caseId}.interference requires a score threshold`);
+    }
   }
 }
 
@@ -53,13 +62,23 @@ export function parseRegressionManifest(raw, rootDir = process.cwd()) {
     if (typeof entry.capture_dir !== "string" || entry.capture_dir.length === 0) {
       throw new Error(`case ${caseId} requires capture_dir`);
     }
-    if (!entry.expected || !NAPT_LABELS.has(entry.expected.napt)) {
-      throw new Error(`case ${caseId} requires expected.napt of yes, likely, or no`);
+    if (!entry.expected || typeof entry.expected !== "object" || Object.keys(entry.expected).length === 0) {
+      throw new Error(`case ${caseId} requires at least one explicit expected label`);
     }
-    for (const feature of ["suspension_bridge", "u_dip"]) {
-      if (!entry.expected[feature] || !FEATURE_LABELS.has(entry.expected[feature])) {
-        throw new Error(`case ${caseId} requires expected.${feature} of positive, negative, or unasserted`);
+    if (entry.expected.napt !== undefined && !NAPT_LABELS.has(entry.expected.napt)) {
+      throw new Error(`case ${caseId} expected.napt must be yes, likely, or no`);
+    }
+    if (entry.expected.interference !== undefined && !["high", "low"].includes(entry.expected.interference)) {
+      throw new Error(`case ${caseId} expected.interference must be high or low`);
+    }
+    if (entry.expected.napt !== undefined) {
+      for (const feature of ["suspension_bridge", "u_dip"]) {
+        if (!FEATURE_LABELS.has(entry.expected[feature])) {
+          throw new Error(`case ${caseId} requires expected.${feature} of positive, negative, or unasserted`);
+        }
       }
+    } else if (entry.expected.interference === undefined) {
+      throw new Error(`case ${caseId} requires an N-APT or interference assertion`);
     }
     validateThresholds(entry.thresholds, caseId);
     return {
@@ -104,10 +123,23 @@ export function aggregateClassifierFrames(frames) {
     shoulder_symmetry: frames.map((frame) => Number(frame.shoulderSymmetry)),
     capture_quality: frames.map((frame) => Number(frame.captureQuality)),
     confidence: frames.map((frame) => Number(frame.confidence)),
+    interference: frames.map((frame) => Number(frame.interferenceScore)),
+  };
+  const confirmedInterference = metricValues.interference.slice(2);
+  const presentFraction = (values) => {
+    const finite = values.filter(Number.isFinite);
+    return finite.length
+      ? finite.filter((value) => value >= 0.75).length / finite.length
+      : 0;
   };
   return {
     frame_count: frames.length,
     metrics: Object.fromEntries(Object.entries(metricValues).map(([key, values]) => [key, summarize(values)])),
+    interference_confirmed: {
+      ...summarize(confirmedInterference),
+      present_fraction: presentFraction(confirmedInterference),
+    },
+    interference_present_fraction: presentFraction(metricValues.interference),
     temporal_yes_fraction: frames.filter((frame) => frame.isNapt === true).length / frames.length,
     baseline_yes_fraction: frames.filter((frame) => frame.baselineIsNapt === true).length / frames.length,
     frames,
@@ -120,6 +152,7 @@ export function evaluateRegressionCase(testCase, aggregate) {
   const thresholds = testCase.thresholds;
   for (const feature of ["suspension_bridge", "u_dip"]) {
     const label = expected[feature];
+    if (label === undefined) continue;
     const metric = aggregate.metrics[feature];
     const threshold = thresholds[feature];
     if (label === "positive") {
@@ -156,22 +189,36 @@ export function evaluateRegressionCase(testCase, aggregate) {
   }
   const napt = thresholds.napt;
   const confidence = aggregate.metrics.confidence;
-  if (expected.napt === "yes") {
+  if (napt && expected.napt === "yes") {
     if (napt.confidence_min !== undefined && confidence.peak < napt.confidence_min) {
       failures.push(`confidence peak ${confidence.peak.toFixed(3)} < ${napt.confidence_min.toFixed(3)}`);
     }
     if (napt.yes_fraction_min !== undefined && aggregate.temporal_yes_fraction < napt.yes_fraction_min) {
       failures.push(`temporal yes fraction ${aggregate.temporal_yes_fraction.toFixed(3)} < ${napt.yes_fraction_min.toFixed(3)}`);
     }
-  } else if (expected.napt === "no") {
+  } else if (napt && expected.napt === "no") {
     if (napt.confidence_max !== undefined && confidence.peak > napt.confidence_max) {
       failures.push(`confidence peak ${confidence.peak.toFixed(3)} > ${napt.confidence_max.toFixed(3)}`);
     }
     if (napt.yes_fraction_max !== undefined && aggregate.temporal_yes_fraction > napt.yes_fraction_max) {
       failures.push(`temporal yes fraction ${aggregate.temporal_yes_fraction.toFixed(3)} > ${napt.yes_fraction_max.toFixed(3)}`);
     }
-  } else if (napt.confidence_min !== undefined && confidence.peak < napt.confidence_min) {
+  } else if (napt && expected.napt === "likely" && napt.confidence_min !== undefined && confidence.peak < napt.confidence_min) {
     failures.push(`likely confidence peak ${confidence.peak.toFixed(3)} < ${napt.confidence_min.toFixed(3)}`);
+  }
+  const interferenceThreshold = thresholds.interference;
+  if (interferenceThreshold) {
+    const interference = aggregate.metrics.interference;
+    const confirmed = aggregate.interference_confirmed;
+    if (expected.interference === "low" && interferenceThreshold.peak_max !== undefined && interference.peak > interferenceThreshold.peak_max) {
+      failures.push(`interference peak ${interference.peak.toFixed(3)} > ${interferenceThreshold.peak_max.toFixed(3)}`);
+    }
+    if (expected.interference === "high" && interferenceThreshold.mean_min !== undefined && confirmed.mean < interferenceThreshold.mean_min) {
+      failures.push(`confirmed interference mean ${confirmed.mean.toFixed(3)} < ${interferenceThreshold.mean_min.toFixed(3)}`);
+    }
+    if (expected.interference === "high" && interferenceThreshold.present_fraction_min !== undefined && confirmed.present_fraction < interferenceThreshold.present_fraction_min) {
+      failures.push(`confirmed interference Present fraction ${confirmed.present_fraction.toFixed(3)} < ${interferenceThreshold.present_fraction_min.toFixed(3)}`);
+    }
   }
   return { ok: failures.length === 0, failures };
 }

@@ -112,6 +112,7 @@ export const makeFrame = async (
     protocol_version: 2,
     stream_epoch: streamEpoch,
     sequence,
+    options_revision: optionsRevision,
     timestamp,
     center_frequency_hz: centerFrequencyHz,
     sample_rate: sampleRateHz,

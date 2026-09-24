@@ -22,6 +22,18 @@ use crate::stitching::SignalStitcher;
 
 use super::{SdrDevice, SdrDeviceFactory};
 
+fn append_capture_bytes(
+  iq_data: &mut Vec<u8>,
+  updates: &mut Vec<crate::server::iq_format::FrameUpdate>,
+  update: Option<crate::server::iq_format::FrameUpdate>,
+  frame_bytes: &[u8],
+) {
+  if let Some(update) = update {
+    updates.push(update);
+  }
+  iq_data.extend_from_slice(frame_bytes);
+}
+
 fn should_retire_device_synchronously(device_type: &str) -> bool {
   let device_type = device_type.to_ascii_lowercase();
   device_type.contains("rtl") || device_type.contains("hackrf")
@@ -277,10 +289,102 @@ pub struct CaptureResult {
   pub device_profile: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CaptureOptionsSnapshot {
+  center_frequency_hz: u32,
+  sample_rate_hz: u32,
+  fft_size: usize,
+  fft_window: String,
+  gain_db: f64,
+  ppm: u32,
+  frame_rate_hz: u32,
+}
+
+fn changed_capture_options_patch(
+  before: &CaptureOptionsSnapshot,
+  after: &CaptureOptionsSnapshot,
+) -> serde_json::Map<String, serde_json::Value> {
+  let mut patch = serde_json::Map::new();
+  if before.center_frequency_hz != after.center_frequency_hz {
+    patch.insert("center_frequency_hz".into(), serde_json::json!(after.center_frequency_hz));
+  }
+  if before.sample_rate_hz != after.sample_rate_hz {
+    patch.insert("sample_rate_hz".into(), serde_json::json!(after.sample_rate_hz));
+  }
+  if before.fft_size != after.fft_size {
+    patch.insert("fft_size".into(), serde_json::json!(after.fft_size));
+  }
+  if before.fft_window != after.fft_window {
+    patch.insert("fft_window".into(), serde_json::json!(after.fft_window));
+  }
+  if (before.gain_db - after.gain_db).abs() > 0.01 {
+    patch.insert("gain".into(), serde_json::json!(after.gain_db));
+  }
+  if before.ppm != after.ppm {
+    patch.insert("ppm".into(), serde_json::json!(after.ppm));
+  }
+  if before.frame_rate_hz != after.frame_rate_hz {
+    patch.insert("frame_rate_hz".into(), serde_json::json!(after.frame_rate_hz));
+  }
+  patch
+}
+
+impl SdrProcessor {
+  fn capture_options_snapshot(&self) -> CaptureOptionsSnapshot {
+    CaptureOptionsSnapshot {
+      center_frequency_hz: self.device.get_center_frequency(),
+      sample_rate_hz: self.device.get_sample_rate(),
+      fft_size: self.fft_processor.config().fft_size,
+      fft_window: self.fft_processor.config().window_type.to_string(),
+      gain_db: if self.current_gain_db.is_finite() && self.current_gain_db > -100.0 {
+        self.current_gain_db
+      } else {
+        self.capture_gain
+      },
+      ppm: if self.current_ppm == u32::MAX { self.capture_ppm } else { self.current_ppm },
+      frame_rate_hz: self.display_frame_rate,
+    }
+  }
+
+  pub(crate) fn reset_capture_options_baseline(&mut self) {
+    self.capture_last_frame_signature = Some(self.capture_options_snapshot());
+  }
+}
+
+/// A device taken out of the processor so its native teardown can run without
+/// holding the processor lock.
+pub struct DetachedDevice {
+  /// Generation the processor reached at detach time. Pass it back to
+  /// [`SdrProcessor::attach_device`] so a stale installer is rejected.
+  pub generation: u64,
+  pub device: Box<dyn SdrDevice>,
+}
+
+/// Outcome of installing a device produced after a detach.
+pub enum DeviceAttachOutcome {
+  /// The replacement was installed and configured.
+  Installed,
+  /// A newer device was installed first. The handle was not taken and is
+  /// returned so the caller can retire it off-lock.
+  Superseded(Box<dyn SdrDevice>),
+  /// The handle was installed but could not be configured.
+  ConfigureFailed(anyhow::Error),
+}
+
 /// SDR processor that works with any SDR device implementation
 pub struct SdrProcessor {
   /// The actual SDR device (mock or real hardware)
   device: Box<dyn SdrDevice>,
+  /// Monotonic id of the installed device. Every replacement bumps it so a
+  /// detach/attach pair cannot install a handle over a newer device.
+  device_generation: u64,
+  /// Sample rate the active device was running at when it was detached, so its
+  /// replacement can preserve the rate the user was actually using.
+  detached_sample_rate: Option<u32>,
+  /// Whether the installed device is a detach placeholder rather than real
+  /// hardware. Reads fail while set, so recovery cannot splatter the display
+  /// with simulated frames.
+  detached: bool,
   /// FFT processor for signal processing
   pub fft_processor: FFTProcessor,
   /// Hot per-frame state.
@@ -381,7 +485,9 @@ pub struct SdrProcessor {
   pub power_scale: crate::server::types::PowerScale,
   pub capture_requested_channels: Option<Vec<ChannelSpec>>,
   pub capture_frame_updates: Vec<crate::server::iq_format::FrameUpdate>,
-  pub capture_last_frame_signature: Option<(u32, u32, String)>,
+  pub(crate) capture_last_frame_signature: Option<CaptureOptionsSnapshot>,
+  /// Source bound to this capture; populated from the authoritative active source at start.
+  pub capture_source_id: Option<String>,
 }
 
 impl SdrProcessor {
@@ -493,6 +599,9 @@ impl SdrProcessor {
       current_ppm: u32::MAX,   // Force first update
       current_tuner_agc: false,
       current_rtl_agc: false,
+      device_generation: 1,
+      detached_sample_rate: None,
+      detached: false,
       last_phase_spectrum: None,
       phase_coherence_history: Vec::new(),
       enable_phase_stitching: true,
@@ -503,6 +612,7 @@ impl SdrProcessor {
       capture_requested_channels: None,
       capture_frame_updates: Vec::new(),
       capture_last_frame_signature: None,
+      capture_source_id: None,
     };
 
     let mut processor = processor;
@@ -585,6 +695,8 @@ impl SdrProcessor {
     // new reader touch the same USB handle.
     stop_warm_device(device.as_mut())?;
     let previous_device = std::mem::replace(&mut self.device, device);
+    self.device_generation += 1;
+    self.detached = false;
     let previous_gain_db = self.current_gain_db;
     let previous_ppm = self.current_ppm;
     let previous_tuner_agc = self.current_tuner_agc;
@@ -697,6 +809,8 @@ impl SdrProcessor {
     }
 
     let mut previous_device = std::mem::replace(&mut self.device, device);
+    self.device_generation += 1;
+    self.detached = false;
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
@@ -723,6 +837,71 @@ impl SdrProcessor {
     // this 150ms is more than enough for libusb/FFI to free the interface.
     std::thread::sleep(std::time::Duration::from_millis(150));
 
+    self.apply_runtime_config(runtime_sample_rate)
+  }
+
+  /// Take the active device out of the processor so its native teardown can run
+  /// without holding the processor lock.
+  ///
+  /// A mock placeholder keeps the slot readable, so frame production, health
+  /// polling, and hotplug reconciliation keep running while the old handle is
+  /// retired. The placeholder is inert — [`SdrProcessor::read_and_process_frame`]
+  /// fails until a replacement is installed — so recovery cannot splatter the
+  /// display with simulated frames. Retiring a wedged USB handle can block for
+  /// an unbounded time, so callers are expected to run the teardown somewhere
+  /// they are willing to abandon; this method itself never blocks.
+  pub fn detach_device(&mut self) -> DetachedDevice {
+    let runtime_sample_rate = self.device.get_sample_rate();
+    let device = std::mem::replace(
+      &mut self.device,
+      SdrDeviceFactory::create_mock_device(),
+    );
+    self.device_generation += 1;
+    self.detached_sample_rate = Some(runtime_sample_rate);
+    self.detached = true;
+    DetachedDevice {
+      generation: self.device_generation,
+      device,
+    }
+  }
+
+  /// Install a device produced after [`SdrProcessor::detach_device`].
+  ///
+  /// Rejects the handle when a newer device has been installed in the meantime,
+  /// so a late installer cannot clobber a fresher one.
+  pub fn attach_device(
+    &mut self,
+    device: Box<dyn SdrDevice>,
+    expected_generation: u64,
+  ) -> DeviceAttachOutcome {
+    if self.device_generation != expected_generation {
+      return DeviceAttachOutcome::Superseded(device);
+    }
+
+    let runtime_sample_rate = self
+      .detached_sample_rate
+      .take()
+      .unwrap_or_else(|| device.get_sample_rate());
+
+    // The placeholder left by `detach_device` is a mock, so dropping it
+    // releases no USB resources.
+    drop(std::mem::replace(&mut self.device, device));
+    self.device_generation += 1;
+    self.detached = false;
+
+    // Reset tracked state to force re-application to the new hardware
+    self.current_gain_db = -1.0;
+    self.current_ppm = u32::MAX;
+
+    match self.apply_runtime_config(runtime_sample_rate) {
+      Ok(()) => DeviceAttachOutcome::Installed,
+      Err(error) => DeviceAttachOutcome::ConfigureFailed(error),
+    }
+  }
+
+  /// Initialize the installed device and push the configuration the user was
+  /// actually running onto it.
+  fn apply_runtime_config(&mut self, runtime_sample_rate: u32) -> Result<()> {
     // Initialize the new device now that the old interface is released
     self.device.initialize()?;
 
@@ -776,6 +955,10 @@ impl SdrProcessor {
   pub fn take_audio_iq(
     &mut self,
   ) -> Option<crate::sdr::audio_iq_tap::AudioIqBlock> {
+    if self.detached {
+      // Simulated audio would be demodulated as if it were the real signal.
+      return None;
+    }
     self.device.take_audio_iq()
   }
 
@@ -840,6 +1023,13 @@ impl SdrProcessor {
     force_noise: bool,
     requested_iq_samples: Option<usize>,
   ) -> Result<Vec<f32>> {
+    // A detached device has no samples to give. This must precede the noise
+    // fallbacks below: those return synthesized frames, which would splatter
+    // the display with mock spectrum while real hardware is being reopened.
+    if self.detached {
+      return Err(anyhow::anyhow!("SDR device is detached for recovery"));
+    }
+
     let fft_size = self.fft_processor.config().fft_size;
     let sample_rate = self.get_sample_rate();
 
@@ -952,6 +1142,9 @@ impl SdrProcessor {
       &display_samples,
       &mut self.frame.spectrum_buffer,
     )?;
+    let capture_signature = self
+      .capture_active
+      .then(|| self.capture_options_snapshot());
     let spectrum = &mut self.frame.spectrum_buffer;
 
     // DC spike suppression (skip for mock devices as they don't have hardware DC offset)
@@ -995,39 +1188,46 @@ impl SdrProcessor {
       );
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
-        let signature = (
-          self.device.get_center_frequency(),
-          display_samples.sample_rate,
-          self.capture_fft_window.clone(),
-        );
-        if self.capture_last_frame_signature.as_ref() != Some(&signature) {
-          let mut patch = serde_json::Map::new();
-          patch.insert(
-            "center_frequency_hz".into(),
-            serde_json::json!(signature.0),
-          );
-          patch.insert("sample_rate_hz".into(), serde_json::json!(signature.1));
-          patch.insert(
-            "fft_size".into(),
-            serde_json::json!(self.capture_fft_size),
-          );
-          patch.insert("fft_window".into(), serde_json::json!(signature.2));
-          patch.insert("gain".into(), serde_json::json!(self.capture_gain));
-          self.capture_frame_updates.push(
-            crate::server::iq_format::FrameUpdate {
-              sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
-              timestamp_us: self
-                .capture_start
-                .map(|s| s.elapsed().as_micros() as u64)
-                .unwrap_or(0),
-              patch: serde_json::Value::Object(patch),
-            },
-          );
-          self.capture_last_frame_signature = Some(signature);
+        let signature = capture_signature
+          .as_ref()
+          .expect("active capture has an options snapshot")
+          .clone();
+        if self.capture_channels[ch_idx].bins_per_frame == 0 {
+          self.capture_channels[ch_idx].bins_per_frame = signature.fft_size as u32;
         }
-        self.capture_channels[ch_idx]
-          .iq_data
-          .extend_from_slice(&display_samples.data);
+        let patch = self
+          .capture_last_frame_signature
+          .as_ref()
+          .map(|previous| changed_capture_options_patch(previous, &signature))
+          .unwrap_or_default();
+        if !patch.is_empty() {
+          let update = crate::server::iq_format::FrameUpdate {
+            sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
+            timestamp_us: self
+              .capture_start
+              .map(|s| s.elapsed().as_micros() as u64)
+              .unwrap_or(0),
+            channel: Some(ch_idx as u32),
+            kind: Some("PatchOptionsApplied".into()),
+            source_id: self.capture_source_id.clone(),
+            job_id: self.capture_job_id.clone(),
+            patch: serde_json::Value::Object(patch),
+          };
+          append_capture_bytes(
+            &mut self.capture_channels[ch_idx].iq_data,
+            &mut self.capture_frame_updates,
+            Some(update),
+            &display_samples.data,
+          );
+        } else {
+          append_capture_bytes(
+            &mut self.capture_channels[ch_idx].iq_data,
+            &mut self.capture_frame_updates,
+            None,
+            &display_samples.data,
+          );
+        }
+        self.capture_last_frame_signature = Some(signature);
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(spectrum);
@@ -2145,6 +2345,140 @@ mod hackrf_settings_tests {
   use crate::server::types::SdrProcessorSettings;
   use std::sync::{Arc, Mutex};
 
+  #[test]
+  fn changed_capture_options_produce_a_sparse_patch() {
+    let before = CaptureOptionsSnapshot {
+      center_frequency_hz: 100,
+      sample_rate_hz: 1_000,
+      fft_size: 256,
+      fft_window: "Hanning".into(),
+      gain_db: 12.0,
+      ppm: 1,
+      frame_rate_hz: 20,
+    };
+    let after = CaptureOptionsSnapshot {
+      center_frequency_hz: 200,
+      sample_rate_hz: 2_000,
+      fft_size: 512,
+      fft_window: "Blackman".into(),
+      gain_db: 15.0,
+      ppm: 2,
+      frame_rate_hz: 10,
+    };
+
+    let patch = changed_capture_options_patch(&before, &after);
+    assert_eq!(patch["center_frequency_hz"], 200);
+    assert_eq!(patch["sample_rate_hz"], 2_000);
+    assert_eq!(patch["fft_size"], 512);
+    assert_eq!(patch["fft_window"], "Blackman");
+    assert_eq!(patch["gain"], 15.0);
+    assert_eq!(patch["ppm"], 2);
+    assert_eq!(patch["frame_rate_hz"], 10);
+    assert_eq!(patch.len(), 7);
+    assert!(changed_capture_options_patch(&after, &after).is_empty());
+  }
+
+  #[test]
+  fn effective_fft_gain_ppm_and_frame_rate_changes_are_captured() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    let before = processor.capture_options_snapshot();
+    processor
+      .apply_settings(SdrProcessorSettings {
+        fft_size: Some(1024),
+        fft_window: Some("Blackman".into()),
+        frame_rate: Some(12),
+        sample_rate: Some(1_000_000),
+        gain: Some(18.0),
+        ppm: Some(5),
+        ..Default::default()
+      })
+      .expect("apply dynamic options");
+    let after = processor.capture_options_snapshot();
+
+    let patch = changed_capture_options_patch(&before, &after);
+    assert_eq!(patch["fft_size"], after.fft_size);
+    assert_eq!(patch["fft_window"], after.fft_window);
+    assert_eq!(patch["frame_rate_hz"], after.frame_rate_hz);
+    assert_eq!(patch["sample_rate_hz"], after.sample_rate_hz);
+    assert_eq!(patch["gain"], after.gain_db);
+    assert_eq!(patch["ppm"], after.ppm);
+  }
+
+  #[test]
+  fn capture_records_dynamic_options_at_the_first_changed_frame_boundary() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    processor
+      .start_capture(crate::server::types::CaptureRequest {
+        job_id: "dynamic-options".into(),
+        fragments: vec![crate::server::types::CaptureFragment {
+          min_freq_mhz: 137.0,
+          max_freq_mhz: 137.01,
+        }],
+        duration_s: 5.0,
+        duration_mode: "manual".into(),
+        file_type: ".iq".into(),
+        acquisition_mode: "whole_sample".into(),
+        encrypted: false,
+        fft_size: 2048,
+        fft_window: "Hanning".into(),
+        geolocation: None,
+        bandwidth: None,
+        bandwidth_center_frequency: None,
+      })
+      .expect("start capture");
+    processor.capture_source_id = Some("mock-apt".into());
+    processor.reset_capture_options_baseline();
+    processor.read_and_process_frame().expect("initial frame");
+    let first_frame_bytes = processor.capture_channels[0].iq_data.len();
+
+    processor
+      .apply_settings(SdrProcessorSettings {
+        fft_size: Some(4096),
+        fft_window: Some("Blackman".into()),
+        frame_rate: Some(10),
+        sample_rate: Some(1_600_000),
+        gain: Some(18.0),
+        ppm: Some(5),
+        ..Default::default()
+      })
+      .expect("apply dynamic settings");
+    processor.read_and_process_frame().expect("frame after settings");
+
+    let update = processor.capture_frame_updates.first().expect("sparse patch");
+    assert_eq!(update.sample_offset, first_frame_bytes as u64);
+    assert_eq!(update.timestamp_us > 0, true);
+    assert_eq!(update.kind.as_deref(), Some("PatchOptionsApplied"));
+    assert_eq!(update.source_id.as_deref(), Some("mock-apt"));
+    assert_eq!(update.channel, Some(0));
+    assert_eq!(update.patch["fft_size"], 4096);
+    assert_eq!(update.patch["fft_window"], "Blackman");
+    assert_eq!(update.patch["sample_rate_hz"], 1_600_000);
+    assert!(update.patch.get("gain").is_some());
+    assert!(update.patch.get("ppm").is_some());
+    assert!(update.patch.get("frame_rate_hz").is_some());
+  }
+
+  #[test]
+  fn capture_update_byte_offset_and_processing_timestamp_precede_new_frame_bytes() {
+    let mut iq_data = vec![1u8, 2, 3, 4];
+    let mut updates = Vec::new();
+    let processing_timestamp_us = 12_345;
+    let update = crate::server::iq_format::FrameUpdate {
+      sample_offset: iq_data.len() as u64,
+      timestamp_us: processing_timestamp_us,
+      channel: None,
+      kind: Some("PatchOptionsApplied".into()),
+      source_id: Some("rtl-sdr-0".into()),
+      job_id: Some("capture-test".into()),
+      patch: serde_json::json!({ "center_frequency_hz": 137_100_000 }),
+    };
+    append_capture_bytes(&mut iq_data, &mut updates, Some(update), &[5, 6, 7, 8]);
+
+    assert_eq!(updates[0].sample_offset, 4, "legacy sample_offset is a byte offset");
+    assert_eq!(updates[0].timestamp_us, processing_timestamp_us);
+    assert_eq!(&iq_data[updates[0].sample_offset as usize..], &[5, 6, 7, 8]);
+  }
+
   #[derive(Clone, Default)]
   struct RecordingDevice {
     calls: Arc<Mutex<Vec<String>>>,
@@ -2153,6 +2487,8 @@ mod hackrf_settings_tests {
     center_frequency: u32,
     kind: Option<&'static str>,
     standby_error: bool,
+    /// Simulates a native teardown that will not return promptly.
+    standby_sleep: Option<std::time::Duration>,
     rx_active: bool,
     initialize_error: bool,
   }
@@ -2183,6 +2519,9 @@ mod hackrf_settings_tests {
 
     fn enter_standby(&mut self) -> Result<()> {
       self.record("standby");
+      if let Some(delay) = self.standby_sleep {
+        std::thread::sleep(delay);
+      }
       if self.standby_error {
         return Err(anyhow::anyhow!("reader is still stopping"));
       }
@@ -2325,6 +2664,144 @@ mod hackrf_settings_tests {
         "amp:true".to_string(),
       ],
     );
+  }
+
+  #[test]
+  fn detach_device_installs_a_placeholder_and_bumps_the_generation() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let generation = processor.device_generation;
+
+    let detached = processor.detach_device();
+
+    assert_eq!(detached.generation, generation + 1);
+    assert_eq!(detached.device.device_type(), "hackrf_one");
+    assert!(
+      processor.is_mock(),
+      "a detached slot must keep producing a readable device"
+    );
+  }
+
+  #[test]
+  fn attach_device_rejects_a_handle_superseded_by_a_newer_device() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let detached = processor.detach_device();
+
+    // A newer replacement lands while the detached handle is being reopened.
+    processor
+      .swap_device(Box::new(RecordingDevice {
+        sample_rate: 2_400_000,
+        center_frequency: 100_000_000,
+        ..Default::default()
+      }))
+      .expect("replacement swap");
+    let generation_after_swap = processor.device_generation;
+
+    match processor.attach_device(detached.device, detached.generation) {
+      DeviceAttachOutcome::Superseded(device) => {
+        assert_eq!(device.device_type(), "hackrf_one");
+      }
+      _ => panic!("a stale installer must not replace the newer device"),
+    }
+    assert_eq!(
+      processor.device_generation, generation_after_swap,
+      "a rejected install must leave the installed device untouched"
+    );
+  }
+
+  #[test]
+  fn attach_device_installs_a_matching_handle() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let detached = processor.detach_device();
+
+    let replacement = RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      kind: Some("rtl-sdr"),
+      ..Default::default()
+    };
+
+    let outcome =
+      processor.attach_device(Box::new(replacement), detached.generation);
+
+    assert!(matches!(outcome, DeviceAttachOutcome::Installed));
+    assert_eq!(processor.device_type(), "rtl-sdr");
+    assert!(!processor.is_mock());
+    assert!(
+      processor.device_generation > detached.generation,
+      "an installed device must invalidate any other pending installer"
+    );
+  }
+
+  #[test]
+  fn a_detached_device_emits_no_frames() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    processor.detach_device();
+
+    // The placeholder must not hand back simulated spectrum while real hardware
+    // is being reopened.
+    assert!(
+      processor.read_and_process_frame().is_err(),
+      "a detached device must not produce frames"
+    );
+    assert!(processor.take_audio_iq().is_none());
+  }
+
+  #[test]
+  fn an_installed_device_resumes_emitting_frames() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    }))
+    .expect("processor");
+    let detached = processor.detach_device();
+
+    let replacement = RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      ..Default::default()
+    };
+    assert!(matches!(
+      processor.attach_device(Box::new(replacement), detached.generation),
+      DeviceAttachOutcome::Installed
+    ));
+
+    assert!(
+      processor.read_and_process_frame().is_ok(),
+      "recovery must restore the frame stream"
+    );
+  }
+
+  #[test]
+  fn a_plain_mock_device_still_emits_frames() {
+    // Suppression is scoped to a detached placeholder. Selecting the simulated
+    // source is legitimate and must keep streaming.
+    let mut processor = SdrProcessor::with_device(
+      SdrDeviceFactory::create_mock_device(),
+    )
+    .expect("mock processor");
+
+    assert!(processor.read_and_process_frame().is_ok());
   }
 
   #[test]

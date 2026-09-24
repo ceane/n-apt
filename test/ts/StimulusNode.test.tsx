@@ -11,6 +11,7 @@ import {
   AUDIO_WATERFALL_FPS,
   AUDIO_WATERFALL_HEIGHT,
   createFmWaterfallFrame,
+  createAudioToneReferencePcm,
   createSineWaveformSamples,
   getAudioToneGain,
 } from "@n-apt/demodulation/react-flow/nodes/audioWaveformPreview";
@@ -27,6 +28,7 @@ const mockDemodValue: {
   liveMode: boolean;
   setLiveMode: jest.Mock;
   startAnalysis: jest.Mock;
+  recordAudioSurveyStimulusReference: jest.Mock;
   clearAnalysis: jest.Mock;
 } = {
   analysisSession: { state: "idle", type: "audio", startTime: null },
@@ -35,6 +37,7 @@ const mockDemodValue: {
   liveMode: false,
   setLiveMode: jest.fn(),
   startAnalysis: jest.fn(),
+  recordAudioSurveyStimulusReference: jest.fn().mockResolvedValue(null),
   clearAnalysis: jest.fn(),
 };
 
@@ -105,6 +108,7 @@ describe("StimulusNode", () => {
       startTime: null,
     };
     mockWaterfallProps.current = null;
+    mockDemodValue.recordAudioSurveyStimulusReference.mockClear();
   });
 
   afterEach(() => {
@@ -120,6 +124,14 @@ describe("StimulusNode", () => {
       subtext: "Test subtext",
     },
   };
+
+  it("materializes the played tone as a PCM reference with the same envelope", () => {
+    const reference = createAudioToneReferencePcm(1, 48_000);
+    expect(reference).toHaveLength(48_000);
+    expect(reference[0]).toBe(0);
+    expect(Math.max(...Array.from(reference.slice(4_800, 5_000)))).toBeGreaterThan(0.4);
+    expect(Math.abs(reference[47_999])).toBeLessThan(0.02);
+  });
 
   it("renders with default props", () => {
     render(
@@ -348,7 +360,9 @@ describe("StimulusNode", () => {
       </TestWrapper>,
     );
 
-    const checkbox = screen.getByRole("checkbox");
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Pair stimulus tone with captured RF audio",
+    });
     expect(checkbox).toBeInTheDocument();
     expect(checkbox).not.toBeChecked();
   });

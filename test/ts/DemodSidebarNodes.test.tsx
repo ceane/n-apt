@@ -70,4 +70,23 @@ describe("DemodSidebarNodes", () => {
       screen.getByText("Tune and inspect a waterfall signal window"),
     ).toBeInTheDocument();
   });
+
+  it("offers a Phase node directly under the Symbols node", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <DemodSidebarNodes />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Node Library/i }));
+
+    const symbols = screen.getByText("Symbols (I/Q)");
+    const phase = screen.getByText("Phase");
+
+    expect(phase).toBeInTheDocument();
+    expect(
+      symbols.compareDocumentPosition(phase) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });

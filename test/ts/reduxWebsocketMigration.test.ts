@@ -5657,6 +5657,34 @@ describe("Redux WebSocket Migration", () => {
       // Verify capture status was cleared
       expect((store.getState() as any).websocket.captureStatus).toBeNull();
     });
+
+    it("binds a capture request to the selected source", async () => {
+      const dispatch = jest.fn();
+      const getState = () => ({ websocket: { isConnected: true } }) as any;
+
+      await (sendCaptureCommand({
+        jobId: "source-bound-job",
+        sourceId: "rtl-sdr-0",
+        fragments: [{ minFreq: 100, maxFreq: 102 }],
+        durationMode: "manual" as const,
+        fileType: ".iq",
+        acquisitionMode: "whole_sample",
+        encrypted: false,
+        fftSize: 4096,
+        fftWindow: "hann",
+      }) as any)(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "capture",
+          data: expect.objectContaining({
+            jobId: "source-bound-job",
+            sourceId: "rtl-sdr-0",
+          }),
+        },
+      });
+    });
   });
 
   describe("Live data ref isolation", () => {

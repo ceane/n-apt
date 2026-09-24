@@ -1,7 +1,7 @@
 const PLACEHOLDER = "0".repeat(64);
 const encoder = new TextEncoder();
 
-export const NAPT_FORMAT_VERSION = 5;
+export const NAPT_FORMAT_VERSION = 6;
 export const NAPT_TRAILER_VERSION = 2;
 export const INTEGRITY_SCOPE = "file-with-integrity-digest-placeholder";
 

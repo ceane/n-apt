@@ -749,11 +749,11 @@ export function useDraw2DFFTSignal() {
       ctx.font = "700 12px 'JetBrains Mono', monospace";
       const signalLabel =
         slider.signalLabel === "wifi"
-          ? "Mock WiFi"
+          ? "Naive WiFi"
           : slider.signalLabel === "d_sharp"
             ? "D#"
             : slider.signalLabel === "5g"
-              ? "Mock 5G"
+              ? "Naive 5G"
               : (slider.signalLabel ?? "TX");
       ctx.fillText(signalLabel, centerX, labelY);
 

@@ -6,6 +6,7 @@ import {
   setFftWindow,
   setFrequencyRange,
   setPowerScale,
+  setRemoveDcSpike,
   setSampleRate,
   setTemporalResolution,
 } from "@n-apt/redux";
@@ -17,6 +18,7 @@ import { SignalDisplaySection } from "@n-apt/spectrum/public/SignalDisplaySectio
 import { SourceSettingsSection } from "@n-apt/spectrum/public/SourceSettingsSection";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
+import { DEMODULATION_QUALITY_PROFILE, evaluateCaptureQuality } from "@n-apt/features/capture/quality";
 import { DEMOD_REQUIRED_TEMPORAL_RESOLUTION } from "@n-apt/demodulation/utils/demodQuality";
 import {
   resolveSourceDisplaySampleRate,
@@ -110,6 +112,9 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const { sdrSettings, backend, deviceProfile, sampleRateOptions } =
     wsConnection;
 
+  const sourceStatus = useAppSelector((state) => roleSource ? state.websocket.sourceStatuses[roleSource.id] ?? roleSource.status : null);
+  const sourceMode = "live" as const;
+
   React.useEffect(() => {
     dispatch(setTemporalResolution(DEMOD_REQUIRED_TEMPORAL_RESOLUTION));
   }, [dispatch]);
@@ -162,6 +167,35 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     onSettingsChange:
       data.sourceRole === "tx" ? undefined : wsConnection.sendSettings,
   });
+  const demodFftSizeOptions = settings.fftSizeOptions.filter((size) => size >= DEMODULATION_QUALITY_PROFILE.minimumConfiguredFftSize!);
+  const setDemodFftSize = React.useCallback((size: number) => {
+    if (size < DEMODULATION_QUALITY_PROFILE.minimumConfiguredFftSize!) return;
+    settings.setFftSize(size);
+  }, [settings.setFftSize]);
+  const setDemodFrameRate = React.useCallback((rate: number) => {
+    if (rate < DEMODULATION_QUALITY_PROFILE.minimumConfiguredFrameRateHz!) return;
+    settings.setFftFrameRate(rate);
+  }, [settings.setFftFrameRate]);
+  const demodQuality = React.useMemo(() => evaluateCaptureQuality({
+    profile: DEMODULATION_QUALITY_PROFILE,
+    selectedSourceId: roleSource?.id ?? null,
+    sourceMode,
+    source: roleSource ? {
+      id: roleSource.id,
+      capability: roleSource.capability,
+      isMock: Boolean(roleSource.is_mock || roleSource.capability === "mock"),
+      connected: Boolean(wsConnection.isConnected) && sourceStatus !== "disconnected" && sourceStatus !== "stale" && sourceStatus !== "error",
+      receiving: sourceStatus === "receiving",
+      paused: roleSource.paused || sourceStatus === "paused",
+      maxSampleRateHz: roleSource.capabilities?.max_sample_rate ?? roleSource.sdr.max_sample_rate,
+      minSampleRateHz: roleSource.sdr.settings.min_receive_sample_rate ?? undefined,
+      fftSizes: roleSource.capabilities?.fft?.sizes,
+      maxFrameRateHz: roleSource.capabilities?.fft?.max_frame_rate ?? settings.maxFrameRate,
+    } : null,
+    requested: { sampleRateHz: sourceSampleRate ?? undefined, fftSize: spectrum.fftSize, frameRateHz: settings.fftFrameRate, window: spectrum.fftWindow, temporalResolution: spectrum.displayTemporalResolution },
+    configured: { sampleRateHz: roleSource?.sdr.settings.sample_rate, fftSize: roleSource?.sdr.settings.fft_size, frameRateHz: roleSource?.sdr.settings.frame_rate, window: roleSource?.sdr.settings.fft_window, temporalResolution: spectrum.displayTemporalResolution },
+    frames: [], nowTimestampMs: Date.now(),
+  }), [roleSource, sourceMode, sourceStatus, wsConnection.isConnected, sourceSampleRate, spectrum.fftSize, spectrum.fftWindow, spectrum.displayTemporalResolution, settings.fftFrameRate, settings.maxFrameRate]);
   const applyFrequencyRange = React.useCallback(
     (range: { min: number; max: number }) => {
       dispatch(setFrequencyRange(range));
@@ -209,6 +243,12 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
       </NodeHeader>
       <NodeSubtitle>Hardware sampling and FFT settings</NodeSubtitle>
 
+      <div role="status" data-testid="demod-quality-status" data-quality-fit={demodQuality.fit}>
+        {demodQuality.fit === "ready"
+          ? "Demodulation quality requirements met."
+          : `Demodulation is not ready: ${demodQuality.reasons.join(" ")}`}
+      </div>
+
       <SignalDisplaySection
         variant="default"
         sourceMode="live"
@@ -223,14 +263,14 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         fftFrameRate={settings.fftFrameRate}
         maxFrameRate={settings.maxFrameRate}
         fftSize={spectrum.fftSize}
-        fftSizeOptions={settings.fftSizeOptions}
+        fftSizeOptions={demodFftSizeOptions}
         fftWindow={spectrum.fftWindow || "Rectangular"}
         temporalResolution={spectrum.displayTemporalResolution}
         backend={sourceBackend}
         deviceProfile={deviceProfile}
         powerScale={spectrum.powerScale}
-        onFftFrameRateChange={settings.setFftFrameRate}
-        onFftSizeChange={settings.setFftSize}
+        onFftFrameRateChange={setDemodFrameRate}
+        onFftSizeChange={setDemodFftSize}
         onSampleRateChange={handleSampleRateChange}
         onFftWindowChange={(value) => {
           dispatch(setFftWindow(value));
@@ -241,6 +281,10 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         }}
         onPowerScaleChange={(value) => {
           dispatch(setPowerScale(value));
+        }}
+        removeDcSpike={spectrum.removeDcSpike}
+        onRemoveDcSpikeChange={(enabled) => {
+          dispatch(setRemoveDcSpike(enabled));
         }}
         scheduleCoupledAdjustment={settings.scheduleCoupledAdjustment}
       />

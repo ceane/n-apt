@@ -470,6 +470,7 @@ export const sendCaptureCommand = createAsyncThunk(
           type: "capture",
           data: {
             jobId: req.jobId,
+            sourceId: req.sourceId,
             fragments: req.fragments,
             bandwidth:
               typeof req.bandwidth === "number" &&
@@ -486,8 +487,10 @@ export const sendCaptureCommand = createAsyncThunk(
             fileType: req.fileType,
             acquisitionMode: req.acquisitionMode,
             encrypted: req.encrypted,
+            sampleRateHz: req.sampleRateHz,
             fftSize: req.fftSize,
             fftWindow: req.fftWindow,
+            frameRate: req.frameRate,
             geolocation: req.geolocation,
             liveMode: req.liveMode,
             refBasedDemodBaseline: req.refBasedDemodBaseline,

@@ -1,4 +1,6 @@
 import {
+  advanceIqCaptureByteOffset,
+  advanceIqCaptureSampleOffset,
   encodeIqCaptureV4,
   encodeNaptCaptureV4,
   type CaptureMetadata,
@@ -48,6 +50,7 @@ type CaptureState = {
   options: IqCaptureOptions;
   chunks: IqCaptureChunk[];
   frameUpdates: IqCaptureFrameUpdate[];
+  byteOffset: number;
   sampleOffset: number;
   bytes: number;
   frameCount: number;
@@ -60,7 +63,10 @@ type CaptureState = {
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<CaptureWorkerMessage>) => void) | null;
-  postMessage: (message: CaptureWorkerResponse, transfer?: Transferable[]) => void;
+  postMessage: (
+    message: CaptureWorkerResponse,
+    transfer?: Transferable[],
+  ) => void;
 };
 
 const postError = (error: unknown): void => {
@@ -111,8 +117,7 @@ const makeFinalMetadata = (state: CaptureState): CaptureMetadata => {
   return {
     ...state.metadata,
     duration_s: durationSeconds,
-    frame_rate:
-      durationSeconds > 0 ? state.frameCount / durationSeconds : 0,
+    frame_rate: durationSeconds > 0 ? state.frameCount / durationSeconds : 0,
   };
 };
 
@@ -134,6 +139,7 @@ const completeCapture = async (state: CaptureState): Promise<void> => {
     }
     bytes = await encodeNaptCaptureV4({
       metadata,
+      frameUpdates: state.frameUpdates,
       channels: [
         {
           ...state.channel,
@@ -170,15 +176,21 @@ scope.onmessage = (event: MessageEvent<CaptureWorkerMessage>): void => {
     }
     if (message.type === "start") {
       if (message.capture.format === ".napt" && !(await hasNaptCrypto())) {
-        throw new Error("Encrypted .napt captures are unavailable in this browser.");
+        throw new Error(
+          "Encrypted .napt captures are unavailable in this browser.",
+        );
       }
-      if (message.capture.format === ".napt" && !message.capture.passphrase?.trim()) {
+      if (
+        message.capture.format === ".napt" &&
+        !message.capture.passphrase?.trim()
+      ) {
         throw new Error("A passphrase is required for .napt captures.");
       }
       state = {
         ...message.capture,
         chunks: [],
         frameUpdates: [],
+        byteOffset: 0,
         sampleOffset: 0,
         bytes: 0,
         frameCount: 0,
@@ -204,7 +216,7 @@ scope.onmessage = (event: MessageEvent<CaptureWorkerMessage>): void => {
       const signature = captureSignature(message.options);
       if (state.lastSignature !== signature) {
         state.frameUpdates.push({
-          sample_offset: state.sampleOffset,
+          sample_offset: state.byteOffset,
           timestamp_us: message.timestampUs,
           patch: {
             center_frequency_hz: message.options.centerFrequencyHz,
@@ -222,7 +234,14 @@ scope.onmessage = (event: MessageEvent<CaptureWorkerMessage>): void => {
         channel: 0,
         data: frame,
       });
-      state.sampleOffset += Math.floor(frame.byteLength / 2);
+      state.byteOffset = advanceIqCaptureByteOffset(
+        state.byteOffset,
+        frame,
+      );
+      state.sampleOffset = advanceIqCaptureSampleOffset(
+        state.sampleOffset,
+        frame,
+      );
       state.bytes += frame.byteLength;
       state.frameCount += 1;
       state.firstFrameAtUs ??= message.timestampUs;

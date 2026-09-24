@@ -20,6 +20,7 @@ import {
   AUDIO_WATERFALL_HEIGHT,
   createAudioWaveformFeed,
   createFmWaterfallFrame,
+  createAudioToneReferencePcm,
   createSineWaveformSamples,
   getAudioToneGain,
   type AudioWaveformMode,
@@ -412,6 +413,17 @@ const StimulusLabel = styled.label`
   user-select: none;
 `;
 
+const ReferencePairToggle = styled.label`
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: left;
+`;
+
 const StimulusSubtext = styled.div`
   font-size: 10px;
   line-height: 1.5;
@@ -493,6 +505,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     liveMode,
     setLiveMode,
     startAnalysis,
+    recordAudioSurveyStimulusReference,
     clearAnalysis,
   } = useDemod();
   const [previewMode, setPreviewMode] =
@@ -504,6 +517,12 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [audioWaveformMode, setAudioWaveformMode] =
     useState<AudioWaveformMode>("traditional");
   const [tonePlayback, setTonePlayback] = useState<TonePlayback | null>(null);
+  const [pairToneToRf, setPairToneToRf] = useState(false);
+  const captureJobIdRef = useRef<string | null>(null);
+  const pairToneToRfRef = useRef(pairToneToRf);
+  const recordAudioSurveyReferenceRef = useRef(recordAudioSurveyStimulusReference);
+  pairToneToRfRef.current = pairToneToRf;
+  recordAudioSurveyReferenceRef.current = recordAudioSurveyStimulusReference;
   const fmFrameIndexRef = useRef(0);
   const fmWaveformFeed = useMemo(
     () => createAudioWaveformFeed(createFmWaterfallFrame(0)),
@@ -628,6 +647,16 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       durationS,
     });
 
+    if (previewMode === "audio" && pairToneToRfRef.current) {
+      const startedAtMs = Date.now();
+      void recordAudioSurveyReferenceRef.current({
+        captureId: captureJobIdRef.current ?? `stimulus_${startedAtMs}`,
+        pcmData: createAudioToneReferencePcm(durationS, 48_000),
+        pcmSampleRateHz: 48_000,
+        startedAtMs,
+      });
+    }
+
     return () => {
       try {
         oscillator.stop();
@@ -641,7 +670,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         current?.oscillator === oscillator ? null : current,
       );
     };
-  }, [durationS]);
+  }, [durationS, previewMode]);
 
   const handleTrigger = () => {
     if (durationError) return;
@@ -654,7 +683,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     }
 
     setSelectedBaseline(previewMode);
-    startAnalysis(previewMode, liveMode, durationS);
+    captureJobIdRef.current =
+      startAnalysis(previewMode, liveMode, durationS) ?? null;
   };
 
   // Tone trigger switch
@@ -685,6 +715,15 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               </TraditionalWaveformContainer>
               <ToneLabel>TRADITIONAL AUDIO WAVEFORM</ToneLabel>
               <ToneLabel>440Hz SINE TONE</ToneLabel>
+              <ReferencePairToggle>
+                <input
+                  type="checkbox"
+                  aria-label="Pair stimulus tone with captured RF audio"
+                  checked={pairToneToRf}
+                  onChange={(event) => setPairToneToRf(event.target.checked)}
+                />
+                The captured Channel A/B audio is carrying this stimulus. Save a timestamp-aligned training pair.
+              </ReferencePairToggle>
             </AudioContainer>
           )}
 

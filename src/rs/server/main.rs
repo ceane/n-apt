@@ -318,6 +318,14 @@ impl websocket_server::WebSocketServer {
         get(http_endpoints::capture_download_handler),
       )
       .route(
+        "/api/capture/destinations",
+        get(http_endpoints::capture_destinations_handler),
+      )
+      .route(
+        "/api/capture/save/aspect",
+        post(http_endpoints::save_capture_to_aspect_handler),
+      )
+      .route(
         "/api/cli/snapshot-frame",
         get(http_endpoints::cli_snapshot_frame_handler),
       )

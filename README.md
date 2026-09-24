@@ -2,20 +2,22 @@
 
 [![Hippocratic License HL3-LAW-SUP-SV](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-LAW-SUP-SV&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/law-sup-sv.html)
 
-<img src="public/images/icon.svg" alt="n-apt icon" width="128" height="128">
-
+<p>
+  <img src="public/images/icon.svg" alt="n-apt icon" width="128" height="128">
+  <img src="public/images/human-brain-nerves-drawing.svg" alt="Human brain and nerve drawing" height="128">
+</p>
 
 > [!IMPORTANT]
 > **READ THE [LICENSE](LICENSE.md) and [RESPONSIBLE USE](RESPONSIBLE_USE.md) BEFORE YOU DOWNLOAD OR FORK!**
 >
 > Check out the [ARTICLE](https://ceane.github.io/n-apt/) or my [X / @ceane_of](https://x.com/ceane_of) to read more. 
 
-> *In reality there are no answers but HERE. You can hit up as many LLMs, search engines, file as many FOIAs as possible, but it will not help. This repo, my firsthand experience and efforts helps.*
->
-> As of now, this repo **CANNOT** demodulate (signal->media) N-APT, I have extremely limited resources and it's a work in progress.
-
-
 ## What is N-APT?
+
+> *In reality there are no answers but HERE. You can hit up as many LLMs, search engines, file as many FOIAs as possible, but it absolutely will not help. This repo is the result of my firsthand experience and efforts. It is help.*
+>
+> As of now, this repo **CANNOT** demodulate (signal->media) an N-APT signal, I have extremely limited resources and it's a work in progress.
+>
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
@@ -367,9 +369,44 @@ npm run dev
 
 The web app will be **available at `http://localhost:5173`** with the WebSocket server running on `ws://localhost:8765`.
 
-### Command-Line Captures
+### Command-Line Interface
 
-### Agent surfaces and CLI automation
+The product CLI is `npm run cli`. Run it from the repository root after completing
+the setup and installation steps above. The main surfaces are:
+
+```text
+devices                       List backend SDR and Mock APT sources
+capture snapshot              Render a PNG from live signal frames
+capture iq                    Record an I/Q capture artifact
+signals inspect|spectrum|...  Inspect, validate, summarize, or demodulate a file
+agent capabilities|tools      Inspect the route and tool manifest
+agent markdown                Fetch route-aware Markdown
+agent call                    Execute an authenticated backend tool
+```
+
+#### Print help and version
+
+Running the CLI without a command prints the top-level help. Every help form is
+side-effect-free: it does not start the app, contact a device, authenticate, or
+write a file.
+
+```bash
+npm run cli
+npm run cli -- --help
+npm run cli -- help capture iq
+npm run cli -- capture snapshot --help
+npm run cli -- signals demod --help
+npm run cli -- agent call --help
+npm run cli -- --version
+```
+
+Value options accept both `--option value` and `--option=value`. Boolean options
+take no value. Unknown options, duplicate options, missing values, and invalid
+enum values exit with status 2 before the CLI starts services or touches a file,
+device, or network resource. Autostart diagnostics are written to stderr so a
+`--json` command keeps stdout machine-readable.
+
+#### Agent surfaces and CLI automation
 
 N-APT exposes a route-aware Markdown-for-Agents surface and WebMCP capability
 manifest. Request `text/markdown` from `/agents.md` for the coverage index or
@@ -380,37 +417,48 @@ curl -H 'Accept: text/markdown' http://localhost:5173/agents.md
 curl -H 'Accept: text/markdown' http://localhost:5173/visualizer
 ```
 
-The CLI exposes the same capability inventory and can retrieve Markdown or
-execute authenticated backend tools:
+The CLI can print the manifest, retrieve Markdown, or execute an authenticated
+backend tool:
 
 ```bash
 npm run cli -- agent capabilities --json
-npm run cli -- agent markdown --route /visualizer
+npm run cli -- agent tools --json
+npm run cli -- agent markdown --route /visualizer --json
 npm run cli -- agent call getDeviceStatus --json
 npm run cli -- agent call setGain --params '{"gain":46.9}' --allow-mutations --json
 ```
 
-CLI execution is read-only by default. Mutations require `--allow-mutations`;
-transmission and destructive device/storage actions are blocked. Unsupported,
-authenticated-only, legal, onboarding, educational, and demo routes are
-explicitly marked in the capability manifest rather than advertised as
-automatable.
+Agent tool calls are read-only by default. Mutations require
+`--allow-mutations`; transmission and explicitly blocked device/storage tools
+are rejected. The CLI now exits nonzero when either the HTTP request fails or
+the backend returns `"success": false`. The capability manifest is still an
+inventory rather than a guarantee that every advertised tool has a complete
+backend implementation.
 
 The CLI can discover SDR devices, render signal snapshots, and record I/Q
-captures without opening or operating the frontend UI. Run commands from the
-repository root after completing the setup and installation steps above.
+captures without opening or operating the frontend UI.
 
-If N-APT is not already running, the first CLI command starts the Rust backend
-and frontend server automatically and waits for them to become ready. Snapshot
-rendering uses a headless Playwright canvas, so Chromium must also be installed:
+Start the Rust backend and frontend before running network-backed commands:
+
+```bash
+npm run dev
+```
+
+The CLI never launches or owns a detached development stack. Service readiness
+is command-specific: `devices`, `capture iq`, and `agent call` require only the
+Rust backend; `agent markdown` requires only the frontend; `capture snapshot`
+requires both. If a required service is absent, the command exits and tells you
+to run `npm run dev`. Snapshot rendering uses a headless Playwright canvas, so
+Chromium must also be installed:
 
 ```bash
 npx playwright install chromium
 ```
 
 The CLI authenticates directly with the Rust backend using
-`UNSAFE_LOCAL_USER_PASSWORD` from `.env.local`. You can alternatively provide
-an existing token through `N_APT_SESSION_TOKEN`.
+`UNSAFE_LOCAL_USER_PASSWORD` from `.env.local`. You can alternatively provide an
+existing token through `N_APT_SESSION_TOKEN`. I/Q capture is state-changing and
+requires `--allow-mutations` before readiness checks or device access.
 
 #### Discover and select a device
 
@@ -418,6 +466,19 @@ List the stable device IDs reported by the Rust backend:
 
 ```bash
 npm run cli -- devices
+npm run cli -- devices --json
+```
+
+`devices --json` prints a versioned inventory with the authoritative active
+source ID. Each source preserves the backend status fields and adds an `active`
+boolean:
+
+```json
+{
+  "schemaVersion": 1,
+  "activeSource": "rtl-sdr-serial-123",
+  "sources": [{ "id": "rtl-sdr-serial-123", "active": true }]
+}
 ```
 
 Both capture commands accept `--device auto|<device-id>`. With the default
@@ -428,8 +489,8 @@ interactive list is useful when an RTL-SDR has no serial number:
 
 ```bash
 npm run cli -- capture snapshot --interactive
-npm run cli -- capture iq --device rtl-sdr-serial-123
-npm run cli -- capture iq --device mock-apt
+npm run cli -- capture iq --allow-mutations --device rtl-sdr-serial-123
+npm run cli -- capture iq --allow-mutations --device mock-apt
 ```
 
 An explicitly requested unavailable device fails before capture begins. For an
@@ -460,65 +521,121 @@ Snapshot options:
 | `--grid` | off | Draw the frequency/power grid. |
 | `--stats` | off | Include capture and device statistics. |
 | `--theme dark\|light` | `dark` | Select snapshot colors. |
-| `--fft-size <points>` | `65536` | Use a power-of-two FFT size from 256 through 8,388,608. |
-| `--gain <dB>` | source default | Override the gain shown in snapshot metadata. |
-| `--ppm <value>` | source default | Override the PPM shown in snapshot metadata. |
+| `--fft-size <points>` | `65536` | Use a power-of-two FFT size. The CLI accepts 256 through 8,388,608, but the current snapshot endpoint clamps effective data to 262,144 points. |
+| `--gain <dB>` | source default | Override the gain shown in snapshot metadata; this does not change physical-source settings. |
+| `--ppm <value>` | source default | Override the PPM shown in snapshot metadata; this does not change physical-source settings. |
 | `--output <path>` | `~/Downloads/n-apt_snapshot_<timestamp>.png` | Save the PNG at a specific path. |
 
 The snapshot is composed in a headless `<canvas>` using the CLI snapshot model
 and shared frontend drawing functions; it does not navigate through the app UI
-or require an interactive login.
+or require an interactive login. A spectrum-only snapshot requests one live
+frame. `--waterfall` requests a 64-frame history for the waterfall.
 
 #### Record an I/Q capture
 
-Record the default one-second, encrypted `.napt` capture using Mock APT:
+Record a one-second capture from Mock APT. The center and width define the
+capture target; the backend may retune and plan overlapping hops when the
+requested span requires them.
 
 ```bash
 npm run cli -- capture iq \
+  --allow-mutations \
   --device mock-apt \
+  --center-frequency 137500000 \
+  --sample-rate 3200000 \
   --duration 1 \
-  --output ./mock_apt_1s.napt
+  --acquisition-mode whole_sample \
+  --file-type .iq \
+  --output ./mock_apt_1s.iq
 ```
 
-Record from a physical SDR around an explicit center frequency (values are in
-hertz):
+Record a physical SDR capture targeting 1,618,000 Hz. The backend plans and
+applies the retune before acknowledging the effective capture settings:
 
 ```bash
 npm run cli -- capture iq \
+  --allow-mutations \
   --device rtl-sdr-serial-123 \
   --center-frequency 1618000 \
   --sample-rate 3200000 \
   --duration 1 \
   --fft-size 65536 \
-  --output ./channel_a_capture.napt
+  --acquisition-mode whole_sample \
+  --file-type .iq \
+  --output ./channel_a_capture.iq
 ```
 
 I/Q capture options:
 
 | Option | Default | Description |
 | --- | --- | --- |
+| `--allow-mutations` | required | Acknowledge that capture changes source/device state; the CLI rejects the command before startup when omitted. |
 | `--device auto\|<device-id>` | `auto` | Select a physical SDR or Mock APT source. |
 | `--interactive` | off | Show a numbered device list when `auto` finds multiple physical SDRs. |
-| `--center-frequency <Hz>` | `0` | Set the center of the captured sample-rate span. |
-| `--sample-rate <Hz>` | device default | Set the requested frequency-span width; Rust resolves the hardware rate. |
+| `--center-frequency <Hz>` | selected source's current center | Set the target center for this capture. The backend may retune to it and plan additional hops; the running CLI invocation does not accept new arguments. |
+| `--sample-rate <Hz>` | selected source sample rate | Resolve a concrete sample rate, apply it before recording, and require the backend to acknowledge the effective value. |
 | `--duration-mode timed\|manual` | `timed` | Select timed or manual acquisition. The CLI has no stop command yet, so another connected client must stop manual mode. |
 | `--duration <seconds>` | `1` | Set the timed capture duration. |
 | `--acquisition-mode stepwise\|interleaved\|whole_sample` | `stepwise` | Select the backend acquisition mode. |
-| `--fft-size <points>` | `65536` | Use a power-of-two FFT size from 256 through 8,388,608. |
-| `--file-type .napt\|.wav` | `.napt` | Select the output container. |
+| `--quality-profile <name>` | `iq-capture-cli` | Resolve concrete capture options for `iq-capture-cli`, `demodulation`, or `classifier-training`; reject options the selected source cannot attain. |
+| `--fft-size <points>` | `65536` | Resolve and apply a supported power-of-two FFT size before recording. |
+| `--fft-window <name>` | source setting | Apply and acknowledge the FFT window. Supported values are `rectangular`, `hanning`/`hann`, `hamming`, `blackman`, and `nuttall`. |
+| `--frame-rate <fps>` | attainable maximum | Apply and acknowledge a frame rate that does not exceed `floor(sample-rate / FFT-size)` or the source maximum. |
+| `--file-type .napt\|.wav\|.iq` | `.napt` | Select the output container. |
 | `--encrypted` | always on for `.napt` | Encrypt WAV output when requested; `.napt` files cannot be unencrypted. |
-| `--gain <dB>` | source default | Include a manual tuner-gain value in the capture request. |
-| `--ppm <value>` | source default | Include frequency correction in the capture request. |
+| `--gain <dB>` | source default | Include a requested tuner gain. The current capture worker records the active source value rather than applying this override. |
+| `--ppm <value>` | source default | Include a requested frequency correction. The current capture worker records the active source value rather than applying this override. |
 | `--output <path>` | `~/Downloads/<backend filename>` | Save the downloaded capture at a specific path. |
+
+The Rust backend and WebUSB now emit V6 `.iq`/`.napt` artifacts with trailer
+version 2. Both backend formats retain frame-update patch history. The CLI
+verifies the completed-job size and SHA-256, the embedded integrity digest, V6
+metadata, and an initial byte-zero patch before writing the download. V6 still
+does not prove that retunes were physically continuous or that concurrent
+clients cannot mutate the source.
+
+The CLI validates the complete fragment span before device access and rejects
+centers or widths outside the backend's 0–30 GHz range. The backend then applies
+the resolved sample rate, FFT size, FFT window, and frame rate, verifies its
+actual processor state, and emits a job-correlated `started` acknowledgement.
+The CLI rejects a missing or mismatched acknowledgement instead of treating the
+profile result as capture metadata.
+
+#### Inspect and demodulate local signals
+
+The `signals` operations run locally and do not start N-APT:
+
+```bash
+npm run cli -- signals inspect --input=./capture.iq --json
+npm run cli -- signals spectrum ./capture.iq --json
+npm run cli -- signals validate ./capture.napt --json
+npm run cli -- signals demod ./raw.iq \
+  --output ./demodulated.iq \
+  --algorithm fm \
+  --sample-rate 2400000
+npm run cli -- signals capture --help
+```
+
+`signals inspect` currently recognizes raw I/Q and `NAPT-IQ3` containers. The
+padded encrypted `.napt` container written by the current capture backend is not
+decoded by this command yet. `signals spectrum` is currently a byte-pair
+magnitude summary rather than an FFT spectrum. `signals demod` reads raw I/Q and
+writes a float I/Q artifact; it does not yet export playable WAV audio or a
+decoded APT image. Run each operation with `--help` for its complete options.
 
 The default 65,536-point FFT applies to both snapshot and I/Q commands. At
 8-bit interleaved I/Q, each complete FFT frame contains 65,536 complex samples
 and occupies 131,072 bytes (128 KiB) before `.napt` container overhead.
 
-**Hardware Requirement:** the app only works with an **RTL-SDR v4 or .napt captures. The rust backend auto detects an RTL-SDR device plugged in, otherwise the Mock APT stream runs.**
+**Hardware requirement:** physical capture requires an RTL-SDR v4. When no
+supported physical SDR is connected, the Rust backend uses its Mock APT stream.
+Encrypted `.napt` output also requires the encryption values configured during
+setup.
 
 > [!TIP]
-> If you do not have an RTL-SDR v4, the backend will just stream a Mock APT stream. You can simply use the app (be sure to set the `.env.local` `UNSAFE_LOCAL_USER_PASSWORD` to a password for the .napt files).
+> If you do not have an RTL-SDR v4, the backend streams Mock APT. Set a non-empty
+> `UNSAFE_LOCAL_USER_PASSWORD` in `.env.local` before using authenticated capture
+> and `.napt` workflows.
 
 > [!WARNING]
 > I use my RTL-SDR through a flaky USB hub, and it disconnects or errors out more often than I’d like, so I added support for restarting the device if it goes stale or throws an error, however that does not fix bad USB connections. 

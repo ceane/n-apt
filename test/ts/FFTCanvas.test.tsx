@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
 import type { FFTCanvasHandle } from "@n-apt/spectrum/FFTCanvas";
@@ -22,6 +22,7 @@ import {
   shouldRepaintCachedSpectrumForViewportChange,
   createVizPanScheduler,
   resolveMirrorPanPropSync,
+  createGestureRangeEchoTracker,
   invertSpectrumVertically,
   formatTxIfftSizeLabel,
 } from "@n-apt/spectrum/FFTCanvas";
@@ -61,6 +62,7 @@ it("does not rewind a pending mirror gesture from a stale Redux pan", () => {
       pendingPublish: true,
       incomingPan: 0,
       lastPublishedPan: -120_000,
+      livePan: -120_000,
     }),
   ).toEqual({ applyIncomingPan: false, clearPendingPublish: false });
 
@@ -69,8 +71,52 @@ it("does not rewind a pending mirror gesture from a stale Redux pan", () => {
       pendingPublish: true,
       incomingPan: -120_000,
       lastPublishedPan: -120_000,
+      livePan: -120_000,
     }),
   ).toEqual({ applyIncomingPan: true, clearPendingPublish: true });
+});
+
+it("does not rewind past a flush echo once the gesture advanced further", () => {
+  // The scheduler publishes at cadence while ticks keep advancing the ref.
+  // When the flush echo lands, the live ref has moved past it: acknowledging
+  // the echo must not rewind the viewport to the flushed (stale) value on
+  // every cycle — that is the scroll jump-back.
+  expect(
+    resolveMirrorPanPropSync({
+      pendingPublish: true,
+      incomingPan: -120_000,
+      lastPublishedPan: -120_000,
+      livePan: -100_000,
+    }),
+  ).toEqual({ applyIncomingPan: false, clearPendingPublish: false });
+});
+
+it("lets an external tune win when no gesture is in flight", () => {
+  expect(
+    resolveMirrorPanPropSync({
+      pendingPublish: false,
+      incomingPan: 50_000,
+      lastPublishedPan: -120_000,
+      livePan: -120_000,
+    }),
+  ).toEqual({ applyIncomingPan: true, clearPendingPublish: false });
+});
+
+it("tells lagging gesture echoes apart from external range tunes", () => {
+  const tracker = createGestureRangeEchoTracker();
+  const w1 = { min: 0, max: 3_200_000 };
+  const w2 = { min: 400_000, max: 3_600_000 };
+  tracker.record(w1);
+  tracker.record(w2);
+
+  // The older echo is stale (gesture already at w2): skip it...
+  expect(tracker.consume(w1)).toBe(true);
+  // ...but only once: a repeat is not outstanding anymore.
+  expect(tracker.consume(w1)).toBe(false);
+  // A range nobody published is external.
+  expect(tracker.consume({ min: 1_000_000, max: 4_200_000 })).toBe(false);
+  // The converged echo still matches.
+  expect(tracker.consume(w2)).toBe(true);
 });
 
 test("inverts spectrum power values without reversing frequency order", () => {
@@ -391,6 +437,20 @@ describe("FFTCanvas Component", () => {
         bandwidthAlignment: "centered",
       }),
     ).toBeNull();
+  });
+
+  it("shows native classifier diagnostics independently of the spike overlay", () => {
+    const classifierSlot = document.createElement("div");
+    classifierSlot.id = "native-classifier-sidebar-slot";
+    document.body.append(classifierSlot);
+    const { unmount } = render(
+      <TestWrapper><MemoryRouter><SpectrumProvider>
+        <FFTCanvas {...defaultProps} {...{ showNativeClassifier: true }} showSpikeOverlay={false} />
+      </SpectrumProvider></MemoryRouter></TestWrapper>,
+    );
+    expect(within(classifierSlot).getByRole('region', { name: 'Experimental native resolution classifier' })).toBeInTheDocument();
+    unmount();
+    classifierSlot.remove();
   });
 
   it("keeps the FFT node selection status in a separate bottom row", async () => {
@@ -1135,7 +1195,7 @@ describe("FFTCanvas Component", () => {
                   visibleMaxHz: 138_300_000,
                   txCenterHz: 137_100_000,
                   txSampleRateHz,
-                  signalLabel: "Mock WiFi",
+                  signalLabel: "Naive WiFi",
                   powerDbm: -18,
                 }}
               />

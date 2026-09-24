@@ -15,6 +15,7 @@ pub use crate::server::types::{
 /// Parameters for a capture-start command, kept separate from websocket transport.
 pub struct CaptureStartRequest {
   pub job_id: String,
+  pub source_id: Option<String>,
   pub fragments: Vec<(f64, f64)>,
   pub bandwidth: Option<u64>,
   pub bandwidth_center_frequency: Option<u64>,
@@ -23,8 +24,10 @@ pub struct CaptureStartRequest {
   pub file_type: String,
   pub acquisition_mode: String,
   pub encrypted: bool,
+  pub sample_rate: Option<u32>,
   pub fft_size: usize,
   pub fft_window: String,
+  pub frame_rate: Option<u32>,
   pub geolocation: Option<crate::server::types::GeolocationData>,
   pub ref_based_demod_baseline: Option<String>,
   pub is_ephemeral: bool,
@@ -41,11 +44,50 @@ pub struct CaptureWorker {
   broadcast_tx: broadcast::Sender<String>,
 }
 
+fn canonical_fft_window(name: &str) -> Option<&'static str> {
+  match name.to_lowercase().as_str() {
+    "rectangular" | "none" => Some("rectangular"),
+    "hanning" | "hann" => Some("hanning"),
+    "hamming" => Some("hamming"),
+    "blackman" => Some("blackman"),
+    "nuttall" => Some("nuttall"),
+    _ => None,
+  }
+}
+
+fn reject_capture_start(
+  shared_state: &SharedState,
+  broadcast_tx: &broadcast::Sender<String>,
+  job_id: &str,
+  source_id: Option<&str>,
+  code: &str,
+  error_message: &str,
+) {
+  shared_state.clear_capture_owner_if(job_id);
+  let mut status = serde_json::json!({
+    "jobId": job_id,
+    "status": "failed",
+    "settingsApplied": false,
+    "code": code,
+    "message": "Capture preflight failed",
+    "error": error_message
+  });
+  if let Some(source_id) = source_id {
+    status["sourceId"] = serde_json::Value::String(source_id.to_string());
+  }
+  let message = serde_json::json!({
+    "type": "capture_status",
+    "status": status
+  });
+  let _ = broadcast_tx.send(message.to_string());
+}
+
 impl CaptureWorker {
   /// Configure and start a capture, including hop planning and first-hop tune.
   pub async fn start(&self, request: CaptureStartRequest) {
     let CaptureStartRequest {
       job_id,
+      source_id,
       fragments,
       bandwidth,
       bandwidth_center_frequency,
@@ -54,8 +96,10 @@ impl CaptureWorker {
       file_type,
       acquisition_mode,
       encrypted,
+      sample_rate,
       fft_size,
       fft_window,
+      frame_rate,
       geolocation,
       ref_based_demod_baseline,
       is_ephemeral,
@@ -81,27 +125,146 @@ impl CaptureWorker {
         "[CAPTURE] Rejected StartCapture job {}: device already running capture {}",
         job_id, active_job
       );
-      // The websocket layer registered ownership for this never-started job
-      // before dispatching; drop that record so the slot does not claim the
-      // active capture belongs to the rejected requester.
-      shared_state.clear_capture_owner_if(&job_id);
-      let rejected = serde_json::json!({
-        "type": "capture_status",
-        "status": {
-          "jobId": job_id,
-          "status": "error",
-          "message": format!(
-            "A capture ({active_job}) is already running on this device; stop it before starting another"
-          ),
-          "activeJobId": active_job,
-        }
-      });
-      let _ = broadcast_tx.send(rejected.to_string());
+      reject_capture_start(
+        &shared_state,
+        &broadcast_tx,
+        &job_id,
+        source_id.as_deref(),
+        "capture_already_active",
+        &format!(
+          "A capture ({active_job}) is already running on this device; stop it before starting another"
+        ),
+      );
       return;
     }
 
     // Bind the channels payload to the processor for Patch B trimming
+    let resolved_active_source_id = active_source_id(&shared_state);
+    if let Some(expected_source_id) = source_id.as_deref() {
+      if resolved_active_source_id != expected_source_id {
+        reject_capture_start(
+          &shared_state,
+          &broadcast_tx,
+          &job_id,
+          source_id.as_deref(),
+          "capture_source_changed",
+          &format!(
+            "Capture source {expected_source_id} is not active; active source is {resolved_active_source_id}"
+          ),
+        );
+        return;
+      }
+    }
+    processor.capture_source_id = Some(resolved_active_source_id.clone());
+
+    let requested_sample_rate =
+      sample_rate.unwrap_or_else(|| processor.get_sample_rate());
+    let Some(requested_window) = canonical_fft_window(&fft_window) else {
+      reject_capture_start(
+        &shared_state,
+        &broadcast_tx,
+        &job_id,
+        source_id.as_deref(),
+        "capture_settings_invalid",
+        &format!("Unsupported FFT window: {fft_window}"),
+      );
+      return;
+    };
+    if requested_sample_rate == 0
+      || requested_sample_rate > 100_000_000
+      || fft_size < 256
+      || fft_size > 8_388_608
+      || fft_size & (fft_size - 1) != 0
+      || frame_rate.is_some_and(|value| !(1..=100).contains(&value))
+    {
+      reject_capture_start(
+        &shared_state,
+        &broadcast_tx,
+        &job_id,
+        source_id.as_deref(),
+        "capture_settings_invalid",
+        "Capture sample rate, FFT size, window, or frame rate is invalid",
+      );
+      return;
+    }
+
+    let capture_settings = crate::server::types::SdrProcessorSettings {
+      sample_rate: Some(requested_sample_rate),
+      fft_size: Some(fft_size),
+      fft_window: Some(requested_window.to_string()),
+      frame_rate,
+      ..Default::default()
+    };
+    if let Err(error) = processor.apply_settings(capture_settings) {
+      reject_capture_start(
+        &shared_state,
+        &broadcast_tx,
+        &job_id,
+        source_id.as_deref(),
+        "capture_settings_apply_failed",
+        &format!("Failed to apply capture preflight settings: {error}"),
+      );
+      return;
+    }
+
+    let effective_sample_rate = processor.get_sample_rate();
+    let effective_fft_size = processor.fft_processor.config().fft_size;
+    let effective_window_name =
+      processor.fft_processor.config().window_type.to_string();
+    let effective_window =
+      canonical_fft_window(&effective_window_name).unwrap_or_default();
+    let effective_frame_rate = processor.display_frame_rate;
+    let mut mismatches = Vec::new();
+    if effective_sample_rate != requested_sample_rate {
+      mismatches.push(format!(
+        "requested sample rate {requested_sample_rate}, effective {effective_sample_rate}"
+      ));
+    }
+    if effective_fft_size != fft_size {
+      mismatches.push(format!(
+        "requested FFT size {fft_size}, effective {effective_fft_size}"
+      ));
+    }
+    if effective_window != requested_window {
+      mismatches.push(format!(
+        "requested FFT window {requested_window}, effective {effective_window}"
+      ));
+    }
+    if frame_rate.is_some_and(|value| value != effective_frame_rate) {
+      mismatches.push(format!(
+        "requested frame rate {}, effective {effective_frame_rate}",
+        frame_rate.unwrap_or_default()
+      ));
+    }
+    if !mismatches.is_empty() {
+      reject_capture_start(
+        &shared_state,
+        &broadcast_tx,
+        &job_id,
+        source_id.as_deref(),
+        "capture_settings_not_effective",
+        &mismatches.join("; "),
+      );
+      return;
+    }
+    processor.flush_read_queue();
+    processor.frame.avg_spectrum = None;
+    let requested_frame_rate = frame_rate.unwrap_or(effective_frame_rate);
+    let requested_settings = serde_json::json!({
+      "sampleRateHz": requested_sample_rate,
+      "fftSize": fft_size,
+      "fftWindow": requested_window,
+      "frameRateHz": requested_frame_rate
+    });
+    let effective_settings = serde_json::json!({
+      "sampleRateHz": effective_sample_rate,
+      "fftSize": effective_fft_size,
+      "fftWindow": effective_window,
+      "frameRateHz": effective_frame_rate
+    });
+
     processor.capture_requested_channels = channels;
+    processor.capture_last_frame_signature = None;
     // fft_size is used by the SDR processor for FFT configuration
     info!("[CAPTURE] FFT size: {}", fft_size);
     // Save current center frequency so we can restore it after capture
@@ -129,50 +292,17 @@ impl CaptureWorker {
     );
 
     processor.capture_current_fragment = 0;
-    processor.capture_last_hop = Some(std::time::Instant::now());
     processor.capture_encrypted = encrypted;
-    processor.capture_start = Some(std::time::Instant::now());
     processor.capture_actual_frames = 0;
-    // Apply and snapshot the FFT parameters requested for this capture.
-    // This ensures the capture runs at the user-selected FFT size and window
-    // even if the live stream was using different settings.
-    let mut capture_settings =
-      crate::server::types::SdrProcessorSettings::default();
-    let mut settings_valid = false;
-
-    if fft_size > 0 && (fft_size & (fft_size - 1)) == 0 {
-      capture_settings.fft_size = Some(fft_size);
-      settings_valid = true;
-    }
-    if !fft_window.is_empty() {
-      capture_settings.fft_window = Some(fft_window.clone());
-      settings_valid = true;
-    }
-
-    if settings_valid {
-      if let Err(e) = processor.apply_settings(capture_settings) {
-        log::warn!(
-                  "[CAPTURE] Failed to apply requested FFT settings (size={}, window={}): {}",
-                  fft_size,
-                  fft_window,
-                  e
-                );
-      } else {
-        processor.flush_read_queue();
-        processor.frame.avg_spectrum = None;
-      }
-    }
-    processor.capture_fft_size = processor.fft_processor.config().fft_size;
-    processor.capture_fft_window =
-      processor.fft_processor.config().window_type.to_string();
+    processor.capture_fft_size = effective_fft_size;
+    processor.capture_fft_window = effective_window_name;
     processor.capture_gain = processor.current_gain_db;
     processor.capture_ppm = processor.current_ppm;
     processor.capture_geolocation = geolocation;
-    // AGC state is not tracked in config, default false for now
     processor.capture_tuner_agc = false;
     processor.capture_rtl_agc = false;
 
-    let hw_sample_rate = processor.get_sample_rate() as f64;
+    let hw_sample_rate = effective_sample_rate as f64;
     let hw_bw_hz = hw_sample_rate as f64;
 
     // Use only the center portion of the hardware bandwidth to avoid
@@ -266,8 +396,6 @@ impl CaptureWorker {
 
     processor.capture_fragments = all_hops.clone();
     processor.capture_channels = capture_channels;
-
-    processor.capture_active = true;
     processor.capture_overall_center_hz = overall_center_hz;
     processor.capture_overall_span_hz = overall_span_hz;
     processor.capture_requested_range = Some((overall_min, overall_max));
@@ -275,31 +403,53 @@ impl CaptureWorker {
     // Tune to the first hop if available
     if let Some(&(min_freq, max_freq)) = all_hops.first() {
       let center_freq = (min_freq + (hw_sample_rate / 2.0)) as u32;
-      if let Err(e) = processor.set_center_frequency(center_freq) {
-        error!("Failed to tune to first fragment: {}", e);
-      } else {
-        info!("Tuned to initial capture fragment: {} Hz - {} Hz (center {} Hz, bandwidth {} Hz)", min_freq, max_freq, center_freq, hw_bw_hz);
+      if let Err(error) = processor.set_center_frequency(center_freq) {
+        processor.capture_job_id = None;
+        reject_capture_start(
+          &shared_state,
+          &broadcast_tx,
+          &job_id,
+          source_id.as_deref(),
+          "capture_first_tune_failed",
+          &format!("Failed to tune to first capture fragment: {error}"),
+        );
+        return;
       }
+      info!("Tuned to initial capture fragment: {} Hz - {} Hz (center {} Hz, bandwidth {} Hz)", min_freq, max_freq, center_freq, hw_bw_hz);
     }
 
     // Auto-unpause for capture on the current active source.
     let active_source_id = active_source_id(&shared_state);
     shared_state.set_active_source_pause_state(&active_source_id, false);
 
+    let mut status = serde_json::json!({
+      "jobId": job_id,
+      "status": "started",
+      "settingsApplied": true,
+      "message": "Capture settings applied; recording",
+      "requestedSettings": requested_settings,
+      "effectiveSettings": effective_settings
+    });
+    status["sourceId"] = serde_json::Value::String(resolved_active_source_id);
+    let message = serde_json::json!({
+      "type": "capture_status",
+      "status": status
+    });
+    if broadcast_tx.send(message.to_string()).is_err() {
+      processor.capture_job_id = None;
+      shared_state.clear_capture_owner_if(&job_id);
+      return;
+    }
+    let capture_started_at = std::time::Instant::now();
+    processor.capture_start = Some(capture_started_at);
+    processor.capture_last_hop = Some(capture_started_at);
+    processor.capture_active = true;
+    processor.reset_capture_options_baseline();
+
     info!(
-      "Started capture job {} for {}s (auto-unpaused)",
+      "Started capture job {} for {}s with acknowledged settings",
       job_id, duration_s
     );
-
-    let msg = serde_json::json!({
-        "type": "capture_status",
-        "status": {
-            "jobId": job_id,
-            "status": "started",
-            "message": "Capturing..."
-        }
-    });
-    let _ = broadcast_tx.send(msg.to_string());
   }
 
   pub fn new(
@@ -365,6 +515,19 @@ impl CaptureWorker {
         &self.shared_state,
         &self.broadcast_tx,
         None,
+      );
+    }
+  }
+
+  /// End the active capture before ownership moves to another RF source.
+  pub async fn stop_for_source_switch(&self) {
+    let mut processor = self.processor.lock().await;
+    if let Some(result) = processor.stop_capture() {
+      Self::handle_stopped(
+        result,
+        &self.shared_state,
+        &self.broadcast_tx,
+        Some("Capture stopped because the active source changed"),
       );
     }
   }
@@ -585,4 +748,163 @@ fn broadcast_capture_failure(
     }
   });
   let _ = broadcast_tx.send(msg.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use tokio::time::{timeout, Duration};
+
+  fn test_request(fft_window: &str) -> CaptureStartRequest {
+    CaptureStartRequest {
+      job_id: "cli_test_capture".to_string(),
+      source_id: Some("mock-apt".to_string()),
+      fragments: vec![(135_000_000.0, 140_000_000.0)],
+      bandwidth: None,
+      bandwidth_center_frequency: None,
+      duration_mode: "timed".to_string(),
+      duration_s: 1.0,
+      file_type: ".iq".to_string(),
+      acquisition_mode: "whole_sample".to_string(),
+      encrypted: false,
+      sample_rate: Some(3_200_000),
+      fft_size: 65_536,
+      fft_window: fft_window.to_string(),
+      frame_rate: Some(48),
+      geolocation: None,
+      ref_based_demod_baseline: None,
+      is_ephemeral: false,
+      channels: None,
+    }
+  }
+
+  fn test_shared_state() -> Arc<SharedState> {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    SharedState::new("redis://127.0.0.1:6379")
+  }
+
+  async fn next_capture_status(
+    receiver: &mut broadcast::Receiver<String>,
+  ) -> serde_json::Value {
+    let raw = timeout(Duration::from_secs(2), receiver.recv())
+      .await
+      .expect("capture status timeout")
+      .expect("capture status broadcast");
+    serde_json::from_str(&raw).expect("capture status JSON")
+  }
+
+  #[tokio::test]
+  async fn started_status_acknowledges_effective_capture_settings() {
+    let processor = Arc::new(Mutex::new(
+      SdrProcessor::new_mock_apt().expect("mock processor"),
+    ));
+    let shared_state = test_shared_state();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let mut receiver = broadcast_tx.subscribe();
+    let worker =
+      CaptureWorker::new(processor.clone(), shared_state, broadcast_tx);
+
+    worker.start(test_request("hanning")).await;
+    let message = next_capture_status(&mut receiver).await;
+    let status = &message["status"];
+
+    assert_eq!(status["status"], "started");
+    assert_eq!(status["settingsApplied"], true);
+    assert!(
+      status["effectiveSettings"]["sampleRateHz"]
+        .as_u64()
+        .unwrap()
+        > 0
+    );
+    assert_eq!(status["effectiveSettings"]["fftSize"], 65_536);
+    assert_eq!(status["effectiveSettings"]["frameRateHz"], 48);
+    assert_eq!(status["sourceId"], "mock-apt");
+    assert_eq!(processor.lock().await.capture_source_id.as_deref(), Some("mock-apt"));
+  }
+
+  #[tokio::test]
+  async fn source_switch_stops_and_reports_the_bound_capture() {
+    let processor = Arc::new(Mutex::new(
+      SdrProcessor::new_mock_apt().expect("mock processor"),
+    ));
+    let shared_state = test_shared_state();
+    let (broadcast_tx, _) = broadcast::channel(16);
+    let mut receiver = broadcast_tx.subscribe();
+    let worker = CaptureWorker::new(processor.clone(), shared_state, broadcast_tx);
+
+    worker.start(test_request("hanning")).await;
+    let _started = next_capture_status(&mut receiver).await;
+    worker.stop_for_source_switch().await;
+
+    assert!(!processor.lock().await.capture_active);
+    let mut saw_interruption = false;
+    while let Ok(Ok(raw)) = timeout(Duration::from_millis(25), receiver.recv()).await {
+      if raw.contains("active source changed") {
+        saw_interruption = true;
+        break;
+      }
+    }
+    assert!(saw_interruption, "source switch should report the capture interruption");
+  }
+
+  #[tokio::test]
+  async fn invalid_capture_settings_fail_before_activation() {
+    let processor = Arc::new(Mutex::new(
+      SdrProcessor::new_mock_apt().expect("mock processor"),
+    ));
+    let shared_state = test_shared_state();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let mut receiver = broadcast_tx.subscribe();
+    let worker =
+      CaptureWorker::new(processor.clone(), shared_state, broadcast_tx);
+
+    worker.start(test_request("triangle")).await;
+    let message = next_capture_status(&mut receiver).await;
+
+    assert_eq!(message["status"]["status"], "failed");
+    assert_eq!(message["status"]["code"], "capture_settings_invalid");
+    assert!(!processor.lock().await.capture_active);
+  }
+
+  #[tokio::test]
+  async fn source_mismatch_fails_before_settings_are_applied() {
+    let processor = Arc::new(Mutex::new(
+      SdrProcessor::new_mock_apt().expect("mock processor"),
+    ));
+    let shared_state = test_shared_state();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let mut receiver = broadcast_tx.subscribe();
+    let worker =
+      CaptureWorker::new(processor.clone(), shared_state, broadcast_tx);
+    let mut request = test_request("hanning");
+    request.source_id = Some("different-source".to_string());
+
+    worker.start(request).await;
+    let message = next_capture_status(&mut receiver).await;
+
+    assert_eq!(message["status"]["status"], "failed");
+    assert_eq!(message["status"]["code"], "capture_source_changed");
+    assert!(!processor.lock().await.capture_active);
+  }
+
+  #[tokio::test]
+  async fn silently_clamped_settings_fail_before_activation() {
+    let processor = Arc::new(Mutex::new(
+      SdrProcessor::new_mock_apt().expect("mock processor"),
+    ));
+    let shared_state = test_shared_state();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let mut receiver = broadcast_tx.subscribe();
+    let worker =
+      CaptureWorker::new(processor.clone(), shared_state, broadcast_tx);
+    let mut request = test_request("hanning");
+    request.sample_rate = Some(20_000_001);
+
+    worker.start(request).await;
+    let message = next_capture_status(&mut receiver).await;
+
+    assert_eq!(message["status"]["status"], "failed");
+    assert_eq!(message["status"]["code"], "capture_settings_not_effective");
+    assert!(!processor.lock().await.capture_active);
+  }
 }

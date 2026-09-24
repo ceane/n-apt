@@ -305,4 +305,105 @@ describe("FrequencyInput", () => {
       expect(screen.getByDisplayValue("1.4")).toBeInTheDocument();
     });
   });
+
+  it("switches denomination live when typing a unit letter, keeping the digits", async () => {
+    const onChange = jest.fn();
+    render(
+      <ControlledFrequencyInput valueHz={1000000} onChangeHz={onChange} />,
+    );
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    const unitButton = screen.getByRole("button", { name: "Frequency unit" });
+
+    expect(unitButton).toHaveTextContent("MHz");
+
+    fireEvent.change(input, { target: { value: "360k" } });
+    expect(onChange).toHaveBeenLastCalledWith(360_000);
+
+    // Digits are preserved through the denomination change and the button
+    // follows the typed suffix (the echoed value matches, so nothing is
+    // reformatted).
+    await waitFor(() => {
+      expect(unitButton).toHaveTextContent("kHz");
+    });
+    expect(input.value).toBe("360k");
+  });
+
+  it("rejects letters that cannot spell a denomination", () => {
+    const onChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyInput valueHz={1000000} onChangeHz={onChange} />
+      </TestWrapper>,
+    );
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    fireEvent.focus(input);
+    input.setSelectionRange(1, 1);
+
+    // "x" can never start a denomination: the keystroke is prevented and a
+    // forced change is reverted without emitting.
+    expect(fireEvent.keyDown(input, { key: "x" })).toBe(false);
+    fireEvent.change(input, { target: { value: "1x" } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("1");
+
+    // ...while a valid first letter is allowed.
+    expect(fireEvent.keyDown(input, { key: "k" })).not.toBe(false);
+  });
+
+  it("enforces denomination spelling in sequence", () => {
+    const onChange = jest.fn();
+    render(
+      <TestWrapper>
+        <FrequencyInput valueHz={1000000} onChangeHz={onChange} />
+      </TestWrapper>,
+    );
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    const unitButton = screen.getByRole("button", { name: "Frequency unit" });
+    fireEvent.focus(input);
+
+    input.setSelectionRange(1, 1);
+    fireEvent.change(input, { target: { value: "360k" } });
+    expect(onChange).toHaveBeenLastCalledWith(360_000);
+    expect(unitButton).toHaveTextContent("kHz");
+    expect(input.value).toBe("360k");
+
+    // "h" continues kHz; "x" cannot continue anything.
+    input.setSelectionRange(4, 4);
+    expect(fireEvent.keyDown(input, { key: "h" })).not.toBe(false);
+    expect(fireEvent.keyDown(input, { key: "x" })).toBe(false);
+
+    fireEvent.change(input, { target: { value: "360kh" } });
+    expect(onChange).toHaveBeenLastCalledWith(360_000);
+    expect(unitButton).toHaveTextContent("kHz");
+    expect(input.value).toBe("360kh");
+
+    fireEvent.change(input, { target: { value: "360khx" } });
+    expect(input.value).toBe("360kh");
+  });
+
+  it("commits a half-typed denomination on blur instead of resetting", async () => {
+    const onChange = jest.fn();
+    render(
+      <ControlledFrequencyInput
+        valueHz={1000000}
+        onChangeHz={onChange}
+        commitOnBlur
+      />,
+    );
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    const unitButton = screen.getByRole("button", { name: "Frequency unit" });
+    fireEvent.focus(input);
+
+    // "kh" is unambiguously kHz: the denomination follows live...
+    fireEvent.change(input, { target: { value: "360kh" } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(unitButton).toHaveTextContent("kHz");
+
+    // ...and blur commits it instead of wiping the draft.
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledWith(360_000);
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("360")).toBeInTheDocument();
+    });
+  });
 });
