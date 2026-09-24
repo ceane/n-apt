@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { IQCaptureControlsSection } from "@n-apt/capture/sidebar/IQCaptureControlsSection";
 import { TestWrapper } from "./testUtils";
@@ -53,6 +53,16 @@ const defaultProps = {
 };
 
 describe("IQCaptureControlsSection", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    delete (window as Window & { showDirectoryPicker?: unknown })
+      .showDirectoryPicker;
+  });
+
   it("should render correctly when open", () => {
     render(
       <TestWrapper>
@@ -66,6 +76,32 @@ describe("IQCaptureControlsSection", () => {
     expect(screen.getByText("Area A")).toBeInTheDocument();
     expect(screen.getByDisplayValue("5")).toBeInTheDocument();
     expect(screen.getByText("Capture")).toBeInTheDocument();
+  });
+
+  it("persists and restores the capture section open state for this tab session", () => {
+    const { unmount } = render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    const sectionToggle = screen.getByRole("button", {
+      name: /Take an I\/Q Capture/,
+    });
+    expect(sectionToggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(sectionToggle);
+    expect(sectionToggle).toHaveAttribute("aria-expanded", "true");
+    expect(window.sessionStorage.getItem("napt.sidebar.iq-capture.open.v1")).toBe("open");
+    unmount();
+
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    expect(
+      screen.getByRole("button", { name: /Take an I\/Q Capture/ }),
+    ).toHaveAttribute("aria-expanded", "true");
   });
 
   it("shows the overall capture span inside selected range dividers, not beside Ranges", () => {
@@ -396,5 +432,221 @@ describe("IQCaptureControlsSection", () => {
 
     expect(screen.getByText("Complete")).toBeInTheDocument();
     expect(screen.getByText("test.napt")).toBeInTheDocument();
+  });
+
+  it("defaults capture downloads to Local Downloads and shows destination choices", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    fireEvent.click(screen.getByRole("button", { name: /Download to/ }));
+
+    const destinationMenu = screen.getByRole("menu", {
+      name: "Capture destination",
+    });
+    expect(destinationMenu).toBeInTheDocument();
+    expect(getComputedStyle(destinationMenu).backgroundColor).not.toBe(
+      "rgba(0, 0, 0, 0)",
+    );
+    expect(getComputedStyle(destinationMenu).zIndex).toBe("10000");
+    expect(screen.getByRole("menuitem", { name: /Local Downloads/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Choose local folder/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Aspect mounted drive/ })).toBeDisabled();
+  });
+
+  it("places destination selection before capture when there are no downloads", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    const destination = screen.getByRole("button", {
+      name: /Download to.*~\/Downloads/,
+    });
+    const capture = screen.getByRole("button", { name: "Capture" });
+
+    expect(
+      destination.compareDocumentPosition(capture) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(destination).toHaveStyle({ width: "100%" });
+    expect(capture).toHaveStyle({ width: "100%" });
+    const destinationRow = destination.parentElement?.parentElement;
+    const geolocationRow = screen.getByText("Geolocation").closest("div")
+      ?.parentElement;
+    expect(destinationRow).not.toBeNull();
+    expect(geolocationRow).not.toBeNull();
+    expect(getComputedStyle(destination).backgroundColor).toBe(
+      getComputedStyle(geolocationRow!).backgroundColor,
+    );
+    expect(getComputedStyle(destinationRow!).marginTop).toBe("0px");
+  });
+
+  it("remembers a browser-selected local folder as the destination", async () => {
+    const directories = [
+      { name: "Recordings", getFileHandle: jest.fn() },
+      { name: "Field Captures", getFileHandle: jest.fn() },
+    ];
+    const showDirectoryPicker = jest.fn()
+      .mockResolvedValueOnce(directories[0])
+      .mockResolvedValueOnce(directories[1]);
+    Object.defineProperty(window, "showDirectoryPicker", {
+      configurable: true,
+      value: showDirectoryPicker,
+    });
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    const destinationButton = screen.getByRole("button", { name: /Download to/ });
+    const chooseFolder = () => {
+      fireEvent.click(destinationButton);
+      expect(screen.getByRole("menuitem", { name: /Choose local folder/ })).toBeEnabled();
+      fireEvent.click(screen.getByRole("menuitem", { name: /Choose local folder/ }));
+    };
+    chooseFolder();
+    await waitFor(() => expect(showDirectoryPicker).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(window.localStorage.getItem("napt.capture-destination.v1")).toBe("folder"),
+    );
+    await screen.findByRole("button", { name: /Download to.*Local folder/ });
+    chooseFolder();
+    await screen.findByRole("button", { name: /Download to.*Local folder/ });
+    expect(window.localStorage.getItem("napt.capture-destination.v1")).toBe("folder");
+  });
+
+  it("falls back to browser Downloads when folder picking is unsupported", async () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    fireEvent.click(screen.getByRole("button", { name: /Download to/ }));
+    expect(
+      screen.getByRole("menuitem", { name: /Choose local folder/ }),
+    ).toBeDisabled();
+
+    expect(
+      await screen.findByRole("button", {
+        name: /Download to.*~\/Downloads/,
+      }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem("napt.capture-destination.v1")).toBeNull();
+  });
+
+  it("falls back to Downloads if a remembered folder handle is unavailable", async () => {
+    window.localStorage.setItem("napt.capture-destination.v1", "folder");
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    await screen.findByRole("button", { name: /Download to.*~\/Downloads/ });
+    expect(window.localStorage.getItem("napt.capture-destination.v1")).toBe("local");
+  });
+
+  it("saves a completed capture to Aspect when the mount is configured", async () => {
+    const previousFetch = global.fetch;
+    global.fetch = jest.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/capture/destinations")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            destinations: [
+              { id: "local", available: true },
+              { id: "aspect", available: true },
+            ],
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ files: ["capture.napt"] }),
+      } as Response);
+    });
+    window.localStorage.setItem(
+      "napt.iq-capture-downloads.v1",
+      JSON.stringify([
+        {
+          jobId: "job-1",
+          downloadUrl: "/api/capture/download?jobId=job-1",
+          filename: "capture.napt",
+          timestamp: Date.now(),
+        },
+      ]),
+    );
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    fireEvent.click(screen.getByRole("button", { name: /Download to/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("menuitem", { name: /Aspect mounted drive/ })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Aspect mounted drive/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save to Aspect" }));
+
+    expect(await screen.findByText("Saved capture.napt to Aspect.")).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/capture/save/aspect"),
+      { method: "POST" },
+    );
+    global.fetch = previousFetch;
+  });
+
+  it("reports Aspect save failures without losing the capture download", async () => {
+    const previousFetch = global.fetch;
+    global.fetch = jest.fn().mockImplementation((input: RequestInfo | URL) =>
+      Promise.resolve(
+        String(input).includes("/api/capture/destinations")
+          ? {
+              ok: true,
+              json: async () => ({
+                destinations: [{ id: "aspect", available: true }],
+              }),
+            }
+          : {
+              ok: false,
+              status: 503,
+              json: async () => ({ error: "Aspect mount folder is unavailable" }),
+            },
+      ) as unknown as Response,
+    );
+    window.localStorage.setItem(
+      "napt.iq-capture-downloads.v1",
+      JSON.stringify([
+        {
+          jobId: "job-1",
+          downloadUrl: "/api/capture/download?jobId=job-1",
+          filename: "capture.napt",
+          timestamp: Date.now(),
+        },
+      ]),
+    );
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    fireEvent.click(screen.getByRole("button", { name: /Download to/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("menuitem", { name: /Aspect mounted drive/ })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Aspect mounted drive/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save to Aspect" }));
+
+    expect(await screen.findByText("Aspect mount folder is unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "capture.napt" })).toBeInTheDocument();
+    global.fetch = previousFetch;
   });
 });

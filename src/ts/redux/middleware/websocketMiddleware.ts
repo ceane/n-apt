@@ -3900,7 +3900,12 @@ export const processWebSocketMessage = (
       ) {
         const newStatus = {
           jobId: statusObj.jobId,
+          sourceId: statusObj.sourceId,
           status: statusObj.status,
+          settingsApplied: statusObj.settingsApplied,
+          requestedSettings: statusObj.requestedSettings,
+          effectiveSettings: statusObj.effectiveSettings,
+          code: statusObj.code,
           message: statusObj.message,
           progress: statusObj.progress,
           downloadUrl: statusObj.downloadUrl,
@@ -3920,6 +3925,10 @@ export const processWebSocketMessage = (
           fileSize:
             typeof statusObj.fileSize === "number"
               ? statusObj.fileSize
+              : undefined,
+          checksum:
+            typeof statusObj.checksum === "string"
+              ? statusObj.checksum
               : undefined,
           duration:
             typeof statusObj.duration === "number"

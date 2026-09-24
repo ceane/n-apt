@@ -243,8 +243,10 @@ export type CaptureRequest = {
   fileType: CaptureFileType;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   encrypted: boolean;
+  sampleRateHz?: number;
   fftSize: number;
   fftWindow: string;
+  frameRate?: number;
   geolocation?: GeolocationData;
   refBasedDemodBaseline?:
     | "audio_hearing"
@@ -254,9 +256,21 @@ export type CaptureRequest = {
   liveMode?: boolean;
 };
 
+export type CaptureEffectiveSettings = {
+  sampleRateHz: number;
+  fftSize: number;
+  fftWindow: string;
+  frameRateHz: number;
+};
+
 export type CaptureStatus = {
   jobId: string;
+  sourceId?: string;
   status: "started" | "progress" | "failed" | "done";
+  settingsApplied?: boolean;
+  requestedSettings?: CaptureEffectiveSettings;
+  effectiveSettings?: CaptureEffectiveSettings;
+  code?: string;
   message?: string;
   progress?: number;
   error?: string;
@@ -266,6 +280,7 @@ export type CaptureStatus = {
   ephemeral?: boolean;
   timestamp?: number;
   fileSize?: number;
+  checksum?: string;
   /** Capture length in seconds (server-computed). */
   duration?: number;
 } | null;

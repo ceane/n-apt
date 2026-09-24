@@ -7,6 +7,7 @@ use log::{error, info, warn};
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
@@ -1041,6 +1042,171 @@ pub async fn capture_download_handler(
   );
 
   (StatusCode::OK, headers, body).into_response()
+}
+
+/// GET /api/capture/destinations?token=<session_token>
+/// Reports which locally configured destinations can accept a capture.
+pub async fn capture_destinations_handler(
+  Query(params): Query<super::types::CaptureDestinationParams>,
+  State(state): State<Arc<super::AppState>>,
+) -> impl IntoResponse {
+  if state.session_store.validate(&params.token).await.is_none() {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+      "error": "Invalid or expired session token"
+    }))).into_response();
+  }
+  let aspect_available = std::env::var_os("N_APT_ASPECT_PATH")
+    .filter(|path| !path.is_empty())
+    .map(PathBuf::from)
+    .is_some_and(|path| path.is_absolute() && path.is_dir());
+  Json(serde_json::json!({
+    "destinations": [
+      { "id": "local", "available": true },
+      { "id": "aspect", "available": aspect_available }
+    ]
+  }))
+  .into_response()
+}
+
+/// POST /api/capture/save/aspect?token=<session_token>&jobId=<job_id>
+/// Copies completed capture artifacts to the configured Aspect mount.
+pub async fn save_capture_to_aspect_handler(
+  Query(params): Query<CaptureDownloadParams>,
+  State(state): State<Arc<super::AppState>>,
+) -> impl IntoResponse {
+  if !crate::server::utils::RE_SAFE_ID.is_match(&params.job_id) {
+    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+      "error": "Invalid job_id"
+    }))).into_response();
+  }
+  if let Err(error) = params.validate() {
+    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+      "error": format!("Validation failed: {error}")
+    }))).into_response();
+  }
+  if state.session_store.validate(&params.token).await.is_none() {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+      "error": "Invalid or expired session token"
+    }))).into_response();
+  }
+  let aspect_path = match std::env::var_os("N_APT_ASPECT_PATH")
+    .filter(|path| !path.is_empty())
+  {
+    Some(path) => PathBuf::from(path),
+    None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+      "error": "Aspect destination is not configured; set N_APT_ASPECT_PATH in the backend environment"
+    }))).into_response(),
+  };
+  if !aspect_path.is_absolute() || !aspect_path.is_dir() {
+    return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+      "error": "Aspect mount folder is unavailable; N_APT_ASPECT_PATH must be an existing absolute directory"
+    }))).into_response();
+  }
+
+  let key = format!("artifacts:{}", params.job_id);
+  let artifacts: Vec<crate::server::types::CaptureArtifact> = match state
+    .shared
+    .redis_store
+    .get_json::<Vec<crate::server::types::CaptureArtifact>>(1, &key)
+    .await
+  {
+    Ok(Some(artifacts)) if !artifacts.is_empty() => artifacts,
+    Ok(_) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+      "error": "Capture job not found or not completed"
+    }))).into_response(),
+    Err(error) => {
+      error!("Failed to load capture artifacts for Aspect save: {error}");
+      return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+        "error": "Capture metadata is temporarily unavailable"
+      }))).into_response();
+    }
+  };
+  match copy_capture_artifacts_to_directory(&artifacts, &aspect_path).await {
+    Ok(saved) => Json(serde_json::json!({
+      "destination": "aspect",
+      "files": saved.iter().filter_map(|path| path.file_name()).map(|name| name.to_string_lossy()).collect::<Vec<_>>()
+    })).into_response(),
+    Err(error) => {
+      error!("Failed to save capture to Aspect mount: {error}");
+      (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+        "error": format!("Failed to save capture to Aspect: {error}")
+      }))).into_response()
+    }
+  }
+}
+
+async fn copy_capture_artifacts_to_directory(
+  artifacts: &[crate::server::types::CaptureArtifact],
+  destination: &Path,
+) -> std::io::Result<Vec<PathBuf>> {
+  if !tokio::fs::metadata(destination).await?.is_dir() {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::NotFound,
+      "destination is not an available directory",
+    ));
+  }
+  let mut targets = Vec::with_capacity(artifacts.len());
+  for artifact in artifacts {
+    let filename = Path::new(&artifact.filename);
+    if artifact.filename.is_empty()
+      || artifact.filename.contains(['/', '\\'])
+      || filename.components().count() != 1
+      || !matches!(filename.components().next(), Some(Component::Normal(_)))
+    {
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        "capture artifact contains an unsafe filename",
+      ));
+    }
+    targets.push(destination.join(filename));
+  }
+
+  let mut saved = Vec::with_capacity(artifacts.len());
+  for (artifact, target) in artifacts.iter().zip(targets) {
+    let mut output = match tokio::fs::OpenOptions::new()
+      .write(true)
+      .create_new(true)
+      .open(&target)
+      .await
+    {
+      Ok(output) => output,
+      Err(error) => {
+        for saved_path in &saved {
+          let _ = tokio::fs::remove_file(saved_path).await;
+        }
+        return Err(error);
+      }
+    };
+    let mut source = match tokio::fs::File::open(&artifact.path).await {
+      Ok(source) => source,
+      Err(error) => {
+        drop(output);
+        let _ = tokio::fs::remove_file(&target).await;
+        for saved_path in &saved {
+          let _ = tokio::fs::remove_file(saved_path).await;
+        }
+        return Err(error);
+      }
+    };
+    if let Err(error) = tokio::io::copy(&mut source, &mut output).await {
+      drop(output);
+      let _ = tokio::fs::remove_file(&target).await;
+      for saved_path in &saved {
+        let _ = tokio::fs::remove_file(saved_path).await;
+      }
+      return Err(error);
+    }
+    if let Err(error) = tokio::io::AsyncWriteExt::flush(&mut output).await {
+      drop(output);
+      let _ = tokio::fs::remove_file(&target).await;
+      for saved_path in &saved {
+        let _ = tokio::fs::remove_file(saved_path).await;
+      }
+      return Err(error);
+    }
+    saved.push(target);
+  }
+  Ok(saved)
 }
 
 /// GET /api/agent/info — Agent system information and capabilities
@@ -2113,14 +2279,17 @@ async fn handle_start_capture(
 
   let capture_cmd = super::types::SdrCommand::StartCapture {
     job_id: job_id.to_string(),
+    source_id: None,
     fragments: fragments.clone(),
     duration_mode: "timed".to_string(),
     duration_s,
     file_type: file_type.to_string(),
     acquisition_mode: acquisition_mode.to_string(),
     encrypted,
+    sample_rate: None,
     fft_size,
     fft_window: fft_window.to_string(),
+    frame_rate: None,
     geolocation: None, // HTTP endpoints don't have geolocation data
     ref_based_demod_baseline: None,
     is_ephemeral: false,
@@ -2270,5 +2439,91 @@ mod snapshot_tests {
     assert_eq!(bounded_snapshot_frame_count(Some(0)), 1);
     assert_eq!(bounded_snapshot_frame_count(Some(128)), 128);
     assert_eq!(bounded_snapshot_frame_count(Some(usize::MAX)), 128);
+  }
+}
+
+#[cfg(test)]
+mod capture_destination_tests {
+  use super::copy_capture_artifacts_to_directory;
+  use crate::server::types::CaptureArtifact;
+
+  #[tokio::test]
+  async fn copies_capture_bytes_to_an_existing_destination() {
+    let source = tempfile::NamedTempFile::new().expect("source file");
+    tokio::fs::write(source.path(), b"capture bytes")
+      .await
+      .expect("write source");
+    let destination = tempfile::tempdir().expect("destination directory");
+    let artifacts = vec![CaptureArtifact {
+      filename: "capture.napt".to_string(),
+      path: source.path().to_path_buf(),
+      file_size: 13,
+      checksum: "unused-in-copy".to_string(),
+    }];
+
+    let saved = copy_capture_artifacts_to_directory(&artifacts, destination.path())
+      .await
+      .expect("copy artifact");
+
+    assert_eq!(saved, vec![destination.path().join("capture.napt")]);
+    assert_eq!(
+      tokio::fs::read(destination.path().join("capture.napt"))
+        .await
+        .expect("read copy"),
+      b"capture bytes"
+    );
+  }
+
+  #[tokio::test]
+  async fn rejects_artifact_names_that_escape_the_destination() {
+    let source = tempfile::NamedTempFile::new().expect("source file");
+    let destination = tempfile::tempdir().expect("destination directory");
+    let artifacts = vec![CaptureArtifact {
+      filename: "../outside.napt".to_string(),
+      path: source.path().to_path_buf(),
+      file_size: 0,
+      checksum: String::new(),
+    }];
+
+    let result = copy_capture_artifacts_to_directory(&artifacts, destination.path()).await;
+    assert!(result.is_err());
+    assert!(!destination.path().parent().unwrap().join("outside.napt").exists());
+  }
+
+  #[tokio::test]
+  async fn does_not_overwrite_an_existing_capture() {
+    let source = tempfile::NamedTempFile::new().expect("source file");
+    tokio::fs::write(source.path(), b"new").await.expect("write source");
+    let destination = tempfile::tempdir().expect("destination directory");
+    let target = destination.path().join("capture.napt");
+    tokio::fs::write(&target, b"keep").await.expect("write existing");
+    let artifacts = vec![CaptureArtifact {
+      filename: "capture.napt".to_string(),
+      path: source.path().to_path_buf(),
+      file_size: 3,
+      checksum: String::new(),
+    }];
+
+    assert!(copy_capture_artifacts_to_directory(&artifacts, destination.path())
+      .await
+      .is_err());
+    assert_eq!(tokio::fs::read(target).await.expect("read existing"), b"keep");
+  }
+
+  #[tokio::test]
+  async fn rejects_an_unavailable_destination_directory() {
+    let source = tempfile::NamedTempFile::new().expect("source file");
+    let destination = tempfile::tempdir().expect("destination directory");
+    let missing = destination.path().join("not-mounted");
+    let artifacts = vec![CaptureArtifact {
+      filename: "capture.napt".to_string(),
+      path: source.path().to_path_buf(),
+      file_size: 0,
+      checksum: String::new(),
+    }];
+
+    let result = copy_capture_artifacts_to_directory(&artifacts, &missing).await;
+    assert!(result.is_err());
+    assert!(!missing.exists());
   }
 }

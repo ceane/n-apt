@@ -15,6 +15,8 @@ import {
   validateReduxAction,
   getValidationMetrics,
   resetValidationMetrics,
+  CaptureRequestSchema,
+  CaptureStatusSchema,
 } from "@n-apt/validation";
 
 describe("WebSocket Validation System", () => {
@@ -329,6 +331,56 @@ describe("WebSocket Validation System", () => {
   });
 
   describe("Capture Status Validation", () => {
+    test("preserves concrete preflight options and effective settings", () => {
+      const request = CaptureRequestSchema.parse({
+        jobId: "job-123",
+        fragments: [{ minFreq: 1_000_000, maxFreq: 4_200_000 }],
+        durationMode: "timed",
+        durationS: 1,
+        fileType: ".napt",
+        acquisitionMode: "stepwise",
+        encrypted: true,
+        sampleRateHz: 3_200_000,
+        fftSize: 65_536,
+        fftWindow: "hanning",
+        frameRate: 48,
+      });
+      expect(request).toMatchObject({
+        sampleRateHz: 3_200_000,
+        fftSize: 65_536,
+        fftWindow: "hanning",
+        frameRate: 48,
+      });
+
+      const status = CaptureStatusSchema.parse({
+        jobId: "job-123",
+        status: "started",
+        sourceId: "rtl-1",
+        settingsApplied: true,
+        requestedSettings: {
+          sampleRateHz: 3_200_000,
+          fftSize: 65_536,
+          fftWindow: "hanning",
+          frameRateHz: 48,
+        },
+        effectiveSettings: {
+          sampleRateHz: 3_200_000,
+          fftSize: 65_536,
+          fftWindow: "Hanning",
+          frameRateHz: 48,
+        },
+        fileSize: 4096,
+        checksum: "a".repeat(64),
+      });
+      expect(status).toMatchObject({
+        sourceId: "rtl-1",
+        settingsApplied: true,
+        fileSize: 4096,
+        checksum: "a".repeat(64),
+        effectiveSettings: { fftWindow: "Hanning", frameRateHz: 48 },
+      });
+    });
+
     test("should validate valid capture status", () => {
       const validCaptureStatus = {
         jobId: "job-123",

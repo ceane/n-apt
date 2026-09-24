@@ -59,23 +59,22 @@ it('reports configured versus observed mismatches, delivery gaps, stale frames a
   expect(unknown.observed.status).toBe('not-observed');
 });
 
-it('does not reinterpret explicit CLI output requests to fit a profile', () => {
-  const request = Capture.resolveCaptureIntent({ profile: Capture.IQ_CAPTURE_CLI_QUALITY_PROFILE,
-    requested: { sampleRateHz: 4_000_000, fftSize: 16_384, frameRateHz: 25, window: 'rectangular', temporalResolution: 'lossless' },
+it('rejects explicit CLI output options that exceed source capabilities', () => {
+  const preflight = Capture.resolveCapturePreflightOptions({ profile: Capture.IQ_CAPTURE_CLI_QUALITY_PROFILE,
+    requested: { sampleRateHz: 4_000_000, fftSize: 16_384, frameRateHz: 25, fftWindow: 'rectangular', temporalResolution: 'lossless' },
     sourceCapabilities: { minSampleRateHz: 500_000, maxSampleRateHz: 3_200_000, fftSizes: [16_384, 32_768], maxFrameRateHz: 60 } });
-  expect(request.effective).toEqual(request.requested);
-  expect(request.fit).toBe('unmet');
-  expect(request.reasons.join(' ')).toMatch(/exceeds source maximum/);
-  expect(request.settingsDispatches).toBe(0);
+  expect(preflight.options).toBeNull();
+  expect(preflight.fit).toBe('unmet');
+  expect(preflight.reasons.join(' ')).toMatch(/exceeds source maximum/);
 });
 
-it('rejects a demod intent when reported frame-rate capability cannot meet the profile', () => {
-  const intent = Capture.resolveCaptureIntent({ profile: Capture.DEMODULATION_QUALITY_PROFILE,
-    requested: { ...base.requested },
+it('rejects a demod preflight when reported frame-rate capability cannot meet the profile', () => {
+  const preflight = Capture.resolveCapturePreflightOptions({ profile: Capture.DEMODULATION_QUALITY_PROFILE,
+    requested: { ...base.requested, fftWindow: 'hanning' },
     sourceCapabilities: { maxSampleRateHz: 3_200_000, fftSizes: [32_768], maxFrameRateHz: 20 } });
-  expect(intent.fit).toBe('unmet');
-  expect(intent.reasons.join(' ')).toMatch(/maximum frame rate is below 30/);
-  expect(intent.settingsDispatches).toBe(0);
+  expect(preflight.options).toBeNull();
+  expect(preflight.fit).toBe('unmet');
+  expect(preflight.reasons.join(' ')).toMatch(/20 FPS|at least 30 FPS/);
 });
 
 describe('capture preflight options', () => {
@@ -98,7 +97,6 @@ describe('capture preflight options', () => {
           fftSize: number;
           fftWindow: string;
           frameRateHz: number;
-          temporalResolution: string;
         } | null;
         reasons: string[];
       };
@@ -128,7 +126,6 @@ describe('capture preflight options', () => {
         fftSize: 65_536,
         fftWindow: 'hanning',
         frameRateHz: 48,
-        temporalResolution: 'lossless',
       },
       reasons: [],
     });
@@ -242,12 +239,18 @@ describe('CLI capture frequency span', () => {
       '1000000',
       '--sample-rate',
       '3200000',
-    ], source)).toThrow(/minimum/i);
+    ], {
+      ...source,
+      sdr: { ...source.sdr, settings: { center_frequency: 1_000_000, sample_rate: 3_200_000 } },
+    })).toThrow(/minimum/i);
     expect(() => resolveFrequencySpan?.([
       '--center-frequency',
       '30000000000',
       '--sample-rate',
       '3200000',
-    ], source)).toThrow(/maximum/i);
+    ], {
+      ...source,
+      sdr: { ...source.sdr, settings: { center_frequency: 30_000_000_000, sample_rate: 3_200_000 } },
+    })).toThrow(/maximum/i);
   });
 });

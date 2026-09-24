@@ -237,31 +237,195 @@ export function evaluateCaptureQuality(input: CaptureQualityInput): CaptureQuali
   };
 }
 
-export interface CaptureIntentResolution {
-  requested: CaptureQualitySettings;
-  effective: CaptureQualitySettings;
-  fit: 'ready' | 'unmet';
-  reasons: string[];
-  settingsDispatches: 0;
+export interface CapturePreflightOptions {
+  sampleRateHz: number;
+  fftSize: number;
+  fftWindow: string;
+  frameRateHz: number;
 }
 
-/** Resolves pre-acquisition intent without rewriting explicit caller values or dispatching hardware settings. */
-export function resolveCaptureIntent({
-  profile, requested, sourceCapabilities,
+export interface CapturePreflightResolution {
+  profileId: CaptureQualityProfile['id'];
+  fit: 'ready' | 'unmet';
+  options: CapturePreflightOptions | null;
+  reasons: string[];
+}
+
+const canonicalWindow = (window: string): string | null => {
+  switch (window.toLowerCase()) {
+    case 'none':
+    case 'rectangular':
+      return 'rectangular';
+    case 'hann':
+    case 'hanning':
+      return 'hanning';
+    case 'hamming':
+      return 'hamming';
+    case 'blackman':
+      return 'blackman';
+    case 'nuttall':
+      return 'nuttall';
+    default:
+      return null;
+  }
+};
+
+export function resolveCapturePreflightOptions({
+  profile,
+  requested,
+  sourceCapabilities,
 }: {
   profile: CaptureQualityProfile;
-  requested: CaptureQualitySettings;
-  sourceCapabilities: Pick<CaptureQualitySource, 'minSampleRateHz' | 'maxSampleRateHz' | 'fftSizes' | 'maxFrameRateHz'>;
-}): CaptureIntentResolution {
+  requested: Omit<CaptureQualitySettings, 'window'> & { fftWindow?: string };
+  sourceCapabilities: Pick<
+    CaptureQualitySource,
+    'minSampleRateHz' | 'maxSampleRateHz' | 'fftSizes' | 'maxFrameRateHz'
+  >;
+}): CapturePreflightResolution {
   const reasons: string[] = [];
-  if (profile.minimumAnalysisFftSize && requested.fftSize !== undefined && requested.fftSize < profile.minimumAnalysisFftSize) reasons.push(`Requested FFT size must be at least ${profile.minimumAnalysisFftSize}.`);
-  if (profile.minimumConfiguredFrameRateHz && !finitePositive(requested.frameRateHz)) reasons.push('Requested frame rate is unknown.');
-  if (profile.minimumConfiguredFrameRateHz && finitePositive(requested.frameRateHz) && requested.frameRateHz < profile.minimumConfiguredFrameRateHz) reasons.push(`Requested frame rate must be at least ${profile.minimumConfiguredFrameRateHz} FPS.`);
-  if (profile.minimumConfiguredFrameRateHz && finitePositive(sourceCapabilities.maxFrameRateHz) && sourceCapabilities.maxFrameRateHz < profile.minimumConfiguredFrameRateHz) reasons.push(`Source maximum frame rate is below ${profile.minimumConfiguredFrameRateHz} FPS.`);
-  if (requested.temporalResolution !== profile.requiredTemporalResolution) reasons.push(`Profile requires ${profile.requiredTemporalResolution} temporal resolution.`);
-  if (requested.sampleRateHz !== undefined && sourceCapabilities.maxSampleRateHz !== undefined && requested.sampleRateHz > sourceCapabilities.maxSampleRateHz) reasons.push(`Requested sample rate ${requested.sampleRateHz} exceeds source maximum ${sourceCapabilities.maxSampleRateHz}.`);
-  if (requested.sampleRateHz !== undefined && sourceCapabilities.minSampleRateHz !== undefined && requested.sampleRateHz < sourceCapabilities.minSampleRateHz) reasons.push(`Requested sample rate ${requested.sampleRateHz} is below source minimum ${sourceCapabilities.minSampleRateHz}.`);
-  if (requested.fftSize !== undefined && sourceCapabilities.fftSizes?.length && !sourceCapabilities.fftSizes.includes(requested.fftSize)) reasons.push(`Requested FFT size ${requested.fftSize} is not supported by the source.`);
-  if (requested.frameRateHz !== undefined && sourceCapabilities.maxFrameRateHz !== undefined && requested.frameRateHz > sourceCapabilities.maxFrameRateHz) reasons.push(`Requested frame rate ${requested.frameRateHz} exceeds source maximum ${sourceCapabilities.maxFrameRateHz}.`);
-  return { requested: { ...requested }, effective: { ...requested }, fit: reasons.length ? 'unmet' : 'ready', reasons, settingsDispatches: 0 };
+  const sampleRateHz = requested.sampleRateHz;
+  const fftSize = requested.fftSize;
+  const resolvedFftSize =
+    typeof fftSize === 'number' && Number.isSafeInteger(fftSize) && fftSize >= 2
+      ? fftSize
+      : null;
+  const fftWindow = canonicalWindow(requested.fftWindow ?? 'hanning');
+  const temporalResolution = requested.temporalResolution ?? profile.requiredTemporalResolution;
+
+  if (!finitePositive(sampleRateHz)) {
+    reasons.push('Requested sample rate is unknown.');
+  } else {
+    if (finitePositive(sourceCapabilities.maxSampleRateHz) && sampleRateHz > sourceCapabilities.maxSampleRateHz) {
+      reasons.push(`Requested sample rate ${sampleRateHz} exceeds source maximum ${sourceCapabilities.maxSampleRateHz}.`);
+    }
+    if (finitePositive(sourceCapabilities.minSampleRateHz) && sampleRateHz < sourceCapabilities.minSampleRateHz) {
+      reasons.push(`Requested sample rate ${sampleRateHz} is below source minimum ${sourceCapabilities.minSampleRateHz}.`);
+    }
+  }
+
+  if (resolvedFftSize === null) {
+    reasons.push('Requested FFT size is invalid.');
+  } else {
+    if (profile.minimumAnalysisFftSize && resolvedFftSize < profile.minimumAnalysisFftSize) {
+      reasons.push(`Requested FFT size must be at least ${profile.minimumAnalysisFftSize}.`);
+    }
+    if (profile.minimumConfiguredFftSize && resolvedFftSize < profile.minimumConfiguredFftSize) {
+      reasons.push(`Requested FFT size must be at least ${profile.minimumConfiguredFftSize}.`);
+    }
+    if (profile.minimumVisibleBins && resolvedFftSize < profile.minimumVisibleBins) {
+      reasons.push(`Requested FFT size must expose at least ${profile.minimumVisibleBins} bins.`);
+    }
+    if (sourceCapabilities.fftSizes?.length && !sourceCapabilities.fftSizes.includes(resolvedFftSize)) {
+      reasons.push(`Requested FFT size ${resolvedFftSize} is not supported by the source.`);
+    }
+  }
+
+  if (!fftWindow) {
+    reasons.push(`Requested FFT window '${requested.fftWindow ?? ''}' is not supported.`);
+  }
+  if (temporalResolution !== profile.requiredTemporalResolution) {
+    reasons.push(`Profile requires ${profile.requiredTemporalResolution} temporal resolution.`);
+  }
+
+  let frameRateHz: number | undefined;
+  if (finitePositive(sampleRateHz) && resolvedFftSize !== null) {
+    const logicalMaximum = Math.max(
+      1,
+      Math.floor(sampleRateHz / resolvedFftSize),
+    );
+    const sourceMaximum = finitePositive(sourceCapabilities.maxFrameRateHz)
+      ? Math.floor(sourceCapabilities.maxFrameRateHz)
+      : logicalMaximum;
+    const attainableMaximum = Math.max(1, Math.min(logicalMaximum, sourceMaximum));
+    frameRateHz = requested.frameRateHz ?? attainableMaximum;
+    if (!Number.isSafeInteger(frameRateHz) || frameRateHz <= 0) {
+      reasons.push('Requested frame rate is invalid.');
+    } else if (frameRateHz > attainableMaximum) {
+      reasons.push(
+        `Requested frame rate ${frameRateHz} exceeds the attainable maximum ${attainableMaximum} FPS.`,
+      );
+    }
+    if (profile.minimumConfiguredFrameRateHz && (frameRateHz ?? 0) < profile.minimumConfiguredFrameRateHz) {
+      reasons.push(`Requested frame rate must be at least ${profile.minimumConfiguredFrameRateHz} FPS.`);
+    }
+  } else {
+    reasons.push('Frame rate cannot be resolved without a sample rate and FFT size.');
+  }
+
+  if (
+    finitePositive(sampleRateHz) &&
+    resolvedFftSize !== null &&
+    fftWindow &&
+    profile.maximumEffectiveResolutionHz
+  ) {
+    const effectiveResolutionHz =
+      (ENBW[fftWindow] ?? 1) * sampleRateHz / resolvedFftSize;
+    if (effectiveResolutionHz > profile.maximumEffectiveResolutionHz) {
+      reasons.push(
+        `Effective resolution ${effectiveResolutionHz} Hz exceeds ${profile.maximumEffectiveResolutionHz} Hz.`,
+      );
+    }
+  }
+
+  if (
+    reasons.length ||
+    !finitePositive(sampleRateHz) ||
+    resolvedFftSize === null ||
+    !fftWindow ||
+    !finitePositive(frameRateHz)
+  ) {
+    return {
+      profileId: profile.id,
+      fit: 'unmet',
+      options: null,
+      reasons: [...new Set(reasons)],
+    };
+  }
+
+  return {
+    profileId: profile.id,
+    fit: 'ready',
+    options: {
+      sampleRateHz,
+      fftSize: resolvedFftSize,
+      fftWindow,
+      frameRateHz: Math.floor(frameRateHz),
+    },
+    reasons: [],
+  };
+}
+
+export function validateCapturePreflightAcknowledgement(
+  options: Pick<CapturePreflightOptions, 'sampleRateHz' | 'fftSize' | 'fftWindow' | 'frameRateHz'>,
+  status: unknown,
+): { valid: boolean; reason?: string } {
+  if (!status || typeof status !== 'object') {
+    return { valid: false, reason: 'Capture acknowledgement is missing.' };
+  }
+  const acknowledgement = status as {
+    settingsApplied?: unknown;
+    effectiveSettings?: unknown;
+  };
+  if (acknowledgement.settingsApplied !== true) {
+    return { valid: false, reason: 'Backend did not apply the preflight settings.' };
+  }
+  if (!acknowledgement.effectiveSettings || typeof acknowledgement.effectiveSettings !== 'object') {
+    return { valid: false, reason: 'Capture acknowledgement has no effective settings.' };
+  }
+  const effective = acknowledgement.effectiveSettings as Record<string, unknown>;
+  const effectiveWindow =
+    typeof effective.fftWindow === 'string'
+      ? canonicalWindow(effective.fftWindow)
+      : null;
+  const matches =
+    effective.sampleRateHz === options.sampleRateHz &&
+    effective.fftSize === options.fftSize &&
+    effective.frameRateHz === options.frameRateHz &&
+    effectiveWindow === canonicalWindow(options.fftWindow);
+  return matches
+    ? { valid: true }
+    : {
+        valid: false,
+        reason: `Effective settings do not match preflight options: ${JSON.stringify(effective)}.`,
+      };
 }

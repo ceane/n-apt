@@ -19,9 +19,13 @@ import { formatChannelFreq } from "@n-apt/math/frequency";
 import { isValidNaptRange } from "@n-apt/math/signals";
 import {
   AlertTriangle,
+  ChevronDown,
   Clock,
+  Download,
   File as FileIcon,
   FileSignal,
+  FolderOpen,
+  HardDrive,
   LockKeyhole,
   MapPin,
   PanelLeftDashed,
@@ -42,6 +46,20 @@ import {
   IconLabel,
 } from "@n-apt/ui/SidebarPrimitives";
 import { buildSafeDownloadUrl } from "@n-apt/ui/downloadUrl";
+import { safeDownloadFilename } from "@n-apt/ui/downloadUrl";
+import {
+  CAPTURE_DESTINATION_STORAGE_KEY,
+  CAPTURE_DESTINATION_PROVIDERS,
+  resolveCaptureDestination,
+  type CaptureDestinationId,
+} from "@n-apt/capture/destinations";
+import {
+  getCaptureDirectoryPicker,
+  loadLastCaptureDirectory,
+  saveLastCaptureDirectory,
+  saveCaptureToDirectory,
+  type CaptureDirectoryPicker,
+} from "@n-apt/capture/browserDestinations";
 
 const Section = styled.div`
   display: grid;
@@ -51,7 +69,42 @@ const Section = styled.div`
 `;
 
 const CAPTURE_DOWNLOADS_STORAGE_KEY = "napt.iq-capture-downloads.v1";
+const IQ_CAPTURE_COLLAPSIBLE_STORAGE_KEY = "napt.sidebar.iq-capture.open.v1";
 const CAPTURE_DOWNLOAD_RETENTION_MS = 48 * 60 * 60 * 1000;
+
+const loadIqCaptureOpenState = (): boolean | undefined => {
+  try {
+    const savedState = window.sessionStorage.getItem(
+      IQ_CAPTURE_COLLAPSIBLE_STORAGE_KEY,
+    );
+    if (savedState === "open") return true;
+    if (savedState === "closed") return false;
+  } catch {
+    // Keep the caller's default when session storage is unavailable.
+  }
+  return undefined;
+};
+
+const persistIqCaptureOpenState = (isOpen: boolean) => {
+  try {
+    window.sessionStorage.setItem(
+      IQ_CAPTURE_COLLAPSIBLE_STORAGE_KEY,
+      isOpen ? "open" : "closed",
+    );
+  } catch {
+    // Collapsible state is optional when session storage is unavailable.
+  }
+};
+
+const loadCaptureDestinationPreference = (): CaptureDestinationId => {
+  try {
+    return resolveCaptureDestination(
+      window.localStorage.getItem(CAPTURE_DESTINATION_STORAGE_KEY),
+    );
+  } catch {
+    return "local";
+  }
+};
 
 type PersistedCaptureDownload = {
   jobId: string;
@@ -206,10 +259,10 @@ const DurationEstimate = styled.div`
 
 const CaptureActions = styled.div`
   display: grid;
-  grid-auto-flow: column;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  align-items: center;
-  margin-top: 8px;
+  align-items: stretch;
+  margin-top: 0;
   grid-column: 1 / -1;
 `;
 
@@ -257,6 +310,8 @@ const PauseButton = styled.button<{ $paused: boolean }>`
 
 const CaptureButton = styled(PauseButton)<{ $disabled: boolean }>`
   flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   opacity: ${(props) => (props.$disabled ? 0.5 : 1)};
   cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
 `;
@@ -388,6 +443,113 @@ const DownloadsHeader = styled.div`
   align-items: center;
 `;
 
+const DestinationControls = styled.div`
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+`;
+
+const DestinationButton = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: ${(props) => props.theme.textPrimary};
+  background: ${(props) =>
+    props.theme.mode === "light"
+      ? props.theme.primaryAnchor
+      : props.theme.surface};
+  font: 12px ${(props) => props.theme.typography.mono};
+  cursor: pointer;
+
+  &:hover {
+    background: ${(props) => props.theme.colors.surfaceHover};
+    border-color: ${(props) => props.theme.borderHover};
+  }
+
+  span:first-of-type {
+    flex: 0 0 auto;
+  }
+
+  span:nth-of-type(2) {
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+    color: ${(props) => props.theme.textSecondary};
+  }
+
+  svg:last-child {
+    flex: 0 0 auto;
+  }
+`;
+
+const DestinationMenu = styled.div`
+  position: absolute;
+  z-index: 10000;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+  background: ${(props) => props.theme.colors.surface};
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+`;
+
+const DestinationOption = styled.button<{ $disabled?: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px;
+  border: 0;
+  border-radius: 3px;
+  color: ${(props) =>
+    props.$disabled ? props.theme.textMuted : props.theme.textPrimary};
+  background: transparent;
+  text-align: left;
+  font: 11px ${(props) => props.theme.typography.mono};
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
+
+  &:hover:not(:disabled) {
+    background: ${(props) => props.theme.colors.surfaceHover};
+  }
+`;
+
+const DestinationHint = styled.div`
+  padding: 4px 7px 6px;
+  color: ${(props) => props.theme.textMuted};
+  font-size: 10px;
+`;
+
+const SaveCaptureButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 4px;
+  background: transparent;
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  &:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+`;
+
 const ClearStatusButton = styled.button`
   background: none;
   border: none;
@@ -496,6 +658,42 @@ export const IQCaptureControlsSection: React.FC<
   const [persistedDownloads, setPersistedDownloads] = React.useState<
     PersistedCaptureDownload[]
   >(loadPersistedCaptureDownloads);
+  const [captureDestination, setCaptureDestination] = React.useState<CaptureDestinationId>(
+    loadCaptureDestinationPreference,
+  );
+  const [captureFolderName, setCaptureFolderName] = React.useState("");
+  const folderPickerAvailable = getCaptureDirectoryPicker() !== null;
+  const [destinationMenuOpen, setDestinationMenuOpen] = React.useState(false);
+  const [aspectAvailable, setAspectAvailable] = React.useState(false);
+  const [destinationMessage, setDestinationMessage] = React.useState("");
+  const [savingCaptureId, setSavingCaptureId] = React.useState<string | null>(null);
+  const directoryHandle = React.useRef<Awaited<ReturnType<CaptureDirectoryPicker>> | null>(null);
+  const [savedCollapsibleOpen] = React.useState(loadIqCaptureOpenState);
+  const initialCaptureDestination = React.useRef(captureDestination).current;
+
+  React.useEffect(() => {
+    let active = true;
+    void loadLastCaptureDirectory().then((directory) => {
+      if (!active) return;
+      if (directory) {
+        directoryHandle.current = directory;
+      }
+      if (initialCaptureDestination === "folder" && directory) {
+        setCaptureFolderName("Local folder");
+      }
+      if (initialCaptureDestination === "folder" && !directory) {
+        setCaptureDestination("local");
+        try {
+          window.localStorage.setItem(CAPTURE_DESTINATION_STORAGE_KEY, "local");
+        } catch {
+          // Keep the in-memory fallback when storage is unavailable.
+        }
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   // Build derived channels from the capture range segments when channels aren't provided
   const derivedChannels: ChannelDescriptor[] = React.useMemo(() => {
     if (!captureRange?.segments) return [];
@@ -526,6 +724,148 @@ export const IQCaptureControlsSection: React.FC<
   };
   const { isAuthenticated, sessionToken } = useAuthentication();
   const dispatch = useDispatch();
+
+  React.useEffect(() => {
+    let active = true;
+    setAspectAvailable(false);
+    if (!isAuthenticated || !sessionToken || typeof fetch === "undefined") return;
+    const query = new URLSearchParams({ token: sessionToken });
+    fetch(`/api/capture/destinations?${query.toString()}`)
+      .then(async (response) => {
+        if (!response.ok || !active) return;
+        const body = (await response.json()) as {
+          destinations?: { id: string; available: boolean }[];
+        };
+        if (active) {
+          setAspectAvailable(
+            body.destinations?.some(
+              (destination) =>
+                destination.id === "aspect" && destination.available,
+            ) ?? false,
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setAspectAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated, sessionToken]);
+
+  const updateCaptureDestination = (destination: CaptureDestinationId) => {
+    setCaptureDestination(destination);
+    setDestinationMessage("");
+    try {
+      window.localStorage.setItem(CAPTURE_DESTINATION_STORAGE_KEY, destination);
+    } catch {
+      // Destination preference is optional when browser storage is unavailable.
+    }
+  };
+
+  const chooseCaptureFolder = async () => {
+    const picker = getCaptureDirectoryPicker();
+    if (!picker) {
+      directoryHandle.current = null;
+      updateCaptureDestination("local");
+      setDestinationMenuOpen(false);
+      setDestinationMessage(
+        "Folder selection is unavailable in this browser; using browser Downloads.",
+      );
+      return;
+    }
+    try {
+      directoryHandle.current = await picker();
+      setCaptureFolderName("Local folder");
+      updateCaptureDestination("folder");
+      setDestinationMenuOpen(false);
+      void saveLastCaptureDirectory(directoryHandle.current);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setDestinationMessage(
+        error instanceof Error ? error.message : "Could not select a folder.",
+      );
+    }
+  };
+
+  const triggerBrowserDownload = (url: string, filename: string) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.rel = "noopener noreferrer";
+    link.click();
+  };
+
+  const saveCaptureToDestination = async (
+    download: PersistedCaptureDownload,
+  ) => {
+    const filename = safeDownloadFilename(download.filename);
+    const downloadUrl = buildSafeDownloadUrl(
+      download.downloadUrl,
+      sessionToken,
+    );
+    if (!downloadUrl) {
+      setDestinationMessage("This capture has no safe download URL.");
+      return;
+    }
+
+    if (captureDestination === "local") {
+      triggerBrowserDownload(downloadUrl, filename);
+      setDestinationMessage(`Started browser download: ${filename}`);
+      return;
+    }
+
+    setSavingCaptureId(download.jobId);
+    setDestinationMessage("");
+    try {
+      if (captureDestination === "aspect") {
+        const query = new URLSearchParams({
+          token: sessionToken ?? "",
+          jobId: download.jobId,
+        });
+        const response = await fetch(
+          `/api/capture/save/aspect?${query.toString()}`,
+          { method: "POST" },
+        );
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          files?: string[];
+        };
+        if (!response.ok) {
+          throw new Error(body.error || `Aspect save failed: HTTP ${response.status}`);
+        }
+        setDestinationMessage(
+          `Saved ${body.files?.join(", ") || filename} to Aspect.`,
+        );
+        return;
+      }
+
+      const picker = getCaptureDirectoryPicker();
+      const pickDirectory: CaptureDirectoryPicker = directoryHandle.current
+        ? async () => directoryHandle.current!
+        : picker ?? (async () => {
+            throw new Error("Folder selection is unavailable in this browser.");
+          });
+      await saveCaptureToDirectory(downloadUrl, filename, pickDirectory);
+      setDestinationMessage(`Saved ${filename} to the selected folder.`);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (captureDestination === "folder") {
+        directoryHandle.current = null;
+        updateCaptureDestination("local");
+        triggerBrowserDownload(downloadUrl, filename);
+        setDestinationMessage(
+          `Selected folder is unavailable. Started browser download for ${filename}.`,
+        );
+      } else {
+        setDestinationMessage(
+          error instanceof Error ? error.message : "Could not save capture.",
+        );
+      }
+    } finally {
+      setSavingCaptureId(null);
+    }
+  };
 
   // Access live SDR settings from store for validation
   const gain = useAppSelector((s) => s.spectrum.gain);
@@ -997,6 +1337,86 @@ export const IQCaptureControlsSection: React.FC<
       )}
 
       <CaptureActions>
+        <DestinationControls>
+          <DestinationButton
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={destinationMenuOpen}
+            onClick={() => setDestinationMenuOpen((open) => !open)}
+          >
+            <Download size={14} />
+            <span>Download to</span>
+            <span>
+              {captureDestination === "folder"
+                ? captureFolderName || "~/Downloads"
+                : captureDestination === "aspect"
+                  ? "Aspect"
+                  : "~/Downloads"}
+            </span>
+            <ChevronDown size={14} />
+          </DestinationButton>
+          {destinationMenuOpen && (
+            <DestinationMenu role="menu" aria-label="Capture destination">
+              <DestinationOption
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  directoryHandle.current = null;
+                  setCaptureFolderName("");
+                  updateCaptureDestination("local");
+                  setDestinationMenuOpen(false);
+                }}
+              >
+                <Download size={12} />
+                {CAPTURE_DESTINATION_PROVIDERS.find(
+                  (provider) => provider.id === "local",
+                )?.label}
+              </DestinationOption>
+              <DestinationOption
+                type="button"
+                role="menuitem"
+                $disabled={!folderPickerAvailable}
+                disabled={!folderPickerAvailable}
+                title={
+                  folderPickerAvailable
+                    ? "Choose where captures are saved"
+                    : "Folder selection is unavailable in this browser"
+                }
+                onClick={() => void chooseCaptureFolder()}
+              >
+                <FolderOpen size={12} />
+                {CAPTURE_DESTINATION_PROVIDERS.find(
+                  (provider) => provider.id === "folder",
+                )?.label}
+              </DestinationOption>
+              <DestinationOption
+                type="button"
+                role="menuitem"
+                $disabled={!aspectAvailable}
+                disabled={!aspectAvailable}
+                title={
+                  aspectAvailable
+                    ? "Save captures to the configured Aspect mount"
+                    : "Set N_APT_ASPECT_PATH in the backend environment"
+                }
+                onClick={() => {
+                  updateCaptureDestination("aspect");
+                  setDestinationMenuOpen(false);
+                }}
+              >
+                <HardDrive size={12} />
+                {CAPTURE_DESTINATION_PROVIDERS.find(
+                  (provider) => provider.id === "aspect",
+                )?.label}
+              </DestinationOption>
+              {!aspectAvailable && (
+                <DestinationHint>
+                  Set N_APT_ASPECT_PATH in the backend environment.
+                </DestinationHint>
+              )}
+            </DestinationMenu>
+          )}
+        </DestinationControls>
         <CaptureButton
           $paused={false}
           $disabled={isCaptureDisabled}
@@ -1026,6 +1446,9 @@ export const IQCaptureControlsSection: React.FC<
             <Trash2 size={12} /> Clear
           </ClearStatusButton>
         </DownloadsHeader>
+        {destinationMessage && (
+          <DestinationHint role="status">{destinationMessage}</DestinationHint>
+        )}
         {persistedDownloads.length > 0 && isAuthenticated ? (
           persistedDownloads.map((download) => (
             <DownloadCard
@@ -1055,7 +1478,23 @@ export const IQCaptureControlsSection: React.FC<
                       formatDurationMs(download.duration)}
                   </DownloadMeta>
                 </div>
-                <StatusValue $tone="success">Complete</StatusValue>
+                <div style={{ display: "grid", justifyItems: "end", gap: 4 }}>
+                  <StatusValue $tone="success">Complete</StatusValue>
+                  <SaveCaptureButton
+                    type="button"
+                    disabled={savingCaptureId === download.jobId}
+                    onClick={() => void saveCaptureToDestination(download)}
+                    title={`Save ${download.filename || "capture"} to the selected destination`}
+                  >
+                    {savingCaptureId === download.jobId
+                      ? "Saving…"
+                      : captureDestination === "aspect"
+                        ? "Save to Aspect"
+                        : captureDestination === "folder"
+                          ? "Save to folder"
+                          : "Save to Downloads"}
+                  </SaveCaptureButton>
+                </div>
               </InfoRow>
             </DownloadCard>
           ))
@@ -1088,8 +1527,9 @@ export const IQCaptureControlsSection: React.FC<
               )}
             </>
           }
-          defaultOpen={defaultOpen}
-          open={open}
+          defaultOpen={savedCollapsibleOpen ?? defaultOpen}
+          open={open ?? savedCollapsibleOpen}
+          onOpenChange={persistIqCaptureOpenState}
           sectionId="iq-capture"
         >
           <SectionBody>{captureContent}</SectionBody>

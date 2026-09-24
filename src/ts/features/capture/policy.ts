@@ -84,7 +84,7 @@ export function resolveCliCaptureFrequencySpan(
     centerFrequencyHz <= 0
   ) {
     throw new Error(
-      "Capture center frequency is unavailable; pass --center-frequency <Hz>",
+      "Capture target center frequency is unavailable; pass --center-frequency <Hz>",
     );
   }
   if (

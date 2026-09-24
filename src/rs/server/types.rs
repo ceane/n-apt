@@ -132,6 +132,7 @@ pub enum SdrCommand {
   },
   StartCapture {
     job_id: String,
+    source_id: Option<String>,
     fragments: Vec<(f64, f64)>,
     bandwidth: Option<u64>,
     bandwidth_center_frequency: Option<u64>,
@@ -140,8 +141,10 @@ pub enum SdrCommand {
     file_type: String,
     acquisition_mode: String,
     encrypted: bool,
+    sample_rate: Option<u32>,
     fft_size: usize,
     fft_window: String,
+    frame_rate: Option<u32>,
     geolocation: Option<GeolocationData>,
     ref_based_demod_baseline: Option<String>,
     is_ephemeral: bool,
@@ -1340,6 +1343,11 @@ pub struct CaptureDownloadParams {
   #[serde(rename = "jobId")]
   #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub job_id: String,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CaptureDestinationParams {
+  pub token: String,
 }
 
 /// Helper struct for capture fragments in tests

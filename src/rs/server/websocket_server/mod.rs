@@ -1359,6 +1359,7 @@ impl WebSocketServer {
           }
           crate::server::types::SdrCommand::StartCapture {
             job_id,
+            source_id,
             fragments,
             bandwidth,
             bandwidth_center_frequency,
@@ -1367,8 +1368,10 @@ impl WebSocketServer {
             file_type,
             acquisition_mode,
             encrypted,
+            sample_rate,
             fft_size,
             fft_window,
+            frame_rate,
             geolocation,
             ref_based_demod_baseline,
             is_ephemeral,
@@ -1377,6 +1380,7 @@ impl WebSocketServer {
             capture_worker
               .start(CaptureStartRequest {
                 job_id,
+                source_id,
                 fragments,
                 bandwidth,
                 bandwidth_center_frequency,
@@ -1385,8 +1389,10 @@ impl WebSocketServer {
                 file_type,
                 acquisition_mode,
                 encrypted,
+                sample_rate,
                 fft_size,
                 fft_window,
+                frame_rate,
                 geolocation,
                 ref_based_demod_baseline,
                 is_ephemeral,
