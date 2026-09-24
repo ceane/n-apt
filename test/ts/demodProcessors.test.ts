@@ -127,6 +127,30 @@ describe("APT demod processor variants", () => {
   });
 });
 
+describe("AM envelope demod processor", () => {
+  it("recovers a low-frequency envelope from a baseband AM carrier", () => {
+    const sampleRateHz = 256_000;
+    const iq = new Uint8Array(sampleRateHz / 2 * 2);
+    for (let index = 0; index < iq.length / 2; index++) {
+      const time = index / sampleRateHz;
+      const envelope = 0.55 + 0.35 * Math.sin(2 * Math.PI * 1_000 * time);
+      const phase = 2 * Math.PI * 12_000 * time;
+      iq[index * 2] = 128 + Math.round(120 * envelope * Math.cos(phase));
+      iq[index * 2 + 1] = 128 + Math.round(120 * envelope * Math.sin(phase));
+    }
+
+    const audio = createDemodProcessor("am", {
+      targetSampleRate: 48_000,
+      centerFrequency: 0,
+      bandwidth: 25_000,
+    }).process(iq, sampleRateHz, 0);
+
+    expect(audio.length).toBeGreaterThan(20_000);
+    expect(peakOf(audio)).toBeGreaterThan(0.05);
+    expect(peakOf(audio)).toBeLessThanOrEqual(1);
+  });
+});
+
 describe("fmDiscriminator demod processor", () => {
   it("exposes a distinct FM discriminator algorithm from broadcast FM", () => {
     const options = {

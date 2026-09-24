@@ -281,13 +281,15 @@ const availableNodes: NodeType[] = [
   {
     id: "coreml",
     type: "custom",
-    label: "CoreML",
-    description: "Machine learning inference",
+    label: "ML Audio Demodulator",
+    description:
+      "Resumable local A/B audio survey, paired stimulus captures, and time-domain machine-learning demodulation.",
     icon: <Cpu size={16} />,
     position: { x: 100, y: 150 },
     data: {
-      label: "CoreML",
-      description: "Machine learning inference",
+      label: "ML Audio Demodulator",
+      description:
+        "Resumable local A/B audio survey, paired stimulus captures, and time-domain machine-learning demodulation.",
       coremlOptions: true,
     },
   },

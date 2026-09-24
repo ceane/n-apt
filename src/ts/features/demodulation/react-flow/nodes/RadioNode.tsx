@@ -293,6 +293,7 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
             }
             disabled={hasFmNodeUpstream}
           >
+            <option value="am">AM Envelope</option>
             <option value="fm">FM (Wideband/Narrow)</option>
             <option value="fmDiscriminator">FM Discriminator Test</option>
             <option value="aptAudio">APTAudio (NOAA Satellite audio)</option>

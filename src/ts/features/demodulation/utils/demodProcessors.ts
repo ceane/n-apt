@@ -9,7 +9,12 @@ import {
 const FM_BROADCAST_PEAK_DEVIATION_HZ = 75_000;
 
 /** Algorithms available to the live demodulation pipeline. */
-export type DemodAlgorithm = "fm" | "fmDiscriminator" | "aptAudio" | "aptImage";
+export type DemodAlgorithm =
+  | "am"
+  | "fm"
+  | "fmDiscriminator"
+  | "aptAudio"
+  | "aptImage";
 
 /** Configuration shared by the streaming demodulator implementations. */
 export type DemodProcessorOptions = {
@@ -268,6 +273,70 @@ function fmDiscriminatorProcessor(options: DemodProcessorOptions): DemodProcesso
   };
 }
 
+/** Builds an envelope detector for amplitude-modulated audio. */
+function amProcessor(options: DemodProcessorOptions): DemodProcessor {
+  const shiftState: ShiftState = { phase: 0 };
+  const filterState: LowPassState = { prevI: 0, prevQ: 0 };
+  const resampler = createStreamingResampler();
+  let dcBias = 0;
+  let lp1 = 0;
+  let lp2 = 0;
+
+  const reset = () => {
+    shiftState.phase = 0;
+    filterState.prevI = 0;
+    filterState.prevQ = 0;
+    dcBias = 0;
+    lp1 = 0;
+    lp2 = 0;
+    resampler.reset();
+  };
+
+  return {
+    reset,
+    process(iqData, inputRate, frameCenterFrequencyHz) {
+      const samples = Math.floor(iqData.length / 2);
+      if (!samples || !Number.isFinite(inputRate) || inputRate <= 0) {
+        return new Float32Array();
+      }
+      const offsetHz =
+        (options.centerFrequency ?? 0) -
+        (frameCenterFrequencyHz ?? options.centerFrequency ?? 0);
+      const shifted = shiftIqToBaseband(
+        iqData,
+        inputRate,
+        offsetHz,
+        shiftState,
+      );
+      const filtered = applyComplexLowPass(
+        shifted,
+        inputRate,
+        options.bandwidth ?? 25_000,
+        filterState,
+      );
+      const audio = new Float32Array(samples);
+      const audioCutoffHz = Math.min(12_000, options.targetSampleRate / 2.2);
+      const alpha =
+        1 /
+        inputRate /
+        (1 / (2 * Math.PI * audioCutoffHz) + 1 / inputRate);
+
+      for (let i = 0; i < samples; i++) {
+        const inPhase = filtered[i * 2];
+        const quadrature = filtered[i * 2 + 1];
+        const envelope = Math.hypot(inPhase, quadrature);
+        dcBias += 0.0005 * (envelope - dcBias);
+        const centered = envelope - dcBias;
+        lp1 += alpha * (centered - lp1);
+        lp2 += alpha * (lp1 - lp2);
+        audio[i] = Math.max(-1, Math.min(1, lp2 * 4));
+      }
+
+      return resampler.process(audio, inputRate, options.targetSampleRate);
+    },
+  };
+}
+
 /**
  * Builds the APT processor shared by APTAudio and APTImage.
  *
@@ -339,6 +408,8 @@ export function createDemodProcessor(
   options: DemodProcessorOptions,
 ): DemodProcessor {
   switch (algorithm) {
+    case "am":
+      return amProcessor(options);
     case "fm":
       return fmProcessor(options);
     case "fmDiscriminator":
