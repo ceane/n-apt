@@ -2,7 +2,9 @@
 
 ## Task and current stopping point
 
-**Latest priority:** See [LUNA_RECORDING_HANDOFF.md](./LUNA_RECORDING_HANDOFF.md) for the guarded Lossless I/Q recorder, source/staleness controls, and browser-export preparation integration. See [CAPTURE_QUALITY_HANDOFF.md](./CAPTURE_QUALITY_HANDOFF.md) for the proposed universal configurable quality contract spanning demodulation and classification. Live SDR observations and backend logs are in [LIVE_VALIDATION.md](./LIVE_VALIDATION.md). The native classifier has its own enable flag; the main spectrum route deliberately disables spike detection. The normal backend capture command applies settings and tunes the receiver, so it is not part of passive recording.
+**Latest priority (2026-09-24):** Follow [TRAINING_PLAN.md](./TRAINING_PLAN.md) for the proposed learning method, forward/backpropagation explanation, gradient-descent/Adam recipe, trainer defects, and ordered implementation tasks. Start with trainer correctness before fitting real recordings. The existing logistic and neural candidates are prototypes, not validated models.
+
+Capture context: see [LUNA_RECORDING_HANDOFF.md](./LUNA_RECORDING_HANDOFF.md) for the guarded Lossless I/Q recorder, source/staleness controls, and browser-export preparation integration. See [CAPTURE_QUALITY_HANDOFF.md](./CAPTURE_QUALITY_HANDOFF.md) for the proposed universal configurable quality contract spanning demodulation and classification. Live SDR observations and backend logs are in [LIVE_VALIDATION.md](./LIVE_VALIDATION.md). The native classifier has its own enable flag; the main spectrum route deliberately disables spike detection. The normal backend capture command applies settings and tunes the receiver, so it is not part of passive recording.
 
 Continue the user's approved implementation plan, starting from the shared native-spectrum core below. Run classification in the browser with no new browser ML runtime. Train offline with Python/NumPy/PyTorch and MPS when available. Preserve the Swift service for later native integration. Do not modify spike detection or demodulation.
 
@@ -41,7 +43,7 @@ The classifier pipeline files described below are tracked at the current branch 
 - [x] Keep feature order and `native-morphology-v1` preprocessing contract synchronized across TS, WGSL, and exported artifacts.
 - [x] Add async shader compilation/validation error propagation; invalid GPU pipelines reject.
 - [ ] Test and harden busy/disposed/device-lost behavior and readback cleanup, including failures mid-flight.
-- [ ] Add explicit partial-shape availability/support metadata. Current partial-bridge value alone does not distinguish unavailable from absent; avoid treating missing support as negative evidence.
+- [ ] Add explicit coherence/truncation, visibility, and measurement-support metadata. The historical `partialBridge` value alone does not distinguish unavailable from absent; do not introduce a human label called “partial shape” or treat missing support as negative evidence.
 - [ ] Verify temporal duplicate handling across stale/out-of-order frames, source changes, crop changes, FFT/window changes, and gaps. Test equal acquisition intervals under different repaint/frame delivery cadences. Do not silently count invalid evidence as negative persistence.
 - [ ] Review provisional feature extraction for DC/spurs, random combs, sinc artifacts, partial bridges, U-dips, and coarse resolution. Current three-point envelope sampling and maximum-based scores are a starting baseline, not validated replacements for the existing geometric features.
 - [ ] Bound input/model sizes and reject malformed artifacts. Keep CPU fallback or explicit unavailability distinct from a valid negative classification.
@@ -61,9 +63,10 @@ The classifier pipeline files described below are tracked at the current branch 
 - [ ] Classify accepts arbitrary prepared captures plus a validated model and exports timestamped scores, decisions, availability, resolution, quality, and recording summaries. No training labels required for classification.
 - [ ] Add CLI integration tests with generated raw I/Q in temporary directories, malformed metadata, all supported formats, crops, and incomplete frames.
 
-### 3. Trainer and evaluator (implemented; independent data/evaluation remains)
+### 3. Trainer and evaluator (prototypes; correctness repairs precede real-data fitting)
 
 - [x] Implement trainer APIs/CLI and pass `test/classifier/test_training.py`.
+- [ ] Complete the source-inspection repair checklist in [TRAINING_PLAN.md](./TRAINING_PLAN.md#current-trainer-findings-to-repair-first): PyTorch layer export, NumPy output-bias updates, preprocessing agreement, sampling weights, abstentions, and supported-rate claims. Existing four Python tests do not exercise fitting correctness.
 - [ ] Keep NumPy/PyTorch offline dependencies in a classifier-specific requirements file and document an isolated environment. Base Python has NumPy; PyTorch/Core ML were absent when inspected.
 - [ ] Exclude uncertain, acceptance, and unlabeled records from fitting/threshold selection. Reject sessions appearing in multiple splits. Normalize using training data only.
 - [ ] Compare standardized logistic regression against a ReLU network with exactly 16 hidden units. Fixed seed; MPS where supported, CPU fallback; export the same portable weights used by TS/WGSL.
@@ -122,17 +125,13 @@ The classifier pipeline files described below are tracked at the current branch 
 
 ## Suggested next work
 
-### First: agree on the learning method
+The [learning and evaluation plan](./TRAINING_PLAN.md) now supplies the method discussion and concrete proposed experiment. Its defaults are starting points, not measured optimum settings. Implement in this order:
 
-The trainer currently contains logistic-regression and 16-unit ReLU-network prototypes, but these are engineering candidates, not a method the user has reviewed or selected. Before fitting real recordings or presenting the pipeline as a finished ML design, write a short decision note that explains in plain language:
+1. Repair and test fitting/export correctness, gradients, normalization, weighting, and abstention handling.
+2. Verify V6 capture options/interruption boundaries and external label provenance through offline extraction.
+3. Audit feature sufficiency, especially pulsing and availability. Learning combinations of existing features cannot recover information the extractor discarded.
+4. Make the logistic gradient-descent and neural backpropagation/Adam runs reproducible, bounded, and numerically consistent with TS/WGSL inference.
+5. Collect independently labeled positive and real RF negative sessions at 3.2 MS/s; compare rules and both candidates on shared frames. Use validation balanced accuracy, preserve all session splits, and evaluate the selected model once on untouched sessions. Synthetic mocks remain a separate challenge set.
+6. Measure browser latency/render impact in shadow mode before considering promotion. Prefer logistic regression when the neural candidate does not justify its added complexity.
 
-- What the target means (recognizable N-APT morphology, real negative, or insufficient evidence), how uncertain labels and unavailable features are handled, and which feature vector is being learned.
-- How logistic regression learns its weights and how the neural candidate uses backpropagation plus gradient descent; compare their objective, optimizer, regularization, session/recording weighting, stopping rule, and interpretability.
-- How validation balanced accuracy selects the decision threshold, how probabilities are calibrated or explicitly left uncalibrated, and why the untouched session split remains untouched.
-- What the small-model browser cost and failure/fallback behavior are, and what evidence would justify choosing the more complex network over logistic regression.
-
-Keep current models shadow-only while that decision is open. Do not infer a preferred optimizer from the existence of the current trainer implementation.
-
-### Then: independent evidence and measured comparison
-
-Collect independently labeled positive and real-negative sessions at 3.2 MS/s, keeping sessions separate across train/validation/test. Compare the old classifier, improved deterministic rules, and learned models on the same timestamped native FFT frames, broken out by FFT size and crop visibility. Address the legacy failures from independent evidence rather than special-casing acceptance recordings. Then measure latency/render impact with the connected SDR. The current browser panel is shadow-only and its rules are diagnostic, not a promoted classifier.
+The next bounded implementation task is **trainer correctness**, not model promotion or a large training run. The plan update changes documentation only; the listed code defects remain to be fixed.
