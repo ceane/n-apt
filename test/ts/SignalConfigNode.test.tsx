@@ -10,6 +10,8 @@ import sourceRoutingReducer from "@n-apt/redux/slices/sourceRoutingSlice";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 
 const mockSignalDisplayProps: Record<string, unknown>[] = [];
+const mockSetFftSize = jest.fn();
+const mockSetFftFrameRate = jest.fn();
 
 jest.mock("@n-apt/spectrum/public/SignalDisplaySection", () => ({
   SignalDisplaySection: (props: { temporalResolution: string }) => {
@@ -40,8 +42,8 @@ jest.mock("@n-apt/settings/public/useSdrSettings", () => ({
     maxFrameRate: 60,
     fftSizeOptions: [2048],
     setSampleRate: jest.fn(),
-    setFftFrameRate: jest.fn(),
-    setFftSize: jest.fn(),
+    setFftFrameRate: mockSetFftFrameRate,
+    setFftSize: mockSetFftSize,
     setFftWindow: jest.fn(),
     setPpm: jest.fn(),
     setGain: jest.fn(),
@@ -79,7 +81,9 @@ jest.mock("@n-apt/spectrum/public/useSpectrumTransport", () => ({
 }));
 
 describe("SignalConfigNode", () => {
-  it("starts demod signal configuration at Lossless temporal resolution", () => {
+  it("enforces Lossless for demod and reports unmet FFT/source requirements", () => {
+    mockSetFftSize.mockClear();
+    mockSetFftFrameRate.mockClear();
     const store = configureStore({
       reducer: {
         spectrum: spectrumReducer,
@@ -109,12 +113,16 @@ describe("SignalConfigNode", () => {
       </Provider>,
     );
 
-    expect(
-      screen.getByRole("combobox", { name: "Temporal Resolution" }),
-    ).toHaveValue("lossless");
-    expect(store.getState().spectrum.displayTemporalResolution).toBe(
-      "lossless",
-    );
+    expect(screen.getByRole("combobox", { name: "Temporal Resolution" })).toHaveValue("lossless");
+    expect(store.getState().spectrum.displayTemporalResolution).toBe("lossless");
+    expect(screen.getByTestId("demod-quality-status")).toHaveAttribute("data-quality-fit", "unmet");
+    expect(screen.getByTestId("demod-quality-status")).toHaveTextContent(/32768|receive-capable/);
+    const props = mockSignalDisplayProps[mockSignalDisplayProps.length - 1];
+    expect(props.fftSizeOptions).toEqual([]);
+    (props.onFftSizeChange as (size: number) => void)(2048);
+    (props.onFftFrameRateChange as (rate: number) => void)(20);
+    expect(mockSetFftSize).not.toHaveBeenCalled();
+    expect(mockSetFftFrameRate).not.toHaveBeenCalled();
   });
 
   it("passes the Remove DC Spike toggle through to the signal display section", () => {
