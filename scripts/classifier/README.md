@@ -1,0 +1,41 @@
+# Offline native-spectrum classifier
+
+The browser path uses the application's WebGPU device and adds no model-runtime dependency. Model training and capture processing are separate operator-run tools. Keep decrypted captures and derived feature files under `/private/tmp` or another local-only folder; never add raw captures, keys, or generated datasets to Git.
+
+Install the small baseline dependency with `python3 -m venv .venv-classifier && .venv-classifier/bin/pip install -r scripts/classifier/requirements.txt`. The NumPy logistic and 16-unit MLP trainers need only NumPy. To enable accelerated MPS training on Apple Silicon, install optional PyTorch with `.venv-classifier/bin/pip install -r scripts/classifier/requirements-pytorch.txt`. `--device auto` uses MPS if available, then CPU; NumPy is the fallback when PyTorch is absent. `--device mps` requires an available MPS backend.
+
+Create a JSON manifest with explicit recording ids, session ids, split, label (`matching`, `nonmatching`, or `uncertain`), path, sample format (`napt`, `u8`, `s16le`, `f32le`, or `browser-capture`), sample rate in Hz, and center frequency in Hz. For `.napt`, provide `fftSize`; password loading reuses the existing local `.env.local` / environment contract and does not print credentials. Splits are assigned by whole session and validated before processing. Keep attached acceptance captures in the `acceptance` split; the trainer excludes them. Uncertain rows are never used for fitting or threshold selection.
+
+The browser classifier's **Start training capture → Stop/export** button downloads two linked files: a label-agnostic I/Q capture and an annotation sidecar. Capture metadata stores the initial applied RX options once, then compact `PatchOptionsApplied` and `StreamInterrupted` events aligned to exact byte/frame/timestamp boundaries. Each frame contains only its epoch/revision, sequence, timestamp, valid sample count, and raw I/Q bytes; frames remain independent and are never joined across a gap. Labels, observed N-APT channel, morphology toggles, condition tags, and `InterferenceMarked` events live only in the sidecar keyed by `captureId`/`sessionId`. You can revise labels after capture without changing the raw recording. `prepare` joins a sidecar only when the manifest explicitly names it and the IDs match; unlabeled captures remain valid input for inspection or classification. Keep each capture as its own source recording and assign its full acquisition session to exactly one split. Example:
+
+```json
+{
+  "recordings": [{
+    "id": "channel-a-session-01",
+    "session": "channel-a-session-01",
+    "split": "train",
+    "label": "matching",
+    "input": "captures/channel-a.json",
+    "annotations": "captures/channel-a.annotations.json",
+    "format": "browser-capture",
+    "sampleRateHz": 3200000,
+    "centerFrequencyHz": 137500000
+  }]
+}
+```
+
+For a real classifier, use separate manually reviewed captures for training, validation, and untouched test sessions, including real negative signals. The supplied mock negatives remain useful regression fixtures but are not a substitute for real negatives.
+
+```sh
+node scripts/classifier/cli.mjs prepare --manifest manifest.json --out /private/tmp/napt-classifier/prepared --env-file .env.local
+node scripts/classifier/cli.mjs extract --dataset /private/tmp/napt-classifier/prepared/dataset.json --fft-sizes 1024,4096,16384 --crops 0:1,0.25:0.75 --window hann --max-frames 64 --out /private/tmp/napt-classifier/features.jsonl
+python3 scripts/classifier/train.py train --features /private/tmp/napt-classifier/features.jsonl --model /private/tmp/napt-classifier/model.json --report /private/tmp/napt-classifier/validation.json
+python3 scripts/classifier/train.py evaluate --features /private/tmp/napt-classifier/features.jsonl --split test --model /private/tmp/napt-classifier/model.json --report /private/tmp/napt-classifier/test.json
+node scripts/classifier/cli.mjs classify --input /private/tmp/napt-classifier/prepared/dataset.json --model /private/tmp/napt-classifier/model.json --out /private/tmp/napt-classifier/classifications.jsonl
+```
+
+`extract` runs the shared WGSL features in a temporary local headless Chromium instance, without the app server. It uses overlapping 50% windows and samples up to 64 representative frames evenly across each capture per FFT/crop (configurable from 1 to 256). FFT size denotes actual analysis samples; a short final window has its actual FFT size and valid sample count recorded. `--crops` are fractions of each resulting FFT-shifted spectrum, so native bin spacing and original crop offsets are preserved. This is a manual analysis tool, not part of CI.
+
+The current feature scales, threshold, and `native-morphology-v1` extractor need calibration against independent, explicitly labeled sessions. Synthetic data only tests data flow. Reports break out resolution/session/visibility and must include insufficient-evidence coverage; they are not grounds to promote an unvalidated model. Only 3.2 MS/s is currently targeted. No validation claim should be made for another rate without captured, labeled evaluation data.
+
+Sidebar morphology/condition toggles are annotations in the sidecar, never model inputs. The current trainer learns only the binary `matching`/`nonmatching` target; the toggles are preserved for review but do not yet train separate feature predictions. Native v1 includes rough within-frame peak spacing and peak prominence above a 20th-percentile spectral-floor estimate, plus duration-weighted bridge/U-dip persistence. It does not yet measure pulse rate, duty cycle, amplitude-modulation depth, or rise/fall timing.
