@@ -69,6 +69,9 @@ export const IQCaptureNode = memo(
     const { isConnected, deviceState, captureStatus } = useAppSelector(
       (state) => state.websocket,
     );
+    const activeSourceId = useAppSelector(
+      (state) => state.websocket.activeSourceId,
+    );
     const spectrumRange = useAppSelector(
       (state) => state.spectrum.frequencyRange,
     );
@@ -321,6 +324,7 @@ export const IQCaptureNode = memo(
       dispatch(
         sendCaptureCommand({
           jobId,
+          sourceId: activeSourceId ?? undefined,
           fragments,
           bandwidth: bandwidthHz,
           bandwidthCenterFrequency: bandwidthCenterFrequencyHz || undefined,

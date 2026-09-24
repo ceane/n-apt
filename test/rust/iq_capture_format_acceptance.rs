@@ -45,6 +45,9 @@ fn capture(file_type: &str, encrypted: bool, case: &str) -> CaptureResult {
       sample_offset: 0,
       timestamp_us: 1_234,
       channel: None,
+      kind: Some("PatchOptionsApplied".to_string()),
+      source_id: Some("rtl-sdr-acceptance".to_string()),
+      job_id: Some(format!("iq_format_acceptance_{case}")),
       patch: serde_json::json!({ "center_frequency_hz": 137_500_000 }),
     }],
     device_profile: Some(serde_json::json!({ "kind": "Acceptance SDR" })),
@@ -131,6 +134,7 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
         assert_eq!(metadata["format"], "wav");
         assert_eq!(metadata["format_version"], 3);
         assert_eq!(metadata["encrypted"], false);
+        assert_eq!(metadata["frame_updates"], serde_json::json!(input.frame_updates));
       }
       _ => unreachable!(),
     }

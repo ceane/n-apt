@@ -289,6 +289,68 @@ pub struct CaptureResult {
   pub device_profile: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CaptureOptionsSnapshot {
+  center_frequency_hz: u32,
+  sample_rate_hz: u32,
+  fft_size: usize,
+  fft_window: String,
+  gain_db: f64,
+  ppm: u32,
+  frame_rate_hz: u32,
+}
+
+fn changed_capture_options_patch(
+  before: &CaptureOptionsSnapshot,
+  after: &CaptureOptionsSnapshot,
+) -> serde_json::Map<String, serde_json::Value> {
+  let mut patch = serde_json::Map::new();
+  if before.center_frequency_hz != after.center_frequency_hz {
+    patch.insert("center_frequency_hz".into(), serde_json::json!(after.center_frequency_hz));
+  }
+  if before.sample_rate_hz != after.sample_rate_hz {
+    patch.insert("sample_rate_hz".into(), serde_json::json!(after.sample_rate_hz));
+  }
+  if before.fft_size != after.fft_size {
+    patch.insert("fft_size".into(), serde_json::json!(after.fft_size));
+  }
+  if before.fft_window != after.fft_window {
+    patch.insert("fft_window".into(), serde_json::json!(after.fft_window));
+  }
+  if (before.gain_db - after.gain_db).abs() > 0.01 {
+    patch.insert("gain".into(), serde_json::json!(after.gain_db));
+  }
+  if before.ppm != after.ppm {
+    patch.insert("ppm".into(), serde_json::json!(after.ppm));
+  }
+  if before.frame_rate_hz != after.frame_rate_hz {
+    patch.insert("frame_rate_hz".into(), serde_json::json!(after.frame_rate_hz));
+  }
+  patch
+}
+
+impl SdrProcessor {
+  fn capture_options_snapshot(&self) -> CaptureOptionsSnapshot {
+    CaptureOptionsSnapshot {
+      center_frequency_hz: self.device.get_center_frequency(),
+      sample_rate_hz: self.device.get_sample_rate(),
+      fft_size: self.fft_processor.config().fft_size,
+      fft_window: self.fft_processor.config().window_type.to_string(),
+      gain_db: if self.current_gain_db.is_finite() && self.current_gain_db > -100.0 {
+        self.current_gain_db
+      } else {
+        self.capture_gain
+      },
+      ppm: if self.current_ppm == u32::MAX { self.capture_ppm } else { self.current_ppm },
+      frame_rate_hz: self.display_frame_rate,
+    }
+  }
+
+  pub(crate) fn reset_capture_options_baseline(&mut self) {
+    self.capture_last_frame_signature = Some(self.capture_options_snapshot());
+  }
+}
+
 /// A device taken out of the processor so its native teardown can run without
 /// holding the processor lock.
 pub struct DetachedDevice {
@@ -423,7 +485,9 @@ pub struct SdrProcessor {
   pub power_scale: crate::server::types::PowerScale,
   pub capture_requested_channels: Option<Vec<ChannelSpec>>,
   pub capture_frame_updates: Vec<crate::server::iq_format::FrameUpdate>,
-  pub capture_last_frame_signature: Option<(u32, u32, String)>,
+  pub(crate) capture_last_frame_signature: Option<CaptureOptionsSnapshot>,
+  /// Source bound to this capture; populated from the authoritative active source at start.
+  pub capture_source_id: Option<String>,
 }
 
 impl SdrProcessor {
@@ -548,6 +612,7 @@ impl SdrProcessor {
       capture_requested_channels: None,
       capture_frame_updates: Vec::new(),
       capture_last_frame_signature: None,
+      capture_source_id: None,
     };
 
     let mut processor = processor;
@@ -1077,6 +1142,9 @@ impl SdrProcessor {
       &display_samples,
       &mut self.frame.spectrum_buffer,
     )?;
+    let capture_signature = self
+      .capture_active
+      .then(|| self.capture_options_snapshot());
     let spectrum = &mut self.frame.spectrum_buffer;
 
     // DC spike suppression (skip for mock devices as they don't have hardware DC offset)
@@ -1120,40 +1188,37 @@ impl SdrProcessor {
       );
       let ch_idx = self.capture_current_fragment;
       if ch_idx < self.capture_channels.len() {
-        let signature = (
-          self.device.get_center_frequency(),
-          display_samples.sample_rate,
-          self.capture_fft_window.clone(),
-        );
-        if self.capture_last_frame_signature.as_ref() != Some(&signature) {
-          let mut patch = serde_json::Map::new();
-          patch.insert(
-            "center_frequency_hz".into(),
-            serde_json::json!(signature.0),
-          );
-          patch.insert("sample_rate_hz".into(), serde_json::json!(signature.1));
-          patch.insert(
-            "fft_size".into(),
-            serde_json::json!(self.capture_fft_size),
-          );
-          patch.insert("fft_window".into(), serde_json::json!(signature.2));
-          patch.insert("gain".into(), serde_json::json!(self.capture_gain));
+        let signature = capture_signature
+          .as_ref()
+          .expect("active capture has an options snapshot")
+          .clone();
+        if self.capture_channels[ch_idx].bins_per_frame == 0 {
+          self.capture_channels[ch_idx].bins_per_frame = signature.fft_size as u32;
+        }
+        let patch = self
+          .capture_last_frame_signature
+          .as_ref()
+          .map(|previous| changed_capture_options_patch(previous, &signature))
+          .unwrap_or_default();
+        if !patch.is_empty() {
           let update = crate::server::iq_format::FrameUpdate {
-              sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
-              timestamp_us: self
-                .capture_start
-                .map(|s| s.elapsed().as_micros() as u64)
-                .unwrap_or(0),
-              channel: Some(ch_idx as u32),
-              patch: serde_json::Value::Object(patch),
-            };
+            sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
+            timestamp_us: self
+              .capture_start
+              .map(|s| s.elapsed().as_micros() as u64)
+              .unwrap_or(0),
+            channel: Some(ch_idx as u32),
+            kind: Some("PatchOptionsApplied".into()),
+            source_id: self.capture_source_id.clone(),
+            job_id: self.capture_job_id.clone(),
+            patch: serde_json::Value::Object(patch),
+          };
           append_capture_bytes(
             &mut self.capture_channels[ch_idx].iq_data,
             &mut self.capture_frame_updates,
             Some(update),
             &display_samples.data,
           );
-          self.capture_last_frame_signature = Some(signature);
         } else {
           append_capture_bytes(
             &mut self.capture_channels[ch_idx].iq_data,
@@ -1162,6 +1227,7 @@ impl SdrProcessor {
             &display_samples.data,
           );
         }
+        self.capture_last_frame_signature = Some(signature);
         self.capture_channels[ch_idx]
           .spectrum_data
           .extend_from_slice(spectrum);
@@ -2280,6 +2346,119 @@ mod hackrf_settings_tests {
   use std::sync::{Arc, Mutex};
 
   #[test]
+  fn changed_capture_options_produce_a_sparse_patch() {
+    let before = CaptureOptionsSnapshot {
+      center_frequency_hz: 100,
+      sample_rate_hz: 1_000,
+      fft_size: 256,
+      fft_window: "Hanning".into(),
+      gain_db: 12.0,
+      ppm: 1,
+      frame_rate_hz: 20,
+    };
+    let after = CaptureOptionsSnapshot {
+      center_frequency_hz: 200,
+      sample_rate_hz: 2_000,
+      fft_size: 512,
+      fft_window: "Blackman".into(),
+      gain_db: 15.0,
+      ppm: 2,
+      frame_rate_hz: 10,
+    };
+
+    let patch = changed_capture_options_patch(&before, &after);
+    assert_eq!(patch["center_frequency_hz"], 200);
+    assert_eq!(patch["sample_rate_hz"], 2_000);
+    assert_eq!(patch["fft_size"], 512);
+    assert_eq!(patch["fft_window"], "Blackman");
+    assert_eq!(patch["gain"], 15.0);
+    assert_eq!(patch["ppm"], 2);
+    assert_eq!(patch["frame_rate_hz"], 10);
+    assert_eq!(patch.len(), 7);
+    assert!(changed_capture_options_patch(&after, &after).is_empty());
+  }
+
+  #[test]
+  fn effective_fft_gain_ppm_and_frame_rate_changes_are_captured() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    let before = processor.capture_options_snapshot();
+    processor
+      .apply_settings(SdrProcessorSettings {
+        fft_size: Some(1024),
+        fft_window: Some("Blackman".into()),
+        frame_rate: Some(12),
+        sample_rate: Some(1_000_000),
+        gain: Some(18.0),
+        ppm: Some(5),
+        ..Default::default()
+      })
+      .expect("apply dynamic options");
+    let after = processor.capture_options_snapshot();
+
+    let patch = changed_capture_options_patch(&before, &after);
+    assert_eq!(patch["fft_size"], after.fft_size);
+    assert_eq!(patch["fft_window"], after.fft_window);
+    assert_eq!(patch["frame_rate_hz"], after.frame_rate_hz);
+    assert_eq!(patch["sample_rate_hz"], after.sample_rate_hz);
+    assert_eq!(patch["gain"], after.gain_db);
+    assert_eq!(patch["ppm"], after.ppm);
+  }
+
+  #[test]
+  fn capture_records_dynamic_options_at_the_first_changed_frame_boundary() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    processor
+      .start_capture(crate::server::types::CaptureRequest {
+        job_id: "dynamic-options".into(),
+        fragments: vec![crate::server::types::CaptureFragment {
+          min_freq_mhz: 137.0,
+          max_freq_mhz: 137.01,
+        }],
+        duration_s: 5.0,
+        duration_mode: "manual".into(),
+        file_type: ".iq".into(),
+        acquisition_mode: "whole_sample".into(),
+        encrypted: false,
+        fft_size: 2048,
+        fft_window: "Hanning".into(),
+        geolocation: None,
+        bandwidth: None,
+        bandwidth_center_frequency: None,
+      })
+      .expect("start capture");
+    processor.capture_source_id = Some("mock-apt".into());
+    processor.reset_capture_options_baseline();
+    processor.read_and_process_frame().expect("initial frame");
+    let first_frame_bytes = processor.capture_channels[0].iq_data.len();
+
+    processor
+      .apply_settings(SdrProcessorSettings {
+        fft_size: Some(4096),
+        fft_window: Some("Blackman".into()),
+        frame_rate: Some(10),
+        sample_rate: Some(1_600_000),
+        gain: Some(18.0),
+        ppm: Some(5),
+        ..Default::default()
+      })
+      .expect("apply dynamic settings");
+    processor.read_and_process_frame().expect("frame after settings");
+
+    let update = processor.capture_frame_updates.first().expect("sparse patch");
+    assert_eq!(update.sample_offset, first_frame_bytes as u64);
+    assert_eq!(update.timestamp_us > 0, true);
+    assert_eq!(update.kind.as_deref(), Some("PatchOptionsApplied"));
+    assert_eq!(update.source_id.as_deref(), Some("mock-apt"));
+    assert_eq!(update.channel, Some(0));
+    assert_eq!(update.patch["fft_size"], 4096);
+    assert_eq!(update.patch["fft_window"], "Blackman");
+    assert_eq!(update.patch["sample_rate_hz"], 1_600_000);
+    assert!(update.patch.get("gain").is_some());
+    assert!(update.patch.get("ppm").is_some());
+    assert!(update.patch.get("frame_rate_hz").is_some());
+  }
+
+  #[test]
   fn capture_update_byte_offset_and_processing_timestamp_precede_new_frame_bytes() {
     let mut iq_data = vec![1u8, 2, 3, 4];
     let mut updates = Vec::new();
@@ -2288,6 +2467,9 @@ mod hackrf_settings_tests {
       sample_offset: iq_data.len() as u64,
       timestamp_us: processing_timestamp_us,
       channel: None,
+      kind: Some("PatchOptionsApplied".into()),
+      source_id: Some("rtl-sdr-0".into()),
+      job_id: Some("capture-test".into()),
       patch: serde_json::json!({ "center_frequency_hz": 137_100_000 }),
     };
     append_capture_bytes(&mut iq_data, &mut updates, Some(update), &[5, 6, 7, 8]);

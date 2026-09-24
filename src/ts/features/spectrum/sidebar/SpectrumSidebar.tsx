@@ -2615,6 +2615,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
     const req: CaptureRequest = {
       jobId: `cap_${Date.now()}`,
+      sourceId: selectedSource?.id ?? selectedSourceId,
       fragments,
       durationMode: captureDurationMode,
       durationS: Math.max(1, Math.round(captureDurationS)),
@@ -2644,6 +2645,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveDeviceProfileToUse?.kind,
     liveBackend,
     liveDeviceNameToUse,
+    selectedSource?.id,
+    selectedSourceId,
     captureEncrypted,
     captureGeolocation,
     fftSize,

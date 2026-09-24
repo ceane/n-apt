@@ -155,6 +155,7 @@ impl CaptureWorker {
         return;
       }
     }
+    processor.capture_source_id = Some(resolved_active_source_id.clone());
 
     let requested_sample_rate =
       sample_rate.unwrap_or_else(|| processor.get_sample_rate());
@@ -429,9 +430,7 @@ impl CaptureWorker {
       "requestedSettings": requested_settings,
       "effectiveSettings": effective_settings
     });
-    if let Some(source_id) = source_id.as_deref() {
-      status["sourceId"] = serde_json::Value::String(source_id.to_string());
-    }
+    status["sourceId"] = serde_json::Value::String(resolved_active_source_id);
     let message = serde_json::json!({
       "type": "capture_status",
       "status": status
@@ -445,6 +444,7 @@ impl CaptureWorker {
     processor.capture_start = Some(capture_started_at);
     processor.capture_last_hop = Some(capture_started_at);
     processor.capture_active = true;
+    processor.reset_capture_options_baseline();
 
     info!(
       "Started capture job {} for {}s with acknowledged settings",
@@ -515,6 +515,19 @@ impl CaptureWorker {
         &self.shared_state,
         &self.broadcast_tx,
         None,
+      );
+    }
+  }
+
+  /// End the active capture before ownership moves to another RF source.
+  pub async fn stop_for_source_switch(&self) {
+    let mut processor = self.processor.lock().await;
+    if let Some(result) = processor.stop_capture() {
+      Self::handle_stopped(
+        result,
+        &self.shared_state,
+        &self.broadcast_tx,
+        Some("Capture stopped because the active source changed"),
       );
     }
   }
@@ -805,6 +818,33 @@ mod tests {
     );
     assert_eq!(status["effectiveSettings"]["fftSize"], 65_536);
     assert_eq!(status["effectiveSettings"]["frameRateHz"], 48);
+    assert_eq!(status["sourceId"], "mock-apt");
+    assert_eq!(processor.lock().await.capture_source_id.as_deref(), Some("mock-apt"));
+  }
+
+  #[tokio::test]
+  async fn source_switch_stops_and_reports_the_bound_capture() {
+    let processor = Arc::new(Mutex::new(
+      SdrProcessor::new_mock_apt().expect("mock processor"),
+    ));
+    let shared_state = test_shared_state();
+    let (broadcast_tx, _) = broadcast::channel(16);
+    let mut receiver = broadcast_tx.subscribe();
+    let worker = CaptureWorker::new(processor.clone(), shared_state, broadcast_tx);
+
+    worker.start(test_request("hanning")).await;
+    let _started = next_capture_status(&mut receiver).await;
+    worker.stop_for_source_switch().await;
+
+    assert!(!processor.lock().await.capture_active);
+    let mut saw_interruption = false;
+    while let Ok(Ok(raw)) = timeout(Duration::from_millis(25), receiver.recv()).await {
+      if raw.contains("active source changed") {
+        saw_interruption = true;
+        break;
+      }
+    }
+    assert!(saw_interruption, "source switch should report the capture interruption");
   }
 
   #[tokio::test]

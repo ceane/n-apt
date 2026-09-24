@@ -2160,13 +2160,14 @@ pub fn save_capture_file_multi(
     let mut chan_list = Vec::new();
     for ch in &result.channels {
       chan_list.push(serde_json::json!({
-          "center_freq_hz": ch.center_freq_hz,
-          "sample_rate_hz": ch.sample_rate_hz,
-          "bins_per_frame": ch.bins_per_frame,
-          "label": ch.label,
+        "center_freq_hz": ch.center_freq_hz,
+        "sample_rate_hz": ch.sample_rate_hz,
+        "bins_per_frame": ch.bins_per_frame,
+        "label": ch.label,
       }));
     }
     meta_with_channels["channels"] = serde_json::Value::Array(chan_list);
+    meta_with_channels["frame_updates"] = serde_json::json!(result.frame_updates);
     let meta_json = meta_with_channels.to_string();
     let meta_bytes = meta_json.as_bytes();
     let meta_padding = if (meta_bytes.len() + 1).is_multiple_of(2) {

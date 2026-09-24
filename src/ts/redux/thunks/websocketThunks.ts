@@ -470,6 +470,7 @@ export const sendCaptureCommand = createAsyncThunk(
           type: "capture",
           data: {
             jobId: req.jobId,
+            sourceId: req.sourceId,
             fragments: req.fragments,
             bandwidth:
               typeof req.bandwidth === "number" &&

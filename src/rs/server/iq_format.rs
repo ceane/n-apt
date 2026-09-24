@@ -54,6 +54,15 @@ pub struct FrameUpdate {
   /// Channel index when sample_offset is channel-local. Omitted for legacy/global updates.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub channel: Option<u32>,
+  /// Semantic event type for sparse capture metadata changes.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub kind: Option<String>,
+  /// Source that produced the bytes following this frame-boundary event.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source_id: Option<String>,
+  /// Capture job that owns this sparse update.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub job_id: Option<String>,
   pub patch: serde_json::Value,
 }
 
@@ -361,6 +370,9 @@ mod tests {
         sample_offset: 4,
         timestamp_us: 25,
         channel: None,
+        kind: None,
+        source_id: None,
+        job_id: None,
         patch: serde_json::json!({"center_frequency_hz": 137500000}),
       }],
       chunks: vec![IqChunk {

@@ -453,7 +453,7 @@ pub struct WebSocketMessage {
   pub duplex_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
   pub tx_device: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(skip_serializing_if = "Option::is_none", alias = "sourceId")]
   #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub source_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -1372,4 +1372,20 @@ pub struct CaptureRequest {
   pub geolocation: Option<GeolocationData>,
   pub bandwidth: Option<u64>,
   pub bandwidth_center_frequency: Option<u64>,
+}
+
+#[cfg(test)]
+mod capture_source_transport_tests {
+  use super::WebSocketMessage;
+
+  #[test]
+  fn capture_source_id_uses_the_websocket_camel_case_field() {
+    let message: WebSocketMessage = serde_json::from_value(serde_json::json!({
+      "type": "capture",
+      "sourceId": "rtl-sdr-0"
+    }))
+    .expect("capture command should deserialize");
+
+    assert_eq!(message.source_id.as_deref(), Some("rtl-sdr-0"));
+  }
 }

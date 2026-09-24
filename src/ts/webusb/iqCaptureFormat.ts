@@ -11,6 +11,9 @@ export interface IqCaptureFrameUpdate {
   timestamp_us: number;
   patch: Record<string, unknown>;
   channel?: number;
+  kind?: "PatchOptionsApplied" | string;
+  source_id?: string;
+  job_id?: string;
 }
 
 export interface NaptCaptureChannel {

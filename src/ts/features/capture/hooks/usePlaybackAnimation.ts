@@ -20,6 +20,29 @@ type PlaybackFrameUpdate = {
   patch: Record<string, unknown>;
 };
 
+export function getIqFrameAtOffset(
+  iq: Uint8Array,
+  byteOffset: number,
+  initialFftSize: number,
+  updates: PlaybackFrameUpdate[],
+): { data: Uint8Array; nextOffset: number; fftSize: number } | null {
+  let fftSize = initialFftSize;
+  for (const update of updates) {
+    if (Number(update.sample_offset) > byteOffset) break;
+    const patchedSize = Number(update.patch.fft_size);
+    if (Number.isInteger(patchedSize) && patchedSize > 0) fftSize = patchedSize;
+  }
+  const byteLength = fftSize * BYTES_PER_IQ_SAMPLE.u8;
+  if (!Number.isSafeInteger(byteLength) || byteLength <= 0 || byteOffset + byteLength > iq.length) {
+    return null;
+  }
+  return {
+    data: iq.subarray(byteOffset, byteOffset + byteLength),
+    nextOffset: byteOffset + byteLength,
+    fftSize,
+  };
+}
+
 export const usePlaybackAnimation = ({
   hasStitchedData,
   isPaused,
@@ -36,24 +59,25 @@ export const usePlaybackAnimation = ({
 
   const lastFrameTimeRef = useRef<number | null>(null);
 
-  const iqFrameIdxRef = useRef(0);
+  const iqFrameOffsetRef = useRef(0);
+  const currentFftSizeRef = useRef(0);
 
   // Cached per-channel derived values — avoids recomputing on every rAF tick
   const cachedIqRef = useRef<Uint8Array | null>(null);
-  const cachedTotalFramesRef = useRef(0);
-  const cachedChunkSizeRef = useRef(0);
   const cachedChannelIdRef = useRef<any>(null); // identity check for channel object
   const playbackMetadataRef = useRef<Record<string, unknown> | null>(null);
   const frameUpdateIndexRef = useRef(0);
 
   useEffect(() => {
-      if (!hasStitchedData) {
-      iqFrameIdxRef.current = 0;
+    if (!hasStitchedData) {
+      iqFrameOffsetRef.current = 0;
       lastFrameTimeRef.current = null;
       cachedIqRef.current = null;
       cachedChannelIdRef.current = null;
       playbackMetadataRef.current = null;
       frameUpdateIndexRef.current = 0;
+      iqFrameOffsetRef.current = 0;
+      currentFftSizeRef.current = 0;
     }
   }, [hasStitchedData]);
 
@@ -80,7 +104,7 @@ export const usePlaybackAnimation = ({
           playbackMetadataRef.current = {
             center_frequency_hz: channelData.center_freq_hz,
             sample_rate_hz: channelData.sample_rate_hz,
-            fft_size: fftSize || channelData.bins_per_frame || 2048,
+            fft_size: channelData.bins_per_frame || fftSize || 2048,
             fft_window: channelData.fft_window,
           };
           frameUpdateIndexRef.current = 0;
@@ -89,18 +113,11 @@ export const usePlaybackAnimation = ({
             // Zero-copy when already Uint8Array (our worker now always provides this)
             cachedIqRef.current =
               iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
-            const frameFftSize = fftSize || channelData.bins_per_frame || 2048;
-            cachedChunkSizeRef.current =
-              frameFftSize * BYTES_PER_IQ_SAMPLE.u8;
-            cachedTotalFramesRef.current = Math.max(
-              1,
-              Math.floor(
-                cachedIqRef.current.length / cachedChunkSizeRef.current,
-              ),
-            );
+            const frameFftSize = channelData.bins_per_frame || fftSize || 2048;
+            currentFftSizeRef.current = frameFftSize;
+            iqFrameOffsetRef.current = 0;
 
-            // Auto-reset frame index when channel changes or at start
-            iqFrameIdxRef.current = 0;
+            // Start each channel at the first complete captured frame.
           } else {
             cachedIqRef.current = null;
           }
@@ -108,29 +125,59 @@ export const usePlaybackAnimation = ({
 
         const fullIq = cachedIqRef.current;
         if (fullIq) {
-          const chunkSize = cachedChunkSizeRef.current;
-          const totalFrames = cachedTotalFramesRef.current;
-          const frameIdx = iqFrameIdxRef.current % totalFrames;
-          const offset = frameIdx * chunkSize;
-          const chunk = fullIq.subarray(
-            offset,
-            Math.min(fullIq.length, offset + chunkSize),
-          );
-          iqFrameIdxRef.current = frameIdx + 1;
-
           const updates = (channelData.frame_updates || []) as PlaybackFrameUpdate[];
           while (
             frameUpdateIndexRef.current < updates.length &&
-            Number(updates[frameUpdateIndexRef.current].sample_offset) <= offset
+            Number(updates[frameUpdateIndexRef.current].sample_offset) <= iqFrameOffsetRef.current
           ) {
             const update = updates[frameUpdateIndexRef.current++];
             playbackMetadataRef.current = {
               ...playbackMetadataRef.current,
               ...update.patch,
             };
+            const patchedFftSize = Number(update.patch.fft_size);
+            if (Number.isInteger(patchedFftSize) && patchedFftSize > 0) {
+              currentFftSizeRef.current = patchedFftSize;
+            }
           }
 
-          if (chunk.length >= 2) {
+          let frame = getIqFrameAtOffset(
+            fullIq,
+            iqFrameOffsetRef.current,
+            currentFftSizeRef.current,
+            updates,
+          );
+          if (!frame && iqFrameOffsetRef.current !== 0) {
+            iqFrameOffsetRef.current = 0;
+            frameUpdateIndexRef.current = 0;
+            playbackMetadataRef.current = {
+              center_frequency_hz: channelData.center_freq_hz,
+              sample_rate_hz: channelData.sample_rate_hz,
+              fft_size: channelData.bins_per_frame || fftSize || 2048,
+              fft_window: channelData.fft_window,
+            };
+            currentFftSizeRef.current = channelData.bins_per_frame || fftSize || 2048;
+            while (
+              frameUpdateIndexRef.current < updates.length &&
+              Number(updates[frameUpdateIndexRef.current].sample_offset) <= 0
+            ) {
+              const update = updates[frameUpdateIndexRef.current++];
+              playbackMetadataRef.current = { ...playbackMetadataRef.current, ...update.patch };
+              const patchedFftSize = Number(update.patch.fft_size);
+              if (Number.isInteger(patchedFftSize) && patchedFftSize > 0) {
+                currentFftSizeRef.current = patchedFftSize;
+              }
+            }
+            frame = getIqFrameAtOffset(fullIq, 0, currentFftSizeRef.current, updates);
+          }
+
+          const chunk = frame?.data;
+          if (frame) {
+            currentFftSizeRef.current = frame.fftSize;
+            iqFrameOffsetRef.current = frame.nextOffset;
+          }
+
+          if (chunk && chunk.length >= 2) {
             const playbackMetadata = playbackMetadataRef.current || {};
             fftCanvasDataRef.current = {
               type: "spectrum",

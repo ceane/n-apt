@@ -1299,6 +1299,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
       sendCaptureCommand({
         jobId,
+        sourceId: activeSourceId ?? undefined,
         fragments, // current range
         durationMode: durationS ? "timed" : "manual",
         durationS: durationS,
@@ -1331,6 +1332,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       sendCaptureCommand,
       demodLiveFrequencyRange,
       fileCapturedRange,
+      activeSourceId,
       state.frequencyRange,
       state.sampleRateHz,
     ],

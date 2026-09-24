@@ -54,6 +54,9 @@ type FileMetadata = {
     sample_offset: number;
     timestamp_us?: number;
     channel?: number;
+    kind?: string;
+    source_id?: string;
+    job_id?: string;
     patch: Record<string, unknown>;
   }[];
   center_frequency_hz?: number;
