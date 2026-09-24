@@ -250,6 +250,67 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(diagnostic['bestEpoch'], 1)
         self.assertEqual(diagnostic['epochsRun'], 3)
 
+    def test_predeclared_search_selection_uses_validation_means_and_logistic_ties(self):
+        logistic = [
+            {'l2': 0.0, 'validation': {'sessionBalancedAccuracy': 0.75}},
+            {'l2': 1e-4, 'validation': {'sessionBalancedAccuracy': 0.75}},
+            {'l2': 1e-3, 'validation': {'sessionBalancedAccuracy': 0.5}},
+            {'l2': 1e-2, 'validation': {'sessionBalancedAccuracy': 0.5}},
+        ]
+        mlp = [
+            {'l2': 1e-4, 'seed': seed, 'validation': {'sessionBalancedAccuracy': score}}
+            for seed, score in [(1729, 0.5), (1730, 0.75), (1731, 1.0)]
+        ] + [
+            {'l2': 1e-3, 'seed': seed, 'validation': {'sessionBalancedAccuracy': score}}
+            for seed, score in [(1729, 0.75), (1730, 0.75), (1731, 0.75)]
+        ]
+        result = training.select_search_candidates(logistic, mlp)
+        self.assertEqual(result['logistic']['l2'], 1e-4)
+        self.assertEqual(result['mlp']['l2'], 1e-3)
+        self.assertEqual(result['mlp']['seed'], 1729)
+        self.assertEqual(result['selectedKind'], 'logistic')
+        self.assertEqual(result['mlpMeanBalancedAccuracy'], result['logisticBalancedAccuracy'])
+
+    def test_search_grid_exports_unique_candidates_and_records_shared_splits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            feature_path, model_path, report_path, candidate_dir = [root / name for name in
+                ('features.jsonl','selected.json','report.json','candidate-artifacts')]
+            rows = []
+            for label, polarity in [('matching', 1), ('nonmatching', -1)]:
+                for session_index in range(3):
+                    session = f'{label}-session-{session_index}'
+                    split = 'validation' if session_index == 2 else 'train'
+                    for frame in range(2):
+                        score = 0.5 + polarity * (0.2 + 0.01 * frame)
+                        rows.append(self._feature_row(f'{session}-{frame}', label, 'ready', score,
+                                                      session, split))
+            # Test rows intentionally contradict the development data; they must never drive selection.
+            rows += [self._feature_row('test-p','matching','ready',0.0,'test-p','test'),
+                     self._feature_row('test-n','nonmatching','ready',1.0,'test-n','test')]
+            feature_path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            training.train_command(SimpleNamespace(features=feature_path, model=model_path, report=report_path,
+                candidates_dir=candidate_dir, device='auto', mlp_epochs=3, monitor_fraction=0.25, seed=1729,
+                logistic_max_iter=20, search_grid=True))
+            report = json.loads(report_path.read_text())
+            files = sorted(candidate_dir.glob('*.json'))
+            artifact_ids = {json.loads(path.read_text())['id'] for path in files}
+            selected_model_id = json.loads(model_path.read_text())['id']
+        self.assertEqual(len(files), 10)
+        self.assertEqual(len(artifact_ids), 10)
+        self.assertEqual(len(report['search']['candidates']), 10)
+        self.assertEqual(report['search']['logisticL2Grid'], [0.0, 0.0001, 0.001, 0.01])
+        self.assertEqual(report['search']['mlpSeeds'], [1729, 1730, 1731])
+        self.assertEqual(report['search']['mlpL2Grid'], [0.0001, 0.001])
+        for candidate in report['search']['candidates']:
+            self.assertIn('threshold', candidate)
+            self.assertIn('sessionBalancedAccuracy', candidate['validation'])
+            self.assertEqual(candidate['trainingSessions'], report['search']['trainingSessions'])
+            self.assertEqual(candidate['monitorSessions'], report['search']['monitorSessions'])
+            self.assertEqual(candidate['validationSessions'], report['search']['validationSessions'])
+        self.assertNotIn('test', json.dumps(report['search']).lower())
+        self.assertEqual(selected_model_id, report['selectedModelId'])
+
     def test_explicit_mps_request_fails_when_backend_is_unavailable(self):
         try:
             import torch

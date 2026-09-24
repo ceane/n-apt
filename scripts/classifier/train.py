@@ -561,6 +561,37 @@ def training_report_metrics(y, predicted, sessions):
     return combined_metrics(y, predicted, sessions)
 
 
+def _score(candidate):
+    value = candidate['validation'].get('sessionBalancedAccuracy')
+    if value is None or not np.isfinite(value):
+        raise ValueError('Search candidates require session-balanced validation balanced accuracy')
+    return float(value)
+
+
+def select_search_candidates(logistic_candidates, mlp_candidates):
+    """Apply the predeclared validation-only L2/model/seed selection policy."""
+    best_logistic = sorted(logistic_candidates,
+        key=lambda item: (_score(item), float(item['l2'])), reverse=True)[0]
+    mlp_by_l2 = {}
+    for candidate in mlp_candidates:
+        mlp_by_l2.setdefault(float(candidate['l2']), []).append(candidate)
+    mlp_summary = []
+    for l2, candidates in mlp_by_l2.items():
+        mean_score = float(np.mean([_score(candidate) for candidate in candidates]))
+        representative = min(candidates,
+            key=lambda item: (abs(_score(item) - mean_score), int(item['seed'])))
+        mlp_summary.append({'l2':l2,'meanBalancedAccuracy':mean_score,
+                            'representative':representative,'candidates':candidates})
+    best_mlp = sorted(mlp_summary,
+        key=lambda item: (item['meanBalancedAccuracy'], item['l2']), reverse=True)[0]
+    selected_kind = ('logistic' if _score(best_logistic) >= best_mlp['meanBalancedAccuracy']
+                     else 'mlp')
+    return {'logistic':best_logistic,'mlp':best_mlp['representative'],
+            'mlpL2Summary':mlp_summary,'logisticBalancedAccuracy':_score(best_logistic),
+            'mlpMeanBalancedAccuracy':best_mlp['meanBalancedAccuracy'],
+            'selectedKind':selected_kind}
+
+
 def train_command(args):
     rows = load_rows(args.features)
     tr_all, va_all = labeled_rows(rows, 'train'), labeled_rows(rows, 'validation')
@@ -596,14 +627,38 @@ def train_command(args):
     validation_sessions = [row['session'] for row in va]
     synthetic_only = bool(tr_all + va_all) and all(row.get('syntheticOnly') is True for row in tr_all + va_all)
     candidates = []
-    logistic = fit_logistic(x, y, weight,
-        max_iter=config['logistic']['maxIterations'], l2=config['logistic']['l2'],
-        tolerance=config['logistic']['tolerance'])
-    mlp = fit_mlp(x, y, weight, seed=config['seed'], device=config['device'],
-        max_epochs=config['mlp']['maximumEpochs'], l2=config['mlp']['l2'],
-        learning_rate=config['mlp']['learningRate'], monitor=monitor,
-        patience=config['mlp']['patience'], min_delta=config['mlp']['minimumMonitorImprovement'])
-    for params in (logistic, mlp):
+    search_grid = bool(getattr(args, 'search_grid', False))
+    logistic_grid = [0.0, 1e-4, 1e-3, 1e-2]
+    mlp_grid = [1e-4, 1e-3]
+    mlp_seeds = [config['seed'] + offset for offset in range(3)]
+    candidate_runs = []
+    if search_grid:
+        config['searchGrid'] = {'logisticL2':[float(value) for value in logistic_grid],
+            'mlpL2':[float(value) for value in mlp_grid], 'mlpSeeds':mlp_seeds,
+            'seedRule':'base seed plus offsets 0, 1, and 2'}
+        for l2 in logistic_grid:
+            params = fit_logistic(x, y, weight,
+                max_iter=config['logistic']['maxIterations'], l2=l2,
+                tolerance=config['logistic']['tolerance'])
+            candidate_runs.append((params, {'kind':'logistic','l2':float(l2)}))
+        for l2 in mlp_grid:
+            for seed in mlp_seeds:
+                params = fit_mlp(x, y, weight, seed=seed, device=config['device'],
+                    max_epochs=config['mlp']['maximumEpochs'], l2=l2,
+                    learning_rate=config['mlp']['learningRate'], monitor=monitor,
+                    patience=config['mlp']['patience'], min_delta=config['mlp']['minimumMonitorImprovement'])
+                candidate_runs.append((params, {'kind':'mlp','l2':float(l2),'seed':int(seed)}))
+    else:
+        logistic = fit_logistic(x, y, weight,
+            max_iter=config['logistic']['maxIterations'], l2=config['logistic']['l2'],
+            tolerance=config['logistic']['tolerance'])
+        mlp = fit_mlp(x, y, weight, seed=config['seed'], device=config['device'],
+            max_epochs=config['mlp']['maximumEpochs'], l2=config['mlp']['l2'],
+            learning_rate=config['mlp']['learningRate'], monitor=monitor,
+            patience=config['mlp']['patience'], min_delta=config['mlp']['minimumMonitorImprovement'])
+        candidate_runs.extend((params, {'kind':params['kind']}) for params in (logistic, mlp))
+    candidate_details = []
+    for params, candidate_config in candidate_runs:
         training_diagnostics = params.pop('trainingDiagnostics', {})
         training_device = params.pop('trainingDevice', 'numpy')
         scores = predict(params, vx)
@@ -617,31 +672,82 @@ def train_command(args):
                     'validationSessions':sorted(set(validation_sessions))}
         canonical = json.dumps(artifact, sort_keys=True, separators=(',',':'))
         artifact['id'] = hashlib.sha256(canonical.encode()).hexdigest()[:16]
-        candidates.append((artifact, validation_report, {'device':training_device, **training_diagnostics,
-                                                         'observedValidationSampleRatesHz':observed_rates}))
-    candidates.sort(key=lambda item: ((item[1]['sessionBalancedAccuracy'] if item[1]['sessionBalancedAccuracy'] is not None else -1),
-                                      item[0]['kind'] == 'logistic'), reverse=True)
-    model = candidates[0][0]
+        diagnostics = {'device':training_device, **training_diagnostics,
+                       'observedValidationSampleRatesHz':observed_rates}
+        detail = {'artifact':artifact,'validation':validation_report,'training':diagnostics,
+                  **candidate_config}
+        candidate_details.append(detail)
+        candidates.append((artifact, validation_report, diagnostics))
+    search_report = None
+    if search_grid:
+        logistic_choices = [{'l2':detail['l2'],'validation':detail['validation'],'detail':detail}
+                            for detail in candidate_details if detail['kind'] == 'logistic']
+        mlp_choices = [{'l2':detail['l2'],'seed':detail['seed'],'validation':detail['validation'],'detail':detail}
+                       for detail in candidate_details if detail['kind'] == 'mlp']
+        selection = select_search_candidates(logistic_choices, mlp_choices)
+        selected_detail = (selection['logistic']['detail'] if selection['selectedKind'] == 'logistic'
+                           else selection['mlp']['detail'])
+        model = selected_detail['artifact']
+        search_report = {'protocol':'predeclared-session-balanced-validation-v1',
+            'selectionMetric':'sessionBalancedAccuracy', 'thresholdSelection':'maximize session-balanced validation balanced accuracy per candidate',
+            'logisticL2Grid':logistic_grid,'mlpL2Grid':mlp_grid,'mlpSeeds':mlp_seeds,
+            'seedRule':'base seed plus offsets 0, 1, and 2',
+            'trainingSessions':sorted(set(row['session'] for row in fit_rows)),
+            'monitorSessions':monitoring['monitorSessions'],
+            'validationSessions':sorted(set(validation_sessions)),
+            'logisticSelectedL2':selection['logistic']['l2'],
+            'logisticBalancedAccuracy':selection['logisticBalancedAccuracy'],
+            'mlpSelectedL2':selection['mlp']['l2'],
+            'mlpSelectedSeed':selection['mlp']['seed'],
+            'mlpMeanBalancedAccuracy':selection['mlpMeanBalancedAccuracy'],
+            'selectedKind':selection['selectedKind'],
+            'mlpL2Means':[{'l2':item['l2'],'meanBalancedAccuracy':item['meanBalancedAccuracy'],
+                'seeds':[candidate['seed'] for candidate in item['candidates']],
+                'scores':[_score(candidate) for candidate in item['candidates']]}
+                for item in selection['mlpL2Summary']],
+            'candidates':[{'kind':detail['kind'],'l2':detail['l2'],
+                **({'seed':detail['seed']} if detail['kind'] == 'mlp' else {}),
+                'threshold':detail['artifact']['threshold'],'validation':detail['validation'],
+                'training':detail['training'],'modelId':detail['artifact']['id'],
+                'trainingSessions':detail['artifact']['trainingSessions'],
+                'monitorSessions':detail['artifact']['monitorSessions'],
+                'validationSessions':detail['artifact']['validationSessions']}
+                for detail in candidate_details]}
+    else:
+        candidates.sort(key=lambda item: ((item[1]['sessionBalancedAccuracy'] if item[1]['sessionBalancedAccuracy'] is not None else -1),
+                                          item[0]['kind'] == 'logistic'), reverse=True)
+        model = candidates[0][0]
     write_json(args.model, model)
     candidate_directory = getattr(args, 'candidates_dir', None)
     if candidate_directory:
-        for artifact, _, _ in candidates:
-            write_json(pathlib.Path(candidate_directory) / f"{artifact['kind']}.json", artifact)
+        if search_grid:
+            for detail in candidate_details:
+                seed_suffix = f"-seed-{detail['seed']}" if detail['kind'] == 'mlp' else ''
+                filename = f"{detail['kind']}-l2-{detail['l2']:g}{seed_suffix}.json"
+                write_json(pathlib.Path(candidate_directory) / filename, detail['artifact'])
+        else:
+            for artifact, _, _ in candidates:
+                write_json(pathlib.Path(candidate_directory) / f"{artifact['kind']}.json", artifact)
     run_manifest = build_run_manifest(args.features, rows, config, model)
     monitoring_report = {**monitoring,'available':bool(monitoring['available']),
                          'fitRows':len(fit_rows),'monitorRows':len(monitor_rows),
                          'patience':config['mlp']['patience'],
                          'minimumImprovement':config['mlp']['minimumMonitorImprovement']}
-    write_json(args.report, {'selectedModel':model['kind'],'selectedTraining':candidates[0][2],
+    selected_training = (selected_detail['training'] if search_grid else candidates[0][2])
+    selected_validation = (selected_detail['validation'] if search_grid else candidates[0][1])
+    result_report = {'selectedModel':model['kind'],'selectedTraining':selected_training,
         'selectedModelId':model['id'],'runManifest':run_manifest,'trainingMonitoring':monitoring_report,
-        'validation':candidates[0][1],
+        'validation':selected_validation,
         'candidates':[{'kind':artifact['kind'],'validation':report,'training':diagnostics}
                       for artifact,report,diagnostics in candidates],
         'trainingRows':len(tr),'trainingCoverage':coverage(tr_all),
         'validationRows':len(va),'validationCoverage':coverage(va_all),
         'observedValidationSampleRatesHz':candidates[0][2]['observedValidationSampleRatesHz'],
         'validatedSampleRatesHz':[], 'testRows':len(usable(rows,'test')),
-        'syntheticOnly':synthetic_only})
+        'syntheticOnly':synthetic_only}
+    if search_report is not None:
+        result_report['search'] = search_report
+    write_json(args.report, result_report)
 
 
 def visibility_bucket(value):
@@ -727,6 +833,7 @@ def main():
     train.add_argument('--mlp-l2', type=float, default=1e-3)
     train.add_argument('--learning-rate', type=float, default=1e-3)
     train.add_argument('--candidates-dir')
+    train.add_argument('--search-grid', action='store_true', help='run the predeclared validation-only L2 and MLP seed grid')
     train.set_defaults(run=train_command)
     evaluate = sub.add_parser('evaluate')
     evaluate.add_argument('--features', required=True)
