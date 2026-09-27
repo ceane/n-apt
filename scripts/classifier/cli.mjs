@@ -97,15 +97,41 @@ function packageConfig(metadata, patch, channel, sampleRateHint, centerHint, cap
   };
 }
 
-function v6PatchEvents(frameUpdates) {
+function v6CaptureEvents(frameUpdates) {
   let initialSeen = false;
-  return frameUpdates.flatMap(update => {
+  const optionsAppliedEvents = [];
+  const streamInterruptedEvents = [];
+  for (const update of frameUpdates) {
+    const kind = update.kind ?? 'PatchOptionsApplied';
+    if (kind === 'StreamInterrupted') {
+      const patch = update.patch ?? {};
+      if (patch.code !== 1) {
+        throw new Error('V6 StreamInterrupted frame update must use code 1');
+      }
+      if ((update.frame_sequence !== undefined && !Number.isInteger(update.frame_sequence)) ||
+        (update.next_frame_sequence !== undefined && !Number.isInteger(update.next_frame_sequence))) {
+        throw new Error('V6 StreamInterrupted frame update has an invalid frame sequence');
+      }
+      streamInterruptedEvents.push({
+        kind,
+        code: 1,
+        byteOffset: update.sample_offset,
+        timestampMs: update.timestamp_us / 1000,
+        frameSequence: update.frame_sequence ?? null,
+        ...(update.next_frame_sequence === undefined ? {} : { nextFrameSequence: update.next_frame_sequence }),
+        ...(typeof patch.reason === 'string' ? { reason: patch.reason } : {}),
+      });
+      continue;
+    }
+    if (kind !== 'PatchOptionsApplied') {
+      throw new Error(`Unsupported V6 frame update kind: ${kind}`);
+    }
     if (update.sample_offset === 0 && !initialSeen) {
       initialSeen = true;
-      return [];
+      continue;
     }
     const patch = update.patch && typeof update.patch === 'object' ? update.patch : {};
-    return [{
+    optionsAppliedEvents.push({
       kind: 'PatchOptionsApplied',
       byteOffset: update.sample_offset,
       timestampMs: update.timestamp_us / 1000,
@@ -113,8 +139,9 @@ function v6PatchEvents(frameUpdates) {
       patch: { ...patch },
       ...(update.source_id ? { sourceId: update.source_id } : {}),
       ...(update.job_id ? { jobId: update.job_id } : {}),
-    }];
-  });
+    });
+  }
+  return { optionsAppliedEvents, streamInterruptedEvents };
 }
 
 function contiguousChunkRuns(chunks, expectedChannel = 0) {
@@ -279,7 +306,7 @@ async function preparePackage(a) {
       throw new Error(`${capture.captureName}: V6 capture has no usable starting timestamp`);
     }
 
-    const appliedEvents = v6PatchEvents(updates);
+    const { optionsAppliedEvents: appliedEvents, streamInterruptedEvents } = v6CaptureEvents(updates);
     const discontinuities = [];
     if (runs.length && runs[0].startByte > 0) {
       discontinuities.push({ kind: 'MissingIqRange', fromByteOffset: 0, toByteOffset: runs[0].startByte });
@@ -308,7 +335,9 @@ async function preparePackage(a) {
         if (endByte <= startByte) continue;
 
         const activeUpdates = updates.filter(update => update.sample_offset <= startByte);
-        const activePatch = activeUpdates.reduce((state, update) => ({ ...state, ...update.patch }), {});
+        const activePatch = activeUpdates
+          .filter(update => (update.kind ?? 'PatchOptionsApplied') === 'PatchOptionsApplied')
+          .reduce((state, update) => ({ ...state, ...update.patch }), {});
         const config = packageConfig(metadata, activePatch, channel, initialConfig.sampleRateHz, initialConfig.centerFrequencyHz, capture.captureName);
         const bytes = bytesForInterval(run, startByte, endByte);
         if (bytes.byteLength !== endByte - startByte || bytes.byteLength % 2 !== 0) {
@@ -343,7 +372,7 @@ async function preparePackage(a) {
           captureFrameUpdates: updates,
           captureDiscontinuities: discontinuities,
           optionsAppliedEvents: appliedEvents.filter(event => event.byteOffset >= previousPreparedEndByte && event.byteOffset <= startByte),
-          streamInterruptedEvents: [],
+          streamInterruptedEvents: streamInterruptedEvents.filter(event => event.byteOffset >= previousPreparedEndByte && event.byteOffset <= startByte),
           validSamples: bytes.byteLength / 2,
           iqByteCount: bytes.byteLength,
           complexSamples: iq.length / 2,

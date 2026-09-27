@@ -63,7 +63,7 @@ The shared worktree also contains unrelated demod/audio-survey edits; preserve t
 - [ ] Classify accepts arbitrary prepared captures plus a validated model and exports timestamped scores, decisions, availability, resolution, quality, and recording summaries. No training labels required for classification.
 - [ ] Add CLI integration tests with generated raw I/Q in temporary directories, malformed metadata, all supported formats, crops, and incomplete frames.
 - [x] Package captures with detached labels in a Data Package directory; verify V6 `.iq`/`.napt` trailer integrity, bind labels to the scoped trailer digest, preserve the original bytes, and record exact-file resource hashes. Browser JSON and WAV use filename/time identity where no V6 trailer exists.
-- [x] Teach `prepare` to verify both Data Package resources and consume browser frame JSON, raw V6 `.iq`, and encrypted single-channel V6 `.napt`. Split native samples at exact option-patch boundaries and missing chunk ranges; preserve source offsets, update timestamps, acquisition settings, and labels in prepared rows.
+- [x] Teach `prepare` to verify both Data Package resources and consume browser frame JSON, raw V6 `.iq`, and encrypted single-channel V6 `.napt`. Split native samples at exact option-patch and typed interruption boundaries and missing chunk ranges; preserve source offsets, update timestamps, acquisition settings, events, and labels in prepared rows.
 - [ ] Support multi-channel `.napt` preparation and define channel-wise label assignment before accepting those captures into the classifier dataset. WAV remains archive-only because it is demodulated audio, not raw I/Q.
 - [ ] Run a live, labeled 3.2 MS/s RTL-SDR shadow trial; report feature availability, actual FFT/bin spacing, crop visibility, and latency from recorded data. Do not fit or tune on the first acceptance capture, mock negatives, or the supplied acceptance fixtures.
 
@@ -136,9 +136,15 @@ The shared worktree also contains unrelated demod/audio-survey edits; preserve t
 
 The [learning and evaluation plan](./TRAINING_PLAN.md) supplies the method discussion and concrete proposed experiment. Its defaults are starting points, not measured optimum settings. Continue in this order:
 
-1. Verify V6 option/interruption boundaries and external label provenance through offline prepare/extract; preserve session splits and frame-aligned patches.
-2. Audit feature sufficiency, especially pulsing and availability. Learning combinations of existing features cannot recover information the extractor discarded.
-3. Collect independently labeled positive and real RF negative sessions at 3.2 MS/s; compare rules and both candidates on shared frames. Use validation session-balanced balanced accuracy, preserve all session splits, and evaluate the selected model once on untouched sessions. Synthetic mocks remain a separate challenge set.
-4. Measure browser latency/render impact in shadow mode before considering promotion. Prefer logistic regression when the neural candidate does not justify its added complexity.
+1. Add `StreamInterrupted` emission at the actual V6 writer boundary when frame continuity is known to be lost, with a byte offset and timestamp aligned to the first affected frame. The offline reader preserves a typed code-1 event independently from a co-located `PatchOptionsApplied` event, but the current WebUSB worker and Rust recorder only emit option patches; neither currently emits interruption markers.
+2. Collect independently labeled positive and real RF negative sessions at 3.2 MS/s; compare rules and both candidates on shared frames. Use validation session-balanced balanced accuracy, preserve all session splits, and evaluate the selected model once on untouched sessions. Synthetic mocks remain a separate challenge set.
+3. Measure browser latency/render impact in shadow mode before considering promotion. Prefer logistic regression when the neural candidate does not justify its added complexity.
 
-The next bounded implementation task is **capture-to-feature provenance across V6 option patches and interruptions**, not model promotion or real-capture training. The shared worktree also contains unrelated demod/audio-survey edits; preserve those.
+The current bounded task is to verify interruption-event emission at the actual capture writer boundary, then use independently labeled sessions for measurement. Do not promote a model or claim real-capture accuracy from synthetic tests. The shared worktree also contains unrelated demod/audio-survey edits; preserve those.
+
+## Continuation progress (2026-09-27)
+
+- [x] Normalize typed V6 `StreamInterrupted` frame updates (`code: 1`) separately from option patches during package preparation. Both events keep their original byte offset and timestamp; a co-located option change starts the following segment with its own applied acquisition settings.
+- [x] Add synthetic V6 `.iq` package → prepare → headless WebGPU extract regressions. They verify that the event, timestamp, source byte offset, and co-located option patch reach the resulting feature row without joining segments, and that malformed interruption frame sequences are rejected.
+- [x] Recheck feature sufficiency against `native-morphology-v1`: peak spacing is within one spectrum, and temporal summaries cover bridge/U-dip persistence only. The current vector cannot represent pulse rate, duty cycle, modulation depth, or rise/fall timing; keep those annotations out of model inputs until a versioned feature extension is designed and parity-tested.
+- [ ] Capture-writer interruption emission is absent from the inspected WebUSB and Rust paths; implement it before treating V6 recordings as interruption-aware. Live 3.2 MS/s performance and RF accuracy remain unmeasured.

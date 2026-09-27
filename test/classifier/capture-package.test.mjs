@@ -516,6 +516,184 @@ test("prepares V6 IQ packages by option-patch segments and rejects a changed res
   }
 });
 
+test("keeps V6 interruption markers separate from option patches at the same frame boundary", async () => {
+  const root = await mkdtemp(
+    path.join(tmpdir(), "napt-data-package-interruption-"),
+  );
+  try {
+    const boundaryUs = 1790500000001000;
+    const iq = await encodeIqCaptureV4({
+      metadata: {
+        center_frequency_hz: 137500000,
+        capture_sample_rate_hz: 3200000,
+        fft_size: 4096,
+        fft_window: "hann",
+      },
+      frameUpdates: [
+        {
+          sample_offset: 0,
+          timestamp_us: 1790500000000000,
+          kind: "PatchOptionsApplied",
+          patch: {
+            center_frequency_hz: 137500000,
+            capture_sample_rate_hz: 3200000,
+            fft_size: 4096,
+            fft_window: "hann",
+          },
+        },
+        {
+          sample_offset: 8,
+          timestamp_us: boundaryUs,
+          kind: "StreamInterrupted",
+          frame_sequence: 10,
+          next_frame_sequence: 11,
+          patch: { code: 1, reason: "backend-restart" },
+        },
+        {
+          sample_offset: 8,
+          timestamp_us: boundaryUs,
+          kind: "PatchOptionsApplied",
+          patch: { fft_size: 2048 },
+        },
+      ],
+      chunks: [
+        {
+          sample_offset: 0,
+          channel: 0,
+          data: Uint8Array.of(
+            128, 130, 127, 126, 129, 125, 130, 128,
+            127, 129, 128, 127, 126, 130, 131, 125,
+          ),
+        },
+      ],
+    });
+    const packed = await runPackage(
+      root,
+      "interrupted-capture.iq",
+      iq,
+      [],
+      "interrupted-package",
+    );
+    assert.equal(packed.result.status, 0, packed.result.stderr);
+
+    const preparedPath = path.join(root, "prepared-interrupted");
+    const prepared = runPreparePackage(packed.outputPath, preparedPath);
+    assert.equal(prepared.status, 0, prepared.stderr);
+    const dataset = JSON.parse(
+      await readFile(path.join(preparedPath, "dataset.json"), "utf8"),
+    );
+    assert.equal(dataset.recordings.length, 2);
+    assert.equal(dataset.recordings[0].analysisFftSize, 4096);
+    assert.equal(dataset.recordings[1].analysisFftSize, 2048);
+    assert.deepEqual(dataset.recordings[1].streamInterruptedEvents, [
+      {
+        kind: "StreamInterrupted",
+        code: 1,
+        timestampMs: boundaryUs / 1000,
+        byteOffset: 8,
+        frameSequence: 10,
+        nextFrameSequence: 11,
+        reason: "backend-restart",
+      },
+    ]);
+    assert.equal(dataset.recordings[0].streamInterruptedEvents.length, 0);
+    assert.equal(dataset.recordings[1].optionsAppliedEvents.length, 1);
+    assert.equal(dataset.recordings[1].optionsAppliedEvents[0].byteOffset, 8);
+    assert.equal(
+      dataset.recordings[1].optionsAppliedEvents[0].timestampMs,
+      boundaryUs / 1000,
+    );
+
+    const featurePath = path.join(root, "interrupted-features.jsonl");
+    const extracted = runExtract(
+      path.join(preparedPath, "dataset.json"),
+      featurePath,
+    );
+    assert.equal(extracted.status, 0, extracted.stderr);
+    const featureRows = (await readFile(featurePath, "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map(JSON.parse);
+    assert.equal(featureRows.length, 2);
+    assert.equal(featureRows[1].sourceSampleOffsetBytes, 8);
+    assert.equal(featureRows[1].timestampMs, boundaryUs / 1000);
+    assert.deepEqual(featureRows[1].streamInterruptedEvents, [
+      {
+        kind: "StreamInterrupted",
+        code: 1,
+        timestampMs: boundaryUs / 1000,
+        byteOffset: 8,
+        frameSequence: 10,
+        nextFrameSequence: 11,
+        reason: "backend-restart",
+      },
+    ]);
+    assert.equal(featureRows[1].optionsAppliedEvents.length, 1);
+    assert.equal(featureRows[1].optionsAppliedEvents[0].byteOffset, 8);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects V6 interruption markers with a malformed frame sequence", async () => {
+  const root = await mkdtemp(
+    path.join(tmpdir(), "napt-data-package-invalid-interruption-"),
+  );
+  try {
+    const iq = await encodeIqCaptureV4({
+      metadata: {
+        center_frequency_hz: 137500000,
+        capture_sample_rate_hz: 3200000,
+        fft_size: 4096,
+        fft_window: "hann",
+      },
+      frameUpdates: [
+        {
+          sample_offset: 0,
+          timestamp_us: 1790500000000000,
+          patch: {
+            center_frequency_hz: 137500000,
+            capture_sample_rate_hz: 3200000,
+            fft_size: 4096,
+            fft_window: "hann",
+          },
+        },
+        {
+          sample_offset: 8,
+          timestamp_us: 1790500000001000,
+          kind: "StreamInterrupted",
+          frame_sequence: 10.5,
+          patch: { code: 1 },
+        },
+      ],
+      chunks: [
+        {
+          sample_offset: 0,
+          channel: 0,
+          data: Uint8Array.of(128, 130, 127, 126, 129, 125, 130, 128),
+        },
+      ],
+    });
+    const packed = await runPackage(
+      root,
+      "invalid-interruption.iq",
+      iq,
+      [],
+      "invalid-interruption-package",
+    );
+    assert.equal(packed.result.status, 0, packed.result.stderr);
+
+    const prepared = runPreparePackage(
+      packed.outputPath,
+      path.join(root, "prepared-invalid-interruption"),
+    );
+    assert.notEqual(prepared.status, 0);
+    assert.match(prepared.stderr, /StreamInterrupted.*sequence/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("prepares encrypted V6 NAPT packages through the existing password-file decrypt path", async () => {
   const root = await mkdtemp(
     path.join(tmpdir(), "napt-data-package-prepare-napt-"),
