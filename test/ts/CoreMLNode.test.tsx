@@ -6,7 +6,11 @@ import { TestWrapper } from "./testUtils";
 const mockDemodContext = {
   audioSurveyJob: null as any,
   audioSurveyCandidates: [] as any[],
-  audioSurveyStorageUsage: { usedBytes: 0, capBytes: 1_000_000_000, artifactCount: 0 },
+  audioSurveyStorageUsage: {
+    usedBytes: 0,
+    capBytes: 1_000_000_000,
+    artifactCount: 0,
+  },
   audioSurveyTraining: null as any,
   audioSurveyError: null as string | null,
   startAudioSurvey: jest.fn().mockResolvedValue(undefined),
@@ -32,7 +36,9 @@ describe("local audio survey controls", () => {
   it("starts the selected A/B source workflow and displays local storage usage", async () => {
     render(
       <TestWrapper>
-        <CoreMLNode data={{ coremlOptions: true, label: "ML Audio Demodulator" }} />
+        <CoreMLNode
+          data={{ coremlOptions: true, label: "ML Audio Demodulator" }}
+        />
       </TestWrapper>,
     );
 
@@ -45,6 +51,39 @@ describe("local audio survey controls", () => {
       expect(mockDemodContext.startAudioSurvey).toHaveBeenCalledWith(
         "combined",
         256_000_000,
+        null,
+      ),
+    );
+  });
+
+  it("starts only the selected decoder and explains why neural decoding is disabled", async () => {
+    render(
+      <TestWrapper>
+        <CoreMLNode
+          data={{ coremlOptions: true, label: "ML Audio Demodulator" }}
+        />
+      </TestWrapper>,
+    );
+
+    const strategy = screen.getByRole("combobox", {
+      name: "Audio decoder strategy",
+    });
+    fireEvent.change(strategy, { target: { value: "apt-style" } });
+    expect(screen.getByRole("option", { name: /Neural/ })).toBeDisabled();
+    expect(screen.getByRole("option", { name: /Neural/ })).toHaveAttribute(
+      "title",
+      "Learns unknown decoding from aligned reference media and I/Q; live output waits for a validated ONNX temporal model.",
+    );
+    expect(
+      screen.getByText(/Neural learns from synchronized known media/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start survey" }));
+
+    await waitFor(() =>
+      expect(mockDemodContext.startAudioSurvey).toHaveBeenCalledWith(
+        "combined",
+        256_000_000,
+        "apt-style",
       ),
     );
   });

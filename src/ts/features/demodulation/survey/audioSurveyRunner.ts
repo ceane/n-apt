@@ -1,6 +1,7 @@
 import {
   createDemodProcessor,
   type DemodProcessor,
+  type DemodAlgorithm,
 } from "@n-apt/demodulation/utils/demodProcessors";
 import {
   analyzeAudioSurveyFrame,
@@ -34,6 +35,12 @@ export interface SurveyIqFrame {
   centerFrequencyHz: number;
   sampleRateHz: number;
   iqData: Uint8Array;
+  sourceId?: string;
+  streamEpoch?: number;
+  sequence?: number;
+  optionsRevision?: number;
+  sampleStartIndex?: number;
+  discontinuityBefore?: boolean;
 }
 
 export interface AudioSurveyFrameSource {
@@ -44,6 +51,7 @@ export interface AudioSurveyFrameSource {
     timeoutMs: number,
     view: ReturnType<typeof buildAudioSurveyViews>[number],
   ) => Promise<SurveyIqFrame | null>;
+  endView?: () => void;
 }
 
 export interface AudioSurveyRunnerOptions {
@@ -68,6 +76,14 @@ interface CandidateCapture {
   iqChunks: Uint8Array[];
   iqSampleRateHz: number;
 }
+
+const getSelectedBaselineAlgorithm = (
+  strategy: SurveyConfig["decoderStrategy"],
+): DemodAlgorithm | null => {
+  if (strategy === "am" || strategy === "fm") return strategy;
+  if (strategy === "apt-style") return "aptImage";
+  return null;
+};
 
 const concatFloat32 = (chunks: readonly Float32Array[]): Float32Array => {
   const output = new Float32Array(
@@ -103,12 +119,26 @@ const toLocalDayKey = (timestamp: number) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-const getModulation = (candidate: AudioSurveyCandidate): "am" | "fm" =>
-  candidate.modulation === "unknown"
-    ? candidate.modulationScores.fm > candidate.modulationScores.am
-      ? "fm"
-      : "am"
-    : candidate.modulation;
+const getModulation = (
+  candidate: AudioSurveyCandidate,
+): "am" | "fm" | "apt" => {
+  if (candidate.modulation !== "unknown") return candidate.modulation;
+  return (
+    [
+      { modulation: "am" as const, score: candidate.modulationScores.am },
+      { modulation: "fm" as const, score: candidate.modulationScores.fm },
+      { modulation: "apt" as const, score: candidate.modulationScores.apt },
+    ].sort((left, right) => right.score - left.score)[0]?.modulation ?? "am"
+  );
+};
+
+/** Resolve a ranked survey result to the live streaming baseline processor. */
+export const resolveAudioSurveyDemodulator = (
+  candidate: AudioSurveyCandidate,
+): DemodAlgorithm => {
+  const modulation = getModulation(candidate);
+  return modulation === "apt" ? "aptImage" : modulation;
+};
 
 const makeCandidateId = (
   jobId: string,
@@ -257,6 +287,7 @@ export class AudioSurveyRunner {
         const result = source
           ? await this.processView(job, view, source)
           : { lastFrameKey: null, lastFrameTimestamp: null };
+        source?.endView?.();
         const nextCheckpoint = advanceAudioSurveyCheckpoint(
           {
             ...job.checkpoint,
@@ -278,6 +309,7 @@ export class AudioSurveyRunner {
         });
         this.options.onViewCommitted?.(job);
       } catch (error) {
+        source?.endView?.();
         const message = error instanceof Error ? error.message : String(error);
         const storageFull = message.toLowerCase().includes("storage cap");
         return this.saveJob({
@@ -319,6 +351,10 @@ export class AudioSurveyRunner {
     );
     if (!channel) throw new Error(`Channel ${view.channelLabel} is unavailable`);
     const captures = new Map<string, CandidateCapture>();
+    const candidateRecords = new Map<string, CandidateRecord>();
+    const baselineAlgorithm = getSelectedBaselineAlgorithm(
+      job.config.decoderStrategy ?? null,
+    );
     const firstFrameAt = this.now();
     const clipDurationMs = Math.max(1, job.config.clipDurationMs);
     const maxWallMs = Math.max(5_000, clipDurationMs * 3 + 2_000);
@@ -371,6 +407,16 @@ export class AudioSurveyRunner {
           `Audio survey requires ${job.config.sampleRateHz} samples/s; received ${frame.sampleRateHz}`,
         );
       }
+      if (frame.discontinuityBefore) {
+        // A clip may contain only one contiguous I/Q segment. Drop any partial
+        // samples collected before this gap and restart the demodulator state.
+        captures.clear();
+        capturedSeconds = 0;
+        frameCount = 0;
+        lastAnalyzeAt = Number.NEGATIVE_INFINITY;
+        firstViewFrameKey = frame.frameKey;
+        firstViewFrameTimestamp = frame.timestampMs;
+      }
       if (firstViewFrameKey === null) {
         firstViewFrameKey = frame.frameKey;
         firstViewFrameTimestamp = frame.timestampMs;
@@ -394,6 +440,7 @@ export class AudioSurveyRunner {
           sampleRateHz: frame.sampleRateHz,
           frameCenterFrequencyHz: frame.centerFrequencyHz,
           allowedRangeHz: { min: frameRange.minHz, max: frameRange.maxHz },
+          decoderStrategy: job.config.decoderStrategy ?? null,
           targetSampleRateHz: 48_000,
         });
         for (const candidate of detected.slice(0, 3)) {
@@ -412,12 +459,20 @@ export class AudioSurveyRunner {
             channelId: view.channelId,
             centerHz: candidate.centerHz,
             bandwidthHz: candidate.bandwidthHz,
+            ...(candidate.spikeValleyPairs === undefined
+              ? {}
+              : { spikeValleyPairs: candidate.spikeValleyPairs }),
+            ...(candidate.spikeSpacingHz === undefined
+              ? {}
+              : { spikeSpacingHz: candidate.spikeSpacingHz }),
             modulation: candidate.modulation,
             score: Math.max(prior?.score ?? 0, candidate.score),
             snrDb: Math.max(prior?.snrDb ?? 0, candidate.snrDb),
             firstSeenAt: prior?.firstSeenAt ?? frame.timestampMs,
             lastSeenAt: frame.timestampMs,
-            sampleCount: prior?.sampleCount ?? 0,
+            sampleCount:
+              (prior?.sampleCount ?? 0) +
+              (baselineAlgorithm ? 0 : Math.floor(frame.iqData.length / 2)),
             clipArtifactIds: prior?.clipArtifactIds ?? [],
             ...(prior?.demodulationModelScore === undefined
               ? {}
@@ -426,12 +481,13 @@ export class AudioSurveyRunner {
           if (existing) {
             existing.candidate = candidate;
             existing.record = record;
-          } else if (captures.size < 3) {
-            const modulation = getModulation(candidate);
+          }
+          candidateRecords.set(id, record);
+          if (!existing && baselineAlgorithm && captures.size < 3) {
             captures.set(id, {
               candidate,
               record,
-              processor: createDemodProcessor(modulation, {
+              processor: createDemodProcessor(baselineAlgorithm, {
                 targetSampleRate: 48_000,
                 centerFrequency: candidate.centerHz,
                 bandwidth: candidate.bandwidthHz,
@@ -464,9 +520,9 @@ export class AudioSurveyRunner {
           capture.iqChunks.push(cloneForPersistence(narrowband.iqData));
           capture.iqSampleRateHz = narrowband.sampleRateHz;
         }
-        capture.record.sampleCount += Math.floor(frame.iqData.length / 2);
         capture.record.lastSeenAt = frame.timestampMs;
         capture.record.score = Math.max(capture.record.score, capture.candidate.score);
+        capture.record.sampleCount += Math.floor(frame.iqData.length / 2);
       }
 
       capturedSeconds +=
@@ -475,9 +531,11 @@ export class AudioSurveyRunner {
     }
 
     const artifactIds: string[] = [];
+    for (const record of candidateRecords.values()) {
+      await this.repository.saveCandidate(record);
+      this.options.onCandidateUpdated?.(record);
+    }
     for (const capture of captures.values()) {
-      await this.repository.saveCandidate(capture.record);
-      this.options.onCandidateUpdated?.(capture.record);
       if (capturedSeconds < clipDurationMs / 1_000 || capture.iqSampleRateHz <= 0) {
         continue;
       }
@@ -537,7 +595,7 @@ export class AudioSurveyRunner {
       passIndex: job.checkpoint.passIndex,
       frameCount,
       capturedSeconds,
-      candidateIds: Array.from(captures.values()).map((capture) => capture.record.id),
+      candidateIds: Array.from(candidateRecords.values()).map((record) => record.id),
       artifactIds,
       createdAt: this.now(),
     };

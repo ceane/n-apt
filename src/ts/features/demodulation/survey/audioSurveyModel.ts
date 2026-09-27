@@ -5,6 +5,7 @@ export const AUDIO_SURVEY_DAILY_BUDGET_MS = 8 * 60 * 60 * 1000;
 export const AUDIO_SURVEY_CLIP_DURATION_MS = 5_000;
 
 export type AudioSurveySourceMode = "live" | "replay" | "combined";
+export type AudioSurveyDecoderStrategy = "am" | "fm" | "apt-style" | "neural";
 export type AudioSurveyJobStatus =
   | "ready"
   | "running"
@@ -32,6 +33,8 @@ export interface AudioSurveyView {
 
 export interface SurveyConfig {
   sourceMode: AudioSurveySourceMode;
+  /** null records candidate maps without running an audio decoder. */
+  decoderStrategy: AudioSurveyDecoderStrategy | null;
   sampleRateHz: number;
   dailyBudgetMs: number;
   storageCapBytes: number;
@@ -65,7 +68,9 @@ export interface CandidateRecord {
   channelId: string;
   centerHz: number;
   bandwidthHz: number;
-  modulation: "am" | "fm" | "unknown";
+  spikeValleyPairs?: number;
+  spikeSpacingHz?: number;
+  modulation: "am" | "fm" | "apt" | "unknown";
   score: number;
   snrDb: number;
   firstSeenAt: number;
@@ -78,6 +83,7 @@ export interface CandidateRecord {
 
 export const DEFAULT_AUDIO_SURVEY_CONFIG: Readonly<SurveyConfig> = {
   sourceMode: "combined",
+  decoderStrategy: null,
   sampleRateHz: AUDIO_SURVEY_SAMPLE_RATE_HZ,
   dailyBudgetMs: AUDIO_SURVEY_DAILY_BUDGET_MS,
   storageCapBytes: AUDIO_SURVEY_STORAGE_CAP_BYTES,

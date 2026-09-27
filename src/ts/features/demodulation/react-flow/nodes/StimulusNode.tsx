@@ -11,6 +11,10 @@ import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
 import { resampleNearestInto } from "@n-apt/math/resampleNearest";
+import {
+  AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
+  resampleDecodedAudioToMonoPcm,
+} from "@n-apt/demodulation/survey/audioSurveyMedia";
 import { FIFOWaterfall } from "@n-apt/spectrum/public/FIFOWaterfall";
 import {
   AUDIO_TONE_FREQUENCY_HZ,
@@ -202,6 +206,34 @@ const StatusText = styled.div`
   font-size: 10px;
   margin-top: 30px;
 `;
+
+const ReferenceMediaControls = styled.div`
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  text-align: left;
+`;
+
+const ReferenceMediaStatus = styled.div`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 11px;
+  overflow-wrap: anywhere;
+`;
+
+const ReferenceMediaInput = styled.input`
+  width: 100%;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 11px;
+`;
+
+interface SelectedReferenceMedia {
+  name: string;
+  audioContext: AudioContext;
+  audioBuffer: AudioBuffer;
+  pcmData: Float32Array;
+  durationMs: number;
+}
 
 // Speech preview components
 const SpeechContainer = styled.div`
@@ -518,17 +550,47 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     useState<AudioWaveformMode>("traditional");
   const [tonePlayback, setTonePlayback] = useState<TonePlayback | null>(null);
   const [pairToneToRf, setPairToneToRf] = useState(false);
+  const [selectedReferenceMedia, setSelectedReferenceMedia] =
+    useState<SelectedReferenceMedia | null>(null);
+  const [referenceMediaStatus, setReferenceMediaStatus] = useState(
+    "Select audio or video; its audio track is decoded locally to mono 48 kHz PCM.",
+  );
+  const [isCapturingReferenceMedia, setIsCapturingReferenceMedia] =
+    useState(false);
   const captureJobIdRef = useRef<string | null>(null);
+  const selectedReferenceMediaRef = useRef<SelectedReferenceMedia | null>(null);
+  const mediaPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const pairToneToRfRef = useRef(pairToneToRf);
-  const recordAudioSurveyReferenceRef = useRef(recordAudioSurveyStimulusReference);
+  const recordAudioSurveyReferenceRef = useRef(
+    recordAudioSurveyStimulusReference,
+  );
   pairToneToRfRef.current = pairToneToRf;
   recordAudioSurveyReferenceRef.current = recordAudioSurveyStimulusReference;
+  selectedReferenceMediaRef.current = selectedReferenceMedia;
   const fmFrameIndexRef = useRef(0);
   const fmWaveformFeed = useMemo(
     () => createAudioWaveformFeed(createFmWaterfallFrame(0)),
     [],
   );
   const resampleOutputRef = useRef<Float32Array | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      const media = selectedReferenceMediaRef.current;
+      if (
+        media?.audioContext.state !== "closed" &&
+        typeof media?.audioContext.close === "function"
+      ) {
+        void media.audioContext.close();
+      }
+      try {
+        mediaPlaybackSourceRef.current?.stop();
+      } catch {
+        // Playback may have completed while the node was being removed.
+      }
+    },
+    [],
+  );
 
   const isBusy =
     analysisSession.state !== "idle" && analysisSession.state !== "result";
@@ -625,36 +687,42 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     )();
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
-    const startedAt = audioCtx.currentTime;
-
     oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(AUDIO_TONE_FREQUENCY_HZ, startedAt);
-
-    // Smooth fade in/out to avoid clicking
-    gainNode.gain.setValueAtTime(0, startedAt);
-    gainNode.gain.linearRampToValueAtTime(0.5, startedAt + 0.1);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, startedAt + durationS); // Play for duration
-
     oscillator.connect(gainNode);
     gainNode.connect(audioCtx.destination);
 
-    oscillator.start(startedAt);
-    oscillator.stop(startedAt + durationS);
-    setTonePlayback({
-      audioContext: audioCtx,
-      oscillator,
-      startedAt,
-      durationS,
-    });
+    const scheduleTone = (delaySeconds = 0) => {
+      const contextNow = audioCtx.currentTime;
+      const startedAt = contextNow + delaySeconds;
+      const wallClockNow = Date.now();
+      oscillator.frequency.setValueAtTime(AUDIO_TONE_FREQUENCY_HZ, startedAt);
+
+      // Smooth fade in/out to avoid clicking.
+      gainNode.gain.setValueAtTime(0, startedAt);
+      gainNode.gain.linearRampToValueAtTime(0.5, startedAt + 0.1);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, startedAt + durationS);
+
+      oscillator.start(startedAt);
+      oscillator.stop(startedAt + durationS);
+      setTonePlayback({
+        audioContext: audioCtx,
+        oscillator,
+        startedAt,
+        durationS,
+      });
+      return wallClockNow + delaySeconds * 1_000;
+    };
 
     if (previewMode === "audio" && pairToneToRfRef.current) {
-      const startedAtMs = Date.now();
+      const requestedAtMs = Date.now();
       void recordAudioSurveyReferenceRef.current({
-        captureId: captureJobIdRef.current ?? `stimulus_${startedAtMs}`,
+        captureId: captureJobIdRef.current ?? `stimulus_${requestedAtMs}`,
         pcmData: createAudioToneReferencePcm(durationS, 48_000),
         pcmSampleRateHz: 48_000,
-        startedAtMs,
+        startPlayback: () => scheduleTone(0.1),
       });
+    } else {
+      scheduleTone();
     }
 
     return () => {
@@ -671,6 +739,117 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       );
     };
   }, [durationS, previewMode]);
+
+  const handleReferenceMediaSelection = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const previous = selectedReferenceMediaRef.current;
+      selectedReferenceMediaRef.current = null;
+      setSelectedReferenceMedia(null);
+      if (
+        previous?.audioContext.state !== "closed" &&
+        typeof previous?.audioContext.close === "function"
+      ) {
+        void previous.audioContext.close();
+      }
+
+      const AudioContextConstructor =
+        window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextConstructor) {
+        setReferenceMediaStatus(
+          "This browser cannot decode local reference media with Web Audio.",
+        );
+        return;
+      }
+      const audioContext = new AudioContextConstructor();
+      setReferenceMediaStatus(`Decoding ${file.name} locally…`);
+      try {
+        const decoded = await audioContext.decodeAudioData(
+          await file.arrayBuffer(),
+        );
+        const converted = resampleDecodedAudioToMonoPcm(decoded);
+        const audioBuffer = audioContext.createBuffer(
+          1,
+          converted.length,
+          AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
+        );
+        audioBuffer.getChannelData(0).set(converted);
+        const media: SelectedReferenceMedia = {
+          name: file.name,
+          audioContext,
+          audioBuffer,
+          pcmData: audioBuffer.getChannelData(0),
+          durationMs:
+            (converted.length / AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ) * 1_000,
+        };
+        selectedReferenceMediaRef.current = media;
+        setSelectedReferenceMedia(media);
+        setReferenceMediaStatus(
+          `${file.name} · ${(media.durationMs / 1_000).toFixed(1)} s · decoded locally to mono 48 kHz PCM; the source file is not uploaded or stored.`,
+        );
+      } catch (error) {
+        if (audioContext.state !== "closed") void audioContext.close();
+        setReferenceMediaStatus(
+          `Could not decode an audio track from ${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    },
+    [],
+  );
+
+  const captureSelectedReferenceMedia = useCallback(async () => {
+    const media = selectedReferenceMediaRef.current;
+    if (!media || isCapturingReferenceMedia) return;
+
+    setIsCapturingReferenceMedia(true);
+    setReferenceMediaStatus(
+      `Tuning to the selected RF channel for ${media.name}…`,
+    );
+    try {
+      await media.audioContext.resume();
+      const artifact = await recordAudioSurveyReferenceRef.current({
+        captureId: `media_${Date.now()}`,
+        pcmData: media.pcmData,
+        pcmSampleRateHz: AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
+        startPlayback: () => {
+          const audioContext = media.audioContext;
+          const contextNow = audioContext.currentTime;
+          const wallClockNow = Date.now();
+          const scheduledStart = contextNow + 0.1;
+          const source = audioContext.createBufferSource();
+          source.buffer = media.audioBuffer;
+          source.connect(audioContext.destination);
+          source.onended = () => {
+            if (mediaPlaybackSourceRef.current === source) {
+              mediaPlaybackSourceRef.current = null;
+            }
+          };
+          mediaPlaybackSourceRef.current = source;
+          source.start(scheduledStart);
+          return wallClockNow + (scheduledStart - contextNow) * 1_000;
+        },
+      });
+      setReferenceMediaStatus(
+        artifact
+          ? `Saved an aligned I/Q and PCM pair for ${media.name}.`
+          : `No aligned reference pair was saved for ${media.name}.`,
+      );
+    } catch (error) {
+      try {
+        mediaPlaybackSourceRef.current?.stop();
+      } catch {
+        // A source that has naturally ended cannot be stopped again.
+      }
+      mediaPlaybackSourceRef.current = null;
+      setReferenceMediaStatus(
+        `Reference capture failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setIsCapturingReferenceMedia(false);
+    }
+  }, [isCapturingReferenceMedia]);
 
   const handleTrigger = () => {
     if (durationError) return;
@@ -722,8 +901,38 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                   checked={pairToneToRf}
                   onChange={(event) => setPairToneToRf(event.target.checked)}
                 />
-                The captured Channel A/B audio is carrying this stimulus. Save a timestamp-aligned training pair.
+                The captured Channel A/B audio is carrying this stimulus. Save a
+                timestamp-aligned training pair.
               </ReferencePairToggle>
+              <ReferenceMediaControls>
+                <SelectLabel htmlFor="reference-media-file">
+                  Local Reference Media
+                </SelectLabel>
+                <ReferenceMediaInput
+                  id="reference-media-file"
+                  aria-label="Reference media file"
+                  type="file"
+                  accept="audio/*,video/*"
+                  onChange={handleReferenceMediaSelection}
+                  disabled={isCapturingReferenceMedia}
+                />
+                <ReferenceMediaStatus aria-live="polite">
+                  {referenceMediaStatus}
+                </ReferenceMediaStatus>
+                <StimulusButton
+                  onClick={() => void captureSelectedReferenceMedia()}
+                  disabled={
+                    !selectedReferenceMedia || isCapturingReferenceMedia
+                  }
+                  $disabled={
+                    !selectedReferenceMedia || isCapturingReferenceMedia
+                  }
+                >
+                  {isCapturingReferenceMedia
+                    ? "CAPTURING MEDIA PAIR…"
+                    : "CAPTURE MEDIA PAIR"}
+                </StimulusButton>
+              </ReferenceMediaControls>
             </AudioContainer>
           )}
 

@@ -125,6 +125,38 @@ describe("APT demod processor variants", () => {
       Float32Array,
     );
   });
+
+  it("preserves real-time APT amplitude changes across input frames", () => {
+    const sampleRateHz = 256_000;
+    let carrierPhase = 0;
+    let subcarrierPhase = 0;
+    const makeFrame = (imageAmplitude: number) => {
+      const iq = new Uint8Array((sampleRateHz * 2) / 10);
+      const sampleCount = iq.length / 2;
+      for (let index = 0; index < sampleCount; index++) {
+        carrierPhase +=
+          (2 * Math.PI * 17_000 * imageAmplitude * Math.cos(subcarrierPhase)) /
+          sampleRateHz;
+        subcarrierPhase += (2 * Math.PI * 2_400) / sampleRateHz;
+        iq[index * 2] = 128 + Math.round(115 * Math.cos(carrierPhase));
+        iq[index * 2 + 1] = 128 + Math.round(115 * Math.sin(carrierPhase));
+      }
+      return iq;
+    };
+    const processor = createDemodProcessor("aptImage", {
+      targetSampleRate: 48_000,
+      centerFrequency: 0,
+      bandwidth: 50_000,
+    });
+    const lowFrame = processor.process(makeFrame(0.2), sampleRateHz, 0);
+    const highFrame = processor.process(makeFrame(0.8), sampleRateHz, 0);
+    const tailMean = (samples: Float32Array) => {
+      const tail = samples.slice(Math.floor(samples.length / 2));
+      return tail.reduce((sum, value) => sum + value, 0) / tail.length;
+    };
+
+    expect(tailMean(highFrame)).toBeGreaterThan(tailMean(lowFrame) * 2.5);
+  });
 });
 
 describe("AM envelope demod processor", () => {

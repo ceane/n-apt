@@ -1,12 +1,14 @@
-const MODEL_VERSION = 1 as const;
-const INPUT_SIZE = 6;
-const HIDDEN_SIZE = 8;
+const MODEL_VERSION = 2 as const;
+export const TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES = 64;
+export const TIME_DOMAIN_INPUT_SIZE = TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES * 2;
+export const TIME_DOMAIN_HIDDEN_SIZE = 12;
 
 export interface TimeDomainDemodModel {
   version: typeof MODEL_VERSION;
-  inputSize: typeof INPUT_SIZE;
-  hiddenSize: typeof HIDDEN_SIZE;
+  inputSize: typeof TIME_DOMAIN_INPUT_SIZE;
+  hiddenSize: typeof TIME_DOMAIN_HIDDEN_SIZE;
   pcmSampleRateHz: number;
+  /** Row-major hidden-by-input weights for the dense temporal layer. */
   inputWeights: Float32Array;
   hiddenBias: Float32Array;
   outputWeights: Float32Array;
@@ -41,41 +43,69 @@ export interface TimeDomainPrediction {
   sampleRateHz: number;
 }
 
+export interface PcmSampleRange {
+  startSample: number;
+  endSample: number;
+}
+
 const normalizeIq = (value: number | undefined) =>
-  ((value ?? 128) - 128) / 128;
+  value === undefined ? 0 : (value - 128) / 128;
 
-const featuresAt = (
-  iqData: Uint8Array,
-  sampleRateHz: number,
-  pcmSampleRateHz: number,
+const currentIqIndexAtPcmSample = (
+  example: PairedAudioTrainingExample,
   pcmSampleIndex: number,
-  pcmSampleCount: number,
-): Float32Array => {
-  const complexCount = Math.floor(iqData.length / 2);
-  const currentIndex = Math.min(
+) => {
+  const complexCount = Math.floor(example.iqData.length / 2);
+  return Math.min(
     complexCount - 1,
-    Math.max(0, Math.floor(((pcmSampleIndex + 0.5) * complexCount) / pcmSampleCount)),
+    Math.max(
+      0,
+      Math.floor(
+        ((pcmSampleIndex + 0.5) * complexCount) / example.pcmSamples.length,
+      ),
+    ),
   );
-  const stride = Math.max(1, Math.round(sampleRateHz / pcmSampleRateHz));
-  const previousIndex = Math.max(0, currentIndex - stride);
-  const i = normalizeIq(iqData[currentIndex * 2]);
-  const q = normalizeIq(iqData[currentIndex * 2 + 1]);
-  const previousI = normalizeIq(iqData[previousIndex * 2]);
-  const previousQ = normalizeIq(iqData[previousIndex * 2 + 1]);
-  const magnitude = Math.hypot(i, q);
-  const previousMagnitude = Math.hypot(previousI, previousQ);
-  const dot = i * previousI + q * previousQ;
-  const cross = q * previousI - i * previousQ;
-  const phaseDelta = Math.atan2(cross, dot) / Math.PI;
+};
 
-  return Float32Array.of(
-    i,
-    q,
-    magnitude,
-    phaseDelta,
-    previousMagnitude,
-    magnitude - previousMagnitude,
-  );
+const fillTimeDomainIqWindow = (
+  example: PairedAudioTrainingExample,
+  pcmSampleIndex: number,
+  output: Float32Array,
+) => {
+  const complexCount = Math.floor(example.iqData.length / 2);
+  const currentIndex = currentIqIndexAtPcmSample(example, pcmSampleIndex);
+  const firstIndex = currentIndex - TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES + 1;
+  for (let tap = 0; tap < TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES; tap++) {
+    const iqIndex = firstIndex + tap;
+    const sourceIndex = iqIndex * 2;
+    output[tap * 2] =
+      iqIndex < 0 || iqIndex >= complexCount
+        ? 0
+        : normalizeIq(example.iqData[sourceIndex]);
+    output[tap * 2 + 1] =
+      iqIndex < 0 || iqIndex >= complexCount
+        ? 0
+        : normalizeIq(example.iqData[sourceIndex + 1]);
+  }
+};
+
+/** Return the preceding 64 raw complex I/Q samples, oldest sample first. */
+export const buildTimeDomainIqWindow = (
+  example: PairedAudioTrainingExample,
+  pcmSampleIndex: number,
+): Float32Array => {
+  if (
+    example.iqData.length < 2 ||
+    example.pcmSamples.length < 1 ||
+    !Number.isInteger(pcmSampleIndex) ||
+    pcmSampleIndex < 0 ||
+    pcmSampleIndex >= example.pcmSamples.length
+  ) {
+    throw new Error("Cannot build an I/Q context window for this audio sample");
+  }
+  const output = new Float32Array(TIME_DOMAIN_INPUT_SIZE);
+  fillTimeDomainIqWindow(example, pcmSampleIndex, output);
+  return output;
 };
 
 const createRandom = (seed: number) => {
@@ -90,22 +120,25 @@ const createRandom = (seed: number) => {
 
 const createInitialModel = (pcmSampleRateHz: number, seed: number) => {
   const random = createRandom(seed);
-  const scale = Math.sqrt(2 / INPUT_SIZE);
-  const inputWeights = new Float32Array(INPUT_SIZE * HIDDEN_SIZE);
-  const outputWeights = new Float32Array(HIDDEN_SIZE);
+  const scale = Math.sqrt(2 / TIME_DOMAIN_INPUT_SIZE);
+  const inputWeights = new Float32Array(
+    TIME_DOMAIN_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE,
+  );
+  const outputWeights = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
   for (let index = 0; index < inputWeights.length; index++) {
     inputWeights[index] = (random() * 2 - 1) * scale;
   }
   for (let index = 0; index < outputWeights.length; index++) {
-    outputWeights[index] = (random() * 2 - 1) * Math.sqrt(2 / HIDDEN_SIZE);
+    outputWeights[index] =
+      (random() * 2 - 1) * Math.sqrt(2 / TIME_DOMAIN_HIDDEN_SIZE);
   }
   return {
     version: MODEL_VERSION,
-    inputSize: INPUT_SIZE,
-    hiddenSize: HIDDEN_SIZE,
+    inputSize: TIME_DOMAIN_INPUT_SIZE,
+    hiddenSize: TIME_DOMAIN_HIDDEN_SIZE,
     pcmSampleRateHz,
     inputWeights,
-    hiddenBias: new Float32Array(HIDDEN_SIZE),
+    hiddenBias: new Float32Array(TIME_DOMAIN_HIDDEN_SIZE),
     outputWeights,
     outputBias: 0,
     trainingExamples: 0,
@@ -121,29 +154,174 @@ const predictFeatures = (
   features: Float32Array,
   hidden: Float32Array,
 ) => {
-  for (let unit = 0; unit < HIDDEN_SIZE; unit++) {
+  for (let unit = 0; unit < TIME_DOMAIN_HIDDEN_SIZE; unit++) {
     let activation = model.hiddenBias[unit];
-    const weightOffset = unit * INPUT_SIZE;
-    for (let feature = 0; feature < INPUT_SIZE; feature++) {
-      activation += model.inputWeights[weightOffset + feature] * features[feature];
+    const weightOffset = unit * TIME_DOMAIN_INPUT_SIZE;
+    for (let feature = 0; feature < TIME_DOMAIN_INPUT_SIZE; feature++) {
+      activation +=
+        model.inputWeights[weightOffset + feature] * features[feature];
     }
     hidden[unit] = Math.tanh(activation);
   }
   let output = model.outputBias;
-  for (let unit = 0; unit < HIDDEN_SIZE; unit++) {
+  for (let unit = 0; unit < TIME_DOMAIN_HIDDEN_SIZE; unit++) {
     output += model.outputWeights[unit] * hidden[unit];
   }
   return Math.tanh(output);
 };
 
-/** Train a compact local time-domain model from aligned I/Q and PCM pairs. */
+/** Run the learned temporal network on one prepared raw I/Q context window. */
+export const predictTimeDomainIqWindow = (
+  model: TimeDomainDemodModel,
+  window: Float32Array,
+): number => {
+  if (
+    model.version !== MODEL_VERSION ||
+    model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+    window.length !== TIME_DOMAIN_INPUT_SIZE
+  ) {
+    throw new Error(
+      "Unsupported time-domain demodulation model or input window",
+    );
+  }
+  return predictFeatures(
+    model,
+    window,
+    new Float32Array(TIME_DOMAIN_HIDDEN_SIZE),
+  );
+};
+
+export interface TimeDomainDemodStreamOptions {
+  inputSampleRateHz: number;
+  pcmSampleRateHz?: number;
+}
+
+/** Incremental inference that preserves the temporal context across I/Q chunks. */
+export class TimeDomainDemodStream {
+  private readonly inputSampleRateHz: number;
+  private readonly pcmSampleRateHz: number;
+  private readonly inputHistory = new Float32Array(
+    TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
+  );
+  private readonly quadratureHistory = new Float32Array(
+    TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
+  );
+  private readonly window = new Float32Array(TIME_DOMAIN_INPUT_SIZE);
+  private readonly hidden = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
+  private inputSamplesReceived = 0;
+  private nextOutputSample = 0;
+
+  constructor(
+    private readonly model: TimeDomainDemodModel,
+    options: TimeDomainDemodStreamOptions,
+  ) {
+    if (
+      model.version !== MODEL_VERSION ||
+      model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+      model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE ||
+      model.inputWeights.length !==
+        TIME_DOMAIN_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE ||
+      model.hiddenBias.length !== TIME_DOMAIN_HIDDEN_SIZE ||
+      model.outputWeights.length !== TIME_DOMAIN_HIDDEN_SIZE
+    ) {
+      throw new Error("Unsupported time-domain demodulation model version");
+    }
+    this.inputSampleRateHz = options.inputSampleRateHz;
+    this.pcmSampleRateHz = options.pcmSampleRateHz ?? model.pcmSampleRateHz;
+    if (
+      !Number.isFinite(options.inputSampleRateHz) ||
+      options.inputSampleRateHz <= 0 ||
+      !Number.isFinite(this.pcmSampleRateHz) ||
+      this.pcmSampleRateHz <= 0
+    ) {
+      throw new Error(
+        "I/Q and PCM sample rates must be positive finite values",
+      );
+    }
+  }
+
+  /** Process complete complex I/Q samples and return the newly available PCM. */
+  processIqChunk(iqData: Uint8Array): Float32Array {
+    if (iqData.length % 2 !== 0) {
+      throw new Error("An I/Q chunk must contain complete complex samples");
+    }
+
+    const chunkSampleCount = iqData.length / 2;
+    const endSample = this.inputSamplesReceived + chunkSampleCount;
+    const endOutputSample = Math.floor(
+      (endSample * this.pcmSampleRateHz) / this.inputSampleRateHz,
+    );
+    const output = new Float32Array(endOutputSample - this.nextOutputSample);
+    let outputOffset = 0;
+
+    for (
+      let sampleOffset = 0;
+      sampleOffset < chunkSampleCount;
+      sampleOffset++
+    ) {
+      const inputSampleIndex = this.inputSamplesReceived + sampleOffset;
+      const historyIndex =
+        inputSampleIndex % TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+      this.inputHistory[historyIndex] = normalizeIq(iqData[sampleOffset * 2]);
+      this.quadratureHistory[historyIndex] = normalizeIq(
+        iqData[sampleOffset * 2 + 1],
+      );
+
+      while (this.nextOutputSample < endOutputSample) {
+        const currentIqIndex = Math.floor(
+          ((this.nextOutputSample + 0.5) * this.inputSampleRateHz) /
+            this.pcmSampleRateHz,
+        );
+        if (currentIqIndex > inputSampleIndex) break;
+
+        const firstIqIndex =
+          currentIqIndex - TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES + 1;
+        for (let tap = 0; tap < TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES; tap++) {
+          const iqIndex = firstIqIndex + tap;
+          const targetIndex = tap * 2;
+          if (iqIndex < 0) {
+            this.window[targetIndex] = 0;
+            this.window[targetIndex + 1] = 0;
+          } else {
+            const sourceIndex = iqIndex % TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+            this.window[targetIndex] = this.inputHistory[sourceIndex];
+            this.window[targetIndex + 1] = this.quadratureHistory[sourceIndex];
+          }
+        }
+        output[outputOffset++] = predictFeatures(
+          this.model,
+          this.window,
+          this.hidden,
+        );
+        this.nextOutputSample++;
+      }
+    }
+
+    this.inputSamplesReceived = endSample;
+    return outputOffset === output.length
+      ? output
+      : output.slice(0, outputOffset);
+  }
+
+  /** Start a fresh stream after a retune or acquisition discontinuity. */
+  reset() {
+    this.inputHistory.fill(0);
+    this.quadratureHistory.fill(0);
+    this.window.fill(0);
+    this.hidden.fill(0);
+    this.inputSamplesReceived = 0;
+    this.nextOutputSample = 0;
+  }
+}
+
+/** Train a local temporal model directly from aligned raw I/Q windows to PCM. */
 export const trainTimeDomainDemodModel = (
   examples: readonly PairedAudioTrainingExample[],
   options: TimeDomainTrainingOptions = {},
 ): TimeDomainDemodModel => {
   const usableExamples = examples.filter(
     (example) =>
-      example.iqData.length >= 4 &&
+      example.iqData.length >= 2 &&
       example.pcmSamples.length >= 8 &&
       Number.isFinite(example.sampleRateHz) &&
       example.sampleRateHz > 0 &&
@@ -154,7 +332,11 @@ export const trainTimeDomainDemodModel = (
     throw new Error("At least one aligned I/Q and PCM example is required");
   }
   const pcmSampleRateHz = usableExamples[0].pcmSampleRateHz;
-  if (usableExamples.some((example) => example.pcmSampleRateHz !== pcmSampleRateHz)) {
+  if (
+    usableExamples.some(
+      (example) => example.pcmSampleRateHz !== pcmSampleRateHz,
+    )
+  ) {
     throw new Error("Training examples must use the same PCM sample rate");
   }
 
@@ -163,7 +345,10 @@ export const trainTimeDomainDemodModel = (
     16,
     Math.floor(options.maxTrainingSamples ?? 4096),
   );
-  const learningRate = Math.max(0.0001, Math.min(0.1, options.learningRate ?? 0.01));
+  const learningRate = Math.max(
+    0.0001,
+    Math.min(0.1, options.learningRate ?? 0.005),
+  );
   const model = options.initialModel
     ? {
         ...options.initialModel,
@@ -172,72 +357,92 @@ export const trainTimeDomainDemodModel = (
         outputWeights: options.initialModel.outputWeights.slice(),
       }
     : createInitialModel(pcmSampleRateHz, options.seed ?? 1337);
-  if (model.pcmSampleRateHz !== pcmSampleRateHz) {
-    throw new Error("Checkpoint PCM sample rate does not match training examples");
+  if (
+    model.version !== MODEL_VERSION ||
+    model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+    model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE
+  ) {
+    throw new Error(
+      "Checkpoint architecture does not match the temporal model",
+    );
   }
-  const startEpoch = Math.max(0, Math.floor(options.startEpoch ?? model.trainingEpochs));
-  const hidden = new Float32Array(HIDDEN_SIZE);
+  if (model.pcmSampleRateHz !== pcmSampleRateHz) {
+    throw new Error(
+      "Checkpoint PCM sample rate does not match training examples",
+    );
+  }
+  const startEpoch = Math.max(
+    0,
+    Math.floor(options.startEpoch ?? model.trainingEpochs),
+  );
+  const window = new Float32Array(TIME_DOMAIN_INPUT_SIZE);
+  const hidden = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
+  const hiddenGradients = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
   let totalSamples = 0;
   let finalLoss = 0;
 
-  const sampledIndices = usableExamples.map((example) => {
-    const stride = Math.max(
-      1,
-      Math.ceil(example.pcmSamples.length / maxTrainingSamples),
+  const sampleRanges = usableExamples.map((example) => {
+    const firstUsefulSample = Math.min(
+      example.pcmSamples.length - 1,
+      Math.max(1, TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES - 1),
     );
-    const indices: number[] = [];
-    for (let index = 1; index < example.pcmSamples.length; index += stride) {
-      indices.push(index);
-    }
-    return indices;
+    const availableSamples = example.pcmSamples.length - firstUsefulSample;
+    return {
+      firstUsefulSample,
+      availableSamples,
+      sampleCount: Math.min(maxTrainingSamples, availableSamples),
+    };
   });
 
   for (let epoch = 0; epoch < epochs; epoch++) {
-    // Each epoch has its own deterministic shuffle stream. That lets a saved
-    // model resume between epochs and produce the same weights as one long run.
     const random = createRandom(
       (options.seed ?? 1337) + Math.imul(startEpoch + epoch, 0x9e3779b9),
     );
     let epochLoss = 0;
     let epochSamples = 0;
-    for (let exampleIndex = 0; exampleIndex < usableExamples.length; exampleIndex++) {
+    for (
+      let exampleIndex = 0;
+      exampleIndex < usableExamples.length;
+      exampleIndex++
+    ) {
       const example = usableExamples[exampleIndex];
-      const indices = sampledIndices[exampleIndex].slice();
+      const range = sampleRanges[exampleIndex];
+      const indices = Array.from(
+        { length: range.sampleCount },
+        () =>
+          range.firstUsefulSample +
+          Math.floor(random() * range.availableSamples),
+      );
       for (let index = indices.length - 1; index > 0; index--) {
-        const swapIndex = Math.floor(random() * (index + 1));
-        [indices[index], indices[swapIndex]] = [indices[swapIndex], indices[index]];
+        const swap = Math.floor(random() * (index + 1));
+        [indices[index], indices[swap]] = [indices[swap], indices[index]];
       }
 
       for (const sampleIndex of indices) {
-        const features = featuresAt(
-          example.iqData,
-          example.sampleRateHz,
-          example.pcmSampleRateHz,
-          sampleIndex,
-          example.pcmSamples.length,
-        );
-        const prediction = predictFeatures(model, features, hidden);
+        fillTimeDomainIqWindow(example, sampleIndex, window);
+        const prediction = predictFeatures(model, window, hidden);
         const error = prediction - example.pcmSamples[sampleIndex];
         epochLoss += error * error;
         epochSamples++;
 
         const outputGradient =
           2 * error * (1 - prediction * prediction) * learningRate;
-        model.outputBias -= outputGradient;
-        const hiddenGradients = new Float32Array(HIDDEN_SIZE);
-        for (let unit = 0; unit < HIDDEN_SIZE; unit++) {
+        for (let unit = 0; unit < TIME_DOMAIN_HIDDEN_SIZE; unit++) {
           const hiddenValue = hidden[unit];
-          const gradient =
-            outputGradient * model.outputWeights[unit] * (1 - hiddenValue * hiddenValue);
-          hiddenGradients[unit] = gradient;
-          model.outputWeights[unit] -= outputGradient * hiddenValue;
+          hiddenGradients[unit] =
+            outputGradient *
+            model.outputWeights[unit] *
+            (1 - hiddenValue * hiddenValue);
         }
-        for (let unit = 0; unit < HIDDEN_SIZE; unit++) {
+        model.outputBias -= outputGradient;
+        for (let unit = 0; unit < TIME_DOMAIN_HIDDEN_SIZE; unit++) {
+          model.outputWeights[unit] -= outputGradient * hidden[unit];
           const gradient = hiddenGradients[unit];
           model.hiddenBias[unit] -= gradient;
-          const weightOffset = unit * INPUT_SIZE;
-          for (let feature = 0; feature < INPUT_SIZE; feature++) {
-            model.inputWeights[weightOffset + feature] -= gradient * features[feature];
+          const weightOffset = unit * TIME_DOMAIN_INPUT_SIZE;
+          for (let feature = 0; feature < TIME_DOMAIN_INPUT_SIZE; feature++) {
+            model.inputWeights[weightOffset + feature] -=
+              gradient * window[feature];
           }
         }
       }
@@ -254,7 +459,50 @@ export const trainTimeDomainDemodModel = (
   return model;
 };
 
-/** Run local waveform inference directly over time-domain I/Q samples. */
+/** Predict a bounded excerpt without losing its position in the aligned pair. */
+export const predictTimeDomainAudioRange = (
+  model: TimeDomainDemodModel,
+  example: PairedAudioTrainingExample,
+  range: PcmSampleRange,
+): TimeDomainPrediction => {
+  if (
+    model.version !== MODEL_VERSION ||
+    model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+    model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE
+  ) {
+    throw new Error("Unsupported time-domain demodulation model version");
+  }
+  if (
+    !Number.isFinite(example.sampleRateHz) ||
+    example.sampleRateHz <= 0 ||
+    !Number.isFinite(example.pcmSampleRateHz) ||
+    example.pcmSampleRateHz <= 0
+  ) {
+    throw new Error("I/Q sample rate must be a positive finite value");
+  }
+  if (
+    example.iqData.length < 2 ||
+    example.pcmSamples.length < 1 ||
+    !Number.isInteger(range.startSample) ||
+    !Number.isInteger(range.endSample) ||
+    range.startSample < 0 ||
+    range.endSample < range.startSample ||
+    range.endSample > example.pcmSamples.length
+  ) {
+    throw new Error("Cannot predict an invalid aligned PCM sample range");
+  }
+
+  const window = new Float32Array(TIME_DOMAIN_INPUT_SIZE);
+  const hidden = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
+  const samples = new Float32Array(range.endSample - range.startSample);
+  for (let outputIndex = 0; outputIndex < samples.length; outputIndex++) {
+    fillTimeDomainIqWindow(example, range.startSample + outputIndex, window);
+    samples[outputIndex] = predictFeatures(model, window, hidden);
+  }
+  return { samples, sampleRateHz: example.pcmSampleRateHz };
+};
+
+/** Apply the reference temporal model sample by sample in TypeScript. */
 export const predictTimeDomainAudio = (
   model: TimeDomainDemodModel,
   input: {
@@ -264,13 +512,10 @@ export const predictTimeDomainAudio = (
     outputSampleCount?: number;
   },
 ): TimeDomainPrediction => {
-  if (model.version !== MODEL_VERSION || model.inputSize !== INPUT_SIZE) {
-    throw new Error("Unsupported time-domain demodulation model version");
-  }
-  const pcmSampleRateHz = input.pcmSampleRateHz ?? model.pcmSampleRateHz;
   if (!Number.isFinite(input.sampleRateHz) || input.sampleRateHz <= 0) {
     throw new Error("I/Q sample rate must be a positive finite value");
   }
+  const pcmSampleRateHz = input.pcmSampleRateHz ?? model.pcmSampleRateHz;
   const complexCount = Math.floor(input.iqData.length / 2);
   const outputSampleCount = Math.max(
     0,
@@ -279,17 +524,14 @@ export const predictTimeDomainAudio = (
         (complexCount * pcmSampleRateHz) / input.sampleRateHz,
     ),
   );
-  const samples = new Float32Array(outputSampleCount);
-  const hidden = new Float32Array(HIDDEN_SIZE);
-  for (let index = 0; index < outputSampleCount; index++) {
-    const features = featuresAt(
-      input.iqData,
-      input.sampleRateHz,
-      pcmSampleRateHz,
-      index,
-      outputSampleCount,
-    );
-    samples[index] = predictFeatures(model, features, hidden);
-  }
-  return { samples, sampleRateHz: pcmSampleRateHz };
+  const example: PairedAudioTrainingExample = {
+    iqData: input.iqData,
+    sampleRateHz: input.sampleRateHz,
+    pcmSamples: new Float32Array(outputSampleCount),
+    pcmSampleRateHz,
+  };
+  return predictTimeDomainAudioRange(model, example, {
+    startSample: 0,
+    endSample: outputSampleCount,
+  });
 };

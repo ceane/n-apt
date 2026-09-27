@@ -8,10 +8,13 @@ import {
   createDemodProcessor,
   type DemodAlgorithm,
 } from "@n-apt/demodulation/utils/demodProcessors";
+import type { AudioSurveyDecoderStrategy } from "@n-apt/demodulation/survey/audioSurveyModel";
 
 const DEFAULT_FFT_SIZE = 4096;
 const MAX_FFT_WINDOWS = 8;
 const MIN_CANDIDATE_BANDWIDTH_HZ = 6_250;
+const OBSERVED_SPIKE_SPACING_HZ = 34_000;
+const MIN_SPIKE_WALK_BANDWIDTH_HZ = 2 * OBSERVED_SPIKE_SPACING_HZ;
 const MIN_NOISE_POWER = 1e-14;
 
 export interface AudioSurveyFrameInput {
@@ -19,6 +22,7 @@ export interface AudioSurveyFrameInput {
   sampleRateHz: number;
   frameCenterFrequencyHz: number;
   allowedRangeHz: { min: number; max: number };
+  decoderStrategy?: AudioSurveyDecoderStrategy | null | "auto";
   targetSampleRateHz?: number;
   fftSize?: number;
 }
@@ -31,11 +35,13 @@ export interface DemodulatedAudio {
 export interface AudioSurveyCandidate {
   centerHz: number;
   bandwidthHz: number;
+  spikeValleyPairs?: number;
+  spikeSpacingHz?: number;
   snrDb: number;
   score: number;
-  modulation: "am" | "fm" | "unknown";
+  modulation: "am" | "fm" | "apt" | "unknown";
   audioPcm: Float32Array;
-  modulationScores: { am: number; fm: number };
+  modulationScores: { am: number; fm: number; apt: number };
 }
 
 export interface ChannelizedSurveyIq {
@@ -133,6 +139,169 @@ const getMedian = (values: Float64Array): number => {
   return sorted[Math.floor(sorted.length / 2)] ?? MIN_NOISE_POWER;
 };
 
+export interface SpikeValleyWidthWalk {
+  startBin: number;
+  endBin: number;
+  anchorBin?: number;
+  pairCount?: number;
+  spikeSpacingHz?: number;
+  stopReason:
+    | "weak-next-spike"
+    | "pair-limit"
+    | "spectrum-edge"
+    | "insufficient-spikes";
+}
+
+/**
+ * Walks local spike/valley pairs rightward from the strongest local peak.
+ * Two pairs to the right are required before this walk replaces the
+ * occupied-bandwidth bounds; it can extend to seven, stopping at a valley
+ * before a weak spike or at the last included spike when the pair limit is hit.
+ */
+export const walkSpectralSpikeValleys = ({
+  power,
+  startBin,
+  endBin,
+  centerBin,
+  threshold,
+  binWidthHz = 1,
+  minPairs = 2,
+  maxPairs = 7,
+  weakSpikeRatio = 0.7,
+}: {
+  power: Float64Array;
+  startBin: number;
+  endBin: number;
+  centerBin: number;
+  threshold: number;
+  binWidthHz?: number;
+  minPairs?: number;
+  maxPairs?: number;
+  weakSpikeRatio?: number;
+}): SpikeValleyWidthWalk => {
+  const firstBin = Math.max(0, Math.min(power.length - 1, Math.ceil(startBin)));
+  const lastBin = Math.max(firstBin, Math.min(power.length - 1, Math.floor(endBin)));
+  const fallback = {
+    startBin: firstBin,
+    endBin: lastBin,
+    stopReason: "insufficient-spikes" as const,
+  };
+  const requiredPairs = Math.max(1, Math.floor(minPairs));
+  const pairLimit = Math.max(requiredPairs, Math.floor(maxPairs));
+  if (
+    power.length < 3 ||
+    firstBin >= lastBin ||
+    !Number.isFinite(centerBin) ||
+    !Number.isFinite(threshold) ||
+    !Number.isFinite(binWidthHz) ||
+    binWidthHz <= 0 ||
+    !Number.isFinite(weakSpikeRatio) ||
+    weakSpikeRatio < 0
+  ) {
+    return fallback;
+  }
+
+  const peaks: number[] = [];
+  for (let bin = Math.max(1, firstBin); bin <= Math.min(power.length - 2, lastBin); bin++) {
+    if (
+      power[bin] >= threshold &&
+      power[bin] >= power[bin - 1] &&
+      power[bin] > power[bin + 1]
+    ) {
+      peaks.push(bin);
+    }
+  }
+  if (peaks.length < requiredPairs + 1) return fallback;
+
+  let anchorPosition = 0;
+  for (let position = 1; position < peaks.length; position++) {
+    if (
+      power[peaks[position]] > power[peaks[anchorPosition]] ||
+      (power[peaks[position]] === power[peaks[anchorPosition]] &&
+        Math.abs(peaks[position] - centerBin) <
+          Math.abs(peaks[anchorPosition] - centerBin))
+    ) {
+      anchorPosition = position;
+    }
+  }
+
+  const findValley = (leftPeak: number, rightPeak: number) => {
+    const lower = Math.min(leftPeak, rightPeak);
+    const upper = Math.max(leftPeak, rightPeak);
+    let minimum = Number.POSITIVE_INFINITY;
+    let firstMinimum = lower;
+    let lastMinimum = lower;
+    for (let bin = lower + 1; bin < upper; bin++) {
+      if (power[bin] < minimum) {
+        minimum = power[bin];
+        firstMinimum = bin;
+        lastMinimum = bin;
+      } else if (power[bin] === minimum) {
+        lastMinimum = bin;
+      }
+    }
+    return {
+      bin: Math.round((firstMinimum + lastMinimum) / 2),
+      power: Number.isFinite(minimum) ? minimum : Math.min(power[lower], power[upper]),
+    };
+  };
+
+  const anchorBin = peaks[anchorPosition];
+  const anchorLevel = power[anchorBin];
+  const baseLevel = threshold + Math.max(0, anchorLevel - threshold) * 0.1;
+  let leftBoundary = anchorBin;
+  while (leftBoundary > firstBin && power[leftBoundary - 1] >= baseLevel) {
+    leftBoundary--;
+  }
+  if (leftBoundary > firstBin) leftBoundary--;
+
+  let pairCount = 0;
+  let currentPeakPosition = anchorPosition;
+  let rightBoundary = anchorBin;
+  let stopReason: SpikeValleyWidthWalk["stopReason"] = "spectrum-edge";
+  const recentProminences: number[] = [];
+  const pairSpacingsHz: number[] = [];
+  const recentMedian = () => {
+    const recent = recentProminences.slice(-3).sort((left, right) => left - right);
+    return recent[Math.floor(recent.length / 2)] ?? 0;
+  };
+
+  while (pairCount < pairLimit && currentPeakPosition < peaks.length - 1) {
+    const nextPeak = peaks[currentPeakPosition + 1];
+    const currentPeak = peaks[currentPeakPosition];
+    const valley = findValley(currentPeak, nextPeak);
+    const prominence = Math.max(0, power[nextPeak] - valley.power);
+    if (
+      pairCount >= requiredPairs &&
+      recentProminences.length > 0 &&
+      prominence < recentMedian() * weakSpikeRatio
+    ) {
+      rightBoundary = valley.bin;
+      stopReason = "weak-next-spike";
+      break;
+    }
+
+    pairCount++;
+    recentProminences.push(prominence);
+    pairSpacingsHz.push((nextPeak - currentPeak) * binWidthHz);
+    currentPeakPosition++;
+    rightBoundary = nextPeak;
+  }
+  if (pairCount >= pairLimit) stopReason = "pair-limit";
+  if (pairCount < requiredPairs) return fallback;
+
+  return {
+    startBin: leftBoundary,
+    endBin: rightBoundary,
+    anchorBin,
+    pairCount,
+    spikeSpacingHz: pairSpacingsHz.sort((left, right) => left - right)[
+      Math.floor(pairSpacingsHz.length / 2)
+    ],
+    stopReason,
+  };
+};
+
 const evaluateAudioEvidence = (samples: Float32Array): number => {
   if (samples.length < 8) return 0;
   let energy = 0;
@@ -151,6 +320,35 @@ const evaluateAudioEvidence = (samples: Float32Array): number => {
   return level * nonSilent;
 };
 
+/** Score the complete positive APT envelope without cropping its peaks/valleys. */
+const evaluateAptAmplitudeEvidence = (
+  samples: Float32Array,
+): { score: number; plausible: boolean } => {
+  if (samples.length < 16) return { score: 0, plausible: false };
+  const sampled: number[] = [];
+  const stride = Math.max(1, Math.ceil(samples.length / 512));
+  let total = 0;
+  let negativeCount = 0;
+  for (let index = 0; index < samples.length; index++) {
+    total += samples[index];
+    if (samples[index] < 0) negativeCount++;
+    if (index % stride === 0) sampled.push(samples[index]);
+  }
+  sampled.sort((left, right) => left - right);
+  const low = sampled[Math.floor((sampled.length - 1) * 0.1)] ?? 0;
+  const high = sampled[Math.floor((sampled.length - 1) * 0.9)] ?? 0;
+  const mean = total / samples.length;
+  const contrast = clamp01((high - low) / Math.max(high, 0.025) / 0.65);
+  const level = clamp01(mean / 0.25);
+  return {
+    score: 0.8 * contrast + 0.2 * level,
+    plausible:
+      negativeCount <= samples.length * 0.01 &&
+      high >= 0.12 &&
+      high - low >= 0.08,
+  };
+};
+
 export const demodulateAudioCandidate = ({
   iqData,
   sampleRateHz,
@@ -165,10 +363,10 @@ export const demodulateAudioCandidate = ({
   frameCenterFrequencyHz: number;
   centerFrequencyHz: number;
   bandwidthHz: number;
-  modulation: "am" | "fm";
+  modulation: "am" | "fm" | "apt";
   targetSampleRateHz?: number;
 }): DemodulatedAudio => {
-  const algorithm: DemodAlgorithm = modulation;
+  const algorithm: DemodAlgorithm = modulation === "apt" ? "aptImage" : modulation;
   const processor = createDemodProcessor(algorithm, {
     targetSampleRate: targetSampleRateHz,
     centerFrequency: centerFrequencyHz,
@@ -271,6 +469,7 @@ export const analyzeAudioSurveyFrame = ({
   sampleRateHz,
   frameCenterFrequencyHz,
   allowedRangeHz,
+  decoderStrategy = "auto",
   targetSampleRateHz = 48_000,
   fftSize = DEFAULT_FFT_SIZE,
 }: AudioSurveyFrameInput): AudioSurveyCandidate[] => {
@@ -291,7 +490,9 @@ export const analyzeAudioSurveyFrame = ({
   const threshold = Math.max(noiseFloor * 6, peakPower * 1e-4);
   const binWidthHz = sampleRateHz / fftSize;
   const minimumBins = 1;
-  const mergeGapBins = Math.max(1, Math.ceil(2_000 / binWidthHz));
+  // The observed average spike spacing is about 34 kHz. Use that only to
+  // assemble a possible spike train; the walk below sets its actual bounds.
+  const mergeGapBins = Math.max(1, Math.ceil(OBSERVED_SPIKE_SPACING_HZ / binWidthHz));
   const candidates: AudioSurveyCandidate[] = [];
   let start = -1;
   let previousActive = -2;
@@ -299,22 +500,55 @@ export const analyzeAudioSurveyFrame = ({
   const evaluateRegion = (regionStart: number, regionEnd: number) => {
     const binCount = regionEnd - regionStart + 1;
     if (binCount < minimumBins) return;
+    let initialWeightedOffset = 0;
+    let initialWeightSum = 0;
+    for (let bin = regionStart; bin <= regionEnd; bin++) {
+      const offsetHz = bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
+      const weight = Math.max(0, power[bin] - noiseFloor);
+      initialWeightedOffset += offsetHz * weight;
+      initialWeightSum += weight;
+    }
+    const initialOffsetHz = initialWeightSum > 0
+      ? initialWeightedOffset / initialWeightSum
+      : 0;
+    const centerBin = ((Math.round(initialOffsetHz / binWidthHz) % fftSize) + fftSize) % fftSize;
+    const widthWalk = walkSpectralSpikeValleys({
+      power,
+      startBin: regionStart,
+      endBin: regionEnd,
+      centerBin,
+      threshold,
+      binWidthHz,
+    });
+    const measuredStart = widthWalk.pairCount === undefined
+      ? regionStart
+      : widthWalk.startBin;
+    const measuredEnd = widthWalk.pairCount === undefined
+      ? regionEnd
+      : widthWalk.endBin;
+    const measuredBinCount = measuredEnd - measuredStart + 1;
     let weightedOffset = 0;
     let weightSum = 0;
     let peakPower = 0;
-    for (let bin = regionStart; bin <= regionEnd; bin++) {
+    for (let bin = measuredStart; bin <= measuredEnd; bin++) {
       const offsetHz = bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
       const weight = Math.max(0, power[bin] - noiseFloor);
       weightedOffset += offsetHz * weight;
       weightSum += weight;
       peakPower = Math.max(peakPower, power[bin]);
     }
-    const offsetHz = weightSum > 0 ? weightedOffset / weightSum : 0;
+    const signedBinOffsetHz = (bin: number) =>
+      bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
+    const offsetHz = widthWalk.pairCount !== undefined
+      ? (signedBinOffsetHz(measuredStart) + signedBinOffsetHz(measuredEnd)) / 2
+      : weightSum > 0
+        ? weightedOffset / weightSum
+        : initialOffsetHz;
     const centerHz = frameCenterFrequencyHz + offsetHz;
-    const bandwidthHz = Math.max(
-      MIN_CANDIDATE_BANDWIDTH_HZ,
-      binCount * binWidthHz,
-    );
+    const measuredBandwidthHz = measuredBinCount * binWidthHz;
+    const bandwidthHz = widthWalk.pairCount === undefined
+      ? Math.max(MIN_CANDIDATE_BANDWIDTH_HZ, measuredBandwidthHz)
+      : Math.max(MIN_SPIKE_WALK_BANDWIDTH_HZ, measuredBandwidthHz);
     if (
       centerHz + bandwidthHz / 2 < allowedRangeHz.min ||
       centerHz - bandwidthHz / 2 > allowedRangeHz.max
@@ -323,49 +557,99 @@ export const analyzeAudioSurveyFrame = ({
     }
 
     const snrDb = 10 * Math.log10(Math.max(peakPower, MIN_NOISE_POWER) / noiseFloor);
-    const amAudio = demodulateAudioCandidate({
-      iqData,
-      sampleRateHz,
-      frameCenterFrequencyHz,
-      centerFrequencyHz: centerHz,
-      bandwidthHz,
-      modulation: "am",
-      targetSampleRateHz,
-    });
-    const fmAudio = demodulateAudioCandidate({
-      iqData,
-      sampleRateHz,
-      frameCenterFrequencyHz,
-      centerFrequencyHz: centerHz,
-      bandwidthHz,
-      modulation: "fm",
-      targetSampleRateHz,
-    });
+    const selectedBaseline =
+      decoderStrategy === "apt-style" ? "apt" : decoderStrategy;
+    const runAllBaselines = selectedBaseline === "auto";
+    const runAm = runAllBaselines || selectedBaseline === "am";
+    const runFm = runAllBaselines || selectedBaseline === "fm";
+    const runApt = runAllBaselines || selectedBaseline === "apt";
+    const amAudio = runAm
+      ? demodulateAudioCandidate({
+          iqData,
+          sampleRateHz,
+          frameCenterFrequencyHz,
+          centerFrequencyHz: centerHz,
+          bandwidthHz,
+          modulation: "am",
+          targetSampleRateHz,
+        })
+      : null;
+    const fmAudio = runFm
+      ? demodulateAudioCandidate({
+          iqData,
+          sampleRateHz,
+          frameCenterFrequencyHz,
+          centerFrequencyHz: centerHz,
+          bandwidthHz,
+          modulation: "fm",
+          targetSampleRateHz,
+        })
+      : null;
+    const aptAudio = runApt
+      ? demodulateAudioCandidate({
+          iqData,
+          sampleRateHz,
+          frameCenterFrequencyHz,
+          centerFrequencyHz: centerHz,
+          bandwidthHz,
+          modulation: "apt",
+          targetSampleRateHz,
+        })
+      : null;
+    const aptEvidence = aptAudio
+      ? evaluateAptAmplitudeEvidence(aptAudio.samples)
+      : { score: 0, plausible: false };
     const modulationScores = {
-      am: evaluateAudioEvidence(amAudio.samples),
-      fm: evaluateAudioEvidence(fmAudio.samples),
+      am: amAudio ? evaluateAudioEvidence(amAudio.samples) : 0,
+      fm: fmAudio ? evaluateAudioEvidence(fmAudio.samples) : 0,
+      apt: aptEvidence.score,
     };
+    const rankedModulations = [
+      ...(amAudio
+        ? [{ modulation: "am" as const, score: modulationScores.am, audio: amAudio }]
+        : []),
+      ...(fmAudio
+        ? [{ modulation: "fm" as const, score: modulationScores.fm, audio: fmAudio }]
+        : []),
+      ...(aptAudio
+        ? [{ modulation: "apt" as const, score: modulationScores.apt, audio: aptAudio }]
+        : []),
+    ].sort((left, right) => right.score - left.score);
+    const best = rankedModulations[0];
+    const secondBest = rankedModulations[1];
     const score =
       0.55 * (1 - Math.exp(-Math.max(0, snrDb - 3) / 12)) +
-      0.45 * Math.max(modulationScores.am, modulationScores.fm);
-    const modulation =
-      Math.max(modulationScores.am, modulationScores.fm) < 0.08 ||
-      Math.abs(modulationScores.am - modulationScores.fm) < 0.035
-        ? "unknown"
-        : modulationScores.am > modulationScores.fm
-          ? "am"
-          : "fm";
+      0.45 * (best?.score ?? 0);
+    const aptDominates =
+      aptEvidence.plausible && modulationScores.apt >= (best?.score ?? 0) * 0.6;
+    const modulation = runAllBaselines
+      ? aptDominates
+        ? "apt"
+        : (best?.score ?? 0) < 0.08 ||
+            (best?.score ?? 0) - (secondBest?.score ?? 0) < 0.035
+          ? "unknown"
+          : best!.modulation
+      : selectedBaseline === "am" || selectedBaseline === "fm" || selectedBaseline === "apt"
+        ? selectedBaseline
+        : "unknown";
     const selectedAudio =
-      modulation === "fm" ? fmAudio : modulation === "am" ? amAudio :
-        modulationScores.fm > modulationScores.am ? fmAudio : amAudio;
+      runAllBaselines && modulation === "unknown"
+        ? best?.audio
+        : rankedModulations.find((item) => item.modulation === modulation)?.audio;
 
     candidates.push({
       centerHz,
       bandwidthHz,
+      ...(widthWalk.pairCount === undefined
+        ? {}
+        : { spikeValleyPairs: widthWalk.pairCount }),
+      ...(widthWalk.spikeSpacingHz === undefined
+        ? {}
+        : { spikeSpacingHz: widthWalk.spikeSpacingHz }),
       snrDb,
       score,
       modulation,
-      audioPcm: selectedAudio.samples,
+      audioPcm: selectedAudio?.samples ?? new Float32Array(0),
       modulationScores,
     });
   };

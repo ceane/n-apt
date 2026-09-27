@@ -1,5 +1,11 @@
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
 import { StimulusNode } from "@n-apt/demodulation/react-flow/nodes/StimulusNode";
@@ -57,7 +63,11 @@ const mockWaterfallProps: {
   } | null;
 } = { current: null };
 
-let mockAudioContext: { currentTime: number } | null = null;
+let mockAudioContext: {
+  currentTime: number;
+  createBufferSource: jest.Mock;
+  resume: jest.Mock;
+} | null = null;
 let nextAnimationFrame: FrameRequestCallback | null = null;
 
 jest.mock("@n-apt/spectrum/public/FIFOWaterfall", () => ({
@@ -79,7 +89,29 @@ describe("StimulusNode", () => {
       });
     const audioContext = {
       currentTime: 0,
+      state: "running",
       destination: {},
+      resume: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+      decodeAudioData: jest.fn().mockResolvedValue({
+        sampleRate: 24_000,
+        length: 4,
+        numberOfChannels: 1,
+        getChannelData: () => Float32Array.of(-1, -0.5, 0.5, 1),
+      }),
+      createBuffer: jest.fn((_channels: number, length: number) => {
+        const samples = new Float32Array(length);
+        return {
+          getChannelData: () => samples,
+        };
+      }),
+      createBufferSource: jest.fn(() => ({
+        buffer: null,
+        connect: jest.fn(),
+        start: jest.fn(),
+        stop: jest.fn(),
+        onended: null,
+      })),
       createOscillator: () => ({
         type: "sine",
         frequency: { setValueAtTime: jest.fn() },
@@ -129,7 +161,9 @@ describe("StimulusNode", () => {
     const reference = createAudioToneReferencePcm(1, 48_000);
     expect(reference).toHaveLength(48_000);
     expect(reference[0]).toBe(0);
-    expect(Math.max(...Array.from(reference.slice(4_800, 5_000)))).toBeGreaterThan(0.4);
+    expect(
+      Math.max(...Array.from(reference.slice(4_800, 5_000))),
+    ).toBeGreaterThan(0.4);
     expect(Math.abs(reference[47_999])).toBeLessThan(0.02);
   });
 
@@ -153,6 +187,66 @@ describe("StimulusNode", () => {
 
     expect(screen.getByText(/440Hz SINE TONE/)).toBeInTheDocument();
     expect(screen.getByText("TRADITIONAL AUDIO WAVEFORM")).toBeInTheDocument();
+  });
+
+  it("offers a local audio or video reference file for pairing", () => {
+    render(
+      <TestWrapper>
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    const input = screen.getByLabelText("Reference media file");
+    expect(input).toHaveAttribute("type", "file");
+    expect(input).toHaveAttribute("accept", "audio/*,video/*");
+    expect(screen.getByText(/decoded locally/i)).toBeInTheDocument();
+  });
+
+  it("decodes local media to mono 48 kHz and starts it when RF pairing asks", async () => {
+    mockDemodValue.recordAudioSurveyStimulusReference.mockImplementation(
+      async (input: { startPlayback?: () => Promise<number> | number }) => {
+        await input.startPlayback?.();
+        return { kind: "reference-pair" };
+      },
+    );
+    render(
+      <TestWrapper>
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+    const file = new File(["media"], "reference.wav", { type: "audio/wav" });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new ArrayBuffer(5),
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Reference media file"), {
+        target: { files: [file] },
+      });
+    });
+
+    expect(
+      await screen.findByText(/decoded locally to mono 48 kHz PCM/),
+    ).toBeInTheDocument();
+    const captureButton = screen.getByRole("button", {
+      name: "CAPTURE MEDIA PAIR",
+    });
+    await act(async () => fireEvent.click(captureButton));
+
+    expect(
+      mockDemodValue.recordAudioSurveyStimulusReference,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pcmSampleRateHz: 48_000,
+        pcmData: expect.any(Float32Array),
+        startPlayback: expect.any(Function),
+      }),
+    );
+    expect(mockAudioContext?.resume).toHaveBeenCalledTimes(1);
+    expect(mockAudioContext?.createBufferSource).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText(/Saved an aligned I\/Q and PCM pair/),
+    ).toBeInTheDocument();
   });
 
   it("renders a synchronized sine waveform while audio is capturing", () => {
@@ -329,6 +423,51 @@ describe("StimulusNode", () => {
     expect(getAudioToneGain(0.05, 5)).toBeCloseTo(0.25, 5);
     expect(getAudioToneGain(0.1, 5)).toBeCloseTo(0.5, 5);
     expect(getAudioToneGain(5, 5)).toBeCloseTo(0.01, 5);
+  });
+
+  it("waits for the reference capture to schedule a paired tone", async () => {
+    mockDemodValue.recordAudioSurveyStimulusReference.mockImplementation(
+      async (input: { startedAtMs?: number; startPlayback?: () => number }) => {
+        await input.startPlayback?.();
+        return null;
+      },
+    );
+    const view = render(
+      <TestWrapper>
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Pair stimulus tone with captured RF audio",
+      }),
+    );
+    mockDemodValue.analysisSession = {
+      state: "capturing",
+      type: "audio",
+      startTime: Date.now(),
+    };
+
+    await act(async () => {
+      view.rerender(
+        <TestWrapper>
+          <StimulusNode {...defaultProps} />
+        </TestWrapper>,
+      );
+    });
+
+    expect(
+      mockDemodValue.recordAudioSurveyStimulusReference,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pcmSampleRateHz: 48_000,
+        startPlayback: expect.any(Function),
+      }),
+    );
+    expect(
+      mockDemodValue.recordAudioSurveyStimulusReference.mock.calls[0][0]
+        .startedAtMs,
+    ).toBeUndefined();
   });
 
   it("renders duration input", () => {

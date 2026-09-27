@@ -16,6 +16,7 @@ import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import {
   AUDIO_SURVEY_STORAGE_CAP_BYTES,
   AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES,
+  type AudioSurveyDecoderStrategy,
   type AudioSurveySourceMode,
 } from "@n-apt/demodulation/survey/audioSurveyModel";
 
@@ -192,7 +193,10 @@ const CompactButton = styled.button`
   font-weight: 600;
   cursor: pointer;
 
-  &:disabled { cursor: not-allowed; opacity: 0.55; }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
 `;
 
 const formatHz = (frequencyHz: number) =>
@@ -213,8 +217,11 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [surveySourceMode, setSurveySourceMode] =
     useState<AudioSurveySourceMode>("combined");
-  const [surveyStorageCapBytes, setSurveyStorageCapBytes] =
-    useState(AUDIO_SURVEY_STORAGE_CAP_BYTES);
+  const [surveyDecoderStrategy, setSurveyDecoderStrategy] =
+    useState<AudioSurveyDecoderStrategy | null>(null);
+  const [surveyStorageCapBytes, setSurveyStorageCapBytes] = useState(
+    AUDIO_SURVEY_STORAGE_CAP_BYTES,
+  );
   const [surveyBusy, setSurveyBusy] = useState(false);
   const {
     audioSurveyJob,
@@ -386,7 +393,13 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
           Local ML audio demodulation
         </SurveyHeading>
         <SurveyInfo>
-          Survey Channels A and B in independent 3.2 MS/s views. Replay runs first when captures are selected, then live RF. Narrowband clips stay local; full-band I/Q is discarded.
+          Survey only Channels A and B in independent 3.2 MS/s views. Candidate
+          discovery measures frequency and occupied width; a selected decoder
+          produces audio. The spike/valley walk measures two to seven rightward
+          pairs from the strongest peak, starting near its left base. APT-style
+          decoding keeps the full amplitude envelope without assembling image
+          lines. Replay runs first when selected, then live RF. Full-band I/Q is
+          discarded.
         </SurveyInfo>
         <SurveySelect
           aria-label="Audio survey source"
@@ -401,22 +414,62 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
           <option value="live">Live RTL-SDR</option>
         </SurveySelect>
         <SurveySelect
+          aria-label="Audio decoder strategy"
+          value={surveyDecoderStrategy ?? ""}
+          onChange={(event) =>
+            setSurveyDecoderStrategy(
+              event.target.value === ""
+                ? null
+                : (event.target.value as AudioSurveyDecoderStrategy),
+            )
+          }
+          disabled={surveyRunning || surveyBusy}
+        >
+          <option value="">Candidate discovery only</option>
+          <option value="am">AM envelope</option>
+          <option value="fm">FM discriminator</option>
+          <option value="apt-style">APT-style amplitude</option>
+          <option
+            value="neural"
+            disabled
+            title="Learns unknown decoding from aligned reference media and I/Q; live output waits for a validated ONNX temporal model."
+          >
+            Neural · learn unknown schemes (not deployed)
+          </option>
+        </SurveySelect>
+        <SurveyInfo>
+          Neural learns from synchronized known media and received I/Q when we
+          do not know the modulation; it does not assume AM, FM, or APT. Live
+          neural output stays unavailable until an ONNX temporal model passes
+          held-out comparison against the DSP baselines.
+        </SurveyInfo>
+        <SurveySelect
           aria-label="Audio survey storage cap"
           value={surveyStorageCapBytes}
-          onChange={(event) => setSurveyStorageCapBytes(Number(event.target.value))}
+          onChange={(event) =>
+            setSurveyStorageCapBytes(Number(event.target.value))
+          }
           disabled={surveyRunning || surveyBusy}
         >
           <option value={128_000_000}>128 MB local storage cap</option>
-          <option value={AUDIO_SURVEY_STORAGE_CAP_BYTES}>256 MB local storage cap</option>
+          <option value={AUDIO_SURVEY_STORAGE_CAP_BYTES}>
+            256 MB local storage cap
+          </option>
           <option value={512_000_000}>512 MB local storage cap</option>
-          <option value={AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES}>1 GB local storage cap</option>
+          <option value={AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES}>
+            1 GB local storage cap
+          </option>
         </SurveySelect>
         <ButtonGrid>
           {!surveyRunning && !surveyPaused ? (
             <ActionButton
               onClick={() =>
                 void runSurveyAction(() =>
-                  startAudioSurvey(surveySourceMode, surveyStorageCapBytes),
+                  startAudioSurvey(
+                    surveySourceMode,
+                    surveyStorageCapBytes,
+                    surveyDecoderStrategy,
+                  ),
                 )
               }
               disabled={surveyBusy}
@@ -450,35 +503,61 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
               <Brain size={13} /> Train / resume ML
             </ActionButton>
           ) : (
-            <ActionButton onClick={pauseAudioSurveyTraining} disabled={surveyBusy}>
+            <ActionButton
+              onClick={pauseAudioSurveyTraining}
+              disabled={surveyBusy}
+            >
               <Pause size={13} /> Pause training
             </ActionButton>
           )}
         </ButtonGrid>
         <SurveyInfo>
-          Survey: {audioSurveyJob?.status ?? "ready"} · pass {audioSurveyJob?.checkpoint.passIndex ?? 0} · view {(audioSurveyJob?.checkpoint.viewIndex ?? 0) + 1}/4
+          Survey: {audioSurveyJob?.status ?? "ready"} · pass{" "}
+          {audioSurveyJob?.checkpoint.passIndex ?? 0} · view{" "}
+          {(audioSurveyJob?.checkpoint.viewIndex ?? 0) + 1}/4
           <br />
-          Today: {formatHours(audioSurveyJob?.checkpoint.elapsedMsToday ?? 0)} / {formatHours(audioSurveyJob?.config.dailyBudgetMs ?? 8 * 60 * 60 * 1000)}
+          Today: {formatHours(
+            audioSurveyJob?.checkpoint.elapsedMsToday ?? 0,
+          )} /{" "}
+          {formatHours(
+            audioSurveyJob?.config.dailyBudgetMs ?? 8 * 60 * 60 * 1000,
+          )}
           <br />
-          Storage: {formatBytes(audioSurveyStorageUsage.usedBytes)} / {formatBytes(audioSurveyStorageUsage.capBytes)} · {audioSurveyStorageUsage.artifactCount} artifacts
+          Storage: {formatBytes(audioSurveyStorageUsage.usedBytes)} /{" "}
+          {formatBytes(audioSurveyStorageUsage.capBytes)} ·{" "}
+          {audioSurveyStorageUsage.artifactCount} artifacts
           {audioSurveyTraining && (
             <>
               <br />
-              Training: {audioSurveyTraining.status}, epoch {audioSurveyTraining.epoch}/{audioSurveyTraining.totalEpochs}
-              {audioSurveyTraining.modelPreferred === true && " · beats DSP baseline"}
-              {audioSurveyTraining.modelPreferred === false && audioSurveyTraining.status === "completed" && " · DSP remains preferred"}
+              Training: {audioSurveyTraining.status}, epoch{" "}
+              {audioSurveyTraining.epoch}/{audioSurveyTraining.totalEpochs}
+              {audioSurveyTraining.modelPreferred === true &&
+                " · matches or beats DSP baseline"}
+              {audioSurveyTraining.modelPreferred === false &&
+                audioSurveyTraining.status === "completed" &&
+                " · DSP remains preferred"}
             </>
           )}
-          {audioSurveyError && <><br />{audioSurveyError}</>}
+          {audioSurveyError && (
+            <>
+              <br />
+              {audioSurveyError}
+            </>
+          )}
         </SurveyInfo>
         <CandidateList aria-label="Audio candidates">
           {audioSurveyCandidates.slice(0, 8).map((candidate) => (
             <CandidateItem key={candidate.id}>
               <div>
                 <CandidateName>
-                  {candidate.channelId.toUpperCase()} · {formatHz(candidate.centerHz)}
+                  {candidate.channelId.toUpperCase()} ·{" "}
+                  {formatHz(candidate.centerHz)}
                 </CandidateName>
-                {candidate.modulation.toUpperCase()} · {formatHz(candidate.bandwidthHz)} wide · score {candidate.score.toFixed(2)}
+                {candidate.modulation.toUpperCase()} ·{" "}
+                {formatHz(candidate.bandwidthHz)} wide · score{" "}
+                {candidate.score.toFixed(2)}
+                {candidate.spikeValleyPairs !== undefined &&
+                  ` · ${candidate.spikeValleyPairs} rightward pairs${candidate.spikeSpacingHz === undefined ? "" : ` · ${formatHz(candidate.spikeSpacingHz)} median spacing`}`}
                 {candidate.demodulationModelPreferred && " · ML preferred"}
               </div>
               <CompactButton
@@ -494,7 +573,9 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
           ))}
         </CandidateList>
         {audioSurveyCandidates.length === 0 && (
-          <SurveyInfo>No candidates recorded yet. Start a survey to build the map.</SurveyInfo>
+          <SurveyInfo>
+            No candidates recorded yet. Start a survey to build the map.
+          </SurveyInfo>
         )}
       </SurveySection>
     </NodeContainer>

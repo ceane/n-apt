@@ -6,6 +6,7 @@ import {
 } from "@n-apt/demodulation/survey/audioSurveyModel";
 import {
   AudioSurveyRunner,
+  resolveAudioSurveyDemodulator,
   type AudioSurveyFrameSource,
   type SurveyIqFrame,
 } from "@n-apt/demodulation/survey/audioSurveyRunner";
@@ -69,7 +70,80 @@ const makeFrame = (frameKey: string, timestampMs: number): SurveyIqFrame => ({
   iqData: new Uint8Array(4096 * 2).fill(128),
 });
 
+const makeAmSurveyFrame = (): SurveyIqFrame => {
+  const sampleRateHz = 3_200_000;
+  const iqData = new Uint8Array(4_096 * 2);
+  for (let index = 0; index < iqData.length / 2; index++) {
+    const time = index / sampleRateHz;
+    const envelope = 0.55 + 0.3 * Math.sin(2 * Math.PI * 700 * time);
+    const phase = 2 * Math.PI * 24_000 * time;
+    iqData[index * 2] = 128 + Math.round(120 * envelope * Math.cos(phase));
+    iqData[index * 2 + 1] = 128 + Math.round(120 * envelope * Math.sin(phase));
+  }
+  return {
+    frameKey: "rtl-1:4:1",
+    timestampMs: 1_000,
+    sourceId: "rtl-1",
+    streamEpoch: 4,
+    sequence: 1,
+    centerFrequencyHz: 1_618_000,
+    sampleRateHz,
+    iqData,
+  };
+};
+
 describe("resumable audio survey runner", () => {
+  it("routes an APT candidate to the continuous APT envelope demodulator", () => {
+    expect(
+      resolveAudioSurveyDemodulator({
+        centerHz: 10_024_000,
+        bandwidthHz: 48_000,
+        snrDb: 20,
+        score: 0.9,
+        modulation: "apt",
+        audioPcm: new Float32Array(48),
+        modulationScores: { am: 0.2, fm: 0.8, apt: 0.9 },
+      }),
+    ).toBe("aptImage");
+  });
+
+  it("persists frequency candidates without PCM when the job is discovery-only", async () => {
+    const repository = new MemorySurveyRepository();
+    const source: AudioSurveyFrameSource = {
+      kind: "live",
+      async tune() {},
+      async nextFrame() {
+        return makeAmSurveyFrame();
+      },
+    };
+    let runner: AudioSurveyRunner;
+    runner = new AudioSurveyRunner({
+      repository,
+      channels,
+      sources: { live: source, replay: null },
+      now: () => 1_000,
+      onViewCommitted: () => runner.pause(),
+    });
+    const job = await runner.createJob({
+      ...DEFAULT_AUDIO_SURVEY_CONFIG,
+      sourceMode: "live",
+      decoderStrategy: null,
+      clipDurationMs: 1,
+      dailyBudgetMs: 60_000,
+    });
+
+    await runner.start(job.id);
+
+    expect(repository.candidates.size).toBeGreaterThan(0);
+    expect([...repository.candidates.values()][0]).toMatchObject({
+      modulation: "unknown",
+      clipArtifactIds: [],
+    });
+    expect(
+      [...repository.artifacts.values()].some((artifact) => artifact.kind === "event-clip"),
+    ).toBe(false);
+  });
+
   it("commits a view before pausing and resumes from the next view", async () => {
     const repository = new MemorySurveyRepository();
     let frameNumber = 0;

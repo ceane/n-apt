@@ -27,6 +27,7 @@ import {
   AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES,
   DEFAULT_AUDIO_SURVEY_CONFIG,
   type CandidateRecord,
+  type AudioSurveyDecoderStrategy,
   type AudioSurveySourceMode,
   type SurveyChannelRange,
   type SurveyJobState,
@@ -166,6 +167,7 @@ interface DemodContextValue {
   startAudioSurvey: (
     sourceMode?: AudioSurveySourceMode,
     storageCapBytes?: number,
+    decoderStrategy?: AudioSurveyDecoderStrategy | null,
   ) => Promise<void>;
   resumeAudioSurvey: () => Promise<void>;
   pauseAudioSurvey: () => void;
@@ -178,7 +180,8 @@ interface DemodContextValue {
     captureId: string;
     pcmData: Float32Array;
     pcmSampleRateHz: number;
-    startedAtMs: number;
+    startedAtMs?: number;
+    startPlayback?: () => Promise<number> | number;
   }) => Promise<AudioSurveyArtifact | null>;
 
   startScan: () => Promise<void>;
@@ -543,10 +546,16 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const aptImageDemod = useAPTImageDemod({
     targetSampleRate: 48000,
     bufferSize: 4096,
+    centerFrequency:
+      demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0,
+    bandwidth: (demodState.bandwidthKhz || 200) * 1000,
   });
   const aptAudioDemod = useAPTAudioDemod({
     targetSampleRate: 48000,
     bufferSize: 4096,
+    centerFrequency:
+      demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0,
+    bandwidth: (demodState.bandwidthKhz || 200) * 1000,
   });
   const {
     processIQData: processFmIQData,
@@ -660,6 +669,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     async (
       sourceMode: AudioSurveySourceMode = "combined",
       storageCapBytes = DEFAULT_AUDIO_SURVEY_CONFIG.storageCapBytes,
+      decoderStrategy: AudioSurveyDecoderStrategy | null = null,
     ) => {
       try {
         setAudioSurveyError(null);
@@ -669,6 +679,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         const job = await runner.createJob({
           ...DEFAULT_AUDIO_SURVEY_CONFIG,
           sourceMode,
+          decoderStrategy,
           storageCapBytes: Math.max(
             32_000_000,
             Math.min(AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES, storageCapBytes),
@@ -854,7 +865,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       captureId: string;
       pcmData: Float32Array;
       pcmSampleRateHz: number;
-      startedAtMs: number;
+      startedAtMs?: number;
+      startPlayback?: () => Promise<number> | number;
     }) => {
       const resumeRunner =
         audioSurveyJob?.status === "running"
@@ -883,7 +895,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!channel) {
           throw new Error("Select a demodulation frequency in Channel A or B before capturing a stimulus pair");
         }
-        const algorithm = demodState.algorithm === "am" ? "am" : "fm";
+        const algorithm =
+          demodState.algorithm === "am"
+            ? "am"
+            : demodState.algorithm === "aptAudio" ||
+                demodState.algorithm === "aptImage"
+              ? "apt"
+              : "fm";
         const bandwidthHz = Math.max(
           2_000,
           (demodState.bandwidthKhz || (algorithm === "am" ? 25 : 200)) * 1_000,
@@ -902,18 +920,30 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           getSourceId: () => activeSourceId,
           sendFrequencyRange: (range) => wsConnection.sendFrequencyRange(range),
         });
-        const artifact = await captureAudioSurveyStimulusPair(
-          {
-            ...input,
-            jobId: job.id,
-            centerFrequencyHz,
-            bandwidthHz,
-            channelId: channel.id,
-            baselineAlgorithm: algorithm,
-            storageCapBytes: job.config.storageCapBytes,
-          },
-          { source, channels: surveyChannels, repository: audioSurveyRepository },
-        );
+        let artifact: AudioSurveyArtifact | null;
+        try {
+          artifact = await captureAudioSurveyStimulusPair(
+            {
+              ...input,
+              jobId: job.id,
+              centerFrequencyHz,
+              bandwidthHz,
+              channelId: channel.id,
+              baselineAlgorithm: algorithm,
+              storageCapBytes: job.config.storageCapBytes,
+            },
+            {
+              source,
+              channels: surveyChannels,
+              repository: audioSurveyRepository,
+              ...(input.startPlayback
+                ? { startPlayback: input.startPlayback }
+                : {}),
+            },
+          );
+        } finally {
+          source.endView?.();
+        }
         if (!artifact) {
           throw new Error("Could not collect enough timestamp-overlapping I/Q for this stimulus");
         }

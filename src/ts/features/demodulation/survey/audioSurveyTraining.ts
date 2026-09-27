@@ -5,11 +5,14 @@ import {
   type AudioSurveyRepository,
 } from "@n-apt/demodulation/survey/audioSurveyStorage";
 import {
-  predictTimeDomainAudio,
+  predictTimeDomainAudioRange,
   trainTimeDomainDemodModel,
+  TIME_DOMAIN_HIDDEN_SIZE,
+  TIME_DOMAIN_INPUT_SIZE,
   type PairedAudioTrainingExample,
   type TimeDomainDemodModel,
 } from "@n-apt/demodulation/survey/audioSurveyMl";
+import { serializeTimeDomainModelToOnnx } from "@n-apt/demodulation/survey/audioSurveyOnnx";
 
 const TRAINING_CHECKPOINT_SUFFIX = ":audio-demod-training";
 
@@ -20,11 +23,67 @@ export interface AudioSurveyTrainingState {
   totalEpochs: number;
   trainingPairCount: number;
   holdoutPairCount: number;
+  validationPairCount?: number;
+  testPairCount?: number;
+  validationRmse?: number;
   modelRmse?: number;
   dspRmse?: number;
   modelPreferred?: boolean;
   error?: string;
 }
+
+export interface AudioSurveySampleRange {
+  startSample: number;
+  endSample: number;
+}
+
+export interface AudioSurveySplitRanges {
+  training: AudioSurveySampleRange;
+  validation: AudioSurveySampleRange;
+  test: AudioSurveySampleRange;
+  guardSamples: number;
+}
+
+/** Split time order into disjoint 70/15/15 blocks with a guard at each seam. */
+export const getContiguousAudioSurveySplitRanges = (
+  sampleCount: number,
+  sampleRateHz: number,
+  guardMs = 250,
+): AudioSurveySplitRanges | null => {
+  if (
+    !Number.isInteger(sampleCount) ||
+    sampleCount < 8 ||
+    !Number.isFinite(sampleRateHz) ||
+    sampleRateHz <= 0 ||
+    !Number.isFinite(guardMs) ||
+    guardMs < 0
+  ) {
+    return null;
+  }
+
+  const trainBoundary = Math.floor(sampleCount * 0.7);
+  const validationBoundary = Math.floor(sampleCount * 0.85);
+  const guardSamples = Math.ceil((sampleRateHz * guardMs) / 1_000);
+  const minimumSplitSamples = Math.max(8, Math.ceil(sampleRateHz * 0.05));
+  const ranges = {
+    training: { startSample: 0, endSample: trainBoundary - guardSamples },
+    validation: {
+      startSample: trainBoundary + guardSamples,
+      endSample: validationBoundary - guardSamples,
+    },
+    test: {
+      startSample: validationBoundary + guardSamples,
+      endSample: sampleCount,
+    },
+    guardSamples,
+  } satisfies AudioSurveySplitRanges;
+
+  return [ranges.training, ranges.validation, ranges.test].every(
+    (range) => range.endSample - range.startSample >= minimumSplitSamples,
+  )
+    ? ranges
+    : null;
+};
 
 interface PairedArtifactPayload {
   aligned?: boolean;
@@ -34,13 +93,21 @@ interface PairedArtifactPayload {
   pcmSampleRateHz?: number;
   baselinePcmData?: Float32Array;
   baselinePcmSampleRateHz?: number;
-  baselinePcmDataByAlgorithm?: { am?: Float32Array; fm?: Float32Array };
+  baselinePcmDataByAlgorithm?: {
+    am?: Float32Array;
+    fm?: Float32Array;
+    apt?: Float32Array;
+  };
 }
 
 interface TrainingCheckpointPayload {
-  artifactType: "audio-survey-training-checkpoint" | "audio-survey-trained-model";
+  artifactType:
+    | "audio-survey-training-checkpoint"
+    | "audio-survey-trained-model";
   state: AudioSurveyTrainingState;
   model: TimeDomainDemodModel;
+  /** Self-contained binary weights and graph for deployment. */
+  onnxModelData?: Uint8Array;
   sourceArtifactIds: string[];
   seed: number;
   maxTrainingSamples: number;
@@ -58,7 +125,10 @@ const getExamples = (
 }> =>
   artifacts
     .filter((artifact) => artifact.kind === "reference-pair")
-    .map((artifact) => ({ artifact, payload: artifact.payload as PairedArtifactPayload }))
+    .map((artifact) => ({
+      artifact,
+      payload: artifact.payload as PairedArtifactPayload,
+    }))
     .filter(
       ({ payload }) =>
         payload.aligned === true &&
@@ -71,31 +141,128 @@ const getExamples = (
         Number.isFinite(payload.pcmSampleRateHz) &&
         (payload.pcmSampleRateHz ?? 0) > 0,
     )
-    .map(({ artifact, payload }) => ({
-      id: artifact.id,
-      example: {
-        iqData: payload.iqData!,
-        sampleRateHz: payload.iqSampleRateHz!,
-        pcmSamples: payload.pcmData!,
-        pcmSampleRateHz: payload.pcmSampleRateHz!,
-      },
-      baselines: [
+    .map(({ artifact, payload }) => {
+      const namedBaselines = [
         ...(payload.baselinePcmDataByAlgorithm?.am instanceof Float32Array
           ? [payload.baselinePcmDataByAlgorithm.am]
           : []),
         ...(payload.baselinePcmDataByAlgorithm?.fm instanceof Float32Array
           ? [payload.baselinePcmDataByAlgorithm.fm]
           : []),
-        ...(payload.baselinePcmData instanceof Float32Array
-          ? [payload.baselinePcmData]
+        ...(payload.baselinePcmDataByAlgorithm?.apt instanceof Float32Array
+          ? [payload.baselinePcmDataByAlgorithm.apt]
           : []),
-      ],
-    }))
+      ];
+      return {
+        id: artifact.id,
+        example: {
+          iqData: payload.iqData!,
+          sampleRateHz: payload.iqSampleRateHz!,
+          pcmSamples: payload.pcmData!,
+          pcmSampleRateHz: payload.pcmSampleRateHz!,
+        },
+        baselines:
+          namedBaselines.length > 0
+            ? namedBaselines
+            : payload.baselinePcmData instanceof Float32Array
+              ? [payload.baselinePcmData]
+              : [],
+      };
+    })
     .sort((left, right) => {
       const a = artifacts.find((item) => item.id === left.id)?.createdAt ?? 0;
       const b = artifacts.find((item) => item.id === right.id)?.createdAt ?? 0;
       return a - b || left.id.localeCompare(right.id);
     });
+
+type AudioSurveyTrainingPair = ReturnType<typeof getExamples>[number];
+type AudioSurveySplitName = "training" | "validation" | "test";
+
+const AUDIO_SURVEY_EVALUATION_BUDGET = 6_000;
+const AUDIO_SURVEY_EVALUATION_SEGMENT_SIZE = 2_000;
+
+/** Bound inference during evaluation while sampling the start, middle, and end. */
+export const getAudioSurveyEvaluationRanges = (
+  sampleCount: number,
+): AudioSurveySampleRange[] => {
+  if (!Number.isInteger(sampleCount) || sampleCount < 1) return [];
+  if (sampleCount <= AUDIO_SURVEY_EVALUATION_BUDGET) {
+    return [{ startSample: 0, endSample: sampleCount }];
+  }
+
+  const segmentSize = AUDIO_SURVEY_EVALUATION_SEGMENT_SIZE;
+  const lastStart = sampleCount - segmentSize;
+  const starts = Array.from(
+    new Set([0, Math.floor(lastStart / 2), lastStart]),
+  ).sort((left, right) => left - right);
+  return starts.map((startSample) => ({
+    startSample,
+    endSample: startSample + segmentSize,
+  }));
+};
+
+const slicePairedAudioExample = (
+  example: PairedAudioTrainingExample,
+  range: AudioSurveySampleRange,
+): PairedAudioTrainingExample => {
+  const pcmLength = example.pcmSamples.length;
+  const complexLength = Math.floor(example.iqData.length / 2);
+  const startFraction = range.startSample / pcmLength;
+  const endFraction = range.endSample / pcmLength;
+  const iqStart = Math.floor(startFraction * complexLength);
+  const iqEnd = Math.min(complexLength, Math.ceil(endFraction * complexLength));
+  return {
+    ...example,
+    iqData: example.iqData.subarray(iqStart * 2, iqEnd * 2),
+    pcmSamples: example.pcmSamples.subarray(range.startSample, range.endSample),
+  };
+};
+
+const sliceAudioSurveyTrainingPair = (
+  pair: AudioSurveyTrainingPair,
+  range: AudioSurveySampleRange,
+): AudioSurveyTrainingPair => {
+  const sourceLength = pair.example.pcmSamples.length;
+  const startFraction = range.startSample / sourceLength;
+  const endFraction = range.endSample / sourceLength;
+  return {
+    id: pair.id,
+    example: slicePairedAudioExample(pair.example, range),
+    baselines: pair.baselines.map((baseline) =>
+      baseline.subarray(
+        Math.floor(startFraction * baseline.length),
+        Math.min(baseline.length, Math.ceil(endFraction * baseline.length)),
+      ),
+    ),
+  };
+};
+
+const buildContiguousTrainingSplits = (
+  pairs: readonly AudioSurveyTrainingPair[],
+) => {
+  const splits: Record<AudioSurveySplitName, AudioSurveyTrainingPair[]> = {
+    training: [],
+    validation: [],
+    test: [],
+  };
+  const sourceArtifactIds: string[] = [];
+
+  for (const pair of pairs) {
+    const ranges = getContiguousAudioSurveySplitRanges(
+      pair.example.pcmSamples.length,
+      pair.example.pcmSampleRateHz,
+    );
+    if (!ranges) continue;
+    sourceArtifactIds.push(pair.id);
+    for (const splitName of ["training", "validation", "test"] as const) {
+      splits[splitName].push(
+        sliceAudioSurveyTrainingPair(pair, ranges[splitName]),
+      );
+    }
+  }
+
+  return { splits, sourceArtifactIds };
+};
 
 /** Compare waveforms after fitting gain/DC and searching a small timing offset. */
 export const bestAlignedWaveformRmse = (
@@ -114,6 +281,7 @@ export const bestAlignedWaveformRmse = (
     let sumX = 0;
     let sumY = 0;
     let sumXX = 0;
+    let sumYY = 0;
     let sumXY = 0;
     let count = 0;
     const first = Math.max(0, -lag);
@@ -124,6 +292,7 @@ export const bestAlignedWaveformRmse = (
       sumX += x;
       sumY += y;
       sumXX += x * x;
+      sumYY += y * y;
       sumXY += x * y;
       count++;
     }
@@ -134,12 +303,94 @@ export const bestAlignedWaveformRmse = (
     const bias = (sumY - gain * sumX) / count;
     const mse = Math.max(
       0,
-      (sumY * sumY + gain * gain * sumXX + count * bias * bias - 2 * gain * sumXY - 2 * bias * sumY + 2 * gain * bias * sumX) / count,
+      (sumYY +
+        gain * gain * sumXX +
+        count * bias * bias -
+        2 * gain * sumXY -
+        2 * bias * sumY +
+        2 * gain * bias * sumX) /
+        count,
     );
     if (mse < bestMse) bestMse = mse;
   }
 
   return Math.sqrt(bestMse);
+};
+
+const evaluateModelRmse = (
+  model: TimeDomainDemodModel,
+  pairs: readonly AudioSurveyTrainingPair[],
+): number | undefined => {
+  let squaredError = 0;
+  let count = 0;
+  for (const pair of pairs) {
+    for (const range of getAudioSurveyEvaluationRanges(
+      pair.example.pcmSamples.length,
+    )) {
+      const prediction = predictTimeDomainAudioRange(
+        model,
+        pair.example,
+        range,
+      );
+      const target = pair.example.pcmSamples.subarray(
+        range.startSample,
+        range.endSample,
+      );
+      const rmse = bestAlignedWaveformRmse(prediction.samples, target);
+      if (!Number.isFinite(rmse)) continue;
+      squaredError += rmse * rmse * target.length;
+      count += target.length;
+    }
+  }
+  return count > 0 ? Math.sqrt(squaredError / count) : undefined;
+};
+
+const evaluateBestDspRmse = (
+  pairs: readonly AudioSurveyTrainingPair[],
+): number | undefined => {
+  let squaredError = 0;
+  let count = 0;
+  for (const pair of pairs) {
+    const ranges = getAudioSurveyEvaluationRanges(
+      pair.example.pcmSamples.length,
+    );
+    const rmse = pair.baselines
+      .map((baseline) => {
+        let baselineSquaredError = 0;
+        let baselineCount = 0;
+        for (const range of ranges) {
+          const target = pair.example.pcmSamples.subarray(
+            range.startSample,
+            range.endSample,
+          );
+          const reference = baseline.subarray(
+            range.startSample,
+            range.endSample,
+          );
+          const segmentRmse = bestAlignedWaveformRmse(reference, target);
+          if (!Number.isFinite(segmentRmse)) continue;
+          baselineSquaredError += segmentRmse * segmentRmse * target.length;
+          baselineCount += target.length;
+        }
+        return baselineCount > 0
+          ? Math.sqrt(baselineSquaredError / baselineCount)
+          : Number.POSITIVE_INFINITY;
+      })
+      .reduce((best, value) => Math.min(best, value), Number.POSITIVE_INFINITY);
+    if (!Number.isFinite(rmse)) continue;
+    squaredError +=
+      rmse *
+      rmse *
+      ranges.reduce(
+        (total, range) => total + range.endSample - range.startSample,
+        0,
+      );
+    count += ranges.reduce(
+      (total, range) => total + range.endSample - range.startSample,
+      0,
+    );
+  }
+  return count > 0 ? Math.sqrt(squaredError / count) : undefined;
 };
 
 export interface AudioSurveyTrainerOptions {
@@ -173,7 +424,7 @@ export class AudioSurveyTrainer {
     this.totalEpochs = Math.max(1, Math.floor(options.totalEpochs ?? 30));
     this.seed = options.seed ?? 2718;
     this.maxTrainingSamples = options.maxTrainingSamples ?? 4096;
-    this.learningRate = options.learningRate ?? 0.01;
+    this.learningRate = options.learningRate ?? 0.005;
     this.storageCapBytes = options.storageCapBytes ?? 1_000_000_000;
   }
 
@@ -188,7 +439,9 @@ export class AudioSurveyTrainer {
   start(jobId: string) {
     if (this.activeRun) {
       if (this.activeJobId !== jobId) {
-        return Promise.reject(new Error("Another audio survey training job is running"));
+        return Promise.reject(
+          new Error("Another audio survey training job is running"),
+        );
       }
       return this.activeRun;
     }
@@ -217,6 +470,9 @@ export class AudioSurveyTrainer {
       artifactType,
       state,
       model,
+      ...(artifactType === "audio-survey-trained-model"
+        ? { onnxModelData: serializeTimeDomainModelToOnnx(model) }
+        : {}),
       sourceArtifactIds,
       seed: this.seed,
       maxTrainingSamples: this.maxTrainingSamples,
@@ -238,7 +494,15 @@ export class AudioSurveyTrainer {
   private async run(jobId: string): Promise<AudioSurveyTrainingState> {
     const allArtifacts = await this.repository.listArtifacts(jobId);
     const pairs = getExamples(allArtifacts);
-    if (pairs.length < 3) {
+    const { splits, sourceArtifactIds } = buildContiguousTrainingSplits(pairs);
+    const trainingPairs = splits.training;
+    const validationPairs = splits.validation;
+    const testPairs = splits.test;
+    if (
+      trainingPairs.length === 0 ||
+      validationPairs.length === 0 ||
+      testPairs.length === 0
+    ) {
       const state: AudioSurveyTrainingState = {
         jobId,
         status: "failed",
@@ -246,21 +510,32 @@ export class AudioSurveyTrainer {
         totalEpochs: this.totalEpochs,
         trainingPairCount: 0,
         holdoutPairCount: 0,
-        error: "At least three timestamp-aligned reference pairs are required for training and held-out evaluation",
+        validationPairCount: 0,
+        testPairCount: 0,
+        error:
+          "No timestamp-aligned reference capture is long enough for guarded 70/15/15 training, validation, and test blocks",
       };
       this.options.onStateUpdated?.(state);
       return state;
     }
-    const holdoutCount = Math.max(1, Math.ceil(pairs.length * 0.2));
-    const trainingPairs = pairs.slice(0, pairs.length - holdoutCount);
-    const holdoutPairs = pairs.slice(pairs.length - holdoutCount);
-    const sourceArtifactIds = pairs.map((pair) => pair.id);
-    const checkpointArtifact = await this.repository.getArtifact(checkpointId(jobId));
-    const checkpoint = checkpointArtifact?.payload as TrainingCheckpointPayload | undefined;
+    const checkpointArtifact = await this.repository.getArtifact(
+      checkpointId(jobId),
+    );
+    const checkpoint = checkpointArtifact?.payload as
+      | TrainingCheckpointPayload
+      | undefined;
     const sameCorpus =
       JSON.stringify(checkpoint?.sourceArtifactIds ?? []) ===
       JSON.stringify(sourceArtifactIds);
-    const startingModel = sameCorpus ? checkpoint?.model : undefined;
+    const checkpointModel = checkpoint?.model as
+      | TimeDomainDemodModel
+      | undefined;
+    const compatibleCheckpoint =
+      checkpointModel?.version === 2 &&
+      checkpointModel.inputSize === TIME_DOMAIN_INPUT_SIZE &&
+      checkpointModel.hiddenSize === TIME_DOMAIN_HIDDEN_SIZE;
+    const startingModel =
+      sameCorpus && compatibleCheckpoint ? checkpointModel : undefined;
     const initialEpoch = startingModel?.trainingEpochs ?? 0;
     const capBytes = this.storageCapBytes;
     let state: AudioSurveyTrainingState = {
@@ -268,12 +543,19 @@ export class AudioSurveyTrainer {
       status: "running",
       epoch: initialEpoch,
       totalEpochs: this.totalEpochs,
-      trainingPairCount: trainingPairs.length,
-      holdoutPairCount: holdoutPairs.length,
+      trainingPairCount: sourceArtifactIds.length,
+      holdoutPairCount: sourceArtifactIds.length,
+      validationPairCount: validationPairs.length,
+      testPairCount: testPairs.length,
     };
     let model = startingModel;
 
-    if (sameCorpus && checkpoint?.artifactType === "audio-survey-trained-model") {
+    if (
+      sameCorpus &&
+      compatibleCheckpoint &&
+      checkpoint?.artifactType === "audio-survey-trained-model" &&
+      checkpoint.onnxModelData instanceof Uint8Array
+    ) {
       this.options.onStateUpdated?.(checkpoint.state);
       return checkpoint.state;
     }
@@ -282,12 +564,26 @@ export class AudioSurveyTrainer {
       while (state.epoch < this.totalEpochs) {
         if (this.stopRequested) {
           state = { ...state, status: "stopped" };
-          if (model) await this.saveCheckpoint(state, model, sourceArtifactIds, undefined, capBytes);
+          if (model)
+            await this.saveCheckpoint(
+              state,
+              model,
+              sourceArtifactIds,
+              undefined,
+              capBytes,
+            );
           return state;
         }
         if (this.pauseRequested) {
           state = { ...state, status: "paused" };
-          if (model) await this.saveCheckpoint(state, model, sourceArtifactIds, undefined, capBytes);
+          if (model)
+            await this.saveCheckpoint(
+              state,
+              model,
+              sourceArtifactIds,
+              undefined,
+              capBytes,
+            );
           else this.options.onStateUpdated?.(state);
           return state;
         }
@@ -304,49 +600,29 @@ export class AudioSurveyTrainer {
           },
         );
         state = { ...state, epoch: model.trainingEpochs, status: "running" };
-        await this.saveCheckpoint(state, model, sourceArtifactIds, undefined, capBytes);
+        await this.saveCheckpoint(
+          state,
+          model,
+          sourceArtifactIds,
+          undefined,
+          capBytes,
+        );
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
 
-      let modelSquaredError = 0;
-      let baselineSquaredError = 0;
-      let modelCount = 0;
-      let baselineCount = 0;
-      for (const pair of holdoutPairs) {
-        const prediction = predictTimeDomainAudio(model!, {
-          iqData: pair.example.iqData,
-          sampleRateHz: pair.example.sampleRateHz,
-          pcmSampleRateHz: pair.example.pcmSampleRateHz,
-          outputSampleCount: pair.example.pcmSamples.length,
-        });
-        const modelRmse = bestAlignedWaveformRmse(
-          prediction.samples,
-          pair.example.pcmSamples,
-        );
-        if (Number.isFinite(modelRmse)) {
-          modelSquaredError += modelRmse * modelRmse;
-          modelCount++;
-        }
-        const baselineRmse = pair.baselines
-          .map((baseline) =>
-            bestAlignedWaveformRmse(baseline, pair.example.pcmSamples),
-          )
-          .filter(Number.isFinite)
-          .reduce((best, value) => Math.min(best, value), Number.POSITIVE_INFINITY);
-        if (Number.isFinite(baselineRmse)) {
-          baselineSquaredError += baselineRmse * baselineRmse;
-          baselineCount++;
-        }
-      }
-      const modelRmse = modelCount ? Math.sqrt(modelSquaredError / modelCount) : undefined;
-      const dspRmse = baselineCount ? Math.sqrt(baselineSquaredError / baselineCount) : undefined;
+      const validationRmse = evaluateModelRmse(model!, validationPairs);
+      const modelRmse = evaluateModelRmse(model!, testPairs);
+      const dspRmse = evaluateBestDspRmse(testPairs);
       state = {
         ...state,
         status: "completed",
+        validationRmse,
         modelRmse,
         dspRmse,
         modelPreferred:
-          modelRmse !== undefined && dspRmse !== undefined && modelRmse <= dspRmse,
+          modelRmse !== undefined &&
+          dspRmse !== undefined &&
+          modelRmse <= dspRmse,
       };
       await this.saveCheckpoint(
         state,
@@ -362,7 +638,14 @@ export class AudioSurveyTrainer {
         status: "failed",
         error: error instanceof Error ? error.message : String(error),
       };
-      if (model) await this.saveCheckpoint(state, model, sourceArtifactIds, undefined, capBytes);
+      if (model)
+        await this.saveCheckpoint(
+          state,
+          model,
+          sourceArtifactIds,
+          undefined,
+          capBytes,
+        );
       else this.options.onStateUpdated?.(state);
       return state;
     }

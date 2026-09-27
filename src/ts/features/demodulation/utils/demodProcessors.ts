@@ -338,65 +338,131 @@ function amProcessor(options: DemodProcessorOptions): DemodProcessor {
 }
 
 /**
- * Builds the APT processor shared by APTAudio and APTImage.
+ * Extracts the live APT-style amplitude envelope from one selected RF channel.
  *
- * Both variants first FM-demodulate the 2.4 kHz APT subcarrier and apply the
- * discrete envelope detector. APTAudio additionally feeds the result through
- * NAPT-specific detection in its hook; APTImage is the traditional image path.
+ * The returned samples are the subcarrier's amplitude over time. Their levels,
+ * including peaks and valleys, remain intact across frames; this does not
+ * assemble image lines or apply per-frame peak normalization.
  */
 function imageProcessor(options: DemodProcessorOptions): DemodProcessor {
-  let shiftState: ShiftState = { phase: 0 };
-  let filterState: LowPassState = { prevI: 0, prevQ: 0 };
+  const shiftState: ShiftState = { phase: 0 };
+  const rfFilterState: LowPassState = { prevI: 0, prevQ: 0 };
+  const subcarrierFilterState: LowPassState = { prevI: 0, prevQ: 0 };
   const resampler = createStreamingResampler();
+  let previousI = 0;
+  let previousQ = 0;
+  let hasPreviousIq = false;
+  let subcarrierPhase = 0;
+  let inputRateHz = 0;
+  let subcarrierStepCos = 1;
+  let subcarrierStepSin = 0;
+
   const reset = () => {
     shiftState.phase = 0;
-    filterState.prevI = 0;
-    filterState.prevQ = 0;
+    rfFilterState.prevI = 0;
+    rfFilterState.prevQ = 0;
+    subcarrierFilterState.prevI = 0;
+    subcarrierFilterState.prevQ = 0;
     resampler.reset();
+    previousI = 0;
+    previousQ = 0;
+    hasPreviousIq = false;
+    subcarrierPhase = 0;
+    inputRateHz = 0;
+    subcarrierStepCos = 1;
+    subcarrierStepSin = 0;
   };
+
   return {
     reset,
-    process(iqData, inputRate) {
+    process(iqData, inputRate, frameCenterFrequencyHz) {
       const samples = Math.floor(iqData.length / 2);
-      const shifted = shiftIqToBaseband(iqData, inputRate, 0, shiftState);
+      if (!samples || !Number.isFinite(inputRate) || inputRate <= 0) {
+        return new Float32Array();
+      }
+      if (inputRateHz !== inputRate) {
+        reset();
+        inputRateHz = inputRate;
+        const step = (2 * Math.PI * 2_400) / inputRate;
+        subcarrierStepCos = Math.cos(step);
+        subcarrierStepSin = Math.sin(step);
+      }
+
+      const selectedFrequencyHz =
+        options.centerFrequency === undefined || options.centerFrequency === 0
+          ? frameCenterFrequencyHz ?? options.centerFrequency ?? 0
+          : options.centerFrequency;
+      const frameCenterHz = frameCenterFrequencyHz ?? selectedFrequencyHz;
+      const shifted = shiftIqToBaseband(
+        iqData,
+        inputRate,
+        selectedFrequencyHz - frameCenterHz,
+        shiftState,
+      );
+      const rfBandwidthHz = Math.max(
+        2_000,
+        Math.min(inputRate * 0.9, options.bandwidth ?? 200_000),
+      );
       const filtered = applyComplexLowPass(
         shifted,
         inputRate,
-        200_000,
-        filterState,
+        rfBandwidthHz,
+        rfFilterState,
       );
-      const fm = new Float32Array(samples);
-      let previousI = 0,
-        previousQ = 0;
+      const subcarrierIq = new Float32Array(samples * 2);
+      let oscillatorCos = Math.cos(subcarrierPhase);
+      let oscillatorSin = Math.sin(subcarrierPhase);
       for (let i = 0; i < samples; i++) {
         const currentI = filtered[i * 2];
         const currentQ = filtered[i * 2 + 1];
-        if (i)
-          fm[i] = Math.atan2(
+        let phaseDelta = 0;
+        if (hasPreviousIq) {
+          phaseDelta = Math.atan2(
             currentQ * previousI - currentI * previousQ,
             currentI * previousI + currentQ * previousQ,
           );
+        }
         previousI = currentI;
         previousQ = currentQ;
+        hasPreviousIq = true;
+
+        // Convert phase change back to frequency deviation, then quadrature
+        // mix the APT subcarrier to baseband. The fixed deviation scale keeps
+        // relative amplitude stable instead of renormalizing every frame.
+        const deviation = (phaseDelta * inputRate) / (2 * Math.PI * 17_000);
+        subcarrierIq[i * 2] = 2 * deviation * oscillatorCos;
+        subcarrierIq[i * 2 + 1] = -2 * deviation * oscillatorSin;
+
+        const nextCos =
+          oscillatorCos * subcarrierStepCos -
+          oscillatorSin * subcarrierStepSin;
+        const nextSin =
+          oscillatorSin * subcarrierStepCos +
+          oscillatorCos * subcarrierStepSin;
+        oscillatorCos = nextCos;
+        oscillatorSin = nextSin;
+        if ((i & 4095) === 4095) {
+          const magnitude = Math.hypot(oscillatorCos, oscillatorSin) || 1;
+          oscillatorCos /= magnitude;
+          oscillatorSin /= magnitude;
+        }
       }
+      subcarrierPhase =
+        (subcarrierPhase + (samples * 2 * Math.PI * 2_400) / inputRate) %
+        (2 * Math.PI);
+
+      const envelopeIq = applyComplexLowPass(
+        subcarrierIq,
+        inputRate,
+        9_000,
+        subcarrierFilterState,
+      );
       const envelope = new Float32Array(samples);
-      const phi = (2 * Math.PI * 2400) / inputRate;
-      const cosPhi = Math.cos(phi);
-      const sinPhi = Math.sin(phi);
-      for (let i = 1; i < samples; i++)
-        envelope[i] =
-          Math.sqrt(
-            Math.max(
-              0,
-              fm[i] * fm[i] +
-                fm[i - 1] * fm[i - 1] -
-                2 * fm[i] * fm[i - 1] * cosPhi,
-            ),
-          ) / sinPhi;
-      if (samples > 1) envelope[0] = envelope[1];
-      let peak = 0;
-      for (const value of envelope) peak = Math.max(peak, value);
-      if (peak) for (let i = 0; i < envelope.length; i++) envelope[i] /= peak;
+      for (let i = 0; i < samples; i++) {
+        // Keep over-range peaks too; callers may clip for playback, but stored
+        // samples retain the measured amplitude instead of flattening peaks.
+        envelope[i] = Math.hypot(envelopeIq[i * 2], envelopeIq[i * 2 + 1]);
+      }
       return resampler.process(envelope, inputRate, options.targetSampleRate);
     },
   };

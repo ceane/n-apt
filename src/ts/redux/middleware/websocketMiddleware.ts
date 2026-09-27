@@ -92,7 +92,10 @@ import {
 } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 import { resolveTxStandbyAnnouncement } from "@n-apt/app/infrastructure/streams/txStandbyAnnouncement";
 import { demodFrameQueue } from "@n-apt/app/infrastructure/visualization/demodFrameQueue";
-import { notifyFrameArrival } from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
+import {
+  notifyFrameArrival,
+  notifyRawIqFrameArrival,
+} from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
 import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
 import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
@@ -1566,6 +1569,7 @@ const queueLiveData = (data: any, dispatch: Dispatch, getState: () => any) => {
   // so dropping frames here creates audible gaps even when the visualizer is smooth.
   if (isDemodEligibleLiveFrame(data)) {
     demodFrameQueue.push([data]);
+    notifyRawIqFrameArrival(data);
   }
 
   if (pendingDataUpdate === null) {
