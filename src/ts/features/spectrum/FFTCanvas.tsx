@@ -137,6 +137,28 @@ import {
 } from "@n-apt/spectrum/fft/framePresentation";
 import { removeDcSpikeFromSpectrum } from "@n-apt/spectrum/utils/removeDcSpike";
 
+let nativeCaptureSessionSequence = 0;
+
+const createNativeCaptureSessionId = (): string => {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return `capture-${cryptoApi.randomUUID()}`;
+  }
+
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    const suffix = Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    return `capture-${suffix}`;
+  }
+
+  // Browser crypto is expected, but keep capture usable in restricted test or
+  // embedded environments without falling back to Math.random().
+  nativeCaptureSessionSequence += 1;
+  return `capture-${Date.now().toString(36)}-${nativeCaptureSessionSequence.toString(36)}`;
+};
+
 export const createVizPanScheduler = (
   publish: (pan: number) => void,
 ): DeviceOptionScheduler<number> =>
@@ -1986,7 +2008,7 @@ const FFTCanvas = memo(
       const latestAgeMs = latest ? Date.now() - latest.timestampMs : Number.POSITIVE_INFINITY;
       if (!nativeCaptureAvailable || !nativeCaptureConfig || !latest || latestAgeMs < 0 || latestAgeMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS ||
         latest.sourceId !== nativeCaptureSelectedId || latest.status !== 'receiving' || !NativeClassifier.isCompleteNativeTrainingFrame(latest)) return;
-      const sessionId = globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const sessionId = createNativeCaptureSessionId();
       const started = nativeCaptureRef.current.start({ ...nativeCaptureConfig, sessionId }, performance.now(), Date.now(), annotations);
       if (started) setNativeCaptureUi({ active: true, frameCount: 0, status: 'Waiting for a new live frame.' });
     }, [nativeCaptureAvailable, nativeCaptureConfig, nativeCaptureSelectedId, nativeCaptureSource, stopNativeCapture]);
