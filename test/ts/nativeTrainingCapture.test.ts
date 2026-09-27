@@ -23,6 +23,17 @@ it('accepts a complete IQ payload even when its acquired sample count differs fr
   expect(NativeClassifier.isCompleteNativeTrainingFrame({ fftSize: 2048, validSamples: 4096, rawIqByteCount: 4094 })).toBe(false);
 });
 
+it('uses the verified V6 digest as capture identity and filename plus UTC capture time as the fallback', () => {
+  const capturedAtTimestampMs = Date.UTC(2026, 8, 26, 15, 44, 0);
+  const fileName = NativeClassifier.nativeTrainingCaptureFileName('capture-1', capturedAtTimestampMs);
+  expect(fileName).toBe('n-apt-iq-capture-2026-09-26T15-44-00-000Z-capture-1.json');
+  expect(NativeClassifier.getNativeTrainingCaptureId({
+    kind: 'v6-trailer-sha256', algorithm: 'SHA-256', scope: 'file-with-integrity-digest-placeholder', digestHex: 'A'.repeat(64),
+  })).toBe('a'.repeat(64));
+  expect(NativeClassifier.getNativeTrainingCaptureId({ kind: 'filename-timestamp', fileName, capturedAtTimestampMs }))
+    .toBe(`${fileName}@2026-09-26T15:44:00.000Z`);
+});
+
 it('uses the epoch attached to the live frame when source-list metadata lags', () => {
   expect(NativeClassifier.resolveNativeTrainingEpoch(30, 5)).toBe(30);
   expect(NativeClassifier.resolveNativeTrainingEpoch(4, undefined)).toBe(4);
@@ -118,10 +129,21 @@ it('keeps annotations in a separate sidecar and identifies a tune boundary', () 
     optionsAppliedEvents: [{ kind: 'PatchOptionsApplied', fromFrameSequence: 10, toFrameSequence: 11, fromRevision: 2, toRevision: 3, fromStreamEpoch: 4, toStreamEpoch: 5, changedFields: expect.arrayContaining(['centerFrequencyHz', 'appliedOptions', 'optionsRevision']), patch: { centerFrequencyHz: 1_700_000, optionsRevision: 3 } }],
     streamInterruptedEvents: [{ kind: 'StreamInterrupted', code: 1, timestampMs: 1020, byteOffset: 8192, frameSequence: 10, nextFrameSequence: 11, reason: 'stream-epoch-changed' }],
   });
-  expect(session.toAnnotationSidecar()).toMatchObject({ format: 'n-apt-native-annotations-v1', captureId: 'capture-1',
+  const captureIdentity = { kind: 'filename-timestamp' as const, fileName: 'n-apt-iq-capture-1970-01-01T00-00-01-000Z-capture-1.json', capturedAtTimestampMs: 1000 };
+  expect(session.toAnnotationSidecar(captureIdentity)).toMatchObject({ format: 'n-apt-native-annotations-v2', captureId: `${captureIdentity.fileName}@1970-01-01T00:00:01.000Z`,
+    sessionId: 'capture-1', captureIdentity,
     annotations: { label: 'matching', tags: ['interference', 'weak-signal'] }, annotationEvents: [{ timestampMs: 1010 }],
     interferenceMarkedEvents: [{ kind: 'InterferenceMarked', code: 2, timestampMs: 900, byteOffset: 0 }] });
   expect(session.toExportObject()).not.toHaveProperty('annotations');
+});
+
+it('does not label the browser frame export with a V6 digest that belongs to a different file', () => {
+  const session = new NativeClassifier.NativeTrainingCaptureSession();
+  session.start(config, 0, 900);
+  session.append(frame(), 100, 1000);
+  expect(() => session.toAnnotationSidecar({
+    kind: 'v6-trailer-sha256', algorithm: 'SHA-256', scope: 'file-with-integrity-digest-placeholder', digestHex: 'b'.repeat(64),
+  })).toThrow('Browser frame capture has no V6 trailer; use its filename and capture time');
 });
 
 it('records the old and new frame boundary when a non-frequency acquisition option changes', () => {

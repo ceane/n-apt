@@ -62,6 +62,10 @@ The shared worktree also contains unrelated demod/audio-survey edits; preserve t
 - [ ] Do not change sample-rate metadata to simulate resampling; require correctly anti-aliased resampled data.
 - [ ] Classify accepts arbitrary prepared captures plus a validated model and exports timestamped scores, decisions, availability, resolution, quality, and recording summaries. No training labels required for classification.
 - [ ] Add CLI integration tests with generated raw I/Q in temporary directories, malformed metadata, all supported formats, crops, and incomplete frames.
+- [x] Package captures with detached labels in a Data Package directory; verify V6 `.iq`/`.napt` trailer integrity, bind labels to the scoped trailer digest, preserve the original bytes, and record exact-file resource hashes. Browser JSON and WAV use filename/time identity where no V6 trailer exists.
+- [x] Teach `prepare` to verify both Data Package resources and consume browser frame JSON, raw V6 `.iq`, and encrypted single-channel V6 `.napt`. Split native samples at exact option-patch boundaries and missing chunk ranges; preserve source offsets, update timestamps, acquisition settings, and labels in prepared rows.
+- [ ] Support multi-channel `.napt` preparation and define channel-wise label assignment before accepting those captures into the classifier dataset. WAV remains archive-only because it is demodulated audio, not raw I/Q.
+- [ ] Run a live, labeled 3.2 MS/s RTL-SDR shadow trial; report feature availability, actual FFT/bin spacing, crop visibility, and latency from recorded data. Do not fit or tune on the first acceptance capture, mock negatives, or the supplied acceptance fixtures.
 
 ### 3. Trainer and evaluator (prototypes; correctness repairs precede real-data fitting)
 

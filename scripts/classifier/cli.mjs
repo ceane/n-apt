@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createRunner } from './runner.mjs';
 import { decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture } from './io.mjs';
@@ -27,7 +27,8 @@ async function captureRaw(record, manifestDir, envFile) {
       let errors=''; child.stderr.on('data',chunk=>{errors+=chunk;}); child.on('error',reject); child.on('exit',code=>code===0?resolve():reject(new Error(errors||`.napt preparation failed (${code})`)));
     });
     const m=JSON.parse(await readFile(path.join(output,'manifest.json'),'utf8'));
-    if(m.capture_metadata?.sample_rate_hz && Math.abs(Number(m.capture_metadata.sample_rate_hz)-record.sampleRateHz)>1) throw new Error(`Declared sample rate disagrees with ${record.id} capture metadata`);
+    const captureRate=[m.capture_metadata?.sample_rate_hz,m.capture_metadata?.capture_sample_rate_hz,m.capture_metadata?.hardware_sample_rate_hz].map(Number).find(value=>Number.isFinite(value)&&value>0);
+    if(captureRate && Math.abs(captureRate-record.sampleRateHz)>1) throw new Error(`Declared sample rate disagrees with ${record.id} capture metadata`);
     return { bytes: await readFile(path.join(output,'raw.iq.u8')), format:'u8', manifest: record };
   } finally { await rm(temp,{recursive:true,force:true}); }
 }
@@ -36,7 +37,337 @@ async function writePreparedIq(iq, directory) {
   const raw=Buffer.alloc(iq.length*4); for(let i=0;i<iq.length;i++) raw.writeFloatLE(iq[i],4*i);
   const input=path.join(directory,'raw.iq.f32le'); await writeFile(input,raw); return input;
 }
+const PACKAGE_SPLITS = new Set(['train', 'validation', 'test', 'acceptance', 'unlabeled']);
+
+function packageWindow(value) {
+  const key = String(value ?? '').trim().toLowerCase().replaceAll('_', '-');
+  if (key === 'hann' || key === 'hanning') return 'hann';
+  if (['hamming', 'blackman', 'nuttall', 'rectangular'].includes(key)) return key;
+  return null;
+}
+
+function packageConfig(metadata, patch, channel, sampleRateHint, centerHint, captureName) {
+  const value = (...items) => items.find(item => item !== undefined && item !== null && item !== '');
+  const sampleRateHz = Number(value(
+    patch.capture_sample_rate_hz,
+    patch.sample_rate_hz,
+    patch.hardware_sample_rate_hz,
+    metadata.capture_sample_rate_hz,
+    metadata.sample_rate_hz,
+    metadata.hardware_sample_rate_hz,
+    metadata.sample_rate,
+    channel?.sample_rate_hz,
+    sampleRateHint,
+  ));
+  const centerFrequencyHz = Number(value(
+    patch.center_frequency_hz,
+    patch.center_freq_hz,
+    metadata.center_frequency_hz,
+    metadata.center_frequency,
+    channel?.center_freq_hz,
+    centerHint,
+  ));
+  const fftValue = value(
+    patch.fft_size,
+    patch.configured_fft_size,
+    metadata.fft_size,
+    metadata.configured_fft_size,
+    channel?.bins_per_frame,
+  );
+  const fftSize = Number(fftValue);
+  const configuredFftSize = Number(value(patch.configured_fft_size, patch.fft_size, metadata.configured_fft_size, fftValue));
+  if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) {
+    throw new Error(`${captureName}: capture metadata has no valid sample rate`);
+  }
+  if (!Number.isFinite(centerFrequencyHz)) {
+    throw new Error(`${captureName}: capture metadata has no valid center frequency`);
+  }
+  if (!Number.isInteger(fftSize) || fftSize < 2 || (fftSize & (fftSize - 1)) !== 0) {
+    throw new Error(`${captureName}: capture metadata has no supported FFT size`);
+  }
+  if (!Number.isInteger(configuredFftSize) || configuredFftSize < 2 || (configuredFftSize & (configuredFftSize - 1)) !== 0) {
+    throw new Error(`${captureName}: capture metadata has no valid configured FFT size`);
+  }
+  return {
+    sampleRateHz,
+    centerFrequencyHz,
+    fftSize,
+    configuredFftSize,
+    window: packageWindow(value(patch.fft_window, patch.window, metadata.fft_window, metadata.window, channel?.fft_window)),
+  };
+}
+
+function v6PatchEvents(frameUpdates) {
+  let initialSeen = false;
+  return frameUpdates.flatMap(update => {
+    if (update.sample_offset === 0 && !initialSeen) {
+      initialSeen = true;
+      return [];
+    }
+    const patch = update.patch && typeof update.patch === 'object' ? update.patch : {};
+    return [{
+      kind: 'PatchOptionsApplied',
+      byteOffset: update.sample_offset,
+      timestampMs: update.timestamp_us / 1000,
+      changedFields: Object.keys(patch),
+      patch: { ...patch },
+      ...(update.source_id ? { sourceId: update.source_id } : {}),
+      ...(update.job_id ? { jobId: update.job_id } : {}),
+    }];
+  });
+}
+
+function contiguousChunkRuns(chunks, expectedChannel = 0) {
+  const runs = [];
+  let previousEnd = 0;
+  let previous = null;
+  for (const chunk of chunks) {
+    if (chunk.channel !== expectedChannel) {
+      throw new Error(`Only channel ${expectedChannel} IQ data is supported by classifier prepare`);
+    }
+    if (!Number.isSafeInteger(chunk.sampleOffset) || chunk.sampleOffset < 0 ||
+      chunk.data.byteLength % 2 !== 0 || chunk.data.byteLength === 0) {
+      throw new Error('V6 IQ capture contains an invalid chunk range');
+    }
+    const startByte = chunk.sampleOffset * 2;
+    const endByte = startByte + chunk.data.byteLength;
+    if (!Number.isSafeInteger(startByte) || !Number.isSafeInteger(endByte) || startByte < previousEnd) {
+      throw new Error('V6 IQ chunks overlap or are out of order');
+    }
+    const part = { startByte, endByte, data: chunk.data };
+    if (previous && startByte === previous.endByte) {
+      previous.parts.push(part);
+      previous.endByte = endByte;
+    } else {
+      previous = { startByte, endByte, parts: [part] };
+      runs.push(previous);
+    }
+    previousEnd = endByte;
+  }
+  return runs;
+}
+
+function bytesForInterval(run, startByte, endByte) {
+  const parts = [];
+  for (const chunk of run.parts) {
+    const from = Math.max(startByte, chunk.startByte);
+    const to = Math.min(endByte, chunk.endByte);
+    if (to > from) parts.push(Buffer.from(chunk.data.subarray(from - chunk.startByte, to - chunk.startByte)));
+  }
+  if (!parts.length) return Buffer.alloc(0);
+  return parts.length === 1 ? parts[0] : Buffer.concat(parts, endByte - startByte);
+}
+
+async function preparePackage(a) {
+  if (!a.split || !PACKAGE_SPLITS.has(a.split)) {
+    throw new Error('prepare --package requires --split train|validation|test|acceptance|unlabeled');
+  }
+  const { readCapturePackage } = await import('./package.mjs');
+  const capture = await readCapturePackage(a.package);
+  const labels = capture.labels;
+  const session = String(a.session ?? labels.sessionId ?? '').trim();
+  if (!session) throw new Error('Data Package has no sessionId; provide --session');
+  if (capture.format === 'wav') {
+    throw new Error('WAV packages are preserved for annotation/archive workflows; prepare requires raw I/Q or browser frame JSON');
+  }
+
+  const out = path.resolve(a.out ?? '/private/tmp/napt-classifier/prepared');
+  if (out === capture.packageRoot || out.startsWith(`${capture.packageRoot}${path.sep}`)) {
+    throw new Error('Prepared output must be outside the source Data Package directory');
+  }
+  await mkdir(out, { recursive: true });
+  const records = [];
+  const rowBase = {
+    session,
+    split: a.split,
+    label: labels.annotations.label,
+    channel: labels.annotations.channel,
+    captureId: capture.captureId,
+    sourceCaptureId: capture.captureId,
+    captureIdentity: capture.captureIdentity,
+    captureAnnotations: labels.annotations,
+    annotationEvents: labels.annotationEvents,
+    interferenceMarkedEvents: labels.interferenceMarkedEvents,
+  };
+
+  if (capture.format === 'json') {
+    const rawCapture = JSON.parse(capture.captureBytes.toString('utf8'));
+    const browser = readTrainingCapture(rawCapture, null, capture.captureName);
+    for (const frame of browser.frames) {
+      const id = `pkg_${createHash('sha256').update(`${capture.captureId}:${frame.sequence}`).digest('hex').slice(0, 16)}`;
+      const iq = decodeIq(frame.iqBytes, 'u8');
+      const input = await writePreparedIq(iq, path.join(out, id));
+      records.push({
+        ...rowBase,
+        id,
+        input: path.relative(out, input),
+        format: 'f32le',
+        browserSessionId: browser.sessionId,
+        sourceId: browser.config.sourceId,
+        streamEpoch: frame.streamEpoch,
+        optionsRevision: frame.optionsRevision,
+        frameSequence: frame.sequence,
+        timestampStartMs: frame.timestampMs,
+        sampleRateHz: browser.config.sampleRateHz,
+        centerFrequencyHz: browser.config.centerFrequencyHz,
+        configuredFftSize: browser.config.configuredFftSize,
+        analysisFftSize: browser.config.fftSize,
+        window: browser.config.window,
+        captureWindow: browser.config.window,
+        temporalResolution: browser.config.temporalResolution,
+        validSamples: frame.validSamples,
+        iqByteCount: frame.iqBytes.length,
+        complexSamples: iq.length / 2,
+        tuneEvents: browser.tuneEvents,
+        optionsAppliedEvents: browser.optionsAppliedEvents,
+        streamInterruptedEvents: browser.streamInterruptedEvents,
+        stopReason: browser.stopReason,
+      });
+    }
+  } else {
+    const metadata = capture.metadata ?? {};
+    const channel = (metadata.channels ?? [])[0] ?? null;
+    if (capture.format === 'napt' && (metadata.channels?.length ?? 0) > 1) {
+      throw new Error('Classifier prepare currently accepts single-channel V6 .napt captures; preserve multi-channel captures unchanged until channel-wise decoding is implemented');
+    }
+    const updatesRaw = capture.format === 'iq' ? capture.iqContainer.frameUpdates : (metadata.frame_updates ?? []);
+    if (!Array.isArray(updatesRaw) || updatesRaw.some(update => !update || typeof update !== 'object' || Array.isArray(update))) {
+      throw new Error('V6 capture frame_updates must be an array of objects');
+    }
+    const frameUpdates = updatesRaw.filter(update => update.channel === undefined || update.channel === 0);
+    const initialConfig = packageConfig(metadata, {}, channel, null, null, capture.captureName);
+    let chunks;
+    if (capture.format === 'iq') {
+      chunks = capture.iqContainer.chunks;
+    } else if (capture.format === 'napt') {
+      const decrypted = await captureRaw({
+        format: 'napt',
+        input: path.relative(capture.packageRoot, capture.capturePath),
+        fftSize: initialConfig.fftSize,
+        sampleRateHz: initialConfig.sampleRateHz,
+        id: capture.captureId,
+      }, capture.packageRoot, a.env_file);
+      chunks = [{ sampleOffset: 0, channel: 0, data: decrypted.bytes }];
+    } else {
+      throw new Error(`Classifier prepare does not support .${capture.format} captures`);
+    }
+
+    const runs = contiguousChunkRuns(chunks);
+    const totalBytes = chunks.reduce((max, chunk) => Math.max(max, chunk.sampleOffset * 2 + chunk.data.byteLength), 0);
+    const updates = frameUpdates.map((update, index) => {
+      if (!Number.isSafeInteger(update.sample_offset) || update.sample_offset < 0 || update.sample_offset % 2 !== 0 ||
+        update.sample_offset > totalBytes || !update.patch || typeof update.patch !== 'object' || Array.isArray(update.patch) ||
+        !Number.isFinite(update.timestamp_us)) {
+        throw new Error(`V6 frame update ${index} has invalid byte offset, timestamp, or patch`);
+      }
+      return { ...update, patch: { ...update.patch } };
+    });
+    for (let index = 1; index < updates.length; index++) {
+      if (updates[index].sample_offset < updates[index - 1].sample_offset) {
+        throw new Error('V6 frame updates are out of order');
+      }
+    }
+
+    const firstTimedUpdate = updates.find(update => Number.isFinite(update.timestamp_us));
+    const firstUpdate = updates.find(update => update.sample_offset === 0);
+    const initialTimestamp = Number.isFinite(firstUpdate?.timestamp_us)
+      ? firstUpdate.timestamp_us / 1000
+      : firstTimedUpdate
+        ? firstTimedUpdate.timestamp_us / 1000 - (firstTimedUpdate.sample_offset / 2 / initialConfig.sampleRateHz) * 1000
+        : (capture.captureTimestampMs ?? capture.captureIdentity.capturedAtTimestampMs);
+    if (!Number.isFinite(initialTimestamp)) {
+      throw new Error(`${capture.captureName}: V6 capture has no usable starting timestamp`);
+    }
+
+    const appliedEvents = v6PatchEvents(updates);
+    const discontinuities = [];
+    if (runs.length && runs[0].startByte > 0) {
+      discontinuities.push({ kind: 'MissingIqRange', fromByteOffset: 0, toByteOffset: runs[0].startByte });
+    }
+    for (let index = 1; index < runs.length; index++) {
+      discontinuities.push({
+        kind: 'MissingIqRange',
+        fromByteOffset: runs[index - 1].endByte,
+        toByteOffset: runs[index].startByte,
+      });
+    }
+
+    let segmentIndex = 0;
+    let previousPreparedEndByte = 0;
+    for (let runIndex = 0; runIndex < runs.length; runIndex++) {
+      const run = runs[runIndex];
+      const cuts = [
+        run.startByte,
+        ...updates.map(update => update.sample_offset).filter(offset => offset > run.startByte && offset < run.endByte),
+        run.endByte,
+      ].sort((left, right) => left - right);
+      const uniqueCuts = cuts.filter((value, index) => index === 0 || value !== cuts[index - 1]);
+      for (let cut = 0; cut < uniqueCuts.length - 1; cut++) {
+        const startByte = uniqueCuts[cut];
+        const endByte = uniqueCuts[cut + 1];
+        if (endByte <= startByte) continue;
+
+        const activeUpdates = updates.filter(update => update.sample_offset <= startByte);
+        const activePatch = activeUpdates.reduce((state, update) => ({ ...state, ...update.patch }), {});
+        const config = packageConfig(metadata, activePatch, channel, initialConfig.sampleRateHz, initialConfig.centerFrequencyHz, capture.captureName);
+        const bytes = bytesForInterval(run, startByte, endByte);
+        if (bytes.byteLength !== endByte - startByte || bytes.byteLength % 2 !== 0) {
+          throw new Error('V6 IQ segment has a discontinuity or incomplete I/Q pair');
+        }
+
+        const id = `pkg_${createHash('sha256').update(`${capture.captureId}:${segmentIndex}`).digest('hex').slice(0, 16)}`;
+        const iq = decodeIq(bytes, 'u8');
+        const input = await writePreparedIq(iq, path.join(out, id));
+        const startUpdate = [...updates].reverse().find(update => update.sample_offset <= startByte);
+        const timestampStartMs = Number.isFinite(startUpdate?.timestamp_us)
+          ? startUpdate.timestamp_us / 1000 + ((startByte - startUpdate.sample_offset) / 2 / config.sampleRateHz) * 1000
+          : initialTimestamp + (startByte / 2 / config.sampleRateHz) * 1000;
+        const previousRunEnd = runIndex === 0 ? 0 : runs[runIndex - 1].endByte;
+        const sourceChunkGapBefore = startByte === run.startByte && startByte > previousRunEnd;
+        records.push({
+          ...rowBase,
+          id,
+          input: path.relative(out, input),
+          format: 'f32le',
+          sourceId: `capture:${capture.captureId}`,
+          timestampStartMs,
+          sampleRateHz: config.sampleRateHz,
+          centerFrequencyHz: config.centerFrequencyHz,
+          configuredFftSize: config.configuredFftSize,
+          analysisFftSize: config.fftSize,
+          window: config.window,
+          captureWindow: config.window,
+          temporalResolution: 'contiguous-span',
+          sourceSampleOffsetBytes: startByte,
+          sourceChunkGapBefore,
+          captureFrameUpdates: updates,
+          captureDiscontinuities: discontinuities,
+          optionsAppliedEvents: appliedEvents.filter(event => event.byteOffset >= previousPreparedEndByte && event.byteOffset <= startByte),
+          streamInterruptedEvents: [],
+          validSamples: bytes.byteLength / 2,
+          iqByteCount: bytes.byteLength,
+          complexSamples: iq.length / 2,
+          segmentIndex,
+        });
+        segmentIndex++;
+        previousPreparedEndByte = endByte;
+      }
+    }
+  }
+
+  if (!records.length) throw new Error(`${capture.captureName}: no usable I/Q samples were prepared`);
+  const dataset = validateDataset({ version: 1, recordings: records });
+  await writeFile(path.join(out, 'dataset.json'), `${JSON.stringify(dataset, null, 2)}\n`);
+  console.log(JSON.stringify({
+    prepared: out,
+    sourceCaptureId: capture.captureId,
+    recordings: records.length,
+    split: a.split,
+    encryptedOrRawIQNotIncludedInGit: true,
+  }, null, 2));
+}
 async function prepare(a) {
+  if(a.package) return preparePackage(a);
   if(!a.manifest) throw new Error('prepare requires --manifest JSON; labels/splits are explicit');
   const manifestPath=path.resolve(a.manifest), base=path.dirname(manifestPath), dataset=validateDataset(JSON.parse(await readFile(manifestPath,'utf8')));
   const out=path.resolve(a.out ?? '/private/tmp/napt-classifier/prepared'); await mkdir(out,{recursive:true});
@@ -45,14 +376,14 @@ async function prepare(a) {
     if(r.format==='browser-capture') {
       const rawCapture=JSON.parse(await readFile(path.resolve(base,r.input),'utf8'));
       const sidecar=r.annotations ? JSON.parse(await readFile(path.resolve(base,r.annotations),'utf8')) : null;
-      const capture=readTrainingCapture(rawCapture,sidecar);
+      const capture=readTrainingCapture(rawCapture,sidecar,path.basename(r.input));
       const config=capture.config;
       if(Math.abs(config.sampleRateHz-r.sampleRateHz)>1 || Math.abs(config.centerFrequencyHz-r.centerFrequencyHz)>1) throw new Error(`${r.id}: declared sample rate or center frequency disagrees with browser capture metadata`);
       for(const frame of capture.frames) {
         const id=`${r.id}_seq${frame.sequence}`;
         const iq=decodeIq(frame.iqBytes,'u8');
         const input=await writePreparedIq(iq,path.join(out,id));
-        records.push({...r,id,input:path.relative(out,input),format:'f32le',captureId:r.id,browserSessionId:capture.sessionId,captureAnnotations:capture.annotations,annotationEvents:capture.annotationEvents,interferenceMarkedEvents:capture.interferenceMarkedEvents,tuneEvents:capture.tuneEvents,optionsAppliedEvents:capture.optionsAppliedEvents,streamInterruptedEvents:capture.streamInterruptedEvents,stopReason:capture.stopReason,sourceId:config.sourceId,streamEpoch:frame.streamEpoch,frameSequence:frame.sequence,timestampStartMs:frame.timestampMs,configuredFftSize:config.configuredFftSize,analysisFftSize:config.fftSize,window:config.window,temporalResolution:config.temporalResolution,validSamples:frame.validSamples,iqByteCount:frame.iqBytes.length,complexSamples:iq.length/2});
+        records.push({...r,id,input:path.relative(out,input),format:'f32le',captureId:r.id,sourceCaptureId:capture.captureId,captureIdentity:capture.captureIdentity,browserSessionId:capture.sessionId,captureAnnotations:capture.annotations,annotationEvents:capture.annotationEvents,interferenceMarkedEvents:capture.interferenceMarkedEvents,tuneEvents:capture.tuneEvents,optionsAppliedEvents:capture.optionsAppliedEvents,streamInterruptedEvents:capture.streamInterruptedEvents,stopReason:capture.stopReason,sourceId:config.sourceId,streamEpoch:frame.streamEpoch,optionsRevision:frame.optionsRevision,frameSequence:frame.sequence,timestampStartMs:frame.timestampMs,configuredFftSize:config.configuredFftSize,analysisFftSize:config.fftSize,window:config.window,captureWindow:config.window,temporalResolution:config.temporalResolution,validSamples:frame.validSamples,iqByteCount:frame.iqBytes.length,complexSamples:iq.length/2});
       }
       continue;
     }
@@ -80,7 +411,10 @@ async function extract(a) {
       for(const fftSize of sizes) {
         for(const [startFraction,endFraction] of crops) {
           const hop=Math.max(1,Math.floor(fftSize/2)), totalFrames=Math.max(1,Math.ceil(Math.max(1,n-fftSize)/hop)+1), frameIndices=selectFrameIndices(totalFrames, Number(a.max_frames??64));
-          const temporal=[]; const streamKey=`${r.id}:${fftSize}:${startFraction}:${endFraction}:${window}`;
+          const temporal=[];
+          const streamKey=JSON.stringify([r.captureId??r.id,r.sourceId??null,r.streamEpoch??null,r.optionsRevision??null,
+            r.sampleRateHz,r.centerFrequencyHz,r.analysisFftSize??r.configuredFftSize??null,r.captureWindow??r.window??null,
+            r.segmentIndex??null,fftSize,startFraction,endFraction,window]);
           for(let f=0;f<frameIndices.length;f++) {
             const sourceFrameIndex=frameIndices[f], start=sourceFrameIndex*hop, valid=Math.min(fftSize,n-start); if(valid<2) break;
             const chunk=iq.subarray(start*2,(start+valid)*2), fft=spectrumFromIq(chunk,fftSize,window);
@@ -89,7 +423,25 @@ async function extract(a) {
             const timestampMs=Number(r.timestampStartMs??0)+start/r.sampleRateHz*1000;
             const metadata={sourceId:streamKey,frameId:`${r.id}:${fftSize}:${startFraction}:${start}`,timestampMs,acquisitionSampleRateHz:r.sampleRateHz,analysisSampleRateHz:r.sampleRateHz,fftSize:fft.fftSize,validSamples:fft.validSamples,window,centerFrequencyHz:r.centerFrequencyHz,retainedStartBin:startBin,retainedEndBin:endBin};
             const result=await runner.extract(Array.from(spectrum),metadata);
-            if(result) temporal.push({id:r.id,captureId:r.captureId??r.id,recordingId:r.id,session:r.session,split:r.split,label:r.label,captureAnnotations:r.captureAnnotations??null,annotationEvents:r.annotationEvents??[],interferenceMarkedEvents:r.interferenceMarkedEvents??[],tuneEvents:r.tuneEvents??[],optionsAppliedEvents:r.optionsAppliedEvents??[],streamInterruptedEvents:r.streamInterruptedEvents??[],stopReason:r.stopReason??null,preprocessing:PREPROCESSING,featureNames:FEATURE_NAMES,features:result.values,status:result.status,available:result.available,ruleScore:result.ruleScore,fftSize:metadata.fftSize,validSamples:metadata.validSamples,sampleRateHz:r.sampleRateHz,analysisSampleRateHz:r.sampleRateHz,binHz:r.sampleRateHz/metadata.fftSize,firstBinHz:r.centerFrequencyHz-r.sampleRateHz/2+startBin*r.sampleRateHz/metadata.fftSize,retainedStartBin:startBin,retainedEndBin:endBin,visibleFraction:spectrum.length/metadata.fftSize,window,frameIndex:sourceFrameIndex,timestampMs,evidenceMs:result.evidenceMs,sourceId:r.sourceId??null,streamEpoch:r.streamEpoch??null,frameSequence:r.frameSequence??null,configuredFftSize:r.configuredFftSize??null,analysisFftSize:r.analysisFftSize??null});
+            if(result) temporal.push({
+              id:r.id,captureId:r.captureId??r.id,sourceCaptureId:r.sourceCaptureId??null,captureIdentity:r.captureIdentity??null,
+              recordingId:r.id,session:r.session,split:r.split,label:r.label,captureAnnotations:r.captureAnnotations??null,
+              annotationEvents:r.annotationEvents??[],interferenceMarkedEvents:r.interferenceMarkedEvents??[],
+              tuneEvents:r.tuneEvents??[],optionsAppliedEvents:r.optionsAppliedEvents??[],streamInterruptedEvents:r.streamInterruptedEvents??[],
+              stopReason:r.stopReason??null,preprocessing:PREPROCESSING,featureNames:FEATURE_NAMES,features:result.values,
+              status:result.status,available:result.available,ruleScore:result.ruleScore,qualityScore:result.values?.[9]??null,
+              fftSize:metadata.fftSize,validSamples:metadata.validSamples,sampleRateHz:r.sampleRateHz,
+              analysisSampleRateHz:r.sampleRateHz,binHz:r.sampleRateHz/metadata.fftSize,
+              resolutionHz:result.resolution?.resolutionHz??null,
+              firstBinHz:r.centerFrequencyHz-r.sampleRateHz/2+startBin*r.sampleRateHz/metadata.fftSize,
+              retainedStartBin:startBin,retainedEndBin:endBin,visibleFraction:spectrum.length/metadata.fftSize,
+              acquisitionFftSize:r.analysisFftSize??r.configuredFftSize??null,configuredFftSize:r.configuredFftSize??null,
+              acquisitionWindow:r.captureWindow??r.window??null,analysisWindow:window,window,
+              frameIndex:sourceFrameIndex,timestampMs,evidenceMs:result.evidenceMs,temporalFrameCount:result.frameCount??1,
+              latencyMs:result.latencyMs??null,sourceId:r.sourceId??null,streamEpoch:r.streamEpoch??null,
+              optionsRevision:r.optionsRevision??null,frameSequence:r.frameSequence??null,
+              sourceSampleOffsetBytes:r.sourceSampleOffsetBytes??null,analysisFftSize:r.analysisFftSize??null,
+            });
           }
           rows.push(...temporal);
         }
@@ -107,11 +459,23 @@ async function classify(a) {
   const filtered={...dataset,recordings:dataset.recordings.map((r,i)=>({...r,id:`${i}_${r.id}`,session:`${i}_${r.session}`,split:'unlabeled',label:'uncertain'}))};
   const copy=path.join(base,`.classify-${process.pid}.json`); await writeFile(copy,JSON.stringify(filtered));
   try { await extract({dataset:copy,fft_sizes:a.fft_sizes??'4096',crops:a.crops??'0:1',window:a.window??'hann',out:temp});
-    const rows=readJsonLines(await readFile(temp,'utf8')).map(r=>{const score=inferModel(model,r.features);return {id:r.id,session:r.session,frameIndex:r.frameIndex,timestampMs:r.timestampMs,score,decision:r.status==='ready'?score>=model.threshold:null,status:r.status,available:r.available,sampleRateHz:r.sampleRateHz,rateValidated:model.validatedSampleRatesHz.includes(r.sampleRateHz),fftSize:r.fftSize,binHz:r.binHz,visibleFraction:r.visibleFraction,ruleScore:r.ruleScore};});
+    const rows=readJsonLines(await readFile(temp,'utf8')).map(r=>{const score=inferModel(model,r.features);return {
+      id:r.id,captureId:r.captureId,sourceCaptureId:r.sourceCaptureId,captureIdentity:r.captureIdentity,session:r.session,
+      frameIndex:r.frameIndex,frameSequence:r.frameSequence,timestampMs:r.timestampMs,score,
+      decision:r.status==='ready'?score>=model.threshold:null,status:r.status,available:r.available,
+      sampleRateHz:r.sampleRateHz,rateValidated:model.validatedSampleRatesHz.includes(r.sampleRateHz),
+      fftSize:r.fftSize,validSamples:r.validSamples,binHz:r.binHz,resolutionHz:r.resolutionHz,
+      firstBinHz:r.firstBinHz,retainedStartBin:r.retainedStartBin,retainedEndBin:r.retainedEndBin,
+      visibleFraction:r.visibleFraction,acquisitionFftSize:r.acquisitionFftSize,configuredFftSize:r.configuredFftSize,
+      acquisitionWindow:r.acquisitionWindow,analysisWindow:r.analysisWindow,qualityScore:r.qualityScore,
+      temporalFrameCount:r.temporalFrameCount,evidenceMs:r.evidenceMs,latencyMs:r.latencyMs,
+      ruleScore:r.ruleScore,streamEpoch:r.streamEpoch,optionsRevision:r.optionsRevision,sourceSampleOffsetBytes:r.sourceSampleOffsetBytes,
+    };});
     await writeFile(path.resolve(a.out??path.join(base,'classifications.json')),writeRows(rows));
     const classified=rows.filter(r=>r.decision!==null); console.log(JSON.stringify({rows:rows.length,insufficientEvidence:rows.length-classified.length,modelId:model.id,output:a.out??path.join(base,'classifications.json')},null,2));
   } finally { await rm(copy,{force:true});await rm(temp,{force:true}); }
 }
-function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test --model model.json --report report.json\n`);}
-async function main(){const a=args(process.argv.slice(2)); if(a.command==='prepare')return prepare(a); if(a.command==='extract')return extract(a); if(a.command==='classify')return classify(a); if(a.command==='help'||!a.command)return help();throw new Error(`Unknown command: ${a.command}`);}
+function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package --split train [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test --model model.json --report report.json\n`);}
+async function packageCapture(a){const {createCapturePackage}=await import('./package.mjs');const result=await createCapturePackage({capturePath:a.capture,labelsPath:a.labels,outputPath:a.out,capturedAt:a.captured_at});console.log(JSON.stringify(result,null,2));}
+async function main(){const a=args(process.argv.slice(2)); if(a.command==='prepare')return prepare(a); if(a.command==='extract')return extract(a); if(a.command==='classify')return classify(a); if(a.command==='package')return packageCapture(a); if(a.command==='help'||!a.command)return help();throw new Error(`Unknown command: ${a.command}`);}
 main().catch(error=>{console.error(`classifier: ${error.message}`);process.exitCode=2;});

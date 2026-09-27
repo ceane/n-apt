@@ -30,6 +30,9 @@ export interface NativeTrainingAnnotationEvent {
   frameSequence: number | null;
   annotations: NativeTrainingCaptureAnnotations;
 }
+export type NativeTrainingCaptureIdentity =
+  | { kind: 'v6-trailer-sha256'; algorithm: 'SHA-256'; scope: 'file-with-integrity-digest-placeholder'; digestHex: string }
+  | { kind: 'filename-timestamp'; fileName: string; capturedAtTimestampMs: number };
 export interface NativeTrainingStreamInterruptedEvent {
   kind: 'StreamInterrupted';
   code: 1;
@@ -40,9 +43,10 @@ export interface NativeTrainingStreamInterruptedEvent {
   reason?: string;
 }
 export interface NativeTrainingAnnotationSidecar {
-  format: 'n-apt-native-annotations-v1';
+  format: 'n-apt-native-annotations-v2';
   captureId: string;
   sessionId: string;
+  captureIdentity: NativeTrainingCaptureIdentity;
   annotations: NativeTrainingCaptureAnnotations;
   annotationEvents: NativeTrainingAnnotationEvent[];
   interferenceMarkedEvents: Array<{ kind: 'InterferenceMarked'; code: 2; timestampMs: number; byteOffset: number; frameSequence: number | null }>;
@@ -327,12 +331,45 @@ export class NativeTrainingCaptureSession {
     return { ...capture, frames: capture.frames.map(({ iqBytes, ...frame }) => ({ ...frame, iqBase64: encodeBase64(iqBytes) })) };
   }
 
-  toAnnotationSidecar(): NativeTrainingAnnotationSidecar | null {
+  toAnnotationSidecar(captureIdentity: NativeTrainingCaptureIdentity): NativeTrainingAnnotationSidecar | null {
     if (!this.capture) return null;
-    return { format: 'n-apt-native-annotations-v1', captureId: this.capture.sessionId, sessionId: this.capture.sessionId,
+    if (captureIdentity.kind === 'v6-trailer-sha256') {
+      throw new Error('Browser frame capture has no V6 trailer; use its filename and capture time');
+    }
+    if (captureIdentity.kind === 'filename-timestamp' && captureIdentity.capturedAtTimestampMs !== this.capture.createdAtTimestampMs) {
+      throw new Error('Annotation filename timestamp must match the capture timestamp');
+    }
+    return { format: 'n-apt-native-annotations-v2', captureId: getNativeTrainingCaptureId(captureIdentity), sessionId: this.capture.sessionId, captureIdentity: { ...captureIdentity },
       annotations: cloneAnnotations(this.annotations), annotationEvents: this.annotationEvents.map((event) => ({ ...event, annotations: cloneAnnotations(event.annotations) })),
       interferenceMarkedEvents: this.interferenceMarkedEvents.map((event) => ({ ...event })) };
   }
+}
+
+export function nativeTrainingCaptureFileName(sessionId: string, capturedAtTimestampMs: number): string {
+  if (!sessionId || !Number.isFinite(capturedAtTimestampMs)) {
+    throw new Error('Capture filename requires a session ID and finite capture timestamp');
+  }
+  const timestamp = new Date(capturedAtTimestampMs);
+  if (!Number.isFinite(timestamp.getTime())) throw new Error('Capture timestamp is outside the supported date range');
+  const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '-');
+  const dateTime = timestamp.toISOString().replace(/[:.]/g, '-');
+  return `n-apt-iq-capture-${dateTime}-${safeSessionId}.json`;
+}
+
+export function getNativeTrainingCaptureId(identity: NativeTrainingCaptureIdentity): string {
+  if (identity.kind === 'v6-trailer-sha256') {
+    if (identity.algorithm !== 'SHA-256' || identity.scope !== 'file-with-integrity-digest-placeholder' || !/^[\da-f]{64}$/i.test(identity.digestHex)) {
+      throw new Error('V6 capture identity requires a verified SHA-256 trailer digest');
+    }
+    return identity.digestHex.toLowerCase();
+  }
+  if (identity.kind !== 'filename-timestamp' || !identity.fileName || /[/\\\0]/.test(identity.fileName) ||
+    identity.fileName === '.' || identity.fileName === '..' || !Number.isFinite(identity.capturedAtTimestampMs)) {
+    throw new Error('Capture identity requires a basename and finite capture timestamp');
+  }
+  const timestamp = new Date(identity.capturedAtTimestampMs);
+  if (!Number.isFinite(timestamp.getTime())) throw new Error('Capture timestamp is outside the supported date range');
+  return `${identity.fileName}@${timestamp.toISOString()}`;
 }
 
 function metadataForConfig(config: NativeTrainingCaptureConfig): NativeTrainingCaptureFrameMetadata {

@@ -2017,19 +2017,22 @@ const FFTCanvas = memo(
     }, []);
     const exportNativeCapture = useCallback(() => {
       const data = nativeCaptureRef.current.toExportObject();
-      if (!data) return;
-      const annotations = nativeCaptureRef.current.toAnnotationSidecar();
+      if (!data || data.createdAtTimestampMs === null) return;
+      const capturedAtTimestampMs = data.createdAtTimestampMs;
+      const captureFileName = NativeClassifier.nativeTrainingCaptureFileName(data.sessionId, capturedAtTimestampMs);
+      const captureIdentity = { kind: 'filename-timestamp' as const, fileName: captureFileName, capturedAtTimestampMs };
+      const annotations = nativeCaptureRef.current.toAnnotationSidecar(captureIdentity);
       const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `n-apt-iq-capture-${data.sessionId}.json`;
+      anchor.download = captureFileName;
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1_000);
       if (annotations) {
         const sidecarUrl = URL.createObjectURL(new Blob([JSON.stringify(annotations)], { type: 'application/json' }));
         const sidecarAnchor = document.createElement('a');
         sidecarAnchor.href = sidecarUrl;
-        sidecarAnchor.download = `n-apt-annotations-${data.sessionId}.json`;
+        sidecarAnchor.download = captureFileName.replace(/^n-apt-iq-capture-/, 'n-apt-annotations-');
         sidecarAnchor.click();
         setTimeout(() => URL.revokeObjectURL(sidecarUrl), 1_000);
       }

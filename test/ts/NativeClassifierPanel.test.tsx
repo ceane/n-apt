@@ -16,7 +16,16 @@ it('renders classifier controls as a narrow stacked sidebar card and hides the a
   expect(screen.getByRole('region', { name: 'Experimental native resolution classifier' })).toHaveAttribute('data-layout', 'sidebar');
   expect(screen.getByTestId('classifier-state')).toHaveAttribute('data-state', 'ready');
   expect(screen.getByTestId('classifier-capture-status')).toHaveStyle({ minHeight: '2.9em' });
-  expect(screen.getByTestId('classifier-pipeline-flow')).toHaveTextContent('Start capture → Stop/export → Label & prepare → Extract → Train/evaluate → Load model');
+  expect(screen.getByRole('region', { name: 'Classifier workflow' })).toBeInTheDocument();
+  expect(screen.getByTestId('classifier-flow-node-selected-source')).toHaveTextContent('Selected spectrum source');
+  expect(screen.getByTestId('classifier-flow-node-selected-source')).toHaveTextContent('file playback');
+  expect(screen.getByTestId('classifier-flow-node-capture')).toHaveTextContent('live receiving RTL-SDR');
+  expect(screen.getByTestId('classifier-flow-node-native-features')).toHaveTextContent('Native FFT metadata');
+  expect(screen.getByTestId('classifier-flow-node-annotations')).toHaveTextContent('datapackage.json + labels.json');
+  expect(screen.getByTestId('classifier-flow-node-annotations')).toHaveTextContent('verified V6 trailer digest');
+  expect(screen.getByTestId('classifier-flow-node-annotations')).toHaveTextContent('filename + UTC capture time');
+  expect(screen.getByTestId('classifier-flow-node-offline-training')).toHaveTextContent('Python');
+  expect(screen.getByTestId('classifier-flow-node-result')).toHaveTextContent('No decision yet');
   expect(screen.getByRole('button', { name: 'Load model' })).toBeInTheDocument();
 });
 

@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { readTrainingCapture } from '../../scripts/classifier/io.mjs';
 
 test('prepare imports browser training exports as separate timestamped frames with explicit labels and session split', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'napt-browser-capture-'));
@@ -15,7 +16,7 @@ test('prepare imports browser training exports as separate timestamped frames wi
     const capture = {
       format: 'n-apt-native-iq-frames-v1', iqSampleFormat: 'u8',
       payloadSemantics: 'each frame stores the complete iq_data payload received for that sequence; frames remain independent and are never concatenated',
-      sessionId: 'capture-a', visualizerSessionKey: 'visualizer-a',
+      sessionId: 'capture-a', visualizerSessionKey: 'visualizer-a', createdAtTimestampMs: 1010,
       streamInterruptedEvents: [{ kind: 'StreamInterrupted', code: 1, timestampMs: 1020, byteOffset: 16, frameSequence: 11, nextFrameSequence: 12, reason: 'configuration-boundary' }],
       tuneEvents: [{ timestampMs: 1020, sequence: 12, fromFrameSequence: 11, toFrameSequence: 12, fromCenterFrequencyHz: 137500000, toCenterFrequencyHz: 137600000 }],
       optionsAppliedEvents: [{ kind: 'PatchOptionsApplied', timestampMs: 1020, fromTimestampMs: 1011, toTimestampMs: 1020, fromFrameSequence: 11, toFrameSequence: 12,
@@ -30,10 +31,16 @@ test('prepare imports browser training exports as separate timestamped frames wi
       frames: [10, 11].map((sequence) => ({ streamEpoch: 3, optionsRevision: 2, sequence, timestampMs: 1000 + sequence, validSamples: 4, iqBase64: payload })),
     };
     await writeFile(path.join(inputDir, 'capture.json'), JSON.stringify(capture));
-    const sidecar = { format: 'n-apt-native-annotations-v1', captureId: 'capture-a', sessionId: 'capture-a',
+    const sidecar = { format: 'n-apt-native-annotations-v2', captureId: 'capture.json@1970-01-01T00:00:01.010Z', sessionId: 'capture-a',
+      captureIdentity: { kind: 'filename-timestamp', fileName: 'capture.json', capturedAtTimestampMs: 1010 },
       annotations: { label: 'matching', channel: 'A', features: ['u-dip'], tags: ['interference'] },
       annotationEvents: [{ timestampMs: 1012, frameSequence: 10, annotations: { label: 'matching', channel: 'A', features: ['u-dip'], tags: ['interference'] } }],
       interferenceMarkedEvents: [{ kind: 'InterferenceMarked', code: 2, timestampMs: 1012, byteOffset: 8, frameSequence: 10 }] };
+    assert.doesNotThrow(() => readTrainingCapture(capture, sidecar, 'capture.json'));
+    assert.throws(() => readTrainingCapture(capture, sidecar, 'renamed-capture.json'), /filename\/time identity/);
+    assert.doesNotThrow(() => readTrainingCapture(capture, {
+      ...sidecar, format: 'n-apt-native-annotations-v1', captureId: 'capture-a', sessionId: 'capture-a', captureIdentity: undefined,
+    }, 'capture.json'));
     await writeFile(path.join(inputDir, 'annotations.json'), JSON.stringify(sidecar));
     await writeFile(path.join(inputDir, 'dataset.json'), JSON.stringify({ recordings: [{
       id: 'positive-a', session: 'positive-session-a', split: 'train', label: 'matching',
@@ -48,6 +55,8 @@ test('prepare imports browser training exports as separate timestamped frames wi
     assert.equal(dataset.recordings[0].timestampStartMs, 1010);
     assert.equal(dataset.recordings[0].analysisFftSize, 32768);
     assert.deepEqual(dataset.recordings[0].captureAnnotations, { label: 'matching', channel: 'A', features: ['u-dip'], tags: ['interference'] });
+    assert.equal(dataset.recordings[0].sourceCaptureId, sidecar.captureId);
+    assert.deepEqual(dataset.recordings[0].captureIdentity, sidecar.captureIdentity);
     assert.equal(dataset.recordings[0].tuneEvents[0].toCenterFrequencyHz, 137600000);
     assert.equal(dataset.recordings[0].optionsAppliedEvents[0].toFrameSequence, 12);
     assert.equal(dataset.recordings[0].interferenceMarkedEvents[0].code, 2);

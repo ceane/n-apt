@@ -4,6 +4,7 @@ import styled, { css, keyframes } from 'styled-components';
 import { validateModel, type FrameMetadata, type NativeModel } from './core';
 import type { FeatureSummary } from './core';
 import type { NativeTrainingCaptureAnnotations } from './trainingCapture';
+import { ClassifierWorkflowFlow } from './ClassifierWorkflowFlow';
 
 const recordingPulse = keyframes`
   0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, .42); }
@@ -61,6 +62,7 @@ function readAnnotationDraft(): NativeTrainingCaptureAnnotations {
 
 export function NativeClassifierPanel({ result, legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', onToggleCapture, onExportCapture, onAnnotationsChange }: { result: NativeShadowResult | null; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void }) {
   const input = useRef<HTMLInputElement>(null); const [message, setMessage] = useState('Shadow scoring waits for a live acquisition frame.');
+  const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<NativeTrainingCaptureAnnotations>(readAnnotationDraft);
   const [tagDraft, setTagDraft] = useState('');
   const updateAnnotations = (next: NativeTrainingCaptureAnnotations) => { setAnnotations(next); onAnnotationsChange?.(next); };
@@ -72,8 +74,8 @@ export function NativeClassifierPanel({ result, legacy, onModel, captureAvailabl
   };
   const load = async (file?: File) => {
     if (!file) return;
-    try { const model=validateModel(JSON.parse(await file.text())); onModel(model); setMessage(`Loaded ${model.kind} model ${model.id}.`); }
-    catch (error) { onModel(null); setMessage(`Model unavailable: ${error instanceof Error ? error.message : String(error)}`); }
+    try { const model=validateModel(JSON.parse(await file.text())); onModel(model); setLoadedModelId(model.id); setMessage(`Loaded ${model.kind} model ${model.id}.`); }
+    catch (error) { onModel(null); setLoadedModelId(null); setMessage(`Model unavailable: ${error instanceof Error ? error.message : String(error)}`); }
   };
   const card: CSSProperties = {
     display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 9,
@@ -144,13 +146,16 @@ export function NativeClassifierPanel({ result, legacy, onModel, captureAvailabl
     </div>
     <div style={row}>
       <button type="button" onClick={() => input.current?.click()} style={button}>Load model</button>
-      <button type="button" onClick={() => { onModel(null); setMessage('No learned model loaded.'); }} style={button}>Clear model</button>
+      <button type="button" onClick={() => { onModel(null); setLoadedModelId(null); setMessage('No learned model loaded.'); }} style={button}>Clear model</button>
     </div>
     <span style={{ ...wrappingText, opacity: .8 }}>Local browser weights; training labels remain in the offline dataset.</span>
-    <div data-testid="classifier-pipeline-flow" aria-label="Classifier pipeline" style={{ ...wrappingText, borderTop: '1px solid var(--color-border, rgba(128,128,128,.25))', paddingTop: 8 }}>
-      <strong>Pipeline</strong>
-      <div style={wrappingText}>Start capture → Stop/export → Label &amp; prepare → Extract → Train/evaluate → Load model</div>
-    </div>
+    <ClassifierWorkflowFlow
+      selectedSourceHasFrames={result !== null}
+      captureActive={captureActive}
+      hasCapturedFrames={captureFrameCount > 0}
+      loadedModelId={loadedModelId ?? result?.modelId ?? null}
+      resultAvailable={result !== null}
+    />
     <input ref={input} type="file" accept="application/json,.json" aria-label="Load local classifier model" hidden onChange={e => { void load(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
   </section>;
 }

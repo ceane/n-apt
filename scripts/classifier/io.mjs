@@ -35,7 +35,7 @@ function validateFrameMetadata(value) {
 }
 
 /** Validates an exported browser session without joining its independently framed raw I/Q payloads. */
-export function readTrainingCapture(capture, sidecar = null) {
+export function readTrainingCapture(capture, sidecar = null, sourceFileName = null) {
   if (capture?.format !== TRAINING_CAPTURE_FORMAT || capture?.payloadSemantics !== TRAINING_CAPTURE_SEMANTICS || capture?.iqSampleFormat !== 'u8') {
     throw new Error(`Unsupported browser training capture; expected ${TRAINING_CAPTURE_FORMAT} with u8 I/Q`);
   }
@@ -69,8 +69,24 @@ export function readTrainingCapture(capture, sidecar = null) {
     frames.push({ ...frame, iqBytes: new Uint8Array(iqBytes) });
     previous = frame;
   }
-  if (sidecar && (sidecar.format !== 'n-apt-native-annotations-v1' || sidecar.captureId !== capture.sessionId || sidecar.sessionId !== capture.sessionId)) {
-    throw new Error('Annotation sidecar captureId/sessionId does not match the IQ capture');
+  if (sidecar?.format === 'n-apt-native-annotations-v1') {
+    if (sidecar.captureId !== capture.sessionId || sidecar.sessionId !== capture.sessionId) {
+      throw new Error('Legacy annotation sidecar captureId/sessionId does not match the IQ capture');
+    }
+  } else if (sidecar) {
+    const identity = sidecar.captureIdentity;
+    if (sidecar.format !== 'n-apt-native-annotations-v2' || sidecar.sessionId !== capture.sessionId ||
+      identity?.kind !== 'filename-timestamp' || typeof identity.fileName !== 'string' || !identity.fileName ||
+      /[/\\\0]/.test(identity.fileName) || identity.fileName === '.' || identity.fileName === '..' ||
+      !Number.isFinite(identity.capturedAtTimestampMs) || !Number.isFinite(capture.createdAtTimestampMs) ||
+      identity.capturedAtTimestampMs !== capture.createdAtTimestampMs ||
+      (sourceFileName !== null && identity.fileName !== sourceFileName)) {
+      throw new Error('Annotation sidecar filename/time identity does not match the IQ capture file');
+    }
+    const timestamp = new Date(identity.capturedAtTimestampMs);
+    if (!Number.isFinite(timestamp.getTime()) || sidecar.captureId !== `${identity.fileName}@${timestamp.toISOString()}`) {
+      throw new Error('Annotation sidecar captureId does not match its filename/time identity');
+    }
   }
   const annotations = sidecar ? validateAnnotations(sidecar.annotations) : null;
   const annotationEvents = sidecar?.annotationEvents ?? [];
@@ -112,7 +128,9 @@ export function readTrainingCapture(capture, sidecar = null) {
     !Number.isInteger(event.byteOffset) || event.byteOffset < 0 || event.byteOffset > frames.reduce((sum, frame) => sum + frame.iqBytes.length, 0) ||
     !(event.frameSequence === null || Number.isInteger(event.frameSequence)) ||
     (event.nextFrameSequence !== undefined && !Number.isInteger(event.nextFrameSequence)))) throw new Error('Training capture marker timeline is invalid');
-  return { format: TRAINING_CAPTURE_FORMAT, sessionId: capture.sessionId, config: { ...config }, annotations, annotationEvents, interferenceMarkedEvents, tuneEvents, optionsAppliedEvents, streamInterruptedEvents, stopReason: capture.stopReason ?? null, frames };
+  return { format: TRAINING_CAPTURE_FORMAT, sessionId: capture.sessionId, captureId: sidecar?.captureId ?? capture.sessionId,
+    captureIdentity: sidecar?.captureIdentity ?? null, config: { ...config }, annotations, annotationEvents,
+    interferenceMarkedEvents, tuneEvents, optionsAppliedEvents, streamInterruptedEvents, stopReason: capture.stopReason ?? null, frames };
 }
 export function validateDataset(dataset) {
   if (!Array.isArray(dataset?.recordings) || !dataset.recordings.length) throw new Error('recordings must be nonempty');
