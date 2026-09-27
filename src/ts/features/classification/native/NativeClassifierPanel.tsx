@@ -97,6 +97,7 @@ export function NativeClassifierPanel({ result, legacy, onModel, captureAvailabl
   const captureStatusText = tuneStatus
     ? `Capture stopped on tune: ${tuneStatus[1] && tuneStatus[2] ? `${(Number(tuneStatus[1]) / 1e6).toFixed(3)} → ${(Number(tuneStatus[2]) / 1e6).toFixed(3)} MHz` : 'new center frequency saved'}.`
     : metadataStatus ? `Capture stopped at the OptionsApplied boundary (revision ${metadataStatus[2]} → ${metadataStatus[3]}, frame ${metadataStatus[4]} → ${metadataStatus[5]}; ${metadataStatus[1]} changed).`
+    : captureStatus === 'rtl-sdr-disconnected' ? 'The RTL-SDR is disconnected. Please reconnect it; capture will be ready when receiving resumes.'
     : captureStatus === 'source-or-config-changed' ? 'Capture stopped because the source or acquisition settings changed.'
       : captureStatus === 'no-new-frames' ? 'Capture stopped because live frames became stale.' : captureStatus;
   const captureNeedsExport = !captureActive && captureFrameCount > 0;

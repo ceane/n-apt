@@ -4,6 +4,16 @@ const metadata = (patch = {}) => ({ sourceId: 'rx', frameId: '1', timestampMs: 1
 const frame = (patch = {}, length = 4096) => ({ spectrum: new Float32Array(length).fill(-80), metadata: metadata(patch) });
 
 describe('native morphology contract', () => {
+  it.each([
+    ['Rectangular', 'rectangular'],
+    ['Hanning', 'hann'],
+    ['HANN', 'hann'],
+    ['none', 'rectangular'],
+    ['Nuttall', 'nuttall'],
+  ] as const)('normalizes applied window name %s to classifier metadata %s', (input, expected) => {
+    expect(NativeClassifier.normalizeNativeWindowKind(input)).toBe(expected);
+  });
+
   it('preserves bin spacing and origin after frequency cropping', () => {
     const d = NativeClassifier.describeFrame(frame({ retainedStartBin: 100, retainedEndBin: 300 }, 200));
     expect(d.binHz).toBe(781.25);

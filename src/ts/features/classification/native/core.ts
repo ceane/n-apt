@@ -7,6 +7,20 @@ export const FEATURE_NAMES = [
   'validFraction', 'persistence', 'meanBridge', 'meanUDip',
 ] as const;
 export type WindowKind = 'rectangular' | 'hann' | 'hamming' | 'blackman' | 'blackman-harris' | 'nuttall';
+export function normalizeNativeWindowKind(windowType?: string): WindowKind {
+  if (windowType === undefined || windowType.trim() === '') return 'rectangular';
+  switch (windowType.trim().toLowerCase()) {
+    case 'none':
+    case 'rectangular': return 'rectangular';
+    case 'hann':
+    case 'hanning': return 'hann';
+    case 'hamming': return 'hamming';
+    case 'blackman': return 'blackman';
+    case 'blackman-harris': return 'blackman-harris';
+    case 'nuttall': return 'nuttall';
+    default: return 'hann';
+  }
+}
 export interface FrameMetadata {
   sourceId: string;
   frameId: string;

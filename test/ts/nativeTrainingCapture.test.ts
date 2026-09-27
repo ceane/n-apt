@@ -65,6 +65,57 @@ it('allows only the selected, active real RTL-SDR source in live receiving mode'
   ]) expect(eligible(patch)).toBe(false);
 });
 
+it('recognizes an explicit RTL-SDR disconnect without treating other source states as unplugged', () => {
+  expect(NativeClassifier.isNativeTrainingRtlSdrDisconnected({ isRtlSdr: true, sourceStatus: 'disconnected' })).toBe(true);
+  expect(NativeClassifier.isNativeTrainingRtlSdrDisconnected({ isRtlSdr: true, sourceStatus: 'stale' })).toBe(false);
+  expect(NativeClassifier.isNativeTrainingRtlSdrDisconnected({ isRtlSdr: false, sourceStatus: 'disconnected' })).toBe(false);
+});
+
+it('treats title-cased applied window metadata as the same window and accepts the current receiving frame', () => {
+  const liveFrame = {
+    sourceId: 'rtl-1', streamEpoch: 4, optionsRevision: 2,
+    appliedOptions: { ...config.appliedOptions, fftWindow: 'Rectangular' },
+    sequence: 10, timestampMs: 1000, status: 'receiving', sampleRateHz: 3_200_000,
+    centerFrequencyHz: 1_600_000, configuredFftSize: 2048, fftSize: 2048,
+    validSamples: 4096, rawIqByteCount: 8192, window: 'Rectangular',
+  };
+  expect(NativeClassifier.nativeTrainingFrameMismatchReasons(liveFrame, {
+    selectedSourceId: 'rtl-1', sourceSampleRateHz: 3_200_000, sourceCenterFrequencyHz: 1_600_000,
+    sourceFftSize: 2048, sourceWindow: 'Rectangular', appliedStream: { streamEpoch: 4, optionsRevision: 2, mode: 'rx' },
+    nowTimestampMs: 1100,
+  })).toEqual([]);
+});
+
+it('reports a changing center frequency or FFT until an applied matching frame arrives', () => {
+  const liveFrame = {
+    sourceId: 'rtl-1', streamEpoch: 4, optionsRevision: 2,
+    appliedOptions: { ...config.appliedOptions, fftWindow: 'Rectangular' },
+    sequence: 10, timestampMs: 1000, status: 'receiving', sampleRateHz: 3_200_000,
+    centerFrequencyHz: 1_600_000, configuredFftSize: 2048, fftSize: 2048,
+    validSamples: 4096, rawIqByteCount: 8192, window: 'Rectangular',
+  };
+  const changing = NativeClassifier.nativeTrainingFrameMismatchReasons(liveFrame, {
+    selectedSourceId: 'rtl-1', sourceSampleRateHz: 3_200_000, sourceCenterFrequencyHz: 1_700_000,
+    sourceFftSize: 4096, sourceWindow: 'Rectangular', appliedStream: { streamEpoch: 4, optionsRevision: 3, mode: 'rx' },
+    nowTimestampMs: 1100,
+  });
+  expect(changing).toEqual(expect.arrayContaining([
+    'frame center frequency 1600000 Hz != source setting 1700000 Hz',
+    'frame FFT setting 2048 != source setting 4096',
+    'frame options revision 2 != applied revision 3',
+  ]));
+
+  const appliedFrame = {
+    ...liveFrame, optionsRevision: 3, centerFrequencyHz: 1_700_000, configuredFftSize: 4096, fftSize: 4096,
+    appliedOptions: { ...liveFrame.appliedOptions, centerFrequencyHz: 1_700_000, fftSize: 4096 },
+  };
+  expect(NativeClassifier.nativeTrainingFrameMismatchReasons(appliedFrame, {
+    selectedSourceId: 'rtl-1', sourceSampleRateHz: 3_200_000, sourceCenterFrequencyHz: 1_700_000,
+    sourceFftSize: 4096, sourceWindow: 'Rectangular', appliedStream: { streamEpoch: 4, optionsRevision: 3, mode: 'rx' },
+    nowTimestampMs: 1100,
+  })).toEqual([]);
+});
+
 it('retains original per-frame boundaries and provenance, rejecting duplicates and stopping on a source or config mismatch', () => {
   const session = new NativeClassifier.NativeTrainingCaptureSession();
   expect(session.start(config, 0, 900)).toBe(true);

@@ -1,4 +1,4 @@
-import type { WindowKind } from './core';
+import { normalizeNativeWindowKind, type WindowKind } from './core';
 import type { IqAppliedStreamOptions } from '@n-apt/consts/schemas/websocket';
 
 export interface NativeTrainingCaptureConfig {
@@ -100,6 +100,104 @@ export interface NativeTrainingCaptureEligibility {
   deviceConnected: boolean;
   canvasPaused: boolean;
   isRtlSdr: boolean;
+}
+
+export const isNativeTrainingRtlSdrDisconnected = (
+  state: Pick<NativeTrainingCaptureEligibility, 'isRtlSdr' | 'sourceStatus'>,
+): boolean => state.isRtlSdr && state.sourceStatus === 'disconnected';
+
+export interface NativeTrainingReadinessFrame {
+  sourceId: string;
+  streamEpoch: number;
+  optionsRevision: number;
+  appliedOptions: Extract<IqAppliedStreamOptions, { mode: 'rx' }>;
+  sequence: number;
+  timestampMs: number;
+  status: string;
+  sampleRateHz: number;
+  centerFrequencyHz: number;
+  configuredFftSize: number;
+  fftSize: number;
+  validSamples: number;
+  rawIqByteCount: number;
+  window: string;
+}
+
+export interface NativeTrainingReadinessExpectation {
+  selectedSourceId: string | null;
+  sourceSampleRateHz: number | null | undefined;
+  sourceCenterFrequencyHz: number | null | undefined;
+  sourceFftSize: number | undefined;
+  sourceWindow?: string | null;
+  appliedStream: { streamEpoch: number; optionsRevision: number; mode: 'rx' } | null;
+  nowTimestampMs: number;
+}
+
+/** Explain every frame/source mismatch that can keep live training capture disabled. */
+export function nativeTrainingFrameMismatchReasons(
+  frame: NativeTrainingReadinessFrame | null,
+  expected: NativeTrainingReadinessExpectation,
+): string[] {
+  if (!frame) return ['no current I/Q frame'];
+  const mismatches: string[] = [];
+  const frameWindow = normalizeNativeWindowKind(frame.window);
+  const sourceWindow = normalizeNativeWindowKind(expected.sourceWindow ?? undefined);
+  const maxAgeMs = NativeTrainingCaptureSession.STALE_AFTER_MS;
+  const ageMs = expected.nowTimestampMs - frame.timestampMs;
+
+  if (frame.sourceId !== expected.selectedSourceId) {
+    mismatches.push(`frame source ${frame.sourceId} != selected source ${expected.selectedSourceId ?? 'none'}`);
+  }
+  if (frame.status !== 'receiving') mismatches.push(`frame status ${frame.status} is not receiving`);
+  if (!expected.appliedStream) {
+    mismatches.push('no applied RX options for the selected source');
+  } else {
+    if (frame.streamEpoch !== expected.appliedStream.streamEpoch) {
+      mismatches.push(`frame stream epoch ${frame.streamEpoch} != applied stream epoch ${expected.appliedStream.streamEpoch}`);
+    }
+    if (frame.optionsRevision !== expected.appliedStream.optionsRevision) {
+      mismatches.push(`frame options revision ${frame.optionsRevision} != applied revision ${expected.appliedStream.optionsRevision}`);
+    }
+  }
+  if (!Number.isInteger(frame.validSamples) || frame.validSamples <= 0) {
+    mismatches.push('frame has no valid I/Q samples');
+  }
+  if (!Number.isInteger(frame.rawIqByteCount) || frame.rawIqByteCount !== frame.validSamples * 2) {
+    mismatches.push(`frame I/Q byte count ${frame.rawIqByteCount} != valid sample byte count ${frame.validSamples * 2}`);
+  }
+  if (!Number.isInteger(frame.fftSize) || frame.fftSize < 2) {
+    mismatches.push(`frame FFT size ${frame.fftSize} is invalid`);
+  }
+  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > maxAgeMs) {
+    mismatches.push('frame timestamp is stale or in the future');
+  }
+  if (frame.appliedOptions.centerFrequencyHz !== frame.centerFrequencyHz) {
+    mismatches.push(`applied center frequency ${frame.appliedOptions.centerFrequencyHz} Hz != frame center frequency ${frame.centerFrequencyHz} Hz`);
+  }
+  if (frame.appliedOptions.sampleRateHz !== frame.sampleRateHz) {
+    mismatches.push(`applied sample rate ${frame.appliedOptions.sampleRateHz} Hz != frame sample rate ${frame.sampleRateHz} Hz`);
+  }
+  if (frame.appliedOptions.fftSize !== frame.configuredFftSize) {
+    mismatches.push(`applied FFT setting ${frame.appliedOptions.fftSize} != frame FFT setting ${frame.configuredFftSize}`);
+  }
+  if (frame.appliedOptions.fftWindow !== undefined && normalizeNativeWindowKind(frame.appliedOptions.fftWindow) !== frameWindow) {
+    mismatches.push(`applied window ${frame.appliedOptions.fftWindow} != frame window ${frame.window}`);
+  }
+  if (frame.sampleRateHz !== expected.sourceSampleRateHz) {
+    mismatches.push(`frame sample rate ${frame.sampleRateHz} Hz != source setting ${expected.sourceSampleRateHz ?? 'unavailable'} Hz`);
+  }
+  if (frame.centerFrequencyHz !== expected.sourceCenterFrequencyHz) {
+    mismatches.push(`frame center frequency ${frame.centerFrequencyHz} Hz != source setting ${expected.sourceCenterFrequencyHz ?? 'unavailable'} Hz`);
+  }
+  if (typeof expected.sourceFftSize !== 'number') {
+    mismatches.push('selected source FFT setting is unavailable');
+  } else if (frame.configuredFftSize !== expected.sourceFftSize) {
+    mismatches.push(`frame FFT setting ${frame.configuredFftSize} != source setting ${expected.sourceFftSize}`);
+  }
+  if (frameWindow !== sourceWindow) {
+    mismatches.push(`frame window ${frame.window} != source window ${expected.sourceWindow ?? 'Rectangular'}`);
+  }
+  return mismatches;
 }
 
 export const canStartNativeTrainingCapture = (state: NativeTrainingCaptureEligibility): boolean =>

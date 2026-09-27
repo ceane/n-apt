@@ -47,7 +47,6 @@ import CanvasPlaceholder, {
 } from "@n-apt/ui/CanvasPlaceholder";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
-import { normalizeWindowType } from "@n-apt/spectrum/fft/complexSpectrum";
 import * as NativeClassifier from "@n-apt/classification";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
 import type { FFTCanvasWaterfallBindings } from "@n-apt/types/canvas";
@@ -1893,6 +1892,7 @@ const FFTCanvas = memo(
     const [nativeShadowError, setNativeShadowError] = useState('');
     const nativeCaptureRef = useRef(new NativeClassifier.NativeTrainingCaptureSession());
     const nativeCaptureEligibilityRef = useRef(false);
+    const nativeCaptureRtlDisconnectedRef = useRef(false);
     const nativeCaptureLatestFrameRef = useRef<{ sourceId: string; streamEpoch: number; optionsRevision: number; appliedOptions: Extract<import('@n-apt/consts/schemas/websocket').IqAppliedStreamOptions, { mode: 'rx' }>; sequence: number; timestampMs: number; status: string; sampleRateHz: number; centerFrequencyHz: number; configuredFftSize: number; fftSize: number; validSamples: number; rawIqByteCount: number; window: NativeClassifier.FrameMetadata['window'] } | null>(null);
     const [nativeClassifierSidebarTarget, setNativeClassifierSidebarTarget] = useState<HTMLElement | null>(null);
     const [nativeLatestFrameFresh, setNativeLatestFrameFresh] = useState(false);
@@ -1918,24 +1918,21 @@ const FFTCanvas = memo(
       canvasPaused: isPaused,
       isRtlSdr: nativeCaptureIdentity,
     };
+    const nativeCaptureRtlDisconnected = NativeClassifier.isNativeTrainingRtlSdrDisconnected(nativeCaptureEligibility);
+    nativeCaptureRtlDisconnectedRef.current = nativeCaptureRtlDisconnected;
     const nativeLatest = nativeCaptureLatestFrameRef.current;
-    const nativeLatestAgeMs = nativeLatest ? Date.now() - nativeLatest.timestampMs : Number.POSITIVE_INFINITY;
-    const nativeLatestSettingsMismatches = nativeLatest ? [
-      ...(nativeLatest.sourceId !== nativeCaptureSelectedId ? [`frame source ${nativeLatest.sourceId} != selected source ${nativeCaptureSelectedId ?? 'none'}`] : []),
-      ...(nativeLatest.sampleRateHz !== nativeCaptureSource?.sdr.settings.sample_rate ? [`frame rate ${nativeLatest.sampleRateHz} != source rate ${nativeCaptureSource?.sdr.settings.sample_rate}`] : []),
-      ...(nativeLatest.centerFrequencyHz !== nativeCaptureSource?.sdr.settings.center_frequency ? [`frame center ${nativeLatest.centerFrequencyHz} != source center ${nativeCaptureSource?.sdr.settings.center_frequency}`] : []),
-      ...(nativeLatest.configuredFftSize !== (nativeCaptureSource?.sdr.settings.fft_size ?? fftSize) ? [`frame FFT setting ${nativeLatest.configuredFftSize} != selected FFT setting ${nativeCaptureSource?.sdr.settings.fft_size ?? fftSize}`] : []),
-      ...(nativeLatestAgeMs < 0 || nativeLatestAgeMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS ? ['frame timestamp is stale or in the future'] : []),
-    ] : [];
-    const nativeLatestMatchesSelection = !!nativeLatest && nativeLatest.sourceId === nativeCaptureSelectedId &&
-      nativeLatest.status === 'receiving' &&
-      !!nativeAppliedStream && nativeAppliedStream.streamEpoch === nativeLatest.streamEpoch && nativeAppliedStream.optionsRevision === nativeLatest.optionsRevision &&
-      nativeLatest.validSamples > 0 && nativeLatestAgeMs >= 0 && nativeLatestAgeMs <= NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS &&
-      nativeLatest.appliedOptions.centerFrequencyHz === nativeLatest.centerFrequencyHz && nativeLatest.appliedOptions.sampleRateHz === nativeLatest.sampleRateHz &&
-      nativeLatest.sampleRateHz === nativeCaptureSource?.sdr.settings.sample_rate &&
-      nativeLatest.centerFrequencyHz === nativeCaptureSource?.sdr.settings.center_frequency &&
-      nativeLatest.configuredFftSize === (nativeCaptureSource?.sdr.settings.fft_size ?? fftSize) &&
-      nativeLatest.window === (normalizeWindowType(nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular') === 'hanning' ? 'hann' : normalizeWindowType(nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular'));
+    const nativeLatestMismatchReasons = NativeClassifier.nativeTrainingFrameMismatchReasons(nativeLatest, {
+      selectedSourceId: nativeCaptureSelectedId,
+      sourceSampleRateHz: nativeCaptureSource?.sdr.settings.sample_rate,
+      sourceCenterFrequencyHz: nativeCaptureSource?.sdr.settings.center_frequency,
+      sourceFftSize: nativeCaptureSource?.sdr.settings.fft_size ?? fftSize,
+      sourceWindow: nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular',
+      appliedStream: nativeAppliedStream?.options.mode === 'rx'
+        ? { streamEpoch: nativeAppliedStream.streamEpoch, optionsRevision: nativeAppliedStream.optionsRevision, mode: 'rx' }
+        : null,
+      nowTimestampMs: Date.now(),
+    });
+    const nativeLatestMatchesSelection = !!nativeLatest && nativeLatestMismatchReasons.length === 0;
     const classifierQuality = evaluateCaptureQuality({
       profile: CLASSIFIER_TRAINING_QUALITY_PROFILE,
       selectedSourceId: nativeCaptureSelectedId,
@@ -1969,8 +1966,7 @@ const FFTCanvas = memo(
       const centerFrequencyHz = nativeLatest?.centerFrequencyHz;
       const configuredFftSize = applied?.fftSize;
       const configuredFrameRateHz = applied?.frameRate ?? null;
-      const windowName = normalizeWindowType(applied?.fftWindow ?? 'Rectangular');
-      const window = windowName === 'hanning' ? 'hann' : windowName === 'nuttall' ? 'nuttall' : windowName;
+      const window = NativeClassifier.normalizeNativeWindowKind(applied?.fftWindow);
       const streamEpoch = NativeClassifier.resolveNativeTrainingEpoch(nativeLatest?.streamEpoch, nativeCaptureSource?.stream_epoch);
       if (!nativeCaptureAvailable || !nativeLatest || !applied || applied.mode !== 'rx' || !nativeCaptureSelectedId || typeof streamEpoch !== 'number' ||
         typeof sampleRateHz !== 'number' || typeof centerFrequencyHz !== 'number' || typeof configuredFftSize !== 'number' ||
@@ -1983,14 +1979,16 @@ const FFTCanvas = memo(
       ? 'Select the active RTL-SDR source.'
       : nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.activeSourceId || nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.expectedSourceId
         ? 'The selected, active, and displayed source must match.'
-        : nativeCaptureEligibility.sourceMode !== 'live' || nativeCaptureEligibility.sourceCapability !== 'rx' || nativeCaptureEligibility.sourceIsMock || nativeCaptureEligibility.sourceStatus !== 'receiving' || nativeCaptureEligibility.sourcePaused || !nativeCaptureEligibility.deviceConnected || nativeCaptureEligibility.canvasPaused || !nativeCaptureEligibility.isRtlSdr
+        : nativeCaptureRtlDisconnected
+          ? 'rtl-sdr-disconnected'
+          : nativeCaptureEligibility.sourceMode !== 'live' || nativeCaptureEligibility.sourceCapability !== 'rx' || nativeCaptureEligibility.sourceIsMock || nativeCaptureEligibility.sourceStatus !== 'receiving' || nativeCaptureEligibility.sourcePaused || !nativeCaptureEligibility.deviceConnected || nativeCaptureEligibility.canvasPaused || !nativeCaptureEligibility.isRtlSdr
           ? 'A connected, unpaused RTL-SDR must be receiving live frames.'
           : displayTemporalResolution !== 'lossless'
             ? 'Set Temporal Resolution to Lossless.'
             : classifierQuality.fit === 'unmet'
               ? classifierQuality.reasons.join(' ')
               : !nativeLatestMatchesSelection
-                ? `Latest frame mismatch: ${nativeLatestSettingsMismatches.join('; ') || 'metadata or window does not match.'}`
+                ? `Latest frame mismatch: ${nativeLatestMismatchReasons.join('; ')}`
                 : !nativeLatestFrameFresh
                   ? 'Waiting for a fresh, complete I/Q frame.'
                   : nativeCaptureConfig === null
@@ -2052,7 +2050,9 @@ const FFTCanvas = memo(
         if (!session.active) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' }); return; }
         const pinned = session.snapshot()?.config;
         if (!nativeCaptureEligibilityRef.current || !latest || Date.now() - latest.timestampMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS) {
-          session.stop(!nativeCaptureEligibilityRef.current ? 'source-disconnected-or-ineligible' : 'stale-frame');
+          session.stop(!nativeCaptureEligibilityRef.current
+            ? nativeCaptureRtlDisconnectedRef.current ? 'rtl-sdr-disconnected' : 'source-disconnected-or-ineligible'
+            : 'stale-frame');
           setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' });
           return;
         }
@@ -3825,8 +3825,6 @@ const FFTCanvas = memo(
           const nativeTimestamp = currentFrame.timestamp;
           const nativeRate = currentFrame.sample_rate;
           const nativeCenter = currentFrame.center_frequency_hz;
-          const configuredWindowName = normalizeWindowType(nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular');
-          const configuredWindow = configuredWindowName === 'hanning' ? 'hann' : configuredWindowName === 'nuttall' ? 'nuttall' : configuredWindowName;
           if (currentFrame.source_id && typeof currentFrame.stream_epoch === 'number' &&
             typeof currentFrame.sequence === 'number' && Number.isFinite(nativeTimestamp) &&
             typeof nativeRate === 'number' && typeof nativeCenter === 'number' &&
@@ -3840,7 +3838,7 @@ const FFTCanvas = memo(
               timestampMs: nativeTimestamp!, status: currentFrame.frame_status ?? 'unknown', sampleRateHz: nativeRate!,
               centerFrequencyHz: nativeCenter!, configuredFftSize: nativeAppliedStream!.options.fftSize,
               fftSize: rawSpectrum.length, validSamples: Math.floor(currentFrame.iq_data.length / 2), rawIqByteCount: currentFrame.iq_data.length,
-              window: (nativeAppliedStream!.options.fftWindow === 'hanning' ? 'hann' : nativeAppliedStream!.options.fftWindow ?? 'rectangular') as NativeClassifier.FrameMetadata['window'],
+              window: NativeClassifier.normalizeNativeWindowKind(nativeAppliedStream!.options.fftWindow),
             };
             nativeCaptureLatestFrameRef.current = nextLatest;
             if (!nativeLatestFrameFresh || !previousLatest || previousLatest.sourceId !== nextLatest.sourceId ||
@@ -3861,8 +3859,7 @@ const FFTCanvas = memo(
             if (!applied || !pinned || typeof currentFrame.options_revision !== 'number') {
               stopNativeCapture('applied-options-unavailable');
             } else {
-              const frameWindowName = normalizeWindowType(applied.fftWindow ?? 'Rectangular');
-              const frameWindow = frameWindowName === 'hanning' ? 'hann' : frameWindowName === 'nuttall' ? 'nuttall' : frameWindowName;
+              const frameWindow = NativeClassifier.normalizeNativeWindowKind(applied.fftWindow);
               const outcome = nativeCaptureRef.current.append({
                 sourceId: currentFrame.source_id ?? '', streamEpoch: currentFrame.stream_epoch ?? -1,
                 optionsRevision: currentFrame.options_revision, appliedOptions: { ...applied },
@@ -3898,8 +3895,8 @@ const FFTCanvas = memo(
             const requested = frequencyRangeRef.current;
             const cropStart = Math.max(0, Math.min(analysisSize, Math.floor((requested.min - acquisitionMin) / binHz)));
             const cropEnd = Math.max(cropStart, Math.min(analysisSize, Math.ceil((requested.max - acquisitionMin) / binHz)));
-            const windowName = normalizeWindowType(fftWindow ?? 'Rectangular');
-            const nativeWindow = windowName === 'hanning' ? 'hann' : windowName === 'nuttall' ? 'nuttall' : windowName;
+            const nativeWindow = NativeClassifier.normalizeNativeWindowKind(fftWindow ?? 'Rectangular');
+            const windowName = nativeWindow;
             if (cropEnd - cropStart >= 8 && ['rectangular','hann','hamming','blackman','nuttall'].includes(nativeWindow)) {
               try {
                 if (nativeExtractorRef.current?.device !== nativeDevice) {

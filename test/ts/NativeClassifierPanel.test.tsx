@@ -102,6 +102,11 @@ it('names the applied-options action and shows its revision/frame boundary', () 
   expect(screen.getByTestId('classifier-capture-status')).toHaveTextContent('revision 2 → 3, frame 10 → 11');
 });
 
+it('politely asks the user to reconnect the RTL-SDR after a disconnect', () => {
+  render(<NativeClassifier.NativeClassifierPanel result={null} onModel={jest.fn()} captureFrameCount={2} captureStatus="rtl-sdr-disconnected" />);
+  expect(screen.getByTestId('classifier-capture-status')).toHaveTextContent('The RTL-SDR is disconnected. Please reconnect it; capture will be ready when receiving resumes.');
+});
+
 it('requires exporting a completed capture before another recording can start', () => {
   render(<NativeClassifier.NativeClassifierPanel result={null} onModel={jest.fn()} captureAvailable captureFrameCount={1} />);
   expect(screen.getByRole('button', { name: 'Export before next capture' })).toBeDisabled();
