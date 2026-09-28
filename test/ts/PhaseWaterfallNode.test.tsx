@@ -4,7 +4,10 @@ import { act, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import { Provider } from "react-redux";
 import { PhaseWaterfallNode } from "@n-apt/demodulation/react-flow/nodes/PhaseWaterfallNode";
-import { liveFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import {
+  fileFrameRuntime,
+  liveFrameRuntime,
+} from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
@@ -63,16 +66,28 @@ const buildFrame = (fill: number) => ({
   iq_data: new Uint8Array(FFT_SIZE * 2).fill(fill),
 });
 
+const buildToneFrame = (cycles: number, phaseOffset: number) => {
+  const iq = new Uint8Array(FFT_SIZE * 2);
+  for (let sample = 0; sample < FFT_SIZE; sample++) {
+    const phase = (2 * Math.PI * cycles * sample) / FFT_SIZE + phaseOffset;
+    iq[sample * 2] = Math.round(128 + 90 * Math.cos(phase));
+    iq[sample * 2 + 1] = Math.round(128 + 90 * Math.sin(phase));
+  }
+  return { iq_data: iq };
+};
+
 const renderNode = (
   props: {
     data?: any;
     frequencyRange?: { min: number; max: number } | null;
   } = {},
   spectrumOverrides: Record<string, unknown> = {},
+  waterfallOverrides: Record<string, unknown> = {},
 ) => {
   const spectrumState = spectrumSlice(undefined, { type: "@@INIT" } as any);
   const store = createTestStore({
     spectrum: { ...spectrumState, fftSize: FFT_SIZE, ...spectrumOverrides },
+    waterfall: { sourceMode: "live", ...waterfallOverrides },
   });
 
   return render(
@@ -95,6 +110,7 @@ describe("PhaseWaterfallNode", () => {
   afterEach(() => {
     jest.restoreAllMocks();
     liveFrameRuntime.ref.current = null;
+    fileFrameRuntime.ref.current = null;
   });
 
   it("shows the device name and FFT size in the header", () => {
@@ -166,6 +182,35 @@ describe("PhaseWaterfallNode", () => {
       fireFrames();
     });
     expect(received).toHaveLength(2);
+
+    unsubscribe();
+  });
+
+  it("feeds a deterministic file-IQ phase row to the renderer at the aligned bin", () => {
+    renderNode({ frequencyRange: FREQUENCY_RANGE }, {}, { sourceMode: "file" });
+
+    const props = latestProps();
+    const received: Float32Array[] = [];
+    const unsubscribe = props.waveformFeed.subscribe((row: Float32Array) =>
+      received.push(row),
+    );
+
+    // A bin-5 tone with a 90° offset lands at fftshifted index 37.
+    fileFrameRuntime.ref.current = buildToneFrame(5, Math.PI / 2) as any;
+    act(() => {
+      fireFrames();
+    });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toHaveLength(FFT_SIZE);
+    expect(received[0][37]).toBeCloseTo(90, 0);
+
+    // The exact-size renderer handoff preserves that phase row and bin index.
+    const rendered = props.performScalarResampling(received[0], FFT_SIZE);
+    expect(rendered[37]).toBeCloseTo(90, 0);
+    expect(props.fftMin).toBe(-180);
+    expect(props.fftMax).toBe(180);
+    expect(props.waterfallHistoryFill).toBe("immutable");
 
     unsubscribe();
   });
