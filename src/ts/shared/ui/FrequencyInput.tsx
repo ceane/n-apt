@@ -152,6 +152,14 @@ const UnitOption = styled.button<{ $active?: boolean }>`
 `;
 
 const FREQUENCY_UNITS: FrequencyUnit[] = ["Hz", "kHz", "MHz", "GHz"];
+const ADAPTIVE_FREQUENCY_STEPS_HZ = [100, 100_000, 1_000_000, 2_400_000_000, 5_000_000_000];
+
+export const getAdaptiveFrequencyStep = (frequencyHz: number, direction: -1 | 1): number => {
+  if (direction > 0) {
+    return ADAPTIVE_FREQUENCY_STEPS_HZ.find((step) => step > frequencyHz) ?? ADAPTIVE_FREQUENCY_STEPS_HZ[ADAPTIVE_FREQUENCY_STEPS_HZ.length - 1];
+  }
+  return [...ADAPTIVE_FREQUENCY_STEPS_HZ].reverse().find((step) => step < frequencyHz) ?? ADAPTIVE_FREQUENCY_STEPS_HZ[0];
+};
 
 /** Complete denomination words a typed suffix may spell. */
 const FREQUENCY_WORDS = ["hz", "khz", "mhz", "ghz"] as const;
@@ -237,6 +245,8 @@ interface FrequencyInputProps {
   minHz?: number;
   maxHz?: number;
   stepHz?: number;
+  /** Scale arrow-key and drag increments for wide-range controls. */
+  stepMode?: "fixed" | "adaptive";
   label?: string;
   id?: string;
   placeholder?: string;
@@ -262,6 +272,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     minHz = 0,
     maxHz = 30_000_000_000,
     stepHz,
+    stepMode = "fixed",
     label,
     id,
     placeholder,
@@ -455,13 +466,15 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
         e.preventDefault();
 
         const direction = e.key === "ArrowUp" ? 1 : -1;
-        const shiftMultiplier = e.shiftKey ? 10 : 1;
-
         const currentHz = hzRef.current;
 
         // If stepHz is provided, use it. Otherwise, use a smart step based on current unit.
         let resolvedStepHz = 1;
-        if (Number.isFinite(stepHz) && stepHz! > 0) {
+        if (stepMode === "adaptive") {
+          const nextHz = getAdaptiveFrequencyStep(currentHz, direction);
+          handleUpdate(nextHz, true);
+          return;
+        } else if (Number.isFinite(stepHz) && stepHz! > 0) {
           resolvedStepHz = stepHz!;
         } else {
           if (displayUnit === "kHz") resolvedStepHz = 1_000;
@@ -470,7 +483,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
         }
 
         handleUpdate(
-          currentHz + direction * resolvedStepHz * shiftMultiplier,
+          currentHz + direction * resolvedStepHz * (e.shiftKey ? 10 : 1),
           true,
           true,
         );

@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useCallback, useEffect } from "react";
+import React, { Suspense, useState, useCallback, useEffect, useRef } from "react";
 import styled, {
   useTheme,
   keyframes,
@@ -7,8 +7,10 @@ import styled, {
 import { Leva } from "leva";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
-import { ChevronLeft, ChevronRight, ChevronUp, Box } from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu, X, Box } from "lucide-react";
 import { AppBackButton } from "@n-apt/ui/AppBackButton";
+import { FrequencyInput } from "@n-apt/ui/FrequencyInput";
+import { formatFrequency, formatLength, formatTime } from "@n-apt/math/unitsOfMeasure";
 import Brain from "@n-apt/three-d/Brain";
 import {
   LowNoiseAmplifier,
@@ -31,6 +33,7 @@ import {
   PolarRadioWaveWebGPU,
 } from "@n-apt/three-d";
 import { RoomTxScene } from "@n-apt/three-d/RoomTxScene";
+import { VoltageControlledOscillator } from "@n-apt/three-d/VoltageControlledOscillator";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/three-d/modelAssetUrls";
 import {
   MODEL_AMBIENT_LIGHT_INTENSITY,
@@ -57,6 +60,7 @@ type ModelKey =
   | "polar_radiation"
   | "lna"
   | "synth"
+  | "vco"
   | "bbu"
   | "dds"
   | "bpf"
@@ -126,6 +130,12 @@ const MODELS: ModelDef[] = [
     key: "synth",
     label: "Frequency Synthesizer",
     description: "Dual Frequency Source (20MHz - 6400MHz)",
+    category: "Components",
+  },
+  {
+    key: "vco",
+    label: "Voltage Controlled Oscillator",
+    description: "Quartz-referenced VCO with tunable sine output",
     category: "Components",
   },
   {
@@ -221,6 +231,7 @@ const CATEGORY_ORDER = [
   "Charts",
   "Biological",
 ] as const;
+
 const FIRST_MODEL_INDEX = MODELS.findIndex(
   (model) => model.category === CATEGORY_ORDER[0],
 );
@@ -340,6 +351,13 @@ function SynthScene() {
       <OrbitControls makeDefault enableDamping target={MODEL_CAMERA_TARGET} />
     </>
   );
+}
+
+function VCOScene({ frequencyHz }: { frequencyHz: number }) {
+  return <>
+    <VoltageControlledOscillator frequencyHz={frequencyHz} />
+    <OrbitControls makeDefault enableDamping target={[0, 0.18, 0]} />
+  </>;
 }
 
 function BbuScene() {
@@ -565,6 +583,55 @@ const ViewportArea = styled.div`
   }
 `;
 
+const VCOLayout = styled.div`
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.8fr);
+  gap: 20px;
+  padding: 68px 24px 24px;
+  pointer-events: none;
+  @media (max-width: 760px) {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 1fr) minmax(160px, 0.72fr);
+    gap: 10px;
+    padding: 62px 12px 12px;
+  }
+`;
+const VCOPanel = styled.div`
+  min-width: 0; min-height: 0; position: relative; overflow: hidden;
+  border: 1px solid ${(props) => props.theme.border}; border-radius: 14px;
+  background: rgba(8, 15, 19, 0.72); backdrop-filter: blur(10px);
+  box-shadow: 0 12px 40px rgba(0,0,0,.25); pointer-events: auto;
+`;
+const WavePanel = styled(VCOPanel)`
+  padding: 18px; color: #d5e7ee; font-family: ${(props) => props.theme.typography.mono};
+  display: flex; flex-direction: column; gap: 14px;
+`;
+const Waveform = styled.svg`
+  width: 100%; flex: 1; min-height: 100px; border-radius: 8px;
+  border: 1px solid rgba(125,220,238,.18); background-color: rgba(0,9,13,.55);
+  background-image: linear-gradient(rgba(44,91,102,.16) 1px, transparent 1px), linear-gradient(90deg, rgba(44,91,102,.16) 1px, transparent 1px);
+  background-size: 24px 24px;
+`;
+const AnimatedSine = styled.path<{ $periodSeconds: number }>`
+  stroke-dasharray: 12 8;
+  animation: sine-flow ${(props) => Math.max(0.3, Math.min(3, props.$periodSeconds * 2))}s linear infinite;
+  @keyframes sine-flow { to { stroke-dashoffset: -40; } }
+`;
+const WaveStats = styled.div`
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+`;
+const WaveStat = styled.div`
+  min-width: 0; padding: 9px; border-radius: 8px; background: rgba(255,255,255,.045); overflow: hidden;
+  span { display: block; color: #8296a0; font-size: 10px; margin-bottom: 5px; }
+  strong { display: block; font-size: clamp(9px, .78vw, 14px); font-weight: 500; color: #e6f9ff; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.035em; }
+`;
+const FrequencyControl = styled.label`
+  display: flex; flex-direction: column; gap: 6px;
+  color: #a8f2ff; font-size: 10px; letter-spacing: .06em;
+`;
+
 const ModelLabel = styled.div`
   position: absolute;
   top: 24px;
@@ -590,19 +657,63 @@ const ModelLabel = styled.div`
 
 const PaginationBar = styled.div`
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 24px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 104px;
+  padding: 10px 16px 12px;
   border-top: 1px solid ${(props) => props.theme.border};
   background: ${(props) => props.theme.background};
   backdrop-filter: blur(12px);
   flex-shrink: 0;
 `;
 
+const ComponentTrace = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  overflow-x: auto;
+  white-space: nowrap;
+  font: 10px ${(props) => props.theme.typography.mono};
+  color: ${(props) => props.theme.textMuted};
+`;
+
+const TraceNode = styled.button<{ $active?: boolean }>`
+  border: 1px solid ${(props) => props.$active ? props.theme.primary : props.theme.border};
+  border-radius: 4px;
+  background: ${(props) => props.$active ? props.theme.primaryAnchor : props.theme.surface};
+  color: ${(props) => props.$active ? props.theme.primary : props.theme.textSecondary};
+  padding: 5px 8px;
+  font: inherit;
+  cursor: pointer;
+  &:hover { border-color: ${(props) => props.theme.primary}; color: ${(props) => props.theme.primary}; }
+`;
+
+const TraceConnector = styled.span`
+  color: ${(props) => props.theme.textMuted};
+  opacity: .8;
+`;
+
+const ClearTraceButton = styled.button`
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 42px;
+  flex-shrink: 0;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 4px;
+  color: ${(props) => props.theme.textMuted};
+  background: ${(props) => props.theme.surface};
+  cursor: pointer;
+  &:hover { color: ${(props) => props.theme.textPrimary}; border-color: ${(props) => props.theme.primary}; }
+`;
+
 const ModelDrawer = styled.div`
   position: absolute;
-  right: 24px;
-  bottom: 78px;
+  left: 16px;
+  bottom: 120px;
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -615,6 +726,15 @@ const ModelDrawer = styled.div`
   background: ${(props) => props.theme.background};
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(16px);
+
+  @supports (anchor-name: --gallery-model-menu) and (position-anchor: --gallery-model-menu) {
+    position: fixed;
+    position-anchor: --gallery-model-menu;
+    left: anchor(left);
+    bottom: anchor(top);
+    margin-bottom: 10px;
+    border-color: ${(props) => props.theme.primary};
+  }
 `;
 
 const DrawerCategory = styled.div`
@@ -629,23 +749,30 @@ const DrawerCategory = styled.div`
   }
 `;
 
+const DrawerBackButton = styled(AppBackButton)`
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid ${(props) => props.theme.border};
+`;
+
 const PaginationControls = styled.div`
   display: flex;
   flex: 1;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
 `;
 
 const ModelSelector = styled.div`
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 6px;
   min-width: 0;
-  padding: 0 4px 20px;
+  padding: 0 4px;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
@@ -683,17 +810,19 @@ const NavButton = styled.button`
   }
 `;
 
+const DrawerToggle = styled(NavButton)`
+  flex-shrink: 0;
+  anchor-name: --gallery-model-menu;
+`;
+
 const DrawerModelButton = styled.button<{ $isActive: boolean }>`
   display: flex;
   align-items: center;
-  gap: 7px;
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid
-    ${(props) => (props.$isActive ? props.theme.primary : props.theme.border)};
-  border-radius: 8px;
-  background: ${(props) =>
-    props.$isActive ? props.theme.primaryAnchor : props.theme.surface};
+  padding: 5px 0 5px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: ${(props) =>
     props.$isActive ? props.theme.primary : props.theme.textSecondary};
   font: inherit;
@@ -703,14 +832,8 @@ const DrawerModelButton = styled.button<{ $isActive: boolean }>`
   cursor: pointer;
 
   &:hover {
-    border-color: ${(props) => props.theme.primary};
     color: ${(props) => props.theme.primary};
-    background: ${(props) => props.theme.primaryAnchor};
   }
-`;
-
-const DrawerToggle = styled(NavButton)`
-  flex-shrink: 0;
 `;
 
 const CategoryDivider = styled.div`
@@ -740,8 +863,8 @@ const ModelPill = styled.button<{ $isActive: boolean }>`
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 16px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 5px;
   border: 1px solid
     ${(props) => (props.$isActive ? props.theme.primary : props.theme.border)};
   background: ${(props) =>
@@ -756,6 +879,8 @@ const ModelPill = styled.button<{ $isActive: boolean }>`
   letter-spacing: 0.02em;
   box-shadow: ${(props) =>
     props.$isActive ? `0 0 12px ${props.theme.primary}26` : "none"};
+  min-height: 36px;
+  flex-shrink: 0;
 
   &:hover {
     border-color: ${(props) => props.theme.primary};
@@ -855,8 +980,25 @@ function BrainLights() {
 export const Model3DGalleryRoute: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(FIRST_MODEL_INDEX);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isTraceVisible, setIsTraceVisible] = useState(true);
   const activeModel = MODELS[activeIndex];
+  const [vcoFrequencyHz, setVcoFrequencyHz] = useState(100);
+  const wavePhaseRef = useRef(0);
+  useEffect(() => {
+    let frame = 0;
+    let start: number | undefined;
+    const animate = (now: number) => {
+      if (start === undefined) start = now;
+      wavePhaseRef.current = ((now - start) / 1000) * Math.max(0.5, Math.min(8, vcoFrequencyHz / 500));
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [vcoFrequencyHz]);
   const theme = useTheme() as any;
+  const isVCO = activeModel.key === "vco";
+  const periodSeconds = 1 / vcoFrequencyHz;
+  const wavelengthMeters = 299_792_458 / vcoFrequencyHz;
 
   const prev = useCallback(() => {
     setActiveIndex((i) => Math.max(0, i - 1));
@@ -877,6 +1019,8 @@ export const Model3DGalleryRoute: React.FC = () => {
     <Wrapper>
       <LevaGlobalStyles />
       <Leva
+        hidden={!isVCO && !["room_tx", "polar_radiation", "free_space_radiation"].includes(activeModel.key)}
+        collapsed={false}
         theme={{
           sizes: {
             rootWidth: "380px",
@@ -914,6 +1058,40 @@ export const Model3DGalleryRoute: React.FC = () => {
         }}
       />
       <ViewportArea>
+        {isVCO ? (
+          <VCOLayout>
+            <VCOPanel>
+              <Canvas camera={{ position: [5.2, 4.1, 6.4], fov: 42 }}>
+                <RendererSizeSync />
+                <StandardLights />
+                <VCOScene frequencyHz={vcoFrequencyHz} />
+              </Canvas>
+            </VCOPanel>
+            <WavePanel aria-label="VCO sine wave output">
+              <FrequencyControl>
+                <span>VCO FREQUENCY · ADJUSTABLE STEP</span>
+                <FrequencyInput valueHz={vcoFrequencyHz} onChangeHz={setVcoFrequencyHz} minHz={100} maxHz={5_000_000_000} stepMode="adaptive" />
+              </FrequencyControl>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#a8f2ff", fontSize: 12, letterSpacing: ".08em" }}>
+                <span>SINE OUTPUT</span><span>LIVE · 1 Vpp</span>
+              </div>
+              <Waveform viewBox="0 0 420 170" role="img" aria-label={`Sine wave at ${vcoFrequencyHz} hertz`}>
+                <line x1="0" y1="85" x2="420" y2="85" stroke="rgba(160,205,214,.35)" />
+                <AnimatedSine d={Array.from({ length: 421 }, (_, x) => {
+                  const cycles = Math.min(12, Math.max(1, (vcoFrequencyHz / 100) ** 0.22));
+                  return `${x === 0 ? "M" : "L"}${x},${85 - 58 * Math.sin((x / 420) * Math.PI * 2 * cycles)}`;
+                }).join(" ")} fill="none" stroke="#63edc0" strokeWidth="3" $periodSeconds={periodSeconds} />
+              </Waveform>
+              <WaveStats>
+                <WaveStat><span>FREQUENCY</span><strong>{formatFrequency(vcoFrequencyHz)}</strong></WaveStat>
+                <WaveStat><span>PERIOD (T)</span><strong>{formatTime(periodSeconds)}</strong></WaveStat>
+                <WaveStat><span>WAVELENGTH (λ)</span><strong>{formatLength(wavelengthMeters)}</strong></WaveStat>
+              </WaveStats>
+              <div style={{ color: "#8199a2", fontSize: 10 }}>λ = c / f · free-space wavelength</div>
+            </WavePanel>
+          </VCOLayout>
+        ) : (
+        <>
         {activeModel.key === "polar_radiation" ? (
           <PolarRadioWaveWebGPU />
         ) : (
@@ -936,6 +1114,7 @@ export const Model3DGalleryRoute: React.FC = () => {
               {activeModel.key === "brain" && <BrainScene />}
               {activeModel.key === "lna" && <LNAScene />}
               {activeModel.key === "synth" && <SynthScene />}
+              {activeModel.key === "vco" && <VCOScene frequencyHz={vcoFrequencyHz} />}
               {activeModel.key === "bbu" && <BbuScene />}
               {activeModel.key === "dds" && <DDSScene />}
               {activeModel.key === "bpf" && <BandpassFilterScene />}
@@ -961,6 +1140,8 @@ export const Model3DGalleryRoute: React.FC = () => {
             </Suspense>
           </Canvas>
         )}
+        </>
+        )}
 
         <ModelLabel>
           <Box size={13} />
@@ -983,19 +1164,43 @@ export const Model3DGalleryRoute: React.FC = () => {
                       setIsDrawerOpen(false);
                     }}
                   >
-                    <PillDot $isActive={i === activeIndex} />
                     {model.label}
                   </DrawerModelButton>
                 ) : null,
               )}
             </DrawerCategory>
           ))}
+          <DrawerBackButton variant="bar" />
         </ModelDrawer>
       )}
 
       <PaginationBar>
-        <AppBackButton variant="bar" />
+        {isTraceVisible && isVCO ? (
+          <ComponentTrace aria-label="VCO component relationship trace">
+            <span>COMPONENT TRACE</span>
+            <TraceNode onClick={() => setActiveIndex(MODELS.findIndex((model) => model.key === "synth"))}>Frequency Synthesizer</TraceNode>
+            <span>(may integrate)</span>
+            <TraceConnector>→</TraceConnector>
+            <TraceNode $active>VCO</TraceNode>
+            <TraceConnector>→</TraceConnector>
+            <TraceNode onClick={() => setActiveIndex(MODELS.findIndex((model) => model.key === "lo"))}>Local Oscillator output</TraceNode>
+            <ClearTraceButton type="button" aria-label="Clear component trace" title="Clear trace" onClick={() => setIsTraceVisible(false)}><X size={15} /></ClearTraceButton>
+          </ComponentTrace>
+        ) : isTraceVisible ? (
+          <ComponentTrace aria-label="Current component trace">
+            <span>{activeModel.category.toUpperCase()}</span><TraceConnector>→</TraceConnector><TraceNode $active>{activeModel.label}</TraceNode>
+            <ClearTraceButton type="button" aria-label="Clear component trace" title="Clear trace" onClick={() => setIsTraceVisible(false)}><X size={15} /></ClearTraceButton>
+          </ComponentTrace>
+        ) : <div aria-hidden="true" style={{ minHeight: 30 }} />}
         <PaginationControls>
+        <DrawerToggle
+          type="button"
+          onClick={() => setIsDrawerOpen((open) => !open)}
+          aria-label={isDrawerOpen ? "Close model list" : "Open model list"}
+          aria-expanded={isDrawerOpen}
+        >
+          <Menu size={18} />
+        </DrawerToggle>
         <NavButton
           id="model-gallery-prev"
           onClick={prev}
@@ -1005,7 +1210,7 @@ export const Model3DGalleryRoute: React.FC = () => {
           <ChevronLeft size={18} />
         </NavButton>
 
-        <ModelSelector>
+        <ModelSelector aria-label="Gallery components and models">
           {CATEGORY_ORDER.map(
             (category, catIdx) => (
               <React.Fragment key={category}>
@@ -1039,14 +1244,6 @@ export const Model3DGalleryRoute: React.FC = () => {
         >
           <ChevronRight size={18} />
         </NavButton>
-        <DrawerToggle
-          type="button"
-          onClick={() => setIsDrawerOpen((isOpen) => !isOpen)}
-          aria-label={isDrawerOpen ? "Close model drawer" : "Open model drawer"}
-          aria-expanded={isDrawerOpen}
-        >
-          <ChevronUp size={18} />
-        </DrawerToggle>
         </PaginationControls>
       </PaginationBar>
     </Wrapper>
