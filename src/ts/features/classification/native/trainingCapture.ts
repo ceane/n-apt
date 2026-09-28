@@ -1,5 +1,8 @@
 import { normalizeNativeWindowKind, type WindowKind } from './core';
-import type { IqAppliedStreamOptions } from '@n-apt/consts/schemas/websocket';
+import type { IqAppliedStreamOptions, IqRawFrame } from '@n-apt/consts/schemas/websocket';
+import { encodeIqCaptureV4, readIqCaptureTrailerDigest, type CaptureMetadata, type IqCaptureChunk, type IqCaptureFrameUpdate } from '@n-apt/webusb/iqCaptureFormat';
+import { verifyStampedIntegrity } from '@n-apt/webusb/iqIntegrity';
+import { subscribeRawIqFrameArrivals } from '@n-apt/app/infrastructure/visualization/frameArrivalRuntime';
 
 export interface NativeTrainingCaptureConfig {
   sessionId: string;
@@ -102,6 +105,23 @@ export interface NativeTrainingCaptureEligibility {
   isRtlSdr: boolean;
 }
 
+export type NativeTrainingCaptureSourceStatusCode =
+  | 'rtl-sdr-disconnected'
+  | 'rtl-sdr-stale'
+  | 'rtl-sdr-paused'
+  | 'rtl-sdr-not-receiving';
+
+export function nativeTrainingCaptureSourceStatusCode(
+  state: NativeTrainingCaptureEligibility,
+): NativeTrainingCaptureSourceStatusCode | null {
+  if (!state.isRtlSdr || state.sourceMode !== 'live' || !state.selectedSourceId) return null;
+  if (state.sourceStatus === 'disconnected') return 'rtl-sdr-disconnected';
+  if (state.sourceStatus === 'stale') return 'rtl-sdr-stale';
+  if (state.sourceStatus === 'paused' || state.sourcePaused || state.canvasPaused) return 'rtl-sdr-paused';
+  if (state.sourceStatus !== null && state.sourceStatus !== 'receiving') return 'rtl-sdr-not-receiving';
+  return null;
+}
+
 export const isNativeTrainingRtlSdrDisconnected = (
   state: Pick<NativeTrainingCaptureEligibility, 'isRtlSdr' | 'sourceStatus'>,
 ): boolean => state.isRtlSdr && state.sourceStatus === 'disconnected';
@@ -131,6 +151,27 @@ export interface NativeTrainingReadinessExpectation {
   sourceWindow?: string | null;
   appliedStream: { streamEpoch: number; optionsRevision: number; mode: 'rx' } | null;
   nowTimestampMs: number;
+}
+
+export interface NativeTrainingReadinessSourceSettings {
+  centerFrequencyHz: number | null | undefined;
+  sampleRateHz: number | null | undefined;
+  fftSize: number | undefined;
+  window?: string | null;
+}
+
+/** Prefer the live managed RX contract while the cached source snapshot catches up. */
+export function resolveNativeTrainingReadinessSettings(
+  appliedOptions: IqAppliedStreamOptions | null | undefined,
+  sourceSettings: NativeTrainingReadinessSourceSettings,
+): NativeTrainingReadinessSourceSettings {
+  const appliedRx = appliedOptions?.mode === 'rx' ? appliedOptions : null;
+  return {
+    centerFrequencyHz: appliedRx?.centerFrequencyHz ?? sourceSettings.centerFrequencyHz,
+    sampleRateHz: appliedRx?.sampleRateHz ?? sourceSettings.sampleRateHz,
+    fftSize: appliedRx?.fftSize ?? sourceSettings.fftSize,
+    window: appliedRx?.fftWindow ?? sourceSettings.window,
+  };
 }
 
 /** Explain every frame/source mismatch that can keep live training capture disabled. */
@@ -260,23 +301,32 @@ export class NativeTrainingCaptureSession {
   private lastFrameAt = 0;
   private lastSequence = -1;
   private lastTimestamp = -1;
+  private startBoundarySequence: number | null = null;
   private startedAtTimestamp = 0;
   private bytes = 0;
 
   get active(): boolean { return !!this.capture && this.capture.stopReason === null; }
   get frameCount(): number { return this.capture?.frames.length ?? 0; }
 
-  start(config: NativeTrainingCaptureConfig, nowMs: number, nowTimestampMs = Date.now(), annotations: NativeTrainingCaptureAnnotations = { label: 'uncertain', channel: 'unspecified', features: [], tags: [] }): boolean {
+  start(
+    config: NativeTrainingCaptureConfig,
+    nowMs: number,
+    nowTimestampMs = Date.now(),
+    annotations: NativeTrainingCaptureAnnotations = { label: 'uncertain', channel: 'unspecified', features: [], tags: [] },
+    startBoundary?: { sequence: number; timestampMs: number },
+  ): boolean {
     if (this.active || !config.sessionId || !config.sourceId || !config.visualizerSessionKey ||
       !Number.isFinite(config.streamEpoch) || !Number.isInteger(config.optionsRevision) || config.optionsRevision < 0 ||
       config.appliedOptions?.mode !== 'rx' || !Number.isFinite(config.sampleRateHz) || config.sampleRateHz <= 0 ||
       !Number.isFinite(config.centerFrequencyHz) || !Number.isInteger(config.configuredFftSize) || config.configuredFftSize < 2 ||
       !Number.isInteger(config.fftSize) || config.fftSize < 2 || !Number.isFinite(nowMs) ||
+      (startBoundary !== undefined && (!Number.isInteger(startBoundary.sequence) || !Number.isFinite(startBoundary.timestampMs))) ||
       (config.configuredFrameRateHz !== null && (!Number.isFinite(config.configuredFrameRateHz) || config.configuredFrameRateHz <= 0))) return false;
     this.startedAt = this.lastFrameAt = nowMs;
-    this.lastSequence = -1;
-    this.lastTimestamp = -1;
-    this.startedAtTimestamp = nowTimestampMs;
+    this.startBoundarySequence = startBoundary?.sequence ?? null;
+    this.lastSequence = startBoundary?.sequence ?? -1;
+    this.lastTimestamp = startBoundary?.timestampMs ?? -1;
+    this.startedAtTimestamp = startBoundary?.timestampMs ?? nowTimestampMs;
     this.bytes = 0;
     this.capture = { format: 'n-apt-native-iq-frames-v1', iqSampleFormat: 'u8', payloadSemantics: 'each frame stores the complete iq_data payload received for that sequence; frames remain independent and are never concatenated', sessionId: config.sessionId,
       visualizerSessionKey: config.visualizerSessionKey, createdAtTimestampMs: null,
@@ -335,7 +385,7 @@ export class NativeTrainingCaptureSession {
     this.stop(from.centerFrequencyHz !== next.centerFrequencyHz ? 'center-frequency-changed' : 'source-or-config-changed', { timestampMs, nextFrameSequence: sequence, recordMarker: false });
   }
 
-  append(frame: NativeTrainingCaptureFrame, nowMs: number, nowTimestampMs = Date.now()): 'accepted' | 'duplicate' | 'stopped' | 'inactive' {
+  append(frame: NativeTrainingCaptureFrame, nowMs: number, nowTimestampMs = Date.now()): 'accepted' | 'duplicate' | 'prestart' | 'stopped' | 'inactive' {
     if (!this.active || !this.capture) return 'inactive';
     const config = this.capture.config;
     const changedFields = metadataChanges(config, frame);
@@ -348,6 +398,11 @@ export class NativeTrainingCaptureSession {
       this.stop('source-or-config-changed');
       return 'stopped';
     }
+    // FFTCanvas may reprocess its most recently observed monitor frame after
+    // the user starts recording. Ignore that pre-start frame and wait for the
+    // first acquisition timestamp strictly after the capture boundary.
+    if (this.capture.frames.length === 0 && this.startBoundarySequence !== null && frame.sequence <= this.startBoundarySequence) return 'prestart';
+    if (this.lastSequence < 0 && frame.timestampMs <= this.startedAtTimestamp) return 'prestart';
     if (frame.sequence === this.lastSequence) return 'duplicate';
     if (frame.sequence < this.lastSequence) {
       this.stop('out-of-order-frame', { timestampMs: frame.timestampMs, nextFrameSequence: frame.sequence });
@@ -358,14 +413,21 @@ export class NativeTrainingCaptureSession {
       return 'stopped';
     }
     const frameGapLimitMs = Math.max(200, config.configuredFrameRateHz ? 3_000 / config.configuredFrameRateHz : 1_000);
+    if (frame.timestampMs <= this.lastTimestamp) {
+      this.stop('non-increasing-frame-timestamp', { timestampMs: frame.timestampMs, nextFrameSequence: frame.sequence });
+      return 'stopped';
+    }
     if (this.lastTimestamp >= 0 && frame.timestampMs - this.lastTimestamp > frameGapLimitMs) {
       this.stop('frame-timestamp-gap', { timestampMs: frame.timestampMs, nextFrameSequence: frame.sequence });
       return 'stopped';
     }
-    if (frame.timestampMs <= this.lastTimestamp || frame.timestampMs <= this.startedAtTimestamp ||
-      nowTimestampMs - frame.timestampMs > NativeTrainingCaptureSession.STALE_AFTER_MS ||
-      frame.timestampMs - nowTimestampMs > NativeTrainingCaptureSession.STALE_AFTER_MS) {
-      this.stop('stale-or-out-of-order-frame', { timestampMs: frame.timestampMs, nextFrameSequence: frame.sequence });
+    const frameAgeMs = nowTimestampMs - frame.timestampMs;
+    if (!Number.isFinite(frameAgeMs) || frameAgeMs > NativeTrainingCaptureSession.STALE_AFTER_MS) {
+      this.stop('frame-timestamp-stale', { timestampMs: frame.timestampMs, nextFrameSequence: frame.sequence });
+      return 'stopped';
+    }
+    if (frameAgeMs < -NativeTrainingCaptureSession.STALE_AFTER_MS) {
+      this.stop('frame-timestamp-future', { timestampMs: frame.timestampMs, nextFrameSequence: frame.sequence });
       return 'stopped';
     }
     if (!Number.isFinite(nowMs) || nowMs - this.startedAt >= NativeTrainingCaptureSession.MAX_DURATION_MS ||
@@ -389,7 +451,10 @@ export class NativeTrainingCaptureSession {
 
   stop(reason = 'user-stopped', boundary?: { timestampMs: number; nextFrameSequence?: number; recordMarker?: boolean }): void {
     if (this.active && this.capture) {
-      if (boundary?.recordMarker !== false && reason !== 'user-stopped' && reason !== 'capture-limit-reached') this.mark(boundary?.timestampMs ?? Date.now(), reason, boundary?.nextFrameSequence);
+      const timestampMs = boundary?.timestampMs ?? (this.lastTimestamp >= 0 ? this.lastTimestamp : this.startedAtTimestamp);
+      if (boundary?.recordMarker !== false && reason !== 'user-stopped' && reason !== 'capture-limit-reached') {
+        this.mark(timestampMs, reason, boundary?.nextFrameSequence);
+      }
       this.capture.stopReason = reason;
     }
   }
@@ -421,6 +486,7 @@ export class NativeTrainingCaptureSession {
     this.bytes = 0;
     this.lastSequence = -1;
     this.lastTimestamp = -1;
+    this.startBoundarySequence = null;
   }
 
   toExportObject(): Omit<NativeTrainingCaptureSnapshot, 'frames'> & { frames: Array<Omit<CapturedTrainingFrame, 'iqBytes'> & { iqBase64: string }> } | null {
@@ -437,10 +503,38 @@ export class NativeTrainingCaptureSession {
     if (captureIdentity.kind === 'filename-timestamp' && captureIdentity.capturedAtTimestampMs !== this.capture.createdAtTimestampMs) {
       throw new Error('Annotation filename timestamp must match the capture timestamp');
     }
+    return this.makeAnnotationSidecar(captureIdentity);
+  }
+
+  async toVerifiedV6AnnotationSidecar(captureBytes: Uint8Array): Promise<NativeTrainingAnnotationSidecar | null> {
+    if (!this.capture) return null;
+    const digestHex = readIqCaptureTrailerDigest(captureBytes);
+    if (!await verifyStampedIntegrity(captureBytes, digestHex)) {
+      throw new Error('V6 I/Q capture trailer checksum did not verify');
+    }
+    return this.makeAnnotationSidecar({
+      kind: 'v6-trailer-sha256',
+      algorithm: 'SHA-256',
+      scope: 'file-with-integrity-digest-placeholder',
+      digestHex,
+    });
+  }
+
+  private makeAnnotationSidecar(captureIdentity: NativeTrainingCaptureIdentity): NativeTrainingAnnotationSidecar | null {
+    if (!this.capture) return null;
     return { format: 'n-apt-native-annotations-v2', captureId: getNativeTrainingCaptureId(captureIdentity), sessionId: this.capture.sessionId, captureIdentity: { ...captureIdentity },
       annotations: cloneAnnotations(this.annotations), annotationEvents: this.annotationEvents.map((event) => ({ ...event, annotations: cloneAnnotations(event.annotations) })),
       interferenceMarkedEvents: this.interferenceMarkedEvents.map((event) => ({ ...event })) };
   }
+}
+
+export function isNativeTrainingFrameStale(
+  frame: { timestampMs: number } | null,
+  nowTimestampMs: number,
+): boolean {
+  if (!frame) return false;
+  const ageMs = nowTimestampMs - frame.timestampMs;
+  return !Number.isFinite(ageMs) || ageMs < 0 || ageMs > NativeTrainingCaptureSession.STALE_AFTER_MS;
 }
 
 export function nativeTrainingCaptureFileName(sessionId: string, capturedAtTimestampMs: number): string {
@@ -451,7 +545,257 @@ export function nativeTrainingCaptureFileName(sessionId: string, capturedAtTimes
   if (!Number.isFinite(timestamp.getTime())) throw new Error('Capture timestamp is outside the supported date range');
   const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '-');
   const dateTime = timestamp.toISOString().replace(/[:.]/g, '-');
-  return `n-apt-iq-capture-${dateTime}-${safeSessionId}.json`;
+  return `n-apt-iq-capture-${dateTime}-${safeSessionId}.iq`;
+}
+
+export interface NativeTrainingV6CaptureArtifact {
+  captureFileName: string;
+  captureBytes: Uint8Array;
+  annotationFileName: string;
+  annotations: NativeTrainingAnnotationSidecar;
+}
+
+export interface NativeTrainingCaptureIngressAppendOptions {
+  session: NativeTrainingCaptureSession;
+  rawFrame: unknown;
+  selectedSourceId: string | null;
+  appliedStream: {
+    streamEpoch: number;
+    optionsRevision: number;
+    options: IqAppliedStreamOptions;
+  } | null;
+  eligible: boolean;
+  ineligibleReason?: string | null;
+  nowMs: number;
+  nowTimestampMs: number;
+}
+
+/**
+ * Append one accepted raw receive frame without depending on canvas repaint.
+ * The selected source and Redux-applied options remain the authority for
+ * deciding whether the raw transport frame belongs in this training capture.
+ */
+export function appendNativeTrainingCaptureIngressFrame({
+  session,
+  rawFrame,
+  selectedSourceId,
+  appliedStream,
+  eligible,
+  ineligibleReason,
+  nowMs,
+  nowTimestampMs,
+}: NativeTrainingCaptureIngressAppendOptions): 'accepted' | 'duplicate' | 'prestart' | 'stopped' | 'inactive' | 'ignored' {
+  if (!session.active) return 'inactive';
+  const frame = rawFrame as Partial<IqRawFrame> | null;
+  if (!frame || !selectedSourceId || frame.source_id !== selectedSourceId) return 'ignored';
+  if (!eligible) {
+    session.stop(ineligibleReason || 'source-disconnected-or-ineligible');
+    return 'stopped';
+  }
+  if (frame.is_fresh === false) return 'ignored';
+  if (frame.frame_status !== 'receiving') {
+    session.stop(frame.frame_status === 'paused' ? 'rtl-sdr-paused' : 'rtl-sdr-not-receiving');
+    return 'stopped';
+  }
+
+  const options = appliedStream?.options;
+  const sampleRateHz = frame.sample_rate;
+  const centerFrequencyHz = frame.center_frequency_hz;
+  const sequence = frame.sequence;
+  const timestampMs = frame.timestamp;
+  if (!appliedStream || !options || options.mode !== 'rx') {
+    session.stop('applied-options-unavailable');
+    return 'stopped';
+  }
+  const window = normalizeNativeWindowKind(options.fftWindow);
+  if (appliedStream.streamEpoch !== frame.stream_epoch ||
+    appliedStream.optionsRevision !== frame.options_revision ||
+    !Number.isInteger(options.fftSize) || options.fftSize < 2 ||
+    !['rectangular', 'hann', 'hamming', 'blackman', 'nuttall'].includes(window) ||
+    !Number.isInteger(frame.stream_epoch) || !Number.isInteger(frame.options_revision) ||
+    !Number.isInteger(sequence) || !Number.isFinite(timestampMs) ||
+    !Number.isFinite(sampleRateHz) || sampleRateHz! <= 0 ||
+    !Number.isFinite(centerFrequencyHz) ||
+    !(frame.iq_data instanceof Uint8Array) || frame.iq_data.length < 2 || frame.iq_data.length % 2 !== 0) {
+    session.stop('applied-options-unavailable');
+    return 'stopped';
+  }
+
+  return session.append({
+    sourceId: selectedSourceId,
+    streamEpoch: frame.stream_epoch!,
+    optionsRevision: frame.options_revision!,
+    appliedOptions: { ...options },
+    sequence: sequence!,
+    timestampMs: timestampMs!,
+    sampleRateHz: sampleRateHz!,
+    centerFrequencyHz: centerFrequencyHz!,
+    configuredFrameRateHz: options.frameRate ?? null,
+    configuredFftSize: options.fftSize,
+    fftSize: options.fftSize,
+    window,
+    temporalResolution: 'lossless',
+    validSamples: frame.iq_data.length / 2,
+    status: frame.frame_status,
+    iqBytes: frame.iq_data,
+  }, nowMs, nowTimestampMs);
+}
+
+export interface NativeTrainingCaptureIngressState {
+  selectedSourceId: string | null;
+  appliedStream: NativeTrainingCaptureIngressAppendOptions['appliedStream'];
+  eligible: boolean;
+  ineligibleReason?: string | null;
+}
+
+export function subscribeNativeTrainingCaptureIngress({
+  session,
+  getState,
+  now = () => ({
+    nowMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    nowTimestampMs: Date.now(),
+  }),
+  onFrameObserved,
+  onStopped,
+}: {
+  session: NativeTrainingCaptureSession;
+  getState: () => NativeTrainingCaptureIngressState;
+  now?: () => { nowMs: number; nowTimestampMs: number };
+  onFrameObserved?: (rawFrame: unknown, state: NativeTrainingCaptureIngressState) => void;
+  onStopped?: () => void;
+}): () => void {
+  return subscribeRawIqFrameArrivals((rawFrame) => {
+    const state = getState();
+    const sourceId = (rawFrame as Partial<IqRawFrame> | null)?.source_id;
+    if (!state.selectedSourceId || sourceId !== state.selectedSourceId) return;
+    onFrameObserved?.(rawFrame, state);
+    if (!session.active) return;
+    const time = now();
+    const outcome = appendNativeTrainingCaptureIngressFrame({
+      session,
+      rawFrame,
+      ...state,
+      ...time,
+    });
+    if (outcome === 'stopped') onStopped?.();
+  });
+}
+
+export async function exportNativeTrainingCaptureV6(
+  session: NativeTrainingCaptureSession,
+): Promise<NativeTrainingV6CaptureArtifact> {
+  const capture = session.snapshot();
+  if (!capture || capture.stopReason === null || !capture.frames.length || capture.createdAtTimestampMs === null) {
+    throw new Error('Stop a non-empty training capture before exporting it');
+  }
+
+  const firstFrame = capture.frames[0];
+  const lastFrame = capture.frames[capture.frames.length - 1];
+  const byteLength = capture.frames.reduce((total, frame) => total + frame.iqBytes.byteLength, 0);
+  let sampleOffset = 0;
+  const chunks: IqCaptureChunk[] = capture.frames.map((frame) => {
+    const chunk: IqCaptureChunk = { sample_offset: sampleOffset, channel: 0, data: frame.iqBytes };
+    sampleOffset += frame.validSamples;
+    return chunk;
+  });
+  const frameUpdates: IqCaptureFrameUpdate[] = [
+    {
+      sample_offset: 0,
+      timestamp_us: Math.round(firstFrame.timestampMs * 1000),
+      channel: 0,
+      kind: 'PatchOptionsApplied',
+      source_id: capture.config.sourceId,
+      job_id: capture.sessionId,
+      next_frame_sequence: firstFrame.sequence,
+      patch: {
+        center_frequency_hz: capture.config.centerFrequencyHz,
+        sample_rate_hz: capture.config.sampleRateHz,
+        fft_size: capture.config.fftSize,
+        configured_fft_size: capture.config.configuredFftSize,
+        fft_window: capture.config.window,
+        frame_rate_hz: capture.config.configuredFrameRateHz,
+        options_revision: capture.config.optionsRevision,
+        stream_epoch: capture.config.streamEpoch,
+        valid_sample_count: firstFrame.validSamples,
+      },
+    },
+    ...capture.optionsAppliedEvents.map((event): IqCaptureFrameUpdate => ({
+      sample_offset: event.byteOffset,
+      timestamp_us: Math.round(event.timestampMs * 1000),
+      channel: 0,
+      kind: event.kind,
+      source_id: event.toSourceId,
+      job_id: capture.sessionId,
+      ...(event.fromFrameSequence === null ? {} : { frame_sequence: event.fromFrameSequence }),
+      next_frame_sequence: event.toFrameSequence,
+      patch: {
+        ...event.patch,
+        from_options_revision: event.fromRevision,
+        to_options_revision: event.toRevision,
+        from_stream_epoch: event.fromStreamEpoch,
+        to_stream_epoch: event.toStreamEpoch,
+        changed_fields: event.changedFields,
+      },
+    })),
+    ...capture.streamInterruptedEvents.map((event): IqCaptureFrameUpdate => ({
+      sample_offset: event.byteOffset,
+      timestamp_us: Math.round(event.timestampMs * 1000),
+      channel: 0,
+      kind: event.kind,
+      source_id: capture.config.sourceId,
+      job_id: capture.sessionId,
+      ...(event.frameSequence === null ? {} : { frame_sequence: event.frameSequence }),
+      ...(event.nextFrameSequence === undefined ? {} : { next_frame_sequence: event.nextFrameSequence }),
+      patch: { code: event.code, ...(event.reason ? { reason: event.reason } : {}) },
+    })),
+  ];
+  frameUpdates.sort((a, b) => a.sample_offset - b.sample_offset || a.timestamp_us - b.timestamp_us ||
+    (a.kind === 'StreamInterrupted' ? -1 : b.kind === 'StreamInterrupted' ? 1 : 0));
+
+  const metadata: CaptureMetadata = {
+    timestamp_utc: new Date(capture.createdAtTimestampMs).toISOString(),
+    source_device: 'RTL-SDR',
+    source_id: capture.config.sourceId,
+    stream_epoch: capture.config.streamEpoch,
+    options_revision: capture.config.optionsRevision,
+    center_frequency_hz: capture.config.centerFrequencyHz,
+    sample_rate_hz: capture.config.sampleRateHz,
+    capture_sample_rate_hz: capture.config.sampleRateHz,
+    hardware_sample_rate_hz: capture.config.sampleRateHz,
+    fft_size: capture.config.fftSize,
+    configured_fft_size: capture.config.configuredFftSize,
+    fft_window: capture.config.window,
+    frame_rate: capture.config.configuredFrameRateHz,
+    duration_s: sampleOffset / capture.config.sampleRateHz,
+    sample_count: sampleOffset,
+    frame_count: capture.frames.length,
+    iq_byte_count: byteLength,
+    data_format: 'iq_u8',
+    temporal_resolution: capture.config.temporalResolution,
+    lossless: true,
+    capture_session_id: capture.sessionId,
+    last_frame_timestamp_utc: new Date(lastFrame.timestampMs).toISOString(),
+    stop_reason: capture.stopReason,
+    channels: [{
+      center_freq_hz: capture.config.centerFrequencyHz,
+      sample_rate_hz: capture.config.sampleRateHz,
+      requested_min_freq_hz: capture.config.centerFrequencyHz - capture.config.sampleRateHz / 2,
+      requested_max_freq_hz: capture.config.centerFrequencyHz + capture.config.sampleRateHz / 2,
+      bins_per_frame: capture.config.fftSize,
+      iq_length: byteLength,
+      label: null,
+    }],
+  };
+  const captureBytes = await encodeIqCaptureV4({ metadata, frameUpdates, chunks });
+  const annotations = await session.toVerifiedV6AnnotationSidecar(captureBytes);
+  if (!annotations) throw new Error('Training capture labels are unavailable for export');
+  const captureFileName = nativeTrainingCaptureFileName(capture.sessionId, capture.createdAtTimestampMs);
+  return {
+    captureFileName,
+    captureBytes,
+    annotationFileName: captureFileName.replace(/^n-apt-iq-capture-/, 'n-apt-annotations-').replace(/\.iq$/, '.json'),
+    annotations,
+  };
 }
 
 export function getNativeTrainingCaptureId(identity: NativeTrainingCaptureIdentity): string {

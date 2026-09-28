@@ -228,6 +228,7 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
     audioSurveyCandidates,
     audioSurveyStorageUsage,
     audioSurveyTraining,
+    audioSurveyNeuralModelReady,
     audioSurveyError,
     startAudioSurvey,
     resumeAudioSurvey,
@@ -432,16 +433,19 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
           <option
             value="neural"
             disabled
-            title="Learns unknown decoding from aligned reference media and I/Q; live output waits for a validated ONNX temporal model."
+            title="Use Neural from the Radio node after a held-out win; this selector chooses a DSP baseline for stored survey clips."
           >
-            Neural · learn unknown schemes (not deployed)
+            Neural · live output in Radio
           </option>
         </SurveySelect>
         <SurveyInfo>
           Neural learns from synchronized known media and received I/Q when we
-          do not know the modulation; it does not assume AM, FM, or APT. Live
-          neural output stays unavailable until an ONNX temporal model passes
-          held-out comparison against the DSP baselines.
+          do not know the modulation; it does not assume AM, FM, or APT. After
+          held-out evaluation beats the DSP baselines, select Neural in the
+          Radio node's Demod Algorithm dropdown.
+          {audioSurveyNeuralModelReady
+            ? " The validated neural live decoder is ready."
+            : " Neural live decoding stays locked until the model beats the DSP baselines and matches this channel's width and sample rate."}
         </SurveyInfo>
         <SurveySelect
           aria-label="Audio survey storage cap"

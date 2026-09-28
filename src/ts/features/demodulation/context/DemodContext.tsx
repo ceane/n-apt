@@ -9,6 +9,7 @@ import React, {
   SetStateAction,
 } from "react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import {
   useFrequencyScanner,
@@ -26,6 +27,7 @@ import {
   AUDIO_SURVEY_STORAGE_CAP_BYTES,
   AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES,
   DEFAULT_AUDIO_SURVEY_CONFIG,
+  AUDIO_SURVEY_SAMPLE_RATE_HZ,
   type CandidateRecord,
   type AudioSurveyDecoderStrategy,
   type AudioSurveySourceMode,
@@ -51,7 +53,16 @@ import {
   AudioSurveyTrainer,
   type AudioSurveyTrainingState,
 } from "@n-apt/demodulation/survey/audioSurveyTraining";
-import { predictTimeDomainAudio } from "@n-apt/demodulation/survey/audioSurveyMl";
+import {
+  predictTimeDomainAudio,
+  type TimeDomainDemodModel,
+} from "@n-apt/demodulation/survey/audioSurveyMl";
+import {
+  createAudioSurveyNeuralDemodulator,
+  isAudioSurveyNeuralModelReady,
+  shouldResetAudioSurveyNeuralStream,
+  type AudioSurveyNeuralFrameIdentity,
+} from "@n-apt/demodulation/survey/audioSurveyLiveDemod";
 import { setSourceMode, setStitchPaused, triggerStitch } from "@n-apt/redux/slices/waterfallSlice";
 import {
   demodFrameRuntime,
@@ -82,6 +93,7 @@ import {
   AnalysisSession,
   AnalysisType,
 } from "@n-apt/consts/types";
+import type { CaptureQualityAssessment } from "@n-apt/features/capture/quality";
 import { NaptSpikeDetectionResult } from "@n-apt/demodulation/utils/naptSpikeDetection";
 import {
   DemodFlowContext,
@@ -98,8 +110,82 @@ import {
 
 // Bump the key after changing the default graph/layout contract so an old
 // persisted template cannot resurrect the pre-fix flow on first entry.
-const DEMOD_FLOW_SESSION_KEY = "n-apt:demod-flow:v3";
+const DEMOD_FLOW_SESSION_KEY = "n-apt:demod-flow:v4";
 const EMPTY_SELECTED_REPLAY_FILES: Array<{ id: string; name: string }> = [];
+
+const addReadinessNodeToStoredFlow = (
+  stored: { nodes: Node[]; edges: Edge[] },
+  fallback: { nodes: Node[]; edges: Edge[] },
+) => {
+  if (stored.nodes.some((node) => node.id === "demod-readiness")) {
+    return stored;
+  }
+
+  const readinessTemplate = fallback.nodes.find(
+    (node) => node.id === "demod-readiness",
+  );
+  const signalConfig = stored.nodes.find((node) => node.id === "signal-config");
+  const stimulus = stored.nodes.find((node) => node.id === "stimulus");
+  if (!readinessTemplate || !signalConfig || !stimulus) return stored;
+
+  const eligibleInputs = new Set(["signal-config", "channel", "metadata"]);
+  const incomingEdges = stored.edges.filter(
+    (edge) =>
+      edge.target === "stimulus" && eligibleInputs.has(edge.source),
+  );
+  if (incomingEdges.length === 0) return stored;
+
+  const channelOrMetadata = stored.nodes.find(
+    (node) => node.id === "channel" || node.id === "metadata",
+  );
+  const readinessY =
+    Math.max(signalConfig.position.y, channelOrMetadata?.position.y ?? -Infinity) +
+    500;
+  const stimulusY = Math.max(stimulus.position.y, readinessY + 500);
+  const downstreamIds = new Set(["stimulus"]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const edge of stored.edges) {
+      if (downstreamIds.has(edge.source) && !downstreamIds.has(edge.target)) {
+        downstreamIds.add(edge.target);
+        grew = true;
+      }
+    }
+  }
+  const downstreamShift = stimulusY - stimulus.position.y;
+  const nodes = stored.nodes.map((node) =>
+    downstreamShift !== 0 && downstreamIds.has(node.id)
+      ? {
+          ...node,
+          position: { ...node.position, y: node.position.y + downstreamShift },
+        }
+      : node,
+  );
+  const readinessNode = {
+    ...readinessTemplate,
+    position: { x: stimulus.position.x, y: readinessY },
+  };
+  const edges = stored.edges.map((edge) =>
+    edge.target === "stimulus" && eligibleInputs.has(edge.source)
+      ? { ...edge, target: "demod-readiness" }
+      : edge,
+  );
+  const readinessEdgeTemplate = fallback.edges.find(
+    (edge) =>
+      edge.source === "demod-readiness" && edge.target === "stimulus",
+  );
+  const readinessEdge = readinessEdgeTemplate
+    ? { ...readinessEdgeTemplate }
+    : {
+        id: "e-readiness-stimulus",
+        source: "demod-readiness",
+        target: "stimulus",
+        animated: true,
+      };
+
+  return { nodes: [...nodes, readinessNode], edges: [...edges, readinessEdge] };
+};
 
 const readSessionFlow = (
   sourceMode: string,
@@ -121,7 +207,10 @@ const readSessionFlow = (
     ) {
       return fallback;
     }
-    return { nodes: parsed.nodes, edges: parsed.edges };
+    return addReadinessNodeToStoredFlow(
+      { nodes: parsed.nodes, edges: parsed.edges },
+      fallback,
+    );
   } catch {
     return fallback;
   }
@@ -145,6 +234,10 @@ interface DemodContextValue {
   scanRange: { min: number; max: number } | undefined;
 
   analysisSession: AnalysisSession;
+  demodQualityStatus: Pick<CaptureQualityAssessment, "fit" | "reasons"> | null;
+  setDemodQualityStatus: Dispatch<
+    SetStateAction<Pick<CaptureQualityAssessment, "fit" | "reasons"> | null>
+  >;
   selectedBaseline: AnalysisType;
   setSelectedBaseline: (type: AnalysisType) => void;
   liveMode: boolean;
@@ -163,6 +256,7 @@ interface DemodContextValue {
   audioSurveyCandidates: CandidateRecord[];
   audioSurveyStorageUsage: AudioSurveyStorageUsage;
   audioSurveyTraining: AudioSurveyTrainingState | null;
+  audioSurveyNeuralModelReady: boolean;
   audioSurveyError: string | null;
   startAudioSurvey: (
     sourceMode?: AudioSurveySourceMode,
@@ -233,6 +327,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({
     state: "idle",
   });
+  const [demodQualityStatus, setDemodQualityStatus] = useState<
+    Pick<CaptureQualityAssessment, "fit" | "reasons"> | null
+  >(null);
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
   const [selectedAlgorithm, setSelectedAlgorithm] =
@@ -279,6 +376,21 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   const [audioSurveyTraining, setAudioSurveyTraining] =
     useState<AudioSurveyTrainingState | null>(null);
+  const [audioSurveyModel, setAudioSurveyModel] =
+    useState<TimeDomainDemodModel | null>(null);
+  const liveNeuralBandwidthHz = Math.max(
+    2_000,
+    (demodState.bandwidthKhz || 200) * 1_000,
+  );
+  const audioSurveyNeuralModelReady = isAudioSurveyNeuralModelReady(
+    audioSurveyModel,
+    audioSurveyTraining,
+    {
+      inputSampleRateHz:
+        demodState.sampleRateHz ?? AUDIO_SURVEY_SAMPLE_RATE_HZ,
+      channelBandwidthHz: liveNeuralBandwidthHz,
+    },
+  );
   const [audioSurveyError, setAudioSurveyError] = useState<string | null>(null);
   const audioSurveyRunnerRef = React.useRef<AudioSurveyRunner | null>(null);
   const audioSurveyTrainerRef = React.useRef<AudioSurveyTrainer | null>(null);
@@ -288,6 +400,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     preferred: boolean;
     score?: number;
   } | null>(null);
+  const audioSurveyNeuralFrameIdentityRef =
+    React.useRef<AudioSurveyNeuralFrameIdentity | null>(null);
 
   useEffect(() => {
     if (
@@ -530,6 +644,22 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     [setNodes, setEdges, state.sourceMode],
   );
 
+  const liveNeuralCenterFrequencyHz =
+    demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0;
+  const liveNeuralDemodulator = useMemo(() => {
+    if (!audioSurveyNeuralModelReady || !audioSurveyModel) return null;
+    return createAudioSurveyNeuralDemodulator({
+      model: audioSurveyModel,
+      centerFrequencyHz: liveNeuralCenterFrequencyHz,
+      bandwidthHz: liveNeuralBandwidthHz,
+    });
+  }, [
+    audioSurveyModel,
+    audioSurveyNeuralModelReady,
+    liveNeuralBandwidthHz,
+    liveNeuralCenterFrequencyHz,
+  ]);
+
   const fmDemod = useAudioDemodFM({
     targetSampleRate: 48000,
     bufferSize: 4096,
@@ -673,6 +803,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     ) => {
       try {
         setAudioSurveyError(null);
+        setAudioSurveyModel(null);
+        setAudioSurveyTraining(null);
+        audioSurveyModelPreferenceRef.current = null;
+        audioSurveyNeuralFrameIdentityRef.current = null;
         const runner = createAudioSurveyRunner();
         audioSurveyRunnerRef.current = runner;
         audioSurveyPhaseRef.current = null;
@@ -760,6 +894,20 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     setAudioSurveyTraining(state);
     if (state.status === "failed" && state.error) setAudioSurveyError(state.error);
     if (state.status === "completed") {
+      const trainedArtifact = await audioSurveyRepository.getArtifact(
+        `${job.id}:audio-demod-training`,
+      );
+      const trainedPayload = trainedArtifact?.payload as
+        | {
+            artifactType?: string;
+            model?: TimeDomainDemodModel;
+          }
+        | undefined;
+      setAudioSurveyModel(
+        trainedPayload?.artifactType === "audio-survey-trained-model"
+          ? (trainedPayload.model ?? null)
+          : null,
+      );
       const candidates = await audioSurveyRepository.listCandidates(job.id);
       const relativeScore =
         state.modelRmse !== undefined && state.dspRmse !== undefined && state.dspRmse > 0
@@ -1004,10 +1152,19 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         if (cancelled) return;
         setAudioSurveyCandidates(candidates);
         const trainingPayload = trainingArtifact?.payload as
-          | { state?: AudioSurveyTrainingState }
+          | {
+              artifactType?: string;
+              state?: AudioSurveyTrainingState;
+              model?: TimeDomainDemodModel;
+            }
           | undefined;
         if (trainingPayload?.state) {
           setAudioSurveyTraining(trainingPayload.state);
+          setAudioSurveyModel(
+            trainingPayload.artifactType === "audio-survey-trained-model"
+              ? (trainingPayload.model ?? null)
+              : null,
+          );
           if (trainingPayload.state.status === "completed") {
             const trainingState = trainingPayload.state;
             audioSurveyModelPreferenceRef.current = {
@@ -1047,11 +1204,25 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       stopFmAudio();
       stopAptImageAudio();
       stopAptAudio();
+      liveNeuralDemodulator?.reset();
+      audioSurveyNeuralFrameIdentityRef.current = null;
       return;
     }
 
     if (!demodState.isListening || !demodState.centerFreqHz) {
       demodFrameRuntime.clear();
+      liveNeuralDemodulator?.reset();
+      audioSurveyNeuralFrameIdentityRef.current = null;
+      return;
+    }
+
+    if (demodState.algorithm === "neural" && !liveNeuralDemodulator) {
+      demodFrameRuntime.clear();
+      audioSurveyNeuralFrameIdentityRef.current = null;
+      reduxDispatch(setAlgorithm("fm"));
+      setAudioSurveyError(
+        "Neural live decoding needs a held-out-winning model trained at this channel's width and sample rate.",
+      );
       return;
     }
 
@@ -1072,7 +1243,31 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         const sampleRate = current.sample_rate || 3200000;
         const frameCenterFrequencyHz = current.center_frequency_hz ?? null;
 
-        if (
+        if (demodState.algorithm === "neural") {
+          const identity: AudioSurveyNeuralFrameIdentity = {
+            sourceId: current.source_id,
+            streamEpoch: current.stream_epoch,
+            sequence: current.sequence,
+            optionsRevision: current.options_revision,
+            centerFrequencyHz: frameCenterFrequencyHz,
+            sampleRateHz: sampleRate,
+          };
+          if (
+            shouldResetAudioSurveyNeuralStream(
+              audioSurveyNeuralFrameIdentityRef.current,
+              identity,
+            )
+          ) {
+            liveNeuralDemodulator?.reset();
+          }
+          audioSurveyNeuralFrameIdentityRef.current = identity;
+          const audioData = liveNeuralDemodulator?.process(
+            iqData,
+            sampleRate,
+            frameCenterFrequencyHz,
+          );
+          if (audioData && audioData.length > 0) playFmAudio(audioData);
+        } else if (
           demodState.algorithm === "fm" ||
           demodState.algorithm === "fmDiscriminator" ||
           demodState.algorithm === "am"
@@ -1104,6 +1299,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       stopFmAudio();
       stopAptImageAudio();
       stopAptAudio();
+      liveNeuralDemodulator?.reset();
+      audioSurveyNeuralFrameIdentityRef.current = null;
     };
   }, [
     demodState.isListening,
@@ -1120,6 +1317,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     playAptAudio,
     stopAptAudio,
     processAptAudioIQData,
+    liveNeuralDemodulator,
+    reduxDispatch,
   ]);
 
   // Initialize the scanner manager with the WS sender functions
@@ -1383,6 +1582,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       currentFreq: scanner.currentFreq,
       scanRange,
       analysisSession,
+      demodQualityStatus,
+      setDemodQualityStatus,
       selectedBaseline,
       setSelectedBaseline,
       liveMode,
@@ -1393,6 +1594,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       audioSurveyCandidates,
       audioSurveyStorageUsage,
       audioSurveyTraining,
+      audioSurveyNeuralModelReady,
       audioSurveyError,
       startAudioSurvey,
       resumeAudioSurvey,
@@ -1429,6 +1631,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       currentIQData,
       scanRange,
       analysisSession,
+      demodQualityStatus,
       selectedBaseline,
       startAnalysis,
       clearAnalysis,
@@ -1436,6 +1639,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       audioSurveyCandidates,
       audioSurveyStorageUsage,
       audioSurveyTraining,
+      audioSurveyNeuralModelReady,
       audioSurveyError,
       startAudioSurvey,
       resumeAudioSurvey,

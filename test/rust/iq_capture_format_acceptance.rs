@@ -46,6 +46,7 @@ fn capture(file_type: &str, encrypted: bool, case: &str) -> CaptureResult {
       timestamp_us: 1_234,
       channel: None,
       kind: Some("PatchOptionsApplied".to_string()),
+      frame_sequence: None,
       source_id: Some("rtl-sdr-acceptance".to_string()),
       job_id: Some(format!("iq_format_acceptance_{case}")),
       patch: serde_json::json!({ "center_frequency_hz": 137_500_000 }),
@@ -192,4 +193,76 @@ fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
   assert_eq!(updates[0]["channel"], 0);
   assert_eq!(updates[1]["sample_offset"], 10);
   assert_eq!(updates[1]["channel"], 1);
+}
+
+#[test]
+fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
+  let fixture: Value = serde_json::from_str(include_str!("../fixtures/iq-capture-v6-playback.json"))
+    .expect("shared playback fixture");
+  let frames = fixture["frames"].as_array().expect("fixture frames");
+  let mut input = capture(".iq", false, "cross_language_playback");
+  input.channels[0].iq_data = frames
+    .iter()
+    .flat_map(|frame| frame["iq_data"].as_array().expect("frame bytes"))
+    .map(|byte| byte.as_u64().expect("u8 byte") as u8)
+    .collect();
+  input.channels[0].bins_per_frame = 2;
+  input.fft_size = 2;
+  input.actual_frame_count = frames.len() as u32;
+  input.frame_updates = frames
+    .iter()
+    .flat_map(|frame| {
+      let offset = frame["sample_offset"].as_u64().expect("byte offset");
+      let timestamp = frame["timestamp_us"].as_u64().expect("timestamp");
+      let sequence = frame["frame_sequence"].as_u64().expect("sequence");
+      let fft_size = frame["fft_size"].as_u64().expect("FFT size");
+      [
+        iq_format::FrameUpdate {
+          sample_offset: offset,
+          timestamp_us: timestamp,
+          channel: Some(0),
+          kind: Some("Frame".into()),
+          frame_sequence: Some(sequence),
+          source_id: Some("cross-language-fixture".into()),
+          job_id: Some(input.job_id.clone()),
+          patch: serde_json::json!({}),
+        },
+        iq_format::FrameUpdate {
+          sample_offset: offset,
+          timestamp_us: timestamp,
+          channel: Some(0),
+          kind: Some("PatchOptionsApplied".into()),
+          frame_sequence: Some(sequence),
+          source_id: Some("cross-language-fixture".into()),
+          job_id: Some(input.job_id.clone()),
+          patch: serde_json::json!({
+            "center_frequency_hz": fixture["metadata"]["center_frequency_hz"],
+            "capture_sample_rate_hz": fixture["metadata"]["capture_sample_rate_hz"],
+            "fft_size": fft_size,
+            "fft_window": fixture["metadata"]["fft_window"],
+            "gain": fixture["metadata"]["gain"],
+            "ppm": fixture["metadata"]["ppm"],
+          }),
+        },
+      ]
+    })
+    .collect();
+
+  let artifact = save_capture_file_multi(&input, &key()).expect("write backend V6 IQ");
+  let bytes = fs::read(&artifact.path).expect("read backend V6 IQ");
+  let decoded = iq_format::decode(&bytes, None).expect("decode backend V6 IQ");
+  assert_eq!(decoded.metadata.format_version, 6);
+  assert_eq!(decoded.chunks.len(), 1);
+  assert_eq!(decoded.chunks[0].sample_offset, 0);
+  assert_eq!(decoded.chunks[0].data, input.channels[0].iq_data);
+  assert_eq!(decoded.frames, input.frame_updates);
+
+  if let Some(path) = std::env::var_os("NAPT_IQ_CROSS_LANGUAGE_FIXTURE") {
+    let path = std::path::PathBuf::from(path);
+    if let Some(parent) = path.parent() {
+      fs::create_dir_all(parent).expect("create cross-language fixture directory");
+    }
+    fs::copy(&artifact.path, path).expect("export backend V6 IQ for frontend test");
+  }
+  fs::remove_file(artifact.path).expect("remove backend writer artifact");
 }

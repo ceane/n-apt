@@ -1892,12 +1892,39 @@ const FFTCanvas = memo(
     const [nativeShadowError, setNativeShadowError] = useState('');
     const nativeCaptureRef = useRef(new NativeClassifier.NativeTrainingCaptureSession());
     const nativeCaptureEligibilityRef = useRef(false);
-    const nativeCaptureRtlDisconnectedRef = useRef(false);
+    const nativeCaptureSourceStatusCodeRef = useRef<NativeClassifier.NativeTrainingCaptureSourceStatusCode | null>(null);
+    const nativeCaptureIngressStateRef = useRef<NativeClassifier.NativeTrainingCaptureIngressState>({
+      selectedSourceId: null, appliedStream: null, eligible: false,
+    });
+    const nativeCaptureIngressBoundaryRef = useRef<{
+      sourceId: string;
+      streamEpoch: number;
+      optionsRevision: number;
+      sequence: number;
+      timestampMs: number;
+      sampleRateHz: number;
+      centerFrequencyHz: number;
+      fftSize: number;
+      window: NativeClassifier.FrameMetadata['window'];
+    } | null>(null);
     const nativeCaptureLatestFrameRef = useRef<{ sourceId: string; streamEpoch: number; optionsRevision: number; appliedOptions: Extract<import('@n-apt/consts/schemas/websocket').IqAppliedStreamOptions, { mode: 'rx' }>; sequence: number; timestampMs: number; status: string; sampleRateHz: number; centerFrequencyHz: number; configuredFftSize: number; fftSize: number; validSamples: number; rawIqByteCount: number; window: NativeClassifier.FrameMetadata['window'] } | null>(null);
     const [nativeClassifierSidebarTarget, setNativeClassifierSidebarTarget] = useState<HTMLElement | null>(null);
     const [nativeLatestFrameFresh, setNativeLatestFrameFresh] = useState(false);
     const [nativeLatestFrameRevision, setNativeLatestFrameRevision] = useState(0);
     const [nativeCaptureUi, setNativeCaptureUi] = useState({ active: false, frameCount: 0, status: '' });
+    const [nativeCaptureDownloads, setNativeCaptureDownloads] = useState<NativeClassifier.NativeTrainingCaptureDownloadLinks | null>(null);
+    const nativeCaptureObjectUrlsRef = useRef<string[]>([]);
+    const revokeNativeCaptureObjectUrls = useCallback(() => {
+      for (const url of nativeCaptureObjectUrlsRef.current) URL.revokeObjectURL(url);
+      nativeCaptureObjectUrlsRef.current = [];
+    }, []);
+    const clearNativeCaptureExport = useCallback(() => {
+      revokeNativeCaptureObjectUrls();
+      nativeCaptureRef.current.clear();
+      setNativeCaptureDownloads(null);
+      setNativeCaptureUi({ active: false, frameCount: 0, status: '' });
+    }, [revokeNativeCaptureObjectUrls]);
+    useEffect(() => () => revokeNativeCaptureObjectUrls(), [revokeNativeCaptureObjectUrls]);
     useEffect(() => {
       if (typeof document !== 'undefined') {
         setNativeClassifierSidebarTarget(document.getElementById('native-classifier-sidebar-slot'));
@@ -1918,20 +1945,31 @@ const FFTCanvas = memo(
       canvasPaused: isPaused,
       isRtlSdr: nativeCaptureIdentity,
     };
-    const nativeCaptureRtlDisconnected = NativeClassifier.isNativeTrainingRtlSdrDisconnected(nativeCaptureEligibility);
-    nativeCaptureRtlDisconnectedRef.current = nativeCaptureRtlDisconnected;
+    const nativeCaptureSourceStatusCode = NativeClassifier.nativeTrainingCaptureSourceStatusCode(nativeCaptureEligibility);
+    nativeCaptureSourceStatusCodeRef.current = nativeCaptureSourceStatusCode;
     const nativeLatest = nativeCaptureLatestFrameRef.current;
-    const nativeLatestMismatchReasons = NativeClassifier.nativeTrainingFrameMismatchReasons(nativeLatest, {
+    const nativeLatestFrameIsStale = NativeClassifier.isNativeTrainingFrameStale(nativeLatest, Date.now());
+    const nativeReadinessSettings = NativeClassifier.resolveNativeTrainingReadinessSettings(
+      nativeAppliedStream?.options ?? null,
+      {
+        centerFrequencyHz: nativeCaptureSource?.sdr.settings.center_frequency,
+        sampleRateHz: nativeCaptureSource?.sdr.settings.sample_rate,
+        fftSize: nativeCaptureSource?.sdr.settings.fft_size ?? fftSize,
+        window: nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular',
+      },
+    );
+    const nativeCaptureReadinessExpectation: NativeClassifier.NativeTrainingReadinessExpectation = {
       selectedSourceId: nativeCaptureSelectedId,
-      sourceSampleRateHz: nativeCaptureSource?.sdr.settings.sample_rate,
-      sourceCenterFrequencyHz: nativeCaptureSource?.sdr.settings.center_frequency,
-      sourceFftSize: nativeCaptureSource?.sdr.settings.fft_size ?? fftSize,
-      sourceWindow: nativeCaptureSource?.sdr.settings.fft_window ?? fftWindow ?? 'Rectangular',
+      sourceSampleRateHz: nativeReadinessSettings.sampleRateHz,
+      sourceCenterFrequencyHz: nativeReadinessSettings.centerFrequencyHz,
+      sourceFftSize: nativeReadinessSettings.fftSize,
+      sourceWindow: nativeReadinessSettings.window,
       appliedStream: nativeAppliedStream?.options.mode === 'rx'
         ? { streamEpoch: nativeAppliedStream.streamEpoch, optionsRevision: nativeAppliedStream.optionsRevision, mode: 'rx' }
         : null,
       nowTimestampMs: Date.now(),
-    });
+    };
+    const nativeLatestMismatchReasons = NativeClassifier.nativeTrainingFrameMismatchReasons(nativeLatest, nativeCaptureReadinessExpectation);
     const nativeLatestMatchesSelection = !!nativeLatest && nativeLatestMismatchReasons.length === 0;
     const classifierQuality = evaluateCaptureQuality({
       profile: CLASSIFIER_TRAINING_QUALITY_PROFILE,
@@ -1959,7 +1997,19 @@ const FFTCanvas = memo(
       nowTimestampMs: Date.now(),
     });
     const nativeCaptureAvailable = NativeClassifier.canStartNativeTrainingCapture(nativeCaptureEligibility) && classifierQuality.fit !== 'unmet' && nativeLatestFrameFresh && nativeLatestMatchesSelection;
+    const nativeShadowResultState: NativeClassifier.NativeShadowResultState = !nativeShadowResult
+      ? 'current'
+      : !nativeLatestFrameFresh || NativeClassifier.isNativeTrainingFrameStale({ timestampMs: nativeShadowResult.frameMetadata.timestampMs }, Date.now())
+        ? 'stale'
+        : !nativeLatestMatchesSelection ? 'metadata-mismatch' : 'current';
     nativeCaptureEligibilityRef.current = NativeClassifier.canStartNativeTrainingCapture(nativeCaptureEligibility);
+    nativeCaptureIngressStateRef.current = {
+      selectedSourceId: nativeCaptureSelectedId,
+      appliedStream: nativeAppliedStream,
+      eligible: nativeCaptureEligibilityRef.current,
+      ineligibleReason: nativeCaptureSourceStatusCodeRef.current,
+    };
+    if (!nativeCaptureEligibilityRef.current) nativeCaptureIngressBoundaryRef.current = null;
     const nativeCaptureConfig = useMemo<NativeClassifier.NativeTrainingCaptureConfig | null>(() => {
       const applied = nativeLatest?.appliedOptions;
       const sampleRateHz = nativeLatest?.sampleRateHz;
@@ -1977,71 +2027,141 @@ const FFTCanvas = memo(
     }, [nativeCaptureSource, nativeAppliedStream, nativeCaptureAvailable, nativeCaptureSelectedId, nativeLatest, fftSize, fftWindow, fftFrameRate, visualizerSessionKey, nativeLatestFrameRevision]);
     const nativeCaptureBlockReason = !nativeCaptureEligibility.selectedSourceId
       ? 'Select the active RTL-SDR source.'
-      : nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.activeSourceId || nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.expectedSourceId
-        ? 'The selected, active, and displayed source must match.'
-        : nativeCaptureRtlDisconnected
-          ? 'rtl-sdr-disconnected'
+      : nativeCaptureSourceStatusCode
+        ? nativeCaptureSourceStatusCode
+        : nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.activeSourceId || nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.expectedSourceId
+          ? 'The selected, active, and displayed source must match.'
           : nativeCaptureEligibility.sourceMode !== 'live' || nativeCaptureEligibility.sourceCapability !== 'rx' || nativeCaptureEligibility.sourceIsMock || nativeCaptureEligibility.sourceStatus !== 'receiving' || nativeCaptureEligibility.sourcePaused || !nativeCaptureEligibility.deviceConnected || nativeCaptureEligibility.canvasPaused || !nativeCaptureEligibility.isRtlSdr
-          ? 'A connected, unpaused RTL-SDR must be receiving live frames.'
+            ? 'A connected, unpaused RTL-SDR must be receiving live frames.'
           : displayTemporalResolution !== 'lossless'
-            ? 'Set Temporal Resolution to Lossless.'
-            : classifierQuality.fit === 'unmet'
-              ? classifierQuality.reasons.join(' ')
-              : !nativeLatestMatchesSelection
-                ? `Latest frame mismatch: ${nativeLatestMismatchReasons.join('; ')}`
-                : !nativeLatestFrameFresh
-                  ? 'Waiting for a fresh, complete I/Q frame.'
-                  : nativeCaptureConfig === null
-                    ? 'Waiting for complete acquisition metadata.'
-                    : '';
+              ? 'Set Temporal Resolution to Lossless.'
+              : nativeLatest?.status === 'held'
+                ? 'The latest I/Q payload is held from the previous acquisition; waiting for a newly acquired frame.'
+              : nativeLatestFrameIsStale
+                ? 'The RTL-SDR still reports Receiving, but its latest I/Q frame is stale. Please check the connection and reconnect it if the stream has stopped; capture will be ready after fresh frames resume.'
+              : classifierQuality.fit === 'unmet'
+                ? classifierQuality.reasons.join(' ')
+                : !nativeLatestMatchesSelection
+                  ? `Latest frame mismatch: ${nativeLatestMismatchReasons.join('; ')}`
+                  : !nativeLatestFrameFresh
+                    ? 'Waiting for a fresh, complete I/Q frame.'
+                    : nativeCaptureConfig === null
+                      ? 'Waiting for complete acquisition metadata.'
+                      : '';
     const nativeCaptureConfigRef = useRef(nativeCaptureConfig);
     nativeCaptureConfigRef.current = nativeCaptureConfig;
     const stopNativeCapture = useCallback((reason: string) => {
       nativeCaptureRef.current.stop(reason);
       setNativeCaptureUi({ active: false, frameCount: nativeCaptureRef.current.frameCount, status: reason });
     }, []);
+    const reportNativeCaptureStopped = useCallback(() => {
+      const session = nativeCaptureRef.current;
+      const stoppedCapture = session.snapshot();
+      const tune = stoppedCapture?.tuneEvents[stoppedCapture.tuneEvents.length - 1];
+      const optionsEvent = stoppedCapture?.optionsAppliedEvents[stoppedCapture.optionsAppliedEvents.length - 1];
+      const status = tune ? `center-frequency-changed:${tune.fromCenterFrequencyHz}:${tune.toCenterFrequencyHz}`
+        : optionsEvent ? `options-applied:${optionsEvent.changedFields.join(',')}:rev-${optionsEvent.fromRevision}-to-${optionsEvent.toRevision}:${optionsEvent.fromFrameSequence ?? 'start'}:${optionsEvent.toFrameSequence}`
+          : stoppedCapture?.stopReason ?? 'stopped';
+      setNativeCaptureUi({ active: false, frameCount: session.frameCount, status });
+    }, []);
     const toggleNativeCapture = useCallback((annotations: NativeClassifier.NativeTrainingCaptureAnnotations) => {
       if (nativeCaptureRef.current.active) { stopNativeCapture('user-stopped'); return; }
       const latest = nativeCaptureLatestFrameRef.current;
-      const latestAgeMs = latest ? Date.now() - latest.timestampMs : Number.POSITIVE_INFINITY;
-      if (!nativeCaptureAvailable || !nativeCaptureConfig || !latest || latestAgeMs < 0 || latestAgeMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS ||
-        latest.sourceId !== nativeCaptureSelectedId || latest.status !== 'receiving' || !NativeClassifier.isCompleteNativeTrainingFrame(latest)) return;
+      const ingressBoundary = nativeCaptureIngressBoundaryRef.current;
+      if (!nativeCaptureAvailable || !nativeCaptureConfig || !latest || NativeClassifier.isNativeTrainingFrameStale(latest, Date.now()) ||
+        latest.sourceId !== nativeCaptureSelectedId || latest.status !== 'receiving' || !NativeClassifier.isCompleteNativeTrainingFrame(latest) ||
+        !ingressBoundary || ingressBoundary.sourceId !== nativeCaptureSelectedId ||
+        ingressBoundary.streamEpoch !== nativeCaptureConfig.streamEpoch ||
+        ingressBoundary.optionsRevision !== nativeCaptureConfig.optionsRevision ||
+        ingressBoundary.sampleRateHz !== nativeCaptureConfig.sampleRateHz ||
+        ingressBoundary.centerFrequencyHz !== nativeCaptureConfig.centerFrequencyHz ||
+        ingressBoundary.fftSize !== nativeCaptureConfig.fftSize ||
+        ingressBoundary.window !== nativeCaptureConfig.window ||
+        Date.now() - ingressBoundary.timestampMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS) return;
       const sessionId = createNativeCaptureSessionId();
-      const started = nativeCaptureRef.current.start({ ...nativeCaptureConfig, sessionId }, performance.now(), Date.now(), annotations);
+      const started = nativeCaptureRef.current.start(
+        { ...nativeCaptureConfig, sessionId },
+        performance.now(),
+        Date.now(),
+        annotations,
+        { sequence: ingressBoundary.sequence, timestampMs: ingressBoundary.timestampMs },
+      );
       if (started) setNativeCaptureUi({ active: true, frameCount: 0, status: 'Waiting for a new live frame.' });
     }, [nativeCaptureAvailable, nativeCaptureConfig, nativeCaptureSelectedId, nativeCaptureSource, stopNativeCapture]);
     const updateNativeCaptureAnnotations = useCallback((annotations: NativeClassifier.NativeTrainingCaptureAnnotations) => {
       nativeCaptureRef.current.updateAnnotations(annotations, Date.now());
     }, []);
+    useEffect(() => NativeClassifier.subscribeNativeTrainingCaptureIngress({
+      session: nativeCaptureRef.current,
+      getState: () => nativeCaptureIngressStateRef.current,
+      onFrameObserved: (rawFrame, state) => {
+        const frame = rawFrame as Partial<LiveFrameData> | null;
+        if (frame?.source_id === state.selectedSourceId && frame.is_fresh === false) {
+          nativeCaptureIngressBoundaryRef.current = null;
+          setNativeLatestFrameFresh(false);
+          return;
+        }
+        const appliedStream = state.appliedStream;
+        const options = appliedStream?.options;
+        if (!state.eligible || !state.selectedSourceId || !frame ||
+          frame.source_id !== state.selectedSourceId || frame.frame_status !== 'receiving' ||
+          !appliedStream || !options || options.mode !== 'rx' ||
+          appliedStream.streamEpoch !== frame.stream_epoch ||
+          appliedStream.optionsRevision !== frame.options_revision ||
+          !Number.isInteger(frame.sequence) || !Number.isFinite(frame.timestamp) ||
+          !Number.isFinite(frame.sample_rate) || !Number.isFinite(frame.center_frequency_hz) ||
+          !(frame.iq_data instanceof Uint8Array) || frame.iq_data.length < 2 || frame.iq_data.length % 2 !== 0) return;
+        const window = NativeClassifier.normalizeNativeWindowKind(options.fftWindow);
+        if (!['rectangular', 'hann', 'hamming', 'blackman', 'nuttall'].includes(window)) return;
+        nativeCaptureIngressBoundaryRef.current = {
+          sourceId: state.selectedSourceId,
+          streamEpoch: appliedStream.streamEpoch,
+          optionsRevision: appliedStream.optionsRevision,
+          sequence: frame.sequence!,
+          timestampMs: frame.timestamp!,
+          sampleRateHz: frame.sample_rate!,
+          centerFrequencyHz: frame.center_frequency_hz!,
+          fftSize: options.fftSize,
+          window,
+        };
+      },
+      onStopped: reportNativeCaptureStopped,
+    }), [reportNativeCaptureStopped]);
     const exportNativeCapture = useCallback(() => {
-      const data = nativeCaptureRef.current.toExportObject();
-      if (!data || data.createdAtTimestampMs === null) return;
-      const capturedAtTimestampMs = data.createdAtTimestampMs;
-      const captureFileName = NativeClassifier.nativeTrainingCaptureFileName(data.sessionId, capturedAtTimestampMs);
-      const captureIdentity = { kind: 'filename-timestamp' as const, fileName: captureFileName, capturedAtTimestampMs };
-      const annotations = nativeCaptureRef.current.toAnnotationSidecar(captureIdentity);
-      const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = captureFileName;
-      anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1_000);
-      if (annotations) {
-        const sidecarUrl = URL.createObjectURL(new Blob([JSON.stringify(annotations)], { type: 'application/json' }));
-        const sidecarAnchor = document.createElement('a');
-        sidecarAnchor.href = sidecarUrl;
-        sidecarAnchor.download = captureFileName.replace(/^n-apt-iq-capture-/, 'n-apt-annotations-');
-        sidecarAnchor.click();
-        setTimeout(() => URL.revokeObjectURL(sidecarUrl), 1_000);
-      }
-      nativeCaptureRef.current.clear();
-      setNativeCaptureUi({ active: false, frameCount: 0, status: '' });
-    }, []);
+      void (async () => {
+        const session = nativeCaptureRef.current;
+        if (nativeCaptureDownloads) return;
+        const frameCount = session.frameCount;
+        const objectUrls: string[] = [];
+        try {
+          const artifact = await NativeClassifier.exportNativeTrainingCaptureV6(session);
+          const iqHref = URL.createObjectURL(new Blob([artifact.captureBytes as BlobPart], { type: 'application/octet-stream' }));
+          objectUrls.push(iqHref);
+          const annotationHref = URL.createObjectURL(new Blob([JSON.stringify(artifact.annotations, null, 2)], { type: 'application/json' }));
+          objectUrls.push(annotationHref);
+          revokeNativeCaptureObjectUrls();
+          nativeCaptureObjectUrlsRef.current = objectUrls;
+          setNativeCaptureDownloads({
+            iqHref,
+            iqFileName: artifact.captureFileName,
+            annotationHref,
+            annotationFileName: artifact.annotationFileName,
+          });
+          setNativeCaptureUi({ active: false, frameCount, status: 'Both V6 files are ready below. Download the I/Q capture and labels before clearing this session.' });
+        } catch (error: unknown) {
+          for (const url of objectUrls) URL.revokeObjectURL(url);
+          setNativeCaptureUi({
+            active: false,
+            frameCount,
+            status: `Export failed: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      })();
+    }, [nativeCaptureDownloads, revokeNativeCaptureObjectUrls]);
     useEffect(() => {
       const timer = setInterval(() => {
         const latest = nativeCaptureLatestFrameRef.current;
-        const latestAgeMs = latest ? Date.now() - latest.timestampMs : Number.POSITIVE_INFINITY;
-        const fresh = !!latest && latestAgeMs >= 0 && latestAgeMs <= NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS &&
+        const fresh = !!latest && !NativeClassifier.isNativeTrainingFrameStale(latest, Date.now()) &&
           latest.sourceId === nativeCaptureSelectedId &&
           latest.status === 'receiving' && NativeClassifier.isCompleteNativeTrainingFrame(latest);
         setNativeLatestFrameFresh((current) => current === fresh ? current : fresh);
@@ -2049,15 +2169,18 @@ const FFTCanvas = memo(
         const session = nativeCaptureRef.current;
         if (!session.active) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' }); return; }
         const pinned = session.snapshot()?.config;
-        if (!nativeCaptureEligibilityRef.current || !latest || Date.now() - latest.timestampMs > NativeClassifier.NativeTrainingCaptureSession.STALE_AFTER_MS) {
+        if (!nativeCaptureEligibilityRef.current || !latest || NativeClassifier.isNativeTrainingFrameStale(latest, Date.now())) {
           session.stop(!nativeCaptureEligibilityRef.current
-            ? nativeCaptureRtlDisconnectedRef.current ? 'rtl-sdr-disconnected' : 'source-disconnected-or-ineligible'
+            ? nativeCaptureSourceStatusCodeRef.current ?? 'source-disconnected-or-ineligible'
             : 'stale-frame');
           setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' });
           return;
         }
         if (session.stopIfStale(performance.now())) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: 'no-new-frames' }); return; }
-        setNativeCaptureUi((state) => state.frameCount === session.frameCount ? state : { ...state, frameCount: session.frameCount });
+        setNativeCaptureUi((state) => {
+          if (state.frameCount === session.frameCount && (session.frameCount === 0 || !state.status)) return state;
+          return { ...state, frameCount: session.frameCount, status: session.frameCount > 0 ? '' : state.status };
+        });
       }, 250);
       return () => clearInterval(timer);
     }, [nativeCaptureUi.active, nativeCaptureConfig, nativeCaptureSelectedId, nativeCaptureSource, stopNativeCapture]);
@@ -3825,6 +3948,9 @@ const FFTCanvas = memo(
           const nativeTimestamp = currentFrame.timestamp;
           const nativeRate = currentFrame.sample_rate;
           const nativeCenter = currentFrame.center_frequency_hz;
+          const nativeFrameIsFresh = currentFrame.is_fresh !== false;
+          const nativeFrameMustMatchLiveStream = nativeCaptureActiveMode === 'live' && nativeCaptureSourceMode === 'live';
+          let nativeFrameMatchesLiveStream = nativeFrameIsFresh && !nativeFrameMustMatchLiveStream;
           if (currentFrame.source_id && typeof currentFrame.stream_epoch === 'number' &&
             typeof currentFrame.sequence === 'number' && Number.isFinite(nativeTimestamp) &&
             typeof nativeRate === 'number' && typeof nativeCenter === 'number' &&
@@ -3835,60 +3961,44 @@ const FFTCanvas = memo(
             const nextLatest = {
               sourceId: currentFrame.source_id, streamEpoch: currentFrame.stream_epoch, optionsRevision: currentFrame.options_revision,
               appliedOptions: { ...nativeAppliedStream!.options }, sequence: currentFrame.sequence,
-              timestampMs: nativeTimestamp!, status: currentFrame.frame_status ?? 'unknown', sampleRateHz: nativeRate!,
+              timestampMs: nativeTimestamp!, status: nativeFrameIsFresh ? currentFrame.frame_status ?? 'unknown' : 'held', sampleRateHz: nativeRate!,
               centerFrequencyHz: nativeCenter!, configuredFftSize: nativeAppliedStream!.options.fftSize,
               fftSize: rawSpectrum.length, validSamples: Math.floor(currentFrame.iq_data.length / 2), rawIqByteCount: currentFrame.iq_data.length,
               window: NativeClassifier.normalizeNativeWindowKind(nativeAppliedStream!.options.fftWindow),
             };
             nativeCaptureLatestFrameRef.current = nextLatest;
-            if (!nativeLatestFrameFresh || !previousLatest || previousLatest.sourceId !== nextLatest.sourceId ||
+            if (nativeFrameMustMatchLiveStream) {
+              nativeFrameMatchesLiveStream = nativeFrameIsFresh && NativeClassifier.nativeTrainingFrameMismatchReasons(nextLatest, {
+                ...nativeCaptureReadinessExpectation,
+                nowTimestampMs: Date.now(),
+              }).length === 0;
+            }
+            const frameMetadataChanged = !previousLatest || previousLatest.sourceId !== nextLatest.sourceId ||
               previousLatest.streamEpoch !== nextLatest.streamEpoch || previousLatest.sampleRateHz !== nextLatest.sampleRateHz ||
               previousLatest.optionsRevision !== nextLatest.optionsRevision ||
               previousLatest.centerFrequencyHz !== nextLatest.centerFrequencyHz || previousLatest.configuredFftSize !== nextLatest.configuredFftSize ||
-              previousLatest.fftSize !== nextLatest.fftSize || previousLatest.window !== nextLatest.window) {
+              previousLatest.fftSize !== nextLatest.fftSize || previousLatest.window !== nextLatest.window;
+            if (!nativeFrameIsFresh) {
+              setNativeLatestFrameFresh(false);
+              if (nativeLatestFrameFresh || frameMetadataChanged) setNativeLatestFrameRevision((revision) => revision + 1);
+            } else if (!nativeLatestFrameFresh || frameMetadataChanged) {
               setNativeLatestFrameFresh(true);
               setNativeLatestFrameRevision((revision) => revision + 1);
             }
           }
-          if (nativeCaptureRef.current.active) {
-            const pinned = nativeCaptureRef.current.snapshot()?.config;
-            const appliedState = nativeAppliedStream;
-            const applied = !!appliedState && appliedState.streamEpoch === currentFrame.stream_epoch &&
-              appliedState.optionsRevision === currentFrame.options_revision && appliedState.options.mode === 'rx'
-              ? appliedState.options : null;
-            if (!applied || !pinned || typeof currentFrame.options_revision !== 'number') {
-              stopNativeCapture('applied-options-unavailable');
-            } else {
-              const frameWindow = NativeClassifier.normalizeNativeWindowKind(applied.fftWindow);
-              const outcome = nativeCaptureRef.current.append({
-                sourceId: currentFrame.source_id ?? '', streamEpoch: currentFrame.stream_epoch ?? -1,
-                optionsRevision: currentFrame.options_revision, appliedOptions: { ...applied },
-                sequence: currentFrame.sequence ?? -1, timestampMs: nativeTimestamp ?? Number.NaN,
-                status: currentFrame.frame_status ?? 'unknown', sampleRateHz: nativeRate ?? Number.NaN,
-                centerFrequencyHz: nativeCenter ?? Number.NaN, configuredFrameRateHz: applied.frameRate ?? null,
-                configuredFftSize: applied.fftSize, fftSize: rawSpectrum.length,
-                window: frameWindow as NativeClassifier.FrameMetadata['window'], temporalResolution: 'lossless',
-                validSamples: Math.floor(currentFrame.iq_data.length / 2), iqBytes: currentFrame.iq_data,
-              }, performance.now(), Date.now());
-              if (outcome === 'stopped') {
-                const stoppedCapture = nativeCaptureRef.current.snapshot();
-                const tune = stoppedCapture?.tuneEvents[stoppedCapture.tuneEvents.length - 1];
-                const optionsEvent = stoppedCapture?.optionsAppliedEvents[stoppedCapture.optionsAppliedEvents.length - 1];
-                const status = tune ? `center-frequency-changed:${tune.fromCenterFrequencyHz}:${tune.toCenterFrequencyHz}`
-                  : optionsEvent ? `options-applied:${optionsEvent.changedFields.join(',')}:rev-${optionsEvent.fromRevision}-to-${optionsEvent.toRevision}:${optionsEvent.fromFrameSequence ?? 'start'}:${optionsEvent.toFrameSequence}`
-                    : stoppedCapture?.stopReason ?? 'stopped';
-                setNativeCaptureUi({ active: false, frameCount: nativeCaptureRef.current.frameCount, status });
-              }
-            }
-          }
           const nativeDevice = webgpuDeviceRef.current;
-          if (
+          const sourceId = `${currentFrame.source_id ?? ''}:${currentFrame.stream_epoch ?? ''}`;
+          const frameId = String(currentFrame.sequence ?? nativeTimestamp);
+          if (!nativeFrameIsFresh || (nativeFrameMustMatchLiveStream && !nativeFrameMatchesLiveStream)) {
+            // Invalidate any outstanding result from the previous acquisition
+            // before exposing a frame whose source/options/frequency metadata
+            // do not agree with the selected live stream.
+            nativeRequestRef.current = `blocked:${sourceId}:${frameId}`;
+          } else if (
             showNativeClassifier && nativeDevice && currentFrame.source_id &&
             Number.isFinite(nativeTimestamp) && Number.isFinite(nativeRate) && nativeRate! > 0 &&
             Number.isFinite(nativeCenter) && performance.now() - nativeLastStartMsRef.current >= 250
           ) {
-            const sourceId = `${currentFrame.source_id}:${currentFrame.stream_epoch ?? ''}`;
-            const frameId = String(currentFrame.sequence ?? nativeTimestamp);
             const analysisSize = rawSpectrum.length;
             const binHz = nativeRate! / analysisSize;
             const acquisitionMin = nativeCenter! - nativeRate! / 2;
@@ -5907,13 +6017,16 @@ const FFTCanvas = memo(
                   <>
                     <NativeClassifier.NativeClassifierPanel
                       result={nativeShadowResult}
+                      resultState={nativeShadowResultState}
                       legacy={gpuSpikeAnalysis ? { isNapt: gpuSpikeAnalysis.isNapt, confidence: gpuSpikeAnalysis.confidence } : null}
                       captureAvailable={nativeCaptureAvailable && nativeCaptureConfig !== null}
                       captureActive={nativeCaptureUi.active}
                       captureFrameCount={nativeCaptureUi.frameCount}
                       captureStatus={nativeCaptureUi.status || (!nativeCaptureAvailable ? nativeCaptureBlockReason : '')}
+                      captureDownloads={nativeCaptureDownloads}
                       onToggleCapture={toggleNativeCapture}
                       onExportCapture={exportNativeCapture}
+                      onClearCapture={clearNativeCaptureExport}
                       onAnnotationsChange={updateNativeCaptureAnnotations}
                       onModel={(model) => { nativeModelRef.current = model; setNativeModel(model); setNativeShadowResult(null); }}
                     />

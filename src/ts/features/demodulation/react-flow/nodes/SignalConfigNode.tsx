@@ -2,6 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { Columns3Cog } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import {
   setFftWindow,
   setFrequencyRange,
@@ -76,6 +77,7 @@ interface SignalConfigNodeProps {
 
 export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const dispatch = useAppDispatch();
+  const { setDemodQualityStatus } = useDemod();
   const spectrumTransport = useSpectrumTransport();
   const spectrum = useAppSelector((state) => state.spectrum);
   const roleSource = useAppSelector((state) => {
@@ -196,6 +198,14 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     configured: { sampleRateHz: roleSource?.sdr.settings.sample_rate, fftSize: roleSource?.sdr.settings.fft_size, frameRateHz: roleSource?.sdr.settings.frame_rate, window: roleSource?.sdr.settings.fft_window, temporalResolution: spectrum.displayTemporalResolution },
     frames: [], nowTimestampMs: Date.now(),
   }), [roleSource, sourceMode, sourceStatus, wsConnection.isConnected, sourceSampleRate, spectrum.fftSize, spectrum.fftWindow, spectrum.displayTemporalResolution, settings.fftFrameRate, settings.maxFrameRate]);
+  React.useEffect(() => {
+    if (data.sourceRole === "tx") return;
+    setDemodQualityStatus({
+      fit: demodQuality.fit,
+      reasons: demodQuality.reasons,
+    });
+    return () => setDemodQualityStatus(null);
+  }, [data.sourceRole, demodQuality.fit, demodQuality.reasons, setDemodQualityStatus]);
   const applyFrequencyRange = React.useCallback(
     (range: { min: number; max: number }) => {
       dispatch(setFrequencyRange(range));
@@ -242,12 +252,6 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         {data.label}
       </NodeHeader>
       <NodeSubtitle>Hardware sampling and FFT settings</NodeSubtitle>
-
-      <div role="status" data-testid="demod-quality-status" data-quality-fit={demodQuality.fit}>
-        {demodQuality.fit === "ready"
-          ? "Demodulation quality requirements met."
-          : `Demodulation is not ready: ${demodQuality.reasons.join(" ")}`}
-      </div>
 
       <SignalDisplaySection
         variant="default"

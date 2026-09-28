@@ -17,8 +17,24 @@ interface UsePlaybackAnimationProps {
 type PlaybackFrameUpdate = {
   sample_offset: number;
   timestamp_us?: number;
-  patch: Record<string, unknown>;
+  kind?: string;
+  frame_sequence?: number;
+  patch?: Record<string, unknown>;
 };
+
+export function getIqFrameTimestampAtOffset(
+  updates: PlaybackFrameUpdate[],
+  byteOffset: number,
+): number | null {
+  let timestamp: number | null = null;
+  for (const update of updates) {
+    if (update.sample_offset > byteOffset) break;
+    if (update.kind === "Frame" && Number.isFinite(update.timestamp_us)) {
+      timestamp = update.timestamp_us! / 1000;
+    }
+  }
+  return timestamp;
+}
 
 export function getIqFrameAtOffset(
   iq: Uint8Array,
@@ -29,7 +45,7 @@ export function getIqFrameAtOffset(
   let fftSize = initialFftSize;
   for (const update of updates) {
     if (Number(update.sample_offset) > byteOffset) break;
-    const patchedSize = Number(update.patch.fft_size);
+    const patchedSize = Number(update.patch?.fft_size);
     if (Number.isInteger(patchedSize) && patchedSize > 0) fftSize = patchedSize;
   }
   const byteLength = fftSize * BYTES_PER_IQ_SAMPLE.u8;
@@ -135,7 +151,7 @@ export const usePlaybackAnimation = ({
               ...playbackMetadataRef.current,
               ...update.patch,
             };
-            const patchedFftSize = Number(update.patch.fft_size);
+            const patchedFftSize = Number(update.patch?.fft_size);
             if (Number.isInteger(patchedFftSize) && patchedFftSize > 0) {
               currentFftSizeRef.current = patchedFftSize;
             }
@@ -163,7 +179,7 @@ export const usePlaybackAnimation = ({
             ) {
               const update = updates[frameUpdateIndexRef.current++];
               playbackMetadataRef.current = { ...playbackMetadataRef.current, ...update.patch };
-              const patchedFftSize = Number(update.patch.fft_size);
+              const patchedFftSize = Number(update.patch?.fft_size);
               if (Number.isInteger(patchedFftSize) && patchedFftSize > 0) {
                 currentFftSizeRef.current = patchedFftSize;
               }
@@ -179,6 +195,10 @@ export const usePlaybackAnimation = ({
 
           if (chunk && chunk.length >= 2) {
             const playbackMetadata = playbackMetadataRef.current || {};
+            const capturedTimestamp = getIqFrameTimestampAtOffset(
+              updates,
+              iqFrameOffsetRef.current - chunk.byteLength,
+            );
             fftCanvasDataRef.current = {
               type: "spectrum",
               center_frequency_hz: Number(
@@ -187,7 +207,7 @@ export const usePlaybackAnimation = ({
               sample_rate: Number(
                 playbackMetadata.sample_rate_hz ?? channelData.sample_rate_hz,
               ),
-              timestamp,
+              timestamp: capturedTimestamp ?? timestamp,
               data_type: "iq_raw",
               iq_data: chunk,
             };

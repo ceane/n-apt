@@ -16,6 +16,9 @@ export type DemodAlgorithm =
   | "aptAudio"
   | "aptImage";
 
+/** User-selectable live output; neural requires an explicitly validated model. */
+export type DemodSelection = DemodAlgorithm | "neural";
+
 /** Configuration shared by the streaming demodulator implementations. */
 export type DemodProcessorOptions = {
   targetSampleRate: number;

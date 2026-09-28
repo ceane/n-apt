@@ -146,6 +146,16 @@ describe("IQ frame envelope decoder fuzz", () => {
     );
   });
 
+  it("preserves held-IQ freshness metadata from the v2 reserved header byte", () => {
+    const buffer = buildValidV2Buffer("rtl-1", 1, 2, 16);
+    new DataView(buffer).setUint8(11, 1); // is_fresh = false
+
+    expect(decodeIqFrameEnvelope(buffer, "fallback").metadata).toMatchObject({
+      protocol_version: 2,
+      is_fresh: false,
+    });
+  });
+
   it("valid v1 (non-magic) buffers parse the legacy 24-byte header", () => {
     fc.assert(
       fc.property(

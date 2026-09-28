@@ -2,6 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import websocketSlice, {
   updateDeviceState,
   setCaptureStatus,
+  setAppliedStreamOptions,
   setSpectrumFrames,
 } from "@n-apt/redux/slices/websocketSlice";
 import {
@@ -350,7 +351,7 @@ describe("client-local presentation status isolation", () => {
 });
 
 describe("managed stream option synchronization", () => {
-  it("does not hydrate Redux from a local stream option echo", () => {
+  it("tracks a local RX option update for live frame matching without hydrating device settings", () => {
     const dispatch = jest.fn();
     const options = {
       mode: "rx" as const,
@@ -375,7 +376,141 @@ describe("managed stream option synchronization", () => {
       () => ({ websocket: {}, spectrum: {} }),
     );
 
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(setAppliedStreamOptions({
+      sourceId: "mock-apt",
+      streamEpoch: 3,
+      optionsRevision: 2,
+      options,
+    }));
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "websocket/updateDeviceState" }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setDeviceSdrSettingsBundle" }),
+    );
+  });
+
+  it("reconciles the source snapshot from a local correction acknowledgement without rehydrating the spectrum view", () => {
+    const dispatch = jest.fn();
+    const options = {
+      mode: "rx" as const,
+      centerFrequencyHz: 1_618_000,
+      sampleRateHz: 3_200_000,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      frameRate: 60,
+    };
+    const source = {
+      id: "rtl-sdr-00000001",
+      status: "receiving",
+      kind: "rtl-sdr",
+      name: "RTL-SDR v4",
+      capability: "rx",
+      supports_approx_dbm: true,
+      iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+      sdr: {
+        max_sample_rate: 3_200_000,
+        sample_rate_options: [3_200_000],
+        settings: {
+          center_frequency: 1_600_000,
+          sample_rate: 3_200_000,
+          fft_size: 2048,
+          fft_window: "Rectangular",
+          frame_rate: 60,
+          gain: 46.9,
+          ppm: 1,
+          tuner_agc: false,
+          rtl_agc: false,
+        },
+        fft_display: { markers: [] },
+      },
+    } as any;
+    const rootState = {
+      websocket: { activeSourceId: "rtl-sdr-00000001", sources: [source] },
+      spectrum: {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        sampleRateHz: 3_200_000,
+        fftSize: 2048,
+        activeSignalArea: "A",
+      },
+    };
+
+    handleManagedStreamEvent(
+      "rtl-sdr-00000001",
+      "rx",
+      {
+        type: "stream_options_applied",
+        sourceId: "rtl-sdr-00000001",
+        mode: "rx",
+        streamEpoch: 4,
+        optionsRevision: 15,
+        origin: "acknowledgement",
+        options,
+      },
+      dispatch,
+      () => rootState,
+    );
+
+    expect(dispatch).toHaveBeenCalledWith(setAppliedStreamOptions({
+      sourceId: "rtl-sdr-00000001",
+      streamEpoch: 4,
+      optionsRevision: 15,
+      options,
+    }));
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: updateDeviceState.type,
+      payload: expect.objectContaining({
+        sources: [expect.objectContaining({
+          id: "rtl-sdr-00000001",
+          sdr: expect.objectContaining({
+            settings: expect.objectContaining({
+              center_frequency: 1_618_000,
+              sample_rate: 3_200_000,
+              fft_size: 2048,
+              fft_window: "Rectangular",
+            }),
+          }),
+        })],
+        sdrSettings: expect.objectContaining({
+          sampleRate: 3_200_000,
+          fftSize: 2048,
+        }),
+      }),
+    }));
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "spectrum/setDeviceSdrSettingsBundle" }),
+    );
+  });
+
+  it("replaces an optimistic revision with the higher device-global acknowledgement revision", () => {
+    const optimisticOptions = {
+      mode: "rx" as const,
+      centerFrequencyHz: 1_618_000,
+      sampleRateHz: 3_200_000,
+      fftSize: 2048,
+      fftWindow: "Rectangular",
+      frameRate: 60,
+    };
+    const correctedOptions = { ...optimisticOptions, centerFrequencyHz: 1_600_000 };
+
+    const optimisticState = websocketSlice(undefined, setAppliedStreamOptions({
+      sourceId: "rtl-sdr-00000001",
+      streamEpoch: 4,
+      optionsRevision: 13,
+      options: optimisticOptions,
+    }));
+    const acknowledgedState = websocketSlice(optimisticState, setAppliedStreamOptions({
+      sourceId: "rtl-sdr-00000001",
+      streamEpoch: 4,
+      optionsRevision: 15,
+      options: correctedOptions,
+    }));
+
+    expect(acknowledgedState.appliedStreamOptionsBySource["rtl-sdr-00000001"]).toEqual({
+      streamEpoch: 4,
+      optionsRevision: 15,
+      options: correctedOptions,
+    });
   });
 
   it("does not re-anchor a local mirrored view during stream startup hydration", () => {
@@ -1679,6 +1814,24 @@ Object.assign(global.WebSocket, {
 });
 
 describe("Redux WebSocket Migration", () => {
+  it("resolves the Tx preview source from a non-default experiment binding", () => {
+    expect(
+      resolveTxPreviewSourceId(
+        {
+          activeSourceId: "rtl-1",
+          sourceRouting: {
+            bindings: {
+              "reverse-engineering:tx": "hackrf-1",
+              "tx-suite:tx": null,
+            },
+          },
+          sources: [],
+        },
+        "reverse-engineering",
+      ),
+    ).toBe("hackrf-1");
+  });
+
   it("does not fall back to Tx preview for a paused half-duplex Rx source", () => {
     expect(
       resolveTxPreviewSourceId({

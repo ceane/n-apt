@@ -122,6 +122,7 @@ export const makeFrame = async (
         : mode === "tx"
           ? "transmitting"
           : "receiving",
+    is_fresh: message.isFresh !== false,
     is_tx_preview: message.isTxPreview === true ? true : undefined,
     iq_data: iqData,
   };

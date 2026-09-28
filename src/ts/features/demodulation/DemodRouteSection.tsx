@@ -837,6 +837,9 @@ const DemodRouteSectionInner: React.FC = () => {
         const isTxSuite = nodesRef.current.some(
           (candidate) => candidate.data?.txSuite === true,
         );
+        const isReverseEngineeringFlow = nodesRef.current.some(
+          (candidate) => candidate.data?.reverseEngineeringFlow === true,
+        );
         const txSuiteLayout = (() => {
           if (!isTxSuite) return null;
           const next: Record<string, { x: number; y: number }> = {
@@ -865,6 +868,48 @@ const DemodRouteSectionInner: React.FC = () => {
           return next;
         })();
 
+        const reverseEngineeringLayout = (() => {
+          if (!isReverseEngineeringFlow) return null;
+
+          const next: Record<string, { x: number; y: number }> = {
+            source: { x: 650, y: 40 },
+            "tx-settings": { x: 40, y: 320 },
+            "rx-channel": { x: 700, y: 320 },
+            "rx-signal-config": { x: 1260, y: 320 },
+          };
+
+          const txControlIds = [
+            "experiment-control",
+            "tx-signal-config",
+            "tx-fft",
+            "tx-waterfall",
+          ];
+          let txY = 320 + (sizeMap.get("tx-settings")?.h ?? 400) + 80;
+          for (const id of txControlIds) {
+            next[id] = { x: 40, y: txY };
+            txY += (sizeMap.get(id)?.h ?? 400) + 80;
+          }
+
+          const rxVisualIds = [
+            "rx-fft",
+            "rx-waterfall",
+            "experiment-observation",
+          ];
+          let rxY =
+            320 +
+            Math.max(
+              sizeMap.get("rx-channel")?.h ?? 400,
+              sizeMap.get("rx-signal-config")?.h ?? 400,
+            ) +
+            80;
+          for (const id of rxVisualIds) {
+            next[id] = { x: 700, y: rxY };
+            rxY += (sizeMap.get(id)?.h ?? 400) + 80;
+          }
+
+          return next;
+        })();
+
         setNodesLocal((nds: Node[]) => {
           let hasPositionChanges = false;
           const nextNodes = nds.map((node: Node) => {
@@ -874,7 +919,10 @@ const DemodRouteSectionInner: React.FC = () => {
             let targetX = layoutPosition.x;
             let targetY = layoutPosition.y;
 
-            if (txSuiteLayout && txSuiteLayout[node.id]) {
+            if (reverseEngineeringLayout?.[node.id]) {
+              targetX = reverseEngineeringLayout[node.id].x;
+              targetY = reverseEngineeringLayout[node.id].y;
+            } else if (txSuiteLayout && txSuiteLayout[node.id]) {
               targetX = txSuiteLayout[node.id].x;
               targetY = txSuiteLayout[node.id].y;
             }

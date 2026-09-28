@@ -37,6 +37,7 @@ describe("buildDemodFlowGraph", () => {
       "source",
       "channel",
       "signal-config",
+      "demod-readiness",
       "stimulus",
       "output",
     ]);

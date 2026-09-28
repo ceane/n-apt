@@ -3,8 +3,11 @@ import { SourceNode } from "@n-apt/demodulation/react-flow/nodes/SourceNode";
 import { MetadataNode } from "@n-apt/demodulation/react-flow/nodes/MetadataNode";
 import { SpanNode } from "@n-apt/demodulation/react-flow/nodes/SpanNode";
 import { SignalConfigNode } from "@n-apt/demodulation/react-flow/nodes/SignalConfigNode";
+import { DemodReadinessNode } from "@n-apt/demodulation/react-flow/nodes/DemodReadinessNode";
 import { StimulusNode } from "@n-apt/demodulation/react-flow/nodes/StimulusNode";
 import { OutputNode } from "@n-apt/demodulation/react-flow/nodes/OutputNode";
+import { ExperimentControlNode } from "@n-apt/demodulation/react-flow/nodes/ExperimentControlNode";
+import { ExperimentObservationNode } from "@n-apt/demodulation/react-flow/nodes/ExperimentObservationNode";
 
 export interface DemodNodeData {
   label?: React.ReactNode;
@@ -137,6 +140,7 @@ export const DEMOD_NODE_REGISTRY: DemodNodeRegistryEntry[] = [
   { flag: "channelNode", Component: LazyChannelNode },
   { flag: "txSignalOptions", Component: LazyTxSignalConfigNode },
   { flag: "signalOptions", Component: SignalConfigNode },
+  { flag: "demodReadinessOptions", Component: DemodReadinessNode },
   { flag: "metadataNode", Component: MetadataNode },
   { flag: "channelOptions", Component: LazyChannelOptionsNode },
   { flag: "spanOptions", Component: SpanNode },
@@ -150,6 +154,8 @@ export const DEMOD_NODE_REGISTRY: DemodNodeRegistryEntry[] = [
   { flag: "fileOptions", Component: LazyFileOptionsNode },
   { flag: "iqCaptureNode", Component: LazyIQCaptureNode },
   { flag: "txOptions", Component: LazyTxNode },
+  { flag: "experimentControlOptions", Component: ExperimentControlNode },
+  { flag: "experimentObservationOptions", Component: ExperimentObservationNode },
   { flag: "outputNode", Component: OutputNode },
 ];
 

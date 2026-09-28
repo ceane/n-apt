@@ -57,6 +57,9 @@ pub struct FrameUpdate {
   /// Semantic event type for sparse capture metadata changes.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub kind: Option<String>,
+  /// Zero-based captured-frame sequence for `Frame` timestamp markers.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub frame_sequence: Option<u64>,
   /// Source that produced the bytes following this frame-boundary event.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub source_id: Option<String>,
@@ -371,6 +374,7 @@ mod tests {
         timestamp_us: 25,
         channel: None,
         kind: None,
+        frame_sequence: None,
         source_id: None,
         job_id: None,
         patch: serde_json::json!({"center_frequency_hz": 137500000}),

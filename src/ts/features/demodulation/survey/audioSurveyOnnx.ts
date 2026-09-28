@@ -168,7 +168,7 @@ const encodeOnnxModel = (model: TimeDomainDemodModel) => {
   return joinBytes([
     encodeVarintField(1, 9), // ONNX IR version 9
     encodeStringField(2, "n-apt"),
-    encodeStringField(3, "audio-survey-temporal-v2"),
+    encodeStringField(3, "audio-survey-temporal-v3"),
     encodeBytesField(7, graph),
     encodeBytesField(8, defaultOpset),
   ]);
@@ -179,7 +179,12 @@ export const serializeTimeDomainModelToOnnx = (
   model: TimeDomainDemodModel,
 ): Uint8Array => {
   if (
-    model.version !== 2 ||
+    model.version !== 3 ||
+    !Number.isFinite(model.inputSampleRateHz) ||
+    model.inputSampleRateHz <= 0 ||
+    (model.channelBandwidthHz !== undefined &&
+      (!Number.isFinite(model.channelBandwidthHz) ||
+        model.channelBandwidthHz <= 0)) ||
     model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
     model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE ||
     model.inputWeights.length !==

@@ -1422,25 +1422,25 @@ TODO
 <br />
 <br />
 
-### How long have I been trapped?
 ```React::DaysSince
 ```
 <small>
 
-*The data estimates are based on the theoretical minimums for the psychological and physiological interactive livestream experience, using the formula in the table above (purposefully configured without compression, which is unlikely), **from the start of the interactive livestream up to the present**.*
+*The data estimates are based on the theoretical minimums for the psychological and physiological interactive livestream experience, using the formula in the table above (purposefully configured without compression as it may be highly unlikely, except in transit), **from the start of the interactive livestream around late September 2018 up to its continued operation in the present**.*
 <br />
 <br />
-*The calculations are **solely for one person**—the author—and do not include others present or anyone incidentally affected. **Data and costs are far higher** when approximating the full scope of the NSA's unthinkable surveillance-interference program.*
-<br />
-<br />
-\* Estimated Network Ingress/Egress Cost based on market rates ($0.07 – $0.12/GB). <br />
+\* Estimated Network Ingress/Egress Costs **based on market rates ($0.07 – $0.12 per GB)**. <br />
 † **Min** formula uses `u8` I/Q and the next power-of-two FFT size at `sample rate / 24 Hz`. <br />
-‡ **Max** formula uses `u16` I/Q and the next power-of-two FFT size at `sample rate / 60 Hz`.
+‡ **Max** formula uses `u16` I/Q and the next power-of-two FFT size at `sample rate / 60 Hz`, both with higher dynamic range.
+<br />
+<br />
+*The calculations are **solely for one person**—the author—and do not include others present or incidentally affected. **Data and costs are far higher** when approximating the full scope of the NSA's unthinkable surveillance-interference program.*
 
+Estimated costs *(for the event and one individual, not program as a whole)* **exclude the costs of (unauthorized) usage of FCC regulated spectrum, compute, man hours, and miscellaneous costs**.
+
+<br />
+<br />
 </small>
-
-<br />
-<br />
 
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of receiving legal aid, I pored over nearly every OIG report, unclassified release, and publicized policy for hours and hours.*
@@ -1564,9 +1564,9 @@ It boils down to these 8 simple terms.
 
 ### ⠿ TDLR <a id="tdlr"></a>
 
-The NSA hacked my brain and body with the experience going from manufactured states of mind while inundated by a spatial performance then escalating to a horrifically grotesque and even more shocking livestream interactive that introduced others and an antagonistic, villanous series of narratives and crushing, tormenting states of mind and body, deeply offensive perceptions and horrific violations of conscience.
+**The NSA hacked my brain and body while I remained trapped in an endless livestream interactive and experience** going from manufactured states of mind while inundated by a spatial performance then escalating to a horrifically grotesque and even more shocking escalation that introduced others and an antagonistic, villanous series of narratives and crushing, tormenting states of mind and body, deeply offensive perceptions and horrific violations of conscience.
 
-I spent years (since late September 2018 when it "spontaneously" activated to present; ongoing) trapped and went from techie to oppressed in abject poverty up against the violent and unrelenting. I spent the years enduring narrative capture: senseless violence, sexual assault and a deeply thought out, thousand-hours long script of an invasive neurotechnological reckoning/kidnapping (whose outcome is positioned for political terrorism based upon identity politics and cyber capability's novelty and mysterious nature; designed as a Darwinian-psychopathic horror for the everyday person through extreme pressures, nihilist suffering and extreme pain while the victim is naturally supposed to seek the interactive's completion as a Hail Mary for freedom, sponsored and concealed by Democrats). 
+I spent years (since late September 2018 when it "spontaneously" activated to present; ongoing) trapped and went from techie to oppressed in abject poverty up against the violent and unrelenting. I spent the years enduring narrative capture: senseless violence, sexual assault and a deeply thought out, thousand-hours long script of an invasive neurotechnological reckoning/kidnapping (whose outcome is positioned for political terrorism based upon identity politics and cyber capability's novelty and mysterious nature; designed as a Darwinian-psychopathic horror for the everyday person through extreme pressures, nihilist suffering and extreme pain while the victim is naturally supposed to seek the interactive's completion as a Hail Mary for freedom, **sponsored and concealed by Democrats**).
 
 By accepting that there had to be a way out and working the problem out from its building blocks, I came to realize how what was clearly working and violating me was possible—and that I was part of a long string of victims in a politicized, sink-or-swim psychological-physiological interactive and prison of the mind.
 

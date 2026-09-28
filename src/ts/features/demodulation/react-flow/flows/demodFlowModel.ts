@@ -573,23 +573,30 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
       data: { label: "Signal Configuration", signalOptions: true },
     },
     {
-      id: "stimulus",
+      id: "demod-readiness",
       type: "custom",
       position: { x: 250, y: 950 },
+      data: { label: "Demodulation Readiness", demodReadinessOptions: true },
+    },
+    {
+      id: "stimulus",
+      type: "custom",
+      position: { x: 250, y: 1450 },
       data: { label: "Stimulus", description: "Select a known reference stimulus", stimulusOptions: true },
     },
     {
       id: "output",
       type: "custom",
-      position: { x: 250, y: 1350 },
+      position: { x: 250, y: 1850 },
       data: { label: "Output", description: "Use the generated I/Q capture for demodulation", outputNode: true },
     },
   ];
   const edges: Edge[] = [
     { id: `e-source-${middleId}`, source: "source", target: middleId, animated: true },
     { id: "e-source-signal-config", source: "source", target: "signal-config", animated: true },
-    { id: `e-${middleId}-stimulus`, source: middleId, target: "stimulus", animated: true },
-    { id: "e-signal-config-stimulus", source: "signal-config", target: "stimulus", animated: true },
+    { id: `e-${middleId}-readiness`, source: middleId, target: "demod-readiness", animated: true },
+    { id: "e-signal-config-readiness", source: "signal-config", target: "demod-readiness", animated: true },
+    { id: "e-readiness-stimulus", source: "demod-readiness", target: "stimulus", animated: true },
     { id: "e-stimulus-output", source: "stimulus", target: "output", animated: true },
   ];
   return { nodes, edges };

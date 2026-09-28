@@ -12,6 +12,7 @@ const mockDemodContext = {
     artifactCount: 0,
   },
   audioSurveyTraining: null as any,
+  audioSurveyNeuralModelReady: false,
   audioSurveyError: null as string | null,
   startAudioSurvey: jest.fn().mockResolvedValue(undefined),
   resumeAudioSurvey: jest.fn().mockResolvedValue(undefined),
@@ -31,6 +32,7 @@ import { CoreMLNode } from "@n-apt/demodulation/react-flow/nodes/CoreMLNode";
 describe("local audio survey controls", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDemodContext.audioSurveyNeuralModelReady = false;
   });
 
   it("starts the selected A/B source workflow and displays local storage usage", async () => {
@@ -72,10 +74,12 @@ describe("local audio survey controls", () => {
     expect(screen.getByRole("option", { name: /Neural/ })).toBeDisabled();
     expect(screen.getByRole("option", { name: /Neural/ })).toHaveAttribute(
       "title",
-      "Learns unknown decoding from aligned reference media and I/Q; live output waits for a validated ONNX temporal model.",
+      "Use Neural from the Radio node after a held-out win; this selector chooses a DSP baseline for stored survey clips.",
     );
     expect(
-      screen.getByText(/Neural learns from synchronized known media/),
+      screen.getByText(
+        /select Neural in the Radio node's Demod Algorithm dropdown/,
+      ),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Start survey" }));
 
@@ -86,5 +90,20 @@ describe("local audio survey controls", () => {
         "apt-style",
       ),
     );
+  });
+
+  it("shows when the validated model is ready for live neural decoding", () => {
+    mockDemodContext.audioSurveyNeuralModelReady = true;
+    render(
+      <TestWrapper>
+        <CoreMLNode
+          data={{ coremlOptions: true, label: "ML Audio Demodulator" }}
+        />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByText(/validated neural live decoder is ready/),
+    ).toBeInTheDocument();
   });
 });

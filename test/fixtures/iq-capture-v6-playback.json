@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "center_frequency_hz": 137500000,
+    "capture_sample_rate_hz": 3200000,
+    "hardware_sample_rate_hz": 3200000,
+    "fft_size": 2,
+    "fft_window": "Rectangular",
+    "gain": 12,
+    "ppm": 1
+  },
+  "frames": [
+    {
+      "sample_offset": 0,
+      "timestamp_us": 1000000,
+      "frame_sequence": 0,
+      "fft_size": 2,
+      "iq_data": [128, 127, 129, 126]
+    },
+    {
+      "sample_offset": 4,
+      "timestamp_us": 1025000,
+      "frame_sequence": 1,
+      "fft_size": 3,
+      "iq_data": [125, 130, 131, 124, 128, 128]
+    },
+    {
+      "sample_offset": 10,
+      "timestamp_us": 1047500,
+      "frame_sequence": 2,
+      "fft_size": 2,
+      "iq_data": [126, 130, 129, 127]
+    }
+  ]
+}

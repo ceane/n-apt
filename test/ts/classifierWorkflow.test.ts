@@ -15,9 +15,10 @@ it('models the selected-source scoring path and the offline training path as sep
   expect(nodeById.get('selected-source')?.data.detail).toContain('file playback');
   expect(nodeById.get('native-features')?.data.detail).toContain('Native FFT metadata');
   expect(nodeById.get('capture')?.data.detail).toContain('Capture stopped');
-  expect(nodeById.get('annotations')?.data.title).toContain('datapackage.json + labels.json');
-  expect(nodeById.get('annotations')?.data.detail).toContain('verified V6 trailer digest');
-  expect(nodeById.get('annotations')?.data.detail).toContain('filename + UTC capture time');
+  expect(nodeById.get('annotations')?.data.title).toBe('V6 .iq + labels.json');
+  expect(nodeById.get('annotations')?.data.detail).toContain('trailer SHA-256');
+  expect(nodeById.get('annotations')?.data.detail).not.toContain('filename + UTC fallback');
+  expect(nodeById.get('annotations')?.data.status).toBe('ready');
   expect(nodeById.get('offline-training')?.data.detail).toContain('Python');
   expect(nodeById.get('model-artifact')?.data.detail).toContain('native-morphology-v1');
   expect(nodeById.get('result')?.data.detail).toContain('Current score');

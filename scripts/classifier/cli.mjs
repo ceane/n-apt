@@ -123,6 +123,12 @@ function v6CaptureEvents(frameUpdates) {
       });
       continue;
     }
+    if (kind === 'Frame') {
+      if (!Number.isInteger(update.frame_sequence) || update.frame_sequence < 0) {
+        throw new Error('V6 Frame update has an invalid frame sequence');
+      }
+      continue;
+    }
     if (kind !== 'PatchOptionsApplied') {
       throw new Error(`Unsupported V6 frame update kind: ${kind}`);
     }
@@ -295,8 +301,9 @@ async function preparePackage(a) {
       }
     }
 
-    const firstTimedUpdate = updates.find(update => Number.isFinite(update.timestamp_us));
-    const firstUpdate = updates.find(update => update.sample_offset === 0);
+    const timingUpdates = updates.filter(update => update.kind === 'Frame' || update.kind === undefined || update.kind === 'PatchOptionsApplied');
+    const firstTimedUpdate = timingUpdates.find(update => Number.isFinite(update.timestamp_us));
+    const firstUpdate = timingUpdates.find(update => update.sample_offset === 0);
     const initialTimestamp = Number.isFinite(firstUpdate?.timestamp_us)
       ? firstUpdate.timestamp_us / 1000
       : firstTimedUpdate
@@ -347,7 +354,7 @@ async function preparePackage(a) {
         const id = `pkg_${createHash('sha256').update(`${capture.captureId}:${segmentIndex}`).digest('hex').slice(0, 16)}`;
         const iq = decodeIq(bytes, 'u8');
         const input = await writePreparedIq(iq, path.join(out, id));
-        const startUpdate = [...updates].reverse().find(update => update.sample_offset <= startByte);
+        const startUpdate = [...timingUpdates].reverse().find(update => update.sample_offset <= startByte);
         const timestampStartMs = Number.isFinite(startUpdate?.timestamp_us)
           ? startUpdate.timestamp_us / 1000 + ((startByte - startUpdate.sample_offset) / 2 / config.sampleRateHz) * 1000
           : initialTimestamp + (startByte / 2 / config.sampleRateHz) * 1000;

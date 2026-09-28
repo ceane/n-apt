@@ -80,6 +80,7 @@ const makePair = (id: string, createdAt: number): AudioSurveyArtifact => {
       aligned: true,
       iqData,
       iqSampleRateHz: 48_000,
+      bandwidthHz: 25_000,
       pcmData,
       pcmSampleRateHz: 48_000,
       baselinePcmData: new Float32Array(pcmData.length),
@@ -170,6 +171,11 @@ describe("resumable local audio model training", () => {
     expect(trainedArtifact?.payload).toEqual(
       expect.objectContaining({
         onnxModelData: expect.any(Uint8Array),
+        model: expect.objectContaining({
+          version: 3,
+          inputSampleRateHz: 48_000,
+          channelBandwidthHz: 25_000,
+        }),
       }),
     );
   });

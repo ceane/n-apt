@@ -103,6 +103,16 @@ describe("local time-domain audio model", () => {
     );
   });
 
+  it("rejects training pairs captured at different narrowband I/Q rates", () => {
+    const example = makeAmExample();
+    expect(() =>
+      trainTimeDomainDemodModel(
+        [example, { ...example, sampleRateHz: example.sampleRateHz * 2 }],
+        { epochs: 1, maxTrainingSamples: 64 },
+      ),
+    ).toThrow("Training examples must use the same I/Q sample rate");
+  });
+
   it("predicts a bounded PCM excerpt using the original aligned I/Q context", () => {
     const example = makeAmExample();
     const model = trainTimeDomainDemodModel([example], {

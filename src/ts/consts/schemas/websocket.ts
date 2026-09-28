@@ -183,6 +183,8 @@ type IqRawFramePayload = {
   type: "spectrum";
   is_mock_apt?: boolean;
   frame_status?: IqFrameStatus;
+  /** False when a display frame reuses samples from an earlier acquisition. */
+  is_fresh?: boolean;
   is_tx_preview?: boolean;
   is_mock_tx_preview?: boolean;
   center_frequency_hz?: number;

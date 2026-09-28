@@ -6,7 +6,12 @@ import DemodFilePlaybackBridge from "@n-apt/capture/DemodFilePlaybackBridge";
 import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
 
 var mockLiveDataRef = { current: null as any };
-const mockUsePlaybackAnimation = jest.fn(() => ({}));
+const mockUsePlaybackAnimation = jest.fn((..._args: any[]) => ({}));
+const mockChannelData = {
+  iq_data: new Uint8Array([1, 2, 3, 4]),
+  bins_per_frame: 2,
+  frame_updates: [] as any[],
+};
 
 jest.mock("@n-apt/redux/middleware/websocketMiddleware", () => ({
   liveDataRef: {
@@ -35,8 +40,7 @@ jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
     allChannelsRef: {
       current: [
         {
-          iq_data: new Uint8Array([1, 2, 3, 4]),
-          bins_per_frame: 2,
+          ...mockChannelData,
         },
       ],
     },
@@ -53,8 +57,8 @@ jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
 }));
 
 jest.mock("@n-apt/capture/hooks/usePlaybackAnimation", () => ({
-  usePlaybackAnimation: () => {
-    mockUsePlaybackAnimation();
+  usePlaybackAnimation: (...args: any[]) => {
+    mockUsePlaybackAnimation(...args);
     return {};
   },
 }));
@@ -63,6 +67,7 @@ describe("DemodFilePlaybackBridge", () => {
   afterEach(() => {
     mockLiveDataRef.current = null;
     filePlaybackDataRef.current = null;
+    mockChannelData.frame_updates = [];
     mockUsePlaybackAnimation.mockClear();
   });
 
@@ -84,5 +89,40 @@ describe("DemodFilePlaybackBridge", () => {
       iq_data: new Uint8Array([1, 2, 3, 4]),
       data_type: "iq_raw",
     });
+  });
+
+  it("passes V6 per-frame timestamps through to audio demod playback", () => {
+    const frameUpdates = [
+      {
+        sample_offset: 0,
+        timestamp_us: 1_000_000,
+        channel: 0,
+        kind: "Frame",
+        frame_sequence: 0,
+        patch: {},
+      },
+      {
+        sample_offset: 4,
+        timestamp_us: 1_025_000,
+        channel: 0,
+        kind: "Frame",
+        frame_sequence: 1,
+        patch: {},
+      },
+    ];
+    mockChannelData.frame_updates = frameUpdates;
+
+    render(
+      <DemodFilePlaybackBridge
+        selectedFiles={[{ id: "file-1", name: "capture.napt" }]}
+        stitchTrigger={1}
+        stitchSourceSettings={{ gain: 0, ppm: 0 }}
+        isPaused
+        fftSize={2048}
+      />,
+    );
+
+    const playbackArgs = mockUsePlaybackAnimation.mock.calls[0][0] as any;
+    expect(playbackArgs.allChannelsRef.current[0].frame_updates).toEqual(frameUpdates);
   });
 });

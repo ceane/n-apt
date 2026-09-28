@@ -146,7 +146,50 @@ describe.each(["loadFile", "stitchFiles"] as const)("%s NAPT decoding", (type) =
     expect(result.type).toBe("result");
     if (type === "loadFile") return;
     const metadata = result.data.metadataMap[0][1];
-    expect(metadata.channels_data[0].frame_updates).toEqual(frameUpdates);
+    expect(metadata.channels_data[0].frame_updates).toEqual(
+      frameUpdates.map(({ channel: _channel, ...update }) => update),
+    );
+  });
+
+  it("preserves backend Frame timestamps and sequences for playback", async () => {
+    const frameUpdates = [
+      {
+        sample_offset: 0,
+        timestamp_us: 1_000_000,
+        channel: 0,
+        kind: "Frame",
+        frame_sequence: 0,
+        source_id: "rtl-sdr-0",
+        job_id: "capture-1",
+        patch: {},
+      },
+      {
+        sample_offset: 8,
+        timestamp_us: 1_125_000,
+        channel: 0,
+        kind: "Frame",
+        frame_sequence: 1,
+        source_id: "rtl-sdr-0",
+        job_id: "capture-1",
+        patch: {},
+      },
+    ];
+    const result = await run(
+      "stitchFiles",
+      sectionedFile({
+        formatVersion: 6,
+        trailerVersion: 2,
+        frameUpdates,
+        channels: [{ ...channels[0], offset_iq: 0, iq_length: 16 }],
+      }),
+      { allowIntegrityFailure: true },
+    );
+
+    expect(result.type).toBe("result");
+    const metadata = result.data.metadataMap[0][1];
+    expect(metadata.channels_data[0].frame_updates).toEqual(
+      frameUpdates.map(({ channel: _channel, ...update }) => update),
+    );
   });
 
   it("routes channel-scoped V6 frame patches only to their matching channel", async () => {

@@ -15,6 +15,7 @@ import {
 } from "@n-apt/transmit";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
+import { canToggleTransmitMode } from "@n-apt/app/infrastructure/streams/sourceModeManagement";
 
 const NodeContent = styled.div`
   width: 100%;
@@ -45,14 +46,14 @@ const NodeHeader = styled.div`
   font-weight: 700;
 `;
 
-export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
+export const TxNode: React.FC<{ data: { label: string; sourceBindingGroup?: string } }> = ({ data }) => {
   const dispatch = useAppDispatch();
   const tx = useAppSelector((state) => state.spectrum);
   const { selectedSource, selectedSourceId, wsConnection } = useSpectrumStore();
+  const bindingGroup = data.sourceBindingGroup ?? "tx-suite";
   const txSourceId = useAppSelector(
     (state) =>
-      state.sourceRouting?.bindings[sourceBindingKey("tx-suite", "tx")] ??
-      null,
+      state.sourceRouting?.bindings[sourceBindingKey(bindingGroup, "tx")] ?? null,
   );
   const txSource = useAppSelector((state) =>
     (state.websocket.sources ?? []).find((source) => source.id === txSourceId),
@@ -60,9 +61,24 @@ export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
   const transmitSource = txSource ?? selectedSource;
   const transmitSourceId = txSource?.id ?? selectedSourceId;
   const isTransmitting = transmitSource?.status === "transmitting";
+  const isPhysicalHackRf = Boolean(
+    transmitSource &&
+      !transmitSource.is_mock &&
+      (`${transmitSource.kind ?? ""} ${transmitSource.name ?? ""}`
+        .toLowerCase()
+        .includes("hackrf")),
+  );
   const toggleTransmit = React.useCallback(() => {
     const device = transmitSource?.name ?? transmitSourceId;
-    if (!device) return;
+    if (
+      !device ||
+      (!isTransmitting && isPhysicalHackRf && bindingGroup === "reverse-engineering" && !tx.txSafetyEnabled) ||
+      (isPhysicalHackRf && !canToggleTransmitMode({
+        nextEnabled: !isTransmitting,
+        sourceId: transmitSourceId ?? "",
+        txBindingSourceId: txSourceId,
+      }))
+    ) return;
     wsConnection.sendTransmitStatus?.(!isTransmitting, device, {
       serialNumber: transmitSource?.serial_number ?? transmitSourceId,
       centerFrequencyHz: tx.txCenterFrequencyHz,
@@ -81,12 +97,15 @@ export const TxNode: React.FC<{ data: { label: string } }> = ({ data }) => {
       txHopChannels: tx.txHopChannels,
       txHopRateHz: tx.txHopRateHz,
     });
-  }, [isTransmitting, transmitSource, transmitSourceId, tx, wsConnection]);
+  }, [bindingGroup, isPhysicalHackRf, isTransmitting, transmitSource, transmitSourceId, tx, txSourceId, wsConnection]);
   const signalOptions = [
     { value: "wifi", label: "Naive WiFi" },
     { value: "5g", label: "Naive 5G" },
     { value: "d", label: "D" },
     { value: "d_sharp", label: "D#" },
+    { value: "tone", label: "Tone" },
+    { value: "noise", label: "Noise" },
+    { value: "custom", label: "Custom" },
   ];
 
   return (

@@ -21,6 +21,7 @@ const schedulePersist = (store: any) => {
     void persistNoteCards({
       cards,
       isCollapsed: noteCardsState.isCollapsed,
+      experimentLabels: noteCardsState.experimentLabels,
     });
   }, PERSIST_DEBOUNCE_MS);
 };

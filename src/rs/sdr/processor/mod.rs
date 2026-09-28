@@ -25,10 +25,10 @@ use super::{SdrDevice, SdrDeviceFactory};
 fn append_capture_bytes(
   iq_data: &mut Vec<u8>,
   updates: &mut Vec<crate::server::iq_format::FrameUpdate>,
-  update: Option<crate::server::iq_format::FrameUpdate>,
+  frame_updates: impl IntoIterator<Item = crate::server::iq_format::FrameUpdate>,
   frame_bytes: &[u8],
 ) {
-  if let Some(update) = update {
+  for update in frame_updates {
     updates.push(update);
   }
   iq_data.extend_from_slice(frame_bytes);
@@ -349,6 +349,15 @@ impl SdrProcessor {
   pub(crate) fn reset_capture_options_baseline(&mut self) {
     self.capture_last_frame_signature = Some(self.capture_options_snapshot());
   }
+
+  fn note_capture_interruption(&mut self, reason: &str) {
+    if self.capture_active
+      && self.capture_pending_interruption.is_none()
+      && self.capture_channels.iter().any(|channel| !channel.iq_data.is_empty())
+    {
+      self.capture_pending_interruption = Some(reason.to_string());
+    }
+  }
 }
 
 /// A device taken out of the processor so its native teardown can run without
@@ -485,6 +494,7 @@ pub struct SdrProcessor {
   pub power_scale: crate::server::types::PowerScale,
   pub capture_requested_channels: Option<Vec<ChannelSpec>>,
   pub capture_frame_updates: Vec<crate::server::iq_format::FrameUpdate>,
+  capture_pending_interruption: Option<String>,
   pub(crate) capture_last_frame_signature: Option<CaptureOptionsSnapshot>,
   /// Source bound to this capture; populated from the authoritative active source at start.
   pub capture_source_id: Option<String>,
@@ -611,6 +621,7 @@ impl SdrProcessor {
       power_scale: crate::server::types::PowerScale::DB, // Default to dB mode
       capture_requested_channels: None,
       capture_frame_updates: Vec::new(),
+      capture_pending_interruption: None,
       capture_last_frame_signature: None,
       capture_source_id: None,
     };
@@ -763,6 +774,8 @@ impl SdrProcessor {
       return Err(error);
     }
 
+    self.note_capture_interruption("device-reclaimed");
+
     // Do not synchronously stop the previous receiver here. In particular,
     // hackrf_stop_rx can block in firmware and prevent the caller from ever
     // publishing the newly active source. The caller owns the returned handle
@@ -811,6 +824,7 @@ impl SdrProcessor {
     let mut previous_device = std::mem::replace(&mut self.device, device);
     self.device_generation += 1;
     self.detached = false;
+    self.note_capture_interruption("device-reclaimed");
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
@@ -851,6 +865,7 @@ impl SdrProcessor {
   /// an unbounded time, so callers are expected to run the teardown somewhere
   /// they are willing to abandon; this method itself never blocks.
   pub fn detach_device(&mut self) -> DetachedDevice {
+    self.note_capture_interruption("device-reclaimed");
     let runtime_sample_rate = self.device.get_sample_rate();
     let device = std::mem::replace(
       &mut self.device,
@@ -1200,33 +1215,53 @@ impl SdrProcessor {
           .as_ref()
           .map(|previous| changed_capture_options_patch(previous, &signature))
           .unwrap_or_default();
+        let byte_offset = self.capture_channels[ch_idx].iq_data.len() as u64;
+        let timestamp_us = self
+          .capture_start
+          .map(|start| start.elapsed().as_micros() as u64)
+          .unwrap_or(0);
+        let frame_sequence = self.capture_actual_frames as u64;
+        let mut frame_updates = Vec::with_capacity(3);
+        frame_updates.push(crate::server::iq_format::FrameUpdate {
+          sample_offset: byte_offset,
+          timestamp_us,
+          channel: Some(ch_idx as u32),
+          kind: Some("Frame".into()),
+          frame_sequence: Some(frame_sequence),
+          source_id: self.capture_source_id.clone(),
+          job_id: self.capture_job_id.clone(),
+          patch: serde_json::json!({}),
+        });
+        if let Some(reason) = self.capture_pending_interruption.take() {
+          frame_updates.push(crate::server::iq_format::FrameUpdate {
+            sample_offset: byte_offset,
+            timestamp_us,
+            channel: Some(ch_idx as u32),
+            kind: Some("StreamInterrupted".into()),
+            frame_sequence: Some(frame_sequence),
+            source_id: self.capture_source_id.clone(),
+            job_id: self.capture_job_id.clone(),
+            patch: serde_json::json!({ "code": 1, "reason": reason }),
+          });
+        }
         if !patch.is_empty() {
-          let update = crate::server::iq_format::FrameUpdate {
-            sample_offset: self.capture_channels[ch_idx].iq_data.len() as u64,
-            timestamp_us: self
-              .capture_start
-              .map(|s| s.elapsed().as_micros() as u64)
-              .unwrap_or(0),
+          frame_updates.push(crate::server::iq_format::FrameUpdate {
+            sample_offset: byte_offset,
+            timestamp_us,
             channel: Some(ch_idx as u32),
             kind: Some("PatchOptionsApplied".into()),
+            frame_sequence: Some(frame_sequence),
             source_id: self.capture_source_id.clone(),
             job_id: self.capture_job_id.clone(),
             patch: serde_json::Value::Object(patch),
-          };
-          append_capture_bytes(
-            &mut self.capture_channels[ch_idx].iq_data,
-            &mut self.capture_frame_updates,
-            Some(update),
-            &display_samples.data,
-          );
-        } else {
-          append_capture_bytes(
-            &mut self.capture_channels[ch_idx].iq_data,
-            &mut self.capture_frame_updates,
-            None,
-            &display_samples.data,
-          );
+          });
         }
+        append_capture_bytes(
+          &mut self.capture_channels[ch_idx].iq_data,
+          &mut self.capture_frame_updates,
+          frame_updates,
+          &display_samples.data,
+        );
         self.capture_last_frame_signature = Some(signature);
         self.capture_channels[ch_idx]
           .spectrum_data
@@ -2032,7 +2067,9 @@ impl SdrProcessor {
       request.bandwidth_center_frequency;
     self.capture_active = true;
     self.capture_manual_stop = false;
+    self.capture_actual_frames = 0;
     self.capture_frame_updates.clear();
+    self.capture_pending_interruption = None;
     self.capture_last_frame_signature = None;
 
     // Tune to first hop
@@ -2444,7 +2481,11 @@ mod hackrf_settings_tests {
       .expect("apply dynamic settings");
     processor.read_and_process_frame().expect("frame after settings");
 
-    let update = processor.capture_frame_updates.first().expect("sparse patch");
+    let update = processor
+      .capture_frame_updates
+      .iter()
+      .find(|update| update.kind.as_deref() == Some("PatchOptionsApplied"))
+      .expect("sparse patch");
     assert_eq!(update.sample_offset, first_frame_bytes as u64);
     assert_eq!(update.timestamp_us > 0, true);
     assert_eq!(update.kind.as_deref(), Some("PatchOptionsApplied"));
@@ -2459,6 +2500,87 @@ mod hackrf_settings_tests {
   }
 
   #[test]
+  fn capture_records_reclaimed_stream_interruption_at_the_next_frame_boundary() {
+    let mut processor = SdrProcessor::with_device(Box::new(RecordingDevice {
+      sample_rate: 2_400_000,
+      center_frequency: 100_000_000,
+      kind: Some("rtl-sdr"),
+      ..Default::default()
+    }))
+    .expect("processor");
+    processor
+      .start_capture(crate::server::types::CaptureRequest {
+        job_id: "reclaimed-stream".into(),
+        fragments: vec![crate::server::types::CaptureFragment {
+          min_freq_mhz: 137.0,
+          max_freq_mhz: 137.01,
+        }],
+        duration_s: 5.0,
+        duration_mode: "manual".into(),
+        file_type: ".iq".into(),
+        acquisition_mode: "whole_sample".into(),
+        encrypted: false,
+        fft_size: 2048,
+        fft_window: "Rectangular".into(),
+        geolocation: None,
+        bandwidth: None,
+        bandwidth_center_frequency: None,
+      })
+      .expect("start capture");
+    processor.capture_source_id = Some("rtl-sdr-0".into());
+    processor.reset_capture_options_baseline();
+    processor.read_and_process_frame().expect("initial frame");
+    let interrupted_at = processor.capture_channels[0].iq_data.len() as u64;
+    assert!(interrupted_at > 0, "initial capture frame bytes");
+
+    let detached = processor.detach_device();
+    assert_eq!(processor.capture_pending_interruption.as_deref(), Some("device-reclaimed"));
+    assert!(matches!(
+      processor.attach_device(detached.device, detached.generation),
+      DeviceAttachOutcome::Installed
+    ));
+    processor
+      .read_and_process_frame()
+      .expect("held frame during recovery cooldown");
+    assert!(processor.frame.published_held_spectrum);
+    assert_eq!(processor.capture_pending_interruption.as_deref(), Some("device-reclaimed"));
+    assert!(!processor
+      .capture_frame_updates
+      .iter()
+      .any(|update| update.kind.as_deref() == Some("StreamInterrupted")));
+
+    // Recovery intentionally waits out the retune cooldown and drops initial
+    // samples. The event belongs to the first subsequently captured frame.
+    processor.frame.retune_cooldown_until = None;
+    processor.read_and_process_frame().expect("recovered frame");
+
+    let interruption = processor
+      .capture_frame_updates
+      .iter()
+      .find(|update| update.kind.as_deref() == Some("StreamInterrupted"))
+      .expect("stream interruption marker");
+    let options_patch = processor
+      .capture_frame_updates
+      .iter()
+      .find(|update| update.kind.as_deref() == Some("PatchOptionsApplied"))
+      .expect("co-located applied-options patch");
+    assert_eq!(interruption.patch["code"], 1);
+    assert_eq!(interruption.patch["reason"], "device-reclaimed");
+    assert_eq!(interruption.sample_offset, interrupted_at);
+    assert_eq!(options_patch.sample_offset, interrupted_at);
+    assert_eq!(options_patch.timestamp_us, interruption.timestamp_us);
+    let frame_marker = processor
+      .capture_frame_updates
+      .iter()
+      .find(|update| update.kind.as_deref() == Some("Frame") && update.sample_offset == interrupted_at)
+      .expect("per-frame timestamp marker");
+    assert_eq!(frame_marker.sample_offset, interrupted_at);
+    assert_eq!(frame_marker.timestamp_us, interruption.timestamp_us);
+    assert_eq!(frame_marker.frame_sequence, Some(1));
+    assert!(processor.capture_channels[0].iq_data.len() > interrupted_at as usize);
+  }
+
+  #[test]
   fn capture_update_byte_offset_and_processing_timestamp_precede_new_frame_bytes() {
     let mut iq_data = vec![1u8, 2, 3, 4];
     let mut updates = Vec::new();
@@ -2470,9 +2592,10 @@ mod hackrf_settings_tests {
       kind: Some("PatchOptionsApplied".into()),
       source_id: Some("rtl-sdr-0".into()),
       job_id: Some("capture-test".into()),
+      frame_sequence: None,
       patch: serde_json::json!({ "center_frequency_hz": 137_100_000 }),
     };
-    append_capture_bytes(&mut iq_data, &mut updates, Some(update), &[5, 6, 7, 8]);
+    append_capture_bytes(&mut iq_data, &mut updates, [update], &[5, 6, 7, 8]);
 
     assert_eq!(updates[0].sample_offset, 4, "legacy sample_offset is a byte offset");
     assert_eq!(updates[0].timestamp_us, processing_timestamp_us);

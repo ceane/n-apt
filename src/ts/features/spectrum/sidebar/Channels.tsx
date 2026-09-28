@@ -62,45 +62,70 @@ const ChannelsSpectrumGrid = styled.div`
 `;
 
 /** Grid (not flex) so nested `ReduxFrequencyRangeSlider` subgrid matches spectrum sidebar behavior. */
-const ChannelsDemodBody = styled.div`
+const ChannelsDemodBody = styled.div<{ $channelPickerOnly?: boolean }>`
   display: grid;
-  gap: 16px;
+  grid-template-columns: ${({ $channelPickerOnly }) =>
+    $channelPickerOnly ? "repeat(auto-fit, minmax(180px, 1fr))" : "1fr"};
+  gap: ${({ $channelPickerOnly }) => ($channelPickerOnly ? "8px" : "16px")};
   grid-column: 1 / -1;
-  padding: 8px 0;
+  padding: ${({ $channelPickerOnly }) =>
+    $channelPickerOnly ? "4px 0" : "8px 0"};
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
 `;
 
-const ChannelBlock = styled.button<{ $isActive: boolean }>`
-  background: transparent;
-  border: none;
-  padding: 0;
+const ChannelBlock = styled.button<{
+  $isActive: boolean;
+  $compact?: boolean;
+  disabled?: boolean;
+}>`
+  background: ${({ theme, $compact }) =>
+    $compact ? theme.colors.background : "transparent"};
+  border: ${({ theme, $compact }) =>
+    $compact ? `1px solid ${theme.colors.border}` : "none"};
+  padding: ${({ $compact }) => ($compact ? "8px 10px" : "0")};
   margin: 0;
-  cursor: pointer;
+  border-radius: ${({ $compact }) => ($compact ? "9px" : "0")};
+  cursor: ${({ disabled }) => (disabled ? "not-allowed" : "pointer")};
   display: flex;
   align-items: baseline;
   gap: 20px;
   text-align: left;
-  transition: opacity 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    opacity 0.2s ease;
+  opacity: ${({ disabled }) => (disabled ? 0.55 : 1)};
   user-select: none;
   align-items: center;
 
-  &:hover {
+  &:hover:not(:disabled) {
     opacity: 0.8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.primary};
+    outline-offset: 2px;
   }
 `;
 
-const ChannelLetter = styled.span<{ $isActive: boolean }>`
-  font-size: 36px;
+const ChannelLetter = styled.span<{
+  $isActive: boolean;
+  $compact?: boolean;
+}>`
+  font-size: ${({ $compact }) => ($compact ? "20px" : "36px")};
   font-weight: 800;
   color: ${(props) =>
     props.$isActive ? props.theme.primary : props.theme.textDisabled};
   line-height: 1;
 `;
 
-const ChannelFreq = styled.span<{ $isActive: boolean }>`
-  font-size: 18px;
+const ChannelFreq = styled.span<{
+  $isActive: boolean;
+  $compact?: boolean;
+}>`
+  font-size: ${({ $compact }) => ($compact ? "10px" : "18px")};
   font-weight: 700;
   font-family: ${(props) => props.theme.typography.mono};
   color: ${(props) =>
@@ -316,6 +341,12 @@ interface ChannelsProps {
   activeSampleRateHz?: number | null;
   /** Explicit selector mode. Do not infer this globally from channel spans. */
   wholeChannelMode?: boolean;
+  /** Limit channel choices when a workflow accepts only specific RF ranges. */
+  channelLabels?: readonly string[];
+  /** Render only compact tune buttons, without manual tuning or range sliders. */
+  channelPickerOnly?: boolean;
+  /** Disable tune buttons while the consuming workflow is busy. */
+  channelPickerDisabled?: boolean;
 }
 
 const IQExplainerTooltip = () => (
@@ -340,6 +371,9 @@ export const Channels: React.FC<ChannelsProps> = ({
   onSampleRateChange,
   activeSampleRateHz,
   wholeChannelMode,
+  channelLabels,
+  channelPickerOnly = false,
+  channelPickerDisabled = false,
 }) => {
   const reduxDispatch = useAppDispatch();
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
@@ -373,6 +407,13 @@ export const Channels: React.FC<ChannelsProps> = ({
   } = useSpectrumStore();
   const spectrumTransport = useSpectrumTransport();
   const { tuneChannels } = useChannelTuner(onSampleRateChange);
+  const channelLabelSet = useMemo(
+    () =>
+      channelLabels
+        ? new Set(channelLabels.map((label) => label.toUpperCase()))
+        : null,
+    [channelLabels],
+  );
   const isRtlSdr = isRtlSdrDevice({
     deviceKind:
       selectedSourceDerived?.deviceProfile?.kind ??
@@ -468,6 +509,11 @@ export const Channels: React.FC<ChannelsProps> = ({
     }
     return spectrumFrames;
   }, [effectiveFrames, spectrumFrames, websocketChannels]);
+  const visibleFramesToUse = channelLabelSet
+    ? liveFramesToUse.filter((frame) =>
+        channelLabelSet.has(String(frame.label).toUpperCase()),
+      )
+    : liveFramesToUse;
 
   const [manualFrequency, setManualFrequency] = useState<string>("137_100_000"); // Default to APT frequency in Hz
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
@@ -476,8 +522,13 @@ export const Channels: React.FC<ChannelsProps> = ({
     const frames =
       effectiveFrames.length > 0 ? effectiveFrames : websocketChannels;
     if (!Array.isArray(frames)) return [];
-    return frames.filter((f) => ["A", "B", "C"].includes(f.label));
-  }, [effectiveFrames, websocketChannels]);
+    return frames.filter(
+      (f) =>
+        ["A", "B", "C"].includes(String(f.label).toUpperCase()) &&
+        (!channelLabelSet ||
+          channelLabelSet.has(String(f.label).toUpperCase())),
+    );
+  }, [channelLabelSet, effectiveFrames, websocketChannels]);
   const currentFrequencyRange = reduxFrequencyRange ?? state.frequencyRange;
   const currentCenterFrequencyHz = calculateCenterFrequency(
     currentFrequencyRange,
@@ -664,8 +715,9 @@ export const Channels: React.FC<ChannelsProps> = ({
           </ChannelsSectionTitle>
         )}
         <ChannelsSpectrumGrid>
-          {Array.isArray(liveFramesToUse) && liveFramesToUse.length > 0 ? (
-            liveFramesToUse.map((frame) => {
+          {Array.isArray(visibleFramesToUse) &&
+          visibleFramesToUse.length > 0 ? (
+            visibleFramesToUse.map((frame) => {
               const label = frame.label;
               const minFreq = frame.min_hz;
               const maxFreq = frame.max_hz;
@@ -849,9 +901,9 @@ export const Channels: React.FC<ChannelsProps> = ({
           <SectionText>Channels</SectionText>
         </ChannelsSectionTitle>
       )}
-      <ChannelsDemodBody>
+      <ChannelsDemodBody $channelPickerOnly={channelPickerOnly}>
         {/* Channel/Manual Toggle */}
-        <ModeToggle>
+        {!channelPickerOnly && <ModeToggle>
           <ModeButton
             $active={!isManualMode}
             onClick={() => handleModeToggle(false)}
@@ -864,10 +916,10 @@ export const Channels: React.FC<ChannelsProps> = ({
           >
             Manual
           </ModeButton>
-        </ModeToggle>
+        </ModeToggle>}
 
         {/* Manual Frequency Input - Only show when Manual is selected */}
-        {isManualMode && (
+        {!channelPickerOnly && isManualMode && (
           <FrequencyInputContainer>
             <FrequencyLabel>Manual Freq (Hz):</FrequencyLabel>
             <FrequencyInput
@@ -886,7 +938,7 @@ export const Channels: React.FC<ChannelsProps> = ({
         )}
 
         {/* Channel Buttons - Only show when Channel(s) is selected */}
-        {!isManualMode &&
+        {(!isManualMode || channelPickerOnly) &&
           channels.map((ch) => {
             const isActive =
               highlightedSignalArea !== null &&
@@ -902,17 +954,21 @@ export const Channels: React.FC<ChannelsProps> = ({
               <React.Fragment key={ch.id}>
                 <ChannelBlock
                   $isActive={isActive}
+                  $compact={channelPickerOnly}
                   onClick={() => handleTune(ch)}
+                  disabled={channelPickerDisabled || isScanning}
                 >
-                  <ChannelLetter $isActive={isActive}>{ch.label}</ChannelLetter>
-                  <ChannelFreq $isActive={isActive}>
+                  <ChannelLetter $isActive={isActive} $compact={channelPickerOnly}>
+                    {ch.label}
+                  </ChannelLetter>
+                  <ChannelFreq $isActive={isActive} $compact={channelPickerOnly}>
                     {formatChannelFreq(ch.min_hz)} -{" "}
                     {formatChannelFreq(ch.max_hz)}
                   </ChannelFreq>
                 </ChannelBlock>
 
                 {/* Show FrequencyRangeSlider only for the active channel */}
-                {isActive && (
+                {!channelPickerOnly && isActive && (
                   <ReduxFrequencyRangeSlider
                     label=""
                     signalAreaKey={ch.label}
@@ -944,15 +1000,15 @@ export const Channels: React.FC<ChannelsProps> = ({
             );
           })}
 
-        <SampleRateLabel>
+        {!channelPickerOnly && <SampleRateLabel>
           Hardware sample rate:{" "}
           <SampleRateValue>
             {channelSampleRateHz
               ? formatFrequency(channelSampleRateHz)
               : "X.X MHz"}
           </SampleRateValue>
-        </SampleRateLabel>
-        {shouldShowOtherChannel && (
+        </SampleRateLabel>}
+        {!channelPickerOnly && shouldShowOtherChannel && (
           <OtherChannelInfoBox>
             <ActiveChannelInfoTitle>Other...</ActiveChannelInfoTitle>
             <ActiveChannelDescription>

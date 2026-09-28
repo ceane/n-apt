@@ -11,10 +11,69 @@ export interface IqCaptureFrameUpdate {
   timestamp_us: number;
   patch: Record<string, unknown>;
   channel?: number;
-  kind?: "PatchOptionsApplied" | string;
+  kind?: "PatchOptionsApplied" | "Frame" | string;
   source_id?: string;
   job_id?: string;
+  frame_sequence?: number;
+  next_frame_sequence?: number;
 }
+
+export interface IqCaptureFrameOptions {
+  centerFrequencyHz: number;
+  sampleRateHz: number;
+  fftSize: number;
+  fftWindow: string;
+  gainDb: number;
+  ppm: number;
+}
+
+/** Build the frame timestamp and any options patch at one V6 frame boundary. */
+export const buildIqCaptureFrameUpdates = ({
+  sampleOffset,
+  timestampUs,
+  frameSequence,
+  options,
+  previousSignature,
+}: {
+  sampleOffset: number;
+  timestampUs: number;
+  frameSequence: number;
+  options: IqCaptureFrameOptions;
+  previousSignature: string | null;
+}): { updates: IqCaptureFrameUpdate[]; signature: string } => {
+  const signature = JSON.stringify([
+    options.centerFrequencyHz,
+    options.sampleRateHz,
+    options.fftSize,
+    options.fftWindow,
+    options.gainDb,
+    options.ppm,
+  ]);
+  const updates: IqCaptureFrameUpdate[] = [{
+    sample_offset: sampleOffset,
+    timestamp_us: timestampUs,
+    kind: "Frame",
+    frame_sequence: frameSequence,
+    patch: {},
+  }];
+  if (previousSignature !== signature) {
+    updates.push({
+      sample_offset: sampleOffset,
+      timestamp_us: timestampUs,
+      kind: "PatchOptionsApplied",
+      frame_sequence: frameSequence,
+      patch: {
+        center_frequency_hz: options.centerFrequencyHz,
+        capture_sample_rate_hz: options.sampleRateHz,
+        fft_size: options.fftSize,
+        fft_window: options.fftWindow,
+        gain: options.gainDb,
+        ppm: options.ppm,
+      },
+    });
+  }
+  return { updates, signature };
+};
 
 export interface NaptCaptureChannel {
   center_freq_hz: number;
@@ -157,6 +216,8 @@ export const encodeIqCaptureV4 = async ({
   const metadataObject = createIqMetadata({ ...metadata, encrypted: false });
   const framesBytes = utf8(JSON.stringify(frameUpdates));
   const payload = encodeIqPayload(chunks, privateMetadata);
+  const sectionMetadata = metadataObject;
+  sectionMetadata.format_version = NAPT_FORMAT_VERSION;
   let binaryOffset = 0;
   let trailerOffset = 0;
   let metadataBytes = new Uint8Array(0);
@@ -171,7 +232,7 @@ export const encodeIqCaptureV4 = async ({
   );
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    metadataObject.sections = {
+    sectionMetadata.sections = {
       binary: {
         offset_bytes: binaryOffset,
         length_bytes: payload.byteLength,
@@ -185,7 +246,7 @@ export const encodeIqCaptureV4 = async ({
         version: NAPT_TRAILER_VERSION,
       },
     };
-    metadataBytes = utf8(JSON.stringify(metadataObject));
+    metadataBytes = utf8(JSON.stringify(sectionMetadata));
     const nextBinaryOffset =
       IQ_HEADER_SIZE + metadataBytes.byteLength + framesBytes.byteLength;
     const nextTrailerOffset = nextBinaryOffset + payload.byteLength;
@@ -251,6 +312,41 @@ export const decodeIqCaptureHeader = (
     frameUpdates,
     payload: bytes.subarray(payloadStart, payloadStart + payloadLength),
   };
+};
+
+/** Read the declared SHA-256 identity from a validated-shape V6 IQ trailer. */
+export const readIqCaptureTrailerDigest = (bytes: Uint8Array): string => {
+  const { metadata } = decodeIqCaptureHeader(bytes);
+  if (metadata.format !== "iq" || metadata.format_version !== NAPT_FORMAT_VERSION) {
+    throw new Error("Capture is not a supported V6 IQ file");
+  }
+  const sections = metadata.sections as {
+    trailer?: { offset_bytes?: unknown; length_bytes?: unknown; version?: unknown };
+  } | undefined;
+  const offset = sections?.trailer?.offset_bytes;
+  const length = sections?.trailer?.length_bytes;
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) ||
+    (offset as number) < 0 || (length as number) < TRAILER_HEADER_SIZE ||
+    (offset as number) + (length as number) !== bytes.byteLength) {
+    throw new Error("V6 IQ capture has an invalid integrity trailer range");
+  }
+  const trailerOffset = offset as number;
+  const trailerLength = length as number;
+  const trailer = bytes.subarray(trailerOffset, trailerOffset + trailerLength);
+  if (!TRAILER_MAGIC.every((value, index) => trailer[index] === value) ||
+    trailer[8] !== NAPT_TRAILER_VERSION || sections?.trailer?.version !== NAPT_TRAILER_VERSION ||
+    readU64(trailer, 16) + TRAILER_HEADER_SIZE !== trailerLength) {
+    throw new Error("V6 IQ capture has an invalid integrity trailer");
+  }
+  const parsed = JSON.parse(new TextDecoder().decode(trailer.subarray(TRAILER_HEADER_SIZE))) as {
+    integrity?: { algorithm?: unknown; scope?: unknown; digest?: unknown };
+  };
+  const integrity = parsed?.integrity;
+  if (integrity?.algorithm !== "SHA-256" || integrity.scope !== INTEGRITY_SCOPE ||
+    typeof integrity.digest !== "string" || !/^[\da-f]{64}$/i.test(integrity.digest)) {
+    throw new Error("V6 IQ capture has incomplete trailer integrity metadata");
+  }
+  return integrity.digest.toLowerCase();
 };
 
 const deriveVaultKey = async (passphrase: string): Promise<CryptoKey> => {

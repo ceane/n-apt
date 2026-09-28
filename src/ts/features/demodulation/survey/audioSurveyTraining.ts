@@ -89,6 +89,7 @@ interface PairedArtifactPayload {
   aligned?: boolean;
   iqData?: Uint8Array;
   iqSampleRateHz?: number;
+  bandwidthHz?: number;
   pcmData?: Float32Array;
   pcmSampleRateHz?: number;
   baselinePcmData?: Float32Array;
@@ -138,6 +139,8 @@ const getExamples = (
         payload.pcmData.length >= 8 &&
         Number.isFinite(payload.iqSampleRateHz) &&
         (payload.iqSampleRateHz ?? 0) > 0 &&
+        Number.isFinite(payload.bandwidthHz) &&
+        (payload.bandwidthHz ?? 0) > 0 &&
         Number.isFinite(payload.pcmSampleRateHz) &&
         (payload.pcmSampleRateHz ?? 0) > 0,
     )
@@ -158,6 +161,7 @@ const getExamples = (
         example: {
           iqData: payload.iqData!,
           sampleRateHz: payload.iqSampleRateHz!,
+          channelBandwidthHz: payload.bandwidthHz!,
           pcmSamples: payload.pcmData!,
           pcmSampleRateHz: payload.pcmSampleRateHz!,
         },
@@ -531,9 +535,11 @@ export class AudioSurveyTrainer {
       | TimeDomainDemodModel
       | undefined;
     const compatibleCheckpoint =
-      checkpointModel?.version === 2 &&
+      checkpointModel?.version === 3 &&
       checkpointModel.inputSize === TIME_DOMAIN_INPUT_SIZE &&
-      checkpointModel.hiddenSize === TIME_DOMAIN_HIDDEN_SIZE;
+      checkpointModel.hiddenSize === TIME_DOMAIN_HIDDEN_SIZE &&
+      Number.isFinite(checkpointModel.inputSampleRateHz) &&
+      Number.isFinite(checkpointModel.channelBandwidthHz);
     const startingModel =
       sameCorpus && compatibleCheckpoint ? checkpointModel : undefined;
     const initialEpoch = startingModel?.trainingEpochs ?? 0;

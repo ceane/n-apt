@@ -1,7 +1,7 @@
 import React from "react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import { SignalConfigNode } from "@n-apt/demodulation/react-flow/nodes/SignalConfigNode";
 import spectrumReducer from "@n-apt/redux/slices/spectrumSlice";
@@ -12,6 +12,11 @@ import { buildAppTheme } from "@n-apt/ui/Theme";
 const mockSignalDisplayProps: Record<string, unknown>[] = [];
 const mockSetFftSize = jest.fn();
 const mockSetFftFrameRate = jest.fn();
+const mockSetDemodQualityStatus = jest.fn();
+
+jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
+  useDemod: () => ({ setDemodQualityStatus: mockSetDemodQualityStatus }),
+}));
 
 jest.mock("@n-apt/spectrum/public/SignalDisplaySection", () => ({
   SignalDisplaySection: (props: { temporalResolution: string }) => {
@@ -81,9 +86,10 @@ jest.mock("@n-apt/spectrum/public/useSpectrumTransport", () => ({
 }));
 
 describe("SignalConfigNode", () => {
-  it("enforces Lossless for demod and reports unmet FFT/source requirements", () => {
+  it("enforces Lossless and publishes quality details outside the settings node", async () => {
     mockSetFftSize.mockClear();
     mockSetFftFrameRate.mockClear();
+    mockSetDemodQualityStatus.mockClear();
     const store = configureStore({
       reducer: {
         spectrum: spectrumReducer,
@@ -115,8 +121,15 @@ describe("SignalConfigNode", () => {
 
     expect(screen.getByRole("combobox", { name: "Temporal Resolution" })).toHaveValue("lossless");
     expect(store.getState().spectrum.displayTemporalResolution).toBe("lossless");
-    expect(screen.getByTestId("demod-quality-status")).toHaveAttribute("data-quality-fit", "unmet");
-    expect(screen.getByTestId("demod-quality-status")).toHaveTextContent(/32768|receive-capable/);
+    expect(screen.queryByTestId("demod-quality-status")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockSetDemodQualityStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fit: "unmet",
+          reasons: expect.arrayContaining([expect.stringMatching(/32768|receive-capable/)]),
+        }),
+      );
+    });
     const props = mockSignalDisplayProps[mockSignalDisplayProps.length - 1];
     expect(props.fftSizeOptions).toEqual([]);
     (props.onFftSizeChange as (size: number) => void)(2048);

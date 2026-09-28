@@ -58,6 +58,30 @@ export interface SurveyChannelizer {
   reset: () => void;
 }
 
+/** Return the decimated I/Q rate used to capture a selected channel. */
+export const getAudioSurveyChannelizedSampleRateHz = (
+  inputSampleRateHz: number,
+  bandwidthHz: number,
+): number => {
+  if (
+    !Number.isFinite(inputSampleRateHz) ||
+    inputSampleRateHz <= 0 ||
+    !Number.isFinite(bandwidthHz) ||
+    bandwidthHz <= 0
+  ) {
+    return 0;
+  }
+  const targetRateHz = Math.min(
+    inputSampleRateHz,
+    Math.max(48_000, Math.min(600_000, bandwidthHz * 2.5)),
+  );
+  const decimation = Math.max(
+    1,
+    Math.floor(inputSampleRateHz / targetRateHz),
+  );
+  return inputSampleRateHz / decimation;
+};
+
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
 const fftInPlace = (real: Float64Array, imaginary: Float64Array) => {
@@ -412,12 +436,11 @@ export const createAudioSurveyChannelizer = ({
       if (sampleRateHz !== inputRateHz) {
         reset();
         sampleRateHz = inputRateHz;
-        const targetRateHz = Math.min(
+        outputRateHz = getAudioSurveyChannelizedSampleRateHz(
           inputRateHz,
-          Math.max(48_000, Math.min(600_000, bandwidthHz * 2.5)),
+          bandwidthHz,
         );
-        decimation = Math.max(1, Math.floor(inputRateHz / targetRateHz));
-        outputRateHz = inputRateHz / decimation;
+        decimation = Math.max(1, Math.round(inputRateHz / outputRateHz));
       }
 
       const shifted = shiftIqToBaseband(

@@ -25,6 +25,16 @@ describe("multiplexed stream transport", () => {
     expect(event.frame).toMatchObject({ options_revision: 7, stream_epoch: 9, sequence: 0 });
   });
 
+  it("carries held acquisition freshness through the multiplexed frame", async () => {
+    (decryptPayloadBytes as jest.Mock).mockResolvedValueOnce(Uint8Array.from([1, 2]));
+    const event = await makeFrame({ sourceId: "rtl-1", mode: "rx", streamEpoch: 9, optionsRevision: 7, sequence: 1,
+      timestamp: 124, centerFrequencyHz: 1_610_000, sampleRateHz: 3_200_000, isFresh: false, iqData: "encoded" }, {} as CryptoKey);
+
+    expect(event.type).toBe("stream_frame");
+    if (event.type !== "stream_frame") throw new Error("expected frame");
+    expect(event.frame).toMatchObject({ frame_status: "receiving", is_fresh: false });
+  });
+
   it("uses one socket for independent source/mode subscriptions", () => {
     const sockets: Array<{
       readyState: number;

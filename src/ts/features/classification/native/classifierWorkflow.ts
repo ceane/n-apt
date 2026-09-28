@@ -70,9 +70,9 @@ export function createClassifierWorkflowGraph(state: ClassifierWorkflowState): {
       type: 'classifierStep',
       position: { x: 174, y: 158 },
       data: {
-        title: 'datapackage.json + labels.json',
-        detail: 'Planned · verified V6 trailer digest when available · otherwise filename + UTC capture time',
-        status: 'planned',
+        title: 'V6 .iq + labels.json',
+        detail: state.hasCapturedFrames ? 'Capture ready · labels bind to trailer SHA-256' : 'Labels bind by trailer digest; filename + UTC fallback',
+        status: state.hasCapturedFrames ? 'ready' : 'planned',
       },
       width: 154,
       height: 68,

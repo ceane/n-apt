@@ -1,4 +1,4 @@
-const MODEL_VERSION = 2 as const;
+const MODEL_VERSION = 3 as const;
 export const TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES = 64;
 export const TIME_DOMAIN_INPUT_SIZE = TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES * 2;
 export const TIME_DOMAIN_HIDDEN_SIZE = 12;
@@ -7,6 +7,10 @@ export interface TimeDomainDemodModel {
   version: typeof MODEL_VERSION;
   inputSize: typeof TIME_DOMAIN_INPUT_SIZE;
   hiddenSize: typeof TIME_DOMAIN_HIDDEN_SIZE;
+  /** Channelized narrowband I/Q rate used by the aligned training pairs. */
+  inputSampleRateHz: number;
+  /** RF channel width used before the training I/Q was decimated. */
+  channelBandwidthHz?: number;
   pcmSampleRateHz: number;
   /** Row-major hidden-by-input weights for the dense temporal layer. */
   inputWeights: Float32Array;
@@ -23,6 +27,7 @@ export interface TimeDomainDemodModel {
 export interface PairedAudioTrainingExample {
   iqData: Uint8Array;
   sampleRateHz: number;
+  channelBandwidthHz?: number;
   pcmSamples: Float32Array;
   pcmSampleRateHz: number;
 }
@@ -118,7 +123,12 @@ const createRandom = (seed: number) => {
   };
 };
 
-const createInitialModel = (pcmSampleRateHz: number, seed: number) => {
+const createInitialModel = (
+  pcmSampleRateHz: number,
+  inputSampleRateHz: number,
+  channelBandwidthHz: number | undefined,
+  seed: number,
+) => {
   const random = createRandom(seed);
   const scale = Math.sqrt(2 / TIME_DOMAIN_INPUT_SIZE);
   const inputWeights = new Float32Array(
@@ -136,6 +146,8 @@ const createInitialModel = (pcmSampleRateHz: number, seed: number) => {
     version: MODEL_VERSION,
     inputSize: TIME_DOMAIN_INPUT_SIZE,
     hiddenSize: TIME_DOMAIN_HIDDEN_SIZE,
+    inputSampleRateHz,
+    channelBandwidthHz,
     pcmSampleRateHz,
     inputWeights,
     hiddenBias: new Float32Array(TIME_DOMAIN_HIDDEN_SIZE),
@@ -219,6 +231,11 @@ export class TimeDomainDemodStream {
       model.version !== MODEL_VERSION ||
       model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
       model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE ||
+      !Number.isFinite(model.inputSampleRateHz) ||
+      model.inputSampleRateHz <= 0 ||
+      (model.channelBandwidthHz !== undefined &&
+        (!Number.isFinite(model.channelBandwidthHz) ||
+          model.channelBandwidthHz <= 0)) ||
       model.inputWeights.length !==
         TIME_DOMAIN_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE ||
       model.hiddenBias.length !== TIME_DOMAIN_HIDDEN_SIZE ||
@@ -339,6 +356,24 @@ export const trainTimeDomainDemodModel = (
   ) {
     throw new Error("Training examples must use the same PCM sample rate");
   }
+  const inputSampleRateHz = usableExamples[0].sampleRateHz;
+  if (
+    usableExamples.some(
+      (example) => example.sampleRateHz !== inputSampleRateHz,
+    )
+  ) {
+    throw new Error("Training examples must use the same I/Q sample rate");
+  }
+  const channelBandwidthHz = usableExamples[0].channelBandwidthHz;
+  if (
+    usableExamples.some(
+      (example) => example.channelBandwidthHz !== channelBandwidthHz,
+    )
+  ) {
+    throw new Error(
+      "Training examples must use the same RF channel bandwidth",
+    );
+  }
 
   const epochs = Math.max(1, Math.floor(options.epochs ?? 20));
   const maxTrainingSamples = Math.max(
@@ -356,7 +391,12 @@ export const trainTimeDomainDemodModel = (
         hiddenBias: options.initialModel.hiddenBias.slice(),
         outputWeights: options.initialModel.outputWeights.slice(),
       }
-    : createInitialModel(pcmSampleRateHz, options.seed ?? 1337);
+    : createInitialModel(
+        pcmSampleRateHz,
+        inputSampleRateHz,
+        channelBandwidthHz,
+        options.seed ?? 1337,
+      );
   if (
     model.version !== MODEL_VERSION ||
     model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
@@ -369,6 +409,14 @@ export const trainTimeDomainDemodModel = (
   if (model.pcmSampleRateHz !== pcmSampleRateHz) {
     throw new Error(
       "Checkpoint PCM sample rate does not match training examples",
+    );
+  }
+  if (
+    model.inputSampleRateHz !== inputSampleRateHz ||
+    model.channelBandwidthHz !== channelBandwidthHz
+  ) {
+    throw new Error(
+      "Checkpoint I/Q profile does not match the training examples",
     );
   }
   const startEpoch = Math.max(

@@ -55,9 +55,10 @@ type FileMetadata = {
     timestamp_us?: number;
     channel?: number;
     kind?: string;
+    frame_sequence?: number;
     source_id?: string;
     job_id?: string;
-    patch: Record<string, unknown>;
+    patch?: Record<string, unknown>;
   }[];
   center_frequency_hz?: number;
   capture_sample_rate_hz?: number;

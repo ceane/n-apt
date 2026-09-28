@@ -38,7 +38,14 @@ export interface NativeShadowResult {
   latencyMs: number;
   ruleScore: number;
 }
+export type NativeShadowResultState = 'current' | 'stale' | 'metadata-mismatch';
 export interface LegacyDecision { isNapt: boolean; confidence: number }
+export interface NativeTrainingCaptureDownloadLinks {
+  iqHref: string;
+  iqFileName: string;
+  annotationHref: string;
+  annotationFileName: string;
+}
 const FEATURE_TOGGLES = [
   ['bridge', 'Bridge'], ['u-dip', 'U-dip'],
   ['coherent-continuation', 'Coherent continuation across visible band'],
@@ -60,7 +67,7 @@ function readAnnotationDraft(): NativeTrainingCaptureAnnotations {
   return { ...EMPTY_ANNOTATIONS };
 }
 
-export function NativeClassifierPanel({ result, legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', onToggleCapture, onExportCapture, onAnnotationsChange }: { result: NativeShadowResult | null; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void }) {
+export function NativeClassifierPanel({ result, resultState = 'current', legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', captureDownloads = null, onToggleCapture, onExportCapture, onClearCapture, onAnnotationsChange }: { result: NativeShadowResult | null; resultState?: NativeShadowResultState; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; captureDownloads?: NativeTrainingCaptureDownloadLinks | null; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onClearCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void }) {
   const input = useRef<HTMLInputElement>(null); const [message, setMessage] = useState('Shadow scoring waits for a live acquisition frame.');
   const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<NativeTrainingCaptureAnnotations>(readAnnotationDraft);
@@ -89,7 +96,9 @@ export function NativeClassifierPanel({ result, legacy, onModel, captureAvailabl
   const button: CSSProperties = { font: 'inherit', width: '100%', minWidth: 0, minHeight: 34, whiteSpace: 'normal', overflowWrap: 'anywhere' };
   const wrappingText: CSSProperties = { minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.45 };
   const diagnostics = result
-    ? `${result.summary.status}; ${result.frameMetadata.fftSize} FFT; ${result.summary.resolution.binHz.toFixed(2)} Hz/bin; ${result.summary.resolution.resolutionHz.toFixed(2)} Hz effective resolution; retained bins ${result.frameMetadata.retainedStartBin}–${result.frameMetadata.retainedEndBin} (${(100 * (result.frameMetadata.retainedEndBin - result.frameMetadata.retainedStartBin) / result.frameMetadata.fftSize).toFixed(1)}% visible); frame ${result.frameMetadata.timestampMs} ms; ${result.modelId ? `model ${result.score?.toFixed(3)}${result.sampleRateValidated ? '' : ' (sample rate unvalidated)'}` : `rule ${result.ruleScore.toFixed(3)}`}; ${result.latencyMs.toFixed(1)} ms`
+    ? resultState === 'current'
+      ? `${result.summary.status}; ${result.frameMetadata.fftSize} FFT; ${result.summary.resolution.binHz.toFixed(2)} Hz/bin; ${result.summary.resolution.resolutionHz.toFixed(2)} Hz effective resolution; retained bins ${result.frameMetadata.retainedStartBin}–${result.frameMetadata.retainedEndBin} (${(100 * (result.frameMetadata.retainedEndBin - result.frameMetadata.retainedStartBin) / result.frameMetadata.fftSize).toFixed(1)}% visible); frame ${result.frameMetadata.timestampMs} ms; ${result.modelId ? `model ${result.score?.toFixed(3)}${result.sampleRateValidated ? '' : ' (sample rate unvalidated)'}` : `rule ${result.ruleScore.toFixed(3)}`}; ${result.latencyMs.toFixed(1)} ms`
+      : `${resultState === 'stale' ? 'stale shadow frame' : 'shadow frame metadata does not match current acquisition'}; last ${result.frameMetadata.fftSize} FFT at ${result.summary.resolution.binHz.toFixed(2)} Hz/bin; last retained bins ${result.frameMetadata.retainedStartBin}–${result.frameMetadata.retainedEndBin}; frame ${result.frameMetadata.timestampMs} ms; score withheld; previous extraction ${result.latencyMs.toFixed(1)} ms`
     : message;
   const state = captureActive ? 'recording' : captureAvailable ? 'ready' : 'waiting';
   const tuneStatus = captureStatus.match(/^center-frequency-changed(?::([0-9.]+):([0-9.]+))?$/);
@@ -98,18 +107,29 @@ export function NativeClassifierPanel({ result, legacy, onModel, captureAvailabl
     ? `Capture stopped on tune: ${tuneStatus[1] && tuneStatus[2] ? `${(Number(tuneStatus[1]) / 1e6).toFixed(3)} → ${(Number(tuneStatus[2]) / 1e6).toFixed(3)} MHz` : 'new center frequency saved'}.`
     : metadataStatus ? `Capture stopped at the OptionsApplied boundary (revision ${metadataStatus[2]} → ${metadataStatus[3]}, frame ${metadataStatus[4]} → ${metadataStatus[5]}; ${metadataStatus[1]} changed).`
     : captureStatus === 'rtl-sdr-disconnected' ? 'The RTL-SDR is disconnected. Please reconnect it; capture will be ready when receiving resumes.'
+    : captureStatus === 'rtl-sdr-stale' ? 'The RTL-SDR has stopped sending fresh frames. Please check its connection and reconnect it; capture will be ready when fresh receiving resumes.'
+    : captureStatus === 'rtl-sdr-paused' ? 'RTL-SDR capture is paused. Resume live receiving before starting a capture.'
+    : captureStatus === 'rtl-sdr-not-receiving' ? 'The RTL-SDR is not receiving live frames. Switch it to RX/Receiving before capturing.'
     : captureStatus === 'source-or-config-changed' ? 'Capture stopped because the source or acquisition settings changed.'
-      : captureStatus === 'no-new-frames' ? 'Capture stopped because live frames became stale.' : captureStatus;
+      : captureStatus === 'non-increasing-frame-timestamp' ? 'Capture stopped because I/Q frame timestamps did not advance. Wait for a fresh, ordered stream before recording again.'
+        : captureStatus === 'frame-timestamp-stale' ? 'Capture stopped because an I/Q frame arrived too late to prove continuity. Please check the RTL-SDR connection and reconnect it if the receiver dropped.'
+          : captureStatus === 'frame-timestamp-future' ? 'Capture stopped because an I/Q frame timestamp is ahead of the browser clock. Check time alignment before recording again.'
+            : captureStatus === 'no-new-frames' || captureStatus === 'stale-frame' || captureStatus === 'stale-or-out-of-order-frame' ? 'Capture stopped because fresh I/Q frames stopped arriving. Please check the RTL-SDR connection and reconnect it if the receiver dropped; recording will be ready when fresh receiving resumes.' : captureStatus;
   const captureNeedsExport = !captureActive && captureFrameCount > 0;
   return <section aria-label="Experimental native resolution classifier" data-layout="sidebar" style={card}>
     <div style={{ ...row, gridTemplateColumns: 'minmax(0, 1fr)', alignItems: 'center' }}>
       <StateIndicator data-testid="classifier-state" data-state={state} $recording={captureActive} $ready={captureAvailable || captureActive}>{captureActive ? 'RECORDING' : captureAvailable ? 'READY' : 'WAITING'}</StateIndicator>
     </div>
     <div style={row}>
-      <button type="button" disabled={!captureActive && (!captureAvailable || captureNeedsExport)} onClick={() => onToggleCapture?.(annotations)} style={button}>{captureActive ? 'Stop recording' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
-      <button type="button" disabled={captureFrameCount === 0} onClick={onExportCapture} style={button}>Export I/Q frames</button>
+      <button type="button" disabled={!captureActive && (!captureAvailable || captureNeedsExport)} onClick={() => onToggleCapture?.(annotations)} style={button}>{captureActive ? 'Stop recording' : captureDownloads ? 'Clear capture to continue' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
+      <button type="button" disabled={captureFrameCount === 0 || !!captureDownloads} onClick={onExportCapture} style={button}>Export V6 I/Q + labels</button>
     </div>
     <div data-testid="classifier-capture-status" aria-live="polite" style={{ ...wrappingText, minHeight: '2.9em' }}>{captureStatusText || (captureActive ? `Recording ${captureFrameCount} I/Q frames` : captureAvailable ? 'Ready. Labels and model fitting stay offline.' : 'Requires a fresh live RTL-SDR frame in Lossless mode.')}</div>
+    {captureDownloads && <div aria-label="Exported capture files" style={{ ...row, ...wrappingText }}>
+      <a href={captureDownloads.iqHref} download={captureDownloads.iqFileName} style={{ ...button, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', textAlign: 'center', color: 'inherit' }}>Download I/Q capture</a>
+      <a href={captureDownloads.annotationHref} download={captureDownloads.annotationFileName} style={{ ...button, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', textAlign: 'center', color: 'inherit' }}>Download labels</a>
+      <button type="button" onClick={onClearCapture} style={{ ...button, gridColumn: '1 / -1' }}>Clear exported capture</button>
+    </div>}
     <div data-testid="classifier-labeling" style={{ ...wrappingText, borderTop: '1px solid var(--color-border, rgba(128,128,128,.25))', paddingTop: 8 }}>
       <strong>{captureActive ? 'During capture · edits are timestamped' : captureFrameCount > 0 ? 'Review capture labels' : 'Before capture · label what you expect'}</strong>
       <label style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 4, marginTop: 6 }}>

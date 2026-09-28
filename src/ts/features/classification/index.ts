@@ -5,4 +5,4 @@ export * from './native/trainingCapture';
 export { NativeClassifierPanel } from './native/NativeClassifierPanel';
 export { ClassifierWorkflowFlow } from './native/ClassifierWorkflowFlow';
 export { createClassifierWorkflowGraph } from './native/classifierWorkflow';
-export type { LegacyDecision, NativeShadowResult } from './native/NativeClassifierPanel';
+export type { LegacyDecision, NativeShadowResult, NativeShadowResultState, NativeTrainingCaptureDownloadLinks } from './native/NativeClassifierPanel';

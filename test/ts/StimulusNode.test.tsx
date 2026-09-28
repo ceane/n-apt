@@ -156,6 +156,17 @@ describe("StimulusNode", () => {
       subtext: "Test subtext",
     },
   };
+  const channelACompatibleState = {
+    demod: { centerFreqHz: 1_000_000 },
+    spectrum: { frequencyRange: { min: 18_000, max: 4_390_000 } },
+    websocket: {
+      channels: [
+        { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+        { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+        { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+      ],
+    },
+  };
 
   it("materializes the played tone as a PCM reference with the same envelope", () => {
     const reference = createAudioToneReferencePcm(1, 48_000);
@@ -210,7 +221,7 @@ describe("StimulusNode", () => {
       },
     );
     render(
-      <TestWrapper>
+      <TestWrapper preloadedState={channelACompatibleState}>
         <StimulusNode {...defaultProps} />
       </TestWrapper>,
     );
@@ -278,7 +289,7 @@ describe("StimulusNode", () => {
     };
 
     render(
-      <TestWrapper>
+      <TestWrapper preloadedState={channelACompatibleState}>
         <StimulusNode {...defaultProps} />
       </TestWrapper>,
     );
@@ -433,7 +444,7 @@ describe("StimulusNode", () => {
       },
     );
     const view = render(
-      <TestWrapper>
+      <TestWrapper preloadedState={channelACompatibleState}>
         <StimulusNode {...defaultProps} />
       </TestWrapper>,
     );
@@ -450,7 +461,7 @@ describe("StimulusNode", () => {
 
     await act(async () => {
       view.rerender(
-        <TestWrapper>
+        <TestWrapper preloadedState={channelACompatibleState}>
           <StimulusNode {...defaultProps} />
         </TestWrapper>,
       );
@@ -490,6 +501,38 @@ describe("StimulusNode", () => {
 
     const button = screen.getByText("TRIGGER");
     expect(button).toBeInTheDocument();
+  });
+
+  it("gates audio and speech to A/B while allowing vision on C", () => {
+    render(
+      <TestWrapper
+        preloadedState={{
+          demod: { centerFreqHz: 10_000_000 },
+          spectrum: { frequencyRange: null },
+          websocket: {
+            channels: [
+              { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+              { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+              { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+            ],
+          },
+        }}
+      >
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "TRIGGER" });
+    const baseline = screen.getByRole("combobox", { name: "Baseline Vector" });
+    expect(trigger).toBeDisabled();
+
+    fireEvent.change(baseline, { target: { value: "speech" } });
+    expect(trigger).toBeDisabled();
+    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith("speech");
+
+    fireEvent.change(baseline, { target: { value: "vision" } });
+    expect(trigger).toBeEnabled();
+    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith("vision");
   });
 
   it("renders live capture checkbox", () => {

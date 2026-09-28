@@ -2023,18 +2023,46 @@ const handleManagedStreamEvent = (
   getState: () => any,
 ): void => {
   if (mode === "rx" && (event.type === "stream_opened" ||
-      (event.type === "stream_options_applied" && event.origin !== "local")) &&
+      event.type === "stream_options_applied") &&
       event.options?.mode === "rx") {
+    // Local option events advance the managed stream's expected revision and
+    // reject frames from the previous settings. Their acknowledgements replace
+    // the optimistic revision with the device-global revision used by frames.
+    // Track both in Redux so classifier readiness follows a tune immediately,
+    // then waits for a frame carrying the new options instead of page reload.
     dispatch(setAppliedStreamOptions({ sourceId, streamEpoch: event.streamEpoch,
       optionsRevision: event.optionsRevision, options: event.options }));
+    if (event.type === "stream_options_applied" && event.origin === "acknowledgement") {
+      const state = getState();
+      const sourceExists = (state.websocket?.sources ?? []).some(
+        (source: SourceInfo) => source.id === sourceId,
+      );
+      if (sourceExists) {
+        const updates = resolveManagedRxDeviceOptionUpdates({
+          sourceId,
+          options: event.options,
+          rootState: state,
+        });
+        // The local action already changed the user's spectrum controls. Sync
+        // only the backend-owned source snapshot from the acknowledgement so
+        // capture-quality checks and other source readers do not wait for a
+        // later page hydration; do not re-anchor the user's view a second time.
+        dispatch({
+          ...updateDeviceState(updates.device as any),
+          meta: { origin: "managed-stream-options-acknowledgement" },
+        });
+      }
+    }
   }
-  if (event.type === "stream_state" && (event.state === "unavailable" || event.state === "error")) {
+  if ((event.type === "stream_state" && (event.state === "unavailable" || event.state === "error")) ||
+      (mode === "rx" && event.type === "stream_error")) {
     dispatch(clearAppliedStreamOptions(sourceId));
   }
   if (
     mode === "rx" &&
     event.type === "stream_options_applied" &&
-    event.origin !== "local"
+    event.origin !== "local" &&
+    event.origin !== "acknowledgement"
   ) {
     // A device revision from another subscriber supersedes any locally queued
     // gesture value. Never replay an older write after authoritative hydration.
@@ -2043,7 +2071,9 @@ const handleManagedStreamEvent = (
   if (
     mode === "rx" &&
     (event.type === "stream_opened" ||
-      (event.type === "stream_options_applied" && event.origin !== "local")) &&
+      (event.type === "stream_options_applied" &&
+        event.origin !== "local" &&
+        event.origin !== "acknowledgement")) &&
     event.options?.mode === "rx"
   ) {
     const updates = resolveManagedRxDeviceOptionUpdates({
@@ -2915,8 +2945,12 @@ const cleanupSocket = () => {
   wsInstance.disposed = true;
 };
 
-export const resolveTxPreviewSourceId = (state: any): string | null => {
-  const boundSourceId = state.sourceRouting?.bindings?.["tx-suite:tx"];
+export const resolveTxPreviewSourceId = (
+  state: any,
+  sourceBindingGroup = "tx-suite",
+): string | null => {
+  const boundSourceId =
+    state.sourceRouting?.bindings?.[`${sourceBindingGroup}:tx`];
   if (typeof boundSourceId === "string" && boundSourceId.length > 0) {
     return boundSourceId;
   }
@@ -4723,10 +4757,12 @@ const createWebSocketMiddleware =
       case "txSuite/requestPreview": {
         const result = next(action);
         const state = getState();
+        const sourceBindingGroup =
+          (action as any).payload?.sourceBindingGroup ?? "tx-suite";
         const sourceId = resolveTxPreviewSourceId({
           ...state.websocket,
           sourceRouting: state.sourceRouting,
-        });
+        }, sourceBindingGroup);
         if (sourceId) {
           // Tx standby is a presentation-mode transition, not an Rx pause.
           presentationController.selectSource(sourceId, "tx", true);

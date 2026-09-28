@@ -69,6 +69,8 @@ export const authActions = {
 export {
   createNoteCardFromSpectrum,
   hydrateNoteCards,
+  hydrateExperimentLabels,
+  addExperimentLabel,
   updateNoteCardText,
   updateNoteCardPosition,
   updateNoteCardSize,
@@ -87,6 +89,7 @@ export {
 
 export {
   selectNoteCards,
+  selectExperimentLabels,
   selectActiveNoteCard,
   selectNoteCardsCollapsed,
 } from "./slices/noteCardsSlice";

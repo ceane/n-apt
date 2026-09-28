@@ -6,7 +6,9 @@ import React, {
   useRef,
 } from "react";
 import styled from "styled-components";
+import { Radio, Waves } from "lucide-react";
 import { z } from "zod";
+import { useAppSelector } from "@n-apt/redux";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
@@ -29,6 +31,10 @@ import {
   getAudioToneGain,
   type AudioWaveformMode,
 } from "./audioWaveformPreview";
+import {
+  evaluateStimulusChannelAccess,
+  getRequiredStimulusChannelLabels,
+} from "./stimulusChannelPolicy";
 
 const durationSchema = z.number().min(5).max(60);
 
@@ -60,8 +66,20 @@ const baselineOptions: Array<{ value: AnalysisType; label: string }> = [
   { value: "vision", label: "Vision" },
 ];
 
+const describeRequiredChannels = (analysisType: AnalysisType) => {
+  const labels = getRequiredStimulusChannelLabels(analysisType);
+  return labels.length === 1
+    ? `Channel ${labels[0]}`
+    : `Channels ${labels.join("/")}`;
+};
+
 // Audio preview components
 const AudioContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 22px 24px;
   text-align: center;
   width: 100%;
 `;
@@ -369,48 +387,60 @@ const ProgressLabel = styled.div`
 const StimulusContainer = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 220px;
+  gap: 10px;
+  width: min(100%, 760px);
+  min-width: 560px;
+  box-sizing: border-box;
 `;
 
 const StimulusContent = styled.div`
-  border: 1px solid ${({ theme }) => theme.colors.border};
+  border: 1px solid ${({ theme }) => theme.colors.borderHover};
   background: ${({ theme }) => theme.colors.surface};
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.1);
 `;
 
 const StimulusPreview = styled.div`
-  min-height: 210px;
-  border: 1px solid ${({ theme }) => theme.colors.borderHover};
-  border-radius: 10px;
-  background: linear-gradient(
-    180deg,
-    ${({ theme }) => theme.colors.background} 0%,
-    ${({ theme }) => theme.colors.surface} 100%
-  );
+  min-height: 250px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 13px;
+  background:
+    linear-gradient(rgba(0, 212, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.035) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 40%, rgba(0, 212, 255, 0.07), transparent 66%),
+    ${({ theme }) => theme.colors.background};
+  background-size: 28px 28px, 28px 28px, auto, auto;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 `;
 
 const StimulusSelect = styled.select`
   width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 10px 13px;
+  border-radius: 9px;
   border: 1px solid ${({ theme }) => theme.colors.border};
   background: ${({ theme }) => theme.colors.background};
   color: ${({ theme }) => theme.colors.primary};
   font-family: ${({ theme }) => theme.typography.mono};
 
-  &:focus {
-    outline: none;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.primary}55;
+    outline-offset: 1px;
     border-color: ${({ theme }) => theme.colors.primary};
+    box-shadow: 0 0 0 3px ${({ theme }) => theme.colors.primary}18;
   }
 
   option {
@@ -420,19 +450,32 @@ const StimulusSelect = styled.select`
 `;
 
 const StimulusButton = styled.button<{ $disabled: boolean }>`
+  min-height: 44px;
   padding: 10px 16px;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid ${({ theme }) => theme.colors.primary};
   background: ${({ theme, $disabled }) =>
-    $disabled ? theme.colors.surface : theme.colors.background};
+    $disabled ? theme.colors.surface : theme.colors.primary};
   color: ${({ theme, $disabled }) =>
-    $disabled ? theme.colors.textDisabled : theme.colors.primary};
+    $disabled ? theme.colors.textDisabled : theme.colors.background};
   font-weight: 700;
   cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
   font-family: ${({ theme }) => theme.typography.mono};
+  letter-spacing: 0.025em;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
 
   &:hover:not(:disabled) {
-    background: ${({ theme }) => theme.colors.activeBackground};
+    filter: brightness(1.08);
+    box-shadow: 0 5px 14px rgba(0, 212, 255, 0.18);
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.primary};
+    outline-offset: 2px;
   }
 `;
 
@@ -443,26 +486,33 @@ const StimulusLabel = styled.label`
   font-size: 10px;
   color: ${({ theme }) => theme.colors.textSecondary};
   user-select: none;
+  padding: 9px 11px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 9px;
+  background: ${({ theme }) => theme.colors.background};
 `;
 
 const ReferencePairToggle = styled.label`
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  margin-top: 10px;
+  margin-top: 12px;
   color: ${({ theme }) => theme.colors.textSecondary};
   font-size: 10px;
   line-height: 1.4;
   text-align: left;
+  padding: 10px 12px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 9px;
+  background: ${({ theme }) => theme.colors.background};
 `;
 
 const StimulusSubtext = styled.div`
   font-size: 10px;
   line-height: 1.5;
   opacity: 0.75;
-  text-align: center;
-  padding: 0 8px;
-  font-style: italic;
+  text-align: left;
+  padding: 0 2px;
   word-wrap: break-word;
 `;
 
@@ -482,17 +532,26 @@ const ResetButton = styled.button`
 
 const BaselineVectorContainer = styled.div`
   display: grid;
-  grid-template-columns: 1fr 65px auto;
-  gap: 10px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) 82px auto;
+  gap: 12px;
+  align-items: end;
+
+  & > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
 `;
 
 const SelectLabel = styled.label`
   font-size: 9px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  opacity: 0.6;
-  margin-bottom: 6px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  opacity: 0.85;
+  margin-bottom: 7px;
+  font-weight: 650;
 `;
 
 const AudioWaveformControl = styled.div`
@@ -500,12 +559,54 @@ const AudioWaveformControl = styled.div`
 `;
 
 const TitleText = styled.div`
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 750;
+  margin-top: 2px;
   color: ${(props) => props.theme.colors.primary};
-  letter-spacing: 0.05em;
+  letter-spacing: 0.01em;
+`;
+
+const StimulusHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 2px 5px;
+`;
+
+const StimulusMark = styled.div`
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  color: ${({ theme }) => theme.colors.primary};
+  border: 1px solid ${({ theme }) => theme.colors.primary}44;
+  border-radius: 12px;
+  background: ${({ theme }) => theme.colors.primary}12;
+`;
+
+const StimulusEyebrow = styled.div`
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+`;
+
+const StimulusBandBadge = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 7px 10px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 999px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  background: ${({ theme }) => theme.colors.surface};
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
 `;
 
 const StimulusInput = styled.input`
@@ -542,6 +643,29 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   } = useDemod();
   const [previewMode, setPreviewMode] =
     useState<AnalysisType>(selectedBaseline);
+  const demodCenterFrequencyHz = useAppSelector(
+    (state) =>
+      state.demod.bandwidthCenterFreqHz ?? state.demod.centerFreqHz,
+  );
+  const frequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+  const channels = useAppSelector((state) => state.websocket.channels);
+  const tunedFrequencyHz = useMemo(
+    () =>
+      demodCenterFrequencyHz ??
+      (frequencyRange &&
+      Number.isFinite(frequencyRange.min) &&
+      Number.isFinite(frequencyRange.max)
+        ? (frequencyRange.min + frequencyRange.max) / 2
+        : null),
+    [demodCenterFrequencyHz, frequencyRange],
+  );
+  const channelAccess = useMemo(
+    () => evaluateStimulusChannelAccess(previewMode, tunedFrequencyHz, channels),
+    [channels, previewMode, tunedFrequencyHz],
+  );
+  const stimulusChannelCompatible = channelAccess.allowed;
   const [scriptIndex, setScriptIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [durationS, setDurationS] = useState(5);
@@ -801,7 +925,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
   const captureSelectedReferenceMedia = useCallback(async () => {
     const media = selectedReferenceMediaRef.current;
-    if (!media || isCapturingReferenceMedia) return;
+    if (!media || isCapturingReferenceMedia || !stimulusChannelCompatible) return;
 
     setIsCapturingReferenceMedia(true);
     setReferenceMediaStatus(
@@ -849,10 +973,10 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     } finally {
       setIsCapturingReferenceMedia(false);
     }
-  }, [isCapturingReferenceMedia]);
+  }, [isCapturingReferenceMedia, stimulusChannelCompatible]);
 
   const handleTrigger = () => {
-    if (durationError) return;
+    if (durationError || !stimulusChannelCompatible) return;
 
     // Delay audio to start when capture officially starts
     // We send command after 3s, server takes ~0-1s, so ~4s total delay
@@ -870,17 +994,30 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   useEffect(() => {
     if (
       isCapturing &&
+      stimulusChannelCompatible &&
       (previewMode === "audio" || previewMode === "internal")
     ) {
       return playTone();
     }
     setTonePlayback(null);
     return undefined;
-  }, [isCapturing, previewMode, playTone]);
+  }, [isCapturing, previewMode, playTone, stimulusChannelCompatible]);
 
   return (
     <StimulusContainer>
-      <TitleText>{data.label}</TitleText>
+      <StimulusHeader>
+        <StimulusMark>
+          <Waves size={19} />
+        </StimulusMark>
+        <div>
+          <StimulusEyebrow>Reference capture</StimulusEyebrow>
+          <TitleText>{data.label}</TitleText>
+        </div>
+        <StimulusBandBadge>
+          <Radio size={12} />
+          RF {getRequiredStimulusChannelLabels(previewMode).join(" / ")}
+        </StimulusBandBadge>
+      </StimulusHeader>
 
       <StimulusContent>
         <StimulusPreview>
@@ -900,6 +1037,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                   aria-label="Pair stimulus tone with captured RF audio"
                   checked={pairToneToRf}
                   onChange={(event) => setPairToneToRf(event.target.checked)}
+                  disabled={isBusy || !stimulusChannelCompatible}
                 />
                 The captured Channel A/B audio is carrying this stimulus. Save a
                 timestamp-aligned training pair.
@@ -922,10 +1060,14 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                 <StimulusButton
                   onClick={() => void captureSelectedReferenceMedia()}
                   disabled={
-                    !selectedReferenceMedia || isCapturingReferenceMedia
+                    !selectedReferenceMedia ||
+                    isCapturingReferenceMedia ||
+                    !stimulusChannelCompatible
                   }
                   $disabled={
-                    !selectedReferenceMedia || isCapturingReferenceMedia
+                    !selectedReferenceMedia ||
+                    isCapturingReferenceMedia ||
+                    !stimulusChannelCompatible
                   }
                 >
                   {isCapturingReferenceMedia
@@ -1019,14 +1161,27 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               id="stimulus-baseline-vector"
               aria-label="Baseline Vector"
               value={previewMode}
-              onChange={(e) => setPreviewMode(e.target.value as AnalysisType)}
+              onChange={(e) => {
+                const nextMode = e.target.value as AnalysisType;
+                setPreviewMode(nextMode);
+                setSelectedBaseline(nextMode);
+              }}
               disabled={isBusy}
             >
-              {baselineOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              {baselineOptions.map((option) => {
+                const requiredChannels = getRequiredStimulusChannelLabels(
+                  option.value,
+                );
+                return (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    data-required-channels={requiredChannels.join(",")}
+                  >
+                    {option.label} · {describeRequiredChannels(option.value)}
+                  </option>
+                );
+              })}
             </StimulusSelect>
           </div>
           <div>
@@ -1048,8 +1203,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
           </div>
           <StimulusButton
             onClick={handleTrigger}
-            disabled={isBusy}
-            $disabled={isBusy}
+            disabled={isBusy || durationError !== null || !stimulusChannelCompatible}
+            $disabled={isBusy || durationError !== null || !stimulusChannelCompatible}
             style={{ alignSelf: "end" }}
           >
             TRIGGER

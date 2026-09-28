@@ -1,6 +1,7 @@
 import {
   advanceIqCaptureByteOffset,
   advanceIqCaptureSampleOffset,
+  buildIqCaptureFrameUpdates,
   encodeIqCaptureV4,
   encodeNaptCaptureV4,
   type CaptureMetadata,
@@ -75,16 +76,6 @@ const postError = (error: unknown): void => {
     error: error instanceof Error ? error.message : String(error),
   });
 };
-
-const captureSignature = (options: IqCaptureOptions): string =>
-  JSON.stringify([
-    options.centerFrequencyHz,
-    options.sampleRateHz,
-    options.fftSize,
-    options.fftWindow,
-    options.gainDb,
-    options.ppm,
-  ]);
 
 const hasNaptCrypto = async (): Promise<boolean> => {
   if (typeof crypto === "undefined" || !crypto.subtle) return false;
@@ -213,22 +204,15 @@ scope.onmessage = (event: MessageEvent<CaptureWorkerMessage>): void => {
     }
     if (message.type === "frame") {
       const frame = new Uint8Array(message.data);
-      const signature = captureSignature(message.options);
-      if (state.lastSignature !== signature) {
-        state.frameUpdates.push({
-          sample_offset: state.byteOffset,
-          timestamp_us: message.timestampUs,
-          patch: {
-            center_frequency_hz: message.options.centerFrequencyHz,
-            capture_sample_rate_hz: message.options.sampleRateHz,
-            fft_size: message.options.fftSize,
-            fft_window: message.options.fftWindow,
-            gain: message.options.gainDb,
-            ppm: message.options.ppm,
-          },
-        });
-        state.lastSignature = signature;
-      }
+      const frameUpdates = buildIqCaptureFrameUpdates({
+        sampleOffset: state.byteOffset,
+        timestampUs: message.timestampUs,
+        frameSequence: state.frameCount,
+        options: message.options,
+        previousSignature: state.lastSignature,
+      });
+      state.frameUpdates.push(...frameUpdates.updates);
+      state.lastSignature = frameUpdates.signature;
       state.chunks.push({
         sample_offset: state.sampleOffset,
         channel: 0,

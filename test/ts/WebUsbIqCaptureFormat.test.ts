@@ -1,6 +1,7 @@
 import {
   advanceIqCaptureByteOffset,
   advanceIqCaptureSampleOffset,
+  buildIqCaptureFrameUpdates,
   decodeIqCaptureHeader,
   encodeIqCaptureV4,
   encodeNaptCaptureV4,
@@ -28,6 +29,31 @@ const metadata = {
 };
 
 describe("standalone IQ capture containers", () => {
+  it("keeps WebUSB frame and applied-options events together at each byte boundary", () => {
+    const first = buildIqCaptureFrameUpdates({
+      sampleOffset: 0,
+      timestampUs: 1_000,
+      frameSequence: 0,
+      options: { centerFrequencyHz: 100, sampleRateHz: 200, fftSize: 2, fftWindow: "Rectangular", gainDb: 4, ppm: 1 },
+      previousSignature: null,
+    });
+    const unchanged = buildIqCaptureFrameUpdates({
+      sampleOffset: 4,
+      timestampUs: 2_000,
+      frameSequence: 1,
+      options: { centerFrequencyHz: 100, sampleRateHz: 200, fftSize: 2, fftWindow: "Rectangular", gainDb: 4, ppm: 1 },
+      previousSignature: first.signature,
+    });
+
+    expect(first.updates.map(({ kind, sample_offset, frame_sequence }) => ({ kind, sample_offset, frame_sequence }))).toEqual([
+      { kind: "Frame", sample_offset: 0, frame_sequence: 0 },
+      { kind: "PatchOptionsApplied", sample_offset: 0, frame_sequence: 0 },
+    ]);
+    expect(unchanged.updates).toEqual([
+      { sample_offset: 4, timestamp_us: 2_000, kind: "Frame", frame_sequence: 1, patch: {} },
+    ]);
+  });
+
   it("advances frame-patch offsets in bytes", () => {
     expect(advanceIqCaptureByteOffset(4, Uint8Array.of(1, 2, 3, 4))).toBe(8);
   });

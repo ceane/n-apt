@@ -27,6 +27,7 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
 - This project and the author uses American English, not British English. color not colour.
+- When code passess tests or a stopping point is reached, create detailed commits, use git hunks to make contained edits; when progressing a feature or edits commit messages should follow a prefix of WIP → Draft → v1
 
 ## Real-Time Device I/O
 
