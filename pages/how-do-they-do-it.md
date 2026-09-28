@@ -155,11 +155,7 @@ Throughout my research[^math] I found **beat frequencies**, which worked mathema
 
 ```LaTex
 \[
-\rule{0pt}{.5em}
-\]
-\[
-{\Large y_1(t) = A \sin(2 \pi f_1 t)} \\
-\rule{0pt}{1em}
+{\Large y_1(t) = A \sin(2 \pi f_1 t)}
 \]
 
 \[
@@ -167,35 +163,33 @@ Throughout my research[^math] I found **beat frequencies**, which worked mathema
 \]
 
 \[
-{\Large
-\rule{0pt}{2em}
-y(t) = y_1(t) + y_2(t) \quad}
+{\Large y(t) = y_1(t) + y_2(t)}
 \]
 
 \[
-{\Large f_{\text{beat}} = |f_1 - f_2| \quad \text{(envelope/beat frequency)}}
-\rule{0pt}{2em}
+{\Large f_{\text{beat}} = |f_1 - f_2|}
 \]
+```
 
+```latex math-variable-key
 \[
 {\small
 \begin{array}{ll}
-\rule{0pt}{3em}
-y_1(t), y_2(t) &: \text{Individual waveforms} 
-\\
-\rule{0pt}{2em}
-y(t) &: \text{Resulting superposed waveform} 
-\\
-\rule{0pt}{2em}
-f_1, f_2 &: \text{Frequencies of the two waves (Hz)} 
-\\
-\rule{0pt}{2em}
-f_{\text{beat}} &: \text{Beat frequency (envelope from difference of frequencies)} 
-\\
-\rule{0pt}{2em}
-A &: \text{Amplitude of each wave} 
-\\
-\rule{0pt}{2em}
+y_1(t), y_2(t) &: \text{Individual waveforms} \\[1.25em]
+y(t) &: \begin{array}{l}
+\text{Resulting superposed} \\
+\text{waveform}
+\end{array} \\[1.25em]
+f_1, f_2 &: \begin{array}{l}
+\text{Frequencies of the} \\
+\text{two waves (Hz)}
+\end{array} \\[1.25em]
+f_{\text{beat}} &: \begin{array}{l}
+\text{Beat frequency} \\
+\text{(envelope from difference} \\
+\text{of frequencies)}
+\end{array} \\[1.75em]
+A &: \text{Amplitude of each wave} \\[1.25em]
 t &: \text{Time (seconds)}
 \end{array}
 }
@@ -394,6 +388,11 @@ k_f \int
 \right)
 \]
 
+```
+
+<desktop-only>
+
+```latex
 \[
 \begin{aligned}
 s_{\mathrm{RF}}(t) &:& \text{Final transmitted RF signal} \\
@@ -405,6 +404,38 @@ k_f &:& \text{FM frequency deviation constant} \\
 t &:& \text{Time}
 \end{aligned}
 \]
+```
+
+</desktop-only>
+
+<mobile-only>
+
+```latex
+\[
+\begin{array}{l}
+s_{\mathrm{RF}}(t) \\
+\quad \text{Final transmitted RF signal} \\[0.65em]
+I(t) \\
+\quad \text{Normalized image intensity signal} \\
+\quad (0 \le I(t) \le 1) \\[0.65em]
+m \\
+\quad \text{AM modulation index} \\
+\quad \text{(typically 0.5 to 1)} \\[0.65em]
+f_{sc} \\
+\quad \text{Subcarrier frequency } (\approx 2400 \text{ Hz}) \\[0.65em]
+f_{\mathrm{RF}} \\
+\quad \text{RF carrier frequency (NOAA APT band)} \\[0.65em]
+k_f \\
+\quad \text{FM frequency deviation constant} \\[0.65em]
+t \\
+\quad \text{Time}
+\end{array}
+\]
+```
+
+</mobile-only>
+
+```LaTex
 
 \[
 \begin{aligned}

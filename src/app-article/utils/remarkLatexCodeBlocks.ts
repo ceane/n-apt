@@ -45,10 +45,13 @@ const remarkLatexCodeBlocks: Plugin = (() => (tree: any) => {
     }
 
     const expressions = collectExpressions(node.value);
+    const className = node.meta?.trim() === "math-variable-key"
+      ? ' class="math-variable-key"'
+      : "";
 
     const replacement: Content = {
       type: "html",
-      value: `<latex-block data-expressions="${serializeExpressions(expressions)}"></latex-block>`,
+      value: `<latex-block${className} data-expressions="${serializeExpressions(expressions)}"></latex-block>`,
     };
 
     parent.children.splice(index, 1, replacement);
