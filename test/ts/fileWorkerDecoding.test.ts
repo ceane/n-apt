@@ -20,7 +20,7 @@ function sectionedFile(options: {
   binaryLength?: number;
   trailerVersion?: number;
   trailerJson?: string;
-  frameUpdates?: Array<{ sample_offset: number; timestamp_us: number; patch: Record<string, unknown> }>;
+  frameUpdates?: Array<{ sample_offset: number; timestamp_us: number; channel?: number; patch: Record<string, unknown> }>;
   channels?: Array<(typeof channels)[number] & {
     iq_length?: number;
     requested_min_freq_hz?: number;
@@ -125,7 +125,12 @@ describe.each(["loadFile", "stitchFiles"] as const)("%s NAPT decoding", (type) =
   });
 
   it("attaches V6 frame patches to the channel data used by playback", async () => {
-    const frameUpdates = [
+    const frameUpdates: Array<{
+      sample_offset: number;
+      timestamp_us: number;
+      channel?: number;
+      patch: Record<string, unknown>;
+    }> = [
       {
         sample_offset: 4,
         timestamp_us: 250,

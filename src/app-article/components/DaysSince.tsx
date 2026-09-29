@@ -266,10 +266,10 @@ const DataMinMaxGrid = styled(MinMaxGrid)`
 const CostContainer = styled(DataContainer)`
   margin-top: 0;
 
-  /* Reserve one title line; wrapped labels expand naturally. */
+  /* Reserve two title lines; wrapped labels expand naturally. */
   > div > small {
     display: block;
-    min-height: 1.3em;
+    min-height: 2.6em;
     line-height: 1.3;
   }
 

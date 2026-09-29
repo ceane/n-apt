@@ -87,8 +87,10 @@ const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...im
   const isHero = HERO_IMAGE_PATTERNS.some((pattern) =>
     normalizedSrc.includes(pattern) || normalizedAlt.includes(pattern)
   );
+  const isFullBleed = normalizedAlt.includes("interleaved bins");
+
   return (
-    <Figure $blendClass={blendClass} $hero={isHero}>
+    <Figure $blendClass={blendClass} $hero={isHero} $fullBleed={isFullBleed}>
       <img src={assetUrl(src)} alt={alt} loading="lazy" {...imgProps} />
     </Figure>
   );
@@ -892,11 +894,18 @@ const CitationLinkWrapper: React.FC<InternalLinkProps> = ({ children, href, $cit
   );
 };
 
-const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean }>`
+const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean; $fullBleed?: boolean }>`
   margin: 1.5em 0;
   position: relative;
   width: 100%;
   display: block;
+
+  ${({ $fullBleed }) => $fullBleed && css`
+    @media (max-width: 768px) {
+      width: 100vw;
+      margin-left: calc((100% - 100vw) / 2);
+    }
+  `}
 
   & > img {
     display: block;
