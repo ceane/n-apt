@@ -12,6 +12,7 @@ import {
   MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
   isValidSampleRateHz,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import { INITIAL_SPECTRUM_FREQUENCY_RANGE } from "@n-apt/webusb/initialSpectrumFrequencyRange";
 
 const DEFAULT_DB_LIMITS = getVisualizerDefaultDbLimits("dB");
 
@@ -328,7 +329,7 @@ function sanitizeSettingsBundle(
 const initialState: SpectrumState = {
   ...LIVE_CONTROL_DEFAULTS,
   activeSignalArea: "A",
-  frequencyRange: null,
+  frequencyRange: INITIAL_SPECTRUM_FREQUENCY_RANGE,
   sourceViewFrequencyRanges: {},
   tuningPreviewActive: false,
   lastKnownRanges: {},

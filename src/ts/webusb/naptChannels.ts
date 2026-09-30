@@ -98,6 +98,35 @@ export const parseCanonicalNaptChannels = (
   });
 };
 
+/**
+ * Builds the cold-start receive window from Channel A's canonical lower bound
+ * and the SDR sample rate in signals.yaml. This gives the first live tune a
+ * valid channel-anchored range before any spectrum frames have arrived.
+ */
+export const getInitialNaptFrequencyRange = (
+  signalsYaml: string,
+): { min: number; max: number } => {
+  const channelA = parseCanonicalNaptChannels(signalsYaml).find(
+    (channel) => channel.label.toLowerCase() === "a",
+  );
+  if (!channelA) {
+    throw new Error("signals.channels must define Channel A");
+  }
+
+  const sampleRateMatch = /^    sample_rate:\s*!frequency\s+([^\s#]+)/m.exec(
+    signalsYaml,
+  );
+  if (!sampleRateMatch) {
+    throw new Error("signals.sdr.sample_rate is missing");
+  }
+  const sampleRateHz = parseFrequencyToken(sampleRateMatch[1]);
+
+  return {
+    min: channelA.minHz,
+    max: Math.min(channelA.maxHz, channelA.minHz + sampleRateHz),
+  };
+};
+
 export const getValidChannelCenterRange = (
   channel: NaptChannel,
   sampleRateHz: number,
