@@ -32,10 +32,19 @@ _Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz,
 <br>
 
 **Awesome SDR app AND studio to view N-APT effects, mathematics, potential endpoints and more.**
-<img width="1229" height="848" alt="Screenshot 2026-04-09 at 00 37 03" src="https://github.com/user-attachments/assets/b9a586ee-e441-46d9-b3a5-1f3862625a92" />
 
-**Secure streaming and files!**
-<img width="1220" height="1037" alt="Secure streaming and files login screenshot" src="public/images/README-secure-streaming-login.png" />
+<table>
+  <tr>
+    <td width="33%"><img width="100%" alt="N-APT start page" src="public/images/README-start-page.png" /></td>
+    <td width="33%"><img width="100%" alt="N-APT spectrum visualizer" src="public/images/README-visualizer.png" /></td>
+    <td width="33%"><img width="100%" alt="N-APT demodulation workspace" src="public/images/README-demod.png" /></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><strong>Start page</strong><br />Choose how to begin: explore the app, connect an SDR, or open a capture.</td>
+    <td align="center" valign="top"><strong>Visualizer</strong><br />Explore the live spectrum and waterfall from an SDR or I/Q capture.</td>
+    <td align="center" valign="top"><strong>Demodulator</strong><br />Build signal-processing workflows from sources, channel settings, and analysis nodes.</td>
+  </tr>
+</table>
 
 ## I/Q capture file formats
 
