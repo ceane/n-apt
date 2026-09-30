@@ -6,16 +6,16 @@ import "./nsa-program-tools.css";
 const Shell = styled.div`
   display: flex;
   min-height: 100vh;
-  background: #081120;
-  color: #e5eefb;
+  background: #ffffff;
+  color: #374151;
 `;
 
 const Sidebar = styled.aside`
   width: min(28vw, 360px);
   min-width: 240px;
   padding: 24px;
-  background: rgba(8, 17, 32, 0.92);
-  border-right: 1px solid rgba(148, 163, 184, 0.18);
+  background: #f9fafb;
+  border-right: 1px solid #e5e7eb;
 `;
 
 const Content = styled.main`
@@ -28,25 +28,25 @@ const Content = styled.main`
 const SidebarLink = styled(Link)`
   display: block;
   margin-top: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid #e5e7eb;
   border-radius: 14px;
   padding: 12px 14px;
-  color: #cbd5e1;
+  color: #374151;
   text-decoration: none;
   &.active {
-    border-color: rgba(96, 165, 250, 0.56);
-    background: rgba(30, 41, 59, 0.96);
-    color: #eff6ff;
+    border-color: #60a5fa;
+    background: #eff6ff;
+    color: #1f2937;
   }
 `;
 
 export function NsaProgramToolsShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   return (
-    <Shell>
+    <Shell className="program-tools-shell">
       <Sidebar aria-label="Program tools">
         <p className="eyebrow">Dashboard</p>
-        <h1 className="sidebar-title">Program Tools</h1>
+        <h1 className="sidebar-title">NSA Program Tools</h1>
         <p className="sidebar-copy">Questionnaire and X archive formatting tools.</p>
         <SidebarLink className={location.pathname === "/x-archive-formatter" ? "active" : ""} to="/x-archive-formatter">
           X Archive Formatter
@@ -55,7 +55,7 @@ export function NsaProgramToolsShell({ children }: { children: React.ReactNode }
           Questionnaire
         </SidebarLink>
       </Sidebar>
-      <Content>{children}</Content>
+      <Content className="program-tools-content">{children}</Content>
     </Shell>
   );
 }

@@ -202,18 +202,38 @@ const encodeIqPayload = (
   return concatBytes(...parts);
 };
 
+/**
+ * I/Q format history: v1-v2 are legacy/undated; v3 (2026-07-18),
+ * v4 (2026-08-05), v5 (2026-09-14), and v6 (2026-09-23, still WIP).
+ * `format_version` names the current schema; `originalVersion` is only set
+ * when an older capture is upgraded into v6.
+ */
 export const encodeIqCaptureV4 = async ({
   metadata,
+  originalVersion,
   frameUpdates,
   chunks,
   privateMetadata,
 }: {
   metadata: CaptureMetadata;
+  /** Source format version when this V6 container was produced by an upgrade. */
+  originalVersion?: number;
   frameUpdates: IqCaptureFrameUpdate[];
   chunks: IqCaptureChunk[];
   privateMetadata?: Record<string, unknown>;
 }): Promise<Uint8Array> => {
+  if (
+    originalVersion !== undefined &&
+    (
+      !Number.isInteger(originalVersion) ||
+      originalVersion < 1 ||
+      originalVersion >= NAPT_FORMAT_VERSION
+    )
+  ) {
+    throw new Error(`originalVersion must be an integer from 1 to ${NAPT_FORMAT_VERSION - 1}`);
+  }
   const metadataObject = createIqMetadata({ ...metadata, encrypted: false });
+  if (originalVersion !== undefined) metadataObject.originalVersion = originalVersion;
   const framesBytes = utf8(JSON.stringify(frameUpdates));
   const payload = encodeIqPayload(chunks, privateMetadata);
   const sectionMetadata = metadataObject;

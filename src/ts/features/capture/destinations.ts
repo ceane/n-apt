@@ -17,6 +17,12 @@ export const CAPTURE_DESTINATION_PROVIDERS = [
     kind: "mounted-folder",
     cli: true,
   },
+  {
+    id: "huggingface",
+    label: "Hugging Face dataset",
+    kind: "mounted-folder",
+    cli: true,
+  },
 ] as const;
 
 export type CaptureDestinationId =

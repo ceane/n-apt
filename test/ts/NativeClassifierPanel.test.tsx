@@ -93,30 +93,90 @@ it('starts only when the parent confirms a safe live source and exports captured
   expect(onExportCapture).toHaveBeenCalledTimes(1);
 });
 
-it('offers direct I/Q and label download links after preparing an export', () => {
+it('offers a Data Package download and protected classification destination after export', async () => {
   const onClearCapture = jest.fn();
   render(<NativeClassifier.NativeClassifierPanel
     result={null}
     onModel={jest.fn()}
     captureFrameCount={12}
     captureDownloads={{
-      iqHref: 'blob:https://local/capture',
-      iqFileName: 'n-apt-session.iq',
-      annotationHref: 'blob:https://local/labels',
-      annotationFileName: 'n-apt-session.json',
+      packageHref: 'blob:https://local/package',
+      packageFileName: 'n-apt-session.zip',
     }}
     onClearCapture={onClearCapture}
   />);
 
-  expect(screen.getByRole('link', { name: 'Download I/Q capture' })).toHaveAttribute('href', 'blob:https://local/capture');
-  expect(screen.getByRole('link', { name: 'Download I/Q capture' })).toHaveAttribute('download', 'n-apt-session.iq');
-  expect(screen.getByRole('link', { name: 'Download labels' })).toHaveAttribute('href', 'blob:https://local/labels');
-  expect(screen.getByRole('link', { name: 'Download labels' })).toHaveAttribute('download', 'n-apt-session.json');
+  expect(screen.getByRole('link', { name: 'Download capture package' })).toHaveAttribute('href', 'blob:https://local/package');
+  expect(screen.getByRole('link', { name: 'Download capture package' })).toHaveAttribute('download', 'n-apt-session.zip');
+  expect(screen.queryByRole('link', { name: 'Download I/Q capture' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Download labels' })).not.toBeInTheDocument();
+  expect(screen.getByText(/datapackage\.json, the V6 I\/Q capture, and detached labels/i)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Clear exported capture' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Clear capture to continue' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Export V6 I/Q + labels' })).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('Save classification capture to Hugging Face'));
+  expect(screen.getByLabelText('Split')).toBeInTheDocument();
+  expect(screen.getByLabelText('Increased protection (required for online storage)')).toBeChecked();
+  expect(screen.getByLabelText('Increased protection (required for online storage)')).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Save encrypted to Hugging Face' }));
+  expect(await screen.findByText('Sign in to save this capture to the dataset.')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Clear exported capture' }));
   expect(onClearCapture).toHaveBeenCalledTimes(1);
+});
+
+it('keeps a rehydrated export from starting a new capture after refresh', () => {
+  const onToggleCapture = jest.fn();
+  render(<NativeClassifier.NativeClassifierPanel
+    result={null}
+    onModel={jest.fn()}
+    captureAvailable
+    captureDownloads={{
+      packageHref: `/api/capture/download?jobId=classifier_${'a'.repeat(64)}`,
+      packageFileName: `n-apt-classifier-${'a'.repeat(12)}.zip`,
+    }}
+    onToggleCapture={onToggleCapture}
+  />);
+
+  expect(screen.getByRole('button', { name: 'Clear capture to continue' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear capture to continue' }));
+  expect(onToggleCapture).not.toHaveBeenCalled();
+});
+
+it('saves classification captures through the protected dataset flow with an explicit split', async () => {
+  const previousFetchDescriptor = Object.getOwnPropertyDescriptor(window, 'fetch');
+  const fetchMock = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ files: ['training-captures/classification/validation/capture.iq.enc'] }),
+  } as Response);
+  Object.defineProperty(window, 'fetch', { configurable: true, value: fetchMock });
+  render(<NativeClassifier.NativeClassifierPanel
+    result={null}
+    onModel={jest.fn()}
+    captureDownloads={{ jobId: `classifier_${'a'.repeat(64)}`, packageHref: '/package.zip', packageFileName: 'package.zip' }}
+    sessionToken="session-token"
+  />);
+  fireEvent.click(screen.getByLabelText('Save classification capture to Hugging Face'));
+  fireEvent.change(screen.getByLabelText('Split'), { target: { value: 'validation' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save encrypted to Hugging Face' }));
+
+  await screen.findByText(/Saved with increased protection/);
+  const requestedUrl = new URL(fetchMock.mock.calls[0][0] as string, window.location.origin);
+  expect(requestedUrl.pathname).toBe('/api/capture/save/huggingface');
+  expect(requestedUrl.searchParams.get('section')).toBe('classification');
+  expect(requestedUrl.searchParams.get('split')).toBe('validation');
+  expect(requestedUrl.searchParams.get('token')).toBe('session-token');
+  if (previousFetchDescriptor) {
+    Object.defineProperty(window, 'fetch', previousFetchDescriptor);
+  } else {
+    Reflect.deleteProperty(window, 'fetch');
+  }
+});
+
+it('holds capture controls until a persisted export link is rehydrated', () => {
+  render(<NativeClassifier.NativeClassifierPanel result={null} onModel={jest.fn()} captureAvailable captureDownloadsPersisted />);
+
+  expect(screen.getByRole('button', { name: 'Sign in to retrieve saved capture' })).toBeDisabled();
+  expect(screen.getByTestId('classifier-capture-status')).toHaveTextContent('awaits an authenticated session');
 });
 
 it('collects a capture label, morphology toggles, and editable condition tags', () => {

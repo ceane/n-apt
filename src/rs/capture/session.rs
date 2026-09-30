@@ -698,15 +698,23 @@ async fn store_artifact_and_broadcast(
   };
   artifacts.push(artifact.clone());
 
-  // Capture artifact metadata is refreshed per artifact; give the key a
-  // generous TTL so abandoned jobs do not accumulate in Redis forever.
-  const CAPTURE_ARTIFACT_TTL_SECS: u64 = 30 * 24 * 60 * 60;
-  if let Err(error) = shared_state
-    .redis_store
-    .set_json_with_ttl(1, &key, &artifacts, Some(CAPTURE_ARTIFACT_TTL_SECS))
-    .await
-  {
+  // Keep the Redis index indefinitely and mirror it to disk so a Redis loss
+  // does not make durable capture files undiscoverable.
+  let manifest_result = crate::capture::storage::write_job_manifest(&result.job_id, &artifacts);
+  let redis_result = shared_state.redis_store.set_json(1, &key, &artifacts).await;
+  if let Err(error) = &manifest_result {
+    error!("Failed to persist capture recovery manifest: {error}");
+  }
+  if let Err(error) = &redis_result {
     error!("Failed to store capture artifacts in Redis: {error}");
+  }
+  if manifest_result.is_err() && redis_result.is_err() {
+    broadcast_capture_failure(
+      &broadcast_tx,
+      &result.job_id,
+      "Capture bytes were saved, but both Redis and the recovery index failed",
+    );
+    return;
   }
 
   // Headless boards can boot with clocks before the epoch; never panic in

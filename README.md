@@ -16,8 +16,7 @@
 
 > *In reality there are no answers but HERE. You can hit up as many LLMs, search engines, file as many FOIAs as possible, but it absolutely will not help. This repo is the result of my firsthand experience and efforts. It is help.*
 >
-> As of now, this repo **CANNOT** demodulate (signal->media) an N-APT signal, I have extremely limited resources and it's a work in progress.
->
+> As of now, this repo **CANNOT** demodulate (signal->media) N-APT, I have extremely limited resources and it's a work in progress.
 
 N-APT stands for: **N**euro **A**utomatic **P**icture **T**ransmission.
 
@@ -669,7 +668,7 @@ setup.
 
 ---
 
-I only have on person captures (within the `/iq-samples-snapshots` dir), however in the future I'll be sure to add near and 1 or 2m away captures (as long as my cord can do), as well as some captures from suspected endpoints.
+The capture set I used was limited to on-person samples. Captures at near and 1–2 m ranges, along with suspected endpoint recordings, would improve coverage.
 
 The quality of the captures may not be up to par with RTL-SDR, however it shouldn't be a problem to get data. Features of the signal like heterodyning (inherently), phase shifting and endpoint signals processing are not included in the capture.
 

@@ -60,6 +60,27 @@ async function encrypt(payload: Uint8Array, rawKey = keyBytes): Promise<Uint8Arr
   return result;
 }
 
+async function protectCapture(plaintext: Uint8Array): Promise<Uint8Array> {
+  const salt = new Uint8Array(32).fill(19);
+  const saltKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const pseudorandomKey = await crypto.subtle.sign("HMAC", saltKey, keyBytes);
+  const expansionKey = await crypto.subtle.importKey("raw", pseudorandomKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const context = new TextEncoder().encode("n-apt/capture-protection/v1");
+  const expansionInput = new Uint8Array(context.length + 1);
+  expansionInput.set(context);
+  expansionInput[context.length] = 1;
+  const captureKeyBytes = await crypto.subtle.sign("HMAC", expansionKey, expansionInput);
+  const captureKey = await crypto.subtle.importKey("raw", captureKeyBytes, "AES-GCM", false, ["encrypt"]);
+  const nonce = new Uint8Array(12).fill(23);
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, captureKey, plaintext as Uint8Array<ArrayBuffer>));
+  const envelope = new Uint8Array(8 + salt.length + nonce.length + ciphertext.length);
+  envelope.set(encoder.encode("NAPTENC1"), 0);
+  envelope.set(salt, 8);
+  envelope.set(nonce, 40);
+  envelope.set(ciphertext, 52);
+  return envelope;
+}
+
 let handler: (event: any) => Promise<void>;
 let postMessage: jest.SpyInstance;
 let consoleError: jest.SpyInstance;
@@ -114,6 +135,7 @@ describe.each(["loadFile", "stitchFiles"] as const)("%s NAPT decoding", (type) =
 
   it("decodes a sectioned trailer", async () => {
     const result = await run(type, sectionedFile());
+    if (result.type === "error") throw new Error(result.error);
     expect(result.type).toBe("result");
     const metadata = type === "loadFile" ? result.data.metadata : result.data.metadataMap[0][1];
     expect(metadata.trailer).toEqual({ processing: { operation: "capture" } });
@@ -248,6 +270,18 @@ describe.each(["loadFile", "stitchFiles"] as const)("%s NAPT decoding", (type) =
 });
 
 describe("IQ trailer compatibility", () => {
+  it("keeps originalVersion metadata visible to playback for upgraded V6 captures", async () => {
+    const encoded = await encodeIqCaptureV4({
+      metadata: {},
+      originalVersion: 3,
+      frameUpdates: [],
+      chunks: [{ sample_offset: 0, channel: 0, data: samples }],
+    });
+    const result = await run("loadFile", encoded.slice().buffer, { fileName: "upgraded.iq" });
+    expect(result.type).toBe("result");
+    expect(result.data.metadata).toMatchObject({ format_version: 6, originalVersion: 3 });
+  });
+
   it("decodes a stamped IQ capture produced by the real encoder", async () => {
     const encoded = await encodeIqCaptureV4({ metadata: {}, frameUpdates: [], chunks: [{ sample_offset: 0, channel: 0, data: samples }] });
     expect(rawResult(await run("loadFile", encoded.slice().buffer, { fileName: "capture.iq" }), "loadFile")).toEqual(samples);
@@ -265,6 +299,25 @@ describe("IQ trailer compatibility", () => {
     const result = await run("loadFile", file, { fileName: "capture.iq", allowIntegrityFailure: true });
     expect(result.type).toBe("error");
     expect(result.error).toContain(failure === "integrity" ? "INTEGRITY_FAILED" : `Invalid IQ v4 trailer ${failure === "truncated" ? "bounds" : failure}`);
+  });
+});
+
+describe.each(["loadFile", "stitchFiles"] as const)("%s protected capture playback", (type) => {
+  it("refuses local decryption because the salt must come from authenticated Redis-backed playback", async () => {
+    const capture = await encodeIqCaptureV4({
+      metadata: { center_frequency_hz: 137_500_000, capture_sample_rate_hz: 3_200_000 },
+      frameUpdates: [],
+      chunks: [{ sample_offset: 0, channel: 0, data: samples }],
+    });
+    const protectedCapture = await protectCapture(capture);
+    const file = protectedCapture.slice().buffer;
+    const result = await run(type, file, {
+      fileName: "capture.iq.enc",
+      files: [{ fileData: file, fileName: "capture.iq.enc" }],
+    });
+
+    expect(result.type).toBe("error");
+    expect(result.error).toContain("salt in Redis");
   });
 });
 

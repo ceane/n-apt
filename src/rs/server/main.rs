@@ -10,6 +10,7 @@
 /// for SDR I/O operations to avoid blocking the async runtime.
 // mod authentication; // Moved to top-level
 use anyhow::Result;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::Router;
 use log::info;
@@ -318,12 +319,21 @@ impl websocket_server::WebSocketServer {
         get(http_endpoints::capture_download_handler),
       )
       .route(
+        "/api/classifier/captures/{capture_id}/{part}",
+        post(http_endpoints::classifier_capture_upload_handler)
+          .layer(DefaultBodyLimit::max(128 * 1024 * 1024)),
+      )
+      .route(
         "/api/capture/destinations",
         get(http_endpoints::capture_destinations_handler),
       )
       .route(
         "/api/capture/save/aspect",
         post(http_endpoints::save_capture_to_aspect_handler),
+      )
+      .route(
+        "/api/capture/save/huggingface",
+        post(http_endpoints::save_capture_to_huggingface_handler),
       )
       .route(
         "/api/cli/snapshot-frame",

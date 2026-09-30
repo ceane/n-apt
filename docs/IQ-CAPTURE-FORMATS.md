@@ -1,6 +1,6 @@
 # I/Q capture file formats
 
-The app writes three proprietary project formats. They all store unsigned 8-bit interleaved I/Q samples and capture metadata. The extensions describe intended use and packaging; they are not general interchange standards.
+There is no industry standard IQ capture format, so the app writes its own three proprietary project formats. They all store unsigned 8-bit interleaved I/Q samples and capture metadata. The extensions describe intended use and packaging; they are not general interchange standards.
 
 | Extension | Intended use | Encryption | Recommendation |
 | --- | --- | --- | --- |
@@ -139,7 +139,7 @@ The project `.wav` writer emits RIFF/WAVE with:
 
 The WAV metadata version is currently 3. WAV captures are plaintext. Standard WAV tools may ignore extra channel chunks or remove the custom metadata. Use `.iq` for canonical project I/Q files.
 
-## Integrity trailer
+## Checksum and integrity trailer
 
 V4 introduced indexed sections and the `NAPTTRLR` trailer. Its 24-byte binary header is followed by JSON:
 
@@ -151,13 +151,13 @@ u64 little-endian    trailer JSON length
 JSON      trailer metadata
 ```
 
-V6 trailer JSON includes a SHA-256 integrity record:
+V6 trailer JSON includes a SHA-256 file checksum in its `integrity` record:
 
 - Algorithm: `SHA-256`
 - Scope: `file-with-integrity-digest-placeholder`
-- Digest: 64 hexadecimal characters
+- Checksum (`digest`): 64 hexadecimal characters
 
-The digest covers the complete serialized file, treating the digest field as 64 zeroes while hashing. It detects changes, but is not a signature and does not prove who created the file. Encrypted payloads also have AES-GCM authentication. Plaintext `.iq` and `.wav` files have no keyed origin authentication.
+The checksum covers the complete serialized file, treating the checksum field as 64 zeroes while hashing. Readers recalculate and compare it to detect file changes. It is an unkeyed checksum, not a signature, and does not prove who created the file. Encrypted payloads also have AES-GCM authentication. Plaintext `.iq` and `.wav` files have no keyed origin authentication.
 
 The trailer stays readable when the payload is encrypted. V6 writers also include processing provenance, such as operation and tool version.
 
@@ -189,6 +189,9 @@ Rust and browser code use:
 
 The backend can override the salt with `NAPT_PBKDF2_SALT`; the browser can use `VITE_PBKDF2_SALT` (or its supported fallback). Frontend and backend settings must match. This is shared configuration, not a per-file secret or a substitute for a strong password.
 
+> [!WARNING]
+> Keep a secure copy of the `UNSAFE_LOCAL_USER_PASSWORD` in a password manager. If `.env.local` is lost, you will need that password to derive the vault key and decrypt protected captures.
+
 ### Protected online copies
 
 When the backend writes an extra protected copy for destinations such as Aspect or training-capture exports:
@@ -198,15 +201,37 @@ When the backend writes an extra protected copy for destinations such as Aspect 
 3. It encrypts the original file into this outer envelope:
 
    ```text
-   NAPTENC1 || 32-byte salt || 12-byte AES-GCM nonce || ciphertext || 16-byte tag
+   NAPTENC2 || 12-byte AES-GCM nonce || ciphertext || 16-byte tag
    ```
 
-4. It stores the salt in Redis under `capture-protection:<jobId>` for later requests.
+4. It stores the salt only in Redis database 1 under `capture-protection:<jobId>`.
 
-The envelope includes the salt, so a compatible tool can decrypt it using the vault key. This outer wrapper does not change the inner `.napt`, `.iq`, or `.wav` file.
+The salt is deliberately absent from NAPTENC2. The backend must retrieve it from Redis to derive the capture key. The outer wrapper does not change the inner `.napt`, `.iq`, or `.wav` file, including V6 metadata and checksums.
+
+NAPTENC1 is the legacy envelope and includes its salt in the file. It does not provide the Redis-only protection described here. New Increased protection writes use NAPTENC2.
+
+To migrate a legacy protected V6 `.iq.enc` file, run the script with its capture job ID and Redis connection:
+
+```sh
+REDIS_URL=redis://localhost:6379 node scripts/migrate_protected_captures.mjs \
+  --input capture.iq.enc --job-id <job-id> --restore-missing-redis-record --dry-run
+```
+
+For a missing Redis record, `--restore-missing-redis-record` asks the script to authenticate the legacy file with its embedded salt and verify the inner V6 checksum before writing that salt with Redis `SET NX`. A dry run performs all validation but does not write Redis. Remove `--dry-run` to restore the missing record and write a separate `<input>.v2.enc` file. Add `--restore-redis-only` if you only want to restore Redis and do not want the script to create a converted file. The script does not replace or delete the source. It refuses conflicting Redis values and existing output paths, verifies the new encrypted bytes, and leaves the original recoverable if the output step fails. Only publish the converted file after reviewing it.
+
+### Classifier archives
+
+The offline classifier archive writer also encrypts V6 `.iq` payloads with a per-capture key derived from the vault key and a random 32-byte salt. It stores that salt in Redis DB 1 under `capture-protection:<source-capture-checksum>`; the package descriptor stores only that Redis key name. The classifier reader looks up the salt in Redis when preparing the archived capture. It does not create a replacement salt when a record is missing. Legacy globally keyed V6 `.iq` captures are rewrapped during archive, with their frame section and offsets retained and the V6 checksum recalculated and verified.
+
+Run `node --import tsx --test test/classifier/capture-salt-backup.integration.test.mjs` for the Redis backup proof. It launches isolated disposable Redis instances over private Unix sockets, creates a real RDB backup, restores it into a fresh instance, and verifies that the restored salt decrypts a generated V6 capture byte-for-byte. It does not connect to the configured Redis server or read `.env.local`.
+
+> [!WARNING]
+> Every **Increased protection** copy uses a per-capture salt kept in Redis database 1 under `capture-protection:<jobId>`. Back up Redis data, including database 1, using the method supported by your Redis deployment. If the Redis record is lost, the corresponding NAPTENC2 files cannot be decrypted. Protect the Redis backup as sensitive key material.
+
+For a local Redis installation, keep `.env.local` and Redis persistence files such as `.redis_data/dump.rdb` and `.redis_data/appendonlydir/*` owner-only (`600` for files, `700` for directories). Apply the same permissions to exported backups. Store a protected copy outside the machine as well; local disk permissions do not protect against disk loss.
 
 > [!NOTE]
-> `NAPTENC1` is a backend storage/export wrapper, not a playback format. The browser file reader does not open it directly; unwrap it before normal file playback.
+> `NAPTENC2` is a backend storage/export wrapper, not an inner capture format. Browser-side file playback cannot decrypt it directly. The local file worker intentionally refuses to decrypt `.enc` files; authenticated Redis-backed playback still needs a backend playback endpoint.
 
 ## Current limitations
 
@@ -214,8 +239,8 @@ The envelope includes the salt, so a compatible tool can decrypt it using the va
 - Hardware-clock synchronization and absolute per-sample time are not encoded.
 - The formats do not define compression or sparse/zero-run encoding.
 - `.wav` is project-specific and is not a validated SDR interchange format.
-- The SHA-256 trailer is unkeyed. It does not establish file origin.
-- The online-copy wrapper needs a backend or compatible decryption step before browser playback.
+- The SHA-256 checksum is unkeyed. It detects changes but does not establish file origin.
+- Local browser playback of protected `.enc` files is not supported until an authenticated Redis-backed playback endpoint is available.
 
 ## Related implementation
 

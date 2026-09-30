@@ -144,6 +144,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
     ("/api/debug/pipeline-performance", "GET"),
     ("/api/towers/bounds", "GET"),
     ("/api/capture/download", "GET"),
+    ("/api/classifier/captures/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/iq?filename=capture.iq", "POST"),
     ("/api/webmcp/execute", "POST"),
     ("/ws/streams?token=invalid-token", "GET"),
   ];

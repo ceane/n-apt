@@ -53,15 +53,23 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 
 ## I/Q Captures and Privacy
 
-- Never add I/Q capture data to Git. This includes `.napt, .iq, .wav`, and
-  related extensions such as `.c64`. Keep captures local or in
-  external storage; version only metadata, manifests, and synthetic fixtures.
+- Keep I/Q capture data out of Git by default. The sole authorized exception is
+  the explicit Hugging Face / Download / Training flow: it may write capture
+  artifacts into the separate configured `n-apt-ml` dataset checkout under
+  `training-captures/`; never add them to this source repository. Encrypt every
+  capture artifact with AES-256-GCM and a
+  per-capture salt before writing it there; keep the salt in Redis and the key
+  in the existing environment configuration. Never write credentials or keys
+  into browser storage, manifests, or Git.
+- Store evidentiary captures, classifier captures, and demod/reference data in
+  their corresponding dataset folders. Require an explicit classification
+  split; never infer labels or splits from filenames or capture contents.
 - Treat every I/Q capture as potentially sensitive: it may reveal information
   about the recording environment, and some signals may contain exceptionally
   sensitive or otherwise private information.
 - Treat N-APT captures as the greatest privacy risk in this project. Minimize
-  copying and exposure, and never share, upload, or commit them without the
-  user's explicit authorization.
+  copying and exposure. Do not share, upload, or commit captures outside the
+  authorized Hugging Face / Download / Training flow.
 
 ## Temporary and Test Files
 

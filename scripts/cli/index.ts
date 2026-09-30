@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
@@ -24,6 +25,7 @@ import { CliUsageError, validateCliArguments } from "./options";
 import { verifyCaptureArtifact } from "./artifact";
 import {
   assertAspectMountAvailable,
+  assertHuggingFaceRepoAvailable,
   getCaptureOutputPath,
   loadCaptureDestination,
   saveCaptureDestination,
@@ -348,11 +350,9 @@ async function snapshot(args: string[], selected: any) {
 async function iqCapture(args: string[], deviceId: string, selected: any) {
   const destinationArg = flag(args, "--destination", "");
   const outputOverride = flag(args, "--output", "") || undefined;
-  const destination: "local" | "aspect" = destinationArg
-    ? (destinationArg as "local" | "aspect")
-    : (await loadCaptureDestination()) === "aspect"
-      ? "aspect"
-      : "local";
+  const destination = destinationArg
+    ? (destinationArg as "local" | "aspect" | "huggingface")
+    : await loadCaptureDestination();
   if (destinationArg) await saveCaptureDestination(destination);
   if (destination === "aspect" && !outputOverride) {
     const aspectPath = process.env.N_APT_ASPECT_PATH;
@@ -362,6 +362,14 @@ async function iqCapture(args: string[], deviceId: string, selected: any) {
       );
     }
     await assertAspectMountAvailable(aspectPath);
+  }
+  if (destination === "huggingface" && !outputOverride) {
+    const huggingFacePath = process.env.N_APT_HUGGINGFACE_PATH ?? resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../..",
+      "n-apt-ml",
+    );
+    await assertHuggingFaceRepoAvailable(huggingFacePath);
   }
   const receiveDefaults = resolveNaptReceiveDefaults(selected);
   const { centerFrequencyHz: center, sampleRateHz: rate } =
@@ -472,6 +480,28 @@ async function iqCapture(args: string[], deviceId: string, selected: any) {
     console.log(`Capture completed: ${jobId}`);
     return;
   }
+  if (!outputOverride && (destination === "aspect" || destination === "huggingface")) {
+    const saveQuery = new URLSearchParams({ token, jobId, section: "evidentiary" });
+    const savePath = destination === "aspect"
+      ? "/api/capture/save/aspect"
+      : "/api/capture/save/huggingface";
+    const saveResponse = await fetch(`${backend}${savePath}?${saveQuery.toString()}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = (await saveResponse.json().catch(() => ({}))) as {
+      error?: string;
+      files?: string[];
+    };
+    if (!saveResponse.ok) {
+      throw new Error(body.error || `Destination save failed: HTTP ${saveResponse.status}`);
+    }
+    const provider = destination === "aspect" ? "Aspect" : "Hugging Face";
+    console.log(
+      `Saved encrypted capture to ${provider}: ${body.files?.join(", ") || completed.filename}`,
+    );
+    return;
+  }
   const separator = completed.downloadUrl.includes("?") ? "&" : "?";
   const downloadUrl = `${backend}${completed.downloadUrl}${separator}token=${encodeURIComponent(token)}`;
   const response = await fetch(downloadUrl, {
@@ -496,11 +526,7 @@ async function iqCapture(args: string[], deviceId: string, selected: any) {
     fileSize: completed.fileSize,
     checksum: completed.checksum,
   });
-  await writeCaptureArtifact(
-    captureOutput,
-    artifact,
-    destination === "aspect" && !outputOverride ? "aspect" : "local",
-  );
+  await writeCaptureArtifact(captureOutput, artifact, "local");
   console.log(
     `Saved verified ${verification.format.toUpperCase()} V${verification.formatVersion} capture to ${destination === "aspect" ? "Aspect" : "Local Downloads"}: ${captureOutput} (${verification.frameUpdateCount} frame updates)`,
   );

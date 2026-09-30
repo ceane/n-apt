@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assertAspectMountAvailable,
+  assertHuggingFaceRepoAvailable,
   getCaptureOutputPath,
   loadCaptureDestination,
   saveCaptureDestination,
@@ -24,11 +25,40 @@ describe("CLI capture destination", () => {
   it("defaults to Local Downloads and persists only the destination id", async () => {
     const settingsFile = join(directory, ".n-apt.json");
     await expect(loadCaptureDestination(settingsFile)).resolves.toBe("local");
-    await saveCaptureDestination("aspect", settingsFile);
-    await expect(loadCaptureDestination(settingsFile)).resolves.toBe("aspect");
+    await saveCaptureDestination("huggingface", settingsFile);
+    await expect(loadCaptureDestination(settingsFile)).resolves.toBe("huggingface");
     await expect(readFile(settingsFile, "utf8")).resolves.toBe(
-      '{"version":1,"captureDestination":"aspect"}\n',
+      '{"version":1,"captureDestination":"huggingface"}\n',
     );
+  });
+
+  it("resolves Hugging Face captures and manifests under evidentiary storage", () => {
+    expect(
+      getCaptureOutputPath({
+        destination: "huggingface",
+        filename: "capture.napt",
+        downloadsDirectory: "/home/test/Downloads",
+        huggingFacePath: "/home/test/n-apt-ml",
+      }),
+    ).toBe(
+      "/home/test/n-apt-ml/training-captures/evidentiary/captures/capture.napt",
+    );
+  });
+
+  it("requires an existing Hugging Face checkout for local destination paths", async () => {
+    const repo = join(directory, "n-apt-ml");
+    await mkdir(join(repo, ".git"), { recursive: true });
+    expect(
+      getCaptureOutputPath({
+        destination: "huggingface",
+        filename: "capture.iq",
+        downloadsDirectory: "/home/test/Downloads",
+        huggingFacePath: repo,
+      }),
+    ).toBe(join(repo, "training-captures/evidentiary/captures/capture.iq"));
+    await expect(
+      assertHuggingFaceRepoAvailable(join(directory, "missing")),
+    ).rejects.toThrow(/Hugging Face dataset checkout is unavailable/);
   });
 
   it("resolves the configured Aspect mount and rejects missing mounts", () => {
@@ -95,7 +125,7 @@ describe("CLI capture destination", () => {
     );
   });
 
-  it("accepts only local and Aspect CLI destination options", () => {
+  it("accepts local, Aspect, and Hugging Face CLI destination options", () => {
     expect(
       validateCliArguments([
         "capture",
@@ -105,6 +135,15 @@ describe("CLI capture destination", () => {
         "aspect",
       ]),
     ).toContain("aspect");
+    expect(
+      validateCliArguments([
+        "capture",
+        "iq",
+        "--allow-mutations",
+        "--destination",
+        "huggingface",
+      ]),
+    ).toContain("huggingface");
     expect(() =>
       validateCliArguments([
         "capture",
@@ -113,6 +152,6 @@ describe("CLI capture destination", () => {
         "--destination",
         "mega",
       ]),
-    ).toThrow(/local, aspect/);
+    ).toThrow(/local, aspect, huggingface/);
   });
 });

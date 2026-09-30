@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import AdmZip from "adm-zip";
 import { readTrainingCapture } from "./io.mjs";
 import { verifyCaptureArtifact } from "../cli/artifact.ts";
 
@@ -18,6 +19,9 @@ const CAPTURE_ANNOTATIONS_FORMAT = "n-apt-native-annotations-v2";
 const DATA_PACKAGE_SCHEMA =
   "https://datapackage.org/profiles/2.0/datapackage.json";
 const INTEGRITY_SCOPE = "file-with-integrity-digest-placeholder";
+const MAX_PACKAGE_ARCHIVE_BYTES = 128 * 1024 * 1024;
+const MAX_PACKAGE_RESOURCE_BYTES = 128 * 1024 * 1024;
+const MAX_PACKAGE_DESCRIPTOR_BYTES = 1024 * 1024;
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -94,7 +98,7 @@ function trailerIntegrity(bytes, metadata) {
   return parsed.integrity;
 }
 
-function decodeV6IqContainer(bytes, metadata) {
+export function decodeV6IqContainer(bytes, metadata, decryptedPayload = null) {
   if (
     Buffer.from(bytes.subarray(0, 8)).toString("ascii") !== "NAPT-IQ3" ||
     metadata?.format !== "iq" ||
@@ -123,6 +127,7 @@ function decodeV6IqContainer(bytes, metadata) {
     ),
   );
   const binary = metadata.sections?.binary;
+  const encrypted = metadata.encrypted === true || metadata.encrypted === "true";
   if (
     binary?.encoding !== "iq_u8_interleaved" ||
     binary.offset_bytes !== payloadStart ||
@@ -130,7 +135,19 @@ function decodeV6IqContainer(bytes, metadata) {
   ) {
     throw new Error("IQ capture has inconsistent binary section metadata");
   }
-  const payload = bytes.subarray(payloadStart, payloadEnd);
+  if (!Array.isArray(frameUpdates) || !frameUpdates.length) {
+    throw new Error("IQ capture requires patch history and at least one data chunk");
+  }
+  if (encrypted && binary.encrypted !== true) {
+    throw new Error("IQ capture encryption metadata is inconsistent");
+  }
+  if (decryptedPayload !== null && !encrypted) {
+    throw new Error("A decrypted IQ payload was supplied for an unencrypted capture");
+  }
+  if (encrypted && decryptedPayload === null) {
+    return { frameUpdates, chunks: [], encrypted: true };
+  }
+  const payload = decryptedPayload ?? bytes.subarray(payloadStart, payloadEnd);
   let offset = 0;
   if (Buffer.from(payload.subarray(0, 4)).toString("ascii") === "PMD3") {
     if (payload.byteLength < 12)
@@ -169,15 +186,15 @@ function decodeV6IqContainer(bytes, metadata) {
     });
     offset += length;
   }
-  if (!Array.isArray(frameUpdates) || !frameUpdates.length || !chunks.length) {
+  if (!chunks.length) {
     throw new Error(
       "IQ capture requires patch history and at least one data chunk",
     );
   }
-  return { frameUpdates, chunks };
+  return { frameUpdates, chunks, encrypted: false };
 }
 
-async function readVerifiedPackageResource(packageRoot, resource) {
+function packageResourcePath(resource) {
   if (
     typeof resource?.path !== "string" ||
     resource.path.includes("\\") ||
@@ -190,7 +207,31 @@ async function readVerifiedPackageResource(packageRoot, resource) {
       "Data Package resource path must stay inside the package directory",
     );
   }
-  const resourcePath = path.resolve(packageRoot, ...resource.path.split("/"));
+  return resource.path;
+}
+
+function verifyPackageResourceBytes(resource, bytes) {
+  if (
+    !Number.isSafeInteger(resource.bytes) ||
+    resource.bytes < 0 ||
+    resource.bytes > MAX_PACKAGE_RESOURCE_BYTES ||
+    resource.bytes !== bytes.byteLength
+  ) {
+    throw new Error(`Data Package resource size mismatch: ${resource.path}`);
+  }
+  const expectedHash =
+    typeof resource.hash === "string"
+      ? resource.hash.match(/^sha256:([\da-f]{64})$/i)?.[1]
+      : null;
+  if (!expectedHash || sha256(bytes) !== expectedHash.toLowerCase()) {
+    throw new Error(`Data Package resource hash mismatch: ${resource.path}`);
+  }
+  return bytes;
+}
+
+async function readVerifiedPackageResource(packageRoot, resource) {
+  const resourcePathValue = packageResourcePath(resource);
+  const resourcePath = path.resolve(packageRoot, ...resourcePathValue.split("/"));
   if (!resourcePath.startsWith(`${packageRoot}${path.sep}`)) {
     throw new Error("Data Package resource path escapes the package directory");
   }
@@ -205,20 +246,64 @@ async function readVerifiedPackageResource(packageRoot, resource) {
     );
   }
   const bytes = await readFile(resolvedPath);
-  if (
-    !Number.isSafeInteger(resource.bytes) ||
-    resource.bytes !== bytes.byteLength
-  ) {
-    throw new Error(`Data Package resource size mismatch: ${resource.path}`);
-  }
-  const expectedHash =
-    typeof resource.hash === "string"
-      ? resource.hash.match(/^sha256:([\da-f]{64})$/i)?.[1]
-      : null;
-  if (!expectedHash || sha256(bytes) !== expectedHash.toLowerCase()) {
-    throw new Error(`Data Package resource hash mismatch: ${resource.path}`);
-  }
+  verifyPackageResourceBytes(resource, bytes);
   return { path: resolvedPath, bytes };
+}
+
+function safeZipEntryPath(entryName, isDirectory) {
+  const value = isDirectory ? entryName.replace(/\/$/, "") : entryName;
+  if (
+    !value ||
+    value.includes("\\") ||
+    path.posix.isAbsolute(value) ||
+    value.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new Error("Data Package ZIP contains an unsafe resource path");
+  }
+  return value;
+}
+
+function readZipEntryBytes(entry, limit, label) {
+  if (!entry || entry.isDirectory) {
+    throw new Error(`Data Package ZIP is missing ${label}`);
+  }
+  const advertisedSize = entry.header?.size;
+  if (
+    Number.isSafeInteger(advertisedSize) &&
+    (advertisedSize < 0 || advertisedSize > limit)
+  ) {
+    throw new Error(`Data Package ZIP ${label} exceeds the supported size`);
+  }
+  if ((entry.header?.flags & 1) !== 0) {
+    throw new Error("Encrypted Data Package ZIP entries are not supported");
+  }
+  let bytes;
+  try {
+    bytes = entry.getData();
+  } catch {
+    throw new Error(`Data Package ZIP could not read ${label}`);
+  }
+  if (!bytes || bytes.byteLength > limit) {
+    throw new Error(`Data Package ZIP ${label} exceeds the supported size`);
+  }
+  return Buffer.from(bytes);
+}
+
+function readVerifiedZipPackageResource(entries, resource) {
+  const resourcePath = packageResourcePath(resource);
+  const entry = entries.get(resourcePath);
+  const advertisedSize = entry?.header?.size;
+  if (
+    !Number.isSafeInteger(resource?.bytes) ||
+    resource.bytes < 0 ||
+    resource.bytes > MAX_PACKAGE_RESOURCE_BYTES ||
+    (Number.isSafeInteger(advertisedSize) && advertisedSize !== resource.bytes)
+  ) {
+    throw new Error(`Data Package resource size mismatch: ${resourcePath}`);
+  }
+  const bytes = readZipEntryBytes(entry, MAX_PACKAGE_RESOURCE_BYTES, resourcePath);
+  verifyPackageResourceBytes(resource, bytes);
+  return { path: resourcePath, bytes };
 }
 
 function normalizeAnnotations(value) {
@@ -583,10 +668,43 @@ export async function createCapturePackage({
 }
 
 export async function readCapturePackage(packagePath) {
-  if (!packagePath) throw new Error("prepare requires --package DIRECTORY");
-  const packageRoot = await realpath(path.resolve(packagePath));
-  const descriptorPath = path.join(packageRoot, "datapackage.json");
-  const descriptor = JSON.parse(await readFile(descriptorPath, "utf8"));
+  if (!packagePath) {
+    throw new Error("prepare requires --package DIRECTORY_OR_ZIP");
+  }
+  const sourcePath = await realpath(path.resolve(packagePath));
+  const sourceInfo = await lstat(sourcePath);
+  let packageRoot = sourcePath;
+  let zipEntries = null;
+  let descriptor;
+  if (sourceInfo.isDirectory()) {
+    descriptor = JSON.parse(
+      await readFile(path.join(packageRoot, "datapackage.json"), "utf8"),
+    );
+  } else if (sourceInfo.isFile() && path.extname(sourcePath).toLowerCase() === ".zip") {
+    if (sourceInfo.size > MAX_PACKAGE_ARCHIVE_BYTES) {
+      throw new Error("Data Package ZIP exceeds the supported archive size");
+    }
+    const archive = new AdmZip(await readFile(sourcePath));
+    zipEntries = new Map();
+    const seenPaths = new Set();
+    for (const entry of archive.getEntries()) {
+      const entryPath = safeZipEntryPath(entry.entryName, entry.isDirectory);
+      if (seenPaths.has(entryPath)) {
+        throw new Error(`Data Package ZIP contains a duplicate path: ${entryPath}`);
+      }
+      seenPaths.add(entryPath);
+      if (!entry.isDirectory) zipEntries.set(entryPath, entry);
+    }
+    const descriptorEntry = zipEntries.get("datapackage.json");
+    const descriptorBytes = readZipEntryBytes(
+      descriptorEntry,
+      MAX_PACKAGE_DESCRIPTOR_BYTES,
+      "datapackage.json",
+    );
+    descriptor = JSON.parse(descriptorBytes.toString("utf8"));
+  } else {
+    throw new Error("prepare --package requires a Data Package directory or ZIP archive");
+  }
   if (
     descriptor?.$schema !== DATA_PACKAGE_SCHEMA ||
     !Array.isArray(descriptor.resources)
@@ -603,23 +721,42 @@ export async function readCapturePackage(packagePath) {
     }
     resourcesByName.set(resource.name, resource);
   }
-  const captureResource = resourcesByName.get("signal-capture");
-  const labelsResource = resourcesByName.get("labels");
-  if (!captureResource || !labelsResource) {
+  const captureResources = [
+    resourcesByName.get("signal-capture"),
+    resourcesByName.get("iq-capture"),
+  ].filter(Boolean);
+  const labelsResources = [
+    resourcesByName.get("labels"),
+    resourcesByName.get("annotations"),
+  ].filter(Boolean);
+  const captureResource = captureResources[0];
+  const labelsResource = labelsResources[0];
+  if (
+    captureResources.length !== 1 ||
+    labelsResources.length !== 1 ||
+    !captureResource ||
+    !labelsResource
+  ) {
     throw new Error(
-      "Data Package requires signal-capture and labels resources",
+      "Data Package requires one signal-capture/iq-capture and one labels/annotations resource",
     );
   }
+  const readResource = zipEntries
+    ? (resource) => readVerifiedZipPackageResource(zipEntries, resource)
+    : (resource) => readVerifiedPackageResource(packageRoot, resource);
   const [captureFile, labelsFile] = await Promise.all([
-    readVerifiedPackageResource(packageRoot, captureResource),
-    readVerifiedPackageResource(packageRoot, labelsResource),
+    readResource(captureResource),
+    readResource(labelsResource),
   ]);
   const captureName = path.posix.basename(captureResource.path);
   if (!captureName || captureName === "." || captureName === "..") {
     throw new Error("Data Package capture path has no filename");
   }
   const labels = JSON.parse(labelsFile.bytes.toString("utf8"));
-  if (labels?.format !== LABEL_PACKAGE_FORMAT) {
+  if (
+    labels?.format !== LABEL_PACKAGE_FORMAT &&
+    labels?.format !== CAPTURE_ANNOTATIONS_FORMAT
+  ) {
     throw new Error("Data Package labels resource has an unsupported format");
   }
   const verified = await readCaptureIdentity(
@@ -648,7 +785,9 @@ export async function readCapturePackage(packagePath) {
     captureIdentity: labelObject.captureIdentity,
     captureTimestampMs,
     labels: labelObject,
+    archive: descriptor?.napt?.archive ?? null,
     format: verified.format,
+    archiveSource: zipEntries !== null,
     metadata,
     iqContainer:
       verified.format === "iq"

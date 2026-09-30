@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { decryptArchivedIqPayload } from './crypto.mjs';
 import { createRunner } from './runner.mjs';
 import { decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture } from './io.mjs';
 import { FEATURE_NAMES, PREPROCESSING, validateModel, inferModel } from '../../src/ts/features/classification/native/core.ts';
@@ -31,6 +32,21 @@ async function captureRaw(record, manifestDir, envFile) {
     if(captureRate && Math.abs(captureRate-record.sampleRateHz)>1) throw new Error(`Declared sample rate disagrees with ${record.id} capture metadata`);
     return { bytes: await readFile(path.join(output,'raw.iq.u8')), format:'u8', manifest: record };
   } finally { await rm(temp,{recursive:true,force:true}); }
+}
+async function captureRawFromPackage(capture, record, envFile) {
+  if (!capture.archiveSource) {
+    return captureRaw({
+      ...record,
+      input: path.relative(capture.packageRoot, capture.capturePath),
+    }, capture.packageRoot, envFile);
+  }
+  const temp = await mkdtemp(path.join(tmpdir(), 'napt-classifier-package-'));
+  try {
+    await writeFile(path.join(temp, capture.captureName), capture.captureBytes, { flag: 'wx' });
+    return await captureRaw({ ...record, input: capture.captureName }, temp, envFile);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
 }
 async function writePreparedIq(iq, directory) {
   await mkdir(directory, { recursive: true });
@@ -195,7 +211,7 @@ async function preparePackage(a) {
   if (!a.split || !PACKAGE_SPLITS.has(a.split)) {
     throw new Error('prepare --package requires --split train|validation|test|acceptance|unlabeled');
   }
-  const { readCapturePackage } = await import('./package.mjs');
+  const { readCapturePackage, decodeV6IqContainer } = await import('./package.mjs');
   const capture = await readCapturePackage(a.package);
   const labels = capture.labels;
   const session = String(a.session ?? labels.sessionId ?? '').trim();
@@ -268,18 +284,34 @@ async function preparePackage(a) {
       throw new Error('V6 capture frame_updates must be an array of objects');
     }
     const frameUpdates = updatesRaw.filter(update => update.channel === undefined || update.channel === 0);
+    if (metadata.lossless === true && metadata.temporal_resolution === 'lossless' &&
+      Number.isSafeInteger(metadata.frame_count) && metadata.frame_count > 0) {
+      const timestampedFrameCount = frameUpdates.filter(update => update.kind === 'Frame').length;
+      if (timestampedFrameCount !== metadata.frame_count) {
+        throw new Error(`${capture.captureName}: lossless capture declares ${metadata.frame_count} frames but has ${timestampedFrameCount} timestamped Frame updates`);
+      }
+    }
     const initialConfig = packageConfig(metadata, {}, channel, null, null, capture.captureName);
     let chunks;
     if (capture.format === 'iq') {
-      chunks = capture.iqContainer.chunks;
+      if (capture.iqContainer?.encrypted) {
+        const envFile = a.env_file ?? '.env.local';
+        const payload = await decryptArchivedIqPayload({
+          captureBytes: capture.captureBytes,
+          archive: capture.archive,
+          envFile,
+        });
+        chunks = decodeV6IqContainer(capture.captureBytes, metadata, payload).chunks;
+      } else {
+        chunks = capture.iqContainer.chunks;
+      }
     } else if (capture.format === 'napt') {
-      const decrypted = await captureRaw({
+      const decrypted = await captureRawFromPackage(capture, {
         format: 'napt',
-        input: path.relative(capture.packageRoot, capture.capturePath),
         fftSize: initialConfig.fftSize,
         sampleRateHz: initialConfig.sampleRateHz,
         id: capture.captureId,
-      }, capture.packageRoot, a.env_file);
+      }, a.env_file);
       chunks = [{ sampleOffset: 0, channel: 0, data: decrypted.bytes }];
     } else {
       throw new Error(`Classifier prepare does not support .${capture.format} captures`);
@@ -345,6 +377,9 @@ async function preparePackage(a) {
         const activePatch = activeUpdates
           .filter(update => (update.kind ?? 'PatchOptionsApplied') === 'PatchOptionsApplied')
           .reduce((state, update) => ({ ...state, ...update.patch }), {});
+        const configurationSegmentIndex = Math.max(0, activeUpdates.filter(update =>
+          (update.kind ?? 'PatchOptionsApplied') === 'PatchOptionsApplied').length - 1);
+        const continuitySegmentIndex = activeUpdates.filter(update => update.kind === 'StreamInterrupted').length;
         const config = packageConfig(metadata, activePatch, channel, initialConfig.sampleRateHz, initialConfig.centerFrequencyHz, capture.captureName);
         const bytes = bytesForInterval(run, startByte, endByte);
         if (bytes.byteLength !== endByte - startByte || bytes.byteLength % 2 !== 0) {
@@ -355,6 +390,8 @@ async function preparePackage(a) {
         const iq = decodeIq(bytes, 'u8');
         const input = await writePreparedIq(iq, path.join(out, id));
         const startUpdate = [...timingUpdates].reverse().find(update => update.sample_offset <= startByte);
+        const frameUpdate = [...timingUpdates].reverse().find(update => update.kind === 'Frame' && update.sample_offset === startByte);
+        const sourceId = frameUpdate?.source_id ?? metadata.source_id ?? `capture:${capture.captureId}`;
         const timestampStartMs = Number.isFinite(startUpdate?.timestamp_us)
           ? startUpdate.timestamp_us / 1000 + ((startByte - startUpdate.sample_offset) / 2 / config.sampleRateHz) * 1000
           : initialTimestamp + (startByte / 2 / config.sampleRateHz) * 1000;
@@ -365,7 +402,9 @@ async function preparePackage(a) {
           id,
           input: path.relative(out, input),
           format: 'f32le',
-          sourceId: `capture:${capture.captureId}`,
+          sourceId,
+          streamEpoch: activePatch.stream_epoch ?? activePatch.to_stream_epoch ?? activePatch.toStreamEpoch ?? metadata.stream_epoch ?? null,
+          optionsRevision: activePatch.options_revision ?? activePatch.to_options_revision ?? activePatch.toOptionsRevision ?? activePatch.optionsRevision ?? metadata.options_revision ?? null,
           timestampStartMs,
           sampleRateHz: config.sampleRateHz,
           centerFrequencyHz: config.centerFrequencyHz,
@@ -373,10 +412,13 @@ async function preparePackage(a) {
           analysisFftSize: config.fftSize,
           window: config.window,
           captureWindow: config.window,
-          temporalResolution: 'contiguous-span',
+          temporalResolution: frameUpdate ? 'frame-indexed' : 'contiguous-span',
+          ...(frameUpdate ? { frameSequence: frameUpdate.frame_sequence, frameTimestampUs: frameUpdate.timestamp_us } : {}),
+          configurationSegmentIndex,
+          continuitySegmentIndex,
           sourceSampleOffsetBytes: startByte,
           sourceChunkGapBefore,
-          captureFrameUpdates: updates,
+          ...(frameUpdate ? {} : { captureFrameUpdates: updates }),
           captureDiscontinuities: discontinuities,
           optionsAppliedEvents: appliedEvents.filter(event => event.byteOffset >= previousPreparedEndByte && event.byteOffset <= startByte),
           streamInterruptedEvents: streamInterruptedEvents.filter(event => event.byteOffset >= previousPreparedEndByte && event.byteOffset <= startByte),
@@ -446,11 +488,12 @@ async function extract(a) {
       const iq=decodeIq(await readFile(path.resolve(base,r.input)),'f32le'), n=iq.length/2;
       for(const fftSize of sizes) {
         for(const [startFraction,endFraction] of crops) {
-          const hop=Math.max(1,Math.floor(fftSize/2)), totalFrames=Math.max(1,Math.ceil(Math.max(1,n-fftSize)/hop)+1), frameIndices=selectFrameIndices(totalFrames, Number(a.max_frames??64));
+          const hop=Math.max(1,Math.floor(fftSize/2)), totalFrames=n<=fftSize?1:Math.floor((n-fftSize)/hop)+1, frameIndices=selectFrameIndices(totalFrames, Number(a.max_frames??64));
           const temporal=[];
           const streamKey=JSON.stringify([r.captureId??r.id,r.sourceId??null,r.streamEpoch??null,r.optionsRevision??null,
+            r.configurationSegmentIndex??null,r.continuitySegmentIndex??null,
             r.sampleRateHz,r.centerFrequencyHz,r.analysisFftSize??r.configuredFftSize??null,r.captureWindow??r.window??null,
-            r.segmentIndex??null,fftSize,startFraction,endFraction,window]);
+            r.temporalResolution === 'frame-indexed' ? null : r.segmentIndex??null,fftSize,startFraction,endFraction,window]);
           for(let f=0;f<frameIndices.length;f++) {
             const sourceFrameIndex=frameIndices[f], start=sourceFrameIndex*hop, valid=Math.min(fftSize,n-start); if(valid<2) break;
             const chunk=iq.subarray(start*2,(start+valid)*2), fft=spectrumFromIq(chunk,fftSize,window);
@@ -475,7 +518,7 @@ async function extract(a) {
               acquisitionWindow:r.captureWindow??r.window??null,analysisWindow:window,window,
               frameIndex:sourceFrameIndex,timestampMs,evidenceMs:result.evidenceMs,temporalFrameCount:result.frameCount??1,
               latencyMs:result.latencyMs??null,sourceId:r.sourceId??null,streamEpoch:r.streamEpoch??null,
-              optionsRevision:r.optionsRevision??null,frameSequence:r.frameSequence??null,
+              optionsRevision:r.optionsRevision??null,frameSequence:r.frameSequence??null,frameTimestampUs:r.frameTimestampUs??null,
               sourceSampleOffsetBytes:r.sourceSampleOffsetBytes??null,analysisFftSize:r.analysisFftSize??null,
             });
           }
@@ -511,7 +554,7 @@ async function classify(a) {
     const classified=rows.filter(r=>r.decision!==null); console.log(JSON.stringify({rows:rows.length,insufficientEvidence:rows.length-classified.length,modelId:model.id,output:a.out??path.join(base,'classifications.json')},null,2));
   } finally { await rm(copy,{force:true});await rm(temp,{force:true}); }
 }
-function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package --split train [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test --model model.json --report report.json\n`);}
+function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package-directory-or-zip --split train [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test --model model.json --report report.json\n`);}
 async function packageCapture(a){const {createCapturePackage}=await import('./package.mjs');const result=await createCapturePackage({capturePath:a.capture,labelsPath:a.labels,outputPath:a.out,capturedAt:a.captured_at});console.log(JSON.stringify(result,null,2));}
 async function main(){const a=args(process.argv.slice(2)); if(a.command==='prepare')return prepare(a); if(a.command==='extract')return extract(a); if(a.command==='classify')return classify(a); if(a.command==='package')return packageCapture(a); if(a.command==='help'||!a.command)return help();throw new Error(`Unknown command: ${a.command}`);}
 main().catch(error=>{console.error(`classifier: ${error.message}`);process.exitCode=2;});

@@ -99,9 +99,7 @@ export interface NativeTrainingCaptureEligibility {
   sourceCapability: string;
   sourceIsMock: boolean;
   sourceStatus: string | null;
-  sourcePaused: boolean;
   deviceConnected: boolean;
-  canvasPaused: boolean;
   isRtlSdr: boolean;
 }
 
@@ -117,7 +115,7 @@ export function nativeTrainingCaptureSourceStatusCode(
   if (!state.isRtlSdr || state.sourceMode !== 'live' || !state.selectedSourceId) return null;
   if (state.sourceStatus === 'disconnected') return 'rtl-sdr-disconnected';
   if (state.sourceStatus === 'stale') return 'rtl-sdr-stale';
-  if (state.sourceStatus === 'paused' || state.sourcePaused || state.canvasPaused) return 'rtl-sdr-paused';
+  if (state.sourceStatus === 'paused') return 'rtl-sdr-paused';
   if (state.sourceStatus !== null && state.sourceStatus !== 'receiving') return 'rtl-sdr-not-receiving';
   return null;
 }
@@ -246,8 +244,7 @@ export const canStartNativeTrainingCapture = (state: NativeTrainingCaptureEligib
   state.selectedSourceId === state.activeSourceId &&
   state.selectedSourceId === state.expectedSourceId &&
   state.sourceMode === 'live' && state.temporalResolution === 'lossless' && state.sourceCapability === 'rx' && !state.sourceIsMock &&
-  state.sourceStatus === 'receiving' && !state.sourcePaused && state.deviceConnected &&
-  !state.canvasPaused && state.isRtlSdr;
+  state.sourceStatus === 'receiving' && state.deviceConnected && state.isRtlSdr;
 
 /** Validates the complete acquired I/Q payload independently of the analysis FFT length. */
 export function isCompleteNativeTrainingFrame(frame: { fftSize: number; validSamples: number; rawIqByteCount: number }): boolean {
@@ -537,6 +534,24 @@ export function isNativeTrainingFrameStale(
   return !Number.isFinite(ageMs) || ageMs < 0 || ageMs > NativeTrainingCaptureSession.STALE_AFTER_MS;
 }
 
+export function stopNativeTrainingCaptureForHealth(
+  session: NativeTrainingCaptureSession,
+  state: {
+    eligible: boolean;
+    ineligibleReason?: string | null;
+    latestFrameFresh: boolean;
+    nowMs: number;
+  },
+): string | null {
+  if (!session.active) return null;
+  if (!state.eligible || !state.latestFrameFresh) {
+    const reason = state.eligible ? 'stale-frame' : state.ineligibleReason ?? 'source-disconnected-or-ineligible';
+    session.stop(reason);
+    return reason;
+  }
+  return session.stopIfStale(state.nowMs) ? 'no-new-frames' : null;
+}
+
 export function nativeTrainingCaptureFileName(sessionId: string, capturedAtTimestampMs: number): string {
   if (!sessionId || !Number.isFinite(capturedAtTimestampMs)) {
     throw new Error('Capture filename requires a session ID and finite capture timestamp');
@@ -719,6 +734,20 @@ export async function exportNativeTrainingCaptureV6(
         valid_sample_count: firstFrame.validSamples,
       },
     },
+    ...capture.frames.reduce<{ updates: IqCaptureFrameUpdate[]; byteOffset: number }>((state, frame) => {
+      state.updates.push({
+        sample_offset: state.byteOffset,
+        timestamp_us: Math.round(frame.timestampMs * 1000),
+        channel: 0,
+        kind: 'Frame',
+        source_id: capture.config.sourceId,
+        job_id: capture.sessionId,
+        frame_sequence: frame.sequence,
+        patch: {},
+      });
+      state.byteOffset += frame.iqBytes.byteLength;
+      return state;
+    }, { updates: [], byteOffset: 0 }).updates,
     ...capture.optionsAppliedEvents.map((event): IqCaptureFrameUpdate => ({
       sample_offset: event.byteOffset,
       timestamp_us: Math.round(event.timestampMs * 1000),

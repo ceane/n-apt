@@ -6,6 +6,11 @@ const HEADER_SIZE: usize = 40;
 const TRAILER_MAGIC: &[u8; 8] = b"NAPTTRLR";
 const TRAILER_HEADER_SIZE: usize = 24;
 const INTEGRITY_PLACEHOLDER: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+// I/Q format milestones from repository history: v1-v2 are legacy/undated;
+// v3 (2026-07-18), v4 (2026-08-05), v5 (2026-09-14), v6 (2026-09-23, WIP).
+// Keep format_version as the latest schema; upgraded files may additionally
+// carry originalVersion to record the source version.
 pub const IQ_FORMAT_VERSION: u16 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -417,8 +422,12 @@ mod tests {
 
   #[test]
   fn v6_round_trips_section_index_and_readable_trailer() {
+    let mut metadata = IqMetadata::default();
+    metadata
+      .fields
+      .insert("originalVersion".into(), serde_json::json!(5));
     let file = IqFile {
-      metadata: IqMetadata::default(),
+      metadata,
       private_metadata: None,
       frames: vec![],
       chunks: vec![IqChunk {
@@ -435,6 +444,10 @@ mod tests {
     let encoded = encode(&file, None).expect("encode v4 IQ");
     let decoded = decode(&encoded, None).expect("decode v4 IQ");
     assert_eq!(decoded.metadata.format_version, 6);
+    assert_eq!(
+      decoded.metadata.fields["originalVersion"],
+      serde_json::json!(5)
+    );
     assert_eq!(decoded.chunks[0].data, vec![1, 2, 3, 4]);
     assert_eq!(
       decoded.trailer.as_ref().and_then(|trailer| trailer["processing"].as_object()),

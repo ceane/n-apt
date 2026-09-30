@@ -65,6 +65,7 @@ describe("standalone IQ capture containers", () => {
   it("writes an app-compatible NAPT-IQ3 v6 container with chunk offsets and matching trailer version", async () => {
     const bytes = await encodeIqCaptureV4({
       metadata: { ...metadata, format_version: 5, encrypted: true },
+      originalVersion: 5,
       frameUpdates: [
         {
           sample_offset: 0,
@@ -86,6 +87,7 @@ describe("standalone IQ capture containers", () => {
     expect(decoded.metadata).toMatchObject({
       format: "iq",
       format_version: 6,
+      originalVersion: 5,
       encrypted: false,
       interleaving: "IQ",
       center_frequency_hz: 1_600_000,

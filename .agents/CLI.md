@@ -9,9 +9,23 @@ artifacts, source retuning, or CLI/backend protocol behavior.
 - The CLI does not start, stop, or own backend/frontend processes.
 - Run network-backed commands only after the required service is ready.
 - Keep the control WebSocket open for the full capture lifecycle.
-- Do not add I/Q capture data, `.napt`, `.iq`, `.wav`, or `.c64` files to Git.
+- Keep I/Q capture data, `.napt`, `.iq`, `.wav`, or `.c64` files out of Git by
+  default. The explicit Hugging Face / Download / Training flow may write only
+  AES-256-GCM-encrypted artifacts with a per-capture salt into the configured
+  separate `n-apt-ml` dataset checkout under `training-captures/`, never this
+  source repository; keep salts in Redis and never commit credentials or keys.
 - Do not use `agent call startCapture` or `agent call stopCapture`; those agent
   surfaces are not an authoritative capture lifecycle.
+- Capture artifacts persist under `~/.n-apt/captures`, are copied to
+  `~/Downloads/N-APT Captures`, and can be copied to an additional absolute
+  directory with `N_APT_CAPTURE_BACKUP_PATH`. The capture index and per-capture
+  protection salts use non-expiring Redis keys; on-disk manifests let downloads
+  recover when Redis is unavailable.
+- `N_APT_HUGGINGFACE_PATH` overrides the dataset checkout. When unset, the
+  backend and CLI use the sibling `n-apt-ml` Git checkout beside this repo.
+  Online copies are encrypted with a per-capture salt before entering that
+  checkout; the salt key in Redis has no expiry, and the encrypted file envelope
+  retains the salt for recovery from a surviving file copy.
 
 ## Basic Examples
 

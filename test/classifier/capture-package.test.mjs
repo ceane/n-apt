@@ -5,6 +5,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import AdmZip from "adm-zip";
 import {
   encodeIqCaptureV4,
   encodeNaptCaptureV4,
@@ -753,6 +754,37 @@ test("prepares encrypted V6 NAPT packages through the existing password-file dec
         .byteLength,
       32,
     );
+
+    const archive = new AdmZip();
+    archive.addFile(
+      "datapackage.json",
+      await readFile(path.join(packed.outputPath, "datapackage.json")),
+    );
+    archive.addFile(
+      "labels.json",
+      await readFile(path.join(packed.outputPath, "labels.json")),
+    );
+    archive.addFile(
+      "captures/encrypted-capture.napt",
+      await readFile(path.join(packed.outputPath, "captures", "encrypted-capture.napt")),
+    );
+    const archivePath = path.join(root, "encrypted-package.zip");
+    await writeFile(archivePath, archive.toBuffer());
+    const archivedOutputPath = path.join(root, "prepared-napt-zip");
+    const preparedArchive = runPreparePackage(archivePath, archivedOutputPath, [
+      "--env-file",
+      envFile,
+    ]);
+    assert.equal(preparedArchive.status, 0, preparedArchive.stderr);
+    const archivedDataset = JSON.parse(
+      await readFile(path.join(archivedOutputPath, "dataset.json"), "utf8"),
+    );
+    assert.equal(archivedDataset.recordings.length, 1);
+    assert.equal(
+      (await readFile(path.join(archivedOutputPath, archivedDataset.recordings[0].input)))
+        .byteLength,
+      32,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -822,6 +854,98 @@ test("refuses to overwrite an existing package directory or rebind a sidecar to 
     );
     assert.notEqual(existing.status, 0);
     assert.match(existing.stderr, /exist/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("prepares the one-click classifier Data Package ZIP directly", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "napt-data-package-zip-"));
+  try {
+    const capture = await encodeIqCaptureV4({
+      metadata: {
+        center_frequency_hz: 137500000,
+        capture_sample_rate_hz: 3200000,
+        fft_size: 4096,
+        fft_window: "hann",
+      },
+      frameUpdates: updates,
+      chunks: [{ sample_offset: 0, channel: 0, data: Uint8Array.of(128, 130, 127, 126) }],
+    });
+    const captureId = iqTrailerDigest(capture).toLowerCase();
+    const captureName = "capture.iq";
+    const labels = {
+      format: "n-apt-native-annotations-v2",
+      captureId,
+      sessionId: "browser-session-a",
+      captureIdentity: {
+        kind: "v6-trailer-sha256",
+        algorithm: "SHA-256",
+        scope: "file-with-integrity-digest-placeholder",
+        digestHex: captureId,
+      },
+      annotations: { ...annotations, tags: ["no interference"] },
+      annotationEvents: [],
+      interferenceMarkedEvents: [],
+    };
+    const captureResource = {
+      name: "iq-capture",
+      path: captureName,
+      format: "iq",
+      mediatype: "application/octet-stream",
+      bytes: capture.byteLength,
+      hash: `sha256:${hash(capture)}`,
+    };
+    const labelsBytes = Buffer.from(JSON.stringify(labels));
+    const labelsResource = {
+      name: "annotations",
+      path: "labels.json",
+      format: "json",
+      mediatype: "application/json",
+      bytes: labelsBytes.byteLength,
+      hash: `sha256:${hash(labelsBytes)}`,
+    };
+    const descriptor = {
+      $schema: "https://datapackage.org/profiles/2.0/datapackage.json",
+      resources: [captureResource, labelsResource],
+      napt: { packageFormat: "n-apt-classifier-capture-package-v1", captureId },
+    };
+    const archive = new AdmZip();
+    archive.addFile(captureName, Buffer.from(capture));
+    archive.addFile("labels.json", labelsBytes);
+    archive.addFile("datapackage.json", Buffer.from(JSON.stringify(descriptor)));
+    const archivePath = path.join(root, "classifier-capture.zip");
+    await writeFile(archivePath, archive.toBuffer());
+
+    const outputPath = path.join(root, "prepared-from-zip");
+    const prepared = runPreparePackage(archivePath, outputPath);
+    assert.equal(prepared.status, 0, prepared.stderr);
+    const dataset = JSON.parse(
+      await readFile(path.join(outputPath, "dataset.json"), "utf8"),
+    );
+    assert.equal(dataset.recordings.length, 1);
+    assert.equal(dataset.recordings[0].session, "browser-session-a");
+    assert.equal(dataset.recordings[0].label, "matching");
+    assert.equal(dataset.recordings[0].sourceCaptureId, captureId);
+    assert.deepEqual(dataset.recordings[0].captureAnnotations, labels.annotations);
+
+    const corruptedArchive = new AdmZip();
+    const corruptedCapture = Buffer.from(capture);
+    corruptedCapture[corruptedCapture.length - 1] ^= 1;
+    corruptedArchive.addFile(captureName, corruptedCapture);
+    corruptedArchive.addFile("labels.json", labelsBytes);
+    corruptedArchive.addFile(
+      "datapackage.json",
+      Buffer.from(JSON.stringify(descriptor)),
+    );
+    const corruptedPath = path.join(root, "corrupted-classifier-capture.zip");
+    await writeFile(corruptedPath, corruptedArchive.toBuffer());
+    const rejected = runPreparePackage(
+      corruptedPath,
+      path.join(root, "prepared-from-corrupted-zip"),
+    );
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /resource hash mismatch/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

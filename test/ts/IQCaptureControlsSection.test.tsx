@@ -603,6 +603,43 @@ describe("IQCaptureControlsSection", () => {
     global.fetch = previousFetch;
   });
 
+  it("saves demod captures into the Hugging Face demod section", async () => {
+    const previousFetch = global.fetch;
+    global.fetch = jest.fn().mockImplementation((input: RequestInfo | URL) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => String(input).includes("/api/capture/destinations")
+          ? { destinations: [{ id: "huggingface", available: true }] }
+          : { files: ["training-captures/demod/reference_captures/capture.napt.enc"] },
+      } as Response),
+    );
+    window.localStorage.setItem("napt.capture-destination.v1", "huggingface");
+    window.localStorage.setItem(
+      "napt.iq-capture-downloads.v1",
+      JSON.stringify([{
+        jobId: "demod_capture_1",
+        downloadUrl: "/api/capture/download?jobId=demod_capture_1",
+        filename: "capture.napt",
+        timestamp: Date.now(),
+      }]),
+    );
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} huggingFaceSection="demod" />
+      </TestWrapper>,
+    );
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+    fireEvent.click(screen.getByRole("button", { name: /Save to Hugging Face/ }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/\/api\/capture\/save\/huggingface\?.*section=demod/),
+        { method: "POST" },
+      ),
+    );
+    global.fetch = previousFetch;
+  });
+
   it("reports Aspect save failures without losing the capture download", async () => {
     const previousFetch = global.fetch;
     global.fetch = jest.fn().mockImplementation((input: RequestInfo | URL) =>

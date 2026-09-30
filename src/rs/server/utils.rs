@@ -1831,10 +1831,10 @@ pub fn save_capture_file_multi(
     _ => {}
   }
 
-  // Create temp directory if it doesn't exist
-  let temp_dir = std::env::temp_dir().join("n-apt-captures");
+  // Capture bytes must survive process restarts and OS temp cleanup.
+  let temp_dir = crate::capture::storage::capture_storage_dir();
   std::fs::create_dir_all(&temp_dir)
-    .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    .map_err(|e| format!("Failed to create durable capture directory: {}", e))?;
 
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
   let filename = if result.file_type == ".iq" {
@@ -1972,9 +1972,10 @@ pub fn save_capture_file_multi(
       .collect::<String>();
     std::fs::write(&path, &encoded)
       .map_err(|e| format!("Failed to write IQ: {e}"))?;
+    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
     return Ok(CaptureArtifact {
       filename,
-      path,
+      path: durable_path,
       file_size: encoded.len() as u64,
       checksum,
     });
@@ -2124,17 +2125,18 @@ pub fn save_capture_file_multi(
     let file_size = encoded.len() as u64;
     std::fs::write(&path, &encoded)
       .map_err(|e| format!("Failed to write encrypted capture: {}", e))?;
+    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
 
     info!(
       "Saved encrypted capture: {} ({} bytes, sha256:{})",
-      path.display(),
+      durable_path.display(),
       file_size,
       checksum
     );
 
     return Ok(CaptureArtifact {
       filename,
-      path,
+      path: durable_path,
       file_size,
       checksum,
     });
@@ -2259,17 +2261,18 @@ pub fn save_capture_file_multi(
 
     writer.flush().map_err(|e| e.to_string())?;
     let (checksum, file_size) = writer.finalize();
+    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
 
     info!(
       "Saved WAV capture: {} ({} bytes, sha256:{})",
-      path.display(),
+      durable_path.display(),
       file_size,
       checksum
     );
 
     Ok(CaptureArtifact {
       filename,
-      path,
+      path: durable_path,
       file_size,
       checksum,
     })

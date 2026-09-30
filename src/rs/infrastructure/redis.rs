@@ -206,6 +206,32 @@ impl RedisStore {
     self.set_json_with_ttl(database, key, value, None).await
   }
 
+  /// Atomically store a JSON value only if the key is still absent.
+  /// Returns true for the writer that created the key and false when another
+  /// writer already created it.
+  pub async fn set_json_if_absent<T: Serialize>(
+    &self,
+    database: u8,
+    key: &str,
+    value: &T,
+  ) -> Result<bool, String> {
+    let mut connection = self.connection(database).await?;
+    let json = serde_json::to_string(value)
+      .map_err(|error| format!("Redis JSON serialization failed: {error}"))?;
+    let result = redis::cmd("SET")
+      .arg(key)
+      .arg(json)
+      .arg("NX")
+      .query_async::<Option<String>>(&mut connection)
+      .await;
+    if result.is_err() {
+      self.evict_connection(database);
+    }
+    result
+      .map(|response| response.is_some())
+      .map_err(|error| format!("Redis JSON SET NX failed: {error}"))
+  }
+
   /// SET with an optional expiry in seconds.
   ///
   /// Keys written without a TTL accumulate in Redis for the lifetime of the
@@ -411,5 +437,55 @@ mod tests {
       .expect("JSON value should be loaded");
 
     assert_eq!(actual, Some(expected));
+  }
+
+  #[tokio::test]
+  async fn json_if_absent_selects_one_value_for_concurrent_writers() {
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
+
+    let client = redis::Client::open("redis://127.0.0.1:6379")
+      .expect("test Redis URL must be valid");
+    let store = RedisStore::from_client(client);
+    let key = format!("redis-service-test:nx:{}", uuid::Uuid::new_v4());
+    let participants = 16;
+    let barrier = Arc::new(Barrier::new(participants));
+    let mut tasks = Vec::with_capacity(participants);
+
+    for index in 0..participants {
+      let store = store.clone();
+      let barrier = Arc::clone(&barrier);
+      let key = key.clone();
+      tasks.push(tokio::spawn(async move {
+        let value = format!("salt-{index}");
+        barrier.wait().await;
+        let inserted = store
+          .set_json_if_absent(15, &key, &value)
+          .await
+          .expect("SET NX should succeed");
+        (inserted, value)
+      }));
+    }
+
+    let mut inserted_value = None;
+    for task in tasks {
+      let (inserted, value) = task.await.expect("writer task should finish");
+      if inserted {
+        assert!(inserted_value.replace(value).is_none(), "only one writer may win");
+      }
+    }
+    let stored: Option<String> = store
+      .get_json(15, &key)
+      .await
+      .expect("stored JSON should be readable");
+    assert_eq!(stored, inserted_value, "Redis must keep the winning writer's value");
+
+    let mut database = store.database(15).await.expect("Redis DB should be available");
+    let _: usize = database
+      .query("DEL", |command| {
+        command.arg(&key);
+      })
+      .await
+      .expect("test key should be removed");
   }
 }

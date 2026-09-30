@@ -2,6 +2,7 @@
 
 # Redis setup and management for N-APT tower data
 set -e
+umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REDIS_PID=""
@@ -54,6 +55,7 @@ install_redis() {
 start_redis() {
     # Create data directory if it doesn't exist
     mkdir -p "$REDIS_DATA_DIR"
+    chmod 700 "$REDIS_DATA_DIR"
     
     # Check if Redis is already running on our port
     if lsof -tPni :$REDIS_PORT > /dev/null 2>&1; then

@@ -151,17 +151,20 @@ const markdownForAgentsPlugin = () => ({
           "",
           "This index describes the Markdown-for-Agents and WebMCP surfaces. CLI mutations require `--allow-mutations`; transmission and destructive operations are blocked.",
           "",
-          "## Supported Markdown routes",
+          "## Markdown routes",
           "",
-          "- `/` and `/visualizer` — [visualizer](visualizer.md)",
-          "- `/demodulate` and `/demod` — [analysis](analysis.md)",
-          "- `/draw-signal` — [draw-signal](draw-signal.md)",
-          "- `/3d-model` — [3d-model](3d-model.md)",
-          "- `/map-endpoints` — [map-endpoints](map-endpoints.md)",
+          "- [Visualizer](/visualizer) (also `/`)",
+          "- [Demodulate](/demodulate) (also `/demod`)",
+          "- [Draw Signal](/draw-signal)",
+          "- [3D Model](/3d-model)",
+          "- [Map Endpoints](/map-endpoints)",
+          "- [Get Started](/get-started)",
+          "- Legal document reader: [Terms](/terms), [Privacy](/privacy), [License](/license), [Responsible Use](/responsible-use)",
+          "- [Cellular Triangulation Demo](/game)",
           "",
           "## Coverage policy",
           "",
-          "Settings and I/Q captures require authentication. Educational, legal, onboarding, and demo routes are not executable agent surfaces.",
+          "Onboarding, legal, and demo routes have descriptive Markdown only and expose no executable WebMCP tools. `non-agent` in the capability manifest means the route has no agent-driven actions; it does not prevent Markdown retrieval.",
         ].join("\n");
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -180,6 +183,12 @@ const markdownForAgentsPlugin = () => ({
         "/draw-signal": "draw-signal.md",
         "/3d-model": "3d-model.md",
         "/map-endpoints": "map-endpoints.md",
+        "/get-started": "start-page.md",
+        "/terms": "legal.md",
+        "/privacy": "legal.md",
+        "/license": "legal.md",
+        "/responsible-use": "legal.md",
+        "/game": "game.md",
       };
       const file = files[urlPath];
       if (!file) return next();

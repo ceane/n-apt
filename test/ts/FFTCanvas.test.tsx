@@ -33,6 +33,7 @@ import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { createFFTVisualizerMachine } from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
 import { createRef } from "react";
+import { NATIVE_CLASSIFIER_DOWNLOADS_STORAGE_KEY } from "@n-apt/classification/native/nativeClassifierDownloads";
 
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
@@ -451,6 +452,36 @@ describe("FFTCanvas Component", () => {
     expect(within(classifierSlot).getByRole('region', { name: 'Experimental native resolution classifier' })).toBeInTheDocument();
     unmount();
     classifierSlot.remove();
+  });
+
+  it("rehydrates classifier package links with the authenticated context token", async () => {
+    const captureId = "a".repeat(64);
+    const downloadKey = NATIVE_CLASSIFIER_DOWNLOADS_STORAGE_KEY;
+    localStorage.setItem(downloadKey, JSON.stringify([{
+      captureId,
+      jobId: `classifier_${captureId}`,
+      packageFileName: `n-apt-classifier-${captureId.slice(0, 12)}.zip`,
+      timestamp: Date.now(),
+    }]));
+    const classifierSlot = document.createElement("div");
+    classifierSlot.id = "native-classifier-sidebar-slot";
+    document.body.append(classifierSlot);
+
+    const rendered = render(
+      <TestWrapper><MemoryRouter><SpectrumProvider>
+        <FFTCanvas {...defaultProps} showNativeClassifier />
+      </SpectrumProvider></MemoryRouter></TestWrapper>,
+    );
+    try {
+      await waitFor(() => {
+        expect(within(classifierSlot).getByRole("link", { name: "Download capture package" }))
+          .toHaveAttribute("href", expect.stringContaining("token=mock-token"));
+      });
+    } finally {
+      rendered.unmount();
+      localStorage.removeItem(downloadKey);
+      classifierSlot.remove();
+    }
   });
 
   it("keeps the FFT node selection status in a separate bottom row", async () => {

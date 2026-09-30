@@ -41,10 +41,9 @@ export interface NativeShadowResult {
 export type NativeShadowResultState = 'current' | 'stale' | 'metadata-mismatch';
 export interface LegacyDecision { isNapt: boolean; confidence: number }
 export interface NativeTrainingCaptureDownloadLinks {
-  iqHref: string;
-  iqFileName: string;
-  annotationHref: string;
-  annotationFileName: string;
+  jobId?: string;
+  packageHref: string;
+  packageFileName: string;
 }
 const FEATURE_TOGGLES = [
   ['bridge', 'Bridge'], ['u-dip', 'U-dip'],
@@ -67,11 +66,14 @@ function readAnnotationDraft(): NativeTrainingCaptureAnnotations {
   return { ...EMPTY_ANNOTATIONS };
 }
 
-export function NativeClassifierPanel({ result, resultState = 'current', legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', captureDownloads = null, onToggleCapture, onExportCapture, onClearCapture, onAnnotationsChange }: { result: NativeShadowResult | null; resultState?: NativeShadowResultState; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; captureDownloads?: NativeTrainingCaptureDownloadLinks | null; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onClearCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void }) {
+export function NativeClassifierPanel({ result, resultState = 'current', legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', captureDownloads = null, captureDownloadsPersisted = false, onToggleCapture, onExportCapture, onClearCapture, onAnnotationsChange, sessionToken }: { result: NativeShadowResult | null; resultState?: NativeShadowResultState; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; captureDownloads?: NativeTrainingCaptureDownloadLinks | null; captureDownloadsPersisted?: boolean; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onClearCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void; sessionToken?: string | null }) {
   const input = useRef<HTMLInputElement>(null); const [message, setMessage] = useState('Shadow scoring waits for a live acquisition frame.');
   const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<NativeTrainingCaptureAnnotations>(readAnnotationDraft);
   const [tagDraft, setTagDraft] = useState('');
+  const [classificationSplit, setClassificationSplit] = useState<'train' | 'validation' | 'test'>('train');
+  const [saveToDataset, setSaveToDataset] = useState(false);
+  const [datasetSaveStatus, setDatasetSaveStatus] = useState('');
   const updateAnnotations = (next: NativeTrainingCaptureAnnotations) => { setAnnotations(next); onAnnotationsChange?.(next); };
   useEffect(() => { try { window.sessionStorage.setItem(ANNOTATION_DRAFT_KEY, JSON.stringify(annotations)); } catch { /* The capture still exports even when storage is unavailable. */ } }, [annotations]);
   const addTag = (raw: string) => {
@@ -83,6 +85,27 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
     if (!file) return;
     try { const model=validateModel(JSON.parse(await file.text())); onModel(model); setLoadedModelId(model.id); setMessage(`Loaded ${model.kind} model ${model.id}.`); }
     catch (error) { onModel(null); setLoadedModelId(null); setMessage(`Model unavailable: ${error instanceof Error ? error.message : String(error)}`); }
+  };
+  const saveClassifierCaptureToDataset = async () => {
+    if (!captureDownloads?.jobId || !sessionToken) {
+      setDatasetSaveStatus('Sign in to save this capture to the dataset.');
+      return;
+    }
+    setDatasetSaveStatus('Saving encrypted capture…');
+    const query = new URLSearchParams({
+      token: sessionToken,
+      jobId: captureDownloads.jobId,
+      section: 'classification',
+      split: classificationSplit,
+    });
+    try {
+      const response = await fetch(`/api/capture/save/huggingface?${query.toString()}`, { method: 'POST' });
+      const body = await response.json().catch(() => ({})) as { error?: string; files?: string[] };
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      setDatasetSaveStatus(`Saved with increased protection: ${body.files?.join(', ') || 'capture package'}`);
+    } catch (error) {
+      setDatasetSaveStatus(`Dataset save failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
   const card: CSSProperties = {
     display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 9,
@@ -116,18 +139,39 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
           : captureStatus === 'frame-timestamp-future' ? 'Capture stopped because an I/Q frame timestamp is ahead of the browser clock. Check time alignment before recording again.'
             : captureStatus === 'no-new-frames' || captureStatus === 'stale-frame' || captureStatus === 'stale-or-out-of-order-frame' ? 'Capture stopped because fresh I/Q frames stopped arriving. Please check the RTL-SDR connection and reconnect it if the receiver dropped; recording will be ready when fresh receiving resumes.' : captureStatus;
   const captureNeedsExport = !captureActive && captureFrameCount > 0;
+  const captureDownloadsLocked = captureDownloadsPersisted || !!captureDownloads;
   return <section aria-label="Experimental native resolution classifier" data-layout="sidebar" style={card}>
     <div style={{ ...row, gridTemplateColumns: 'minmax(0, 1fr)', alignItems: 'center' }}>
       <StateIndicator data-testid="classifier-state" data-state={state} $recording={captureActive} $ready={captureAvailable || captureActive}>{captureActive ? 'RECORDING' : captureAvailable ? 'READY' : 'WAITING'}</StateIndicator>
     </div>
     <div style={row}>
-      <button type="button" disabled={!captureActive && (!captureAvailable || captureNeedsExport)} onClick={() => onToggleCapture?.(annotations)} style={button}>{captureActive ? 'Stop recording' : captureDownloads ? 'Clear capture to continue' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
-      <button type="button" disabled={captureFrameCount === 0 || !!captureDownloads} onClick={onExportCapture} style={button}>Export V6 I/Q + labels</button>
+      <button type="button" disabled={!captureActive && (!captureAvailable || captureNeedsExport || captureDownloadsLocked)} onClick={() => onToggleCapture?.(annotations)} style={button}>{captureActive ? 'Stop recording' : captureDownloadsPersisted && !captureDownloads ? 'Sign in to retrieve saved capture' : captureDownloads ? 'Clear capture to continue' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
+      <button type="button" disabled={captureFrameCount === 0 || captureDownloadsLocked} onClick={onExportCapture} style={button}>Export V6 I/Q + labels</button>
     </div>
-    <div data-testid="classifier-capture-status" aria-live="polite" style={{ ...wrappingText, minHeight: '2.9em' }}>{captureStatusText || (captureActive ? `Recording ${captureFrameCount} I/Q frames` : captureAvailable ? 'Ready. Labels and model fitting stay offline.' : 'Requires a fresh live RTL-SDR frame in Lossless mode.')}</div>
-    {captureDownloads && <div aria-label="Exported capture files" style={{ ...row, ...wrappingText }}>
-      <a href={captureDownloads.iqHref} download={captureDownloads.iqFileName} style={{ ...button, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', textAlign: 'center', color: 'inherit' }}>Download I/Q capture</a>
-      <a href={captureDownloads.annotationHref} download={captureDownloads.annotationFileName} style={{ ...button, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', textAlign: 'center', color: 'inherit' }}>Download labels</a>
+    <div data-testid="classifier-capture-status" aria-live="polite" style={{ ...wrappingText, minHeight: '2.9em' }}>{captureStatusText || (captureDownloadsPersisted && !captureDownloads ? 'Saved capture awaits an authenticated session so its backend links can be restored.' : captureActive ? `Recording ${captureFrameCount} I/Q frames` : captureAvailable ? 'Ready. Labels and model fitting stay offline.' : 'Requires a fresh live RTL-SDR frame in Lossless mode.')}</div>
+    {captureDownloads && <div aria-label="Exported capture package" style={{ ...row, ...wrappingText }}>
+      <a href={captureDownloads.packageHref} download={captureDownloads.packageFileName} style={{ ...button, gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', textAlign: 'center', color: 'inherit' }}>Download capture package</a>
+      <div style={{ gridColumn: '1 / -1' }}>One ZIP with datapackage.json, the V6 I/Q capture, and detached labels.</div>
+      <label style={{ ...row, gridColumn: '1 / -1', alignItems: 'center' }}>
+        <input type="checkbox" checked={saveToDataset} onChange={(event) => { setSaveToDataset(event.target.checked); setDatasetSaveStatus(''); }} />
+        Save classification capture to Hugging Face
+      </label>
+      {saveToDataset && <>
+        <label style={{ ...row, gridColumn: '1 / -1', alignItems: 'center' }}>
+          Split
+          <select value={classificationSplit} onChange={(event) => setClassificationSplit(event.target.value as typeof classificationSplit)}>
+            <option value="train">Train</option><option value="validation">Validation</option><option value="test">Test</option>
+          </select>
+        </label>
+        <label style={{ ...row, gridColumn: '1 / -1', alignItems: 'center' }}>
+          <input type="checkbox" checked disabled readOnly />
+          Increased protection (required for online storage)
+        </label>
+        <button type="button" style={{ ...button, gridColumn: '1 / -1' }} onClick={() => void saveClassifierCaptureToDataset()}>
+          Save encrypted to Hugging Face
+        </button>
+        <div aria-live="polite" style={{ ...wrappingText, gridColumn: '1 / -1' }}>{datasetSaveStatus}</div>
+      </>}
       <button type="button" onClick={onClearCapture} style={{ ...button, gridColumn: '1 / -1' }}>Clear exported capture</button>
     </div>}
     <div data-testid="classifier-labeling" style={{ ...wrappingText, borderTop: '1px solid var(--color-border, rgba(128,128,128,.25))', paddingTop: 8 }}>

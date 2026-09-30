@@ -1,12 +1,35 @@
 # Offline native-spectrum classifier
 
-The browser path uses the application's WebGPU device and adds no model-runtime dependency. Model training and capture processing are separate operator-run tools. Keep decrypted captures and derived feature files under `/private/tmp` or another local-only folder; never add raw captures, keys, or generated datasets to Git.
+The browser path uses the application's WebGPU device and adds no model-runtime dependency. Model training and capture processing are separate operator-run tools. Keep decrypted sample buffers and derived feature files under `/private/tmp` or another local-only folder. Store encrypted, labeled source Data Packages in the local Hugging Face dataset checkout at `../n-apt-ml/training-captures/classification`; never add plaintext captures or keys to Git.
+
+For the end-to-end operator steps, start with [TRAINING_CHECKLIST.md](TRAINING_CHECKLIST.md). The learning method, gradient updates, candidate search, and threshold-selection contract are in [TRAINING_PLAN.md](TRAINING_PLAN.md); current verified progress and blockers are tracked in [HANDOFF.md](HANDOFF.md).
 
 Install the small baseline dependency with `python3 -m venv .venv-classifier && .venv-classifier/bin/pip install -r scripts/classifier/requirements.txt`. The NumPy logistic and 16-unit MLP trainers need only NumPy. To enable accelerated MPS training on Apple Silicon, install optional PyTorch with `.venv-classifier/bin/pip install -r scripts/classifier/requirements-pytorch.txt`. `--device auto` uses MPS if available, then CPU; NumPy is the fallback when PyTorch is absent. `--device mps` requires an available MPS backend.
 
 Create a JSON manifest with explicit recording ids, session ids, split, label (`matching`, `nonmatching`, or `uncertain`), path, sample format (`napt`, `u8`, `s16le`, `f32le`, or `browser-capture`), sample rate in Hz, and center frequency in Hz. For `.napt`, provide `fftSize`; password loading reuses the existing local `.env.local` / environment contract and does not print credentials. Splits are assigned by whole session and validated before processing. Keep attached acceptance captures in the `acceptance` split; the trainer excludes them. Uncertain rows are never used for fitting or threshold selection.
 
-The browser classifier's **Start training capture → Stop/export** button downloads two linked files: a label-agnostic I/Q capture and a separate annotation sidecar. Capture metadata stores the initial applied RX options once, then compact `PatchOptionsApplied` and `StreamInterrupted` events aligned to exact byte/frame/timestamp boundaries. Each frame contains only its epoch/revision, sequence, timestamp, valid sample count, and raw I/Q bytes; frames remain independent and are never joined across a gap. Labels, observed N-APT channel, morphology toggles, condition tags, and `InterferenceMarked` events stay in the sidecar; changing labels never changes the capture file. The identity contract prefers the verified V6 trailer SHA-256 digest, with its digest scope recorded. Browser-generated frame JSON has no V6 trailer, so its current v2 sidecar uses the exact capture filename plus the first acquired frame's UTC timestamp as `captureId`; its workflow `sessionId` remains a separate compatibility link. Keep each capture as its own source recording and assign its full acquisition session to exactly one split. Example:
+## Archive capture packages in the local Hugging Face checkout
+
+The browser's one-click ZIP is still one download containing the V6 `.iq`, detached labels, and `datapackage.json`. To store a training-ready package in the local Hugging Face checkout, run:
+
+```sh
+node --import tsx scripts/classifier/archive-package.mjs \
+  --package "$HOME/Downloads/n-apt-classifier-capture.zip" \
+  --split train \
+  --env-file .env.local
+```
+
+The command encrypts V6 `.iq` payloads with a per-capture AES-256-GCM key derived from the vault key and a random Redis salt. It rebinds the detached labels to the encrypted trailer checksum, preserves the source checksum in the Data Package descriptor, and updates the legacy-compatible seven-column `labels.csv`. It also accepts already-encrypted V6 `.napt` packages without changing their bytes; plaintext `.napt` must go through the capture migration/encryption workflow first. The output is split by label under `train`, `validation`, or `test`; uncertain captures go only under `unlabeled`, while mock and sinc challenge data use `challenge-mock` and `challenge-sinc`. The script never commits or pushes. Git LFS tracks the stored capture files.
+
+Assign every acquisition session to exactly one split before deriving FFT windows, crops, or augmentations. The package scan rejects re-archiving the same source checksum into a different split, and a repeated archive operation is idempotent. Keep real RF nonmatching sessions separate from app mock and sinc challenges. The browser's backend **Save classification capture to Hugging Face** action stores a protected `.enc` artifact; use the downloaded Data Package plus this command when offline classifier `prepare` needs the original capture structure.
+
+Classifier archive requires `REDIS_URL` in the shell or `.env.local` and the capture passkey in `.env.local`. For V6 `.iq`, it creates or reuses a random salt in Redis DB 1 at `capture-protection:<source-capture-checksum>`, then encrypts with the derived per-capture key. The package descriptor contains the Redis key name, never the salt. `prepare --package` looks up the salt and fails closed if it is missing. Back up Redis DB 1 using the deployment's supported backup procedure and test restoration before publishing protected classifier packages. Existing globally keyed V6 `.iq` packages are rewrapped with this per-capture key when archived.
+
+On local development machines, restrict `.env.local` and Redis persistence files such as `.redis_data/dump.rdb` and `.redis_data/appendonlydir/*` to owner-only access. Use mode `600` for files and `700` for directories. Keep separate backup copies owner-only too; Redis backups contain the per-capture salts needed to decrypt the captures.
+
+The browser classifier's **Start training capture → Stop/export** flow exposes one **Download capture package** link. It downloads one ZIP containing `datapackage.json`, the label-agnostic V6 `.iq` capture, and its detached annotation sidecar; no second download is needed. `prepare --package` accepts this ZIP directly and verifies the descriptor, resource sizes, SHA-256 hashes, V6 trailer, and label identity. Capture metadata stores the initial applied RX options once, then compact `PatchOptionsApplied` and `StreamInterrupted` events aligned to exact byte/frame/timestamp boundaries. Each frame contains only its epoch/revision, sequence, timestamp, valid sample count, and raw I/Q bytes; frames remain independent and are never joined across a gap. Labels, observed N-APT channel, morphology toggles, condition tags, and `InterferenceMarked` events stay in the sidecar; changing labels never changes the capture file. The identity contract prefers the verified V6 trailer SHA-256 digest, with its digest scope recorded. Browser-generated frame JSON has no V6 trailer, so its current v2 sidecar uses the exact capture filename plus the first acquired frame's UTC timestamp as `captureId`; its workflow `sessionId` remains a separate compatibility link. Keep each capture as its own source recording and assign its full acquisition session to exactly one split. Example:
+
+For browser captures that declare lossless temporal resolution, the V6 header must contain one timestamped `Frame` update for every captured frame. `prepare` checks that count and rejects older or malformed files that claim lossless timing without frame markers; it does not infer time from concatenated bytes. The resulting dataset stores each acquired frame separately with its original sequence, timestamp, and sample count. These browser captures are frame-indexed observations, not a continuous raw-I/Q stream between frames: only the samples inside each frame are present. Temporal features must use the recorded frame times and must not treat the gaps between acquired frames as signal samples. Interference/view-condition tags are kept separate from the morphology label, so a user-confirmed matching signal remains positive when interference is visible.
 
 ```json
 {
@@ -28,7 +51,7 @@ For a real classifier, use separate manually reviewed captures for training, val
 
 ## Detached labels and capture packages
 
-Use `package` to keep annotation data separate from the original capture while delivering both together in a standard Data Package directory. The root `datapackage.json` describes two resources: the byte-for-byte signal capture under `captures/` and `labels.json`. The descriptor and per-resource `sha256:` hashes follow the [Data Package Standard](https://datapackage.org/standard/data-package/); the label file remains a separate resource and is never inserted into the capture. The capture resource hash covers the exact stored bytes.
+Use `package` to keep annotation data separate from the original capture while describing both as resources in a standard Data Package. The command writes a directory whose root `datapackage.json` describes the byte-for-byte signal capture under `captures/` and `labels.json`. The browser's one-click ZIP uses equivalent `iq-capture` and `annotations` resource names. Both descriptors and per-resource `sha256:` hashes follow the [Data Package Standard](https://datapackage.org/standard/data-package/); labels remain a separate resource and are never inserted into the capture. The capture resource hash covers the exact stored bytes.
 
 V6 `.iq` and `.napt` captures must pass the existing V6 trailer integrity verifier. For their label identity, `captureId` uses the trailer's SHA-256 digest and records its scope (`file-with-integrity-digest-placeholder`). This scoped trailer digest is distinct from the Data Package resource hash, which hashes the exact final file bytes. Encrypted `.napt` data is copied unchanged; packaging does not decrypt it. WAV has no V6 trailer, so it uses the exact filename and UTC capture timestamp. Browser frame JSON also has no V6 trailer and uses its filename plus first-frame timestamp; its bound v2 annotation sidecar can be passed directly.
 
@@ -62,15 +85,11 @@ For WAV files without a `YYYYMMDD_HHMMSS` filename suffix, pass `--captured-at 2
 
 `prepare` now validates the Data Package descriptor and both resource hashes before reading either resource. It accepts browser frame JSON, unencrypted V6 `.iq`, and encrypted single-channel V6 `.napt`; `.napt` uses the existing password-file/environment decryption path. It splits native captures at each `PatchOptionsApplied` byte boundary and at missing chunk ranges, preserving the original frame-update offsets and timestamp metadata in the prepared dataset. Typed V6 `StreamInterrupted` frame updates with code `1` also split the analysis segment and remain a separate event in prepared features; a co-located option patch stays a distinct event at the same byte and timestamp boundary. A chunk offset is in complex samples; a frame-update offset is in I/Q bytes. The synthetic V6 reader/extractor test verifies this metadata path, but does not prove a capture writer emits interruption events during a real restart. WAV remains an attachable, hash-checked archive resource but cannot be used as classifier input because it is demodulated audio, not raw I/Q. Multi-channel `.napt` preparation is explicitly rejected until channel-wise decoding is implemented.
 
-Package a browser export and its bound sidecar, then prepare it. Use a separate output path for each source capture/session:
+The single browser download can be prepared without extracting it first. Use a separate output path for each source capture/session:
 
 ```sh
-node --import tsx scripts/classifier/cli.mjs package \
-  --capture /path/to/browser-capture.json \
-  --labels /path/to/browser-capture.annotations.json \
-  --out /private/tmp/napt-classifier/package-session-a
 node --import tsx scripts/classifier/cli.mjs prepare \
-  --package /private/tmp/napt-classifier/package-session-a \
+  --package /path/to/n-apt-classifier-capture.zip \
   --split acceptance \
   --out /private/tmp/napt-classifier/prepared-session-a
 node scripts/classifier/cli.mjs extract \
@@ -79,7 +98,7 @@ node scripts/classifier/cli.mjs extract \
   --out /private/tmp/napt-classifier/session-a-features.jsonl
 ```
 
-For native `.iq`, set `--capture` to the V6 `.iq` file. For encrypted `.napt`, use the same command with the `.napt` file and add `--env-file .env.local` to `prepare`; the password is never passed as a command argument. A single labeled real-signal capture in the `acceptance` split is suitable for an early shadow/diagnostic trial, but it is not enough to train, calibrate a threshold, or claim accuracy. Keep each capture session separate. Build training and validation from multiple independently labeled real N-APT and real-negative sessions; keep mock negatives as fixtures, and reserve untouched sessions for evaluation. Until that data exists, inspect feature availability, resolution, crop visibility, rule scores, and timestamps without promoting or tuning to acceptance fixtures.
+For native `.iq`, set `--capture` to the V6 `.iq` file. For encrypted `.napt`, use the same command with the `.napt` file and add `--env-file .env.local` to `prepare`; the password is never passed as a command argument. A single labeled real-signal capture is suitable for an early shadow/diagnostic trial, but it is not enough to train, calibrate a threshold, or claim accuracy. Keep each capture session separate. Build training and validation from multiple independently labeled real N-APT and real-negative sessions; keep mock and sinc captures in challenge data, and reserve untouched sessions for evaluation. Until that data exists, inspect feature availability, resolution, crop visibility, rule scores, and timestamps without promoting or tuning to acceptance fixtures.
 
 ```sh
 node scripts/classifier/cli.mjs prepare --manifest manifest.json --out /private/tmp/napt-classifier/prepared --env-file .env.local

@@ -3,8 +3,8 @@
 @source "./**/*.{js,ts,jsx,tsx}";
 
 :root {
-  color: #e5eefb;
-  background: #081120;
+  color: #374151;
+  background: #ffffff;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -28,10 +28,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(66, 153, 225, 0.18), transparent 30%),
-    linear-gradient(180deg, #081120 0%, #0d172a 100%);
-  color: #e5eefb;
+  background: #ffffff;
+  color: #374151;
 }
 
 a {
@@ -62,9 +60,8 @@ button {
   max-width: 520px;
   resize: horizontal;
   overflow: auto;
-  border-right: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(8, 17, 32, 0.86);
-  backdrop-filter: blur(16px);
+  border-right: 1px solid #e5e7eb;
+  background: #f9fafb;
 }
 
 .app-content {
@@ -81,9 +78,9 @@ button {
 .tweet-card,
 .summary-item,
 .question-card {
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.76);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
 }
 
 .sidebar-panel {
@@ -109,7 +106,7 @@ button {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #93c5fd;
+  color: #6b7280;
 }
 
 .sidebar-title,
@@ -120,7 +117,7 @@ button {
 
 .sidebar-copy,
 .muted {
-  color: #94a3b8;
+  color: #6b7280;
 }
 
 .nav-list {
@@ -131,15 +128,15 @@ button {
 .nav-item {
   border-radius: 16px;
   padding: 14px 16px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.68);
-  color: #cbd5e1;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
 }
 
 .nav-item.active {
-  border-color: rgba(96, 165, 250, 0.56);
-  background: rgba(30, 41, 59, 0.96);
-  color: #eff6ff;
+  border-color: #60a5fa;
+  background: #eff6ff;
+  color: #1f2937;
 }
 
 .route-stack,
@@ -196,9 +193,9 @@ button {
 .search-input {
   width: 100%;
   border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(15, 23, 42, 0.84);
-  color: #e2e8f0;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
   padding: 12px 14px;
 }
 
@@ -207,11 +204,11 @@ button {
 }
 
 .button {
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid #d1d5db;
   border-radius: 14px;
   padding: 10px 16px;
-  background: rgba(30, 41, 59, 0.95);
-  color: #eff6ff;
+  background: #f3f4f6;
+  color: #374151;
 }
 
 .button.primary {
@@ -219,7 +216,7 @@ button {
 }
 
 .button.secondary {
-  background: rgba(15, 23, 42, 0.9);
+  background: #ffffff;
 }
 
 .button:disabled {
@@ -233,7 +230,7 @@ button {
 }
 
 .archive-button.selected {
-  border-color: rgba(96, 165, 250, 0.56);
+  border-color: #60a5fa;
 }
 
 .tag-list {
@@ -248,14 +245,14 @@ button {
   gap: 8px;
   border-radius: 999px;
   padding: 6px 12px;
-  background: rgba(30, 41, 59, 0.95);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
 }
 
 .tag button {
   border: 0;
   background: transparent;
-  color: #cbd5e1;
+  color: #4b5563;
   padding: 0;
 }
 
@@ -268,7 +265,7 @@ button {
 .flag-pill {
   border-radius: 999px;
   padding: 6px 10px;
-  background: rgba(30, 41, 59, 0.95);
+  background: #f3f4f6;
 }
 
 .progress-bar {
@@ -287,6 +284,14 @@ button {
 .progress-fill.indeterminate {
   width: 40%;
   animation: indeterminate 1.25s infinite ease-in-out;
+}
+
+.summary-document {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .option-list.inline {
@@ -327,16 +332,139 @@ button {
 }
 
 @media print {
+  @page {
+    size: letter portrait;
+    margin: 0;
+  }
+
   body {
-    background: white;
+    background: #ffffff;
+    color: #1f2937;
   }
 
   body.print-summary-mode * {
+    visibility: hidden !important;
+  }
+
+  body.print-summary-mode .program-tools-shell {
+    display: block !important;
+    min-height: 0;
+    overflow: visible !important;
+  }
+
+  body.print-summary-mode .program-tools-shell > aside,
+  body.print-summary-mode .route-stack > :not(.print-target) {
     display: none !important;
+  }
+
+  body.print-summary-mode .program-tools-content {
+    display: block !important;
+    padding: 0;
+    overflow: visible !important;
+  }
+
+  body.print-summary-mode .route-stack {
+    display: block !important;
   }
 
   body.print-summary-mode .print-target,
   body.print-summary-mode .print-target * {
+    visibility: visible !important;
+  }
+
+  body.print-summary-mode .print-target {
+    position: static;
+    display: block;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  body.print-summary-mode .summary-document {
+    display: block;
+  }
+
+  body.print-summary-mode .summary-pages {
     display: block !important;
+    width: auto;
+    overflow: visible;
+  }
+
+  body.print-summary-mode .summary-page {
+    display: grid !important;
+    box-sizing: border-box;
+    width: 8.5in;
+    height: 11in;
+    margin: 0;
+    padding: 0.5in;
+    border: 0;
+    box-shadow: none;
+    background: #ffffff;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  body.print-summary-mode .summary-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  body.print-summary-mode .summary-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: max-content;
+    gap: 2mm;
+  }
+
+  body.print-summary-mode .summary-grid article {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px 0 10px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: #1f2937;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body.print-summary-mode .summary-grid article > div {
+    display: flex !important;
+    align-items: flex-start;
+  }
+
+  body.print-summary-mode .summary-grid article > div > div {
+    display: flex !important;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  body.print-summary-mode .summary-grid strong {
+    display: block !important;
+    color: #111827;
+    overflow-wrap: anywhere;
+  }
+
+  body.print-summary-mode .summary-grid span {
+    display: block !important;
+    color: #374151;
+    font-size: 10pt;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  body.print-summary-mode .summary-edit,
+  body.print-summary-mode .summary-actions {
+    display: none !important;
+  }
+
+  body.print-summary-mode .summary-measure {
+    display: none !important;
   }
 }

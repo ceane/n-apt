@@ -2,6 +2,12 @@ import fs from 'fs';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 
+const target = process.argv[2];
+if (!target) {
+  console.error('Usage: node scripts/decrypt_napt.mjs <capture.napt>');
+  process.exit(2);
+}
+
 // Load .env.local
 let password = process.env.UNSAFE_LOCAL_USER_PASSWORD;
 try {
@@ -125,8 +131,6 @@ async function decryptFile(filePath) {
   console.log(`Saved decrypted payload to: ${outPath}`);
 }
 
-const target = process.argv[2] || 'iq-samples-snapshots/mock/mock_capture_cap_1774749285201_20260329_015446.napt';
-
 if (fs.existsSync(target)) {
   decryptFile(target).catch(err => {
     console.error(`Error: ${err.message}`);
@@ -134,4 +138,5 @@ if (fs.existsSync(target)) {
   });
 } else {
   console.error(`File not found: ${target}`);
+  process.exitCode = 1;
 }

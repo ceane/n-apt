@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { Lock, Unlock, Zap } from "lucide-react";
 import { useFftRenderCoordinator } from "@n-apt/spectrum/hooks/useFftRenderCoordinator";
+import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import {
   formatLiveCanvasStatusRow,
   type LiveCanvasStatusRow,
@@ -48,6 +49,13 @@ import CanvasPlaceholder, {
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import * as NativeClassifier from "@n-apt/classification";
+import {
+  buildNativeClassifierDownloadLinks,
+  loadPersistedNativeClassifierDownloads,
+  persistNativeClassifierDownloads,
+  type NativeClassifierCaptureUploadResponse,
+  type PersistedNativeClassifierDownload,
+} from "@n-apt/classification";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
 import type { FFTCanvasWaterfallBindings } from "@n-apt/types/canvas";
 import type { SdrLimitMarker } from "@n-apt/math/sdrLimitMarkers";
@@ -1682,12 +1690,12 @@ const FFTCanvas = memo(
     const reduxWebsocketSources = useAppSelector(
       (reduxState) => reduxState.websocket.sources,
     );
+    const { sessionToken: nativeClassifierSessionToken } = useAuthentication();
     const nativeCaptureSelectedId = useAppSelector((state) => state.sourceSelection?.selectedSourceId ?? null);
     const nativeCaptureActiveId = useAppSelector((state) => state.websocket.activeSourceId);
     const nativeCaptureActiveMode = useAppSelector((state) => state.websocket.activeSourceMode);
     const nativeCaptureSourceMode = useAppSelector((state) => state.waterfall.sourceMode);
     const nativeCaptureConnected = useAppSelector((state) => state.websocket.isConnected);
-    const nativeCaptureServerPaused = useAppSelector((state) => state.websocket.serverPaused || state.websocket.isPaused);
     const nativeCaptureSource = useAppSelector((state) => state.websocket.sources.find((source) => source.id === nativeCaptureSelectedId) ?? null);
     const nativeAppliedStream = useAppSelector((state) => nativeCaptureSelectedId ? state.websocket.appliedStreamOptionsBySource[nativeCaptureSelectedId] ?? null : null);
     const nativeCaptureSourceStatus = useAppSelector((state) => nativeCaptureSelectedId ? state.websocket.sourceStatuses[nativeCaptureSelectedId] ?? nativeCaptureSource?.status ?? null : null);
@@ -1912,19 +1920,18 @@ const FFTCanvas = memo(
     const [nativeLatestFrameFresh, setNativeLatestFrameFresh] = useState(false);
     const [nativeLatestFrameRevision, setNativeLatestFrameRevision] = useState(0);
     const [nativeCaptureUi, setNativeCaptureUi] = useState({ active: false, frameCount: 0, status: '' });
-    const [nativeCaptureDownloads, setNativeCaptureDownloads] = useState<NativeClassifier.NativeTrainingCaptureDownloadLinks | null>(null);
-    const nativeCaptureObjectUrlsRef = useRef<string[]>([]);
-    const revokeNativeCaptureObjectUrls = useCallback(() => {
-      for (const url of nativeCaptureObjectUrlsRef.current) URL.revokeObjectURL(url);
-      nativeCaptureObjectUrlsRef.current = [];
-    }, []);
+    const [persistedNativeClassifierDownloads, setPersistedNativeClassifierDownloads] = useState<PersistedNativeClassifierDownload[]>(loadPersistedNativeClassifierDownloads);
+    const latestPersistedNativeClassifierDownload = persistedNativeClassifierDownloads[0] ?? null;
+    const nativeCaptureDownloads = useMemo(
+      () => buildNativeClassifierDownloadLinks(latestPersistedNativeClassifierDownload, nativeClassifierSessionToken),
+      [latestPersistedNativeClassifierDownload, nativeClassifierSessionToken],
+    );
     const clearNativeCaptureExport = useCallback(() => {
-      revokeNativeCaptureObjectUrls();
       nativeCaptureRef.current.clear();
-      setNativeCaptureDownloads(null);
+      setPersistedNativeClassifierDownloads([]);
+      persistNativeClassifierDownloads([]);
       setNativeCaptureUi({ active: false, frameCount: 0, status: '' });
-    }, [revokeNativeCaptureObjectUrls]);
-    useEffect(() => () => revokeNativeCaptureObjectUrls(), [revokeNativeCaptureObjectUrls]);
+    }, []);
     useEffect(() => {
       if (typeof document !== 'undefined') {
         setNativeClassifierSidebarTarget(document.getElementById('native-classifier-sidebar-slot'));
@@ -1940,9 +1947,7 @@ const FFTCanvas = memo(
       sourceCapability: nativeCaptureSource?.capability ?? '',
       sourceIsMock: nativeCaptureSource?.is_mock === true || nativeCaptureSource?.capability === 'mock',
       sourceStatus: nativeCaptureSourceStatus,
-      sourcePaused: nativeCaptureSource?.paused === true || nativeCaptureServerPaused,
       deviceConnected: nativeCaptureConnected && isDeviceConnected === true,
-      canvasPaused: isPaused,
       isRtlSdr: nativeCaptureIdentity,
     };
     const nativeCaptureSourceStatusCode = NativeClassifier.nativeTrainingCaptureSourceStatusCode(nativeCaptureEligibility);
@@ -1980,7 +1985,7 @@ const FFTCanvas = memo(
         isMock: nativeCaptureSource.is_mock === true || nativeCaptureSource.capability === 'mock',
         connected: nativeCaptureConnected && isDeviceConnected === true,
         receiving: nativeCaptureSourceStatus === 'receiving',
-        paused: nativeCaptureSource.paused === true || nativeCaptureServerPaused,
+        paused: nativeCaptureSourceStatus === 'paused',
         maxSampleRateHz: nativeCaptureSource.capabilities?.max_sample_rate ?? nativeCaptureSource.sdr.max_sample_rate,
         minSampleRateHz: nativeCaptureSource.sdr.settings.min_receive_sample_rate ?? undefined,
         fftSizes: nativeCaptureSource.capabilities?.fft?.sizes,
@@ -2031,8 +2036,8 @@ const FFTCanvas = memo(
         ? nativeCaptureSourceStatusCode
         : nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.activeSourceId || nativeCaptureEligibility.selectedSourceId !== nativeCaptureEligibility.expectedSourceId
           ? 'The selected, active, and displayed source must match.'
-          : nativeCaptureEligibility.sourceMode !== 'live' || nativeCaptureEligibility.sourceCapability !== 'rx' || nativeCaptureEligibility.sourceIsMock || nativeCaptureEligibility.sourceStatus !== 'receiving' || nativeCaptureEligibility.sourcePaused || !nativeCaptureEligibility.deviceConnected || nativeCaptureEligibility.canvasPaused || !nativeCaptureEligibility.isRtlSdr
-            ? 'A connected, unpaused RTL-SDR must be receiving live frames.'
+          : nativeCaptureEligibility.sourceMode !== 'live' || nativeCaptureEligibility.sourceCapability !== 'rx' || nativeCaptureEligibility.sourceIsMock || nativeCaptureEligibility.sourceStatus !== 'receiving' || !nativeCaptureEligibility.deviceConnected || !nativeCaptureEligibility.isRtlSdr
+          ? 'A connected RTL-SDR must be receiving live frames.'
           : displayTemporalResolution !== 'lossless'
               ? 'Set Temporal Resolution to Lossless.'
               : nativeLatest?.status === 'held'
@@ -2130,26 +2135,46 @@ const FFTCanvas = memo(
     const exportNativeCapture = useCallback(() => {
       void (async () => {
         const session = nativeCaptureRef.current;
-        if (nativeCaptureDownloads) return;
+        if (latestPersistedNativeClassifierDownload) return;
         const frameCount = session.frameCount;
-        const objectUrls: string[] = [];
         try {
+          if (!nativeClassifierSessionToken) throw new Error('Sign in before saving classifier captures to backend storage.');
           const artifact = await NativeClassifier.exportNativeTrainingCaptureV6(session);
-          const iqHref = URL.createObjectURL(new Blob([artifact.captureBytes as BlobPart], { type: 'application/octet-stream' }));
-          objectUrls.push(iqHref);
-          const annotationHref = URL.createObjectURL(new Blob([JSON.stringify(artifact.annotations, null, 2)], { type: 'application/json' }));
-          objectUrls.push(annotationHref);
-          revokeNativeCaptureObjectUrls();
-          nativeCaptureObjectUrlsRef.current = objectUrls;
-          setNativeCaptureDownloads({
-            iqHref,
-            iqFileName: artifact.captureFileName,
-            annotationHref,
-            annotationFileName: artifact.annotationFileName,
+          const captureId = artifact.annotations.captureId;
+          const uploadPart = async (part: 'iq' | 'annotations', filename: string, body: Blob) => {
+            const query = new URLSearchParams({ filename });
+            const response = await fetch(`/api/classifier/captures/${encodeURIComponent(captureId)}/${part}?${query.toString()}`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${nativeClassifierSessionToken}`,
+                'Content-Type': part === 'iq' ? 'application/octet-stream' : 'application/json',
+              },
+              body,
+            });
+            if (!response.ok) {
+              const detail = await response.text();
+              throw new Error(detail || `Backend upload failed (${response.status})`);
+            }
+            return await response.json() as NativeClassifierCaptureUploadResponse;
+          };
+          const iqUpload = await uploadPart('iq', artifact.captureFileName, new Blob([artifact.captureBytes as BlobPart], { type: 'application/octet-stream' }));
+          const annotationUpload = await uploadPart('annotations', artifact.annotationFileName, new Blob([JSON.stringify(artifact.annotations, null, 2)], { type: 'application/json' }));
+          if (iqUpload.captureId !== captureId || annotationUpload.captureId !== captureId || iqUpload.jobId !== annotationUpload.jobId) {
+            throw new Error('Backend returned mismatched classifier capture identities.');
+          }
+          const record: PersistedNativeClassifierDownload = {
+            captureId,
+            jobId: iqUpload.jobId,
+            packageFileName: `n-apt-classifier-${captureId.slice(0, 12)}.zip`,
+            timestamp: Math.max(iqUpload.timestamp, annotationUpload.timestamp),
+          };
+          setPersistedNativeClassifierDownloads((current) => {
+            const next = [record, ...current.filter((item) => item.captureId !== captureId)];
+            persistNativeClassifierDownloads(next);
+            return next;
           });
-          setNativeCaptureUi({ active: false, frameCount, status: 'Both V6 files are ready below. Download the I/Q capture and labels before clearing this session.' });
+          setNativeCaptureUi({ active: false, frameCount, status: 'V6 I/Q and detached labels are saved on the backend. Download one Data Package ZIP after refresh.' });
         } catch (error: unknown) {
-          for (const url of objectUrls) URL.revokeObjectURL(url);
           setNativeCaptureUi({
             active: false,
             frameCount,
@@ -2157,7 +2182,7 @@ const FFTCanvas = memo(
           });
         }
       })();
-    }, [nativeCaptureDownloads, revokeNativeCaptureObjectUrls]);
+    }, [latestPersistedNativeClassifierDownload, nativeClassifierSessionToken]);
     useEffect(() => {
       const timer = setInterval(() => {
         const latest = nativeCaptureLatestFrameRef.current;
@@ -2168,15 +2193,13 @@ const FFTCanvas = memo(
         if (!nativeCaptureUi.active) return;
         const session = nativeCaptureRef.current;
         if (!session.active) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' }); return; }
-        const pinned = session.snapshot()?.config;
-        if (!nativeCaptureEligibilityRef.current || !latest || NativeClassifier.isNativeTrainingFrameStale(latest, Date.now())) {
-          session.stop(!nativeCaptureEligibilityRef.current
-            ? nativeCaptureSourceStatusCodeRef.current ?? 'source-disconnected-or-ineligible'
-            : 'stale-frame');
-          setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: session.snapshot()?.stopReason ?? 'stopped' });
-          return;
-        }
-        if (session.stopIfStale(performance.now())) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: 'no-new-frames' }); return; }
+        const healthStopReason = NativeClassifier.stopNativeTrainingCaptureForHealth(session, {
+          eligible: nativeCaptureEligibilityRef.current,
+          ineligibleReason: nativeCaptureSourceStatusCodeRef.current,
+          latestFrameFresh: !!latest && !NativeClassifier.isNativeTrainingFrameStale(latest, Date.now()),
+          nowMs: performance.now(),
+        });
+        if (healthStopReason) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: healthStopReason }); return; }
         setNativeCaptureUi((state) => {
           if (state.frameCount === session.frameCount && (session.frameCount === 0 || !state.status)) return state;
           return { ...state, frameCount: session.frameCount, status: session.frameCount > 0 ? '' : state.status };
@@ -6024,6 +6047,8 @@ const FFTCanvas = memo(
                       captureFrameCount={nativeCaptureUi.frameCount}
                       captureStatus={nativeCaptureUi.status || (!nativeCaptureAvailable ? nativeCaptureBlockReason : '')}
                       captureDownloads={nativeCaptureDownloads}
+                      captureDownloadsPersisted={latestPersistedNativeClassifierDownload !== null}
+                      sessionToken={nativeClassifierSessionToken}
                       onToggleCapture={toggleNativeCapture}
                       onExportCapture={exportNativeCapture}
                       onClearCapture={clearNativeCaptureExport}

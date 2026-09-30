@@ -1,4 +1,5 @@
-import * as core from "@n-apt/classification";
+import * as core from "../../src/ts/features/classification/native/core";
+import { NativeGpuExtractor } from "../../src/ts/features/classification/native/gpu";
 
 export async function initialize() {
   const adapter = await navigator.gpu?.requestAdapter();
@@ -7,7 +8,7 @@ export async function initialize() {
   device.addEventListener("uncapturederror", (event) => {
     throw new Error(event.error.message);
   });
-  const gpu = new core.NativeGpuExtractor(device);
+  const gpu = new NativeGpuExtractor(device);
   const temporal = new Map<string, core.TemporalClassifier>();
   return {
     async extract(

@@ -578,6 +578,7 @@ interface CaptureRange {
 
 interface IQCaptureControlsSectionProps {
   variant?: "sidebar" | "node";
+  huggingFaceSection?: "evidentiary" | "demod";
   defaultOpen?: boolean;
   open?: boolean;
   activeCaptureAreas: string[];
@@ -622,6 +623,7 @@ export const IQCaptureControlsSection: React.FC<
   IQCaptureControlsSectionProps
 > = ({
   variant = "sidebar",
+  huggingFaceSection = "evidentiary",
   defaultOpen = false,
   open,
   activeCaptureAreas,
@@ -665,11 +667,14 @@ export const IQCaptureControlsSection: React.FC<
   const folderPickerAvailable = getCaptureDirectoryPicker() !== null;
   const [destinationMenuOpen, setDestinationMenuOpen] = React.useState(false);
   const [aspectAvailable, setAspectAvailable] = React.useState(false);
+  const [huggingFaceAvailable, setHuggingFaceAvailable] = React.useState(false);
+  const [huggingFacePath, setHuggingFacePath] = React.useState("");
   const [destinationMessage, setDestinationMessage] = React.useState("");
   const [savingCaptureId, setSavingCaptureId] = React.useState<string | null>(null);
   const directoryHandle = React.useRef<Awaited<ReturnType<CaptureDirectoryPicker>> | null>(null);
   const [savedCollapsibleOpen] = React.useState(loadIqCaptureOpenState);
   const initialCaptureDestination = React.useRef(captureDestination).current;
+  const autoSavedJobs = React.useRef(new Set<string>());
 
   React.useEffect(() => {
     let active = true;
@@ -728,13 +733,15 @@ export const IQCaptureControlsSection: React.FC<
   React.useEffect(() => {
     let active = true;
     setAspectAvailable(false);
+    setHuggingFaceAvailable(false);
+    setHuggingFacePath("");
     if (!isAuthenticated || !sessionToken || typeof fetch === "undefined") return;
     const query = new URLSearchParams({ token: sessionToken });
     fetch(`/api/capture/destinations?${query.toString()}`)
       .then(async (response) => {
         if (!response.ok || !active) return;
         const body = (await response.json()) as {
-          destinations?: { id: string; available: boolean }[];
+          destinations?: { id: string; available: boolean; path?: string }[];
         };
         if (active) {
           setAspectAvailable(
@@ -743,10 +750,23 @@ export const IQCaptureControlsSection: React.FC<
                 destination.id === "aspect" && destination.available,
             ) ?? false,
           );
+          setHuggingFaceAvailable(
+            body.destinations?.some(
+              (destination) =>
+                destination.id === "huggingface" && destination.available,
+            ) ?? false,
+          );
+          setHuggingFacePath(
+            body.destinations?.find((destination) => destination.id === "huggingface")?.path ?? "",
+          );
         }
       })
       .catch(() => {
         if (active) setAspectAvailable(false);
+        if (active) {
+          setHuggingFaceAvailable(false);
+          setHuggingFacePath("");
+        }
       });
     return () => {
       active = false;
@@ -836,6 +856,29 @@ export const IQCaptureControlsSection: React.FC<
         }
         setDestinationMessage(
           `Saved ${body.files?.join(", ") || filename} to Aspect.`,
+        );
+        return;
+      }
+
+      if (captureDestination === "huggingface") {
+        const query = new URLSearchParams({
+          token: sessionToken ?? "",
+          jobId: download.jobId,
+          section: huggingFaceSection,
+        });
+        const response = await fetch(
+          `/api/capture/save/huggingface?${query.toString()}`,
+          { method: "POST" },
+        );
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          files?: string[];
+        };
+        if (!response.ok) {
+          throw new Error(body.error || `Hugging Face save failed: HTTP ${response.status}`);
+        }
+        setDestinationMessage(
+          `Saved encrypted ${body.files?.join(", ") || filename} to Hugging Face.`,
         );
         return;
       }
@@ -1091,7 +1134,11 @@ export const IQCaptureControlsSection: React.FC<
       persistCaptureDownloads(next);
       return next;
     });
-  }, [captureStatus]);
+    if (!autoSavedJobs.current.has(download.jobId)) {
+      autoSavedJobs.current.add(download.jobId);
+      void saveCaptureToDestination(download);
+    }
+  }, [captureStatus, captureDestination, sessionToken]);
 
   const clearPersistedDownloads = () => {
     setPersistedDownloads([]);
@@ -1310,6 +1357,19 @@ export const IQCaptureControlsSection: React.FC<
         </ToggleSwitch>
       </Row>
 
+      {(captureDestination === "aspect" || captureDestination === "huggingface") && (
+        <Row
+          label={<IconLabel icon={LockKeyhole} text="Increased protection" />}
+          tooltipTitle="Per-capture protection"
+          tooltip="Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."
+        >
+          <ToggleSwitch $disabled>
+            <ToggleSwitchInput type="checkbox" checked disabled readOnly />
+            <ToggleSwitchSlider $disabled />
+          </ToggleSwitch>
+        </Row>
+      )}
+
       <Row
         label={<IconLabel icon={MapPin} text="Geolocation" />}
         tooltipTitle="Location data (lat, long, accuracy, altitude)"
@@ -1351,6 +1411,8 @@ export const IQCaptureControlsSection: React.FC<
                 ? captureFolderName || "~/Downloads"
                 : captureDestination === "aspect"
                   ? "Aspect"
+                  : captureDestination === "huggingface"
+                    ? huggingFacePath || "Hugging Face"
                   : "~/Downloads"}
             </span>
             <ChevronDown size={14} />
@@ -1413,6 +1475,34 @@ export const IQCaptureControlsSection: React.FC<
                 <DestinationHint>
                   Set N_APT_ASPECT_PATH in the backend environment.
                 </DestinationHint>
+              )}
+              <DestinationOption
+                type="button"
+                role="menuitem"
+                $disabled={!huggingFaceAvailable}
+                disabled={!huggingFaceAvailable}
+                title={
+                  huggingFaceAvailable
+                    ? "Save an encrypted capture in the configured dataset checkout"
+                    : "Set N_APT_HUGGINGFACE_PATH to a local dataset checkout"
+                }
+                onClick={() => {
+                  updateCaptureDestination("huggingface");
+                  setDestinationMenuOpen(false);
+                }}
+              >
+                <HardDrive size={12} />
+                {CAPTURE_DESTINATION_PROVIDERS.find(
+                  (provider) => provider.id === "huggingface",
+                )?.label}
+              </DestinationOption>
+              {!huggingFaceAvailable && (
+                <DestinationHint>
+                  Set N_APT_HUGGINGFACE_PATH to a local dataset checkout. The default is the sibling n-apt-ml repo.
+                </DestinationHint>
+              )}
+              {huggingFaceAvailable && huggingFacePath && (
+                <DestinationHint>{huggingFacePath}</DestinationHint>
               )}
             </DestinationMenu>
           )}
@@ -1490,6 +1580,8 @@ export const IQCaptureControlsSection: React.FC<
                       ? "Saving…"
                       : captureDestination === "aspect"
                         ? "Save to Aspect"
+                        : captureDestination === "huggingface"
+                          ? "Save to Hugging Face"
                         : captureDestination === "folder"
                           ? "Save to folder"
                           : "Save to Downloads"}

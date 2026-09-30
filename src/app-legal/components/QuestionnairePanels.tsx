@@ -1,13 +1,13 @@
 // @ts-nocheck
-import { useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
 const SectionCard = styled.section`
   padding: 24px;
   border-radius: 24px;
-  background: rgba(15, 23, 42, 0.76);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -15,22 +15,71 @@ const SectionCard = styled.section`
 
 const QuestionCard = styled.article`
   padding: 24px;
-  border-radius: 20px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.7);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.24);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   ${({ $sub }) => $sub && 'margin-left: 16px;'}
 `;
 
 const SummaryCard = styled.article`
-  padding: 20px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(30, 41, 59, 0.8);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 10px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: 8px;
   ${({ $sub }) => $sub && 'margin-left: 16px;'}
+  break-inside: avoid;
+  page-break-inside: avoid;
+`;
+
+const SummaryGrid = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 12px;
+`;
+
+const SummaryPages = styled.div`
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, 8.5in);
+  justify-content: center;
+  align-items: start;
+  gap: 24px;
+  overflow: auto;
+`;
+
+const SummaryPage = styled.section`
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  box-sizing: border-box;
+  width: 8.5in;
+  height: 11in;
+  padding: 0.5in;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
+`;
+
+const SummaryMeasure = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 12px;
+  box-sizing: border-box;
+  width: calc(7.5in - 2px);
+  height: calc(10in - 2px);
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
 `;
 
 const SummaryHeader = styled.div`
@@ -45,7 +94,7 @@ const SummaryAnswerBlock = styled.div`
   flex-direction: column;
   gap: 6px;
   span {
-    color: #94a3b8;
+    color: #6b7280;
     font-size: 0.9rem;
   }
 `;
@@ -63,11 +112,12 @@ const Tag = styled.label`
   gap: 6px;
   padding: 10px 16px;
   border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(8, 17, 32, 0.8);
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
   cursor: pointer;
   input {
-    accent-color: #60a5fa;
+    accent-color: #2563eb;
   }
 `;
 
@@ -80,7 +130,7 @@ const PrimaryButton = styled.button`
   padding: 10px 20px;
   border-radius: 9999px;
   border: none;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: #2563eb;
   color: #fff;
   font-weight: 600;
   cursor: pointer;
@@ -93,9 +143,9 @@ const PrimaryButton = styled.button`
 const SecondaryButton = styled.button`
   padding: 10px 20px;
   border-radius: 9999px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.9);
-  color: #cbd5e1;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
   font-weight: 600;
   cursor: pointer;
   &:disabled {
@@ -108,18 +158,18 @@ const StyledInput = styled.input`
   width: 100%;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(8, 17, 32, 0.65);
-  color: #e5eefb;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
 `;
 
 const StyledTextArea = styled.textarea`
   width: 100%;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(8, 17, 32, 0.65);
-  color: #e5eefb;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
   resize: vertical;
 `;
 
@@ -193,6 +243,57 @@ export function QuestionnaireQuestions({ questionnaire }) {
 export function QuestionnaireSummary({ questionnaire = {}, onRestart }) {
   const summaryItems = questionnaire.summaryItems ?? [];
   const printRef = useRef(null);
+  const measureRef = useRef(new Map());
+  const pageContentRef = useRef(null);
+  const [pages, setPages] = useState([]);
+
+  useLayoutEffect(() => {
+    let disposed = false;
+
+    const repaginate = () => {
+      if (disposed) return;
+      const availableHeight = pageContentRef.current?.clientHeight ?? 0;
+      if (availableHeight <= 0) return;
+
+      const nextPages = [];
+      let currentPage = [];
+      let usedHeight = 0;
+      const gap = 12;
+
+      for (const question of summaryItems) {
+        const height = measureRef.current.get(question.id)?.getBoundingClientRect().height ?? 0;
+        const nextHeight = currentPage.length === 0 ? height : usedHeight + gap + height;
+
+        if (currentPage.length > 0 && nextHeight > availableHeight) {
+          nextPages.push(currentPage);
+          currentPage = [];
+          usedHeight = 0;
+        }
+
+        currentPage.push(question);
+        usedHeight += (currentPage.length === 1 ? 0 : gap) + height;
+      }
+
+      if (currentPage.length > 0) nextPages.push(currentPage);
+      setPages((previous) => {
+        const key = (value) => value.map((page) => page.map((item) => item.id).join(',')).join('|');
+        return key(previous) === key(nextPages) ? previous : nextPages;
+      });
+    };
+
+    repaginate();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(repaginate);
+    if (pageContentRef.current) observer?.observe(pageContentRef.current);
+    measureRef.current.forEach((element) => observer?.observe(element));
+    document.fonts?.ready.then(repaginate);
+    window.addEventListener('resize', repaginate);
+
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      window.removeEventListener('resize', repaginate);
+    };
+  }, [summaryItems]);
 
   const printSummary = () => {
     if (!printRef.current) return;
@@ -206,25 +307,59 @@ export function QuestionnaireSummary({ questionnaire = {}, onRestart }) {
   };
 
   return (
-    <SectionCard className="print-target" ref={printRef}>
-      {summaryItems.map((question) => (
-        <SummaryCard key={question.id} id={question.id} $sub={question.isSubQuestion}>
-          <SummaryHeader>
-            <SummaryAnswerBlock>
-              <strong>{question.formattedId} {question.text}</strong>
-              <span>
-                {question.answer
-                  ? Array.isArray(question.answer)
-                    ? question.answer.join(', ')
-                    : question.answer
+    <SectionCard className="print-target summary-document" ref={printRef}>
+      <SummaryPages className="summary-pages">
+        {pages.map((page, pageIndex) => (
+          <SummaryPage className="summary-page" key={pageIndex} aria-label={`Summary page ${pageIndex + 1}`}>
+            <SummaryGrid className="summary-grid">
+              {page.map((question) => (
+                <SummaryCard className="summary-card" key={question.id} id={question.id} $sub={question.isSubQuestion}>
+                  <SummaryHeader>
+                    <SummaryAnswerBlock>
+                      <strong>{question.formattedId} {question.text}</strong>
+                      <span>
+                        {question.answer
+                          ? Array.isArray(question.answer)
+                            ? question.answer.join(', ')
+                            : question.answer
+                          : 'No answer provided'}
+                      </span>
+                    </SummaryAnswerBlock>
+                    <SecondaryButton className="summary-edit" type="button" onClick={() => questionnaire.editQuestion(question.pageIndex, question.id)}>Edit</SecondaryButton>
+                  </SummaryHeader>
+                </SummaryCard>
+              ))}
+            </SummaryGrid>
+          </SummaryPage>
+        ))}
+      </SummaryPages>
+      <SummaryMeasure className="summary-measure" ref={pageContentRef} aria-hidden="true">
+        {summaryItems.map((question) => (
+          <SummaryCard
+            key={question.id}
+            $sub={question.isSubQuestion}
+            ref={(element) => {
+              if (element) measureRef.current.set(question.id, element);
+              else measureRef.current.delete(question.id);
+            }}
+          >
+            <SummaryHeader>
+              <SummaryAnswerBlock>
+                <strong>{question.formattedId} {question.text}</strong>
+                <span>
+                  {question.answer
+                    ? Array.isArray(question.answer)
+                      ? question.answer.join(', ')
+                      : question.answer
                   : 'No answer provided'}
-              </span>
-            </SummaryAnswerBlock>
-            <SecondaryButton type="button" onClick={() => questionnaire.editQuestion(question.pageIndex, question.id)}>Edit</SecondaryButton>
-          </SummaryHeader>
-        </SummaryCard>
-      ))}
-      <ButtonRow>
+                </span>
+              </SummaryAnswerBlock>
+              <SecondaryButton className="summary-edit" type="button" tabIndex={-1}>Edit</SecondaryButton>
+            </SummaryHeader>
+          </SummaryCard>
+        ))}
+      </SummaryMeasure>
+      <ButtonRow className="summary-actions">
         <SecondaryButton type="button" onClick={onRestart}>Restart</SecondaryButton>
         <PrimaryButton type="button" onClick={printSummary}>Print</PrimaryButton>
       </ButtonRow>

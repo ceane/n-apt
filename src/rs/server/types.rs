@@ -1343,6 +1343,8 @@ pub struct CaptureDownloadParams {
   #[serde(rename = "jobId")]
   #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub job_id: String,
+  #[serde(default)]
+  pub artifact: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]

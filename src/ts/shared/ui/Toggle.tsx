@@ -29,6 +29,7 @@ const Switch = styled.div<{
       : props.$hasInnerLabel
         ? "44px"
         : "32px"};
+  flex-shrink: 0;
   height: ${(props) => (props.$hasInnerLabel ? "18px" : "18px")};
   background-color: ${(props) =>
     props.$active ? props.theme.primary : props.theme.borderHover};

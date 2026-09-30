@@ -1,5 +1,10 @@
 /**
  * File Processing Worker - Handles file I/O and stitching operations
+ *
+ * I/Q format history: v1-v2 are legacy/undated; v3 (2026-07-18),
+ * v4 (2026-08-05), v5 (2026-09-14), and v6 (2026-09-23, still WIP).
+ * `format_version` identifies the current schema; upgraded v6 files may also
+ * include `originalVersion` with the detected source schema version.
  */
 
 import { parseFrequency } from "@n-apt/math/frequency";
@@ -30,6 +35,7 @@ function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
 type FileMetadata = {
   format?: string;
   format_version?: number;
+  originalVersion?: number;
   sections?: {
     binary?: { offset_bytes: number; length_bytes: number; encoding?: string; encrypted?: boolean };
     trailer?: { offset_bytes: number; length_bytes: number; encoding?: string; version?: number };
@@ -90,6 +96,14 @@ type FileMetadata = {
 };
 
 type IntegrityStatus = "verified" | "failed" | "unavailable";
+
+function rejectLocalProtectedCapture(fileName: string): void {
+  if (fileName.toLowerCase().endsWith(".enc")) {
+    throw new Error(
+      "This Increased protection .enc file keeps its salt in Redis and requires authenticated backend playback; local browser decryption is disabled.",
+    );
+  }
+}
 
 const verifyFileIntegrity = async (
   fileData: ArrayBuffer,
@@ -793,7 +807,9 @@ self.onmessage = async function (e) {
   try {
     switch (type) {
       case "loadFile": {
-        const { fileData, fileName, aesKey: rawAesKey, allowIntegrityFailure = false } = data;
+        const { fileData, fileName } = data;
+        const { aesKey: rawAesKey, allowIntegrityFailure = false } = data;
+        rejectLocalProtectedCapture(fileName);
         const aesKey = rawAesKey
           ? await crypto.subtle.importKey(
               "raw",
@@ -950,12 +966,15 @@ self.onmessage = async function (e) {
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           try {
-            const lower = file.fileName.toLowerCase();
+            const fileName = file.fileName as string;
+            const fileData = file.fileData as ArrayBuffer;
+            rejectLocalProtectedCapture(fileName);
+            const lower = fileName.toLowerCase();
             let rawData: Uint8Array = new Uint8Array(0);
             let metadata: FileMetadata | null = null;
 
             if (lower.endsWith(".iq")) {
-              const res = await loadIqFile(file.fileData, aesKey);
+              const res = await loadIqFile(fileData, aesKey);
               rawData = res.raw;
               metadata = res.metadata;
               (metadata as any).channels_data = [{
@@ -971,7 +990,7 @@ self.onmessage = async function (e) {
                 raw,
                 metadata: wavMeta,
                 channels,
-              } = loadWavFile(file.fileData);
+              } = loadWavFile(fileData);
               rawData = raw;
               metadata = wavMeta as FileMetadata;
 
@@ -984,7 +1003,7 @@ self.onmessage = async function (e) {
               }
             } else if (lower.endsWith(".napt") && aesKey) {
               const { metaObj, metadata: naptMetadata, naptBinaryFileData, isEncrypted, possibleHeaderSizes } =
-                await decodeNaptContainer(file.fileData, file.fileName, "stitchFiles", allowIntegrityFailure);
+                await decodeNaptContainer(fileData, fileName, "stitchFiles", allowIntegrityFailure);
               metadata = naptMetadata;
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
@@ -1014,7 +1033,7 @@ self.onmessage = async function (e) {
                   decryptedData = await decryptNaptPayloadAtOffsets(
                     naptBinaryFileData,
                     aesKey as CryptoKey,
-                    file.fileName,
+                    fileName,
                     possibleHeaderSizes,
                     wrappedNaptKey(metaObj),
                   );
@@ -1084,8 +1103,8 @@ self.onmessage = async function (e) {
                   if (!groupIq || groupIq.length === 0) return;
                   const entryName =
                     groupIndex === 0
-                      ? file.fileName
-                      : `${file.fileName}__group${groupIndex}`;
+                      ? fileName
+                      : `${fileName}__group${groupIndex}`;
                   const entryCenterHz = group.frequency_range
                     ? (group.frequency_range[0] + group.frequency_range[1]) / 2
                     : group.center_freq_hz;
@@ -1102,22 +1121,22 @@ self.onmessage = async function (e) {
                 });
               }
             } else {
-              rawData = loadC64File(file.fileData, file.fileName);
+              rawData = loadC64File(fileData, fileName);
             }
 
             if (rawData && rawData.length > 0) {
-              if (!fileDataCache.has(file.fileName))
-                fileDataCache.set(file.fileName, rawData);
-              if (metadata && !metadataMap.has(file.fileName))
-                metadataMap.set(file.fileName, metadata);
+              if (!fileDataCache.has(fileName))
+                fileDataCache.set(fileName, rawData);
+              if (metadata && !metadataMap.has(fileName))
+                metadataMap.set(fileName, metadata);
               loadedCount++;
             }
 
             const baseFrequency =
               metadata?.center_frequency_hz ||
-              parseFrequencyFromFilename(file.fileName);
+              parseFrequencyFromFilename(fileName);
             freqMap.set(
-              file.fileName,
+              fileName,
               baseFrequency * (1 + (settings.ppm || 0) * 1e-6),
             );
 
@@ -1127,7 +1146,7 @@ self.onmessage = async function (e) {
               data: {
                 current: i + 1,
                 total: files.length,
-                status: `Loaded ${sanitizeFilename(file.fileName)}`,
+                status: `Loaded ${sanitizeFilename(fileName)}`,
               },
             });
           } catch (error: any) {

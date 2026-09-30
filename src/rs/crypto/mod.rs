@@ -12,6 +12,9 @@ use std::sync::OnceLock;
 
 /// PBKDF2 iteration count — must match the frontend WebCrypto derivation.
 const PBKDF2_ITERATIONS: u32 = 100_000;
+const CAPTURE_ENVELOPE_MAGIC_V1: &[u8; 8] = b"NAPTENC1";
+const CAPTURE_ENVELOPE_MAGIC_V2: &[u8; 8] = b"NAPTENC2";
+const CAPTURE_SALT_LEN: usize = 32;
 
 /// Global salt used for PBKDF2 key derivation.
 /// Defaults to a fixed value but can be overridden via NAPT_PBKDF2_SALT env var.
@@ -124,6 +127,83 @@ pub fn decrypt_payload_binary(
   Ok(plaintext)
 }
 
+/// Derive a per-capture AES key with HKDF-style HMAC-SHA256 expansion.
+/// The vault key has already paid the PBKDF2 cost at login/startup, so each
+/// capture adds only two HMAC operations during encryption or decryption.
+pub fn derive_capture_key(vault_key: &[u8; 32], salt: &[u8; 32]) -> [u8; 32] {
+  let mut extract: Hmac<Sha256> =
+    MacKeyInit::new_from_slice(salt).expect("HMAC accepts a 32-byte salt");
+  extract.update(vault_key);
+  let prk = extract.finalize().into_bytes();
+
+  let mut expand: Hmac<Sha256> =
+    MacKeyInit::new_from_slice(&prk).expect("HMAC accepts a 32-byte PRK");
+  expand.update(b"n-apt/capture-protection/v1");
+  expand.update(&[1]);
+  let output = expand.finalize().into_bytes();
+  let mut key = [0u8; 32];
+  key.copy_from_slice(&output);
+  key
+}
+
+/// Encrypt one stored capture with a fresh random salt.
+/// Envelope: `NAPTENC2 || 12-byte nonce || ciphertext || tag`.
+/// The per-capture salt is returned separately and must be stored server-side.
+pub fn encrypt_capture_envelope(
+  vault_key: &[u8; 32],
+  plaintext: &[u8],
+) -> Result<(Vec<u8>, [u8; 32])> {
+  let salt: [u8; CAPTURE_SALT_LEN] = ::rand::random();
+  let envelope = encrypt_capture_envelope_with_salt(vault_key, plaintext, &salt)?;
+  Ok((envelope, salt))
+}
+
+pub fn generate_capture_salt() -> [u8; CAPTURE_SALT_LEN] {
+  ::rand::random()
+}
+
+pub fn encrypt_capture_envelope_with_salt(
+  vault_key: &[u8; 32],
+  plaintext: &[u8],
+  salt: &[u8; CAPTURE_SALT_LEN],
+) -> Result<Vec<u8>> {
+  let capture_key = derive_capture_key(vault_key, salt);
+  let encrypted = encrypt_payload_binary(&capture_key, plaintext)?;
+  let mut envelope = Vec::with_capacity(CAPTURE_ENVELOPE_MAGIC_V2.len() + encrypted.len());
+  envelope.extend_from_slice(CAPTURE_ENVELOPE_MAGIC_V2);
+  envelope.extend_from_slice(&encrypted);
+  Ok(envelope)
+}
+
+/// Decrypt a new envelope using the salt retrieved from the trusted server store.
+/// Legacy NAPTENC1 envelopes are accepted only when their embedded salt matches it.
+pub fn decrypt_capture_envelope_with_salt(
+  vault_key: &[u8; 32],
+  envelope: &[u8],
+  salt: &[u8; CAPTURE_SALT_LEN],
+) -> Result<Vec<u8>> {
+  if envelope.len() < CAPTURE_ENVELOPE_MAGIC_V2.len() + 12 + 16 {
+    return Err(anyhow!("invalid capture envelope length"));
+  }
+  let (payload, envelope_salt) = if envelope.starts_with(CAPTURE_ENVELOPE_MAGIC_V2) {
+    (&envelope[CAPTURE_ENVELOPE_MAGIC_V2.len()..], None)
+  } else if envelope.starts_with(CAPTURE_ENVELOPE_MAGIC_V1) {
+    let salt_start = CAPTURE_ENVELOPE_MAGIC_V1.len();
+    let payload_start = salt_start + CAPTURE_SALT_LEN;
+    if envelope.len() < payload_start + 12 + 16 {
+      return Err(anyhow!("invalid legacy capture envelope length"));
+    }
+    (&envelope[payload_start..], Some(&envelope[salt_start..payload_start]))
+  } else {
+    return Err(anyhow!("invalid capture envelope header"));
+  };
+  if envelope_salt.is_some_and(|embedded| embedded != salt) {
+    return Err(anyhow!("legacy capture salt does not match the server record"));
+  }
+  let capture_key = derive_capture_key(vault_key, salt);
+  decrypt_payload_binary(&capture_key, payload)
+}
+
 /// Decrypt `payload_base64` with AES-256-GCM.
 /// Input is `base64( 12-byte IV || ciphertext || 16-byte tag )`.
 pub fn decrypt_payload(
@@ -177,6 +257,13 @@ pub fn from_base64(encoded: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn capture_key_derivation_matches_shared_js_vector() {
+    let key = derive_capture_key(&[7u8; 32], &[8u8; 32]);
+    let encoded = key.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    assert_eq!(encoded, "41d3d7c41410e3a76d9ebdc2040a91d208225e57664faab773f8394cd91264a1");
+  }
 
   #[test]
   fn test_derive_key_deterministic() {
@@ -252,6 +339,47 @@ mod tests {
       !verify_hmac(&key, b"data", &tag[..16]),
       "Truncated tag must fail"
     );
+  }
+
+  #[test]
+  fn capture_envelopes_roundtrip_and_use_distinct_salts() {
+    let vault_key = [7u8; 32];
+    let plaintext = b"capture bytes";
+    let (first, first_salt) = encrypt_capture_envelope(&vault_key, plaintext).unwrap();
+    let (second, second_salt) = encrypt_capture_envelope(&vault_key, plaintext).unwrap();
+
+    assert_ne!(first_salt, second_salt);
+    assert_ne!(first, second);
+    assert_eq!(&first[..8], b"NAPTENC2");
+    assert_eq!(&second[..8], b"NAPTENC2");
+    assert!(!first.windows(first_salt.len()).any(|window| window == first_salt));
+    assert!(!second.windows(second_salt.len()).any(|window| window == second_salt));
+    assert_eq!(decrypt_capture_envelope_with_salt(&vault_key, &first, &first_salt).unwrap(), plaintext);
+    assert_eq!(decrypt_capture_envelope_with_salt(&vault_key, &second, &second_salt).unwrap(), plaintext);
+  }
+
+  #[test]
+  fn capture_envelope_rejects_tampering_and_wrong_vault_key() {
+    let salt = [8u8; 32];
+    let mut envelope = encrypt_capture_envelope_with_salt(&[3u8; 32], b"private capture", &salt).unwrap();
+    assert!(decrypt_capture_envelope_with_salt(&[4u8; 32], &envelope, &salt).is_err());
+    let last = envelope.len() - 1;
+    envelope[last] ^= 1;
+    assert!(decrypt_capture_envelope_with_salt(&[3u8; 32], &envelope, &salt).is_err());
+  }
+
+  #[test]
+  fn legacy_capture_envelope_requires_the_matching_server_salt() {
+    let vault_key = [12u8; 32];
+    let salt = [13u8; 32];
+    let capture_key = derive_capture_key(&vault_key, &salt);
+    let encrypted = encrypt_payload_binary(&capture_key, b"legacy capture").unwrap();
+    let mut legacy = Vec::from(&b"NAPTENC1"[..]);
+    legacy.extend_from_slice(&salt);
+    legacy.extend_from_slice(&encrypted);
+
+    assert_eq!(decrypt_capture_envelope_with_salt(&vault_key, &legacy, &salt).unwrap(), b"legacy capture");
+    assert!(decrypt_capture_envelope_with_salt(&vault_key, &legacy, &[14u8; 32]).is_err());
   }
 
   #[test]

@@ -18,6 +18,22 @@ describe("source selection state", () => {
 });
 
 describe("SourceInput", () => {
+  it("accepts protected capture files in the file picker", () => {
+    const { container } = render(
+      <TestWrapper>
+        <SourceInput
+          sourceMode="file"
+          onSourceModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    expect(container.querySelector('input[type="file"]')).toHaveAttribute(
+      "accept",
+      ".napt,.iq,.wav,.enc",
+    );
+  });
+
   it("keeps padded source cards inside their available width", () => {
     render(
       <TestWrapper>

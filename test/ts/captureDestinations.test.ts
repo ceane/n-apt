@@ -84,15 +84,20 @@ describe("capture destinations", () => {
     expect(resolveCaptureDestination("aspect")).toBe("aspect");
   });
 
-  it("exposes local, folder, and Aspect providers through the shared registry", () => {
+  it("exposes local, folder, Aspect, and Hugging Face providers through the shared registry", () => {
     expect(CAPTURE_DESTINATION_PROVIDERS.map(({ id }) => id)).toEqual([
       "local",
       "folder",
       "aspect",
+      "huggingface",
     ]);
     expect(
       CAPTURE_DESTINATION_PROVIDERS.find(({ id }) => id === "aspect"),
     ).toMatchObject({ kind: "mounted-folder", cli: true });
+    expect(
+      CAPTURE_DESTINATION_PROVIDERS.find(({ id }) => id === "huggingface"),
+    ).toMatchObject({ kind: "mounted-folder", cli: true });
+    expect(resolveCaptureDestination("huggingface")).toBe("huggingface");
   });
 
   it("streams capture data into a user-selected folder", async () => {

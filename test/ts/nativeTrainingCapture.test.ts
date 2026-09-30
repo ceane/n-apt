@@ -16,8 +16,8 @@ const frame = (patch: Partial<NativeClassifier.NativeTrainingCaptureFrame> = {})
 });
 const eligible = (patch = {}) => NativeClassifier.canStartNativeTrainingCapture({
   selectedSourceId: 'rtl-1', activeSourceId: 'rtl-1', expectedSourceId: 'rtl-1', sourceMode: 'live', temporalResolution: 'lossless',
-  sourceCapability: 'rx', sourceIsMock: false, sourceStatus: 'receiving', sourcePaused: false,
-  deviceConnected: true, canvasPaused: false, isRtlSdr: true, ...patch,
+  sourceCapability: 'rx', sourceIsMock: false, sourceStatus: 'receiving',
+  deviceConnected: true, isRtlSdr: true, ...patch,
 });
 
 it('accepts a complete IQ payload even when its acquired sample count differs from analysis FFT size', () => {
@@ -187,10 +187,11 @@ it('allows only the selected, active real RTL-SDR source in live receiving mode'
   expect(eligible()).toBe(true);
   for (const patch of [
     { sourceCapability: 'mock' }, { sourceCapability: 'tx_rx' }, { sourceIsMock: true },
-    { sourceStatus: 'paused' }, { sourceStatus: 'stale' }, { sourcePaused: true },
-    { sourceMode: 'file' }, { temporalResolution: 'reduced' }, { temporalResolution: 'slow' }, { canvasPaused: true }, { deviceConnected: false },
+    { sourceStatus: 'paused' }, { sourceStatus: 'stale' },
+    { sourceMode: 'file' }, { temporalResolution: 'reduced' }, { temporalResolution: 'slow' }, { deviceConnected: false },
     { isRtlSdr: false }, { selectedSourceId: 'other' }, { activeSourceId: 'other' }, { expectedSourceId: 'other' },
   ]) expect(eligible(patch)).toBe(false);
+  expect(eligible({ canvasPaused: true })).toBe(true);
 });
 
 it('identifies stale frames without declaring a receiver disconnected', () => {
@@ -201,8 +202,8 @@ it('identifies stale frames without declaring a receiver disconnected', () => {
   expect(NativeClassifier.isNativeTrainingFrameStale(null, 4_001)).toBe(false);
   expect(NativeClassifier.nativeTrainingCaptureSourceStatusCode({
     selectedSourceId: 'rtl-1', activeSourceId: 'rtl-1', expectedSourceId: 'rtl-1', sourceMode: 'live', temporalResolution: 'lossless',
-    sourceCapability: 'rx', sourceIsMock: false, sourceStatus: 'receiving', sourcePaused: false,
-    deviceConnected: true, canvasPaused: false, isRtlSdr: true,
+    sourceCapability: 'rx', sourceIsMock: false, sourceStatus: 'receiving',
+    deviceConnected: true, isRtlSdr: true,
   })).toBeNull();
 });
 
@@ -235,14 +236,51 @@ it('recognizes an explicit RTL-SDR disconnect without treating other source stat
 it('classifies RTL-SDR disconnect, stale, paused, and non-receiving states separately', () => {
   const live = {
     selectedSourceId: 'rtl-1', activeSourceId: 'rtl-1', expectedSourceId: 'rtl-1', sourceMode: 'live', temporalResolution: 'lossless',
-    sourceCapability: 'rx', sourceIsMock: false, sourceStatus: 'receiving', sourcePaused: false,
-    deviceConnected: true, canvasPaused: false, isRtlSdr: true,
+    sourceCapability: 'rx', sourceIsMock: false, sourceStatus: 'receiving',
+    deviceConnected: true, isRtlSdr: true,
   } satisfies NativeClassifier.NativeTrainingCaptureEligibility;
   expect(NativeClassifier.nativeTrainingCaptureSourceStatusCode({ ...live, sourceStatus: 'disconnected' })).toBe('rtl-sdr-disconnected');
   expect(NativeClassifier.nativeTrainingCaptureSourceStatusCode({ ...live, sourceStatus: 'stale' })).toBe('rtl-sdr-stale');
-  expect(NativeClassifier.nativeTrainingCaptureSourceStatusCode({ ...live, sourceStatus: 'paused', sourcePaused: true })).toBe('rtl-sdr-paused');
+  expect(NativeClassifier.nativeTrainingCaptureSourceStatusCode({ ...live, sourceStatus: 'paused' })).toBe('rtl-sdr-paused');
   expect(NativeClassifier.nativeTrainingCaptureSourceStatusCode({ ...live, sourceStatus: 'connected' })).toBe('rtl-sdr-not-receiving');
   expect(NativeClassifier.nativeTrainingCaptureSourceStatusCode({ ...live, sourceMode: 'file', sourceStatus: 'stale' })).toBeNull();
+});
+
+it('reports the specific selected-source mismatch in capture readiness diagnostics', () => {
+  const currentFrame = frame();
+  const current = { ...currentFrame, rawIqByteCount: currentFrame.iqBytes.byteLength };
+  const mismatches = NativeClassifier.nativeTrainingFrameMismatchReasons(current, {
+    selectedSourceId: 'rtl-2', sourceSampleRateHz: 3_200_000, sourceCenterFrequencyHz: 1_600_000,
+    sourceFftSize: 2048, sourceWindow: 'Rectangular', appliedStream: { streamEpoch: 4, optionsRevision: 2, mode: 'rx' },
+    nowTimestampMs: 1_100,
+  });
+
+  expect(mismatches).toContain('frame source rtl-1 != selected source rtl-2');
+});
+
+it('auto-stops an active capture on an explicit RTL-SDR disconnect without waiting for another frame', () => {
+  const session = new NativeClassifier.NativeTrainingCaptureSession();
+  expect(session.start(config, 0, 900)).toBe(true);
+  expect(session.append(frame(), 100, 1_000)).toBe('accepted');
+  const live = {
+    selectedSourceId: 'rtl-1', activeSourceId: 'rtl-1', expectedSourceId: 'rtl-1', sourceMode: 'live', temporalResolution: 'lossless',
+    sourceCapability: 'rx', sourceIsMock: false, sourceStatus: 'receiving', deviceConnected: true, isRtlSdr: true,
+  } satisfies NativeClassifier.NativeTrainingCaptureEligibility;
+  const disconnected = { ...live, sourceStatus: 'disconnected' };
+  const reason = NativeClassifier.nativeTrainingCaptureSourceStatusCode(disconnected);
+  const stopReason = (NativeClassifier as any).stopNativeTrainingCaptureForHealth(session, {
+    eligible: NativeClassifier.canStartNativeTrainingCapture(disconnected),
+    ineligibleReason: reason,
+    latestFrameFresh: true,
+    nowMs: 110,
+  });
+
+  expect(stopReason).toBe('rtl-sdr-disconnected');
+  expect(session.active).toBe(false);
+  expect(session.snapshot()).toMatchObject({
+    stopReason: 'rtl-sdr-disconnected',
+    streamInterruptedEvents: [{ kind: 'StreamInterrupted', code: 1, frameSequence: 10, reason: 'rtl-sdr-disconnected' }],
+  });
 });
 
 it('treats title-cased applied window metadata as the same window and accepts the current receiving frame', () => {
