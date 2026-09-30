@@ -52,11 +52,19 @@ function validateCaptureId(captureId) {
   }
 }
 
-function parseSalt(value) {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/i.test(value)) {
+export function parseCaptureProtectionSalt(value) {
+  let normalized = value;
+  if (typeof normalized === "string" && normalized.startsWith('"')) {
+    try {
+      normalized = JSON.parse(normalized);
+    } catch {
+      normalized = null;
+    }
+  }
+  if (typeof normalized !== "string" || !/^[a-f0-9]{64}$/i.test(normalized)) {
     throw new Error("Redis DB 1 is missing a valid capture-protection salt");
   }
-  return Buffer.from(value, "hex");
+  return Buffer.from(normalized, "hex");
 }
 
 /** Derives the same per-capture AES-256 key as the Rust backend. */
@@ -75,7 +83,7 @@ export async function loadCaptureProtectionSalt(captureId, options = {}) {
   const client = await connectRedis(options);
   try {
     const value = await client.get(`capture-protection:${captureId}`);
-    return parseSalt(value);
+    return parseCaptureProtectionSalt(value);
   } finally {
     if (client.isOpen) await client.quit();
   }
@@ -88,11 +96,11 @@ export async function getOrCreateCaptureProtectionSalt(captureId, options = {}) 
   const key = `capture-protection:${captureId}`;
   try {
     let value = await client.get(key);
-    if (value !== null) return parseSalt(value);
+    if (value !== null) return parseCaptureProtectionSalt(value);
     const generated = randomBytes(32);
     const created = await client.set(key, generated.toString("hex"), { NX: true });
     value = await client.get(key);
-    const persisted = parseSalt(value);
+    const persisted = parseCaptureProtectionSalt(value);
     if (created === "OK" && !persisted.equals(generated)) {
       throw new Error("Redis capture-protection salt changed during creation; refusing to encrypt with an uncommitted salt");
     }

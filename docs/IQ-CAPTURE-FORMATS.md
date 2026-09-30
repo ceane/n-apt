@@ -204,9 +204,9 @@ When the backend writes an extra protected copy for destinations such as Aspect 
    NAPTENC2 || 12-byte AES-GCM nonce || ciphertext || 16-byte tag
    ```
 
-4. It stores the salt only in Redis database 1 under `capture-protection:<jobId>`.
+4. It stores the salt only in Redis database 1 under `capture-protection:<jobId>` as a raw 64-character hexadecimal string.
 
-The salt is deliberately absent from NAPTENC2. The backend must retrieve it from Redis to derive the capture key. The outer wrapper does not change the inner `.napt`, `.iq`, or `.wav` file, including V6 metadata and checksums.
+The salt is deliberately absent from NAPTENC2. The backend must retrieve it from Redis to derive the capture key. Current Rust and offline tools use the same raw-hex Redis value; readers also accept the JSON-quoted string written by earlier Rust builds. The outer wrapper does not change the inner `.napt`, `.iq`, or `.wav` file, including V6 metadata and checksums.
 
 NAPTENC1 is the legacy envelope and includes its salt in the file. It does not provide the Redis-only protection described here. New Increased protection writes use NAPTENC2.
 

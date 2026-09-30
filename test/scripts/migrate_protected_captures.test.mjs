@@ -187,6 +187,27 @@ test("never overwrites a conflicting Redis salt during recovery", async () => {
   assert.equal(records.get("capture-protection:capture-test"), Buffer.alloc(32, 20).toString("hex"));
 });
 
+test("accepts a matching legacy JSON-encoded Redis salt during recovery", async () => {
+  const vaultKey = Buffer.alloc(32, 11);
+  const salt = Buffer.alloc(32, 19);
+  const key = "capture-protection:capture-test";
+  const records = new Map([[key, JSON.stringify(salt.toString("hex"))]]);
+  const redisClient = {
+    async set() { return null; },
+    async get(recordKey) { return records.get(recordKey) ?? null; },
+  };
+
+  const recovered = await recoverMissingCaptureSalt({
+    input: legacyEnvelope(v6Iq(), vaultKey, salt),
+    vaultKey,
+    redisClient,
+    jobId: "capture-test",
+  });
+
+  assert.deepEqual(recovered.salt, salt);
+  assert.equal(records.get(key), JSON.stringify(salt.toString("hex")));
+});
+
 test("dry-run validation does not write a missing Redis salt", async () => {
   const vaultKey = Buffer.alloc(32, 11);
   const salt = Buffer.alloc(32, 19);

@@ -11,13 +11,22 @@ import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createClient } from "redis";
 import { inspectIqCapture } from "./encrypt_iq_capture.mjs";
-import { loadIqCaptureKey } from "./classifier/crypto.mjs";
+import { loadIqCaptureKey, parseCaptureProtectionSalt } from "./classifier/crypto.mjs";
 
 const OLD_MAGIC = Buffer.from("NAPTENC1");
 const NEW_MAGIC = Buffer.from("NAPTENC2");
 const SALT_LENGTH = 32;
 const NONCE_LENGTH = 12;
 const TAG_LENGTH = 16;
+
+function redisSaltOrNull(value) {
+  if (value === null) return null;
+  try {
+    return parseCaptureProtectionSalt(value);
+  } catch {
+    return null;
+  }
+}
 
 function deriveCaptureKey(vaultKey, salt) {
   const prk = createHmac("sha256", salt).update(vaultKey).digest();
@@ -93,8 +102,8 @@ export async function recoverMissingCaptureSalt({ input, vaultKey, redisClient, 
   if (!persist) return { salt, migrated };
   const result = await redisClient.set(key, salt.toString("hex"), { NX: true });
   if (result !== "OK") {
-    const current = await redisClient.get(key);
-    if (typeof current !== "string" || !/^[0-9a-f]{64}$/i.test(current) || current.toLowerCase() !== salt.toString("hex")) {
+    const current = redisSaltOrNull(await redisClient.get(key));
+    if (!current?.equals(salt)) {
       throw new Error(`Redis already contains a conflicting capture-protection salt for ${jobId}; no Redis value was changed`);
     }
   }
@@ -139,10 +148,12 @@ async function migrateFile({ inputPath, outputPath, jobId, dryRun, restoreMissin
   try {
     await client.connect();
     await client.select(1);
-    redisSalt = await client.get(redisKey);
-    if (redisSalt && /^[0-9a-f]{64}$/i.test(redisSalt)) {
-      migrated = migrateProtectedIqCaptureBytes(sourceBytes, vaultKey, Buffer.from(redisSalt, "hex"));
-    } else if (!redisSalt && restoreMissingRedisRecord) {
+    const storedSalt = await client.get(redisKey);
+    const parsedSalt = redisSaltOrNull(storedSalt);
+    if (parsedSalt) {
+      redisSalt = parsedSalt.toString("hex");
+      migrated = migrateProtectedIqCaptureBytes(sourceBytes, vaultKey, parsedSalt);
+    } else if (storedSalt === null && restoreMissingRedisRecord) {
       const recovered = await recoverMissingCaptureSalt({ input: sourceBytes, vaultKey, redisClient: client, jobId, persist: !dryRun });
       redisSalt = recovered.salt.toString("hex");
       migrated = recovered.migrated;

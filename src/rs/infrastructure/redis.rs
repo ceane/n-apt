@@ -206,21 +206,36 @@ impl RedisStore {
     self.set_json_with_ttl(database, key, value, None).await
   }
 
-  /// Atomically store a JSON value only if the key is still absent.
-  /// Returns true for the writer that created the key and false when another
-  /// writer already created it.
-  pub async fn set_json_if_absent<T: Serialize>(
+  /// Read a raw string without JSON encoding or decoding.
+  pub async fn get_string(
     &self,
     database: u8,
     key: &str,
-    value: &T,
+  ) -> Result<Option<String>, String> {
+    let mut connection = self.connection(database).await?;
+    let result: Result<Option<String>, _> = redis::cmd("GET")
+      .arg(key)
+      .query_async(&mut connection)
+      .await;
+    if result.is_err() {
+      self.evict_connection(database);
+    }
+    result.map_err(|error| format!("Redis GET failed: {error}"))
+  }
+
+  /// Atomically store a raw string only if the key is still absent.
+  /// Returns true for the writer that created the key and false when another
+  /// writer already created it.
+  pub async fn set_string_if_absent(
+    &self,
+    database: u8,
+    key: &str,
+    value: &str,
   ) -> Result<bool, String> {
     let mut connection = self.connection(database).await?;
-    let json = serde_json::to_string(value)
-      .map_err(|error| format!("Redis JSON serialization failed: {error}"))?;
     let result = redis::cmd("SET")
       .arg(key)
-      .arg(json)
+      .arg(value)
       .arg("NX")
       .query_async::<Option<String>>(&mut connection)
       .await;
@@ -229,7 +244,7 @@ impl RedisStore {
     }
     result
       .map(|response| response.is_some())
-      .map_err(|error| format!("Redis JSON SET NX failed: {error}"))
+      .map_err(|error| format!("Redis SET NX failed: {error}"))
   }
 
   /// SET with an optional expiry in seconds.
@@ -440,7 +455,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn json_if_absent_selects_one_value_for_concurrent_writers() {
+  async fn raw_string_if_absent_selects_one_value_for_concurrent_writers() {
     use std::sync::Arc;
     use tokio::sync::Barrier;
 
@@ -460,7 +475,7 @@ mod tests {
         let value = format!("salt-{index}");
         barrier.wait().await;
         let inserted = store
-          .set_json_if_absent(15, &key, &value)
+          .set_string_if_absent(15, &key, &value)
           .await
           .expect("SET NX should succeed");
         (inserted, value)
@@ -471,16 +486,25 @@ mod tests {
     for task in tasks {
       let (inserted, value) = task.await.expect("writer task should finish");
       if inserted {
-        assert!(inserted_value.replace(value).is_none(), "only one writer may win");
+        assert!(
+          inserted_value.replace(value).is_none(),
+          "only one writer may win"
+        );
       }
     }
-    let stored: Option<String> = store
-      .get_json(15, &key)
+    let stored = store
+      .get_string(15, &key)
       .await
-      .expect("stored JSON should be readable");
-    assert_eq!(stored, inserted_value, "Redis must keep the winning writer's value");
+      .expect("stored raw value should be readable");
+    assert_eq!(
+      stored, inserted_value,
+      "Redis must keep the winning writer's value"
+    );
 
-    let mut database = store.database(15).await.expect("Redis DB should be available");
+    let mut database = store
+      .database(15)
+      .await
+      .expect("Redis DB should be available");
     let _: usize = database
       .query("DEL", |command| {
         command.arg(&key);

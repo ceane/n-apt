@@ -7,6 +7,7 @@ import {
   deriveCaptureProtectionKey,
   getOrCreateCaptureProtectionSalt,
   loadCaptureProtectionSalt,
+  parseCaptureProtectionSalt,
 } from "../../scripts/classifier/crypto.mjs";
 
 function fakeRedis(records) {
@@ -27,6 +28,12 @@ function fakeRedis(records) {
 }
 
 const id = "a".repeat(64);
+
+test("capture salt parser accepts canonical raw hex and legacy JSON strings", () => {
+  const expected = Buffer.alloc(32, 21);
+  assert.deepEqual(parseCaptureProtectionSalt(expected.toString("hex")), expected);
+  assert.deepEqual(parseCaptureProtectionSalt(JSON.stringify(expected.toString("hex"))), expected);
+});
 
 test("classifier salt creation uses an atomic Redis DB 1 record and reuses it", async () => {
   const records = new Map();
@@ -60,14 +67,14 @@ test("classifier key derivation requires fixed-size vault key and salt", () => {
   );
 });
 
-test("classifier reader decrypts with the salt restored from Redis", async () => {
+test("classifier reader decrypts with a legacy JSON-encoded Redis salt", async () => {
   const captureId = "b".repeat(64);
   const salt = Buffer.alloc(32, 17);
   const env = {
     REDIS_URL: "redis://test",
     UNSAFE_LOCAL_USER_PASSWORD: "classifier-redis-test-secret",
   };
-  const records = new Map([[`capture-protection:${captureId}`, salt.toString("hex")]]);
+  const records = new Map([[`capture-protection:${captureId}`, JSON.stringify(salt.toString("hex"))]]);
   const plaintext = await encodeIqCaptureV4({
     metadata: { center_frequency_hz: 1_618_000, capture_sample_rate_hz: 3_200_000, fft_size: 4, fft_window: "rectangular" },
     frameUpdates: [{ sample_offset: 0, timestamp_us: 10, patch: {} }],

@@ -1964,6 +1964,10 @@ fn encode_capture_salt(salt: &[u8; 32]) -> String {
 }
 
 fn decode_capture_salt(encoded: &str) -> Option<[u8; 32]> {
+  // Earlier Rust builds stored this JSON string quoted; Node tools and the
+  // current Redis contract use the raw 64-character hex value.
+  let legacy_encoded = serde_json::from_str::<String>(encoded).ok();
+  let encoded = legacy_encoded.as_deref().unwrap_or(encoded);
   if encoded.len() != 64 {
     return None;
   }
@@ -1980,13 +1984,15 @@ async fn get_or_create_capture_salt(
   state: &super::AppState,
   key: &str,
 ) -> Result<[u8; 32], String> {
-  match state.shared.redis_store.get_json::<String>(1, key).await? {
+  match state.shared.redis_store.get_string(1, key).await? {
     Some(encoded) => decode_capture_salt(&encoded)
       .ok_or_else(|| "stored capture protection salt is invalid".to_string()),
     None => {
       let salt = crate::crypto::generate_capture_salt();
-      if state.shared.redis_store
-        .set_json_if_absent(1, key, &encode_capture_salt(&salt))
+      if state
+        .shared
+        .redis_store
+        .set_string_if_absent(1, key, &encode_capture_salt(&salt))
         .await?
       {
         return Ok(salt);
@@ -1995,10 +2001,13 @@ async fn get_or_create_capture_salt(
       state
         .shared
         .redis_store
-        .get_json::<String>(1, key)
+        .get_string(1, key)
         .await?
         .and_then(|encoded| decode_capture_salt(&encoded))
-        .ok_or_else(|| "capture protection salt was not persisted by the winning writer".to_string())
+        .ok_or_else(|| {
+          "capture protection salt was not persisted by the winning writer"
+            .to_string()
+        })
     }
   }
 }
