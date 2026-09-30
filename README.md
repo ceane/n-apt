@@ -37,6 +37,14 @@ _Real live, on person capture the signal with an RTL-SDR from 18kHz to 3.218MHz,
 **Secure streaming and files!**
 <img width="1220" height="1037" alt="Secure streaming and files login screenshot" src="public/images/README-secure-streaming-login.png" />
 
+## I/Q capture file formats
+
+N-APT's `.napt`, `.iq`, and `.wav` captures are proprietary project formats. They carry unsigned 8-bit interleaved I/Q samples and capture metadata, with different packaging and protection rules. See the [I/Q capture format guide](docs/IQ-CAPTURE-FORMATS.md) for V6 layout details, legacy compatibility, encryption, online-copy salts, and current limitations.
+
+- `.napt` is intended for sensitive N-APT captures and requires encryption in supported capture writers.
+- `.iq` is the canonical project I/Q container and can be encrypted or plaintext.
+- `.wav` carries project I/Q inside RIFF/WAVE with custom metadata; it is not ordinary audio and is not recommended.
+
 
 ### Core Purpose
 
