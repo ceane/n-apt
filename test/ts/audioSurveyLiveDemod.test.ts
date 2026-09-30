@@ -1,9 +1,14 @@
+import { execFileSync } from "node:child_process";
 import {
+  createAudioSurveyOnnxNeuralDemodulator,
   createAudioSurveyNeuralDemodulator,
   isAudioSurveyNeuralModelReady,
   shouldResetAudioSurveyNeuralStream,
 } from "@n-apt/demodulation/survey/audioSurveyLiveDemod";
 import type { TimeDomainDemodModel } from "@n-apt/demodulation/survey/audioSurveyMl";
+import * as audioSurveyOnnxRuntime from "@n-apt/demodulation/survey/audioSurveyOnnxRuntime";
+import type { AudioSurveyOnnxRuntime } from "@n-apt/demodulation/survey/audioSurveyOnnxRuntime";
+import { serializeTimeDomainModelToOnnx } from "@n-apt/demodulation/survey/audioSurveyOnnx";
 
 const makeModel = (): TimeDomainDemodModel => ({
   version: 3,
@@ -135,6 +140,138 @@ describe("audio survey live neural demodulator", () => {
 
     expect(chunkedOutput).toEqual(wholeFrame);
     expect(wholeFrame.length).toBeGreaterThan(0);
+  });
+
+  it("runs the exported model through ONNX after the live channelizer", async () => {
+    const model = makeModel();
+    const input = makeIq(2_049);
+    const options = {
+      model,
+      onnxModelData: serializeTimeDomainModelToOnnx(model),
+      centerFrequencyHz: 100_000,
+      bandwidthHz: 32_000,
+      executionProvider: "wasm" as const,
+    };
+    const reference = createAudioSurveyNeuralDemodulator(options).process(
+      input,
+      256_000,
+      100_000,
+    );
+    const actual = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "-e",
+          `
+            (async () => {
+              const { createAudioSurveyOnnxNeuralDemodulator } = await import("./src/ts/features/demodulation/survey/audioSurveyLiveDemod.ts");
+              const model = JSON.parse(process.env.NAPT_ONNX_MODEL_METADATA);
+              model.inputWeights = Float32Array.from(model.inputWeights);
+              model.hiddenBias = Float32Array.from(model.hiddenBias);
+              model.outputWeights = Float32Array.from(model.outputWeights);
+              const demodulator = await createAudioSurveyOnnxNeuralDemodulator({
+                model,
+                onnxModelData: Uint8Array.from(Buffer.from(process.env.NAPT_ONNX_MODEL, "base64")),
+                centerFrequencyHz: 100000,
+                bandwidthHz: 32000,
+                executionProvider: "wasm",
+              });
+              try {
+                const iq = Uint8Array.from(Buffer.from(process.env.NAPT_ONNX_IQ, "base64"));
+                process.stdout.write(JSON.stringify(Array.from(await demodulator.process(iq, 256000, 100000))));
+              } finally {
+                await demodulator.dispose();
+              }
+            })().catch((error) => {
+              console.error(error);
+              process.exitCode = 1;
+            });
+          `,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            NAPT_ONNX_MODEL_METADATA: JSON.stringify({
+              ...model,
+              inputWeights: Array.from(model.inputWeights),
+              hiddenBias: Array.from(model.hiddenBias),
+              outputWeights: Array.from(model.outputWeights),
+            }),
+            NAPT_ONNX_MODEL: Buffer.from(
+              serializeTimeDomainModelToOnnx(model),
+            ).toString("base64"),
+            NAPT_ONNX_IQ: Buffer.from(input).toString("base64"),
+          },
+        },
+      ),
+    ) as number[];
+    expect(actual.length).toBe(reference.length);
+    actual.forEach((sample, index) =>
+      expect(sample).toBeCloseTo(reference[index], 5),
+    );
+  });
+
+  it("drops frames during pending ONNX inference and invalidates stale audio", async () => {
+    let resolveFirstInference: ((samples: Float32Array) => void) | undefined;
+    let inferenceCount = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const runtime: AudioSurveyOnnxRuntime = {
+      executionProvider: "wasm",
+      async predictWindows(_windows, batchSize) {
+        inferenceCount++;
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        if (inferenceCount === 1) {
+          return new Promise<Float32Array>((resolve) => {
+            resolveFirstInference = (samples) => {
+              inFlight--;
+              resolve(samples);
+            };
+          });
+        }
+        inFlight--;
+        return Float32Array.from({ length: batchSize }, () => 0.25);
+      },
+      async release() {},
+    };
+    const runtimeFactory = jest
+      .spyOn(audioSurveyOnnxRuntime, "createAudioSurveyOnnxRuntime")
+      .mockResolvedValue(runtime);
+
+    const demodulator = await createAudioSurveyOnnxNeuralDemodulator({
+      model: makeModel(),
+      onnxModelData: new Uint8Array([1]),
+      centerFrequencyHz: 100_000,
+      bandwidthHz: 32_000,
+    });
+    try {
+      const firstFrame = demodulator.process(makeIq(2_049), 256_000, 100_000);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(inferenceCount).toBe(1);
+
+      await expect(
+        demodulator.process(makeIq(2_049), 256_000, 100_000),
+      ).resolves.toHaveLength(0);
+      expect(inferenceCount).toBe(1);
+
+      resolveFirstInference?.(new Float32Array(600).fill(0.25));
+      await expect(firstFrame).resolves.toHaveLength(0);
+
+      const recoveredFrame = await demodulator.process(
+        makeIq(2_049),
+        256_000,
+        100_000,
+      );
+      expect(recoveredFrame.length).toBeGreaterThan(0);
+      expect(maxInFlight).toBe(1);
+    } finally {
+      await demodulator.dispose();
+      runtimeFactory.mockRestore();
+    }
   });
 
   it("does not run a trained model at a different channelized I/Q rate", () => {

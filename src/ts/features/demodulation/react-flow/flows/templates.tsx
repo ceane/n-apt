@@ -2,6 +2,9 @@ import React from "react";
 import { Zap, Activity, Waves, Music, Radio } from "lucide-react";
 import type { Node, Edge } from "@xyflow/react";
 import { FindBeatsFlow } from "@n-apt/demodulation/react-flow/flows/FindBeatsFlow";
+import {
+  REFERENCE_CAPTURE_NODE_POSITIONS,
+} from "@n-apt/demodulation/react-flow/flows/demodFlowModel";
 
 export interface FlowTemplate {
   id: string;
@@ -196,7 +199,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "source",
         type: "custom",
-        position: { x: 250, y: 50 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.source },
         data: {
           label: "Source",
           description: "Signal source",
@@ -206,7 +209,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "channel",
         type: "custom",
-        position: { x: -600, y: 450 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.channel },
         data: {
           label: "Channel",
           description: "Channel configuration",
@@ -216,7 +219,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "signal-config",
         type: "custom",
-        position: { x: 500, y: 450 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["signal-config"] },
         data: {
           label: "Signal Configuration",
           description: "Configure sampling and FFT",
@@ -226,7 +229,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "demod-readiness",
         type: "custom",
-        position: { x: 250, y: 950 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["demod-readiness"] },
         data: {
           label: "Demodulation Readiness",
           demodReadinessOptions: true,
@@ -235,7 +238,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "stimulus",
         type: "custom",
-        position: { x: 250, y: 1450 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.stimulus },
         data: {
           label: "Stimulus",
           description: "Select a known reference stimulus",
@@ -245,7 +248,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "output",
         type: "custom",
-        position: { x: 250, y: 1850 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.output },
         data: {
           label: "Output",
           description: "Use the generated I/Q capture for demodulation",

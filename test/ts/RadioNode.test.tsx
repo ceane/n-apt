@@ -20,6 +20,31 @@ const reactFlowState: {
   edges: [{ id: "e-fm-radio", source: "fm", target: "radio" }],
 };
 let mockNeuralModelReady = false;
+let mockOnnxModelAvailable = true;
+const mockSetNeuralBackend = jest.fn();
+
+jest.mock("@n-apt/redux", () => {
+  const reactRedux = jest.requireActual("react-redux");
+  return {
+    useAppDispatch: reactRedux.useDispatch,
+    useAppSelector: reactRedux.useSelector,
+  };
+});
+
+jest.mock("@n-apt/redux/thunks/demodThunks", () => ({
+  syncRadioDemodFromSource: (payload: unknown) => ({
+    type: "test/syncRadioDemodFromSource",
+    payload,
+  }),
+}));
+
+jest.mock("@n-apt/redux/slices/spectrumSlice", () => ({
+  __esModule: true,
+  default: (state = {}, action: { type: string; payload?: unknown }) =>
+    action.type === "spectrum/setPreviewRange"
+      ? { ...state, previewRange: action.payload }
+      : state,
+}));
 
 jest.mock("@xyflow/react", () => ({
   Handle: () => null,
@@ -39,7 +64,13 @@ jest.mock("@n-apt/demodulation/context/DemodAudioContext", () => ({
 }));
 
 jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
-  useDemod: () => ({ audioSurveyNeuralModelReady: mockNeuralModelReady }),
+  useDemod: () => ({
+    audioSurveyNeuralModelReady: mockNeuralModelReady,
+    audioSurveyNeuralBackend: "typescript",
+    audioSurveyOnnxModelAvailable: mockOnnxModelAvailable,
+    audioSurveyOnnxLoading: false,
+    setAudioSurveyNeuralBackend: mockSetNeuralBackend,
+  }),
 }));
 
 import { RadioNode } from "@n-apt/demodulation/react-flow/nodes/RadioNode";
@@ -84,6 +115,8 @@ function createStore() {
 describe("RadioNode", () => {
   beforeEach(() => {
     mockNeuralModelReady = false;
+    mockOnnxModelAvailable = true;
+    mockSetNeuralBackend.mockClear();
   });
 
   it("shows From Node and uses FM bandwidth when connected upstream from FM", () => {
@@ -154,6 +187,12 @@ describe("RadioNode", () => {
       target: { value: "neural" },
     });
     expect(store.getState().demod.algorithm).toBe("neural");
+    const backendSelect = screen.getByLabelText("Neural Backend");
+    expect(
+      screen.getByRole("option", { name: "ONNX Runtime (local)" }),
+    ).toBeEnabled();
+    fireEvent.change(backendSelect, { target: { value: "onnx" } });
+    expect(mockSetNeuralBackend).toHaveBeenCalledWith("onnx");
   });
 
   it("shows From Node and uses the live span bandwidth when connected upstream from Span", () => {

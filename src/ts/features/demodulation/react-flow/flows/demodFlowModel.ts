@@ -45,6 +45,21 @@ export const shouldDeferDemodAutoLayout = ({
   nodesInitialized: boolean;
 }): boolean => hasNodes && !nodesInitialized;
 
+/** Reference Capture uses a centered top-down chain. Channel and Signal
+ * Configuration share the second row; the readiness, stimulus, and output
+ * nodes continue below them. Keep these coordinates shared with its template. */
+export const REFERENCE_CAPTURE_NODE_POSITIONS = {
+  source: { x: 445, y: 50 },
+  channel: { x: 45, y: 450 },
+  "signal-config": { x: 455, y: 450 },
+  "demod-readiness": { x: 250, y: 1200 },
+  stimulus: { x: 250, y: 1650 },
+  output: { x: 250, y: 2350 },
+} satisfies Record<
+  "source" | "channel" | "signal-config" | "demod-readiness" | "stimulus" | "output",
+  { x: number; y: number }
+>;
+
 export const serializeDemodFlow = (
   sourceMode: SourceMode,
   nodes: Node[],
@@ -57,8 +72,9 @@ export const serializeDemodFlow = (
  *
  * v3: a fit taken while node boxes were still arriving was framed on a partial
  * bounding box and persisted as if it were the user's framing, so every remount
- * restored a zoomed-in view. Bumping the key drops those captures. */
-export const DEMOD_FLOW_VIEWPORT_SESSION_KEY = "n-apt:demod-flow-viewport:v3";
+ * restored a zoomed-in view. v4 also drops framing captured against the older
+ * Reference Capture node positions. */
+export const DEMOD_FLOW_VIEWPORT_SESSION_KEY = "n-apt:demod-flow-viewport:v4";
 
 export interface DemodFlowViewport {
   x: number;
@@ -555,13 +571,13 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "source",
       type: "custom",
-      position: { x: 250, y: 50 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.source },
       data: { label: "Source", description: "Signal source", sourceNode: true },
     },
     {
       id: middleId,
       type: "custom",
-      position: { x: -600, y: 450 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.channel },
       data: isFileSource
         ? { label: "Metadata", metadataNode: true }
         : { label: "Channel", description: "Channel configuration", channelNode: true },
@@ -569,25 +585,25 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "signal-config",
       type: "custom",
-      position: { x: 500, y: 450 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["signal-config"] },
       data: { label: "Signal Configuration", signalOptions: true },
     },
     {
       id: "demod-readiness",
       type: "custom",
-      position: { x: 250, y: 950 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["demod-readiness"] },
       data: { label: "Demodulation Readiness", demodReadinessOptions: true },
     },
     {
       id: "stimulus",
       type: "custom",
-      position: { x: 250, y: 1450 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.stimulus },
       data: { label: "Stimulus", description: "Select a known reference stimulus", stimulusOptions: true },
     },
     {
       id: "output",
       type: "custom",
-      position: { x: 250, y: 1850 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.output },
       data: { label: "Output", description: "Use the generated I/Q capture for demodulation", outputNode: true },
     },
   ];

@@ -131,7 +131,13 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   );
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
-  const { audioSurveyNeuralModelReady } = useDemod();
+  const {
+    audioSurveyNeuralModelReady,
+    audioSurveyNeuralBackend,
+    audioSurveyOnnxModelAvailable,
+    audioSurveyOnnxLoading,
+    setAudioSurveyNeuralBackend,
+  } = useDemod();
   const { audioPlayback } = useDemodAudio();
   const { getNodes, getEdges } = useReactFlow();
 
@@ -316,6 +322,40 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
             </option>
           </StyledSelect>
         </ControlItem>
+        {algorithm === "neural" && !hasFmNodeUpstream && (
+          <ControlItem>
+            <Label>Neural Runtime</Label>
+            <StyledSelect
+              aria-label="Neural Backend"
+              value={audioSurveyNeuralBackend}
+              onChange={(event) =>
+                setAudioSurveyNeuralBackend(
+                  event.target.value as "typescript" | "onnx",
+                )
+              }
+            >
+              <option value="typescript">TypeScript (local)</option>
+              <option
+                value="onnx"
+                disabled={!audioSurveyOnnxModelAvailable}
+                title={
+                  audioSurveyOnnxModelAvailable
+                    ? "Run the exported model with local ONNX Runtime."
+                    : "Train a validated model to create its ONNX artifact."
+                }
+              >
+                ONNX Runtime (local)
+              </option>
+            </StyledSelect>
+            {audioSurveyNeuralBackend === "onnx" && (
+              <SourceTag>
+                {audioSurveyOnnxLoading
+                  ? "Loading local ONNX runtime"
+                  : "Uses WebGPU when available, then WebAssembly"}
+              </SourceTag>
+            )}
+          </ControlItem>
+        )}
       </ControlGroup>
 
       <ListenButton $active={isListening} onClick={handleListenToggle}>
