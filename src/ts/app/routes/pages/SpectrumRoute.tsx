@@ -88,6 +88,8 @@ import {
 } from "@n-apt/math/basebandMirror";
 import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
 
+const NOTES_UI_ENABLED = false;
+
 export const resolveNavigationFrequencyBounds = ({
   hardwareBounds,
 }: {
@@ -2889,9 +2891,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     return (
       <>
         {fastSpectrumSnapshotAction}
-        {notesActionPill}
+        {NOTES_UI_ENABLED && notesActionPill}
         <HeaderActionSpacer />
-        {fftHistoryRef.current.length > 0 ? (
+        {NOTES_UI_ENABLED && fftHistoryRef.current.length > 0 ? (
           <FFTBackButton
             type="button"
             $variant="secondary"
@@ -3273,11 +3275,11 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           />
         )}
       </SpectrumContent>
-      <NoteCards
+      {NOTES_UI_ENABLED && <NoteCards
         onViewNoteCard={(card) => {
           handleViewNoteCard(card.stats);
         }}
-      />
+      />}
     </SpectrumContainer>
   );
 };

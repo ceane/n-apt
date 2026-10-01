@@ -152,6 +152,8 @@ import {
   resolveMockTxTransmitViewCenterHz,
 } from "@n-apt/transmit/public/txSliderPlacement";
 
+const NOTES_UI_ENABLED = false;
+
 const SidebarContent = memo(styled.div`
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
@@ -3226,7 +3228,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             wholeChannelDisabledReason="RTL-SDR is limited to its current 3.2MHz hardware window; whole-channel retune/stitch snapshots are disabled."
           />
 
-          <Collapsible
+          {NOTES_UI_ENABLED && <Collapsible
             key={`notes-collapsible-${notesCollapsed ? "closed" : "open"}`}
             title="Notes"
             defaultOpen={!notesCollapsed}
@@ -3299,7 +3301,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 ))
               )}
             </Section>
-          </Collapsible>
+          </Collapsible>}
 
           {isTxModeGlobal ? (
             <Collapsible
