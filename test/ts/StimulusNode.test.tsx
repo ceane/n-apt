@@ -47,6 +47,15 @@ const mockDemodValue: {
   clearAnalysis: jest.fn(),
 };
 
+jest.mock("@n-apt/redux", () => {
+  const reactRedux = jest.requireActual("react-redux");
+  return { useAppSelector: reactRedux.useSelector };
+});
+
+jest.mock("@n-apt/webusb/initialSpectrumFrequencyRange", () => ({
+  INITIAL_SPECTRUM_FREQUENCY_RANGE: { min: 18_000, max: 4_390_000 },
+}));
+
 // Mock the useDemod hook
 jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
   useDemod: () => mockDemodValue,
@@ -211,6 +220,13 @@ describe("StimulusNode", () => {
     expect(input).toHaveAttribute("type", "file");
     expect(input).toHaveAttribute("accept", "audio/*,video/*");
     expect(screen.getByText(/decoded locally/i)).toBeInTheDocument();
+    const label = screen.getByLabelText("Audio signal label");
+    expect(label.querySelectorAll("option")).toHaveLength(3);
+    expect(
+      Array.from(label.querySelectorAll("option")).map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(["Unlabeled", "Coherent", "Static"]);
   });
 
   it("decodes local media to mono 48 kHz and starts it when RF pairing asks", async () => {
@@ -225,6 +241,9 @@ describe("StimulusNode", () => {
         <StimulusNode {...defaultProps} />
       </TestWrapper>,
     );
+    fireEvent.change(screen.getByLabelText("Audio signal label"), {
+      target: { value: "static" },
+    });
     const file = new File(["media"], "reference.wav", { type: "audio/wav" });
     Object.defineProperty(file, "arrayBuffer", {
       value: async () => new ArrayBuffer(5),
@@ -250,6 +269,7 @@ describe("StimulusNode", () => {
       expect.objectContaining({
         pcmSampleRateHz: 48_000,
         pcmData: expect.any(Float32Array),
+        audioSignalLabel: "static",
         startPlayback: expect.any(Function),
       }),
     );
@@ -448,6 +468,9 @@ describe("StimulusNode", () => {
         <StimulusNode {...defaultProps} />
       </TestWrapper>,
     );
+    fireEvent.change(screen.getByLabelText("Audio signal label"), {
+      target: { value: "coherent" },
+    });
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: "Pair stimulus tone with captured RF audio",
@@ -472,6 +495,7 @@ describe("StimulusNode", () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         pcmSampleRateHz: 48_000,
+        audioSignalLabel: "coherent",
         startPlayback: expect.any(Function),
       }),
     );

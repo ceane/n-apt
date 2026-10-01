@@ -3,6 +3,7 @@ import { createAudioSurveyChannelizer } from "@n-apt/demodulation/survey/audioSu
 import {
   buildAudioSurveyViews,
   AUDIO_SURVEY_SAMPLE_RATE_HZ,
+  type AudioSurveyReferenceLabel,
   type SurveyChannelRange,
 } from "@n-apt/demodulation/survey/audioSurveyModel";
 import {
@@ -25,6 +26,7 @@ export interface AudioSurveyStimulusReference {
   bandwidthHz: number;
   channelId: string;
   baselineAlgorithm: "am" | "fm" | "apt";
+  audioSignalLabel?: AudioSurveyReferenceLabel;
   storageCapBytes: number;
 }
 
@@ -410,6 +412,9 @@ export const captureAudioSurveyStimulusPair = async (
     baselinePcmDataByAlgorithm,
     baselinePcmSampleRateHz: input.pcmSampleRateHz,
     referenceStartedAtMs,
+    ...(input.audioSignalLabel
+      ? { audioSignalLabel: input.audioSignalLabel }
+      : {}),
     iqStartedAtMs: alignedStartMs,
     iqEndedAtMs: alignedEndMs,
   };

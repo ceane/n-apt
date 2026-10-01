@@ -100,6 +100,7 @@ describe("stimulus reference I/Q capture", () => {
         bandwidthHz: 25_000,
         channelId: "a",
         baselineAlgorithm: "am",
+        audioSignalLabel: "coherent",
         storageCapBytes: 1_000_000,
       },
       {
@@ -118,6 +119,7 @@ describe("stimulus reference I/Q capture", () => {
       iqSampleRateHz: number;
       pcmData: Float32Array;
       referenceStartedAtMs: number;
+      audioSignalLabel: string;
     };
     expect(payload.aligned).toBe(true);
     expect(payload.alignmentMethod).toBe("shared-wall-clock-frame-timestamps");
@@ -125,6 +127,7 @@ describe("stimulus reference I/Q capture", () => {
     expect(payload.pcmData.length).toBe(referencePcm.length);
     expect(payload.iqData.length).toBeGreaterThan(0);
     expect(payload.referenceStartedAtMs).toBe(1_000);
+    expect(payload.audioSignalLabel).toBe("coherent");
   });
 
   it("does not save a pair when less than 80 percent of the stimulus is covered", async () => {
@@ -272,6 +275,7 @@ describe("stimulus reference I/Q capture", () => {
           .baselinePcmDataByAlgorithm,
       ),
     ).toEqual(["am"]);
+    expect(artifact?.payload).not.toHaveProperty("audioSignalLabel");
   });
 
   it("checks the local storage budget before tuning or collecting a long reference", async () => {

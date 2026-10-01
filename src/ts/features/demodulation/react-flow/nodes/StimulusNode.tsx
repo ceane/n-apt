@@ -35,6 +35,7 @@ import {
   evaluateStimulusChannelAccess,
   getRequiredStimulusChannelLabels,
 } from "./stimulusChannelPolicy";
+import type { AudioSurveyReferenceLabel } from "@n-apt/demodulation/survey/audioSurveyModel";
 
 const durationSchema = z.number().min(5).max(60);
 
@@ -674,6 +675,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     useState<AudioWaveformMode>("traditional");
   const [tonePlayback, setTonePlayback] = useState<TonePlayback | null>(null);
   const [pairToneToRf, setPairToneToRf] = useState(false);
+  const [audioSignalLabel, setAudioSignalLabel] = useState<
+    AudioSurveyReferenceLabel | ""
+  >("");
   const [selectedReferenceMedia, setSelectedReferenceMedia] =
     useState<SelectedReferenceMedia | null>(null);
   const [referenceMediaStatus, setReferenceMediaStatus] = useState(
@@ -685,10 +689,14 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const selectedReferenceMediaRef = useRef<SelectedReferenceMedia | null>(null);
   const mediaPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const pairToneToRfRef = useRef(pairToneToRf);
+  const audioSignalLabelRef = useRef<AudioSurveyReferenceLabel | "">(
+    audioSignalLabel,
+  );
   const recordAudioSurveyReferenceRef = useRef(
     recordAudioSurveyStimulusReference,
   );
   pairToneToRfRef.current = pairToneToRf;
+  audioSignalLabelRef.current = audioSignalLabel;
   recordAudioSurveyReferenceRef.current = recordAudioSurveyStimulusReference;
   selectedReferenceMediaRef.current = selectedReferenceMedia;
   const fmFrameIndexRef = useRef(0);
@@ -843,6 +851,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         captureId: captureJobIdRef.current ?? `stimulus_${requestedAtMs}`,
         pcmData: createAudioToneReferencePcm(durationS, 48_000),
         pcmSampleRateHz: 48_000,
+        ...(audioSignalLabelRef.current
+          ? { audioSignalLabel: audioSignalLabelRef.current }
+          : {}),
         startPlayback: () => scheduleTone(0.1),
       });
     } else {
@@ -937,6 +948,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         captureId: `media_${Date.now()}`,
         pcmData: media.pcmData,
         pcmSampleRateHz: AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
+        ...(audioSignalLabelRef.current
+          ? { audioSignalLabel: audioSignalLabelRef.current }
+          : {}),
         startPlayback: () => {
           const audioContext = media.audioContext;
           const contextNow = audioContext.currentTime;
@@ -1227,6 +1241,29 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             >
               <option value="traditional">Traditional Audio Waveform</option>
               <option value="fm-waterfall">FM Sliding-Window Waterfall</option>
+            </StimulusSelect>
+          </AudioWaveformControl>
+        )}
+
+        {previewMode === "audio" && (
+          <AudioWaveformControl>
+            <SelectLabel htmlFor="audio-signal-label">
+              Audio Signal Label
+            </SelectLabel>
+            <StimulusSelect
+              id="audio-signal-label"
+              aria-label="Audio signal label"
+              value={audioSignalLabel}
+              onChange={(event) =>
+                setAudioSignalLabel(
+                  event.target.value as AudioSurveyReferenceLabel | "",
+                )
+              }
+              disabled={isBusy || isCapturingReferenceMedia}
+            >
+              <option value="">Unlabeled</option>
+              <option value="coherent">Coherent</option>
+              <option value="static">Static</option>
             </StimulusSelect>
           </AudioWaveformControl>
         )}

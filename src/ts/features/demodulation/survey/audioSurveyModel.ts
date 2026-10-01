@@ -6,6 +6,7 @@ export const AUDIO_SURVEY_CLIP_DURATION_MS = 5_000;
 
 export type AudioSurveySourceMode = "live" | "replay" | "combined";
 export type AudioSurveyDecoderStrategy = "am" | "fm" | "apt-style" | "neural";
+export type AudioSurveyReferenceLabel = "coherent" | "static";
 export type AudioSurveyJobStatus =
   | "ready"
   | "running"

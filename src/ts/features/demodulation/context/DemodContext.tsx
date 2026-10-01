@@ -29,6 +29,7 @@ import {
   DEFAULT_AUDIO_SURVEY_CONFIG,
   AUDIO_SURVEY_SAMPLE_RATE_HZ,
   type CandidateRecord,
+  type AudioSurveyReferenceLabel,
   type AudioSurveyDecoderStrategy,
   type AudioSurveySourceMode,
   type SurveyChannelRange,
@@ -287,6 +288,7 @@ interface DemodContextValue {
     pcmSampleRateHz: number;
     startedAtMs?: number;
     startPlayback?: () => Promise<number> | number;
+    audioSignalLabel?: AudioSurveyReferenceLabel;
   }) => Promise<AudioSurveyArtifact | null>;
 
   startScan: () => Promise<void>;
@@ -1158,6 +1160,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       pcmSampleRateHz: number;
       startedAtMs?: number;
       startPlayback?: () => Promise<number> | number;
+      audioSignalLabel?: AudioSurveyReferenceLabel;
     }) => {
       const resumeRunner =
         audioSurveyJob?.status === "running"
