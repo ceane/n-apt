@@ -6,7 +6,6 @@ import React, {
   useRef,
 } from "react";
 import styled from "styled-components";
-import { Radio, Waves } from "lucide-react";
 import { z } from "zod";
 import { useAppSelector } from "@n-apt/redux";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
@@ -80,7 +79,7 @@ const AudioContainer = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  padding: 22px 24px;
+  padding: 8px 16px;
   text-align: center;
   width: 100%;
 `;
@@ -228,9 +227,9 @@ const StatusText = styled.div`
 
 const ReferenceMediaControls = styled.div`
   display: grid;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  margin-top: 12px;
+  min-width: 0;
   text-align: left;
 `;
 
@@ -244,6 +243,43 @@ const ReferenceMediaInput = styled.input`
   width: 100%;
   color: ${({ theme }) => theme.colors.textMuted};
   font-size: 11px;
+  font-family: ${({ theme }) => theme.typography.sans};
+`;
+
+const CaptureLabelControl = styled.div`
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+`;
+
+const CaptureLabelPills = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+`;
+
+const CaptureLabelPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  font-family: ${({ theme }) => theme.typography.sans};
+  overflow-wrap: anywhere;
+`;
+
+const CaptureLabelRemove = styled.button`
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 `;
 
 interface SelectedReferenceMedia {
@@ -389,240 +425,157 @@ const StimulusContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(100%, 760px);
-  min-width: 560px;
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
   box-sizing: border-box;
 `;
 
 const StimulusContent = styled.div`
-  border: 1px solid ${({ theme }) => theme.colors.borderHover};
-  background: ${({ theme }) => theme.colors.surface};
-  border-radius: 16px;
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.1);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
+  background: var(--color-surface, transparent);
+  color: var(--text-secondary, #aaa);
+  font-family: monospace;
+  font-size: 11px;
+  overflow: hidden;
 `;
 
 const StimulusPreview = styled.div`
-  min-height: 250px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 13px;
-  background:
-    linear-gradient(rgba(0, 212, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 212, 255, 0.035) 1px, transparent 1px),
-    radial-gradient(ellipse at 50% 40%, rgba(0, 212, 255, 0.07), transparent 66%),
-    ${({ theme }) => theme.colors.background};
-  background-size: 28px 28px, 28px 28px, auto, auto;
+  width: 100%;
+  min-height: 210px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 `;
 
 const StimulusSelect = styled.select`
   width: 100%;
-  min-height: 44px;
-  padding: 10px 13px;
-  border-radius: 9px;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 4px 8px;
   border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.background};
-  color: ${({ theme }) => theme.colors.primary};
-  font-family: ${({ theme }) => theme.typography.mono};
-
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease;
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.sans};
+  font-size: 11px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 
   &:focus-visible {
-    outline: 2px solid ${({ theme }) => theme.colors.primary}55;
-    outline-offset: 1px;
-    border-color: ${({ theme }) => theme.colors.primary};
-    box-shadow: 0 0 0 3px ${({ theme }) => theme.colors.primary}18;
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.borderHover};
   }
 
   option {
-    background: ${({ theme }) => theme.colors.background};
-    color: ${({ theme }) => theme.colors.primary};
+    background: ${({ theme }) => theme.colors.surface};
+    color: ${({ theme }) => theme.colors.textPrimary};
   }
 `;
 
-const StimulusButton = styled.button<{ $disabled: boolean }>`
-  min-height: 44px;
-  padding: 10px 16px;
-  border-radius: 9px;
-  border: 1px solid ${({ theme }) => theme.colors.primary};
-  background: ${({ theme, $disabled }) =>
-    $disabled ? theme.colors.surface : theme.colors.primary};
-  color: ${({ theme, $disabled }) =>
-    $disabled ? theme.colors.textDisabled : theme.colors.background};
-  font-weight: 700;
-  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
-  font-family: ${({ theme }) => theme.typography.mono};
-  letter-spacing: 0.025em;
-  transition:
-    transform 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
-
-  &:hover:not(:disabled) {
-    filter: brightness(1.08);
-    box-shadow: 0 5px 14px rgba(0, 212, 255, 0.18);
-    transform: translateY(-1px);
-  }
-
-  &:focus-visible {
-    outline: 2px solid ${({ theme }) => theme.colors.primary};
-    outline-offset: 2px;
-  }
+const StimulusButton = styled.button`
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
 `;
 
 const StimulusLabel = styled.label`
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  color: ${({ theme }) => theme.colors.textSecondary};
+  gap: 5px;
+  min-width: 0;
+  font-size: inherit;
+  color: inherit;
   user-select: none;
-  padding: 9px 11px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 9px;
-  background: ${({ theme }) => theme.colors.background};
-`;
-
-const ReferencePairToggle = styled.label`
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin-top: 12px;
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-size: 10px;
-  line-height: 1.4;
-  text-align: left;
-  padding: 10px 12px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 9px;
-  background: ${({ theme }) => theme.colors.background};
+  overflow-wrap: anywhere;
 `;
 
 const StimulusSubtext = styled.div`
-  font-size: 10px;
-  line-height: 1.5;
-  opacity: 0.75;
+  font-size: inherit;
+  line-height: 1.45;
+  opacity: 0.8;
   text-align: left;
-  padding: 0 2px;
+  padding: 0;
   word-wrap: break-word;
 `;
 
 const ResetButton = styled.button`
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.background};
-  color: ${({ theme }) => theme.colors.textPrimary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  cursor: pointer;
-
-  &:hover {
-    background: ${({ theme }) => theme.colors.activeBackground};
-  }
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
 `;
 
 const BaselineVectorContainer = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 82px auto;
-  gap: 12px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  min-width: 0;
+  border-top: 1px solid var(--color-border, rgba(128, 128, 128, 0.25));
+  padding-top: 8px;
+`;
+
+const BaselineActionRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+  min-width: 0;
 
   & > div {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     min-width: 0;
-    flex-direction: column;
-    align-items: stretch;
   }
 `;
 
 const SelectLabel = styled.label`
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: ${({ theme }) => theme.colors.textSecondary};
-  opacity: 0.85;
-  margin-bottom: 7px;
-  font-weight: 650;
+  display: block;
+  font-size: inherit;
+  color: inherit;
+  margin-bottom: 4px;
 `;
 
 const AudioWaveformControl = styled.div`
   width: 100%;
 `;
 
-const TitleText = styled.div`
-  font-size: 16px;
-  font-weight: 750;
-  margin-top: 2px;
-  color: ${(props) => props.theme.colors.primary};
-  letter-spacing: 0.01em;
-`;
-
-const StimulusHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 2px 2px 5px;
-`;
-
-const StimulusMark = styled.div`
-  display: grid;
-  width: 40px;
-  height: 40px;
-  place-items: center;
-  color: ${({ theme }) => theme.colors.primary};
-  border: 1px solid ${({ theme }) => theme.colors.primary}44;
-  border-radius: 12px;
-  background: ${({ theme }) => theme.colors.primary}12;
-`;
-
-const StimulusEyebrow = styled.div`
-  color: ${({ theme }) => theme.colors.textSecondary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-`;
-
-const StimulusBandBadge = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  padding: 7px 10px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 999px;
-  color: ${({ theme }) => theme.colors.textSecondary};
-  background: ${({ theme }) => theme.colors.surface};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-`;
-
 const StimulusInput = styled.input`
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 4px 8px;
   border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.background};
-  color: ${({ theme }) => theme.colors.primary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 12px;
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.sans};
+  font-size: 11px;
+  overflow-wrap: anywhere;
 
-  &:focus {
+  &:focus-visible {
     outline: none;
-    border-color: ${({ theme }) => theme.colors.primary};
+    border-color: ${({ theme }) => theme.colors.borderHover};
   }
 
   &[aria-invalid="true"] {
@@ -674,10 +627,11 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [audioWaveformMode, setAudioWaveformMode] =
     useState<AudioWaveformMode>("traditional");
   const [tonePlayback, setTonePlayback] = useState<TonePlayback | null>(null);
-  const [pairToneToRf, setPairToneToRf] = useState(false);
   const [audioSignalLabel, setAudioSignalLabel] = useState<
     AudioSurveyReferenceLabel | ""
   >("");
+  const [captureLabelDraft, setCaptureLabelDraft] = useState("");
+  const [captureLabels, setCaptureLabels] = useState<string[]>([]);
   const [selectedReferenceMedia, setSelectedReferenceMedia] =
     useState<SelectedReferenceMedia | null>(null);
   const [referenceMediaStatus, setReferenceMediaStatus] = useState(
@@ -688,15 +642,15 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const captureJobIdRef = useRef<string | null>(null);
   const selectedReferenceMediaRef = useRef<SelectedReferenceMedia | null>(null);
   const mediaPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const pairToneToRfRef = useRef(pairToneToRf);
   const audioSignalLabelRef = useRef<AudioSurveyReferenceLabel | "">(
     audioSignalLabel,
   );
+  const captureLabelsRef = useRef(captureLabels);
   const recordAudioSurveyReferenceRef = useRef(
     recordAudioSurveyStimulusReference,
   );
-  pairToneToRfRef.current = pairToneToRf;
   audioSignalLabelRef.current = audioSignalLabel;
+  captureLabelsRef.current = captureLabels;
   recordAudioSurveyReferenceRef.current = recordAudioSurveyStimulusReference;
   selectedReferenceMediaRef.current = selectedReferenceMedia;
   const fmFrameIndexRef = useRef(0);
@@ -790,6 +744,19 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     }
   };
 
+  const addCaptureLabel = (raw: string) => {
+    const label = raw.trim().replace(/\s+/g, " ");
+    if (!label || label.length > 80) return;
+    setCaptureLabels((current) =>
+      current.includes(label) ? current : [...current, label],
+    );
+    setCaptureLabelDraft("");
+  };
+
+  const removeCaptureLabel = (label: string) => {
+    setCaptureLabels((current) => current.filter((item) => item !== label));
+  };
+
   // Capture progress bar logic
   useEffect(() => {
     if (isCapturing) {
@@ -845,7 +812,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       return wallClockNow + delaySeconds * 1_000;
     };
 
-    if (previewMode === "audio" && pairToneToRfRef.current) {
+    if (previewMode === "audio") {
       const requestedAtMs = Date.now();
       void recordAudioSurveyReferenceRef.current({
         captureId: captureJobIdRef.current ?? `stimulus_${requestedAtMs}`,
@@ -853,6 +820,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         pcmSampleRateHz: 48_000,
         ...(audioSignalLabelRef.current
           ? { audioSignalLabel: audioSignalLabelRef.current }
+          : {}),
+        ...(captureLabelsRef.current.length > 0
+          ? { labels: captureLabelsRef.current }
           : {}),
         startPlayback: () => scheduleTone(0.1),
       });
@@ -951,6 +921,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         ...(audioSignalLabelRef.current
           ? { audioSignalLabel: audioSignalLabelRef.current }
           : {}),
+        ...(captureLabelsRef.current.length > 0
+          ? { labels: captureLabelsRef.current }
+          : {}),
         startPlayback: () => {
           const audioContext = media.audioContext;
           const contextNow = audioContext.currentTime;
@@ -1019,152 +992,125 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
   return (
     <StimulusContainer>
-      <StimulusHeader>
-        <StimulusMark>
-          <Waves size={19} />
-        </StimulusMark>
-        <div>
-          <StimulusEyebrow>Reference capture</StimulusEyebrow>
-          <TitleText>{data.label}</TitleText>
-        </div>
-        <StimulusBandBadge>
-          <Radio size={12} />
-          RF {getRequiredStimulusChannelLabels(previewMode).join(" / ")}
-        </StimulusBandBadge>
-      </StimulusHeader>
+      <StimulusPreview role="region" aria-label="Stimulus playback preview">
+        {previewMode === "audio" && audioWaveformMode === "traditional" && (
+          <AudioContainer>
+            <TraditionalWaveformContainer>
+              <TraditionalAudioWaveform
+                isCapturing={isCapturing}
+                tonePlayback={tonePlayback}
+              />
+            </TraditionalWaveformContainer>
+            <ToneLabel>TRADITIONAL AUDIO WAVEFORM</ToneLabel>
+            <ToneLabel>440Hz SINE TONE</ToneLabel>
+          </AudioContainer>
+        )}
 
-      <StimulusContent>
-        <StimulusPreview>
-          {previewMode === "audio" && audioWaveformMode === "traditional" && (
-            <AudioContainer>
-              <TraditionalWaveformContainer>
-                <TraditionalAudioWaveform
-                  isCapturing={isCapturing}
-                  tonePlayback={tonePlayback}
-                />
-              </TraditionalWaveformContainer>
-              <ToneLabel>TRADITIONAL AUDIO WAVEFORM</ToneLabel>
-              <ToneLabel>440Hz SINE TONE</ToneLabel>
-              <ReferencePairToggle>
-                <input
-                  type="checkbox"
-                  aria-label="Pair stimulus tone with captured RF audio"
-                  checked={pairToneToRf}
-                  onChange={(event) => setPairToneToRf(event.target.checked)}
-                  disabled={isBusy || !stimulusChannelCompatible}
-                />
-                The captured Channel A/B audio is carrying this stimulus. Save a
-                timestamp-aligned training pair.
-              </ReferencePairToggle>
-              <ReferenceMediaControls>
-                <SelectLabel htmlFor="reference-media-file">
-                  Local Reference Media
-                </SelectLabel>
-                <ReferenceMediaInput
-                  id="reference-media-file"
-                  aria-label="Reference media file"
-                  type="file"
-                  accept="audio/*,video/*"
-                  onChange={handleReferenceMediaSelection}
-                  disabled={isCapturingReferenceMedia}
-                />
-                <ReferenceMediaStatus aria-live="polite">
-                  {referenceMediaStatus}
-                </ReferenceMediaStatus>
-                <StimulusButton
-                  onClick={() => void captureSelectedReferenceMedia()}
-                  disabled={
-                    !selectedReferenceMedia ||
-                    isCapturingReferenceMedia ||
-                    !stimulusChannelCompatible
-                  }
-                  $disabled={
-                    !selectedReferenceMedia ||
-                    isCapturingReferenceMedia ||
-                    !stimulusChannelCompatible
-                  }
-                >
-                  {isCapturingReferenceMedia
-                    ? "CAPTURING MEDIA PAIR…"
-                    : "CAPTURE MEDIA PAIR"}
-                </StimulusButton>
-              </ReferenceMediaControls>
-            </AudioContainer>
-          )}
+        {previewMode === "audio" && audioWaveformMode === "fm-waterfall" && (
+          <AudioContainer>
+            <AudioWaterfallContainer>
+              <FIFOWaterfall
+                width={480}
+                height={AUDIO_WATERFALL_HEIGHT}
+                waveform={fmWaveformFeed.getCurrent()}
+                waveformFeed={fmWaveformFeed}
+                frequencyRange={AUDIO_WATERFALL_FREQUENCY_RANGE}
+                fftMin={FFT_MIN_DB}
+                fftMax={FFT_MAX_DB}
+                retuneSmear={0}
+                isPaused={!isCapturing}
+                isVisible={true}
+                performScalarResampling={performWaterfallResampling}
+                placeholderSourceLabel="FM audio preview"
+                placeholderPaneLabel="FM audio waterfall"
+              />
+            </AudioWaterfallContainer>
+          </AudioContainer>
+        )}
 
-          {previewMode === "audio" && audioWaveformMode === "fm-waterfall" && (
-            <AudioContainer>
-              <AudioWaterfallContainer>
-                <FIFOWaterfall
-                  width={480}
-                  height={AUDIO_WATERFALL_HEIGHT}
-                  waveform={fmWaveformFeed.getCurrent()}
-                  waveformFeed={fmWaveformFeed}
-                  frequencyRange={AUDIO_WATERFALL_FREQUENCY_RANGE}
-                  fftMin={FFT_MIN_DB}
-                  fftMax={FFT_MAX_DB}
-                  retuneSmear={0}
-                  isPaused={!isCapturing}
-                  isVisible={true}
-                  performScalarResampling={performWaterfallResampling}
-                  placeholderSourceLabel="FM audio preview"
-                  placeholderPaneLabel="FM audio waterfall"
-                />
-              </AudioWaterfallContainer>
-            </AudioContainer>
-          )}
+        {previewMode === "internal" && (
+          <InternalContainer>
+            <SignalAnalysisLabel>Signal Analysis</SignalAnalysisLabel>
+            <ScriptText>
+              {isCapturing
+                ? SCRIPT_VARIANTS[scriptIndex]
+                : "Ready for analysis"}
+            </ScriptText>
+            <StatusText>{isCapturing ? "Processing..." : "Ready"}</StatusText>
+          </InternalContainer>
+        )}
 
-          {previewMode === "internal" && (
-            <InternalContainer>
-              <SignalAnalysisLabel>Signal Analysis</SignalAnalysisLabel>
-              <ScriptText>
-                {isCapturing
-                  ? SCRIPT_VARIANTS[scriptIndex]
-                  : "Ready for analysis"}
-              </ScriptText>
-              <StatusText>{isCapturing ? "Processing..." : "Ready"}</StatusText>
-            </InternalContainer>
-          )}
+        {previewMode === "speech" && (
+          <SpeechContainer>
+            <VocalCaptureLabel>VOCAL CAPTURE INTERFACE</VocalCaptureLabel>
+            <ScriptText style={{ color: "#00ff88" }}>
+              {isCapturing
+                ? SCRIPT_VARIANTS[scriptIndex]
+                : "Ready for vocal input"}
+            </ScriptText>
+            <SpeechBarsContainer>
+              {[...Array(20)].map((_, i) => {
+                return (
+                  <SpeechBar
+                    key={i}
+                    $isCapturing={isCapturing}
+                    style={{ animationDelay: `${i * 0.05}s` }}
+                  />
+                );
+              })}
+            </SpeechBarsContainer>
+          </SpeechContainer>
+        )}
 
-          {previewMode === "speech" && (
-            <SpeechContainer>
-              <VocalCaptureLabel>VOCAL CAPTURE INTERFACE</VocalCaptureLabel>
-              <ScriptText style={{ color: "#00ff88" }}>
-                {isCapturing
-                  ? SCRIPT_VARIANTS[scriptIndex]
-                  : "Ready for vocal input"}
-              </ScriptText>
-              <SpeechBarsContainer>
-                {[...Array(20)].map((_, i) => {
-                  return (
-                    <SpeechBar
-                      key={i}
-                      $isCapturing={isCapturing}
-                      style={{ animationDelay: `${i * 0.05}s` }}
-                    />
-                  );
-                })}
-              </SpeechBarsContainer>
-            </SpeechContainer>
-          )}
+        {previewMode === "vision" && (
+          <VisionContainer $isCapturing={isCapturing}>
+            <RecIndicator $isCapturing={isCapturing}>REC</RecIndicator>
+          </VisionContainer>
+        )}
 
-          {previewMode === "vision" && (
-            <VisionContainer $isCapturing={isCapturing}>
-              <RecIndicator $isCapturing={isCapturing}>REC</RecIndicator>
-            </VisionContainer>
-          )}
+        {progress > 0 && (
+          <CountdownContainer>
+            <ProgressBar $progress={progress}>
+              <ProgressFill $progress={progress} />
+            </ProgressBar>
+            <ProgressLabel>
+              {progress < 100 ? "Capturing..." : "Complete!"}
+            </ProgressLabel>
+          </CountdownContainer>
+        )}
+      </StimulusPreview>
 
-          {progress > 0 && (
-            <CountdownContainer>
-              <ProgressBar $progress={progress}>
-                <ProgressFill $progress={progress} />
-              </ProgressBar>
-              <ProgressLabel>
-                {progress < 100 ? "Capturing..." : "Complete!"}
-              </ProgressLabel>
-            </CountdownContainer>
-          )}
-        </StimulusPreview>
+      <StimulusContent role="region" aria-label="Stimulus controls">
+        {previewMode === "audio" && (
+          <ReferenceMediaControls>
+            <SelectLabel htmlFor="reference-media-file">
+              Local Reference Media
+            </SelectLabel>
+            <ReferenceMediaInput
+              id="reference-media-file"
+              aria-label="Reference media file"
+              type="file"
+              accept="audio/*,video/*"
+              onChange={handleReferenceMediaSelection}
+              disabled={isCapturingReferenceMedia}
+            />
+            <ReferenceMediaStatus aria-live="polite">
+              {referenceMediaStatus}
+            </ReferenceMediaStatus>
+            <StimulusButton
+              onClick={() => void captureSelectedReferenceMedia()}
+              disabled={
+                !selectedReferenceMedia ||
+                isCapturingReferenceMedia ||
+                !stimulusChannelCompatible
+              }
+            >
+              {isCapturingReferenceMedia
+                ? "CAPTURING MEDIA PAIR…"
+                : "CAPTURE MEDIA PAIR"}
+            </StimulusButton>
+          </ReferenceMediaControls>
+        )}
 
         <BaselineVectorContainer>
           <div>
@@ -1198,31 +1144,32 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               })}
             </StimulusSelect>
           </div>
-          <div>
-            <SelectLabel
-              style={{ color: durationError ? "#ff4d4d" : undefined }}
+          <BaselineActionRow>
+            <div>
+              <SelectLabel
+                style={{ color: durationError ? "#ff4d4d" : undefined }}
+              >
+                Dur (s)
+              </SelectLabel>
+              <StimulusInput
+                type="number"
+                value={durationS || ""}
+                onChange={handleDurationChange}
+                disabled={isBusy}
+                min={5}
+                max={60}
+                aria-invalid={durationError !== null}
+              />
+            </div>
+            <StimulusButton
+              onClick={handleTrigger}
+              disabled={
+                isBusy || durationError !== null || !stimulusChannelCompatible
+              }
             >
-              Dur (s)
-            </SelectLabel>
-            <StimulusInput
-              type="number"
-              value={durationS || ""}
-              onChange={handleDurationChange}
-              disabled={isBusy}
-              min={5}
-              max={60}
-              aria-invalid={durationError !== null}
-              style={{ padding: "9px 8px" }}
-            />
-          </div>
-          <StimulusButton
-            onClick={handleTrigger}
-            disabled={isBusy || durationError !== null || !stimulusChannelCompatible}
-            $disabled={isBusy || durationError !== null || !stimulusChannelCompatible}
-            style={{ alignSelf: "end" }}
-          >
-            TRIGGER
-          </StimulusButton>
+              TRIGGER
+            </StimulusButton>
+          </BaselineActionRow>
         </BaselineVectorContainer>
 
         {previewMode === "audio" && (
@@ -1243,6 +1190,45 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               <option value="fm-waterfall">FM Sliding-Window Waterfall</option>
             </StimulusSelect>
           </AudioWaveformControl>
+        )}
+
+        {previewMode === "audio" && (
+          <CaptureLabelControl>
+            <SelectLabel htmlFor="stimulus-capture-label">
+              Capture Labels
+            </SelectLabel>
+            <StimulusInput
+              id="stimulus-capture-label"
+              type="text"
+              aria-label="Add capture label"
+              placeholder="Type a label and press Enter"
+              maxLength={80}
+              value={captureLabelDraft}
+              onChange={(event) => setCaptureLabelDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addCaptureLabel(captureLabelDraft);
+                }
+              }}
+            />
+            {captureLabels.length > 0 && (
+              <CaptureLabelPills aria-label="Capture labels">
+                {captureLabels.map((label) => (
+                  <CaptureLabelPill key={label}>
+                    {label}
+                    <CaptureLabelRemove
+                      type="button"
+                      aria-label={`Remove label ${label}`}
+                      onClick={() => removeCaptureLabel(label)}
+                    >
+                      ×
+                    </CaptureLabelRemove>
+                  </CaptureLabelPill>
+                ))}
+              </CaptureLabelPills>
+            )}
+          </CaptureLabelControl>
         )}
 
         {previewMode === "audio" && (

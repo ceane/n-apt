@@ -27,6 +27,7 @@ export interface AudioSurveyStimulusReference {
   channelId: string;
   baselineAlgorithm: "am" | "fm" | "apt";
   audioSignalLabel?: AudioSurveyReferenceLabel;
+  labels?: string[];
   storageCapBytes: number;
 }
 
@@ -415,6 +416,7 @@ export const captureAudioSurveyStimulusPair = async (
     ...(input.audioSignalLabel
       ? { audioSignalLabel: input.audioSignalLabel }
       : {}),
+    ...(input.labels?.length ? { labels: [...input.labels] } : {}),
     iqStartedAtMs: alignedStartMs,
     iqEndedAtMs: alignedEndMs,
   };

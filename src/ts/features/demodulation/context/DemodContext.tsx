@@ -289,6 +289,7 @@ interface DemodContextValue {
     startedAtMs?: number;
     startPlayback?: () => Promise<number> | number;
     audioSignalLabel?: AudioSurveyReferenceLabel;
+    labels?: string[];
   }) => Promise<AudioSurveyArtifact | null>;
 
   startScan: () => Promise<void>;
@@ -1161,6 +1162,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       startedAtMs?: number;
       startPlayback?: () => Promise<number> | number;
       audioSignalLabel?: AudioSurveyReferenceLabel;
+      labels?: string[];
     }) => {
       const resumeRunner =
         audioSurveyJob?.status === "running"
