@@ -25,6 +25,13 @@ test('dataset requires labels and keeps sessions in exactly one split', () => {
   assert.throws(() => validateDataset({ recordings: [{ ...row, sampleRateHz: undefined }] }));
 });
 
+test('dataset accepts mock and sinc challenge splits while preserving session isolation', () => {
+  const row = { id: 'mock-one', session: 'mock-session', split: 'challenge-mock', label: 'nonmatching', input: '/tmp/mock.iq', format: 'u8', sampleRateHz: 3200000, centerFrequencyHz: 10000000 };
+  const sinc = { ...row, id: 'sinc-one', session: 'sinc-session', split: 'challenge-sinc', input: '/tmp/sinc.iq' };
+  assert.deepEqual(validateDataset({ recordings: [row, sinc] }).recordings.map(({ split }) => split), ['challenge-mock', 'challenge-sinc']);
+  assert.throws(() => validateDataset({ recordings: [row, { ...row, id: 'leaked', split: 'train' }] }), /Session leakage/);
+});
+
 test('browser training exports validate and preserve each complete raw IQ frame independently', () => {
   const capture = {
     format: 'n-apt-native-iq-frames-v1',

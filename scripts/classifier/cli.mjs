@@ -53,7 +53,7 @@ async function writePreparedIq(iq, directory) {
   const raw=Buffer.alloc(iq.length*4); for(let i=0;i<iq.length;i++) raw.writeFloatLE(iq[i],4*i);
   const input=path.join(directory,'raw.iq.f32le'); await writeFile(input,raw); return input;
 }
-const PACKAGE_SPLITS = new Set(['train', 'validation', 'test', 'acceptance', 'unlabeled']);
+const PACKAGE_SPLITS = new Set(['train', 'validation', 'test', 'acceptance', 'unlabeled', 'challenge-mock', 'challenge-sinc']);
 
 function packageWindow(value) {
   const key = String(value ?? '').trim().toLowerCase().replaceAll('_', '-');
@@ -209,7 +209,7 @@ function bytesForInterval(run, startByte, endByte) {
 
 async function preparePackage(a) {
   if (!a.split || !PACKAGE_SPLITS.has(a.split)) {
-    throw new Error('prepare --package requires --split train|validation|test|acceptance|unlabeled');
+    throw new Error('prepare --package requires --split train|validation|test|acceptance|unlabeled|challenge-mock|challenge-sinc');
   }
   const { readCapturePackage, decodeV6IqContainer } = await import('./package.mjs');
   const capture = await readCapturePackage(a.package);
@@ -554,7 +554,7 @@ async function classify(a) {
     const classified=rows.filter(r=>r.decision!==null); console.log(JSON.stringify({rows:rows.length,insufficientEvidence:rows.length-classified.length,modelId:model.id,output:a.out??path.join(base,'classifications.json')},null,2));
   } finally { await rm(copy,{force:true});await rm(temp,{force:true}); }
 }
-function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package-directory-or-zip --split train [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test --model model.json --report report.json\n`);}
+function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package-directory-or-zip --split train|validation|test|acceptance|unlabeled|challenge-mock|challenge-sinc [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test|challenge-mock|challenge-sinc --model model.json --report report.json\n`);}
 async function packageCapture(a){const {createCapturePackage}=await import('./package.mjs');const result=await createCapturePackage({capturePath:a.capture,labelsPath:a.labels,outputPath:a.out,capturedAt:a.captured_at});console.log(JSON.stringify(result,null,2));}
 async function main(){const a=args(process.argv.slice(2)); if(a.command==='prepare')return prepare(a); if(a.command==='extract')return extract(a); if(a.command==='classify')return classify(a); if(a.command==='package')return packageCapture(a); if(a.command==='help'||!a.command)return help();throw new Error(`Unknown command: ${a.command}`);}
 main().catch(error=>{console.error(`classifier: ${error.message}`);process.exitCode=2;});

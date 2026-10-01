@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -35,6 +36,63 @@ class TrainingTests(unittest.TestCase):
             {'split':'test', 'label':'matching', 'status':'ready'},
         ]
         self.assertEqual(training.usable(rows, 'train'), [rows[0]])
+
+    def test_challenge_rows_do_not_enter_fit_or_validation_threshold_selection(self):
+        base_rows = [
+            self._feature_row('train-positive', 'matching', 'ready', 0.1, 'train-positive', 'train'),
+            self._feature_row('train-negative', 'nonmatching', 'ready', 0.9, 'train-negative', 'train'),
+            self._feature_row('valid-positive', 'matching', 'ready', 0.2, 'valid-positive', 'validation'),
+            self._feature_row('valid-negative', 'nonmatching', 'ready', 0.8, 'valid-negative', 'validation'),
+        ]
+        challenge_rows = [
+            self._feature_row('mock-challenge', 'nonmatching', 'ready', 1.0, 'mock-session', 'challenge-mock'),
+            self._feature_row('sinc-challenge', 'nonmatching', 'ready', 1.0, 'sinc-session', 'challenge-sinc'),
+        ]
+        for row in challenge_rows:
+            row['features'][-1] = 1000.0
+        self.assertTrue(training.check_splits(base_rows + challenge_rows))
+        self.assertEqual(training.usable(base_rows + challenge_rows, 'train'), base_rows[:2])
+        self.assertEqual(training.usable(base_rows + challenge_rows, 'validation'), base_rows[2:])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            models = []
+            reports = []
+            for suffix, rows in [('base', base_rows), ('with-challenges', base_rows + challenge_rows)]:
+                feature_path = root / f'{suffix}.jsonl'
+                model_path = root / f'{suffix}.json'
+                report_path = root / f'{suffix}-report.json'
+                feature_path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+                training.train_command(SimpleNamespace(features=feature_path, model=model_path, report=report_path,
+                                                       device='numpy', mlp_epochs=3, mlp_patience=2,
+                                                       logistic_max_iter=100))
+                models.append(json.loads(model_path.read_text()))
+                reports.append(json.loads(report_path.read_text()))
+            for key in ('kind', 'threshold', 'weights', 'bias'):
+                self.assertEqual(models[0][key], models[1][key])
+            self.assertEqual(reports[1]['trainingRows'], len(base_rows[:2]))
+            self.assertEqual(reports[1]['validationRows'], len(base_rows[2:]))
+            self.assertEqual(reports[1]['runManifest']['splitManifest']['challenge-mock']['rows'], 1)
+            self.assertEqual(reports[1]['runManifest']['splitManifest']['challenge-sinc']['rows'], 1)
+
+    def test_evaluate_cli_accepts_a_separate_mock_challenge_split(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            feature_path = root / 'challenge.jsonl'
+            report_path = root / 'report.json'
+            row = self._feature_row('mock-challenge', 'nonmatching', 'ready', 0.9,
+                                    'mock-session', 'challenge-mock')
+            feature_path.write_text(json.dumps(row) + '\n')
+            result = subprocess.run([
+                sys.executable, str(Path(__file__).parents[2] / 'scripts/classifier/train.py'),
+                'evaluate', '--features', str(feature_path), '--split', 'challenge-mock',
+                '--threshold', '0.5', '--report', str(report_path),
+            ], cwd=Path(__file__).parents[2], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(report_path.read_text())
+            self.assertEqual(report['split'], 'challenge-mock')
+            self.assertEqual(report['overall']['fp'], 1)
+            self.assertIsNone(report['overall']['balancedAccuracy'])
 
     def test_weights_balance_classes_sessions_recordings_and_feature_variants(self):
         def row(label, session, recording, frame, fft):

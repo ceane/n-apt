@@ -62,6 +62,8 @@ async function iqBytes(samples = [128, 130, 127, 126]) {
     metadata: {
       center_frequency_hz: 137500000,
       capture_sample_rate_hz: 3200000,
+      fft_size: 4096,
+      fft_window: "hann",
     },
     frameUpdates: updates,
     chunks: [{ sample_offset: 0, channel: 0, data: Uint8Array.from(samples) }],
@@ -101,7 +103,7 @@ async function runPackage(
   return { result, capturePath, labelsPath, outputPath };
 }
 
-function runPreparePackage(packagePath, outputPath, extraArgs = []) {
+function runPreparePackage(packagePath, outputPath, extraArgs = [], split = "train") {
   return spawnSync(
     process.execPath,
     [
@@ -112,7 +114,7 @@ function runPreparePackage(packagePath, outputPath, extraArgs = []) {
       "--package",
       packagePath,
       "--split",
-      "train",
+      split,
       "--out",
       outputPath,
       ...extraArgs,
@@ -120,6 +122,31 @@ function runPreparePackage(packagePath, outputPath, extraArgs = []) {
     { cwd: process.cwd(), encoding: "utf8" },
   );
 }
+
+test("prepares a packaged sinc challenge into its separate evaluation split", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "napt-data-package-challenge-"));
+  try {
+    const challengeLabels = {
+      ...labelDraft,
+      sessionId: "sinc-challenge-session",
+      annotations: { label: "nonmatching", channel: "unspecified", features: [], tags: ["sinc challenge"] },
+    };
+    const packed = await runPackage(root, "sinc-challenge.iq", await iqBytes(), [], "sinc-package", challengeLabels);
+    assert.equal(packed.result.status, 0, packed.result.stderr);
+
+    const preparedPath = path.join(root, "prepared-sinc");
+    const prepared = runPreparePackage(packed.outputPath, preparedPath, [], "challenge-sinc");
+    assert.equal(prepared.status, 0, prepared.stderr);
+    const dataset = JSON.parse(await readFile(path.join(preparedPath, "dataset.json"), "utf8"));
+    assert.ok(dataset.recordings.length > 0);
+    assert.ok(dataset.recordings.every((record) =>
+      record.split === "challenge-sinc" &&
+      record.label === "nonmatching" &&
+      record.session === "sinc-challenge-session"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 function runExtract(datasetPath, outputPath) {
   return spawnSync(

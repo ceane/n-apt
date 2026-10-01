@@ -147,7 +147,8 @@ export async function loadIqCaptureKey({ envFile = ".env.local", env = process.e
   const values = { ...fileValues, ...env };
   const rawPasskey = env.UNSAFE_LOCAL_USER_PASSWORD ?? env.N_APT_PASSKEY ??
     env.VITE_UNSAFE_LOCAL_USER_PASSWORD ?? fileValues.UNSAFE_LOCAL_USER_PASSWORD ??
-    fileValues.N_APT_PASSKEY ?? fileValues.VITE_UNSAFE_LOCAL_USER_PASSWORD;
+    fileValues.N_APT_PASSKEY ?? fileValues.NAPT_LEGACY_CAPTURE_PASSWORD ??
+    fileValues.VITE_UNSAFE_LOCAL_USER_PASSWORD;
   if (typeof rawPasskey !== "string" || !rawPasskey.trim()) {
     throw new Error("Set the capture passkey in the shell environment or the selected env file");
   }

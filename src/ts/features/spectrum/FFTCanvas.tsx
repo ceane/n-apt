@@ -1693,6 +1693,7 @@ const FFTCanvas = memo(
     const { sessionToken: nativeClassifierSessionToken } = useAuthentication();
     const nativeCaptureSelectedId = useAppSelector((state) => state.sourceSelection?.selectedSourceId ?? null);
     const nativeCaptureActiveId = useAppSelector((state) => state.websocket.activeSourceId);
+    const nativeClassifierCanonicalChannels = useAppSelector((state) => state.websocket.channels);
     const nativeCaptureActiveMode = useAppSelector((state) => state.websocket.activeSourceMode);
     const nativeCaptureSourceMode = useAppSelector((state) => state.waterfall.sourceMode);
     const nativeCaptureConnected = useAppSelector((state) => state.websocket.isConnected);
@@ -1953,6 +1954,9 @@ const FFTCanvas = memo(
     const nativeCaptureSourceStatusCode = NativeClassifier.nativeTrainingCaptureSourceStatusCode(nativeCaptureEligibility);
     nativeCaptureSourceStatusCodeRef.current = nativeCaptureSourceStatusCode;
     const nativeLatest = nativeCaptureLatestFrameRef.current;
+    const nativeClassifierActiveStreamId = nativeLatest
+      ? `${nativeLatest.sourceId}:${nativeLatest.streamEpoch}`
+      : null;
     const nativeLatestFrameIsStale = NativeClassifier.isNativeTrainingFrameStale(nativeLatest, Date.now());
     const nativeReadinessSettings = NativeClassifier.resolveNativeTrainingReadinessSettings(
       nativeAppliedStream?.options ?? null,
@@ -6053,6 +6057,8 @@ const FFTCanvas = memo(
                       onExportCapture={exportNativeCapture}
                       onClearCapture={clearNativeCaptureExport}
                       onAnnotationsChange={updateNativeCaptureAnnotations}
+                      canonicalChannels={nativeClassifierCanonicalChannels}
+                      activeStreamId={nativeClassifierActiveStreamId}
                       onModel={(model) => { nativeModelRef.current = model; setNativeModel(model); setNativeShadowResult(null); }}
                     />
                     {nativeShadowError && !compact && showNativeClassifier && (

@@ -126,6 +126,7 @@ function loadPassword(envFile) {
   const rawPassword = process.env.UNSAFE_LOCAL_USER_PASSWORD ??
     process.env.VITE_UNSAFE_LOCAL_USER_PASSWORD ??
     fileValues.UNSAFE_LOCAL_USER_PASSWORD ??
+    fileValues.NAPT_LEGACY_CAPTURE_PASSWORD ??
     fileValues.VITE_UNSAFE_LOCAL_USER_PASSWORD;
   if (!rawPassword) throw new Error("UNSAFE_LOCAL_USER_PASSWORD is missing; set it in .env.local or the environment");
   return resolveEnvReference(rawPassword, values).trim();

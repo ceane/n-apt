@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 const SCRIPT = join(process.cwd(), "scripts/test/manual_napt_classifier_harness.mjs");
@@ -60,6 +62,38 @@ describe("manual NAPT classifier harness", () => {
     );
 
     expect(JSON.parse(output)).toEqual([3_200_000, 2_400_000]);
+  });
+
+  test("exports decoded frames and legacy scoring for same-capture comparison", () => {
+    const captureDirectory = mkdtempSync(join(tmpdir(), "test-napt-harness-"));
+    try {
+      writeFileSync(join(captureDirectory, "manifest.json"), JSON.stringify({
+        fft_size: 4,
+        complete_frame_count: 1,
+        capture_metadata: { sample_rate_hz: 80, center_frequency_hz: 100 },
+      }));
+      writeFileSync(join(captureDirectory, "raw.iq.u8"), Buffer.from([128, 127, 128, 127, 128, 127, 128, 127]));
+
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `const { loadCapture, scoreCapture } = await import(${JSON.stringify(MODULE)}); const capture = loadCapture(${JSON.stringify(captureDirectory)}, "0"); console.log(JSON.stringify({ exports: [typeof loadCapture, typeof scoreCapture], frameIndices: capture.frames.map((frame) => frame.index), binCount: capture.frames[0].waveform.length, frequencyRange: [capture.frequencyMin, capture.frequencyMax], finiteSpectrum: capture.frames[0].waveform.every(Number.isFinite) }));`,
+        ],
+        { encoding: "utf8" },
+      );
+
+      expect(JSON.parse(output)).toEqual({
+        exports: ["function", "function"],
+        frameIndices: [0],
+        binCount: 4,
+        frequencyRange: [60, 140],
+        finiteSpectrum: true,
+      });
+    } finally {
+      rmSync(captureDirectory, { recursive: true, force: true });
+    }
   });
 
   test("can isolate one labeled capture from the regression manifest", () => {

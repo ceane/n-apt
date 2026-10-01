@@ -2,6 +2,7 @@ export * from './native/core';
 export * from './native/gpu';
 export * from './native/iq';
 export * from './native/trainingCapture';
+export * from './native/observedChannel';
 export {
   NATIVE_CLASSIFIER_DOWNLOADS_STORAGE_KEY,
   buildNativeClassifierDownloadLinks,

@@ -23,7 +23,7 @@ def check_splits(rows):
     seen = {}
     for row in rows:
         session, split = row.get('session'), row.get('split')
-        if not session or split not in ('train','validation','test','acceptance','unlabeled'):
+        if not session or split not in ('train','validation','test','acceptance','unlabeled','challenge-mock','challenge-sinc'):
             raise ValueError('Every feature row requires a session and supported split')
         if session in seen and seen[session] != split:
             raise ValueError(f'Session leakage: {session}')
@@ -837,7 +837,7 @@ def main():
     train.set_defaults(run=train_command)
     evaluate = sub.add_parser('evaluate')
     evaluate.add_argument('--features', required=True)
-    evaluate.add_argument('--split', choices=['validation','test','acceptance'], default='test')
+    evaluate.add_argument('--split', choices=['validation','test','acceptance','challenge-mock','challenge-sinc'], default='test')
     evaluate.add_argument('--model')
     evaluate.add_argument('--threshold', type=float, default=0.5)
     evaluate.add_argument('--report', required=True)

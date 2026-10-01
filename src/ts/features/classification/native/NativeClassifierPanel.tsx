@@ -4,7 +4,9 @@ import styled, { css, keyframes } from 'styled-components';
 import { validateModel, type FrameMetadata, type NativeModel } from './core';
 import type { FeatureSummary } from './core';
 import type { NativeTrainingCaptureAnnotations } from './trainingCapture';
+import { suggestNativeObservedChannel } from './observedChannel';
 import { ClassifierWorkflowFlow } from './ClassifierWorkflowFlow';
+import type { SpectrumFrame } from '@n-apt/consts/schemas/websocket';
 
 const recordingPulse = keyframes`
   0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, .42); }
@@ -31,7 +33,7 @@ const StateIndicator = styled.span<{ $recording: boolean; $ready: boolean }>`
 
 export interface NativeShadowResult {
   summary: FeatureSummary;
-  frameMetadata: Pick<FrameMetadata, 'fftSize' | 'retainedStartBin' | 'retainedEndBin' | 'timestampMs'>;
+  frameMetadata: Pick<FrameMetadata, 'sourceId' | 'centerFrequencyHz' | 'analysisSampleRateHz' | 'fftSize' | 'retainedStartBin' | 'retainedEndBin' | 'timestampMs'>;
   score: number | null;
   modelId: string | null;
   sampleRateValidated: boolean;
@@ -54,7 +56,24 @@ const FEATURE_TOGGLES = [
   ['above-floor-spikes', 'Spikes above local floor'],
 ] as const;
 const ANNOTATION_DRAFT_KEY = 'napt.native-classifier.annotation-draft.v1';
+const ANNOTATION_CHANNEL_MODE_KEY = 'napt.native-classifier.annotation-channel-mode.v1';
 const EMPTY_ANNOTATIONS: NativeTrainingCaptureAnnotations = { label: 'uncertain', channel: 'unspecified', features: [], tags: [] };
+
+type AnnotationChannelMode = 'auto' | 'manual';
+
+function readAnnotationChannelMode(annotations: NativeTrainingCaptureAnnotations): AnnotationChannelMode {
+  try {
+    const mode = window.sessionStorage.getItem(ANNOTATION_CHANNEL_MODE_KEY);
+    if (mode === 'auto' || mode === 'manual') return mode;
+  } catch { /* Continue with a conservative mode when storage is unavailable. */ }
+  return annotations.channel === 'unspecified' ? 'auto' : 'manual';
+}
+
+function describeChannel(channel: NativeTrainingCaptureAnnotations['channel'] | null): string {
+  if (channel === 'A' || channel === 'B') return `Channel ${channel}`;
+  if (channel === 'other') return 'Other / uncertain';
+  return 'Unspecified';
+}
 
 function readAnnotationDraft(): NativeTrainingCaptureAnnotations {
   try {
@@ -66,16 +85,41 @@ function readAnnotationDraft(): NativeTrainingCaptureAnnotations {
   return { ...EMPTY_ANNOTATIONS };
 }
 
-export function NativeClassifierPanel({ result, resultState = 'current', legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', captureDownloads = null, captureDownloadsPersisted = false, onToggleCapture, onExportCapture, onClearCapture, onAnnotationsChange, sessionToken }: { result: NativeShadowResult | null; resultState?: NativeShadowResultState; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; captureDownloads?: NativeTrainingCaptureDownloadLinks | null; captureDownloadsPersisted?: boolean; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onClearCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void; sessionToken?: string | null }) {
+export function NativeClassifierPanel({ result, resultState = 'current', legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', captureDownloads = null, captureDownloadsPersisted = false, onToggleCapture, onExportCapture, onClearCapture, onAnnotationsChange, sessionToken, canonicalChannels, activeStreamId }: { result: NativeShadowResult | null; resultState?: NativeShadowResultState; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; captureDownloads?: NativeTrainingCaptureDownloadLinks | null; captureDownloadsPersisted?: boolean; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onClearCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void; sessionToken?: string | null; canonicalChannels?: readonly SpectrumFrame[]; activeStreamId?: string | null }) {
   const input = useRef<HTMLInputElement>(null); const [message, setMessage] = useState('Shadow scoring waits for a live acquisition frame.');
   const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<NativeTrainingCaptureAnnotations>(readAnnotationDraft);
+  const [channelMode, setChannelMode] = useState<AnnotationChannelMode>(() => readAnnotationChannelMode(annotations));
+  const lastAutoAppliedChannel = useRef<NativeTrainingCaptureAnnotations['channel'] | null>(null);
   const [tagDraft, setTagDraft] = useState('');
   const [classificationSplit, setClassificationSplit] = useState<'train' | 'validation' | 'test'>('train');
   const [saveToDataset, setSaveToDataset] = useState(false);
   const [datasetSaveStatus, setDatasetSaveStatus] = useState('');
   const updateAnnotations = (next: NativeTrainingCaptureAnnotations) => { setAnnotations(next); onAnnotationsChange?.(next); };
-  useEffect(() => { try { window.sessionStorage.setItem(ANNOTATION_DRAFT_KEY, JSON.stringify(annotations)); } catch { /* The capture still exports even when storage is unavailable. */ } }, [annotations]);
+  const observedChannelSuggestion = result && resultState === 'current' && result.frameMetadata.sourceId && result.frameMetadata.sourceId === activeStreamId
+    ? suggestNativeObservedChannel(result.frameMetadata.centerFrequencyHz, canonicalChannels)
+    : null;
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(ANNOTATION_DRAFT_KEY, JSON.stringify(annotations));
+      window.sessionStorage.setItem(ANNOTATION_CHANNEL_MODE_KEY, channelMode);
+    } catch { /* The capture still exports even when storage is unavailable. */ }
+  }, [annotations, channelMode]);
+  useEffect(() => {
+    if (channelMode !== 'auto' || observedChannelSuggestion === null) {
+      lastAutoAppliedChannel.current = null;
+      return;
+    }
+    if (annotations.channel === observedChannelSuggestion) {
+      lastAutoAppliedChannel.current = observedChannelSuggestion;
+      return;
+    }
+    if (lastAutoAppliedChannel.current === observedChannelSuggestion) return;
+    lastAutoAppliedChannel.current = observedChannelSuggestion;
+    const next = { ...annotations, channel: observedChannelSuggestion };
+    setAnnotations(next);
+    onAnnotationsChange?.(next);
+  }, [annotations, channelMode, observedChannelSuggestion, onAnnotationsChange]);
   const addTag = (raw: string) => {
     const tag = raw.trim().replace(/\s+/g, ' ');
     if (tag && !annotations.tags.includes(tag)) updateAnnotations({ ...annotations, tags: [...annotations.tags, tag] });
@@ -140,12 +184,24 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
             : captureStatus === 'no-new-frames' || captureStatus === 'stale-frame' || captureStatus === 'stale-or-out-of-order-frame' ? 'Capture stopped because fresh I/Q frames stopped arriving. Please check the RTL-SDR connection and reconnect it if the receiver dropped; recording will be ready when fresh receiving resumes.' : captureStatus;
   const captureNeedsExport = !captureActive && captureFrameCount > 0;
   const captureDownloadsLocked = captureDownloadsPersisted || !!captureDownloads;
+  const channelSuggestionDescription = observedChannelSuggestion === null
+    ? 'unavailable'
+    : describeChannel(observedChannelSuggestion);
+  const currentChannelDescription = channelMode === 'auto' && observedChannelSuggestion === null
+    ? 'Unspecified'
+    : describeChannel(annotations.channel);
+  const channelMatchDescription = channelMode === 'auto'
+    ? `Automatic channel suggestion: ${channelSuggestionDescription}. Current annotation: ${currentChannelDescription}.`
+    : `Manual channel label: ${describeChannel(annotations.channel)}. Automatic channel suggestion: ${channelSuggestionDescription}.`;
+  const annotationsForCapture = channelMode === 'auto'
+    ? { ...annotations, channel: observedChannelSuggestion ?? 'unspecified' }
+    : annotations;
   return <section aria-label="Experimental native resolution classifier" data-layout="sidebar" style={card}>
     <div style={{ ...row, gridTemplateColumns: 'minmax(0, 1fr)', alignItems: 'center' }}>
       <StateIndicator data-testid="classifier-state" data-state={state} $recording={captureActive} $ready={captureAvailable || captureActive}>{captureActive ? 'RECORDING' : captureAvailable ? 'READY' : 'WAITING'}</StateIndicator>
     </div>
     <div style={row}>
-      <button type="button" disabled={!captureActive && (!captureAvailable || captureNeedsExport || captureDownloadsLocked)} onClick={() => onToggleCapture?.(annotations)} style={button}>{captureActive ? 'Stop recording' : captureDownloadsPersisted && !captureDownloads ? 'Sign in to retrieve saved capture' : captureDownloads ? 'Clear capture to continue' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
+      <button type="button" disabled={!captureActive && (!captureAvailable || captureNeedsExport || captureDownloadsLocked)} onClick={() => onToggleCapture?.(annotationsForCapture)} style={button}>{captureActive ? 'Stop recording' : captureDownloadsPersisted && !captureDownloads ? 'Sign in to retrieve saved capture' : captureDownloads ? 'Clear capture to continue' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
       <button type="button" disabled={captureFrameCount === 0 || captureDownloadsLocked} onClick={onExportCapture} style={button}>Export V6 I/Q + labels</button>
     </div>
     <div data-testid="classifier-capture-status" aria-live="polite" style={{ ...wrappingText, minHeight: '2.9em' }}>{captureStatusText || (captureDownloadsPersisted && !captureDownloads ? 'Saved capture awaits an authenticated session so its backend links can be restored.' : captureActive ? `Recording ${captureFrameCount} I/Q frames` : captureAvailable ? 'Ready. Labels and model fitting stay offline.' : 'Requires a fresh live RTL-SDR frame in Lossless mode.')}</div>
@@ -184,10 +240,20 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
       </label>
       <label style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 4, marginTop: 7 }}>
         <span>Observed N-APT channel</span>
-        <select aria-label="N-APT channel" value={annotations.channel} onChange={(event) => updateAnnotations({ ...annotations, channel: event.currentTarget.value as NativeTrainingCaptureAnnotations['channel'] })} style={{ ...button, background: 'var(--color-surface, transparent)', color: 'inherit' }}>
+        <select aria-label="N-APT channel" value={channelMode === 'auto' ? 'auto' : annotations.channel} onChange={(event) => {
+          if (event.currentTarget.value === 'auto') {
+            setChannelMode('auto');
+            return;
+          }
+          setChannelMode('manual');
+          lastAutoAppliedChannel.current = null;
+          updateAnnotations({ ...annotations, channel: event.currentTarget.value as NativeTrainingCaptureAnnotations['channel'] });
+        }} style={{ ...button, background: 'var(--color-surface, transparent)', color: 'inherit' }}>
+          <option value="auto">Auto match · {observedChannelSuggestion === null ? 'waiting for current source' : channelSuggestionDescription}</option>
           <option value="unspecified">Unspecified</option><option value="A">Channel A</option><option value="B">Channel B</option><option value="other">Other / uncertain</option>
         </select>
       </label>
+      <div role="status" aria-label="Channel match status" aria-live="polite" data-testid="classifier-channel-match" style={{ marginTop: 4 }}>{channelMatchDescription}</div>
       <div style={{ marginTop: 7 }}>Morphology present</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 3 }}>
         {FEATURE_TOGGLES.map(([value, label]) => <label key={value} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, overflowWrap: 'anywhere' }}>
@@ -207,7 +273,7 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
     <div style={{ borderTop: '1px solid var(--color-border, rgba(128,128,128,.25))', paddingTop: 8, ...wrappingText }}>
       <strong>Shadow diagnostics</strong>
       {legacy && <div style={wrappingText}>Displayed classifier: {legacy.isNapt ? 'match' : 'no match'} ({legacy.confidence.toFixed(3)})</div>}
-      <div role="status" style={wrappingText}>{diagnostics}</div>
+      <div role="status" data-testid="classifier-shadow-status" style={wrappingText}>{diagnostics}</div>
     </div>
     <div style={row}>
       <button type="button" onClick={() => input.current?.click()} style={button}>Load model</button>

@@ -156,7 +156,7 @@ function fftFrame(iq, frameIndex, fftSize) {
   return waveform;
 }
 
-function loadCapture(manifestDir, frameSelection, sampleRateOverride) {
+export function loadCapture(manifestDir, frameSelection, sampleRateOverride) {
   const manifestPath = path.join(manifestDir, "manifest.json");
   const rawPath = path.join(manifestDir, "raw.iq.u8");
   if (!existsSync(manifestPath) || !existsSync(rawPath)) {
@@ -215,7 +215,7 @@ and marks a result invalid if the readback is not populated.
 `);
 }
 
-async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacingModule) {
+export async function scoreCapture(page, capture, shaderCode, displayWidth, spikeSpacingModule) {
   return page.evaluate(async ({ shaderCode, displayWidth, maxSpikes, frames, frequencyMin, frequencyMax, spikeSpacingModule }) => {
     if (!navigator.gpu) return { available: false, reason: "navigator.gpu unavailable" };
     const adapter = await navigator.gpu.requestAdapter();

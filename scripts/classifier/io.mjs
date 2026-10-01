@@ -137,7 +137,7 @@ export function validateDataset(dataset) {
   const ids = new Set(), sessions = new Map();
   for (const r of dataset.recordings) {
     if (!r.id || !/^[a-zA-Z0-9_-]+$/.test(r.id) || ids.has(r.id) || typeof r.session !== 'string' || !r.session ||
-      !['train', 'validation', 'test', 'acceptance', 'unlabeled'].includes(r.split) ||
+      !['train', 'validation', 'test', 'acceptance', 'unlabeled', 'challenge-mock', 'challenge-sinc'].includes(r.split) ||
       !['matching', 'nonmatching', 'uncertain'].includes(r.label) || typeof r.input !== 'string' || !r.input ||
       !['u8', 's16le', 'f32le', 'napt', 'browser-capture'].includes(r.format) || !Number.isFinite(r.sampleRateHz) || r.sampleRateHz <= 0 || !Number.isFinite(r.centerFrequencyHz)) throw new Error(`Invalid dataset recording: ${r.id ?? 'missing id'}`);
     if (sessions.has(r.session) && sessions.get(r.session) !== r.split) throw new Error(`Session leakage: ${r.session}`);

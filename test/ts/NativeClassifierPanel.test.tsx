@@ -1,5 +1,41 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { createElement, type ComponentType } from 'react';
 import * as NativeClassifier from '@n-apt/classification';
+import type { SpectrumFrame } from '@n-apt/consts/schemas/websocket';
+
+type ClassifierPanelWithChannelsProps = Parameters<typeof NativeClassifier.NativeClassifierPanel>[0];
+
+function renderClassifierPanelWithChannels(props: ClassifierPanelWithChannelsProps) {
+  const panel = NativeClassifier.NativeClassifierPanel as unknown as ComponentType<ClassifierPanelWithChannelsProps>;
+  return render(createElement(panel, props));
+}
+
+function channelMatchResult(centerFrequencyHz: number, retainedStartBin = 512, retainedEndBin = 3584): NativeClassifier.NativeShadowResult {
+  const fftSize = 4096;
+  return {
+    summary: {
+      status: 'ready',
+      values: [],
+      available: { narrow: true, bridge: true, envelope: true },
+      resolution: { binHz: 781.25, resolutionHz: 1171.88, firstBinHz: 18_000, cropped: retainedStartBin !== 0 || retainedEndBin !== fftSize, incomplete: false, visibleFraction: (retainedEndBin - retainedStartBin) / fftSize, validFraction: 1 },
+      diagnostics: { floorDb: -80, widthHz: 0, widthBins: 0, spacingHz: null, peakCount: 0 },
+    },
+    frameMetadata: {
+      sourceId: 'source-1:1',
+      centerFrequencyHz,
+      analysisSampleRateHz: 3_200_000,
+      fftSize,
+      retainedStartBin,
+      retainedEndBin,
+      timestampMs: 123456,
+    } as NativeClassifier.NativeShadowResult['frameMetadata'],
+    score: null,
+    modelId: null,
+    sampleRateValidated: false,
+    latencyMs: 4.2,
+    ruleScore: 0.5,
+  };
+}
 
 beforeEach(() => window.sessionStorage.clear());
 
@@ -38,7 +74,7 @@ it('reports the acquisition frame FFT size, retained crop and timestamp with nat
   };
   const result = {
     summary,
-    frameMetadata: { fftSize: 4096, retainedStartBin: 512, retainedEndBin: 3584, timestampMs: 123456 },
+    frameMetadata: { sourceId: 'source-1', centerFrequencyHz: 1_618_000, analysisSampleRateHz: 3_200_000, fftSize: 4096, retainedStartBin: 512, retainedEndBin: 3584, timestampMs: 123456 },
     score: null,
     modelId: null,
     sampleRateValidated: false,
@@ -46,9 +82,9 @@ it('reports the acquisition frame FFT size, retained crop and timestamp with nat
     ruleScore: 0.5,
   } as NativeClassifier.NativeShadowResult;
   render(<NativeClassifier.NativeClassifierPanel result={result} onModel={jest.fn()} />);
-  expect(screen.getByRole('status')).toHaveTextContent('4096 FFT');
-  expect(screen.getByRole('status')).toHaveTextContent('retained bins 512–3584 (75.0% visible)');
-  expect(screen.getByRole('status')).toHaveTextContent('frame 123456 ms');
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('4096 FFT');
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('retained bins 512–3584 (75.0% visible)');
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('frame 123456 ms');
 });
 
 it('does not present a stale shadow score as a current decision', () => {
@@ -61,7 +97,7 @@ it('does not present a stale shadow score as a current decision', () => {
   };
   const result = {
     summary,
-    frameMetadata: { fftSize: 4096, retainedStartBin: 512, retainedEndBin: 3584, timestampMs: 123456 },
+    frameMetadata: { sourceId: 'source-1', centerFrequencyHz: 1_618_000, analysisSampleRateHz: 3_200_000, fftSize: 4096, retainedStartBin: 512, retainedEndBin: 3584, timestampMs: 123456 },
     score: null,
     modelId: null,
     sampleRateValidated: false,
@@ -69,12 +105,12 @@ it('does not present a stale shadow score as a current decision', () => {
     ruleScore: 0.5,
   } as NativeClassifier.NativeShadowResult;
   const { rerender } = render(<NativeClassifier.NativeClassifierPanel result={result} resultState="stale" onModel={jest.fn()} />);
-  expect(screen.getByRole('status')).toHaveTextContent('stale shadow frame');
-  expect(screen.getByRole('status')).toHaveTextContent('frame 123456 ms');
-  expect(screen.getByRole('status')).not.toHaveTextContent('rule 0.500');
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('stale shadow frame');
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('frame 123456 ms');
+  expect(screen.getByTestId('classifier-shadow-status')).not.toHaveTextContent('rule 0.500');
   rerender(<NativeClassifier.NativeClassifierPanel result={result} resultState="metadata-mismatch" onModel={jest.fn()} />);
-  expect(screen.getByRole('status')).toHaveTextContent('shadow frame metadata does not match current acquisition');
-  expect(screen.getByRole('status')).not.toHaveTextContent('rule 0.500');
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('shadow frame metadata does not match current acquisition');
+  expect(screen.getByTestId('classifier-shadow-status')).not.toHaveTextContent('rule 0.500');
 });
 
 it('starts only when the parent confirms a safe live source and exports captured frames explicitly', () => {
@@ -199,6 +235,112 @@ it('collects a capture label, morphology toggles, and editable condition tags', 
   expect(onAnnotationsChange).toHaveBeenCalled();
   expect(screen.queryByLabelText('Partial shape')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Truncated by visible band edge')).toBeInTheDocument();
+});
+
+it('suggests the channel from the current frame center until the user chooses a manual override', () => {
+  const onAnnotationsChange = jest.fn();
+  const canonicalChannels: SpectrumFrame[] = [
+    { id: 'a', label: 'A', min_hz: 18_000, max_hz: 4_390_000, description: 'Channel A' },
+    { id: 'c', label: 'C', min_hz: 4_750_000, max_hz: 23_000_000, description: 'Channel C' },
+    { id: 'b', label: 'B', min_hz: 24_100_000, max_hz: 30_370_000, description: 'Channel B' },
+  ];
+  const { rerender } = renderClassifierPanelWithChannels({
+    result: channelMatchResult(1_618_000),
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'source-1:1',
+    onAnnotationsChange,
+  });
+
+  expect(screen.getByLabelText('N-APT channel')).toHaveValue('auto');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: Channel A');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Current annotation: Channel A');
+  expect(screen.getByRole('status', { name: 'Channel match status' })).toHaveTextContent('Automatic channel suggestion: Channel A');
+  expect(onAnnotationsChange).toHaveBeenLastCalledWith(expect.objectContaining({ channel: 'A' }));
+
+  fireEvent.change(screen.getByLabelText('N-APT channel'), { target: { value: 'A' } });
+  rerender(createElement(NativeClassifier.NativeClassifierPanel as unknown as ComponentType<ClassifierPanelWithChannelsProps>, {
+    result: channelMatchResult(24_200_000),
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'source-1:1',
+    onAnnotationsChange,
+  }));
+
+  expect(screen.getByLabelText('N-APT channel')).toHaveValue('A');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Manual channel label: Channel A');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: Channel B');
+
+  fireEvent.change(screen.getByLabelText('N-APT channel'), { target: { value: 'auto' } });
+  expect(screen.getByLabelText('N-APT channel')).toHaveValue('auto');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Current annotation: Channel B');
+  expect(onAnnotationsChange).toHaveBeenLastCalledWith(expect.objectContaining({ channel: 'B' }));
+});
+
+it('keeps channel matching based on frame center when crop visibility changes', () => {
+  const canonicalChannels: SpectrumFrame[] = [
+    { id: 'a', label: 'A', min_hz: 18_000, max_hz: 4_390_000, description: 'Channel A' },
+    { id: 'b', label: 'B', min_hz: 24_100_000, max_hz: 30_370_000, description: 'Channel B' },
+  ];
+  const { rerender } = renderClassifierPanelWithChannels({
+    result: channelMatchResult(1_618_000),
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'source-1:1',
+  });
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: Channel A');
+
+  rerender(createElement(NativeClassifier.NativeClassifierPanel as unknown as ComponentType<ClassifierPanelWithChannelsProps>, {
+    result: channelMatchResult(1_618_000, 2040, 2056),
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'source-1:1',
+  }));
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: Channel A');
+});
+
+it('requires an exact current stream key and declines stale frames or another source', () => {
+  const canonicalChannels: SpectrumFrame[] = [
+    { id: 'a', label: 'A', min_hz: 18_000, max_hz: 4_390_000, description: 'Channel A' },
+    { id: 'b', label: 'B', min_hz: 24_100_000, max_hz: 30_370_000, description: 'Channel B' },
+  ];
+  const { rerender } = renderClassifierPanelWithChannels({
+    result: channelMatchResult(1_618_000),
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'source-1',
+  });
+
+  expect(screen.getByLabelText('N-APT channel')).toHaveValue('auto');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: unavailable');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Current annotation: Unspecified');
+
+  rerender(createElement(NativeClassifier.NativeClassifierPanel as unknown as ComponentType<ClassifierPanelWithChannelsProps>, {
+    result: channelMatchResult(1_618_000),
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'source-1:1',
+  }));
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: Channel A');
+
+  rerender(createElement(NativeClassifier.NativeClassifierPanel as unknown as ComponentType<ClassifierPanelWithChannelsProps>, {
+    result: channelMatchResult(1_618_000),
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'another-source:2',
+  }));
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: unavailable');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Current annotation: Unspecified');
+
+  rerender(createElement(NativeClassifier.NativeClassifierPanel as unknown as ComponentType<ClassifierPanelWithChannelsProps>, {
+    result: channelMatchResult(1_618_000),
+    resultState: 'stale',
+    onModel: jest.fn(),
+    canonicalChannels,
+    activeStreamId: 'source-1:1',
+  }));
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Automatic channel suggestion: unavailable');
+  expect(screen.getByTestId('classifier-channel-match')).toHaveTextContent('Current annotation: Unspecified');
 });
 
 it('explains that a tuned receiver stopped the single-frequency capture', () => {

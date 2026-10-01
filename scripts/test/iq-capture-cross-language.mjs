@@ -6,6 +6,9 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "napt-iq-cross-language-"));
 const backendCapture = path.join(temporaryDirectory, "backend.iq");
+const captureStorage = path.join(temporaryDirectory, "capture-storage");
+const captureDownloads = path.join(temporaryDirectory, "capture-downloads");
+const captureBackup = path.join(temporaryDirectory, "capture-backup");
 
 const run = (command, args, env) => {
   const result = spawnSync(command, args, {
@@ -26,7 +29,12 @@ try {
     "backend_iq_v6_writes_shared_cross_language_playback_fixture",
     "--",
     "--exact",
-  ], { NAPT_IQ_CROSS_LANGUAGE_FIXTURE: backendCapture });
+  ], {
+    NAPT_IQ_CROSS_LANGUAGE_FIXTURE: backendCapture,
+    N_APT_CAPTURE_STORAGE_PATH: captureStorage,
+    N_APT_CAPTURE_DOWNLOADS_PATH: captureDownloads,
+    N_APT_CAPTURE_BACKUP_PATH: captureBackup,
+  });
   if (wroteBackendFile) {
     run(process.execPath, ["node_modules/jest/bin/jest.js", "--runInBand", "test/ts/iqCaptureCrossLanguage.test.ts"], {
       NAPT_IQ_CROSS_LANGUAGE_FIXTURE: backendCapture,
