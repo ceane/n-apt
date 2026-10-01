@@ -257,6 +257,7 @@ interface DemodContextValue {
     scriptContent?: string,
     mediaContent?: string,
     baselineVector?: number[],
+    captureLabels?: string[],
   ) => string | null;
   clearAnalysis: () => void;
 
@@ -1704,6 +1705,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       scriptContentOrMediaContent?: string,
       mediaContentOrBaselineVector?: string | number[],
       baselineVector?: number[],
+      captureLabels?: string[],
     ) => {
       const legacySignature = typeof durationSOrScriptContent === "string";
       const durationS = legacySignature ? 5.0 : durationSOrScriptContent;
@@ -1771,6 +1773,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             ? "audio_hearing"
             : ((type === "internal" ? "audio_internal" : type) as any),
         liveMode: isLive,
+        captureLabels: captureLabels
+          ?.map((label) => label.trim().slice(0, 80))
+          .filter(Boolean)
+          .slice(0, 32),
       });
 
       // Transition to analyzing after the requested capture duration

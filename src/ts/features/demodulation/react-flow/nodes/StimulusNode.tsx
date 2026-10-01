@@ -598,8 +598,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [previewMode, setPreviewMode] =
     useState<AnalysisType>(selectedBaseline);
   const demodCenterFrequencyHz = useAppSelector(
-    (state) =>
-      state.demod.bandwidthCenterFreqHz ?? state.demod.centerFreqHz,
+    (state) => state.demod.bandwidthCenterFreqHz ?? state.demod.centerFreqHz,
   );
   const frequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
@@ -616,7 +615,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     [demodCenterFrequencyHz, frequencyRange],
   );
   const channelAccess = useMemo(
-    () => evaluateStimulusChannelAccess(previewMode, tunedFrequencyHz, channels),
+    () =>
+      evaluateStimulusChannelAccess(previewMode, tunedFrequencyHz, channels),
     [channels, previewMode, tunedFrequencyHz],
   );
   const stimulusChannelCompatible = channelAccess.allowed;
@@ -748,7 +748,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     const label = raw.trim().replace(/\s+/g, " ");
     if (!label || label.length > 80) return;
     setCaptureLabels((current) =>
-      current.includes(label) ? current : [...current, label],
+      current.includes(label) || current.length >= 32
+        ? current
+        : [...current, label],
     );
     setCaptureLabelDraft("");
   };
@@ -906,7 +908,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
   const captureSelectedReferenceMedia = useCallback(async () => {
     const media = selectedReferenceMediaRef.current;
-    if (!media || isCapturingReferenceMedia || !stimulusChannelCompatible) return;
+    if (!media || isCapturingReferenceMedia || !stimulusChannelCompatible)
+      return;
 
     setIsCapturingReferenceMedia(true);
     setReferenceMediaStatus(
@@ -974,7 +977,15 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
     setSelectedBaseline(previewMode);
     captureJobIdRef.current =
-      startAnalysis(previewMode, liveMode, durationS) ?? null;
+      startAnalysis(
+        previewMode,
+        liveMode,
+        durationS,
+        undefined,
+        undefined,
+        undefined,
+        captureLabels,
+      ) ?? null;
   };
 
   // Tone trigger switch
@@ -1192,44 +1203,49 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
           </AudioWaveformControl>
         )}
 
-        {previewMode === "audio" && (
-          <CaptureLabelControl>
-            <SelectLabel htmlFor="stimulus-capture-label">
-              Capture Labels
-            </SelectLabel>
-            <StimulusInput
-              id="stimulus-capture-label"
-              type="text"
-              aria-label="Add capture label"
-              placeholder="Type a label and press Enter"
-              maxLength={80}
-              value={captureLabelDraft}
-              onChange={(event) => setCaptureLabelDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addCaptureLabel(captureLabelDraft);
-                }
-              }}
-            />
-            {captureLabels.length > 0 && (
-              <CaptureLabelPills aria-label="Capture labels">
-                {captureLabels.map((label) => (
-                  <CaptureLabelPill key={label}>
-                    {label}
-                    <CaptureLabelRemove
-                      type="button"
-                      aria-label={`Remove label ${label}`}
-                      onClick={() => removeCaptureLabel(label)}
-                    >
-                      ×
-                    </CaptureLabelRemove>
-                  </CaptureLabelPill>
-                ))}
-              </CaptureLabelPills>
-            )}
-          </CaptureLabelControl>
-        )}
+        <CaptureLabelControl>
+          <SelectLabel htmlFor="stimulus-capture-label">
+            Capture Labels
+          </SelectLabel>
+          <StimulusInput
+            id="stimulus-capture-label"
+            type="text"
+            aria-label="Add capture label"
+            aria-describedby="stimulus-capture-label-help"
+            placeholder="Type a label and press Enter"
+            maxLength={80}
+            value={captureLabelDraft}
+            onChange={(event) => setCaptureLabelDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addCaptureLabel(captureLabelDraft);
+              }
+            }}
+            disabled={captureLabels.length >= 32}
+          />
+          <StimulusSubtext id="stimulus-capture-label-help">
+            {liveMode
+              ? "Ephemeral RF captures are discarded; retained captures include these labels."
+              : "Labels are saved with retained captures for any stimulus option."}
+          </StimulusSubtext>
+          {captureLabels.length > 0 && (
+            <CaptureLabelPills aria-label="Capture labels">
+              {captureLabels.map((label) => (
+                <CaptureLabelPill key={label}>
+                  {label}
+                  <CaptureLabelRemove
+                    type="button"
+                    aria-label={`Remove label ${label}`}
+                    onClick={() => removeCaptureLabel(label)}
+                  >
+                    ×
+                  </CaptureLabelRemove>
+                </CaptureLabelPill>
+              ))}
+            </CaptureLabelPills>
+          )}
+        </CaptureLabelControl>
 
         {previewMode === "audio" && (
           <AudioWaveformControl>
