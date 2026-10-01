@@ -87,6 +87,7 @@ const Content = styled.main`
   min-width: 0;
   padding: 24px;
   overflow: auto;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 `;
 
 const SidebarLink = styled(Link)`

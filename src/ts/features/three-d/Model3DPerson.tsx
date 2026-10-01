@@ -71,9 +71,11 @@ function RendererSizeSync() {
 function PhysiologyOrb({
   area,
   isSelected,
+  onSelect,
 }: {
   area: Area;
   isSelected: boolean;
+  onSelect?: (area: Area) => void;
 }) {
   const markerPosition = worldToModelLocal(area.target);
   const compactRadiusByArea: Record<string, number> = {
@@ -89,7 +91,13 @@ function PhysiologyOrb({
   const baseOpacity = isSelected ? 0.85 : 0.65;
 
   return (
-    <group position={markerPosition}>
+    <group
+      position={markerPosition}
+      onClick={onSelect ? (event) => {
+        event.stopPropagation();
+        onSelect(area);
+      } : undefined}
+    >
       <mesh>
         <sphereGeometry args={[baseRadius, 16, 16]} />
         <meshStandardMaterial
@@ -268,8 +276,8 @@ const HintOverlay = styled.div`
   pointer-events: none;
 `;
 
-export const Model3DPerson: React.FC = () => {
-  const { selectedArea, controlsRef } = useModel3D();
+export const Model3DPerson: React.FC<{ onAreaSelect?: (area: Area) => void }> = ({ onAreaSelect }) => {
+  const { selectedArea, controlsRef, setSelectedArea } = useModel3D();
   const {
     hotspots,
     selectedHotspot,
@@ -280,6 +288,10 @@ export const Model3DPerson: React.FC = () => {
     multiSelectedHotspots,
   } = useHotspotEditor();
   const isEditMode = sidebarTab === "make-hotspots";
+  const handleAreaSelect = useCallback((area: Area) => {
+    setSelectedArea(area);
+    onAreaSelect?.(area);
+  }, [onAreaSelect, setSelectedArea]);
 
   return (
     <CanvasContainer>
@@ -348,6 +360,7 @@ export const Model3DPerson: React.FC = () => {
                     key={area.name}
                     area={area}
                     isSelected={selectedArea?.name === area.name}
+                    onSelect={handleAreaSelect}
                   />
                 ))}
               {hotspots.map((hotspot) => (

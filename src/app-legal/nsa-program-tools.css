@@ -157,6 +157,51 @@ button {
   align-items: flex-start;
 }
 
+.summary-intro {
+  max-width: 70ch;
+  margin-top: 12px;
+}
+
+.questionnaire-disclaimer {
+  display: grid;
+  max-width: 75ch;
+  gap: 18px;
+}
+
+.questionnaire-disclaimer h2 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.questionnaire-disclaimer p {
+  margin: 0 0 14px;
+}
+
+.questionnaire-disclaimer p:last-child {
+  margin-bottom: 0;
+}
+
+.questionnaire-disclaimer .button-row {
+  margin-top: 4px;
+}
+
+.questionnaire-disclaimer .button.primary {
+  color: #ffffff;
+}
+
+.summary-intro p {
+  margin: 0 0 8px;
+}
+
+.summary-intro p:last-child {
+  margin-bottom: 0;
+}
+
+.summary-export-status {
+  margin: 0;
+  color: #b91c1c;
+}
+
 .route-card,
 .section-card,
 .question-card,
@@ -298,10 +343,32 @@ button {
   align-items: center;
 }
 
-.question-block,
-.summary-answer-block {
+.question-block {
   display: grid;
   gap: 10px;
+}
+
+.question-prompt {
+  display: grid;
+  gap: 3px;
+}
+
+.question-prompt h3 {
+  margin: 0;
+}
+
+.question-number,
+.question-answer-label {
+  color: #6b7280;
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
+.question-answer-label,
+.summary-answer-label {
+  color: #9ca3af;
+  font-weight: 500;
+  letter-spacing: normal;
 }
 
 .question-block.sub-question,
@@ -334,7 +401,7 @@ button {
 @media print {
   @page {
     size: letter portrait;
-    margin: 0;
+    margin: 0.5in;
   }
 
   body {
@@ -394,23 +461,31 @@ button {
     overflow: visible;
   }
 
+  body.print-summary-mode .summary-page-frame {
+    position: static;
+    width: auto;
+    height: auto;
+    aspect-ratio: auto;
+    container-type: normal;
+  }
+
   body.print-summary-mode .summary-page {
-    display: grid !important;
+    position: static;
+    display: block !important;
     box-sizing: border-box;
-    width: 8.5in;
-    height: 11in;
+    width: auto;
+    height: auto;
+    min-height: 0;
     margin: 0;
-    padding: 0.5in;
+    padding: 0;
     border: 0;
     box-shadow: none;
     background: #ffffff;
-    break-after: page;
-    page-break-after: always;
+    transform: none;
   }
 
-  body.print-summary-mode .summary-page:last-child {
-    break-after: auto;
-    page-break-after: auto;
+  body.print-summary-mode .summary-page-frame:not(:last-child) {
+    page-break-after: always;
   }
 
   body.print-summary-mode .summary-grid {
@@ -423,7 +498,7 @@ button {
   body.print-summary-mode .summary-grid article {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr);
-    padding: 8px 0 10px;
+    padding: 4px 0 6px;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -459,8 +534,30 @@ button {
     overflow-wrap: anywhere;
   }
 
+  body.print-summary-mode .summary-grid .summary-question-number,
+  body.print-summary-mode .summary-grid .summary-answer-label {
+    color: #6b7280;
+    font-size: 8pt;
+  }
+
+  body.print-summary-mode .summary-grid .summary-answer-label {
+    color: #9ca3af;
+    font-weight: 400;
+  }
+
+  body.print-summary-mode .summary-grid .summary-question-text {
+    color: #111827;
+    font-size: 11pt;
+  }
+
+  body.print-summary-mode .summary-grid .summary-answer-value {
+    color: #c4cbd4;
+    font-size: 10pt;
+  }
+
   body.print-summary-mode .summary-edit,
-  body.print-summary-mode .summary-actions {
+  body.print-summary-mode .summary-actions,
+  body.print-summary-mode .summary-export-status {
     display: none !important;
   }
 
