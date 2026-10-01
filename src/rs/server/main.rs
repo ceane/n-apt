@@ -367,8 +367,8 @@ impl websocket_server::WebSocketServer {
     // Standard routes that benefit from compression (JSON, text, etc.)
     let compressible_routes = Router::new()
       // Authentication endpoints
-      // SECURITY (known flaw, accepted for local deployments): these /auth/*
-      // routes are unauthenticated and have no rate limiting. N-APT targets
+      // SECURITY (accepted for local deployments): login routes are
+      // unauthenticated and have no rate limiting. N-APT targets
       // localhost / trusted LANs; add throttling before ever exposing this
       // server publicly.
       .route(
@@ -377,11 +377,11 @@ impl websocket_server::WebSocketServer {
       )
       .route(
         "/auth/logout",
-        get(crate::authentication::auth_handlers::auth_logout_handler),
+        post(crate::authentication::auth_handlers::auth_logout_handler),
       )
       .route(
         "/logout",
-        get(crate::authentication::auth_handlers::auth_logout_handler),
+        post(crate::authentication::auth_handlers::auth_logout_handler),
       )
       .route(
         "/auth/challenge",

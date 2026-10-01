@@ -136,18 +136,17 @@ export async function fetchServerStatus(): Promise<any> {
   return res.json();
 }
 
-/** GET /auth/logout — revoke the current session and clear site data. */
+/** POST /auth/logout — revoke the current session without clearing user data. */
 export async function logoutSession(token?: string | null): Promise<void> {
-  const logoutUrl = token
-    ? `${API_BASE}/auth/logout?token=${encodeURIComponent(token)}`
-    : `${API_BASE}/auth/logout`;
-  const res = await fetch(logoutUrl, {
-    method: "GET",
+  if (!token) throw new Error("Logout requires a session token");
+  const res = await fetch(`${API_BASE}/auth/logout`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
     credentials: "include",
     keepalive: true,
   });
-
-  if (!res.ok && res.status !== 303 && res.status !== 302) {
+  // Validation failures can also mean Redis is unavailable; retain the session.
+  if (!res.ok) {
     throw new Error(`logout failed: ${res.status}`);
   }
 }

@@ -224,7 +224,7 @@ export default defineConfig(({ mode }) => {
     port: 5174,
     strictPort: false,
     fs: {
-      allow: [path.resolve(dirname)],
+      allow: [path.resolve(dirname, "src"), path.resolve(dirname, "node_modules")],
     },
   },
   preview: {

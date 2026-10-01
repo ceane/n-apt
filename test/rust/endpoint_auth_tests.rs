@@ -471,7 +471,14 @@ async fn security_revocation_closes_every_socket_transport() {
   for route in ["/ws", "/ws/source/mock-apt/iq", "/ws/streams", "/ws/streams/unused-stream"] {
     let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
     let mut socket = server.get_websocket(&format!("{route}?token={token}")).await.into_websocket().await;
-    state.session_store.revoke(&token).await.unwrap();
+    server
+      .post("/auth/logout")
+      .add_header(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {token}"),
+      )
+      .await
+      .assert_status(axum::http::StatusCode::NO_CONTENT);
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
       loop {
         if matches!(socket.receive_message().await, WsMessage::Close(_)) { break; }

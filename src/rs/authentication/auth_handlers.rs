@@ -1,6 +1,6 @@
-use axum::extract::{Query, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Redirect};
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::Json;
 use log::{error, info, warn};
 use std::collections::HashMap;
@@ -10,8 +10,8 @@ use webauthn_rs::prelude::*;
 use crate::crypto;
 
 use crate::server::types::{
-  AuthSessionRequest, AuthVerifyRequest, LogoutParams,
-  PasskeyAuthFinishRequest, PasskeyRegisterFinishRequest,
+  AuthSessionRequest, AuthVerifyRequest, PasskeyAuthFinishRequest,
+  PasskeyRegisterFinishRequest,
 };
 use uuid::Uuid;
 
@@ -79,45 +79,27 @@ pub async fn auth_info_handler(
   }))
 }
 
-/// GET /auth/logout — clear site data and redirect to login.
-/// Optionally revokes the provided session token in Redis.
+/// POST /auth/logout — revoke an authenticated session without erasing user data.
 pub async fn auth_logout_handler(
   State(state): State<Arc<crate::server::AppState>>,
-  Query(params): Query<LogoutParams>,
+  headers: HeaderMap,
 ) -> impl IntoResponse {
-  if let Some(token) = params.token {
-    info!(
-      "Revoking session token: {}…",
-      token.get(..8).unwrap_or(&token)
-    );
-    // Fail closed: if the session cannot be revoked server-side, the client
-    // must not be told it logged out while the token remains valid.
-    if let Err(error) = state.session_store.revoke(&token).await {
-      error!("Logout failed to revoke session: {error}");
-      return (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({
-          "error": "logout_failed",
-          "message": "Session could not be revoked; please try again",
-        })),
-      )
-        .into_response();
-    }
+  let Some(token) = registration_session(&state, &headers).await else {
+    return StatusCode::UNAUTHORIZED.into_response();
+  };
+  // Only report success once Redis has revoked the session.
+  if let Err(error) = state.session_store.revoke(&token).await {
+    error!("Logout failed to revoke session: {error}");
+    return (
+      StatusCode::SERVICE_UNAVAILABLE,
+      Json(serde_json::json!({
+        "error": "logout_failed",
+        "message": "Session could not be revoked; please try again",
+      })),
+    )
+      .into_response();
   }
-
-  info!("Logout requested, clearing site data and redirecting");
-  let mut response = Redirect::to("/").into_response();
-
-  // Clear-Site-Data: "cache", "cookies", "storage", "executionContexts"
-  // This ensures all local storage, cookies, and cache are wiped on the client.
-  response.headers_mut().insert(
-    HeaderName::from_static("clear-site-data"),
-    HeaderValue::from_static(
-      "\"cache\", \"cookies\", \"storage\", \"executionContexts\"",
-    ),
-  );
-
-  response
+  StatusCode::NO_CONTENT.into_response()
 }
 
 /// POST /auth/challenge — generate a nonce for password-based auth.

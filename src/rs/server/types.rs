@@ -49,12 +49,6 @@ pub struct WebMCPToolResponse {
   pub tool: String,
 }
 
-/// Parameters for the logout endpoint
-#[derive(Debug, Deserialize)]
-pub struct LogoutParams {
-  pub token: Option<String>,
-}
-
 /// Power scale mode for spectrum display
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PowerScale {

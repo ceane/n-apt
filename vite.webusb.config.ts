@@ -80,7 +80,7 @@ export default defineConfig({
     port: 5175,
     strictPort: true,
     fs: {
-      allow: [dirname],
+      allow: [path.resolve(dirname, "src"), path.resolve(dirname, "node_modules")],
     },
   },
   preview: {

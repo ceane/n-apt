@@ -417,23 +417,6 @@ export default defineConfig(({ mode }) => {
           });
         }
       },
-      "/logout": {
-        target: backendProxyTarget,
-        changeOrigin: true,
-        timeout: 10000,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, req, res) => {
-            if (err.code === 'ECONNREFUSED') {
-              if (!res.headersSent) {
-                res.writeHead(503, { 'Content-Type': 'text/plain' });
-                res.end('Backend not ready yet, please retry');
-              }
-            } else {
-              console.error('Proxy error:', err);
-            }
-          });
-        }
-      },
       "/capture": {
         target: backendProxyTarget,
         changeOrigin: true,

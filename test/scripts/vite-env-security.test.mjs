@@ -10,9 +10,24 @@ import { selectBrowserEnv } from "../../vite.config.js";
 test("Vite does not include local password variables in browser transforms", async (t) => {
   const appConfig = viteConfig({ mode: "development", command: "serve" });
   assert.deepEqual(appConfig.envPrefix, []);
-  for (const configPath of ["vite.markdown.config.ts", "vite.webusb.config.ts"]) {
-    const source = await fs.readFile(new URL(`../../${configPath}`, import.meta.url), "utf8");
-    assert.match(source, /envPrefix:\s*\[\]/, `${configPath} must disable VITE_ auto-exposure`);
+  assert.equal(
+    appConfig.server.proxy["/logout"],
+    undefined,
+    "logout navigation must reach the frontend route",
+  );
+  for (const configPath of [
+    "vite.markdown.config.ts",
+    "vite.webusb.config.ts",
+  ]) {
+    const source = await fs.readFile(
+      new URL(`../../${configPath}`, import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      source,
+      /envPrefix:\s*\[\]/,
+      `${configPath} must disable VITE_ auto-exposure`,
+    );
   }
   assert.deepEqual(
     selectBrowserEnv({
@@ -61,33 +76,77 @@ test("Vite does not include local password variables in browser transforms", asy
   );
 });
 
-test("main Vite server does not serve private capture files", async (t) => {
-  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "napt-vite-files-")));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  await fs.copyFile(new URL("../../vite.config.js", import.meta.url), path.join(root, "vite.config.js"));
-  await fs.symlink(path.resolve("node_modules"), path.join(root, "node_modules"));
-  await fs.writeFile(path.join(root, "package.json"), '{"type":"module"}');
-  await fs.mkdir(path.join(root, "src/ts"), { recursive: true });
-  await fs.writeFile(path.join(root, "src/ts/probe.js"), "export const appModule = true;\n");
-  await fs.mkdir(path.join(root, "training-captures"), { recursive: true });
-  await fs.writeFile(path.join(root, "training-captures/private.iq"), "FAKE_PRIVATE_IQ_SENTINEL");
+for (const config of [
+  "vite.config.js",
+  "vite.markdown.config.ts",
+  "vite.webusb.config.ts",
+]) {
+  test(`${config} does not serve private capture files`, async (t) => {
+    const root = await fs.realpath(
+      await fs.mkdtemp(path.join(os.tmpdir(), "napt-vite-files-")),
+    );
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    await fs.copyFile(
+      new URL(`../../${config}`, import.meta.url),
+      path.join(root, config),
+    );
+    await fs.symlink(
+      path.resolve("node_modules"),
+      path.join(root, "node_modules"),
+    );
+    await fs.writeFile(path.join(root, "package.json"), '{"type":"module"}');
+    await fs.mkdir(path.join(root, "src/ts"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "src/ts/probe.js"),
+      "export const appModule = true;\n",
+    );
+    await fs.mkdir(path.join(root, "scripts/archives"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "scripts/archives/private.zip"),
+      "FAKE_PRIVATE_ARCHIVE_SENTINEL",
+    );
+    await fs.mkdir(path.join(root, "training-captures"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "training-captures/private.iq"),
+      "FAKE_PRIVATE_IQ_SENTINEL",
+    );
 
-  const server = await createServer({
-    configFile: path.join(root, "vite.config.js"),
-    root: path.join(root, "src/ts"),
-    envDir: root,
-    cacheDir: path.join(root, ".vite-cache"),
-    optimizeDeps: { noDiscovery: true, include: [] },
-    server: { host: "127.0.0.1", port: 0, strictPort: false },
+    const server = await createServer({
+      configFile: path.join(root, config),
+      root: path.join(root, "src/ts"),
+      envDir: root,
+      cacheDir: path.join(root, ".vite-cache"),
+      optimizeDeps: { noDiscovery: true, include: [] },
+      server: { host: "127.0.0.1", port: 0, strictPort: false },
+    });
+    await server.listen();
+    t.after(() => server.close());
+
+    const response = await fetch(
+      `http://127.0.0.1:${server.httpServer.address().port}/@fs${path.join(root, "training-captures/private.iq")}`,
+    );
+    const body = await response.text();
+    assert.ok(
+      !body.includes("FAKE_PRIVATE_IQ_SENTINEL"),
+      "private capture bytes must not be served",
+    );
+
+    const archive = await fetch(
+      `http://127.0.0.1:${server.httpServer.address().port}/@fs${path.join(root, "scripts/archives/private.zip")}`,
+    );
+    assert.equal(archive.status, 403);
+    assert.ok(
+      !(await archive.text()).includes("FAKE_PRIVATE_ARCHIVE_SENTINEL"),
+    );
+
+    const appModule = await fetch(
+      `http://127.0.0.1:${server.httpServer.address().port}/probe.js`,
+    );
+    assert.equal(
+      appModule.status,
+      200,
+      "normal frontend source should remain available to Vite",
+    );
+    assert.match(await appModule.text(), /appModule/);
   });
-  await server.listen();
-  t.after(() => server.close());
-
-  const response = await fetch(`http://127.0.0.1:${server.httpServer.address().port}/@fs${path.join(root, "training-captures/private.iq")}`);
-  const body = await response.text();
-  assert.ok(!body.includes("FAKE_PRIVATE_IQ_SENTINEL"), "private capture bytes must not be served");
-
-  const appModule = await fetch(`http://127.0.0.1:${server.httpServer.address().port}/probe.js`);
-  assert.equal(appModule.status, 200, "normal frontend source should remain available to Vite");
-  assert.match(await appModule.text(), /appModule/);
-});
+}
