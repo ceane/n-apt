@@ -457,3 +457,6 @@ patch.diff
 
 # Machine-managed learned preferences; keep local, never commit
 .commandcode/taste/
+
+# Local analysis artifacts
+.act/runs/

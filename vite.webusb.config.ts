@@ -43,6 +43,8 @@ const redirectRootToProbe = () => ({
 export default defineConfig({
   root: path.resolve(dirname, "src/ts"),
   base: "/",
+  // Keep local VITE_ credentials out of the standalone browser bundle.
+  envPrefix: [],
   resolve: {
     // The standalone entries still reuse small, app-owned rendering modules
     // such as SnapshotRenderer. Keep the app namespace available without

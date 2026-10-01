@@ -1457,7 +1457,10 @@ exit 1
       },
       {
         index: 8,
-        command: isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
+        // Vite serves source files; expose it to the LAN only by explicit opt-in.
+        command: isNativeWindows
+          ? `npx vite dev${process.env.NAPT_ALLOW_LAN_DEV === '1' ? ' --host' : ''}`
+          : `node_modules/.bin/vite dev${process.env.NAPT_ALLOW_LAN_DEV === '1' ? ' --host' : ''}`,
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,

@@ -8,6 +8,27 @@ const dirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(file
 
 const pagesDir = path.resolve(dirname, "pages");
 
+function containedFile(root: string, relativePath: string): string | null {
+  try {
+    const realRoot = fs.realpathSync(root);
+    const candidate = path.resolve(realRoot, relativePath);
+    const realCandidate = fs.realpathSync(candidate);
+    const relativeCandidate = path.relative(realRoot, realCandidate);
+    if (
+      relativeCandidate === "" ||
+      relativeCandidate === ".." ||
+      relativeCandidate.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativeCandidate) ||
+      !fs.statSync(realCandidate).isFile()
+    ) {
+      return null;
+    }
+    return realCandidate;
+  } catch {
+    return null;
+  }
+}
+
 const pagesMiddleware: Plugin = {
   name: "pages-middleware",
   configureServer(server) {
@@ -48,8 +69,9 @@ const pagesMiddleware: Plugin = {
           : url.startsWith("/article/")
             ? url.slice("/article".length).replace(/^\//, "")
           : url.replace(/^\//, "");
-        const filePath = path.join(dirname, relativeUrl);
-        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const pageRelativePath = relativeUrl.replace(/^pages\//, "");
+        const filePath = containedFile(pagesDir, pageRelativePath);
+        if (filePath) {
           const content = fs.readFileSync(filePath, "utf-8");
           res.setHeader("Content-Type", "text/plain; charset=utf-8");
           res.end(content);
@@ -59,13 +81,14 @@ const pagesMiddleware: Plugin = {
 
         if (url.startsWith("/md-preview/") || url.startsWith("/article/")) {
           const assetPath = url.replace(/^\/(?:md-preview|article)\//, "");
-        const searchPaths = [
-          path.join(publicDir, "md-preview", assetPath),
-          path.join(publicDir, assetPath), // Direct fallback to public root
+        const assetRoots = [
+          path.join(publicDir, "md-preview"),
+          publicDir, // Direct fallback to public root
         ];
 
-        for (const filePath of searchPaths) {
-          if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        for (const assetRoot of assetRoots) {
+          const filePath = containedFile(assetRoot, assetPath);
+          if (filePath) {
             const ext = path.extname(filePath).toLowerCase();
             const contentType = {
               '.svg': 'image/svg+xml',
@@ -155,6 +178,8 @@ export default defineConfig(({ mode }) => {
     base: isProd ? "/n-apt/" : "/",
     root: path.resolve(dirname, "src/app-article"),
     envDir: dirname,
+    // This standalone frontend has no public VITE_ env contract.
+    envPrefix: [],
     publicDir: path.resolve(dirname, "public"),
     build: {
       outDir: path.resolve(dirname, "docs"),

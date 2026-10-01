@@ -1,6 +1,5 @@
 /// <reference types="vitest/config" />
 import fs from "node:fs";
-import { execSync } from "node:child_process";
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
@@ -55,33 +54,9 @@ const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
   },
 );
 
-const resolveGitRoot = () => {
-  try {
-    const gitCommonDir = execSync("git rev-parse --git-common-dir", {
-      cwd: dirname,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-
-    if (!gitCommonDir) {
-      return null;
-    }
-
-    const absoluteCommonDir = path.isAbsolute(gitCommonDir)
-      ? gitCommonDir
-      : path.resolve(dirname, gitCommonDir);
-
-    return path.resolve(absoluteCommonDir, "..");
-  } catch {
-    return null;
-  }
-};
-
 const fsAllow = Array.from(
   new Set(
-    [dirname, resolveGitRoot()]
-      .filter((value) => Boolean(value))
+    [path.resolve(dirname, "src"), path.resolve(dirname, "node_modules")]
       .map((value) => {
         const resolved = path.resolve(value);
         try {
@@ -106,6 +81,22 @@ const injectBrowserEnv = (browserEnv) => ({
     );
   },
 });
+
+const PUBLIC_BROWSER_ENV_KEYS = new Set([
+  "NAPT_PBKDF2_SALT",
+  "VITE_APP_URL",
+  "VITE_BACKEND_URL",
+  "VITE_GOOGLE_MAPS_API_KEY",
+  "VITE_PBKDF2_SALT",
+  "VITE_SESSION_KEY",
+  "VITE_WASM_BUILD_PATH",
+  "VITE_WS_URL",
+]);
+
+export const selectBrowserEnv = (env) =>
+  Object.fromEntries(
+    Object.entries(env).filter(([key]) => PUBLIC_BROWSER_ENV_KEYS.has(key)),
+  );
 
 const styledComponentsFixPlugin = () => ({
   name: 'styled-components-fix',
@@ -214,13 +205,7 @@ export default defineConfig(({ mode }) => {
     "ws:",
   );
   const env = loadEnv(mode, dirname, "");
-  const browserEnv = Object.fromEntries(
-    Object.entries(env).filter(
-      ([key]) =>
-        (key.startsWith("VITE_") && key !== "VITE_UNSAFE_LOCAL_USER_PASSWORD") ||
-        key === "NAPT_PBKDF2_SALT",
-    ),
-  );
+  const browserEnv = selectBrowserEnv(env);
 
   return {
   define: {
@@ -295,6 +280,9 @@ export default defineConfig(({ mode }) => {
   },
   root: useFrameworkViteRoot ? dirname : "./src/ts",
   envDir: useFrameworkViteRoot ? dirname : "../../",
+  // All app config is passed through the explicit browserEnv allowlist above.
+  // Vite's default VITE_ prefix would expose every matching local variable.
+  envPrefix: [],
   publicDir: path.resolve(dirname, "public"),
   build: {
     // Keep the existing CSS surface compatible with Vite 8's default

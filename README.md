@@ -385,6 +385,8 @@ npm run dev
 
 The web app will be **available at `http://localhost:5173`** with the WebSocket server running on `ws://localhost:8765`.
 
+For trusted LAN device testing, start the development server with `NAPT_ALLOW_LAN_DEV=1 npm run dev` to expose Vite on the network.
+
 ### Command-Line Interface
 
 The product CLI is `npm run cli`. Run it from the repository root after completing
