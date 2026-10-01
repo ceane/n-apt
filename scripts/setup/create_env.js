@@ -3,6 +3,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { randomBytes } from 'node:crypto';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +37,59 @@ function logError(message) {
   log(`❌ ${message}`, 'red');
 }
 
+const legacyVitePasswordKey = 'VITE_UNSAFE_LOCAL_USER_PASSWORD';
+const localCapturePasswordKey = 'NAPT_LEGACY_CAPTURE_PASSWORD';
+
+function migrateLegacyVitePassword(envPath) {
+  const original = fs.readFileSync(envPath, 'utf8');
+  const values = dotenv.parse(original);
+  if (!Object.hasOwn(values, legacyVitePasswordKey)) return false;
+
+  const hasBackendPassword = Object.hasOwn(values, 'UNSAFE_LOCAL_USER_PASSWORD');
+  const hasLocalCapturePassword = Object.hasOwn(values, localCapturePasswordKey);
+  const legacyPassword = values[legacyVitePasswordKey];
+  let targetKey = null;
+
+  if (!hasBackendPassword) {
+    targetKey = 'UNSAFE_LOCAL_USER_PASSWORD';
+  } else if (legacyPassword !== values.UNSAFE_LOCAL_USER_PASSWORD) {
+    if (!hasLocalCapturePassword) {
+      targetKey = localCapturePasswordKey;
+    } else if (values[localCapturePasswordKey] !== legacyPassword) {
+      throw new Error('A different NAPT_LEGACY_CAPTURE_PASSWORD already exists. Resolve the two local capture passwords before rerunning setup.');
+    }
+  }
+
+  const lines = original.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  let lastAliasLine = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^\s*(?:export\s+)?VITE_UNSAFE_LOCAL_USER_PASSWORD\s*=/.test(lines[index])) {
+      lastAliasLine = index;
+    }
+  }
+
+  const migrated = lines.flatMap((line, index) => {
+    if (!/^\s*(?:export\s+)?VITE_UNSAFE_LOCAL_USER_PASSWORD\s*=/.test(line)) return [line];
+    if (index !== lastAliasLine || !targetKey) return [];
+    return [line.replace(/^([ \t]*(?:export[ \t]+)?)VITE_UNSAFE_LOCAL_USER_PASSWORD([ \t]*=)/, `$1${targetKey}$2`)];
+  }).join('');
+
+  const temporaryPath = `${envPath}.${process.pid}.tmp`;
+  try {
+    const fd = fs.openSync(temporaryPath, 'wx', 0o600);
+    try {
+      fs.writeFileSync(fd, migrated, 'utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(temporaryPath, envPath);
+  } catch (error) {
+    try { fs.unlinkSync(temporaryPath); } catch {}
+    throw error;
+  }
+  return true;
+}
+
 // Environment variables configuration
 const envConfig = {
   // Development/Production
@@ -56,8 +111,7 @@ const envConfig = {
   
   // Password for decrypting streaming frames and files
   // Ensure to set the correct password for the files here
-  'UNSAFE_LOCAL_USER_PASSWORD': 'your_password',
-  'VITE_UNSAFE_LOCAL_USER_PASSWORD': 'your_password',
+  'UNSAFE_LOCAL_USER_PASSWORD': randomBytes(32).toString('hex'),
   'UNSAFE_LOCAL_DEMOD_PASSWORD': 'the_demod_password',
   'UNSAFE_LOCAL_LATEX_PASSWORD': 'the_latex_password',
 
@@ -103,7 +157,7 @@ function createEnvContent() {
   content += '# Used for decrypting streaming frames and files\n';
   content += '# Ensure to set the correct password for the files here\n';
   content += `UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n`;
-  content += `VITE_UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n\n`;
+  content += '\n';
 
   content += '# Encrypted Modules Decryption\n';
   content += '# Used for decrypting encrypted modules\n';
@@ -136,12 +190,18 @@ function checkExistingFile() {
   if (fs.existsSync(envPath)) {
     logSuccess('.env.local already exists!');
     
-    // Read existing file to show current values
-    const existingContent = fs.readFileSync(envPath, 'utf8');
-    log('\n📄 Current .env.local configuration:', 'bright');
-    log('─'.repeat(50), 'cyan');
-    log(existingContent, 'cyan');
-    log('─'.repeat(50), 'cyan');
+    // Preserve existing passwords and salts: changing them would orphan captures.
+    fs.chmodSync(envPath, 0o600);
+    try {
+      if (migrateLegacyVitePassword(envPath)) {
+        log('Removed the legacy Vite password entry; local capture credentials were retained.', 'cyan');
+      }
+    } catch {
+      logError('Could not safely migrate the legacy Vite password entry. Resolve any conflicting local capture passwords, then rerun setup.');
+      process.exitCode = 1;
+      return false;
+    }
+    log('\nExisting credentials preserved; values are hidden.', 'cyan');
     
     log('\n💡 Your environment is already configured!', 'green');
     log('   If you need to recreate it, delete .env.local first:', 'yellow');
@@ -160,7 +220,7 @@ function createEnvFile() {
   const content = createEnvContent();
   
   try {
-    fs.writeFileSync(envPath, content, 'utf8');
+    fs.writeFileSync(envPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     logSuccess('.env.local created successfully!');
     return true;
   } catch (error) {
@@ -175,7 +235,8 @@ function showNextSteps() {
   log('\n1. Start the development server:', 'blue');
   log('   npm run dev', 'cyan');
   log('\n2. Login with the development password:', 'blue');
-  log('   Set UNSAFE_LOCAL_USER_PASSWORD in .env.local', 'cyan');
+  log('   Read UNSAFE_LOCAL_USER_PASSWORD from .env.local locally.', 'cyan');
+  log('   Keep that password and the salts to decrypt existing captures.', 'cyan');
   log('\n3. Optional: Configure OpenCellID API token for tower data:', 'blue');
   log('   - Get token from https://opencellid.org/');
   log('   - Edit .env.local and replace "your_opencellid_api_token_here"');
@@ -195,6 +256,7 @@ function main() {
   log('Checking for existing .env.local file...');
   
   if (!checkExistingFile()) {
+    if (process.exitCode) return;
     log('\n🎉 Setup complete - environment already configured!', 'green');
     showNextSteps();
     return;

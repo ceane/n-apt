@@ -45,6 +45,16 @@ pub fn derive_key(passkey: &str) -> [u8; 32] {
   key
 }
 
+/// Login-only key, independently derived from the password. Deriving this
+/// from the exported vault key would let its holder reconstruct login proofs.
+pub fn derive_auth_key(passkey: &str) -> [u8; 32] {
+  let mut salt = b"n-apt/password-auth/v2\0".to_vec();
+  salt.extend_from_slice(get_pbkdf2_salt());
+  let mut key = [0u8; 32];
+  pbkdf2_hmac::<Sha256>(passkey.trim().as_bytes(), &salt, PBKDF2_ITERATIONS, &mut key);
+  key
+}
+
 /// Generate a random 32-byte nonce for the challenge–response handshake.
 pub fn generate_nonce() -> [u8; 32] {
   ::rand::random()

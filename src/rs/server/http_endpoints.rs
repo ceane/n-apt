@@ -3257,6 +3257,7 @@ async fn handle_start_capture(
     frame_rate: None,
     geolocation: None, // HTTP endpoints don't have geolocation data
     ref_based_demod_baseline: None,
+    capture_labels: None,
     is_ephemeral: false,
     channels: channels_opt,
     bandwidth,

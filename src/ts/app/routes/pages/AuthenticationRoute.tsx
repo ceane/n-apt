@@ -845,7 +845,7 @@ interface AuthenticationUIProps {
   hasPasskeys: boolean;
   onPasswordSubmit: (password: string) => void;
   onPasskeyAuth: () => void;
-  onRegisterPasskey: () => void;
+  onRegisterPasskey: (password: string) => void;
 }
 
 export const AuthenticationUI = ({
@@ -974,9 +974,10 @@ export const AuthenticationUI = ({
   );
 
   const handleRegisterPasskey = useCallback(async () => {
-    await onRegisterPasskey();
+    if (!password.trim()) return;
+    await onRegisterPasskey(password.trim());
     // State changes are handled by parent component
-  }, [onRegisterPasskey]);
+  }, [onRegisterPasskey, password]);
 
   const _isLoading =
     authState === "connecting" ||
@@ -1145,7 +1146,7 @@ export const AuthenticationUI = ({
                   {!hasPasskeys && canInteract && (
                     <>
                       <Divider>setup</Divider>
-                      <LinkButton onClick={handleRegisterPasskey}>
+                      <LinkButton onClick={handleRegisterPasskey} disabled={!password.trim()}>
                         Register a passkey for this device
                       </LinkButton>
                     </>

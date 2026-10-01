@@ -30,7 +30,7 @@ import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
 interface UseAuthenticationReturn extends AuthenticationState {
   handlePasswordAuth: (password: string) => Promise<void>;
   handlePasskeyAuth: () => Promise<void>;
-  handleRegisterPasskey: () => Promise<void>;
+  handleRegisterPasskey: (password?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -403,7 +403,7 @@ const useAuthenticationInternal = (
     }
   }, []);
 
-  const handleRegisterPasskey = useCallback(async () => {
+  const handleRegisterPasskey = useCallback(async (password?: string) => {
     // Check if WebAuthn is available before attempting registration
     if (!isWebAuthnAvailable) {
       dispatch({
@@ -415,7 +415,7 @@ const useAuthenticationInternal = (
 
     try {
       dispatch({ type: "AUTHENTICATING" });
-      await registerPasskey();
+      await registerPasskey(password);
       const info = await fetchAuthInfo();
       // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
       const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;

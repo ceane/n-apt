@@ -175,6 +175,7 @@ function migrationKey() {
     resolveDotenvValue(
       config.UNSAFE_LOCAL_USER_PASSWORD ??
         config.N_APT_PASSKEY ??
+        config.NAPT_LEGACY_CAPTURE_PASSWORD ??
         config.VITE_UNSAFE_LOCAL_USER_PASSWORD,
       config,
     );

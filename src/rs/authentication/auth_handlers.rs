@@ -206,7 +206,7 @@ pub async fn auth_verify_handler(
   };
 
   if !crypto::verify_hmac(
-    &state.shared.encryption_key,
+    &state.shared.authentication_key,
     &nonce_bytes,
     &client_hmac,
   ) {
@@ -320,7 +320,11 @@ pub async fn auth_vault_key_handler(
 /// POST /auth/passkey/register/start — begin passkey registration.
 pub async fn passkey_register_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
 ) -> impl IntoResponse {
+  let Some(token) = registration_session(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "authentication_required"})));
+  };
   let user_unique_id = Uuid::new_v4();
   let existing_keys = state.credential_store.get_passkeys().await;
   let exclude_credentials: Vec<CredentialID> =
@@ -340,7 +344,7 @@ pub async fn passkey_register_start_handler(
           .lock()
           .expect("passkey registration state poisoned"),
         challenge_id.clone(),
-        reg_state,
+        (token, reg_state),
       );
 
       let ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
@@ -376,14 +380,21 @@ pub async fn passkey_register_start_handler(
 /// POST /auth/passkey/register/finish — complete passkey registration.
 pub async fn passkey_register_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
+  let Some(token) = registration_session(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "authentication_required"})));
+  };
   let reg_state: Option<PasskeyRegistration> = {
     let mut pending = state
       .pending_passkey_registrations
       .lock()
       .expect("passkey registration state poisoned");
-    take_pending_passkey_state(&mut pending, &body.challenge_id)
+    if pending.get(&body.challenge_id).is_some_and(|(_, (owner, _))| owner != &token) {
+      return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "registration_session_mismatch"})));
+    }
+    take_pending_passkey_state(&mut pending, &body.challenge_id).map(|(_, registration)| registration)
   };
   let Some(reg_state) = reg_state else {
     return (
@@ -427,6 +438,12 @@ pub async fn passkey_register_finish_handler(
       )
     }
   }
+}
+
+async fn registration_session(state: &crate::server::AppState, headers: &HeaderMap) -> Option<String> {
+  let token = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ")?;
+  state.session_store.validate(token).await?;
+  Some(token.to_owned())
 }
 
 /// POST /auth/passkey/auth/start — begin passkey authentication.

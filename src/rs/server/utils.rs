@@ -1408,6 +1408,7 @@ signals:
       geolocation: None,
       frequency_range: Some((137_100_000.0, 137_900_000.0)),
       ref_based_demod_baseline: None,
+      capture_labels: None,
       is_mock_apt: false,
       is_ephemeral: false,
       dek: None,
@@ -1881,6 +1882,12 @@ pub fn save_capture_file_multi(
     meta_obj["ref_based_demod_baseline"] = serde_json::json!(baseline);
   }
 
+  if let Some(labels) = &result.capture_labels {
+    if !labels.is_empty() {
+      meta_obj["capture_labels"] = serde_json::json!(labels);
+    }
+  }
+
   if let Some((min_hz, max_hz)) = result.frequency_range {
     meta_obj["frequency_range"] = serde_json::json!([min_hz, max_hz]);
   }
@@ -2326,6 +2333,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2406,6 +2414,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2483,6 +2492,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2523,6 +2533,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2581,6 +2592,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: true,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2678,6 +2690,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: true,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2806,6 +2819,7 @@ mod dynamic_header_tests {
       is_ephemeral: false,
       is_mock_apt: true,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,

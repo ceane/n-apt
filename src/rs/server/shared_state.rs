@@ -146,6 +146,8 @@ pub struct SharedState {
   pub device_state: Mutex<String>,
   /// AES-256 encryption key derived from passkey (set once at startup)
   pub encryption_key: [u8; 32],
+  /// Login-only key. Never export this key to authenticated clients.
+  pub authentication_key: [u8; 32],
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// Device-scoped channel selected by the control plane. This is kept apart
@@ -235,6 +237,7 @@ impl SharedState {
   pub fn new(redis_url: &str) -> Arc<Self> {
     let passkey = unsafe_local_user_password();
     let encryption_key = crate::crypto::derive_key(&passkey);
+    let authentication_key = crate::crypto::derive_auth_key(&passkey);
     let sdr_settings = load_sdr_settings();
     let (redis_store, redis_readiness) = match redis::Client::open(redis_url) {
       Ok(client) => (RedisStore::from_client(client), RedisReadiness::Unknown),
@@ -296,6 +299,7 @@ impl SharedState {
       device_loading_reason: Mutex::new(None),
       device_state: Mutex::new("disconnected".to_string()),
       encryption_key,
+      authentication_key,
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),
@@ -797,6 +801,9 @@ fn merge_pending_fast_settings(
 
 fn unsafe_local_user_password() -> String {
   match std::env::var("UNSAFE_LOCAL_USER_PASSWORD") {
+    Ok(passkey) if passkey.trim() == "your_password" => panic!(
+      "The public setup password cannot enable login. Configure a private password; preserve the old password and salts for existing captures."
+    ),
     Ok(passkey) if !passkey.trim().is_empty() => passkey,
     _ => panic!(
       "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
@@ -936,6 +943,15 @@ mod tests {
 
   #[test]
   #[serial]
+  fn refuses_public_setup_placeholder_without_changing_capture_keys() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "your_password");
+    let result = std::panic::catch_unwind(unsafe_local_user_password);
+    std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
+    assert!(result.is_err(), "public setup placeholder must not enable login");
+  }
+
+  #[test]
+  #[serial]
   #[should_panic(
     expected = "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
   )]
@@ -945,11 +961,10 @@ mod tests {
     let _ = unsafe_local_user_password();
   }
 
-  /// Pins the vault/auth key contract: the server's `encryption_key` is
-  /// exactly `PBKDF2-HMAC-SHA256(password, salt, 100k)`. Both the password
-  /// challenge-response (HMAC over a server nonce) and .napt capture
-  /// encryption/playback (`scripts/decrypt_napt.mjs` re-derives this same
-  /// key client-side) depend on this derivation staying byte-stable.
+  /// Pins the legacy vault contract: `encryption_key` is exactly
+  /// `PBKDF2-HMAC-SHA256(password, salt, 100k)`. Capture encryption/playback
+  /// depend on this derivation staying byte-stable. Authentication now uses
+  /// an independent password derivation; the exported vault is not a login key.
   /// Changing it orphans every previously recorded capture.
   #[test]
   #[serial]
@@ -969,12 +984,13 @@ mod tests {
     assert_eq!(expected, crate::crypto::derive_key(" vault-contract-test "));
 
     // End-to-end auth proof shape: a client that knows the password can HMAC
-    // a server nonce with its derived key and the server verifies it with the
-    // shared key — no plaintext password ever crosses the wire.
+    // a server nonce with the independently derived authentication key.
     let nonce = crate::crypto::generate_nonce();
-    let client_tag = crate::crypto::compute_hmac(&expected, &nonce);
+    let auth_key = crate::crypto::derive_auth_key("vault-contract-test");
+    assert_ne!(auth_key, expected);
+    let client_tag = crate::crypto::compute_hmac(&auth_key, &nonce);
     assert!(crate::crypto::verify_hmac(
-      &shared.encryption_key,
+      &shared.authentication_key,
       &nonce,
       &client_tag
     ));

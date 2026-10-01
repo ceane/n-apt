@@ -7,6 +7,7 @@ import {
   authenticateWithPassword,
   authenticateWithPasskey,
   buildWsUrl,
+  registerPasskey,
 } from "@n-apt/app/infrastructure/services/auth";
 
 describe("auth service", () => {
@@ -17,6 +18,12 @@ describe("auth service", () => {
   });
 
   describe("Session Storage", () => {
+    test("passkey enrollment without a session requires password authentication first", async () => {
+      Object.defineProperty(navigator, 'credentials', {configurable:true, value:{create:jest.fn().mockResolvedValue(null)}});
+      (global.fetch as jest.Mock).mockResolvedValue({ok:true,json:async()=>({challenge_id:'unsafe-unauthenticated-enrollment',options:{challenge:'AA',user:{id:'AA'}}})});
+      await expect(registerPasskey()).rejects.toThrow(/password|sign in/i);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
     test("storeSession and getStoredSession work correctly", () => {
       const token = "valid.session.token.long.enough";
       storeSession(token);

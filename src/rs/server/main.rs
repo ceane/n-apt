@@ -57,7 +57,7 @@ pub struct AppState {
   pub shared: Arc<shared_state::SharedState>,
   pub credential_store: CredentialStore,
   pub pending_passkey_registrations: std::sync::Mutex<
-    HashMap<String, (std::time::Instant, PasskeyRegistration)>,
+    HashMap<String, (std::time::Instant, (String, PasskeyRegistration))>,
   >,
   pub pending_passkey_authentications: std::sync::Mutex<
     HashMap<String, (std::time::Instant, PasskeyAuthentication)>,
@@ -403,13 +403,13 @@ impl websocket_server::WebSocketServer {
         "/auth/passkey/register/start",
         post(
           crate::authentication::auth_handlers::passkey_register_start_handler,
-        ),
+        ).route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::authentication::require_session)),
       )
       .route(
         "/auth/passkey/register/finish",
         post(
           crate::authentication::auth_handlers::passkey_register_finish_handler,
-        ),
+        ).route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::authentication::require_session)),
       )
       .route(
         "/auth/passkey/auth/start",

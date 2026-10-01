@@ -494,6 +494,7 @@ export const sendCaptureCommand = createAsyncThunk(
             geolocation: req.geolocation,
             liveMode: req.liveMode,
             refBasedDemodBaseline: req.refBasedDemodBaseline,
+            captureLabels: req.captureLabels,
           },
         },
       });

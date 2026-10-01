@@ -277,6 +277,8 @@ pub struct CaptureResult {
   pub frequency_range: Option<(f64, f64)>,
   /// Reference based demod baseline metadata
   pub ref_based_demod_baseline: Option<String>,
+  /// User-provided stimulus labels
+  pub capture_labels: Option<Vec<String>>,
   pub is_mock_apt: bool,
   pub is_ephemeral: bool,
   /// Per-file Data Encryption Key (DEK)
@@ -466,6 +468,8 @@ pub struct SdrProcessor {
   pub capture_requested_range: Option<(f64, f64)>,
   /// Metadata for reference based demod baseline
   pub capture_ref_based_demod_baseline: Option<String>,
+  /// User-provided stimulus labels for the active capture
+  pub capture_stimulus_labels: Option<Vec<String>>,
   /// Whether capture is ephemeral (not persisted to disk)
   pub capture_is_ephemeral: bool,
   /// Available spectrum bounds loaded from signals.yaml
@@ -603,6 +607,7 @@ impl SdrProcessor {
       capture_overall_span_hz: 0.0,
       capture_requested_range: None,
       capture_ref_based_demod_baseline: None,
+      capture_stimulus_labels: None,
       capture_is_ephemeral: false,
       available_spectrum,
       current_gain_db: -999.0, // Force first update
@@ -2235,6 +2240,7 @@ impl SdrProcessor {
       geolocation: self.capture_geolocation.clone(),
       frequency_range: self.capture_requested_range,
       ref_based_demod_baseline: self.capture_ref_based_demod_baseline.take(),
+      capture_labels: self.capture_stimulus_labels.take(),
       is_mock_apt: self.device.device_type().contains("Mock"),
       is_ephemeral: self.capture_is_ephemeral,
       dek: if self.capture_encrypted {

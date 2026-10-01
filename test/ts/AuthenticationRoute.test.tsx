@@ -4,6 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 
+jest.mock("@n-apt/ui/AppThemePicker", () => ({
+  AppThemePickerUI: () => null,
+}));
+
 jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: jest.fn(() => ({
     authState: "ready" as const,
@@ -253,9 +257,11 @@ describe("AuthenticationRoute", () => {
     const registerButton = screen.getByRole("button", {
       name: /Register a passkey/,
     });
+    expect(registerButton).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: "enrollment-password" } });
     fireEvent.click(registerButton);
 
-    expect(mockRegisterPasskey).toHaveBeenCalled();
+    expect(mockRegisterPasskey).toHaveBeenCalledWith("enrollment-password");
   });
 
   it("should disable submit button when password is empty", async () => {

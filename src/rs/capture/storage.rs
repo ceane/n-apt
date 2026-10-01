@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const STORAGE_ENV: &str = "N_APT_CAPTURE_STORAGE_PATH";
+const DOWNLOADS_ENV: &str = "N_APT_CAPTURE_DOWNLOADS_PATH";
 const BACKUP_ENV: &str = "N_APT_CAPTURE_BACKUP_PATH";
 
 fn home_dir() -> PathBuf {
@@ -34,7 +35,11 @@ pub fn capture_storage_dir() -> PathBuf {
 
 pub fn replica_capture_dirs() -> Vec<PathBuf> {
   let home = home_dir();
-  let mut paths = vec![home.join("Downloads/N-APT Captures")];
+  let downloads = configured_or_default(
+    std::env::var_os(DOWNLOADS_ENV),
+    home.join("Downloads/N-APT Captures"),
+  );
+  let mut paths = vec![downloads];
   if let Some(path) = std::env::var_os(BACKUP_ENV).map(PathBuf::from) {
     if path.is_absolute() {
       paths.push(path);
@@ -115,7 +120,8 @@ fn copy_atomically(source: &Path, target: &Path) -> std::io::Result<()> {
 }
 
 /// Copy a finished artifact to a durable user-data directory, Downloads, and
-/// the optional `N_APT_CAPTURE_BACKUP_PATH`. Returns the canonical durable path.
+/// the optional `N_APT_CAPTURE_BACKUP_PATH`. `N_APT_CAPTURE_DOWNLOADS_PATH`
+/// can override the Downloads replica directory. Returns the canonical path.
 pub fn replicate_capture_file(
   source: &Path,
   filename: &str,
@@ -262,6 +268,33 @@ fn recover_artifact_paths_with_dirs(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use serial_test::serial;
+
+  const TEST_DOWNLOADS_ENV: &str = "N_APT_CAPTURE_DOWNLOADS_PATH";
+
+  struct RestoreEnv {
+    key: &'static str,
+    value: Option<std::ffi::OsString>,
+  }
+
+  impl RestoreEnv {
+    fn capture(key: &'static str) -> Self {
+      Self {
+        key,
+        value: std::env::var_os(key),
+      }
+    }
+  }
+
+  impl Drop for RestoreEnv {
+    fn drop(&mut self) {
+      if let Some(value) = self.value.take() {
+        std::env::set_var(self.key, value);
+      } else {
+        std::env::remove_var(self.key);
+      }
+    }
+  }
 
   #[test]
   fn configured_paths_ignore_relative_values() {
@@ -270,6 +303,27 @@ mod tests {
       PathBuf::from("/home/test/.n-apt/captures"),
     );
     assert_eq!(path, PathBuf::from("/home/test/.n-apt/captures"));
+  }
+
+  #[test]
+  #[serial]
+  fn downloads_path_uses_absolute_override() {
+    let _restore = RestoreEnv::capture(TEST_DOWNLOADS_ENV);
+    let override_path = PathBuf::from("/tmp/napt-test-downloads");
+    std::env::set_var(TEST_DOWNLOADS_ENV, &override_path);
+    assert_eq!(replica_capture_dirs()[0], override_path);
+  }
+
+  #[test]
+  #[serial]
+  fn downloads_path_ignores_relative_override() {
+    let _restore = RestoreEnv::capture(TEST_DOWNLOADS_ENV);
+    let home = home_dir();
+    std::env::set_var(TEST_DOWNLOADS_ENV, "relative/downloads");
+    assert_eq!(
+      replica_capture_dirs()[0],
+      home.join("Downloads/N-APT Captures"),
+    );
   }
 
   #[test]

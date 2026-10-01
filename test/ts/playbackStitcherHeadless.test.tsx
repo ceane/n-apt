@@ -209,6 +209,7 @@ describe("headless capture stitcher playback", () => {
       );
       const passphrase =
         process.env.UNSAFE_LOCAL_USER_PASSWORD ??
+        process.env.NAPT_LEGACY_CAPTURE_PASSWORD ??
         process.env.VITE_UNSAFE_LOCAL_USER_PASSWORD;
       if (hasIqCaptures && !passphrase) {
         throw new Error(

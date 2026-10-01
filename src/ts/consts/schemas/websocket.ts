@@ -256,6 +256,7 @@ export type CaptureRequest = {
     | "audio_internal"
     | "speech"
     | "vision";
+  captureLabels?: string[];
   liveMode?: boolean;
 };
 

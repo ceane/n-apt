@@ -147,6 +147,7 @@ pub enum SdrCommand {
     frame_rate: Option<u32>,
     geolocation: Option<GeolocationData>,
     ref_based_demod_baseline: Option<String>,
+    capture_labels: Option<Vec<String>>,
     is_ephemeral: bool,
     channels: Option<Vec<ChannelSpec>>,
   },
@@ -443,6 +444,13 @@ pub struct WebSocketMessage {
     alias = "refBasedDemodBaseline"
   )]
   pub ref_based_demod_baseline: Option<String>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "captureLabels",
+    default
+  )]
+  #[validate(length(max = 32))]
+  pub capture_labels: Option<Vec<String>>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "powerScale")]
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]

@@ -64,7 +64,7 @@ async fn manual_authenticate(
   let nonce = general_purpose::STANDARD
     .decode(challenge.nonce)
     .map_err(|error| format!("auth challenge nonce was invalid: {error}"))?;
-  let key = crypto::derive_key(passkey);
+  let key = crypto::derive_auth_key(passkey);
   let hmac =
     general_purpose::STANDARD.encode(crypto::compute_hmac(&key, &nonce));
   let verify_response = client

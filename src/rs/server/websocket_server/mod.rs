@@ -1393,6 +1393,7 @@ impl WebSocketServer {
             frame_rate,
             geolocation,
             ref_based_demod_baseline,
+            capture_labels,
             is_ephemeral,
             channels,
           } => {
@@ -1414,6 +1415,7 @@ impl WebSocketServer {
                 frame_rate,
                 geolocation,
                 ref_based_demod_baseline,
+                capture_labels,
                 is_ephemeral,
                 channels,
               })

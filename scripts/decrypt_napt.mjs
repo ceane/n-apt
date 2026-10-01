@@ -15,7 +15,7 @@ try {
     const envContent = fs.readFileSync('.env.local', 'utf8');
     const config = dotenv.parse(envContent);
     
-    let rawPass = config.VITE_UNSAFE_LOCAL_USER_PASSWORD || config.UNSAFE_LOCAL_USER_PASSWORD;
+    let rawPass = config.NAPT_LEGACY_CAPTURE_PASSWORD || config.VITE_UNSAFE_LOCAL_USER_PASSWORD || config.UNSAFE_LOCAL_USER_PASSWORD;
     if (rawPass) {
       if (rawPass.startsWith('$')) {
         const varName = rawPass.substring(1);

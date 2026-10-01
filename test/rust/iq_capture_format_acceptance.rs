@@ -36,6 +36,7 @@ fn capture(file_type: &str, encrypted: bool, case: &str) -> CaptureResult {
     geolocation: None,
     frequency_range: None,
     ref_based_demod_baseline: None,
+    capture_labels: None,
     is_mock_apt: false,
     is_ephemeral: false,
     dek: None,
@@ -96,7 +97,10 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
         let header = napt_header(&bytes);
         assert_eq!(header["metadata"]["format"], "napt");
         assert_eq!(header["metadata"]["format_version"], 6);
-        assert_eq!(header["metadata"]["frame_updates"], serde_json::json!(input.frame_updates));
+        assert_eq!(
+          header["metadata"]["frame_updates"],
+          serde_json::json!(input.frame_updates)
+        );
         assert_eq!(header["metadata"]["encrypted"], true);
         assert_eq!(header["metadata"]["sections"]["binary"]["encrypted"], true);
       }
@@ -135,7 +139,10 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
         assert_eq!(metadata["format"], "wav");
         assert_eq!(metadata["format_version"], 3);
         assert_eq!(metadata["encrypted"], false);
-        assert_eq!(metadata["frame_updates"], serde_json::json!(input.frame_updates));
+        assert_eq!(
+          metadata["frame_updates"],
+          serde_json::json!(input.frame_updates)
+        );
       }
       _ => unreachable!(),
     }
@@ -144,7 +151,8 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
 }
 
 #[test]
-fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes() {
+fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
+) {
   let mut input = capture(".iq", false, "multi_channel_offsets");
   input.channels.push(CaptureChannel {
     center_freq_hz: 138_000_000.0,
@@ -173,13 +181,18 @@ fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
     .expect("second channel patch"),
   ];
 
-  let artifact = save_capture_file_multi(&input, &key())
-    .expect("write multichannel V6 IQ");
+  let artifact =
+    save_capture_file_multi(&input, &key()).expect("write multichannel V6 IQ");
   let bytes = fs::read(&artifact.path).expect("read multichannel V6 IQ");
-  let decoded = iq_format::decode(&bytes, None).expect("decode multichannel V6 IQ");
+  let decoded =
+    iq_format::decode(&bytes, None).expect("decode multichannel V6 IQ");
 
   assert_eq!(
-    decoded.chunks.iter().map(|chunk| chunk.sample_offset).collect::<Vec<_>>(),
+    decoded
+      .chunks
+      .iter()
+      .map(|chunk| chunk.sample_offset)
+      .collect::<Vec<_>>(),
     vec![0, 0],
     "chunk sample offsets are relative to each channel"
   );
@@ -197,8 +210,10 @@ fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
 
 #[test]
 fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
-  let fixture: Value = serde_json::from_str(include_str!("../fixtures/iq-capture-v6-playback.json"))
-    .expect("shared playback fixture");
+  let fixture: Value = serde_json::from_str(include_str!(
+    "../fixtures/iq-capture-v6-playback.json"
+  ))
+  .expect("shared playback fixture");
   let frames = fixture["frames"].as_array().expect("fixture frames");
   let mut input = capture(".iq", false, "cross_language_playback");
   input.channels[0].iq_data = frames
@@ -248,7 +263,8 @@ fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
     })
     .collect();
 
-  let artifact = save_capture_file_multi(&input, &key()).expect("write backend V6 IQ");
+  let artifact =
+    save_capture_file_multi(&input, &key()).expect("write backend V6 IQ");
   let bytes = fs::read(&artifact.path).expect("read backend V6 IQ");
   let decoded = iq_format::decode(&bytes, None).expect("decode backend V6 IQ");
   assert_eq!(decoded.metadata.format_version, 6);
@@ -260,9 +276,11 @@ fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
   if let Some(path) = std::env::var_os("NAPT_IQ_CROSS_LANGUAGE_FIXTURE") {
     let path = std::path::PathBuf::from(path);
     if let Some(parent) = path.parent() {
-      fs::create_dir_all(parent).expect("create cross-language fixture directory");
+      fs::create_dir_all(parent)
+        .expect("create cross-language fixture directory");
     }
-    fs::copy(&artifact.path, path).expect("export backend V6 IQ for frontend test");
+    fs::copy(&artifact.path, path)
+      .expect("export backend V6 IQ for frontend test");
   }
   fs::remove_file(artifact.path).expect("remove backend writer artifact");
 }

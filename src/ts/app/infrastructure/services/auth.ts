@@ -306,10 +306,12 @@ export async function authenticateWithPassword(
 // ── Passkey (WebAuthn) authentication ──────────────────────────────────
 
 /** Register a new passkey. */
-export async function registerPasskey(): Promise<void> {
-  // The backend requires an authenticated session to add a passkey once one
-  // is already enrolled; first-run enrollment stays open.
-  const storedToken = getStoredSession();
+export async function registerPasskey(password?: string): Promise<void> {
+  // First enrollment also requires password knowledge. Keep the vault
+  // password unchanged and authorize the ceremony with a fresh session.
+  let storedToken = getStoredSession();
+  if (password?.trim()) storedToken = (await authenticateWithPassword(password)).token;
+  if (!storedToken) throw new Error("Enter your password or sign in before registering a passkey");
   const authHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
@@ -361,6 +363,7 @@ export async function registerPasskey(): Promise<void> {
     const text = await finishRes.text();
     throw new Error(`Failed to finish passkey registration: ${text}`);
   }
+  authInfoPromise = null;
 }
 
 /** Authenticate with an existing passkey. */

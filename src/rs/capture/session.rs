@@ -30,6 +30,7 @@ pub struct CaptureStartRequest {
   pub frame_rate: Option<u32>,
   pub geolocation: Option<crate::server::types::GeolocationData>,
   pub ref_based_demod_baseline: Option<String>,
+  pub capture_labels: Option<Vec<String>>,
   pub is_ephemeral: bool,
   pub channels: Option<Vec<crate::server::types::ChannelSpec>>,
 }
@@ -102,6 +103,7 @@ impl CaptureWorker {
       frame_rate,
       geolocation,
       ref_based_demod_baseline,
+      capture_labels,
       is_ephemeral,
       channels,
     } = request;
@@ -277,6 +279,7 @@ impl CaptureWorker {
     processor.capture_duration_s = duration_s;
     processor.capture_file_type = file_type;
     processor.capture_ref_based_demod_baseline = ref_based_demod_baseline;
+    processor.capture_stimulus_labels = capture_labels;
     processor.capture_is_ephemeral = is_ephemeral;
 
     let mode_str = match acquisition_mode.as_str() {
@@ -781,6 +784,7 @@ mod tests {
       frame_rate: Some(48),
       geolocation: None,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       is_ephemeral: false,
       channels: None,
     }
