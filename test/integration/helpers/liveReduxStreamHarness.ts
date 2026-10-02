@@ -640,12 +640,6 @@ export const createLiveReduxStreamHarness = async (
             : state.sourceStatuses[sourceId] === "standby" ||
               state.sourceStatuses[sourceId] === "receiving",
       );
-      if (!enabled) {
-        // The UI requests the retained Mock Tx standby frame after the global
-        // stop transition. Keep this headless harness on the same lifecycle
-        // boundary instead of asserting against the last transmitting frame.
-        await harness.requestNextStandbyFrame({ sourceId });
-      }
     },
 
     async simulateHardwarePresence(present) {

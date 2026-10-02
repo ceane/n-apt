@@ -3915,6 +3915,117 @@ describe("Redux WebSocket Migration", () => {
       );
     });
 
+    it("waits for source hydration before replaying a cold page's cached RX range", () => {
+      const sockets: any[] = [];
+      (global.WebSocket as unknown as jest.Mock).mockImplementation(
+        (url: string) => {
+          const socket = {
+            url,
+            readyState: WebSocket.OPEN,
+            binaryType: "",
+            close: jest.fn(),
+            send: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+            onopen: null as (() => void) | null,
+            onclose: null,
+            onerror: null,
+            onmessage: null as ((event: { data: string }) => void) | null,
+          };
+          sockets.push(socket);
+          return socket;
+        },
+      );
+
+      const middlewareStore = configureStore({
+        reducer: {
+          websocket: websocketSlice,
+          spectrum: spectrumSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            websocketMiddleware,
+          ),
+      });
+      middlewareStore.dispatch(
+        setDeviceSdrSettingsBundle({
+          frequencyRange: { min: 0, max: 3_200_000 },
+          sampleRateHz: 3_200_000,
+        } as any),
+      );
+      middlewareStore.dispatch({
+        type: "websocket/connect",
+        payload: {
+          url: "ws://localhost/ws?token=session-token",
+          aesKey: {} as CryptoKey,
+          enabled: true,
+        },
+      });
+
+      // A full page load opens the socket before its first source_info message.
+      // Do not treat that lack of hydration as permission to replay device state.
+      sockets[0].onopen?.();
+      expect(sockets[0].send).not.toHaveBeenCalledWith(
+        expect.stringContaining('"type":"frequency_range"'),
+      );
+      expect(sockets[0].send).not.toHaveBeenCalledWith(
+        expect.stringContaining('"type":"settings"'),
+      );
+
+      processWebSocketMessage(
+        middlewareStore.dispatch,
+        middlewareStore.getState,
+        {
+          type: "source_info",
+          active_source: "rtl-sdr-v4",
+          active_source_mode: "live",
+          sources: [
+            {
+              id: "rtl-sdr-v4",
+              name: "RTL-SDR v4",
+              kind: "rtl_sdr",
+              capability: "rx",
+              status: "receiving",
+              loading_attempt: 0,
+              loading_attempt_max: 2,
+              supports_approx_dbm: true,
+              iq_format: {
+                element_type: "u8",
+                layout: "interleaved_iq",
+                typed_array: "Uint8Array",
+              },
+              stream_key: "rtl-sdr-v4",
+              stream_key_kind: "source_id",
+              serial_number: "rtl-sdr-v4",
+              manufacturer: "RTL-SDR",
+              product: "RTL-SDR v4",
+              sdr: {
+                max_sample_rate: 3_200_000,
+                sample_rate_options: [3_200_000],
+                fft_display: { markers: [] },
+                settings: {
+                  sample_rate: 3_200_000,
+                  center_frequency: 1_618_000,
+                  fft_size: 2048,
+                  fft_window: "Rectangular",
+                  frame_rate: 60,
+                  gain: 46.9,
+                },
+              },
+            },
+          ],
+        },
+      );
+
+      expect(sockets[0].send).not.toHaveBeenCalledWith(
+        expect.stringContaining('"type":"frequency_range"'),
+      );
+      expect(sockets[0].send).not.toHaveBeenCalledWith(
+        expect.stringContaining('"type":"settings"'),
+      );
+    });
+
     it("reuses the multiplexed stream WebSocket when reconnect reuses control", async () => {
       const sockets: any[] = [];
       (global.WebSocket as unknown as jest.Mock).mockImplementation(

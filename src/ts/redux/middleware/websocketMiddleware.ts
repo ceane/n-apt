@@ -166,6 +166,10 @@ const isDemodEligibleLiveFrame = (frame: any): boolean =>
 
 // Tracks the requested/selected source during transition to filter out old frames
 let requestedSourceId: string | null = null;
+// A cold page can open its control socket before the backend source snapshot
+// arrives. Defer legacy device-setting replay until that snapshot identifies
+// whether the active source is managed and already owns its live settings.
+let pendingInitialLegacyResync = false;
 
 /** Keep the client frame gate aligned with the server's active-source mode. */
 export const isSourceModePaused = (sourceMode: unknown): boolean =>
@@ -957,6 +961,7 @@ export const isPauseCommandInFlight = (): boolean =>
 
 export const resetWebSocketMiddlewareState = (): void => {
   requestedSourceId = null;
+  pendingInitialLegacyResync = false;
   _lastSettingsRequest = null;
   lastFrequencyRangeSendKey = null;
   lastFrequencyRangeSendAt = 0;
@@ -1646,6 +1651,43 @@ const sourceCenterFrequencyHz = (state: any): number => {
     return (range.min + range.max) / 2;
   }
   return Number(state.spectrum?.frequency ?? 0);
+};
+
+const isManagedRxSource = (source: SourceInfo | null | undefined): boolean =>
+  !!source?.iq_format && source.capabilities?.can_receive !== false;
+
+const sendLegacyInitialResync = (
+  ws: WebSocket | null,
+  state: any,
+): void => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  const currentRange = state.spectrum?.frequencyRange;
+  if (currentRange) {
+    const activeSignalArea = state.spectrum?.activeSignalArea;
+    const rangePayload = buildFrequencyRangeMessageData(state, {
+      range: currentRange,
+    });
+    ws.send(
+      JSON.stringify({
+        type: "frequency_range",
+        scope: "device",
+        ...rangePayload,
+        ...(typeof activeSignalArea === "string" &&
+        activeSignalArea.trim().length > 0
+          ? { signal_area: activeSignalArea }
+          : {}),
+      }),
+    );
+  }
+
+  const spectrumSettings = state.spectrum;
+  if (spectrumSettings) {
+    const sdrSettingsPayload = buildReconnectSettingsMessage(spectrumSettings);
+    if (Object.keys(sdrSettingsPayload).length > 1) {
+      ws.send(JSON.stringify(sdrSettingsPayload));
+    }
+  }
 };
 
 const buildManagedRxOptions = (
@@ -2921,6 +2963,7 @@ const resetManagedStreamPipeline = (recreate: boolean): void => {
 
 const cleanupSocket = () => {
   requestedSourceId = null;
+  pendingInitialLegacyResync = false;
   if (wsInstance.reconnectTimeout) {
     clearTimeout(wsInstance.reconnectTimeout);
     wsInstance.reconnectTimeout = null;
@@ -3417,6 +3460,19 @@ export const processWebSocketMessage = (
         // for every status heartbeat can reopen/fence the active stream and
         // make pause/resume controls appear frozen.
         syncManagedStreamSubscriptions(dispatch, getState);
+      }
+      if (pendingInitialLegacyResync) {
+        pendingInitialLegacyResync = false;
+        const hydratedActiveSource = sources.find(
+          (source: SourceInfo) => source.id === parsedData.active_source,
+        );
+        if (
+          hydratedActiveSource &&
+          !isSourceModePaused(parsedData.active_source_mode) &&
+          !isManagedRxSource(hydratedActiveSource)
+        ) {
+          sendLegacyInitialResync(wsInstance.ws, getState());
+        }
       }
     } catch (e) {
       console.error("Failed to parse source_info message:", e);
@@ -4138,53 +4194,23 @@ const createWebSocketMiddleware =
                 dispatch(clearQueuedMessages());
               }
 
-              // The managed raw-IQ stream hydrates its device-owned options
-              // after reconnect. Replaying this client's cached Redux range
-              // here would retune the shared device before that hydration,
-              // which is especially visible when this tab was backgrounded
-              // while another subscriber moved the center frequency. Keep the
-              // legacy resync for non-managed sources and for the first cold
-              // connection, where it remains the initial device setup path.
+              // A newly loaded page can reach onopen before its first
+              // source_info snapshot. In that state, the persisted spectrum
+              // range is only a local display preference; sending it now can
+              // retune a live managed receiver before its authoritative stream
+              // options arrive. Defer the legacy path until source identity is
+              // known. Existing, known legacy sources keep their setup path.
               const activeSource = (state.websocket.sources ?? []).find(
                 (source: SourceInfo) =>
                   source.id === state.websocket.activeSourceId,
               );
-              const hasManagedRxTarget =
-                hadSession &&
-                !!activeSource?.iq_format &&
-                activeSource.capabilities?.can_receive !== false &&
-                isSourceStreamAvailable(
-                  state.websocket.sourceStatuses?.[activeSource.id] ??
-                    activeSource.status,
-                );
-              if (!hasManagedRxTarget) {
-                const currentRange = state.spectrum?.frequencyRange;
-                if (currentRange) {
-                  const activeSignalArea = state.spectrum?.activeSignalArea;
-                  const rangePayload = buildFrequencyRangeMessageData(state, {
-                    range: currentRange,
-                  });
-                  ws.send(
-                    JSON.stringify({
-                      type: "frequency_range",
-                      scope: "device",
-                      ...rangePayload,
-                      ...(typeof activeSignalArea === "string" &&
-                      activeSignalArea.trim().length > 0
-                        ? { signal_area: activeSignalArea }
-                        : {}),
-                    }),
-                  );
-                }
-
-                const spectrumSettings = state.spectrum;
-                if (spectrumSettings) {
-                  const sdrSettingsPayload =
-                    buildReconnectSettingsMessage(spectrumSettings);
-                  if (Object.keys(sdrSettingsPayload).length > 1) {
-                    ws.send(JSON.stringify(sdrSettingsPayload));
-                  }
-                }
+              if (!activeSource) {
+                pendingInitialLegacyResync = true;
+              } else if (isManagedRxSource(activeSource)) {
+                pendingInitialLegacyResync = false;
+              } else {
+                pendingInitialLegacyResync = false;
+                sendLegacyInitialResync(ws, state);
               }
             };
 

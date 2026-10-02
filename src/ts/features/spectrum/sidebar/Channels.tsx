@@ -529,7 +529,10 @@ export const Channels: React.FC<ChannelsProps> = ({
           channelLabelSet.has(String(f.label).toUpperCase())),
     );
   }, [channelLabelSet, effectiveFrames, websocketChannels]);
-  const currentFrequencyRange = reduxFrequencyRange ?? state.frequencyRange;
+  // The live spectrum context owns the range used to render this sidebar. The
+  // Redux copy may still be one hydration tick behind while a source snapshot
+  // is arriving; only use it as a fallback for consumers without a live range.
+  const currentFrequencyRange = state.frequencyRange ?? reduxFrequencyRange;
   const currentCenterFrequencyHz = calculateCenterFrequency(
     currentFrequencyRange,
   );

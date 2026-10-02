@@ -10,6 +10,7 @@ import {
 } from "@n-apt/math/frequency";
 import { resolveMirroredTuning } from "@n-apt/math/basebandMirror";
 import type { FrequencyRange } from "@n-apt/consts/schemas/websocket";
+import { INITIAL_SPECTRUM_FREQUENCY_RANGE } from "@n-apt/webusb/initialSpectrumFrequencyRange";
 
 // Styled Components
 const Container = styled.div`
@@ -74,9 +75,21 @@ const ReduxFrequencyRangeSlider: React.FC<ReduxFrequencyRangeSliderProps> = ({
   const reduxActiveSignalArea = useAppSelector((state) => state.spectrum.activeSignalArea);
   const reduxLastKnownRanges = useAppSelector((state) => state.spectrum.lastKnownRanges);
 
-  const frequencyRange = reduxFrequencyRange ?? contextFrequencyRange;
-  const activeSignalArea = contextActiveSignalArea ?? reduxActiveSignalArea;
-  const lastKnownRanges = contextLastKnownRanges ?? reduxLastKnownRanges;
+  const reduxHasInitialRange =
+    reduxFrequencyRange?.min === INITIAL_SPECTRUM_FREQUENCY_RANGE.min &&
+    reduxFrequencyRange?.max === INITIAL_SPECTRUM_FREQUENCY_RANGE.max;
+  const frequencyRange =
+    reduxHasInitialRange && contextFrequencyRange
+      ? contextFrequencyRange
+      : (reduxFrequencyRange ?? contextFrequencyRange);
+  const activeSignalArea =
+    reduxHasInitialRange && contextActiveSignalArea
+      ? contextActiveSignalArea
+      : (reduxActiveSignalArea ?? contextActiveSignalArea);
+  const lastKnownRanges = {
+    ...(contextLastKnownRanges ?? {}),
+    ...(reduxLastKnownRanges ?? {}),
+  };
   const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
   const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
   const allowNegativeFrequencies = useAppSelector(
