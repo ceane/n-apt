@@ -36,6 +36,17 @@ function worldToModelLocal(
   ];
 }
 
+const DEFAULT_MODEL_CAMERA_POSITION: [number, number, number] = [
+  MODEL_CAMERA_POSITION[0],
+  MODEL_CAMERA_POSITION[1],
+  MODEL_CAMERA_POSITION[2],
+];
+const DEFAULT_MODEL_CAMERA_TARGET: [number, number, number] = [
+  MODEL_CAMERA_TARGET[0],
+  MODEL_CAMERA_TARGET[1],
+  MODEL_CAMERA_TARGET[2],
+];
+
 function RendererSizeSync() {
   const { gl, camera } = useThree();
 
@@ -70,14 +81,14 @@ function RendererSizeSync() {
 
 function PhysiologyOrb({
   area,
-  isSelected,
+  isActive,
   onSelect,
 }: {
   area: Area;
-  isSelected: boolean;
+  isActive: boolean;
   onSelect?: (area: Area) => void;
 }) {
-  const markerPosition = worldToModelLocal(area.target);
+  const markerPositions = area.markerPositions ?? [area.markerPosition ?? area.target];
   const compactRadiusByArea: Record<string, number> = {
     Head: 0.015,
     Face: 0.017,
@@ -87,12 +98,14 @@ function PhysiologyOrb({
   };
   const normalRadius = 0.032;
   const baseRadius =
-    (compactRadiusByArea[area.name] ?? normalRadius) * (isSelected ? 1.2 : 1);
-  const baseOpacity = isSelected ? 0.85 : 0.65;
+    (area.markerRadius ?? compactRadiusByArea[area.name] ?? normalRadius) * (isActive ? 1.55 : 1);
+  const color = isActive ? "#2563eb" : "#9ca3af";
+  const baseOpacity = isActive ? 0.95 : 0.68;
 
   return (
-    <group
-      position={markerPosition}
+    <>{markerPositions.map((position, index) => <group
+      key={index}
+      position={worldToModelLocal(position)}
       onClick={onSelect ? (event) => {
         event.stopPropagation();
         onSelect(area);
@@ -101,9 +114,9 @@ function PhysiologyOrb({
       <mesh>
         <sphereGeometry args={[baseRadius, 16, 16]} />
         <meshStandardMaterial
-          color="#00d4ff"
-          emissive="#00d4ff"
-          emissiveIntensity={isSelected ? 1.4 : 1.0}
+          color={color}
+          emissive={color}
+          emissiveIntensity={isActive ? 1.5 : 0.35}
           transparent
           opacity={baseOpacity}
         />
@@ -111,21 +124,21 @@ function PhysiologyOrb({
       <mesh>
         <sphereGeometry args={[baseRadius * 1.8, 16, 16]} />
         <meshStandardMaterial
-          color="#00d4ff"
-          emissive="#00d4ff"
-          emissiveIntensity={0.45}
+          color={color}
+          emissive={color}
+          emissiveIntensity={isActive ? 0.6 : 0.12}
           transparent
-          opacity={isSelected ? 0.16 : 0.1}
+          opacity={isActive ? 0.2 : 0.08}
         />
       </mesh>
-    </group>
+    </group>)}</>
   );
 }
 
 function AreaMarker({ selectedArea }: { selectedArea: Area }) {
-  const markerPosition = worldToModelLocal(selectedArea.target);
+  const markerPosition = worldToModelLocal(selectedArea.markerPosition ?? selectedArea.target);
 
-  if (selectedArea.name === "Head") return null;
+  if (selectedArea.name === "Head" || selectedArea.markerPositions) return null;
 
   return (
     <group position={markerPosition}>
@@ -219,14 +232,20 @@ function PersonModel({
   selectedArea,
   isEditMode,
   onAddHotspot,
+  modelUrl,
+  modelOffset,
+  showSelectionHalo,
   children,
 }: {
   selectedArea: Area | null;
   isEditMode: boolean;
   onAddHotspot: (point: Vector3) => void;
+  modelUrl: string;
+  modelOffset: [number, number, number];
+  showSelectionHalo: boolean;
   children?: React.ReactNode;
 }) {
-  const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
+  const { scene } = useGLTF(modelUrl);
   const groupRef = useRef<any>(null);
 
   const onPointerDown = useCallback(
@@ -243,8 +262,8 @@ function PersonModel({
 
   return (
     <group ref={groupRef} position={MODEL_ROOT_POSITION}>
-      <primitive object={scene} onPointerDown={onPointerDown} />
-      {selectedArea && <AreaMarker selectedArea={selectedArea} />}
+      <primitive object={scene} position={modelOffset} onPointerDown={onPointerDown} />
+      {showSelectionHalo && selectedArea && <AreaMarker selectedArea={selectedArea} />}
       {children}
     </group>
   );
@@ -276,7 +295,29 @@ const HintOverlay = styled.div`
   pointer-events: none;
 `;
 
-export const Model3DPerson: React.FC<{ onAreaSelect?: (area: Area) => void }> = ({ onAreaSelect }) => {
+export const Model3DPerson: React.FC<{
+  onAreaSelect?: (area: Area) => void;
+  modelUrl?: string;
+  modelOffset?: [number, number, number];
+  areas?: Area[];
+  visibleAreaNames?: string[];
+  activeAreaName?: string;
+  showSelectionHalo?: boolean;
+  showTransformControls?: boolean;
+  initialCameraPosition?: [number, number, number];
+  initialCameraTarget?: [number, number, number];
+}> = ({
+  onAreaSelect,
+  modelUrl = HUMAN_MODEL_AFRO_MALE_GLB_URL,
+  modelOffset = [0, 0, 0],
+  areas = PHYSIOLOGY_AREAS,
+  visibleAreaNames,
+  activeAreaName,
+  showSelectionHalo = true,
+  showTransformControls = true,
+  initialCameraPosition = DEFAULT_MODEL_CAMERA_POSITION,
+  initialCameraTarget = DEFAULT_MODEL_CAMERA_TARGET,
+}) => {
   const { selectedArea, controlsRef, setSelectedArea } = useModel3D();
   const {
     hotspots,
@@ -292,12 +333,46 @@ export const Model3DPerson: React.FC<{ onAreaSelect?: (area: Area) => void }> = 
     setSelectedArea(area);
     onAreaSelect?.(area);
   }, [onAreaSelect, setSelectedArea]);
+  const visibleAreas = visibleAreaNames
+    ? areas.filter((area) => visibleAreaNames.includes(area.name))
+    : areas;
+  const currentActiveAreaName = activeAreaName ?? selectedArea?.name;
+  const personModel = (
+    <PersonModel
+      selectedArea={selectedArea}
+      isEditMode={isEditMode}
+      onAddHotspot={handleAddHotspot}
+      modelUrl={modelUrl}
+      modelOffset={modelOffset}
+      showSelectionHalo={showSelectionHalo}
+    >
+      <HorizonFocusGlobe active={isEditMode} />
+      {!isEditMode &&
+        visibleAreas.map((area) => (
+          <PhysiologyOrb
+            key={area.name}
+            area={area}
+            isActive={currentActiveAreaName === area.name}
+            onSelect={handleAreaSelect}
+          />
+        ))}
+      {hotspots.map((hotspot) => (
+        <HotspotMarker
+          key={hotspot.id}
+          hotspot={hotspot}
+          onClick={() => handleHotspotClick(hotspot.id)}
+          isSelected={selectedHotspot === hotspot.id}
+          isMultiSelected={multiSelectedHotspots.includes(hotspot.id)}
+        />
+      ))}
+    </PersonModel>
+  );
 
   return (
     <CanvasContainer>
       <Canvas
         style={{ width: "100%", height: "100%" }}
-        camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
+        camera={{ position: initialCameraPosition, fov: MODEL_FOV }}
       >
         <RendererSizeSync />
         <Suspense fallback={null}>
@@ -347,38 +422,14 @@ export const Model3DPerson: React.FC<{ onAreaSelect?: (area: Area) => void }> = 
           {isEditMode && showGrid && (
             <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />
           )}
-          <TransformControls mode="translate">
-            <PersonModel
-              selectedArea={selectedArea}
-              isEditMode={isEditMode}
-              onAddHotspot={handleAddHotspot}
-            >
-              <HorizonFocusGlobe active={isEditMode} />
-              {!isEditMode &&
-                PHYSIOLOGY_AREAS.map((area) => (
-                  <PhysiologyOrb
-                    key={area.name}
-                    area={area}
-                    isSelected={selectedArea?.name === area.name}
-                    onSelect={handleAreaSelect}
-                  />
-                ))}
-              {hotspots.map((hotspot) => (
-                <HotspotMarker
-                  key={hotspot.id}
-                  hotspot={hotspot}
-                  onClick={() => handleHotspotClick(hotspot.id)}
-                  isSelected={selectedHotspot === hotspot.id}
-                  isMultiSelected={multiSelectedHotspots.includes(hotspot.id)}
-                />
-              ))}
-            </PersonModel>
-          </TransformControls>
+          {showTransformControls ? (
+            <TransformControls mode="translate">{personModel}</TransformControls>
+          ) : personModel}
           <OrbitControls
             ref={controlsRef}
             makeDefault
             enableDamping
-            target={MODEL_CAMERA_TARGET}
+            target={initialCameraTarget}
           />
         </Suspense>
       </Canvas>

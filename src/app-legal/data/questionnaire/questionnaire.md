@@ -322,6 +322,7 @@
     *options*
     - [ ] Head
     - [ ] Face
+    - [ ] Eyes
     - [ ] Neck
     - [ ] Vocal Cords
     - [ ] Arms (Left)
