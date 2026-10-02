@@ -149,7 +149,7 @@ const scriptText =
 // invoked by hand rather than imported from an app route. Without seeding these,
 // modules consumed only by scripts/ look unreachable and get deleted.
 const scriptEntryFiles = new Set();
-const scriptTargetRe = /(scripts\/[A-Za-z0-9_/.-]+\.(?:tsx?|mjs|cjs|js))/g;
+const scriptTargetRe = /((?:test\/)?scripts\/[A-Za-z0-9_/.-]+\.(?:tsx?|mjs|cjs|js))/g;
 for (const cmd of Object.values(pkg.scripts || {})) {
   for (const mm of cmd.matchAll(scriptTargetRe)) {
     const target = path.normalize(mm[1]);
@@ -230,7 +230,7 @@ const orphans = files
 // package.json script file-target existence
 const brokenScripts = [];
 for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
-  const re = /(scripts\/[A-Za-z0-9_/.-]+\.(?:tsx?|cjs|mjs|js|sh))/g;
+  const re = /((?:test\/)?scripts\/[A-Za-z0-9_/.-]+\.(?:tsx?|cjs|mjs|js|sh))/g;
   let mm;
   while ((mm = re.exec(cmd))) {
     if (!fs.existsSync(mm[1])) brokenScripts.push(`${name} -> ${mm[1]}`);

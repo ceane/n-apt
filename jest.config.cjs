@@ -38,13 +38,11 @@ const scopedFrontendMappers = Object.fromEntries(
 
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: "ts-jest",
   testEnvironment: "jsdom",
   setupFilesAfterEnv: [
     "<rootDir>/test/ts/setup.ts",
     "<rootDir>/jest.canvasSetup.cjs",
   ],
-  extensionsToTreatAsEsm: [".ts", ".tsx"],
   moduleNameMapper: {
     "^react-router$": "<rootDir>/test/ts/__mocks__/react-router.cjs",
     "^(\\.{1,2}/.*)\\.js$": "$1",
@@ -61,6 +59,7 @@ module.exports = {
     "^@n-apt/public/(.*)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
     "^@n-apt/(.*)$": "<rootDir>/src/ts/$1",
     "\\.(gif|jpg|jpeg|png|svg|webp)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
+    "^.+\\.yaml\\?raw$": "<rootDir>/test/ts/__mocks__/signalsYaml.cjs",
     "\\.css$": "<rootDir>/test/ts/__mocks__/styleMock.cjs",
   },
   testMatch: [
