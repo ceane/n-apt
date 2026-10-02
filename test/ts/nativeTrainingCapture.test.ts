@@ -258,6 +258,15 @@ it('reports the specific selected-source mismatch in capture readiness diagnosti
   expect(mismatches).toContain('frame source rtl-1 != selected source rtl-2');
 });
 
+it('treats a health frame as fresh only when its source, status, payload, and timestamp are valid', () => {
+  const current = { ...frame(), rawIqByteCount: 8192 };
+  expect(NativeClassifier.isNativeTrainingReadinessFrameUsable(current, 'rtl-1', 1_000)).toBe(true);
+  expect(NativeClassifier.isNativeTrainingReadinessFrameUsable(current, 'rtl-2', 1_000)).toBe(false);
+  expect(NativeClassifier.isNativeTrainingReadinessFrameUsable({ ...current, status: 'paused' }, 'rtl-1', 1_000)).toBe(false);
+  expect(NativeClassifier.isNativeTrainingReadinessFrameUsable({ ...current, rawIqByteCount: 8190 }, 'rtl-1', 1_000)).toBe(false);
+  expect(NativeClassifier.isNativeTrainingReadinessFrameUsable(current, 'rtl-1', 5_001)).toBe(false);
+});
+
 it('auto-stops an active capture on an explicit RTL-SDR disconnect without waiting for another frame', () => {
   const session = new NativeClassifier.NativeTrainingCaptureSession();
   expect(session.start(config, 0, 900)).toBe(true);
@@ -449,6 +458,12 @@ it('ignores frames at the capture-start boundary and rejects increasing sequence
   expect(outOfOrder.append(frame({ sequence: 11, timestampMs: 1000 }), 40, 1001)).toBe('stopped');
   expect(outOfOrder.snapshot()?.frames).toHaveLength(1);
   expect(outOfOrder.snapshot()?.stopReason).toBe('non-increasing-frame-timestamp');
+  expect(outOfOrder.lastFrameTimestampDiagnostic).toEqual({
+    previousSequence: 10,
+    previousTimestampMs: 1000,
+    incomingSequence: 11,
+    incomingTimestampMs: 1000,
+  });
 });
 
 it('distinguishes stale and future frame timestamps from timestamp-order failures', () => {

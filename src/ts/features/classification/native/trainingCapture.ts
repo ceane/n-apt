@@ -269,6 +269,13 @@ export interface CapturedTrainingFrame {
   iqBytes: Uint8Array;
 }
 
+export interface NativeTrainingFrameTimestampDiagnostic {
+  previousSequence: number;
+  previousTimestampMs: number;
+  incomingSequence: number;
+  incomingTimestampMs: number;
+}
+
 export interface NativeTrainingCaptureSnapshot {
   format: 'n-apt-native-iq-frames-v1';
   iqSampleFormat: 'u8';
@@ -298,12 +305,16 @@ export class NativeTrainingCaptureSession {
   private lastFrameAt = 0;
   private lastSequence = -1;
   private lastTimestamp = -1;
+  private rejectedFrameTimestamp: NativeTrainingFrameTimestampDiagnostic | null = null;
   private startBoundarySequence: number | null = null;
   private startedAtTimestamp = 0;
   private bytes = 0;
 
   get active(): boolean { return !!this.capture && this.capture.stopReason === null; }
   get frameCount(): number { return this.capture?.frames.length ?? 0; }
+  get lastFrameTimestampDiagnostic(): NativeTrainingFrameTimestampDiagnostic | null {
+    return this.rejectedFrameTimestamp ? { ...this.rejectedFrameTimestamp } : null;
+  }
 
   start(
     config: NativeTrainingCaptureConfig,
@@ -323,6 +334,7 @@ export class NativeTrainingCaptureSession {
     this.startBoundarySequence = startBoundary?.sequence ?? null;
     this.lastSequence = startBoundary?.sequence ?? -1;
     this.lastTimestamp = startBoundary?.timestampMs ?? -1;
+    this.rejectedFrameTimestamp = null;
     this.startedAtTimestamp = startBoundary?.timestampMs ?? nowTimestampMs;
     this.bytes = 0;
     this.capture = { format: 'n-apt-native-iq-frames-v1', iqSampleFormat: 'u8', payloadSemantics: 'each frame stores the complete iq_data payload received for that sequence; frames remain independent and are never concatenated', sessionId: config.sessionId,
@@ -411,6 +423,12 @@ export class NativeTrainingCaptureSession {
     }
     const frameGapLimitMs = Math.max(200, config.configuredFrameRateHz ? 3_000 / config.configuredFrameRateHz : 1_000);
     if (frame.timestampMs <= this.lastTimestamp) {
+      this.rejectedFrameTimestamp = {
+        previousSequence: this.lastSequence,
+        previousTimestampMs: this.lastTimestamp,
+        incomingSequence: frame.sequence,
+        incomingTimestampMs: frame.timestampMs,
+      };
       this.stop('non-increasing-frame-timestamp', { timestampMs: frame.timestampMs, nextFrameSequence: frame.sequence });
       return 'stopped';
     }
@@ -483,6 +501,7 @@ export class NativeTrainingCaptureSession {
     this.bytes = 0;
     this.lastSequence = -1;
     this.lastTimestamp = -1;
+    this.rejectedFrameTimestamp = null;
     this.startBoundarySequence = null;
   }
 
@@ -532,6 +551,17 @@ export function isNativeTrainingFrameStale(
   if (!frame) return false;
   const ageMs = nowTimestampMs - frame.timestampMs;
   return !Number.isFinite(ageMs) || ageMs < 0 || ageMs > NativeTrainingCaptureSession.STALE_AFTER_MS;
+}
+
+/** A fresh timestamp alone is insufficient: health must match the active RX source and carry a complete receiving payload. */
+export function isNativeTrainingReadinessFrameUsable(
+  frame: Pick<NativeTrainingReadinessFrame, 'sourceId' | 'status' | 'timestampMs' | 'fftSize' | 'validSamples' | 'rawIqByteCount'> | null,
+  selectedSourceId: string | null,
+  nowTimestampMs: number,
+): boolean {
+  return !!frame && !!selectedSourceId && frame.sourceId === selectedSourceId &&
+    frame.status === 'receiving' && isCompleteNativeTrainingFrame(frame) &&
+    !isNativeTrainingFrameStale(frame, nowTimestampMs);
 }
 
 export function stopNativeTrainingCaptureForHealth(

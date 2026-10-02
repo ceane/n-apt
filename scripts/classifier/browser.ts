@@ -1,5 +1,5 @@
-import * as core from "../../src/ts/features/classification/native/core";
-import { NativeGpuExtractor } from "../../src/ts/features/classification/native/gpu";
+import * as core from "@n-apt/classification/native/core";
+import { NativeGpuExtractor } from "@n-apt/classification/native/gpu";
 
 export async function initialize() {
   const adapter = await navigator.gpu?.requestAdapter();

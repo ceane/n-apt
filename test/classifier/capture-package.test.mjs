@@ -397,8 +397,11 @@ test("repackages browser captures with package labels while enforcing filename/t
     assert.equal(featureRows[0].validSamples, 4);
     assert.equal(featureRows[0].binHz, 800000);
     assert.equal(featureRows[0].sourceCaptureId, labels.captureId);
-    assert.equal(typeof featureRows[0].status, "string");
+    assert.equal(featureRows[0].status, "insufficient_evidence");
     assert.equal(featureRows[0].available.narrow, false);
+    assert.equal(featureRows[0].available.bridge, false);
+    assert.equal(featureRows[0].available.envelope, false);
+    assert.equal(featureRows[0].visibleFraction, 1);
     assert.equal(featureRows[0].temporalFrameCount, 1);
     assert.equal(featureRows[1].temporalFrameCount, 2);
 

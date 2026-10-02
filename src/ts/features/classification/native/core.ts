@@ -25,6 +25,10 @@ export interface FrameMetadata {
   sourceId: string;
   frameId: string;
   timestampMs: number;
+  /** Live stream generation/sequence metadata; optional for legacy offline rows. */
+  streamEpoch?: number;
+  optionsRevision?: number;
+  sequence?: number;
   acquisitionSampleRateHz: number;
   analysisSampleRateHz: number;
   fftSize: number;
@@ -41,6 +45,9 @@ const clamp = (v: number) => Math.max(0, Math.min(1, v));
 const mean = (v: number[]) => v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
 export function describeFrame({ spectrum, metadata: m }: NativeFrame) {
   if (!m.sourceId || !m.frameId || !Number.isFinite(m.timestampMs) || !Number.isFinite(m.centerFrequencyHz) ||
+      (m.streamEpoch !== undefined && (!Number.isSafeInteger(m.streamEpoch) || m.streamEpoch < 0)) ||
+      (m.optionsRevision !== undefined && (!Number.isSafeInteger(m.optionsRevision) || m.optionsRevision < 0)) ||
+      (m.sequence !== undefined && (!Number.isSafeInteger(m.sequence) || m.sequence < 0)) ||
       !Number.isFinite(m.acquisitionSampleRateHz) || m.acquisitionSampleRateHz <= 0 ||
       !Number.isFinite(m.analysisSampleRateHz) || m.analysisSampleRateHz <= 0 ||
       !Number.isInteger(m.fftSize) || m.fftSize < 2 || m.fftSize > 1048576 ||
@@ -136,17 +143,25 @@ export function deterministicScore(values: number[]): number {
 }
 export class TemporalClassifier {
   private key = '';
-  private history: { timestamp: number; id: string; bridge: number; u: number }[] = [];
+  private history: { timestamp: number; id: string; sequence?: number; bridge: number; u: number }[] = [];
   reset() { this.key = ''; this.history = []; }
   update(m: FrameMetadata, summary: FeatureSummary) {
-    const key = JSON.stringify([m.sourceId, m.acquisitionSampleRateHz, m.analysisSampleRateHz, m.fftSize,
+    const key = JSON.stringify([m.sourceId, m.streamEpoch ?? null, m.optionsRevision ?? null, m.acquisitionSampleRateHz, m.analysisSampleRateHz, m.fftSize,
       m.validSamples, m.window, m.centerFrequencyHz, m.retainedStartBin, m.retainedEndBin]);
-    const last = this.history[this.history.length - 1];
-    if (key !== this.key || (last && (m.timestampMs < last.timestamp || m.timestampMs - last.timestamp > 1000))) this.history = [];
+    if (key !== this.key) this.history = [];
     this.key = key;
     if (this.history.some(f => f.id === m.frameId)) return null;
+    const last = this.history[this.history.length - 1];
+    if (last && (m.timestampMs <= last.timestamp ||
+      (m.sequence !== undefined && last.sequence !== undefined && m.sequence <= last.sequence))) return null;
+    if (summary.status !== 'ready') {
+      this.history = [];
+      return null;
+    }
+    if (last && m.timestampMs - last.timestamp > 1000) this.history = [];
     this.history = this.history.filter(f => m.timestampMs - f.timestamp <= 1000);
-    this.history.push({ timestamp: m.timestampMs, id: m.frameId, bridge: Math.max(summary.values[0], summary.values[1] * 0.65), u: summary.values[2] });
+    this.history.push({ timestamp: m.timestampMs, id: m.frameId, sequence: m.sequence,
+      bridge: Math.max(summary.values[0], summary.values[1] * 0.65), u: summary.values[2] });
     if (this.history.length > 256) this.history.shift();
     const values = [...summary.values];
     // Duration-weighted evidence; a high frame rate does not get extra votes.

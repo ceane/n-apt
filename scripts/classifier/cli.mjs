@@ -9,6 +9,7 @@ import { decryptArchivedIqPayload } from './crypto.mjs';
 import { createRunner } from './runner.mjs';
 import { decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture } from './io.mjs';
 import { FEATURE_NAMES, PREPROCESSING, validateModel, inferModel } from '../../src/ts/features/classification/native/core.ts';
+import { summarizeClassificationRows } from './classification-report.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const numericList = (v, label) => { const a = v.split(',').map(Number); if (a.some(x => !Number.isInteger(x) || x < 2 || x > 1048576 || (x & (x - 1)))) throw new Error(`${label} must be comma-separated powers of two`); return a; };
 function args(argv) {
@@ -482,7 +483,7 @@ async function extract(a) {
   const datasetPath=path.resolve(a.dataset),base=path.dirname(datasetPath),dataset=validateDataset(JSON.parse(await readFile(datasetPath,'utf8')));
   const sizes=numericList(a.fft_sizes??'1024,4096,16384','--fft-sizes'), crops=parseCrops(a.crops), window=a.window??'hann';
   if(!['rectangular','hann','hamming','blackman','blackman-harris','nuttall'].includes(window)) throw new Error('Unsupported window');
-  const runner=await createRunner(), rows=[];
+  const runner=await createRunner(), rows=[], insufficientHistory=new Map();
   try {
     for(const r of dataset.recordings) {
       const iq=decodeIq(await readFile(path.resolve(base,r.input)),'f32le'), n=iq.length/2;
@@ -501,8 +502,24 @@ async function extract(a) {
             const spectrum=fft.spectrum.subarray(startBin,endBin);
             const timestampMs=Number(r.timestampStartMs??0)+start/r.sampleRateHz*1000;
             const metadata={sourceId:streamKey,frameId:`${r.id}:${fftSize}:${startFraction}:${start}`,timestampMs,acquisitionSampleRateHz:r.sampleRateHz,analysisSampleRateHz:r.sampleRateHz,fftSize:fft.fftSize,validSamples:fft.validSamples,window,centerFrequencyHz:r.centerFrequencyHz,retainedStartBin:startBin,retainedEndBin:endBin};
-            const result=await runner.extract(Array.from(spectrum),metadata);
-            if(result) temporal.push({
+            const extracted=await runner.extract(Array.from(spectrum),metadata);
+            // Keep every selected capture frame in the timestamped output, even
+            // when native resolution/support is too weak to return classifier
+            // evidence. Missing features stay unavailable rather than becoming
+            // confident negatives or disappearing from the temporal record.
+            let result=extracted;
+            if(!result){
+              const previous=insufficientHistory.get(streamKey);
+              const frameCount=previous&&timestampMs>previous.timestampMs&&timestampMs-previous.timestampMs<=1000
+                ?previous.frameCount+1:1;
+              insufficientHistory.set(streamKey,{timestampMs,frameCount});
+              result={
+              values:FEATURE_NAMES.map((_,i)=>i===13?spectrum.length/metadata.fftSize:i===14?metadata.validSamples/metadata.fftSize:0),
+              status:'insufficient_evidence',available:{narrow:false,bridge:false,envelope:false},
+              ruleScore:null,frameCount,evidenceMs:0,latencyMs:null,
+              };
+            }else insufficientHistory.delete(streamKey);
+            temporal.push({
               id:r.id,captureId:r.captureId??r.id,sourceCaptureId:r.sourceCaptureId??null,captureIdentity:r.captureIdentity??null,
               recordingId:r.id,session:r.session,split:r.split,label:r.label,captureAnnotations:r.captureAnnotations??null,
               annotationEvents:r.annotationEvents??[],interferenceMarkedEvents:r.interferenceMarkedEvents??[],
@@ -538,11 +555,11 @@ async function classify(a) {
   const filtered={...dataset,recordings:dataset.recordings.map((r,i)=>({...r,id:`${i}_${r.id}`,session:`${i}_${r.session}`,split:'unlabeled',label:'uncertain'}))};
   const copy=path.join(base,`.classify-${process.pid}.json`); await writeFile(copy,JSON.stringify(filtered));
   try { await extract({dataset:copy,fft_sizes:a.fft_sizes??'4096',crops:a.crops??'0:1',window:a.window??'hann',out:temp});
-    const rows=readJsonLines(await readFile(temp,'utf8')).map(r=>{const score=inferModel(model,r.features);return {
+    const rows=readJsonLines(await readFile(temp,'utf8')).map(r=>{const score=r.status==='ready'?inferModel(model,r.features):null;return {
       id:r.id,captureId:r.captureId,sourceCaptureId:r.sourceCaptureId,captureIdentity:r.captureIdentity,session:r.session,
       frameIndex:r.frameIndex,frameSequence:r.frameSequence,timestampMs:r.timestampMs,score,
-      decision:r.status==='ready'?score>=model.threshold:null,status:r.status,available:r.available,
-      sampleRateHz:r.sampleRateHz,rateValidated:model.validatedSampleRatesHz.includes(r.sampleRateHz),
+      decision:score===null?null:score>=model.threshold,status:r.status,available:r.available,
+      sampleRateHz:r.sampleRateHz,analysisSampleRateHz:r.analysisSampleRateHz,rateValidated:model.validatedSampleRatesHz.includes(r.sampleRateHz),
       fftSize:r.fftSize,validSamples:r.validSamples,binHz:r.binHz,resolutionHz:r.resolutionHz,
       firstBinHz:r.firstBinHz,retainedStartBin:r.retainedStartBin,retainedEndBin:r.retainedEndBin,
       visibleFraction:r.visibleFraction,acquisitionFftSize:r.acquisitionFftSize,configuredFftSize:r.configuredFftSize,
@@ -550,11 +567,16 @@ async function classify(a) {
       temporalFrameCount:r.temporalFrameCount,evidenceMs:r.evidenceMs,latencyMs:r.latencyMs,
       ruleScore:r.ruleScore,streamEpoch:r.streamEpoch,optionsRevision:r.optionsRevision,sourceSampleOffsetBytes:r.sourceSampleOffsetBytes,
     };});
-    await writeFile(path.resolve(a.out??path.join(base,'classifications.json')),writeRows(rows));
-    const classified=rows.filter(r=>r.decision!==null); console.log(JSON.stringify({rows:rows.length,insufficientEvidence:rows.length-classified.length,modelId:model.id,output:a.out??path.join(base,'classifications.json')},null,2));
+    const output=path.resolve(a.out??path.join(base,'classifications.jsonl'));
+    const summaryOutput=path.resolve(a.summary_out??`${output.replace(/\.jsonl$/i,'')}.summary.json`);
+    if(output===summaryOutput) throw new Error('classification rows and summary must use different output paths');
+    await writeFile(output,writeRows(rows));
+    const summary=summarizeClassificationRows(rows,model.id);
+    await writeFile(summaryOutput,`${JSON.stringify(summary,null,2)}\n`);
+    console.log(JSON.stringify({rows:rows.length,ready:summary.totalReadyWindows,insufficientEvidence:summary.totalInsufficientEvidenceWindows,recordings:summary.recordings.length,modelId:model.id,output,summary:summaryOutput},null,2));
   } finally { await rm(copy,{force:true});await rm(temp,{force:true}); }
 }
-function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package-directory-or-zip --split train|validation|test|acceptance|unlabeled|challenge-mock|challenge-sinc [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test|challenge-mock|challenge-sinc --model model.json --report report.json\n`);}
+function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package-directory-or-zip --split train|validation|test|acceptance|unlabeled|challenge-mock|challenge-sinc [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl] [--summary-out classifications.summary.json]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test|challenge-mock|challenge-sinc --model model.json --report report.json\n`);}
 async function packageCapture(a){const {createCapturePackage}=await import('./package.mjs');const result=await createCapturePackage({capturePath:a.capture,labelsPath:a.labels,outputPath:a.out,capturedAt:a.captured_at});console.log(JSON.stringify(result,null,2));}
 async function main(){const a=args(process.argv.slice(2)); if(a.command==='prepare')return prepare(a); if(a.command==='extract')return extract(a); if(a.command==='classify')return classify(a); if(a.command==='package')return packageCapture(a); if(a.command==='help'||!a.command)return help();throw new Error(`Unknown command: ${a.command}`);}
 main().catch(error=>{console.error(`classifier: ${error.message}`);process.exitCode=2;});

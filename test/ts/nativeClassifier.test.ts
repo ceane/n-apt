@@ -59,6 +59,43 @@ describe('native morphology contract', () => {
     expect(tracker.update(metadata({ sourceId: 'other', frameId: '3', timestampMs: 1200 }), features)?.frameCount).toBe(1);
     expect(tracker.update(metadata({ frameId: '4', timestampMs: 5000 }), features)?.frameCount).toBe(1);
   });
+  it('ignores delayed or same-timestamp frames without resetting temporal history', () => {
+    const tracker = new NativeClassifier.TemporalClassifier();
+    const f = frame(); const features = NativeClassifier.summarizeFeatures(f, NativeClassifier.extractReference(f));
+    expect(tracker.update(metadata({ frameId: '10', sequence: 10, timestampMs: 1000 }), features)?.frameCount).toBe(1);
+    expect(tracker.update(metadata({ frameId: '12', sequence: 12, timestampMs: 1100 }), features)?.frameCount).toBe(2);
+    expect(tracker.update(metadata({ frameId: '11', sequence: 11, timestampMs: 1050 }), features)).toBeNull();
+    expect(tracker.update(metadata({ frameId: '13', sequence: 13, timestampMs: 1200 }), features)).toMatchObject({ frameCount: 3, evidenceMs: 200 });
+    expect(tracker.update(metadata({ frameId: '14', sequence: 14, timestampMs: 1200 }), features)).toBeNull();
+  });
+  it('resets temporal history on stream epoch and applied-options revision changes', () => {
+    const tracker = new NativeClassifier.TemporalClassifier();
+    const f = frame(); const features = NativeClassifier.summarizeFeatures(f, NativeClassifier.extractReference(f));
+    expect(tracker.update(metadata({ frameId: '10', sequence: 10, timestampMs: 1000, streamEpoch: 3, optionsRevision: 4 }), features)?.frameCount).toBe(1);
+    expect(tracker.update(metadata({ frameId: '0', sequence: 0, timestampMs: 1001, streamEpoch: 4, optionsRevision: 4 }), features)?.frameCount).toBe(1);
+    expect(tracker.update(metadata({ frameId: '1', sequence: 1, timestampMs: 1002, streamEpoch: 4, optionsRevision: 5 }), features)?.frameCount).toBe(1);
+  });
+  it('does not convert insufficient feature support into negative persistence', () => {
+    const tracker = new NativeClassifier.TemporalClassifier();
+    const f = frame(); const features = NativeClassifier.summarizeFeatures(f, NativeClassifier.extractReference(f));
+    expect(tracker.update(metadata({ frameId: '10', timestampMs: 1000 }), features)?.frameCount).toBe(1);
+    expect(tracker.update(metadata({ frameId: '11', timestampMs: 1100 }), {
+      ...features, status: 'insufficient_evidence', available: { narrow: false, bridge: false, envelope: false },
+    })).toBeNull();
+    expect(tracker.update(metadata({ frameId: '12', timestampMs: 1200 }), features)).toMatchObject({ frameCount: 1, evidenceMs: 0 });
+  });
+  it('keeps temporal evidence unchanged when repaint cadence reprocesses the same acquisitions', () => {
+    const tracker = new NativeClassifier.TemporalClassifier();
+    const f = frame(); const features = NativeClassifier.summarizeFeatures(f, NativeClassifier.extractReference(f));
+    let result: ReturnType<typeof tracker.update> = null;
+    for (const [sequence, timestampMs] of [[10, 1000], [11, 1100], [12, 1200]]) {
+      const acquired = metadata({ frameId: String(sequence), sequence, timestampMs });
+      result = tracker.update(acquired, features);
+      expect(result).not.toBeNull();
+      for (let repaint = 0; repaint < 4; repaint++) expect(tracker.update(acquired, features)).toBeNull();
+    }
+    expect(result).toMatchObject({ frameCount: 3, evidenceMs: 200 });
+  });
   it('validates model structure and refuses mismatched feature contracts', () => {
     const model = { version: 1, preprocessing: 'native-morphology-v1', featureNames: [...NativeClassifier.FEATURE_NAMES], kind: 'logistic', mean: NativeClassifier.FEATURE_NAMES.map(() => 0), scale: NativeClassifier.FEATURE_NAMES.map(() => 1), weights: [NativeClassifier.FEATURE_NAMES.map(() => 0)], bias: [0], threshold: 0.5, validatedSampleRatesHz: [], id: 'test' };
     expect(NativeClassifier.inferModel(NativeClassifier.validateModel(model), NativeClassifier.FEATURE_NAMES.map(() => 0))).toBe(0.5);
@@ -67,7 +104,7 @@ describe('native morphology contract', () => {
   });
 });
 
-import * as Spectrum from '@n-apt/spectrum';
+import * as Spectrum from '@n-apt/spectrum/fft/complexSpectrum';
 
 it.each(['rectangular', 'hann', 'hamming', 'blackman', 'nuttall'] as const)(
   'offline I/Q FFT matches the existing browser scalar FFT for %s, including incomplete frames',

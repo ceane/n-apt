@@ -237,6 +237,13 @@ it('collects a capture label, morphology toggles, and editable condition tags', 
   expect(screen.getByLabelText('Truncated by visible band edge')).toBeInTheDocument();
 });
 
+it('keeps known target presence positive when interference affects the display', () => {
+  render(<NativeClassifier.NativeClassifierPanel result={null} onModel={jest.fn()} />);
+  expect(screen.getByTestId('classifier-label-guidance')).toHaveTextContent('Matching means the known N-APT target is present');
+  expect(screen.getByTestId('classifier-label-guidance')).toHaveTextContent('Interference is a condition, not a negative label');
+  expect(screen.getByTestId('classifier-label-guidance')).toHaveTextContent('Known app mocks and sinc signals are non-matching examples');
+});
+
 it('suggests the channel from the current frame center until the user chooses a manual override', () => {
   const onAnnotationsChange = jest.fn();
   const canonicalChannels: SpectrumFrame[] = [
@@ -381,6 +388,14 @@ it.each([
 ])('explains capture stop reason %s', (captureStatus, message) => {
   render(<NativeClassifier.NativeClassifierPanel result={null} onModel={jest.fn()} captureStatus={captureStatus} />);
   expect(screen.getByTestId('classifier-capture-status')).toHaveTextContent(message);
+});
+
+it('shows sequence and timestamp values for a rejected non-increasing frame without exposing I/Q data', () => {
+  render(<NativeClassifier.NativeClassifierPanel result={null} onModel={jest.fn()} captureStatus="non-increasing-frame-timestamp" captureTimestampDiagnostic={{
+    previousSequence: 10, previousTimestampMs: 1000, incomingSequence: 11, incomingTimestampMs: 1000,
+  }} />);
+  expect(screen.getByTestId('classifier-capture-timestamp-diagnostic')).toHaveTextContent('Frame 11 at 1000 ms followed frame 10 at 1000 ms.');
+  expect(screen.queryByTestId('classifier-capture-timestamp-diagnostic')).not.toHaveTextContent('I/Q');
 });
 
 it('requires exporting a completed capture before another recording can start', () => {

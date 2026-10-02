@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import { validateModel, type FrameMetadata, type NativeModel } from './core';
 import type { FeatureSummary } from './core';
-import type { NativeTrainingCaptureAnnotations } from './trainingCapture';
+import type { NativeTrainingCaptureAnnotations, NativeTrainingFrameTimestampDiagnostic } from './trainingCapture';
 import { suggestNativeObservedChannel } from './observedChannel';
 import { ClassifierWorkflowFlow } from './ClassifierWorkflowFlow';
 import type { SpectrumFrame } from '@n-apt/consts/schemas/websocket';
@@ -85,7 +85,7 @@ function readAnnotationDraft(): NativeTrainingCaptureAnnotations {
   return { ...EMPTY_ANNOTATIONS };
 }
 
-export function NativeClassifierPanel({ result, resultState = 'current', legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', captureDownloads = null, captureDownloadsPersisted = false, onToggleCapture, onExportCapture, onClearCapture, onAnnotationsChange, sessionToken, canonicalChannels, activeStreamId }: { result: NativeShadowResult | null; resultState?: NativeShadowResultState; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; captureDownloads?: NativeTrainingCaptureDownloadLinks | null; captureDownloadsPersisted?: boolean; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onClearCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void; sessionToken?: string | null; canonicalChannels?: readonly SpectrumFrame[]; activeStreamId?: string | null }) {
+export function NativeClassifierPanel({ result, resultState = 'current', legacy, onModel, captureAvailable = false, captureActive = false, captureFrameCount = 0, captureStatus = '', captureTimestampDiagnostic = null, captureDownloads = null, captureDownloadsPersisted = false, onToggleCapture, onExportCapture, onClearCapture, onAnnotationsChange, sessionToken, canonicalChannels, activeStreamId }: { result: NativeShadowResult | null; resultState?: NativeShadowResultState; legacy?: LegacyDecision | null; onModel: (model: NativeModel | null) => void; captureAvailable?: boolean; captureActive?: boolean; captureFrameCount?: number; captureStatus?: string; captureTimestampDiagnostic?: NativeTrainingFrameTimestampDiagnostic | null; captureDownloads?: NativeTrainingCaptureDownloadLinks | null; captureDownloadsPersisted?: boolean; onToggleCapture?: (annotations: NativeTrainingCaptureAnnotations) => void; onExportCapture?: () => void; onClearCapture?: () => void; onAnnotationsChange?: (annotations: NativeTrainingCaptureAnnotations) => void; sessionToken?: string | null; canonicalChannels?: readonly SpectrumFrame[]; activeStreamId?: string | null }) {
   const input = useRef<HTMLInputElement>(null); const [message, setMessage] = useState('Shadow scoring waits for a live acquisition frame.');
   const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<NativeTrainingCaptureAnnotations>(readAnnotationDraft);
@@ -205,6 +205,9 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
       <button type="button" disabled={captureFrameCount === 0 || captureDownloadsLocked} onClick={onExportCapture} style={button}>Export V6 I/Q + labels</button>
     </div>
     <div data-testid="classifier-capture-status" aria-live="polite" style={{ ...wrappingText, minHeight: '2.9em' }}>{captureStatusText || (captureDownloadsPersisted && !captureDownloads ? 'Saved capture awaits an authenticated session so its backend links can be restored.' : captureActive ? `Recording ${captureFrameCount} I/Q frames` : captureAvailable ? 'Ready. Labels and model fitting stay offline.' : 'Requires a fresh live RTL-SDR frame in Lossless mode.')}</div>
+    {captureTimestampDiagnostic && <div data-testid="classifier-capture-timestamp-diagnostic" style={wrappingText}>
+      Frame {captureTimestampDiagnostic.incomingSequence} at {captureTimestampDiagnostic.incomingTimestampMs} ms followed frame {captureTimestampDiagnostic.previousSequence} at {captureTimestampDiagnostic.previousTimestampMs} ms.
+    </div>}
     {captureDownloads && <div aria-label="Exported capture package" style={{ ...row, ...wrappingText }}>
       <a href={captureDownloads.packageHref} download={captureDownloads.packageFileName} style={{ ...button, gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', textAlign: 'center', color: 'inherit' }}>Download capture package</a>
       <div style={{ gridColumn: '1 / -1' }}>One ZIP with datapackage.json, the V6 I/Q capture, and detached labels.</div>
@@ -234,10 +237,13 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
       <strong>{captureActive ? 'During capture · edits are timestamped' : captureFrameCount > 0 ? 'Review capture labels' : 'Before capture · label what you expect'}</strong>
       <label style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 4, marginTop: 6 }}>
         <span>Signal label</span>
-        <select aria-label="Signal label" value={annotations.label} onChange={(event) => updateAnnotations({ ...annotations, label: event.currentTarget.value as NativeTrainingCaptureAnnotations['label'] })} style={{ ...button, background: 'var(--color-surface, transparent)', color: 'inherit' }}>
+        <select aria-label="Signal label" aria-describedby="classifier-label-guidance" value={annotations.label} onChange={(event) => updateAnnotations({ ...annotations, label: event.currentTarget.value as NativeTrainingCaptureAnnotations['label'] })} style={{ ...button, background: 'var(--color-surface, transparent)', color: 'inherit' }}>
           <option value="uncertain">Uncertain</option><option value="matching">Matching morphology</option><option value="nonmatching">Non-matching</option>
         </select>
       </label>
+      <div id="classifier-label-guidance" data-testid="classifier-label-guidance" style={{ marginTop: 4, opacity: .85 }}>
+        Matching means the known N-APT target is present, including when interference affects the display. Interference is a condition, not a negative label. Known app mocks and sinc signals are non-matching examples; use Uncertain only when the capture source or label provenance is unknown.
+      </div>
       <label style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 4, marginTop: 7 }}>
         <span>Observed N-APT channel</span>
         <select aria-label="N-APT channel" value={channelMode === 'auto' ? 'auto' : annotations.channel} onChange={(event) => {
