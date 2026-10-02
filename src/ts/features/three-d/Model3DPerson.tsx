@@ -1,12 +1,13 @@
 import React, { Suspense, useRef, useCallback, useEffect } from "react";
 import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
-import { OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
+import { Clone, OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
 import { Vector3 } from "three";
 import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/three-d";
 import { useHotspotEditor } from "@n-apt/three-d/hooks/useHotspotEditor";
 import { useModel3D, type Area } from "@n-apt/three-d/hooks/useModel3D";
+import { rotationMarkerArrowHead, rotationMarkerOrbits } from "@n-apt/three-d/rotationMarkerGeometry";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn";
 import {
   MODEL_AMBIENT_LIGHT_INTENSITY,
@@ -101,6 +102,55 @@ function PhysiologyOrb({
     (area.markerRadius ?? compactRadiusByArea[area.name] ?? normalRadius) * (isActive ? 1.55 : 1);
   const color = isActive ? "#2563eb" : "#9ca3af";
   const baseOpacity = isActive ? 0.95 : 0.68;
+
+  if (area.markerStyle === "rotation") {
+    const position = area.markerPosition ?? area.target;
+    const arrowRadius = area.markerRadius ?? 0.035;
+    const [frontOrbit, sideOrbit] = rotationMarkerOrbits(arrowRadius);
+    const arrowHead = rotationMarkerArrowHead(frontOrbit.radius, frontOrbit.arc);
+    const sideArrowHead = rotationMarkerArrowHead(sideOrbit.radius, sideOrbit.arc);
+    const arrowMaterial = {
+      color,
+      emissive: color,
+      emissiveIntensity: isActive ? 1.1 : 0.35,
+      transparent: true,
+      opacity: isActive ? 0.96 : 0.72,
+    } as const;
+    return (
+      <group
+        position={worldToModelLocal(position)}
+        onClick={onSelect ? (event) => {
+          event.stopPropagation();
+          onSelect(area);
+        } : undefined}
+      >
+        <mesh>
+          <sphereGeometry args={[arrowRadius * 1.85, 20, 20]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={isActive ? 0.45 : 0.12} transparent opacity={isActive ? 0.13 : 0.07} depthWrite={false} />
+        </mesh>
+        <group position={frontOrbit.offset} rotation={frontOrbit.rotation} scale={frontOrbit.scale}>
+          <mesh>
+            <torusGeometry args={[frontOrbit.radius, frontOrbit.tubeRadius, 10, 64, frontOrbit.arc]} />
+            <meshStandardMaterial {...arrowMaterial} />
+          </mesh>
+          <mesh position={arrowHead.position} rotation={[0, 0, arrowHead.rotationZ]}>
+            <coneGeometry args={[arrowHead.radius, arrowHead.height, 24]} />
+            <meshStandardMaterial {...arrowMaterial} />
+          </mesh>
+        </group>
+        <group position={sideOrbit.offset} rotation={sideOrbit.rotation} scale={sideOrbit.scale}>
+          <mesh>
+            <torusGeometry args={[sideOrbit.radius, sideOrbit.tubeRadius, 10, 64, sideOrbit.arc]} />
+            <meshStandardMaterial {...arrowMaterial} />
+          </mesh>
+          <mesh position={sideArrowHead.position} rotation={[0, 0, sideArrowHead.rotationZ]}>
+            <coneGeometry args={[sideArrowHead.radius, sideArrowHead.height, 24]} />
+            <meshStandardMaterial {...arrowMaterial} />
+          </mesh>
+        </group>
+      </group>
+    );
+  }
 
   return (
     <>{markerPositions.map((position, index) => <group
@@ -262,7 +312,8 @@ function PersonModel({
 
   return (
     <group ref={groupRef} position={MODEL_ROOT_POSITION}>
-      <primitive object={scene} position={modelOffset} onPointerDown={onPointerDown} />
+      {/* useGLTF caches scenes by URL; Clone gives each canvas its own Object3D tree. */}
+      <Clone object={scene} position={modelOffset} onPointerDown={onPointerDown} />
       {showSelectionHalo && selectedArea && <AreaMarker selectedArea={selectedArea} />}
       {children}
     </group>

@@ -14,6 +14,7 @@ type Area = {
   markerPosition?: [number, number, number];
   markerPositions?: [number, number, number][];
   markerRadius?: number;
+  markerStyle?: "rotation";
   meshName: string;
 };
 
