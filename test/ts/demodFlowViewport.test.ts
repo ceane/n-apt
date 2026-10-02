@@ -119,7 +119,7 @@ describe("demod flow viewport persistence", () => {
 
   it("keeps the session storage key stable across builds", () => {
     expect(DEMOD_FLOW_VIEWPORT_SESSION_KEY).toBe(
-      "n-apt:demod-flow-viewport:v3",
+      "n-apt:demod-flow-viewport:v4",
     );
   });
 

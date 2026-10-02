@@ -194,7 +194,9 @@ describe("StimulusNode", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Stimulus")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Stimulus controls" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Test subtext")).toBeInTheDocument();
   });
 
@@ -318,7 +320,9 @@ describe("StimulusNode", () => {
     const atStart = bar.getAttribute("y1");
 
     act(() => {
-      mockAudioContext!.currentTime = 0.001;
+      // Playback is intentionally scheduled 100 ms in the future to avoid a
+      // click at the start of the oscillator.
+      mockAudioContext!.currentTime = 0.101;
       nextAnimationFrame?.(0);
     });
 
@@ -471,11 +475,6 @@ describe("StimulusNode", () => {
     fireEvent.change(screen.getByLabelText("Audio signal label"), {
       target: { value: "coherent" },
     });
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: "Pair stimulus tone with captured RF audio",
-      }),
-    );
     mockDemodValue.analysisSession = {
       state: "capturing",
       type: "audio",
@@ -567,7 +566,7 @@ describe("StimulusNode", () => {
     );
 
     const checkbox = screen.getByRole("checkbox", {
-      name: "Pair stimulus tone with captured RF audio",
+      name: "LIVE CAPTURE (EPHEMERAL)",
     });
     expect(checkbox).toBeInTheDocument();
     expect(checkbox).not.toBeChecked();

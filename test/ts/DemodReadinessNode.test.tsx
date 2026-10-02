@@ -10,10 +10,21 @@ const mockDemodContext = {
     fit: "unmet",
     reasons: ["Configured FFT size must be at least 32768."],
   },
+  audioSurveyJob: null,
+  audioSurveyCandidates: [],
+  audioSurveyTraining: false,
+  audioSurveyNeuralModelReady: false,
+  audioSurveyNeuralBackend: null,
+  audioSurveyOnnxModelAvailable: false,
+  audioSurveyOnnxLoading: false,
 };
 
 jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
   useDemod: () => mockDemodContext,
+}));
+
+jest.mock("@n-apt/demodulation/context/DemodAudioContext", () => ({
+  useDemodAudio: () => ({ audioPlayback: { isPlaying: false } }),
 }));
 
 jest.mock("@n-apt/spectrum", () => ({

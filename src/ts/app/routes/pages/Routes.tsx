@@ -317,6 +317,7 @@ const AppShellLayout: React.FC = () => {
             path="/game"
             element={<CellularTriangulationTargetingDemoRoute />}
           />
+          <Route path="/questionnaire" element={<QuestionnaireRoute />} />
           <Route path="/questionnaire/*" element={<QuestionnaireRoute />} />
           <Route
             path="/x-archive-formatter"

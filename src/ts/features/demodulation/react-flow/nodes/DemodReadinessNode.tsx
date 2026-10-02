@@ -5,6 +5,8 @@ import { useAppSelector } from "@n-apt/redux";
 import { Channels } from "@n-apt/spectrum";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
+import { useDemodAudio } from "@n-apt/demodulation/context/DemodAudioContext";
+import { AudioDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/AudioDemodWorkflowFlow";
 import { evaluateStimulusChannelAccess } from "@n-apt/demodulation/react-flow/nodes/stimulusChannelPolicy";
 
 const ReadinessCard = styled.section`
@@ -142,12 +144,32 @@ const stimulusKindLabel = (type: string) => {
 export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
   data,
 }) => {
-  const { analysisSession, demodQualityStatus, selectedBaseline } = useDemod();
-  const demodSourceMode = useAppSelector(
-    (state) => state.demod.sourceMode,
+  const {
+    analysisSession,
+    demodQualityStatus,
+    selectedBaseline,
+    audioSurveyJob,
+    audioSurveyCandidates,
+    audioSurveyTraining,
+    audioSurveyNeuralModelReady,
+    audioSurveyNeuralBackend,
+    audioSurveyOnnxModelAvailable,
+    audioSurveyOnnxLoading,
+  } = useDemod();
+  const { audioPlayback } = useDemodAudio();
+  const demodSourceMode = useAppSelector((state) => state.demod.sourceMode);
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
   );
-  const centerFrequencyHz = useAppSelector((state) =>
-    state.demod.bandwidthCenterFreqHz ?? state.demod.centerFreqHz,
+  const replayCaptureCount = useAppSelector(
+    (state) => state.waterfall.selectedFiles.length,
+  );
+  const selectedAlgorithm = useAppSelector((state) => state.demod.algorithm);
+  const bandwidthKhz = useAppSelector((state) => state.demod.bandwidthKhz);
+  const isListening = useAppSelector((state) => state.demod.isListening);
+  const centerFrequencyHz = useAppSelector(
+    (state) => state.demod.bandwidthCenterFreqHz ?? state.demod.centerFreqHz,
   );
   const frequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
@@ -165,6 +187,12 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
     tunedFrequencyHz,
     channels,
   );
+  const audioFlowSelected =
+    selectedBaseline === "audio" ||
+    selectedBaseline === "internal" ||
+    selectedBaseline === "speech";
+  const sourceReady =
+    sourceMode === "file" ? replayCaptureCount > 0 : Boolean(activeSourceId);
   const hasQualityWarning =
     !!demodQualityStatus && demodQualityStatus.fit !== "ready";
   const hasChannelWarning = !channelAccess.allowed;
@@ -179,7 +207,9 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
           {hasWarning ? <AlertTriangle size={16} /> : <Check size={16} />}
         </ReadinessIcon>
         <div>
-          <ReadinessTitle>{data.label ?? "Demodulation Readiness"}</ReadinessTitle>
+          <ReadinessTitle>
+            {data.label ?? "Demodulation Readiness"}
+          </ReadinessTitle>
           <ReadinessSubtitle>
             Capture checks and stimulus channel compatibility
           </ReadinessSubtitle>
@@ -249,6 +279,32 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
             />
           )}
         </ChannelGuide>
+      )}
+
+      {audioFlowSelected && (
+        <AudioDemodWorkflowFlow
+          sourceMode={sourceMode === "file" ? "replay" : "live"}
+          sourceReady={sourceReady}
+          replayCaptureCount={replayCaptureCount}
+          tunedFrequencyHz={tunedFrequencyHz}
+          channelAllowed={channelAccess.allowed}
+          channelRequirement={formatChannelRequirement(
+            channelAccess.requiredChannelLabels,
+          )}
+          bandwidthKhz={bandwidthKhz}
+          candidateCount={audioSurveyCandidates.length}
+          surveyStatus={audioSurveyJob?.status ?? null}
+          analysisState={analysisSession.state}
+          referenceTarget={stimulusKindLabel(selectedBaseline)}
+          selectedAlgorithm={selectedAlgorithm}
+          isListening={isListening}
+          audioPlaying={audioPlayback.isPlaying}
+          training={audioSurveyTraining}
+          neuralModelReady={audioSurveyNeuralModelReady}
+          neuralBackend={audioSurveyNeuralBackend}
+          onnxAvailable={audioSurveyOnnxModelAvailable}
+          onnxLoading={audioSurveyOnnxLoading}
+        />
       )}
     </ReadinessCard>
   );

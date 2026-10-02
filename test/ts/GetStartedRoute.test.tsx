@@ -171,7 +171,7 @@ describe("GetStartedRoute", () => {
     const toggle = screen.getByRole("switch", {
       name: /Bypass Start Page Next Time/i,
     });
-    const track = toggle.firstElementChild as HTMLElement;
+    const track = toggle.lastElementChild as HTMLElement;
     const label = toggle.querySelector("span") as HTMLElement;
 
     expect(getComputedStyle(track).width).toBe("32px");

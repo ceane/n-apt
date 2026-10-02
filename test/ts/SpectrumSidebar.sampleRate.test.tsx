@@ -434,7 +434,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
     window.localStorage.removeItem(TRANSMIT_WARNING_ACK_KEY);
   });
 
-  it("renders capture, snapshot, and notes sections beneath channels", () => {
+  it("renders capture and snapshot sections beneath channels", () => {
     render(
       <Provider store={createStore()}>
         <ThemeProvider theme={theme}>
@@ -448,7 +448,6 @@ describe("SpectrumSidebar sample rate behavior", () => {
     const channels = screen.getByTestId("channels");
     const iqCapture = screen.getByTestId("iq-capture");
     const snapshots = screen.getByTestId("snapshot-controls");
-    const notes = screen.getByRole("button", { name: /Hide Notes/ });
 
     expect(
       channels.compareDocumentPosition(iqCapture) &
@@ -458,10 +457,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
       iqCapture.compareDocumentPosition(snapshots) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(
-      snapshots.compareDocumentPosition(notes) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Hide Notes/ })).not.toBeInTheDocument();
   });
 
   it("provides the N-APT Signal Classifier slot immediately after Sources", () => {

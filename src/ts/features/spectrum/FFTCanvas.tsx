@@ -1921,6 +1921,7 @@ const FFTCanvas = memo(
     const [nativeLatestFrameFresh, setNativeLatestFrameFresh] = useState(false);
     const [nativeLatestFrameRevision, setNativeLatestFrameRevision] = useState(0);
     const [nativeCaptureUi, setNativeCaptureUi] = useState({ active: false, frameCount: 0, status: '' });
+    const [nativeCaptureTimestampDiagnostic, setNativeCaptureTimestampDiagnostic] = useState<NativeClassifier.NativeTrainingFrameTimestampDiagnostic | null>(null);
     const [persistedNativeClassifierDownloads, setPersistedNativeClassifierDownloads] = useState<PersistedNativeClassifierDownload[]>(loadPersistedNativeClassifierDownloads);
     const latestPersistedNativeClassifierDownload = persistedNativeClassifierDownloads[0] ?? null;
     const nativeCaptureDownloads = useMemo(
@@ -1929,6 +1930,7 @@ const FFTCanvas = memo(
     );
     const clearNativeCaptureExport = useCallback(() => {
       nativeCaptureRef.current.clear();
+      setNativeCaptureTimestampDiagnostic(null);
       setPersistedNativeClassifierDownloads([]);
       persistNativeClassifierDownloads([]);
       setNativeCaptureUi({ active: false, frameCount: 0, status: '' });
@@ -2066,6 +2068,7 @@ const FFTCanvas = memo(
     const reportNativeCaptureStopped = useCallback(() => {
       const session = nativeCaptureRef.current;
       const stoppedCapture = session.snapshot();
+      setNativeCaptureTimestampDiagnostic(stoppedCapture?.stopReason === 'non-increasing-frame-timestamp' ? session.lastFrameTimestampDiagnostic : null);
       const tune = stoppedCapture?.tuneEvents[stoppedCapture.tuneEvents.length - 1];
       const optionsEvent = stoppedCapture?.optionsAppliedEvents[stoppedCapture.optionsAppliedEvents.length - 1];
       const status = tune ? `center-frequency-changed:${tune.fromCenterFrequencyHz}:${tune.toCenterFrequencyHz}`
@@ -2095,7 +2098,10 @@ const FFTCanvas = memo(
         annotations,
         { sequence: ingressBoundary.sequence, timestampMs: ingressBoundary.timestampMs },
       );
-      if (started) setNativeCaptureUi({ active: true, frameCount: 0, status: 'Waiting for a new live frame.' });
+      if (started) {
+        setNativeCaptureTimestampDiagnostic(null);
+        setNativeCaptureUi({ active: true, frameCount: 0, status: 'Waiting for a new live frame.' });
+      }
     }, [nativeCaptureAvailable, nativeCaptureConfig, nativeCaptureSelectedId, nativeCaptureSource, stopNativeCapture]);
     const updateNativeCaptureAnnotations = useCallback((annotations: NativeClassifier.NativeTrainingCaptureAnnotations) => {
       nativeCaptureRef.current.updateAnnotations(annotations, Date.now());
@@ -2190,9 +2196,7 @@ const FFTCanvas = memo(
     useEffect(() => {
       const timer = setInterval(() => {
         const latest = nativeCaptureLatestFrameRef.current;
-        const fresh = !!latest && !NativeClassifier.isNativeTrainingFrameStale(latest, Date.now()) &&
-          latest.sourceId === nativeCaptureSelectedId &&
-          latest.status === 'receiving' && NativeClassifier.isCompleteNativeTrainingFrame(latest);
+        const fresh = NativeClassifier.isNativeTrainingReadinessFrameUsable(latest, nativeCaptureSelectedId, Date.now());
         setNativeLatestFrameFresh((current) => current === fresh ? current : fresh);
         if (!nativeCaptureUi.active) return;
         const session = nativeCaptureRef.current;
@@ -2200,7 +2204,7 @@ const FFTCanvas = memo(
         const healthStopReason = NativeClassifier.stopNativeTrainingCaptureForHealth(session, {
           eligible: nativeCaptureEligibilityRef.current,
           ineligibleReason: nativeCaptureSourceStatusCodeRef.current,
-          latestFrameFresh: !!latest && !NativeClassifier.isNativeTrainingFrameStale(latest, Date.now()),
+          latestFrameFresh: fresh,
           nowMs: performance.now(),
         });
         if (healthStopReason) { setNativeCaptureUi({ active: false, frameCount: session.frameCount, status: healthStopReason }); return; }
@@ -4047,7 +4051,9 @@ const FFTCanvas = memo(
                 const nativeFrame = {
                   spectrum: new Float32Array(rawSpectrum.subarray(cropStart, cropEnd)),
                   metadata: {
-                    sourceId, frameId, timestampMs: nativeTimestamp!, acquisitionSampleRateHz: nativeRate!,
+                    sourceId, frameId, timestampMs: nativeTimestamp!, streamEpoch: currentFrame.stream_epoch,
+                    optionsRevision: currentFrame.options_revision, sequence: currentFrame.sequence,
+                    acquisitionSampleRateHz: nativeRate!,
                     analysisSampleRateHz: nativeRate!, fftSize: analysisSize, validSamples: Math.min(analysisSize, Math.floor(nativeIqWindow.length / 2)),
                     window: nativeWindow as NativeClassifier.FrameMetadata['window'], centerFrequencyHz: nativeCenter!,
                     retainedStartBin: cropStart, retainedEndBin: cropEnd,
@@ -6050,6 +6056,7 @@ const FFTCanvas = memo(
                       captureActive={nativeCaptureUi.active}
                       captureFrameCount={nativeCaptureUi.frameCount}
                       captureStatus={nativeCaptureUi.status || (!nativeCaptureAvailable ? nativeCaptureBlockReason : '')}
+                      captureTimestampDiagnostic={nativeCaptureTimestampDiagnostic}
                       captureDownloads={nativeCaptureDownloads}
                       captureDownloadsPersisted={latestPersistedNativeClassifierDownload !== null}
                       sessionToken={nativeClassifierSessionToken}

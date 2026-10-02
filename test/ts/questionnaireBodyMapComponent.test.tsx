@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { Area } from '../../src/ts/features/three-d/hooks/useModel3D';
+import type { Area } from '@n-apt/three-d/hooks/useModel3D';
 
 const mockControls = {
   object: { position: { x: 0, y: 0, z: 0, set: jest.fn() } },

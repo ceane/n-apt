@@ -69,6 +69,8 @@ const Label = styled.span`
   font-weight: 500;
   color: ${(props) => props.theme.textPrimary};
   user-select: none;
+  white-space: normal;
+  text-align: left;
 `;
 
 const InnerLabel = styled.span<{ $active: boolean }>`
