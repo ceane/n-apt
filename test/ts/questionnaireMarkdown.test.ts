@@ -33,6 +33,12 @@ describe('questionnaire Markdown source', () => {
   *options*
   - [ ] Head
   - [ ] Neck
+
+- Which head areas were affected?
+  *Canvas::HeadMap*
+  *options*
+  - [ ] Mouth
+  - [ ] Throat
 `);
 
     expect(questions).toEqual([
@@ -41,6 +47,7 @@ describe('questionnaire Markdown source', () => {
       expect.objectContaining({ id: '3', formattedId: 'Q3', text: 'Was it intermittent or continual?', type: 'radio', options: ['Intermittent', 'Continual but episodic'] }),
       expect.objectContaining({ id: '4', formattedId: 'Q4', text: 'What features did you experience?', type: 'checkbox', options: ['Heightened perception', 'Emotional changes'] }),
       expect.objectContaining({ id: '5', formattedId: 'Q5', text: 'Where were you affected?', type: 'checkbox', options: ['Head', 'Neck'], canvas: 'BodyMap' }),
+      expect.objectContaining({ id: '6', formattedId: 'Q6', text: 'Which head areas were affected?', type: 'checkbox', options: ['Mouth', 'Throat'], canvas: 'HeadMap' }),
     ]);
   });
 
@@ -126,7 +133,7 @@ describe('questionnaire Markdown source', () => {
     expect(migrated).toEqual({ '1': 'Daily', '2': 'Weekly' });
   });
 
-  test('the authored questionnaire retains every legacy prompt and includes the BodyMap regions', () => {
+  test('the authored questionnaire retains every legacy prompt and includes BodyMap and HeadMap regions', () => {
     const legacyQuestions = JSON.parse(fs.readFileSync(
       path.resolve(process.cwd(), 'src/app-legal/data/questionnaire/questions.json'),
       'utf8',
@@ -138,7 +145,8 @@ describe('questionnaire Markdown source', () => {
     const questions = parseQuestionnaireMarkdown(markdown);
 
     expect(questions.filter(({ canvas }) => canvas === 'BodyMap')).toHaveLength(1);
-    expect(questions).toHaveLength(legacyQuestions.length + 1);
+    expect(questions.filter(({ canvas }) => canvas === 'HeadMap')).toHaveLength(1);
+    expect(questions).toHaveLength(legacyQuestions.length + 3);
     for (const legacyQuestion of legacyQuestions) {
       expect(questions.some(({ text }) => text === legacyQuestion.text)).toBe(true);
     }
@@ -146,10 +154,33 @@ describe('questionnaire Markdown source', () => {
     expect(bodyMapQuestion).toEqual(expect.objectContaining({ id: '29f', formattedId: '29f)', isSubQuestion: true, parentQuestionId: '29' }));
     expect(bodyMapQuestion?.options).toContain('Head');
     expect(bodyMapQuestion?.options).toContain('Neck');
-    expect(questions.filter(({ isSubQuestion }) => isSubQuestion)).toHaveLength(35);
+    const headMapQuestion = questions.find(({ canvas }) => canvas === 'HeadMap');
+    expect(headMapQuestion).toEqual(expect.objectContaining({
+      id: '29g',
+      formattedId: '29g)',
+      text: 'Which head areas were affected?',
+      type: 'checkbox',
+      options: ['Mouth', 'Throat', 'Vocal cords', 'Tongue', 'Jaw', 'Facial muscles', 'Eye muscles', 'Head movement (turns, jolts, etc.)', 'Breathing'],
+      isSubQuestion: true,
+      parentQuestionId: '29',
+    }));
+    const effectsQuestion = questions.find(({ canvas }) => canvas === 'HeadEffects');
+    expect(effectsQuestion).toEqual(expect.objectContaining({
+      id: '29h',
+      text: 'What kinds of effects or feelings did you experience?',
+      type: 'checkbox',
+      options: [
+        'Perceptual',
+        'Compressed',
+        'Chemical',
+        'Somatic (sensations, pressure, jolts)',
+        'Autonomic (manipulating involuntary functions of your body)',
+      ],
+    }));
+    expect(questions.filter(({ isSubQuestion }) => isSubQuestion)).toHaveLength(37);
     const pages = groupQuestionPages(questions);
     expect(pages.find((page) => page[0]?.id === '25')?.map(({ id }) => id)).toEqual(['25', '25a', '25b', '25c', '25d', '25e']);
-    expect(pages.find((page) => page[0]?.id === '29')?.map(({ id }) => id)).toEqual(['29', '29a', '29b', '29c', '29d', '29e', '29f']);
+    expect(pages.find((page) => page[0]?.id === '29')?.map(({ id }) => id)).toEqual(['29', '29a', '29b', '29c', '29d', '29e', '29f', '29g', '29h']);
     for (const legacyQuestion of legacyQuestions) {
       expect(questions.find(({ text, options }) => text === legacyQuestion.text && JSON.stringify(options) === JSON.stringify(legacyQuestion.options.filter(Boolean)))).toBeDefined();
     }

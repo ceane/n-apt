@@ -4,6 +4,22 @@ import { dateAnswerText, isNaturalDateMonth, monthAutocompleteSuggestions, parse
 import { QuestionInput } from '../../src/app-legal/components/QuestionnairePanels';
 
 describe('natural questionnaire dates', () => {
+  test('does not leak styling-only inline props to radio option markup', () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <QuestionInput
+        question={{ id: 'frequency', type: 'radio', options: ['Daily', 'Weekly'] }}
+        answer=""
+      />,
+    );
+
+    try {
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   test('recognizes abbreviated late-month input as the final third of the month', () => {
     expect(parseNaturalDate('Late Sept 2018')).toMatchObject({
       start: '2018-09-21',

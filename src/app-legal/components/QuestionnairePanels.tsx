@@ -6,6 +6,8 @@ import { downloadQuestionnairePdf } from '../utils/exportQuestionnairePdf';
 import { dateAnswerInputValue, dateAnswerText, isNaturalDateMonth, monthAutocompleteSuggestions, parseNaturalDate } from '../utils/naturalDate';
 
 const QuestionnaireBodyMap = lazy(() => import('./QuestionnaireBodyMap').then((module) => ({ default: module.QuestionnaireBodyMap })));
+const QuestionnaireHeadMap = lazy(() => import('./QuestionnaireHeadMap').then((module) => ({ default: module.QuestionnaireHeadMap })));
+const QuestionnaireHeadEffects = lazy(() => import('./QuestionnaireHeadEffects').then((module) => ({ default: module.QuestionnaireHeadEffects })));
 
 const SectionCard = styled.section`
   padding: 24px;
@@ -145,7 +147,7 @@ const OptionList = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  ${({ inline }) => inline && 'flex-direction: row;'}
+  ${({ $inline }) => $inline && 'flex-direction: row;'}
 `;
 
 const Tag = styled.label`
@@ -272,7 +274,7 @@ export function QuestionInput({
 }) {
   if (question.type === 'radio') {
     return (
-      <OptionList inline>
+      <OptionList $inline>
         {question.options.map((option) => (
           <Tag key={option}>
             <input type="radio" name={question.id} checked={answer === option} onChange={() => onRadioChange(question.id, option)} />
@@ -428,6 +430,22 @@ export function QuestionnaireQuestions({ questionnaire }) {
           {question.canvas === 'BodyMap' ? (
             <Suspense fallback={<p role="status">Loading body map…</p>}>
               <QuestionnaireBodyMap
+                question={question}
+                answer={questionnaire.answers[question.id]}
+                onAnswerChange={questionnaire.setAnswer}
+              />
+            </Suspense>
+          ) : question.canvas === 'HeadMap' ? (
+            <Suspense fallback={<p role="status">Loading head view…</p>}>
+              <QuestionnaireHeadMap
+                question={question}
+                answer={questionnaire.answers[question.id]}
+                onAnswerChange={questionnaire.setAnswer}
+              />
+            </Suspense>
+          ) : question.canvas === 'HeadEffects' ? (
+            <Suspense fallback={<p role="status">Loading head effects view…</p>}>
+              <QuestionnaireHeadEffects
                 question={question}
                 answer={questionnaire.answers[question.id]}
                 onAnswerChange={questionnaire.setAnswer}

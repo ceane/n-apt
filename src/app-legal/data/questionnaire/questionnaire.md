@@ -341,6 +341,28 @@
     - [ ] Ears (Left)
     - [ ] Ears (Right)
 
+  - Which head areas were affected?
+    *Canvas::HeadMap*
+    *options*
+    - [ ] Mouth
+    - [ ] Throat
+    - [ ] Vocal cords
+    - [ ] Tongue
+    - [ ] Jaw
+    - [ ] Facial muscles
+    - [ ] Eye muscles
+    - [ ] Head movement (turns, jolts, etc.)
+    - [ ] Breathing
+
+  - What kinds of effects or feelings did you experience?
+    *Canvas::HeadEffects*
+    *options*
+    - [ ] Perceptual
+    - [ ] Compressed
+    - [ ] Chemical
+    - [ ] Somatic (sensations, pressure, jolts)
+    - [ ] Autonomic (manipulating involuntary functions of your body)
+
 - Did the program affect appetite, metabolism, stress responses, or increase risk for heart disease, diabetes, sepsis, or cancer?
   *radio*
   - [ ] Yes
