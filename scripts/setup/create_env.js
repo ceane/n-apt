@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'node:crypto';
 import dotenv from 'dotenv';
+import { ensureRedisAuthConfig, isLocalRedisUrl } from './redis_auth_config.mjs';
+import { capturePreAuthRedisState } from './preserve_redis_salts.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -204,29 +206,52 @@ function checkExistingFile() {
     log('\nExisting credentials preserved; values are hidden.', 'cyan');
     
     log('\n💡 Your environment is already configured!', 'green');
-    log('   If you need to recreate it, delete .env.local first:', 'yellow');
-    log('   rm .env.local', 'cyan');
-    log('   Then run: npm run setup', 'cyan');
-    
-    return false; // Don't overwrite
+    return true;
   }
   
-  return true; // Safe to create
+  return false;
 }
 
-// Create .env.local file
-function createEnvFile() {
-  const envPath = path.join(projectRoot, '.env.local');
-  const content = createEnvContent();
-  
+function writeOwnerOnlyFile(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  fs.chmodSync(path.dirname(filePath), 0o700);
+  const temporaryPath = `${filePath}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(envPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    logSuccess('.env.local created successfully!');
-    return true;
+    const fd = fs.openSync(temporaryPath, 'w', 0o600);
+    try {
+      fs.writeFileSync(fd, content, 'utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(temporaryPath, filePath);
+    fs.chmodSync(filePath, 0o600);
   } catch (error) {
-    logError(`Failed to create .env.local: ${error.message}`);
-    return false;
+    try { fs.unlinkSync(temporaryPath); } catch {}
+    throw error;
   }
+}
+
+async function configureRedisAuthentication(envPath, aclPath, wasExisting) {
+  const envText = wasExisting ? fs.readFileSync(envPath, 'utf8') : createEnvContent();
+  const stateFile = path.join(projectRoot, '.n-apt', 'redis', 'salt-fingerprint.pending.json');
+  let alreadyConfiguredAppUrl = false;
+  try {
+    const redisUrl = new URL(dotenv.parse(envText).REDIS_URL || 'redis://127.0.0.1:6379/0');
+    alreadyConfiguredAppUrl = decodeURIComponent(redisUrl.username) === 'napt-app' && Boolean(redisUrl.password);
+  } catch {}
+  if (isLocalRedisUrl(envText) && (!fs.existsSync(aclPath) || !alreadyConfiguredAppUrl)) {
+    await capturePreAuthRedisState({
+      projectRoot,
+      redisUrl: dotenv.parse(envText).REDIS_URL || 'redis://127.0.0.1:6379/0',
+      stateFile,
+    });
+  }
+  const configured = ensureRedisAuthConfig({ envText });
+  if (configured.aclText) writeOwnerOnlyFile(aclPath, configured.aclText);
+  writeOwnerOnlyFile(envPath, configured.envText);
+  if (!wasExisting) logSuccess('.env.local created with local Redis authentication.');
+  else logSuccess('Redis authentication configured; existing credentials and salts were preserved.');
+  if (configured.managedLocalRedis) logSuccess('Redis ACL file created with owner-only permissions.');
 }
 
 // Show next steps
@@ -248,25 +273,25 @@ function showNextSteps() {
 }
 
 // Main setup function
-function main() {
+async function main() {
   log('🔧 N-APT Environment Setup', 'bright');
   log('==============================', 'bright');
   
   logStep(1);
   log('Checking for existing .env.local file...');
-  
-  if (!checkExistingFile()) {
-    if (process.exitCode) return;
-    log('\n🎉 Setup complete - environment already configured!', 'green');
-    showNextSteps();
-    return;
-  }
-  
+  const envPath = path.join(projectRoot, '.env.local');
+  const aclPath = path.join(projectRoot, '.n-apt', 'redis', 'users.acl');
+  const wasExisting = checkExistingFile();
+  if (process.exitCode) return;
+
   logStep(2);
-  log('Creating .env.local with default configuration...');
-  
-  if (!createEnvFile()) {
-    process.exit(1);
+  log(wasExisting ? 'Adding Redis authentication without replacing existing configuration...' : 'Creating .env.local and local Redis authentication...');
+  try {
+    await configureRedisAuthentication(envPath, aclPath, wasExisting);
+  } catch (error) {
+    logError(`Could not configure Redis authentication: ${error.message}`);
+    process.exitCode = 1;
+    return;
   }
   
   logStep(3);
@@ -278,4 +303,7 @@ function main() {
 }
 
 // Run setup
-main();
+main().catch((error) => {
+  logError(`Could not configure Redis authentication: ${error.message}`);
+  process.exitCode = 1;
+});

@@ -357,6 +357,17 @@ pub async fn probe(client: &redis::Client) -> Result<(), String> {
 }
 
 #[cfg(test)]
+pub fn test_redis_url() -> &'static str {
+  static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+  URL.get_or_init(|| {
+    std::env::var("REDIS_ADMIN_URL")
+      .or_else(|_| std::env::var("REDIS_URL"))
+      .unwrap_or_else(|_| crate::infrastructure::redis::test_redis_url().to_string())
+  })
+  .as_str()
+}
+
+#[cfg(test)]
 mod tests {
   use super::{RedisReadiness, RedisStore};
 
@@ -368,7 +379,7 @@ mod tests {
 
   #[tokio::test]
   async fn challenge_storage_is_async_and_consumed_once() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let challenge_id = format!("redis-service-test:{}", uuid::Uuid::new_v4());
@@ -396,7 +407,7 @@ mod tests {
 
   #[tokio::test]
   async fn degraded_store_does_not_use_a_fallback_endpoint() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client_with_error(client, "invalid URL");
 
@@ -409,7 +420,7 @@ mod tests {
 
   #[tokio::test]
   async fn database_session_reuses_selected_database_for_queries() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let key = format!("redis-service-test:query:{}", uuid::Uuid::new_v4());
@@ -436,7 +447,7 @@ mod tests {
 
   #[tokio::test]
   async fn json_values_round_trip_through_the_requested_database() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let key = format!("redis-service-test:json:{}", uuid::Uuid::new_v4());
@@ -459,7 +470,7 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::Barrier;
 
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let key = format!("redis-service-test:nx:{}", uuid::Uuid::new_v4());

@@ -1,3 +1,4 @@
+mod redis_test_support;
 use base64::{engine::general_purpose, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use n_apt_backend::crypto;
@@ -1565,7 +1566,7 @@ async fn source_lifecycle_updates_app_source_state_through_loading_and_receiving
   device_types.sort_unstable();
   device_types.dedup();
 
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   let (broadcast_tx, mut broadcast_rx) =
     tokio::sync::broadcast::channel::<String>(32);
 

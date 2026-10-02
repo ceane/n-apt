@@ -792,7 +792,7 @@ mod tests {
 
   fn test_shared_state() -> Arc<SharedState> {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    SharedState::new("redis://127.0.0.1:6379")
+    SharedState::new(crate::infrastructure::redis::test_redis_url())
   }
 
   async fn next_capture_status(

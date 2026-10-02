@@ -528,7 +528,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("hackrf_one");
     *shared.device_serial.lock().unwrap() = "test".to_string();
     let tx_iq = vec![128, 129, 127, 130, 126, 131];
@@ -599,7 +599,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
@@ -660,7 +660,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_apt");
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
@@ -719,7 +719,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
     shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
@@ -779,7 +779,7 @@ mod tests {
   #[test]
   fn shutdown_flag_stops_streaming() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     assert!(!should_stop_streaming(&shared));
     shared.shutdown.store(true, Ordering::Relaxed);
     assert!(should_stop_streaming(&shared));
@@ -788,7 +788,7 @@ mod tests {
   #[test]
   fn selecting_a_source_opens_its_rx_gate_until_the_first_frame() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_active_source_pause_state("hackrf-one", true);
 
     prepare_selected_source_for_rx(
@@ -805,7 +805,7 @@ mod tests {
   #[test]
   fn mock_fallback_releases_pending_source_switch_fence() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("rtl_sdr");
     let failed_source_id = active_source_id(&shared);
     shared.request_source_switch(&failed_source_id);

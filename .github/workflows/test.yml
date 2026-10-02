@@ -83,17 +83,21 @@ jobs:
         image: redis
         ports:
           - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Setup Node.js for authenticated Redis test provisioning
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26.x
+          cache: "npm"
+
+      - name: Install Redis ACL provisioning dependencies
+        run: npm ci --legacy-peer-deps
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev redis-server
@@ -109,6 +113,9 @@ jobs:
         with:
           workspaces: .
           cache-on-failure: true
+
+      - name: Configure and verify authenticated Redis
+        run: node scripts/setup/configure_test_redis.mjs
 
       - name: Compile check (warnings are errors)
         run: RUSTFLAGS="-D warnings" cargo check --workspace --all-targets
@@ -142,7 +149,6 @@ jobs:
 
           run_selected_tests "${all_tests[@]}"
         env:
-          REDIS_URL: redis://localhost:6379
           UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key
           PROPTEST_SEED: "0xdeadbeef00000001"
 
@@ -220,11 +226,6 @@ jobs:
         image: redis
         ports:
           - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -253,6 +254,18 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Run Redis authentication and salt-preservation tests
+        run: >-
+          node --import tsx --test
+          test/scripts/redis_auth_setup.test.mjs
+          test/scripts/redis_salt_fingerprint.test.mjs
+          test/scripts/redis_tower_staging.test.mjs
+          test/scripts/redis_acl.integration.test.mjs
+          test/classifier/capture-salt-backup.integration.test.mjs
+
+      - name: Configure and verify authenticated Redis
+        run: node scripts/setup/configure_test_redis.mjs
+
       - name: Build WASM
         run: npm run build:wasm
 
@@ -265,5 +278,4 @@ jobs:
       - name: Run all integration tests
         run: npm run test:integration
         env:
-          REDIS_URL: redis://localhost:6379
           UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key

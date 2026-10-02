@@ -825,7 +825,7 @@ mod tests {
   #[serial]
   fn clearing_one_hardware_inventory_does_not_remove_the_other_device() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_rtl_sdr_inventory(vec![RtlSdrInventoryDevice {
       index: 0,
       serial_number: "rtl-1".to_string(),
@@ -850,7 +850,7 @@ mod tests {
   #[serial]
   fn entering_loading_starts_one_new_stream_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let initial_epoch = shared.current_stream_epoch();
     shared.stream_sequence.store(9, Ordering::Release);
 
@@ -867,7 +867,7 @@ mod tests {
   #[serial]
   fn frame_identity_is_monotonic_and_resets_with_the_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let (epoch, first) = shared.next_stream_frame_identity();
     let (same_epoch, second) = shared.next_stream_frame_identity();
     assert_eq!(same_epoch, epoch);
@@ -881,7 +881,7 @@ mod tests {
   #[serial]
   fn new_stream_epoch_requires_a_fresh_successful_read() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.record_successful_read();
     assert!(shared.last_successful_read.lock().unwrap().is_some());
 
@@ -894,7 +894,7 @@ mod tests {
   #[serial]
   fn syncing_same_source_clears_a_stale_global_pause_gate() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.is_paused.store(true, Ordering::SeqCst);
 
     // The source-scoped state says RTL is resumable even though the legacy
@@ -908,7 +908,7 @@ mod tests {
   #[serial]
   fn coalesces_pending_device_settings_by_field() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     shared.enqueue_pending_fast_settings(SdrProcessorSettings {
       sample_rate: Some(2_400_000),
@@ -970,7 +970,7 @@ mod tests {
   #[serial]
   fn encryption_key_is_pbkdf2_of_configured_password() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "vault-contract-test");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     let expected = crate::crypto::derive_key("vault-contract-test");
     assert_eq!(shared.encryption_key, expected);

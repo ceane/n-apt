@@ -401,7 +401,7 @@ mod tests {
       .enable_all()
       .build()
       .expect("runtime");
-    let shared = Arc::new(SharedState::new("redis://127.0.0.1:6379"));
+    let shared = Arc::new(SharedState::new(crate::infrastructure::redis::test_redis_url()));
     let (broadcast_tx, _rx) = broadcast::channel(4);
     let supervisor = DeviceSupervisor::new(
       SdrProcessor::new_mock_apt().expect("mock processor"),

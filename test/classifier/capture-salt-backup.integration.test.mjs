@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { chmod, copyFile, mkdtemp, mkdir, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { createClient } from "redis";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
+import { renderRedisAcl } from "../../scripts/setup/redis_auth_config.mjs";
 import { encodeIqCaptureV4 } from "../../src/ts/webusb/iqCaptureFormat.ts";
 import {
   decryptIqCapturePayload,
@@ -51,6 +53,14 @@ function makeV6Capture() {
 async function startRedis(directory, name) {
   const socketPath = path.join(directory, `${name}.sock`);
   const dataDirectory = path.join(directory, `${name}-data`);
+  const aclPath = path.join(directory, `${name}.acl`);
+  const appPassword = randomBytes(32).toString("hex");
+  const operatorPassword = randomBytes(32).toString("hex");
+  await writeFile(aclPath, renderRedisAcl({
+    appUsername: "napt-app",
+    appPassword,
+    operatorPassword,
+  }), { mode: 0o600 });
   await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
   const child = spawn("redis-server", [
     "--port", "0",
@@ -61,13 +71,23 @@ async function startRedis(directory, name) {
     "--save", "",
     "--appendonly", "no",
     "--protected-mode", "no",
+    "--aclfile", aclPath,
     "--daemonize", "no",
     "--loglevel", "warning",
   ], { stdio: "ignore" });
   let spawnError;
   child.once("error", (error) => { spawnError = error; });
 
-  const clientFactory = () => createClient({ socket: { path: socketPath } });
+  const clientFactory = () => createClient({
+    socket: { path: socketPath },
+    username: "napt-app",
+    password: appPassword,
+  });
+  const operatorClientFactory = () => createClient({
+    socket: { path: socketPath },
+    username: "napt-operator",
+    password: operatorPassword,
+  });
   const deadline = Date.now() + REDIS_SERVER_START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (spawnError) {
@@ -90,6 +110,7 @@ async function startRedis(directory, name) {
       return {
         child,
         clientFactory,
+        operatorClientFactory,
         socketPath,
         dataDirectory,
         async close() {
@@ -111,8 +132,8 @@ async function startRedis(directory, name) {
   throw new Error("The disposable Redis server did not become ready in time");
 }
 
-async function withRedisClient(server, callback) {
-  const client = server.clientFactory();
+async function withRedisClient(server, callback, asOperator = false) {
+  const client = (asOperator ? server.operatorClientFactory : server.clientFactory)();
   client.on("error", () => {});
   await client.connect();
   try {
@@ -161,7 +182,7 @@ test("Redis backup restores a missing per-capture salt and decrypts the V6 captu
       const stored = await client.get(redisKey);
       assert.equal(typeof stored, "string", "salt record exists in Redis DB 1 before backup");
       await client.sendCommand(["SAVE"]);
-    });
+    }, true);
     const backupPath = path.join(directory, "capture-salt-backup.rdb");
     await copyFile(
       path.join(active.dataDirectory, "dump.rdb"),

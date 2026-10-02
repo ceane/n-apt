@@ -1,3 +1,4 @@
+mod redis_test_support;
 use axum_test::TestServer;
 use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::server::main::AppState;
@@ -37,11 +38,14 @@ fn spawn_test_redis() -> (String, RedisGuard) {
   let listener = TcpListener::bind("127.0.0.1:0").unwrap();
   let port = listener.local_addr().unwrap().port();
   drop(listener);
+  let password = uuid::Uuid::new_v4().simple().to_string();
 
   let child = Command::new("redis-server")
     .args([
       "--port",
       &port.to_string(),
+      "--requirepass",
+      &password,
       "--save",
       "",
       "--appendonly",
@@ -57,7 +61,7 @@ fn spawn_test_redis() -> (String, RedisGuard) {
        (brew install redis)",
     );
 
-  let url = format!("redis://127.0.0.1:{port}");
+  let url = format!("redis://:{password}@127.0.0.1:{port}");
 
   // Wait for Redis to accept connections (up to 2 s).
   for _ in 0..200 {
@@ -124,7 +128,7 @@ fn mock_tx_monitor_places_positive_offsets_on_frontend_positive_axis() {
 #[serial]
 fn source_info_reports_hackrf_duplex_mode() {
   ensure_test_password();
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.update_device_status(
     true,
     "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz".to_string(),
@@ -152,7 +156,7 @@ fn source_info_reports_hackrf_duplex_mode() {
 #[serial]
 fn source_info_reports_stale_hardware_as_stale() {
   ensure_test_password();
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.update_device_status(
     true,
     "HackRF One".to_string(),

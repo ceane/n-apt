@@ -1213,7 +1213,7 @@ mod tests {
   async fn maybe_attach_hotplugged_device_respects_probe_interval() {
     let monitor = HotplugMonitor::new().expect("hotplug monitor");
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared_state = SharedState::new("redis://127.0.0.1:6379");
+    let shared_state = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let mut processor =
       SdrProcessor::new_mock_apt().expect("mock apt processor");
     let (broadcast_tx, _) = broadcast::channel(1);
@@ -1405,7 +1405,7 @@ mod tests {
   #[test]
   fn warming_up_requires_a_successful_read_after_swap() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared_state = SharedState::new("redis://127.0.0.1:6379");
+    let shared_state = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let state = HotplugState::new();
 
     assert!(!has_post_swap_success(&state, &shared_state));

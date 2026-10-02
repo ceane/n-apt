@@ -21,6 +21,8 @@ REDIS_DATA_DIR="$REDIS_DIR/data"
 REDIS_LOG="$REDIS_DIR/logs/redis.log"
 REDIS_PID_FILE="$REDIS_DIR/redis.pid"
 REDIS_BIN="/opt/homebrew/opt/redis/bin/redis-server"
+cd "$PROJECT_ROOT"
+redis-cli() { node "$PROJECT_ROOT/scripts/redis/redis_cli_auth.cjs" "$@"; }
 
 # Function to print colored output
 print_status() {
@@ -62,7 +64,12 @@ start_redis() {
         return 0
     fi
 
-    print_status "Starting Redis with persistent configuration..."
+    if [[ ! -s "$PROJECT_ROOT/.n-apt/redis/users.acl" ]]; then
+        print_error "Redis ACL configuration is missing. Run npm run setup first."
+        return 1
+    fi
+
+    print_status "Starting Redis with persistent authenticated configuration..."
     
     # Create directories if they don't exist
     mkdir -p "$REDIS_DATA_DIR" "$REDIS_DIR/logs" "$REDIS_DIR/backups"
