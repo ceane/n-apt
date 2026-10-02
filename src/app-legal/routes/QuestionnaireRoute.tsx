@@ -3,13 +3,32 @@ import { useEffect, useState } from 'react';
 import { useQuestionnaire } from '../hooks/useQuestionnaire';
 import { QuestionnaireQuestions, QuestionnaireSummary } from '../components/QuestionnairePanels';
 
+const DISCLAIMER_ACCEPTED_KEY = 'questionnaire.disclaimerAccepted';
+
+function readDisclaimerAcceptance() {
+  try {
+    return window.sessionStorage.getItem(DISCLAIMER_ACCEPTED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export default function QuestionnaireRoute() {
   const questionnaire = useQuestionnaire();
-  const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState(false);
+  const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState(readDisclaimerAcceptance);
   const isSummary = questionnaire.currentPage >= questionnaire.totalPages;
 
+  function acceptDisclaimer() {
+    try {
+      window.sessionStorage.setItem(DISCLAIMER_ACCEPTED_KEY, 'true');
+    } catch {
+      // Keep the current interaction usable when browser storage is unavailable.
+    }
+    setHasAcceptedDisclaimer(true);
+  }
+
   useEffect(() => {
-    if (!questionnaire.scrollToId) {
+    if (!hasAcceptedDisclaimer || !questionnaire.scrollToId) {
       return;
     }
     const element = document.getElementById(questionnaire.scrollToId);
@@ -17,7 +36,7 @@ export default function QuestionnaireRoute() {
       element.scrollIntoView({ behavior: 'smooth', block: 'start' });
       questionnaire.setScrollToId('');
     }
-  }, [questionnaire.currentPage, questionnaire.currentQuestions, questionnaire.scrollToId, questionnaire.setScrollToId]);
+  }, [hasAcceptedDisclaimer, questionnaire.currentPage, questionnaire.currentQuestions, questionnaire.scrollToId, questionnaire.setScrollToId]);
 
   if (!hasAcceptedDisclaimer) {
     return (
@@ -32,7 +51,7 @@ export default function QuestionnaireRoute() {
             <p><strong>Participation is voluntary.</strong> If you do not wish to participate, do not understand the purpose of this questionnaire or what is being asked of you, or do not feel comfortable providing these responses, please do not proceed. You should only continue if you understand the questionnaire and choose to participate.</p>
           </div>
           <div className="button-row">
-            <button className="button primary" type="button" onClick={() => setHasAcceptedDisclaimer(true)}>
+            <button className="button primary" type="button" onClick={acceptDisclaimer}>
               I understand &amp; proceed
             </button>
           </div>
