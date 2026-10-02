@@ -270,6 +270,7 @@ mod tests {
 
   #[test]
   fn capture_key_derivation_matches_shared_js_vector() {
+    // codeql[rust/hard-coded-cryptographic-value] Fixed vector used only by this unit test.
     let key = derive_capture_key(&[7u8; 32], &[8u8; 32]);
     let encoded = key.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     assert_eq!(encoded, "41d3d7c41410e3a76d9ebdc2040a91d208225e57664faab773f8394cd91264a1");
@@ -370,6 +371,7 @@ mod tests {
 
   #[test]
   fn capture_envelope_rejects_tampering_and_wrong_vault_key() {
+    // codeql[rust/hard-coded-cryptographic-value] Fixed keys and salt are test-only fixtures.
     let salt = [8u8; 32];
     let mut envelope = encrypt_capture_envelope_with_salt(&[3u8; 32], b"private capture", &salt).unwrap();
     assert!(decrypt_capture_envelope_with_salt(&[4u8; 32], &envelope, &salt).is_err());
@@ -380,6 +382,7 @@ mod tests {
 
   #[test]
   fn legacy_capture_envelope_requires_the_matching_server_salt() {
+    // codeql[rust/hard-coded-cryptographic-value] Fixed keys and salt are test-only fixtures.
     let vault_key = [12u8; 32];
     let salt = [13u8; 32];
     let capture_key = derive_capture_key(&vault_key, &salt);
