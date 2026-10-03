@@ -2,7 +2,7 @@ const { createHash } = require("node:crypto");
 
 const OPERATOR_USERNAME = "napt-operator";
 const APP_COMMANDS = [
-  "del", "eval", "evalsha", "expire", "exists", "geoadd", "get", "hgetall",
+  "del", "expire", "exists", "geoadd", "get", "getdel", "hgetall",
   "hello", "info", "mget", "ping", "quit", "scan", "select", "set", "setex", "zcard", "zrange",
 ];
 

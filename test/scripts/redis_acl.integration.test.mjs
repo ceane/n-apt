@@ -80,9 +80,17 @@ test("Redis ACL requires authentication and restricts the app account", async (c
   await app.select(1);
   await app.set("capture-protection:integration-test", "preserved-salt");
   assert.equal(await app.get("capture-protection:integration-test"), "preserved-salt");
+  await app.set("challenge:redis-acl-integration", "one-time-value");
+  assert.equal(
+    await app.sendCommand(["GETDEL", "challenge:redis-acl-integration"]),
+    "one-time-value",
+  );
+  assert.equal(await app.get("challenge:redis-acl-integration"), null);
   await assert.rejects(app.get("unrelated:secret"), /NOPERM|without permission/i);
   await assert.rejects(app.flushDb(), /NOPERM|without permission/i);
   await assert.rejects(app.sendCommand(["SWAPDB", "5", "2"]), /NOPERM|without permission/i);
+  await assert.rejects(app.sendCommand(["EVAL", "return 1", "0"]), /NOPERM|without permission/i);
+  await assert.rejects(app.sendCommand(["SCRIPT", "LOAD", "return 1"]), /NOPERM|without permission/i);
 
   operator = createClient(connectOptions(operatorCredentials));
   operator.on("error", () => {});

@@ -171,18 +171,15 @@ impl RedisStore {
   ) -> Result<Option<[u8; 32]>, String> {
     let mut connection = self.connection(1).await?;
     let key = format!("challenge:{challenge_id}");
-    let script = redis::Script::new(
-      "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
-    );
-    let nonce: Option<Vec<u8>> = match script
-      .key(key)
-      .invoke_async(&mut connection)
+    let nonce: Option<Vec<u8>> = match redis::cmd("GETDEL")
+      .arg(key)
+      .query_async(&mut connection)
       .await
     {
       Ok(nonce) => nonce,
       Err(error) => {
         self.evict_connection(1);
-        return Err(format!("Redis challenge consume failed: {error}"));
+        return Err(format!("Redis challenge GETDEL failed: {error}"));
       }
     };
 
