@@ -6,7 +6,7 @@ const OPERATOR_USERNAME = "napt-operator";
 const DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0";
 const APP_COMMANDS = [
   "del", "eval", "evalsha", "expire", "exists", "geoadd", "get", "hgetall",
-  "hello", "info", "mget", "ping", "scan", "select", "set", "setex", "zcard", "zrange",
+  "hello", "info", "mget", "ping", "quit", "scan", "select", "set", "setex", "zcard", "zrange",
 ];
 
 function parseEnv(envText) {
