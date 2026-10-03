@@ -1381,14 +1381,26 @@ fn classifier_artifact_path_matches_job(
   part: &str,
   extension: &str,
 ) -> bool {
-  artifact
+  let Some(filename) = artifact
     .path
     .file_name()
     .and_then(|filename| filename.to_str())
-    .is_some_and(|filename| {
-      filename.starts_with(&format!("{job_id}-{part}-"))
-        && filename.ends_with(extension)
-    })
+  else {
+    return false;
+  };
+
+  let legacy_prefix = format!("{job_id}-{part}-");
+  let generated_prefix = format!("classifier-upload-{part}-");
+  let is_legacy_name = filename
+    .strip_prefix(&legacy_prefix)
+    .and_then(|suffix| suffix.strip_suffix(extension))
+    .is_some_and(valid_sha256_hex);
+  let is_generated_name = filename
+    .strip_prefix(&generated_prefix)
+    .and_then(|suffix| suffix.strip_suffix(extension))
+    .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok());
+
+  is_legacy_name || is_generated_name
 }
 
 /// POST /api/classifier/captures/{captureId}/{part}?filename=<basename>
@@ -1406,9 +1418,9 @@ pub async fn classifier_capture_upload_handler(
     )
       .into_response();
   }
-  let (extension, max_bytes) = match part.as_str() {
-    "iq" => (".iq", MAX_CLASSIFIER_IQ_UPLOAD_BYTES),
-    "annotations" => (".json", MAX_CLASSIFIER_ANNOTATION_UPLOAD_BYTES),
+  let (artifact_part, extension, max_bytes) = match part.as_str() {
+    "iq" => ("iq", ".iq", MAX_CLASSIFIER_IQ_UPLOAD_BYTES),
+    "annotations" => ("annotations", ".json", MAX_CLASSIFIER_ANNOTATION_UPLOAD_BYTES),
     _ => {
       return (
         StatusCode::BAD_REQUEST,
@@ -1514,12 +1526,14 @@ pub async fn classifier_capture_upload_handler(
     )
       .into_response();
   }
-  let path = capture_dir.join(format!("{job_id}-{part}-{checksum}{extension}"));
-  let nonce = std::time::SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH)
-    .map(|duration| duration.as_nanos())
-    .unwrap_or(0);
-  let temporary_path = capture_dir.join(format!(".{job_id}-{part}-{nonce}.tmp"));
+  let artifact_id = uuid::Uuid::new_v4();
+  let path = capture_dir.join(format!(
+    "classifier-upload-{artifact_part}-{artifact_id}{extension}"
+  ));
+  let temporary_path = capture_dir.join(format!(
+    ".classifier-upload-{artifact_part}-{}.tmp",
+    uuid::Uuid::new_v4()
+  ));
   if let Err(error) = tokio::fs::write(&temporary_path, &body).await {
     error!("Failed to stage classifier artifact: {error}");
     return (
@@ -1775,7 +1789,8 @@ pub async fn save_capture_to_huggingface_handler(
         "error": format!("Failed to encode dataset manifest: {error}")
       }))).into_response(),
     };
-    let manifest_path = metadata_directory.join(format!("{}.json", params.job_id));
+    let manifest_id = uuid::Uuid::new_v4();
+    let manifest_path = metadata_directory.join(format!("capture-manifest-{manifest_id}.json"));
     let temporary_path = manifest_path.with_extension("json.tmp");
     if let Err(error) = tokio::fs::write(&temporary_path, manifest_bytes).await {
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
@@ -3534,6 +3549,7 @@ mod capture_destination_tests {
 mod classifier_capture_upload_tests {
   use super::{
     append_classifier_package_manifest, build_classifier_package_manifest,
+    classifier_artifact_path_matches_job,
     resolve_capture_download_artifacts, valid_classifier_capture_filename,
     validate_classifier_annotation_upload, validate_classifier_iq_upload,
   };
@@ -3609,33 +3625,39 @@ mod classifier_capture_upload_tests {
   fn classifier_package_manifest_links_both_resources_by_checksum() {
     let iq_checksum = "a".repeat(64);
     let labels_checksum = "b".repeat(64);
+    let capture_uuid = "01234567-89ab-cdef-0123-456789abcdef";
+    let job_id = format!("classifier_{}", "a".repeat(64));
     let artifacts = vec![
       CaptureArtifact {
         filename: "capture.iq".into(),
-        path: format!(
-          "/tmp/classifier_{}-iq-{iq_checksum}.iq",
-          "a".repeat(64)
-        )
-        .into(),
+        path: format!("/tmp/classifier-upload-iq-{capture_uuid}.iq").into(),
         file_size: 64,
         checksum: iq_checksum.clone(),
       },
       CaptureArtifact {
         filename: "labels.json".into(),
-        path: format!(
-          "/tmp/classifier_{}-annotations-{labels_checksum}.json",
-          "a".repeat(64)
-        )
-        .into(),
+        path: format!("/tmp/classifier-upload-annotations-{capture_uuid}.json").into(),
         file_size: 32,
         checksum: labels_checksum.clone(),
       },
     ];
 
-    let manifest = build_classifier_package_manifest(
-      &format!("classifier_{}", "a".repeat(64)),
-      &artifacts,
-    )
+    assert!(classifier_artifact_path_matches_job(&artifacts[0], &job_id, "iq", ".iq"));
+    assert!(classifier_artifact_path_matches_job(&artifacts[1], &job_id, "annotations", ".json"));
+    let legacy_artifact = CaptureArtifact {
+      filename: "capture.iq".into(),
+      path: format!("/tmp/{job_id}-iq-{}.iq", "a".repeat(64)).into(),
+      file_size: 64,
+      checksum: iq_checksum.clone(),
+    };
+    assert!(classifier_artifact_path_matches_job(&legacy_artifact, &job_id, "iq", ".iq"));
+    let invalid_artifact = CaptureArtifact {
+      path: "/tmp/classifier-upload-iq-not-a-uuid.iq".into(),
+      ..artifacts[0].clone()
+    };
+    assert!(!classifier_artifact_path_matches_job(&invalid_artifact, &job_id, "iq", ".iq"));
+
+    let manifest = build_classifier_package_manifest(&job_id, &artifacts)
       .expect("complete classifier package manifest");
     let manifest: serde_json::Value = serde_json::from_slice(&manifest).expect("JSON descriptor");
     assert_eq!(manifest["$schema"], "https://datapackage.org/profiles/2.0/datapackage.json");
