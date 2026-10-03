@@ -1,3 +1,4 @@
+mod redis_test_support;
 use n_apt_backend::consts::fft::SAMPLE_RATE;
 use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::server::shared_state::SharedState;
@@ -10,7 +11,7 @@ fn frequency_requests_coalesce_to_the_latest_value_without_a_processor_lock() {
   unsafe {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
   }
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
 
   shared.request_center_frequency(1_700_000);
   shared.request_center_frequency(1_800_000);

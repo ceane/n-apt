@@ -34,6 +34,24 @@ pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 /// stream; past this budget the terminal fallback path runs instead.
 pub const MAX_READER_RESTARTS: u32 = 8;
 
+/// Overall watchdog for an active-device restart. Bounds how long a restart may
+/// hold the processor lock before the UI is resolved to an actionable state
+/// instead of pinning on the `loading`/`restart` placeholder.
+pub const DEVICE_RESTART_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(8);
+
+/// Bound on the native device open performed inside a restart. librtlsdr's open
+/// can block well past any internal retry budget on a busy or half-detached
+/// USB handle; this caps how long the processor lock can be held for it.
+pub const DEVICE_OPEN_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(5);
+
+/// Bound on releasing the previous device during a restart. The close itself is
+/// unbounded in librtlsdr, so the wait is capped and an overrunning handle is
+/// left to unwind in the background.
+pub const DEVICE_RELEASE_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(5);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HackRfInventoryDevice {
   pub serial_number: String,
@@ -128,6 +146,8 @@ pub struct SharedState {
   pub device_state: Mutex<String>,
   /// AES-256 encryption key derived from passkey (set once at startup)
   pub encryption_key: [u8; 32],
+  /// Login-only key. Never export this key to authenticated clients.
+  pub authentication_key: [u8; 32],
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// Device-scoped channel selected by the control plane. This is kept apart
@@ -217,6 +237,7 @@ impl SharedState {
   pub fn new(redis_url: &str) -> Arc<Self> {
     let passkey = unsafe_local_user_password();
     let encryption_key = crate::crypto::derive_key(&passkey);
+    let authentication_key = crate::crypto::derive_auth_key(&passkey);
     let sdr_settings = load_sdr_settings();
     let (redis_store, redis_readiness) = match redis::Client::open(redis_url) {
       Ok(client) => (RedisStore::from_client(client), RedisReadiness::Unknown),
@@ -278,6 +299,7 @@ impl SharedState {
       device_loading_reason: Mutex::new(None),
       device_state: Mutex::new("disconnected".to_string()),
       encryption_key,
+      authentication_key,
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),
@@ -779,6 +801,9 @@ fn merge_pending_fast_settings(
 
 fn unsafe_local_user_password() -> String {
   match std::env::var("UNSAFE_LOCAL_USER_PASSWORD") {
+    Ok(passkey) if passkey.trim() == "your_password" => panic!(
+      "The public setup password cannot enable login. Configure a private password; preserve the old password and salts for existing captures."
+    ),
     Ok(passkey) if !passkey.trim().is_empty() => passkey,
     _ => panic!(
       "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
@@ -800,7 +825,7 @@ mod tests {
   #[serial]
   fn clearing_one_hardware_inventory_does_not_remove_the_other_device() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_rtl_sdr_inventory(vec![RtlSdrInventoryDevice {
       index: 0,
       serial_number: "rtl-1".to_string(),
@@ -825,7 +850,7 @@ mod tests {
   #[serial]
   fn entering_loading_starts_one_new_stream_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let initial_epoch = shared.current_stream_epoch();
     shared.stream_sequence.store(9, Ordering::Release);
 
@@ -842,7 +867,7 @@ mod tests {
   #[serial]
   fn frame_identity_is_monotonic_and_resets_with_the_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let (epoch, first) = shared.next_stream_frame_identity();
     let (same_epoch, second) = shared.next_stream_frame_identity();
     assert_eq!(same_epoch, epoch);
@@ -856,7 +881,7 @@ mod tests {
   #[serial]
   fn new_stream_epoch_requires_a_fresh_successful_read() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.record_successful_read();
     assert!(shared.last_successful_read.lock().unwrap().is_some());
 
@@ -869,7 +894,7 @@ mod tests {
   #[serial]
   fn syncing_same_source_clears_a_stale_global_pause_gate() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.is_paused.store(true, Ordering::SeqCst);
 
     // The source-scoped state says RTL is resumable even though the legacy
@@ -883,7 +908,7 @@ mod tests {
   #[serial]
   fn coalesces_pending_device_settings_by_field() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     shared.enqueue_pending_fast_settings(SdrProcessorSettings {
       sample_rate: Some(2_400_000),
@@ -918,6 +943,15 @@ mod tests {
 
   #[test]
   #[serial]
+  fn refuses_public_setup_placeholder_without_changing_capture_keys() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "your_password");
+    let result = std::panic::catch_unwind(unsafe_local_user_password);
+    std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
+    assert!(result.is_err(), "public setup placeholder must not enable login");
+  }
+
+  #[test]
+  #[serial]
   #[should_panic(
     expected = "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
   )]
@@ -927,17 +961,16 @@ mod tests {
     let _ = unsafe_local_user_password();
   }
 
-  /// Pins the vault/auth key contract: the server's `encryption_key` is
-  /// exactly `PBKDF2-HMAC-SHA256(password, salt, 100k)`. Both the password
-  /// challenge-response (HMAC over a server nonce) and .napt capture
-  /// encryption/playback (`scripts/decrypt_napt.mjs` re-derives this same
-  /// key client-side) depend on this derivation staying byte-stable.
+  /// Pins the legacy vault contract: `encryption_key` is exactly
+  /// `PBKDF2-HMAC-SHA256(password, salt, 100k)`. Capture encryption/playback
+  /// depend on this derivation staying byte-stable. Authentication now uses
+  /// an independent password derivation; the exported vault is not a login key.
   /// Changing it orphans every previously recorded capture.
   #[test]
   #[serial]
   fn encryption_key_is_pbkdf2_of_configured_password() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "vault-contract-test");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     let expected = crate::crypto::derive_key("vault-contract-test");
     assert_eq!(shared.encryption_key, expected);
@@ -951,12 +984,13 @@ mod tests {
     assert_eq!(expected, crate::crypto::derive_key(" vault-contract-test "));
 
     // End-to-end auth proof shape: a client that knows the password can HMAC
-    // a server nonce with its derived key and the server verifies it with the
-    // shared key — no plaintext password ever crosses the wire.
+    // a server nonce with the independently derived authentication key.
     let nonce = crate::crypto::generate_nonce();
-    let client_tag = crate::crypto::compute_hmac(&expected, &nonce);
+    let auth_key = crate::crypto::derive_auth_key("vault-contract-test");
+    assert_ne!(auth_key, expected);
+    let client_tag = crate::crypto::compute_hmac(&auth_key, &nonce);
     assert!(crate::crypto::verify_hmac(
-      &shared.encryption_key,
+      &shared.authentication_key,
       &nonce,
       &client_tag
     ));

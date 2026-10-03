@@ -4,7 +4,7 @@
 //! a random session token. The client stores it in `localStorage` and sends it
 //! on WebSocket upgrade to skip re-authentication.
 //!
-//! Sessions are persisted to `~/.n-apt/sessions.json` so they survive restarts.
+//! Sessions are persisted in Redis DB 1 with an expiry.
 
 use redis::aio::MultiplexedConnection;
 use redis::{AsyncCommands, Client as RedisClient};
@@ -26,11 +26,13 @@ pub struct Session {
 }
 
 /// Redis-backed session store.
+#[derive(Clone)]
 pub struct SessionStore {
   client: RedisClient,
   ttl_secs: u64,
   prefix: String,
   config_error: Option<String>,
+  revocations: tokio::sync::broadcast::Sender<String>,
 }
 
 impl SessionStore {
@@ -43,6 +45,7 @@ impl SessionStore {
       ttl_secs: DEFAULT_SESSION_TTL_SECS,
       prefix: "session:".to_string(),
       config_error: None,
+      revocations: tokio::sync::broadcast::channel(128).0,
     })
   }
 
@@ -60,6 +63,7 @@ impl SessionStore {
           ttl_secs: DEFAULT_SESSION_TTL_SECS,
           prefix: "session:".to_string(),
           config_error: Some(error),
+          revocations: tokio::sync::broadcast::channel(128).0,
         }
       }
     }
@@ -159,11 +163,43 @@ impl SessionStore {
       .del::<_, i64>(&key)
       .await
       .map_err(|error| format!("Session revoke failed: {error}"))?;
+    let _ = self.revocations.send(token.to_owned());
     log::info!(
       "Session revoked in Redis: {}…",
       token.get(..8).unwrap_or(token)
     );
     Ok(())
+  }
+
+  /// Monitor both local logout and Redis expiry/revocation from other processes.
+  /// Subscribe before validating to close the upgrade/logout race. Storage
+  /// outages fail closed, with a bounded validation timeout.
+  pub async fn wait_until_invalid(&self, token: &str) {
+    let mut revocations = self.revocations.subscribe();
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+      tokio::select! {
+        event = revocations.recv() => {
+          match event {
+            Ok(revoked) if revoked == token => return,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+              // Recheck immediately rather than waiting for the next tick.
+              if !self.is_active(token).await { return; }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            _ => {},
+          }
+        }
+        _ = interval.tick() => {
+          if !self.is_active(token).await { return; }
+        }
+      }
+    }
+  }
+
+  pub async fn is_active(&self, token: &str) -> bool {
+    matches!(tokio::time::timeout(std::time::Duration::from_secs(2), self.validate(token)).await, Ok(Some(_)))
   }
 }
 

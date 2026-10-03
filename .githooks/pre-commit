@@ -10,9 +10,12 @@ if command -v node >/dev/null 2>&1; then
 elif [ -x "/Users/ceanelamerez/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node" ]; then
   NODE_BIN="/Users/ceanelamerez/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
 else
-  echo "pre-commit: Node.js is required to synchronize article channel frequencies." >&2
+  echo "pre-commit: Node.js is required to validate captures and synchronize article channel frequencies." >&2
   exit 1
 fi
+
+# Enforce encryption on the staged Git blobs before any commit can be created.
+"$NODE_BIN" scripts/git/check_encrypted_captures.mjs --staged
 
 "$NODE_BIN" scripts/article/sync-channel-frequencies.mjs --write
 

@@ -795,7 +795,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               <HelpText>
                 {selectedFiles.length > 0
                   ? "Click Stitch/Process to visualize"
-                  : "Drop .napt, .iq, or .wav files here"}
+                  : "Drop .napt, .iq, or .wav files here; protected .enc files need backend playback"}
               </HelpText>
             )}
           </EmptyContainer>

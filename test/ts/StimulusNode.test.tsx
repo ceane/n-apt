@@ -1,5 +1,11 @@
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
 import { StimulusNode } from "@n-apt/demodulation/react-flow/nodes/StimulusNode";
@@ -11,6 +17,7 @@ import {
   AUDIO_WATERFALL_FPS,
   AUDIO_WATERFALL_HEIGHT,
   createFmWaterfallFrame,
+  createAudioToneReferencePcm,
   createSineWaveformSamples,
   getAudioToneGain,
 } from "@n-apt/demodulation/react-flow/nodes/audioWaveformPreview";
@@ -27,6 +34,7 @@ const mockDemodValue: {
   liveMode: boolean;
   setLiveMode: jest.Mock;
   startAnalysis: jest.Mock;
+  recordAudioSurveyStimulusReference: jest.Mock;
   clearAnalysis: jest.Mock;
 } = {
   analysisSession: { state: "idle", type: "audio", startTime: null },
@@ -35,8 +43,18 @@ const mockDemodValue: {
   liveMode: false,
   setLiveMode: jest.fn(),
   startAnalysis: jest.fn(),
+  recordAudioSurveyStimulusReference: jest.fn().mockResolvedValue(null),
   clearAnalysis: jest.fn(),
 };
+
+jest.mock("@n-apt/redux", () => {
+  const reactRedux = jest.requireActual("react-redux");
+  return { useAppSelector: reactRedux.useSelector };
+});
+
+jest.mock("@n-apt/webusb/initialSpectrumFrequencyRange", () => ({
+  INITIAL_SPECTRUM_FREQUENCY_RANGE: { min: 18_000, max: 4_390_000 },
+}));
 
 // Mock the useDemod hook
 jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
@@ -54,7 +72,11 @@ const mockWaterfallProps: {
   } | null;
 } = { current: null };
 
-let mockAudioContext: { currentTime: number } | null = null;
+let mockAudioContext: {
+  currentTime: number;
+  createBufferSource: jest.Mock;
+  resume: jest.Mock;
+} | null = null;
 let nextAnimationFrame: FrameRequestCallback | null = null;
 
 jest.mock("@n-apt/spectrum/public/FIFOWaterfall", () => ({
@@ -76,7 +98,29 @@ describe("StimulusNode", () => {
       });
     const audioContext = {
       currentTime: 0,
+      state: "running",
       destination: {},
+      resume: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+      decodeAudioData: jest.fn().mockResolvedValue({
+        sampleRate: 24_000,
+        length: 4,
+        numberOfChannels: 1,
+        getChannelData: () => Float32Array.of(-1, -0.5, 0.5, 1),
+      }),
+      createBuffer: jest.fn((_channels: number, length: number) => {
+        const samples = new Float32Array(length);
+        return {
+          getChannelData: () => samples,
+        };
+      }),
+      createBufferSource: jest.fn(() => ({
+        buffer: null,
+        connect: jest.fn(),
+        start: jest.fn(),
+        stop: jest.fn(),
+        onended: null,
+      })),
       createOscillator: () => ({
         type: "sine",
         frequency: { setValueAtTime: jest.fn() },
@@ -105,6 +149,7 @@ describe("StimulusNode", () => {
       startTime: null,
     };
     mockWaterfallProps.current = null;
+    mockDemodValue.recordAudioSurveyStimulusReference.mockClear();
   });
 
   afterEach(() => {
@@ -120,6 +165,27 @@ describe("StimulusNode", () => {
       subtext: "Test subtext",
     },
   };
+  const channelACompatibleState = {
+    demod: { centerFreqHz: 1_000_000 },
+    spectrum: { frequencyRange: { min: 18_000, max: 4_390_000 } },
+    websocket: {
+      channels: [
+        { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+        { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+        { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+      ],
+    },
+  };
+
+  it("materializes the played tone as a PCM reference with the same envelope", () => {
+    const reference = createAudioToneReferencePcm(1, 48_000);
+    expect(reference).toHaveLength(48_000);
+    expect(reference[0]).toBe(0);
+    expect(
+      Math.max(...Array.from(reference.slice(4_800, 5_000))),
+    ).toBeGreaterThan(0.4);
+    expect(Math.abs(reference[47_999])).toBeLessThan(0.02);
+  });
 
   it("renders with default props", () => {
     render(
@@ -128,7 +194,9 @@ describe("StimulusNode", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Stimulus")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Stimulus controls" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Test subtext")).toBeInTheDocument();
   });
 
@@ -141,6 +209,77 @@ describe("StimulusNode", () => {
 
     expect(screen.getByText(/440Hz SINE TONE/)).toBeInTheDocument();
     expect(screen.getByText("TRADITIONAL AUDIO WAVEFORM")).toBeInTheDocument();
+  });
+
+  it("offers a local audio or video reference file for pairing", () => {
+    render(
+      <TestWrapper>
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    const input = screen.getByLabelText("Reference media file");
+    expect(input).toHaveAttribute("type", "file");
+    expect(input).toHaveAttribute("accept", "audio/*,video/*");
+    expect(screen.getByText(/decoded locally/i)).toBeInTheDocument();
+    const label = screen.getByLabelText("Audio signal label");
+    expect(label.querySelectorAll("option")).toHaveLength(3);
+    expect(
+      Array.from(label.querySelectorAll("option")).map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(["Unlabeled", "Coherent", "Static"]);
+  });
+
+  it("decodes local media to mono 48 kHz and starts it when RF pairing asks", async () => {
+    mockDemodValue.recordAudioSurveyStimulusReference.mockImplementation(
+      async (input: { startPlayback?: () => Promise<number> | number }) => {
+        await input.startPlayback?.();
+        return { kind: "reference-pair" };
+      },
+    );
+    render(
+      <TestWrapper preloadedState={channelACompatibleState}>
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.change(screen.getByLabelText("Audio signal label"), {
+      target: { value: "static" },
+    });
+    const file = new File(["media"], "reference.wav", { type: "audio/wav" });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new ArrayBuffer(5),
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Reference media file"), {
+        target: { files: [file] },
+      });
+    });
+
+    expect(
+      await screen.findByText(/decoded locally to mono 48 kHz PCM/),
+    ).toBeInTheDocument();
+    const captureButton = screen.getByRole("button", {
+      name: "CAPTURE MEDIA PAIR",
+    });
+    await act(async () => fireEvent.click(captureButton));
+
+    expect(
+      mockDemodValue.recordAudioSurveyStimulusReference,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pcmSampleRateHz: 48_000,
+        pcmData: expect.any(Float32Array),
+        audioSignalLabel: "static",
+        startPlayback: expect.any(Function),
+      }),
+    );
+    expect(mockAudioContext?.resume).toHaveBeenCalledTimes(1);
+    expect(mockAudioContext?.createBufferSource).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText(/Saved an aligned I\/Q and PCM pair/),
+    ).toBeInTheDocument();
   });
 
   it("renders a synchronized sine waveform while audio is capturing", () => {
@@ -172,7 +311,7 @@ describe("StimulusNode", () => {
     };
 
     render(
-      <TestWrapper>
+      <TestWrapper preloadedState={channelACompatibleState}>
         <StimulusNode {...defaultProps} />
       </TestWrapper>,
     );
@@ -181,7 +320,9 @@ describe("StimulusNode", () => {
     const atStart = bar.getAttribute("y1");
 
     act(() => {
-      mockAudioContext!.currentTime = 0.001;
+      // Playback is intentionally scheduled 100 ms in the future to avoid a
+      // click at the start of the oscillator.
+      mockAudioContext!.currentTime = 0.101;
       nextAnimationFrame?.(0);
     });
 
@@ -319,6 +460,50 @@ describe("StimulusNode", () => {
     expect(getAudioToneGain(5, 5)).toBeCloseTo(0.01, 5);
   });
 
+  it("waits for the reference capture to schedule a paired tone", async () => {
+    mockDemodValue.recordAudioSurveyStimulusReference.mockImplementation(
+      async (input: { startedAtMs?: number; startPlayback?: () => number }) => {
+        await input.startPlayback?.();
+        return null;
+      },
+    );
+    const view = render(
+      <TestWrapper preloadedState={channelACompatibleState}>
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.change(screen.getByLabelText("Audio signal label"), {
+      target: { value: "coherent" },
+    });
+    mockDemodValue.analysisSession = {
+      state: "capturing",
+      type: "audio",
+      startTime: Date.now(),
+    };
+
+    await act(async () => {
+      view.rerender(
+        <TestWrapper preloadedState={channelACompatibleState}>
+          <StimulusNode {...defaultProps} />
+        </TestWrapper>,
+      );
+    });
+
+    expect(
+      mockDemodValue.recordAudioSurveyStimulusReference,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pcmSampleRateHz: 48_000,
+        audioSignalLabel: "coherent",
+        startPlayback: expect.any(Function),
+      }),
+    );
+    expect(
+      mockDemodValue.recordAudioSurveyStimulusReference.mock.calls[0][0]
+        .startedAtMs,
+    ).toBeUndefined();
+  });
+
   it("renders duration input", () => {
     render(
       <TestWrapper>
@@ -341,6 +526,38 @@ describe("StimulusNode", () => {
     expect(button).toBeInTheDocument();
   });
 
+  it("gates audio and speech to A/B while allowing vision on C", () => {
+    render(
+      <TestWrapper
+        preloadedState={{
+          demod: { centerFreqHz: 10_000_000 },
+          spectrum: { frequencyRange: null },
+          websocket: {
+            channels: [
+              { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+              { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+              { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+            ],
+          },
+        }}
+      >
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "TRIGGER" });
+    const baseline = screen.getByRole("combobox", { name: "Baseline Vector" });
+    expect(trigger).toBeDisabled();
+
+    fireEvent.change(baseline, { target: { value: "speech" } });
+    expect(trigger).toBeDisabled();
+    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith("speech");
+
+    fireEvent.change(baseline, { target: { value: "vision" } });
+    expect(trigger).toBeEnabled();
+    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith("vision");
+  });
+
   it("renders live capture checkbox", () => {
     render(
       <TestWrapper>
@@ -348,7 +565,9 @@ describe("StimulusNode", () => {
       </TestWrapper>,
     );
 
-    const checkbox = screen.getByRole("checkbox");
+    const checkbox = screen.getByRole("checkbox", {
+      name: "LIVE CAPTURE (EPHEMERAL)",
+    });
     expect(checkbox).toBeInTheDocument();
     expect(checkbox).not.toBeChecked();
   });

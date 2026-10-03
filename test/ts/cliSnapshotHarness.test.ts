@@ -1,6 +1,19 @@
-import { buildCliSnapshotModel } from "@n-apt/cli/snapshotModel";
+import * as SnapshotModel from "@n-apt/cli/snapshotModel";
+
+const { buildCliSnapshotModel } = SnapshotModel;
 
 describe("CLI snapshot harness", () => {
+  test("requests history only when a waterfall needs it", () => {
+    const resolveFrameCount = (
+      SnapshotModel as typeof SnapshotModel & {
+        resolveCliSnapshotFrameCount?: (waterfall: boolean) => number;
+      }
+    ).resolveCliSnapshotFrameCount;
+
+    expect(resolveFrameCount?.(false)).toBe(1);
+    expect(resolveFrameCount?.(true)).toBe(64);
+  });
+
   test("converts a Rust IQ frame into spectrum and waterfall snapshot data", () => {
     const iq = new Uint8Array(2048);
     for (let index = 0; index < iq.length; index += 2) {

@@ -30,6 +30,14 @@ const mockRaf = jest.spyOn(window, "requestAnimationFrame");
 // Ensure we use the real FFTCanvas for integration testing, not the manual mock in __mocks__
 jest.unmock("@n-apt/spectrum/FFTCanvas");
 
+// FFTCanvas now requires the application authentication context for native
+// classifier capture paths. This integration suite exercises canvas lifecycle
+// behavior directly, so provide the unauthenticated application state without
+// adding the full app shell to every fixture.
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ sessionToken: null }),
+}));
+
 jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => {
   const lifecycle = () => ({
     webgpuEnabled: false,

@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { RootState } from "@n-apt/redux/store";
@@ -38,6 +40,9 @@ const NodeWebSocket: any = [
   wsModule.default,
   wsModule.WebSocket,
 ].find((candidate) => typeof candidate === "function");
+const { renderRedisAcl } = require(
+  resolve(process.cwd(), "scripts/setup/redis_acl.cjs"),
+);
 
 type AppStore = typeof import("@n-apt/redux/store").store;
 type AppDispatch = AppStore["dispatch"];
@@ -385,19 +390,40 @@ export const createLiveReduxStreamHarness = async (
     resolve(process.cwd(), "target/debug/n-apt-backend");
   let backendProcess: ChildProcess | null = null;
   let redisProcess: ChildProcess | null = null;
+  let temporaryRedisDirectory: string | null = null;
   let sessionToken: string | null = null;
 
   const spawnBackend = async (backendUrl: string) => {
+    try {
     const redisUrl = options.redisUrl ?? process.env.REDIS_URL;
-    const effectiveRedisUrl =
-      redisUrl ?? `redis://127.0.0.1:${await findFreePort()}`;
+    let effectiveRedisUrl = redisUrl ?? `redis://127.0.0.1:${await findFreePort()}`;
     if (!redisUrl) {
       const redisPort = Number(new URL(effectiveRedisUrl).port);
+      temporaryRedisDirectory = mkdtempSync(join(tmpdir(), "napt-live-test-redis-"));
+      const dataDirectory = join(temporaryRedisDirectory, "data");
+      mkdirSync(dataDirectory, { mode: 0o700 });
+      const appPassword = randomBytes(32).toString("hex");
+      const operatorPassword = randomBytes(32).toString("hex");
+      const aclFile = join(temporaryRedisDirectory, "users.acl");
+      writeFileSync(aclFile, renderRedisAcl({
+        appUsername: "napt-app",
+        appPassword,
+        operatorPassword,
+      }), { mode: 0o600 });
+      effectiveRedisUrl = `redis://napt-app:${appPassword}@127.0.0.1:${redisPort}/0`;
       redisProcess = spawn(
         "redis-server",
         [
           "--port",
           String(redisPort),
+          "--bind",
+          "127.0.0.1",
+          "--protected-mode",
+          "yes",
+          "--aclfile",
+          aclFile,
+          "--dir",
+          dataDirectory,
           "--save",
           "",
           "--appendonly",
@@ -423,6 +449,15 @@ export const createLiveReduxStreamHarness = async (
       stdio: "ignore",
     });
     await waitForHttp(backendUrl);
+    } catch (error) {
+      backendProcess?.kill("SIGKILL");
+      redisProcess?.kill("SIGKILL");
+      if (temporaryRedisDirectory) {
+        rmSync(temporaryRedisDirectory, { recursive: true, force: true });
+        temporaryRedisDirectory = null;
+      }
+      throw error;
+    }
   };
 
   const backendUrl = (
@@ -640,12 +675,6 @@ export const createLiveReduxStreamHarness = async (
             : state.sourceStatuses[sourceId] === "standby" ||
               state.sourceStatuses[sourceId] === "receiving",
       );
-      if (!enabled) {
-        // The UI requests the retained Mock Tx standby frame after the global
-        // stop transition. Keep this headless harness on the same lifecycle
-        // boundary instead of asserting against the last transmitting frame.
-        await harness.requestNextStandbyFrame({ sourceId });
-      }
     },
 
     async simulateHardwarePresence(present) {
@@ -983,6 +1012,9 @@ export const createLiveReduxStreamHarness = async (
       // USB handles (which stalls the next run's device enumeration).
       backendProcess?.kill("SIGKILL");
       redisProcess?.kill("SIGKILL");
+      if (temporaryRedisDirectory) {
+        rmSync(temporaryRedisDirectory, { recursive: true, force: true });
+      }
     },
   };
 

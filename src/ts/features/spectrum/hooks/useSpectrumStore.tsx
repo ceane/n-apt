@@ -151,6 +151,7 @@ import {
 } from "@n-apt/transmit/public/txSliderPlacement";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
+import { INITIAL_SPECTRUM_FREQUENCY_RANGE } from "@n-apt/webusb/initialSpectrumFrequencyRange";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -1074,9 +1075,7 @@ export type SpectrumState = {
 };
 
 // Only subscriber-local presentation state belongs in a browser's source
-// view cache. The live center/range is device-scoped SSOT: persisting it here
-// lets a second client replay a trapped range during hydration and retune the
-// shared source, which later appears as a pause/unpause frequency jump.
+// view cache. Device tune state is restored into Redux before WebSocket sync.
 const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
   "displayTemporalResolution",
   "powerScale",
@@ -1123,8 +1122,8 @@ export const resolveLiveAcquisitionBounds = ({
   return getAvailableSpectrumBounds(null);
 };
 
-// Every persisted source-view field is subscriber-local and safe to restore
-// immediately; device options come from the current live stream instead.
+// Persisted view fields are presentation-only; device-owned SDR options come
+// from the live stream or the Redux cold-start tune state.
 const INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS = PERSISTED_SOURCE_VIEW_FIELDS;
 
 export const buildPersistedSourceViewState = (
@@ -1258,7 +1257,7 @@ export type SpectrumAction =
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
-  frequencyRange: null,
+  frequencyRange: INITIAL_SPECTRUM_FREQUENCY_RANGE,
   tuningPreviewActive: false,
   displayTemporalResolution: "reduced",
   powerScale: "dB",

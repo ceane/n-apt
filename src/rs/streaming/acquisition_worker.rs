@@ -35,6 +35,7 @@ pub struct ProcessedFrame {
   pub sample_rate: u32,
   pub raw_iq: Vec<u8>,
   pub target_fps: u32,
+  pub capture_events: Vec<crate::server::iq_format::FrameUpdate>,
 }
 
 /// Resolve the IQ payload for the visualizer without forcing every live frame
@@ -102,6 +103,7 @@ impl AcquisitionWorker {
         crate::performance::Stage::Acquisition,
       );
       let mut processor = processor.blocking_lock();
+      let capture_event_start = processor.capture_frame_updates.len();
 
       if shared_state
         .pending_center_freq_dirty
@@ -275,6 +277,7 @@ impl AcquisitionWorker {
         sample_rate: frame_sample_rate,
         raw_iq,
         target_fps: processor.display_frame_rate,
+        capture_events: processor.capture_frame_updates[capture_event_start..].to_vec(),
       })
     })
     .await
@@ -378,6 +381,7 @@ mod tests {
       sample_rate: 2_400_000,
       raw_iq: vec![128, 128, 129, 127],
       target_fps: 30,
+      capture_events: Vec::new(),
     };
 
     assert_eq!(frame.source_id, "rtl-sdr-1");

@@ -4,6 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const { createClient } = require("redis");
+const { FAST_TOWER_STAGE_DB, invalidateTowerStageMarker } = require("./tower_staging.cjs");
+require("dotenv").config({ path: ".env.local", quiet: true });
 
 const REGION_FILES = [
   {
@@ -102,8 +104,10 @@ async function loadRegion(client, regionFile) {
 }
 
 async function run() {
-  const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-  const client = createClient({ url: redisUrl });
+  const redisUrl = process.env.REDIS_ADMIN_URL;
+  if (!redisUrl) throw new Error("REDIS_ADMIN_URL is required for tower imports. Run npm run setup.");
+  invalidateTowerStageMarker();
+  const client = createClient({ url: redisUrl, database: FAST_TOWER_STAGE_DB });
 
   client.on("error", (err) => {
     console.error("Redis client error:", err);
@@ -112,7 +116,7 @@ async function run() {
   await client.connect();
 
   try {
-    console.log(`Connected to Redis at ${redisUrl}`);
+    console.log("Connected to Redis with the operator account.");
 
     const counts = {};
     let total = 0;

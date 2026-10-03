@@ -5,9 +5,10 @@ import { Radio as RadioIcon, Volume2, VolumeX } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setAlgorithm, setListening } from "@n-apt/redux/slices/demodSlice";
 import { syncRadioDemodFromSource } from "@n-apt/redux/thunks/demodThunks";
-import type { DemodAlgorithm } from "@n-apt/demodulation/utils/demodProcessors";
+import type { DemodSelection } from "@n-apt/demodulation/utils/demodProcessors";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { useDemodAudio } from "@n-apt/demodulation/context/DemodAudioContext";
+import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 
 const Header = styled.div`
   display: flex;
@@ -130,6 +131,13 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
   );
   const previewRange = useAppSelector((state) => state.spectrum.previewRange);
 
+  const {
+    audioSurveyNeuralModelReady,
+    audioSurveyNeuralBackend,
+    audioSurveyOnnxModelAvailable,
+    audioSurveyOnnxLoading,
+    setAudioSurveyNeuralBackend,
+  } = useDemod();
   const { audioPlayback } = useDemodAudio();
   const { getNodes, getEdges } = useReactFlow();
 
@@ -287,18 +295,67 @@ export const RadioNode: React.FC<RadioNodeProps> = ({ data }) => {
         <ControlItem>
           <Label>Demod Algorithm</Label>
           <StyledSelect
+            aria-label="Demod Algorithm"
             value={hasFmNodeUpstream ? "fm" : algorithm}
             onChange={(e) =>
-              dispatch(setAlgorithm(e.target.value as DemodAlgorithm))
+              dispatch(setAlgorithm(e.target.value as DemodSelection))
             }
             disabled={hasFmNodeUpstream}
           >
+            <option value="am">AM Envelope</option>
             <option value="fm">FM (Wideband/Narrow)</option>
             <option value="fmDiscriminator">FM Discriminator Test</option>
-            <option value="aptAudio">APTAudio (NOAA Satellite audio)</option>
-            <option value="aptImage">APTImage (NOAA Satellite image)</option>
+            <option value="aptAudio">APT audio subcarrier (A/B channel)</option>
+            <option value="aptImage">
+              APT amplitude envelope (A/B channel)
+            </option>
+            <option
+              value="neural"
+              disabled={!audioSurveyNeuralModelReady}
+              title={
+                audioSurveyNeuralModelReady
+                  ? "Use the locally trained waveform decoder on the selected channel."
+                  : "Train and validate a model against held-out reference audio, then use the same channel width and sample rate for live decoding."
+              }
+            >
+              Neural (held-out validated)
+            </option>
           </StyledSelect>
         </ControlItem>
+        {algorithm === "neural" && !hasFmNodeUpstream && (
+          <ControlItem>
+            <Label>Neural Runtime</Label>
+            <StyledSelect
+              aria-label="Neural Backend"
+              value={audioSurveyNeuralBackend}
+              onChange={(event) =>
+                setAudioSurveyNeuralBackend(
+                  event.target.value as "typescript" | "onnx",
+                )
+              }
+            >
+              <option value="typescript">TypeScript (local)</option>
+              <option
+                value="onnx"
+                disabled={!audioSurveyOnnxModelAvailable}
+                title={
+                  audioSurveyOnnxModelAvailable
+                    ? "Run the exported model with local ONNX Runtime."
+                    : "Train a validated model to create its ONNX artifact."
+                }
+              >
+                ONNX Runtime (local)
+              </option>
+            </StyledSelect>
+            {audioSurveyNeuralBackend === "onnx" && (
+              <SourceTag>
+                {audioSurveyOnnxLoading
+                  ? "Loading local ONNX runtime"
+                  : "Uses WebGPU when available, then WebAssembly"}
+              </SourceTag>
+            )}
+          </ControlItem>
+        )}
       </ControlGroup>
 
       <ListenButton $active={isListening} onClick={handleListenToggle}>

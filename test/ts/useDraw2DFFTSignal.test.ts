@@ -58,7 +58,7 @@ describe("formatLiveCanvasStatusRow", () => {
       statusRow: {
         sampleRateLabel: "6.27MHz sample rate",
         bandwidthLabel: "4MHz Bandwidth",
-        txModeLabel: "Mock Tx SDR > Mock WiFi",
+        txModeLabel: "Mock Tx SDR > Naive WiFi",
         fftSizeLabel: "FFT Size: 65,536",
         ifftSizeLabel: "IFFT Size: 65,536",
         fftWindowLabel: "FFT Window: Rectangular",
@@ -69,7 +69,7 @@ describe("formatLiveCanvasStatusRow", () => {
     const labels = ctx.fillText.mock.calls.map((call: any[]) => call[0]);
     expect(labels).toEqual([
       "⌞ 4MHz Bandwidth ⌟",
-      "Mock Tx SDR > Mock WiFi",
+      "Mock Tx SDR > Naive WiFi",
       "Timing: Lossless",
       "IFFT Size: 65,536",
       "FFT Size: 65,536",

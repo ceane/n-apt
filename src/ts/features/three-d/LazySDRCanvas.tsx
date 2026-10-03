@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import styled from "styled-components";
+import { Bounds } from "@react-three/drei";
 import type { Group } from "three";
 
 /**
@@ -72,8 +73,16 @@ const Placeholder = styled.div`
 export const LazySDRCanvas: React.FC<{
   variant: "rtl" | "hackrf";
   withAntenna?: boolean;
+  framing?: "default" | "wide";
+  fitToCanvas?: boolean;
   onProjectionPoint?: (point: { x: number; y: number }) => void;
-}> = ({ variant, withAntenna = false, onProjectionPoint }) => {
+}> = ({
+  variant,
+  withAntenna = false,
+  framing = "default",
+  fitToCanvas = false,
+  onProjectionPoint,
+}) => {
   const Model =
     variant === "rtl"
       ? withAntenna
@@ -81,27 +90,43 @@ export const LazySDRCanvas: React.FC<{
         : SpinningRTLSdr
       : SpinningHackRFOne;
   const isAntennaVariant = variant === "rtl" && withAntenna;
+  const isWideFrame = isAntennaVariant && framing === "wide";
+  const isHackRFVariant = variant === "hackrf";
+  const shouldFitToCanvas = isHackRFVariant || fitToCanvas;
   const modelRef = React.useRef<Group>(null);
-  const modelScale = variant === "rtl" ? (isAntennaVariant ? 3 : 1.2) : 0.72;
+  const modelScale =
+    variant === "rtl"
+      ? isAntennaVariant
+        ? isWideFrame
+          ? 3.465
+          : 2.1
+        : 1.2
+      : 2.2;
   const modelPosition: [number, number, number] =
     variant === "rtl"
       ? isAntennaVariant
-        ? [0, -0.8, 0]
+        ? isWideFrame
+          ? [0, -0.3, 0]
+          : [0, -0.8, 0]
         : [0, -0.2, 0]
-      : [0, -0.55, 0];
+      : [0, -0.32, 0];
 
   return (
     <SDRPreview
-      aria-label={`${variant === "rtl" ? "RTL-SDR" : "HackRF One"}${isAntennaVariant ? " with antenna" : ""} 3D model spinning`}
+      aria-label={`${variant === "rtl" ? "RTL-SDR" : "HackRF One"}${isAntennaVariant || isHackRFVariant ? " with antenna" : ""} 3D model spinning`}
     >
       <Suspense fallback={<Placeholder>Loading 3D…</Placeholder>}>
         <Canvas
           camera={{
-            position: isAntennaVariant ? [3.2, 2.2, 4] : [2.1, 1.2, 2.5],
-            fov: isAntennaVariant ? 45 : 35,
+            position: isWideFrame
+              ? [4.8, 4.2, 7.5]
+              : isAntennaVariant
+                ? [3.2, 2.2, 4]
+                : [2.1, 1.2, 2.5],
+            fov: isWideFrame ? 50 : isAntennaVariant ? 45 : 35,
           }}
           dpr={[1, 1.5]}
-          frameloop={isAntennaVariant ? "always" : "demand"}
+          frameloop={isAntennaVariant || isHackRFVariant ? "always" : "demand"}
         >
           <ambientLight intensity={1.2} />
           <hemisphereLight args={["#dffaff", "#07131a", 1.6]} />
@@ -120,9 +145,17 @@ export const LazySDRCanvas: React.FC<{
           <pointLight position={[-2, 1.5, 2]} intensity={5} color="#00d4ff" />
           <pointLight position={[2, 0.5, 1]} intensity={4} color="#ffffff" />
           {isAntennaVariant && <AntennaOrbitControls />}
-          <group ref={modelRef} position={modelPosition} scale={modelScale}>
-            <Model speed={isAntennaVariant ? 0 : 0.8} />
-          </group>
+          {shouldFitToCanvas ? (
+            <Bounds fit clip margin={1.8}>
+              <group ref={modelRef} position={modelPosition} scale={modelScale}>
+                <Model speed={0.8} />
+              </group>
+            </Bounds>
+          ) : (
+            <group ref={modelRef} position={modelPosition} scale={modelScale}>
+              <Model speed={isAntennaVariant ? 0 : 0.8} />
+            </group>
+          )}
           {isAntennaVariant && onProjectionPoint && (
             <ProjectionPointReporter
               modelRef={modelRef}

@@ -1,3 +1,4 @@
+mod redis_test_support;
 use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::types::DeviceProfile;
 use n_apt_backend::server::types::TxIqPowerModel;
@@ -40,7 +41,7 @@ fn hotplug_probe_only_runs_for_mock_devices() {
 #[serial]
 fn restart_status_payload_reports_attempt_budget() {
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.recovery_attempts.store(1, Ordering::Relaxed);
   shared.set_device_state("loading", Some("restart"));
   let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1);
@@ -70,7 +71,7 @@ fn broadcast_device_status_includes_websocket_payload_fields() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
   *shared.device_serial.lock().unwrap() = "1".to_string();
@@ -121,7 +122,7 @@ fn broadcast_device_status_suppresses_duplicate_snapshots() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
   shared.update_device_status(
@@ -152,7 +153,7 @@ fn broadcast_active_source_uses_frontend_contract_fields() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
   broadcast_active_source(&shared, &broadcast_tx);
@@ -177,7 +178,7 @@ fn broadcast_device_status_reports_hackrf_one_without_rtl_sdr_fallback() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   let (broadcast_tx, mut broadcast_rx) = broadcast::channel(16);
 
   shared.update_device_status(
@@ -213,7 +214,7 @@ fn source_info_reports_active_hackrf_as_transmitting_when_tx_is_active() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.update_device_status(
     true,
     "HackRF One".to_string(),
@@ -249,7 +250,7 @@ fn source_info_snapshot_contains_all_sources() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
 
   let snapshot = build_source_info_snapshot(&shared);
 
@@ -278,7 +279,7 @@ fn paused_active_sources_do_not_report_streaming_status() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.set_active_source_pause_state("mock-apt", true);
 
   let snapshot = build_source_info_snapshot(&shared);
@@ -301,7 +302,7 @@ fn source_info_snapshot_includes_mock_tx_device() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
 
   let snapshot = build_source_info_snapshot(&shared);
   let sources = snapshot["sources"].as_array().expect("sources array");
@@ -334,7 +335,7 @@ fn resolves_stream_key_to_source_id_from_snapshot() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
 
   assert_eq!(
     resolve_stream_key_source_id(&shared, "mock-tx").as_deref(),
@@ -929,7 +930,7 @@ fn source_info_snapshot_hides_disabled_mock_tx_device() {
     .expect("write temp signals.yaml");
   std::env::set_current_dir(&temp_dir).expect("set temp dir");
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
 
   let snapshot = build_source_info_snapshot(&shared);
   let sources = snapshot["sources"].as_array().expect("sources array");
@@ -950,7 +951,7 @@ fn mock_tx_profile_becomes_active_tx_source() {
     .expect("cwd lock");
   n_apt_backend::server::utils::clear_signals_config_cache();
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.update_device_status(
     true,
     "Mock Tx SDR".to_string(),
@@ -991,7 +992,7 @@ fn mock_tx_profile_becomes_active_tx_source() {
 #[serial]
 fn stale_hackrf_snapshot_reconciles_to_mock_when_usb_is_gone() {
   std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
 
   shared.update_device_status(
     true,

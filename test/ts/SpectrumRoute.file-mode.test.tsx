@@ -1384,7 +1384,7 @@ describe("SpectrumRoute file mode", () => {
       expect(nextVisualizerProps.dataRef.current).toBe(mockTxPreviewFrame);
       expect(nextVisualizerProps.txSlider).toMatchObject({
         visible: true,
-        signalLabel: "Mock WiFi",
+        signalLabel: "Naive WiFi",
         txCenterHz: 137_100_000,
         txSampleRateHz: 2_400_000,
       });

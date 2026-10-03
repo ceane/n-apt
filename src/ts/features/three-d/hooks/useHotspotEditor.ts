@@ -197,19 +197,24 @@ const HotspotEditorContext = createContext<
 interface Model3DInteractionProviderProps {
   children: ReactNode;
   onHotspotsChange?: (hotspots: Hotspot[]) => void;
+  persist?: boolean;
 }
 
 export const Model3DInteractionProvider: React.FC<
   Model3DInteractionProviderProps
-> = ({ children, onHotspotsChange }) => {
-  const [state, dispatch] = useReducer(hotspotReducer, {
-    ...INITIAL_HOTSPOT_STATE,
-    hotspots: loadHotspotsFromStorage(),
-  });
+> = ({ children, onHotspotsChange, persist = true }) => {
+  const [state, dispatch] = useReducer(
+    hotspotReducer,
+    persist,
+    (shouldPersist) => ({
+      ...INITIAL_HOTSPOT_STATE,
+      hotspots: shouldPersist ? loadHotspotsFromStorage() : [],
+    }),
+  );
 
   useEffect(() => {
-    saveHotspotsToStorage(state.hotspots);
-  }, [state.hotspots]);
+    if (persist) saveHotspotsToStorage(state.hotspots);
+  }, [persist, state.hotspots]);
 
   const setHotspots = useCallback(
     (hotspots: Hotspot[]) => dispatch({ type: "SET_HOTSPOTS", hotspots }),

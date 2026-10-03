@@ -10,12 +10,41 @@ require.cache[require.resolve("typescript")] = {
   loaded: true,
 };
 
-module.exports = require("ts-jest").default.createTransformer({
+const tsJestTransformer = require("ts-jest").default.createTransformer({
   compiler: "@typescript/typescript6",
-  useESM: true,
+  useESM: false,
   tsconfig: {
     esModuleInterop: true,
     allowSyntheticDefaultImports: true,
+    module: "CommonJS",
     jsx: "react-jsx",
   },
 });
+
+function rewriteViteMetaForCommonJs(code) {
+  return code
+    .replace(/import\.meta\.url/g, "__filename")
+    .replace(/import\.meta\.env/g, "({})")
+    .replace(/import\.meta\.hot/g, "undefined")
+    .replace(/import\.meta/g, "({})");
+}
+
+module.exports = {
+  process(sourceText, sourcePath, transformOptions) {
+    const transformed = tsJestTransformer.process(
+      sourceText,
+      sourcePath,
+      transformOptions,
+    );
+    if (typeof transformed === "string") {
+      return rewriteViteMetaForCommonJs(transformed);
+    }
+    return {
+      ...transformed,
+      code: rewriteViteMetaForCommonJs(transformed.code),
+    };
+  },
+  getCacheKey(...args) {
+    return `${tsJestTransformer.getCacheKey(...args)}:vite-meta-cjs-v1`;
+  },
+};

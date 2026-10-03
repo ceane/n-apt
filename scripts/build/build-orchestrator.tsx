@@ -82,6 +82,19 @@ const findAvailableTcpPort = async (startingPort: number): Promise<number> => {
 dotenv.config({ path: '.env.local', quiet: true });
 dotenv.config({ quiet: true });
 
+function shouldLaunchRedisWithAcl() {
+  const aclFile = path.join(appRuntimeDirectory, 'redis', 'users.acl');
+  if (!fs.existsSync(aclFile)) return false;
+  try {
+    const redisUrl = new URL(process.env.REDIS_URL || 'redis://127.0.0.1:6379/0');
+    const hostname = redisUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    return isLocal && Boolean(redisUrl.username) && Boolean(redisUrl.password);
+  } catch {
+    return false;
+  }
+}
+
 const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   const failing: FailingServices[] = [];
   const errorText = errorDetails.join(' ').toLowerCase();
@@ -1251,7 +1264,7 @@ exit 1
 
     const redisPort = process.env.REDIS_PORT || '6379';
     const readRedisTowerCount = (db: string) => {
-      const result = spawnSync('bash', ['-lc', `redis-cli -p ${redisPort} -n ${db} --raw keys 'tower:*' | wc -l`], { encoding: 'utf8' });
+      const result = spawnSync('bash', ['-lc', `node scripts/redis/redis_cli_auth.cjs -p ${redisPort} -n ${db} --raw keys 'tower:*' | wc -l`], { encoding: 'utf8' });
       if (result.status !== 0) return 0;
       const parsed = Number.parseInt((result.stdout || '').trim(), 10);
       return Number.isFinite(parsed) ? parsed : 0;
@@ -1361,6 +1374,13 @@ sleep 0.5
           args: [
             '--port',
             '6379',
+            '--bind',
+            '127.0.0.1',
+            '--protected-mode',
+            'yes',
+            ...(shouldLaunchRedisWithAcl()
+              ? ['--aclfile', path.join(appRuntimeDirectory, 'redis', 'users.acl')]
+              : []),
             '--dir',
             '.redis_data',
             '--daemonize',
@@ -1380,10 +1400,15 @@ sleep 0.5
       },
       {
         index: 4,
-        command: process.env.NAPT_CLI_STARTED === '1'
-          ? 'echo CLI startup: skipping optional Redis tower swap.'
-          : isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `
+        command: isNativeWindows
+          ? 'node scripts/setup/verify_redis_salts.mjs'
+          : `
 set -euo pipefail
+node scripts/setup/verify_redis_salts.mjs
+if [ "${'${'}NAPT_CLI_STARTED:-0}" = "1" ]; then
+  echo "CLI startup: skipping optional Redis tower import."
+  exit 0
+fi
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
 if ! [[ "$REDIS_PORT" =~ ^[0-9]+$ ]] || [ "$REDIS_PORT" -le 0 ] || [ "$REDIS_PORT" -gt 65535 ]; then
   REDIS_PORT=6379
@@ -1405,15 +1430,7 @@ fi
   echo "Tower download failed; skipping tower import"
   exit 0
 }
-
-TEMP_FAST=${'$'}(redis-cli -p "$REDIS_PORT" -n 0 dbsize 2>/dev/null || echo 0)
-TEMP_FULL=${'$'}(redis-cli -p "$REDIS_PORT" -n 1 dbsize 2>/dev/null || echo 0)
-if [ "$TEMP_FAST" -eq 0 ] || [ "$TEMP_FULL" -eq 0 ]; then
-  echo "Tower download skipped or produced no data; leaving existing DBs untouched."
-  exit 0
-fi
-redis-cli -p "$REDIS_PORT" swapdb 0 2 >/dev/null
-redis-cli -p "$REDIS_PORT" swapdb 1 3 >/dev/null
+node scripts/redis/promote_tower_staging.cjs
 exit 0
 `,
         description: 'Swapping Redis Database...',
@@ -1457,7 +1474,10 @@ exit 1
       },
       {
         index: 8,
-        command: isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
+        // Vite serves source files; expose it to the LAN only by explicit opt-in.
+        command: isNativeWindows
+          ? `npx vite dev${process.env.NAPT_ALLOW_LAN_DEV === '1' ? ' --host' : ''}`
+          : `node_modules/.bin/vite dev${process.env.NAPT_ALLOW_LAN_DEV === '1' ? ' --host' : ''}`,
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,
@@ -2536,9 +2556,16 @@ async function runNonTtyBuild() {
         {
           executable: 'redis-server',
           args: [
-            '--port',
-            '6379',
-            '--dir',
+          '--port',
+          '6379',
+          '--bind',
+          '127.0.0.1',
+          '--protected-mode',
+          'yes',
+          ...(shouldLaunchRedisWithAcl()
+            ? ['--aclfile', path.join(appRuntimeDirectory, 'redis', 'users.acl')]
+            : []),
+          '--dir',
             '.redis_data',
             '--daemonize',
             'no',
@@ -2558,9 +2585,16 @@ async function runNonTtyBuild() {
       index: 4,
       description: 'Swapping Redis Database',
       run: () => executeCommandNonTty(
-        process.env.NAPT_CLI_STARTED === '1' || isNativeWindows
-          ? 'echo CLI startup: skipping optional Redis tower swap.'
-          : `npm run towers:download:cached`,
+        isNativeWindows
+          ? 'node scripts/setup/verify_redis_salts.mjs'
+          : `set -euo pipefail
+node scripts/setup/verify_redis_salts.mjs
+if [ "${'${'}NAPT_CLI_STARTED:-0}" = "1" ]; then
+  echo "CLI startup: skipping optional Redis tower import."
+  exit 0
+fi
+npm run towers:download:cached || { echo "Tower download failed; leaving permanent tower data untouched."; exit 0; }
+node scripts/redis/promote_tower_staging.cjs`,
         'Swapping Redis Database'
       )
     },

@@ -71,6 +71,8 @@ redis/backups
 
 # Local app runtime metadata
 .n-apt/
+.n-apt-backend-target.json
+.rebuild_status.json
 
 # Rust-specific files
 *.pdb
@@ -455,3 +457,6 @@ patch.diff
 
 # Machine-managed learned preferences; keep local, never commit
 .commandcode/taste/
+
+# Local analysis artifacts
+.act/runs/

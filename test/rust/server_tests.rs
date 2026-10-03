@@ -1,3 +1,4 @@
+mod redis_test_support;
 use axum_test::TestServer;
 use n_apt_backend::authentication::CredentialStore;
 use n_apt_backend::server::main::AppState;
@@ -37,11 +38,14 @@ fn spawn_test_redis() -> (String, RedisGuard) {
   let listener = TcpListener::bind("127.0.0.1:0").unwrap();
   let port = listener.local_addr().unwrap().port();
   drop(listener);
+  let password = uuid::Uuid::new_v4().simple().to_string();
 
   let child = Command::new("redis-server")
     .args([
       "--port",
       &port.to_string(),
+      "--requirepass",
+      &password,
       "--save",
       "",
       "--appendonly",
@@ -57,7 +61,7 @@ fn spawn_test_redis() -> (String, RedisGuard) {
        (brew install redis)",
     );
 
-  let url = format!("redis://127.0.0.1:{port}");
+  let url = format!("redis://:{password}@127.0.0.1:{port}");
 
   // Wait for Redis to accept connections (up to 2 s).
   for _ in 0..200 {
@@ -124,7 +128,7 @@ fn mock_tx_monitor_places_positive_offsets_on_frontend_positive_axis() {
 #[serial]
 fn source_info_reports_hackrf_duplex_mode() {
   ensure_test_password();
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.update_device_status(
     true,
     "Great Scott Gadgets HackRF - Freq: 100 Hz, Rate: 2000000 Hz".to_string(),
@@ -152,7 +156,7 @@ fn source_info_reports_hackrf_duplex_mode() {
 #[serial]
 fn source_info_reports_stale_hardware_as_stale() {
   ensure_test_password();
-  let shared = SharedState::new("redis://127.0.0.1:6379");
+  let shared = SharedState::new(&redis_test_support::redis_test_url());
   shared.update_device_status(
     true,
     "HackRF One".to_string(),
@@ -300,20 +304,12 @@ async fn test_auth_logout_endpoint() {
     "Session should be valid after creation"
   );
 
-  // 2. Call logout with the token
-  let response = server.get(&format!("/auth/logout?token={}", token)).await;
-
-  // Assert redirect (303 See Other)
-  response.assert_status(axum::http::StatusCode::SEE_OTHER);
-
-  // Assert Location header
-  response.assert_header("location", "/");
-
-  // Assert Clear-Site-Data header
-  response.assert_header(
-    "clear-site-data",
-    "\"cache\", \"cookies\", \"storage\", \"executionContexts\"",
-  );
+  let response = server
+    .post("/auth/logout")
+    .add_header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+    .await;
+  response.assert_status(axum::http::StatusCode::NO_CONTENT);
+  assert!(response.headers().get("clear-site-data").is_none());
 
   // 3. Verify the session is actually revoked in Redis
   assert!(
@@ -324,15 +320,29 @@ async fn test_auth_logout_endpoint() {
 
 #[tokio::test]
 #[serial]
-async fn test_logout_alias_redirects_to_login() {
-  let (server, _, _guard) = setup_test_server().await;
-
-  let response = server.get("/logout").await;
-
-  response.assert_status(axum::http::StatusCode::SEE_OTHER);
-  response.assert_header("location", "/");
-  response.assert_header(
-    "clear-site-data",
-    "\"cache\", \"cookies\", \"storage\", \"executionContexts\"",
-  );
+async fn test_logout_requires_authenticated_post() {
+  let (server, state, _guard) = setup_test_server().await;
+  let token = state.session_store.create_session([0u8; 32]).await.unwrap();
+  for route in ["/logout", "/auth/logout"] {
+    let response = server.get(&format!("{route}?token={token}")).await;
+    response.assert_status(axum::http::StatusCode::METHOD_NOT_ALLOWED);
+    assert!(response.headers().get("clear-site-data").is_none());
+    server
+      .post(route)
+      .await
+      .assert_status(axum::http::StatusCode::UNAUTHORIZED);
+    server
+      .post(&format!("{route}?token={token}"))
+      .await
+      .assert_status(axum::http::StatusCode::UNAUTHORIZED);
+    server
+      .post(route)
+      .add_header(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {}", uuid::Uuid::new_v4()),
+      )
+      .await
+      .assert_status(axum::http::StatusCode::UNAUTHORIZED);
+    assert!(state.session_store.validate(&token).await.is_some());
+  }
 }

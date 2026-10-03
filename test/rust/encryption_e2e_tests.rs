@@ -58,6 +58,7 @@ fn test_encryption_save_load_cycle() {
     geolocation: None,
     frequency_range: None,
     ref_based_demod_baseline: None,
+    capture_labels: None,
     is_mock_apt: true,
     is_ephemeral: false,
     dek: None, // Will be generated automatically
@@ -140,6 +141,35 @@ fn test_derive_key_trimming() {
 }
 
 #[test]
+fn password_auth_and_vault_keys_match_cross_language_golden_vectors() {
+  let password = "cross-language-auth-vector";
+  let auth_key = crypto::derive_auth_key(password);
+  let vault_key = crypto::derive_key(password);
+  assert_eq!(
+    auth_key,
+    [
+      4, 124, 198, 182, 4, 125, 215, 4, 104, 163, 184, 219, 237, 11, 65, 161,
+      163, 83, 23, 5, 220, 72, 191, 136, 254, 114, 120, 181, 246, 126, 235, 61,
+    ],
+    "auth PBKDF2 derivation must match the TypeScript WebCrypto vector"
+  );
+  assert_eq!(
+    vault_key,
+    [
+      4, 86, 103, 243, 81, 136, 80, 195, 240, 249, 53, 42, 123, 46, 223, 145,
+      9, 239, 38, 246, 229, 125, 238, 80, 214, 41, 159, 46, 185, 245, 211, 112,
+    ],
+    "vault PBKDF2 bytes must remain compatible with existing encrypted files"
+  );
+  assert_ne!(auth_key, vault_key);
+  assert_eq!(
+    crypto::to_base64(&crypto::compute_hmac(&auth_key, b"fixed-login-nonce")),
+    "T8+gz6PFk/iguPJLGLcuFxo9QYBlaY5gS6FqkT+2Eu8=",
+    "Rust login proof must match the TypeScript HMAC vector"
+  );
+}
+
+#[test]
 fn test_checksum_integrity_and_corruption() {
   let _dir = tempdir().unwrap();
   let vault_key = test_vault_key();
@@ -175,6 +205,7 @@ fn test_checksum_integrity_and_corruption() {
     geolocation: None,
     frequency_range: None,
     ref_based_demod_baseline: None,
+    capture_labels: None,
     is_mock_apt: true,
     is_ephemeral: false,
     dek: None,
@@ -325,6 +356,7 @@ fn generate_test_artifacts() {
     geolocation: None,
     frequency_range: None,
     ref_based_demod_baseline: None,
+    capture_labels: None,
     is_mock_apt: true,
     is_ephemeral: false,
     dek: None,

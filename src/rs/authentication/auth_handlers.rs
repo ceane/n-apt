@@ -1,6 +1,6 @@
-use axum::extract::{Query, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Redirect};
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::Json;
 use log::{error, info, warn};
 use std::collections::HashMap;
@@ -10,8 +10,8 @@ use webauthn_rs::prelude::*;
 use crate::crypto;
 
 use crate::server::types::{
-  AuthSessionRequest, AuthVerifyRequest, LogoutParams,
-  PasskeyAuthFinishRequest, PasskeyRegisterFinishRequest,
+  AuthSessionRequest, AuthVerifyRequest, PasskeyAuthFinishRequest,
+  PasskeyRegisterFinishRequest,
 };
 use uuid::Uuid;
 
@@ -79,45 +79,27 @@ pub async fn auth_info_handler(
   }))
 }
 
-/// GET /auth/logout — clear site data and redirect to login.
-/// Optionally revokes the provided session token in Redis.
+/// POST /auth/logout — revoke an authenticated session without erasing user data.
 pub async fn auth_logout_handler(
   State(state): State<Arc<crate::server::AppState>>,
-  Query(params): Query<LogoutParams>,
+  headers: HeaderMap,
 ) -> impl IntoResponse {
-  if let Some(token) = params.token {
-    info!(
-      "Revoking session token: {}…",
-      token.get(..8).unwrap_or(&token)
-    );
-    // Fail closed: if the session cannot be revoked server-side, the client
-    // must not be told it logged out while the token remains valid.
-    if let Err(error) = state.session_store.revoke(&token).await {
-      error!("Logout failed to revoke session: {error}");
-      return (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({
-          "error": "logout_failed",
-          "message": "Session could not be revoked; please try again",
-        })),
-      )
-        .into_response();
-    }
+  let Some(token) = registration_session(&state, &headers).await else {
+    return StatusCode::UNAUTHORIZED.into_response();
+  };
+  // Only report success once Redis has revoked the session.
+  if let Err(error) = state.session_store.revoke(&token).await {
+    error!("Logout failed to revoke session: {error}");
+    return (
+      StatusCode::SERVICE_UNAVAILABLE,
+      Json(serde_json::json!({
+        "error": "logout_failed",
+        "message": "Session could not be revoked; please try again",
+      })),
+    )
+      .into_response();
   }
-
-  info!("Logout requested, clearing site data and redirecting");
-  let mut response = Redirect::to("/").into_response();
-
-  // Clear-Site-Data: "cache", "cookies", "storage", "executionContexts"
-  // This ensures all local storage, cookies, and cache are wiped on the client.
-  response.headers_mut().insert(
-    HeaderName::from_static("clear-site-data"),
-    HeaderValue::from_static(
-      "\"cache\", \"cookies\", \"storage\", \"executionContexts\"",
-    ),
-  );
-
-  response
+  StatusCode::NO_CONTENT.into_response()
 }
 
 /// POST /auth/challenge — generate a nonce for password-based auth.
@@ -206,7 +188,7 @@ pub async fn auth_verify_handler(
   };
 
   if !crypto::verify_hmac(
-    &state.shared.encryption_key,
+    &state.shared.authentication_key,
     &nonce_bytes,
     &client_hmac,
   ) {
@@ -320,7 +302,11 @@ pub async fn auth_vault_key_handler(
 /// POST /auth/passkey/register/start — begin passkey registration.
 pub async fn passkey_register_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
 ) -> impl IntoResponse {
+  let Some(token) = registration_session(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "authentication_required"})));
+  };
   let user_unique_id = Uuid::new_v4();
   let existing_keys = state.credential_store.get_passkeys().await;
   let exclude_credentials: Vec<CredentialID> =
@@ -340,7 +326,7 @@ pub async fn passkey_register_start_handler(
           .lock()
           .expect("passkey registration state poisoned"),
         challenge_id.clone(),
-        reg_state,
+        (token, reg_state),
       );
 
       let ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
@@ -376,14 +362,21 @@ pub async fn passkey_register_start_handler(
 /// POST /auth/passkey/register/finish — complete passkey registration.
 pub async fn passkey_register_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
+  let Some(token) = registration_session(&state, &headers).await else {
+    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "authentication_required"})));
+  };
   let reg_state: Option<PasskeyRegistration> = {
     let mut pending = state
       .pending_passkey_registrations
       .lock()
       .expect("passkey registration state poisoned");
-    take_pending_passkey_state(&mut pending, &body.challenge_id)
+    if pending.get(&body.challenge_id).is_some_and(|(_, (owner, _))| owner != &token) {
+      return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "registration_session_mismatch"})));
+    }
+    take_pending_passkey_state(&mut pending, &body.challenge_id).map(|(_, registration)| registration)
   };
   let Some(reg_state) = reg_state else {
     return (
@@ -427,6 +420,12 @@ pub async fn passkey_register_finish_handler(
       )
     }
   }
+}
+
+async fn registration_session(state: &crate::server::AppState, headers: &HeaderMap) -> Option<String> {
+  let token = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ")?;
+  state.session_store.validate(token).await?;
+  Some(token.to_owned())
 }
 
 /// POST /auth/passkey/auth/start — begin passkey authentication.

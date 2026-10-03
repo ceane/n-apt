@@ -418,6 +418,7 @@ pub async fn ws_upgrade_handler(
   let spectrum_tx = state.spectrum_tx.clone();
   let cmd_tx = state.cmd_tx.clone();
   let session_token = params.token.clone();
+  let session_store = state.session_store.clone();
 
   harden_websocket(ws).on_upgrade(move |socket| {
     handle_ws_connection(
@@ -428,6 +429,7 @@ pub async fn ws_upgrade_handler(
       cmd_tx,
       enc_key,
       session_token,
+      session_store,
     )
   })
 }
@@ -480,6 +482,8 @@ pub async fn source_iq_ws_upgrade_handler(
   let enc_key = shared.encryption_key;
   let spectrum_tx = state.spectrum_tx.clone();
   let iq_protocol = IqStreamProtocol::from_requested(params.iq_protocol);
+  let session_token = params.token.clone();
+  let session_store = state.session_store.clone();
 
   harden_websocket(ws).on_upgrade(move |socket| {
     handle_source_iq_connection(
@@ -490,6 +494,8 @@ pub async fn source_iq_ws_upgrade_handler(
       source_id,
       stream_key,
       iq_protocol,
+      session_token,
+      session_store,
     )
   })
 }
@@ -862,6 +868,7 @@ pub async fn stream_ws_upgrade_handler(
   let cmd_tx = state.cmd_tx.clone();
   let source_runtime_manager = state.source_runtime_manager.clone();
   let session_token = session.token;
+  let session_store = state.session_store.clone();
   let enc_key = shared.encryption_key;
   harden_websocket(ws).on_upgrade(move |socket| {
     handle_stream_connection(
@@ -872,6 +879,7 @@ pub async fn stream_ws_upgrade_handler(
       cmd_tx,
       enc_key,
       session_token,
+      session_store,
       None,
     )
   })
@@ -899,6 +907,7 @@ pub async fn stream_identity_ws_upgrade_handler(
   let source_runtime_manager = state.source_runtime_manager.clone();
   let cmd_tx = state.cmd_tx.clone();
   let session_token = session.token;
+  let session_store = state.session_store.clone();
   let enc_key = shared.encryption_key;
   harden_websocket(ws).on_upgrade(move |socket| {
     handle_stream_connection(
@@ -909,6 +918,7 @@ pub async fn stream_identity_ws_upgrade_handler(
       cmd_tx,
       enc_key,
       session_token,
+      session_store,
       Some(stream_id),
     )
   })
@@ -922,6 +932,7 @@ async fn handle_stream_connection(
   cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
   enc_key: [u8; 32],
   session_token: String,
+  session_store: crate::session::SessionStore,
   expected_stream_id: Option<String>,
 ) {
   let (mut sender, mut receiver) = socket.split();
@@ -931,8 +942,15 @@ async fn handle_stream_connection(
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
 
+  let invalid_session = session_store.wait_until_invalid(&session_token);
+  tokio::pin!(invalid_session);
   loop {
     tokio::select! {
+      biased;
+      _ = &mut invalid_session => {
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(250), sender.send(Message::Close(None))).await;
+        break;
+      }
       Some(event) = event_rx.recv() => {
         let Ok(payload) = stream_event_json(&event, &enc_key) else {
           continue;
@@ -943,6 +961,10 @@ async fn handle_stream_connection(
       }
       message = receiver.next() => {
         let Some(Ok(message)) = message else { break; };
+        if !session_store.is_active(&session_token).await {
+          let _ = sender.send(Message::Close(None)).await;
+          break;
+        }
         let Message::Text(text) = message else {
           if matches!(message, Message::Close(_)) { break; }
           continue;
@@ -1350,8 +1372,9 @@ async fn handle_stream_connection(
     }
   }
 
-  for (_, (_, _, task)) in subscriptions {
+  for (_, (stream, id, task)) in subscriptions {
     task.abort();
+    manager.unsubscribe(&stream, id, true);
   }
   shared.client_count.fetch_sub(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
@@ -1782,6 +1805,8 @@ pub(crate) async fn handle_source_iq_connection(
   source_id: String,
   _stream_key: String,
   iq_protocol: IqStreamProtocol,
+  session_token: String,
+  session_store: crate::session::SessionStore,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut spectrum_rx = spectrum_tx.subscribe();
@@ -1789,8 +1814,15 @@ pub(crate) async fn handle_source_iq_connection(
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
 
+  let invalid_session = session_store.wait_until_invalid(&session_token);
+  tokio::pin!(invalid_session);
   loop {
     tokio::select! {
+      biased;
+      _ = &mut invalid_session => {
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(250), ws_sender.send(Message::Close(None))).await;
+        break;
+      }
       spectrum_result = spectrum_rx.recv() => {
         match spectrum_result {
           Ok(spectrum_data) => {
@@ -1879,6 +1911,10 @@ pub(crate) async fn handle_source_iq_connection(
         match client_msg {
           Some(Ok(Message::Close(_))) | None => break,
           Some(Ok(Message::Text(text))) => {
+            if !session_store.is_active(&session_token).await {
+              let _ = ws_sender.send(Message::Close(None)).await;
+              break;
+            }
             if let Ok(message) = serde_json::from_str::<WebSocketMessage>(&text) {
               if message.message_type == "request_next_frame" {
                 let snapshot = build_source_info_snapshot(&shared);
@@ -1958,7 +1994,8 @@ pub async fn handle_ws_connection(
   _spectrum_tx: broadcast::Sender<Arc<super::types::SpectrumData>>,
   cmd_tx: std::sync::mpsc::Sender<super::types::SdrCommand>,
   _enc_key: [u8; 32],
-  _session_token: String,
+  session_token: String,
+  session_store: crate::session::SessionStore,
 ) {
   let (mut ws_sender, mut ws_receiver) = socket.split();
   let mut broadcast_rx = broadcast_tx.subscribe();
@@ -2029,8 +2066,15 @@ pub async fn handle_ws_connection(
   }
 
   // Encrypted streaming loop
+  let invalid_session = session_store.wait_until_invalid(&session_token);
+  tokio::pin!(invalid_session);
   loop {
     tokio::select! {
+      biased;
+      _ = &mut invalid_session => {
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(250), ws_sender.send(Message::Close(None))).await;
+        break;
+      }
       broadcast_result = broadcast_rx.recv() => {
         match broadcast_result {
           Ok(plaintext_json) => {
@@ -2065,6 +2109,10 @@ pub async fn handle_ws_connection(
       client_msg = ws_receiver.next() => {
         match client_msg {
           Some(Ok(Message::Text(text))) => {
+            if !session_store.is_active(&session_token).await {
+              let _ = ws_sender.send(Message::Close(None)).await;
+              break;
+            }
             match serde_json::from_str::<WebSocketMessage>(&text) {
               Ok(message) => {
                 if let Err(e) = message.validate() {
@@ -2889,6 +2937,7 @@ pub fn handle_message(
           .job_id
           .clone()
           .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        source_id: message.source_id.clone(),
         fragments: message
           .fragments
           .as_ref()
@@ -2909,6 +2958,7 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
+        sample_rate: message.sample_rate.map(|rate| rate as u32),
         fft_size: message
           .fft_size
           .unwrap_or(current_settings.fft.default_size),
@@ -2916,8 +2966,17 @@ pub fn handle_message(
           .fft_window
           .clone()
           .unwrap_or_else(|| "hann".to_string()),
+        frame_rate: message.frame_rate,
         geolocation: message.geolocation,
         ref_based_demod_baseline: message.ref_based_demod_baseline,
+        capture_labels: message.capture_labels.map(|labels| {
+          labels
+            .into_iter()
+            .map(|label| label.trim().chars().take(80).collect::<String>())
+            .filter(|label| !label.is_empty())
+            .take(32)
+            .collect()
+        }),
         is_ephemeral: message.live_mode.unwrap_or(false),
         channels: message.channels.clone(),
         bandwidth,
@@ -3036,6 +3095,37 @@ mod tests {
   use std::sync::mpsc;
   use std::sync::Arc;
   use std::time::Duration;
+
+  #[test]
+  fn capture_preflight_settings_reach_start_capture_command() {
+    let message: WebSocketMessage = serde_json::from_value(serde_json::json!({
+      "type": "capture",
+      "jobId": "cli_preflight",
+      "fragments": [{ "minFreq": 1_000_000.0, "maxFreq": 4_200_000.0 }],
+      "durationMode": "timed",
+      "durationS": 1.0,
+      "fileType": ".iq",
+      "acquisitionMode": "whole_sample",
+      "encrypted": false,
+      "sampleRateHz": 3_200_000.0,
+      "fftSize": 65_536,
+      "fftWindow": "hanning",
+      "frameRate": 48
+    }))
+    .expect("capture preflight message");
+    assert!(message.validate().is_ok());
+    let (cmd_tx, cmd_rx) = mpsc::channel();
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let shared = test_shared_state();
+
+    handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+    let command = cmd_rx.recv().expect("StartCapture command");
+    let debug = format!("{command:?}");
+
+    assert!(debug.contains("sample_rate: Some(3200000)"), "{debug}");
+    assert!(debug.contains("frame_rate: Some(48)"), "{debug}");
+    assert!(debug.contains("fft_window: \"hanning\""), "{debug}");
+  }
 
   #[test]
   fn stream_subscribe_honors_camel_case_delivery_policy() {
@@ -3178,7 +3268,7 @@ mod tests {
 
   fn test_shared_state() -> Arc<SharedState> {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    SharedState::new("redis://127.0.0.1:6379")
+    SharedState::new(crate::infrastructure::redis::test_redis_url())
   }
 
   fn test_channels() -> (

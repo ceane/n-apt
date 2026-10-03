@@ -138,7 +138,7 @@ type LatexBlockProps = React.HTMLAttributes<HTMLElement> & {
 };
 
 
-const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedExpressions = "" }) => {
+const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedExpressions = "", className }) => {
   const expressions = useMemo(() => decodeExpressions(serializedExpressions), [serializedExpressions]);
   const renderedExpressions = useMemo(
     () => expressions.map((expression) => renderDisplayExpression(expression)),
@@ -146,7 +146,7 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%", margin: "1.5em 0" }}>
+    <div className={`article-latex-block${className ? ` ${className}` : ""}`}>
       {renderedExpressions.map((html, index) => (
         <ResponsiveKatex key={`${index}-${expressions[index] ?? ""}`} html={html} />
       ))}
@@ -260,20 +260,20 @@ const App: React.FC = () => {
     },
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} />,
     "latex-block": ({ node: _node, ...props }: any) => <LatexBlock {...(props as LatexBlockProps)} />,
-    "body-attenuation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <BodyAttenuationCanvas {...props} /> </Suspense>,
-    "impedance-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <ImpedanceCanvas {...props} /> </Suspense>,
-    "time-of-flight-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TimeOfFlightCanvas {...props} /> </Suspense>,
-    "phase-shifting-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <PhaseShiftingCanvas {...props} /> </Suspense>,
-    "frequency-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <FrequencyModulationCanvas {...props} /> </Suspense>,
-    "amplitude-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <AmplitudeModulationCanvas {...props} /> </Suspense>,
-    "multipath-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <MultipathCanvas {...props} /> </Suspense>,
-    "heterodyning-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <HeterodyningCanvas {...props} /> </Suspense>,
-    "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <EndpointRangeCanvas {...props} /> </Suspense>,
-    "triangulation-map-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationMapCanvas {...props} /> </Suspense>,
-    "triangulation-close-enough-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder />}> <TriangulationCloseEnoughCanvas {...props} /> </Suspense>,
+    "body-attenuation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <BodyAttenuationCanvas {...props} /> </Suspense>,
+    "impedance-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <ImpedanceCanvas {...props} /> </Suspense>,
+    "time-of-flight-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <TimeOfFlightCanvas {...props} /> </Suspense>,
+    "phase-shifting-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <PhaseShiftingCanvas {...props} /> </Suspense>,
+    "frequency-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <FrequencyModulationCanvas {...props} /> </Suspense>,
+    "amplitude-modulation-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <AmplitudeModulationCanvas {...props} /> </Suspense>,
+    "multipath-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <MultipathCanvas {...props} /> </Suspense>,
+    "heterodyning-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <HeterodyningCanvas {...props} /> </Suspense>,
+    "endpoint-range-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <EndpointRangeCanvas {...props} /> </Suspense>,
+    "triangulation-map-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <TriangulationMapCanvas {...props} /> </Suspense>,
+    "triangulation-close-enough-canvas": ({ node: _node, ...props }: any) => <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}> <TriangulationCloseEnoughCanvas {...props} /> </Suspense>,
     "hero-ascii-canvas": ({ node: _node, ...props }: any) => (
       <CanvasHarness aspectRatio="16/9" showToggleDot={false} transparent>
-        <Suspense fallback={<CanvasPlaceholder />}>
+        <Suspense fallback={<CanvasPlaceholder className="article-canvas-placeholder" />}>
           <HeroAsciiCanvas {...props} />
         </Suspense>
       </CanvasHarness>
@@ -403,16 +403,29 @@ const ScrollToContents = styled.a`
 const ArticleContent = styled.article`
   --article-gutter: clamp(32px, 5vw, 72px);
   width: 100%;
+  width: stretch;
   max-width: 800px;
   margin: 0 auto;
-  padding: var(--article-gutter);
+  display: grid;
+  grid-template-columns: var(--article-gutter) minmax(0, 1fr) var(--article-gutter);
+  padding: 0;
   color: #acbaff;
   line-height: 1.7;
   font-size: clamp(0.95rem, 1.2vw, 1.1rem);
   overflow-x: visible;
   min-width: 0;
+  text-wrap: pretty;
   overflow-wrap: anywhere;
   word-break: normal;
+
+  > * {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  && > * + * {
+    margin-top: 0;
+  }
 
   h1,
   h2,
@@ -609,6 +622,7 @@ const ArticleContent = styled.article`
 
     table {
       width: max-content;
+      width: stretch;
       min-width: 100%;
       max-width: none;
     }
@@ -703,11 +717,26 @@ const ArticleContent = styled.article`
     }
 
     @media (max-width: 768px) {
+      width: calc(100% - 16px);
+      margin-inline: auto;
       border-width: 6px;
 
       figure {
         border-width: 3px;
       }
+    }
+  }
+
+  @media (max-width: 768px) {
+    > figure,
+    > .article-canvas,
+    > .article-canvas-placeholder,
+    > .street-sign-collage {
+      grid-column: 1 / -1;
+    }
+
+    > figure > img {
+      border-radius: 0;
     }
   }
 
@@ -748,6 +777,33 @@ const ArticleContent = styled.article`
   .katex-display {
     margin: 0.8em 0;
     padding: 0.2em 0;
+  }
+
+  .article-latex-block {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+    margin: 1.5em 0;
+  }
+
+  @media (max-width: 768px) {
+    .article-latex-block {
+      gap: 8px;
+      margin: 1em 0;
+    }
+
+    .article-latex-block .katex-display {
+      min-height: 0;
+      margin: 2px 0;
+      padding: 0;
+      font-size: 1em;
+    }
+
+    .article-latex-block.math-variable-key .katex-display {
+      font-size: 1.1em;
+    }
+
   }
 `;
 

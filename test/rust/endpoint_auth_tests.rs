@@ -144,6 +144,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
     ("/api/debug/pipeline-performance", "GET"),
     ("/api/towers/bounds", "GET"),
     ("/api/capture/download", "GET"),
+    ("/api/classifier/captures/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/iq?filename=capture.iq", "POST"),
     ("/api/webmcp/execute", "POST"),
     ("/ws/streams?token=invalid-token", "GET"),
   ];
@@ -324,13 +325,13 @@ async fn test_password_auth_flow_issues_working_session() {
   let mut key_material = [0u8; 32];
   key_material.copy_from_slice(&nonce_bytes);
   let _ = key_material; // nonce is exactly the HMAC input
-  let derived = crypto::derive_key(
+  let derived = crypto::derive_auth_key(
     &std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap(),
   );
   let _hmac = crypto::to_base64(&crypto::compute_hmac(&derived, &nonce_bytes));
 
   // Step 3: verify — wrong-password proof must be rejected first
-  let other_key = crypto::derive_key("definitely-not-the-password");
+  let other_key = crypto::derive_auth_key("definitely-not-the-password");
   let bad_hmac =
     crypto::to_base64(&crypto::compute_hmac(&other_key, &nonce_bytes));
   server
@@ -406,6 +407,98 @@ async fn test_session_lifecycle_roundtrip_and_revoke() {
     .session_store.revoke(&token)
     .await
     .expect("re-revoking a well-formed deleted token stays Ok (idempotent DEL)");
+}
+
+#[tokio::test]
+#[serial]
+async fn security_registration_requires_session_even_on_first_run() {
+  let (server, _state, _, _guard) = setup_test_server().await;
+  for endpoint in ["/auth/passkey/register/start", "/auth/passkey/register/finish"] {
+    server.post(endpoint).json(&serde_json::json!({})).await.assert_status_unauthorized();
+  }
+}
+
+#[tokio::test]
+#[serial]
+async fn security_registration_challenge_is_bound_to_authorizing_session() {
+  let (server, state, _, _guard) = setup_test_server().await;
+  let owner = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let other = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let response = server.post("/auth/passkey/register/start").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {owner}")).unwrap(),
+  ).await;
+  response.assert_status_ok();
+  let challenge = response.json::<serde_json::Value>()["challenge_id"].as_str().unwrap().to_owned();
+  server.post("/auth/passkey/register/finish").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {other}")).unwrap(),
+  ).json(&serde_json::json!({"challenge_id":challenge,"credential":{
+    "id":"AA","rawId":"AA","type":"public-key",
+    "response":{"attestationObject":"AA","clientDataJSON":"AA"},"extensions":{}
+  }})).await.assert_status_unauthorized();
+  assert!(state.pending_passkey_registrations.lock().unwrap().contains_key(&challenge), "wrong session must not consume the owner's ceremony");
+  state.session_store.revoke(&owner).await.unwrap();
+  server.post("/auth/passkey/register/start").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {owner}")).unwrap(),
+  ).await.assert_status_unauthorized();
+}
+
+#[tokio::test]
+#[serial]
+async fn security_exported_vault_key_cannot_authenticate() {
+  let (server, state, _, _guard) = setup_test_server().await;
+  let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let vault = server.get("/auth/vault-key").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+  ).await.json::<serde_json::Value>();
+  let challenge = server.post("/auth/challenge").await.json::<serde_json::Value>();
+  let key: [u8; 32] = crypto::from_base64(vault["vault_key"].as_str().unwrap()).unwrap().try_into().unwrap();
+  assert_eq!(key, state.shared.encryption_key);
+  let nonce = crypto::from_base64(challenge["nonce"].as_str().unwrap()).unwrap();
+  server.post("/auth/verify").json(&serde_json::json!({
+    "challenge_id": challenge["challenge_id"],
+    "hmac": crypto::to_base64(&crypto::compute_hmac(&key, &nonce)),
+  })).await.assert_status_unauthorized();
+}
+
+#[tokio::test]
+#[serial]
+async fn security_revocation_closes_every_socket_transport() {
+  let (server, state, _, _guard) = setup_test_server().await;
+  for route in ["/ws", "/ws/source/mock-apt/iq", "/ws/streams", "/ws/streams/unused-stream"] {
+    let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+    let mut socket = server.get_websocket(&format!("{route}?token={token}")).await.into_websocket().await;
+    server
+      .post("/auth/logout")
+      .add_header(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {token}"),
+      )
+      .await
+      .assert_status(axum::http::StatusCode::NO_CONTENT);
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+      loop {
+        if matches!(socket.receive_message().await, WsMessage::Close(_)) { break; }
+      }
+    }).await.expect("revoked transport must close without a client command");
+  }
+}
+
+#[tokio::test]
+#[serial]
+async fn security_redis_expiry_closes_an_idle_socket() {
+  let (server, state, redis_url, _guard) = setup_test_server().await;
+  let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let mut socket = server.get_websocket(&format!("/ws/streams?token={token}")).await.into_websocket().await;
+  let client = redis::Client::open(redis_url).unwrap();
+  let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+  redis::cmd("SELECT").arg(1).query_async::<()>(&mut conn).await.unwrap();
+  redis::cmd("EXPIRE").arg(format!("session:{token}")).arg(1).query_async::<i64>(&mut conn).await.unwrap();
+  let close = tokio::time::timeout(std::time::Duration::from_secs(4), socket.receive_message()).await.expect("expired session must close idle stream");
+  assert!(matches!(close, WsMessage::Close(_)));
 }
 
 /// Pins the current at-rest representation (#4): sessions are stored as

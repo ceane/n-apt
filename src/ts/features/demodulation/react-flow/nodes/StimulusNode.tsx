@@ -7,10 +7,15 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import { z } from "zod";
+import { useAppSelector } from "@n-apt/redux";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
 import { resampleNearestInto } from "@n-apt/math/resampleNearest";
+import {
+  AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
+  resampleDecodedAudioToMonoPcm,
+} from "@n-apt/demodulation/survey/audioSurveyMedia";
 import { FIFOWaterfall } from "@n-apt/spectrum/public/FIFOWaterfall";
 import {
   AUDIO_TONE_FREQUENCY_HZ,
@@ -20,10 +25,16 @@ import {
   AUDIO_WATERFALL_HEIGHT,
   createAudioWaveformFeed,
   createFmWaterfallFrame,
+  createAudioToneReferencePcm,
   createSineWaveformSamples,
   getAudioToneGain,
   type AudioWaveformMode,
 } from "./audioWaveformPreview";
+import {
+  evaluateStimulusChannelAccess,
+  getRequiredStimulusChannelLabels,
+} from "./stimulusChannelPolicy";
+import type { AudioSurveyReferenceLabel } from "@n-apt/demodulation/survey/audioSurveyModel";
 
 const durationSchema = z.number().min(5).max(60);
 
@@ -55,8 +66,20 @@ const baselineOptions: Array<{ value: AnalysisType; label: string }> = [
   { value: "vision", label: "Vision" },
 ];
 
+const describeRequiredChannels = (analysisType: AnalysisType) => {
+  const labels = getRequiredStimulusChannelLabels(analysisType);
+  return labels.length === 1
+    ? `Channel ${labels[0]}`
+    : `Channels ${labels.join("/")}`;
+};
+
 // Audio preview components
 const AudioContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 16px;
   text-align: center;
   width: 100%;
 `;
@@ -202,6 +225,71 @@ const StatusText = styled.div`
   margin-top: 30px;
 `;
 
+const ReferenceMediaControls = styled.div`
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+`;
+
+const ReferenceMediaStatus = styled.div`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 11px;
+  overflow-wrap: anywhere;
+`;
+
+const ReferenceMediaInput = styled.input`
+  width: 100%;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 11px;
+  font-family: ${({ theme }) => theme.typography.sans};
+`;
+
+const CaptureLabelControl = styled.div`
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+`;
+
+const CaptureLabelPills = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+`;
+
+const CaptureLabelPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  font-family: ${({ theme }) => theme.typography.sans};
+  overflow-wrap: anywhere;
+`;
+
+const CaptureLabelRemove = styled.button`
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+`;
+
+interface SelectedReferenceMedia {
+  name: string;
+  audioContext: AudioContext;
+  audioBuffer: AudioBuffer;
+  pcmData: Float32Array;
+  durationMs: number;
+}
+
 // Speech preview components
 const SpeechContainer = styled.div`
   text-align: center;
@@ -336,29 +424,35 @@ const ProgressLabel = styled.div`
 const StimulusContainer = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 220px;
+  gap: 10px;
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
+  box-sizing: border-box;
 `;
 
 const StimulusContent = styled.div`
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.surface};
-  border-radius: 12px;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--color-border, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
+  background: var(--color-surface, transparent);
+  color: var(--text-secondary, #aaa);
+  font-family: monospace;
+  font-size: 11px;
+  overflow: hidden;
 `;
 
 const StimulusPreview = styled.div`
+  width: 100%;
   min-height: 210px;
-  border: 1px solid ${({ theme }) => theme.colors.borderHover};
-  border-radius: 10px;
-  background: linear-gradient(
-    180deg,
-    ${({ theme }) => theme.colors.background} 0%,
-    ${({ theme }) => theme.colors.surface} 100%
-  );
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -368,115 +462,120 @@ const StimulusPreview = styled.div`
 
 const StimulusSelect = styled.select`
   width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 4px 8px;
   border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.background};
-  color: ${({ theme }) => theme.colors.primary};
-  font-family: ${({ theme }) => theme.typography.mono};
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.sans};
+  font-size: 11px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 
-  &:focus {
+  &:focus-visible {
     outline: none;
-    border-color: ${({ theme }) => theme.colors.primary};
+    border-color: ${({ theme }) => theme.colors.borderHover};
   }
 
   option {
-    background: ${({ theme }) => theme.colors.background};
-    color: ${({ theme }) => theme.colors.primary};
+    background: ${({ theme }) => theme.colors.surface};
+    color: ${({ theme }) => theme.colors.textPrimary};
   }
 `;
 
-const StimulusButton = styled.button<{ $disabled: boolean }>`
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: 1px solid ${({ theme }) => theme.colors.primary};
-  background: ${({ theme, $disabled }) =>
-    $disabled ? theme.colors.surface : theme.colors.background};
-  color: ${({ theme, $disabled }) =>
-    $disabled ? theme.colors.textDisabled : theme.colors.primary};
-  font-weight: 700;
-  cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
-  font-family: ${({ theme }) => theme.typography.mono};
-
-  &:hover:not(:disabled) {
-    background: ${({ theme }) => theme.colors.activeBackground};
-  }
+const StimulusButton = styled.button`
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
 `;
 
 const StimulusLabel = styled.label`
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  color: ${({ theme }) => theme.colors.textSecondary};
+  gap: 5px;
+  min-width: 0;
+  font-size: inherit;
+  color: inherit;
   user-select: none;
+  overflow-wrap: anywhere;
 `;
 
 const StimulusSubtext = styled.div`
-  font-size: 10px;
-  line-height: 1.5;
-  opacity: 0.75;
-  text-align: center;
-  padding: 0 8px;
-  font-style: italic;
+  font-size: inherit;
+  line-height: 1.45;
+  opacity: 0.8;
+  text-align: left;
+  padding: 0;
   word-wrap: break-word;
 `;
 
 const ResetButton = styled.button`
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.background};
-  color: ${({ theme }) => theme.colors.textPrimary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  cursor: pointer;
-
-  &:hover {
-    background: ${({ theme }) => theme.colors.activeBackground};
-  }
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
 `;
 
 const BaselineVectorContainer = styled.div`
   display: grid;
-  grid-template-columns: 1fr 65px auto;
-  gap: 10px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  min-width: 0;
+  border-top: 1px solid var(--color-border, rgba(128, 128, 128, 0.25));
+  padding-top: 8px;
+`;
+
+const BaselineActionRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+  min-width: 0;
+
+  & > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
 `;
 
 const SelectLabel = styled.label`
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  opacity: 0.6;
-  margin-bottom: 6px;
+  display: block;
+  font-size: inherit;
+  color: inherit;
+  margin-bottom: 4px;
 `;
 
 const AudioWaveformControl = styled.div`
   width: 100%;
 `;
 
-const TitleText = styled.div`
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 12px;
-  color: ${(props) => props.theme.colors.primary};
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-`;
-
 const StimulusInput = styled.input`
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 4px 8px;
   border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.background};
-  color: ${({ theme }) => theme.colors.primary};
-  font-family: ${({ theme }) => theme.typography.mono};
-  font-size: 12px;
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.typography.sans};
+  font-size: 11px;
+  overflow-wrap: anywhere;
 
-  &:focus {
+  &:focus-visible {
     outline: none;
-    border-color: ${({ theme }) => theme.colors.primary};
+    border-color: ${({ theme }) => theme.colors.borderHover};
   }
 
   &[aria-invalid="true"] {
@@ -493,10 +592,34 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     liveMode,
     setLiveMode,
     startAnalysis,
+    recordAudioSurveyStimulusReference,
     clearAnalysis,
   } = useDemod();
   const [previewMode, setPreviewMode] =
     useState<AnalysisType>(selectedBaseline);
+  const demodCenterFrequencyHz = useAppSelector(
+    (state) => state.demod.bandwidthCenterFreqHz ?? state.demod.centerFreqHz,
+  );
+  const frequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+  const channels = useAppSelector((state) => state.websocket.channels);
+  const tunedFrequencyHz = useMemo(
+    () =>
+      demodCenterFrequencyHz ??
+      (frequencyRange &&
+      Number.isFinite(frequencyRange.min) &&
+      Number.isFinite(frequencyRange.max)
+        ? (frequencyRange.min + frequencyRange.max) / 2
+        : null),
+    [demodCenterFrequencyHz, frequencyRange],
+  );
+  const channelAccess = useMemo(
+    () =>
+      evaluateStimulusChannelAccess(previewMode, tunedFrequencyHz, channels),
+    [channels, previewMode, tunedFrequencyHz],
+  );
+  const stimulusChannelCompatible = channelAccess.allowed;
   const [scriptIndex, setScriptIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [durationS, setDurationS] = useState(5);
@@ -504,12 +627,56 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [audioWaveformMode, setAudioWaveformMode] =
     useState<AudioWaveformMode>("traditional");
   const [tonePlayback, setTonePlayback] = useState<TonePlayback | null>(null);
+  const [audioSignalLabel, setAudioSignalLabel] = useState<
+    AudioSurveyReferenceLabel | ""
+  >("");
+  const [captureLabelDraft, setCaptureLabelDraft] = useState("");
+  const [captureLabels, setCaptureLabels] = useState<string[]>([]);
+  const [selectedReferenceMedia, setSelectedReferenceMedia] =
+    useState<SelectedReferenceMedia | null>(null);
+  const [referenceMediaStatus, setReferenceMediaStatus] = useState(
+    "Select audio or video; its audio track is decoded locally to mono 48 kHz PCM.",
+  );
+  const [isCapturingReferenceMedia, setIsCapturingReferenceMedia] =
+    useState(false);
+  const captureJobIdRef = useRef<string | null>(null);
+  const selectedReferenceMediaRef = useRef<SelectedReferenceMedia | null>(null);
+  const mediaPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioSignalLabelRef = useRef<AudioSurveyReferenceLabel | "">(
+    audioSignalLabel,
+  );
+  const captureLabelsRef = useRef(captureLabels);
+  const recordAudioSurveyReferenceRef = useRef(
+    recordAudioSurveyStimulusReference,
+  );
+  audioSignalLabelRef.current = audioSignalLabel;
+  captureLabelsRef.current = captureLabels;
+  recordAudioSurveyReferenceRef.current = recordAudioSurveyStimulusReference;
+  selectedReferenceMediaRef.current = selectedReferenceMedia;
   const fmFrameIndexRef = useRef(0);
   const fmWaveformFeed = useMemo(
     () => createAudioWaveformFeed(createFmWaterfallFrame(0)),
     [],
   );
   const resampleOutputRef = useRef<Float32Array | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      const media = selectedReferenceMediaRef.current;
+      if (
+        media?.audioContext.state !== "closed" &&
+        typeof media?.audioContext.close === "function"
+      ) {
+        void media.audioContext.close();
+      }
+      try {
+        mediaPlaybackSourceRef.current?.stop();
+      } catch {
+        // Playback may have completed while the node was being removed.
+      }
+    },
+    [],
+  );
 
   const isBusy =
     analysisSession.state !== "idle" && analysisSession.state !== "result";
@@ -577,6 +744,21 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     }
   };
 
+  const addCaptureLabel = (raw: string) => {
+    const label = raw.trim().replace(/\s+/g, " ");
+    if (!label || label.length > 80) return;
+    setCaptureLabels((current) =>
+      current.includes(label) || current.length >= 32
+        ? current
+        : [...current, label],
+    );
+    setCaptureLabelDraft("");
+  };
+
+  const removeCaptureLabel = (label: string) => {
+    setCaptureLabels((current) => current.filter((item) => item !== label));
+  };
+
   // Capture progress bar logic
   useEffect(() => {
     if (isCapturing) {
@@ -606,27 +788,49 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     )();
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
-    const startedAt = audioCtx.currentTime;
-
     oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(AUDIO_TONE_FREQUENCY_HZ, startedAt);
-
-    // Smooth fade in/out to avoid clicking
-    gainNode.gain.setValueAtTime(0, startedAt);
-    gainNode.gain.linearRampToValueAtTime(0.5, startedAt + 0.1);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, startedAt + durationS); // Play for duration
-
     oscillator.connect(gainNode);
     gainNode.connect(audioCtx.destination);
 
-    oscillator.start(startedAt);
-    oscillator.stop(startedAt + durationS);
-    setTonePlayback({
-      audioContext: audioCtx,
-      oscillator,
-      startedAt,
-      durationS,
-    });
+    const scheduleTone = (delaySeconds = 0) => {
+      const contextNow = audioCtx.currentTime;
+      const startedAt = contextNow + delaySeconds;
+      const wallClockNow = Date.now();
+      oscillator.frequency.setValueAtTime(AUDIO_TONE_FREQUENCY_HZ, startedAt);
+
+      // Smooth fade in/out to avoid clicking.
+      gainNode.gain.setValueAtTime(0, startedAt);
+      gainNode.gain.linearRampToValueAtTime(0.5, startedAt + 0.1);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, startedAt + durationS);
+
+      oscillator.start(startedAt);
+      oscillator.stop(startedAt + durationS);
+      setTonePlayback({
+        audioContext: audioCtx,
+        oscillator,
+        startedAt,
+        durationS,
+      });
+      return wallClockNow + delaySeconds * 1_000;
+    };
+
+    if (previewMode === "audio") {
+      const requestedAtMs = Date.now();
+      void recordAudioSurveyReferenceRef.current({
+        captureId: captureJobIdRef.current ?? `stimulus_${requestedAtMs}`,
+        pcmData: createAudioToneReferencePcm(durationS, 48_000),
+        pcmSampleRateHz: 48_000,
+        ...(audioSignalLabelRef.current
+          ? { audioSignalLabel: audioSignalLabelRef.current }
+          : {}),
+        ...(captureLabelsRef.current.length > 0
+          ? { labels: captureLabelsRef.current }
+          : {}),
+        startPlayback: () => scheduleTone(0.1),
+      });
+    } else {
+      scheduleTone();
+    }
 
     return () => {
       try {
@@ -641,10 +845,128 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         current?.oscillator === oscillator ? null : current,
       );
     };
-  }, [durationS]);
+  }, [durationS, previewMode]);
+
+  const handleReferenceMediaSelection = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const previous = selectedReferenceMediaRef.current;
+      selectedReferenceMediaRef.current = null;
+      setSelectedReferenceMedia(null);
+      if (
+        previous?.audioContext.state !== "closed" &&
+        typeof previous?.audioContext.close === "function"
+      ) {
+        void previous.audioContext.close();
+      }
+
+      const AudioContextConstructor =
+        window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextConstructor) {
+        setReferenceMediaStatus(
+          "This browser cannot decode local reference media with Web Audio.",
+        );
+        return;
+      }
+      const audioContext = new AudioContextConstructor();
+      setReferenceMediaStatus(`Decoding ${file.name} locally…`);
+      try {
+        const decoded = await audioContext.decodeAudioData(
+          await file.arrayBuffer(),
+        );
+        const converted = resampleDecodedAudioToMonoPcm(decoded);
+        const audioBuffer = audioContext.createBuffer(
+          1,
+          converted.length,
+          AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
+        );
+        audioBuffer.getChannelData(0).set(converted);
+        const media: SelectedReferenceMedia = {
+          name: file.name,
+          audioContext,
+          audioBuffer,
+          pcmData: audioBuffer.getChannelData(0),
+          durationMs:
+            (converted.length / AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ) * 1_000,
+        };
+        selectedReferenceMediaRef.current = media;
+        setSelectedReferenceMedia(media);
+        setReferenceMediaStatus(
+          `${file.name} · ${(media.durationMs / 1_000).toFixed(1)} s · decoded locally to mono 48 kHz PCM; the source file is not uploaded or stored.`,
+        );
+      } catch (error) {
+        if (audioContext.state !== "closed") void audioContext.close();
+        setReferenceMediaStatus(
+          `Could not decode an audio track from ${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    },
+    [],
+  );
+
+  const captureSelectedReferenceMedia = useCallback(async () => {
+    const media = selectedReferenceMediaRef.current;
+    if (!media || isCapturingReferenceMedia || !stimulusChannelCompatible)
+      return;
+
+    setIsCapturingReferenceMedia(true);
+    setReferenceMediaStatus(
+      `Tuning to the selected RF channel for ${media.name}…`,
+    );
+    try {
+      await media.audioContext.resume();
+      const artifact = await recordAudioSurveyReferenceRef.current({
+        captureId: `media_${Date.now()}`,
+        pcmData: media.pcmData,
+        pcmSampleRateHz: AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
+        ...(audioSignalLabelRef.current
+          ? { audioSignalLabel: audioSignalLabelRef.current }
+          : {}),
+        ...(captureLabelsRef.current.length > 0
+          ? { labels: captureLabelsRef.current }
+          : {}),
+        startPlayback: () => {
+          const audioContext = media.audioContext;
+          const contextNow = audioContext.currentTime;
+          const wallClockNow = Date.now();
+          const scheduledStart = contextNow + 0.1;
+          const source = audioContext.createBufferSource();
+          source.buffer = media.audioBuffer;
+          source.connect(audioContext.destination);
+          source.onended = () => {
+            if (mediaPlaybackSourceRef.current === source) {
+              mediaPlaybackSourceRef.current = null;
+            }
+          };
+          mediaPlaybackSourceRef.current = source;
+          source.start(scheduledStart);
+          return wallClockNow + (scheduledStart - contextNow) * 1_000;
+        },
+      });
+      setReferenceMediaStatus(
+        artifact
+          ? `Saved an aligned I/Q and PCM pair for ${media.name}.`
+          : `No aligned reference pair was saved for ${media.name}.`,
+      );
+    } catch (error) {
+      try {
+        mediaPlaybackSourceRef.current?.stop();
+      } catch {
+        // A source that has naturally ended cannot be stopped again.
+      }
+      mediaPlaybackSourceRef.current = null;
+      setReferenceMediaStatus(
+        `Reference capture failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setIsCapturingReferenceMedia(false);
+    }
+  }, [isCapturingReferenceMedia, stimulusChannelCompatible]);
 
   const handleTrigger = () => {
-    if (durationError) return;
+    if (durationError || !stimulusChannelCompatible) return;
 
     // Delay audio to start when capture officially starts
     // We send command after 3s, server takes ~0-1s, so ~4s total delay
@@ -654,113 +976,152 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     }
 
     setSelectedBaseline(previewMode);
-    startAnalysis(previewMode, liveMode, durationS);
+    captureJobIdRef.current =
+      startAnalysis(
+        previewMode,
+        liveMode,
+        durationS,
+        undefined,
+        undefined,
+        undefined,
+        captureLabels,
+      ) ?? null;
   };
 
   // Tone trigger switch
   useEffect(() => {
     if (
       isCapturing &&
+      stimulusChannelCompatible &&
       (previewMode === "audio" || previewMode === "internal")
     ) {
       return playTone();
     }
     setTonePlayback(null);
     return undefined;
-  }, [isCapturing, previewMode, playTone]);
+  }, [isCapturing, previewMode, playTone, stimulusChannelCompatible]);
 
   return (
     <StimulusContainer>
-      <TitleText>{data.label}</TitleText>
+      <StimulusPreview role="region" aria-label="Stimulus playback preview">
+        {previewMode === "audio" && audioWaveformMode === "traditional" && (
+          <AudioContainer>
+            <TraditionalWaveformContainer>
+              <TraditionalAudioWaveform
+                isCapturing={isCapturing}
+                tonePlayback={tonePlayback}
+              />
+            </TraditionalWaveformContainer>
+            <ToneLabel>TRADITIONAL AUDIO WAVEFORM</ToneLabel>
+            <ToneLabel>440Hz SINE TONE</ToneLabel>
+          </AudioContainer>
+        )}
 
-      <StimulusContent>
-        <StimulusPreview>
-          {previewMode === "audio" && audioWaveformMode === "traditional" && (
-            <AudioContainer>
-              <TraditionalWaveformContainer>
-                <TraditionalAudioWaveform
-                  isCapturing={isCapturing}
-                  tonePlayback={tonePlayback}
-                />
-              </TraditionalWaveformContainer>
-              <ToneLabel>TRADITIONAL AUDIO WAVEFORM</ToneLabel>
-              <ToneLabel>440Hz SINE TONE</ToneLabel>
-            </AudioContainer>
-          )}
+        {previewMode === "audio" && audioWaveformMode === "fm-waterfall" && (
+          <AudioContainer>
+            <AudioWaterfallContainer>
+              <FIFOWaterfall
+                width={480}
+                height={AUDIO_WATERFALL_HEIGHT}
+                waveform={fmWaveformFeed.getCurrent()}
+                waveformFeed={fmWaveformFeed}
+                frequencyRange={AUDIO_WATERFALL_FREQUENCY_RANGE}
+                fftMin={FFT_MIN_DB}
+                fftMax={FFT_MAX_DB}
+                retuneSmear={0}
+                isPaused={!isCapturing}
+                isVisible={true}
+                performScalarResampling={performWaterfallResampling}
+                placeholderSourceLabel="FM audio preview"
+                placeholderPaneLabel="FM audio waterfall"
+              />
+            </AudioWaterfallContainer>
+          </AudioContainer>
+        )}
 
-          {previewMode === "audio" && audioWaveformMode === "fm-waterfall" && (
-            <AudioContainer>
-              <AudioWaterfallContainer>
-                <FIFOWaterfall
-                  width={480}
-                  height={AUDIO_WATERFALL_HEIGHT}
-                  waveform={fmWaveformFeed.getCurrent()}
-                  waveformFeed={fmWaveformFeed}
-                  frequencyRange={AUDIO_WATERFALL_FREQUENCY_RANGE}
-                  fftMin={FFT_MIN_DB}
-                  fftMax={FFT_MAX_DB}
-                  retuneSmear={0}
-                  isPaused={!isCapturing}
-                  isVisible={true}
-                  performScalarResampling={performWaterfallResampling}
-                  placeholderSourceLabel="FM audio preview"
-                  placeholderPaneLabel="FM audio waterfall"
-                />
-              </AudioWaterfallContainer>
-            </AudioContainer>
-          )}
+        {previewMode === "internal" && (
+          <InternalContainer>
+            <SignalAnalysisLabel>Signal Analysis</SignalAnalysisLabel>
+            <ScriptText>
+              {isCapturing
+                ? SCRIPT_VARIANTS[scriptIndex]
+                : "Ready for analysis"}
+            </ScriptText>
+            <StatusText>{isCapturing ? "Processing..." : "Ready"}</StatusText>
+          </InternalContainer>
+        )}
 
-          {previewMode === "internal" && (
-            <InternalContainer>
-              <SignalAnalysisLabel>Signal Analysis</SignalAnalysisLabel>
-              <ScriptText>
-                {isCapturing
-                  ? SCRIPT_VARIANTS[scriptIndex]
-                  : "Ready for analysis"}
-              </ScriptText>
-              <StatusText>{isCapturing ? "Processing..." : "Ready"}</StatusText>
-            </InternalContainer>
-          )}
+        {previewMode === "speech" && (
+          <SpeechContainer>
+            <VocalCaptureLabel>VOCAL CAPTURE INTERFACE</VocalCaptureLabel>
+            <ScriptText style={{ color: "#00ff88" }}>
+              {isCapturing
+                ? SCRIPT_VARIANTS[scriptIndex]
+                : "Ready for vocal input"}
+            </ScriptText>
+            <SpeechBarsContainer>
+              {[...Array(20)].map((_, i) => {
+                return (
+                  <SpeechBar
+                    key={i}
+                    $isCapturing={isCapturing}
+                    style={{ animationDelay: `${i * 0.05}s` }}
+                  />
+                );
+              })}
+            </SpeechBarsContainer>
+          </SpeechContainer>
+        )}
 
-          {previewMode === "speech" && (
-            <SpeechContainer>
-              <VocalCaptureLabel>VOCAL CAPTURE INTERFACE</VocalCaptureLabel>
-              <ScriptText style={{ color: "#00ff88" }}>
-                {isCapturing
-                  ? SCRIPT_VARIANTS[scriptIndex]
-                  : "Ready for vocal input"}
-              </ScriptText>
-              <SpeechBarsContainer>
-                {[...Array(20)].map((_, i) => {
-                  return (
-                    <SpeechBar
-                      key={i}
-                      $isCapturing={isCapturing}
-                      style={{ animationDelay: `${i * 0.05}s` }}
-                    />
-                  );
-                })}
-              </SpeechBarsContainer>
-            </SpeechContainer>
-          )}
+        {previewMode === "vision" && (
+          <VisionContainer $isCapturing={isCapturing}>
+            <RecIndicator $isCapturing={isCapturing}>REC</RecIndicator>
+          </VisionContainer>
+        )}
 
-          {previewMode === "vision" && (
-            <VisionContainer $isCapturing={isCapturing}>
-              <RecIndicator $isCapturing={isCapturing}>REC</RecIndicator>
-            </VisionContainer>
-          )}
+        {progress > 0 && (
+          <CountdownContainer>
+            <ProgressBar $progress={progress}>
+              <ProgressFill $progress={progress} />
+            </ProgressBar>
+            <ProgressLabel>
+              {progress < 100 ? "Capturing..." : "Complete!"}
+            </ProgressLabel>
+          </CountdownContainer>
+        )}
+      </StimulusPreview>
 
-          {progress > 0 && (
-            <CountdownContainer>
-              <ProgressBar $progress={progress}>
-                <ProgressFill $progress={progress} />
-              </ProgressBar>
-              <ProgressLabel>
-                {progress < 100 ? "Capturing..." : "Complete!"}
-              </ProgressLabel>
-            </CountdownContainer>
-          )}
-        </StimulusPreview>
+      <StimulusContent role="region" aria-label="Stimulus controls">
+        {previewMode === "audio" && (
+          <ReferenceMediaControls>
+            <SelectLabel htmlFor="reference-media-file">
+              Local Reference Media
+            </SelectLabel>
+            <ReferenceMediaInput
+              id="reference-media-file"
+              aria-label="Reference media file"
+              type="file"
+              accept="audio/*,video/*"
+              onChange={handleReferenceMediaSelection}
+              disabled={isCapturingReferenceMedia}
+            />
+            <ReferenceMediaStatus aria-live="polite">
+              {referenceMediaStatus}
+            </ReferenceMediaStatus>
+            <StimulusButton
+              onClick={() => void captureSelectedReferenceMedia()}
+              disabled={
+                !selectedReferenceMedia ||
+                isCapturingReferenceMedia ||
+                !stimulusChannelCompatible
+              }
+            >
+              {isCapturingReferenceMedia
+                ? "CAPTURING MEDIA PAIR…"
+                : "CAPTURE MEDIA PAIR"}
+            </StimulusButton>
+          </ReferenceMediaControls>
+        )}
 
         <BaselineVectorContainer>
           <div>
@@ -771,41 +1132,55 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               id="stimulus-baseline-vector"
               aria-label="Baseline Vector"
               value={previewMode}
-              onChange={(e) => setPreviewMode(e.target.value as AnalysisType)}
+              onChange={(e) => {
+                const nextMode = e.target.value as AnalysisType;
+                setPreviewMode(nextMode);
+                setSelectedBaseline(nextMode);
+              }}
               disabled={isBusy}
             >
-              {baselineOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              {baselineOptions.map((option) => {
+                const requiredChannels = getRequiredStimulusChannelLabels(
+                  option.value,
+                );
+                return (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    data-required-channels={requiredChannels.join(",")}
+                  >
+                    {option.label} · {describeRequiredChannels(option.value)}
+                  </option>
+                );
+              })}
             </StimulusSelect>
           </div>
-          <div>
-            <SelectLabel
-              style={{ color: durationError ? "#ff4d4d" : undefined }}
+          <BaselineActionRow>
+            <div>
+              <SelectLabel
+                style={{ color: durationError ? "#ff4d4d" : undefined }}
+              >
+                Dur (s)
+              </SelectLabel>
+              <StimulusInput
+                type="number"
+                value={durationS || ""}
+                onChange={handleDurationChange}
+                disabled={isBusy}
+                min={5}
+                max={60}
+                aria-invalid={durationError !== null}
+              />
+            </div>
+            <StimulusButton
+              onClick={handleTrigger}
+              disabled={
+                isBusy || durationError !== null || !stimulusChannelCompatible
+              }
             >
-              Dur (s)
-            </SelectLabel>
-            <StimulusInput
-              type="number"
-              value={durationS || ""}
-              onChange={handleDurationChange}
-              disabled={isBusy}
-              min={5}
-              max={60}
-              aria-invalid={durationError !== null}
-              style={{ padding: "9px 8px" }}
-            />
-          </div>
-          <StimulusButton
-            onClick={handleTrigger}
-            disabled={isBusy}
-            $disabled={isBusy}
-            style={{ alignSelf: "end" }}
-          >
-            TRIGGER
-          </StimulusButton>
+              TRIGGER
+            </StimulusButton>
+          </BaselineActionRow>
         </BaselineVectorContainer>
 
         {previewMode === "audio" && (
@@ -824,6 +1199,73 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             >
               <option value="traditional">Traditional Audio Waveform</option>
               <option value="fm-waterfall">FM Sliding-Window Waterfall</option>
+            </StimulusSelect>
+          </AudioWaveformControl>
+        )}
+
+        <CaptureLabelControl>
+          <SelectLabel htmlFor="stimulus-capture-label">
+            Capture Labels
+          </SelectLabel>
+          <StimulusInput
+            id="stimulus-capture-label"
+            type="text"
+            aria-label="Add capture label"
+            aria-describedby="stimulus-capture-label-help"
+            placeholder="Type a label and press Enter"
+            maxLength={80}
+            value={captureLabelDraft}
+            onChange={(event) => setCaptureLabelDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addCaptureLabel(captureLabelDraft);
+              }
+            }}
+            disabled={captureLabels.length >= 32}
+          />
+          <StimulusSubtext id="stimulus-capture-label-help">
+            {liveMode
+              ? "Ephemeral RF captures are discarded; retained captures include these labels."
+              : "Labels are saved with retained captures for any stimulus option."}
+          </StimulusSubtext>
+          {captureLabels.length > 0 && (
+            <CaptureLabelPills aria-label="Capture labels">
+              {captureLabels.map((label) => (
+                <CaptureLabelPill key={label}>
+                  {label}
+                  <CaptureLabelRemove
+                    type="button"
+                    aria-label={`Remove label ${label}`}
+                    onClick={() => removeCaptureLabel(label)}
+                  >
+                    ×
+                  </CaptureLabelRemove>
+                </CaptureLabelPill>
+              ))}
+            </CaptureLabelPills>
+          )}
+        </CaptureLabelControl>
+
+        {previewMode === "audio" && (
+          <AudioWaveformControl>
+            <SelectLabel htmlFor="audio-signal-label">
+              Audio Signal Label
+            </SelectLabel>
+            <StimulusSelect
+              id="audio-signal-label"
+              aria-label="Audio signal label"
+              value={audioSignalLabel}
+              onChange={(event) =>
+                setAudioSignalLabel(
+                  event.target.value as AudioSurveyReferenceLabel | "",
+                )
+              }
+              disabled={isBusy || isCapturingReferenceMedia}
+            >
+              <option value="">Unlabeled</option>
+              <option value="coherent">Coherent</option>
+              <option value="static">Static</option>
             </StimulusSelect>
           </AudioWaveformControl>
         )}

@@ -186,6 +186,7 @@ describe("live Redux/source-mode stream harness", () => {
     );
 
     await harness.setTransmit(false, MOCK_TX_SOURCE_ID);
+    await harness.requestNextStandbyFrame({ sourceId: MOCK_TX_SOURCE_ID });
     const stopped = await harness.waitFor(
       () => harness.snapshot(),
       (value) =>

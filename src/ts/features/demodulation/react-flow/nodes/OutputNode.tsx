@@ -8,6 +8,7 @@ import {
   buildSafeDownloadUrl,
   safeDownloadFilename,
 } from "@n-apt/ui/downloadUrl";
+import { INITIAL_SPECTRUM_FREQUENCY_RANGE } from "@n-apt/webusb/initialSpectrumFrequencyRange";
 
 const NodeWrapper = styled.div`
   display: flex;
@@ -146,16 +147,23 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
     (state) => state.spectrum.frequencyRange,
   );
   const { result, state } = data as any; // Using any for additional fields like state
-  const sampleRateHz =
+  const hasLiveSampleRate =
     typeof storeSampleRateHz === "number" &&
     Number.isFinite(storeSampleRateHz) &&
-    storeSampleRateHz > 0
-      ? storeSampleRateHz
-      : result?.sampleRateHz;
-  const centerFrequencyHz =
+    storeSampleRateHz > 0 &&
+    storeSampleRateHz !== 3_200_000;
+  const hasLiveFrequencyRange =
     storeFrequencyRange &&
     Number.isFinite(storeFrequencyRange.min) &&
     Number.isFinite(storeFrequencyRange.max) &&
+    (storeFrequencyRange.min !== INITIAL_SPECTRUM_FREQUENCY_RANGE.min ||
+      storeFrequencyRange.max !== INITIAL_SPECTRUM_FREQUENCY_RANGE.max);
+  const sampleRateHz =
+    hasLiveSampleRate
+      ? storeSampleRateHz
+      : result?.sampleRateHz;
+  const centerFrequencyHz =
+    hasLiveFrequencyRange &&
     storeFrequencyRange.max > storeFrequencyRange.min
       ? (storeFrequencyRange.min + storeFrequencyRange.max) / 2
       : result?.centerFrequencyHz;

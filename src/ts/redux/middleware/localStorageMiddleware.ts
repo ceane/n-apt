@@ -71,6 +71,31 @@ const safeRemoveItem = (key: string): boolean => {
   }
 };
 
+const coldStartFrequencyRangeStorageKey = (sourceId: string): string =>
+  `napt-cold-start-frequency-range-v1:${encodeURIComponent(sourceId)}`;
+
+export const loadPersistedColdStartFrequencyRange = (
+  sourceId?: string | null,
+): { min: number; max: number } | null => {
+  if (!sourceId) return null;
+  const stored = safeGetItem(coldStartFrequencyRangeStorageKey(sourceId));
+  if (!stored) return null;
+  try {
+    const range = JSON.parse(stored);
+    if (
+      !range ||
+      !Number.isFinite(range.min) ||
+      !Number.isFinite(range.max) ||
+      range.max <= range.min
+    ) {
+      return null;
+    }
+    return { min: range.min, max: range.max };
+  } catch {
+    return null;
+  }
+};
+
 export const normalizePersistedTxSignalKey = (value: unknown): string => {
   if (typeof value !== "string") {
     return "wifi";
@@ -143,8 +168,29 @@ export const normalizePersistedTxViewerSettings = (parsed: any) => {
 // Create localStorage middleware
 const createLocalStorageMiddleware =
   (): Middleware<{}, any> => (store) => (next) => (action: any) => {
+    const previousState = store.getState();
     const result = next(action);
     const state = store.getState();
+
+    const previousRange = previousState.spectrum?.frequencyRange;
+    const frequencyRange = state.spectrum?.frequencyRange;
+    const selectedSourceId = state.sourceSelection?.selectedSourceId;
+    const activeSourceId = state.websocket?.activeSourceId;
+    if (
+      selectedSourceId &&
+      selectedSourceId === activeSourceId &&
+      frequencyRange &&
+      Number.isFinite(frequencyRange.min) &&
+      Number.isFinite(frequencyRange.max) &&
+      frequencyRange.max > frequencyRange.min &&
+      (previousRange?.min !== frequencyRange.min ||
+        previousRange?.max !== frequencyRange.max)
+    ) {
+      safeSetItem(
+        coldStartFrequencyRangeStorageKey(selectedSourceId),
+        JSON.stringify(frequencyRange),
+      );
+    }
 
     // Handle theme persistence
     if (action.type?.startsWith("theme/")) {

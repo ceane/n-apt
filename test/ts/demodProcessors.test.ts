@@ -125,6 +125,62 @@ describe("APT demod processor variants", () => {
       Float32Array,
     );
   });
+
+  it("preserves real-time APT amplitude changes across input frames", () => {
+    const sampleRateHz = 256_000;
+    let carrierPhase = 0;
+    let subcarrierPhase = 0;
+    const makeFrame = (imageAmplitude: number) => {
+      const iq = new Uint8Array((sampleRateHz * 2) / 10);
+      const sampleCount = iq.length / 2;
+      for (let index = 0; index < sampleCount; index++) {
+        carrierPhase +=
+          (2 * Math.PI * 17_000 * imageAmplitude * Math.cos(subcarrierPhase)) /
+          sampleRateHz;
+        subcarrierPhase += (2 * Math.PI * 2_400) / sampleRateHz;
+        iq[index * 2] = 128 + Math.round(115 * Math.cos(carrierPhase));
+        iq[index * 2 + 1] = 128 + Math.round(115 * Math.sin(carrierPhase));
+      }
+      return iq;
+    };
+    const processor = createDemodProcessor("aptImage", {
+      targetSampleRate: 48_000,
+      centerFrequency: 0,
+      bandwidth: 50_000,
+    });
+    const lowFrame = processor.process(makeFrame(0.2), sampleRateHz, 0);
+    const highFrame = processor.process(makeFrame(0.8), sampleRateHz, 0);
+    const tailMean = (samples: Float32Array) => {
+      const tail = samples.slice(Math.floor(samples.length / 2));
+      return tail.reduce((sum, value) => sum + value, 0) / tail.length;
+    };
+
+    expect(tailMean(highFrame)).toBeGreaterThan(tailMean(lowFrame) * 2.5);
+  });
+});
+
+describe("AM envelope demod processor", () => {
+  it("recovers a low-frequency envelope from a baseband AM carrier", () => {
+    const sampleRateHz = 256_000;
+    const iq = new Uint8Array(sampleRateHz / 2 * 2);
+    for (let index = 0; index < iq.length / 2; index++) {
+      const time = index / sampleRateHz;
+      const envelope = 0.55 + 0.35 * Math.sin(2 * Math.PI * 1_000 * time);
+      const phase = 2 * Math.PI * 12_000 * time;
+      iq[index * 2] = 128 + Math.round(120 * envelope * Math.cos(phase));
+      iq[index * 2 + 1] = 128 + Math.round(120 * envelope * Math.sin(phase));
+    }
+
+    const audio = createDemodProcessor("am", {
+      targetSampleRate: 48_000,
+      centerFrequency: 0,
+      bandwidth: 25_000,
+    }).process(iq, sampleRateHz, 0);
+
+    expect(audio.length).toBeGreaterThan(20_000);
+    expect(peakOf(audio)).toBeGreaterThan(0.05);
+    expect(peakOf(audio)).toBeLessThanOrEqual(1);
+  });
 });
 
 describe("fmDiscriminator demod processor", () => {

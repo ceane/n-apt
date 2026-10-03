@@ -7,7 +7,6 @@ import {
   RefreshCcw,
   Shield,
 } from "lucide-react";
-import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { Button } from "./Button";
 
 const FallbackContainer = styled.div`
@@ -136,8 +135,6 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
   moduleName,
   errorType = "vault",
 }) => {
-  const { logout } = useAuthentication();
-
   const getErrorInfo = () => {
     switch (errorType) {
       case "demod":
@@ -212,7 +209,12 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           <RefreshCcw size={10} />
           Reload
         </ActionButton>
-        <ActionButton $variant="secondary" onClick={logout}>
+        <ActionButton
+          $variant="secondary"
+          onClick={() => {
+            window.location.href = "/logout";
+          }}
+        >
           <Shield size={10} />
           Re-auth
         </ActionButton>

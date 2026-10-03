@@ -9,11 +9,13 @@ const RECORD_KEY = "cards";
 export interface PersistedNoteCardsPayload {
   cards: NoteCardModel[];
   isCollapsed: boolean;
+  experimentLabels: string[];
 }
 
 const DEFAULT_PERSISTED_STATE: PersistedNoteCardsPayload = {
   cards: [],
   isCollapsed: false,
+  experimentLabels: [],
 };
 
 interface NoteCardsPersistenceRecord {
@@ -41,6 +43,16 @@ const normalizePayload = (
 ): PersistedNoteCardsPayload => ({
   cards: Array.isArray(payload?.cards) ? payload.cards : [],
   isCollapsed: payload?.isCollapsed ?? false,
+  experimentLabels: Array.isArray(payload?.experimentLabels)
+    ? Array.from(
+        new Set(
+          payload.experimentLabels
+            .filter((label): label is string => typeof label === "string")
+            .map((label) => label.trim().replace(/\s+/g, " "))
+            .filter(Boolean),
+        ),
+      )
+    : [],
 });
 
 export const loadPersistedNoteCards =

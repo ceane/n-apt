@@ -26,7 +26,7 @@ import {
 } from "@n-apt/app/auth/bypassStartPage";
 import { MORE_ABOUT_N_APT_LINK_CARD } from "@n-apt/app/navigationLinkCards";
 
-const FILE_ACCEPT_TYPES = ".napt,.iq,.wav";
+const FILE_ACCEPT_TYPES = ".napt,.iq,.wav,.enc";
 
 const isDegradedSourceStatus = (status: SourceInfo["status"]): boolean =>
   status === "stale" || status === "error";
@@ -81,7 +81,7 @@ const startingPoints: StartingPoint[] = [
   },
   {
     title: "Playback I/Q Captures",
-    description: "Upload files to replay or analyze I/Q captures.",
+    description: "Upload I/Q captures to replay or analyze them. Increased protection .enc copies require authenticated backend playback.",
     Icon: FileSignal,
     href: "/?source=fileSelection",
     showFileTypes: true,
@@ -169,13 +169,14 @@ const CardGrid = styled.section`
 `;
 
 const Card = styled.article`
+  --card-inline-padding: clamp(10px, 2.2vmin, 22px);
   display: flex;
   flex: 1;
   min-height: clamp(180px, 26vmin, 240px);
   flex-direction: column;
   gap: clamp(12px, 2vmin, 18px);
   box-sizing: border-box;
-  padding: clamp(16px, 2.2vmin, 22px);
+  padding: clamp(16px, 2.2vmin, 22px) var(--card-inline-padding);
   border: 1px solid ${(props) => props.theme.border};
   border-radius: clamp(12px, 1.8vmin, 18px);
   background: ${(props) => props.theme.surface};
@@ -232,6 +233,7 @@ const CardLinkBody = styled(Link)`
 `;
 
 const LegalCard = styled(Card)`
+  container-type: inline-size;
   gap: 0;
   flex-direction: row;
   padding: 0;
@@ -260,7 +262,8 @@ const LegalHalf = styled(Link)`
   flex-direction: column;
   gap: clamp(12px, 2vmin, 18px);
   box-sizing: border-box;
-  padding: clamp(16px, 2.2vmin, 22px);
+  padding: clamp(16px, 2.2vmin, 22px)
+    min(var(--card-inline-padding), clamp(8px, 4.2cqi, 22px));
   color: inherit;
   text-decoration: none;
   transition: background 0.18s ease;
@@ -297,6 +300,8 @@ const CardFooter = styled.div`
   [role="switch"] {
     align-items: center;
     gap: 8px;
+    text-align: left;
+    width: 100%;
     max-width: 100%;
   }
 
@@ -306,7 +311,6 @@ const CardFooter = styled.div`
     font-weight: 500;
     letter-spacing: -0.025em;
     line-height: 1.15;
-    white-space: nowrap;
     color: ${(props) => props.theme.textSecondary};
   }
 `;
@@ -554,7 +558,7 @@ export const GetStartedRoute: React.FC = () => {
                     <CardMeta>
                       <SourceLabel>Accepts</SourceLabel>
                       <SourcePills aria-label="Accepted capture file types">
-                        {[".napt", ".iq", ".wav"].map((fileType) => (
+                        {[".napt", ".iq", ".wav", ".enc"].map((fileType) => (
                           <SourcePill key={fileType}>{fileType}</SourcePill>
                         ))}
                       </SourcePills>

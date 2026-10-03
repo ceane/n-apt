@@ -8,6 +8,8 @@ import {
 export interface APTImageDemodOptions {
   targetSampleRate: number; // Output audio sample rate (48kHz)
   bufferSize: number; // Audio buffer size
+  centerFrequency?: number;
+  bandwidth?: number;
 }
 
 export interface APTImageDemodHandle {
@@ -34,8 +36,13 @@ export function useAPTImageDemod(
   const APT_IMAGE_CARRIER = 2400; // 2.4kHz subcarrier
   const { targetSampleRate } = options;
   const sharedProcessor = useMemo(
-    () => createDemodProcessor("aptImage", { targetSampleRate }),
-    [targetSampleRate],
+    () =>
+      createDemodProcessor("aptImage", {
+        targetSampleRate,
+        centerFrequency: options.centerFrequency,
+        bandwidth: options.bandwidth,
+      }),
+    [targetSampleRate, options.centerFrequency, options.bandwidth],
   );
 
   const [isPlaying, setIsPlaying] = useState(false);

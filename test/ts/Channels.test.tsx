@@ -51,6 +51,53 @@ const theme = buildAppTheme({
 });
 
 describe("Channels", () => {
+  it("renders only requested channel tune buttons in compact picker mode", () => {
+    const store = createTestStore();
+    const frames = [
+      { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
+      { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+      { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+    ];
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "A",
+                  frequencyRange: { min: 18_000, max: 4_390_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: frames,
+                sampleRateHzEffective: 3_200_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels
+              variant="demod"
+              fileMode
+              hideTitle
+              channelLabels={["A", "B"]}
+              channelPickerOnly
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: /^A/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^B/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^C/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Manual")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^B/ }));
+    expect(store.getState().spectrum.activeSignalArea).toBe("B");
+  });
+
   it("keeps whole-channel display active while switching before the sample rate catches up", () => {
     const store = createTestStore();
 

@@ -171,18 +171,15 @@ impl RedisStore {
   ) -> Result<Option<[u8; 32]>, String> {
     let mut connection = self.connection(1).await?;
     let key = format!("challenge:{challenge_id}");
-    let script = redis::Script::new(
-      "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
-    );
-    let nonce: Option<Vec<u8>> = match script
-      .key(key)
-      .invoke_async(&mut connection)
+    let nonce: Option<Vec<u8>> = match redis::cmd("GETDEL")
+      .arg(key)
+      .query_async(&mut connection)
       .await
     {
       Ok(nonce) => nonce,
       Err(error) => {
         self.evict_connection(1);
-        return Err(format!("Redis challenge consume failed: {error}"));
+        return Err(format!("Redis challenge GETDEL failed: {error}"));
       }
     };
 
@@ -204,6 +201,47 @@ impl RedisStore {
     value: &T,
   ) -> Result<(), String> {
     self.set_json_with_ttl(database, key, value, None).await
+  }
+
+  /// Read a raw string without JSON encoding or decoding.
+  pub async fn get_string(
+    &self,
+    database: u8,
+    key: &str,
+  ) -> Result<Option<String>, String> {
+    let mut connection = self.connection(database).await?;
+    let result: Result<Option<String>, _> = redis::cmd("GET")
+      .arg(key)
+      .query_async(&mut connection)
+      .await;
+    if result.is_err() {
+      self.evict_connection(database);
+    }
+    result.map_err(|error| format!("Redis GET failed: {error}"))
+  }
+
+  /// Atomically store a raw string only if the key is still absent.
+  /// Returns true for the writer that created the key and false when another
+  /// writer already created it.
+  pub async fn set_string_if_absent(
+    &self,
+    database: u8,
+    key: &str,
+    value: &str,
+  ) -> Result<bool, String> {
+    let mut connection = self.connection(database).await?;
+    let result = redis::cmd("SET")
+      .arg(key)
+      .arg(value)
+      .arg("NX")
+      .query_async::<Option<String>>(&mut connection)
+      .await;
+    if result.is_err() {
+      self.evict_connection(database);
+    }
+    result
+      .map(|response| response.is_some())
+      .map_err(|error| format!("Redis SET NX failed: {error}"))
   }
 
   /// SET with an optional expiry in seconds.
@@ -316,6 +354,17 @@ pub async fn probe(client: &redis::Client) -> Result<(), String> {
 }
 
 #[cfg(test)]
+pub fn test_redis_url() -> &'static str {
+  static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+  URL.get_or_init(|| {
+    std::env::var("REDIS_ADMIN_URL")
+      .or_else(|_| std::env::var("REDIS_URL"))
+      .unwrap_or_else(|_| crate::infrastructure::redis::test_redis_url().to_string())
+  })
+  .as_str()
+}
+
+#[cfg(test)]
 mod tests {
   use super::{RedisReadiness, RedisStore};
 
@@ -327,7 +376,7 @@ mod tests {
 
   #[tokio::test]
   async fn challenge_storage_is_async_and_consumed_once() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let challenge_id = format!("redis-service-test:{}", uuid::Uuid::new_v4());
@@ -355,7 +404,7 @@ mod tests {
 
   #[tokio::test]
   async fn degraded_store_does_not_use_a_fallback_endpoint() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client_with_error(client, "invalid URL");
 
@@ -368,7 +417,7 @@ mod tests {
 
   #[tokio::test]
   async fn database_session_reuses_selected_database_for_queries() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let key = format!("redis-service-test:query:{}", uuid::Uuid::new_v4());
@@ -395,7 +444,7 @@ mod tests {
 
   #[tokio::test]
   async fn json_values_round_trip_through_the_requested_database() {
-    let client = redis::Client::open("redis://127.0.0.1:6379")
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
       .expect("test Redis URL must be valid");
     let store = RedisStore::from_client(client);
     let key = format!("redis-service-test:json:{}", uuid::Uuid::new_v4());
@@ -411,5 +460,64 @@ mod tests {
       .expect("JSON value should be loaded");
 
     assert_eq!(actual, Some(expected));
+  }
+
+  #[tokio::test]
+  async fn raw_string_if_absent_selects_one_value_for_concurrent_writers() {
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
+
+    let client = redis::Client::open(crate::infrastructure::redis::test_redis_url())
+      .expect("test Redis URL must be valid");
+    let store = RedisStore::from_client(client);
+    let key = format!("redis-service-test:nx:{}", uuid::Uuid::new_v4());
+    let participants = 16;
+    let barrier = Arc::new(Barrier::new(participants));
+    let mut tasks = Vec::with_capacity(participants);
+
+    for index in 0..participants {
+      let store = store.clone();
+      let barrier = Arc::clone(&barrier);
+      let key = key.clone();
+      tasks.push(tokio::spawn(async move {
+        let value = format!("salt-{index}");
+        barrier.wait().await;
+        let inserted = store
+          .set_string_if_absent(15, &key, &value)
+          .await
+          .expect("SET NX should succeed");
+        (inserted, value)
+      }));
+    }
+
+    let mut inserted_value = None;
+    for task in tasks {
+      let (inserted, value) = task.await.expect("writer task should finish");
+      if inserted {
+        assert!(
+          inserted_value.replace(value).is_none(),
+          "only one writer may win"
+        );
+      }
+    }
+    let stored = store
+      .get_string(15, &key)
+      .await
+      .expect("stored raw value should be readable");
+    assert_eq!(
+      stored, inserted_value,
+      "Redis must keep the winning writer's value"
+    );
+
+    let mut database = store
+      .database(15)
+      .await
+      .expect("Redis DB should be available");
+    let _: usize = database
+      .query("DEL", |command| {
+        command.arg(&key);
+      })
+      .await
+      .expect("test key should be removed");
   }
 }
