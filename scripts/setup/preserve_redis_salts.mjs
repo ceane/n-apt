@@ -150,7 +150,7 @@ export async function verifyPendingSaltFingerprint({ redisUrl, stateFile }) {
   try {
     current = await readSaltFingerprint(client);
   } finally {
-    await client.quit();
+    client.destroy();
   }
   if (!saltFingerprintsMatch(state.saltFingerprint, current)) {
     throw new Error("DB 1 capture-protection salts changed during Redis authentication setup. Backend startup is blocked; the protected pre-auth backup was retained.");
