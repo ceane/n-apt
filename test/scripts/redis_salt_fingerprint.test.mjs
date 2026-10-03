@@ -66,7 +66,7 @@ test("pre-auth backup and post-ACL verification preserve DB 1 salt values", asyn
       try {
         await client.connect();
         await client.ping();
-        await client.quit();
+        client.destroy();
         return;
       } catch {
         client.destroy();
@@ -124,6 +124,6 @@ test("pre-auth backup and post-ACL verification preserve DB 1 salt values", asyn
     await authenticatedClient.select(1);
     assert.equal(await authenticatedClient.get(saltKey), saltValue);
   } finally {
-    await authenticatedClient.quit();
+    authenticatedClient.destroy();
   }
 });
