@@ -24,6 +24,7 @@ test("new local setup creates stable app and operator credentials and ACLs", () 
   assert.match(first.aclText, /^user default off$/m);
   assert.match(first.aclText, /^user napt-app on #([a-f0-9]{64}) /m);
   assert.match(first.aclText, /^user napt-operator on #([a-f0-9]{64}) /m);
+  assert.match(first.aclText, /\+quit(?: |$)/m, "app client must be able to close Redis connections");
   assert.doesNotMatch(first.aclText, /ab{63}/i);
 
   const second = ensureRedisAuthConfig({ envText: first.envText, randomBytes: deterministicRandomBytes });
