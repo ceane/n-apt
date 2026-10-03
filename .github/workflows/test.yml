@@ -262,7 +262,7 @@ jobs:
 
       - name: Run Redis authentication and salt-preservation tests
         run: >-
-          node --import tsx --test
+          node --import tsx --test --test-concurrency=1
           test/scripts/redis_auth_setup.test.mjs
           test/scripts/redis_salt_fingerprint.test.mjs
           test/scripts/redis_tower_staging.test.mjs
