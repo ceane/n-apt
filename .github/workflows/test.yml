@@ -260,14 +260,25 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Run Redis authentication and salt-preservation tests
-        run: >-
-          node --import tsx --test --test-concurrency=1
-          test/scripts/redis_auth_setup.test.mjs
-          test/scripts/redis_salt_fingerprint.test.mjs
-          test/scripts/redis_tower_staging.test.mjs
-          test/scripts/redis_acl.integration.test.mjs
-          test/classifier/capture-salt-backup.integration.test.mjs
+      - name: Test Redis auth configuration
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_auth_setup.test.mjs
+
+      - name: Test Redis salt fingerprints
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_salt_fingerprint.test.mjs
+
+      - name: Test Redis tower staging
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_tower_staging.test.mjs
+
+      - name: Test Redis ACL integration
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_acl.integration.test.mjs
+
+      - name: Test capture salt backup integration
+        timeout-minutes: 1
+        run: node --import tsx --test test/classifier/capture-salt-backup.integration.test.mjs
 
       - name: Configure and verify authenticated Redis
         run: node scripts/setup/configure_test_redis.mjs
