@@ -226,7 +226,6 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 7
-    timeout-minutes: 7
 
     services:
       redis:
