@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { ensureRedisAuthConfig, isLocalRedisUrl } from "../../scripts/setup/redis_auth_config.mjs";
+import { ensureRedisAuthConfig, isLocalRedisUrl, renderRedisAcl } from "../../scripts/setup/redis_auth_config.mjs";
 
 const require = createRequire(import.meta.url);
 const { resolveRedisCliConfig } = require("../../scripts/redis/redis_cli_auth.cjs");
+const { renderRedisAcl: renderRedisAclFromCommonJs } = require("../../scripts/setup/redis_acl.cjs");
 
 let deterministicCredential = 0xab;
 function deterministicRandomBytes(size) {
@@ -30,6 +31,15 @@ test("new local setup creates stable app and operator credentials and ACLs", () 
   const second = ensureRedisAuthConfig({ envText: first.envText, randomBytes: deterministicRandomBytes });
   assert.equal(second.envText, first.envText);
   assert.equal(second.aclText, first.aclText);
+});
+
+test("the CommonJS integration helper shares the production Redis ACL renderer", () => {
+  const options = {
+    appUsername: "napt-app",
+    appPassword: "app-secret",
+    operatorPassword: "operator-secret",
+  };
+  assert.equal(renderRedisAclFromCommonJs(options), renderRedisAcl(options));
 });
 
 test("existing local setup preserves unrelated credentials and capture salts", () => {

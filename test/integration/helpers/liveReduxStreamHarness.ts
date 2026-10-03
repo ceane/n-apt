@@ -41,7 +41,7 @@ const NodeWebSocket: any = [
   wsModule.WebSocket,
 ].find((candidate) => typeof candidate === "function");
 const { renderRedisAcl } = require(
-  resolve(process.cwd(), "scripts/setup/redis_auth_config.mjs"),
+  resolve(process.cwd(), "scripts/setup/redis_acl.cjs"),
 );
 
 type AppStore = typeof import("@n-apt/redux/store").store;

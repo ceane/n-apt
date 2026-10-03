@@ -1,13 +1,12 @@
-import { createHash, randomBytes as cryptoRandomBytes } from "node:crypto";
+import { randomBytes as cryptoRandomBytes } from "node:crypto";
 import dotenv from "dotenv";
+import redisAcl from "./redis_acl.cjs";
+
+const { renderRedisAcl } = redisAcl;
 
 const APP_USERNAME = "napt-app";
 const OPERATOR_USERNAME = "napt-operator";
 const DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0";
-const APP_COMMANDS = [
-  "del", "eval", "evalsha", "expire", "exists", "geoadd", "get", "hgetall",
-  "hello", "info", "mget", "ping", "quit", "scan", "select", "set", "setex", "zcard", "zrange",
-];
 
 function parseEnv(envText) {
   try {
@@ -70,25 +69,7 @@ export function isLocalRedisUrl(envText) {
   }
 }
 
-function redisUserLine(username, password, permissions) {
-  // Redis ACL's `#` credential form requires SHA-256(password); generated local credentials are 32-byte CSPRNG values.
-  const passwordHash = createHash("sha256").update(password).digest("hex");
-  return `user ${username} on #${passwordHash} ${permissions.join(" ")}`;
-}
-
-export function renderRedisAcl({ appUsername, appPassword, operatorPassword }) {
-  if (!/^[A-Za-z0-9_-]+$/.test(appUsername)) {
-    throw new Error("Redis app username must contain only letters, digits, underscores, and hyphens.");
-  }
-  const appPermissions = ["~session:*", "~challenge:*", "~artifacts:*", "~capture-protection:*", "~tower:*", "~towers:*", "~region:*", "~local:*"];
-  appPermissions.push(...APP_COMMANDS.map((command) => `+${command}`));
-  return [
-    "user default off",
-    redisUserLine(appUsername, appPassword, appPermissions),
-    redisUserLine(OPERATOR_USERNAME, operatorPassword, ["~*", "&*", "+@all"]),
-    "",
-  ].join("\n");
-}
+export { renderRedisAcl };
 
 export function ensureRedisAuthConfig({ envText, randomBytes = cryptoRandomBytes }) {
   const current = parseEnv(envText);
