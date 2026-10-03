@@ -14,29 +14,29 @@ describe('questionnaire Markdown source', () => {
   test('parses each supported input and the inline BodyMap into ordered questions', () => {
     const questions = parseQuestionnaireMarkdown(`
 - When did you first notice it?
-  *date*
+  <!-- date -->
 
 - What was the experience like?
 
 - Was it intermittent or continual?
-  *radio*
+  <!-- radio -->
   - [ ] Intermittent
   - [ ] Continual but episodic
 
 - What features did you experience?
-  *options*
+  <!-- options -->
   - [ ] Heightened perception
   - [ ] Emotional changes
 
 - Where were you affected?
-  *Canvas::BodyMap*
-  *options*
+  <!-- Canvas::BodyMap -->
+  <!-- options -->
   - [ ] Head
   - [ ] Neck
 
 - Which head areas were affected?
-  *Canvas::HeadMap*
-  *options*
+  <!-- Canvas::HeadMap -->
+  <!-- options -->
   - [ ] Mouth
   - [ ] Throat
 `);
@@ -58,13 +58,28 @@ describe('questionnaire Markdown source', () => {
     expect(questions.map(({ formattedId }) => formattedId)).toEqual(['Q1', 'Q2']);
   });
 
+  test('reads an inline Canvas comment without adding it to the question text', () => {
+    const [question] = parseQuestionnaireMarkdown(`
+- Where were you affected? <!-- Canvas::BodyMap -->
+  <!-- options -->
+  - [ ] Head
+`);
+
+    expect(question).toEqual(expect.objectContaining({
+      text: 'Where were you affected?',
+      type: 'checkbox',
+      canvas: 'BodyMap',
+      options: ['Head'],
+    }));
+  });
+
   test('keeps each question as its own questionnaire step', () => {
     const questions = parseQuestionnaireMarkdown(`
 - Short one
 - Short two
 - Where were you affected?
-  *Canvas::BodyMap*
-  *options*
+  <!-- Canvas::BodyMap -->
+  <!-- options -->
   - [ ] Head
 - Short three
 `);
@@ -80,16 +95,16 @@ describe('questionnaire Markdown source', () => {
   test('parses nested subquestions with their own answer markers and choices', () => {
     const questions = parseQuestionnaireMarkdown(`
 - Did this happen?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - How often?
-    *radio*
+    <!-- radio -->
     - [ ] Daily
     - [ ] Weekly
   - Where were you affected?
-    *Canvas::BodyMap*
-    *options*
+    <!-- Canvas::BodyMap -->
+    <!-- options -->
     - [ ] Head
     - [ ] Neck
 - A separate question
@@ -146,6 +161,8 @@ describe('questionnaire Markdown source', () => {
 
     expect(questions.filter(({ canvas }) => canvas === 'BodyMap')).toHaveLength(1);
     expect(questions.filter(({ canvas }) => canvas === 'HeadMap')).toHaveLength(1);
+    expect(markdown).toContain('<!-- Canvas::BodyMap -->');
+    expect(markdown).not.toMatch(/^\s+\*(?:date|radio|options|Canvas::)[^*]*\*\s*$/m);
     expect(questions).toHaveLength(legacyQuestions.length + 3);
     for (const legacyQuestion of legacyQuestions) {
       expect(questions.some(({ text }) => text === legacyQuestion.text)).toBe(true);

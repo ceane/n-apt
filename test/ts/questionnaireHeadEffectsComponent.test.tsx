@@ -9,10 +9,13 @@ import {
   organicBlobRadius,
 } from '../../src/app-legal/data/headEffectBlobs';
 
+const mockResetCamera = jest.fn();
+
 jest.mock('../../src/app-legal/components/HeadEffectsScene', () => ({
-  HeadEffectsScene: ({ selectedEffect }: { selectedEffect?: string }) => (
-    <div data-testid="head-effects-scene" data-selected-effect={selectedEffect ?? ''} />
-  ),
+  HeadEffectsScene: ({ selectedEffect, appearanceStyle, onResetReady }: { selectedEffect?: string; appearanceStyle?: string; onResetReady?: (reset: () => void) => void }) => {
+    onResetReady?.(() => mockResetCamera());
+    return <div data-testid="head-effects-scene" data-selected-effect={selectedEffect ?? ''} data-appearance-style={appearanceStyle ?? ''} />;
+  },
 }));
 
 const { QuestionnaireHeadEffects } = require('../../src/app-legal/components/QuestionnaireHeadEffects') as typeof import('../../src/app-legal/components/QuestionnaireHeadEffects');
@@ -49,7 +52,7 @@ describe('QuestionnaireHeadEffects', () => {
   });
 
   test('keeps the effect blobs inside the translucent brain and uses grey for inactive blobs', () => {
-    expect(HEAD_EFFECT_BRAIN_OPACITY).toBe(0.55);
+    expect(HEAD_EFFECT_BRAIN_OPACITY).toBe(0.72);
     expect(HEAD_EFFECT_INACTIVE_COLOR).toBe('#9ca3af');
     for (const { position } of HEAD_EFFECT_BLOB_DEFINITIONS) {
       expect(position[0]).toBeGreaterThan(-0.083);
@@ -59,6 +62,39 @@ describe('QuestionnaireHeadEffects', () => {
       expect(position[2]).toBeGreaterThan(-0.108);
       expect(position[2]).toBeLessThan(0.098);
     }
+    expect(HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeCloseTo(0.052);
+  });
+
+  test('provides a discreet control to return the camera to its headshot framing', () => {
+    mockResetCamera.mockClear();
+    render(
+      <QuestionnaireHeadEffects
+        question={{ id: '29h', options }}
+        answer={[]}
+        onAnswerChange={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Return model to headshot' }));
+    expect(mockResetCamera).toHaveBeenCalledTimes(1);
+  });
+
+  test('cycles the blob appearance presets above the camera reset control', () => {
+    render(
+      <QuestionnaireHeadEffects
+        question={{ id: '29h', options }}
+        answer={[]}
+        onAnswerChange={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Soft tissue');
+    fireEvent.click(screen.getByRole('button', { name: 'Cycle effect appearance: Soft tissue' }));
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Neural glow');
+    fireEvent.click(screen.getByRole('button', { name: 'Cycle effect appearance: Neural glow' }));
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Color wash');
+    fireEvent.click(screen.getByRole('button', { name: 'Cycle effect appearance: Color wash' }));
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Soft tissue');
   });
 
   test('keeps multiple checkbox answers but shows only the latest selected blob', () => {

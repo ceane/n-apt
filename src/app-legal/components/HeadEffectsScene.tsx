@@ -1,7 +1,8 @@
-import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
-import { BufferAttribute, BufferGeometry, Color, Mesh, MeshStandardMaterial, SphereGeometry } from 'three';
+import { gsap } from 'gsap';
+import { BufferAttribute, BufferGeometry, Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, SphereGeometry } from 'three';
 import { BRAIN_GLB_URL, HUMAN_MODEL_NEUTRAL_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
 import {
   HEAD_EFFECT_BLOB_DEFINITIONS,
@@ -18,6 +19,7 @@ const HEADSHOT_TARGET: [number, number, number] = [0, 1.94, 0.01];
 
 type HeadEffectsSceneProps = {
   selectedEffect?: string;
+  onResetReady?: (reset: (() => void) | null) => void;
 };
 
 function TranslucentHead() {
@@ -98,7 +100,7 @@ function EffectBlob({
   const elapsedRef = useRef(0);
   const palette = useMemo(() => effect.colors.map((color) => new Color(color)), [effect]);
   const { geometry, basePositions } = useMemo(() => {
-    const nextGeometry = new SphereGeometry(1, 40, 28);
+    const nextGeometry = new SphereGeometry(1, 64, 48);
     const positions = nextGeometry.getAttribute('position') as BufferAttribute;
     const base = new Float32Array(positions.array);
     deformBlobGeometry(nextGeometry, base, effect.seed, 0);
@@ -113,7 +115,7 @@ function EffectBlob({
   useFrame((_, delta) => {
     const blob = blobRef.current;
     if (!blob) return;
-    const material = blob.material as MeshStandardMaterial;
+    const material = blob.material as MeshBasicMaterial;
     if (!isActive) {
       blob.scale.setScalar(effect.radius * 0.8);
       material.color.set(HEAD_EFFECT_INACTIVE_COLOR);
@@ -128,7 +130,7 @@ function EffectBlob({
     const easeOut = 1 - (1 - entrance) ** 3;
     const pulseX = 1 + Math.sin(elapsed * 2.4) * 0.11;
     const pulseY = 1 + Math.sin(elapsed * 2.4 + 0.9) * 0.11;
-    blob.scale.set(effect.radius * easeOut * pulseX, effect.radius * easeOut * pulseY, effect.radius * 0.76 * easeOut);
+    blob.scale.set(effect.radius * easeOut * pulseX, effect.radius * easeOut * pulseY, effect.radius * 0.36 * easeOut);
 
     material.opacity = 0.95;
     const colorPosition = elapsed * 0.48;
@@ -139,14 +141,44 @@ function EffectBlob({
 
   return (
     <mesh ref={blobRef} position={effect.position} geometry={geometry}>
-      <meshStandardMaterial color={HEAD_EFFECT_INACTIVE_COLOR} transparent opacity={0.58} roughness={0.32} metalness={0.04} />
+      <meshBasicMaterial color={HEAD_EFFECT_INACTIVE_COLOR} transparent opacity={0.58} toneMapped={false} />
     </mesh>
   );
 }
 
-function EffectsScene({ selectedEffect }: HeadEffectsSceneProps) {
+function EffectsScene({ selectedEffect, onResetReady }: HeadEffectsSceneProps) {
+  const controlsRef = useRef<any>(null);
   const effect = HEAD_EFFECT_BLOB_DEFINITIONS.find(({ name }) => name === selectedEffect)
     ?? HEAD_EFFECT_BLOB_DEFINITIONS[0];
+  const resetCamera = useCallback(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    gsap.killTweensOf(controls.object.position);
+    gsap.killTweensOf(controls.target);
+    const animation = {
+      duration: 0.9,
+      ease: 'power2.inOut',
+      onUpdate: () => controls.update(),
+    };
+    gsap.to(controls.object.position, {
+      ...animation,
+      x: HEADSHOT_POSITION[0],
+      y: HEADSHOT_POSITION[1],
+      z: HEADSHOT_POSITION[2],
+    });
+    gsap.to(controls.target, {
+      ...animation,
+      x: HEADSHOT_TARGET[0],
+      y: HEADSHOT_TARGET[1],
+      z: HEADSHOT_TARGET[2],
+    });
+  }, []);
+
+  useEffect(() => {
+    onResetReady?.(resetCamera);
+    return () => onResetReady?.(null);
+  }, [onResetReady, resetCamera]);
 
   return (
     <group position={MODEL_ROOT_POSITION}>
@@ -156,16 +188,16 @@ function EffectsScene({ selectedEffect }: HeadEffectsSceneProps) {
       <ambientLight intensity={1.25} />
       <directionalLight position={[1, 2.4, 3]} intensity={2.1} />
       <pointLight position={[-1.6, 2.2, 1.8]} color="#dce8ff" intensity={0.7} />
-      <OrbitControls makeDefault enableDamping enableRotate={false} target={HEADSHOT_TARGET} minDistance={0.42} maxDistance={0.9} />
+      <OrbitControls ref={controlsRef} makeDefault enableDamping enableRotate={false} target={HEADSHOT_TARGET} minDistance={0.42} maxDistance={0.9} />
     </group>
   );
 }
 
-export function HeadEffectsScene({ selectedEffect }: HeadEffectsSceneProps) {
+export function HeadEffectsScene({ selectedEffect, onResetReady }: HeadEffectsSceneProps) {
   return (
     <Canvas camera={{ position: HEADSHOT_POSITION, fov: 34 }}>
       <Suspense fallback={null}>
-        <EffectsScene selectedEffect={selectedEffect} />
+        <EffectsScene selectedEffect={selectedEffect} onResetReady={onResetReady} />
       </Suspense>
     </Canvas>
   );

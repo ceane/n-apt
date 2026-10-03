@@ -1,33 +1,32 @@
 - Is it on?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
 - When did you first notice it was on?
-  *date*
-
+  <!-- date -->
 - What was it like?
 
 - Was it intermittent (on/off) or continual but episodic?
-  *radio*
+  <!-- radio -->
   - [ ] Intermittent
   - [ ] Continual but episodic
 
 - Did it affect anyone else (passerby, people nearby, others on) or just you?
-  *radio*
+  <!-- radio -->
   - [ ] No
   - [ ] Yes
 
 - If it affected others, how?
 
 - Was there anyone else on with you?
-  *radio*
+  <!-- radio -->
   - [ ] No
   - [ ] Yes
   - [ ] I don't know
 
 - If there was anyone else, did they:
-  *options*
+  <!-- options -->
   - [ ] Help
   - [ ] Take advantage
   - [ ] Antagonize
@@ -41,7 +40,7 @@
   - [ ] Other
 
 - Did you report this occurrence to:
-  *options*
+  <!-- options -->
   - [ ] Law enforcement (FBI, Homeland Security, DOJ, etc.)
   - [ ] Federal authorities (DNI, Congress, etc.)
   - [ ] Civil society or legal firms
@@ -49,13 +48,13 @@
   - [ ] Acquaintances or strangers
 
 - How did the day go with it on?
-  *radio*
+  <!-- radio -->
   - [ ] Terrible
   - [ ] Moderate
   - [ ] Fine
 
 - What was its intensity in the beginning?
-  *options*
+  <!-- options -->
   - [ ] Artificial Irrationality
   - [ ] Artificial Paranoia
   - [ ] Artificial Perceptual changes
@@ -63,7 +62,7 @@
   - [ ] Intrusive
 
 - What kinds of features?
-  *options*
+  <!-- options -->
   - [ ] Heightened perception
   - [ ] Cinematic perception
   - [ ] Atmospheric perception
@@ -75,24 +74,24 @@
   - [ ] Physiological movements
 
 - What about afterwards?
-  *radio*
+  <!-- radio -->
   - [ ] It got worse
   - [ ] No change
   - [ ] Other
 
 - How hard was it to explain what was going on?
-  *radio*
+  <!-- radio -->
   - [ ] Moderate
   - [ ] Hard
   - [ ] Near-impossible
 
 - Did you know why or who was doing it?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
 - Were you blindsided or co-opted into the experience?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
@@ -101,25 +100,25 @@
 - Did you suspect where it was coming from?
 
 - Are you aware of selectors and queries?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
 
 - Are you aware of minimization and detasking?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
 
 - Do you believe the government can be held accountable for their actions?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
 
 - Do you believe constitutional protections (First, Fourth, Fifth Amendments) extend to experiences like this?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
@@ -129,31 +128,31 @@
 - How did you find who was responsible?
 
 - Did you experience rapid heartbeat, palpitations, or chest pressure?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
   - Frequency
-    *radio*
+    <!-- radio -->
     - [ ] One-time
     - [ ] Occasional
     - [ ] Daily
     - [ ] Multiple times per day
 
   - Duration
-    *radio*
+    <!-- radio -->
     - [ ] Seconds
     - [ ] Minutes
     - [ ] Longer episodes
     - [ ] Variable
 
   - Episodic or continual
-    *radio*
+    <!-- radio -->
     - [ ] Episodic
     - [ ] Continual
 
   - Intensity
-    *radio*
+    <!-- radio -->
     - [ ] Mild
     - [ ] Moderate
     - [ ] Severe
@@ -161,31 +160,31 @@
   - Episode metadata
 
 - Did you experience intrusive thoughts, perceptual filters, or emotional state changes?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
   - Frequency
-    *radio*
+    <!-- radio -->
     - [ ] One-time
     - [ ] Occasional
     - [ ] Daily
     - [ ] Multiple times per day
 
   - Duration
-    *radio*
+    <!-- radio -->
     - [ ] Seconds
     - [ ] Minutes
     - [ ] Longer episodes
     - [ ] Variable
 
   - Episodic or continual
-    *radio*
+    <!-- radio -->
     - [ ] Episodic
     - [ ] Continual
 
   - Intensity
-    *radio*
+    <!-- radio -->
     - [ ] Mild
     - [ ] Moderate
     - [ ] Severe
@@ -193,31 +192,31 @@
   - Episode metadata
 
 - Did you experience fear, shame, helplessness, confusion, or long-term psychological harm?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
   - Frequency
-    *radio*
+    <!-- radio -->
     - [ ] One-time
     - [ ] Occasional
     - [ ] Daily
     - [ ] Multiple times per day
 
   - Duration
-    *radio*
+    <!-- radio -->
     - [ ] Seconds
     - [ ] Minutes
     - [ ] Longer episodes
     - [ ] Variable
 
   - Episodic or continual
-    *radio*
+    <!-- radio -->
     - [ ] Episodic
     - [ ] Continual
 
   - Intensity
-    *radio*
+    <!-- radio -->
     - [ ] Mild
     - [ ] Moderate
     - [ ] Severe
@@ -225,12 +224,12 @@
   - Episode metadata
 
 - Did you experience non-consensual sexualized effects?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
   - Nature of experience
-    *options*
+    <!-- options -->
     - [ ] Involuntary arousal
     - [ ] Forced sensations
     - [ ] Intrusive imagery
@@ -242,43 +241,43 @@
     - [ ] Exposure to sexual content
 
   - Others present during the same experience (co-exposure)
-    *radio*
+    <!-- radio -->
     - [ ] Yes
     - [ ] No
     - [ ] Unsure
 
   - Secondary exposure from your experience to others
-    *radio*
+    <!-- radio -->
     - [ ] Yes
     - [ ] No
     - [ ] Unsure
 
   - Loss of autonomy, discretion, or resistance
-    *radio*
+    <!-- radio -->
     - [ ] Yes
     - [ ] No
 
   - Frequency
-    *radio*
+    <!-- radio -->
     - [ ] One-time
     - [ ] Occasional
     - [ ] Daily
     - [ ] Multiple times per day
 
   - Duration
-    *radio*
+    <!-- radio -->
     - [ ] Seconds
     - [ ] Minutes
     - [ ] Longer episodes
     - [ ] Variable
 
   - Episodic or continual
-    *radio*
+    <!-- radio -->
     - [ ] Episodic
     - [ ] Continual
 
   - Intensity
-    *radio*
+    <!-- radio -->
     - [ ] Mild
     - [ ] Moderate
     - [ ] Severe
@@ -286,31 +285,31 @@
   - Episode metadata
 
 - Did you experience involuntary movements, heightened perception, audio/visual interference, or other body-wide sensations?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
 
   - Frequency
-    *radio*
+    <!-- radio -->
     - [ ] One-time
     - [ ] Occasional
     - [ ] Daily
     - [ ] Multiple times per day
 
   - Duration
-    *radio*
+    <!-- radio -->
     - [ ] Seconds
     - [ ] Minutes
     - [ ] Longer episodes
     - [ ] Variable
 
   - Episodic or continual
-    *radio*
+    <!-- radio -->
     - [ ] Episodic
     - [ ] Continual
 
   - Intensity
-    *radio*
+    <!-- radio -->
     - [ ] Mild
     - [ ] Moderate
     - [ ] Severe
@@ -318,8 +317,8 @@
   - Episode metadata
 
   - Where did you notice these sensations?
-    *Canvas::BodyMap*
-    *options*
+    <!-- Canvas::BodyMap -->
+    <!-- options -->
     - [ ] Head
     - [ ] Face
     - [ ] Eyes
@@ -342,8 +341,8 @@
     - [ ] Ears (Right)
 
   - Which head areas were affected?
-    *Canvas::HeadMap*
-    *options*
+    <!-- Canvas::HeadMap -->
+    <!-- options -->
     - [ ] Mouth
     - [ ] Throat
     - [ ] Vocal cords
@@ -355,8 +354,8 @@
     - [ ] Breathing
 
   - What kinds of effects or feelings did you experience?
-    *Canvas::HeadEffects*
-    *options*
+    <!-- Canvas::HeadEffects -->
+    <!-- options -->
     - [ ] Perceptual
     - [ ] Compressed
     - [ ] Chemical
@@ -364,32 +363,32 @@
     - [ ] Autonomic (manipulating involuntary functions of your body)
 
 - Did the program affect appetite, metabolism, stress responses, or increase risk for heart disease, diabetes, sepsis, or cancer?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
 
   - Frequency
-    *radio*
+    <!-- radio -->
     - [ ] One-time
     - [ ] Occasional
     - [ ] Daily
     - [ ] Multiple times per day
 
   - Duration
-    *radio*
+    <!-- radio -->
     - [ ] Seconds
     - [ ] Minutes
     - [ ] Longer episodes
     - [ ] Variable
 
   - Episodic or continual
-    *radio*
+    <!-- radio -->
     - [ ] Episodic
     - [ ] Continual
 
   - Intensity
-    *radio*
+    <!-- radio -->
     - [ ] Mild
     - [ ] Moderate
     - [ ] Severe
@@ -397,19 +396,19 @@
   - Episode metadata
 
 - Were others present during the same experience (co-exposure)?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
 
 - Did co-presence or perceived co-presence affect your experience?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
 
 - Do you believe that others were exposed to sexualized effects originating from your experience?
-  *radio*
+  <!-- radio -->
   - [ ] Yes
   - [ ] No
   - [ ] Unsure
