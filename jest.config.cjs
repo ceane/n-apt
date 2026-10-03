@@ -121,7 +121,7 @@ module.exports = {
     "^.+\\.(ts|tsx)$": "<rootDir>/scripts/test/ts-jest-typescript6.cjs",
     "\\.wgsl$": "jest-transform-stub"
   },
-  transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$|@chenglou/pretext|unified|remark-parse|remark-gfm|remark-stringify|mdast-util-[^/]+|micromark[^/]*|unist-util-[^/]+|bail|devlop|extend|is-plain-obj|trough|vfile|decode-named-character-reference|character-entities[^/]*|ccount|longest-streak|markdown-table|trim-lines|zwitch|comma-separated-tokens|property-information|space-separated-tokens|escape-string-regexp))"],
+  transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$|three/examples/jsm/|@chenglou/pretext|unified|remark-parse|remark-gfm|remark-stringify|mdast-util-[^/]+|micromark[^/]*|unist-util-[^/]+|bail|devlop|extend|is-plain-obj|trough|vfile|decode-named-character-reference|character-entities[^/]*|ccount|longest-streak|markdown-table|trim-lines|zwitch|comma-separated-tokens|property-information|space-separated-tokens|escape-string-regexp))"],
   modulePathIgnorePatterns: ["<rootDir>/.shared-worktree-cache/"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
 };

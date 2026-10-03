@@ -5,8 +5,12 @@ import {
   HEAD_EFFECT_BRAIN_POSITION,
   HEAD_EFFECT_BRAIN_OPACITY,
   HEAD_EFFECT_BRAIN_SCALE,
+  HEAD_EFFECT_FUR_CORE_RADIUS,
+  HEAD_EFFECT_FUR_LENGTH,
   HEAD_EFFECT_INACTIVE_COLOR,
   organicBlobRadius,
+  scraggleEmissionPoint,
+  scraggleStrokePoint,
 } from '../../src/app-legal/data/headEffectBlobs';
 
 const mockResetCamera = jest.fn();
@@ -65,6 +69,10 @@ describe('QuestionnaireHeadEffects', () => {
     expect(HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeCloseTo(0.052);
   });
 
+  test('keeps the furry dot smaller than the full blob as it turns', () => {
+    expect(HEAD_EFFECT_FUR_CORE_RADIUS + HEAD_EFFECT_FUR_LENGTH).toBeLessThan(HEAD_EFFECT_BLOB_DEFINITIONS[0].radius);
+  });
+
   test('provides a discreet control to return the camera to its headshot framing', () => {
     mockResetCamera.mockClear();
     render(
@@ -79,6 +87,23 @@ describe('QuestionnaireHeadEffects', () => {
     expect(mockResetCamera).toHaveBeenCalledTimes(1);
   });
 
+  test('keeps the scraggle strokes within the brain-sized effect area', () => {
+    for (let index = 0; index <= 200; index += 1) {
+      const [x, y, z] = scraggleStrokePoint(index / 200);
+      expect(Math.abs(x) * HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeLessThan(0.044);
+      expect(Math.abs(y) * HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeLessThan(0.044);
+      expect(Math.abs(z) * HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeLessThan(0.02);
+    }
+    for (let stroke = 0; stroke < 9; stroke += 1) {
+      for (let index = 0; index <= 20; index += 1) {
+        const [x, y, z] = scraggleEmissionPoint(stroke, index / 20);
+        expect(Math.abs(x) * HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeLessThan(0.044);
+        expect(Math.abs(y) * HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeLessThan(0.044);
+        expect(Math.abs(z) * HEAD_EFFECT_BLOB_DEFINITIONS[0].radius).toBeLessThan(0.02);
+      }
+    }
+  });
+
   test('cycles the blob appearance presets above the camera reset control', () => {
     render(
       <QuestionnaireHeadEffects
@@ -88,13 +113,32 @@ describe('QuestionnaireHeadEffects', () => {
       />,
     );
 
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Soft tissue');
-    fireEvent.click(screen.getByRole('button', { name: 'Cycle effect appearance: Soft tissue' }));
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Neural glow');
-    fireEvent.click(screen.getByRole('button', { name: 'Cycle effect appearance: Neural glow' }));
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Color wash');
-    fireEvent.click(screen.getByRole('button', { name: 'Cycle effect appearance: Color wash' }));
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Soft tissue');
+    const cycleButton = screen.getByRole('button', { name: 'Cycle effect appearance: Fur dot' });
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Fur dot');
+    expect(cycleButton).toHaveAttribute('title', 'Next: Vortex clouds');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Vortex clouds');
+    expect(cycleButton).toHaveAttribute('title', 'Next: Scraggles');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Scraggles');
+    expect(cycleButton).toHaveAttribute('title', 'Next: C-clamp');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'C-clamp');
+    expect(cycleButton).toHaveAttribute('title', 'Next: Water pipe');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Water pipe');
+    expect(cycleButton).toHaveAttribute('title', 'Next: Rusty pistons');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Rusty pistons');
+    expect(cycleButton).toHaveAttribute('title', 'Next: Evil ghost');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Evil ghost');
+    expect(cycleButton).toHaveAttribute('title', 'Next: Peeking ghost');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Peeking ghost');
+    expect(cycleButton).toHaveAttribute('title', 'Next: Fur dot');
+    fireEvent.click(cycleButton);
+    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Fur dot');
   });
 
   test('keeps multiple checkbox answers but shows only the latest selected blob', () => {

@@ -4,7 +4,31 @@ export const HEAD_EFFECT_BRAIN_OPACITY = 0.72;
 export const HEAD_EFFECT_INACTIVE_COLOR = '#9ca3af';
 export const HEAD_EFFECT_BLOB_POSITION = [0, 1.01, 0.045] as const;
 export const HEAD_EFFECT_BLOB_RADIUS = 0.052;
-export const HEAD_EFFECT_APPEARANCE_STYLES = ['Soft tissue', 'Neural glow', 'Color wash'] as const;
+export const HEAD_EFFECT_APPEARANCE_STYLES = ['Fur dot', 'Vortex clouds', 'Scraggles', 'C-clamp', 'Water pipe', 'Rusty pistons', 'Evil ghost', 'Peeking ghost'] as const;
+export const HEAD_EFFECT_FUR_CORE_RADIUS = 0.034;
+export const HEAD_EFFECT_FUR_LENGTH = 0.012;
+
+export function scraggleStrokePoint(progress: number): [number, number, number] {
+  const turn = progress * Math.PI * 11;
+  const radius = 0.12 + (1 - progress) * 0.54;
+  return [
+    Math.cos(turn) * radius + Math.sin(progress * 58) * 0.025,
+    0.68 - progress * 1.38 + Math.sin(turn) * 0.055,
+    0.17 + Math.sin(turn) * 0.08,
+  ];
+}
+
+export function scraggleEmissionPoint(stroke: number, progress: number): [number, number, number] {
+  const angle = stroke * 2.39996323;
+  const height = 0.42 - (stroke % 5) * 0.21;
+  const coreRadius = 0.21 + (height + 0.42) * 0.23;
+  const radius = coreRadius + progress * 0.26;
+  return [
+    Math.cos(angle) * radius,
+    height + progress * 0.08 + Math.sin(progress * Math.PI) * 0.04,
+    0.16 + Math.sin(angle) * 0.07 + progress * 0.02,
+  ];
+}
 
 export function organicBlobRadius(angle: number, seed: number, elapsed: number): number {
   const phase = seed * 1.37;

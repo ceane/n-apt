@@ -45,6 +45,31 @@ const AppearanceButton = styled(HeadshotButton)`
   bottom: 52px;
 `;
 
+const GhostPreviewOptions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+`;
+
+const GhostPreviewButton = styled.button`
+  padding: 7px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #4b5563;
+  font: inherit;
+  cursor: pointer;
+
+  &[aria-pressed='true'] {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+
+  &:focus-visible { outline: 2px solid #9ca3af; outline-offset: 2px; }
+`;
+
 const EffectOptions = styled.div`
   display: flex;
   flex-wrap: wrap;
@@ -77,8 +102,13 @@ export function QuestionnaireHeadEffects({ question, answer, onAnswerChange }: Q
     resetCameraRef.current = reset;
   }, []);
   const appearanceStyle = HEAD_EFFECT_APPEARANCE_STYLES[appearanceStyleIndex];
+  const nextAppearanceStyle = HEAD_EFFECT_APPEARANCE_STYLES[(appearanceStyleIndex + 1) % HEAD_EFFECT_APPEARANCE_STYLES.length];
   const cycleAppearanceStyle = () => {
     setAppearanceStyleIndex((current) => (current + 1) % HEAD_EFFECT_APPEARANCE_STYLES.length);
+  };
+  const selectAppearanceStyle = (style: 'Evil ghost' | 'Peeking ghost') => {
+    const index = HEAD_EFFECT_APPEARANCE_STYLES.indexOf(style);
+    if (index >= 0) setAppearanceStyleIndex(index);
   };
   const selectedEffects = Array.isArray(answer) ? answer : [];
   const selectedEffect = selectedEffects[selectedEffects.length - 1];
@@ -100,7 +130,7 @@ export function QuestionnaireHeadEffects({ question, answer, onAnswerChange }: Q
         <AppearanceButton
           type="button"
           aria-label={`Cycle effect appearance: ${appearanceStyle}`}
-          title={`Effect appearance: ${appearanceStyle}`}
+          title={`Next: ${nextAppearanceStyle}`}
           onClick={cycleAppearanceStyle}
         >
           <Blend size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -109,6 +139,22 @@ export function QuestionnaireHeadEffects({ question, answer, onAnswerChange }: Q
           <ScanFace size={16} strokeWidth={1.75} aria-hidden="true" />
         </HeadshotButton>
       </ModelFrame>
+      <GhostPreviewOptions role="group" aria-label="Preview ghost models">
+        <GhostPreviewButton
+          type="button"
+          aria-pressed={appearanceStyle === 'Evil ghost'}
+          onClick={() => selectAppearanceStyle('Evil ghost')}
+        >
+          Evil ghost
+        </GhostPreviewButton>
+        <GhostPreviewButton
+          type="button"
+          aria-pressed={appearanceStyle === 'Peeking ghost'}
+          onClick={() => selectAppearanceStyle('Peeking ghost')}
+        >
+          Peeking ghost
+        </GhostPreviewButton>
+      </GhostPreviewOptions>
       <EffectOptions role="group" aria-label="Select experienced effects or feelings">
         {question.options.map((effect) => (
           <EffectOption key={effect}>
