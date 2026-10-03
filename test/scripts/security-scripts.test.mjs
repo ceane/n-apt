@@ -125,7 +125,13 @@ test('archive mention output cannot inject HTML or event handlers', async () => 
   const html = output.pageTweets[0].mentionDisplay ?? '';
   const dom = new JSDOM(html);
   assert.equal(dom.window.document.querySelectorAll('img,script,[onerror],[onclick]').length, 0);
-  assert.ok(output.pageTweets[0].htmlText.includes('https://twitter.com/hashtag/tag'));
+  const tweetDocument = new JSDOM(output.pageTweets[0].htmlText).window.document;
+  const hashtagLink = tweetDocument.querySelector('a[href]');
+  assert.ok(hashtagLink, 'the hashtag should render as a link');
+  const hashtagUrl = new URL(hashtagLink.href);
+  assert.equal(hashtagUrl.protocol, 'https:');
+  assert.equal(hashtagUrl.hostname, 'twitter.com');
+  assert.equal(hashtagUrl.pathname, '/hashtag/tag');
 });
 
 async function archiveServer(t) {

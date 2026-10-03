@@ -71,6 +71,7 @@ export function isLocalRedisUrl(envText) {
 }
 
 function redisUserLine(username, password, permissions) {
+  // Redis ACL's `#` credential form requires SHA-256(password); generated local credentials are 32-byte CSPRNG values.
   const passwordHash = createHash("sha256").update(password).digest("hex");
   return `user ${username} on #${passwordHash} ${permissions.join(" ")}`;
 }

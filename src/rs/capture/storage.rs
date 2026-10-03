@@ -74,7 +74,6 @@ fn safe_basename(name: &str) -> bool {
 fn copy_atomically(source: &Path, target: &Path) -> std::io::Result<()> {
   if target.exists() {
     let mut existing = fs::File::open(target)?;
-    // codeql[rust/path-injection] This path comes from an internal capture writer, not an upload filename.
     let mut source_file = fs::File::open(source)?;
     let mut existing_bytes = Vec::new();
     let mut source_bytes = Vec::new();
@@ -103,7 +102,6 @@ fn copy_atomically(source: &Path, target: &Path) -> std::io::Result<()> {
     .unwrap_or(0);
   let temp = parent.join(format!(".capture-{nonce}.tmp"));
   let result = (|| {
-    // codeql[rust/path-injection] This path comes from an internal capture writer, not an upload filename.
     let mut input = fs::File::open(source)?;
     let mut output = OpenOptions::new()
       .write(true)

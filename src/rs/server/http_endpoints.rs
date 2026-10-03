@@ -1520,7 +1520,6 @@ pub async fn classifier_capture_upload_handler(
     .map(|duration| duration.as_nanos())
     .unwrap_or(0);
   let temporary_path = capture_dir.join(format!(".{job_id}-{part}-{nonce}.tmp"));
-  // codeql[rust/path-injection] job_id is a validated SHA-256 hex digest, part is an enum, and nonce is generated locally.
   if let Err(error) = tokio::fs::write(&temporary_path, &body).await {
     error!("Failed to stage classifier artifact: {error}");
     return (
@@ -1529,9 +1528,7 @@ pub async fn classifier_capture_upload_handler(
     )
       .into_response();
   }
-  // codeql[rust/path-injection] These paths use the validated capture ID, enum part, computed checksum, and fixed extension.
   if let Err(error) = tokio::fs::rename(&temporary_path, &path).await {
-    // codeql[rust/path-injection] temporary_path was built from the same validated capture ID, enum part, and local nonce.
     let _ = tokio::fs::remove_file(&temporary_path).await;
     error!("Failed to finalize classifier artifact: {error}");
     return (
@@ -1576,7 +1573,6 @@ pub async fn classifier_capture_upload_handler(
   {
     error!("Failed to register classifier artifacts in Redis: {error}");
     if !old_paths.iter().any(|old_path| old_path == &path) {
-      // codeql[rust/path-injection] path is the server-generated destination built from validated upload components.
       let _ = tokio::fs::remove_file(&path).await;
     }
     return (
@@ -1781,15 +1777,12 @@ pub async fn save_capture_to_huggingface_handler(
     };
     let manifest_path = metadata_directory.join(format!("{}.json", params.job_id));
     let temporary_path = manifest_path.with_extension("json.tmp");
-    // codeql[rust/path-injection] params.job_id was validated against RE_SAFE_ID before it is used in this path.
     if let Err(error) = tokio::fs::write(&temporary_path, manifest_bytes).await {
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
         "error": format!("Failed to write dataset manifest: {error}")
       }))).into_response();
     }
-    // codeql[rust/path-injection] Both paths share the fixed metadata directory and the validated job ID.
     if let Err(error) = tokio::fs::rename(&temporary_path, &manifest_path).await {
-      // codeql[rust/path-injection] temporary_path was derived from the validated manifest_path.
       let _ = tokio::fs::remove_file(&temporary_path).await;
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
         "error": format!("Failed to persist dataset manifest: {error}")
@@ -3465,7 +3458,6 @@ mod capture_destination_tests {
         .collect(),
     }];
     let key = [9u8; 32];
-    // codeql[rust/hard-coded-cryptographic-value] Fixed salt is a unit-test fixture and is not used in production.
     let salt = [6u8; 32];
 
     let saved = write_protected_capture_artifacts_to_directory(
