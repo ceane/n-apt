@@ -7,6 +7,7 @@ import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/three-d";
 import { useHotspotEditor } from "@n-apt/three-d/hooks/useHotspotEditor";
 import { useModel3D, type Area } from "@n-apt/three-d/hooks/useModel3D";
+import { attachModelWheelRotation } from "@n-apt/three-d/modelWheelRotation";
 import { rotationMarkerArrowHead, rotationMarkerOrbits } from "@n-apt/three-d/rotationMarkerGeometry";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn";
 import {
@@ -76,6 +77,18 @@ function RendererSizeSync() {
       window.removeEventListener("resize", syncSize);
     };
   }, [gl, camera]);
+
+  return null;
+}
+
+function ModelScrollRotation({ enabled }: { enabled: boolean }) {
+  const { gl } = useThree();
+  const { controlsRef } = useModel3D();
+
+  useEffect(() => {
+    if (!enabled) return;
+    return attachModelWheelRotation(gl.domElement, () => controlsRef.current);
+  }, [controlsRef, enabled, gl.domElement]);
 
   return null;
 }
@@ -355,6 +368,7 @@ export const Model3DPerson: React.FC<{
   activeAreaName?: string;
   showSelectionHalo?: boolean;
   showTransformControls?: boolean;
+  scrollRotate?: boolean;
   initialCameraPosition?: [number, number, number];
   initialCameraTarget?: [number, number, number];
 }> = ({
@@ -366,6 +380,7 @@ export const Model3DPerson: React.FC<{
   activeAreaName,
   showSelectionHalo = true,
   showTransformControls = true,
+  scrollRotate = false,
   initialCameraPosition = DEFAULT_MODEL_CAMERA_POSITION,
   initialCameraTarget = DEFAULT_MODEL_CAMERA_TARGET,
 }) => {
@@ -482,6 +497,7 @@ export const Model3DPerson: React.FC<{
             enableDamping
             target={initialCameraTarget}
           />
+          <ModelScrollRotation enabled={scrollRotate} />
         </Suspense>
       </Canvas>
       {isEditMode && (

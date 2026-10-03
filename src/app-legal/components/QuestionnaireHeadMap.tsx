@@ -148,6 +148,7 @@ function QuestionnaireHeadMapContent({ question, answer, onAnswerChange }: Quest
           activeAreaName={selectedArea?.name}
           showSelectionHalo={false}
           showTransformControls={false}
+          scrollRotate
           initialCameraPosition={HEAD_CAMERA_POSITION}
           initialCameraTarget={HEAD_CAMERA_TARGET}
         />

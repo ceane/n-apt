@@ -220,6 +220,7 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
           activeAreaName={selectedArea?.name ?? BODY_MAP_INITIAL_AREA.name}
           showSelectionHalo={false}
           showTransformControls={false}
+          scrollRotate
           initialCameraPosition={BODY_MAP_INITIAL_AREA.position}
           initialCameraTarget={BODY_MAP_INITIAL_AREA.target}
         />
