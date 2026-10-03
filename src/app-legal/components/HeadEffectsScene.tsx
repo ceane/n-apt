@@ -2,10 +2,11 @@ import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
 import { gsap } from 'gsap';
-import { BufferAttribute, BufferGeometry, Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, SphereGeometry } from 'three';
+import { BufferAttribute, BufferGeometry, Color, DoubleSide, Mesh, MeshStandardMaterial, ShaderMaterial, SphereGeometry } from 'three';
 import { BRAIN_GLB_URL, HUMAN_MODEL_NEUTRAL_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
 import {
   HEAD_EFFECT_BLOB_DEFINITIONS,
+  HEAD_EFFECT_APPEARANCE_STYLES,
   HEAD_EFFECT_BRAIN_OPACITY,
   HEAD_EFFECT_BRAIN_POSITION,
   HEAD_EFFECT_BRAIN_SCALE,
@@ -19,8 +20,59 @@ const HEADSHOT_TARGET: [number, number, number] = [0, 1.94, 0.01];
 
 type HeadEffectsSceneProps = {
   selectedEffect?: string;
+  appearanceStyle?: (typeof HEAD_EFFECT_APPEARANCE_STYLES)[number];
   onResetReady?: (reset: (() => void) | null) => void;
 };
+
+const BLOB_VERTEX_SHADER = `
+  varying vec3 vBlobNormal;
+  varying vec3 vBlobViewPosition;
+  varying vec2 vBlobUv;
+
+  void main() {
+    vBlobNormal = normalize(normalMatrix * normal);
+    vBlobUv = uv;
+    vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+    vBlobViewPosition = viewPosition.xyz;
+    gl_Position = projectionMatrix * viewPosition;
+  }
+`;
+
+const BLOB_FRAGMENT_SHADER = `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  uniform float uTime;
+  uniform float uStyle;
+  varying vec3 vBlobNormal;
+  varying vec3 vBlobViewPosition;
+  varying vec2 vBlobUv;
+
+  void main() {
+    vec3 normal = normalize(vBlobNormal);
+    vec3 viewDirection = normalize(-vBlobViewPosition);
+    float facing = max(dot(normal, viewDirection), 0.0);
+    float feather = smoothstep(0.015, 0.48, facing);
+    float movement = 0.5 + 0.5 * sin(uTime * 1.8 + vBlobUv.x * 7.0 + vBlobUv.y * 4.0);
+    vec3 color = uColor;
+    float alpha = uOpacity * feather;
+
+    if (uStyle < 0.5) {
+      color = mix(color, vec3(0.79, 0.42, 0.66), 0.22);
+      alpha *= 0.64 + movement * 0.12;
+    } else if (uStyle < 1.5) {
+      float rim = pow(1.0 - facing, 2.0);
+      color = mix(color, vec3(0.69, 0.78, 1.0), 0.3 + movement * 0.08);
+      color += vec3(0.16, 0.2, 0.38) * rim;
+      alpha *= 0.72 + movement * 0.1;
+    } else {
+      color = mix(color, vec3(0.84, 0.55, 0.73), 0.38);
+      alpha *= 0.47 + movement * 0.08;
+    }
+
+    gl_FragColor = vec4(color, alpha);
+    #include <colorspace_fragment>
+  }
+`;
 
 function TranslucentHead() {
   const { scene } = useGLTF(HUMAN_MODEL_NEUTRAL_GLB_URL);
@@ -92,13 +144,28 @@ function deformBlobGeometry(geometry: BufferGeometry, basePositions: Float32Arra
 function EffectBlob({
   effect,
   isActive,
+  appearanceStyle,
 }: {
   effect: (typeof HEAD_EFFECT_BLOB_DEFINITIONS)[number];
   isActive: boolean;
+  appearanceStyle?: (typeof HEAD_EFFECT_APPEARANCE_STYLES)[number];
 }) {
   const blobRef = useRef<Mesh>(null);
   const elapsedRef = useRef(0);
   const palette = useMemo(() => effect.colors.map((color) => new Color(color)), [effect]);
+  const material = useMemo(() => new ShaderMaterial({
+    uniforms: {
+      uColor: { value: new Color(HEAD_EFFECT_INACTIVE_COLOR) },
+      uOpacity: { value: 0.58 },
+      uTime: { value: 0 },
+      uStyle: { value: 0 },
+    },
+    vertexShader: BLOB_VERTEX_SHADER,
+    fragmentShader: BLOB_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+    side: DoubleSide,
+  }), []);
   const { geometry, basePositions } = useMemo(() => {
     const nextGeometry = new SphereGeometry(1, 64, 48);
     const positions = nextGeometry.getAttribute('position') as BufferAttribute;
@@ -107,7 +174,10 @@ function EffectBlob({
     return { geometry: nextGeometry, basePositions: base };
   }, [effect.seed]);
 
-  useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => {
+    geometry.dispose();
+    material.dispose();
+  }, [geometry, material]);
   useEffect(() => {
     if (isActive) elapsedRef.current = 0;
   }, [isActive]);
@@ -115,11 +185,13 @@ function EffectBlob({
   useFrame((_, delta) => {
     const blob = blobRef.current;
     if (!blob) return;
-    const material = blob.material as MeshBasicMaterial;
+    const shader = blob.material as ShaderMaterial;
+    shader.uniforms.uTime.value = elapsedRef.current;
+    shader.uniforms.uStyle.value = Math.max(0, HEAD_EFFECT_APPEARANCE_STYLES.indexOf(appearanceStyle ?? HEAD_EFFECT_APPEARANCE_STYLES[0]));
     if (!isActive) {
       blob.scale.setScalar(effect.radius * 0.8);
-      material.color.set(HEAD_EFFECT_INACTIVE_COLOR);
-      material.opacity = 0.58;
+      shader.uniforms.uColor.value.set(HEAD_EFFECT_INACTIVE_COLOR);
+      shader.uniforms.uOpacity.value = 0.58;
       return;
     }
 
@@ -132,21 +204,20 @@ function EffectBlob({
     const pulseY = 1 + Math.sin(elapsed * 2.4 + 0.9) * 0.11;
     blob.scale.set(effect.radius * easeOut * pulseX, effect.radius * easeOut * pulseY, effect.radius * 0.36 * easeOut);
 
-    material.opacity = 0.95;
+    shader.uniforms.uOpacity.value = 0.95;
     const colorPosition = elapsed * 0.48;
     const colorIndex = Math.floor(colorPosition) % palette.length;
     const nextColorIndex = (colorIndex + 1) % palette.length;
-    material.color.copy(palette[colorIndex]).lerp(palette[nextColorIndex], colorPosition % 1);
+    shader.uniforms.uColor.value.copy(palette[colorIndex]).lerp(palette[nextColorIndex], colorPosition % 1);
   });
 
   return (
-    <mesh ref={blobRef} position={effect.position} geometry={geometry}>
-      <meshBasicMaterial color={HEAD_EFFECT_INACTIVE_COLOR} transparent opacity={0.58} toneMapped={false} />
+    <mesh ref={blobRef} position={effect.position} geometry={geometry} material={material}>
     </mesh>
   );
 }
 
-function EffectsScene({ selectedEffect, onResetReady }: HeadEffectsSceneProps) {
+function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEffectsSceneProps) {
   const controlsRef = useRef<any>(null);
   const effect = HEAD_EFFECT_BLOB_DEFINITIONS.find(({ name }) => name === selectedEffect)
     ?? HEAD_EFFECT_BLOB_DEFINITIONS[0];
@@ -184,7 +255,7 @@ function EffectsScene({ selectedEffect, onResetReady }: HeadEffectsSceneProps) {
     <group position={MODEL_ROOT_POSITION}>
       <TranslucentHead />
       <TranslucentBrain />
-      <EffectBlob effect={effect} isActive={Boolean(selectedEffect)} />
+      <EffectBlob effect={effect} isActive={Boolean(selectedEffect)} appearanceStyle={appearanceStyle} />
       <ambientLight intensity={1.25} />
       <directionalLight position={[1, 2.4, 3]} intensity={2.1} />
       <pointLight position={[-1.6, 2.2, 1.8]} color="#dce8ff" intensity={0.7} />
@@ -193,11 +264,11 @@ function EffectsScene({ selectedEffect, onResetReady }: HeadEffectsSceneProps) {
   );
 }
 
-export function HeadEffectsScene({ selectedEffect, onResetReady }: HeadEffectsSceneProps) {
+export function HeadEffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEffectsSceneProps) {
   return (
     <Canvas camera={{ position: HEADSHOT_POSITION, fov: 34 }}>
       <Suspense fallback={null}>
-        <EffectsScene selectedEffect={selectedEffect} onResetReady={onResetReady} />
+        <EffectsScene selectedEffect={selectedEffect} appearanceStyle={appearanceStyle} onResetReady={onResetReady} />
       </Suspense>
     </Canvas>
   );
