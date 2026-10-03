@@ -1,4 +1,4 @@
-import { rotationMarkerArrowHead, rotationMarkerOrbits } from '../../src/ts/features/three-d/rotationMarkerGeometry';
+import { rotationMarkerArrowHead, rotationMarkerOrbits } from '@n-apt/three-d/rotationMarkerGeometry';
 
 describe('rotation marker arrowhead geometry', () => {
   test('uses equal-sized circular orbits on perpendicular planes', () => {
