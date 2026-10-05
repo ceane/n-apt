@@ -299,6 +299,12 @@ impl websocket_server::WebSocketServer {
     // Protected control and diagnostic endpoints
     let protected_routes = Router::new()
       .route(
+        "/api/vision/references/{trial_id}",
+        post(super::vision_references::save_reference)
+          .get(super::vision_references::load_reference)
+          .layer(DefaultBodyLimit::max(1_048_576)),
+      )
+      .route(
         "/api/webmcp/execute",
         post(http_endpoints::execute_webmcp_tool_handler),
       )
