@@ -1,8 +1,11 @@
 import {
   TIME_DOMAIN_HIDDEN_SIZE,
-  TIME_DOMAIN_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_VERSION,
   type TimeDomainDemodModel,
 } from "@n-apt/demodulation/survey/audioSurveyMl";
+
+const ONNX_INPUT_NAME = "iq_fourier_windows";
 
 const joinBytes = (chunks: readonly Uint8Array[]) => {
   const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
@@ -101,12 +104,12 @@ const encodeValueInfo = (name: string, dims: readonly (number | string)[]) => {
 
 const encodeOnnxModel = (model: TimeDomainDemodModel) => {
   const transposedInputWeights = new Float32Array(
-    TIME_DOMAIN_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE,
+    TIME_DOMAIN_MODEL_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE,
   );
   for (let hidden = 0; hidden < TIME_DOMAIN_HIDDEN_SIZE; hidden++) {
-    for (let input = 0; input < TIME_DOMAIN_INPUT_SIZE; input++) {
+    for (let input = 0; input < TIME_DOMAIN_MODEL_INPUT_SIZE; input++) {
       transposedInputWeights[input * TIME_DOMAIN_HIDDEN_SIZE + hidden] =
-        model.inputWeights[hidden * TIME_DOMAIN_INPUT_SIZE + input];
+        model.inputWeights[hidden * TIME_DOMAIN_MODEL_INPUT_SIZE + input];
     }
   }
   const outputBias = Float32Array.of(model.outputBias);
@@ -115,7 +118,7 @@ const encodeOnnxModel = (model: TimeDomainDemodModel) => {
     encodeNode(
       "input_matmul",
       "MatMul",
-      ["iq_windows", "input_weights"],
+      [ONNX_INPUT_NAME, "input_weights"],
       "input_linear",
     ),
     encodeNode(
@@ -142,7 +145,7 @@ const encodeOnnxModel = (model: TimeDomainDemodModel) => {
   const initializers = [
     encodeTensor(
       "input_weights",
-      [TIME_DOMAIN_INPUT_SIZE, TIME_DOMAIN_HIDDEN_SIZE],
+      [TIME_DOMAIN_MODEL_INPUT_SIZE, TIME_DOMAIN_HIDDEN_SIZE],
       transposedInputWeights,
     ),
     encodeTensor("hidden_bias", [TIME_DOMAIN_HIDDEN_SIZE], model.hiddenBias),
@@ -155,11 +158,11 @@ const encodeOnnxModel = (model: TimeDomainDemodModel) => {
   ];
   const graph = joinBytes([
     ...nodes.map((node) => encodeBytesField(1, node)),
-    encodeStringField(2, "napt_temporal_iq_to_pcm"),
+    encodeStringField(2, "napt_temporal_iq_fourier_to_pcm"),
     ...initializers.map((tensor) => encodeBytesField(5, tensor)),
     encodeBytesField(
       11,
-      encodeValueInfo("iq_windows", ["batch", TIME_DOMAIN_INPUT_SIZE]),
+      encodeValueInfo(ONNX_INPUT_NAME, ["batch", TIME_DOMAIN_MODEL_INPUT_SIZE]),
     ),
     encodeBytesField(12, encodeValueInfo("pcm", ["batch", 1])),
   ]);
@@ -168,7 +171,7 @@ const encodeOnnxModel = (model: TimeDomainDemodModel) => {
   return joinBytes([
     encodeVarintField(1, 9), // ONNX IR version 9
     encodeStringField(2, "n-apt"),
-    encodeStringField(3, "audio-survey-temporal-v3"),
+    encodeStringField(3, "audio-survey-temporal-fourier-v4"),
     encodeBytesField(7, graph),
     encodeBytesField(8, defaultOpset),
   ]);
@@ -179,16 +182,16 @@ export const serializeTimeDomainModelToOnnx = (
   model: TimeDomainDemodModel,
 ): Uint8Array => {
   if (
-    model.version !== 3 ||
+    model.version !== TIME_DOMAIN_MODEL_VERSION ||
     !Number.isFinite(model.inputSampleRateHz) ||
     model.inputSampleRateHz <= 0 ||
     (model.channelBandwidthHz !== undefined &&
       (!Number.isFinite(model.channelBandwidthHz) ||
         model.channelBandwidthHz <= 0)) ||
-    model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+    model.inputSize !== TIME_DOMAIN_MODEL_INPUT_SIZE ||
     model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE ||
     model.inputWeights.length !==
-      TIME_DOMAIN_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE ||
+      TIME_DOMAIN_MODEL_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE ||
     model.hiddenBias.length !== TIME_DOMAIN_HIDDEN_SIZE ||
     model.outputWeights.length !== TIME_DOMAIN_HIDDEN_SIZE ||
     !Number.isFinite(model.outputBias)

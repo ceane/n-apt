@@ -4,6 +4,9 @@ import {
 } from "@n-apt/demodulation/survey/audioSurveyDsp";
 import {
   TimeDomainDemodStream,
+  TIME_DOMAIN_HIDDEN_SIZE,
+  TIME_DOMAIN_MODEL_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_VERSION,
   type TimeDomainDemodModel,
 } from "@n-apt/demodulation/survey/audioSurveyMl";
 import {
@@ -59,16 +62,17 @@ export const isAudioSurveyNeuralModelReady = (
 ): model is TimeDomainDemodModel =>
   training?.status === "completed" &&
   training.modelPreferred === true &&
-  model?.version === 3 &&
-  model.inputSize === 128 &&
-  model.hiddenSize === 12 &&
+  model?.version === TIME_DOMAIN_MODEL_VERSION &&
+  model.inputSize === TIME_DOMAIN_MODEL_INPUT_SIZE &&
+  model.hiddenSize === TIME_DOMAIN_HIDDEN_SIZE &&
   Number.isFinite(model.inputSampleRateHz) &&
   model.inputSampleRateHz > 0 &&
   Number.isFinite(model.channelBandwidthHz) &&
   (model.channelBandwidthHz ?? 0) > 0 &&
-  model.inputWeights.length === 128 * 12 &&
-  model.hiddenBias.length === 12 &&
-  model.outputWeights.length === 12 &&
+  model.inputWeights.length ===
+    TIME_DOMAIN_MODEL_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE &&
+  model.hiddenBias.length === TIME_DOMAIN_HIDDEN_SIZE &&
+  model.outputWeights.length === TIME_DOMAIN_HIDDEN_SIZE &&
   Number.isFinite(model.outputBias) &&
   (!liveProfile ||
     (matchesProfileValue(

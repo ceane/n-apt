@@ -1,11 +1,138 @@
-const MODEL_VERSION = 3 as const;
+export const TIME_DOMAIN_MODEL_VERSION = 4 as const;
 export const TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES = 64;
-export const TIME_DOMAIN_INPUT_SIZE = TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES * 2;
+export const TIME_DOMAIN_IQ_FEATURE_SIZE =
+  TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES * 2;
+/** Raw I/Q window size retained for existing window preparation callers. */
+export const TIME_DOMAIN_INPUT_SIZE = TIME_DOMAIN_IQ_FEATURE_SIZE;
+export const TIME_DOMAIN_FOURIER_FEATURE_SIZE =
+  TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+export const TIME_DOMAIN_MODEL_INPUT_SIZE =
+  TIME_DOMAIN_IQ_FEATURE_SIZE + TIME_DOMAIN_FOURIER_FEATURE_SIZE;
 export const TIME_DOMAIN_HIDDEN_SIZE = 12;
 
+const FOURIER_TWIDDLES = Array.from(
+  { length: TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES / 2 },
+  (_, index) => ({
+    real: Math.cos((-2 * Math.PI * index) / TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES),
+    imaginary: Math.sin(
+      (-2 * Math.PI * index) / TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
+    ),
+  }),
+);
+const FOURIER_HANN = Float32Array.from(
+  { length: TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES },
+  (_, index) =>
+    0.5 -
+    0.5 *
+      Math.cos(
+        (2 * Math.PI * index) / (TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES - 1),
+      ),
+);
+
+/** Append a centered, Hann-windowed log-power spectrum to raw I/Q features. */
+export const fillTimeDomainFourierFeatures = (
+  iqFeatures: Float32Array,
+  output: Float32Array,
+  real = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES),
+  imaginary = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES),
+) => {
+  if (
+    iqFeatures.length < TIME_DOMAIN_IQ_FEATURE_SIZE ||
+    output.length < TIME_DOMAIN_FOURIER_FEATURE_SIZE ||
+    real.length < TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES ||
+    imaginary.length < TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES
+  ) {
+    throw new Error("Fourier features require one complete I/Q context window");
+  }
+  for (let index = 0; index < TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES; index++) {
+    const window = FOURIER_HANN[index];
+    real[index] = iqFeatures[index * 2] * window;
+    imaginary[index] = iqFeatures[index * 2 + 1] * window;
+  }
+  for (
+    let index = 1, reversed = 0;
+    index < TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+    index++
+  ) {
+    let bit = TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES >> 1;
+    for (; reversed & bit; bit >>= 1) reversed ^= bit;
+    reversed ^= bit;
+    if (index < reversed) {
+      [real[index], real[reversed]] = [real[reversed], real[index]];
+      [imaginary[index], imaginary[reversed]] = [
+        imaginary[reversed],
+        imaginary[index],
+      ];
+    }
+  }
+  for (
+    let width = 2;
+    width <= TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+    width <<= 1
+  ) {
+    const halfWidth = width >> 1;
+    const twiddleStride = TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES / width;
+    for (
+      let start = 0;
+      start < TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+      start += width
+    ) {
+      for (let offset = 0; offset < halfWidth; offset++) {
+        const twiddle = FOURIER_TWIDDLES[offset * twiddleStride];
+        const evenIndex = start + offset;
+        const oddIndex = evenIndex + halfWidth;
+        const oddReal =
+          real[oddIndex] * twiddle.real -
+          imaginary[oddIndex] * twiddle.imaginary;
+        const oddImaginary =
+          real[oddIndex] * twiddle.imaginary +
+          imaginary[oddIndex] * twiddle.real;
+        real[oddIndex] = real[evenIndex] - oddReal;
+        imaginary[oddIndex] = imaginary[evenIndex] - oddImaginary;
+        real[evenIndex] += oddReal;
+        imaginary[evenIndex] += oddImaginary;
+      }
+    }
+  }
+  let maxPower = 1e-12;
+  for (let index = 0; index < TIME_DOMAIN_FOURIER_FEATURE_SIZE; index++) {
+    const fftIndex =
+      (index + TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES / 2) %
+      TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+    const magnitude = real[fftIndex] ** 2 + imaginary[fftIndex] ** 2;
+    maxPower = Math.max(maxPower, magnitude);
+  }
+  const maxDb = 10 * Math.log10(maxPower);
+  for (let index = 0; index < TIME_DOMAIN_FOURIER_FEATURE_SIZE; index++) {
+    const fftIndex =
+      (index + TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES / 2) %
+      TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+    const magnitude = real[fftIndex] ** 2 + imaginary[fftIndex] ** 2;
+    const db = 10 * Math.log10(Math.max(magnitude, maxPower * 1e-5));
+    output[index] = Math.max(-1, Math.min(0, (db - maxDb) / 50));
+  }
+};
+
+const fillModelInput = (
+  example: PairedAudioTrainingExample,
+  pcmSampleIndex: number,
+  output: Float32Array,
+  real = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES),
+  imaginary = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES),
+) => {
+  const iq = output.subarray(0, TIME_DOMAIN_IQ_FEATURE_SIZE);
+  fillTimeDomainIqWindow(example, pcmSampleIndex, iq);
+  fillTimeDomainFourierFeatures(
+    iq,
+    output.subarray(TIME_DOMAIN_IQ_FEATURE_SIZE),
+    real,
+    imaginary,
+  );
+};
+
 export interface TimeDomainDemodModel {
-  version: typeof MODEL_VERSION;
-  inputSize: typeof TIME_DOMAIN_INPUT_SIZE;
+  version: typeof TIME_DOMAIN_MODEL_VERSION;
+  inputSize: typeof TIME_DOMAIN_MODEL_INPUT_SIZE;
   hiddenSize: typeof TIME_DOMAIN_HIDDEN_SIZE;
   /** Channelized narrowband I/Q rate used by the aligned training pairs. */
   inputSampleRateHz: number;
@@ -94,7 +221,7 @@ const fillTimeDomainIqWindow = (
   }
 };
 
-/** Return the preceding 64 raw complex I/Q samples, oldest sample first. */
+/** Return the preceding 64 normalized complex I/Q samples, oldest first. */
 export const buildTimeDomainIqWindow = (
   example: PairedAudioTrainingExample,
   pcmSampleIndex: number,
@@ -130,9 +257,9 @@ const createInitialModel = (
   seed: number,
 ) => {
   const random = createRandom(seed);
-  const scale = Math.sqrt(2 / TIME_DOMAIN_INPUT_SIZE);
+  const scale = Math.sqrt(2 / TIME_DOMAIN_MODEL_INPUT_SIZE);
   const inputWeights = new Float32Array(
-    TIME_DOMAIN_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE,
+    TIME_DOMAIN_MODEL_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE,
   );
   const outputWeights = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
   for (let index = 0; index < inputWeights.length; index++) {
@@ -143,8 +270,8 @@ const createInitialModel = (
       (random() * 2 - 1) * Math.sqrt(2 / TIME_DOMAIN_HIDDEN_SIZE);
   }
   return {
-    version: MODEL_VERSION,
-    inputSize: TIME_DOMAIN_INPUT_SIZE,
+    version: TIME_DOMAIN_MODEL_VERSION,
+    inputSize: TIME_DOMAIN_MODEL_INPUT_SIZE,
     hiddenSize: TIME_DOMAIN_HIDDEN_SIZE,
     inputSampleRateHz,
     channelBandwidthHz,
@@ -168,8 +295,8 @@ const predictFeatures = (
 ) => {
   for (let unit = 0; unit < TIME_DOMAIN_HIDDEN_SIZE; unit++) {
     let activation = model.hiddenBias[unit];
-    const weightOffset = unit * TIME_DOMAIN_INPUT_SIZE;
-    for (let feature = 0; feature < TIME_DOMAIN_INPUT_SIZE; feature++) {
+    const weightOffset = unit * TIME_DOMAIN_MODEL_INPUT_SIZE;
+    for (let feature = 0; feature < TIME_DOMAIN_MODEL_INPUT_SIZE; feature++) {
       activation +=
         model.inputWeights[weightOffset + feature] * features[feature];
     }
@@ -188,17 +315,23 @@ export const predictTimeDomainIqWindow = (
   window: Float32Array,
 ): number => {
   if (
-    model.version !== MODEL_VERSION ||
-    model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+    model.version !== TIME_DOMAIN_MODEL_VERSION ||
+    model.inputSize !== TIME_DOMAIN_MODEL_INPUT_SIZE ||
     window.length !== TIME_DOMAIN_INPUT_SIZE
   ) {
     throw new Error(
       "Unsupported time-domain demodulation model or input window",
     );
   }
+  const modelWindow = new Float32Array(TIME_DOMAIN_MODEL_INPUT_SIZE);
+  modelWindow.set(window);
+  fillTimeDomainFourierFeatures(
+    window,
+    modelWindow.subarray(TIME_DOMAIN_IQ_FEATURE_SIZE),
+  );
   return predictFeatures(
     model,
-    window,
+    modelWindow,
     new Float32Array(TIME_DOMAIN_HIDDEN_SIZE),
   );
 };
@@ -218,7 +351,13 @@ export class TimeDomainDemodStream {
   private readonly quadratureHistory = new Float32Array(
     TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
   );
-  private readonly window = new Float32Array(TIME_DOMAIN_INPUT_SIZE);
+  private readonly window = new Float32Array(TIME_DOMAIN_MODEL_INPUT_SIZE);
+  private readonly fourierReal = new Float32Array(
+    TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
+  );
+  private readonly fourierImaginary = new Float32Array(
+    TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
+  );
   private readonly hidden = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
   private inputSamplesReceived = 0;
   private nextOutputSample = 0;
@@ -228,8 +367,8 @@ export class TimeDomainDemodStream {
     options: TimeDomainDemodStreamOptions,
   ) {
     if (
-      model.version !== MODEL_VERSION ||
-      model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+      model.version !== TIME_DOMAIN_MODEL_VERSION ||
+      model.inputSize !== TIME_DOMAIN_MODEL_INPUT_SIZE ||
       model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE ||
       !Number.isFinite(model.inputSampleRateHz) ||
       model.inputSampleRateHz <= 0 ||
@@ -237,7 +376,7 @@ export class TimeDomainDemodStream {
         (!Number.isFinite(model.channelBandwidthHz) ||
           model.channelBandwidthHz <= 0)) ||
       model.inputWeights.length !==
-        TIME_DOMAIN_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE ||
+        TIME_DOMAIN_MODEL_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE ||
       model.hiddenBias.length !== TIME_DOMAIN_HIDDEN_SIZE ||
       model.outputWeights.length !== TIME_DOMAIN_HIDDEN_SIZE
     ) {
@@ -305,6 +444,12 @@ export class TimeDomainDemodStream {
             this.window[targetIndex + 1] = this.quadratureHistory[sourceIndex];
           }
         }
+        fillTimeDomainFourierFeatures(
+          this.window.subarray(0, TIME_DOMAIN_IQ_FEATURE_SIZE),
+          this.window.subarray(TIME_DOMAIN_IQ_FEATURE_SIZE),
+          this.fourierReal,
+          this.fourierImaginary,
+        );
         output[outputOffset++] = predictFeatures(
           this.model,
           this.window,
@@ -325,6 +470,8 @@ export class TimeDomainDemodStream {
     this.inputHistory.fill(0);
     this.quadratureHistory.fill(0);
     this.window.fill(0);
+    this.fourierReal.fill(0);
+    this.fourierImaginary.fill(0);
     this.hidden.fill(0);
     this.inputSamplesReceived = 0;
     this.nextOutputSample = 0;
@@ -358,9 +505,7 @@ export const trainTimeDomainDemodModel = (
   }
   const inputSampleRateHz = usableExamples[0].sampleRateHz;
   if (
-    usableExamples.some(
-      (example) => example.sampleRateHz !== inputSampleRateHz,
-    )
+    usableExamples.some((example) => example.sampleRateHz !== inputSampleRateHz)
   ) {
     throw new Error("Training examples must use the same I/Q sample rate");
   }
@@ -370,9 +515,7 @@ export const trainTimeDomainDemodModel = (
       (example) => example.channelBandwidthHz !== channelBandwidthHz,
     )
   ) {
-    throw new Error(
-      "Training examples must use the same RF channel bandwidth",
-    );
+    throw new Error("Training examples must use the same RF channel bandwidth");
   }
 
   const epochs = Math.max(1, Math.floor(options.epochs ?? 20));
@@ -398,8 +541,8 @@ export const trainTimeDomainDemodModel = (
         options.seed ?? 1337,
       );
   if (
-    model.version !== MODEL_VERSION ||
-    model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+    model.version !== TIME_DOMAIN_MODEL_VERSION ||
+    model.inputSize !== TIME_DOMAIN_MODEL_INPUT_SIZE ||
     model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE
   ) {
     throw new Error(
@@ -423,7 +566,9 @@ export const trainTimeDomainDemodModel = (
     0,
     Math.floor(options.startEpoch ?? model.trainingEpochs),
   );
-  const window = new Float32Array(TIME_DOMAIN_INPUT_SIZE);
+  const window = new Float32Array(TIME_DOMAIN_MODEL_INPUT_SIZE);
+  const fourierReal = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES);
+  const fourierImaginary = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES);
   const hidden = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
   const hiddenGradients = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
   let totalSamples = 0;
@@ -467,7 +612,13 @@ export const trainTimeDomainDemodModel = (
       }
 
       for (const sampleIndex of indices) {
-        fillTimeDomainIqWindow(example, sampleIndex, window);
+        fillModelInput(
+          example,
+          sampleIndex,
+          window,
+          fourierReal,
+          fourierImaginary,
+        );
         const prediction = predictFeatures(model, window, hidden);
         const error = prediction - example.pcmSamples[sampleIndex];
         epochLoss += error * error;
@@ -487,8 +638,12 @@ export const trainTimeDomainDemodModel = (
           model.outputWeights[unit] -= outputGradient * hidden[unit];
           const gradient = hiddenGradients[unit];
           model.hiddenBias[unit] -= gradient;
-          const weightOffset = unit * TIME_DOMAIN_INPUT_SIZE;
-          for (let feature = 0; feature < TIME_DOMAIN_INPUT_SIZE; feature++) {
+          const weightOffset = unit * TIME_DOMAIN_MODEL_INPUT_SIZE;
+          for (
+            let feature = 0;
+            feature < TIME_DOMAIN_MODEL_INPUT_SIZE;
+            feature++
+          ) {
             model.inputWeights[weightOffset + feature] -=
               gradient * window[feature];
           }
@@ -514,8 +669,8 @@ export const predictTimeDomainAudioRange = (
   range: PcmSampleRange,
 ): TimeDomainPrediction => {
   if (
-    model.version !== MODEL_VERSION ||
-    model.inputSize !== TIME_DOMAIN_INPUT_SIZE ||
+    model.version !== TIME_DOMAIN_MODEL_VERSION ||
+    model.inputSize !== TIME_DOMAIN_MODEL_INPUT_SIZE ||
     model.hiddenSize !== TIME_DOMAIN_HIDDEN_SIZE
   ) {
     throw new Error("Unsupported time-domain demodulation model version");
@@ -540,11 +695,19 @@ export const predictTimeDomainAudioRange = (
     throw new Error("Cannot predict an invalid aligned PCM sample range");
   }
 
-  const window = new Float32Array(TIME_DOMAIN_INPUT_SIZE);
+  const window = new Float32Array(TIME_DOMAIN_MODEL_INPUT_SIZE);
+  const fourierReal = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES);
+  const fourierImaginary = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES);
   const hidden = new Float32Array(TIME_DOMAIN_HIDDEN_SIZE);
   const samples = new Float32Array(range.endSample - range.startSample);
   for (let outputIndex = 0; outputIndex < samples.length; outputIndex++) {
-    fillTimeDomainIqWindow(example, range.startSample + outputIndex, window);
+    fillModelInput(
+      example,
+      range.startSample + outputIndex,
+      window,
+      fourierReal,
+      fourierImaginary,
+    );
     samples[outputIndex] = predictFeatures(model, window, hidden);
   }
   return { samples, sampleRateHz: example.pcmSampleRateHz };

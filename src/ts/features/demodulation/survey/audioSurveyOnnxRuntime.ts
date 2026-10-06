@@ -1,5 +1,8 @@
 import {
+  fillTimeDomainFourierFeatures,
+  TIME_DOMAIN_IQ_FEATURE_SIZE,
   TIME_DOMAIN_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_INPUT_SIZE,
   TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
 } from "@n-apt/demodulation/survey/audioSurveyMl";
 
@@ -12,11 +15,11 @@ export interface AudioSurveyOnnxRuntimeOptions {
 }
 
 export interface AudioSurveyOnnxRuntime {
-  readonly executionProvider: Exclude<
-    AudioSurveyOnnxExecutionProvider,
-    "auto"
-  >;
-  predictWindows(windows: Float32Array, batchSize: number): Promise<Float32Array>;
+  readonly executionProvider: Exclude<AudioSurveyOnnxExecutionProvider, "auto">;
+  predictWindows(
+    windows: Float32Array,
+    batchSize: number,
+  ): Promise<Float32Array>;
   release(): Promise<void>;
 }
 
@@ -45,8 +48,7 @@ interface OrtModule {
   };
 }
 
-const hasWebGpu = () =>
-  typeof navigator !== "undefined" && "gpu" in navigator;
+const hasWebGpu = () => typeof navigator !== "undefined" && "gpu" in navigator;
 
 const loadOrtModule = async (
   executionProvider: "wasm" | "webgpu",
@@ -66,14 +68,18 @@ const createRuntimeForProvider = async (
 
   if (
     session.inputNames.length !== 1 ||
-    session.inputNames[0] !== "iq_windows" ||
+    session.inputNames[0] !== "iq_fourier_windows" ||
     session.outputNames.length !== 1 ||
     session.outputNames[0] !== "pcm"
   ) {
     await session.release();
-    throw new Error("ONNX model must expose iq_windows input and pcm output");
+    throw new Error(
+      "ONNX model must expose iq_fourier_windows input and pcm output",
+    );
   }
 
+  const fourierReal = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES);
+  const fourierImaginary = new Float32Array(TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES);
   return {
     executionProvider,
     async predictWindows(windows, batchSize) {
@@ -87,10 +93,31 @@ const createRuntimeForProvider = async (
         );
       }
 
+      const modelWindows = new Float32Array(
+        batchSize * TIME_DOMAIN_MODEL_INPUT_SIZE,
+      );
+      for (let batch = 0; batch < batchSize; batch++) {
+        const rawStart = batch * TIME_DOMAIN_INPUT_SIZE;
+        const modelStart = batch * TIME_DOMAIN_MODEL_INPUT_SIZE;
+        const iq = windows.subarray(
+          rawStart,
+          rawStart + TIME_DOMAIN_INPUT_SIZE,
+        );
+        modelWindows.set(iq, modelStart);
+        fillTimeDomainFourierFeatures(
+          iq,
+          modelWindows.subarray(
+            modelStart + TIME_DOMAIN_IQ_FEATURE_SIZE,
+            modelStart + TIME_DOMAIN_MODEL_INPUT_SIZE,
+          ),
+          fourierReal,
+          fourierImaginary,
+        );
+      }
       const result = await session.run({
-        iq_windows: new ort.Tensor("float32", windows, [
+        iq_fourier_windows: new ort.Tensor("float32", modelWindows, [
           batchSize,
-          TIME_DOMAIN_INPUT_SIZE,
+          TIME_DOMAIN_MODEL_INPUT_SIZE,
         ]),
       });
       const output = result.pcm?.data;
@@ -167,7 +194,9 @@ export class TimeDomainOnnxDemodStream {
       !Number.isFinite(this.pcmSampleRateHz) ||
       this.pcmSampleRateHz <= 0
     ) {
-      throw new Error("I/Q and PCM sample rates must be positive finite values");
+      throw new Error(
+        "I/Q and PCM sample rates must be positive finite values",
+      );
     }
   }
 
@@ -232,9 +261,14 @@ export class TimeDomainOnnxDemodStream {
     let batchSize = 0;
     let outputOffset = 0;
 
-    for (let sampleOffset = 0; sampleOffset < iqData.length / 2; sampleOffset++) {
+    for (
+      let sampleOffset = 0;
+      sampleOffset < iqData.length / 2;
+      sampleOffset++
+    ) {
       const inputSampleIndex = startSample + sampleOffset;
-      const historyIndex = inputSampleIndex % TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
+      const historyIndex =
+        inputSampleIndex % TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES;
       this.inputHistory[historyIndex] = (iqData[sampleOffset * 2] - 128) / 128;
       this.quadratureHistory[historyIndex] =
         (iqData[sampleOffset * 2 + 1] - 128) / 128;

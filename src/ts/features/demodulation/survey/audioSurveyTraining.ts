@@ -8,7 +8,8 @@ import {
   predictTimeDomainAudioRange,
   trainTimeDomainDemodModel,
   TIME_DOMAIN_HIDDEN_SIZE,
-  TIME_DOMAIN_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_VERSION,
   type PairedAudioTrainingExample,
   type TimeDomainDemodModel,
 } from "@n-apt/demodulation/survey/audioSurveyMl";
@@ -535,8 +536,8 @@ export class AudioSurveyTrainer {
       | TimeDomainDemodModel
       | undefined;
     const compatibleCheckpoint =
-      checkpointModel?.version === 3 &&
-      checkpointModel.inputSize === TIME_DOMAIN_INPUT_SIZE &&
+      checkpointModel?.version === TIME_DOMAIN_MODEL_VERSION &&
+      checkpointModel.inputSize === TIME_DOMAIN_MODEL_INPUT_SIZE &&
       checkpointModel.hiddenSize === TIME_DOMAIN_HIDDEN_SIZE &&
       Number.isFinite(checkpointModel.inputSampleRateHz) &&
       Number.isFinite(checkpointModel.channelBandwidthHz);
