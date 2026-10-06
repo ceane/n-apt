@@ -1,6 +1,0 @@
-{
-  "rules": {
-    "no-control-regex": "off",
-    "no-misleading-character-class": "off"
-  }
-}
