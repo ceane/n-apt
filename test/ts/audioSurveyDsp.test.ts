@@ -2,6 +2,7 @@ import {
   analyzeAudioSurveyFrame,
   createAudioSurveyChannelizer,
   demodulateAudioCandidate,
+  detectWebGpuStyleSpectrumSpikes,
   walkSpectralSpikeValleys,
 } from "@n-apt/demodulation/survey/audioSurveyDsp";
 
@@ -95,6 +96,15 @@ const rms = (values: Float32Array) =>
   Math.sqrt(values.reduce((sum, value) => sum + value * value, 0) / values.length);
 
 describe("audio survey demodulation", () => {
+  it("keeps a rising right-edge spike when a higher bin sits just outside the edge band", () => {
+    const power = new Float64Array(32).fill(1);
+    power[20] = 10 ** 1.1;
+    power[21] = 10;
+    power[22] = 10 ** 0.95;
+
+    expect(detectWebGpuStyleSpectrumSpikes(power)).toContain(22);
+  });
+
   it.each([2, 3, 4, 5, 6, 7])(
     "measures %i rightward spike/valley pairs",
     (pairCount) => {
@@ -390,8 +400,7 @@ describe("audio survey demodulation", () => {
     expect(candidates.length).toBeGreaterThan(0);
     expect(candidates[0].modulationScores.apt).toBeGreaterThan(0.2);
     expect(candidates[0].modulation).toBe("apt");
-    expect(candidates[0].centerHz).toBeGreaterThan(10_024_000);
-    expect(candidates[0].centerHz).toBeLessThan(10_060_000);
+    expect(candidates[0].centerHz).toBeCloseTo(10_024_000, -2);
     expect(candidates[0].bandwidthHz).toBeGreaterThanOrEqual(68_000);
     expect(percentile(candidates[0].audioPcm, 0.1)).toBeLessThan(
       percentile(candidates[0].audioPcm, 0.9),

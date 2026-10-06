@@ -407,6 +407,7 @@ export const detectWebGpuStyleSpectrumSpikes = (
       const sample = waveform[neighbor];
       const distance = Math.abs(neighbor - index);
       if (
+        !inRightEdgeBand &&
         distance <= suppressionRadius &&
         neighbor !== index &&
         (sample > value || (sample === value && neighbor > index))
@@ -474,6 +475,28 @@ export const detectWebGpuStyleSpectrumSpikes = (
     }
   }
   return [...accepted].sort((left, right) => left - right).slice(0, 1024);
+};
+
+/** Keep the strongest GPU-scored peak within one plausible spike neighborhood. */
+const suppressSubspacingPeaks = (
+  power: Float64Array,
+  spikeBins: readonly number[],
+  minimumSpacingBins: number,
+) => {
+  const strongestFirst = [...spikeBins].sort(
+    (left, right) => power[right] - power[left] || left - right,
+  );
+  const selected: number[] = [];
+  for (const bin of strongestFirst) {
+    if (
+      selected.every(
+        (acceptedBin) => Math.abs(acceptedBin - bin) >= minimumSpacingBins,
+      )
+    ) {
+      selected.push(bin);
+    }
+  }
+  return selected.sort((left, right) => left - right);
 };
 
 const evaluateAudioEvidence = (samples: Float32Array): number => {
@@ -665,10 +688,21 @@ export const analyzeAudioSurveyFrame = ({
   const power = estimatePowerSpectrum(iqData, fftSize);
   const noiseFloor = Math.max(getMedian(power), MIN_NOISE_POWER);
   const peakPower = Math.max(...power);
-  const threshold = noiseFloor * 1.1;
-  const spikeBins = detectWebGpuStyleSpectrumSpikes(power);
-  const acceptedPeakBins = new Set(spikeBins);
+  const threshold = Math.max(noiseFloor * 6, peakPower * 1e-4);
   const binWidthHz = sampleRateHz / fftSize;
+  // A lone carrier's FFT skirts can generate several local maxima. Keep one
+  // scored peak per neighborhood below the observed ~34 kHz spike spacing so
+  // those skirts cannot masquerade as a spike/valley train.
+  const minimumSpikeSpacingBins = Math.max(
+    1,
+    Math.ceil((OBSERVED_SPIKE_SPACING_HZ * 0.75) / binWidthHz),
+  );
+  const spikeBins = suppressSubspacingPeaks(
+    power,
+    detectWebGpuStyleSpectrumSpikes(power),
+    minimumSpikeSpacingBins,
+  );
+  const acceptedPeakBins = new Set(spikeBins);
   const minimumBins = 1;
   // The observed average spike spacing is about 34 kHz. Use that only to
   // assemble a possible spike train; the walk below sets its actual bounds.
@@ -683,9 +717,17 @@ export const analyzeAudioSurveyFrame = ({
   const evaluateRegion = (regionStart: number, regionEnd: number) => {
     const binCount = regionEnd - regionStart + 1;
     if (binCount < minimumBins) return;
+    let occupiedStart = regionStart;
+    let occupiedEnd = regionEnd;
+    while (occupiedStart > 0 && power[occupiedStart - 1] > threshold) {
+      occupiedStart--;
+    }
+    while (occupiedEnd + 1 < fftSize && power[occupiedEnd + 1] > threshold) {
+      occupiedEnd++;
+    }
     let initialWeightedOffset = 0;
     let initialWeightSum = 0;
-    for (let bin = regionStart; bin <= regionEnd; bin++) {
+    for (let bin = occupiedStart; bin <= occupiedEnd; bin++) {
       const offsetHz =
         bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
       const weight = Math.max(0, power[bin] - noiseFloor);
@@ -697,6 +739,29 @@ export const analyzeAudioSurveyFrame = ({
     const centerBin =
       ((Math.round(initialOffsetHz / binWidthHz) % fftSize) + fftSize) %
       fftSize;
+    let localCenterOffsetHz = initialOffsetHz;
+    if (regionEnd > regionStart && initialWeightSum > 0) {
+      let localWeightedOffset = 0;
+      let localWeightSum = 0;
+      for (let bin = 0; bin < fftSize; bin++) {
+        let deltaBins = bin - centerBin;
+        if (deltaBins > fftSize / 2) deltaBins -= fftSize;
+        else if (deltaBins < -fftSize / 2) deltaBins += fftSize;
+        const deltaHz = deltaBins * binWidthHz;
+        if (
+          Math.abs(deltaHz) > OBSERVED_SPIKE_SPACING_HZ ||
+          power[bin] <= threshold
+        ) {
+          continue;
+        }
+        const weight = Math.max(0, power[bin] - noiseFloor);
+        localWeightedOffset += (initialOffsetHz + deltaHz) * weight;
+        localWeightSum += weight;
+      }
+      if (localWeightSum > 0) {
+        localCenterOffsetHz = localWeightedOffset / localWeightSum;
+      }
+    }
     const widthWalk = walkSpectralSpikeValleys({
       power,
       startBin: regionStart,
@@ -707,9 +772,9 @@ export const analyzeAudioSurveyFrame = ({
       acceptedPeakBins,
     });
     const measuredStart =
-      widthWalk.pairCount === undefined ? regionStart : widthWalk.startBin;
+      widthWalk.pairCount === undefined ? occupiedStart : widthWalk.startBin;
     const measuredEnd =
-      widthWalk.pairCount === undefined ? regionEnd : widthWalk.endBin;
+      widthWalk.pairCount === undefined ? occupiedEnd : widthWalk.endBin;
     const measuredBinCount = measuredEnd - measuredStart + 1;
     let weightedOffset = 0;
     let weightSum = 0;
@@ -728,14 +793,21 @@ export const analyzeAudioSurveyFrame = ({
       widthWalk.pairCount !== undefined
         ? (signedBinOffsetHz(measuredStart) + signedBinOffsetHz(measuredEnd)) /
           2
-        : weightSum > 0
-          ? weightedOffset / weightSum
-          : initialOffsetHz;
+        : regionEnd > regionStart
+          ? localCenterOffsetHz
+          : weightSum > 0
+            ? weightedOffset / weightSum
+            : initialOffsetHz;
     const centerHz = frameCenterFrequencyHz + offsetHz;
     const measuredBandwidthHz = measuredBinCount * binWidthHz;
     const bandwidthHz =
       widthWalk.pairCount === undefined
-        ? Math.max(MIN_CANDIDATE_BANDWIDTH_HZ, measuredBandwidthHz)
+        ? Math.max(
+            regionEnd > regionStart
+              ? MIN_SPIKE_WALK_BANDWIDTH_HZ
+              : MIN_CANDIDATE_BANDWIDTH_HZ,
+            measuredBandwidthHz,
+          )
         : Math.max(MIN_SPIKE_WALK_BANDWIDTH_HZ, measuredBandwidthHz);
     if (
       centerHz + bandwidthHz / 2 < allowedRangeHz.min ||
