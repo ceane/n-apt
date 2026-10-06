@@ -1,0 +1,18 @@
+# Rust development cache
+
+- [x] Keep dev-fast at opt-level 3; enable incremental compilation and 16 codegen units.
+- [x] Route interactive startup, noninteractive startup, and hot reload builds through rustBuild.mjs.
+- [x] Collect successful Cargo compiler-artifact records, including fresh dependencies.
+- [x] Prune unused dev-fast deps older than 24 hours; preserve current artifacts, sibling Rust metadata, and dep-info.
+- [x] Expire incremental caches after 14 days based on the newest nested write, replacing the global five-crate limit.
+- [x] Hold Cargo's Unix profile .cargo-lock while pruning; defer when another Cargo command holds it.
+- [x] Preserve caches on failed compilation or malformed output; cleanup errors do not fail successful builds.
+- [x] Filesystem and fake-Cargo regression tests and TypeScript check passed.
+- [ ] Measure actual rebuild time and runtime throughput on the operator's workload.
+
+The first build after the profile change regenerates artifacts. Release tuning is unchanged.
+Retention is not a hard disk quota: the current working set and recent generations are preserved.
+Debug/test, release, WASM, and custom target caches remain separate. No live target cache was deleted during implementation.
+Automatic pruning requires python3 and Unix flock support. Windows builds explicitly skip automatic pruning.
+
+Focused checks: node --test test/scripts/rust_artifact_cache.test.mjs

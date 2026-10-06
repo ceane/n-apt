@@ -115,44 +115,6 @@ const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   return failing;
 };
 
-const pruneIncrementalCache = (addLog?: (msg: string) => void) => {
-  for (const profile of ['dev-fast', 'debug']) {
-    const incDir = path.resolve(`target/${profile}/incremental`);
-    if (!fs.existsSync(incDir)) continue;
-    try {
-      const subdirs = fs.readdirSync(incDir)
-        .map(name => {
-          const fullPath = path.join(incDir, name);
-          const stat = fs.statSync(fullPath);
-          return { name, fullPath, mtime: stat.mtimeMs };
-        })
-        .filter(item => {
-          try {
-            return fs.statSync(item.fullPath).isDirectory();
-          } catch {
-            return false;
-          }
-        });
-
-      subdirs.sort((a, b) => b.mtime - a.mtime);
-
-      if (subdirs.length > 5) {
-        const toDelete = subdirs.slice(5);
-        for (const item of toDelete) {
-          fs.rmSync(item.fullPath, { recursive: true, force: true });
-        }
-        if (addLog) {
-          addLog(`Pruned ${toDelete.length} old incremental folders in target/${profile} to free disk space.`);
-        }
-      }
-    } catch (err: any) {
-      if (addLog) {
-        addLog(`Failed to prune target/${profile}/incremental cache: ${err.message}`);
-      }
-    }
-  }
-};
-
 const rustBackendFeatureArgs =
   process.platform === 'darwin' ? '--features mock_apt_metal' : '';
 const launchedChildren = new Set<ReturnType<typeof spawn>>();
@@ -1137,16 +1099,13 @@ const BuildOrchestrator = () => {
       setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
   
       try {
-        // Prune incremental cache to prevent garbage accumulation
-        pruneIncrementalCache(addLog);
-
         // Build in the foreground so compiler output is visible, but start the
         // long-running backend as a detached child. Running `cargo run` here
         // keeps the orchestrator attached to server logs forever and causes the
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
+          `node scripts/build/rustBuild.mjs --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend',
           stepIndex
         );
@@ -2035,10 +1994,8 @@ exit 1
         '[HOT-RELOAD] Rebuilding Rust backend...',
       );
 
-      pruneIncrementalCache((message) => addLogRef.current(message));
-
       const checkCommand = `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
-      const buildCommand = `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
+      const buildCommand = `node scripts/build/rustBuild.mjs --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
       let buildTimedOut = false;
       const buildWatchdog = setInterval(() => {
         if (
@@ -2524,7 +2481,6 @@ async function runNonTtyBuild() {
       index: 1,
       description: 'Validating Rust backend code',
       run: () => {
-        pruneIncrementalCache();
         return executeCommandNonTty(
           isNativeWindows
             ? 'echo Config validation skipped'
@@ -2629,11 +2585,9 @@ node scripts/redis/promote_tower_staging.cjs`,
           icon: path.join(__dirname, 'public/icon-5112.png'),
         });
         console.log('N-APT, Almost done building...');
-        
-        pruneIncrementalCache();
 
         const buildRes = await executeCommandNonTty(
-          `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
+          `node scripts/build/rustBuild.mjs --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend'
         );
         if (!buildRes.success) return { success: false, output: buildRes.output };
