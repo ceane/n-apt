@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import {
+  HEAD_EFFECT_APPEARANCE_STYLES,
   HEAD_EFFECT_BLOB_DEFINITIONS,
   HEAD_EFFECT_BRAIN_POSITION,
   HEAD_EFFECT_BRAIN_OPACITY,
@@ -113,32 +114,19 @@ describe('QuestionnaireHeadEffects', () => {
       />,
     );
 
-    const cycleButton = screen.getByRole('button', { name: 'Cycle effect appearance: Fur dot' });
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Fur dot');
-    expect(cycleButton).toHaveAttribute('title', 'Next: Vortex clouds');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Vortex clouds');
-    expect(cycleButton).toHaveAttribute('title', 'Next: Scraggles');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Scraggles');
-    expect(cycleButton).toHaveAttribute('title', 'Next: C-clamp');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'C-clamp');
-    expect(cycleButton).toHaveAttribute('title', 'Next: Water pipe');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Water pipe');
-    expect(cycleButton).toHaveAttribute('title', 'Next: Rusty pistons');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Rusty pistons');
-    expect(cycleButton).toHaveAttribute('title', 'Next: Evil ghost');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Evil ghost');
-    expect(cycleButton).toHaveAttribute('title', 'Next: Peeking ghost');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Peeking ghost');
-    expect(cycleButton).toHaveAttribute('title', 'Next: Fur dot');
-    fireEvent.click(cycleButton);
-    expect(screen.getByTestId('head-effects-scene')).toHaveAttribute('data-appearance-style', 'Fur dot');
+    const scene = screen.getByTestId('head-effects-scene');
+    const cycleButton = screen.getByRole('button', { name: `Cycle effect appearance: ${HEAD_EFFECT_APPEARANCE_STYLES[0]}` });
+
+    for (let index = 0; index < HEAD_EFFECT_APPEARANCE_STYLES.length; index += 1) {
+      const current = HEAD_EFFECT_APPEARANCE_STYLES[index];
+      const next = HEAD_EFFECT_APPEARANCE_STYLES[(index + 1) % HEAD_EFFECT_APPEARANCE_STYLES.length];
+      expect(scene).toHaveAttribute('data-appearance-style', current);
+      expect(cycleButton).toHaveAttribute('aria-label', `Cycle effect appearance: ${current}`);
+      expect(cycleButton).toHaveAttribute('title', `Next: ${next}`);
+      fireEvent.click(cycleButton);
+    }
+
+    expect(scene).toHaveAttribute('data-appearance-style', HEAD_EFFECT_APPEARANCE_STYLES[0]);
   });
 
   test('keeps multiple checkbox answers but shows only the latest selected blob', () => {

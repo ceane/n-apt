@@ -1,4 +1,4 @@
-import { attachModelWheelRotation, rotateModelFromWheel } from '../../src/ts/features/three-d/modelWheelRotation';
+import { attachModelWheelRotation, rotateModelFromWheel } from '@n-apt/three-d/modelWheelRotation';
 
 describe('model wheel rotation', () => {
   test('rotates horizontally from vertical mouse-wheel movement', () => {
