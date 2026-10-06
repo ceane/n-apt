@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 
 describe("entry reachability", () => {
-  it("treats every source HTML module script as a production entry", () => {
+  it("counts test/ts imports when checking source-module reachability", () => {
     const output = execFileSync(
       process.execPath,
       ["scripts/lint/check-entry-reachability.mjs"],

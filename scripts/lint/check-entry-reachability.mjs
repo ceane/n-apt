@@ -14,6 +14,7 @@ import path from "node:path";
 
 const CWD = process.cwd();
 const ROOTS = ["src/ts", "src/app-article", "src/app-game", "src/app-legal"];
+const TEST_ROOTS = ["test/ts"];
 const SKIP_DIRS = new Set([
   "node_modules",
   "build",
@@ -49,6 +50,11 @@ function walkHtml(d, files) {
 const files = [];
 ROOTS.forEach((r) => {
   if (fs.existsSync(r)) walk(r, files);
+});
+
+const testFiles = [];
+TEST_ROOTS.forEach((r) => {
+  if (fs.existsSync(r)) walk(r, testFiles);
 });
 
 const htmlEntries = [];
@@ -188,9 +194,13 @@ for (const htmlEntry of htmlEntries) {
   }
 }
 
+const graphFiles = [...new Set([...files, ...testFiles])];
 const testSeeds = new Set(
-  files.filter(
-    (f) => /\.stories\.tsx?$/.test(f) || /__tests__\//.test(f),
+  graphFiles.filter(
+    (f) =>
+      /\.stories\.tsx?$/.test(f) ||
+      /__tests__\//.test(f) ||
+      /^test\/ts\/.*\.(?:test|spec)\.tsx?$/.test(f),
   ),
 );
 
@@ -208,7 +218,7 @@ function bfs(seeds) {
   const reach = new Set(seeds);
   for (let pass = 0; pass < 80; pass++) {
     let added = 0;
-    for (const f of files) {
+    for (const f of graphFiles) {
       if (!reach.has(f)) continue;
       for (const imp of importsOf(f)) {
         if (!reach.has(imp)) {
