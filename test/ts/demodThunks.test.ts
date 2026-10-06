@@ -1,4 +1,4 @@
-import { resolveDemodSourceRange } from "../demodThunks";
+import { resolveDemodSourceRange } from "@n-apt/redux/thunks/demodThunks";
 
 describe("resolveDemodSourceRange", () => {
   it("uses the current live visualizer range instead of a stale whole-channel frame", () => {
