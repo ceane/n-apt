@@ -30,7 +30,7 @@ Start services:
 
 Commands:
   devices                       List backend SDR and Mock APT sources
-  capture snapshot              Render a PNG from live signal frames
+  capture snapshot              Render a snapshot from live signal frames
   capture iq                    Record an I/Q capture artifact
   signals inspect <input>       Inspect raw I/Q or NAPT-IQ3 metadata
   signals spectrum <input>      Summarize signal magnitude statistics
@@ -77,7 +77,7 @@ Options:
   npm run cli -- capture iq [options]
 
 Commands:
-  snapshot                       Render a PNG using the headless canvas (backend + frontend)
+  snapshot                       Render a snapshot using the headless canvas (backend + frontend)
   iq                             Record and download a capture artifact (backend only)
 
 Options:
@@ -96,18 +96,35 @@ Run capture snapshot --help or capture iq --help for command-specific options.`,
 Options:
   --device auto|<device-id>      Select a source (default: auto)
   --interactive                  Prompt when multiple physical SDRs are connected
+  --frequency <Hz>               Tune the receiver before taking the snapshot
+  --sample-rate <Hz>             Set receive sample rate (minimum 3200000 Hz)
   --waterfall                    Include waterfall history
-  --grid                         Draw the frequency and power grid
-  --stats                        Include capture and device statistics
-  --theme dark|light             Select colors (default: dark)
+  --dark                         Use dark mode (default: light)
+  --grid                         Draw the frequency and power grid (default)
+  --no-grid                      Hide the frequency and power grid
+  --stats                        Include capture and device statistics (default)
+  --no-stats                     Hide capture and device statistics
+  --theme dark|light             Select colors (default: light; --dark is shorthand)
+  --use-theme-colors             Use the theme FFT accent color
+  --fft-color <#RRGGBB>          Override the FFT accent color
+  --frequency-range <min,max>    Limit the displayed frequency span in Hz
+  --power-scale dB|dBm           Set the vertical power units (default: dB)
+  --power-min <dB>               Set the bottom of the power scale (default: -120 dB, -100 dBm)
+  --power-max <dB>               Set the top of the power scale (default: 0 dB, 30 dBm)
+  --format <type>                png, svg, animated-svg, webm, or mp4 (default: png)
+  --aspect-ratio <ratio>         default, 4:3, 16:10, 16:9, or 19.5:9
+  --geolocation <lat,lon>        Add a location line to the stats block
   --fft-size <points>            Power-of-two FFT size (default: 65536)
   --gain <dB>                    Gain shown in snapshot metadata
   --ppm <value>                  PPM shown in snapshot metadata
-  --output <path>                PNG path (default: ~/Downloads/n-apt_snapshot_<timestamp>.png)
+  --output <path>                Output path (default: ~/Downloads/n-apt_snapshot_<timestamp>.<ext>)
   -h, --help                     Show this help without starting services
 
 This command requires both the Rust backend and frontend renderer. It requests
-one live frame normally and 64 frames only when waterfall history is enabled.`,
+one live frame normally and 64 frames for waterfall history or animated
+formats (animated-svg, webm, mp4), which replay recent frame history over one
+second. Statistics are on by default; --geolocation adds a location line and
+reverse geocodes the coordinates into a place label when online.`,
   "capture-iq": `Usage:
   npm run cli -- capture iq [options] --allow-mutations
 

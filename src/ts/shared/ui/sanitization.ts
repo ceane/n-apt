@@ -29,7 +29,12 @@ export function sanitizeSVG(svg: string): string {
       "preserveAspectRatio",
       "opacity",
     ],
-    ALLOWED_URI_REGEXP: /^(?:#|data:image\/(?:png|jpeg|gif|webp);base64,)/i,
+    // DOMPurify tests this regexp against every attribute value, not just
+    // URIs, so it must also accept ordinary geometry values (path data,
+    // viewBox coordinates, colors). The `[^:]*$` alternative admits any
+    // non-scheme value while keeping javascript:/data: scheme filtering.
+    ALLOWED_URI_REGEXP:
+      /^(?:#|data:image\/(?:png|jpeg|gif|webp);base64,|[^:]*$)/i,
     RETURN_TRUSTED_TYPE: false,
   });
 }

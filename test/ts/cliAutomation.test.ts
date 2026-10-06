@@ -124,12 +124,65 @@ describe("CLI option validation", () => {
       args: ["capture", "snapshot", "--theme", "neon"],
       message: "Option --theme must be one of: dark, light",
     },
+    {
+      name: "invalid snapshot formats",
+      args: ["capture", "snapshot", "--format", "gif"],
+      message:
+        "Option --format must be one of: png, svg, animated-svg, webm, mp4",
+    },
+    {
+      name: "invalid aspect ratios",
+      args: ["capture", "snapshot", "--aspect-ratio", "21:9"],
+      message:
+        "Option --aspect-ratio must be one of: default, 4:3, 16:10, 16:9, 19.5:9",
+    },
+    {
+      name: "geolocation when stats are disabled",
+      args: [
+        "capture",
+        "snapshot",
+        "--no-stats",
+        "--geolocation",
+        "37.7,-122.4",
+      ],
+      message: "Option --geolocation requires stats; remove --no-stats",
+    },
+    {
+      name: "geolocation latitude out of range",
+      args: ["capture", "snapshot", "--stats", "--geolocation", "91,0"],
+      message: "Option --geolocation latitude must be within ±90",
+    },
+    {
+      name: "geolocation wrong arity",
+      args: ["capture", "snapshot", "--stats", "--geolocation", "1,2,3"],
+      message: "Option --geolocation must be 'lat,lon'",
+    },
   ])("rejects $name before startup", async ({ args, message }) => {
     const result = await runCli(args);
 
     expect(result.status).toBe(2);
     expect(result.stdout).not.toContain("starting the app");
     expect(result.stderr).toContain(message);
+  });
+
+  test("accepts the full snapshot option set before checking services", async () => {
+    const result = await runCli([
+      "capture",
+      "snapshot",
+      "--stats",
+      "--geolocation",
+      "37.7749,-122.4194",
+      "--format",
+      "svg",
+      "--aspect-ratio",
+      "16:9",
+      "--waterfall",
+      "--grid",
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("npm run dev");
   });
 
   test("accepts option equals syntax for local commands", async () => {

@@ -1,4 +1,9 @@
 import { CLI_CAPTURE_DESTINATION_IDS } from "@n-apt/capture/destinations";
+import {
+  validateCliFftColorArg,
+  validateCliFrequencyRangeArg,
+  validateCliGeolocationArg,
+} from "@n-apt/cli/snapshotPolicy";
 
 type OptionKind = "boolean" | "string" | "number";
 
@@ -7,6 +12,9 @@ type OptionSpec = {
   choices?: readonly string[];
   integer?: boolean;
   positive?: boolean;
+  minimum?: number;
+  /** Returns an error message for an invalid value, or null when valid. */
+  validate?: (value: string) => string | null;
 };
 
 type InvocationSpec = {
@@ -56,10 +64,37 @@ const demodOptions: Record<string, OptionSpec> = {
 const snapshotOptions: Record<string, OptionSpec> = {
   "--device": stringOption,
   "--interactive": booleanOption,
+  "--frequency": positiveNumber,
+  "--center-frequency": positiveNumber,
+  "--sample-rate": { kind: "number", positive: true, minimum: 3_200_000 },
   "--waterfall": booleanOption,
+  "--dark": booleanOption,
   "--grid": booleanOption,
+  "--no-grid": booleanOption,
   "--stats": booleanOption,
+  "--no-stats": booleanOption,
   "--theme": { kind: "string", choices: ["dark", "light"] },
+  "--use-theme-colors": booleanOption,
+  "--fft-color": { kind: "string", validate: validateCliFftColorArg },
+  "--frequency-range": {
+    kind: "string",
+    validate: validateCliFrequencyRangeArg,
+  },
+  "--power-scale": { kind: "string", choices: ["dB", "dBm"] },
+  "--power-min": finiteNumber,
+  "--power-max": finiteNumber,
+  "--format": {
+    kind: "string",
+    choices: ["png", "svg", "animated-svg", "webm", "mp4"],
+  },
+  "--aspect-ratio": {
+    kind: "string",
+    choices: ["default", "4:3", "16:10", "16:9", "19.5:9"],
+  },
+  "--geolocation": {
+    kind: "string",
+    validate: validateCliGeolocationArg,
+  },
   "--fft-size": positiveInteger,
   "--gain": finiteNumber,
   "--ppm": finiteNumber,
@@ -216,6 +251,10 @@ function validateOptionValue(
       `Option ${name} must be one of: ${spec.choices.join(", ")}`,
     );
   }
+  if (spec.validate) {
+    const validationError = spec.validate(rawValue);
+    if (validationError) throw new CliUsageError(validationError);
+  }
   if (spec.kind !== "number") return;
   const value = Number(rawValue);
   if (!Number.isFinite(value)) {
@@ -226,6 +265,9 @@ function validateOptionValue(
   }
   if (spec.positive && value <= 0) {
     throw new CliUsageError(`Option ${name} must be greater than zero`);
+  }
+  if (spec.minimum !== undefined && value < spec.minimum) {
+    throw new CliUsageError(`${name} must be at least ${spec.minimum} Hz`);
   }
 }
 
@@ -289,6 +331,43 @@ export function validateCliArguments(args: readonly string[]): string[] {
     }
     validateOptionValue(name, value, option);
     normalizedOptions.push(name, value);
+  }
+
+  if (
+    spec.options === snapshotOptions &&
+    normalizedOptions.includes("--geolocation") &&
+    normalizedOptions.includes("--no-stats")
+  ) {
+    throw new CliUsageError(
+      "Option --geolocation requires stats; remove --no-stats",
+    );
+  }
+  if (
+    spec.options === snapshotOptions &&
+    normalizedOptions.includes("--stats") &&
+    normalizedOptions.includes("--no-stats")
+  ) {
+    throw new CliUsageError("Options --stats and --no-stats cannot be combined");
+  }
+  if (
+    spec.options === snapshotOptions &&
+    normalizedOptions.includes("--grid") &&
+    normalizedOptions.includes("--no-grid")
+  ) {
+    throw new CliUsageError("Options --grid and --no-grid cannot be combined");
+  }
+  if (spec.options === snapshotOptions) {
+    const minIndex = normalizedOptions.indexOf("--power-min");
+    const maxIndex = normalizedOptions.indexOf("--power-max");
+    const scaleIndex = normalizedOptions.indexOf("--power-scale");
+    const powerScale = scaleIndex < 0 ? "dB" : normalizedOptions[scaleIndex + 1];
+    const defaultMin = powerScale === "dBm" ? -100 : -120;
+    const defaultMax = powerScale === "dBm" ? 30 : 0;
+    const min = minIndex < 0 ? defaultMin : Number(normalizedOptions[minIndex + 1]);
+    const max = maxIndex < 0 ? defaultMax : Number(normalizedOptions[maxIndex + 1]);
+    if (min >= max) {
+      throw new CliUsageError("Option --power-min must be less than --power-max");
+    }
   }
 
   if (extraArgument !== undefined) {

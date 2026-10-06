@@ -33,7 +33,13 @@ import {
 } from "./destinations";
 import { prepareDemodulation, runDemodulationAlgorithm, type DemodAlgorithm } from "@n-apt/demodulation/utils/demodHarness";
 import { inspectSignalFile, summarizeSignal, validateSignalInput } from "@n-apt/cli/signalCli";
-import { resolveCliSnapshotFrameCount } from "@n-apt/cli/snapshotPolicy";
+import {
+  parseCliGeolocationArg,
+  parseCliFrequencyRangeArg,
+  resolveCliSnapshotFrameCount,
+} from "@n-apt/cli/snapshotPolicy";
+import { reverseGeocodeSnapshotLocation } from "@n-apt/capture/snapshotLocation";
+import { getVisualizerDefaultDbLimits } from "@n-apt/consts/visualizerControls";
 import {
   DEMODULATION_QUALITY_PROFILE,
   CLASSIFIER_TRAINING_QUALITY_PROFILE,
@@ -219,6 +225,92 @@ async function selectDevice(
   });
 }
 
+async function tuneSnapshotCenterFrequency(
+  token: string,
+  sourceId: string,
+  centerFrequencyHz: number,
+  sampleRateHz: number,
+  fftSize: number,
+): Promise<void> {
+  const { WebSocket } = await import("ws");
+  const subscriptionId = `cli_snapshot_${randomUUID()}`;
+  const stream = { sourceId, mode: "rx" };
+  const options = {
+    mode: "rx",
+    centerFrequencyHz: Math.round(centerFrequencyHz),
+    sampleRateHz: Math.round(sampleRateHz),
+    fftSize,
+    fftWindow: "Rectangular",
+  };
+  await new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(
+      `${backend.replace(/^http/, "ws")}/ws/streams?token=${encodeURIComponent(token)}`,
+    );
+    const timeout = setTimeout(() => {
+      socket.close();
+      reject(new Error("Timed out while applying snapshot receiver settings"));
+    }, 15000);
+    let updateSent = false;
+    const finish = (error?: Error) => {
+      clearTimeout(timeout);
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: "stream_unsubscribe",
+          scope: "subscriber",
+          subscriptionId,
+          stream,
+          immediate: true,
+        }));
+      }
+      socket.close();
+      if (error) reject(error);
+      else resolve();
+    };
+    socket.on("open", () => {
+      socket.send(
+        JSON.stringify({
+          type: "stream_subscribe",
+          scope: "subscriber",
+          subscriptionId,
+          stream,
+          options,
+          deliveryPolicy: "lossless",
+        }),
+      );
+    });
+    socket.on("message", (raw) => {
+      let message: any;
+      try {
+        message = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (message.type === "stream_error") {
+        finish(new Error(message.message ?? "Snapshot receiver settings failed"));
+      } else if (message.type === "stream_subscribed" && !updateSent) {
+        updateSent = true;
+        socket.send(JSON.stringify({
+          type: "stream_update_options",
+          scope: "device",
+          subscriptionId,
+          stream,
+          options,
+        }));
+      } else if (
+        message.type === "stream_options_applied" &&
+        message.sourceId === sourceId &&
+        message.options?.centerFrequencyHz === options.centerFrequencyHz &&
+        message.options?.sampleRateHz === options.sampleRateHz
+      ) {
+        finish();
+      }
+    });
+    socket.on("error", (error) => {
+      finish(error);
+    });
+  });
+}
+
 async function waitForDeviceSettings(
   deviceId: string,
   receiveDefaults: { gainDb: number; ppm: number },
@@ -277,6 +369,18 @@ async function fetchSnapshotFrames(token: string, fftSize: number, frameCount: 1
   }>;
 }
 
+type CliSnapshotFormat = "png" | "svg" | "animated-svg" | "webm" | "mp4";
+
+function decodeSnapshotPayload(dataUrl: string): string | Buffer {
+  const separator = dataUrl.indexOf(";base64,");
+  if (!dataUrl.startsWith("data:") || separator < 0) {
+    throw new Error("CLI snapshot harness returned an unexpected payload");
+  }
+  const mimeType = dataUrl.slice("data:".length, separator);
+  const bytes = Buffer.from(dataUrl.slice(separator + ";base64,".length), "base64");
+  return mimeType.includes("svg") ? bytes.toString("utf8") : bytes;
+}
+
 async function snapshot(args: string[], selected: any) {
   const receiveDefaults = resolveNaptReceiveDefaults(selected);
   if (selected.id !== "mock-apt") {
@@ -285,7 +389,49 @@ async function snapshot(args: string[], selected: any) {
   }
   const token = await authenticateCli();
   const fftSize = resolveCliCaptureFftSize(args);
-  const frameCount = resolveCliSnapshotFrameCount(args.includes("--waterfall"));
+  const format = flag(args, "--format", "png") as CliSnapshotFormat;
+  const theme = args.includes("--dark")
+    ? "dark"
+    : flag(args, "--theme", "light");
+  const powerScale = flag(args, "--power-scale", "dB") as "dB" | "dBm";
+  const defaultPowerLimits = getVisualizerDefaultDbLimits(powerScale);
+  const dbMin = Number(flag(args, "--power-min", String(defaultPowerLimits.min)));
+  const dbMax = Number(flag(args, "--power-max", String(defaultPowerLimits.max)));
+  const aspectRatio = flag(args, "--aspect-ratio", "default");
+  const geolocationRaw = flag(args, "--geolocation", "");
+  const frequencyRangeRaw = flag(args, "--frequency-range", "");
+  const frequencyRange = frequencyRangeRaw
+    ? parseCliFrequencyRangeArg(frequencyRangeRaw)
+    : null;
+  const geolocation = geolocationRaw
+    ? parseCliGeolocationArg(geolocationRaw)
+    : null;
+  const locationLabel = geolocation
+    ? await reverseGeocodeSnapshotLocation(geolocation.lat, geolocation.lon).catch(() => null)
+    : null;
+  const frameCount = resolveCliSnapshotFrameCount({
+    waterfall: args.includes("--waterfall"),
+    format,
+  });
+  const frequencyArg = flag(args, "--frequency", flag(args, "--center-frequency", ""));
+  const requestedFrequencyHz = frequencyArg ? Number(frequencyArg) : null;
+  const requestedSampleRateArg = flag(args, "--sample-rate", "");
+  if (requestedFrequencyHz !== null || requestedSampleRateArg) {
+    const initialFrame = (await fetchSnapshotFrames(token, fftSize, 1))[0];
+    if (!initialFrame) throw new Error("Rust returned no frame for snapshot tuning");
+    const sampleRateHz = Math.max(
+      requestedSampleRateArg
+        ? Number(requestedSampleRateArg)
+        : initialFrame.sample_rate ?? 3_200_000,
+      3_200_000,
+    );
+    const centerFrequencyHz = requestedFrequencyHz ?? initialFrame.center_frequency_hz;
+    if (!centerFrequencyHz || !Number.isFinite(centerFrequencyHz)) {
+      throw new Error("Snapshot center frequency is unavailable; pass --frequency <Hz>");
+    }
+    await tuneSnapshotCenterFrequency(token, selected.id, centerFrequencyHz, sampleRateHz, fftSize);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
   const frames = await fetchSnapshotFrames(token, fftSize, frameCount);
   const frame = frames[frames.length - 1];
   if (!frame?.iq_data?.length) throw new Error("Rust returned no usable I/Q frames");
@@ -297,7 +443,7 @@ async function snapshot(args: string[], selected: any) {
     args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--disable-gpu-sandbox"],
   });
   try {
-    const page = await browser.newPage({ colorScheme: flag(args, "--theme", "dark") as "dark" | "light" });
+    const page = await browser.newPage({ colorScheme: theme as "dark" | "light" });
     const harnessErrors: string[] = [];
     page.on("pageerror", (error) => harnessErrors.push(error.message));
     page.on("console", (message) => {
@@ -329,18 +475,36 @@ async function snapshot(args: string[], selected: any) {
         gainDb,
         ppm,
         fftSize,
+        powerScale,
+        dbMin,
+        dbMax,
         waterfall: args.includes("--waterfall"),
-        grid: args.includes("--grid"),
-        stats: args.includes("--stats"),
-        theme: flag(args, "--theme", "dark"),
+        grid: !args.includes("--no-grid"),
+        stats: !args.includes("--no-stats"),
+        theme,
+        useThemeColors: args.includes("--use-theme-colors"),
+        fftColor: flag(args, "--fft-color", "") || null,
+        frequencyRange,
         width: 1400,
         spectrumHeight: 520,
         waterfallHeight: 520,
+        format,
+        aspectRatio,
+        geolocation,
+        locationLabel,
+        whole: false,
+        modeLabel: "Onscreen",
       },
     );
-    const output = flag(args, "--output", join(process.env.HOME ?? ".", "Downloads", `n-apt_snapshot_${Date.now()}.png`));
+    if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) {
+      throw new Error(
+        `CLI snapshot render failed: ${harnessErrors.join(" | ") || dataUrl}`,
+      );
+    }
+    const extension = format === "animated-svg" ? "svg" : format;
+    const output = flag(args, "--output", join(process.env.HOME ?? ".", "Downloads", `n-apt_snapshot_${Date.now()}.${extension}`));
     await mkdir(dirname(output), { recursive: true });
-    await writeFile(output, Buffer.from(String(dataUrl).split(",")[1], "base64"));
+    await writeFile(output, decodeSnapshotPayload(dataUrl));
     console.log(`Saved snapshot: ${output}`);
   } finally {
     await browser.close();
