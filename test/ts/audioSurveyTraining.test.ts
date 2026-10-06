@@ -13,6 +13,7 @@ import type {
   CandidateRecord,
   SurveyJobState,
 } from "@n-apt/demodulation/survey/audioSurveyModel";
+import { TIME_DOMAIN_MODEL_VERSION } from "@n-apt/demodulation/survey/audioSurveyMl";
 
 class MemoryRepository implements AudioSurveyRepository {
   jobs = new Map<string, SurveyJobState>();
@@ -172,7 +173,7 @@ describe("resumable local audio model training", () => {
       expect.objectContaining({
         onnxModelData: expect.any(Uint8Array),
         model: expect.objectContaining({
-          version: 3,
+          version: TIME_DOMAIN_MODEL_VERSION,
           inputSampleRateHz: 48_000,
           channelBandwidthHz: 25_000,
         }),

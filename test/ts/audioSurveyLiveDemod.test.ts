@@ -5,24 +5,35 @@ import {
   isAudioSurveyNeuralModelReady,
   shouldResetAudioSurveyNeuralStream,
 } from "@n-apt/demodulation/survey/audioSurveyLiveDemod";
-import type { TimeDomainDemodModel } from "@n-apt/demodulation/survey/audioSurveyMl";
+import {
+  TIME_DOMAIN_HIDDEN_SIZE,
+  TIME_DOMAIN_MODEL_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_VERSION,
+  type TimeDomainDemodModel,
+} from "@n-apt/demodulation/survey/audioSurveyMl";
 import * as audioSurveyOnnxRuntime from "@n-apt/demodulation/survey/audioSurveyOnnxRuntime";
 import type { AudioSurveyOnnxRuntime } from "@n-apt/demodulation/survey/audioSurveyOnnxRuntime";
 import { serializeTimeDomainModelToOnnx } from "@n-apt/demodulation/survey/audioSurveyOnnx";
 
 const makeModel = (): TimeDomainDemodModel => ({
-  version: 3,
-  inputSize: 128,
-  hiddenSize: 12,
+  version: TIME_DOMAIN_MODEL_VERSION,
+  inputSize: TIME_DOMAIN_MODEL_INPUT_SIZE,
+  hiddenSize: TIME_DOMAIN_HIDDEN_SIZE,
   inputSampleRateHz: 256_000 / 3,
   channelBandwidthHz: 32_000,
   pcmSampleRateHz: 48_000,
   inputWeights: Float32Array.from(
-    { length: 128 * 12 },
+    { length: TIME_DOMAIN_MODEL_INPUT_SIZE * TIME_DOMAIN_HIDDEN_SIZE },
     (_, i) => Math.sin(i * 0.013) * 0.02,
   ),
-  hiddenBias: Float32Array.from({ length: 12 }, (_, i) => i * 0.005),
-  outputWeights: Float32Array.from({ length: 12 }, (_, i) => (i + 1) * 0.01),
+  hiddenBias: Float32Array.from(
+    { length: TIME_DOMAIN_HIDDEN_SIZE },
+    (_, i) => i * 0.005,
+  ),
+  outputWeights: Float32Array.from(
+    { length: TIME_DOMAIN_HIDDEN_SIZE },
+    (_, i) => (i + 1) * 0.01,
+  ),
   outputBias: 0.01,
   trainingExamples: 4,
   trainingSamples: 10_000,

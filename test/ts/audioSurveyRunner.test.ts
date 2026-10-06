@@ -16,8 +16,20 @@ import type {
 } from "@n-apt/demodulation/survey/audioSurveyStorage";
 
 const channels: SurveyChannelRange[] = [
-  { id: "a", label: "A", minHz: 18_000, maxHz: 4_390_000 },
-  { id: "b", label: "B", minHz: 24_100_000, maxHz: 30_370_000 },
+  {
+    id: "a",
+    label: "A",
+    minHz: 18_000,
+    maxHz: 4_390_000,
+    prerequisite_for: { "demod.audio_survey": "all" },
+  },
+  {
+    id: "b",
+    label: "B",
+    minHz: 24_100_000,
+    maxHz: 30_370_000,
+    prerequisite_for: { "demod.audio_survey": "all" },
+  },
 ];
 
 class MemorySurveyRepository implements AudioSurveyRepository {
