@@ -124,12 +124,14 @@ interface DemodReadinessNodeProps {
   data: { label?: string };
 }
 
-const formatChannelRequirement = (labels: string[]) => {
-  if (labels.length === 2 && labels[0] === "A" && labels[1] === "B") {
-    return "Channel A or B";
-  }
+const formatChannelRequirement = (
+  labels: string[],
+  mode: "any" | "all" | null,
+) => {
+  if (labels.length === 0) return "configured channel metadata";
   if (labels.length === 1) return `Channel ${labels[0]}`;
-  return labels.map((label) => `Channel ${label}`).join(" or ");
+  const joiner = mode === "all" ? "and" : "or";
+  return `Channel ${labels.join(` ${joiner} `)}`;
 };
 
 const stimulusKindLabel = (type: string) => {
@@ -259,10 +261,12 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
           <ChannelGuideTitle>
             {`${stimulusKindLabel(selectedBaseline)} ${
               selectedBaseline === "audio" ? "require" : "requires"
-            } ${formatChannelRequirement(channelAccess.requiredChannelLabels)}.`}
+            } ${formatChannelRequirement(channelAccess.requiredChannelLabels, channelAccess.mode)}.`}
           </ChannelGuideTitle>
           <ChannelGuideCopy>
-            {tunedFrequencyHz === null
+            {!channelAccess.available
+              ? "No valid channel prerequisite metadata is configured for this flow."
+              : tunedFrequencyHz === null
               ? "No tuned RF frequency is available yet."
               : `The current tune at ${formatFrequency(tunedFrequencyHz)} is outside the required channel range.`}{" "}
             {demodSourceMode === "live"

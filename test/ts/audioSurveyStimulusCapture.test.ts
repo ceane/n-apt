@@ -9,12 +9,25 @@ import type {
 } from "@n-apt/demodulation/survey/audioSurveyStorage";
 import type {
   CandidateRecord,
+  SurveyChannelRange,
   SurveyJobState,
 } from "@n-apt/demodulation/survey/audioSurveyModel";
 
-const channels = [
-  { id: "a", label: "A", minHz: 18_000, maxHz: 4_390_000 },
-  { id: "b", label: "B", minHz: 24_100_000, maxHz: 30_370_000 },
+const channels: SurveyChannelRange[] = [
+  {
+    id: "a",
+    label: "A",
+    minHz: 18_000,
+    maxHz: 4_390_000,
+    prerequisite_for: { "demod.audio_survey": "all" },
+  },
+  {
+    id: "b",
+    label: "B",
+    minHz: 24_100_000,
+    maxHz: 30_370_000,
+    prerequisite_for: { "demod.audio_survey": "all" },
+  },
 ];
 
 const makeFrame = (key: string, timestampMs: number): SurveyIqFrame => {

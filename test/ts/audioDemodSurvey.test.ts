@@ -10,12 +10,54 @@ import {
 } from "@n-apt/demodulation/survey/audioSurveyModel";
 
 const configuredChannels: SurveyChannelRange[] = [
-  { id: "a", label: "A", minHz: 18_000, maxHz: 4_390_000 },
-  { id: "b", label: "B", minHz: 24_100_000, maxHz: 30_370_000 },
+  {
+    id: "a",
+    label: "A",
+    minHz: 18_000,
+    maxHz: 4_390_000,
+    prerequisite_for: { "demod.audio_survey": "all" },
+  },
+  {
+    id: "b",
+    label: "B",
+    minHz: 24_100_000,
+    maxHz: 30_370_000,
+    prerequisite_for: { "demod.audio_survey": "all" },
+  },
   { id: "c", label: "C", minHz: 4_750_000, maxHz: 23_000_000 },
 ];
 
 describe("audio survey view planner", () => {
+  it("plans its required channels from the audio survey prerequisite metadata", () => {
+    const views = buildAudioSurveyViews([
+      {
+        id: "primary",
+        label: "Primary",
+        minHz: 1_000_000,
+        maxHz: 4_000_000,
+        prerequisite_for: { "demod.audio_survey": "all" },
+      },
+      {
+        id: "secondary",
+        label: "Secondary",
+        minHz: 10_000_000,
+        maxHz: 13_000_000,
+        prerequisite_for: { "demod.audio_survey": "all" },
+      },
+      {
+        id: "ignored",
+        label: "Ignored",
+        minHz: 20_000_000,
+        maxHz: 23_000_000,
+      },
+    ]);
+
+    expect(views.map((view) => view.channelId)).toEqual([
+      "primary",
+      "secondary",
+    ]);
+  });
+
   it("uses four independent full-rate views to cover only channels A and B", () => {
     const views = buildAudioSurveyViews(configuredChannels);
 
@@ -38,8 +80,20 @@ describe("audio survey view planner", () => {
 
   it("does not duplicate or blend a single-window channel", () => {
     const views = buildAudioSurveyViews([
-      { id: "a", label: "A", minHz: 10_000_000, maxHz: 11_000_000 },
-      { id: "b", label: "B", minHz: 10_000_000, maxHz: 20_000_000 },
+      {
+        id: "a",
+        label: "A",
+        minHz: 10_000_000,
+        maxHz: 11_000_000,
+        prerequisite_for: { "demod.audio_survey": "all" },
+      },
+      {
+        id: "b",
+        label: "B",
+        minHz: 10_000_000,
+        maxHz: 20_000_000,
+        prerequisite_for: { "demod.audio_survey": "all" },
+      },
     ]);
 
     expect(views.filter((view) => view.channelId === "a")).toHaveLength(1);
