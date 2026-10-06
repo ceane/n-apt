@@ -50,7 +50,7 @@ const fft = (real: Float64Array, imaginary: Float64Array) => {
 };
 
 /**
- * Convert one verified, contiguous 100 ms, interleaved unsigned I/Q context to
+ * Convert one verified, contiguous 30 ms, interleaved unsigned I/Q context to
  * [10 time slices, 1024 fftshift bins, log-power/phase-delta] features.
  * The caller must verify source, tune, producer sample index and stream
  * continuity before calling; this function rejects incomplete byte contexts.
@@ -70,9 +70,7 @@ export function preprocessVisionIqContext(
 
   const contextSamples = (sampleRateHz * VISION_PREPROCESSING.contextMs) / 1000;
   if (iqData.length !== contextSamples * 2)
-    throw new Error(
-      "Vision preprocessing requires an exact 100 ms I/Q context",
-    );
+    throw new Error("Vision preprocessing requires an exact 30 ms I/Q context");
   const samplesPerSlice = contextSamples / sliceCount;
   if (!Number.isInteger(samplesPerSlice) || samplesPerSlice < fftSize)
     throw new Error("Sample rate cannot produce ten complete time slices");
@@ -146,7 +144,7 @@ export interface VisionFeatureSample {
   optionsRevision: number;
   centerFrequencyHz: number;
   sampleRateHz: number;
-  /** First producer sample in the 100 ms context. */
+  /** First producer sample in the 30 ms context. */
   firstSampleIndex: number;
   /** Backend epoch timestamp at the context's final sample. */
   timestampBackendMs: number;

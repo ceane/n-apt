@@ -7,7 +7,7 @@ import type { VisionTrainingExample } from "@n-apt/demodulation/vision/visionDat
 import {
   predictVisionDecoder,
   trainVisionDecoder,
-} from "@n-apt/demodulation/vision/visionMl";
+} from "@n-apt/demodulation/vision/visionML";
 import { serializeVisionDecoderToOnnx } from "@n-apt/demodulation/vision/visionOnnx";
 import {
   createVisionOnnxRuntime,
@@ -16,6 +16,10 @@ import {
 } from "@n-apt/demodulation/vision/visionOnnxRuntime";
 import { VISION_FEATURE_COUNT } from "@n-apt/demodulation/vision/visionPreprocessing";
 
+const frequencyGrid = {
+  centerFrequencyHz: 100_000_000,
+  sampleRateHz: 3_200_000,
+};
 const examples: VisionTrainingExample[] = [0, 1].map((index) => ({
   sessionId: "train-session",
   trialId: `trial-${index}`,
@@ -23,6 +27,7 @@ const examples: VisionTrainingExample[] = [0, 1].map((index) => ({
   split: "train",
   timestampBackendMs: 1000 + index * 100,
   frameIndex: index,
+  frequencyGrid,
   calibrationSeed: null,
   features: new Float32Array(VISION_FEATURE_COUNT).fill(index),
   rgb: new Uint8Array(768).fill(index * 255),
@@ -67,9 +72,10 @@ describe("vision ONNX export and local inference", () => {
               const model = Uint8Array.from(readFileSync(join(directory, "model.onnx")));
               const input = readFileSync(join(directory, "input.f32"));
               const windows = new Float32Array(input.buffer, input.byteOffset, input.byteLength / 4);
-              const runtime = await createVisionOnnxRuntime(model, { executionProvider: "wasm" });
+              const frequencyGrid = { centerFrequencyHz: 100000000, sampleRateHz: 3200000 };
+              const runtime = await createVisionOnnxRuntime(model, { executionProvider: "wasm", frequencyGrid });
               try {
-                const output = await runtime.predict(windows, 2);
+                const output = await runtime.predict(windows, 2, frequencyGrid);
                 process.stdout.write(JSON.stringify({
                   opponent: Array.from(output.opponent),
                   colorLogits: Array.from(output.colorLogits),
@@ -100,6 +106,7 @@ describe("vision ONNX export and local inference", () => {
       predictVisionDecoder(model, features, {
         sourceId: "rx",
         timestampBackendMs: 1234,
+        frequencyGrid,
       }),
     );
     expect(runtimeResults.opponent).toHaveLength(2 * 768);
@@ -119,9 +126,9 @@ describe("vision ONNX export and local inference", () => {
   });
 
   test("rejects empty models and malformed feature batches", async () => {
-    await expect(createVisionOnnxRuntime(new Uint8Array())).rejects.toThrow(
-      /non-empty/i,
-    );
+    await expect(
+      createVisionOnnxRuntime(new Uint8Array(), { frequencyGrid }),
+    ).rejects.toThrow(/non-empty/i);
     expect(() => validateVisionOnnxBatch(new Float32Array(2), 1)).toThrow(
       /feature batch/i,
     );
@@ -129,21 +136,23 @@ describe("vision ONNX export and local inference", () => {
 
   test("converts opponent outputs into validated, explicitly uncalibrated RGB frames", () => {
     const frame = visionOnnxOutputToDecodedFrame(new Float32Array(768), {
-      modelId: "vision-decoder-v1-19",
+      modelId: "vision-decoder-v2-19",
       sourceId: "receiver-1",
       timestampBackendMs: 1234,
+      frequencyGrid,
     });
     expect(frame.rgb).toHaveLength(768);
     expect(frame.rgb.every((value) => value >= 0 && value <= 1)).toBe(true);
-    expect(frame.modelId).toBe("vision-decoder-v1-19");
+    expect(frame.modelId).toBe("vision-decoder-v2-19");
     expect(frame.sourceId).toBe("receiver-1");
     expect(frame.timestampBackendMs).toBe(1234);
     expect(frame.confidence).toBeNull();
     expect(() =>
       visionOnnxOutputToDecodedFrame(new Float32Array([Number.NaN]), {
-        modelId: "vision-decoder-v1-19",
+        modelId: "vision-decoder-v2-19",
         sourceId: "receiver-1",
         timestampBackendMs: 1234,
+        frequencyGrid,
       }),
     ).toThrow(/opponent/i);
   });

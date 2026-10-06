@@ -22,6 +22,7 @@ const example = (
   split,
   timestampBackendMs: 1000 + index * 100,
   frameIndex: index,
+  frequencyGrid: { centerFrequencyHz: 100_000_000, sampleRateHz: 3_200_000 },
   calibrationSeed,
   features: new Float32Array(20_480).fill((index + 1) / 4),
   rgb: new Uint8Array(768).fill(index * 30),

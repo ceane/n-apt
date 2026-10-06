@@ -282,10 +282,14 @@ describe("vision dataset boundaries", () => {
   });
   test("model head and decoded RGB frame have explicit checked coordinate spaces", () => {
     const metadata = {
-      version: 1 as const,
+      version: 2 as const,
       modelId: "vision-v1",
       sourceId: "rx",
       timestampBackendMs: 1234,
+      frequencyGrid: {
+        centerFrequencyHz: 100_000_000,
+        sampleRateHz: 3_200_000,
+      },
     };
     expect(
       visionModelHeadOutputSchema.parse({

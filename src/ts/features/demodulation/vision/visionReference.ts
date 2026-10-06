@@ -1,5 +1,6 @@
 import {
   VISION_PRESETS,
+  VISION_PRESENTATION_GUARD_MS,
   visionStimulusSchema,
   type VisionStimulus,
   type VisionPair,
@@ -97,7 +98,7 @@ export function generateVisionReference(
   return output;
 }
 
-/** Guard transition edges by measured clock uncertainty plus 25 ms presentation
+/** Guard transition edges by measured clock uncertainty plus presentation
  * allowance. This is not a measurement of physical display latency. */
 export function visionTargetAt(
   pair: VisionPair,
@@ -105,7 +106,7 @@ export function visionTargetAt(
 ): Uint8Array | null {
   if (pair.status !== "complete" || !Number.isFinite(timestampBackendMs))
     return null;
-  const guard = pair.config.clock.uncertaintyMs + 25;
+  const guard = pair.config.clock.uncertaintyMs + VISION_PRESENTATION_GUARD_MS;
   for (let i = 0; i < pair.timeline.length; i++) {
     const start = pair.timeline[i].onsetBackendMs;
     const end = pair.timeline[i + 1]?.onsetBackendMs ?? pair.endBackendMs;
@@ -118,6 +119,40 @@ export function visionTargetAt(
         pair.timeline[i].frameIndex,
       );
     }
+  }
+  return null;
+}
+
+/**
+ * Return a reference only when the entire RF feature context lies inside one
+ * guarded timeline interval. A point label is unsafe for a window that straddles
+ * two displayed targets.
+ */
+export function visionTargetForInterval(
+  pair: VisionPair,
+  contextStartBackendMs: number,
+  contextEndBackendMs: number,
+): { frameIndex: number; rgb: Uint8Array } | null {
+  if (
+    pair.status !== "complete" ||
+    !Number.isFinite(contextStartBackendMs) ||
+    !Number.isFinite(contextEndBackendMs) ||
+    contextEndBackendMs <= contextStartBackendMs
+  )
+    return null;
+  const guard = pair.config.clock.uncertaintyMs + VISION_PRESENTATION_GUARD_MS;
+  for (let index = 0; index < pair.timeline.length; index++) {
+    const event = pair.timeline[index];
+    const intervalEnd =
+      pair.timeline[index + 1]?.onsetBackendMs ?? pair.endBackendMs;
+    if (
+      contextStartBackendMs >= event.onsetBackendMs + guard &&
+      contextEndBackendMs <= intervalEnd - guard
+    )
+      return {
+        frameIndex: event.frameIndex,
+        rgb: generateVisionReference(pair.config.stimulus, event.frameIndex),
+      };
   }
   return null;
 }

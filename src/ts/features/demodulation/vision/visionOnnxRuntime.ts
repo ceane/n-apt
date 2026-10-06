@@ -1,10 +1,13 @@
-import { VISION_COLOR_CLASS_COUNT } from "./visionMl";
+import { VISION_COLOR_CLASS_COUNT } from "./visionML";
 import { VISION_FEATURE_COUNT } from "./visionPreprocessing";
 import {
   VISION_HEIGHT,
   VISION_WIDTH,
+  sameVisionFrequencyGrid,
+  visionFrequencyGridSchema,
   visionDecodedFrameSchema,
   type VisionDecodedFrame,
+  type VisionFrequencyGrid,
 } from "./visionModel";
 import { opponentToRgb } from "./visionReference";
 
@@ -14,6 +17,8 @@ export type VisionOnnxExecutionProvider = "auto" | "wasm" | "webgpu";
 
 export interface VisionOnnxRuntimeOptions {
   executionProvider?: VisionOnnxExecutionProvider;
+  /** Must come from the model checkpoint/manifest paired with this ONNX file. */
+  frequencyGrid: VisionFrequencyGrid;
 }
 
 export interface VisionOnnxPredictionBatch {
@@ -25,13 +30,16 @@ export interface VisionOnnxFrameMetadata {
   modelId: string;
   sourceId: string;
   timestampBackendMs: number;
+  frequencyGrid: VisionFrequencyGrid;
 }
 
 export interface VisionOnnxRuntime {
   readonly executionProvider: Exclude<VisionOnnxExecutionProvider, "auto">;
+  readonly frequencyGrid: VisionFrequencyGrid;
   predict(
     features: Float32Array,
     batchSize: number,
+    frequencyGrid: VisionFrequencyGrid,
   ): Promise<VisionOnnxPredictionBatch>;
   predictFrame(
     features: Float32Array,
@@ -108,7 +116,7 @@ export function visionOnnxOutputToDecodedFrame(
   }
   return visionDecodedFrameSchema.parse({
     ...metadata,
-    version: 1,
+    version: 2,
     rgb,
     confidence: null,
   });
@@ -117,6 +125,7 @@ export function visionOnnxOutputToDecodedFrame(
 const createRuntimeForProvider = async (
   modelData: Uint8Array,
   executionProvider: "wasm" | "webgpu",
+  frequencyGrid: VisionFrequencyGrid,
 ): Promise<VisionOnnxRuntime> => {
   const ort = await loadOrtModule(executionProvider);
   const session = await ort.InferenceSession.create(modelData, {
@@ -138,7 +147,14 @@ const createRuntimeForProvider = async (
   const predict = async (
     features: Float32Array,
     batchSize: number,
+    inputFrequencyGrid: VisionFrequencyGrid,
   ): Promise<VisionOnnxPredictionBatch> => {
+    const parsedFrequencyGrid =
+      visionFrequencyGridSchema.parse(inputFrequencyGrid);
+    if (!sameVisionFrequencyGrid(frequencyGrid, parsedFrequencyGrid))
+      throw new Error(
+        "Vision model frequency grid does not match inference input",
+      );
     validateVisionOnnxBatch(features, batchSize);
     const outputs = await session.run({
       vision_features: new ort.Tensor("float32", features, [
@@ -162,9 +178,10 @@ const createRuntimeForProvider = async (
 
   return {
     executionProvider,
+    frequencyGrid,
     predict,
     async predictFrame(features, metadata) {
-      const prediction = await predict(features, 1);
+      const prediction = await predict(features, 1, metadata.frequencyGrid);
       return {
         frame: visionOnnxOutputToDecodedFrame(prediction.opponent, metadata),
         colorLogits: prediction.colorLogits,
@@ -177,10 +194,11 @@ const createRuntimeForProvider = async (
 /** Load a versioned local model, preferring WebGPU and falling back to WASM. */
 export async function createVisionOnnxRuntime(
   modelData: Uint8Array,
-  options: VisionOnnxRuntimeOptions = {},
+  options: VisionOnnxRuntimeOptions,
 ): Promise<VisionOnnxRuntime> {
   if (!(modelData instanceof Uint8Array) || modelData.byteLength === 0)
     throw new Error("An ONNX vision model must contain non-empty binary data");
+  const frequencyGrid = visionFrequencyGridSchema.parse(options.frequencyGrid);
   const requestedProvider = options.executionProvider ?? "auto";
   const providers: Array<"wasm" | "webgpu"> =
     requestedProvider === "auto"
@@ -191,7 +209,11 @@ export async function createVisionOnnxRuntime(
   let lastError: unknown;
   for (const executionProvider of providers) {
     try {
-      return await createRuntimeForProvider(modelData, executionProvider);
+      return await createRuntimeForProvider(
+        modelData,
+        executionProvider,
+        frequencyGrid,
+      );
     } catch (error) {
       lastError = error;
       if (requestedProvider !== "auto" || executionProvider === "wasm") break;

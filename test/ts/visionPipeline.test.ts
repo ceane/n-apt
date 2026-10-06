@@ -9,7 +9,7 @@ import {
 import { buildVisionTrainingDataset } from "@n-apt/demodulation/vision/visionDataset";
 
 const sampleRateHz = 3_200_000;
-const contextSamples = sampleRateHz / 10;
+const contextSamples = (sampleRateHz * VISION_PREPROCESSING.contextMs) / 1000;
 const checksum = "a".repeat(64);
 const pair = {
   version: 1 as const,
@@ -53,8 +53,9 @@ const featureSample = {
   optionsRevision: 2,
   centerFrequencyHz: 100_000_000,
   sampleRateHz,
-  firstSampleIndex: pair.acquisition.firstSampleIndex + sampleRateHz / 10,
-  timestampBackendMs: 1100,
+  firstSampleIndex:
+    pair.acquisition.firstSampleIndex + (sampleRateHz * 130) / 1000,
+  timestampBackendMs: 1060,
   features,
 };
 
@@ -81,7 +82,7 @@ describe("vision preprocessing and paired reference dataset", () => {
   test("rejects unsupported rates and incomplete I/Q contexts", () => {
     expect(() =>
       preprocessVisionIqContext(new Uint8Array(128), sampleRateHz),
-    ).toThrow(/100 ms/i);
+    ).toThrow(/30 ms/i);
     expect(() =>
       preprocessVisionIqContext(
         new Uint8Array(contextSamples * 2 + 1),

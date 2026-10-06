@@ -2,7 +2,7 @@ import type { VisionTrainingExample } from "@n-apt/demodulation/vision/visionDat
 import {
   predictVisionDecoder,
   trainVisionDecoder,
-} from "@n-apt/demodulation/vision/visionMl";
+} from "@n-apt/demodulation/vision/visionML";
 import { VISION_FEATURE_COUNT } from "@n-apt/demodulation/vision/visionPreprocessing";
 
 const examples: VisionTrainingExample[] = Array.from(
@@ -14,6 +14,7 @@ const examples: VisionTrainingExample[] = Array.from(
     split: "train",
     timestampBackendMs: 1000 + index * 100,
     frameIndex: index,
+    frequencyGrid: { centerFrequencyHz: 100_000_000, sampleRateHz: 3_200_000 },
     calibrationSeed: null,
     features: new Float32Array(VISION_FEATURE_COUNT).fill(index / 3),
     rgb: new Uint8Array(768).fill(index * 32),
@@ -73,6 +74,7 @@ describe("compact vision neural decoder", () => {
     const result = predictVisionDecoder(model, examples[0].features, {
       sourceId: "rx",
       timestampBackendMs: 1234,
+      frequencyGrid: examples[0].frequencyGrid,
     });
     expect(result.frame.rgb).toHaveLength(768);
     expect(result.frame.rgb.every((value) => value >= 0 && value <= 1)).toBe(

@@ -8,7 +8,7 @@ import {
   VISION_TEMPORAL_HIDDEN_SIZE,
   validateVisionDecoderModel,
   type VisionDecoderModel,
-} from "./visionMl";
+} from "./visionML";
 import {
   VISION_PREPROCESSING,
   VISION_WIDTH,

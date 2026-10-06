@@ -2,8 +2,11 @@ import {
   VISION_HEIGHT,
   VISION_PREPROCESSING,
   VISION_WIDTH,
+  sameVisionFrequencyGrid,
+  visionFrequencyGridSchema,
   visionDecodedFrameSchema,
   visionModelHeadOutputSchema,
+  type VisionFrequencyGrid,
   type VisionSplit,
 } from "./visionModel";
 import {
@@ -13,8 +16,8 @@ import {
 import { opponentToRgb } from "./visionReference";
 import { VISION_FEATURE_COUNT } from "./visionPreprocessing";
 
-export const VISION_DECODER_MODEL_VERSION = 1 as const;
-export const VISION_DECODER_ARCHITECTURE = "freq-conv-temporal-v1" as const;
+export const VISION_DECODER_MODEL_VERSION = 2 as const;
+export const VISION_DECODER_ARCHITECTURE = "freq-conv-temporal-v2" as const;
 export const VISION_FREQUENCY_BANDS = 64;
 export const VISION_BINS_PER_BAND =
   VISION_PREPROCESSING.fftSize / VISION_FREQUENCY_BANDS;
@@ -34,6 +37,7 @@ const imageSize = VISION_WIDTH * VISION_HEIGHT * 3;
 export interface VisionDecoderModel {
   version: typeof VISION_DECODER_MODEL_VERSION;
   architecture: typeof VISION_DECODER_ARCHITECTURE;
+  frequencyGrid: VisionFrequencyGrid;
   modelId: string;
   seed: number;
   inputSize: typeof VISION_FEATURE_COUNT;
@@ -96,7 +100,11 @@ const createRandom = (seed: number) => {
   };
 };
 
-const createInitialModel = (seed: number, now: () => number) => {
+const createInitialModel = (
+  seed: number,
+  now: () => number,
+  frequencyGrid: VisionFrequencyGrid,
+) => {
   const random = createRandom(seed);
   const convWeights = new Float32Array(
     VISION_CONV_CHANNELS * featureChannels * VISION_CONV_KERNEL,
@@ -124,7 +132,8 @@ const createInitialModel = (seed: number, now: () => number) => {
   return {
     version: VISION_DECODER_MODEL_VERSION,
     architecture: VISION_DECODER_ARCHITECTURE,
-    modelId: `vision-decoder-v1-${seed >>> 0}`,
+    frequencyGrid: { ...frequencyGrid },
+    modelId: `vision-decoder-v2-${seed >>> 0}`,
     seed: seed >>> 0,
     inputSize: VISION_FEATURE_COUNT,
     inputMean: new Float32Array(VISION_FEATURE_COUNT),
@@ -165,6 +174,7 @@ export const validateVisionDecoderModel = (model: VisionDecoderModel) => {
     model.colorBias.length !== VISION_COLOR_CLASS_COUNT
   )
     throw new Error("Vision checkpoint architecture is incompatible");
+  visionFrequencyGridSchema.parse(model.frequencyGrid);
   for (const tensor of [
     model.inputMean,
     model.inputScale,
@@ -317,15 +327,24 @@ const softmax = (logits: Float32Array) => {
 export function predictVisionDecoder(
   model: VisionDecoderModel,
   features: Float32Array,
-  metadata: { sourceId: string; timestampBackendMs: number },
+  metadata: {
+    sourceId: string;
+    timestampBackendMs: number;
+    frequencyGrid: VisionFrequencyGrid;
+  },
 ): VisionDecoderPrediction {
   validateVisionDecoderModel(model);
+  if (!sameVisionFrequencyGrid(model.frequencyGrid, metadata.frequencyGrid))
+    throw new Error(
+      "Vision model frequency grid does not match inference input",
+    );
   const cache = forward(model, features);
   const head = visionModelHeadOutputSchema.parse({
-    version: 1,
+    version: 2,
     modelId: model.modelId,
     sourceId: metadata.sourceId,
     timestampBackendMs: metadata.timestampBackendMs,
+    frequencyGrid: metadata.frequencyGrid,
     opponent: cache.opponent,
   });
   const rgb = new Float32Array(imageSize);
@@ -342,10 +361,11 @@ export function predictVisionDecoder(
   }
   return {
     frame: visionDecodedFrameSchema.parse({
-      version: 1,
+      version: 2,
       modelId: model.modelId,
       sourceId: metadata.sourceId,
       timestampBackendMs: metadata.timestampBackendMs,
+      frequencyGrid: metadata.frequencyGrid,
       rgb,
       confidence: null,
     }),
@@ -360,6 +380,9 @@ const validateTrainingExamples = (
 ) => {
   if (!examples.length)
     throw new Error("Vision training examples are required");
+  const frequencyGrid = visionFrequencyGridSchema.parse(
+    examples[0].frequencyGrid,
+  );
   for (const example of examples) {
     if (
       example.split !== "train" ||
@@ -375,6 +398,13 @@ const validateTrainingExamples = (
       !example.features.every(Number.isFinite)
     )
       throw new Error("Invalid vision training feature tensor");
+    const exampleFrequencyGrid = visionFrequencyGridSchema.parse(
+      example.frequencyGrid,
+    );
+    if (!sameVisionFrequencyGrid(frequencyGrid, exampleFrequencyGrid))
+      throw new Error(
+        "Vision training examples must share one RF frequency grid",
+      );
     if (
       !(example.opponent instanceof Float32Array) ||
       example.opponent.length !== imageSize ||
@@ -389,6 +419,7 @@ const validateTrainingExamples = (
     )
       throw new Error("Invalid vision solid-color class target");
   }
+  return frequencyGrid;
 };
 
 const assertTrainableModel = (model: VisionDecoderModel) => {
@@ -409,7 +440,10 @@ export function trainVisionDecoder(
   examples: readonly VisionTrainingExample[],
   options: VisionDecoderTrainingOptions,
 ): VisionDecoderTrainingResult {
-  validateTrainingExamples(examples, options.sessionSplits);
+  const frequencyGrid = validateTrainingExamples(
+    examples,
+    options.sessionSplits,
+  );
   const epochs = Math.floor(options.epochs ?? 1);
   const learningRate = options.learningRate ?? 0.005;
   const seed = (options.seed ?? options.initialModel?.seed ?? 1337) >>> 0;
@@ -435,9 +469,13 @@ export function trainVisionDecoder(
         colorWeights: options.initialModel.colorWeights.slice(),
         colorBias: options.initialModel.colorBias.slice(),
       }
-    : createInitialModel(seed, now);
+    : createInitialModel(seed, now, frequencyGrid);
   if (options.initialModel) {
     assertTrainableModel(model);
+    if (!sameVisionFrequencyGrid(model.frequencyGrid, frequencyGrid))
+      throw new Error(
+        "Vision checkpoint frequency grid does not match training data",
+      );
     if (model.seed !== seed)
       throw new Error(
         "Vision checkpoint seed does not match this training run",
@@ -580,9 +618,9 @@ export function trainVisionDecoder(
               }
           }
       for (let index = 0; index < model.convWeights.length; index++)
-        model.convWeights[index] -= learningRate * convWeightGradient[index];
+        model.convWeights[index] -= convWeightGradient[index];
       for (let index = 0; index < model.convBias.length; index++)
-        model.convBias[index] -= learningRate * convBiasGradient[index];
+        model.convBias[index] -= convBiasGradient[index];
     }
 
     imageMse = epochImageLoss / examples.length;

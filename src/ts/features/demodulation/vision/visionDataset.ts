@@ -5,8 +5,9 @@ import {
   VISION_WIDTH,
   type VisionPair,
   type VisionSplit,
+  type VisionFrequencyGrid,
 } from "./visionModel";
-import { rgbToOpponent, visionTargetAt } from "./visionReference";
+import { rgbToOpponent, visionTargetForInterval } from "./visionReference";
 import {
   VISION_FEATURE_COUNT,
   visionFeatureSampleMatchesConfig,
@@ -20,6 +21,7 @@ export interface VisionTrainingExample {
   split: VisionSplit;
   timestampBackendMs: number;
   frameIndex: number;
+  frequencyGrid: VisionFrequencyGrid;
   calibrationSeed: number | null;
   features: Float32Array;
   rgb: Uint8Array;
@@ -101,10 +103,12 @@ export function buildVisionTrainingDataset(
     if (contextEnd > acquisitionEnd || contextEnd <= sample.firstSampleIndex)
       throw new Error("Feature context sample range exceeds acquisition");
 
-    const expectedTimestamp =
+    const contextStartBackendMs =
       pair.acquisition.startBackendMs +
-      ((contextEnd - pair.acquisition.firstSampleIndex) * 1000) /
+      ((sample.firstSampleIndex - pair.acquisition.firstSampleIndex) * 1000) /
         pair.config.sampleRateHz;
+    const expectedTimestamp =
+      contextStartBackendMs + VISION_PREPROCESSING.contextMs;
     if (
       !Number.isFinite(sample.timestampBackendMs) ||
       Math.abs(sample.timestampBackendMs - expectedTimestamp) > 1
@@ -118,22 +122,16 @@ export function buildVisionTrainingDataset(
       throw new Error("Duplicate feature context in vision dataset");
     seenContexts.add(contextKey);
 
-    const rgb = visionTargetAt(pair, sample.timestampBackendMs);
-    if (!rgb) {
+    const target = visionTargetForInterval(
+      pair,
+      contextStartBackendMs,
+      expectedTimestamp,
+    );
+    if (!target) {
       result.excludedTransitionCount++;
       continue;
     }
-    const timelineIndex = pair.timeline.findIndex((event, index) => {
-      const next = pair.timeline[index + 1];
-      return (
-        sample.timestampBackendMs >= event.onsetBackendMs &&
-        sample.timestampBackendMs < (next?.onsetBackendMs ?? pair.endBackendMs)
-      );
-    });
-    if (timelineIndex < 0)
-      throw new Error(
-        "Reference label could not be resolved to a timeline bin",
-      );
+    const { rgb } = target;
     const opponent = new Float32Array(VISION_WIDTH * VISION_HEIGHT * 3);
     for (let pixel = 0; pixel < VISION_WIDTH * VISION_HEIGHT; pixel++) {
       const offset = pixel * 3;
@@ -148,7 +146,11 @@ export function buildVisionTrainingDataset(
       artifactChecksum: pair.artifact.checksum,
       split: assignments[pair.config.sessionId],
       timestampBackendMs: sample.timestampBackendMs,
-      frameIndex: pair.timeline[timelineIndex].frameIndex,
+      frameIndex: target.frameIndex,
+      frequencyGrid: {
+        centerFrequencyHz: sample.centerFrequencyHz,
+        sampleRateHz: sample.sampleRateHz,
+      },
       calibrationSeed:
         pair.config.stimulus.kind === "calibration"
           ? pair.config.stimulus.seed

@@ -90,19 +90,24 @@ Server: `src/rs/server/vision_references.rs`, with small route/module additions:
   against explicit session assignments, and the mean-image baseline is computed
   only from training reference frames.
 - Local vision training and inference refinement:
-  `visionPreprocessing.ts` implements the version-1 contiguous-I/Q feature path;
+  `visionPreprocessing.ts` implements the version-2 contiguous-I/Q feature path
+  with 30 ms feature contexts and temporal slices;
   `buildVisionTrainingDataset` joins those features to reference-timeline RGB
-  labels. `visionMl.ts` trains the compact opponent-frame and S/M/L/Red heads;
+  labels only when the full context falls within one guarded reference interval.
+  `visionML.ts` trains the compact opponent-frame and S/M/L/Red heads and binds
+  each model to one RF center-frequency/sample-rate grid;
   `visionTraining.ts` adds train/validation/test session checks, pause/resume,
   early stopping, label-content fingerprinting, held-out spatial and color
   metrics, and ONNX checkpoint export. `visionTrainingStorage.ts` persists only
   model checkpoints and run metadata in IndexedDB. `visionOnnxRuntime.ts` loads
   ONNX through WebGPU/WASM and converts opponent output to validated RGB frames.
+  The raw ONNX file does not carry its RF grid; runtime loading must use the
+  `frequencyGrid` from its paired checkpoint/manifest.
   Focused verification command on 2026-10-06: `npx jest
   test/ts/visionFoundations.test.ts test/ts/visionScreens.test.ts
   test/ts/VisionScene.test.tsx test/ts/StimulusNode.test.tsx
   test/ts/DemodReadinessNode.test.tsx test/ts/visionPipeline.test.ts
-  test/ts/visionMl.test.ts test/ts/visionOnnxRuntime.test.ts
+  test/ts/visionML.test.ts test/ts/visionOnnxRuntime.test.ts
   test/ts/visionTraining.test.ts --runInBand --silent` — 9 suites / 79 tests
   passed, including ONNX Runtime WASM parity and the Channel C workflow. The
   same verification pass ran `npm run typecheck` and `git diff --check`; both
@@ -197,14 +202,15 @@ classification alone cannot establish spatial reconstruction.
    is represented, calibration seeds never cross splits, and interrupted trials
    cannot enter training. Do not derive labels from names or assume equal/linear
    band-to-pixel mapping.
-3. Wire the implemented preprocessing contract into a worker fed only by
-   verified contiguous 100ms producer windows: 1024 Hann-periodic FFT, hop 512,
-   fftshift bins, ten 10ms slices of log power and circular phase differences,
-   `[10,1024,2]` tensor. The path rejects short/gapped contexts. Fit
-   normalization only on training sessions. Test CPU reference against GPU;
-   start custom kernels at 64 threads for bins and 8x8 for image conversion,
-   respecting adapter limits. Let ONNX manage neural workgroups. Acceptance:
-   CPU/GPU fixture parity and deterministic preprocessing on held-out sessions.
+3. Wire the implemented version-2 preprocessing contract into a worker fed only
+   by verified contiguous 30 ms producer windows: 1024 Hann-periodic FFT, hop
+   512, fftshift bins, ten 3 ms slices of log power and circular phase
+   differences, `[10,1024,2]` tensor. Reject contexts that overlap guarded
+   reference transitions, are short, or contain gaps. Fit normalization only on
+   training sessions. Test CPU reference against GPU; start custom kernels at 64
+   threads for bins and 8x8 for image conversion, respecting adapter limits. Let
+   ONNX manage neural workgroups. Acceptance: CPU/GPU fixture parity and
+   deterministic preprocessing on held-out sessions.
 4. Wire the compact trainer into a worker/control surface and calibration/data
    controls. Keep reference images, seeds, elapsed stimulus time and preset
    labels out of inference inputs. Acceptance: users can start, pause, resume,
@@ -221,7 +227,7 @@ classification alone cannot establish spatial reconstruction.
 ## First files and commands to inspect
 
 Start with `visionCapture.ts`, `visionModel.ts`, `visionReference.ts`,
-`visionPreprocessing.ts`, `visionDataset.ts`, `visionMl.ts`, `visionTraining.ts`,
+`visionPreprocessing.ts`, `visionDataset.ts`, `visionML.ts`, `visionTraining.ts`,
 `visionTrainingStorage.ts`, `visionOnnx.ts`, `visionOnnxRuntime.ts`,
 `visionStorage.ts`, `visionScreens.ts`, then
 `StimulusNode.tsx`, `VisionScene.tsx`, `VisionDemodWorkflowFlow.tsx` and

@@ -3,7 +3,7 @@ import {
   predictVisionDecoder,
   trainVisionDecoder,
   type VisionDecoderModel,
-} from "./visionMl";
+} from "./visionML";
 import {
   evaluateVisionFrames,
   type VisionTrainingDataset,
@@ -13,11 +13,14 @@ import {
   VISION_HEIGHT,
   VISION_PREPROCESSING,
   VISION_WIDTH,
+  sameVisionFrequencyGrid,
+  visionFrequencyGridSchema,
+  type VisionFrequencyGrid,
   type VisionSplit,
 } from "./visionModel";
 import { serializeVisionDecoderToOnnx } from "./visionOnnx";
 
-export const VISION_TRAINING_CHECKPOINT_VERSION = 1 as const;
+export const VISION_TRAINING_CHECKPOINT_VERSION = 2 as const;
 
 export interface VisionTrainingState {
   jobId: string;
@@ -82,6 +85,7 @@ type VisionPartitions = {
   train: VisionTrainingExample[];
   validation: VisionTrainingExample[];
   test: VisionTrainingExample[];
+  frequencyGrid: VisionFrequencyGrid;
 };
 
 const emptyMetrics = {
@@ -129,7 +133,7 @@ const makePartitions = (
   dataset: VisionTrainingDataset,
   assignments: Readonly<Record<string, VisionSplit>>,
 ): VisionPartitions => {
-  const partitions: VisionPartitions = {
+  const partitions = {
     train: dataset.train,
     validation: dataset.validation,
     test: dataset.test,
@@ -154,6 +158,7 @@ const makePartitions = (
   >();
   const calibrationSeeds = new Map<number, VisionSplit>();
   const seenExamples = new Set<string>();
+  let frequencyGrid: VisionFrequencyGrid | null = null;
   for (const split of ["train", "validation", "test"] as const) {
     for (const example of partitions[split]) {
       if (
@@ -173,6 +178,15 @@ const makePartitions = (
         example.frameIndex < 0
       )
         throw new Error("Vision example identity or timestamp is invalid");
+      const exampleFrequencyGrid = visionFrequencyGridSchema.parse(
+        example.frequencyGrid,
+      );
+      if (
+        frequencyGrid &&
+        !sameVisionFrequencyGrid(frequencyGrid, exampleFrequencyGrid)
+      )
+        throw new Error("Vision dataset must share one RF frequency grid");
+      frequencyGrid = exampleFrequencyGrid;
       if (
         !(example.features instanceof Float32Array) ||
         example.features.length !==
@@ -233,7 +247,9 @@ const makePartitions = (
       seenExamples.add(exampleKey);
     }
   }
-  return partitions;
+  if (!frequencyGrid)
+    throw new Error("Vision training frequency grid is required");
+  return { ...partitions, frequencyGrid };
 };
 
 const getSourceArtifactIds = (partitions: VisionPartitions) =>
@@ -258,7 +274,7 @@ const fingerprintDataset = (partitions: VisionPartitions) => {
     for (const byte of new TextEncoder().encode(value)) updateByte(byte);
     updateByte(0xff);
   };
-  updateText("vision-dataset-v1-preprocessing-" + VISION_PREPROCESSING.version);
+  updateText("vision-dataset-v2-preprocessing-" + VISION_PREPROCESSING.version);
   const examples = (
     [...partitions.train, ...partitions.validation, ...partitions.test] as const
   )
@@ -296,6 +312,8 @@ const fingerprintDataset = (partitions: VisionPartitions) => {
         example.frameIndex,
         example.calibrationSeed,
         example.colorClassIndex,
+        example.frequencyGrid.centerFrequencyHz,
+        example.frequencyGrid.sampleRateHz,
       ]),
     );
     for (const value of example.rgb) updateByte(value);
@@ -330,6 +348,7 @@ const predictExamples = (
     const prediction = predictVisionDecoder(model, example.features, {
       sourceId: example.trialId,
       timestampBackendMs: example.timestampBackendMs,
+      frequencyGrid: example.frequencyGrid,
     });
     return {
       example,

@@ -10,13 +10,14 @@ export type VisionPreset = keyof typeof VISION_PRESETS;
 export const VISION_WIDTH = 16;
 export const VISION_HEIGHT = 16;
 export const VISION_FRAME_MS = 100;
+export const VISION_PRESENTATION_GUARD_MS = 25;
 export const VISION_PREPROCESSING = Object.freeze({
-  version: 1,
+  version: 2,
   fftSize: 1024,
   hopSamples: 512,
   window: "hann-periodic",
   temporalSlices: 10,
-  contextMs: 100,
+  contextMs: 30,
   featureOrder: ["logPower", "phaseDelta"],
   iqEncoding: "u8-interleaved",
   normalization: "(value-128)/127",
@@ -26,10 +27,28 @@ export const VISION_PREPROCESSING = Object.freeze({
   power: "log1p(magnitudeSquared/windowEnergy)",
   phaseDelta:
     "arg(current*conjugate(previous)); zero for first or zero-power bin",
-  aggregation: "mean logPower and circular-mean phaseDelta per 10ms slice",
-  context: "preceding 100ms; reject missing slices and discontinuities",
+  aggregation: "mean logPower and circular-mean phaseDelta per 3ms slice",
+  context: "preceding 30ms; reject missing slices and discontinuities",
 } as const);
 const finite = z.number().finite();
+export const visionFrequencyGridSchema = z
+  .object({
+    centerFrequencyHz: finite.nonnegative(),
+    sampleRateHz: finite.min(3_200_000),
+  })
+  .strict()
+  .refine(
+    ({ sampleRateHz }) =>
+      Number.isSafeInteger(sampleRateHz) && sampleRateHz % 100 === 0,
+    "Frequency grid sample rate must be an integer divisible by 100",
+  );
+export type VisionFrequencyGrid = z.infer<typeof visionFrequencyGridSchema>;
+export const sameVisionFrequencyGrid = (
+  left: VisionFrequencyGrid,
+  right: VisionFrequencyGrid,
+) =>
+  left.centerFrequencyHz === right.centerFrequencyHz &&
+  left.sampleRateHz === right.sampleRateHz;
 export const visionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,96}$/);
 export const visionStimulusSchema = z.discriminatedUnion("kind", [
   z
@@ -166,10 +185,11 @@ export const visionPairSchema = z
 export type VisionPair = z.infer<typeof visionPairSchema>;
 export type VisionSplit = "train" | "validation" | "test";
 export interface VisionModelManifest {
-  version: 1;
+  version: 2;
   modelId: string;
   referenceVersion: 1;
   colorTransform: "linear-srgb-lms-opponent-v1";
+  frequencyGrid: VisionFrequencyGrid;
   preprocessing: typeof VISION_PREPROCESSING;
   output: { width: 16; height: 16; fps: 10; coordinates: "opponent" };
   normalization: { mean: number[]; scale: number[] };
@@ -187,10 +207,11 @@ const visionImageVector = z
     error: "Image values must be finite",
   });
 const visionOutputMetadata = {
-  version: z.literal(1),
+  version: z.literal(2),
   modelId: visionIdSchema,
   sourceId: z.string().min(1).max(200),
   timestampBackendMs: finite,
+  frequencyGrid: visionFrequencyGridSchema,
 };
 /** Row-major pixels with [Y, R_G, B_Y] channels, before conversion to sRGB. */
 export const visionModelHeadOutputSchema = z
