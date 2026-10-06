@@ -28,7 +28,11 @@ const QuestionCard = styled.article`
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  ${({ $sub }) => $sub && 'margin-left: 16px;'}
+  ${({ $sub }) => $sub && `
+    margin-left: clamp(36px, 5vw, 64px);
+    padding-left: 16px;
+    border-left: 2px solid #e5e7eb;
+  `}
 `;
 
 const SummaryCard = styled.article`
@@ -39,7 +43,11 @@ const SummaryCard = styled.article`
   border-radius: 0;
   background: transparent;
   gap: 4px;
-  ${({ $sub }) => $sub && 'margin-left: 16px;'}
+  ${({ $sub }) => $sub && `
+    margin-left: clamp(36px, 5vw, 64px);
+    padding-left: 12px;
+    border-left: 2px solid #e5e7eb;
+  `}
   break-inside: avoid;
   page-break-inside: avoid;
 `;

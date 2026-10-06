@@ -48,6 +48,16 @@ button {
   cursor: pointer;
 }
 
+.questionnaire-route button {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.questionnaire-route button:disabled {
+  cursor: not-allowed;
+}
+
 .app-shell {
   display: flex;
   height: 100vh;

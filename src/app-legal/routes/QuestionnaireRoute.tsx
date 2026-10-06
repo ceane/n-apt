@@ -1,7 +1,9 @@
 // @ts-nocheck
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router';
 import { useQuestionnaire } from '../hooks/useQuestionnaire';
 import { QuestionnaireQuestions, QuestionnaireSummary } from '../components/QuestionnairePanels';
+import { questionIdFromQuestionnairePath } from '../utils/questionnaireRouting';
 
 const DISCLAIMER_ACCEPTED_KEY = 'questionnaire.disclaimerAccepted';
 
@@ -15,8 +17,25 @@ function readDisclaimerAcceptance() {
 
 export default function QuestionnaireRoute() {
   const questionnaire = useQuestionnaire();
+  const location = useLocation();
   const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState(readDisclaimerAcceptance);
+  const [deepLinkScrollSpace, setDeepLinkScrollSpace] = useState(0);
+  const deepLinkScrollSpaceRef = useRef(0);
   const isSummary = questionnaire.currentPage >= questionnaire.totalPages;
+  const routeQuestionId = questionIdFromQuestionnairePath(location.pathname, questionnaire.pages);
+
+  useLayoutEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration;
+    };
+  }, []);
+
+  useEffect(() => {
+    deepLinkScrollSpaceRef.current = 0;
+    setDeepLinkScrollSpace(0);
+  }, [location.pathname]);
 
   function acceptDisclaimer() {
     try {
@@ -28,19 +47,64 @@ export default function QuestionnaireRoute() {
   }
 
   useEffect(() => {
-    if (!hasAcceptedDisclaimer || !questionnaire.scrollToId) {
+    if (!hasAcceptedDisclaimer || !routeQuestionId) {
       return;
     }
-    const element = document.getElementById(questionnaire.scrollToId);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      questionnaire.setScrollToId('');
+    if (!questionnaire.currentQuestions.some((question) => question.id === routeQuestionId)) {
+      return;
     }
-  }, [hasAcceptedDisclaimer, questionnaire.currentPage, questionnaire.currentQuestions, questionnaire.scrollToId, questionnaire.setScrollToId]);
+
+    let frame = 0;
+    let scrollFrame = 0;
+    let stopObserving = 0;
+    let observer: MutationObserver | undefined;
+    const element = document.getElementById(routeQuestionId);
+    const contentPane = element?.closest('.program-tools-content');
+    const scrollContainer = contentPane && contentPane.scrollHeight > contentPane.clientHeight + 1
+      ? contentPane
+      : document.scrollingElement;
+    if (!element || !scrollContainer) return;
+
+    const alignTarget = (behavior: ScrollBehavior) => {
+      const elementBounds = element.getBoundingClientRect();
+      const isDocumentScroller = scrollContainer === document.scrollingElement;
+      const containerTop = isDocumentScroller ? 0 : scrollContainer.getBoundingClientRect().top;
+      const targetTop = scrollContainer.scrollTop + elementBounds.top - containerTop - 24;
+      const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+      const neededSpace = Math.max(0, targetTop - maxScrollTop);
+      if (neededSpace > deepLinkScrollSpaceRef.current + 1) {
+        const nextSpace = Math.ceil(neededSpace + 24);
+        deepLinkScrollSpaceRef.current = nextSpace;
+        setDeepLinkScrollSpace(nextSpace);
+      }
+      scrollContainer.scrollTo({ top: targetTop, behavior });
+    };
+
+    observer = new MutationObserver(() => alignTarget('auto'));
+    observer.observe(scrollContainer, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+    frame = window.requestAnimationFrame(() => {
+      scrollFrame = window.requestAnimationFrame(() => {
+        alignTarget('smooth');
+        // Lazy canvas modules above the target can expand after the first paint.
+        // Keep the deep link aligned while their fallback content is replaced.
+        stopObserving = window.setTimeout(() => {
+          observer?.disconnect();
+          questionnaire.setScrollToId('');
+        }, 1800);
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(scrollFrame);
+      window.clearTimeout(stopObserving);
+      observer?.disconnect();
+    };
+  }, [hasAcceptedDisclaimer, location.pathname, questionnaire.currentPage, questionnaire.currentQuestions, questionnaire.pages, questionnaire.setScrollToId, routeQuestionId]);
 
   if (!hasAcceptedDisclaimer) {
     return (
-      <div className="route-stack">
+      <div className="route-stack questionnaire-route">
         <section className="questionnaire-disclaimer" aria-labelledby="questionnaire-disclaimer-title">
           <h2 className="route-title" id="questionnaire-disclaimer-title">Experience &amp; Evidence Questionnaire</h2>
           <div className="muted">
@@ -61,7 +125,7 @@ export default function QuestionnaireRoute() {
   }
 
   return (
-    <div className="route-stack">
+    <div className="route-stack questionnaire-route" style={{ paddingBottom: deepLinkScrollSpace || undefined }}>
       <header className="route-header">
         <div>
           <h2 className="route-title">{isSummary ? 'Review Your Responses' : 'Questionnaire'}</h2>

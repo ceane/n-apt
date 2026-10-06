@@ -70,11 +70,12 @@ export function animateGhostRig(rig: ReturnType<typeof createGhostRig>, time: nu
       let value = 0;
       if (name.startsWith('eyeBlink')) value = blink;
       else if (name.startsWith('eyeWide')) value = peeking ? .65 * approach * (1 - blink) : 0;
-      else if (name.startsWith('eyeSquint')) value = peeking ? 0 : .38 * (1 - blink);
-      else if (name.startsWith('browDown')) value = peeking ? 0 : (name.endsWith('Left') ? .8 : .65);
-      else if (name.startsWith('mouthSmile')) value = peeking ? .12 : .55 + Math.sin(time * .7) * .12;
-      else if (name.startsWith('mouthSneer')) value = !peeking && name.endsWith('Left') ? .4 : 0;
-      else if (name === 'jawOpen') value = peeking ? .5 * approach : .12 + Math.sin(time) * .06;
+      else if (name.startsWith('eyeSquint')) value = peeking ? 0 : .3 * (1 - blink);
+      else if (name.startsWith('eyeAnger')) value = peeking ? 0 : 1 * (1 - blink);
+      else if (name.startsWith('browDown')) value = peeking ? 0 : .8;
+      else if (name.startsWith('mouthSmile')) value = peeking ? .12 : .85 + Math.sin(time * .7) * .08;
+      else if (name.startsWith('mouthSneer')) value = peeking ? 0 : .35;
+      else if (name === 'jawOpen') value = peeking ? .5 * approach : .2 + Math.sin(time) * .04;
       influences[index] = value;
     }
   }

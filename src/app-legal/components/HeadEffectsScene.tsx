@@ -8,11 +8,13 @@ import { BRAIN_GLB_URL, HUMAN_MODEL_NEUTRAL_GLB_URL } from '@n-apt/three-d/model
 import { attachModelWheelRotation } from '@n-apt/three-d/modelWheelRotation';
 import { HeadScraggleEffect } from './HeadScraggleEffect';
 import { HeadFurDotEffect } from './HeadFurDotEffect';
+import { HeadMagicCarpetEffect } from './HeadMagicCarpetEffect';
 import { HeadClampEffect } from './HeadClampEffect';
 import { HeadPipeEffect } from './HeadPipeEffect';
 import { HeadPistonsEffect } from './HeadPistonsEffect';
 import { HeadGhostsEffect } from './HeadGhostsEffect';
 import { applyAPose } from './ghostRig';
+import { createBrainHologram } from './brainHologram';
 import {
   HEAD_EFFECT_BLOB_DEFINITIONS,
   HEAD_EFFECT_APPEARANCE_STYLES,
@@ -205,59 +207,23 @@ function TranslucentHead() {
   return <primitive object={translucentScene} position={[0, -0.95, 0]} />;
 }
 
-function TranslucentBrain({ scene }: { scene: Group }) {
-  const hologramTimeUniforms = useRef<{ value: number }[]>([]);
-  const translucentScene = useMemo(() => {
-    hologramTimeUniforms.current = [];
-    const clone = scene.clone(true);
-    clone.traverse((object) => {
-      if (!(object instanceof Mesh)) return;
-      const makeTranslucent = (material: MeshStandardMaterial) => {
-        const copy = material.clone();
-        copy.transparent = true;
-        copy.opacity = HEAD_EFFECT_BRAIN_OPACITY;
-        copy.depthWrite = false;
-        copy.onBeforeCompile = (shader) => {
-          shader.uniforms.uHoloTime = { value: 0 };
-          hologramTimeUniforms.current.push(shader.uniforms.uHoloTime);
-          shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\nvarying vec3 vHoloWorldPosition;')
-            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHoloWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-          shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\nvarying vec3 vHoloWorldPosition;\nuniform float uHoloTime;')
-            .replace('#include <lights_fragment_end>', `
-              #include <lights_fragment_end>
-              vec3 holoColor = vec3(0.12, 0.78, 1.0);
-              vec2 gridUv = vHoloWorldPosition.xz * 42.0;
-              vec2 gridDistance = min(fract(gridUv), 1.0 - fract(gridUv));
-              float gridLines = 1.0 - smoothstep(0.015, 0.075, min(gridDistance.x, gridDistance.y));
-              float scan = 1.0 - smoothstep(0.0, 0.09, fract(vHoloWorldPosition.y * 54.0 - uHoloTime * 0.42));
-              float rim = pow(1.0 - max(dot(normalize(normal), normalize(vViewPosition)), 0.0), 2.0);
-              float outline = smoothstep(0.24, 0.78, rim);
-              outgoingLight = mix(outgoingLight, holoColor, 0.14 + rim * 0.24);
-              outgoingLight += holoColor * (gridLines * 0.22 + scan * 0.16 + rim * 0.2 + outline * 1.35);
-              diffuseColor.a = max(diffuseColor.a, outline * 0.92);
-            `);
-        };
-        copy.customProgramCacheKey = () => 'brain-hologram-v1';
-        return copy;
-      };
-      object.material = Array.isArray(object.material)
-        ? object.material.map((material) => makeTranslucent(material as MeshStandardMaterial))
-        : makeTranslucent(object.material as MeshStandardMaterial);
-    });
-    return clone;
-  }, [scene]);
-
-  useFrame(({ clock }) => {
-    for (const uniform of hologramTimeUniforms.current) uniform.value = clock.elapsedTime;
-  });
+function TranslucentBrain({ scene, ghostActive }: { scene: Group; ghostActive: boolean }) {
+  const hologram = useMemo(() => createBrainHologram(scene, {
+    opacity: ghostActive ? 0.25 : HEAD_EFFECT_BRAIN_OPACITY,
+    outlineOpacity: ghostActive ? 0.3 : 0.92,
+    outlineGlow: ghostActive ? 0.65 : 1.35,
+    renderOrder: ghostActive ? 7 : 0,
+    depthTest: !ghostActive,
+    cutoffY: ghostActive ? 1.95 : undefined,
+  }), [scene, ghostActive]);
+  useEffect(() => () => hologram.dispose(), [hologram]);
+  useFrame(({ clock }) => hologram.updateTime(clock.elapsedTime));
 
   return (
     <primitive
-      object={translucentScene}
+      object={hologram.scene}
       position={HEAD_EFFECT_BRAIN_POSITION}
-      scale={[HEAD_EFFECT_BRAIN_SCALE, HEAD_EFFECT_BRAIN_SCALE, HEAD_EFFECT_BRAIN_SCALE]}
+      scale={HEAD_EFFECT_BRAIN_SCALE}
     />
   );
 }
@@ -406,22 +372,28 @@ function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEff
   return (
     <group position={MODEL_ROOT_POSITION}>
       <TranslucentHead />
-      <TranslucentBrain scene={brainScene} />
-      {appearanceStyle === 'Scraggles' && selectedEffect
+      <TranslucentBrain scene={brainScene} ghostActive={appearanceStyle === 'Evil ghost' || appearanceStyle === 'Peeking ghost'} />
+      {appearanceStyle === 'Scraggles'
         ? <HeadScraggleEffect effect={effect} />
-        : appearanceStyle === 'C-clamp' && selectedEffect
+        : appearanceStyle === 'Magic carpet'
+          ? <HeadMagicCarpetEffect effect={effect} />
+        : appearanceStyle === 'C-clamp'
           ? <HeadClampEffect effect={effect} />
-        : appearanceStyle === 'Water pipe' && selectedEffect
+        : appearanceStyle === 'Water pipe'
           ? <HeadPipeEffect effect={effect} />
-        : appearanceStyle === 'Rusty pistons' && selectedEffect
+        : appearanceStyle === 'Rusty pistons'
           ? <HeadPistonsEffect effect={effect} onClap={shakeCameraOnce} />
         : appearanceStyle === 'Evil ghost'
           ? <HeadGhostsEffect variant="evil" brainCenter={brainCollider.center} brainRadii={brainCollider.radii} />
         : appearanceStyle === 'Peeking ghost'
           ? <HeadGhostsEffect variant="peeking" brainCenter={brainCollider.center} brainRadii={brainCollider.radii} />
-        : appearanceStyle === 'Fur dot' && selectedEffect
+        : appearanceStyle === 'Fur dot'
           ? <HeadFurDotEffect effect={effect} />
-          : <EffectBlob effect={effect} isActive={Boolean(selectedEffect)} appearanceStyle={appearanceStyle} />}
+          : <EffectBlob
+              effect={effect}
+              isActive={Boolean(selectedEffect) || appearanceStyle === 'Vortex clouds'}
+              appearanceStyle={appearanceStyle}
+            />}
       <ambientLight intensity={1.25} />
       <directionalLight position={[1, 2.4, 3]} intensity={2.1} />
       <pointLight position={[-1.6, 2.2, 1.8]} color="#dce8ff" intensity={0.7} />

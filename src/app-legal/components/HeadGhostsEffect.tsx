@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
-import { Color, DoubleSide, ShaderMaterial, Vector3 } from 'three';
+import { Color, FrontSide, ShaderMaterial, Vector3 } from 'three';
 import { HUMAN_GHOST_EXPRESSIVE_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
 
 import { animateGhostRig, applyAPose, createGhostRig } from './ghostRig';
@@ -62,23 +62,33 @@ const GHOST_FRAGMENT_SHADER = `
   void main() {
     float shoulderFade = vFade * mix(smoothstep(uCutoff, uCutoff + 0.055, vWorld.y), 1.0, uBody);
     if (shoulderFade < 0.005) discard;
-    float rim = pow(1.0 - max(dot(normalize(vNormal), normalize(vView)), 0.0), 2.0);
+    vec3 normal = normalize(vNormal);
+    float facing = max(dot(normal, normalize(vView)), 0.0);
+    float rim = pow(1.0 - facing, 2.0);
+    float keyLight = max(dot(normal, normalize(vec3(-0.42, 0.64, 0.64))), 0.0);
+    float facialShade = 0.22 + keyLight * 0.78;
+    float face = uBody * smoothstep(1.62, 1.78, vWorld.y);
+    float facialContour = pow(1.0 - facing, 1.4);
     float sheen = pow(max(sin(vWorld.x * 26.0 + vWorld.y * 18.0 - uTime * 1.7), 0.0), 14.0);
     float breathing = 0.92 + sin(uTime * 1.5 + vWorld.y * 3.0) * 0.08;
-    vec3 color = mix(uTint, vec3(0.94, 0.99, 1.0), rim * 0.68 + sheen * 0.4);
+    vec3 color = mix(uTint * facialShade, vec3(0.9, 0.98, 1.0), rim * 0.26 + sheen * 0.14);
+    color *= 1.0 - face * facialContour * 0.52;
     vec3 brainSpace = (vWorld - uBrainCenter) / max(uBrainRadii, vec3(0.001));
     float brainSurfaceDistance = length(brainSpace);
     float insideBrain = 1.0 - smoothstep(0.76, 1.04, brainSurfaceDistance);
     float nearBrainSurface = 1.0 - smoothstep(0.04, 0.22, abs(brainSurfaceDistance - 1.0));
     float contact = max(insideBrain * 0.78, nearBrainSurface * 0.64) * uBrainGlow;
     vec3 contactLight = vec3(0.35, 0.9, 1.0);
-    color = mix(color, vec3(0.78, 1.0, 1.0), contact * 0.78);
-    color += contactLight * contact * 0.72;
+    color = mix(color, vec3(0.78, 1.0, 1.0), contact * mix(0.18, 0.04, face));
+    color += contactLight * contact * mix(0.16, 0.04, face);
     float drapeZone = uBody * (1.0 - smoothstep(1.38, 1.82, vWorld.y));
     float pleat = 0.58 + 0.42 * (0.5 + 0.5 * vDrapeFold);
     color *= mix(1.0, pleat, drapeZone);
     float drapeOpacity = 0.78 + 0.22 * (0.5 + 0.5 * vDrapeFold);
-    float alpha = (0.2 + rim * 0.56 + sheen * 0.18 + contact * 0.48) * shoulderFade * mix(1.0, drapeOpacity, drapeZone) * breathing * uPresence;
+    float alpha = (0.76 + rim * 0.1 + sheen * 0.05 + contact * 0.08) * shoulderFade * mix(1.0, drapeOpacity, drapeZone) * breathing * uPresence;
+    alpha = mix(alpha, 0.97 * shoulderFade, face);
+    float scalp = face * smoothstep(1.92, 2.04, vWorld.y);
+    alpha *= 1.0 - scalp * 0.86;
     gl_FragColor = vec4(color, alpha);
     #include <colorspace_fragment>
   }
@@ -101,13 +111,13 @@ function createGhostMaterial(tint: string, cutoff: number, brainCenter: Vector3,
     transparent: true,
     depthTest: false,
     depthWrite: false,
-    side: DoubleSide,
+    side: FrontSide,
   });
 }
 
 function GhostBust({ variant, brainCenter, brainRadii }: { variant: 'evil' | 'peeking'; brainCenter: Vector3; brainRadii: Vector3 }) {
   const peeking = variant === 'peeking';
-  const tint = peeking ? '#53cbd5' : '#9563cf';
+  const tint = peeking ? '#3ba8b6' : '#8054b5';
   const { scene } = useGLTF(HUMAN_GHOST_EXPRESSIVE_GLB_URL);
   const material = useMemo(() => createGhostMaterial(tint, 1.58, brainCenter, brainRadii, true), [tint, brainCenter, brainRadii]);
   const rig = useMemo(() => {
@@ -124,11 +134,11 @@ function GhostBust({ variant, brainCenter, brainRadii }: { variant: 'evil' | 'pe
     material.uniforms.uTime.value += delta;
     const time = material.uniforms.uTime.value as number;
     const approach = animateGhostRig(rig, time, variant);
-    material.uniforms.uPresence.value = peeking ? .48 + approach * .52 : 1;
+    material.uniforms.uPresence.value = peeking ? .9 + approach * .1 : 1;
   });
 
   return (
-    <group position={[peeking ? 0.018 : -0.025, 1, peeking ? -0.03 : 0.14]} scale={0.73}>
+    <group position={[0, 1, 0.14]} scale={0.73}>
       <primitive object={rig.scene} position={[0, -1.95, 0]} dispose={null} />
     </group>
   );
