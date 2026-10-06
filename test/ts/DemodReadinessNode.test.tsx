@@ -183,7 +183,9 @@ test("Vision switches readiness to the spatial reference and decoder stages", ()
   ).toHaveTextContent(/34 kHz.*spacing prior/i);
   expect(
     screen.getByTestId("vision-demod-flow-node-apt-output"),
-  ).toHaveTextContent(/per-bin RGB raster.*mapping.*unvalidated/i);
+  ).toHaveTextContent(
+    /band-to-region mapping.*channel band may cover only part of the frame.*spatial references/i,
+  );
   expect(screen.getByTestId("vision-demod-workflow")).not.toHaveTextContent(
     /NOAA|2\.4 kHz|2 lines\/s/i,
   );

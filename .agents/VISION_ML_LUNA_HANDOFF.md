@@ -168,9 +168,14 @@ cone responses. S is the violet/blue preset, M green, L yellow-green extending
 toward red, and Red the existing red preset. RGB targets are authoritative.
 The Channel C baseline is a proposed N-APT interpretation, not traditional NOAA
 APT: ~34 kHz is only a peak/valley spacing prior, not an established pixel clock
-or line cadence. The displayed spike/valley and per-bin RGB-raster nodes are a
-workflow plan, not implemented DSP. No frequency-bin/pixel mapping is assumed;
-reference captures must establish any bin timing and ordering. Solid-color
+or line cadence. The displayed spike/valley and band-to-region nodes are a
+workflow plan, not implemented DSP. Channel C is wide: an individual frequency
+band may support only one portion of the image. The current feature/trainer
+contract consumes all 1024 bins in each captured spectrum window and predicts a
+whole frame; do not feed isolated sub-bands with full-frame labels. No equal,
+linear, or fixed frequency-to-pixel mapping is assumed. Spatial references must
+empirically establish which bands support which image regions, including partial
+or unknown coverage, as well as bin timing and ordering. Solid-color
 classification alone cannot establish spatial reconstruction.
 
 ## Remaining work for Luna, in order
@@ -186,9 +191,12 @@ classification alone cannot establish spatial reconstruction.
    tests. Never silently train on incomplete references.
 2. Add spatial calibration and explicit session-split/dataset controls. Randomize
    trial order and duration; persist actual timing and seeds. Record progress-bar
-   geometry separately and exclude its strip from targets. Acceptance: generated
-   labels match each timeline bin, calibration seeds never cross dataset splits,
-   and interrupted trials cannot enter training. Do not derive labels from names.
+   geometry separately and exclude its strip from targets. Include localized
+   patch/bar references that reveal frequency-band support across image regions.
+   Acceptance: labels match each timeline bin, partial/unknown regional coverage
+   is represented, calibration seeds never cross splits, and interrupted trials
+   cannot enter training. Do not derive labels from names or assume equal/linear
+   band-to-pixel mapping.
 3. Wire the implemented preprocessing contract into a worker fed only by
    verified contiguous 100ms producer windows: 1024 Hann-periodic FFT, hop 512,
    fftshift bins, ten 10ms slices of log power and circular phase differences,

@@ -266,9 +266,9 @@ const createWorkflowGraph = (props: VisionDemodWorkflowFlowProps) => {
       type: "visionDemodWorkflowStep",
       position: { x: 5, y: 313 },
       data: {
-        title: "Per-bin RGB raster",
+        title: "Band-to-region mapping",
         detail:
-          "Reference-derived mapping · bin timing/order still unvalidated",
+          "A channel band may cover only part of the frame · learn from spatial references",
         status: "waiting",
       },
       width: 132,
