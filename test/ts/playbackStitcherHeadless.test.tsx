@@ -189,7 +189,7 @@ describe("headless capture stitcher playback", () => {
   const corpusTest = realCaptureRoot ? it : it.skip;
 
   corpusTest(
-      "stitches and advances up to three frames from each capture",
+    "stitches and advances up to three frames from each capture",
     async () => {
       const root = path.resolve(realCaptureRoot!);
       const capturePaths: string[] = [];
@@ -225,7 +225,9 @@ describe("headless capture stitcher playback", () => {
         ) => Promise<void>;
       }
       const handler = fileWorkerHandler;
-      const aesKey = hasIqCaptures ? await deriveRawKey(passphrase!) : undefined;
+      const aesKey = hasIqCaptures
+        ? await deriveRawKey(passphrase!)
+        : undefined;
       const postMessage = jest
         .spyOn(self, "postMessage")
         .mockImplementation(() => {});
@@ -247,9 +249,13 @@ describe("headless capture stitcher playback", () => {
             if (path.extname(fileName).toLowerCase() === ".wav") {
               await handler({
                 data: {
-                  type: "loadFile",
+                  type: "stitchFiles",
                   id: "capture-corpus-wav-playback",
-                  data: { fileData: fileArrayBuffer, fileName },
+                  data: {
+                    files: [{ fileData: fileArrayBuffer, fileName }],
+                    settings: {},
+                    fftSize: 2048,
+                  },
                 },
               } as MessageEvent);
 
@@ -261,8 +267,8 @@ describe("headless capture stitcher playback", () => {
                 );
               if (
                 wavResult?.type !== "result" ||
-                !(wavResult.data.rawData instanceof Uint8Array) ||
-                wavResult.data.rawData.length < 2
+                !(wavResult.data.fileDataCache[0]?.[1] instanceof Uint8Array) ||
+                wavResult.data.fileDataCache[0][1].length < 2
               ) {
                 failures.push(
                   `${relativeName}: WAV reader did not produce playable audio samples (${wavResult?.error ?? "empty audio data"})`,

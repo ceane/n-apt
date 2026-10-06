@@ -50,11 +50,12 @@ const workerResult = async (
   try {
     await handler({
       data: {
-        type: "loadFile",
+        type: "stitchFiles",
         id: "encryption-compatibility",
         data: {
-          fileData: fileData.slice().buffer,
-          fileName,
+          files: [{ fileData: fileData.slice().buffer, fileName }],
+          settings: {},
+          fftSize: 2,
           aesKey: rawKey,
         },
       },
@@ -151,13 +152,13 @@ describe("encryption compatibility through the capture reader", () => {
     const legacy = await workerResult(legacyCapture, "legacy-v3.napt", rawKey);
 
     expect(current?.type).toBe("result");
-    expect(current.data.metadata.encrypted).toBe(true);
-    expect(current.data.rawData).toEqual(iqBytes);
-    expect(current.data.metadata.format_version).toBe(6);
-    const playbackUpdates = current.data.metadata.frame_updates;
+    expect(current.data.metadataMap[0][1].encrypted).toBe(true);
+    expect(current.data.fileDataCache[0][1]).toEqual(iqBytes);
+    expect(current.data.metadataMap[0][1].format_version).toBe(6);
+    const playbackUpdates = current.data.metadataMap[0][1].frame_updates;
     for (const [frameIndex, byteOffset] of [0, 4, 8].entries()) {
       const frame = getIqFrameAtOffset(
-        current.data.rawData,
+        current.data.fileDataCache[0][1],
         byteOffset,
         2,
         playbackUpdates,
@@ -168,8 +169,8 @@ describe("encryption compatibility through the capture reader", () => {
       );
     }
     expect(legacy?.type).toBe("result");
-    expect(legacy.data.rawData).toEqual(iqBytes);
-    expect(legacy.data.metadata.format_version).toBe(3);
+    expect(legacy.data.fileDataCache[0][1]).toEqual(iqBytes);
+    expect(legacy.data.metadataMap[0][1].format_version).toBe(3);
 
     const wrongKey = await deriveRawKey("incorrect-passphrase");
     const rejected = await workerResult(

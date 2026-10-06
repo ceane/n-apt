@@ -110,9 +110,7 @@ export class FileWorkerManager {
 
       // Handle transferable objects
       const transferables: Transferable[] = [];
-      if (type === "loadFile" && data.fileData instanceof ArrayBuffer) {
-        transferables.push(data.fileData);
-      } else if (type === "stitchFiles" && Array.isArray(data.files)) {
+      if (type === "stitchFiles" && Array.isArray(data.files)) {
         for (const fileItem of data.files) {
           if (fileItem.fileData instanceof ArrayBuffer) {
             transferables.push(fileItem.fileData);
@@ -130,21 +128,6 @@ export class FileWorkerManager {
         this.pendingRequests.delete(id);
         reject(error);
       }
-    });
-  }
-
-  async loadFile(fileId: string, aesKey?: CryptoKey | null): Promise<any> {
-    const file = fileRegistry.get(fileId);
-    if (!file) throw new Error("File not found in registry");
-
-    const fileData = await file.arrayBuffer();
-    const rawAesKey = aesKey
-      ? await crypto.subtle.exportKey("raw", aesKey)
-      : null;
-    return this.sendMessage("loadFile", {
-      fileData,
-      fileName: file.name,
-      aesKey: rawAesKey,
     });
   }
 
@@ -186,24 +169,6 @@ export class FileWorkerManager {
       },
       onProgress,
     );
-  }
-
-  async buildFrame(
-    frame: number,
-    fileDataCache: [string, number[]][],
-    freqMap: [string, number][],
-    metadataMap: [string, any][],
-  ): Promise<any> {
-    return this.sendMessage("buildFrame", {
-      frame,
-      fileDataCache,
-      freqMap,
-      metadataMap,
-    });
-  }
-
-  async getFrame(frameIndex: number, precomputedFrames: any[]): Promise<any> {
-    return this.sendMessage("getFrame", { frameIndex, precomputedFrames });
   }
 
   private rejectAllPending(error: Error): void {
