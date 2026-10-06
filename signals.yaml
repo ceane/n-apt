@@ -63,16 +63,36 @@ signals:
       label: "A"
       freq_range_hz: !frequency_range 18kHz..4.39MHz
       description: "The potentially primary N-APT channel, notably on the lowe end of the spectrum, encompassing features like audio, voice, physiological effects and more."
+      # `prerequisite_for` maps stable demod flow IDs to channel-group rules:
+      # `any` makes this channel an eligible alternative; `all` means every
+      # channel tagged for that flow must be configured with a valid range.
+      prerequisite_for:
+        demod.stimulus.audio: any
+        demod.stimulus.apt: any
+        demod.stimulus.internal: any
+        demod.stimulus.speech: any
+        demod.audio_survey: all
     b:
       label: "B"
       freq_range_hz: !frequency_range 24.1MHz..30.37MHz
       # Alternate observed range retained for reference, not used by the loader.
       # freq_range_hz: !frequency_range 24.72MHz..29.88MHz
       description: "This channel is sometimes identical to Channel A but has more powerful spikes, potentially due to operating on others further distant (known effects are speech, slight physiology, atttention, etc.) OR this channel being responsible for manipulating intellectual cognitive infrastructure and processing like reasoning, memory and general consciousness."
+      # Entries for a flow are combined across channels using the same `any`
+      # and `all` semantics described above.
+      prerequisite_for:
+        demod.stimulus.audio: any
+        demod.stimulus.apt: any
+        demod.stimulus.internal: any
+        demod.stimulus.speech: any
+        demod.audio_survey: all
     c:
       label: "C"
       freq_range_hz: !frequency_range 4.75MHz..23MHz
       description: "This channel is the assumed largest N-APT channel, carrying heavy content and data like vision (read-only), imagination (read and write), dreams and potentially more related to visual/temporal lobe content."
+      # Flow IDs use the same `prerequisite_for` schema described on Channel A.
+      prerequisite_for:
+        demod.stimulus.vision: all
 
   # SDR hardware and processing settings
   sdr:

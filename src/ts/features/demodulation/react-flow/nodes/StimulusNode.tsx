@@ -32,8 +32,12 @@ import {
 } from "./audioWaveformPreview";
 import {
   evaluateStimulusChannelAccess,
-  getRequiredStimulusChannelLabels,
+  type StimulusChannelBounds,
 } from "./stimulusChannelPolicy";
+import {
+  getChannelPrerequisite,
+  type DemodFlowId,
+} from "@n-apt/demodulation/channelPrerequisites";
 import type { AudioSurveyReferenceLabel } from "@n-apt/demodulation/survey/audioSurveyModel";
 
 const durationSchema = z.number().min(5).max(60);
@@ -66,11 +70,22 @@ const baselineOptions: Array<{ value: AnalysisType; label: string }> = [
   { value: "vision", label: "Vision" },
 ];
 
-const describeRequiredChannels = (analysisType: AnalysisType) => {
-  const labels = getRequiredStimulusChannelLabels(analysisType);
+const describeRequiredChannels = (
+  analysisType: AnalysisType,
+  channels: readonly StimulusChannelBounds[] | null | undefined,
+) => {
+  const prerequisite = getChannelPrerequisite(
+    `demod.stimulus.${analysisType}` as DemodFlowId,
+    channels,
+  );
+  const { channelLabels: labels } = prerequisite;
+  if (!prerequisite.available || labels.length === 0) {
+    return "channel requirement unavailable";
+  }
+  const joiner = prerequisite.mode === "all" ? " and " : " or ";
   return labels.length === 1
     ? `Channel ${labels[0]}`
-    : `Channels ${labels.join("/")}`;
+    : labels.map((label) => `Channel ${label}`).join(joiner);
 };
 
 // Audio preview components
@@ -1140,16 +1155,17 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               disabled={isBusy}
             >
               {baselineOptions.map((option) => {
-                const requiredChannels = getRequiredStimulusChannelLabels(
-                  option.value,
-                );
+                const requiredChannels = getChannelPrerequisite(
+                  `demod.stimulus.${option.value}` as DemodFlowId,
+                  channels,
+                ).channelLabels;
                 return (
                   <option
                     key={option.value}
                     value={option.value}
                     data-required-channels={requiredChannels.join(",")}
                   >
-                    {option.label} · {describeRequiredChannels(option.value)}
+                  {option.label} · {describeRequiredChannels(option.value, channels)}
                   </option>
                 );
               })}

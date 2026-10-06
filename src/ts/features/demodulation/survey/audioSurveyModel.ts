@@ -20,6 +20,7 @@ export interface SurveyChannelRange {
   label: string;
   minHz: number;
   maxHz: number;
+  prerequisite_for?: Partial<Record<string, "any" | "all">>;
 }
 
 export interface AudioSurveyView {
@@ -137,8 +138,9 @@ export const advanceAudioSurveyCheckpoint = (
 };
 
 /**
- * Plan endpoint-aligned, independent receiver views for A and B. Each view
- * spans the full complex sample rate; overlaps remain separate observations.
+ * Plan endpoint-aligned receiver views for every channel declared as an
+ * audio-survey prerequisite. Each view spans the full complex sample rate;
+ * overlaps remain separate observations.
  */
 export const buildAudioSurveyViews = (
   channels: readonly SurveyChannelRange[],
@@ -148,24 +150,34 @@ export const buildAudioSurveyViews = (
     throw new Error("Survey sample rate must be a positive finite value");
   }
 
-  const selected = (["a", "b"] as const).map((channelId) => {
-    const channel = channels.find(
-      (candidate) =>
-        candidate.id.toLowerCase() === channelId ||
-        candidate.label.toLowerCase() === channelId,
+  const selected = channels.filter(
+    (channel) =>
+      channel.prerequisite_for?.["demod.audio_survey"] === "all",
+  );
+  if (selected.length === 0) {
+    throw new Error(
+      "No channels declare the demod.audio_survey prerequisite",
     );
-    if (!channel) {
-      throw new Error(`Configured Channel ${channelId.toUpperCase()} is missing`);
-    }
+  }
+  if (
+    channels.some(
+      (channel) =>
+        channel.prerequisite_for?.["demod.audio_survey"] === "any",
+    )
+  ) {
+    throw new Error(
+      "demod.audio_survey requires every prerequisite channel to use all mode",
+    );
+  }
+  for (const channel of selected) {
     if (
       !Number.isFinite(channel.minHz) ||
       !Number.isFinite(channel.maxHz) ||
       channel.maxHz <= channel.minHz
     ) {
-      throw new Error(`Configured Channel ${channelId.toUpperCase()} is invalid`);
+      throw new Error(`Configured Channel ${channel.label} is invalid`);
     }
-    return channel;
-  });
+  }
 
   return selected.flatMap((channel) => {
     const spanHz = channel.maxHz - channel.minHz;

@@ -146,6 +146,7 @@ export type SpectrumFrame = {
   min_hz: number;
   max_hz: number;
   description: string;
+  prerequisite_for?: Partial<Record<string, "any" | "all">>;
 };
 
 export type MirroredDisplayRange = {

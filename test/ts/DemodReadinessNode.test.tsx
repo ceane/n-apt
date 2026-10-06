@@ -48,9 +48,26 @@ describe("DemodReadinessNode", () => {
           spectrum: { frequencyRange: null },
           websocket: {
             channels: [
-              { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
-              { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
-              { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
+              {
+                id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000,
+                prerequisite_for: {
+                  "demod.stimulus.audio": "any", "demod.stimulus.apt": "any",
+                  "demod.stimulus.internal": "any", "demod.stimulus.speech": "any",
+                  "demod.audio_survey": "all",
+                },
+              },
+              {
+                id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000,
+                prerequisite_for: {
+                  "demod.stimulus.audio": "any", "demod.stimulus.apt": "any",
+                  "demod.stimulus.internal": "any", "demod.stimulus.speech": "any",
+                  "demod.audio_survey": "all",
+                },
+              },
+              {
+                id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000,
+                prerequisite_for: { "demod.stimulus.vision": "all" },
+              },
             ],
           },
         }}

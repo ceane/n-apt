@@ -484,6 +484,7 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
       min_hz,
       max_hz,
       description: f.description,
+      prerequisite_for: f.prerequisite_for,
     });
   }
   out
@@ -1027,6 +1028,7 @@ mod tests {
         label: "A".to_string(),
         freq_range_hz: vec![18_000.0, 4_390_000.0],
         description: "A".to_string(),
+        prerequisite_for: None,
       },
     );
     channels.insert(
@@ -1035,6 +1037,7 @@ mod tests {
         label: "C".to_string(),
         freq_range_hz: vec![4_750_000.0, 23_000_000.0],
         description: "C".to_string(),
+        prerequisite_for: None,
       },
     );
     let floor = compute_min_receive_sample_rate(&channels, 20_000_000);
@@ -1260,6 +1263,8 @@ signals:
       label: "C"
       freq_range_hz: [11000000.0, 23000000.0]
       description: "C"
+      prerequisite_for:
+        demod.stimulus.vision: all
     a:
       label: "A"
       freq_range_hz: [18000.0, 4370000.0]
@@ -1268,6 +1273,9 @@ signals:
       label: "B"
       freq_range_hz: [24720000.0, 29880000.0]
       description: "B"
+      prerequisite_for:
+        demod.stimulus.audio: any
+        demod.audio_survey: all
   sdr:
     sample_rate: 3200000
     center_frequency: 137500000
@@ -1295,6 +1303,23 @@ signals:
       config.signals.channels.keys().cloned().collect();
     assert_eq!(ordered_ids, vec!["c", "a", "b"]);
 
+    let vision_requirement = config.signals.channels["c"]
+      .prerequisite_for
+      .as_ref()
+      .unwrap()["demod.stimulus.vision"];
+    assert_eq!(
+      vision_requirement,
+      crate::server::types::ChannelPrerequisiteMode::All
+    );
+    let audio_requirement = config.signals.channels["b"]
+      .prerequisite_for
+      .as_ref()
+      .unwrap()["demod.stimulus.audio"];
+    assert_eq!(
+      audio_requirement,
+      crate::server::types::ChannelPrerequisiteMode::Any
+    );
+
     let mut out = Vec::new();
     for (id, f) in config.signals.channels.clone() {
       out.push((id, f.label));
@@ -1307,6 +1332,26 @@ signals:
         ("a".to_string(), "A".to_string()),
         ("b".to_string(), "B".to_string())
       ]
+    );
+
+    let channel_messages = config
+      .signals
+      .channels
+      .iter()
+      .map(|(id, channel)| crate::server::types::SpectrumFrameMessage {
+        id: id.clone(),
+        label: channel.label.clone(),
+        min_hz: channel.freq_range_hz[0],
+        max_hz: channel.freq_range_hz[1],
+        description: channel.description.clone(),
+        prerequisite_for: channel.prerequisite_for.clone(),
+      })
+      .collect::<Vec<_>>();
+    let serialized =
+      serde_json::to_value(channel_messages).expect("serialize channels");
+    assert_eq!(
+      serialized[2]["prerequisite_for"]["demod.audio_survey"],
+      "all"
     );
   }
 

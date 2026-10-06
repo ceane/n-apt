@@ -40,5 +40,21 @@ fn test_signals_yaml_normalization_e2e() {
       ch.min_hz,
       ch.max_hz
     );
+
+    let expected_flow = match ch.id.as_str() {
+      "a" | "b" => Some("demod.audio_survey"),
+      "c" => Some("demod.stimulus.vision"),
+      _ => None,
+    };
+    if let Some(flow_id) = expected_flow {
+      assert!(
+        ch.prerequisite_for
+          .as_ref()
+          .is_some_and(|prerequisites| prerequisites.contains_key(flow_id)),
+        "Channel {} should expose prerequisite metadata for {}",
+        ch.id,
+        flow_id
+      );
+    }
   }
 }

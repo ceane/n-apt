@@ -368,12 +368,16 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const surveyChannels = useMemo<SurveyChannelRange[]>(() => {
     const seen = new Set<string>();
     return (Array.isArray(effectiveFrames) ? effectiveFrames : [])
-      .filter((frame) => ["a", "b"].includes(frame.label?.toLowerCase()))
+      .filter(
+        (frame) =>
+          frame.prerequisite_for?.["demod.audio_survey"] !== undefined,
+      )
       .map((frame) => ({
-        id: frame.label.toLowerCase(),
+        id: frame.id,
         label: frame.label,
         minHz: frame.min_hz,
         maxHz: frame.max_hz,
+        prerequisite_for: frame.prerequisite_for,
       }))
       .filter((channel) => {
         if (seen.has(channel.id)) return false;
@@ -864,7 +868,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const createAudioSurveyRunner = useCallback(() => {
     if (surveyChannels.length === 0) {
-      throw new Error("Configured Channel A and Channel B ranges are not available yet");
+      throw new Error(
+        "Configured audio survey prerequisite channel ranges are not available yet",
+      );
     }
     return new AudioSurveyRunner({
       channels: surveyChannels,
@@ -1178,7 +1184,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           resumeAfterCapture = pausedJob.status === "paused";
         }
         if (surveyChannels.length === 0) {
-          throw new Error("Channel A and B metadata is required for a paired stimulus capture");
+          throw new Error(
+            "Configured audio survey prerequisite channel metadata is required for a paired stimulus capture",
+          );
         }
         const centerFrequencyHz =
           demodState.bandwidthCenterFreqHz ??
@@ -1190,7 +1198,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             centerFrequencyHz <= candidate.maxHz,
         );
         if (!channel) {
-          throw new Error("Select a demodulation frequency in Channel A or B before capturing a stimulus pair");
+          const allowedLabels = surveyChannels
+            .map((candidate) => candidate.label)
+            .join(" or ");
+          throw new Error(
+            `Select a demodulation frequency in ${allowedLabels} before capturing a stimulus pair`,
+          );
         }
         const algorithm =
           demodState.algorithm === "am"

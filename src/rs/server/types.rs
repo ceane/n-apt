@@ -1271,6 +1271,15 @@ pub struct SpectrumFrameConfig {
   #[serde(rename = "freq_range_hz", alias = "freq_range_mhz")]
   pub freq_range_hz: Vec<f64>,
   pub description: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub prerequisite_for: Option<IndexMap<String, ChannelPrerequisiteMode>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChannelPrerequisiteMode {
+  Any,
+  All,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1280,6 +1289,8 @@ pub struct SpectrumFrameMessage {
   pub min_hz: f64,
   pub max_hz: f64,
   pub description: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub prerequisite_for: Option<IndexMap<String, ChannelPrerequisiteMode>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
