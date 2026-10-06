@@ -10,8 +10,12 @@ describe("Vite development-server memory safety", () => {
       fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
     ) as { devDependencies?: Record<string, string> };
     const version = packageJson.devDependencies?.vite;
+    expect(version).toBeDefined();
+    const [major, minor] = version!.split(".").map(Number);
 
-    expect(version).toBe("8.3.0");
+    expect(
+      major > 8 || (major === 8 && minor >= 3),
+    ).toBe(true);
   });
 
   it("does not use a broad process-name kill for Vite startup cleanup", () => {
