@@ -240,6 +240,21 @@ export const buildTimeDomainIqWindow = (
   return output;
 };
 
+/** Prepare the complete raw I/Q and Fourier feature vector used by the model. */
+export const buildTimeDomainModelInputWindow = (
+  example: PairedAudioTrainingExample,
+  pcmSampleIndex: number,
+): Float32Array => {
+  const iq = buildTimeDomainIqWindow(example, pcmSampleIndex);
+  const output = new Float32Array(TIME_DOMAIN_MODEL_INPUT_SIZE);
+  output.set(iq);
+  fillTimeDomainFourierFeatures(
+    iq,
+    output.subarray(TIME_DOMAIN_IQ_FEATURE_SIZE),
+  );
+  return output;
+};
+
 const createRandom = (seed: number) => {
   let state = seed >>> 0 || 0x6d2b79f5;
   return () => {

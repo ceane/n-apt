@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { execFileSync } from "node:child_process";
 import {
+  buildTimeDomainModelInputWindow,
   buildTimeDomainIqWindow,
   trainTimeDomainDemodModel,
   predictTimeDomainAudio,
@@ -8,6 +9,7 @@ import {
   predictTimeDomainAudioRange,
   TimeDomainDemodStream,
   TIME_DOMAIN_INPUT_SIZE,
+  TIME_DOMAIN_MODEL_INPUT_SIZE,
   TIME_DOMAIN_WINDOW_COMPLEX_SAMPLES,
 } from "@n-apt/demodulation/survey/audioSurveyMl";
 import { serializeTimeDomainModelToOnnx } from "@n-apt/demodulation/survey/audioSurveyOnnx";
@@ -223,13 +225,17 @@ describe("local time-domain audio model", () => {
       maxTrainingSamples: 128,
       seed: 19,
     });
-    const windows = [200, 201, 202].map((sampleIndex) =>
+    const sampleIndices = [200, 201, 202];
+    const windows = sampleIndices.map((sampleIndex) =>
+      buildTimeDomainModelInputWindow(example, sampleIndex),
+    );
+    const rawWindows = sampleIndices.map((sampleIndex) =>
       buildTimeDomainIqWindow(example, sampleIndex),
     );
     const input = Float32Array.from(
       windows.flatMap((window) => Array.from(window)),
     );
-    const expected = windows.map((window) =>
+    const expected = rawWindows.map((window) =>
       predictTimeDomainIqWindow(model, window),
     );
     const onnxModel = serializeTimeDomainModelToOnnx(model);
@@ -246,7 +252,7 @@ describe("local time-domain audio model", () => {
               const session = await ort.InferenceSession.create(model);
               try {
                 const result = await session.run({
-                  iq_windows: new ort.Tensor("float32", input, [input.length / 128, 128]),
+                  iq_fourier_windows: new ort.Tensor("float32", input, [input.length / ${TIME_DOMAIN_MODEL_INPUT_SIZE}, ${TIME_DOMAIN_MODEL_INPUT_SIZE}]),
                 });
                 process.stdout.write(JSON.stringify({
                   inputNames: session.inputNames,
@@ -273,7 +279,7 @@ describe("local time-domain audio model", () => {
       ),
     );
 
-    expect(execution.inputNames).toEqual(["iq_windows"]);
+    expect(execution.inputNames).toEqual(["iq_fourier_windows"]);
     expect(execution.outputNames).toEqual(["pcm"]);
     expect(execution.values).toHaveLength(expected.length);
     execution.values.forEach((value: number, index: number) => {
