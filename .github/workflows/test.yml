@@ -121,7 +121,7 @@ jobs:
         run: node scripts/setup/configure_test_redis.mjs
 
       - name: Compile check (warnings are errors)
-        run: RUSTFLAGS="-D warnings" cargo check --workspace --all-targets
+        run: RUSTFLAGS="-D warnings" cargo check --profile dev-incremental --workspace --all-targets
 
       - name: Run Rust tests
         run: |
@@ -146,7 +146,7 @@ jobs:
 
           run_selected_tests() {
             for test_name in "$@"; do
-              cargo nextest run --test "$test_name"
+              cargo nextest run --cargo-profile dev-incremental --test "$test_name"
             done
           }
 
@@ -185,8 +185,8 @@ jobs:
 
       - name: Run Rust Performance Tests
         run: |
-          cargo --config .cargo/performance.toml test --test performance_tests --release -- --nocapture
-          cargo test --test performance_program_tests
+          cargo --config .cargo/performance.toml test --test performance_tests --profile release -- --nocapture
+          cargo test --profile dev-incremental --test performance_program_tests
 
       - name: Compile report-only uncapped benchmarks
         run: cargo bench --bench pipeline_benchmarks --no-run
@@ -290,7 +290,7 @@ jobs:
         run: npm run build:rust
 
       - name: Generate Encrypted Test Artifacts
-        run: cargo test --test encryption_e2e_tests generate_test_artifacts -- --nocapture
+        run: cargo test --profile dev-incremental --test encryption_e2e_tests generate_test_artifacts -- --nocapture
 
       - name: Run all integration tests
         run: npm run test:integration

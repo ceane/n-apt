@@ -8,7 +8,7 @@ import { pruneRustArtifacts } from '../../scripts/build/rustArtifactCache.mjs';
 test('prunes stale unused objects but preserves current artifacts, recent files, and other profiles', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'test_rust_cache_'));
   try {
-    const profile = path.join(root, 'dev-fast');
+    const profile = path.join(root, 'dev-incremental');
     const deps = path.join(profile, 'deps');
     fs.mkdirSync(deps, { recursive: true });
     const live = path.join(deps, 'liblive-123.rlib');
@@ -58,7 +58,7 @@ test('build wrapper retains fresh dependencies and skips cleanup after a failed 
   const { spawnSync } = await import('node:child_process');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'test_rust_build_'));
   try {
-    const profile = path.join(root, 'target', 'dev-fast');
+    const profile = path.join(root, 'target', 'dev-incremental');
     const deps = path.join(profile, 'deps');
     fs.mkdirSync(deps, { recursive: true });
     const live = path.join(deps, 'liblive-123.rlib');

@@ -235,13 +235,7 @@ wasm-opt = false
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
 
-[profile.dev]
-opt-level = 0
-incremental = true
-debug = true
-codegen-units = 16
-
-[profile.dev-fast]
+[profile.dev-incremental]
 inherits = "dev"
 opt-level = 3
 debug = 1
@@ -251,6 +245,7 @@ codegen-units = 16
 incremental = true
 
 [profile.release]
+incremental = true
 opt-level = 3
 lto = "thin"
 codegen-units = 1

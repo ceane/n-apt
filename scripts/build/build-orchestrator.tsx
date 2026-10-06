@@ -1105,7 +1105,7 @@ const BuildOrchestrator = () => {
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          `node scripts/build/rustBuild.mjs --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
+          `node scripts/build/rustBuild.mjs --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend',
           stepIndex
         );
@@ -1139,8 +1139,8 @@ const BuildOrchestrator = () => {
         addLog(chalk.blue('Starting Rust backend in background...'));
         const startCommand: BackgroundCommand = {
           executable: isNativeWindows
-            ? path.resolve('target/dev-fast/n-apt-backend.exe')
-            : path.resolve('target/dev-fast/n-apt-backend'),
+            ? path.resolve('target/dev-incremental/n-apt-backend.exe')
+            : path.resolve('target/dev-incremental/n-apt-backend'),
           args: [],
           env: {
             WEBSOCKETS_URL: `http://127.0.0.1:${backendPort}`,
@@ -1302,7 +1302,7 @@ sleep 0.5
     exit 1
   fi
   echo "[Rust] Running cargo check before config validation..."
-  cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
+  cargo check --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
   `,
           description: 'Validating Rust backend code',
           isBackground: false,
@@ -1315,11 +1315,11 @@ sleep 0.5
             : `
   set -euo pipefail
   echo "[Config] Loading signals.yaml through the Rust backend (--validate-config)..."
-  if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
-    ./target/dev-fast/n-apt-backend --validate-config 2>&1
+  if [ -f "./target/dev-incremental/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
+    ./target/dev-incremental/n-apt-backend --validate-config 2>&1
   else
     echo "[Config] Backend binary unavailable; cargo may compile Rust before config validation."
-    cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
+    cargo run --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
   fi
   `,
           description: 'Validating signals.yaml (via backend config loader)',
@@ -1835,8 +1835,8 @@ exit 1
       const newPort = await findAvailableTcpPort(backendPortRef.current + 1);
       const candidateCommand: BackgroundCommand = {
         executable: isNativeWindows
-          ? path.resolve('target/dev-fast/n-apt-backend.exe')
-          : path.resolve('target/dev-fast/n-apt-backend'),
+          ? path.resolve('target/dev-incremental/n-apt-backend.exe')
+          : path.resolve('target/dev-incremental/n-apt-backend'),
         args: [],
         env: {
           WEBSOCKETS_URL: `http://127.0.0.1:${newPort}`,
@@ -1994,8 +1994,8 @@ exit 1
         '[HOT-RELOAD] Rebuilding Rust backend...',
       );
 
-      const checkCommand = `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
-      const buildCommand = `node scripts/build/rustBuild.mjs --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
+      const checkCommand = `cargo check --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
+      const buildCommand = `node scripts/build/rustBuild.mjs --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
       let buildTimedOut = false;
       const buildWatchdog = setInterval(() => {
         if (
@@ -2027,7 +2027,7 @@ exit 1
             output: 'Skipping separate cargo check; cargo build will validate Rust backend compilation.',
           }),
         cargoBuild: async () => {
-          const binPath = isNativeWindows ? 'target\\dev-fast\\n-apt-backend.exe' : 'target/dev-fast/n-apt-backend';
+          const binPath = isNativeWindows ? 'target\\dev-incremental\\n-apt-backend.exe' : 'target/dev-incremental/n-apt-backend';
           try {
             if (fs.existsSync(binPath)) {
               fs.renameSync(binPath, `${binPath}.old`);
@@ -2484,7 +2484,7 @@ async function runNonTtyBuild() {
         return executeCommandNonTty(
           isNativeWindows
             ? 'echo Config validation skipped'
-            : `echo "[Rust] Running cargo check before config validation..." && cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
+            : `echo "[Rust] Running cargo check before config validation..." && cargo check --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
           'Validating Rust backend code'
         );
       }
@@ -2495,11 +2495,11 @@ async function runNonTtyBuild() {
       run: () => executeCommandNonTty(
         isNativeWindows ? 'echo Validation skipped' : `
           echo "[Config] Loading signals.yaml through the Rust backend (--validate-config)..."
-          if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
-            ./target/dev-fast/n-apt-backend --validate-config 2>&1
+          if [ -f "./target/dev-incremental/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
+            ./target/dev-incremental/n-apt-backend --validate-config 2>&1
           else
             echo "[Config] Backend binary unavailable; cargo may compile Rust before config validation."
-            cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
+            cargo run --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
           fi
         `,
         'Validating signals.yaml (via backend config loader)'
@@ -2587,12 +2587,12 @@ node scripts/redis/promote_tower_staging.cjs`,
         console.log('N-APT, Almost done building...');
 
         const buildRes = await executeCommandNonTty(
-          `node scripts/build/rustBuild.mjs --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
+          `node scripts/build/rustBuild.mjs --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend'
         );
         if (!buildRes.success) return { success: false, output: buildRes.output };
 
-        const startCommand = isNativeWindows ? 'target\\dev-fast\\n-apt-backend.exe' : './target/dev-fast/n-apt-backend';
+        const startCommand = isNativeWindows ? 'target\\dev-incremental\\n-apt-backend.exe' : './target/dev-incremental/n-apt-backend';
         const startRes = await startBackgroundProcessNonTty(startCommand, 'Rust backend');
         if (!startRes) return { success: false, output: '' };
 
