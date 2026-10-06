@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import "@testing-library/jest-dom";
@@ -30,6 +31,8 @@ const mockDemodValue: {
     startTime: number | null;
   };
   selectedBaseline: string;
+  visionPreset: string;
+  setVisionPreset: jest.Mock;
   setSelectedBaseline: jest.Mock;
   liveMode: boolean;
   setLiveMode: jest.Mock;
@@ -39,6 +42,8 @@ const mockDemodValue: {
 } = {
   analysisSession: { state: "idle", type: "audio", startTime: null },
   selectedBaseline: "audio",
+  visionPreset: "Red",
+  setVisionPreset: jest.fn(),
   setSelectedBaseline: jest.fn(),
   liveMode: false,
   setLiveMode: jest.fn(),
@@ -87,7 +92,18 @@ jest.mock("@n-apt/spectrum/public/FIFOWaterfall", () => ({
 }));
 
 describe("StimulusNode", () => {
+  let previousScreenDetails: PropertyDescriptor | undefined;
+  let previousRequestFullscreen: PropertyDescriptor | undefined;
+
   beforeEach(() => {
+    previousScreenDetails = Object.getOwnPropertyDescriptor(
+      window,
+      "getScreenDetails",
+    );
+    previousRequestFullscreen = Object.getOwnPropertyDescriptor(
+      document.documentElement,
+      "requestFullscreen",
+    );
     jest.useFakeTimers();
     nextAnimationFrame = null;
     jest
@@ -156,6 +172,20 @@ describe("StimulusNode", () => {
     jest.restoreAllMocks();
     jest.useRealTimers();
     mockAudioContext = null;
+    if (previousScreenDetails) {
+      Object.defineProperty(window, "getScreenDetails", previousScreenDetails);
+    } else {
+      Reflect.deleteProperty(window, "getScreenDetails");
+    }
+    if (previousRequestFullscreen) {
+      Object.defineProperty(
+        document.documentElement,
+        "requestFullscreen",
+        previousRequestFullscreen,
+      );
+    } else {
+      Reflect.deleteProperty(document.documentElement, "requestFullscreen");
+    }
   });
 
   const defaultProps = {
@@ -543,7 +573,83 @@ describe("StimulusNode", () => {
     expect(button).toBeInTheDocument();
   });
 
-  it("gates audio and speech to A/B while allowing vision on C", () => {
+  it("selects an available display and stores the exact Vision preset labels", async () => {
+    const mainDisplay = {
+      label: "Studio",
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      isPrimary: true,
+    };
+    const getScreenDetails = jest.fn().mockResolvedValue({
+      screens: [mainDisplay],
+      currentScreen: mainDisplay,
+    });
+    Object.defineProperty(window, "getScreenDetails", {
+      configurable: true,
+      value: getScreenDetails,
+    });
+    const requestFullscreen = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    render(
+      <TestWrapper
+        preloadedState={{
+          demod: { centerFreqHz: 10_000_000 },
+          spectrum: { frequencyRange: null },
+          websocket: {
+            channels: [
+              {
+                id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000,
+                prerequisite_for: { "demod.stimulus.vision": "all" },
+              },
+            ],
+            activeSourceId: "rtl-1",
+            sources: [
+              {
+                id: "rtl-1",
+                name: "RTL-SDR Blog V4",
+                kind: "rtl_sdr",
+                capability: "rx",
+                status: "receiving",
+              },
+            ],
+          },
+        }}
+      >
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Baseline Vector" }),
+      { target: { value: "vision" } },
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Vision color screen" }),
+      { target: { value: "L" } },
+    );
+    expect(screen.getByRole("button", { name: "TRIGGER" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose display" }));
+    await screen.findByRole("option", { name: /Studio/ });
+    fireEvent.click(screen.getByRole("button", { name: "TRIGGER" }));
+    await waitFor(() =>
+      expect(mockDemodValue.startAnalysis).toHaveBeenCalled(),
+    );
+    expect(requestFullscreen).toHaveBeenCalledWith({ screen: mainDisplay });
+    const lastStartAnalysisCall =
+      mockDemodValue.startAnalysis.mock.calls[
+        mockDemodValue.startAnalysis.mock.calls.length - 1
+      ];
+    expect(lastStartAnalysisCall?.[6]).toEqual([
+      "vision-stimulus:L",
+      "vision-rgb:191,255,0",
+    ]);
+  });
+
+  it("gates audio and speech to A/B while allowing vision on C", async () => {
     render(
       <TestWrapper
         preloadedState={{
@@ -595,11 +701,91 @@ describe("StimulusNode", () => {
 
     fireEvent.change(baseline, { target: { value: "speech" } });
     expect(trigger).toBeDisabled();
-    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith("speech");
+    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith(
+      "speech",
+    );
 
     fireEvent.change(baseline, { target: { value: "vision" } });
+    expect(trigger).toBeDisabled();
+    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith(
+      "vision",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Choose display" }));
+    await screen.findByRole("option", { name: /Current display/ });
     expect(trigger).toBeEnabled();
-    expect(mockDemodValue.setSelectedBaseline).toHaveBeenLastCalledWith("vision");
+  });
+
+  it("allows a clearly marked ephemeral vision test with Mock APT SDR", async () => {
+    const requestFullscreen = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    mockDemodValue.startAnalysis.mockClear();
+    render(
+      <TestWrapper
+        preloadedState={{
+          demod: { centerFreqHz: 10_000_000 },
+          spectrum: { frequencyRange: null },
+          websocket: {
+            channels: [
+              {
+                id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000,
+                prerequisite_for: { "demod.stimulus.vision": "all" },
+              },
+            ],
+            activeSourceId: "mock-apt",
+            sources: [
+              {
+                id: "mock-apt",
+                name: "Mock APT SDR",
+                kind: "mock_apt",
+                capability: "mock",
+                is_mock: true,
+                status: "receiving",
+              },
+            ],
+          },
+        }}
+      >
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Baseline Vector" }),
+      {
+        target: { value: "vision" },
+      },
+    );
+    const trigger = screen.getByRole("button", { name: "TRIGGER" });
+    expect(trigger).toBeDisabled();
+    expect(
+      within(trigger).getByTestId("trigger-warning-icon"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Choose display" }));
+    await screen.findByRole("option", { name: /Current display/ });
+
+    expect(trigger).toBeEnabled();
+    expect(screen.getByTestId("vision-mock-test-notice")).toHaveTextContent(
+      /ephemeral.*not be saved as a training reference/i,
+    );
+
+    await act(async () => {
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    expect(requestFullscreen).toHaveBeenCalled();
+    expect(mockDemodValue.startAnalysis).toHaveBeenCalledWith(
+      "vision",
+      true,
+      5,
+      undefined,
+      undefined,
+      undefined,
+      expect.arrayContaining(["vision-test-only:mock-source"]),
+    );
   });
 
   it("renders live capture checkbox", () => {

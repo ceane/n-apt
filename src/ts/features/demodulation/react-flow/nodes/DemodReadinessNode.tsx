@@ -7,7 +7,9 @@ import { formatFrequency } from "@n-apt/math/frequency";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import { useDemodAudio } from "@n-apt/demodulation/context/DemodAudioContext";
 import { AudioDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/AudioDemodWorkflowFlow";
+import { VisionDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/VisionDemodWorkflowFlow";
 import { evaluateStimulusChannelAccess } from "@n-apt/demodulation/react-flow/nodes/stimulusChannelPolicy";
+import { getVisionReceiverLabel } from "@n-apt/demodulation/vision/visionSourcePolicy";
 
 const ReadinessCard = styled.section`
   width: 100%;
@@ -74,10 +76,17 @@ const StatusPanel = styled.div<{ $warning: boolean }>`
 
 const StatusHeading = styled.div`
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
   margin-bottom: 6px;
   font-weight: 700;
+`;
+
+const StatusPrimaryReason = styled.span`
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 10px;
+  font-weight: 500;
 `;
 
 const ReasonList = styled.ul`
@@ -150,6 +159,7 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
     analysisSession,
     demodQualityStatus,
     selectedBaseline,
+    visionPreset,
     audioSurveyJob,
     audioSurveyCandidates,
     audioSurveyTraining,
@@ -164,6 +174,7 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+  const sources = useAppSelector((state) => state.websocket.sources);
   const replayCaptureCount = useAppSelector(
     (state) => state.waterfall.selectedFiles.length,
   );
@@ -195,6 +206,23 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
     selectedBaseline === "speech";
   const sourceReady =
     sourceMode === "file" ? replayCaptureCount > 0 : Boolean(activeSourceId);
+  const selectedVisionReceiver = getVisionReceiverLabel(
+    sourceMode === "file"
+      ? undefined
+      : sources?.find((source) => source.id === activeSourceId),
+  );
+  const visionChannelLabel = channelAccess.requiredChannelLabels[0] ?? null;
+  const visionChannel = channels.find(
+    (channel) =>
+      channel.label?.trim().toUpperCase() === visionChannelLabel,
+  );
+  const visionChannelRangeLabel =
+    visionChannel &&
+    Number.isFinite(visionChannel.min_hz) &&
+    Number.isFinite(visionChannel.max_hz) &&
+    visionChannel.max_hz > visionChannel.min_hz
+      ? `${formatFrequency(visionChannel.min_hz, { precisionMHz: 2, trimTrailingZeros: true })}–${formatFrequency(visionChannel.max_hz, { precisionMHz: 2, trimTrailingZeros: true })}`
+      : "range unavailable";
   const hasQualityWarning =
     !!demodQualityStatus && demodQualityStatus.fit !== "ready";
   const hasChannelWarning = !channelAccess.allowed;
@@ -234,6 +262,11 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
             {hasQualityWarning
               ? "Capture setup needs attention"
               : "Capture quality requirements met"}
+            {hasQualityWarning && demodQualityStatus.reasons[0] && (
+              <StatusPrimaryReason data-testid="capture-setup-primary-reason">
+                · {demodQualityStatus.reasons[0]}
+              </StatusPrimaryReason>
+            )}
           </StatusHeading>
           {hasQualityWarning && (
             <ReasonList>
@@ -285,6 +318,18 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
         </ChannelGuide>
       )}
 
+      {selectedBaseline === "vision" && (
+        <VisionDemodWorkflowFlow
+          sourceReady={selectedVisionReceiver !== null}
+          sourceLabel={selectedVisionReceiver}
+          channelAllowed={channelAccess.allowed}
+          sourceMode={sourceMode === "file" ? "replay" : "live"}
+          channelRange={visionChannelRangeLabel}
+          preset={visionPreset}
+          captureStatus="No aligned spatial references"
+        />
+      )}
+
       {audioFlowSelected && (
         <AudioDemodWorkflowFlow
           sourceMode={sourceMode === "file" ? "replay" : "live"}
@@ -294,6 +339,7 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
           channelAllowed={channelAccess.allowed}
           channelRequirement={formatChannelRequirement(
             channelAccess.requiredChannelLabels,
+            channelAccess.mode,
           )}
           bandwidthKhz={bandwidthKhz}
           candidateCount={audioSurveyCandidates.length}

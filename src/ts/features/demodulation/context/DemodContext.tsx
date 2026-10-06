@@ -102,6 +102,7 @@ import {
   AnalysisType,
 } from "@n-apt/consts/types";
 import type { CaptureQualityAssessment } from "@n-apt/features/capture/quality";
+import type { VisionPreset } from "@n-apt/demodulation/vision/visionModel";
 import { NaptSpikeDetectionResult } from "@n-apt/demodulation/utils/naptSpikeDetection";
 import {
   DemodFlowContext,
@@ -246,6 +247,8 @@ interface DemodContextValue {
   setDemodQualityStatus: Dispatch<
     SetStateAction<Pick<CaptureQualityAssessment, "fit" | "reasons"> | null>
   >;
+  visionPreset: VisionPreset;
+  setVisionPreset: (preset: VisionPreset) => void;
   selectedBaseline: AnalysisType;
   setSelectedBaseline: (type: AnalysisType) => void;
   liveMode: boolean;
@@ -347,6 +350,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   >(null);
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
+  const [visionPreset, setVisionPreset] = useState<VisionPreset>("Red");
   const [selectedAlgorithm, setSelectedAlgorithm] =
     useState<DemodAlgorithm>("fm");
   const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
@@ -1597,11 +1601,17 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       (analysisSession.state as any) === "starting"
     ) {
       // Backend confirmed capture has officially started
+      const receivedAtMs = Date.now();
       setAnalysisSession((prev) => ({
         ...prev,
         state: "capturing",
         jobId: captureStatus.jobId,
-        startTime: captureStatus.timestamp || Date.now(), // Use server time if available
+        // The vision progress bar uses the browser clock; the server epoch has
+        // no measured offset here. Preserve the server timestamp for audio.
+        startTime:
+          prev.type === "vision"
+            ? receivedAtMs
+            : (captureStatus.timestamp ?? receivedAtMs),
       }));
     } else if (
       captureStatus.status === "done" &&
@@ -1834,6 +1844,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       setDemodQualityStatus,
       selectedBaseline,
       setSelectedBaseline,
+      visionPreset,
+      setVisionPreset,
       liveMode,
       setLiveMode,
       startAnalysis,
@@ -1885,6 +1897,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       analysisSession,
       demodQualityStatus,
       selectedBaseline,
+      visionPreset,
       startAnalysis,
       clearAnalysis,
       audioSurveyJob,

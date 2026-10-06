@@ -7,10 +7,12 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import { z } from "zod";
+import { AlertTriangle } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
+import { formatFrequency } from "@n-apt/math/frequency";
 import { resampleNearestInto } from "@n-apt/math/resampleNearest";
 import {
   AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
@@ -39,6 +41,19 @@ import {
   type DemodFlowId,
 } from "@n-apt/demodulation/channelPrerequisites";
 import type { AudioSurveyReferenceLabel } from "@n-apt/demodulation/survey/audioSurveyModel";
+import {
+  VISION_PRESETS,
+  type VisionPreset,
+} from "@n-apt/demodulation/vision/visionModel";
+import {
+  getVisionDisplayOptions,
+  requestVisionFullscreen,
+  type VisionDisplayOption,
+} from "@n-apt/demodulation/vision/visionScreens";
+import {
+  getVisionReceiverLabel,
+  isMockVisionTestSource,
+} from "@n-apt/demodulation/vision/visionSourcePolicy";
 
 const durationSchema = z.number().min(5).max(60);
 
@@ -358,13 +373,13 @@ const SpeechBar = styled.div<{ $isCapturing: boolean }>`
 `;
 
 // Vision preview components
-const VisionContainer = styled.div<{ $isCapturing: boolean }>`
+const VisionContainer = styled.div<{
+  $isCapturing: boolean;
+  $preset: VisionPreset;
+}>`
   width: 100%;
   height: 100%;
-  background: ${(props) =>
-    props.$isCapturing
-      ? props.theme.colors.danger
-      : props.theme.colors.surface};
+  background: ${({ $preset }) => `rgb(${VISION_PRESETS[$preset].join(",")})`};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -408,21 +423,23 @@ const CountdownContainer = styled.div`
 
 const ProgressBar = styled.div<{ $progress: number }>`
   width: 100%;
-  height: 4px;
-  background: ${({ theme }) => theme.colors.border};
-  border-radius: 2px;
+  height: 1vh;
+  min-height: 7px;
+  max-height: 10px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
   overflow: hidden;
   margin-bottom: 4px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.88);
 `;
 
 const ProgressFill = styled.div<{ $progress: number }>`
   width: ${(props) => props.$progress}%;
   height: 100%;
-  background: linear-gradient(
-    90deg,
-    ${({ theme }) => theme.colors.danger},
-    ${({ theme }) => theme.colors.danger}aa
-  );
+  background: #ffe600;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.72);
   transition: width 0.1s ease;
 `;
 
@@ -609,9 +626,13 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     startAnalysis,
     recordAudioSurveyStimulusReference,
     clearAnalysis,
+    visionPreset,
+    setVisionPreset,
   } = useDemod();
   const [previewMode, setPreviewMode] =
     useState<AnalysisType>(selectedBaseline);
+  const [selectedVisionPreset, setSelectedVisionPreset] =
+    useState<VisionPreset>(visionPreset ?? "Red");
   const demodCenterFrequencyHz = useAppSelector(
     (state) => state.demod.bandwidthCenterFreqHz ?? state.demod.centerFreqHz,
   );
@@ -619,6 +640,11 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     (state) => state.spectrum.frequencyRange,
   );
   const channels = useAppSelector((state) => state.websocket.channels);
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activeSourceId = useAppSelector(
+    (state) => state.websocket.activeSourceId,
+  );
+  const sources = useAppSelector((state) => state.websocket.sources ?? []);
   const tunedFrequencyHz = useMemo(
     () =>
       demodCenterFrequencyHz ??
@@ -638,6 +664,14 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [scriptIndex, setScriptIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [durationS, setDurationS] = useState(5);
+  const [visionDisplays, setVisionDisplays] = useState<VisionDisplayOption[]>(
+    [],
+  );
+  const [visionDisplaySupported, setVisionDisplaySupported] = useState(false);
+  const [selectedVisionDisplayId, setSelectedVisionDisplayId] = useState("");
+  const [visionDisplayError, setVisionDisplayError] = useState<string | null>(
+    null,
+  );
   const [durationError, setDurationError] = useState<string | null>(null);
   const [audioWaveformMode, setAudioWaveformMode] =
     useState<AudioWaveformMode>("traditional");
@@ -697,6 +731,57 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     analysisSession.state !== "idle" && analysisSession.state !== "result";
   const _isStarting = analysisSession.state === "starting";
   const isCapturing = analysisSession.state === "capturing";
+  const selectedVisionDisplay =
+    visionDisplays.find((display) => display.id === selectedVisionDisplayId) ??
+    null;
+  const activeSource = sources.find((source) => source.id === activeSourceId);
+  const visionReceiverLabel =
+    sourceMode === "file" ? null : getVisionReceiverLabel(activeSource);
+  const visionMockTestMode =
+    previewMode === "vision" &&
+    sourceMode !== "file" &&
+    isMockVisionTestSource(activeSource);
+  const visionRequirementLabel = channelAccess.requiredChannelLabels[0];
+  const visionRequirementChannel = channels?.find(
+    (channel) =>
+      channel.label?.trim().toUpperCase() === visionRequirementLabel,
+  );
+  const visionRequirementRangeLabel =
+    visionRequirementChannel &&
+    Number.isFinite(visionRequirementChannel.min_hz) &&
+    Number.isFinite(visionRequirementChannel.max_hz) &&
+    visionRequirementChannel.max_hz > visionRequirementChannel.min_hz
+      ? `${formatFrequency(visionRequirementChannel.min_hz, { precisionMHz: 2, trimTrailingZeros: true })}–${formatFrequency(visionRequirementChannel.max_hz, { precisionMHz: 2, trimTrailingZeros: true })}`
+      : "range unavailable";
+  const visionCaptureBlockers =
+    previewMode === "vision"
+      ? [
+          visionReceiverLabel
+            ? null
+            : visionMockTestMode
+              ? null
+              : "Select a live RTL-SDR or HackRF One, or use Mock APT SDR for an ephemeral test.",
+          stimulusChannelCompatible
+            ? null
+            : channelAccess.available
+              ? `Tune within ${describeRequiredChannels(previewMode, channels)} (${visionRequirementRangeLabel}) before starting the reference capture.`
+              : "No valid channel prerequisite metadata is configured for this vision flow.",
+          selectedVisionDisplay && visionDisplayError === null
+            ? null
+            : (visionDisplayError ??
+              "Choose a display before starting the reference capture."),
+        ].filter((blocker): blocker is string => blocker !== null)
+      : [];
+  const isEphemeralCapture = liveMode || visionMockTestMode;
+  const triggerDisabled =
+    isBusy ||
+    durationError !== null ||
+    !stimulusChannelCompatible ||
+    (previewMode === "vision" && visionCaptureBlockers.length > 0);
+
+  useEffect(() => {
+    setSelectedVisionPreset(visionPreset);
+  }, [visionPreset]);
 
   useEffect(() => {
     if (audioWaveformMode !== "fm-waterfall") return;
@@ -980,8 +1065,44 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     }
   }, [isCapturingReferenceMedia, stimulusChannelCompatible]);
 
-  const handleTrigger = () => {
-    if (durationError || !stimulusChannelCompatible) return;
+  const handleChooseVisionDisplay = async () => {
+    setVisionDisplayError(null);
+    try {
+      const options = await getVisionDisplayOptions(window);
+      setVisionDisplays(options.displays);
+      setVisionDisplaySupported(options.supported);
+      setSelectedVisionDisplayId(options.displays[0]?.id ?? "");
+    } catch {
+      setVisionDisplayError(
+        "Display access was denied. Use browser display permission, then try again.",
+      );
+    }
+  };
+
+  const handleTrigger = async () => {
+    if (
+      durationError ||
+      !stimulusChannelCompatible ||
+      (previewMode === "vision" && visionCaptureBlockers.length > 0)
+    ) {
+      return;
+    }
+    if (previewMode === "vision") {
+      try {
+        await requestVisionFullscreen(
+          document.documentElement,
+          selectedVisionDisplay?.screen ?? null,
+          window,
+        );
+      } catch (error) {
+        setVisionDisplayError(
+          error instanceof Error
+            ? error.message
+            : "Fullscreen presentation failed",
+        );
+        return;
+      }
+    }
 
     // Delay audio to start when capture officially starts
     // We send command after 3s, server takes ~0-1s, so ~4s total delay
@@ -994,12 +1115,19 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     captureJobIdRef.current =
       startAnalysis(
         previewMode,
-        liveMode,
+        isEphemeralCapture,
         durationS,
         undefined,
         undefined,
         undefined,
-        captureLabels,
+        previewMode === "vision"
+          ? [
+              ...captureLabels,
+              ...(visionMockTestMode ? ["vision-test-only:mock-source"] : []),
+              `vision-stimulus:${selectedVisionPreset}`,
+              `vision-rgb:${VISION_PRESETS[selectedVisionPreset].join(",")}`,
+            ]
+          : captureLabels,
       ) ?? null;
   };
 
@@ -1089,9 +1217,10 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         )}
 
         {previewMode === "vision" && (
-          <VisionContainer $isCapturing={isCapturing}>
-            <RecIndicator $isCapturing={isCapturing}>REC</RecIndicator>
-          </VisionContainer>
+          <VisionContainer
+            $isCapturing={isCapturing}
+            $preset={selectedVisionPreset}
+          />
         )}
 
         {progress > 0 && (
@@ -1136,6 +1265,69 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                 : "CAPTURE MEDIA PAIR"}
             </StimulusButton>
           </ReferenceMediaControls>
+        )}
+
+        {previewMode === "vision" && (
+          <ReferenceMediaControls aria-label="Vision stimulus controls">
+            <SelectLabel htmlFor="vision-stimulus-preset">
+              Color screen
+            </SelectLabel>
+            <StimulusSelect
+              id="vision-stimulus-preset"
+              aria-label="Vision color screen"
+              value={selectedVisionPreset}
+              onChange={(event) => {
+                const preset = event.target.value as VisionPreset;
+                setSelectedVisionPreset(preset);
+                setVisionPreset(preset);
+              }}
+              disabled={isBusy}
+            >
+              <option value="S">S · Violet/blue</option>
+              <option value="M">M · Green</option>
+              <option value="L">L · Yellow-green</option>
+              <option value="Red">Red</option>
+            </StimulusSelect>
+            <StimulusButton
+              type="button"
+              onClick={() => void handleChooseVisionDisplay()}
+              disabled={isBusy}
+            >
+              Choose display
+            </StimulusButton>
+            {visionDisplays.length > 0 && (
+              <StimulusSelect
+                aria-label="Vision display"
+                value={selectedVisionDisplayId}
+                onChange={(event) => {
+                  setVisionDisplayError(null);
+                  setSelectedVisionDisplayId(event.target.value);
+                }}
+                disabled={isBusy}
+              >
+                {visionDisplays.map((display) => (
+                  <option key={display.id} value={display.id}>
+                    {display.label}
+                  </option>
+                ))}
+              </StimulusSelect>
+            )}
+            <StimulusSubtext aria-live="polite">
+              {visionDisplayError ??
+                (visionDisplays.length === 0
+                  ? "Choose the physical display for the full-screen stimulus."
+                  : visionDisplaySupported
+                    ? "The selected display will be requested when you start the capture."
+                    : "Move this app window to the desired display before starting.")}
+            </StimulusSubtext>
+          </ReferenceMediaControls>
+        )}
+
+        {!channelAccess.available && (
+          <StimulusSubtext role="status" data-testid="stimulus-channel-unavailable">
+            No valid channel prerequisite metadata is configured for this
+            stimulus flow.
+          </StimulusSubtext>
         )}
 
         <BaselineVectorContainer>
@@ -1188,16 +1380,31 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                 aria-invalid={durationError !== null}
               />
             </div>
-            <StimulusButton
-              onClick={handleTrigger}
-              disabled={
-                isBusy || durationError !== null || !stimulusChannelCompatible
-              }
-            >
+            <StimulusButton onClick={handleTrigger} disabled={triggerDisabled}>
+              {triggerDisabled && (
+                <AlertTriangle
+                  aria-hidden="true"
+                  data-testid="trigger-warning-icon"
+                  size={14}
+                />
+              )}
               TRIGGER
             </StimulusButton>
           </BaselineActionRow>
         </BaselineVectorContainer>
+
+        {previewMode === "vision" && visionCaptureBlockers.length > 0 && (
+          <StimulusSubtext role="status" data-testid="vision-capture-readiness">
+            {visionCaptureBlockers.join(" ")}
+          </StimulusSubtext>
+        )}
+
+        {visionMockTestMode && (
+          <StimulusSubtext role="note" data-testid="vision-mock-test-notice">
+            {activeSource?.name ?? "Mock SDR"} test mode: this capture is
+            ephemeral and will not be saved as a training reference.
+          </StimulusSubtext>
+        )}
 
         {previewMode === "audio" && (
           <AudioWaveformControl>
@@ -1289,16 +1496,20 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         <StimulusLabel>
           <input
             type="checkbox"
-            checked={liveMode}
+            checked={isEphemeralCapture}
             onChange={(e) => setLiveMode(e.target.checked)}
-            disabled={isBusy}
+            disabled={isBusy || visionMockTestMode}
           />
-          LIVE CAPTURE (EPHEMERAL)
+          {visionMockTestMode
+            ? "MOCK TEST (EPHEMERAL)"
+            : "LIVE CAPTURE (EPHEMERAL)"}
         </StimulusLabel>
 
         <StimulusSubtext>
-          {data.subtext ||
-            "Capture N-APT signals with a known baseline for demod later. Media is played while recording in order to learn what is where."}
+          {visionMockTestMode
+            ? "Mock test captures are discarded and cannot train the visual decoder."
+            : data.subtext ||
+              "Capture N-APT signals with a known baseline for demod later. Media is played while recording in order to learn what is where."}
         </StimulusSubtext>
 
         {analysisSession.state === "result" && (

@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { DemodRouteSection } from "@n-apt/demodulation/DemodRouteSection";
 import { useDemodAnalysis } from "@n-apt/demodulation/public/context/DemodAnalysisContext";
 import { useAppSelector } from "@n-apt/redux";
+import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 
 const VisionScene = React.lazy(() =>
   import("@n-apt/three-d/VisionScene").then((m) => ({
@@ -28,6 +29,7 @@ const DemodContainer = styled.div`
 
 export const DemodRoute: React.FC = () => {
   const { analysisSession } = useDemodAnalysis();
+  const { visionPreset } = useDemod();
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const selectedFiles = useAppSelector(
     (state) => state.waterfall.selectedFiles,
@@ -59,10 +61,11 @@ export const DemodRoute: React.FC = () => {
 
       <DemodRouteSection />
 
-      {analysisSession.state === "capturing" &&
+      {(analysisSession.state === "starting" ||
+        analysisSession.state === "capturing") &&
         analysisSession.type === "vision" && (
           <Suspense fallback={null}>
-            <VisionScene session={analysisSession} />
+            <VisionScene session={analysisSession} preset={visionPreset} />
           </Suspense>
         )}
     </DemodContainer>
