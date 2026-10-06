@@ -75,10 +75,7 @@ export const getAudioSurveyChannelizedSampleRateHz = (
     inputSampleRateHz,
     Math.max(48_000, Math.min(600_000, bandwidthHz * 2.5)),
   );
-  const decimation = Math.max(
-    1,
-    Math.floor(inputSampleRateHz / targetRateHz),
-  );
+  const decimation = Math.max(1, Math.floor(inputSampleRateHz / targetRateHz));
   return inputSampleRateHz / decimation;
 };
 
@@ -108,11 +105,9 @@ const fftInPlace = (real: Float64Array, imaginary: Float64Array) => {
         const evenIndex = start + offset;
         const oddIndex = evenIndex + halfWidth;
         const oddReal =
-          real[oddIndex] * twiddleReal -
-          imaginary[oddIndex] * twiddleImaginary;
+          real[oddIndex] * twiddleReal - imaginary[oddIndex] * twiddleImaginary;
         const oddImaginary =
-          real[oddIndex] * twiddleImaginary +
-          imaginary[oddIndex] * twiddleReal;
+          real[oddIndex] * twiddleImaginary + imaginary[oddIndex] * twiddleReal;
         real[oddIndex] = real[evenIndex] - oddReal;
         imaginary[oddIndex] = imaginary[evenIndex] - oddImaginary;
         real[evenIndex] += oddReal;
@@ -144,9 +139,10 @@ const estimatePowerSpectrum = (
     const startSample = windowIndex * fftSize;
     for (let index = 0; index < fftSize; index++) {
       const window = 0.5 - 0.5 * Math.cos((2 * Math.PI * index) / fftSize);
-      real[index] = ((iqData[(startSample + index) * 2] ?? 128) - 128) / 128 * window;
+      real[index] =
+        (((iqData[(startSample + index) * 2] ?? 128) - 128) / 128) * window;
       imaginary[index] =
-        ((iqData[(startSample + index) * 2 + 1] ?? 128) - 128) / 128 * window;
+        (((iqData[(startSample + index) * 2 + 1] ?? 128) - 128) / 128) * window;
     }
     fftInPlace(real, imaginary);
     for (let index = 0; index < fftSize; index++) {
@@ -192,6 +188,7 @@ export const walkSpectralSpikeValleys = ({
   minPairs = 2,
   maxPairs = 7,
   weakSpikeRatio = 0.7,
+  acceptedPeakBins,
 }: {
   power: Float64Array;
   startBin: number;
@@ -202,9 +199,14 @@ export const walkSpectralSpikeValleys = ({
   minPairs?: number;
   maxPairs?: number;
   weakSpikeRatio?: number;
+  /** Optional peaks selected by the WebGPU-compatible local shape detector. */
+  acceptedPeakBins?: ReadonlySet<number>;
 }): SpikeValleyWidthWalk => {
   const firstBin = Math.max(0, Math.min(power.length - 1, Math.ceil(startBin)));
-  const lastBin = Math.max(firstBin, Math.min(power.length - 1, Math.floor(endBin)));
+  const lastBin = Math.max(
+    firstBin,
+    Math.min(power.length - 1, Math.floor(endBin)),
+  );
   const fallback = {
     startBin: firstBin,
     endBin: lastBin,
@@ -226,9 +228,15 @@ export const walkSpectralSpikeValleys = ({
   }
 
   const peaks: number[] = [];
-  for (let bin = Math.max(1, firstBin); bin <= Math.min(power.length - 2, lastBin); bin++) {
+  for (
+    let bin = Math.max(1, firstBin);
+    bin <= Math.min(power.length - 2, lastBin);
+    bin++
+  ) {
     if (
-      power[bin] >= threshold &&
+      (acceptedPeakBins
+        ? acceptedPeakBins.has(bin)
+        : power[bin] >= threshold) &&
       power[bin] >= power[bin - 1] &&
       power[bin] > power[bin + 1]
     ) {
@@ -266,7 +274,9 @@ export const walkSpectralSpikeValleys = ({
     }
     return {
       bin: Math.round((firstMinimum + lastMinimum) / 2),
-      power: Number.isFinite(minimum) ? minimum : Math.min(power[lower], power[upper]),
+      power: Number.isFinite(minimum)
+        ? minimum
+        : Math.min(power[lower], power[upper]),
     };
   };
 
@@ -286,7 +296,9 @@ export const walkSpectralSpikeValleys = ({
   const recentProminences: number[] = [];
   const pairSpacingsHz: number[] = [];
   const recentMedian = () => {
-    const recent = recentProminences.slice(-3).sort((left, right) => left - right);
+    const recent = recentProminences
+      .slice(-3)
+      .sort((left, right) => left - right);
     return recent[Math.floor(recent.length / 2)] ?? 0;
   };
 
@@ -326,6 +338,144 @@ export const walkSpectralSpikeValleys = ({
   };
 };
 
+/**
+ * JavaScript port of spike_compute.wgsl scoring, applied to raw survey FFT
+ * bins in dB. Neighborhood radius and thresholds match the display shader;
+ * the 34 kHz spacing remains a separate channel-width prior.
+ */
+export const detectWebGpuStyleSpectrumSpikes = (
+  power: Float64Array,
+): number[] => {
+  const length = power.length;
+  if (length < 3) return [];
+  const waveform = new Float64Array(length);
+  let floorSum = 0;
+  for (let index = 0; index < length; index++) {
+    waveform[index] = 10 * Math.log10(Math.max(power[index], MIN_NOISE_POWER));
+    floorSum += waveform[index];
+  }
+  const globalFloor = floorSum / length;
+  const radius = 12;
+  const suppressionRadius = 2;
+  const edgeBandBins = 10;
+  const accepted = new Set<number>();
+
+  for (let index = 0; index < length; index++) {
+    const value = waveform[index];
+    const left = index > 0 ? waveform[index - 1] : value - 1;
+    const right = index + 1 < length ? waveform[index + 1] : value - 1;
+    const inRightEdgeBand = index + edgeBandBins >= length;
+    let isEdgeBandMax = true;
+    if (inRightEdgeBand) {
+      for (
+        let edge = Math.max(0, length - edgeBandBins);
+        edge < length;
+        edge++
+      ) {
+        if (
+          waveform[edge] > value ||
+          (waveform[edge] === value && edge > index)
+        ) {
+          isEdgeBandMax = false;
+          break;
+        }
+      }
+    }
+    if (
+      !(value >= left && value > right) &&
+      !(inRightEdgeBand && isEdgeBandMax)
+    ) {
+      continue;
+    }
+
+    const left2 = index > 1 ? waveform[index - 2] : left;
+    const right2 = index + 2 < length ? waveform[index + 2] : right;
+    const immediateProminence = value - Math.max(left, right, left2, right2);
+    const leftFar = index > 2 ? waveform[index - 3] : left2;
+    const rightFar = index + 3 < length ? waveform[index + 3] : right2;
+    const sharpness =
+      value - (left + right + left2 + right2 + leftFar + rightFar) / 6;
+    const start = Math.max(0, index - radius);
+    const end = Math.min(length - 1, index + radius);
+    let localSum = 0;
+    let localCount = 0;
+    let localMax = Number.NEGATIVE_INFINITY;
+    let hasDominatingNeighbor = false;
+    let leftValley = value;
+    let rightValley = value;
+    for (let neighbor = start; neighbor <= end; neighbor++) {
+      const sample = waveform[neighbor];
+      const distance = Math.abs(neighbor - index);
+      if (
+        distance <= suppressionRadius &&
+        neighbor !== index &&
+        (sample > value || (sample === value && neighbor > index))
+      ) {
+        hasDominatingNeighbor = true;
+      }
+      if (neighbor < index) leftValley = Math.min(leftValley, sample);
+      else if (neighbor > index) rightValley = Math.min(rightValley, sample);
+      if (distance > 1) {
+        localSum += sample;
+        localCount++;
+        localMax = Math.max(localMax, sample);
+      }
+    }
+    if (hasDominatingNeighbor || localCount === 0) continue;
+
+    const localAverage = localSum / localCount;
+    const averageProminence = value - localAverage;
+    const globalFloorScore = value - globalFloor;
+    const competitorGap = value - localMax;
+    const valleyProminence = value - Math.max(leftValley, rightValley);
+    const valley =
+      valleyProminence >= 1.5 &&
+      immediateProminence >= 0.15 &&
+      sharpness >= 0.15;
+    const cluster =
+      averageProminence >= 3.5 &&
+      immediateProminence >= 0.2 &&
+      sharpness >= 0.3 &&
+      competitorGap >= -6;
+    const broad =
+      averageProminence >= 4 && globalFloorScore >= 4.5 && sharpness >= 0.1;
+    const global = globalFloorScore >= 4.5 && sharpness >= 0.3;
+    const edge =
+      (index < radius || index + radius >= length) &&
+      globalFloorScore >= 3.5 &&
+      sharpness >= 0.2;
+    const edgeRise = value - leftValley;
+    const edgeCorner = value - (left + (left - left2));
+    const rightEdge =
+      inRightEdgeBand &&
+      isEdgeBandMax &&
+      edgeRise >= 0.35 &&
+      (edgeCorner >= 0.1 || immediateProminence >= 0.05);
+    const average = averageProminence >= 5;
+    const recovery =
+      globalFloorScore >= 3 &&
+      ((valleyProminence >= 1 &&
+        immediateProminence >= 0.1 &&
+        sharpness >= 0.1) ||
+        (averageProminence >= 4 &&
+          immediateProminence >= 0.1 &&
+          sharpness >= 0.15));
+    if (
+      valley ||
+      average ||
+      cluster ||
+      broad ||
+      global ||
+      edge ||
+      rightEdge ||
+      recovery
+    ) {
+      accepted.add(index);
+    }
+  }
+  return [...accepted].sort((left, right) => left - right).slice(0, 1024);
+};
+
 const evaluateAudioEvidence = (samples: Float32Array): number => {
   if (samples.length < 8) return 0;
   let energy = 0;
@@ -334,7 +484,7 @@ const evaluateAudioEvidence = (samples: Float32Array): number => {
   for (let i = 0; i < samples.length; i++) {
     const sample = samples[i];
     energy += sample * sample;
-    if (i > 0 && (sample < 0) !== (previous < 0)) crossings++;
+    if (i > 0 && sample < 0 !== previous < 0) crossings++;
     previous = sample;
   }
   const rms = Math.sqrt(energy / samples.length);
@@ -390,7 +540,8 @@ export const demodulateAudioCandidate = ({
   modulation: "am" | "fm" | "apt";
   targetSampleRateHz?: number;
 }): DemodulatedAudio => {
-  const algorithm: DemodAlgorithm = modulation === "apt" ? "aptImage" : modulation;
+  const algorithm: DemodAlgorithm =
+    modulation === "apt" ? "aptImage" : modulation;
   const processor = createDemodProcessor(algorithm, {
     targetSampleRate: targetSampleRateHz,
     centerFrequency: centerFrequencyHz,
@@ -463,7 +614,11 @@ export const createAudioSurveyChannelizer = ({
       );
       const compactIq = new Uint8Array(outputCount * 2);
       let outputIndex = 0;
-      for (let sample = firstOffset; sample < totalSamples; sample += decimation) {
+      for (
+        let sample = firstOffset;
+        sample < totalSamples;
+        sample += decimation
+      ) {
         const inPhase = filtered[sample * 2];
         const quadrature = filtered[sample * 2 + 1];
         compactIq[outputIndex * 2] = Math.max(
@@ -510,12 +665,17 @@ export const analyzeAudioSurveyFrame = ({
   const power = estimatePowerSpectrum(iqData, fftSize);
   const noiseFloor = Math.max(getMedian(power), MIN_NOISE_POWER);
   const peakPower = Math.max(...power);
-  const threshold = Math.max(noiseFloor * 6, peakPower * 1e-4);
+  const threshold = noiseFloor * 1.1;
+  const spikeBins = detectWebGpuStyleSpectrumSpikes(power);
+  const acceptedPeakBins = new Set(spikeBins);
   const binWidthHz = sampleRateHz / fftSize;
   const minimumBins = 1;
   // The observed average spike spacing is about 34 kHz. Use that only to
   // assemble a possible spike train; the walk below sets its actual bounds.
-  const mergeGapBins = Math.max(1, Math.ceil(OBSERVED_SPIKE_SPACING_HZ / binWidthHz));
+  const mergeGapBins = Math.max(
+    1,
+    Math.ceil(OBSERVED_SPIKE_SPACING_HZ / binWidthHz),
+  );
   const candidates: AudioSurveyCandidate[] = [];
   let start = -1;
   let previousActive = -2;
@@ -526,15 +686,17 @@ export const analyzeAudioSurveyFrame = ({
     let initialWeightedOffset = 0;
     let initialWeightSum = 0;
     for (let bin = regionStart; bin <= regionEnd; bin++) {
-      const offsetHz = bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
+      const offsetHz =
+        bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
       const weight = Math.max(0, power[bin] - noiseFloor);
       initialWeightedOffset += offsetHz * weight;
       initialWeightSum += weight;
     }
-    const initialOffsetHz = initialWeightSum > 0
-      ? initialWeightedOffset / initialWeightSum
-      : 0;
-    const centerBin = ((Math.round(initialOffsetHz / binWidthHz) % fftSize) + fftSize) % fftSize;
+    const initialOffsetHz =
+      initialWeightSum > 0 ? initialWeightedOffset / initialWeightSum : 0;
+    const centerBin =
+      ((Math.round(initialOffsetHz / binWidthHz) % fftSize) + fftSize) %
+      fftSize;
     const widthWalk = walkSpectralSpikeValleys({
       power,
       startBin: regionStart,
@@ -542,19 +704,19 @@ export const analyzeAudioSurveyFrame = ({
       centerBin,
       threshold,
       binWidthHz,
+      acceptedPeakBins,
     });
-    const measuredStart = widthWalk.pairCount === undefined
-      ? regionStart
-      : widthWalk.startBin;
-    const measuredEnd = widthWalk.pairCount === undefined
-      ? regionEnd
-      : widthWalk.endBin;
+    const measuredStart =
+      widthWalk.pairCount === undefined ? regionStart : widthWalk.startBin;
+    const measuredEnd =
+      widthWalk.pairCount === undefined ? regionEnd : widthWalk.endBin;
     const measuredBinCount = measuredEnd - measuredStart + 1;
     let weightedOffset = 0;
     let weightSum = 0;
     let peakPower = 0;
     for (let bin = measuredStart; bin <= measuredEnd; bin++) {
-      const offsetHz = bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
+      const offsetHz =
+        bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
       const weight = Math.max(0, power[bin] - noiseFloor);
       weightedOffset += offsetHz * weight;
       weightSum += weight;
@@ -562,16 +724,19 @@ export const analyzeAudioSurveyFrame = ({
     }
     const signedBinOffsetHz = (bin: number) =>
       bin <= fftSize / 2 ? bin * binWidthHz : (bin - fftSize) * binWidthHz;
-    const offsetHz = widthWalk.pairCount !== undefined
-      ? (signedBinOffsetHz(measuredStart) + signedBinOffsetHz(measuredEnd)) / 2
-      : weightSum > 0
-        ? weightedOffset / weightSum
-        : initialOffsetHz;
+    const offsetHz =
+      widthWalk.pairCount !== undefined
+        ? (signedBinOffsetHz(measuredStart) + signedBinOffsetHz(measuredEnd)) /
+          2
+        : weightSum > 0
+          ? weightedOffset / weightSum
+          : initialOffsetHz;
     const centerHz = frameCenterFrequencyHz + offsetHz;
     const measuredBandwidthHz = measuredBinCount * binWidthHz;
-    const bandwidthHz = widthWalk.pairCount === undefined
-      ? Math.max(MIN_CANDIDATE_BANDWIDTH_HZ, measuredBandwidthHz)
-      : Math.max(MIN_SPIKE_WALK_BANDWIDTH_HZ, measuredBandwidthHz);
+    const bandwidthHz =
+      widthWalk.pairCount === undefined
+        ? Math.max(MIN_CANDIDATE_BANDWIDTH_HZ, measuredBandwidthHz)
+        : Math.max(MIN_SPIKE_WALK_BANDWIDTH_HZ, measuredBandwidthHz);
     if (
       centerHz + bandwidthHz / 2 < allowedRangeHz.min ||
       centerHz - bandwidthHz / 2 > allowedRangeHz.max
@@ -579,7 +744,8 @@ export const analyzeAudioSurveyFrame = ({
       return;
     }
 
-    const snrDb = 10 * Math.log10(Math.max(peakPower, MIN_NOISE_POWER) / noiseFloor);
+    const snrDb =
+      10 * Math.log10(Math.max(peakPower, MIN_NOISE_POWER) / noiseFloor);
     const selectedBaseline =
       decoderStrategy === "apt-style" ? "apt" : decoderStrategy;
     const runAllBaselines = selectedBaseline === "auto";
@@ -629,13 +795,31 @@ export const analyzeAudioSurveyFrame = ({
     };
     const rankedModulations = [
       ...(amAudio
-        ? [{ modulation: "am" as const, score: modulationScores.am, audio: amAudio }]
+        ? [
+            {
+              modulation: "am" as const,
+              score: modulationScores.am,
+              audio: amAudio,
+            },
+          ]
         : []),
       ...(fmAudio
-        ? [{ modulation: "fm" as const, score: modulationScores.fm, audio: fmAudio }]
+        ? [
+            {
+              modulation: "fm" as const,
+              score: modulationScores.fm,
+              audio: fmAudio,
+            },
+          ]
         : []),
       ...(aptAudio
-        ? [{ modulation: "apt" as const, score: modulationScores.apt, audio: aptAudio }]
+        ? [
+            {
+              modulation: "apt" as const,
+              score: modulationScores.apt,
+              audio: aptAudio,
+            },
+          ]
         : []),
     ].sort((left, right) => right.score - left.score);
     const best = rankedModulations[0];
@@ -652,13 +836,16 @@ export const analyzeAudioSurveyFrame = ({
             (best?.score ?? 0) - (secondBest?.score ?? 0) < 0.035
           ? "unknown"
           : best!.modulation
-      : selectedBaseline === "am" || selectedBaseline === "fm" || selectedBaseline === "apt"
+      : selectedBaseline === "am" ||
+          selectedBaseline === "fm" ||
+          selectedBaseline === "apt"
         ? selectedBaseline
         : "unknown";
     const selectedAudio =
       runAllBaselines && modulation === "unknown"
         ? best?.audio
-        : rankedModulations.find((item) => item.modulation === modulation)?.audio;
+        : rankedModulations.find((item) => item.modulation === modulation)
+            ?.audio;
 
     candidates.push({
       centerHz,
@@ -677,8 +864,7 @@ export const analyzeAudioSurveyFrame = ({
     });
   };
 
-  for (let bin = 0; bin < fftSize; bin++) {
-    if (power[bin] <= threshold) continue;
+  for (const bin of spikeBins) {
     if (start < 0) {
       start = bin;
       previousActive = bin;
@@ -694,5 +880,7 @@ export const analyzeAudioSurveyFrame = ({
     evaluateRegion(start, previousActive);
   }
 
-  return candidates.sort((left, right) => right.score - left.score).slice(0, 64);
+  return candidates
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 64);
 };
