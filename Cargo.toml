@@ -142,7 +142,7 @@ mock_apt_metal = ["dep:metal"]
 # Core dependencies (always included)
 rustfft = "6"
 num-complex = "0.4"
-rand = ">=0.10.3, <0.11"
+rand = ">=0.10.1, <0.11"
 paste = { package = "pastey", version = "0.2.3" }
 rayon = "1.12"
 getrandom = { version = "0.4", features = ["wasm_js"] }
@@ -156,23 +156,23 @@ clap = { version = "4.6", features = ["derive"] }
 byteorder = "1.5"
 env_logger = "0.11"
 dotenvy = "0.15"
-wasm-bindgen = "0.2.129"
+wasm-bindgen = "0.2.128"
 serde-wasm-bindgen = "0.6"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.106"
-web-sys = { version = "0.3.106", features = ["console"] }
+js-sys = "0.3.105"
+web-sys = { version = "0.3.105", features = ["console"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = { version = "0.33", optional = true }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.53", features = ["full"] }
+tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.30"
-redis = { version = "1.7.1", features = ["aio", "tokio-comp"] }
+redis = { version = "1.7", features = ["aio", "tokio-comp"] }
 env_logger = "0.11"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
