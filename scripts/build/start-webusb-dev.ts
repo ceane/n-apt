@@ -26,7 +26,8 @@ function readLock(): OrchestratorLock | null {
       fs.readFileSync(orchestratorLockPath, "utf8"),
     ) as Partial<OrchestratorLock>;
     const pid = parsed.pid;
-    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return null;
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0)
+      return null;
     return { pid, startedAt: parsed.startedAt };
   } catch {
     return null;
@@ -35,16 +36,22 @@ function readLock(): OrchestratorLock | null {
 
 function processCommand(pid: number): string {
   if (process.platform === "win32") return "";
-  return spawnSync("ps", ["-p", String(pid), "-o", "command="], {
-    encoding: "utf8",
-  }).stdout?.trim() ?? "";
+  return (
+    spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf8",
+    }).stdout?.trim() ?? ""
+  );
 }
 
 function processWorkingDirectory(pid: number): string | undefined {
   if (process.platform === "win32") return undefined;
-  const result = spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    "lsof",
+    ["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
+    {
+      encoding: "utf8",
+    },
+  );
   return result.stdout
     ?.split("\n")
     .find((line) => line.startsWith("n"))
@@ -93,7 +100,8 @@ function removeLockIfOwned(lock: OrchestratorLock): void {
     const current = JSON.parse(
       fs.readFileSync(orchestratorLockPath, "utf8"),
     ) as Partial<OrchestratorLock>;
-    if (current.pid === lock.pid) fs.rmSync(orchestratorLockPath, { force: true });
+    if (current.pid === lock.pid)
+      fs.rmSync(orchestratorLockPath, { force: true });
   } catch {
     // The orchestrator normally removes its own lock during shutdown.
   }
@@ -142,7 +150,9 @@ export async function stopProjectDevStack(
     );
   }
   removeLockIfOwned(lock);
-  log("[WebUSB] n-apt dev stack stopped; project-owned SDR handles should be released.");
+  log(
+    "[WebUSB] n-apt dev stack stopped; project-owned SDR handles should be released.",
+  );
 }
 
 function startVite(): void {
@@ -180,9 +190,10 @@ async function main(): Promise<void> {
     "[WebUSB] This launcher stops only n-apt's own dev stack; it will not kill unrelated hardware software.",
   );
   await stopProjectDevStack();
-  console.log("[WebUSB] Starting the backend-free Vite app on http://localhost:5175");
+  console.log(
+    "[WebUSB] Starting the backend-free Vite app on http://localhost:5175",
+  );
   console.log("[WebUSB] Probe: http://localhost:5175/webusb-probe/");
-  console.log("[WebUSB] Lite:  http://localhost:5175/lite/");
   startVite();
 }
 
