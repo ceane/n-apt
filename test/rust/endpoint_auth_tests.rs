@@ -36,11 +36,14 @@ fn spawn_test_redis() -> (String, RedisGuard) {
   let listener = TcpListener::bind("127.0.0.1:0").unwrap();
   let port = listener.local_addr().unwrap().port();
   drop(listener);
+  let password = uuid::Uuid::new_v4().simple().to_string();
 
   let child = Command::new("redis-server")
     .args([
       "--port",
       &port.to_string(),
+      "--requirepass",
+      &password,
       "--save",
       "",
       "--appendonly",
@@ -56,7 +59,7 @@ fn spawn_test_redis() -> (String, RedisGuard) {
        (brew install redis)",
     );
 
-  let url = format!("redis://127.0.0.1:{port}");
+  let url = format!("redis://:{password}@127.0.0.1:{port}");
 
   // Wait for Redis to accept connections (up to 2 s).
   for _ in 0..200 {
