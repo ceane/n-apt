@@ -1,6 +1,8 @@
 import {
   VISION_PRESETS,
   visionPairSchema,
+  visionModelHeadOutputSchema,
+  visionDecodedFrameSchema,
 } from "@n-apt/demodulation/vision/visionModel";
 import {
   generateVisionReference,
@@ -186,28 +188,148 @@ describe("vision dataset boundaries", () => {
     ).toThrow(/incomplete/);
   });
   test("normalization uses training rows only and rejects invalid shapes", () => {
-    const stats = fitVisionNormalization([
-      { split: "train", features: [1, 4] },
-      { split: "train", features: [3, 4] },
-      { split: "test", features: [999, 999] },
-    ]);
+    const stats = fitVisionNormalization(
+      [
+        { sessionId: "train-a", features: [1, 4] },
+        { sessionId: "train-b", features: [3, 4] },
+        { sessionId: "test-a", features: [999, 999] },
+      ],
+      {
+        "train-a": "train",
+        "train-b": "train",
+        "test-a": "test",
+      },
+    );
     expect(stats.mean).toEqual([2, 4]);
     expect(normalizeVisionFeatures([2, 4], stats)).toEqual([0, 0]);
     expect(() => normalizeVisionFeatures([1], stats)).toThrow();
     expect(() =>
-      fitVisionNormalization([{ split: "test", features: [1] }]),
+      fitVisionNormalization([{ sessionId: "test-a", features: [1] }], {
+        "test-a": "test",
+      }),
     ).toThrow();
   });
-  test("evaluation separates model error from fixed training-derived baseline", () => {
+  test("evaluation scores test sessions against a baseline fitted from train sessions", () => {
     const reference = Array(768).fill(0.5);
     const metrics = evaluateVisionFrames(
-      [{ expected: reference, predicted: reference }],
-      Array(768).fill(0),
+      [{ sessionId: "train-session", expected: Array(768).fill(0) }],
+      [
+        {
+          sessionId: "test-session",
+          expected: reference,
+          predicted: reference,
+        },
+      ],
+      { "train-session": "train", "test-session": "test" },
     );
     expect(metrics.modelMse).toBe(0);
     expect(metrics.baselineMse).toBe(0.25);
+    expect(metrics.constantColorMse).toBe(0.25);
     expect(metrics.frameCount).toBe(1);
-    expect(() => evaluateVisionFrames([], reference)).toThrow();
+    expect(metrics.sessionCount).toBe(1);
+    const validationMetrics = evaluateVisionFrames(
+      [{ sessionId: "train-session", expected: Array(768).fill(0) }],
+      [
+        {
+          sessionId: "validation-session",
+          expected: reference,
+          predicted: reference,
+        },
+      ],
+      { "train-session": "train", "validation-session": "validation" },
+      "validation",
+    );
+    expect(validationMetrics.evaluationSplit).toBe("validation");
+    expect(() =>
+      evaluateVisionFrames(
+        [],
+        [
+          {
+            sessionId: "test-session",
+            expected: reference,
+            predicted: reference,
+          },
+        ],
+        { "test-session": "test" },
+      ),
+    ).toThrow(/training/i);
+    expect(() =>
+      evaluateVisionFrames(
+        [{ sessionId: "test-session", expected: reference }],
+        [
+          {
+            sessionId: "test-session",
+            expected: reference,
+            predicted: reference,
+          },
+        ],
+        { "test-session": "train" },
+      ),
+    ).toThrow(/test session/i);
+    expect(() =>
+      evaluateVisionFrames(
+        [{ sessionId: "train-session", expected: reference }],
+        [
+          {
+            sessionId: "train-session",
+            expected: reference,
+            predicted: reference,
+          },
+        ],
+        { "train-session": "train" },
+      ),
+    ).toThrow(/test session/i);
+  });
+  test("model head and decoded RGB frame have explicit checked coordinate spaces", () => {
+    const metadata = {
+      version: 1 as const,
+      modelId: "vision-v1",
+      sourceId: "rx",
+      timestampBackendMs: 1234,
+    };
+    expect(
+      visionModelHeadOutputSchema.parse({
+        ...metadata,
+        opponent: new Float32Array(768),
+      }).opponent,
+    ).toHaveLength(768);
+    expect(
+      visionDecodedFrameSchema.parse({
+        ...metadata,
+        rgb: new Float32Array(768).fill(0.5),
+        confidence: null,
+      }).rgb,
+    ).toHaveLength(768);
+    expect(() =>
+      visionModelHeadOutputSchema.parse({
+        ...metadata,
+        opponent: new Float32Array(767),
+      }),
+    ).toThrow();
+    const invalidRgb = new Float32Array(768).fill(0.5);
+    invalidRgb[0] = Number.NaN;
+    expect(() =>
+      visionDecodedFrameSchema.parse({
+        ...metadata,
+        rgb: invalidRgb,
+        confidence: null,
+      }),
+    ).toThrow();
+    invalidRgb[0] = 1.1;
+    expect(() =>
+      visionDecodedFrameSchema.parse({
+        ...metadata,
+        rgb: invalidRgb,
+        confidence: null,
+      }),
+    ).toThrow();
+    expect(() =>
+      visionDecodedFrameSchema.parse({
+        ...metadata,
+        rgb: new Float32Array(768).fill(0.5),
+        confidence: 1.1,
+      }),
+    ).toThrow();
   });
 });
 

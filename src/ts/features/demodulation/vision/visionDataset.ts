@@ -1,8 +1,169 @@
 import {
   visionPairSchema,
+  VISION_HEIGHT,
+  VISION_PREPROCESSING,
+  VISION_WIDTH,
   type VisionPair,
   type VisionSplit,
 } from "./visionModel";
+import { rgbToOpponent, visionTargetAt } from "./visionReference";
+import {
+  VISION_FEATURE_COUNT,
+  visionFeatureSampleMatchesConfig,
+  type VisionFeatureSample,
+} from "./visionPreprocessing";
+
+export interface VisionTrainingExample {
+  sessionId: string;
+  trialId: string;
+  artifactChecksum: string;
+  split: VisionSplit;
+  timestampBackendMs: number;
+  frameIndex: number;
+  calibrationSeed: number | null;
+  features: Float32Array;
+  rgb: Uint8Array;
+  opponent: Float32Array;
+  /** S, M, L, Red index; calibration targets have no single-color class. */
+  colorClassIndex: number | null;
+}
+
+export interface VisionTrainingDataset {
+  train: VisionTrainingExample[];
+  validation: VisionTrainingExample[];
+  test: VisionTrainingExample[];
+  excludedTransitionCount: number;
+}
+
+/**
+ * Turn producer-verified feature contexts into labels derived from the paired
+ * reference timeline. Raw feature extraction and capture-file hash verification
+ * remain the responsibility of the source reader.
+ */
+export function buildVisionTrainingDataset(
+  pairs: readonly VisionPair[],
+  featureSamples: readonly VisionFeatureSample[],
+  assignments: Readonly<Record<string, VisionSplit>>,
+): VisionTrainingDataset {
+  const partitions = partitionVisionPairs(pairs, assignments);
+  const byTrial = new Map<string, VisionPair>();
+  for (const split of ["train", "validation", "test"] as const)
+    for (const pair of partitions[split])
+      byTrial.set(pair.config.trialId, pair);
+
+  const result: VisionTrainingDataset = {
+    train: [],
+    validation: [],
+    test: [],
+    excludedTransitionCount: 0,
+  };
+  const seenContexts = new Set<string>();
+  const presetNames = ["S", "M", "L", "Red"] as const;
+
+  for (const sample of featureSamples) {
+    const pair = byTrial.get(sample.trialId);
+    if (!pair)
+      throw new Error("Feature context has no complete reference trial");
+    if (sample.artifactChecksum !== pair.artifact.checksum)
+      throw new Error(
+        "Feature context artifact checksum does not match its reference",
+      );
+    if (!visionFeatureSampleMatchesConfig(sample, pair.config)) {
+      if (sample.optionsRevision !== pair.config.optionsRevision)
+        throw new Error("Feature context options revision mismatch");
+      if (sample.sourceId !== pair.config.sourceId)
+        throw new Error("Feature context source mismatch");
+      if (sample.streamEpoch !== pair.config.streamEpoch)
+        throw new Error("Feature context stream epoch mismatch");
+      if (sample.sampleRateHz !== pair.config.sampleRateHz)
+        throw new Error("Feature context sample rate mismatch");
+      throw new Error("Feature context tuning mismatch");
+    }
+    if (
+      !(sample.features instanceof Float32Array) ||
+      sample.features.length !== VISION_FEATURE_COUNT ||
+      !sample.features.every(Number.isFinite)
+    )
+      throw new Error("Invalid vision feature tensor");
+    if (
+      !Number.isSafeInteger(sample.firstSampleIndex) ||
+      sample.firstSampleIndex < pair.acquisition.firstSampleIndex
+    )
+      throw new Error("Feature context sample range begins before acquisition");
+
+    const contextSamples =
+      (sample.sampleRateHz * VISION_PREPROCESSING.contextMs) / 1000;
+    if (!Number.isSafeInteger(contextSamples))
+      throw new Error("Feature context sample rate is not frame aligned");
+    const acquisitionEnd =
+      pair.acquisition.firstSampleIndex + pair.acquisition.sampleCount;
+    const contextEnd = sample.firstSampleIndex + contextSamples;
+    if (contextEnd > acquisitionEnd || contextEnd <= sample.firstSampleIndex)
+      throw new Error("Feature context sample range exceeds acquisition");
+
+    const expectedTimestamp =
+      pair.acquisition.startBackendMs +
+      ((contextEnd - pair.acquisition.firstSampleIndex) * 1000) /
+        pair.config.sampleRateHz;
+    if (
+      !Number.isFinite(sample.timestampBackendMs) ||
+      Math.abs(sample.timestampBackendMs - expectedTimestamp) > 1
+    )
+      throw new Error(
+        "Feature context timestamp does not match producer sample range",
+      );
+
+    const contextKey = `${sample.trialId}:${sample.firstSampleIndex}`;
+    if (seenContexts.has(contextKey))
+      throw new Error("Duplicate feature context in vision dataset");
+    seenContexts.add(contextKey);
+
+    const rgb = visionTargetAt(pair, sample.timestampBackendMs);
+    if (!rgb) {
+      result.excludedTransitionCount++;
+      continue;
+    }
+    const timelineIndex = pair.timeline.findIndex((event, index) => {
+      const next = pair.timeline[index + 1];
+      return (
+        sample.timestampBackendMs >= event.onsetBackendMs &&
+        sample.timestampBackendMs < (next?.onsetBackendMs ?? pair.endBackendMs)
+      );
+    });
+    if (timelineIndex < 0)
+      throw new Error(
+        "Reference label could not be resolved to a timeline bin",
+      );
+    const opponent = new Float32Array(VISION_WIDTH * VISION_HEIGHT * 3);
+    for (let pixel = 0; pixel < VISION_WIDTH * VISION_HEIGHT; pixel++) {
+      const offset = pixel * 3;
+      opponent.set(
+        rgbToOpponent([rgb[offset], rgb[offset + 1], rgb[offset + 2]]),
+        offset,
+      );
+    }
+    result[assignments[pair.config.sessionId]].push({
+      sessionId: pair.config.sessionId,
+      trialId: pair.config.trialId,
+      artifactChecksum: pair.artifact.checksum,
+      split: assignments[pair.config.sessionId],
+      timestampBackendMs: sample.timestampBackendMs,
+      frameIndex: pair.timeline[timelineIndex].frameIndex,
+      calibrationSeed:
+        pair.config.stimulus.kind === "calibration"
+          ? pair.config.stimulus.seed
+          : null,
+      features: sample.features,
+      rgb,
+      opponent,
+      colorClassIndex:
+        pair.config.stimulus.kind === "solid"
+          ? presetNames.indexOf(pair.config.stimulus.preset)
+          : null,
+    });
+  }
+  return result;
+}
 
 export function partitionVisionPairs(
   pairs: readonly VisionPair[],
@@ -40,25 +201,39 @@ export function partitionVisionPairs(
   }
   return result;
 }
-const vector = (values: readonly number[], length: number) => {
-  if (!length || values.length !== length || !values.every(Number.isFinite))
+const vector = (values: ArrayLike<number>, length: number) => {
+  if (!length || values.length !== length)
     throw new Error("Invalid feature shape or value");
+  for (let index = 0; index < length; index++)
+    if (!Number.isFinite(values[index]))
+      throw new Error("Invalid feature shape or value");
 };
 export function fitVisionNormalization(
-  rows: readonly { split: VisionSplit; features: readonly number[] }[],
+  rows: readonly { sessionId: string; features: ArrayLike<number> }[],
+  sessionSplits: Readonly<Record<string, VisionSplit>>,
 ) {
-  const training = rows.filter((row) => row.split === "train");
+  const training = rows.filter((row) => {
+    const assigned =
+      row.sessionId &&
+      Object.prototype.hasOwnProperty.call(sessionSplits, row.sessionId)
+        ? sessionSplits[row.sessionId]
+        : undefined;
+    if (!assigned || !["train", "validation", "test"].includes(assigned))
+      throw new Error("Explicit session assignment required");
+    return assigned === "train";
+  });
   if (!training.length) throw new Error("Training rows required");
   const size = training[0].features.length;
   const mean = Array<number>(size).fill(0),
     m2 = Array<number>(size).fill(0);
   training.forEach(({ features }, n) => {
     vector(features, size);
-    features.forEach((x, i) => {
+    for (let i = 0; i < size; i++) {
+      const x = features[i];
       const delta = x - mean[i];
       mean[i] += delta / (n + 1);
       m2[i] += delta * (x - mean[i]);
-    });
+    }
   });
   return {
     mean,
@@ -66,7 +241,7 @@ export function fitVisionNormalization(
   };
 }
 export function normalizeVisionFeatures(
-  features: readonly number[],
+  features: ArrayLike<number>,
   stats: { mean: number[]; scale: number[] },
 ) {
   vector(features, stats.mean.length);
@@ -74,38 +249,85 @@ export function normalizeVisionFeatures(
   vector(stats.scale, features.length);
   if (stats.scale.some((x) => x <= 0))
     throw new Error("Invalid normalization scale");
-  return features.map((x, i) => (x - stats.mean[i]) / stats.scale[i]);
+  return Array.from(
+    { length: features.length },
+    (_, index) => (features[index] - stats.mean[index]) / stats.scale[index],
+  );
 }
-/** Inputs are normalized sRGB. Baseline MUST be fitted on training sessions only.
+/** Inputs are normalized sRGB. The baseline is computed from assigned train sessions.
  * No automatic promotion: mean-image MSE alone cannot establish spatial decoding. */
 export function evaluateVisionFrames(
-  frames: readonly {
+  trainingFrames: readonly {
+    sessionId: string;
+    expected: readonly number[];
+  }[],
+  testFrames: readonly {
+    sessionId: string;
     expected: readonly number[];
     predicted: readonly number[];
   }[],
-  trainingMeanImage: readonly number[],
+  sessionSplits: Readonly<Record<string, VisionSplit>>,
+  evaluationSplit: "validation" | "test" = "test",
 ) {
-  if (!frames.length) throw new Error("Held-out frames required");
-  vector(trainingMeanImage, 768);
-  let model = 0,
-    baseline = 0;
-  for (const frame of frames) {
-    vector(frame.expected, 768);
-    vector(frame.predicted, 768);
-    if (
-      [...frame.expected, ...frame.predicted, ...trainingMeanImage].some(
-        (x) => x < 0 || x > 1,
-      )
-    )
+  if (!trainingFrames.length)
+    throw new Error("Training reference frames required");
+  if (!testFrames.length) throw new Error("Held-out test frames required");
+  const assertRgb = (values: readonly number[]) => {
+    vector(values, 768);
+    if (values.some((x) => x < 0 || x > 1))
       throw new Error("Expected normalized RGB");
+  };
+  const trainingSessions = new Set<string>();
+  const testSessions = new Set<string>();
+  const trainingMeanImage = Array<number>(768).fill(0);
+  const trainingMeanColor = Array<number>(3).fill(0);
+  trainingFrames.forEach((frame, row) => {
+    if (
+      !frame.sessionId ||
+      !Object.prototype.hasOwnProperty.call(sessionSplits, frame.sessionId) ||
+      sessionSplits[frame.sessionId] !== "train"
+    )
+      throw new Error(
+        "Training reference must belong to an assigned training session",
+      );
+    assertRgb(frame.expected);
+    trainingSessions.add(frame.sessionId);
+    frame.expected.forEach((value, i) => {
+      trainingMeanImage[i] += (value - trainingMeanImage[i]) / (row + 1);
+      trainingMeanColor[i % 3] += value;
+    });
+  });
+  for (let channel = 0; channel < 3; channel++)
+    trainingMeanColor[channel] /= trainingFrames.length * 256;
+  let model = 0,
+    baseline = 0,
+    constantColor = 0;
+  for (const frame of testFrames) {
+    if (
+      !frame.sessionId ||
+      !Object.prototype.hasOwnProperty.call(sessionSplits, frame.sessionId) ||
+      sessionSplits[frame.sessionId] !== evaluationSplit
+    )
+      throw new Error(
+        `Held-out frame must belong to an assigned ${evaluationSplit} session`,
+      );
+    if (trainingSessions.has(frame.sessionId))
+      throw new Error("Training and test sessions must be disjoint");
+    assertRgb(frame.expected);
+    assertRgb(frame.predicted);
+    testSessions.add(frame.sessionId);
     frame.expected.forEach((x, i) => {
       model += (x - frame.predicted[i]) ** 2;
       baseline += (x - trainingMeanImage[i]) ** 2;
+      constantColor += (x - trainingMeanColor[i % 3]) ** 2;
     });
   }
   return {
-    frameCount: frames.length,
-    modelMse: model / (frames.length * 768),
-    baselineMse: baseline / (frames.length * 768),
+    frameCount: testFrames.length,
+    sessionCount: testSessions.size,
+    evaluationSplit,
+    modelMse: model / (testFrames.length * 768),
+    baselineMse: baseline / (testFrames.length * 768),
+    constantColorMse: constantColor / (testFrames.length * 768),
   };
 }

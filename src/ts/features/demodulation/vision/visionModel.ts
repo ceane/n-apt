@@ -6,6 +6,7 @@ export const VISION_PRESETS = Object.freeze({
   L: Object.freeze([191, 255, 0]),
   Red: Object.freeze([255, 0, 0]),
 });
+export type VisionPreset = keyof typeof VISION_PRESETS;
 export const VISION_WIDTH = 16;
 export const VISION_HEIGHT = 16;
 export const VISION_FRAME_MS = 100;
@@ -176,11 +177,36 @@ export interface VisionModelManifest {
   trainingTrialIds: string[];
   status: "experimental";
 }
-export interface VisionDecodedFrame {
-  version: 1;
-  modelId: string;
-  sourceId: string;
-  timestampBackendMs: number;
-  rgb: Float32Array; // 16*16*3, normalized sRGB; never a reference input
-  confidence: number | null; // null until calibrated on held-out sessions
-}
+const visionImageVector = z
+  .instanceof(Float32Array)
+  .refine(
+    (values) => values.length === VISION_WIDTH * VISION_HEIGHT * 3,
+    "Expected a 16x16x3 image",
+  )
+  .refine((values) => Array.from(values).every(Number.isFinite), {
+    error: "Image values must be finite",
+  });
+const visionOutputMetadata = {
+  version: z.literal(1),
+  modelId: visionIdSchema,
+  sourceId: z.string().min(1).max(200),
+  timestampBackendMs: finite,
+};
+/** Row-major pixels with [Y, R_G, B_Y] channels, before conversion to sRGB. */
+export const visionModelHeadOutputSchema = z
+  .object({ ...visionOutputMetadata, opponent: visionImageVector })
+  .strict();
+export type VisionModelHeadOutput = z.infer<typeof visionModelHeadOutputSchema>;
+const normalizedRgbVector = visionImageVector.refine(
+  (values) => Array.from(values).every((value) => value >= 0 && value <= 1),
+  "Expected normalized sRGB values",
+);
+/** Row-major [R, G, B] pixels after inverse transform, clipping and sRGB encoding. */
+export const visionDecodedFrameSchema = z
+  .object({
+    ...visionOutputMetadata,
+    rgb: normalizedRgbVector,
+    confidence: finite.min(0).max(1).nullable(),
+  })
+  .strict();
+export type VisionDecodedFrame = z.infer<typeof visionDecodedFrameSchema>;
