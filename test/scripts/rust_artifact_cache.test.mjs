@@ -72,10 +72,14 @@ test('build wrapper retains fresh dependencies and skips cleanup after a failed 
     const failed = spawnSync(process.execPath, [wrapper], { env, encoding: 'utf8' });
     assert.equal(failed.status, 1, failed.stderr);
     assert.equal(fs.existsSync(stale), true);
+    const retired = path.join(root, 'target', 'dev-fast');
+    fs.mkdirSync(retired);
+    fs.writeFileSync(path.join(retired, 'old.rlib'), 'legacy');
     env.TEST_CARGO_EXIT = '0';
     const success = spawnSync(process.execPath, [wrapper], { env, encoding: 'utf8' });
     assert.equal(success.status, 0, success.stderr);
     assert.equal(fs.existsSync(stale), false, success.stdout + success.stderr);
+    assert.equal(fs.existsSync(path.join(retired, 'old.rlib')), false);
     assert.equal(fs.existsSync(live), true);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -96,6 +100,30 @@ test('defers cleanup while Cargo holds the profile lock', async () => {
     assert.equal(cleanup.status, 0, cleanup.stderr);
     assert.match(cleanup.stdout, /deferred cleanup/);
     assert.equal(fs.existsSync(stale), true);
+  } finally {
+    holder.stdin.end();
+    await once(holder, 'close');
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('preserves a retired profile while another Cargo command uses it', async () => {
+  const { spawn, spawnSync } = await import('node:child_process');
+  const { once } = await import('node:events');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'test_rust_retirement_'));
+  const profile = path.join(root, 'dev-incremental');
+  const retired = path.join(root, 'debug');
+  fs.mkdirSync(profile);
+  fs.mkdirSync(retired);
+  const artifact = path.join(retired, 'keep.rlib');
+  fs.writeFileSync(artifact, 'in use');
+  const holder = spawn('python3', ['-u', '-c', "import fcntl,sys; f=open(sys.argv[1],'a'); fcntl.flock(f,fcntl.LOCK_EX); print('ready'); sys.stdin.read()", path.join(retired, '.cargo-lock')]);
+  try {
+    await once(holder.stdout, 'data');
+    const cleanup = spawnSync('python3', [path.resolve('scripts/build/rustCacheCleanup.py'), profile, process.execPath, path.resolve('scripts/build/rustArtifactCache.mjs')], { input: '[]', encoding: 'utf8' });
+    assert.equal(cleanup.status, 0, cleanup.stderr);
+    assert.match(cleanup.stdout, /debug is busy/);
+    assert.equal(fs.existsSync(artifact), true);
   } finally {
     holder.stdin.end();
     await once(holder, 'close');

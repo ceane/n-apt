@@ -12,9 +12,11 @@
 
 The first build after the profile change regenerates artifacts. Release retains opt-level 3, thin LTO, and one codegen unit, and now also enables incremental compilation.
 Retention is not a hard disk quota: the current working set and recent generations are preserved.
-Backend builds and tests use dev-incremental; production builds use release. Cargo still has an implicit built-in dev profile; its separate project configuration was removed. Legacy debug/dev-fast caches and WASM/custom target caches remain separate. No live target cache was deleted during implementation.
+Backend builds and tests use dev-incremental; production builds use release. Cargo still has an implicit built-in dev profile; its separate project configuration was removed. After a successful dev-incremental build, legacy native debug/dev-fast artifacts are retired under their own Cargo locks; busy profiles are deferred. Empty lock directories remain to preserve lock inode identity. WASM/custom target caches remain separate. No live target cache was deleted during implementation.
 Automatic pruning requires python3 and Unix flock support. Windows builds explicitly skip automatic pruning.
 
 Focused checks: node --test test/scripts/rust_artifact_cache.test.mjs
 
 - [x] Removed dev-fast and the explicit dev profile configuration; updated orchestrator paths, npm backend/test commands, and CI to dev-incremental/release.
+
+- [x] Verify retired-profile cleanup and preservation when a retired profile is locked; five regression tests pass. Final TypeScript check and Cargo metadata validation passed.
