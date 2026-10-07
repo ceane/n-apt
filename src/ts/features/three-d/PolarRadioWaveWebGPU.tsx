@@ -42,9 +42,11 @@ const PolarLobeLine: React.FC<{
   rotation: number;
   frequency: number;
   power: number;
-}> = ({ aperture, beamWidth: propBeamWidth, rotation, frequency, power }) => {
+  active?: boolean;
+}> = ({ aperture, beamWidth: propBeamWidth, rotation, frequency, power, active = true }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const hasInitialPattern = useRef(false);
 
   // Use BoxGeometry for 3D lines
   const geometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
@@ -62,7 +64,7 @@ const PolarLobeLine: React.FC<{
   const ANTENNA_VISUAL_RADIUS = (aperture / 100) * 1.5;
 
   useFrame(() => {
-    if (!meshRef.current) return;
+    if (!meshRef.current || (!active && hasInitialPattern.current)) return;
 
     const radRotation = (rotation * Math.PI) / 180;
     const points: THREE.Vector3[] = [];
@@ -133,6 +135,7 @@ const PolarLobeLine: React.FC<{
       meshRef.current.setMatrixAt(i, dummy.matrix);
     }
     meshRef.current.instanceMatrix.needsUpdate = true;
+    hasInitialPattern.current = true;
   });
 
   return <instancedMesh ref={meshRef} args={[geometry, material, SEGMENTS]} />;
@@ -282,6 +285,7 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
   rotation: propRotation = 0,
   frequency: propFrequency = 1.5,
   gain: propGain = 43,
+  active = true,
 }) => {
   const {
     frequency: frequencyHz,
@@ -307,6 +311,7 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
     <Container>
       <ContentWrapper>
         <Canvas
+          frameloop={active ? "always" : "demand"}
           shadows
           camera={{
             position: [0, 15, 0],
@@ -326,6 +331,7 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
             rotation={rotation}
             frequency={frequency}
             power={numPower}
+            active={active}
           />
         </Canvas>
 
@@ -372,3 +378,39 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
     </Container>
   );
 };
+
+const PolarPreviewContainer = styled.div`
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(ellipse at center, rgba(172, 119, 255, 0.08), transparent 72%);
+`;
+
+export const PolarRadioWavePreview: React.FC = () => (
+  <PolarPreviewContainer>
+    <Canvas
+      frameloop="demand"
+      dpr={0.7}
+      gl={{ antialias: false, powerPreference: "low-power" }}
+      orthographic
+      camera={{
+        position: [0, 15, 0],
+        zoom: 8.5,
+        up: [0, 0, -1],
+        far: 100,
+      }}
+      style={{ width: "100%", height: "100%" }}
+    >
+      <ambientLight intensity={1.5} />
+      <PolarGrid3D aperture={40} />
+      <PolarLobeLine
+        aperture={40}
+        beamWidth={25}
+        rotation={0}
+        frequency={1.5}
+        power={43}
+        active={false}
+      />
+    </Canvas>
+  </PolarPreviewContainer>
+);

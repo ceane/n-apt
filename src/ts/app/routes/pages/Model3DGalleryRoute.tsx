@@ -31,6 +31,7 @@ import {
   SinglePanelSmallCell,
   RadiationLobe3D,
   PolarRadioWaveWebGPU,
+  PolarRadioWavePreview,
 } from "@n-apt/three-d";
 import { RoomTxScene } from "@n-apt/three-d/RoomTxScene";
 import { VoltageControlledOscillator } from "@n-apt/three-d/VoltageControlledOscillator";
@@ -231,6 +232,13 @@ const CATEGORY_ORDER = [
   "Charts",
   "Biological",
 ] as const;
+
+const MODELS_WITHOUT_GALLERY_PREVIEW = new Set<ModelKey>([
+  "room_tx",
+  "free_space_radiation",
+]);
+const GALLERY_MODELS = MODELS;
+const GALLERY_CATEGORIES = CATEGORY_ORDER;
 
 const FIRST_MODEL_INDEX = MODELS.findIndex(
   (model) => model.category === CATEGORY_ORDER[0],
@@ -501,7 +509,7 @@ function SectorTowerScene() {
 function DiamondCellScene() {
   return (
     <>
-      <group position={MODEL_ROOT_POSITION}>
+      <group position={MODEL_ROOT_POSITION} rotation={[0, -Math.PI / 2, 0]}>
         <DiamondCell scale={0.2} position={[0, -1, 0]} />
       </group>
       <OrbitControls makeDefault enableDamping target={MODEL_CAMERA_TARGET} />
@@ -580,6 +588,137 @@ const ViewportArea = styled.div`
     width: 100% !important;
     height: 100% !important;
     display: block;
+  }
+`;
+
+const GalleryHome = styled.main`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: clamp(24px, 5vw, 64px);
+`;
+
+const GalleryHeading = styled.header`
+  max-width: 1200px;
+  margin: 0 auto 32px;
+
+  h1 {
+    margin: 0;
+    color: ${(props) => props.theme.textPrimary};
+    font-size: clamp(26px, 4vw, 40px);
+    font-weight: 600;
+  }
+
+  p {
+    margin: 8px 0 0;
+    color: ${(props) => props.theme.textMuted};
+    font-size: 14px;
+  }
+`;
+
+const GalleryCategory = styled.section`
+  max-width: 1200px;
+  margin: 0 auto 32px;
+
+  h2 {
+    margin: 0 0 12px;
+    color: ${(props) => props.theme.textSecondary};
+    font: 12px ${(props) => props.theme.typography.mono};
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+`;
+
+const GalleryGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  gap: 12px;
+`;
+
+const GalleryCard = styled.button`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 260px;
+  padding: 12px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 10px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+
+  &:hover, &:focus-visible {
+    border-color: ${(props) => props.theme.primary};
+    background: ${(props) => props.theme.primaryAnchor};
+    transform: translateY(-2px);
+    outline: none;
+  }
+
+`;
+
+const GalleryPreviewFrame = styled.div`
+  width: 100%;
+  height: 156px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 7px;
+  background: radial-gradient(ellipse at 50% 42%, ${(props) => props.theme.surface}, ${(props) => props.theme.background});
+
+  canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    pointer-events: none;
+  }
+`;
+
+const GalleryPreviewPlaceholder = styled.div<{ $isScene?: boolean }>`
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: ${(props) => props.theme.textMuted};
+  font: 10px ${(props) => props.theme.typography.mono};
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: ${(props) => props.$isScene ? "linear-gradient(135deg, rgba(100, 120, 140, .08), transparent)" : "transparent"};
+`;
+
+const GalleryCardName = styled.span`
+  font-size: 14px;
+  font-weight: 600;
+`;
+
+const GalleryCardDescription = styled.span`
+  margin-top: 5px;
+  color: ${(props) => props.theme.textMuted};
+  font-size: 12px;
+  line-height: 1.45;
+`;
+
+const GalleryHomeButton = styled.button`
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 7px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textSecondary};
+  font: 11px ${(props) => props.theme.typography.mono};
+  cursor: pointer;
+
+  &:hover, &:focus-visible {
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
+    outline: none;
   }
 `;
 
@@ -975,26 +1114,131 @@ function BrainLights() {
   );
 }
 
+const MAX_ACTIVE_GALLERY_PREVIEWS = 4;
+type PreviewSlotSetter = React.Dispatch<React.SetStateAction<boolean>>;
+const activePreviewSlots = new Set<PreviewSlotSetter>();
+const waitingPreviewSlots = new Set<PreviewSlotSetter>();
+
+function promoteGalleryPreviews() {
+  for (const setHasSlot of waitingPreviewSlots) {
+    if (activePreviewSlots.size >= MAX_ACTIVE_GALLERY_PREVIEWS) break;
+    waitingPreviewSlots.delete(setHasSlot);
+    activePreviewSlots.add(setHasSlot);
+    setHasSlot(true);
+  }
+}
+
+function requestGalleryPreviewSlot(setHasSlot: PreviewSlotSetter) {
+  waitingPreviewSlots.add(setHasSlot);
+  promoteGalleryPreviews();
+
+  return () => {
+    waitingPreviewSlots.delete(setHasSlot);
+    if (activePreviewSlots.delete(setHasSlot)) {
+      setHasSlot(false);
+      promoteGalleryPreviews();
+    }
+  };
+}
+
+function GalleryPreviewModel({ model }: { model: ModelDef }) {
+  switch (model.key) {
+    case "afro-male": return <HumanAfroMaleScene />;
+    case "neutral": return <HumanNeutralScene />;
+    case "brain": return <BrainScene />;
+    case "lna": return <LNAScene />;
+    case "synth": return <SynthScene />;
+    case "vco": return <VCOScene frequencyHz={100} />;
+    case "bbu": return <BbuScene />;
+    case "dds": return <DDSScene />;
+    case "bpf": return <BandpassFilterScene />;
+    case "hpf": return <HighPassFilterScene />;
+    case "lo": return <LocalOscillatorScene />;
+    case "mixer": return <RFMixerScene />;
+    case "bb_amp": return <BasebandAmplifierScene />;
+    case "adc": return <AnalogDigitalConverterScene />;
+    case "dsp": return <DSPScene />;
+    case "sector": return <SectorTowerScene />;
+    case "diamond": return <DiamondCellScene />;
+    case "pole_small": return <PoleMountedSmallCellScene />;
+    case "hexagonal": return <HexagonalSmallCellScene />;
+    case "single_panel": return <SinglePanelSmallCellScene />;
+    case "polar_radiation": return null;
+    case "room_tx":
+    case "free_space_radiation":
+      return null;
+  }
+}
+
+function GalleryModelPreview({ model }: { model: ModelDef }) {
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [isNearViewport, setIsNearViewport] = useState(false);
+  const [hasPreviewSlot, setHasPreviewSlot] = useState(false);
+  const hasScenePreview = MODELS_WITHOUT_GALLERY_PREVIEW.has(model.key);
+
+  useEffect(() => {
+    const element = previewRef.current;
+    if (!element || hasScenePreview) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsNearViewport(entry.isIntersecting),
+      { rootMargin: "80px", threshold: 0.01 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasScenePreview]);
+
+  useEffect(() => {
+    if (!isNearViewport || hasScenePreview) return;
+    return requestGalleryPreviewSlot(setHasPreviewSlot);
+  }, [hasScenePreview, isNearViewport]);
+
+  const cameraPosition: [number, number, number] = model.key === "brain"
+    ? [0, 0, 1.1]
+    : model.key === "vco"
+      ? [0, 4, 10]
+      : model.key === "bbu"
+        ? [0, 3.5, 6]
+        : [...MODEL_CAMERA_POSITION];
+
+  return (
+    <GalleryPreviewFrame ref={previewRef} aria-hidden="true">
+      {hasScenePreview ? (
+        <GalleryPreviewPlaceholder $isScene>Scene preview off</GalleryPreviewPlaceholder>
+      ) : model.key === "polar_radiation" ? (
+        hasPreviewSlot ? (
+          <PolarRadioWavePreview />
+        ) : (
+          <GalleryPreviewPlaceholder>3D preview loads when visible</GalleryPreviewPlaceholder>
+        )
+      ) : hasPreviewSlot ? (
+        <Canvas
+          frameloop="demand"
+          dpr={0.7}
+          gl={{ antialias: false, powerPreference: "low-power" }}
+          camera={{ position: cameraPosition, fov: MODEL_FOV }}
+        >
+          <Suspense fallback={null}>
+            {model.key === "brain" ? <BrainLights /> : <StandardLights />}
+            <GalleryPreviewModel model={model} />
+          </Suspense>
+        </Canvas>
+      ) : (
+        <GalleryPreviewPlaceholder>3D preview loads when visible</GalleryPreviewPlaceholder>
+      )}
+    </GalleryPreviewFrame>
+  );
+}
+
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export const Model3DGalleryRoute: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(FIRST_MODEL_INDEX);
+  const [hasSelectedModel, setHasSelectedModel] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isTraceVisible, setIsTraceVisible] = useState(true);
   const activeModel = MODELS[activeIndex];
   const [vcoFrequencyHz, setVcoFrequencyHz] = useState(100);
-  const wavePhaseRef = useRef(0);
-  useEffect(() => {
-    let frame = 0;
-    let start: number | undefined;
-    const animate = (now: number) => {
-      if (start === undefined) start = now;
-      wavePhaseRef.current = ((now - start) / 1000) * Math.max(0.5, Math.min(8, vcoFrequencyHz / 500));
-      frame = requestAnimationFrame(animate);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, [vcoFrequencyHz]);
   const theme = useTheme() as any;
   const isVCO = activeModel.key === "vco";
   const periodSeconds = 1 / vcoFrequencyHz;
@@ -1019,7 +1263,7 @@ export const Model3DGalleryRoute: React.FC = () => {
     <Wrapper>
       <LevaGlobalStyles />
       <Leva
-        hidden={!isVCO && !["room_tx", "polar_radiation", "free_space_radiation"].includes(activeModel.key)}
+        hidden={!hasSelectedModel || (!isVCO && !["room_tx", "polar_radiation", "free_space_radiation"].includes(activeModel.key))}
         collapsed={false}
         theme={{
           sizes: {
@@ -1057,7 +1301,19 @@ export const Model3DGalleryRoute: React.FC = () => {
           },
         }}
       />
+      {hasSelectedModel ? (
+      <>
       <ViewportArea>
+        <GalleryHomeButton
+          type="button"
+          onClick={() => {
+            setHasSelectedModel(false);
+            setIsDrawerOpen(false);
+          }}
+        >
+          <Menu size={15} aria-hidden="true" />
+          All models
+        </GalleryHomeButton>
         {isVCO ? (
           <VCOLayout>
             <VCOPanel>
@@ -1246,6 +1502,36 @@ export const Model3DGalleryRoute: React.FC = () => {
         </NavButton>
         </PaginationControls>
       </PaginationBar>
+      </>
+      ) : (
+        <GalleryHome aria-label="3D model gallery">
+          <GalleryHeading>
+            <h1>3D Model Gallery</h1>
+            <p>Choose a model to explore it in the interactive viewer.</p>
+          </GalleryHeading>
+          {GALLERY_CATEGORIES.map((category) => (
+            <GalleryCategory key={category} aria-label={category}>
+              <h2>{category}</h2>
+              <GalleryGrid>
+                {GALLERY_MODELS.map((model) => model.category === category ? (
+                  <GalleryCard
+                    key={model.key}
+                    type="button"
+                    onClick={() => {
+                      setActiveIndex(MODELS.findIndex((item) => item.key === model.key));
+                      setHasSelectedModel(true);
+                    }}
+                  >
+                    <GalleryModelPreview model={model} />
+                    <GalleryCardName>{model.label}</GalleryCardName>
+                    <GalleryCardDescription>{model.description}</GalleryCardDescription>
+                  </GalleryCard>
+                ) : null)}
+              </GalleryGrid>
+            </GalleryCategory>
+          ))}
+        </GalleryHome>
+      )}
     </Wrapper>
   );
 };
