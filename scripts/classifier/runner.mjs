@@ -19,7 +19,7 @@ export async function createRunner() {
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.evaluate(async () => { window.classifier = await NativeClassifier.initialize(); });
     return {
-      extract: (spectrum, metadata, model) => page.evaluate(({ spectrum, metadata, model }) => window.classifier.extract(spectrum, metadata, model), { spectrum: Array.from(spectrum), metadata, model }),
+      extract: (spectrum, metadata, model, minimumIntervalMs) => page.evaluate(({ spectrum, metadata, model, minimumIntervalMs }) => window.classifier.extract(spectrum, metadata, model, minimumIntervalMs), { spectrum: Array.from(spectrum), metadata, model, minimumIntervalMs }),
       parity: () => page.evaluate(() => window.classifier.parity()),
       inferParity: (models, probes) => page.evaluate(({ models, probes }) => window.classifier.inferParity(models, probes), { models, probes }),
       close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); },

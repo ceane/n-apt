@@ -188,9 +188,51 @@ test('browser classifier V6 export keeps each captured frame timestamped and ind
     ], { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     assert.equal(extractResult.status, 0, extractResult.stderr);
     const featureRows = (await readFile(featurePath, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
-    assert.equal(featureRows.length, 2);
-    assert.deepEqual(featureRows.map((row) => row.timestampMs), [firstFrameTimestampMs, secondFrameTimestampMs]);
-    assert.deepEqual(featureRows.map((row) => row.temporalFrameCount), [1, 2]);
+    assert.equal(featureRows.length, 1, 'offline temporal features follow the live classifier interval');
+    assert.deepEqual(featureRows.map((row) => row.timestampMs), [firstFrameTimestampMs]);
+    assert.deepEqual(featureRows.map((row) => row.temporalFrameCount), [1]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('prepared frame labels follow the annotation state at each recorded frame boundary', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'napt-native-v6-label-timeline-'));
+  try {
+    const session = new NativeTrainingCaptureSession();
+    assert.equal(session.start(config, 0, 1_000, {
+      label: 'matching', channel: 'A', features: ['bridge'], tags: [],
+    }, { sequence: 9, timestampMs: 1_000 }), true);
+    assert.equal(session.append({ ...config, sequence: 10, timestampMs: 1_010, validSamples: 2048,
+      status: 'receiving', iqBytes: new Uint8Array(4096).fill(128) }, 10, 1_010), 'accepted');
+    session.updateAnnotations({ label: 'uncertain', channel: 'A', features: [], tags: ['interference visible'] }, 1_011);
+    assert.equal(session.append({ ...config, sequence: 11, timestampMs: 1_020, validSamples: 2048,
+      status: 'receiving', iqBytes: new Uint8Array(4096).fill(128) }, 20, 1_020), 'accepted');
+    session.stop('user-stopped');
+    session.updateAnnotations({ label: 'matching', channel: 'A', features: ['bridge'], tags: ['reviewed-after-capture'] }, 1_030);
+
+    const artifact = await exportNativeTrainingCaptureV6(session);
+    const capturePath = path.join(root, artifact.captureFileName);
+    const labelsPath = path.join(root, artifact.annotationFileName);
+    const packagePath = path.join(root, 'package');
+    await writeFile(capturePath, artifact.captureBytes);
+    await writeFile(labelsPath, JSON.stringify(artifact.annotations));
+    const packageResult = spawnSync(process.execPath, [
+      '--import', 'tsx', 'scripts/classifier/cli.mjs', 'package',
+      '--capture', capturePath, '--labels', labelsPath, '--out', packagePath,
+    ], { cwd: process.cwd(), encoding: 'utf8' });
+    assert.equal(packageResult.status, 0, packageResult.stderr);
+    const preparedPath = path.join(root, 'prepared');
+    const prepareResult = spawnSync(process.execPath, [
+      '--import', 'tsx', 'scripts/classifier/cli.mjs', 'prepare',
+      '--package', packagePath, '--split', 'train', '--out', preparedPath,
+    ], { cwd: process.cwd(), encoding: 'utf8' });
+    assert.equal(prepareResult.status, 0, prepareResult.stderr);
+    const dataset = JSON.parse(await readFile(path.join(preparedPath, 'dataset.json'), 'utf8'));
+    assert.deepEqual(dataset.recordings.map((record) => ({ frameSequence: record.frameSequence, label: record.label })), [
+      { frameSequence: 10, label: 'matching' },
+      { frameSequence: 11, label: 'uncertain' },
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -4028,7 +4028,7 @@ const FFTCanvas = memo(
           } else if (
             showNativeClassifier && nativeDevice && currentFrame.source_id &&
             Number.isFinite(nativeTimestamp) && Number.isFinite(nativeRate) && nativeRate! > 0 &&
-            Number.isFinite(nativeCenter) && performance.now() - nativeLastStartMsRef.current >= 250
+            Number.isFinite(nativeCenter) && performance.now() - nativeLastStartMsRef.current >= NativeClassifier.NATIVE_CLASSIFIER_UPDATE_INTERVAL_MS
           ) {
             const analysisSize = rawSpectrum.length;
             const binHz = nativeRate! / analysisSize;
@@ -4038,9 +4038,23 @@ const FFTCanvas = memo(
             const cropEnd = Math.max(cropStart, Math.min(analysisSize, Math.ceil((requested.max - acquisitionMin) / binHz)));
             const nativeWindow = NativeClassifier.normalizeNativeWindowKind(fftWindow ?? 'Rectangular');
             const windowName = nativeWindow;
-            if (cropEnd - cropStart >= 8 && ['rectangular','hann','hamming','blackman','nuttall'].includes(nativeWindow)) {
+            const supportedWindow = ['rectangular','hann','hamming','blackman','nuttall'].includes(nativeWindow);
+            if (supportedWindow && cropEnd === cropStart) {
+              // There is no valid FFT slice to send to the extractor. Clear the
+              // previous score instead of presenting it as current for an
+              // interval with no visible acquisition bins.
+              nativeRequestRef.current = `empty-crop:${sourceId}:${frameId}:${cropStart}`;
+              nativeLastStartMsRef.current = performance.now();
+              nativeTemporalRef.current.reset();
+              setNativeShadowResult(null);
+              setNativeShadowError('Insufficient evidence: no acquired FFT bins overlap the selected frequency interval.');
+            } else if (supportedWindow && cropEnd > cropStart) {
               try {
-                if (nativeExtractorRef.current?.device !== nativeDevice) {
+                const cropSize = cropEnd - cropStart;
+                // The GPU path uses a small fixed minimum. Tiny crops still
+                // produce an explicit insufficient-evidence result via the
+                // shared CPU reference, so they clear a previously shown score.
+                if (cropSize >= 8 && nativeExtractorRef.current?.device !== nativeDevice) {
                   nativeExtractorRef.current?.extractor.dispose();
                   nativeExtractorRef.current = { device: nativeDevice, extractor: new NativeClassifier.NativeGpuExtractor(nativeDevice) };
                   nativeTemporalRef.current.reset();
@@ -4059,7 +4073,10 @@ const FFTCanvas = memo(
                     retainedStartBin: cropStart, retainedEndBin: cropEnd,
                   } satisfies NativeClassifier.FrameMetadata,
                 };
-                void nativeExtractorRef.current.extractor.extract(nativeFrame).then(async bins => {
+                const extraction = cropSize >= 8
+                  ? nativeExtractorRef.current!.extractor.extract(nativeFrame)
+                  : Promise.resolve(NativeClassifier.extractReference(nativeFrame));
+                void extraction.then(async bins => {
                   const summary = NativeClassifier.summarizeFeatures(nativeFrame, bins);
                   const temporal = nativeTemporalRef.current.update(nativeFrame.metadata, summary);
                   if (!temporal || nativeRequestRef.current !== token) return;
@@ -6069,8 +6086,12 @@ const FFTCanvas = memo(
                       onModel={(model) => { nativeModelRef.current = model; setNativeModel(model); setNativeShadowResult(null); }}
                     />
                     {nativeShadowError && !compact && showNativeClassifier && (
-                      <div role="status" style={{ padding: '4px 10px', color: '#ff9988', fontFamily: 'monospace', fontSize: 11 }}>
-                        Native shadow classifier unavailable: {nativeShadowError}
+                      <div role="status" style={{ padding: '4px 10px',
+                        color: nativeShadowError.startsWith('Insufficient evidence:') ? 'var(--color-warning, #b7791f)' : '#ff9988',
+                        fontFamily: 'monospace', fontSize: 11 }}>
+                        {nativeShadowError.startsWith('Insufficient evidence:')
+                          ? nativeShadowError
+                          : `Native shadow classifier unavailable: ${nativeShadowError}`}
                       </div>
                     )}
                   </>,

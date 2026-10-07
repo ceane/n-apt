@@ -7,8 +7,8 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { decryptArchivedIqPayload } from './crypto.mjs';
 import { createRunner } from './runner.mjs';
-import { decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture } from './io.mjs';
-import { FEATURE_NAMES, PREPROCESSING, validateModel, inferModel } from '../../src/ts/features/classification/native/core.ts';
+import { decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture, annotationsAtFrame } from './io.mjs';
+import { FEATURE_NAMES, PREPROCESSING, NATIVE_CLASSIFIER_UPDATE_INTERVAL_MS, validateModel, inferModel } from '../../src/ts/features/classification/native/core.ts';
 import { summarizeClassificationRows } from './classification-report.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const numericList = (v, label) => { const a = v.split(',').map(Number); if (a.some(x => !Number.isInteger(x) || x < 2 || x > 1048576 || (x & (x - 1)))) throw new Error(`${label} must be comma-separated powers of two`); return a; };
@@ -247,8 +247,13 @@ async function preparePackage(a) {
       const id = `pkg_${createHash('sha256').update(`${capture.captureId}:${frame.sequence}`).digest('hex').slice(0, 16)}`;
       const iq = decodeIq(frame.iqBytes, 'u8');
       const input = await writePreparedIq(iq, path.join(out, id));
+      const frameAnnotations = annotationsAtFrame(labels.annotations, labels.annotationEvents, frame.sequence, frame.timestampMs);
       records.push({
         ...rowBase,
+        label: frameAnnotations.label,
+        channel: frameAnnotations.channel,
+        captureAnnotations: frameAnnotations,
+        annotationEvents: labels.annotationEvents,
         id,
         input: path.relative(out, input),
         format: 'f32le',
@@ -396,10 +401,15 @@ async function preparePackage(a) {
         const timestampStartMs = Number.isFinite(startUpdate?.timestamp_us)
           ? startUpdate.timestamp_us / 1000 + ((startByte - startUpdate.sample_offset) / 2 / config.sampleRateHz) * 1000
           : initialTimestamp + (startByte / 2 / config.sampleRateHz) * 1000;
+        const frameAnnotations = annotationsAtFrame(labels.annotations, labels.annotationEvents,
+          frameUpdate?.frame_sequence, timestampStartMs);
         const previousRunEnd = runIndex === 0 ? 0 : runs[runIndex - 1].endByte;
         const sourceChunkGapBefore = startByte === run.startByte && startByte > previousRunEnd;
         records.push({
           ...rowBase,
+          label: frameAnnotations.label,
+          channel: frameAnnotations.channel,
+          captureAnnotations: frameAnnotations,
           id,
           input: path.relative(out, input),
           format: 'f32le',
@@ -462,7 +472,8 @@ async function prepare(a) {
         const id=`${r.id}_seq${frame.sequence}`;
         const iq=decodeIq(frame.iqBytes,'u8');
         const input=await writePreparedIq(iq,path.join(out,id));
-        records.push({...r,id,input:path.relative(out,input),format:'f32le',captureId:r.id,sourceCaptureId:capture.captureId,captureIdentity:capture.captureIdentity,browserSessionId:capture.sessionId,captureAnnotations:capture.annotations,annotationEvents:capture.annotationEvents,interferenceMarkedEvents:capture.interferenceMarkedEvents,tuneEvents:capture.tuneEvents,optionsAppliedEvents:capture.optionsAppliedEvents,streamInterruptedEvents:capture.streamInterruptedEvents,stopReason:capture.stopReason,sourceId:config.sourceId,streamEpoch:frame.streamEpoch,optionsRevision:frame.optionsRevision,frameSequence:frame.sequence,timestampStartMs:frame.timestampMs,configuredFftSize:config.configuredFftSize,analysisFftSize:config.fftSize,window:config.window,captureWindow:config.window,temporalResolution:config.temporalResolution,validSamples:frame.validSamples,iqByteCount:frame.iqBytes.length,complexSamples:iq.length/2});
+        const frameAnnotations=annotationsAtFrame(capture.annotations,capture.annotationEvents,frame.sequence,frame.timestampMs);
+        records.push({...r,id,input:path.relative(out,input),format:'f32le',label:frameAnnotations.label,channel:frameAnnotations.channel,captureId:r.id,sourceCaptureId:capture.captureId,captureIdentity:capture.captureIdentity,browserSessionId:capture.sessionId,captureAnnotations:frameAnnotations,annotationEvents:capture.annotationEvents,interferenceMarkedEvents:capture.interferenceMarkedEvents,tuneEvents:capture.tuneEvents,optionsAppliedEvents:capture.optionsAppliedEvents,streamInterruptedEvents:capture.streamInterruptedEvents,stopReason:capture.stopReason,sourceId:config.sourceId,streamEpoch:frame.streamEpoch,optionsRevision:frame.optionsRevision,frameSequence:frame.sequence,timestampStartMs:frame.timestampMs,configuredFftSize:config.configuredFftSize,analysisFftSize:config.fftSize,window:config.window,captureWindow:config.window,temporalResolution:config.temporalResolution,validSamples:frame.validSamples,iqByteCount:frame.iqBytes.length,complexSamples:iq.length/2});
       }
       continue;
     }
@@ -483,7 +494,7 @@ async function extract(a) {
   const datasetPath=path.resolve(a.dataset),base=path.dirname(datasetPath),dataset=validateDataset(JSON.parse(await readFile(datasetPath,'utf8')));
   const sizes=numericList(a.fft_sizes??'1024,4096,16384','--fft-sizes'), crops=parseCrops(a.crops), window=a.window??'hann';
   if(!['rectangular','hann','hamming','blackman','blackman-harris','nuttall'].includes(window)) throw new Error('Unsupported window');
-  const runner=await createRunner(), rows=[], insufficientHistory=new Map();
+  const runner=await createRunner(), rows=[];
   try {
     for(const r of dataset.recordings) {
       const iq=decodeIq(await readFile(path.resolve(base,r.input)),'f32le'), n=iq.length/2;
@@ -502,23 +513,11 @@ async function extract(a) {
             const spectrum=fft.spectrum.subarray(startBin,endBin);
             const timestampMs=Number(r.timestampStartMs??0)+start/r.sampleRateHz*1000;
             const metadata={sourceId:streamKey,frameId:`${r.id}:${fftSize}:${startFraction}:${start}`,timestampMs,acquisitionSampleRateHz:r.sampleRateHz,analysisSampleRateHz:r.sampleRateHz,fftSize:fft.fftSize,validSamples:fft.validSamples,window,centerFrequencyHz:r.centerFrequencyHz,retainedStartBin:startBin,retainedEndBin:endBin};
-            const extracted=await runner.extract(Array.from(spectrum),metadata);
-            // Keep every selected capture frame in the timestamped output, even
-            // when native resolution/support is too weak to return classifier
-            // evidence. Missing features stay unavailable rather than becoming
-            // confident negatives or disappearing from the temporal record.
-            let result=extracted;
-            if(!result){
-              const previous=insufficientHistory.get(streamKey);
-              const frameCount=previous&&timestampMs>previous.timestampMs&&timestampMs-previous.timestampMs<=1000
-                ?previous.frameCount+1:1;
-              insufficientHistory.set(streamKey,{timestampMs,frameCount});
-              result={
-              values:FEATURE_NAMES.map((_,i)=>i===13?spectrum.length/metadata.fftSize:i===14?metadata.validSamples/metadata.fftSize:0),
-              status:'insufficient_evidence',available:{narrow:false,bridge:false,envelope:false},
-              ruleScore:null,frameCount,evidenceMs:0,latencyMs:null,
-              };
-            }else insufficientHistory.delete(streamKey);
+            const result=await runner.extract(Array.from(spectrum),metadata,undefined,NATIVE_CLASSIFIER_UPDATE_INTERVAL_MS);
+            // Match the live classifier's temporal sampling cadence. A null
+            // result means this ready window was inside the 250 ms interval;
+            // insufficient evidence is returned explicitly by the shared core.
+            if(!result) continue;
             temporal.push({
               id:r.id,captureId:r.captureId??r.id,sourceCaptureId:r.sourceCaptureId??null,captureIdentity:r.captureIdentity??null,
               recordingId:r.id,session:r.session,split:r.split,label:r.label,captureAnnotations:r.captureAnnotations??null,
@@ -535,6 +534,7 @@ async function extract(a) {
               acquisitionWindow:r.captureWindow??r.window??null,analysisWindow:window,window,
               frameIndex:sourceFrameIndex,timestampMs,evidenceMs:result.evidenceMs,temporalFrameCount:result.frameCount??1,
               latencyMs:result.latencyMs??null,sourceId:r.sourceId??null,streamEpoch:r.streamEpoch??null,
+              temporalUpdateIntervalMs:NATIVE_CLASSIFIER_UPDATE_INTERVAL_MS,
               optionsRevision:r.optionsRevision??null,frameSequence:r.frameSequence??null,frameTimestampUs:r.frameTimestampUs??null,
               sourceSampleOffsetBytes:r.sourceSampleOffsetBytes??null,analysisFftSize:r.analysisFftSize??null,
             });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture } from '../../scripts/classifier/io.mjs';
+import { annotationsAtFrame, decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture } from '../../scripts/classifier/io.mjs';
 test('raw IQ formats reject truncated pairs and preserve signed values', () => {
   assert.throws(() => decodeIq(Buffer.from([0]), 'u8'));
   assert.deepEqual(Array.from(decodeIq(Buffer.from([128, 0, 255, 128]), 'u8')), [0, -1, 127 / 128, 0]);
@@ -30,6 +30,18 @@ test('dataset accepts mock and sinc challenge splits while preserving session is
   const sinc = { ...row, id: 'sinc-one', session: 'sinc-session', split: 'challenge-sinc', input: '/tmp/sinc.iq' };
   assert.deepEqual(validateDataset({ recordings: [row, sinc] }).recordings.map(({ split }) => split), ['challenge-mock', 'challenge-sinc']);
   assert.throws(() => validateDataset({ recordings: [row, { ...row, id: 'leaked', split: 'train' }] }), /Session leakage/);
+});
+
+test('annotation changes apply after their frame boundary and post-capture review updates the base label', () => {
+  const matching = { label: 'matching', channel: 'A', features: ['bridge'], tags: [] };
+  const uncertain = { label: 'uncertain', channel: 'A', features: [], tags: ['interference'] };
+  const events = [
+    { timestampMs: 1000, frameSequence: 9, annotations: uncertain, initial: true },
+    { timestampMs: 1100, frameSequence: 10, annotations: matching },
+    { timestampMs: 1300, frameSequence: null, annotations: uncertain, captureWide: true },
+  ];
+  assert.deepEqual(annotationsAtFrame(matching, events, 10, 1100), uncertain);
+  assert.deepEqual(annotationsAtFrame(matching, events, 11, 1200), matching);
 });
 
 test('browser training exports validate and preserve each complete raw IQ frame independently', () => {

@@ -38,7 +38,7 @@ export interface NativeShadowResult {
   modelId: string | null;
   sampleRateValidated: boolean;
   latencyMs: number;
-  ruleScore: number;
+  ruleScore: number | null;
 }
 export type NativeShadowResultState = 'current' | 'stale' | 'metadata-mismatch';
 export interface LegacyDecision { isNapt: boolean; confidence: number }
@@ -164,7 +164,7 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
   const wrappingText: CSSProperties = { minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.45 };
   const diagnostics = result
     ? resultState === 'current'
-      ? `${result.summary.status}; ${result.frameMetadata.fftSize} FFT; ${result.summary.resolution.binHz.toFixed(2)} Hz/bin; ${result.summary.resolution.resolutionHz.toFixed(2)} Hz effective resolution; retained bins ${result.frameMetadata.retainedStartBin}–${result.frameMetadata.retainedEndBin} (${(100 * (result.frameMetadata.retainedEndBin - result.frameMetadata.retainedStartBin) / result.frameMetadata.fftSize).toFixed(1)}% visible); frame ${result.frameMetadata.timestampMs} ms; ${result.modelId ? `model ${result.score?.toFixed(3)}${result.sampleRateValidated ? '' : ' (sample rate unvalidated)'}` : `rule ${result.ruleScore.toFixed(3)}`}; ${result.latencyMs.toFixed(1)} ms`
+      ? `${result.summary.status}; ${result.frameMetadata.fftSize} FFT; ${result.summary.resolution.binHz.toFixed(2)} Hz/bin; ${result.summary.resolution.resolutionHz.toFixed(2)} Hz effective resolution; retained bins ${result.frameMetadata.retainedStartBin}–${result.frameMetadata.retainedEndBin} (${(100 * (result.frameMetadata.retainedEndBin - result.frameMetadata.retainedStartBin) / result.frameMetadata.fftSize).toFixed(1)}% visible); frame ${result.frameMetadata.timestampMs} ms; ${result.summary.status === 'insufficient_evidence' ? 'score withheld' : result.modelId ? `model ${result.score?.toFixed(3)}${result.sampleRateValidated ? '' : ' (sample rate unvalidated)'}` : `rule ${result.ruleScore?.toFixed(3) ?? 'unavailable'}`}; ${result.latencyMs.toFixed(1)} ms`
       : `${resultState === 'stale' ? 'stale shadow frame' : 'shadow frame metadata does not match current acquisition'}; last ${result.frameMetadata.fftSize} FFT at ${result.summary.resolution.binHz.toFixed(2)} Hz/bin; last retained bins ${result.frameMetadata.retainedStartBin}–${result.frameMetadata.retainedEndBin}; frame ${result.frameMetadata.timestampMs} ms; score withheld; previous extraction ${result.latencyMs.toFixed(1)} ms`
     : message;
   const state = captureActive ? 'recording' : captureAvailable ? 'ready' : 'waiting';

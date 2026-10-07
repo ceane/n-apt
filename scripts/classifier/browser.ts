@@ -15,6 +15,7 @@ export async function initialize() {
       spectrum: number[],
       metadata: core.FrameMetadata,
       model?: core.NativeModel,
+      minimumIntervalMs = 0,
     ) {
       const frame = { spectrum: new Float32Array(spectrum), metadata };
       const start = performance.now();
@@ -25,7 +26,7 @@ export async function initialize() {
         tracker = new core.TemporalClassifier();
         temporal.set(metadata.sourceId, tracker);
       }
-      const result = tracker.update(metadata, summary);
+      const result = tracker.update(metadata, summary, minimumIntervalMs);
       if (!result) return null;
       const score =
         model && result.status === "ready"

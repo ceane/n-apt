@@ -38,7 +38,9 @@ describe('native morphology contract', () => {
     expect(result.available.narrow).toBe(false);
     expect(result.status).toBe('insufficient_evidence');
     const crop = frame({ retainedStartBin: 100, retainedEndBin: 104 }, 4);
-    expect(NativeClassifier.summarizeFeatures(crop, NativeClassifier.extractReference(crop)).available.envelope).toBe(false);
+    const cropSummary = NativeClassifier.summarizeFeatures(crop, NativeClassifier.extractReference(crop));
+    expect(cropSummary.available.envelope).toBe(false);
+    expect(cropSummary.status).toBe('insufficient_evidence');
   });
   it('is independent of a constant gain offset and detects supported shape', () => {
     const f = frame();
@@ -58,6 +60,24 @@ describe('native morphology contract', () => {
     expect(tracker.update(metadata({ frameId: '2', timestampMs: 1100 }), features)?.frameCount).toBe(2);
     expect(tracker.update(metadata({ sourceId: 'other', frameId: '3', timestampMs: 1200 }), features)?.frameCount).toBe(1);
     expect(tracker.update(metadata({ frameId: '4', timestampMs: 5000 }), features)?.frameCount).toBe(1);
+  });
+  it('matches the live classifier sampling interval for offline temporal summaries', () => {
+    const tracker = new NativeClassifier.TemporalClassifier();
+    const f = frame(); const features = NativeClassifier.summarizeFeatures(f, NativeClassifier.extractReference(f));
+    expect(tracker.update(metadata({ frameId: '10', timestampMs: 1000 }), features, 250)?.frameCount).toBe(1);
+    expect(tracker.update(metadata({ frameId: '11', timestampMs: 1100 }), features, 250)).toBeNull();
+    expect(tracker.update(metadata({ frameId: '12', timestampMs: 1250 }), features, 250)).toMatchObject({ frameCount: 2, evidenceMs: 250 });
+  });
+  it('returns a current insufficient-evidence result so callers can clear an older score', () => {
+    const tracker = new NativeClassifier.TemporalClassifier();
+    const f = frame();
+    const ready = NativeClassifier.summarizeFeatures(f, NativeClassifier.extractReference(f));
+    expect(tracker.update(metadata({ frameId: '10', timestampMs: 1000 }), ready)?.status).toBe('ready');
+    const insufficient = { ...ready, status: 'insufficient_evidence' as const,
+      available: { narrow: false, bridge: false, envelope: false } };
+    expect(tracker.update(metadata({ frameId: '11', timestampMs: 1250 }), insufficient)).toMatchObject({
+      status: 'insufficient_evidence', frameCount: 0, evidenceMs: 0, ruleScore: null,
+    });
   });
   it('ignores delayed or same-timestamp frames without resetting temporal history', () => {
     const tracker = new NativeClassifier.TemporalClassifier();
@@ -81,7 +101,7 @@ describe('native morphology contract', () => {
     expect(tracker.update(metadata({ frameId: '10', timestampMs: 1000 }), features)?.frameCount).toBe(1);
     expect(tracker.update(metadata({ frameId: '11', timestampMs: 1100 }), {
       ...features, status: 'insufficient_evidence', available: { narrow: false, bridge: false, envelope: false },
-    })).toBeNull();
+    })).toMatchObject({ status: 'insufficient_evidence', frameCount: 0, evidenceMs: 0, ruleScore: null });
     expect(tracker.update(metadata({ frameId: '12', timestampMs: 1200 }), features)).toMatchObject({ frameCount: 1, evidenceMs: 0 });
   });
   it('keeps temporal evidence unchanged when repaint cadence reprocesses the same acquisitions', () => {

@@ -47,6 +47,16 @@ it('shows the existing decision beside native-resolution shadow diagnostics and 
   expect(onModel).toHaveBeenCalledWith(null);
 });
 
+it('withholds the previous score when the newest fresh frame has insufficient evidence', () => {
+  const result = channelMatchResult(1_618_000);
+  result.summary = { ...result.summary, status: 'insufficient_evidence' };
+  result.ruleScore = null;
+  render(<NativeClassifier.NativeClassifierPanel result={result} onModel={jest.fn()} />);
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('insufficient_evidence');
+  expect(screen.getByTestId('classifier-shadow-status')).toHaveTextContent('score withheld');
+  expect(screen.getByTestId('classifier-shadow-status')).not.toHaveTextContent('rule 0.500');
+});
+
 it('renders classifier controls as a narrow stacked sidebar card and hides the artifact encoding detail', () => {
   render(<NativeClassifier.NativeClassifierPanel result={null} onModel={jest.fn()} captureAvailable />);
   expect(screen.getByRole('region', { name: 'Experimental native resolution classifier' })).toHaveAttribute('data-layout', 'sidebar');

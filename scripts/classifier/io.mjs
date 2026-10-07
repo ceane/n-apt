@@ -132,6 +132,25 @@ export function readTrainingCapture(capture, sidecar = null, sourceFileName = nu
     captureIdentity: sidecar?.captureIdentity ?? null, config: { ...config }, annotations, annotationEvents,
     interferenceMarkedEvents, tuneEvents, optionsAppliedEvents, streamInterruptedEvents, stopReason: capture.stopReason ?? null, frames };
 }
+
+export function annotationsAtFrame(finalAnnotations, annotationEvents, frameSequence, timestampMs) {
+  const events = Array.isArray(annotationEvents) ? annotationEvents : [];
+  if (events.length === 0) return finalAnnotations;
+  const initial = events.filter((event) => event.initial === true || event.captureWide === true).at(-1);
+  const changedEvents = events.filter((event) => event.initial !== true && event.captureWide !== true);
+  const lacksInitialState = !initial && changedEvents.some((event) =>
+    JSON.stringify(event.annotations) !== JSON.stringify(finalAnnotations));
+  let annotations = initial?.annotations ?? (lacksInitialState
+    ? { label: 'uncertain', channel: 'unspecified', features: [], tags: [] }
+    : finalAnnotations);
+  for (const event of changedEvents) {
+    const boundaryReached = Number.isInteger(frameSequence) && Number.isInteger(event.frameSequence)
+      ? frameSequence > event.frameSequence
+      : Number.isFinite(timestampMs) && timestampMs >= event.timestampMs;
+    if (boundaryReached) annotations = event.annotations;
+  }
+  return annotations;
+}
 export function validateDataset(dataset) {
   if (!Array.isArray(dataset?.recordings) || !dataset.recordings.length) throw new Error('recordings must be nonempty');
   const ids = new Set(), sessions = new Map();

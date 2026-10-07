@@ -341,7 +341,8 @@ export class NativeTrainingCaptureSession {
       visualizerSessionKey: config.visualizerSessionKey, createdAtTimestampMs: null,
       config: { ...config, appliedOptions: { ...config.appliedOptions } }, stopReason: null, tuneEvents: [], optionsAppliedEvents: [], streamInterruptedEvents: [], frames: [] };
     this.annotations = cloneAnnotations(annotations);
-    this.annotationEvents = [];
+    this.annotationEvents = [{ timestampMs: this.startedAtTimestamp, frameSequence: this.startBoundarySequence,
+      annotations: cloneAnnotations(annotations), initial: true }];
     this.interferenceMarkedEvents = hasInterferenceTag(annotations) ? [{ kind: 'InterferenceMarked', code: 2, timestampMs: nowTimestampMs, byteOffset: 0, frameSequence: null }] : [];
     return true;
   }
@@ -354,6 +355,10 @@ export class NativeTrainingCaptureSession {
     if (this.active) {
       this.annotationEvents.push({ timestampMs, frameSequence: this.lastSequence >= 0 ? this.lastSequence : null, annotations: cloneAnnotations(next) });
       if (hasInterferenceTag(next) && !previouslyMarkedInterference) this.interferenceMarkedEvents.push({ kind: 'InterferenceMarked', code: 2, timestampMs, byteOffset: this.bytes, frameSequence: this.lastSequence >= 0 ? this.lastSequence : null });
+    } else {
+      // Post-capture review adjusts the base label for the whole recording;
+      // frame-bounded events from the live session still override it.
+      this.annotationEvents.push({ timestampMs, frameSequence: null, annotations: cloneAnnotations(next), captureWide: true });
     }
   }
 

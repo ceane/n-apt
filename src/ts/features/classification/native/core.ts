@@ -1,5 +1,6 @@
 /** Versioned, display-independent morphology contract shared by browser and CLI. */
 export const PREPROCESSING = 'native-morphology-v1';
+export const NATIVE_CLASSIFIER_UPDATE_INTERVAL_MS = 250;
 export const FEATURE_NAMES = [
   'bridge', 'partialBridge', 'uDip', 'occupancy', 'peakDensity',
   'spacingRegularity', 'width', 'prominence', 'envelopeVariation', 'quality',
@@ -145,7 +146,8 @@ export class TemporalClassifier {
   private key = '';
   private history: { timestamp: number; id: string; sequence?: number; bridge: number; u: number }[] = [];
   reset() { this.key = ''; this.history = []; }
-  update(m: FrameMetadata, summary: FeatureSummary) {
+  update(m: FrameMetadata, summary: FeatureSummary, minimumIntervalMs = 0) {
+    if (!Number.isFinite(minimumIntervalMs) || minimumIntervalMs < 0) throw new Error('Temporal update interval must be nonnegative');
     const key = JSON.stringify([m.sourceId, m.streamEpoch ?? null, m.optionsRevision ?? null, m.acquisitionSampleRateHz, m.analysisSampleRateHz, m.fftSize,
       m.validSamples, m.window, m.centerFrequencyHz, m.retainedStartBin, m.retainedEndBin]);
     if (key !== this.key) this.history = [];
@@ -156,9 +158,11 @@ export class TemporalClassifier {
       (m.sequence !== undefined && last.sequence !== undefined && m.sequence <= last.sequence))) return null;
     if (summary.status !== 'ready') {
       this.history = [];
-      return null;
+      return { ...summary, frameCount: 0, evidenceMs: 0, ruleScore: null };
     }
     if (last && m.timestampMs - last.timestamp > 1000) this.history = [];
+    const latest = this.history[this.history.length - 1];
+    if (latest && m.timestampMs - latest.timestamp < minimumIntervalMs) return null;
     this.history = this.history.filter(f => m.timestampMs - f.timestamp <= 1000);
     this.history.push({ timestamp: m.timestampMs, id: m.frameId, sequence: m.sequence,
       bridge: Math.max(summary.values[0], summary.values[1] * 0.65), u: summary.values[2] });
