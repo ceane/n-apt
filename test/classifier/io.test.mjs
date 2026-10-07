@@ -44,6 +44,14 @@ test('annotation changes apply after their frame boundary and post-capture revie
   assert.deepEqual(annotationsAtFrame(matching, events, 11, 1200), matching);
 });
 
+test('separate annotation base preserves frame labels without synthetic timeline events', () => {
+  const reviewedBase = { label: 'matching', channel: 'A', features: ['bridge'], tags: ['reviewed'] };
+  const frameChange = { timestampMs: 1100, frameSequence: 10,
+    annotations: { label: 'uncertain', channel: 'A', features: [], tags: ['interference'] } };
+  assert.deepEqual(annotationsAtFrame(reviewedBase, [frameChange], 10, 1100, reviewedBase), reviewedBase);
+  assert.deepEqual(annotationsAtFrame(reviewedBase, [frameChange], 11, 1200, reviewedBase), frameChange.annotations);
+});
+
 test('browser training exports validate and preserve each complete raw IQ frame independently', () => {
   const capture = {
     format: 'n-apt-native-iq-frames-v1',

@@ -129,6 +129,7 @@ function packageDraftLabels(labels) {
     format: LABEL_DRAFT_FORMAT,
     sessionId: labels.sessionId,
     annotations: labels.annotations,
+    baseAnnotations: labels.baseAnnotations,
     annotationEvents: labels.annotationEvents,
     interferenceMarkedEvents: labels.interferenceMarkedEvents,
   };

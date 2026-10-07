@@ -89,6 +89,9 @@ export function readTrainingCapture(capture, sidecar = null, sourceFileName = nu
     }
   }
   const annotations = sidecar ? validateAnnotations(sidecar.annotations) : null;
+  const baseAnnotations = sidecar?.baseAnnotations === undefined
+    ? null
+    : validateAnnotations(sidecar.baseAnnotations);
   const annotationEvents = sidecar?.annotationEvents ?? [];
   const interferenceMarkedEvents = sidecar?.interferenceMarkedEvents ?? [];
   const tuneEvents = capture.tuneEvents ?? [];
@@ -129,18 +132,18 @@ export function readTrainingCapture(capture, sidecar = null, sourceFileName = nu
     !(event.frameSequence === null || Number.isInteger(event.frameSequence)) ||
     (event.nextFrameSequence !== undefined && !Number.isInteger(event.nextFrameSequence)))) throw new Error('Training capture marker timeline is invalid');
   return { format: TRAINING_CAPTURE_FORMAT, sessionId: capture.sessionId, captureId: sidecar?.captureId ?? capture.sessionId,
-    captureIdentity: sidecar?.captureIdentity ?? null, config: { ...config }, annotations, annotationEvents,
+    captureIdentity: sidecar?.captureIdentity ?? null, config: { ...config }, annotations, baseAnnotations, annotationEvents,
     interferenceMarkedEvents, tuneEvents, optionsAppliedEvents, streamInterruptedEvents, stopReason: capture.stopReason ?? null, frames };
 }
 
-export function annotationsAtFrame(finalAnnotations, annotationEvents, frameSequence, timestampMs) {
+export function annotationsAtFrame(finalAnnotations, annotationEvents, frameSequence, timestampMs, baseAnnotations = null) {
   const events = Array.isArray(annotationEvents) ? annotationEvents : [];
-  if (events.length === 0) return finalAnnotations;
+  if (events.length === 0 && !baseAnnotations) return finalAnnotations;
   const initial = events.filter((event) => event.initial === true || event.captureWide === true).at(-1);
   const changedEvents = events.filter((event) => event.initial !== true && event.captureWide !== true);
-  const lacksInitialState = !initial && changedEvents.some((event) =>
+  const lacksInitialState = !initial && !baseAnnotations && changedEvents.some((event) =>
     JSON.stringify(event.annotations) !== JSON.stringify(finalAnnotations));
-  let annotations = initial?.annotations ?? (lacksInitialState
+  let annotations = initial?.annotations ?? baseAnnotations ?? (lacksInitialState
     ? { label: 'uncertain', channel: 'unspecified', features: [], tags: [] }
     : finalAnnotations);
   for (const event of changedEvents) {

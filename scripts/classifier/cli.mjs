@@ -247,7 +247,7 @@ async function preparePackage(a) {
       const id = `pkg_${createHash('sha256').update(`${capture.captureId}:${frame.sequence}`).digest('hex').slice(0, 16)}`;
       const iq = decodeIq(frame.iqBytes, 'u8');
       const input = await writePreparedIq(iq, path.join(out, id));
-      const frameAnnotations = annotationsAtFrame(labels.annotations, labels.annotationEvents, frame.sequence, frame.timestampMs);
+      const frameAnnotations = annotationsAtFrame(labels.annotations, labels.annotationEvents, frame.sequence, frame.timestampMs, labels.baseAnnotations);
       records.push({
         ...rowBase,
         label: frameAnnotations.label,
@@ -402,7 +402,7 @@ async function preparePackage(a) {
           ? startUpdate.timestamp_us / 1000 + ((startByte - startUpdate.sample_offset) / 2 / config.sampleRateHz) * 1000
           : initialTimestamp + (startByte / 2 / config.sampleRateHz) * 1000;
         const frameAnnotations = annotationsAtFrame(labels.annotations, labels.annotationEvents,
-          frameUpdate?.frame_sequence, timestampStartMs);
+          frameUpdate?.frame_sequence, timestampStartMs, labels.baseAnnotations);
         const previousRunEnd = runIndex === 0 ? 0 : runs[runIndex - 1].endByte;
         const sourceChunkGapBefore = startByte === run.startByte && startByte > previousRunEnd;
         records.push({
@@ -472,7 +472,7 @@ async function prepare(a) {
         const id=`${r.id}_seq${frame.sequence}`;
         const iq=decodeIq(frame.iqBytes,'u8');
         const input=await writePreparedIq(iq,path.join(out,id));
-        const frameAnnotations=annotationsAtFrame(capture.annotations,capture.annotationEvents,frame.sequence,frame.timestampMs);
+        const frameAnnotations=annotationsAtFrame(capture.annotations,capture.annotationEvents,frame.sequence,frame.timestampMs,capture.baseAnnotations);
         records.push({...r,id,input:path.relative(out,input),format:'f32le',label:frameAnnotations.label,channel:frameAnnotations.channel,captureId:r.id,sourceCaptureId:capture.captureId,captureIdentity:capture.captureIdentity,browserSessionId:capture.sessionId,captureAnnotations:frameAnnotations,annotationEvents:capture.annotationEvents,interferenceMarkedEvents:capture.interferenceMarkedEvents,tuneEvents:capture.tuneEvents,optionsAppliedEvents:capture.optionsAppliedEvents,streamInterruptedEvents:capture.streamInterruptedEvents,stopReason:capture.stopReason,sourceId:config.sourceId,streamEpoch:frame.streamEpoch,optionsRevision:frame.optionsRevision,frameSequence:frame.sequence,timestampStartMs:frame.timestampMs,configuredFftSize:config.configuredFftSize,analysisFftSize:config.fftSize,window:config.window,captureWindow:config.window,temporalResolution:config.temporalResolution,validSamples:frame.validSamples,iqByteCount:frame.iqBytes.length,complexSamples:iq.length/2});
       }
       continue;

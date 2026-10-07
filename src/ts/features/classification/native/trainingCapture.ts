@@ -51,6 +51,7 @@ export interface NativeTrainingAnnotationSidecar {
   sessionId: string;
   captureIdentity: NativeTrainingCaptureIdentity;
   annotations: NativeTrainingCaptureAnnotations;
+  baseAnnotations: NativeTrainingCaptureAnnotations;
   annotationEvents: NativeTrainingAnnotationEvent[];
   interferenceMarkedEvents: Array<{ kind: 'InterferenceMarked'; code: 2; timestampMs: number; byteOffset: number; frameSequence: number | null }>;
 }
@@ -299,6 +300,7 @@ export class NativeTrainingCaptureSession {
 
   private capture: NativeTrainingCaptureSnapshot | null = null;
   private annotations: NativeTrainingCaptureAnnotations = { label: 'uncertain', channel: 'unspecified', features: [], tags: [] };
+  private baseAnnotations: NativeTrainingCaptureAnnotations = { label: 'uncertain', channel: 'unspecified', features: [], tags: [] };
   private annotationEvents: NativeTrainingAnnotationEvent[] = [];
   private interferenceMarkedEvents: NativeTrainingAnnotationSidecar['interferenceMarkedEvents'] = [];
   private startedAt = 0;
@@ -341,6 +343,7 @@ export class NativeTrainingCaptureSession {
       visualizerSessionKey: config.visualizerSessionKey, createdAtTimestampMs: null,
       config: { ...config, appliedOptions: { ...config.appliedOptions } }, stopReason: null, tuneEvents: [], optionsAppliedEvents: [], streamInterruptedEvents: [], frames: [] };
     this.annotations = cloneAnnotations(annotations);
+    this.baseAnnotations = cloneAnnotations(annotations);
     this.annotationEvents = [];
     this.interferenceMarkedEvents = hasInterferenceTag(annotations) ? [{ kind: 'InterferenceMarked', code: 2, timestampMs: nowTimestampMs, byteOffset: 0, frameSequence: null }] : [];
     return true;
@@ -354,6 +357,8 @@ export class NativeTrainingCaptureSession {
     if (this.active) {
       this.annotationEvents.push({ timestampMs, frameSequence: this.lastSequence >= 0 ? this.lastSequence : null, annotations: cloneAnnotations(next) });
       if (hasInterferenceTag(next) && !previouslyMarkedInterference) this.interferenceMarkedEvents.push({ kind: 'InterferenceMarked', code: 2, timestampMs, byteOffset: this.bytes, frameSequence: this.lastSequence >= 0 ? this.lastSequence : null });
+    } else {
+      this.baseAnnotations = cloneAnnotations(next);
     }
   }
 
@@ -496,6 +501,7 @@ export class NativeTrainingCaptureSession {
     if (this.active) return;
     this.capture = null;
     this.annotations = { label: 'uncertain', channel: 'unspecified', features: [], tags: [] };
+    this.baseAnnotations = { label: 'uncertain', channel: 'unspecified', features: [], tags: [] };
     this.annotationEvents = [];
     this.interferenceMarkedEvents = [];
     this.bytes = 0;
@@ -539,7 +545,7 @@ export class NativeTrainingCaptureSession {
   private makeAnnotationSidecar(captureIdentity: NativeTrainingCaptureIdentity): NativeTrainingAnnotationSidecar | null {
     if (!this.capture) return null;
     return { format: 'n-apt-native-annotations-v2', captureId: getNativeTrainingCaptureId(captureIdentity), sessionId: this.capture.sessionId, captureIdentity: { ...captureIdentity },
-      annotations: cloneAnnotations(this.annotations), annotationEvents: this.annotationEvents.map((event) => ({ ...event, annotations: cloneAnnotations(event.annotations) })),
+      annotations: cloneAnnotations(this.annotations), baseAnnotations: cloneAnnotations(this.baseAnnotations), annotationEvents: this.annotationEvents.map((event) => ({ ...event, annotations: cloneAnnotations(event.annotations) })),
       interferenceMarkedEvents: this.interferenceMarkedEvents.map((event) => ({ ...event })) };
   }
 }

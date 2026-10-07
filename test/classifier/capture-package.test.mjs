@@ -402,8 +402,10 @@ test("repackages browser captures with package labels while enforcing filename/t
     assert.equal(featureRows[0].available.bridge, false);
     assert.equal(featureRows[0].available.envelope, false);
     assert.equal(featureRows[0].visibleFraction, 1);
-    assert.equal(featureRows[0].temporalFrameCount, 1);
-    assert.equal(featureRows[1].temporalFrameCount, 2);
+    assert.deepEqual(
+      featureRows.map((row) => row.temporalFrameCount),
+      [0, 0],
+    );
 
     const mismatched = await runPackage(
       root,

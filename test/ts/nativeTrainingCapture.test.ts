@@ -407,8 +407,7 @@ it('keeps annotations in a separate sidecar and identifies a tune boundary', () 
   const captureIdentity = { kind: 'filename-timestamp' as const, fileName: 'n-apt-iq-capture-1970-01-01T00-00-01-000Z-capture-1.json', capturedAtTimestampMs: 1000 };
   expect(session.toAnnotationSidecar(captureIdentity)).toMatchObject({ format: 'n-apt-native-annotations-v2', captureId: `${captureIdentity.fileName}@1970-01-01T00:00:01.000Z`,
     sessionId: 'capture-1', captureIdentity,
-    annotations: { label: 'matching', tags: ['interference', 'weak-signal'] }, annotationEvents: [
-      { timestampMs: 900, frameSequence: null, initial: true, annotations },
+    annotations: { label: 'matching', tags: ['interference', 'weak-signal'] }, baseAnnotations: annotations, annotationEvents: [
       { timestampMs: 1010, frameSequence: 10, annotations: { label: 'matching', channel: 'A', features: ['u-dip'], tags: ['interference', 'weak-signal'] } },
     ],
     interferenceMarkedEvents: [{ kind: 'InterferenceMarked', code: 2, timestampMs: 900, byteOffset: 0 }] });

@@ -455,6 +455,9 @@ function packageLabelObject(labels, identity) {
     );
   }
   const annotations = normalizeAnnotations(labels.annotations);
+  const baseAnnotations = labels.baseAnnotations == null
+    ? null
+    : normalizeAnnotations(labels.baseAnnotations);
   const { annotationEvents, interferenceMarkedEvents } =
     normalizeEvents(labels);
   const captureId = captureIdFor(identity);
@@ -464,6 +467,7 @@ function packageLabelObject(labels, identity) {
     sessionId: labels.sessionId || captureId,
     captureIdentity: identity,
     annotations,
+    ...(baseAnnotations ? { baseAnnotations } : {}),
     annotationEvents,
     interferenceMarkedEvents,
   };

@@ -212,6 +212,12 @@ test('prepared frame labels follow the annotation state at each recorded frame b
     session.updateAnnotations({ label: 'matching', channel: 'A', features: ['bridge'], tags: ['reviewed-after-capture'] }, 1_030);
 
     const artifact = await exportNativeTrainingCaptureV6(session);
+    assert.deepEqual(artifact.annotations.baseAnnotations, {
+      label: 'matching', channel: 'A', features: ['bridge'], tags: ['reviewed-after-capture'],
+    });
+    assert.deepEqual(artifact.annotations.annotationEvents, [
+      { timestampMs: 1_011, frameSequence: 10, annotations: { label: 'uncertain', channel: 'A', features: [], tags: ['interference visible'] } },
+    ]);
     const capturePath = path.join(root, artifact.captureFileName);
     const labelsPath = path.join(root, artifact.annotationFileName);
     const packagePath = path.join(root, 'package');
