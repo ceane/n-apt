@@ -37,6 +37,7 @@ import {
 } from "@n-apt/demodulation/survey/audioSurveyModel";
 import {
   audioSurveyRepository,
+  estimateAudioSurveyArtifactBytes,
   type AudioSurveyArtifact,
   type AudioSurveyStorageUsage,
 } from "@n-apt/demodulation/survey/audioSurveyStorage";
@@ -54,6 +55,10 @@ import {
   AudioSurveyTrainer,
   type AudioSurveyTrainingState,
 } from "@n-apt/demodulation/survey/audioSurveyTraining";
+import {
+  loadAudioSurveyPythonArtifact,
+  type AudioSurveyPythonArtifactFiles,
+} from "@n-apt/demodulation/survey/audioSurveyPythonArtifact";
 import {
   predictTimeDomainAudio,
   type TimeDomainDemodModel,
@@ -283,6 +288,9 @@ interface DemodContextValue {
   pauseAudioSurvey: () => void;
   stopAudioSurvey: () => void;
   trainAudioSurveyModel: () => Promise<void>;
+  importAudioSurveyPythonModel: (
+    files: AudioSurveyPythonArtifactFiles,
+  ) => Promise<AudioSurveyTrainingState>;
   pauseAudioSurveyTraining: () => void;
   playAudioSurveyArtifact: (artifactId: string) => Promise<void>;
   playAudioSurveyCandidate: (candidateId: string) => Promise<void>;
@@ -1066,6 +1074,61 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     await refreshAudioSurveySnapshot(job.id, job.config.storageCapBytes);
   }, [audioSurveyJob, refreshAudioSurveySnapshot]);
+
+  const importAudioSurveyPythonModel = useCallback(
+    async (files: AudioSurveyPythonArtifactFiles) => {
+      const job = audioSurveyJob;
+      if (!job) {
+        throw new Error("Start or restore an audio survey before loading a Python model");
+      }
+      setAudioSurveyError(null);
+      try {
+        const imported = await loadAudioSurveyPythonArtifact(files, job.id);
+        const payload = {
+          artifactType: "audio-survey-trained-model",
+          state: imported.training,
+          model: imported.model,
+          onnxModelData: imported.modelData,
+          sourceArtifactIds: [],
+          seed: 1729,
+          maxTrainingSamples: imported.model.trainingSamples,
+          learningRate: 0,
+          pythonArtifact: {
+            modelSha256: imported.modelSha256,
+            datasetSha256: imported.datasetSha256,
+          },
+        };
+        const artifact: AudioSurveyArtifact = {
+          id: `${job.id}:audio-demod-training`,
+          jobId: job.id,
+          kind: "model",
+          sizeBytes: estimateAudioSurveyArtifactBytes(payload),
+          score: imported.training.modelPreferred ? 1 : 0.5,
+          createdAt: Date.now(),
+          payload,
+        };
+        await audioSurveyRepository.saveArtifact(
+          artifact,
+          job.config.storageCapBytes,
+        );
+        setAudioSurveyModel(imported.model);
+        setAudioSurveyOnnxModelData(imported.modelData.slice());
+        setAudioSurveyTraining(imported.training);
+        setAudioSurveyNeuralBackendState("onnx");
+        audioSurveyModelPreferenceRef.current = {
+          jobId: job.id,
+          preferred: imported.training.modelPreferred === true,
+        };
+        await refreshAudioSurveySnapshot(job.id, job.config.storageCapBytes);
+        return imported.training;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setAudioSurveyError(message);
+        throw error;
+      }
+    },
+    [audioSurveyJob, refreshAudioSurveySnapshot],
+  );
 
   const pauseAudioSurveyTraining = useCallback(() => {
     audioSurveyTrainerRef.current?.pause();
@@ -1865,6 +1928,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       pauseAudioSurvey,
       stopAudioSurvey,
       trainAudioSurveyModel,
+      importAudioSurveyPythonModel,
       pauseAudioSurveyTraining,
       playAudioSurveyArtifact,
       playAudioSurveyCandidate,
@@ -1915,6 +1979,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       pauseAudioSurvey,
       stopAudioSurvey,
       trainAudioSurveyModel,
+      importAudioSurveyPythonModel,
       pauseAudioSurveyTraining,
       playAudioSurveyArtifact,
       playAudioSurveyCandidate,

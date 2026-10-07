@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import {
   Activity,
@@ -11,6 +11,8 @@ import {
   Play,
   Radio,
   Square,
+  Download,
+  Upload,
 } from "lucide-react";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import {
@@ -19,6 +21,8 @@ import {
   type AudioSurveyDecoderStrategy,
   type AudioSurveySourceMode,
 } from "@n-apt/demodulation/survey/audioSurveyModel";
+import { downloadAudioSurveyTrainingArchive } from "@n-apt/demodulation/survey/audioSurveyTrainingExport";
+import type { AudioSurveyPythonArtifactFiles } from "@n-apt/demodulation/survey/audioSurveyPythonArtifact";
 
 interface CoreMLNodeProps {
   data: {
@@ -223,6 +227,9 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
     AUDIO_SURVEY_STORAGE_CAP_BYTES,
   );
   const [surveyBusy, setSurveyBusy] = useState(false);
+  const [trainingExportStatus, setTrainingExportStatus] = useState<string | null>(null);
+  const [pythonModelStatus, setPythonModelStatus] = useState<string | null>(null);
+  const pythonModelFilesRef = useRef<HTMLInputElement>(null);
   const {
     audioSurveyJob,
     audioSurveyCandidates,
@@ -235,6 +242,7 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
     pauseAudioSurvey,
     stopAudioSurvey,
     trainAudioSurveyModel,
+    importAudioSurveyPythonModel,
     pauseAudioSurveyTraining,
     playAudioSurveyCandidate,
   } = useDemod();
@@ -334,6 +342,35 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
     } finally {
       setSurveyBusy(false);
     }
+  };
+
+  const handlePythonModelFiles = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const selected = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    const onnx = selected.find((file) => file.name.endsWith(".onnx"));
+    const manifest = selected.find((file) => file.name.endsWith(".manifest.json"));
+    const weights = selected.find((file) => file.name.endsWith(".weights.f32le"));
+    if (!onnx || !manifest || !weights) {
+      setPythonModelStatus(
+        "Select audio_demod.onnx, audio_demod.manifest.json, and audio_demod.weights.f32le together.",
+      );
+      return;
+    }
+    const files: AudioSurveyPythonArtifactFiles = { onnx, manifest, weights };
+    await runSurveyAction(async () => {
+      try {
+        const imported = await importAudioSurveyPythonModel(files);
+        setPythonModelStatus(
+          imported.modelPreferred
+            ? "Loaded and passed its held-out DSP comparison. Neural output still requires a matching live channel profile."
+            : "Loaded, but it did not beat the held-out DSP baseline; live Neural selection remains locked.",
+        );
+      } catch (error) {
+        setPythonModelStatus(error instanceof Error ? error.message : String(error));
+      }
+    });
   };
 
   const surveyRunning = audioSurveyJob?.status === "running";
@@ -465,6 +502,15 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
           </option>
         </SurveySelect>
         <ButtonGrid>
+          <input
+            ref={pythonModelFilesRef}
+            type="file"
+            multiple
+            accept=".onnx,.json,.f32le"
+            aria-label="Select Python audio demod model files"
+            hidden
+            onChange={(event) => void handlePythonModelFiles(event)}
+          />
           {!surveyRunning && !surveyPaused ? (
             <ActionButton
               onClick={() =>
@@ -514,6 +560,37 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
               <Pause size={13} /> Pause training
             </ActionButton>
           )}
+          <ActionButton
+            onClick={() =>
+              void runSurveyAction(async () => {
+                if (!audioSurveyJob) return;
+                setTrainingExportStatus("Preparing local training archive...");
+                try {
+                  const archive = await downloadAudioSurveyTrainingArchive(
+                    audioSurveyJob.id,
+                  );
+                  setTrainingExportStatus(
+                    `Downloaded ${archive.pairCount} aligned pairs from ${archive.sessionCount} survey session${archive.sessionCount === 1 ? "" : "s"} (${formatBytes(archive.sizeBytes)}).`,
+                  );
+                } catch (error) {
+                  setTrainingExportStatus(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                }
+              })
+            }
+            disabled={surveyBusy || !audioSurveyJob}
+            title="Export paired I/Q, reference PCM, and DSP baselines for offline Python training"
+          >
+            <Download size={13} /> Export Python corpus
+          </ActionButton>
+          <ActionButton
+            onClick={() => pythonModelFilesRef.current?.click()}
+            disabled={surveyBusy || !audioSurveyJob}
+            title="Load a checksum-verified Python model bundle for the local ONNX runtime"
+          >
+            <Upload size={13} /> Load Python ONNX model
+          </ActionButton>
         </ButtonGrid>
         <SurveyInfo>
           Survey: {audioSurveyJob?.status ?? "ready"} · pass{" "}
@@ -530,6 +607,18 @@ export const CoreMLNode: React.FC<CoreMLNodeProps> = ({ data }) => {
           Storage: {formatBytes(audioSurveyStorageUsage.usedBytes)} /{" "}
           {formatBytes(audioSurveyStorageUsage.capBytes)} ·{" "}
           {audioSurveyStorageUsage.artifactCount} artifacts
+          {trainingExportStatus && (
+            <>
+              <br />
+              {trainingExportStatus}
+            </>
+          )}
+          {pythonModelStatus && (
+            <>
+              <br />
+              {pythonModelStatus}
+            </>
+          )}
           {audioSurveyTraining && (
             <>
               <br />
