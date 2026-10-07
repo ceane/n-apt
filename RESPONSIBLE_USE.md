@@ -44,6 +44,14 @@ Licensees are expected to:
 
 ---
 
+### AI/ML Training and Evaluation
+
+Training, fine-tuning, validating, and evaluating AI/ML models using the Software or data produced with it are permitted uses under this policy, subject to the Hippocratic License and the safeguards below. This permission includes research and development of classifiers, signal-processing models, and other tools related to the project.
+
+Licensees must use data they are authorized to use, follow applicable privacy and consent requirements, and document data provenance. Before sharing or distributing datasets, model outputs, or models that could reveal or enable inference of personal, cognitive, or behavioral information, licensees must obtain informed consent or apply effective anonymization. AI/ML training does not authorize unlawful surveillance, nonconsensual collection, or use intended to harm, coerce, manipulate, or discriminate against people.
+
+---
+
 ## 3. Enforcement and Escalation
 
 Violations of this Responsible Use Policy are treated as **violations of the License’s Ethical Standards (Section 3)** and may result in:
