@@ -27,6 +27,7 @@ export interface NativeTrainingCaptureAnnotations {
   channel: NativeTrainingChannel;
   features: string[];
   tags: string[];
+  geolocation?: { latitude: number; longitude: number; accuracy: number; altitude?: number; timestamp: number };
 }
 export interface NativeTrainingAnnotationEvent {
   timestampMs: number;
@@ -903,7 +904,7 @@ function metadataChangedFields(from: NativeTrainingCaptureFrameMetadata, to: Nat
 }
 
 function cloneAnnotations(annotations: NativeTrainingCaptureAnnotations): NativeTrainingCaptureAnnotations {
-  return { label: annotations.label, channel: annotations.channel, features: [...new Set(annotations.features)], tags: [...new Set(annotations.tags)] };
+  return { label: annotations.label, channel: annotations.channel, features: [...new Set(annotations.features)], tags: [...new Set(annotations.tags)], ...(annotations.geolocation ? { geolocation: { ...annotations.geolocation } } : {}) };
 }
 
 function hasInterferenceTag(annotations: NativeTrainingCaptureAnnotations): boolean {
