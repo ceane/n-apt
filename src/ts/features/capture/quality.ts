@@ -135,7 +135,11 @@ export function evaluateCaptureQuality(input: CaptureQualityInput): CaptureQuali
   if (!input.selectedSourceId || !source || source.id !== input.selectedSourceId) reasons.push('Selected source identity is unavailable or mismatched.');
   if (input.sourceMode !== 'live') reasons.push('Live acquisition is required.');
   if (!source || source.isMock || (source.capability !== 'rx' && source.capability !== 'tx_rx')) reasons.push('A real receive-capable source is required.');
-  else if (!source.connected || !source.receiving || source.paused) reasons.push('Source must be connected, receiving, and unpaused.');
+  else if (!source.connected || !source.receiving || source.paused) {
+    reasons.push(source.paused
+      ? 'Acquisition is paused. Press Resume in the source controls to receive fresh frames.'
+      : 'Source must be connected and receiving.');
+  }
 
   let capability: CapabilityFit = 'unknown';
   if (source) {
@@ -155,6 +159,7 @@ export function evaluateCaptureQuality(input: CaptureQualityInput): CaptureQuali
   if (requested.frameRateHz !== undefined && configured.frameRateHz !== undefined && requested.frameRateHz !== configured.frameRateHz) mismatches.push(`requested frame rate ${requested.frameRateHz} differs from configured frame rate ${configured.frameRateHz}`);
   if (latest && configured.fftSize !== undefined && latest.fftSize !== configured.fftSize) mismatches.push(`configured FFT size ${configured.fftSize} differs from observed FFT size ${latest.fftSize}`);
   if (latest && configured.sampleRateHz !== undefined && latest.sampleRateHz !== configured.sampleRateHz) mismatches.push(`configured sample rate ${configured.sampleRateHz} differs from observed sample rate ${latest.sampleRateHz}`);
+  reasons.push(...mismatches);
 
   if (configured.temporalResolution !== profile.requiredTemporalResolution) reasons.push(`Profile requires ${profile.requiredTemporalResolution} temporal resolution.`);
   if (profile.minimumConfiguredFftSize && (!finitePositive(configured.fftSize) || configured.fftSize < profile.minimumConfiguredFftSize)) reasons.push(`Configured FFT size must be at least ${profile.minimumConfiguredFftSize}.`);
@@ -213,7 +218,7 @@ export function evaluateCaptureQuality(input: CaptureQualityInput): CaptureQuali
     profile.minimumObservedFrameRateHz && frames.length > 1 && observedFrameRateHz !== null && observedFrameRateHz < profile.minimumObservedFrameRateHz) {
     // The cadence reason above is a hard profile failure.
   }
-  const hardFailure = !sourceEligible || capability === 'unsupported' || (latest !== null && (!frameValid || stale)) ||
+  const hardFailure = !sourceEligible || capability === 'unsupported' || mismatches.length > 0 || (latest !== null && (!frameValid || stale)) ||
     configured.temporalResolution !== profile.requiredTemporalResolution ||
     (profile.minimumConfiguredFftSize !== undefined && (!finitePositive(configured.fftSize) || configured.fftSize < profile.minimumConfiguredFftSize)) ||
     (profile.minimumConfiguredFftSize !== undefined && finitePositive(requested.fftSize) && requested.fftSize < profile.minimumConfiguredFftSize) ||

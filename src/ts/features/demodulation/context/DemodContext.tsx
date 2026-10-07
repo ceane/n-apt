@@ -11,6 +11,7 @@ import React, {
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
+import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/activeAcquisitionOperations";
 import {
   useFrequencyScanner,
   FrequencyScannerHandle,
@@ -929,12 +930,39 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     wsConnection,
   ]);
 
+  const trackAudioSurveyRun = useCallback(
+    (
+      runner: AudioSurveyRunner,
+      jobId: string,
+      sourceMode: AudioSurveySourceMode,
+    ) => {
+      // Combined runs can move from replay into live RF. Keep one lease across
+      // the entire runner promise so a route change cannot pause between phases.
+      const release =
+        sourceMode === "replay"
+          ? null
+          : registerActiveAcquisitionOperation(
+              "live-audio-survey",
+              activeSourceId,
+            );
+      return runner.start(jobId).finally(() => release?.());
+    },
+    [activeSourceId],
+  );
+
   const startAudioSurvey = useCallback(
     async (
       sourceMode: AudioSurveySourceMode = "combined",
       storageCapBytes = DEFAULT_AUDIO_SURVEY_CONFIG.storageCapBytes,
       decoderStrategy: AudioSurveyDecoderStrategy | null = null,
     ) => {
+      const releaseActiveRun =
+        sourceMode === "replay"
+          ? null
+          : registerActiveAcquisitionOperation(
+              "live-audio-survey",
+              activeSourceId,
+            );
       try {
         setAudioSurveyError(null);
         setAudioSurveyModel(null);
@@ -956,14 +984,18 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           ),
         });
         setAudioSurveyJob(job);
-        void runner.start(job.id).catch((error) => {
-          setAudioSurveyError(error instanceof Error ? error.message : String(error));
-        });
+        void runner
+          .start(job.id)
+          .finally(() => releaseActiveRun?.())
+          .catch((error) => {
+            setAudioSurveyError(error instanceof Error ? error.message : String(error));
+          });
       } catch (error) {
+        releaseActiveRun?.();
         setAudioSurveyError(error instanceof Error ? error.message : String(error));
       }
     },
-    [createAudioSurveyRunner],
+    [activeSourceId, createAudioSurveyRunner],
   );
 
   const resumeAudioSurvey = useCallback(async () => {
@@ -979,13 +1011,15 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       const runner = createAudioSurveyRunner();
       audioSurveyRunnerRef.current = runner;
       audioSurveyPhaseRef.current = null;
-      void runner.resume(job.id).then(setAudioSurveyJob).catch((error) => {
-        setAudioSurveyError(error instanceof Error ? error.message : String(error));
-      });
+      void trackAudioSurveyRun(runner, job.id, job.config.sourceMode)
+        .then(setAudioSurveyJob)
+        .catch((error) => {
+          setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        });
     } catch (error) {
       setAudioSurveyError(error instanceof Error ? error.message : String(error));
     }
-  }, [audioSurveyJob, createAudioSurveyRunner]);
+  }, [audioSurveyJob, createAudioSurveyRunner, trackAudioSurveyRun]);
 
   const pauseAudioSurvey = useCallback(() => {
     audioSurveyRunnerRef.current?.pause();
@@ -1242,6 +1276,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         audioSurveyJob?.status === "running"
           ? audioSurveyRunnerRef.current
           : null;
+      const releaseActiveAcquisition = registerActiveAcquisitionOperation(
+        "audio-reference-capture",
+        activeSourceId,
+      );
       let resumeAfterCapture = false;
       try {
         setAudioSurveyError(null);
@@ -1330,10 +1368,17 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         setAudioSurveyError(error instanceof Error ? error.message : String(error));
         return null;
       } finally {
+        releaseActiveAcquisition();
         if (resumeAfterCapture && resumeRunner && audioSurveyJob) {
-          void resumeRunner.resume(audioSurveyJob.id).then(setAudioSurveyJob).catch((error) => {
-            setAudioSurveyError(error instanceof Error ? error.message : String(error));
-          });
+          void trackAudioSurveyRun(
+            resumeRunner,
+            audioSurveyJob.id,
+            audioSurveyJob.config.sourceMode,
+          )
+            .then(setAudioSurveyJob)
+            .catch((error) => {
+              setAudioSurveyError(error instanceof Error ? error.message : String(error));
+            });
         }
       }
     },
@@ -1348,6 +1393,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       demodState.centerFreqHz,
       refreshAudioSurveySnapshot,
       surveyChannels,
+      trackAudioSurveyRun,
       wsConnection,
     ],
   );
@@ -1721,6 +1767,44 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     sampleRate: 3200000,
     _fftSize: 32768,
   });
+
+  useEffect(() => {
+    const captureOrAnalysisActive =
+      analysisSession.state === "starting" ||
+      analysisSession.state === "capturing" ||
+      analysisSession.state === "analyzing";
+    if (
+      !captureOrAnalysisActive ||
+      state.sourceMode !== "live" ||
+      isPaused
+    ) {
+      return;
+    }
+    return registerActiveAcquisitionOperation(
+      "live-reference-capture",
+      activeSourceId,
+    );
+  }, [
+    activeSourceId,
+    analysisSession.state,
+    isPaused,
+    state.sourceMode,
+  ]);
+
+  useEffect(() => {
+    if (!scanner.isScanning || state.sourceMode !== "live" || isPaused) {
+      return;
+    }
+    return registerActiveAcquisitionOperation(
+      "live-frequency-scan",
+      activeSourceId,
+    );
+  }, [
+    activeSourceId,
+    isPaused,
+    scanner.isScanning,
+    state.sourceMode,
+  ]);
 
   const audioPlayback = useAudioExtraction({
     _targetSampleRate: 48000,

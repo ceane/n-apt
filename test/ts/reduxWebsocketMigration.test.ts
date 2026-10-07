@@ -1029,6 +1029,18 @@ describe("managed stream option synchronization", () => {
     );
 
     streamSocket.send.mockClear();
+    middlewareStore.dispatch({
+      type: "spectrum/setSdrSettingsBundle",
+      payload: { fftSize: 8192 },
+    });
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"type":"stream_subscribe"'),
+    );
+    expect(streamSocket.send).toHaveBeenCalledWith(
+      expect.stringContaining('"fftSize":8192'),
+    );
+
+    streamSocket.send.mockClear();
     middlewareStore.dispatch(setTxSampleRateHz(1_200_000));
 
     expect(streamSocket.send).not.toHaveBeenCalledWith(

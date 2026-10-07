@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { Lock, Unlock, Zap } from "lucide-react";
 import { useFftRenderCoordinator } from "@n-apt/spectrum/hooks/useFftRenderCoordinator";
+import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/activeAcquisitionOperations";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import {
   formatLiveCanvasStatusRow,
@@ -1924,6 +1925,13 @@ const FFTCanvas = memo(
     const [nativeCaptureTimestampDiagnostic, setNativeCaptureTimestampDiagnostic] = useState<NativeClassifier.NativeTrainingFrameTimestampDiagnostic | null>(null);
     const [persistedNativeClassifierDownloads, setPersistedNativeClassifierDownloads] = useState<PersistedNativeClassifierDownload[]>(loadPersistedNativeClassifierDownloads);
     const latestPersistedNativeClassifierDownload = persistedNativeClassifierDownloads[0] ?? null;
+    useEffect(() => {
+      if (!nativeCaptureUi.active) return;
+      return registerActiveAcquisitionOperation(
+        "native-classifier-capture",
+        nativeCaptureSelectedId,
+      );
+    }, [nativeCaptureSelectedId, nativeCaptureUi.active]);
     const nativeCaptureDownloads = useMemo(
       () => buildNativeClassifierDownloadLinks(latestPersistedNativeClassifierDownload, nativeClassifierSessionToken),
       [latestPersistedNativeClassifierDownload, nativeClassifierSessionToken],
@@ -2943,9 +2951,6 @@ const FFTCanvas = memo(
     // painted over a missing graph. Re-arm the overlays on the way back.
     useEffect(() => {
       if (typeof document === "undefined") return;
-      const stopCaptureOnBackground = () => {
-        if (document.visibilityState === 'hidden' && nativeCaptureRef.current.active) stopNativeCapture('backgrounded');
-      };
       const repaintOverlays = () => {
         if (document.visibilityState !== "visible") return;
         if (overlayDirtyRef.current) {
@@ -2954,17 +2959,15 @@ const FFTCanvas = memo(
         }
         forceRenderRef.current?.();
       };
-      document.addEventListener('visibilitychange', stopCaptureOnBackground);
       document.addEventListener("visibilitychange", repaintOverlays);
       // Window occlusion can keep visibilityState "visible" when focus moves to
       // another window, so cover that path too. One repaint per focus is cheap.
       window.addEventListener("focus", repaintOverlays);
       return () => {
-        document.removeEventListener('visibilitychange', stopCaptureOnBackground);
         document.removeEventListener("visibilitychange", repaintOverlays);
         window.removeEventListener("focus", repaintOverlays);
       };
-    }, [overlayDirtyRef, stopNativeCapture]);
+    }, [overlayDirtyRef]);
 
     const spectrumWebgpuEnabled = webgpuEnabled;
     const activeScaleDbMin = vizDbMin;

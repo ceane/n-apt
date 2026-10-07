@@ -2861,6 +2861,23 @@ const MANAGED_STREAM_OPTION_ACTIONS = new Set([
   "sourceRouting/setSourceBindings",
 ]);
 
+const hasFftSizeInSettingsBundle = (action: {
+  type: string;
+  payload?: unknown;
+}): boolean => {
+  if (
+    action.type !== "spectrum/setSdrSettingsBundle" ||
+    typeof action.payload !== "object" ||
+    action.payload === null ||
+    !("fftSize" in action.payload)
+  ) {
+    return false;
+  }
+
+  const fftSize = (action.payload as { fftSize?: unknown }).fftSize;
+  return typeof fftSize === "number" && Number.isFinite(fftSize) && fftSize > 0;
+};
+
 const MANAGED_TX_STREAM_OPTION_ACTIONS = new Set([
   "spectrum/setTxGeometry",
   "spectrum/setTxCenterFrequencyHz",
@@ -4892,17 +4909,22 @@ const createWebSocketMiddleware =
         if (previousTxBinding && !nextTxBinding) {
           clearTxPreviewFrames(getState, previousTxBinding);
         }
+        const includesManagedFftSize = hasFftSizeInSettingsBundle(action);
         if (
           sourceModeStreamManager &&
-          (shouldSyncManagedStreamOptions(action.type) || isSourceBindingAction)
+          (shouldSyncManagedStreamOptions(action.type) ||
+            includesManagedFftSize ||
+            isSourceBindingAction)
         ) {
-          const rxOptionsOverride = LOCAL_RX_TUNING_ACTIONS.has(action.type)
-            ? resolveLocalRxTuningOverride(
-                action.type,
-                getState(),
-                action.meta?.managedRxFrequencyRange,
-              )
-            : undefined;
+          const rxOptionsOverride = hasFftSizeInSettingsBundle(action)
+            ? { fftSize: getState().spectrum?.fftSize }
+            : LOCAL_RX_TUNING_ACTIONS.has(action.type)
+              ? resolveLocalRxTuningOverride(
+                  action.type,
+                  getState(),
+                  action.meta?.managedRxFrequencyRange,
+                )
+              : undefined;
           syncManagedStreamSubscriptions(
             dispatch,
             getState,

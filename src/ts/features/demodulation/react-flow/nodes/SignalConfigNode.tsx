@@ -19,13 +19,81 @@ import { SignalDisplaySection } from "@n-apt/spectrum/public/SignalDisplaySectio
 import { SourceSettingsSection } from "@n-apt/spectrum/public/SourceSettingsSection";
 import { sourceBindingKey } from "@n-apt/redux/slices/sourceRoutingSlice";
 import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
-import { DEMODULATION_QUALITY_PROFILE, evaluateCaptureQuality } from "@n-apt/features/capture/quality";
+import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import {
+  subscribeRawIqFrameArrivals,
+} from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
+import {
+  DEMODULATION_QUALITY_PROFILE,
+  evaluateCaptureQuality,
+  type CaptureQualityFrame,
+} from "@n-apt/features/capture/quality";
 import { DEMOD_REQUIRED_TEMPORAL_RESOLUTION } from "@n-apt/demodulation/utils/demodQuality";
 import {
   resolveSourceDisplaySampleRate,
   resolveSourceDisplaySignalArea,
   resolveWholeChannelSampleRate,
 } from "@n-apt/app/infrastructure/visualization/sourceSignalDisplay";
+
+const QUALITY_FRAME_PUBLISH_INTERVAL_MS = 100;
+
+const toCaptureQualityFrame = ({
+  value,
+  selectedSourceId,
+  sourceStatus,
+  fftSize,
+  fftWindow,
+}: {
+  value: unknown;
+  selectedSourceId: string;
+  sourceStatus: string | null;
+  fftSize: number | undefined;
+  fftWindow: string | undefined;
+}): CaptureQualityFrame | null => {
+  if (!value || typeof value !== "object") return null;
+  const frame = value as Partial<IqRawFrame>;
+  if (
+    frame.type !== "spectrum" ||
+    frame.data_type !== "iq_raw" ||
+    !(frame.iq_data instanceof Uint8Array) ||
+    frame.iq_data.byteLength < 4 ||
+    frame.iq_data.byteLength % 2 !== 0 ||
+    frame.source_id !== selectedSourceId ||
+    !Number.isSafeInteger(frame.stream_epoch) ||
+    !Number.isSafeInteger(frame.sequence) ||
+    !Number.isFinite(frame.sample_rate) ||
+    !Number.isFinite(frame.center_frequency_hz) ||
+    !Number.isInteger(fftSize) ||
+    !fftWindow
+  ) {
+    return null;
+  }
+
+  const status = frame.frame_status ?? sourceStatus;
+  if (
+    frame.is_fresh === false ||
+    (status !== "receiving" && status !== "streaming")
+  ) {
+    return null;
+  }
+
+  return {
+    sourceId: selectedSourceId,
+    streamEpoch: frame.stream_epoch!,
+    sequence: frame.sequence!,
+    timestampMs:
+      typeof frame.timestamp === "number" && Number.isFinite(frame.timestamp)
+        ? frame.timestamp
+        : Date.now(),
+    status: "receiving",
+    sampleRateHz: frame.sample_rate!,
+    centerFrequencyHz: frame.center_frequency_hz!,
+    fftSize: fftSize!,
+    window: fftWindow,
+    acquiredSampleCount: frame.iq_data.byteLength / 2,
+    rawIqByteCount: frame.iq_data.byteLength,
+  };
+};
 
 const NodeContent = styled.div`
   width: 100%;
@@ -97,6 +165,9 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+  const websocketPaused = useAppSelector(
+    (state) => state.websocket.isPaused,
+  );
   const reduxActiveSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea,
   );
@@ -106,7 +177,11 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const reduxSampleRateHz = useAppSelector(
     (state) => state.spectrum.sampleRateHz,
   );
-  const { wsConnection } = useSpectrumStore();
+  const {
+    wsConnection,
+    manualVisualizerPaused,
+    selectedSourceId,
+  } = useSpectrumStore();
   const activeSignalArea = resolveSourceDisplaySignalArea({
     liveSignalArea: reduxActiveSignalArea,
     reduxSignalArea: reduxActiveSignalArea,
@@ -115,7 +190,33 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     wsConnection;
 
   const sourceStatus = useAppSelector((state) => roleSource ? state.websocket.sourceStatuses[roleSource.id] ?? roleSource.status : null);
+  const appliedStreamOptions = useAppSelector((state) =>
+    roleSource
+      ? state.websocket.appliedStreamOptionsBySource[roleSource.id]
+      : undefined,
+  );
+  const appliedRxOptions =
+    appliedStreamOptions?.options.mode === "rx"
+      ? appliedStreamOptions.options
+      : null;
   const sourceMode = "live" as const;
+  const sourceReceiving =
+    sourceStatus === "receiving" || sourceStatus === "streaming";
+  const sourcePaused = Boolean(
+    roleSource &&
+      (roleSource.paused ||
+        sourceStatus === "paused" ||
+        (roleSource.id === selectedSourceId && manualVisualizerPaused) ||
+        (roleSource.id === activeSourceId && websocketPaused)),
+  );
+  const [qualityFrames, setQualityFrames] = React.useState<CaptureQualityFrame[]>([]);
+  const [qualityNowTimestampMs, setQualityNowTimestampMs] = React.useState(
+    () => Date.now(),
+  );
+  const qualityFrameHistoryRef = React.useRef<CaptureQualityFrame[]>([]);
+  const lastQualityFrameKeyRef = React.useRef<string | null>(null);
+  const qualityFramePublishTimerRef = React.useRef<number | null>(null);
+  const lastPublishedQualityStatusRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     dispatch(setTemporalResolution(DEMOD_REQUIRED_TEMPORAL_RESOLUTION));
@@ -178,6 +279,114 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     if (rate < DEMODULATION_QUALITY_PROFILE.minimumConfiguredFrameRateHz!) return;
     settings.setFftFrameRate(rate);
   }, [settings.setFftFrameRate]);
+  React.useEffect(() => {
+    qualityFrameHistoryRef.current = [];
+    lastQualityFrameKeyRef.current = null;
+    setQualityFrames([]);
+    setQualityNowTimestampMs(Date.now());
+
+    if (
+      data.sourceRole === "tx" ||
+      !roleSource?.id ||
+      sourceMode !== "live" ||
+      sourcePaused ||
+      !sourceReceiving
+    ) {
+      return;
+    }
+
+    const selectedId = roleSource.id;
+    const appliedRevision = appliedStreamOptions?.optionsRevision;
+    const appliedEpoch = appliedStreamOptions?.streamEpoch;
+    const appliedOptions = appliedRxOptions;
+    const fftSize =
+      appliedOptions?.fftSize ?? roleSource.sdr.settings.fft_size;
+    const fftWindow =
+      appliedOptions?.fftWindow ??
+      roleSource.sdr.settings.fft_window ??
+      spectrum.fftWindow;
+    const fallbackFrameStatus = sourceReceiving ? "receiving" : sourceStatus;
+    const publishPendingFrames = () => {
+      qualityFramePublishTimerRef.current = null;
+      setQualityFrames([...qualityFrameHistoryRef.current]);
+      setQualityNowTimestampMs(Date.now());
+    };
+
+    const unsubscribe = subscribeRawIqFrameArrivals((value) => {
+      const frameValue = Array.isArray(value) ? value[value.length - 1] : value;
+      if (!frameValue || typeof frameValue !== "object") return;
+      const frame = frameValue as Partial<IqRawFrame>;
+      if (
+        appliedRevision !== undefined &&
+        typeof frame.options_revision === "number" &&
+        (frame.options_revision !== appliedRevision ||
+          (appliedEpoch !== undefined && frame.stream_epoch !== appliedEpoch))
+      ) {
+        return;
+      }
+
+      const qualityFrame = toCaptureQualityFrame({
+        value: frameValue,
+        selectedSourceId: selectedId,
+        sourceStatus: fallbackFrameStatus,
+        fftSize,
+        fftWindow,
+      });
+      if (!qualityFrame) return;
+
+      const key = `${qualityFrame.sourceId}:${qualityFrame.streamEpoch}:${qualityFrame.sequence}`;
+      if (lastQualityFrameKeyRef.current === key) return;
+      lastQualityFrameKeyRef.current = key;
+      qualityFrameHistoryRef.current = [
+        ...qualityFrameHistoryRef.current,
+        qualityFrame,
+      ].slice(-8);
+
+      // Keep every received frame for cadence and loss checks, but refresh the
+      // React node at 10 Hz instead of rendering once per radio frame.
+      if (qualityFramePublishTimerRef.current === null) {
+        qualityFramePublishTimerRef.current = window.setTimeout(
+          publishPendingFrames,
+          QUALITY_FRAME_PUBLISH_INTERVAL_MS,
+        );
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (qualityFramePublishTimerRef.current !== null) {
+        window.clearTimeout(qualityFramePublishTimerRef.current);
+        qualityFramePublishTimerRef.current = null;
+      }
+    };
+  }, [
+    appliedRxOptions,
+    appliedStreamOptions,
+    data.sourceRole,
+    roleSource?.id,
+    roleSource?.sdr.settings.fft_size,
+    roleSource?.sdr.settings.fft_window,
+    sourceMode,
+    sourcePaused,
+    sourceReceiving,
+    spectrum.fftWindow,
+  ]);
+
+  React.useEffect(() => {
+    const latestFrame = qualityFrames[qualityFrames.length - 1];
+    if (!latestFrame || sourcePaused) return;
+    const staleAtMs =
+      latestFrame.timestampMs +
+      DEMODULATION_QUALITY_PROFILE.maximumFrameGapMs +
+      QUALITY_FRAME_PUBLISH_INTERVAL_MS;
+    if (qualityNowTimestampMs >= staleAtMs) return;
+    const timeout = window.setTimeout(
+      () => setQualityNowTimestampMs(Date.now()),
+      Math.max(1, staleAtMs - qualityNowTimestampMs),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [qualityFrames, qualityNowTimestampMs, sourcePaused]);
+
   const demodQuality = React.useMemo(() => evaluateCaptureQuality({
     profile: DEMODULATION_QUALITY_PROFILE,
     selectedSourceId: roleSource?.id ?? null,
@@ -187,25 +396,65 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
       capability: roleSource.capability,
       isMock: Boolean(roleSource.is_mock || roleSource.capability === "mock"),
       connected: Boolean(wsConnection.isConnected) && sourceStatus !== "disconnected" && sourceStatus !== "stale" && sourceStatus !== "error",
-      receiving: sourceStatus === "receiving",
-      paused: roleSource.paused || sourceStatus === "paused",
+      receiving: sourceReceiving,
+      paused: sourcePaused,
       maxSampleRateHz: roleSource.capabilities?.max_sample_rate ?? roleSource.sdr.max_sample_rate,
       minSampleRateHz: roleSource.sdr.settings.min_receive_sample_rate ?? undefined,
       fftSizes: roleSource.capabilities?.fft?.sizes,
       maxFrameRateHz: roleSource.capabilities?.fft?.max_frame_rate ?? settings.maxFrameRate,
     } : null,
     requested: { sampleRateHz: sourceSampleRate ?? undefined, fftSize: spectrum.fftSize, frameRateHz: settings.fftFrameRate, window: spectrum.fftWindow, temporalResolution: spectrum.displayTemporalResolution },
-    configured: { sampleRateHz: roleSource?.sdr.settings.sample_rate, fftSize: roleSource?.sdr.settings.fft_size, frameRateHz: roleSource?.sdr.settings.frame_rate, window: roleSource?.sdr.settings.fft_window, temporalResolution: spectrum.displayTemporalResolution },
-    frames: [], nowTimestampMs: Date.now(),
-  }), [roleSource, sourceMode, sourceStatus, wsConnection.isConnected, sourceSampleRate, spectrum.fftSize, spectrum.fftWindow, spectrum.displayTemporalResolution, settings.fftFrameRate, settings.maxFrameRate]);
+    configured: {
+      sampleRateHz: appliedRxOptions?.sampleRateHz ?? roleSource?.sdr.settings.sample_rate,
+      fftSize: appliedRxOptions?.fftSize ?? roleSource?.sdr.settings.fft_size,
+      frameRateHz: appliedRxOptions?.frameRate ?? roleSource?.sdr.settings.frame_rate,
+      window: appliedRxOptions?.fftWindow ?? roleSource?.sdr.settings.fft_window,
+      temporalResolution: spectrum.displayTemporalResolution,
+    },
+    frames: qualityFrames,
+    nowTimestampMs: qualityNowTimestampMs,
+  }), [
+    appliedRxOptions,
+    qualityFrames,
+    qualityNowTimestampMs,
+    roleSource,
+    sourceMode,
+    sourcePaused,
+    sourceReceiving,
+    sourceStatus,
+    wsConnection.isConnected,
+    sourceSampleRate,
+    spectrum.fftSize,
+    spectrum.fftWindow,
+    spectrum.displayTemporalResolution,
+    settings.fftFrameRate,
+    settings.maxFrameRate,
+  ]);
   React.useEffect(() => {
-    if (data.sourceRole === "tx") return;
-    setDemodQualityStatus({
+    if (data.sourceRole === "tx") {
+      if (lastPublishedQualityStatusRef.current !== "none") {
+        lastPublishedQualityStatusRef.current = "none";
+        setDemodQualityStatus(null);
+      }
+      return;
+    }
+
+    const status = {
       fit: demodQuality.fit,
       reasons: demodQuality.reasons,
-    });
-    return () => setDemodQualityStatus(null);
+    };
+    const signature = JSON.stringify(status);
+    if (lastPublishedQualityStatusRef.current === signature) return;
+    lastPublishedQualityStatusRef.current = signature;
+    setDemodQualityStatus(status);
   }, [data.sourceRole, demodQuality.fit, demodQuality.reasons, setDemodQualityStatus]);
+  React.useEffect(
+    () => () => {
+      lastPublishedQualityStatusRef.current = null;
+      setDemodQualityStatus(null);
+    },
+    [setDemodQualityStatus],
+  );
   const applyFrequencyRange = React.useCallback(
     (range: { min: number; max: number }) => {
       dispatch(setFrequencyRange(range));

@@ -13,6 +13,7 @@ import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
 import { formatFrequency } from "@n-apt/math/frequency";
+import { formatDuration } from "@n-apt/math/formatters";
 import { resampleNearestInto } from "@n-apt/math/resampleNearest";
 import {
   AUDIO_SURVEY_REFERENCE_SAMPLE_RATE_HZ,
@@ -263,6 +264,13 @@ const ReferenceMediaControls = styled.div`
   text-align: left;
 `;
 
+const ReferenceMediaActionRow = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+`;
+
 const ReferenceMediaStatus = styled.div`
   color: ${({ theme }) => theme.colors.textMuted};
   font-size: 11px;
@@ -319,6 +327,54 @@ interface SelectedReferenceMedia {
   pcmData: Float32Array;
   durationMs: number;
 }
+
+const BUILT_IN_REFERENCE_TRACKS = [
+  {
+    id: "track-1",
+    label: "Track 1 · Greensleeves",
+    durationSeconds: 36.408889,
+    name: "Track 1 — Greensleeves",
+    url: "/audio-demod-reference/track-1-greensleaves.ogg",
+    source: "Wikimedia Commons · worldwide public-domain dedication",
+  },
+  {
+    id: "track-2",
+    label: "Track 2 · Revelation synth",
+    durationSeconds: 60,
+    name: "Track 2 — Revelation synth",
+    url: "/audio-demod-reference/track-2-revelation-synth.ogg",
+    source: "OpenGameArt · CC0",
+  },
+  {
+    id: "track-3",
+    label: "Track 3 · Calm Track",
+    durationSeconds: 249.237188,
+    name: "Track 3 — Calm Track",
+    url: "/audio-demod-reference/track-3-calm-track.ogg",
+    source: "pmiller · OpenGameArt · CC0",
+  },
+  {
+    id: "track-4",
+    label: "Track 4 · Birds & Wind",
+    durationSeconds: 83.781814,
+    name: "Track 4 — Birds & Wind",
+    url: "/audio-demod-reference/track-4-birds-wind.ogg",
+    source: "Spring Spring · OpenGameArt · CC0",
+  },
+  {
+    id: "track-5",
+    label: "Track 5 · Project Utopia",
+    durationSeconds: 18.320431,
+    name: "Track 5 — Project Utopia",
+    url: "/audio-demod-reference/track-5-project-utopia.ogg",
+    source: "congusbongus · OpenGameArt · CC0",
+  },
+] as const;
+
+const formatReferenceDuration = (seconds: number): string => {
+  const formatted = formatDuration(seconds);
+  return formatted === "0s" ? formatted : formatted.replace(/ 0s$/, "");
+};
 
 // Speech preview components
 const SpeechContainer = styled.div`
@@ -683,9 +739,14 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [captureLabels, setCaptureLabels] = useState<string[]>([]);
   const [selectedReferenceMedia, setSelectedReferenceMedia] =
     useState<SelectedReferenceMedia | null>(null);
+  const [selectedReferenceTrackId, setSelectedReferenceTrackId] =
+    useState("");
   const [referenceMediaStatus, setReferenceMediaStatus] = useState(
-    "Select audio or video; its audio track is decoded locally to mono 48 kHz PCM.",
+    "Choose a built-in track or local audio/video. Preview is separate from capture.",
   );
+  const [isLoadingReferenceMedia, setIsLoadingReferenceMedia] = useState(false);
+  const [isPreviewingReferenceMedia, setIsPreviewingReferenceMedia] =
+    useState(false);
   const [isCapturingReferenceMedia, setIsCapturingReferenceMedia] =
     useState(false);
   const captureJobIdRef = useRef<string | null>(null);
@@ -712,16 +773,17 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   useEffect(
     () => () => {
       const media = selectedReferenceMediaRef.current;
+      try {
+        mediaPlaybackSourceRef.current?.stop();
+      } catch {
+        // Playback may have completed while the node was being removed.
+      }
+      mediaPlaybackSourceRef.current = null;
       if (
         media?.audioContext.state !== "closed" &&
         typeof media?.audioContext.close === "function"
       ) {
         void media.audioContext.close();
-      }
-      try {
-        mediaPlaybackSourceRef.current?.stop();
-      } catch {
-        // Playback may have completed while the node was being removed.
       }
     },
     [],
@@ -947,11 +1009,23 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     };
   }, [durationS, previewMode]);
 
-  const handleReferenceMediaSelection = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
+  const stopReferenceMediaPlayback = useCallback(() => {
+    const source = mediaPlaybackSourceRef.current;
+    if (source) {
+      source.onended = null;
+      try {
+        source.stop();
+      } catch {
+        // Playback may have completed before the stop request.
+      }
+      mediaPlaybackSourceRef.current = null;
+    }
+    setIsPreviewingReferenceMedia(false);
+  }, []);
 
+  const decodeReferenceMedia = useCallback(
+    async (name: string, encodedAudio: ArrayBuffer, sourceLabel: string) => {
+      stopReferenceMediaPlayback();
       const previous = selectedReferenceMediaRef.current;
       selectedReferenceMediaRef.current = null;
       setSelectedReferenceMedia(null);
@@ -965,17 +1039,17 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       const AudioContextConstructor =
         window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextConstructor) {
+        setIsLoadingReferenceMedia(false);
         setReferenceMediaStatus(
-          "This browser cannot decode local reference media with Web Audio.",
+          "This browser cannot decode reference media with Web Audio.",
         );
         return;
       }
       const audioContext = new AudioContextConstructor();
-      setReferenceMediaStatus(`Decoding ${file.name} locally…`);
+      setIsLoadingReferenceMedia(true);
+      setReferenceMediaStatus(`Decoding ${name} locally…`);
       try {
-        const decoded = await audioContext.decodeAudioData(
-          await file.arrayBuffer(),
-        );
+        const decoded = await audioContext.decodeAudioData(encodedAudio);
         const converted = resampleDecodedAudioToMonoPcm(decoded);
         const audioBuffer = audioContext.createBuffer(
           1,
@@ -984,7 +1058,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         );
         audioBuffer.getChannelData(0).set(converted);
         const media: SelectedReferenceMedia = {
-          name: file.name,
+          name,
           audioContext,
           audioBuffer,
           pcmData: audioBuffer.getChannelData(0),
@@ -994,21 +1068,138 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         selectedReferenceMediaRef.current = media;
         setSelectedReferenceMedia(media);
         setReferenceMediaStatus(
-          `${file.name} · ${(media.durationMs / 1_000).toFixed(1)} s · decoded locally to mono 48 kHz PCM; the source file is not uploaded or stored.`,
+          `${name} · ${formatReferenceDuration(media.durationMs / 1_000)} · ${sourceLabel} · decoded locally to mono 48 kHz PCM. Preview before capture.`,
         );
       } catch (error) {
         if (audioContext.state !== "closed") void audioContext.close();
         setReferenceMediaStatus(
-          `Could not decode an audio track from ${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+          `Could not decode ${name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      } finally {
+        setIsLoadingReferenceMedia(false);
+      }
+    },
+    [stopReferenceMediaPlayback],
+  );
+
+  const handleReferenceMediaSelection = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0];
+      event.currentTarget.value = "";
+      if (!file) return;
+      stopReferenceMediaPlayback();
+      setSelectedReferenceTrackId("");
+      setIsLoadingReferenceMedia(true);
+      void file
+        .arrayBuffer()
+        .then((encodedAudio) =>
+          decodeReferenceMedia(
+            file.name,
+            encodedAudio,
+            "local file; not uploaded",
+          ),
+        )
+        .catch((error) => {
+          setIsLoadingReferenceMedia(false);
+          setReferenceMediaStatus(
+            `Could not read ${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+    },
+    [decodeReferenceMedia, stopReferenceMediaPlayback],
+  );
+
+  const handleBuiltInReferenceTrackSelection = useCallback(
+    async (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const trackId = event.currentTarget.value;
+      stopReferenceMediaPlayback();
+      setSelectedReferenceTrackId(trackId);
+      if (!trackId) {
+        const previous = selectedReferenceMediaRef.current;
+        selectedReferenceMediaRef.current = null;
+        setSelectedReferenceMedia(null);
+        if (
+          previous?.audioContext.state !== "closed" &&
+          typeof previous?.audioContext.close === "function"
+        ) {
+          void previous.audioContext.close();
+        }
+        setReferenceMediaStatus("Choose a built-in track or local audio/video.");
+        return;
+      }
+      const track = BUILT_IN_REFERENCE_TRACKS.find(
+        (candidate) => candidate.id === trackId,
+      );
+      if (!track) return;
+      setIsLoadingReferenceMedia(true);
+      setReferenceMediaStatus(`Loading ${track.name}…`);
+      try {
+        const response = await fetch(track.url);
+        if (!response.ok) {
+          throw new Error(`Audio asset request failed (${response.status})`);
+        }
+        await decodeReferenceMedia(
+          track.name,
+          await response.arrayBuffer(),
+          track.source,
+        );
+      } catch (error) {
+        setIsLoadingReferenceMedia(false);
+        setReferenceMediaStatus(
+          `Could not load ${track.name}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     },
-    [],
+    [decodeReferenceMedia, stopReferenceMediaPlayback],
   );
+
+  const toggleReferenceMediaPreview = useCallback(async () => {
+    const media = selectedReferenceMediaRef.current;
+    if (!media || isLoadingReferenceMedia || isCapturingReferenceMedia) return;
+    if (isPreviewingReferenceMedia) {
+      stopReferenceMediaPlayback();
+      setReferenceMediaStatus(`${media.name} preview stopped; no capture was started.`);
+      return;
+    }
+    try {
+      await media.audioContext.resume();
+      const source = media.audioContext.createBufferSource();
+      source.buffer = media.audioBuffer;
+      source.connect(media.audioContext.destination);
+      source.onended = () => {
+        if (mediaPlaybackSourceRef.current === source) {
+          mediaPlaybackSourceRef.current = null;
+          setIsPreviewingReferenceMedia(false);
+          setReferenceMediaStatus(
+            `${media.name} preview finished; no capture was started.`,
+          );
+        }
+      };
+      mediaPlaybackSourceRef.current = source;
+      setIsPreviewingReferenceMedia(true);
+      setReferenceMediaStatus(`Previewing ${media.name}; capture has not started.`);
+      source.start();
+    } catch (error) {
+      setReferenceMediaStatus(
+        `Could not preview ${media.name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }, [
+    isCapturingReferenceMedia,
+    isLoadingReferenceMedia,
+    isPreviewingReferenceMedia,
+    stopReferenceMediaPlayback,
+  ]);
 
   const captureSelectedReferenceMedia = useCallback(async () => {
     const media = selectedReferenceMediaRef.current;
-    if (!media || isCapturingReferenceMedia || !stimulusChannelCompatible)
+    if (
+      !media ||
+      isCapturingReferenceMedia ||
+      isLoadingReferenceMedia ||
+      isPreviewingReferenceMedia ||
+      !stimulusChannelCompatible
+    )
       return;
 
     setIsCapturingReferenceMedia(true);
@@ -1051,19 +1242,20 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
           : `No aligned reference pair was saved for ${media.name}.`,
       );
     } catch (error) {
-      try {
-        mediaPlaybackSourceRef.current?.stop();
-      } catch {
-        // A source that has naturally ended cannot be stopped again.
-      }
-      mediaPlaybackSourceRef.current = null;
+      stopReferenceMediaPlayback();
       setReferenceMediaStatus(
         `Reference capture failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     } finally {
       setIsCapturingReferenceMedia(false);
     }
-  }, [isCapturingReferenceMedia, stimulusChannelCompatible]);
+  }, [
+    isCapturingReferenceMedia,
+    isLoadingReferenceMedia,
+    isPreviewingReferenceMedia,
+    stimulusChannelCompatible,
+    stopReferenceMediaPlayback,
+  ]);
 
   const handleChooseVisionDisplay = async () => {
     setVisionDisplayError(null);
@@ -1238,8 +1430,27 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       <StimulusContent role="region" aria-label="Stimulus controls">
         {previewMode === "audio" && (
           <ReferenceMediaControls>
+            <SelectLabel htmlFor="reference-track">
+              Reference track
+            </SelectLabel>
+            <StimulusSelect
+              id="reference-track"
+              aria-label="Built-in reference track"
+              value={selectedReferenceTrackId}
+              onChange={(event) =>
+                void handleBuiltInReferenceTrackSelection(event)
+              }
+              disabled={isCapturingReferenceMedia || isLoadingReferenceMedia}
+            >
+              <option value="">Choose a track…</option>
+              {BUILT_IN_REFERENCE_TRACKS.map((track) => (
+                <option key={track.id} value={track.id}>
+                  {track.label} · {formatReferenceDuration(track.durationSeconds)}
+                </option>
+              ))}
+            </StimulusSelect>
             <SelectLabel htmlFor="reference-media-file">
-              Local Reference Media
+              Or choose local audio/video
             </SelectLabel>
             <ReferenceMediaInput
               id="reference-media-file"
@@ -1247,23 +1458,41 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               type="file"
               accept="audio/*,video/*"
               onChange={handleReferenceMediaSelection}
-              disabled={isCapturingReferenceMedia}
+              disabled={
+                isCapturingReferenceMedia || isLoadingReferenceMedia
+              }
             />
             <ReferenceMediaStatus aria-live="polite">
               {referenceMediaStatus}
             </ReferenceMediaStatus>
-            <StimulusButton
-              onClick={() => void captureSelectedReferenceMedia()}
-              disabled={
-                !selectedReferenceMedia ||
-                isCapturingReferenceMedia ||
-                !stimulusChannelCompatible
-              }
-            >
-              {isCapturingReferenceMedia
-                ? "CAPTURING MEDIA PAIR…"
-                : "CAPTURE MEDIA PAIR"}
-            </StimulusButton>
+            <ReferenceMediaActionRow>
+              <StimulusButton
+                type="button"
+                onClick={() => void toggleReferenceMediaPreview()}
+                disabled={
+                  !selectedReferenceMedia ||
+                  isCapturingReferenceMedia ||
+                  isLoadingReferenceMedia
+                }
+              >
+                {isPreviewingReferenceMedia ? "STOP PREVIEW" : "PLAY PREVIEW"}
+              </StimulusButton>
+              <StimulusButton
+                type="button"
+                onClick={() => void captureSelectedReferenceMedia()}
+                disabled={
+                  !selectedReferenceMedia ||
+                  isCapturingReferenceMedia ||
+                  isLoadingReferenceMedia ||
+                  isPreviewingReferenceMedia ||
+                  !stimulusChannelCompatible
+                }
+              >
+                {isCapturingReferenceMedia
+                  ? "CAPTURING…"
+                  : "CAPTURE MEDIA PAIR"}
+              </StimulusButton>
+            </ReferenceMediaActionRow>
           </ReferenceMediaControls>
         )}
 

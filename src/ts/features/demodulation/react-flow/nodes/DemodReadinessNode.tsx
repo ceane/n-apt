@@ -1,8 +1,9 @@
 import React from "react";
 import styled from "styled-components";
-import { AlertTriangle, Check, RadioTower } from "lucide-react";
+import { AlertTriangle, Check, Play, RadioTower } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
 import { Channels } from "@n-apt/spectrum";
+import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import { useDemodAudio } from "@n-apt/demodulation/context/DemodAudioContext";
@@ -97,6 +98,51 @@ const ReasonList = styled.ul`
   color: ${({ theme }) => theme.colors.textSecondary};
 `;
 
+const ResumePrompt = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.06);
+`;
+
+const ResumeCopy = styled.span`
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 10px;
+  line-height: 1.45;
+`;
+
+const ResumeButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid ${({ theme }) => theme.colors.primary}66;
+  border-radius: 6px;
+  background: ${({ theme }) => theme.colors.primary}18;
+  color: ${({ theme }) => theme.colors.primary};
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: ${({ theme }) => theme.colors.primary}2b;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
 const ChannelGuide = styled.div`
   margin-top: 10px;
   padding: 12px;
@@ -169,12 +215,27 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
     audioSurveyOnnxLoading,
   } = useDemod();
   const { audioPlayback } = useDemodAudio();
+  const {
+    manualVisualizerPaused,
+    selectedSourceId,
+    setVisualizerPause,
+    toggleVisualizerPause,
+  } = useSpectrumStore();
   const demodSourceMode = useAppSelector((state) => state.demod.sourceMode);
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
   const sources = useAppSelector((state) => state.websocket.sources);
+  const websocketPaused = useAppSelector(
+    (state) => state.websocket.isPaused,
+  );
+  const activeSourceStatus = useAppSelector((state) =>
+    activeSourceId
+      ? state.websocket.sourceStatuses[activeSourceId] ??
+        sources?.find((source) => source.id === activeSourceId)?.status
+      : null,
+  );
   const replayCaptureCount = useAppSelector(
     (state) => state.waterfall.selectedFiles.length,
   );
@@ -211,6 +272,23 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
       ? undefined
       : sources?.find((source) => source.id === activeSourceId),
   );
+  const isSourcePaused = Boolean(
+    sourceMode !== "file" &&
+      activeSourceId &&
+      (sources?.find((source) => source.id === activeSourceId)?.paused ||
+        activeSourceStatus === "paused" ||
+        (activeSourceId === selectedSourceId && manualVisualizerPaused) ||
+        (activeSourceId === selectedSourceId && websocketPaused)),
+  );
+  const resumeTargetSourceId = activeSourceId ?? selectedSourceId;
+  const resumeSource = React.useCallback(() => {
+    if (!resumeTargetSourceId) return;
+    if (setVisualizerPause) {
+      setVisualizerPause(false, resumeTargetSourceId, "rx");
+    } else {
+      toggleVisualizerPause(resumeTargetSourceId);
+    }
+  }, [resumeTargetSourceId, setVisualizerPause, toggleVisualizerPause]);
   const visionChannelLabel = channelAccess.requiredChannelLabels[0] ?? null;
   const visionChannel = channels.find(
     (channel) =>
@@ -269,11 +347,29 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
             )}
           </StatusHeading>
           {hasQualityWarning && (
-            <ReasonList>
-              {demodQualityStatus.reasons.map((reason, index) => (
-                <li key={`${reason}-${index}`}>{reason}</li>
-              ))}
-            </ReasonList>
+            <>
+              {isSourcePaused && (
+                <ResumePrompt role="note">
+                  <ResumeCopy>
+                    Acquisition is paused. Press Resume to receive fresh frames.
+                  </ResumeCopy>
+                  <ResumeButton
+                    type="button"
+                    onClick={resumeSource}
+                    disabled={!resumeTargetSourceId}
+                    aria-label="Resume signal acquisition"
+                  >
+                    <Play size={12} fill="currentColor" />
+                    Resume
+                  </ResumeButton>
+                </ResumePrompt>
+              )}
+              <ReasonList>
+                {demodQualityStatus.reasons.map((reason, index) => (
+                  <li key={`${reason}-${index}`}>{reason}</li>
+                ))}
+              </ReasonList>
+            </>
           )}
         </StatusPanel>
       ) : (
