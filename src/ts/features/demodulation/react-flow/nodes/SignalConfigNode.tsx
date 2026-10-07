@@ -300,11 +300,54 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     onSettingsChange:
       data.sourceRole === "tx" ? undefined : wsConnection.sendSettings,
   });
-  const demodFftSizeOptions = settings.fftSizeOptions.filter((size) => size >= DEMODULATION_QUALITY_PROFILE.minimumConfiguredFftSize!);
+  const minimumDemodFftSize =
+    DEMODULATION_QUALITY_PROFILE.minimumConfiguredFftSize ?? 0;
+  const demodFftSizeOptions = React.useMemo(
+    () => settings.fftSizeOptions.filter((size) => size >= minimumDemodFftSize),
+    [minimumDemodFftSize, settings.fftSizeOptions],
+  );
+  const fftSizeCorrectionKeyRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (spectrum.fftSize >= minimumDemodFftSize) {
+      fftSizeCorrectionKeyRef.current = null;
+      return;
+    }
+
+    const nextSupportedFftSize = demodFftSizeOptions[0];
+    if (
+      data.sourceRole === "tx" ||
+      !roleSource ||
+      !activeSourceId ||
+      roleSource.id !== activeSourceId ||
+      (roleSource.capability !== "rx" && roleSource.capability !== "tx_rx") ||
+      roleSource.is_mock ||
+      !wsConnection.isConnected ||
+      nextSupportedFftSize === undefined
+    ) {
+      return;
+    }
+
+    const correctionKey = `${roleSource.id}:${nextSupportedFftSize}`;
+    if (fftSizeCorrectionKeyRef.current === correctionKey) return;
+
+    // The filtered select can display 32k while Redux and the SDR still hold
+    // 2k. Apply the demod floor through the settings hook so both are updated.
+    fftSizeCorrectionKeyRef.current = correctionKey;
+    settings.setFftSize(nextSupportedFftSize);
+  }, [
+    activeSourceId,
+    data.sourceRole,
+    demodFftSizeOptions,
+    minimumDemodFftSize,
+    roleSource,
+    settings.setFftSize,
+    spectrum.fftSize,
+    wsConnection.isConnected,
+  ]);
   const setDemodFftSize = React.useCallback((size: number) => {
-    if (size < DEMODULATION_QUALITY_PROFILE.minimumConfiguredFftSize!) return;
+    if (size < minimumDemodFftSize) return;
     settings.setFftSize(size);
-  }, [settings.setFftSize]);
+  }, [minimumDemodFftSize, settings.setFftSize]);
   const setDemodFrameRate = React.useCallback((rate: number) => {
     if (rate < DEMODULATION_QUALITY_PROFILE.minimumConfiguredFrameRateHz!) return;
     settings.setFftFrameRate(rate);
