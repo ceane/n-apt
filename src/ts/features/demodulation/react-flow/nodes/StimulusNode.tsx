@@ -9,6 +9,7 @@ import styled from "styled-components";
 import { z } from "zod";
 import { AlertTriangle } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
+import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
@@ -57,6 +58,12 @@ import {
 } from "@n-apt/demodulation/vision/visionSourcePolicy";
 
 const durationSchema = z.number().min(5).max(60);
+
+const formatGeolocationCaptureLabel = (location: { latitude: number; longitude: number; accuracy: number; timestamp: number }) =>
+  `geo:${location.latitude.toFixed(5)},${location.longitude.toFixed(5)},${Math.round(location.accuracy)},${Math.round(location.timestamp)}`;
+
+const withGeolocationCaptureLabel = (labels: string[], geolocationLabel: string | null) =>
+  [...(geolocationLabel ? [geolocationLabel] : []), ...labels].slice(0, 32);
 
 const SCRIPT_VARIANTS = [
   "The quick brown fox jumps over the lazy dog",
@@ -737,6 +744,10 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   >("");
   const [captureLabelDraft, setCaptureLabelDraft] = useState("");
   const [captureLabels, setCaptureLabels] = useState<string[]>([]);
+  const [captureGeolocationEnabled, setCaptureGeolocationEnabled] = useState(true);
+  const [captureGeolocationStatus, setCaptureGeolocationStatus] = useState("");
+  const { getLocation } = useGeolocation();
+  const captureGeolocationLabelRef = useRef<string | null>(null);
   const [selectedReferenceMedia, setSelectedReferenceMedia] =
     useState<SelectedReferenceMedia | null>(null);
   const [selectedReferenceTrackId, setSelectedReferenceTrackId] =
@@ -985,8 +996,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         ...(audioSignalLabelRef.current
           ? { audioSignalLabel: audioSignalLabelRef.current }
           : {}),
-        ...(captureLabelsRef.current.length > 0
-          ? { labels: captureLabelsRef.current }
+        ...((captureGeolocationLabelRef.current || captureLabelsRef.current.length > 0)
+          ? { labels: withGeolocationCaptureLabel(captureLabelsRef.current, captureGeolocationLabelRef.current) }
           : {}),
         startPlayback: () => scheduleTone(0.1),
       });
@@ -1202,6 +1213,12 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     )
       return;
 
+    captureGeolocationLabelRef.current = null;
+    if (captureGeolocationEnabled && !isEphemeralCapture) {
+      const location = await getLocation();
+      captureGeolocationLabelRef.current = location ? formatGeolocationCaptureLabel(location) : null;
+      setCaptureGeolocationStatus(location ? "Location will be attached to this reference capture." : "Location unavailable or permission declined; capture will continue without it.");
+    }
     setIsCapturingReferenceMedia(true);
     setReferenceMediaStatus(
       `Tuning to the selected RF channel for ${media.name}…`,
@@ -1215,8 +1232,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         ...(audioSignalLabelRef.current
           ? { audioSignalLabel: audioSignalLabelRef.current }
           : {}),
-        ...(captureLabelsRef.current.length > 0
-          ? { labels: captureLabelsRef.current }
+        ...((captureGeolocationLabelRef.current || captureLabelsRef.current.length > 0)
+          ? { labels: withGeolocationCaptureLabel(captureLabelsRef.current, captureGeolocationLabelRef.current) }
           : {}),
         startPlayback: () => {
           const audioContext = media.audioContext;
@@ -1255,6 +1272,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     isPreviewingReferenceMedia,
     stimulusChannelCompatible,
     stopReferenceMediaPlayback,
+    captureGeolocationEnabled,
+    isEphemeralCapture,
+    getLocation,
   ]);
 
   const handleChooseVisionDisplay = async () => {
@@ -1279,6 +1299,10 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     ) {
       return;
     }
+    captureGeolocationLabelRef.current = null;
+    const locationPromise = captureGeolocationEnabled && !isEphemeralCapture
+      ? getLocation()
+      : Promise.resolve(null);
     if (previewMode === "vision") {
       try {
         await requestVisionFullscreen(
@@ -1294,6 +1318,12 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         );
         return;
       }
+    }
+
+    const location = await locationPromise;
+    captureGeolocationLabelRef.current = location ? formatGeolocationCaptureLabel(location) : null;
+    if (captureGeolocationEnabled && !isEphemeralCapture) {
+      setCaptureGeolocationStatus(location ? "Location will be attached to this reference capture." : "Location unavailable or permission declined; capture will continue without it.");
     }
 
     // Delay audio to start when capture officially starts
@@ -1314,10 +1344,11 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         undefined,
         previewMode === "vision"
           ? [
-              ...captureLabels,
+              ...(captureGeolocationLabelRef.current ? [captureGeolocationLabelRef.current] : []),
               ...(visionMockTestMode ? ["vision-test-only:mock-source"] : []),
               `vision-stimulus:${selectedVisionPreset}`,
               `vision-rgb:${VISION_PRESETS[selectedVisionPreset].join(",")}`,
+              ...captureLabels,
             ]
           : captureLabels,
       ) ?? null;
@@ -1653,6 +1684,32 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               <option value="fm-waterfall">FM Sliding-Window Waterfall</option>
             </StimulusSelect>
           </AudioWaveformControl>
+        )}
+
+        {!isEphemeralCapture && (
+          <CaptureLabelControl data-testid="reference-geolocation-control">
+            <StimulusLabel>
+              <input
+                type="checkbox"
+                aria-label="Include location in training reference captures"
+                checked={captureGeolocationEnabled}
+                onChange={(event) => {
+                  setCaptureGeolocationEnabled(event.target.checked);
+                  if (!event.target.checked) {
+                    captureGeolocationLabelRef.current = null;
+                    setCaptureGeolocationStatus("Location is off for this session.");
+                  } else {
+                    setCaptureGeolocationStatus("Location will be requested when the next reference capture starts.");
+                  }
+                }}
+                disabled={isBusy || isCapturingReferenceMedia}
+              />
+              Include geolocation (on by default)
+            </StimulusLabel>
+            <StimulusSubtext role="status" aria-live="polite">
+              {captureGeolocationStatus || "Location permission is requested when a training reference capture starts. Captures can continue without it."}
+            </StimulusSubtext>
+          </CaptureLabelControl>
         )}
 
         <CaptureLabelControl>
