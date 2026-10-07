@@ -3,13 +3,26 @@ type ActiveAcquisitionOperation = {
   sourceId?: string | null;
 };
 
-const activeOperations = new Map<symbol, ActiveAcquisitionOperation>();
-const listeners = new Set<() => void>();
-let revision = 0;
+type ActiveAcquisitionRegistry = {
+  activeOperations: Map<symbol, ActiveAcquisitionOperation>;
+  listeners: Set<() => void>;
+  revision: number;
+};
+
+const registryKey = Symbol.for("n-apt.activeAcquisitionOperations");
+type RegistryGlobal = typeof globalThis & {
+  [registryKey]?: ActiveAcquisitionRegistry;
+};
+const registryGlobal = globalThis as RegistryGlobal;
+const registry = (registryGlobal[registryKey] ??= {
+  activeOperations: new Map(),
+  listeners: new Set(),
+  revision: 0,
+});
 
 const notifyListeners = () => {
-  revision += 1;
-  for (const listener of listeners) listener();
+  registry.revision += 1;
+  for (const listener of registry.listeners) listener();
 };
 
 /** Mark receiver work that must not be interrupted by automatic pauses. */
@@ -18,14 +31,14 @@ export const registerActiveAcquisitionOperation = (
   sourceId?: string | null,
 ): (() => void) => {
   const token = Symbol(kind);
-  activeOperations.set(token, { kind, sourceId });
+  registry.activeOperations.set(token, { kind, sourceId });
   notifyListeners();
 
   let registered = true;
   return () => {
     if (!registered) return;
     registered = false;
-    activeOperations.delete(token);
+    registry.activeOperations.delete(token);
     notifyListeners();
   };
 };
@@ -33,19 +46,20 @@ export const registerActiveAcquisitionOperation = (
 export const hasActiveAcquisitionOperations = (
   sourceId?: string | null,
 ): boolean => {
-  if (activeOperations.size === 0) return false;
+  if (registry.activeOperations.size === 0) return false;
   if (!sourceId) return true;
-  for (const operation of activeOperations.values()) {
+  for (const operation of registry.activeOperations.values()) {
     if (!operation.sourceId || operation.sourceId === sourceId) return true;
   }
   return false;
 };
 
-export const getActiveAcquisitionOperationsRevision = (): number => revision;
+export const getActiveAcquisitionOperationsRevision = (): number =>
+  registry.revision;
 
 export const subscribeToActiveAcquisitionOperations = (
   listener: () => void,
 ): (() => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  registry.listeners.add(listener);
+  return () => registry.listeners.delete(listener);
 };

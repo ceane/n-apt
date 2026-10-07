@@ -115,6 +115,61 @@ export interface CaptureQualityAssessment {
   settingsDispatches: 0;
 }
 
+const CAPTURE_QUALITY_FRAME_WINDOW_MS = 2_000;
+const CAPTURE_QUALITY_MAX_FRAME_COUNT = 128;
+const CAPTURE_QUALITY_WINDOW_STORE = Symbol.for(
+  "n-apt.captureQualityFrameWindows",
+);
+type CaptureQualityWindowStore = Map<string, CaptureQualityFrame[]>;
+type CaptureQualityWindowGlobal = typeof globalThis & {
+  [CAPTURE_QUALITY_WINDOW_STORE]?: CaptureQualityWindowStore;
+};
+const captureQualityWindowStore =
+  ((globalThis as CaptureQualityWindowGlobal)[CAPTURE_QUALITY_WINDOW_STORE] ??=
+    new Map());
+
+/** Read recent quality frames retained across Fast Refresh module replacement. */
+export function getCaptureQualityFrameWindow(
+  scopeKey: string,
+): CaptureQualityFrame[] {
+  return [...(captureQualityWindowStore.get(scopeKey) ?? [])];
+}
+
+/** Remember only bounded frame metadata; raw I/Q samples are never retained here. */
+export function rememberCaptureQualityFrameWindow(
+  scopeKey: string,
+  frames: CaptureQualityFrame[],
+): void {
+  captureQualityWindowStore.delete(scopeKey);
+  if (frames.length === 0) return;
+  captureQualityWindowStore.set(
+    scopeKey,
+    frames.slice(-CAPTURE_QUALITY_MAX_FRAME_COUNT),
+  );
+  while (captureQualityWindowStore.size > 16) {
+    const oldestScope = captureQualityWindowStore.keys().next().value;
+    if (oldestScope === undefined) break;
+    captureQualityWindowStore.delete(oldestScope);
+  }
+}
+
+/**
+ * Keep recent delivery history so one delayed frame does not flicker readiness.
+ * Background tabs, occluded windows, and OS Space switches may throttle page
+ * scheduling and delay handling incoming frame events while the RTL-SDR/backend
+ * keeps running. That can temporarily make client-side freshness or cadence
+ * look poor; this assessment alone does not prove the receiver was paused.
+ */
+export function appendCaptureQualityFrameWindow(
+  frames: CaptureQualityFrame[],
+  frame: CaptureQualityFrame,
+): CaptureQualityFrame[] {
+  const cutoffTimestampMs = frame.timestampMs - CAPTURE_QUALITY_FRAME_WINDOW_MS;
+  return [...frames, frame]
+    .filter((candidate) => candidate.timestampMs >= cutoffTimestampMs)
+    .slice(-CAPTURE_QUALITY_MAX_FRAME_COUNT);
+}
+
 const ENBW: Record<string, number> = {
   rectangular: 1, none: 1, hann: 1.5, hanning: 1.5, hamming: 1.363,
   blackman: 1.727, 'blackman-harris': 2.004, nuttall: 2.021,

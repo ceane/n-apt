@@ -78,6 +78,7 @@ const mockWaterfallProps: {
 } = { current: null };
 
 let mockAudioContext: {
+  state: string;
   currentTime: number;
   createBufferSource: jest.Mock;
   resume: jest.Mock;
@@ -113,10 +114,12 @@ describe("StimulusNode", () => {
         return 1;
       });
     const audioContext = {
-      currentTime: 0,
       state: "running",
+      currentTime: 0,
       destination: {},
-      resume: jest.fn().mockResolvedValue(undefined),
+      resume: jest.fn().mockImplementation(async () => {
+        audioContext.state = "running";
+      }),
       close: jest.fn().mockResolvedValue(undefined),
       decodeAudioData: jest.fn().mockResolvedValue({
         sampleRate: 24_000,
@@ -201,23 +204,36 @@ describe("StimulusNode", () => {
     websocket: {
       channels: [
         {
-          id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000,
+          id: "a",
+          label: "A",
+          min_hz: 18_000,
+          max_hz: 4_390_000,
           prerequisite_for: {
-            "demod.stimulus.audio": "any", "demod.stimulus.apt": "any",
-            "demod.stimulus.internal": "any", "demod.stimulus.speech": "any",
+            "demod.stimulus.audio": "any",
+            "demod.stimulus.apt": "any",
+            "demod.stimulus.internal": "any",
+            "demod.stimulus.speech": "any",
             "demod.audio_survey": "all",
           },
         },
         {
-          id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000,
+          id: "b",
+          label: "B",
+          min_hz: 24_100_000,
+          max_hz: 30_370_000,
           prerequisite_for: {
-            "demod.stimulus.audio": "any", "demod.stimulus.apt": "any",
-            "demod.stimulus.internal": "any", "demod.stimulus.speech": "any",
+            "demod.stimulus.audio": "any",
+            "demod.stimulus.apt": "any",
+            "demod.stimulus.internal": "any",
+            "demod.stimulus.speech": "any",
             "demod.audio_survey": "all",
           },
         },
         {
-          id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000,
+          id: "c",
+          label: "C",
+          min_hz: 4_750_000,
+          max_hz: 23_000_000,
           prerequisite_for: { "demod.stimulus.vision": "all" },
         },
       ],
@@ -509,7 +525,10 @@ describe("StimulusNode", () => {
 
   it("waits for the reference capture to schedule a paired tone", async () => {
     mockDemodValue.recordAudioSurveyStimulusReference.mockImplementation(
-      async (input: { startedAtMs?: number; startPlayback?: () => number }) => {
+      async (input: {
+        startedAtMs?: number;
+        startPlayback?: () => Promise<number> | number;
+      }) => {
         await input.startPlayback?.();
         return null;
       },
@@ -549,6 +568,16 @@ describe("StimulusNode", () => {
       mockDemodValue.recordAudioSurveyStimulusReference.mock.calls[0][0]
         .startedAtMs,
     ).toBeUndefined();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("tone-capture-status")).toHaveTextContent(
+      "The tone played, but no aligned I/Q and PCM pair was saved",
+    );
   });
 
   it("renders duration input", () => {
@@ -571,6 +600,24 @@ describe("StimulusNode", () => {
 
     const button = screen.getByText("TRIGGER");
     expect(button).toBeInTheDocument();
+  });
+
+  it("resumes audio from the trigger gesture before starting the RF capture", async () => {
+    mockAudioContext!.state = "suspended";
+    render(
+      <TestWrapper preloadedState={channelACompatibleState}>
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "TRIGGER" }));
+    });
+
+    expect(mockAudioContext?.resume).toHaveBeenCalledTimes(1);
+    expect(mockAudioContext!.resume.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDemodValue.startAnalysis.mock.invocationCallOrder[0],
+    );
   });
 
   it("selects an available display and stores the exact Vision preset labels", async () => {
@@ -603,7 +650,10 @@ describe("StimulusNode", () => {
           websocket: {
             channels: [
               {
-                id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000,
+                id: "c",
+                label: "C",
+                min_hz: 4_750_000,
+                max_hz: 23_000_000,
                 prerequisite_for: { "demod.stimulus.vision": "all" },
               },
             ],
@@ -658,23 +708,36 @@ describe("StimulusNode", () => {
           websocket: {
             channels: [
               {
-                id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000,
+                id: "a",
+                label: "A",
+                min_hz: 18_000,
+                max_hz: 4_390_000,
                 prerequisite_for: {
-                  "demod.stimulus.audio": "any", "demod.stimulus.apt": "any",
-                  "demod.stimulus.internal": "any", "demod.stimulus.speech": "any",
+                  "demod.stimulus.audio": "any",
+                  "demod.stimulus.apt": "any",
+                  "demod.stimulus.internal": "any",
+                  "demod.stimulus.speech": "any",
                   "demod.audio_survey": "all",
                 },
               },
               {
-                id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000,
+                id: "b",
+                label: "B",
+                min_hz: 24_100_000,
+                max_hz: 30_370_000,
                 prerequisite_for: {
-                  "demod.stimulus.audio": "any", "demod.stimulus.apt": "any",
-                  "demod.stimulus.internal": "any", "demod.stimulus.speech": "any",
+                  "demod.stimulus.audio": "any",
+                  "demod.stimulus.apt": "any",
+                  "demod.stimulus.internal": "any",
+                  "demod.stimulus.speech": "any",
                   "demod.audio_survey": "all",
                 },
               },
               {
-                id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000,
+                id: "c",
+                label: "C",
+                min_hz: 4_750_000,
+                max_hz: 23_000_000,
                 prerequisite_for: { "demod.stimulus.vision": "all" },
               },
             ],
@@ -730,7 +793,10 @@ describe("StimulusNode", () => {
           websocket: {
             channels: [
               {
-                id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000,
+                id: "c",
+                label: "C",
+                min_hz: 4_750_000,
+                max_hz: 23_000_000,
                 prerequisite_for: { "demod.stimulus.vision": "all" },
               },
             ],

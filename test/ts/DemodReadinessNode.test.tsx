@@ -19,6 +19,16 @@ const mockDemodContext = {
   audioSurveyOnnxModelAvailable: false,
   audioSurveyOnnxLoading: false,
 };
+const mockSpectrumStore = {
+  manualVisualizerPaused: false,
+  selectedSourceId: null as string | null,
+  setVisualizerPause: jest.fn(),
+  toggleVisualizerPause: jest.fn(),
+};
+const mockReleaseReadinessLease = jest.fn();
+const mockRegisterActiveAcquisitionOperation = jest.fn(
+  (_kind: string, _sourceId?: string | null) => mockReleaseReadinessLease,
+);
 
 jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
   useDemod: () => mockDemodContext,
@@ -38,11 +48,57 @@ jest.mock("@n-apt/spectrum", () => ({
   ),
 }));
 
+jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
+  useSpectrumStore: () => mockSpectrumStore,
+}));
+
+jest.mock("@n-apt/spectrum/activeAcquisitionOperations", () => ({
+  registerActiveAcquisitionOperation: (
+    kind: string,
+    sourceId?: string | null,
+  ) => mockRegisterActiveAcquisitionOperation(kind, sourceId),
+}));
+
 import { DemodReadinessNode } from "@n-apt/demodulation/react-flow/nodes/DemodReadinessNode";
 
 describe("DemodReadinessNode", () => {
   beforeEach(() => {
     mockDemodContext.selectedBaseline = "audio";
+    mockRegisterActiveAcquisitionOperation.mockClear();
+    mockReleaseReadinessLease.mockClear();
+  });
+
+  it("holds acquisition while the readiness node is present and releases it on unmount", () => {
+    const { unmount } = render(
+      <TestWrapper
+        preloadedState={{
+          demod: { sourceMode: "live", centerFreqHz: 1_000_000 },
+          spectrum: { frequencyRange: null },
+          websocket: {
+            activeSourceId: "radio-1",
+            sources: [
+              {
+                id: "radio-1",
+                name: "RTL-SDR Blog V4",
+                kind: "rtl_sdr",
+                capability: "rx",
+                status: "receiving",
+              },
+            ],
+            channels: [],
+          },
+        }}
+      >
+        <DemodReadinessNode data={{ label: "Demod Readiness" }} />
+      </TestWrapper>,
+    );
+
+    expect(mockRegisterActiveAcquisitionOperation).toHaveBeenCalledWith(
+      "demod-readiness-node",
+      "radio-1",
+    );
+    unmount();
+    expect(mockReleaseReadinessLease).toHaveBeenCalledTimes(1);
   });
 
   it("owns capture warnings and offers the compatible Channels controls", () => {
@@ -111,6 +167,50 @@ describe("DemodReadinessNode", () => {
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Tune Channel C" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("explains automatic audio pairing without pointing to a missing toggle", () => {
+    render(
+      <TestWrapper
+        preloadedState={{
+          demod: { sourceMode: "live", centerFreqHz: 1_000_000 },
+          spectrum: { frequencyRange: null },
+          websocket: {
+            channels: [
+              {
+                id: "a",
+                label: "A",
+                min_hz: 18_000,
+                max_hz: 4_390_000,
+                prerequisite_for: {
+                  "demod.stimulus.audio": "any",
+                  "demod.audio_survey": "all",
+                },
+              },
+              {
+                id: "b",
+                label: "B",
+                min_hz: 24_100_000,
+                max_hz: 30_370_000,
+                prerequisite_for: {
+                  "demod.stimulus.audio": "any",
+                  "demod.audio_survey": "all",
+                },
+              },
+            ],
+          },
+        }}
+      >
+        <DemodReadinessNode data={{ label: "Demod Readiness" }} />
+      </TestWrapper>,
+    );
+
+    expect(
+      screen.getByText(/Trigger waits for a fresh tuned Channel A\/B frame/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/enable.*Pair stimulus tone with captured RF audio/i),
     ).not.toBeInTheDocument();
   });
 });

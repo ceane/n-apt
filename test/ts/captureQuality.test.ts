@@ -59,6 +59,42 @@ it('reports configured versus observed mismatches, delivery gaps, stale frames a
   expect(unknown.observed.status).toBe('not-observed');
 });
 
+it('holds a transient delivery gap in the rolling readiness window until it ages out', () => {
+  const appendFrame = Capture.appendCaptureQualityFrameWindow;
+  let frames = base.frames;
+  const delayedFrame = { ...base.frames[1], sequence: 11, timestampMs: 20_097 };
+  frames = appendFrame(frames, delayedFrame);
+  expect(Capture.evaluateCaptureQuality({ ...base, frames, nowTimestampMs: 20_097 }).fit).toBe('unmet');
+
+  for (let index = 1; index <= 50; index++) {
+    const timestampMs = delayedFrame.timestampMs + index * 20;
+    frames = appendFrame(frames, {
+      ...delayedFrame,
+      sequence: delayedFrame.sequence + index,
+      timestampMs,
+    });
+  }
+  expect(Capture.evaluateCaptureQuality({
+    ...base,
+    frames,
+    nowTimestampMs: frames[frames.length - 1].timestampMs,
+  }).fit).toBe('unmet');
+
+  for (let index = 51; index <= 110; index++) {
+    const timestampMs = delayedFrame.timestampMs + index * 20;
+    frames = appendFrame(frames, {
+      ...delayedFrame,
+      sequence: delayedFrame.sequence + index,
+      timestampMs,
+    });
+  }
+  expect(Capture.evaluateCaptureQuality({
+    ...base,
+    frames,
+    nowTimestampMs: frames[frames.length - 1].timestampMs,
+  }).fit).toBe('ready');
+});
+
 it('rejects explicit CLI output options that exceed source capabilities', () => {
   const preflight = Capture.resolveCapturePreflightOptions({ profile: Capture.IQ_CAPTURE_CLI_QUALITY_PROFILE,
     requested: { sampleRateHz: 4_000_000, fftSize: 16_384, frameRateHz: 25, fftWindow: 'rectangular', temporalResolution: 'lossless' },

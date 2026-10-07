@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { useFFTAnimation } from "@n-apt/spectrum/hooks/useFFTAnimation";
+import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/activeAcquisitionOperations";
 
 /**
  * rAF mock that actually fires callbacks via setTimeout so the loop can be
@@ -103,6 +104,40 @@ describe("useFFTAnimation", () => {
 
     expect(latestRender).toHaveBeenCalledTimes(1);
     unmount();
+  });
+
+  it("keeps the render loop active across visibility changes during receiver work", () => {
+    const previousVisibilityState = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState",
+    );
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    const releaseAcquisition = registerActiveAcquisitionOperation(
+      "demod-readiness-node",
+      "rtl-1",
+    );
+    const { result, unmount } = renderHook(() =>
+      useFFTAnimation({ isPaused: false, onRenderFrame: jest.fn() }),
+    );
+
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+
+    expect(result.current.isVisibleRef.current).toBe(true);
+
+    unmount();
+    releaseAcquisition();
+    if (previousVisibilityState) {
+      Object.defineProperty(
+        document,
+        "visibilityState",
+        previousVisibilityState,
+      );
+    } else {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
   });
 
   it("re-arms the rAF loop when a render callback throws, logging once per burst", () => {

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useEffect } from "react";
 import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
+import { hasActiveAcquisitionOperations } from "@n-apt/spectrum/activeAcquisitionOperations";
 
 export interface AnimationOptions {
   isPaused: boolean;
@@ -68,7 +69,10 @@ export function useFFTAnimation({
         }
         renderFrameFailedRef.current = true;
       }
-      browserPipelineMetrics.presentationFrame(now, frameRateLimiterRef.current);
+      browserPipelineMetrics.presentationFrame(
+        now,
+        frameRateLimiterRef.current,
+      );
     }
 
     // Keep the animation loop running even when paused to prevent blank canvases
@@ -87,9 +91,18 @@ export function useFFTAnimation({
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      isVisibleRef.current = document.visibilityState === "visible";
+      // This loop paints the spectrum; demod readiness separately assesses
+      // raw-I/Q frame metadata. Browsers and the OS may throttle page scheduling
+      // for background/occluded windows (including Space changes), so incoming
+      // frame handling can lag even while acquisition remains active. Keep our
+      // loop armed during receiver work; the browser still controls callback timing.
+      const isDocumentVisible = document.visibilityState === "visible";
+      const keepReceiverWorkActive = hasActiveAcquisitionOperations();
+      isVisibleRef.current = isDocumentVisible || keepReceiverWorkActive;
       if (isVisibleRef.current) {
-        onBecomeVisibleRef.current?.();
+        if (isDocumentVisible) {
+          onBecomeVisibleRef.current?.();
+        }
         // A backgrounded browser may suppress the callback for the queued
         // frame without clearing its ID. Always replace that stale handle on
         // return so a paused canvas cannot remain blank indefinitely.

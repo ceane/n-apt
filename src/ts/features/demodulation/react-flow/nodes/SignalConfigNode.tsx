@@ -24,8 +24,11 @@ import {
   subscribeRawIqFrameArrivals,
 } from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
 import {
+  appendCaptureQualityFrameWindow,
   DEMODULATION_QUALITY_PROFILE,
   evaluateCaptureQuality,
+  getCaptureQualityFrameWindow,
+  rememberCaptureQualityFrameWindow,
   type CaptureQualityFrame,
 } from "@n-apt/features/capture/quality";
 import { DEMOD_REQUIRED_TEMPORAL_RESOLUTION } from "@n-apt/demodulation/utils/demodQuality";
@@ -36,6 +39,12 @@ import {
 } from "@n-apt/app/infrastructure/visualization/sourceSignalDisplay";
 
 const QUALITY_FRAME_PUBLISH_INTERVAL_MS = 100;
+let isSignalConfigModuleHotReplacing = false;
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    isSignalConfigModuleHotReplacing = true;
+  });
+}
 
 const toCaptureQualityFrame = ({
   value,
@@ -209,12 +218,33 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
         (roleSource.id === selectedSourceId && manualVisualizerPaused) ||
         (roleSource.id === activeSourceId && websocketPaused)),
   );
-  const [qualityFrames, setQualityFrames] = React.useState<CaptureQualityFrame[]>([]);
+  const qualityFrameWindowScope = [
+    roleSource?.id ?? "no-source",
+    appliedStreamOptions?.optionsRevision ?? "no-revision",
+    appliedStreamOptions?.streamEpoch ?? "no-epoch",
+    appliedRxOptions?.fftSize ?? roleSource?.sdr.settings.fft_size ?? "no-fft",
+    appliedRxOptions?.fftWindow ?? roleSource?.sdr.settings.fft_window ?? spectrum.fftWindow,
+  ].join(":");
+  const initialQualityFrameWindow = getCaptureQualityFrameWindow(
+    qualityFrameWindowScope,
+  );
+  const [qualityFrames, setQualityFrames] = React.useState<CaptureQualityFrame[]>(
+    initialQualityFrameWindow,
+  );
   const [qualityNowTimestampMs, setQualityNowTimestampMs] = React.useState(
     () => Date.now(),
   );
-  const qualityFrameHistoryRef = React.useRef<CaptureQualityFrame[]>([]);
-  const lastQualityFrameKeyRef = React.useRef<string | null>(null);
+  const qualityFrameHistoryRef = React.useRef<CaptureQualityFrame[]>(
+    initialQualityFrameWindow,
+  );
+  const qualityFrameHistoryScopeRef = React.useRef(qualityFrameWindowScope);
+  const initialLatestQualityFrame =
+    initialQualityFrameWindow[initialQualityFrameWindow.length - 1];
+  const lastQualityFrameKeyRef = React.useRef<string | null>(
+    initialLatestQualityFrame
+      ? `${initialLatestQualityFrame.sourceId}:${initialLatestQualityFrame.streamEpoch}:${initialLatestQualityFrame.sequence}`
+      : null,
+  );
   const qualityFramePublishTimerRef = React.useRef<number | null>(null);
   const lastPublishedQualityStatusRef = React.useRef<string | null>(null);
 
@@ -280,9 +310,20 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     settings.setFftFrameRate(rate);
   }, [settings.setFftFrameRate]);
   React.useEffect(() => {
-    qualityFrameHistoryRef.current = [];
-    lastQualityFrameKeyRef.current = null;
-    setQualityFrames([]);
+    if (qualityFrameHistoryScopeRef.current !== qualityFrameWindowScope) {
+      qualityFrameHistoryScopeRef.current = qualityFrameWindowScope;
+      qualityFrameHistoryRef.current = getCaptureQualityFrameWindow(
+        qualityFrameWindowScope,
+      );
+      const latest =
+        qualityFrameHistoryRef.current[
+          qualityFrameHistoryRef.current.length - 1
+        ];
+      lastQualityFrameKeyRef.current = latest
+        ? `${latest.sourceId}:${latest.streamEpoch}:${latest.sequence}`
+        : null;
+      setQualityFrames([...qualityFrameHistoryRef.current]);
+    }
     setQualityNowTimestampMs(Date.now());
 
     if (
@@ -337,10 +378,14 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
       const key = `${qualityFrame.sourceId}:${qualityFrame.streamEpoch}:${qualityFrame.sequence}`;
       if (lastQualityFrameKeyRef.current === key) return;
       lastQualityFrameKeyRef.current = key;
-      qualityFrameHistoryRef.current = [
-        ...qualityFrameHistoryRef.current,
+      qualityFrameHistoryRef.current = appendCaptureQualityFrameWindow(
+        qualityFrameHistoryRef.current,
         qualityFrame,
-      ].slice(-8);
+      );
+      rememberCaptureQualityFrameWindow(
+        qualityFrameWindowScope,
+        qualityFrameHistoryRef.current,
+      );
 
       // Keep every received frame for cadence and loss checks, but refresh the
       // React node at 10 Hz instead of rendering once per radio frame.
@@ -363,6 +408,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     appliedRxOptions,
     appliedStreamOptions,
     data.sourceRole,
+    qualityFrameWindowScope,
     roleSource?.id,
     roleSource?.sdr.settings.fft_size,
     roleSource?.sdr.settings.fft_window,
@@ -450,6 +496,7 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   }, [data.sourceRole, demodQuality.fit, demodQuality.reasons, setDemodQualityStatus]);
   React.useEffect(
     () => () => {
+      if (isSignalConfigModuleHotReplacing) return;
       lastPublishedQualityStatusRef.current = null;
       setDemodQualityStatus(null);
     },

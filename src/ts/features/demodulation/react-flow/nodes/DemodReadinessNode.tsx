@@ -11,6 +11,7 @@ import { AudioDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/Aud
 import { VisionDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/VisionDemodWorkflowFlow";
 import { evaluateStimulusChannelAccess } from "@n-apt/demodulation/react-flow/nodes/stimulusChannelPolicy";
 import { getVisionReceiverLabel } from "@n-apt/demodulation/vision/visionSourcePolicy";
+import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/activeAcquisitionOperations";
 
 const ReadinessCard = styled.section`
   width: 100%;
@@ -227,13 +228,11 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
     (state) => state.websocket.activeSourceId,
   );
   const sources = useAppSelector((state) => state.websocket.sources);
-  const websocketPaused = useAppSelector(
-    (state) => state.websocket.isPaused,
-  );
+  const websocketPaused = useAppSelector((state) => state.websocket.isPaused);
   const activeSourceStatus = useAppSelector((state) =>
     activeSourceId
-      ? state.websocket.sourceStatuses[activeSourceId] ??
-        sources?.find((source) => source.id === activeSourceId)?.status
+      ? (state.websocket.sourceStatuses?.[activeSourceId] ??
+        sources?.find((source) => source.id === activeSourceId)?.status)
       : null,
   );
   const replayCaptureCount = useAppSelector(
@@ -274,13 +273,20 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
   );
   const isSourcePaused = Boolean(
     sourceMode !== "file" &&
-      activeSourceId &&
-      (sources?.find((source) => source.id === activeSourceId)?.paused ||
-        activeSourceStatus === "paused" ||
-        (activeSourceId === selectedSourceId && manualVisualizerPaused) ||
-        (activeSourceId === selectedSourceId && websocketPaused)),
+    activeSourceId &&
+    (sources?.find((source) => source.id === activeSourceId)?.paused ||
+      activeSourceStatus === "paused" ||
+      (activeSourceId === selectedSourceId && manualVisualizerPaused) ||
+      (activeSourceId === selectedSourceId && websocketPaused)),
   );
   const resumeTargetSourceId = activeSourceId ?? selectedSourceId;
+  React.useEffect(() => {
+    if (demodSourceMode !== "live" || !resumeTargetSourceId) return;
+    return registerActiveAcquisitionOperation(
+      "demod-readiness-node",
+      resumeTargetSourceId,
+    );
+  }, [demodSourceMode, resumeTargetSourceId]);
   const resumeSource = React.useCallback(() => {
     if (!resumeTargetSourceId) return;
     if (setVisualizerPause) {
@@ -291,8 +297,7 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
   }, [resumeTargetSourceId, setVisualizerPause, toggleVisualizerPause]);
   const visionChannelLabel = channelAccess.requiredChannelLabels[0] ?? null;
   const visionChannel = channels.find(
-    (channel) =>
-      channel.label?.trim().toUpperCase() === visionChannelLabel,
+    (channel) => channel.label?.trim().toUpperCase() === visionChannelLabel,
   );
   const visionChannelRangeLabel =
     visionChannel &&
@@ -380,8 +385,9 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
 
       {selectedBaseline === "audio" && channelAccess.allowed && (
         <PairingGuide role="note">
-          To save a paired ML example, enable “Pair stimulus tone with captured
-          RF audio” in the Stimulus node before starting the reference capture.
+          Trigger waits for a fresh tuned Channel A/B frame, then plays the 440
+          Hz tone and reports whether the aligned I/Q and PCM pair was saved in
+          the Stimulus node.
         </PairingGuide>
       )}
 
@@ -396,8 +402,8 @@ export const DemodReadinessNode: React.FC<DemodReadinessNodeProps> = ({
             {!channelAccess.available
               ? "No valid channel prerequisite metadata is configured for this flow."
               : tunedFrequencyHz === null
-              ? "No tuned RF frequency is available yet."
-              : `The current tune at ${formatFrequency(tunedFrequencyHz)} is outside the required channel range.`}{" "}
+                ? "No tuned RF frequency is available yet."
+                : `The current tune at ${formatFrequency(tunedFrequencyHz)} is outside the required channel range.`}{" "}
             {demodSourceMode === "live"
               ? "Choose a channel below to tune the receiver."
               : "Switch to a live source to tune the receiver."}

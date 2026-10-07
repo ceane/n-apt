@@ -98,7 +98,7 @@ describe("SignalConfigNode", () => {
       },
     });
 
-    render(
+    const { unmount } = render(
       <Provider store={store}>
         <ThemeProvider
           theme={buildAppTheme({
@@ -136,6 +136,9 @@ describe("SignalConfigNode", () => {
     (props.onFftFrameRateChange as (rate: number) => void)(20);
     expect(mockSetFftSize).not.toHaveBeenCalled();
     expect(mockSetFftFrameRate).not.toHaveBeenCalled();
+
+    unmount();
+    expect(mockSetDemodQualityStatus).toHaveBeenLastCalledWith(null);
   });
 
   it("passes the Remove DC Spike toggle through to the signal display section", () => {

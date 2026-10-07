@@ -277,6 +277,32 @@ const ReferenceMediaStatus = styled.div`
   overflow-wrap: anywhere;
 `;
 
+type ToneCaptureStatusKind =
+  | "preparing"
+  | "waiting"
+  | "playing"
+  | "saved"
+  | "not-saved"
+  | "failed";
+
+interface ToneCaptureStatus {
+  kind: ToneCaptureStatusKind;
+  message: string;
+}
+
+const ToneCaptureStatusText = styled.div<{ $kind: ToneCaptureStatusKind }>`
+  margin-top: 8px;
+  color: ${({ $kind, theme }) =>
+    $kind === "failed"
+      ? theme.colors.danger
+      : $kind === "playing" || $kind === "saved"
+        ? theme.colors.primary
+        : theme.colors.textMuted};
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+`;
+
 const ReferenceMediaInput = styled.input`
   width: 100%;
   color: ${({ theme }) => theme.colors.textMuted};
@@ -732,6 +758,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [audioWaveformMode, setAudioWaveformMode] =
     useState<AudioWaveformMode>("traditional");
   const [tonePlayback, setTonePlayback] = useState<TonePlayback | null>(null);
+  const [toneCaptureStatus, setToneCaptureStatus] =
+    useState<ToneCaptureStatus | null>(null);
   const [audioSignalLabel, setAudioSignalLabel] = useState<
     AudioSurveyReferenceLabel | ""
   >("");
@@ -739,10 +767,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [captureLabels, setCaptureLabels] = useState<string[]>([]);
   const [selectedReferenceMedia, setSelectedReferenceMedia] =
     useState<SelectedReferenceMedia | null>(null);
-  const [selectedReferenceTrackId, setSelectedReferenceTrackId] =
-    useState("");
+  const [selectedReferenceTrackId, setSelectedReferenceTrackId] = useState("");
   const [referenceMediaStatus, setReferenceMediaStatus] = useState(
-    "Choose a built-in track or local audio/video. Preview is separate from capture.",
+    "Select audio or video; its audio track is decoded locally to mono 48 kHz PCM. Preview is separate from capture.",
   );
   const [isLoadingReferenceMedia, setIsLoadingReferenceMedia] = useState(false);
   const [isPreviewingReferenceMedia, setIsPreviewingReferenceMedia] =
@@ -750,6 +777,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [isCapturingReferenceMedia, setIsCapturingReferenceMedia] =
     useState(false);
   const captureJobIdRef = useRef<string | null>(null);
+  const preparedToneAudioContextRef = useRef<AudioContext | null>(null);
   const selectedReferenceMediaRef = useRef<SelectedReferenceMedia | null>(null);
   const mediaPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const audioSignalLabelRef = useRef<AudioSurveyReferenceLabel | "">(
@@ -779,6 +807,14 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         // Playback may have completed while the node was being removed.
       }
       mediaPlaybackSourceRef.current = null;
+      const preparedAudioContext = preparedToneAudioContextRef.current;
+      preparedToneAudioContextRef.current = null;
+      if (
+        preparedAudioContext?.state !== "closed" &&
+        typeof preparedAudioContext?.close === "function"
+      ) {
+        void preparedAudioContext.close();
+      }
       if (
         media?.audioContext.state !== "closed" &&
         typeof media?.audioContext.close === "function"
@@ -791,8 +827,15 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
   const isBusy =
     analysisSession.state !== "idle" && analysisSession.state !== "result";
-  const _isStarting = analysisSession.state === "starting";
   const isCapturing = analysisSession.state === "capturing";
+  const triggerLabel =
+    analysisSession.state === "starting"
+      ? "STARTING…"
+      : analysisSession.state === "capturing"
+        ? "CAPTURING…"
+        : analysisSession.state === "analyzing"
+          ? "FINALIZING…"
+          : "TRIGGER";
   const selectedVisionDisplay =
     visionDisplays.find((display) => display.id === selectedVisionDisplayId) ??
     null;
@@ -805,8 +848,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     isMockVisionTestSource(activeSource);
   const visionRequirementLabel = channelAccess.requiredChannelLabels[0];
   const visionRequirementChannel = channels?.find(
-    (channel) =>
-      channel.label?.trim().toUpperCase() === visionRequirementLabel,
+    (channel) => channel.label?.trim().toUpperCase() === visionRequirementLabel,
   );
   const visionRequirementRangeLabel =
     visionRequirementChannel &&
@@ -945,16 +987,40 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   }, [isCapturing, durationS, analysisSession.startTime]);
 
   const playTone = useCallback(() => {
-    const audioCtx = new (
-      window.AudioContext || (window as any).webkitAudioContext
-    )();
+    const AudioContextConstructor =
+      window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextConstructor) {
+      setToneCaptureStatus({
+        kind: "failed",
+        message:
+          "This browser does not support audio playback for the reference tone.",
+      });
+      return undefined;
+    }
+    const audioCtx =
+      preparedToneAudioContextRef.current ?? new AudioContextConstructor();
+    preparedToneAudioContextRef.current = null;
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
     oscillator.type = "sine";
     oscillator.connect(gainNode);
     gainNode.connect(audioCtx.destination);
+    let cancelled = false;
+    let toneStarted = false;
+    let playbackError: string | null = null;
 
-    const scheduleTone = (delaySeconds = 0) => {
+    const scheduleTone = async (delaySeconds = 0) => {
+      if (audioCtx.state !== "running") await audioCtx.resume();
+      if (cancelled) {
+        throw new Error(
+          "The RF capture ended before the reference tone could start.",
+        );
+      }
+      if (audioCtx.state !== "running") {
+        throw new Error(
+          "Browser audio output did not start. Press Trigger and allow audio playback.",
+        );
+      }
       const contextNow = audioCtx.currentTime;
       const startedAt = contextNow + delaySeconds;
       const wallClockNow = Date.now();
@@ -973,28 +1039,98 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         startedAt,
         durationS,
       });
+      toneStarted = true;
+      setToneCaptureStatus({
+        kind: "playing",
+        message:
+          "Playing the 440 Hz reference tone while collecting aligned Channel A/B I/Q.",
+      });
       return wallClockNow + delaySeconds * 1_000;
     };
 
     if (previewMode === "audio") {
       const requestedAtMs = Date.now();
-      void recordAudioSurveyReferenceRef.current({
-        captureId: captureJobIdRef.current ?? `stimulus_${requestedAtMs}`,
-        pcmData: createAudioToneReferencePcm(durationS, 48_000),
-        pcmSampleRateHz: 48_000,
-        ...(audioSignalLabelRef.current
-          ? { audioSignalLabel: audioSignalLabelRef.current }
-          : {}),
-        ...(captureLabelsRef.current.length > 0
-          ? { labels: captureLabelsRef.current }
-          : {}),
-        startPlayback: () => scheduleTone(0.1),
+      setToneCaptureStatus({
+        kind: "waiting",
+        message:
+          "Waiting for a fresh tuned Channel A/B frame; the reference tone starts when I/Q and PCM can be aligned.",
       });
+      try {
+        void recordAudioSurveyReferenceRef
+          .current({
+            captureId: captureJobIdRef.current ?? `stimulus_${requestedAtMs}`,
+            pcmData: createAudioToneReferencePcm(durationS, 48_000),
+            pcmSampleRateHz: 48_000,
+            ...(audioSignalLabelRef.current
+              ? { audioSignalLabel: audioSignalLabelRef.current }
+              : {}),
+            ...(captureLabelsRef.current.length > 0
+              ? { labels: captureLabelsRef.current }
+              : {}),
+            startPlayback: async () => {
+              try {
+                return await scheduleTone(0.1);
+              } catch (error) {
+                playbackError =
+                  error instanceof Error ? error.message : String(error);
+                throw error;
+              }
+            },
+          })
+          .then((artifact) => {
+            if (artifact) {
+              setToneCaptureStatus({
+                kind: "saved",
+                message: "Saved the aligned I/Q and PCM reference pair.",
+              });
+            } else if (playbackError) {
+              setToneCaptureStatus({ kind: "failed", message: playbackError });
+            } else if (toneStarted) {
+              setToneCaptureStatus({
+                kind: "not-saved",
+                message:
+                  "The tone played, but no aligned I/Q and PCM pair was saved. Check the Channel A/B tune and fresh receiver frames.",
+              });
+            } else {
+              setToneCaptureStatus({
+                kind: "failed",
+                message:
+                  "The reference tone did not start because no fresh tuned I/Q frame became available. No paired example was saved.",
+              });
+            }
+          })
+          .catch((error) => {
+            setToneCaptureStatus({
+              kind: "failed",
+              message:
+                error instanceof Error
+                  ? `Reference tone capture failed: ${error.message}`
+                  : `Reference tone capture failed: ${String(error)}`,
+            });
+          });
+      } catch (error) {
+        setToneCaptureStatus({
+          kind: "failed",
+          message:
+            error instanceof Error
+              ? `Reference tone capture failed: ${error.message}`
+              : `Reference tone capture failed: ${String(error)}`,
+        });
+      }
     } else {
-      scheduleTone();
+      void scheduleTone().catch((error) => {
+        setToneCaptureStatus({
+          kind: "failed",
+          message:
+            error instanceof Error
+              ? `Audio playback failed: ${error.message}`
+              : `Audio playback failed: ${String(error)}`,
+        });
+      });
     }
 
     return () => {
+      cancelled = true;
       try {
         oscillator.stop();
       } catch {
@@ -1124,7 +1260,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         ) {
           void previous.audioContext.close();
         }
-        setReferenceMediaStatus("Choose a built-in track or local audio/video.");
+        setReferenceMediaStatus(
+          "Choose a built-in track or local audio/video.",
+        );
         return;
       }
       const track = BUILT_IN_REFERENCE_TRACKS.find(
@@ -1158,7 +1296,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     if (!media || isLoadingReferenceMedia || isCapturingReferenceMedia) return;
     if (isPreviewingReferenceMedia) {
       stopReferenceMediaPlayback();
-      setReferenceMediaStatus(`${media.name} preview stopped; no capture was started.`);
+      setReferenceMediaStatus(
+        `${media.name} preview stopped; no capture was started.`,
+      );
       return;
     }
     try {
@@ -1177,7 +1317,9 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       };
       mediaPlaybackSourceRef.current = source;
       setIsPreviewingReferenceMedia(true);
-      setReferenceMediaStatus(`Previewing ${media.name}; capture has not started.`);
+      setReferenceMediaStatus(
+        `Previewing ${media.name}; capture has not started.`,
+      );
       source.start();
     } catch (error) {
       setReferenceMediaStatus(
@@ -1279,6 +1421,43 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     ) {
       return;
     }
+    if (previewMode === "audio" || previewMode === "internal") {
+      const AudioContextConstructor =
+        window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextConstructor) {
+        setToneCaptureStatus({
+          kind: "failed",
+          message:
+            "This browser does not support audio playback for the reference stimulus.",
+        });
+        return;
+      }
+      const previousContext = preparedToneAudioContextRef.current;
+      preparedToneAudioContextRef.current = null;
+      if (previousContext && previousContext.state !== "closed") {
+        void previousContext.close();
+      }
+      const audioContext = new AudioContextConstructor();
+      preparedToneAudioContextRef.current = audioContext;
+      setToneCaptureStatus({
+        kind: "preparing",
+        message: "Preparing audio output from the Trigger action…",
+      });
+      try {
+        await audioContext.resume();
+        if (audioContext.state !== "running") {
+          throw new Error("The browser kept audio output suspended.");
+        }
+      } catch (error) {
+        preparedToneAudioContextRef.current = null;
+        if (audioContext.state !== "closed") void audioContext.close();
+        setToneCaptureStatus({
+          kind: "failed",
+          message: `Audio output could not start: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        return;
+      }
+    }
     if (previewMode === "vision") {
       try {
         await requestVisionFullscreen(
@@ -1296,9 +1475,6 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       }
     }
 
-    // Delay audio to start when capture officially starts
-    // We send command after 3s, server takes ~0-1s, so ~4s total delay
-    // But better to trigger playTone() when state becomes 'capturing'
     if (previewMode === "internal" || previewMode === "speech") {
       setScriptIndex(Math.floor(Math.random() * SCRIPT_VARIANTS.length));
     }
@@ -1321,6 +1497,13 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             ]
           : captureLabels,
       ) ?? null;
+    if (previewMode === "audio") {
+      setToneCaptureStatus({
+        kind: "waiting",
+        message:
+          "RF capture requested. Waiting for the receiver to start before tuning and playing the reference tone.",
+      });
+    }
   };
 
   // Tone trigger switch
@@ -1335,6 +1518,29 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     setTonePlayback(null);
     return undefined;
   }, [isCapturing, previewMode, playTone, stimulusChannelCompatible]);
+
+  useEffect(() => {
+    if (
+      analysisSession.state === "result" &&
+      toneCaptureStatus?.kind === "waiting"
+    ) {
+      setToneCaptureStatus({
+        kind: "failed",
+        message:
+          "The RF capture ended before a fresh tuned frame arrived. The reference tone and paired example were not recorded.",
+      });
+    }
+  }, [analysisSession.state, toneCaptureStatus]);
+
+  const handleClearSession = () => {
+    setToneCaptureStatus(null);
+    const preparedAudioContext = preparedToneAudioContextRef.current;
+    preparedToneAudioContextRef.current = null;
+    if (preparedAudioContext && preparedAudioContext.state !== "closed") {
+      void preparedAudioContext.close();
+    }
+    clearAnalysis();
+  };
 
   return (
     <StimulusContainer>
@@ -1351,6 +1557,18 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             <ToneLabel>440Hz SINE TONE</ToneLabel>
           </AudioContainer>
         )}
+
+        {(previewMode === "audio" || previewMode === "internal") &&
+          toneCaptureStatus && (
+            <ToneCaptureStatusText
+              role="status"
+              aria-live="polite"
+              data-testid="tone-capture-status"
+              $kind={toneCaptureStatus.kind}
+            >
+              {toneCaptureStatus.message}
+            </ToneCaptureStatusText>
+          )}
 
         {previewMode === "audio" && audioWaveformMode === "fm-waterfall" && (
           <AudioContainer>
@@ -1430,9 +1648,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
       <StimulusContent role="region" aria-label="Stimulus controls">
         {previewMode === "audio" && (
           <ReferenceMediaControls>
-            <SelectLabel htmlFor="reference-track">
-              Reference track
-            </SelectLabel>
+            <SelectLabel htmlFor="reference-track">Reference track</SelectLabel>
             <StimulusSelect
               id="reference-track"
               aria-label="Built-in reference track"
@@ -1445,7 +1661,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               <option value="">Choose a track…</option>
               {BUILT_IN_REFERENCE_TRACKS.map((track) => (
                 <option key={track.id} value={track.id}>
-                  {track.label} · {formatReferenceDuration(track.durationSeconds)}
+                  {track.label} ·{" "}
+                  {formatReferenceDuration(track.durationSeconds)}
                 </option>
               ))}
             </StimulusSelect>
@@ -1458,9 +1675,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               type="file"
               accept="audio/*,video/*"
               onChange={handleReferenceMediaSelection}
-              disabled={
-                isCapturingReferenceMedia || isLoadingReferenceMedia
-              }
+              disabled={isCapturingReferenceMedia || isLoadingReferenceMedia}
             />
             <ReferenceMediaStatus aria-live="polite">
               {referenceMediaStatus}
@@ -1553,7 +1768,10 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         )}
 
         {!channelAccess.available && (
-          <StimulusSubtext role="status" data-testid="stimulus-channel-unavailable">
+          <StimulusSubtext
+            role="status"
+            data-testid="stimulus-channel-unavailable"
+          >
             No valid channel prerequisite metadata is configured for this
             stimulus flow.
           </StimulusSubtext>
@@ -1586,7 +1804,8 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                     value={option.value}
                     data-required-channels={requiredChannels.join(",")}
                   >
-                  {option.label} · {describeRequiredChannels(option.value, channels)}
+                    {option.label} ·{" "}
+                    {describeRequiredChannels(option.value, channels)}
                   </option>
                 );
               })}
@@ -1617,7 +1836,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                   size={14}
                 />
               )}
-              TRIGGER
+              {triggerLabel}
             </StimulusButton>
           </BaselineActionRow>
         </BaselineVectorContainer>
@@ -1742,7 +1961,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
         </StimulusSubtext>
 
         {analysisSession.state === "result" && (
-          <ResetButton onClick={clearAnalysis}>Reset Session</ResetButton>
+          <ResetButton onClick={handleClearSession}>Reset Session</ResetButton>
         )}
       </StimulusContent>
     </StimulusContainer>
