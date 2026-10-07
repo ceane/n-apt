@@ -1,10 +1,10 @@
 use criterion::{
   criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
 };
-use n_apt_backend::s::ifft::complex_baseband::{
+use n_apt_backend::sdr::processor::SdrProcessor;
+use n_apt_backend::tx::ifft::{
   ComplexBasebandIQGenerator, ComplexBasebandIQParams,
 };
-use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::tx::repeat_iq_payload_into;
 use std::hint::black_box;
 

@@ -11,7 +11,7 @@ import React, {
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
-import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/activeAcquisitionOperations";
+import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/public/activeAcquisitionOperations";
 import {
   useFrequencyScanner,
   FrequencyScannerHandle,

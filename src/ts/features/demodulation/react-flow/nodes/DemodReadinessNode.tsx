@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { AlertTriangle, Check, Play, RadioTower } from "lucide-react";
+import { AlertTriangle, Check, Play } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
 import { Channels } from "@n-apt/spectrum";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
@@ -11,7 +11,7 @@ import { AudioDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/Aud
 import { VisionDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/VisionDemodWorkflowFlow";
 import { evaluateStimulusChannelAccess } from "@n-apt/demodulation/react-flow/nodes/stimulusChannelPolicy";
 import { getVisionReceiverLabel } from "@n-apt/demodulation/vision/visionSourcePolicy";
-import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/activeAcquisitionOperations";
+import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/public/activeAcquisitionOperations";
 
 const ReadinessCard = styled.section`
   width: 100%;
