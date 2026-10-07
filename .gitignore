@@ -14,6 +14,10 @@ lerna-debug.log*
 # macOS
 .DS_Store
 
+# Local session and editor transcript indexes
+/:memory:.ses
+/.cursor/hooks/state/continual-learning-index.json
+
 # This is for local links to additional I/Q captures
 # Finder aliases (must give them .alias extension)
 .alias
