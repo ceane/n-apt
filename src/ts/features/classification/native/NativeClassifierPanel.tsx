@@ -91,9 +91,8 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
   const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<NativeTrainingCaptureAnnotations>(readAnnotationDraft);
   const [captureGeolocationEnabled, setCaptureGeolocationEnabled] = useState(true);
-  const [captureStartPending, setCaptureStartPending] = useState(false);
   const [captureGeolocationStatus, setCaptureGeolocationStatus] = useState('');
-  const { getLocation, error: geolocationError } = useGeolocation();
+  const { getLocation } = useGeolocation();
   const [channelMode, setChannelMode] = useState<AnnotationChannelMode>(() => readAnnotationChannelMode(annotations));
   const lastAutoAppliedChannel = useRef<NativeTrainingCaptureAnnotations['channel'] | null>(null);
   const [tagDraft, setTagDraft] = useState('');
@@ -201,7 +200,7 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
   const annotationsForCapture = channelMode === 'auto'
     ? { ...annotations, channel: observedChannelSuggestion ?? 'unspecified' }
     : annotations;
-  const handleTrainingCaptureToggle = async () => {
+  const handleTrainingCaptureToggle = () => {
     if (captureActive) {
       onToggleCapture?.(annotationsForCapture);
       return;
@@ -216,34 +215,35 @@ export function NativeClassifierPanel({ result, resultState = 'current', legacy,
       onToggleCapture?.(withoutLocation);
       return;
     }
-    setCaptureStartPending(true);
+
     setCaptureGeolocationStatus('Requesting location permission…');
-    try {
-      const geolocation = await getLocation();
+    // Start the permission request from the user gesture, then begin capture
+    // immediately. The resolved position is added to the timestamped sidecar.
+    const locationPromise = getLocation();
+    onToggleCapture?.(withoutLocation);
+    void locationPromise.then((geolocation) => {
       if (geolocation) {
         const withLocation = { ...withoutLocation, geolocation };
         updateAnnotations(withLocation);
         setCaptureGeolocationStatus('Location attached to this capture with accuracy and timestamp.');
-        onToggleCapture?.(withLocation);
       } else {
-        setCaptureGeolocationStatus(`${geolocationError || 'Location unavailable or permission declined.'} Capture will continue without location.`);
-        onToggleCapture?.(withoutLocation);
+        setCaptureGeolocationStatus('Location unavailable or permission declined. Capture continued without location.');
       }
-    } finally {
-      setCaptureStartPending(false);
-    }
+    }).catch((error: unknown) => {
+      setCaptureGeolocationStatus(`${error instanceof Error ? error.message : 'Location unavailable.'} Capture continued without location.`);
+    });
   };
   return <section aria-label="Experimental native resolution classifier" data-layout="sidebar" style={card}>
     <div style={{ ...row, gridTemplateColumns: 'minmax(0, 1fr)', alignItems: 'center' }}>
       <StateIndicator data-testid="classifier-state" data-state={state} $recording={captureActive} $ready={captureAvailable || captureActive}>{captureActive ? 'RECORDING' : captureAvailable ? 'READY' : 'WAITING'}</StateIndicator>
     </div>
     <label data-testid="classifier-geolocation-control" style={{ ...row, gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'center' }}>
-      <input type="checkbox" aria-label="Include geolocation in classifier training captures" checked={captureGeolocationEnabled} disabled={captureActive || captureStartPending} onChange={(event) => { setCaptureGeolocationEnabled(event.currentTarget.checked); setCaptureGeolocationStatus(event.currentTarget.checked ? 'Location will be requested when the next capture starts.' : 'Location is off for this session.'); }} />
+      <input type="checkbox" aria-label="Include geolocation in classifier training captures" checked={captureGeolocationEnabled} disabled={captureActive} onChange={(event) => { setCaptureGeolocationEnabled(event.currentTarget.checked); setCaptureGeolocationStatus(event.currentTarget.checked ? 'Location will be requested when the next capture starts.' : 'Location is off for this session.'); }} />
       <span>Include geolocation (on by default)</span>
     </label>
     <div aria-live="polite" data-testid="classifier-geolocation-status" style={{ ...wrappingText, minHeight: '1.2em' }}>{captureGeolocationStatus || 'Location is requested when a training capture starts; capture can continue without it.'}</div>
     <div style={row}>
-      <button type="button" disabled={captureStartPending || (!captureActive && (!captureAvailable || captureNeedsExport || captureDownloadsLocked))} onClick={() => void handleTrainingCaptureToggle()} style={button}>{captureActive ? 'Stop recording' : captureDownloadsPersisted && !captureDownloads ? 'Sign in to retrieve saved capture' : captureDownloads ? 'Clear capture to continue' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
+      <button type="button" disabled={!captureActive && (!captureAvailable || captureNeedsExport || captureDownloadsLocked)} onClick={() => void handleTrainingCaptureToggle()} style={button}>{captureActive ? 'Stop recording' : captureDownloadsPersisted && !captureDownloads ? 'Sign in to retrieve saved capture' : captureDownloads ? 'Clear capture to continue' : captureNeedsExport ? 'Export before next capture' : 'Start training capture'}</button>
       <button type="button" disabled={captureFrameCount === 0 || captureDownloadsLocked} onClick={onExportCapture} style={button}>Export V6 I/Q + labels</button>
     </div>
     <div data-testid="classifier-capture-status" aria-live="polite" style={{ ...wrappingText, minHeight: '2.9em' }}>{captureStatusText || (captureDownloadsPersisted && !captureDownloads ? 'Saved capture awaits an authenticated session so its backend links can be restored.' : captureActive ? `Recording ${captureFrameCount} I/Q frames` : captureAvailable ? 'Ready. Labels and model fitting stay offline.' : 'Requires a fresh live RTL-SDR frame in Lossless mode.')}</div>
