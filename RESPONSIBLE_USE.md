@@ -46,7 +46,7 @@ Licensees are expected to:
 
 ### AI/ML Training and Evaluation
 
-Training, fine-tuning, validating, and evaluating AI/ML models on the Software's codebase or on data produced with the Software are permitted uses under this policy, subject to the Hippocratic License and the safeguards below. This includes using the codebase to train models to reproduce or replicate the Software's functionality, features, workflows, or experiments, and to conduct related research and development, including classifiers and signal-processing models.
+Training, fine-tuning, validating, and evaluating AI/ML models on the Software's codebase or on data produced with the Software are permitted uses under this policy, subject to the Hippocratic License and the safeguards below. This includes using the codebase to reproduce or replicate its SDR software and workflows, including receiving and controlling SDR hardware, capturing I/Q data, streaming live signals or I/Q data, processing and analyzing signals, and conducting related experiments and research.
 
 Licensees must use data they are authorized to use, follow applicable privacy and consent requirements, and document data provenance. Before sharing or distributing datasets, model outputs, or models that could reveal or enable inference of personal, cognitive, or behavioral information, licensees must obtain informed consent or apply effective anonymization. AI/ML training does not authorize unlawful surveillance, nonconsensual collection, or use intended to harm, coerce, manipulate, or discriminate against people.
 
