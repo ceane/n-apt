@@ -13,5 +13,6 @@ export { SnapshotControlsSection } from "@n-apt/capture/sidebar/SnapshotControls
 export {
   formatSnapshotLocation,
   formatSnapshotLocationLine,
+  reverseGeocodeSnapshotLocality,
   reverseGeocodeSnapshotLocation,
 } from "@n-apt/capture/snapshotLocation";

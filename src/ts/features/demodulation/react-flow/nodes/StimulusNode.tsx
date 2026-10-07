@@ -10,7 +10,7 @@ import { z } from "zod";
 import { AlertTriangle } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
-import { reverseGeocodeSnapshotLocality } from "@n-apt/capture/snapshotLocation";
+import { reverseGeocodeSnapshotLocality } from "@n-apt/capture";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
