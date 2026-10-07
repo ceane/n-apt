@@ -31,7 +31,7 @@ import {
 import {
   getOptionSyncIndicator,
   type OptionSyncState,
-} from "./optionSync";
+} from "./receiverSettingsSyncIndicator";
 import {
   getRtlSdrOptionState,
   haveRtlSdrOptionsChanged,

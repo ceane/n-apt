@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { createRunner } from '../../scripts/classifier/runner.mjs';
+import { createRunner } from '../../scripts/classifier/webgpuClassifierHarness.mjs';
 
 const candidateDirectory = process.argv[2];
 assert.ok(candidateDirectory, 'Pass the directory containing trained model artifacts');

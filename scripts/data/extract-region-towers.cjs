@@ -86,8 +86,8 @@ function extractRegionData(regionKey, region, sourceFile) {
 /**
  * Main extraction function
  */
-function extractOngoingData() {
-  console.log('🚀 Starting ongoing data extraction...');
+function extractRegionTowers() {
+  console.log('🚀 Starting regional tower extraction...');
   
   const sourceFile = 'data/opencellid/cell_towers_whole.csv';
   
@@ -147,7 +147,7 @@ function extractOngoingData() {
 
 // Run the extraction
 if (require.main === module) {
-  extractOngoingData();
+  extractRegionTowers();
 }
 
-module.exports = { extractOngoingData, isWithinBounds };
+module.exports = { extractRegionTowers, isWithinBounds };

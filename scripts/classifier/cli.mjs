@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { decryptArchivedIqPayload } from './crypto.mjs';
-import { createRunner } from './runner.mjs';
+import { createRunner } from './webgpuClassifierHarness.mjs';
 import { decodeIq, spectrumFromIq, validateDataset, selectFrameIndices, readTrainingCapture, annotationsAtFrame } from './io.mjs';
 import { FEATURE_NAMES, PREPROCESSING, NATIVE_CLASSIFIER_UPDATE_INTERVAL_MS, validateModel, inferModel } from '../../src/ts/features/classification/native/core.ts';
 import { summarizeClassificationRows } from './classification-report.mjs';
@@ -212,7 +212,7 @@ async function preparePackage(a) {
   if (!a.split || !PACKAGE_SPLITS.has(a.split)) {
     throw new Error('prepare --package requires --split train|validation|test|acceptance|unlabeled|challenge-mock|challenge-sinc');
   }
-  const { readCapturePackage, decodeV6IqContainer } = await import('./package.mjs');
+  const { readCapturePackage, decodeV6IqContainer } = await import('./capturePackage.mjs');
   const capture = await readCapturePackage(a.package);
   const labels = capture.labels;
   const session = String(a.session ?? labels.sessionId ?? '').trim();
@@ -577,6 +577,6 @@ async function classify(a) {
   } finally { await rm(copy,{force:true});await rm(temp,{force:true}); }
 }
 function help(){console.log(`Resolution-aware morphology classifier\n\n  node scripts/classifier/cli.mjs prepare --manifest manifest.json [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node --import tsx scripts/classifier/cli.mjs prepare --package capture-package-directory-or-zip --split train|validation|test|acceptance|unlabeled|challenge-mock|challenge-sinc [--session session-id] [--out /private/tmp/napt-classifier/prepared] [--env-file .env.local]\n  node scripts/classifier/cli.mjs extract --dataset prepared/dataset.json [--fft-sizes 1024,4096,16384] [--crops 0:1,0.25:0.75] [--window hann] [--max-frames 64]\n  node scripts/classifier/cli.mjs classify --input prepared/dataset.json --model model.json [--out classifications.jsonl] [--summary-out classifications.summary.json]\n  node --import tsx scripts/classifier/cli.mjs package --capture capture.iq --labels label-draft.json --out package-dir [--captured-at ISO-8601]\n  python3 scripts/classifier/train.py train --features features.jsonl --model model.json --report report.json\n  python3 scripts/classifier/train.py evaluate --features features.jsonl --split test|challenge-mock|challenge-sinc --model model.json --report report.json\n`);}
-async function packageCapture(a){const {createCapturePackage}=await import('./package.mjs');const result=await createCapturePackage({capturePath:a.capture,labelsPath:a.labels,outputPath:a.out,capturedAt:a.captured_at});console.log(JSON.stringify(result,null,2));}
+async function packageCapture(a){const {createCapturePackage}=await import('./capturePackage.mjs');const result=await createCapturePackage({capturePath:a.capture,labelsPath:a.labels,outputPath:a.out,capturedAt:a.captured_at});console.log(JSON.stringify(result,null,2));}
 async function main(){const a=args(process.argv.slice(2)); if(a.command==='prepare')return prepare(a); if(a.command==='extract')return extract(a); if(a.command==='classify')return classify(a); if(a.command==='package')return packageCapture(a); if(a.command==='help'||!a.command)return help();throw new Error(`Unknown command: ${a.command}`);}
 main().catch(error=>{console.error(`classifier: ${error.message}`);process.exitCode=2;});

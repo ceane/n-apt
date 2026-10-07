@@ -1,6 +1,6 @@
 //! TX-oriented inverse-transform and synthesis helpers.
 //!
-//! This module is intentionally separate from `crate::s::fft` so that analysis
+//! This module is intentionally separate from `crate::signal_port::fft` so that analysis
 //! can keep observing folding/aliasing artifacts while transmit-side
 //! synthesis is constrained by explicit guards.
 

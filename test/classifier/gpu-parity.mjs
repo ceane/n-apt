@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createRunner } from '../../scripts/classifier/runner.mjs';
+import { createRunner } from '../../scripts/classifier/webgpuClassifierHarness.mjs';
 const runner = await createRunner();
 try {
   const result = await runner.parity();

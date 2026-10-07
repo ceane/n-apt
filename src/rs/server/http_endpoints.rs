@@ -22,7 +22,7 @@ use super::types::{
 use super::websocket_server::{
   build_source_info_snapshot, reconcile_stale_device_snapshot,
 };
-use crate::s::fft::anti_aliasing;
+use crate::signal_port::fft::anti_aliasing;
 
 #[derive(Debug, Deserialize)]
 pub struct HardwareSimulationRequest {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { encodeIqCaptureV4, encodeNaptCaptureV4 } from "../../src/ts/webusb/iqCaptureFormat.ts";
-import { readCapturePackage } from "../../scripts/classifier/package.mjs";
+import { readCapturePackage } from "../../scripts/classifier/capturePackage.mjs";
 import { archiveCapturePackage } from "../../scripts/classifier/archive-package.mjs";
 import { decryptIqCapturePayload, encryptIqCaptureBytes, inspectIqCapture } from "../../scripts/encrypt_iq_capture.mjs";
 import { deriveCaptureProtectionKey, loadIqCaptureKey } from "../../scripts/classifier/crypto.mjs";
@@ -63,7 +63,7 @@ test("archives a labeled capture as encrypted IQ with a rebound detached sidecar
     await writeFile(sourcePath, sourceBytes);
     await writeFile(labelPath, JSON.stringify(labels));
     await writeFile(envFile, `UNSAFE_LOCAL_USER_PASSWORD=${passkey}\n`);
-    const { createCapturePackage } = await import("../../scripts/classifier/package.mjs");
+    const { createCapturePackage } = await import("../../scripts/classifier/capturePackage.mjs");
     await createCapturePackage({
       capturePath: sourcePath,
       labelsPath: labelPath,
@@ -178,7 +178,7 @@ test("archives an already-encrypted V6 NAPT package without changing its bytes",
     });
     await writeFile(naptPath, bytes);
     await writeFile(labelsPath, JSON.stringify(labels));
-    const { createCapturePackage } = await import("../../scripts/classifier/package.mjs");
+    const { createCapturePackage } = await import("../../scripts/classifier/capturePackage.mjs");
     await createCapturePackage({ capturePath: naptPath, labelsPath, outputPath: packagePath });
 
     const result = await archiveCapturePackage({
@@ -215,7 +215,7 @@ test("rewraps a legacy globally-keyed V6 IQ package with a Redis-derived per-cap
     globalKey.fill(0);
     await writeFile(sourcePath, legacyBytes);
     await writeFile(labelsPath, JSON.stringify(labels));
-    const { createCapturePackage } = await import("../../scripts/classifier/package.mjs");
+    const { createCapturePackage } = await import("../../scripts/classifier/capturePackage.mjs");
     await createCapturePackage({ capturePath: sourcePath, labelsPath, outputPath: packagePath });
     const salt = Buffer.alloc(32, 31);
 

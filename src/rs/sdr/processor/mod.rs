@@ -9,7 +9,7 @@ use rustfft::num_complex::Complex;
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::s::fft::{
+use crate::signal_port::fft::{
   CorrelationMethod, CorrelationResult, FFTProcessor, PhaseCoherenceResult,
   StitchingValidationResult,
 };
@@ -1152,7 +1152,7 @@ impl SdrProcessor {
       samples = next_samples;
     }
 
-    let display_samples = crate::s::fft::types::RawSamples {
+    let display_samples = crate::signal_port::fft::types::RawSamples {
       data: samples.data,
       sample_rate,
     };
@@ -1421,14 +1421,14 @@ impl SdrProcessor {
     // FFT window
     if let Some(ref window_name) = fft_window {
       let window_type = match window_name.to_lowercase().as_str() {
-        "rectangular" | "none" => crate::s::fft::WindowType::Rectangular,
-        "hanning" | "hann" => crate::s::fft::WindowType::Hanning,
-        "hamming" => crate::s::fft::WindowType::Hamming,
-        "blackman" => crate::s::fft::WindowType::Blackman,
-        "nuttall" => crate::s::fft::WindowType::Nuttall,
+        "rectangular" | "none" => crate::signal_port::fft::WindowType::Rectangular,
+        "hanning" | "hann" => crate::signal_port::fft::WindowType::Hanning,
+        "hamming" => crate::signal_port::fft::WindowType::Hamming,
+        "blackman" => crate::signal_port::fft::WindowType::Blackman,
+        "nuttall" => crate::signal_port::fft::WindowType::Nuttall,
         _ => {
           warn!("Unknown window type '{}', using Rectangular", window_name);
-          crate::s::fft::WindowType::Rectangular
+          crate::signal_port::fft::WindowType::Rectangular
         }
       };
       if config.window_type != window_type {
@@ -1715,10 +1715,10 @@ impl SdrProcessor {
     }
 
     match validation_result.recommendation.clone() {
-      crate::s::fft::StitchingRecommendation::Accept => {
+      crate::signal_port::fft::StitchingRecommendation::Accept => {
         info!("Channel {} stitching accepted", channel_idx);
       }
-      crate::s::fft::StitchingRecommendation::ApplyTimeCorrection(
+      crate::signal_port::fft::StitchingRecommendation::ApplyTimeCorrection(
         time_offset,
       ) => {
         info!(
@@ -1769,7 +1769,7 @@ impl SdrProcessor {
             .collect();
         }
       }
-      crate::s::fft::StitchingRecommendation::ApplyPhaseCorrection(
+      crate::signal_port::fft::StitchingRecommendation::ApplyPhaseCorrection(
         phase_offset,
       ) => {
         info!(
@@ -1794,14 +1794,14 @@ impl SdrProcessor {
 
         channel.iq_data = corrected_samples;
       }
-      crate::s::fft::StitchingRecommendation::Reject => {
+      crate::signal_port::fft::StitchingRecommendation::Reject => {
         warn!(
           "Channel {} stitching rejected - poor correlation",
           channel_idx
         );
         return Err(anyhow::anyhow!("Stitching quality too poor"));
       }
-      crate::s::fft::StitchingRecommendation::ApplyGainNormalization(
+      crate::signal_port::fft::StitchingRecommendation::ApplyGainNormalization(
         gain_db,
       ) => {
         info!(
@@ -1809,12 +1809,12 @@ impl SdrProcessor {
           channel_idx, gain_db
         );
       }
-      crate::s::fft::StitchingRecommendation::ApplySpectralFlattening(
+      crate::signal_port::fft::StitchingRecommendation::ApplySpectralFlattening(
         _flattening,
       ) => {
         info!("Applying spectral flattening to channel {}", channel_idx);
       }
-      crate::s::fft::StitchingRecommendation::UseAlternativeMethod(method) => {
+      crate::signal_port::fft::StitchingRecommendation::UseAlternativeMethod(method) => {
         info!(
           "Retrying channel {} with alternative method: {:?}",
           channel_idx, method
@@ -2206,7 +2206,7 @@ impl SdrProcessor {
         let curr_frame_end = curr_bins.min(curr.spectrum_data.len());
         let seam_bins = prev_bins.min(curr_bins).min(128);
 
-        crate::s::fft::match_noise_floor_db(
+        crate::signal_port::fft::match_noise_floor_db(
           &prev.spectrum_data[prev_frame_start..],
           &mut curr.spectrum_data[..curr_frame_end],
           seam_bins,
@@ -2384,7 +2384,7 @@ impl SdrProcessor {
 #[cfg(test)]
 mod hackrf_settings_tests {
   use super::*;
-  use crate::s::fft::types::RawSamples;
+  use crate::signal_port::fft::types::RawSamples;
   use crate::server::types::SdrProcessorSettings;
   use std::sync::{Arc, Mutex};
 

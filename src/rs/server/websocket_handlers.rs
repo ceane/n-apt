@@ -39,7 +39,7 @@ use super::websocket_server::{
 };
 use super::websocket_server::sources::open_device_for_source_id;
 use crate::sdr::processor::SdrProcessor;
-use crate::s::ifft::complex_baseband::canonical_complex_baseband_signal_key;
+use crate::signal_port::ifft::complex_baseband::canonical_complex_baseband_signal_key;
 
 const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 const MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ: u32 = 3_200_000;

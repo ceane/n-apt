@@ -28,7 +28,7 @@ modify files during onboarding unless the user separately asks for a change.
      `src/rs/app/bootstrap.rs`, and `src/rs/app/router.rs`
    - `src/rs/server/types.rs`, `src/rs/server/websocket_server/`,
      `src/rs/server/stream_manager.rs`, and `src/rs/streaming/`
-   - `src/rs/sdr/`, `src/rs/acquisition/`, and `src/rs/s/fft/`
+   - `src/rs/sdr/`, `src/rs/acquisition/`, and `src/rs/signal_port/fft/`
    - `src/rs/lib.rs`, `scripts/build/build_wasm.sh`, and
      `packages/n_apt_canvas/` only when the task involves WASM or WebGPU
 

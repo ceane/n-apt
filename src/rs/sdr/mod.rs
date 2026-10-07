@@ -11,7 +11,7 @@
 //! - `hackrf` module provides real hardware interface for HackRF One devices
 //! - `processor` contains the main signal processing pipeline
 
-use crate::s::fft::types::RawSamples;
+use crate::signal_port::fft::types::RawSamples;
 use anyhow::Result;
 #[cfg(has_hackrf)]
 use std::thread;

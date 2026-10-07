@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Helper script to check if source files have changed since last build
-# Usage: check_changes.sh <target_dir> <source_patterns...>
+# Usage: check-build-freshness.sh <target_dir> <source_patterns...>
 # Options:
 #   --reference <file>  Use specific file as timestamp reference instead of binary
 

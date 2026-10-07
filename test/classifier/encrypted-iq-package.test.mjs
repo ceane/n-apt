@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { encodeIqCaptureV4 } from "../../src/ts/webusb/iqCaptureFormat.ts";
 import { encryptIqCaptureBytes, deriveIqCaptureKey } from "../../scripts/encrypt_iq_capture.mjs";
-import { createCapturePackage } from "../../scripts/classifier/package.mjs";
+import { createCapturePackage } from "../../scripts/classifier/capturePackage.mjs";
 
 const root = process.cwd();
 const labelDraft = {

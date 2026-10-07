@@ -31,7 +31,7 @@ The shared worktree also contains unrelated demod/audio-survey edits; preserve t
 - `src/ts/features/classification/native/iq.ts`: normalized interleaved float I/Q to FFT-shifted log-power spectrum; supported windows and incomplete-frame handling.
 - `src/ts/features/classification/native/gpu.ts`: native-bin WGSL extraction and logistic/16-hidden-unit MLP GPU inference; reusable extraction buffers and explicit disposal.
 - `src/ts/shaders/native_features.wgsl`, `native_model.wgsl`: feature and inference shaders.
-- `scripts/classifier/browser.ts`, `runner.mjs`: shared extractor in an ephemeral loopback headless-browser harness; no running app required.
+- `scripts/classifier/browser.ts`, `webgpuClassifierHarness.mjs`: shared extractor in an ephemeral loopback headless-browser harness; no running app required.
 - `scripts/classifier/io.mjs`: raw u8/s16le/f32le decoding and dataset/session validation; re-exports shared FFT.
 - `scripts/classifier/train.py`: NumPy logistic regression and 16-unit ReLU MLP, optional PyTorch/MPS path, hierarchical class/session/recording/window/variant weighting, weighted normalization, group-disjoint early stopping/checkpoint restore, session-balanced threshold selection, run manifests, optional candidate exports, and abstention-aware grouped evaluation.
 - `scripts/classifier/README.md`, `test/ts/nativeClassifier.test.ts`, `test/ts/NativeClassifierPanel.test.tsx`, `test/classifier/io.test.mjs`, `test/classifier/test_training.py`, `test/classifier/gpu-parity.mjs`, `test/classifier/trained-model-gpu-parity.mjs`: commands, schema and parity/tests.

@@ -19,7 +19,7 @@ import {
   loadCaptureProtectionSalt,
   loadIqCaptureKey,
 } from "./crypto.mjs";
-import { createCapturePackage, readCapturePackage } from "./package.mjs";
+import { createCapturePackage, readCapturePackage } from "./capturePackage.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CLASSIFICATION_ROOT = path.resolve(
