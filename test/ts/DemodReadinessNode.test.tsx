@@ -168,10 +168,10 @@ test("Vision switches readiness to the spatial reference and decoder stages", ()
     screen.getByTestId("vision-demod-flow-node-paired-reference"),
   ).toHaveTextContent(/No aligned spatial references/);
   expect(screen.getByTestId("vision-demod-flow-node-labels")).toHaveTextContent(
-    /Automatic RGB \+ preset labels/,
+    /Timed RGB \+ preset labels/,
   );
   expect(screen.getByTestId("vision-demod-flow-node-output")).toHaveTextContent(
-    /16 × 16 RGB.*references stay RGB/,
+    /Local ONNX reconstruction.*16 × 16 RGB.*experimental/,
   );
   expect(
     screen.getByTestId("vision-demod-flow-node-apt-baseline"),
@@ -184,13 +184,13 @@ test("Vision switches readiness to the spatial reference and decoder stages", ()
   expect(
     screen.getByTestId("vision-demod-flow-node-apt-output"),
   ).toHaveTextContent(
-    /band-to-region mapping.*channel band may cover only part of the frame.*spatial references/i,
+    /partial-band spatial estimator.*channel band may cover only part of the frame.*spatial references/i,
   );
   expect(screen.getByTestId("vision-demod-workflow")).not.toHaveTextContent(
     /NOAA|2\.4 kHz|2 lines\/s/i,
   );
   expect(screen.getByTestId("vision-demod-flow-node-output")).toHaveTextContent(
-    /opponent.*experimental/i,
+    /opponent|ONNX.*experimental/i,
   );
   expect(
     screen.queryByTestId("vision-demod-flow-node-opponent"),
@@ -207,7 +207,12 @@ test("Vision switches readiness to the spatial reference and decoder stages", ()
   expect(screen.getByText(/No aligned spatial references/)).toBeInTheDocument();
   expect(
     screen.getByTestId("vision-demod-flow-node-decoder"),
-  ).toHaveTextContent(/Trainer ready.*session-disjoint reference captures/);
+  ).toHaveTextContent(
+    /Python offline train.*Versioned JSONL.*whole-session splits.*untouched test/i,
+  );
+  expect(screen.getByTestId("vision-demod-flow-node-output")).toHaveTextContent(
+    /Local ONNX reconstruction.*Browser inference/i,
+  );
   expect(screen.queryByTestId("audio-demod-workflow")).not.toBeInTheDocument();
 });
 

@@ -3,6 +3,8 @@ import {
   VISION_HEIGHT,
   VISION_PREPROCESSING,
   VISION_WIDTH,
+  sameVisionFrequencyGrid,
+  visionFrequencyGridSchema,
   type VisionPair,
   type VisionSplit,
   type VisionFrequencyGrid,
@@ -35,6 +37,194 @@ export interface VisionTrainingDataset {
   validation: VisionTrainingExample[];
   test: VisionTrainingExample[];
   excludedTransitionCount: number;
+}
+
+export const VISION_TRAINING_DATASET_FORMAT =
+  "napt-vision-training-jsonl" as const;
+export const VISION_TRAINING_DATASET_VERSION = 1 as const;
+
+/**
+ * Serialize already paired, transition-filtered feature/reference examples for
+ * offline Python training. This contains derived features and RGB targets, not
+ * raw I/Q or decryption material.
+ */
+export function serializeVisionTrainingDataset(
+  dataset: VisionTrainingDataset,
+  assignments: Readonly<Record<string, VisionSplit>>,
+): string {
+  const partitions = {
+    train: dataset.train,
+    validation: dataset.validation,
+    test: dataset.test,
+  };
+  if (
+    !partitions.train.length ||
+    !partitions.validation.length ||
+    !partitions.test.length
+  )
+    throw new Error(
+      "Offline vision training requires train, validation, and test examples",
+    );
+  if (
+    !Number.isSafeInteger(dataset.excludedTransitionCount) ||
+    dataset.excludedTransitionCount < 0
+  )
+    throw new Error("Invalid excluded vision transition count");
+
+  const sessionSplits = Object.fromEntries(
+    Object.entries(assignments).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  ) as Record<string, VisionSplit>;
+  if (
+    !Object.entries(sessionSplits).length ||
+    Object.entries(sessionSplits).some(
+      ([sessionId, split]) =>
+        !sessionId || !["train", "validation", "test"].includes(split),
+    )
+  )
+    throw new Error("Explicit session assignments are required");
+
+  const rows: Array<Record<string, unknown>> = [];
+  const trialIdentity = new Map<
+    string,
+    { sessionId: string; artifactChecksum: string; split: VisionSplit }
+  >();
+  const captureIdentity = new Map<
+    string,
+    { trialId: string; sessionId: string; split: VisionSplit }
+  >();
+  const calibrationSeeds = new Map<number, VisionSplit>();
+  const seenContexts = new Set<string>();
+  let frequencyGrid: VisionFrequencyGrid | null = null;
+  for (const split of ["train", "validation", "test"] as const) {
+    for (const example of partitions[split]) {
+      if (
+        !example.sessionId ||
+        !Object.prototype.hasOwnProperty.call(
+          sessionSplits,
+          example.sessionId,
+        ) ||
+        sessionSplits[example.sessionId] !== split ||
+        example.split !== split
+      )
+        throw new Error("Every vision example must match its session split");
+      if (
+        !example.trialId ||
+        !/^[a-f0-9]{64}$/.test(example.artifactChecksum) ||
+        !Number.isFinite(example.timestampBackendMs) ||
+        !Number.isSafeInteger(example.frameIndex) ||
+        example.frameIndex < 0
+      )
+        throw new Error("Invalid vision training example identity");
+      const grid = visionFrequencyGridSchema.parse(example.frequencyGrid);
+      if (frequencyGrid && !sameVisionFrequencyGrid(frequencyGrid, grid))
+        throw new Error(
+          "Offline vision dataset must share one RF frequency grid",
+        );
+      frequencyGrid = grid;
+      if (
+        !(example.features instanceof Float32Array) ||
+        example.features.length !== VISION_FEATURE_COUNT ||
+        !example.features.every(Number.isFinite) ||
+        !(example.opponent instanceof Float32Array) ||
+        example.opponent.length !== VISION_WIDTH * VISION_HEIGHT * 3 ||
+        !example.opponent.every(Number.isFinite) ||
+        !(example.rgb instanceof Uint8Array) ||
+        example.rgb.length !== VISION_WIDTH * VISION_HEIGHT * 3
+      )
+        throw new Error("Invalid vision training tensor shape or values");
+      if (
+        example.colorClassIndex !== null &&
+        (!Number.isInteger(example.colorClassIndex) ||
+          example.colorClassIndex < 0 ||
+          example.colorClassIndex >= 4)
+      )
+        throw new Error("Invalid vision solid-color class label");
+      if (example.calibrationSeed !== null) {
+        if (
+          !Number.isSafeInteger(example.calibrationSeed) ||
+          example.calibrationSeed < 0 ||
+          example.calibrationSeed > 0xffffffff
+        )
+          throw new Error("Invalid vision calibration seed");
+        const priorSplit = calibrationSeeds.get(example.calibrationSeed);
+        if (priorSplit && priorSplit !== split)
+          throw new Error("Calibration seed leaked across session splits");
+        calibrationSeeds.set(example.calibrationSeed, split);
+      }
+
+      const priorTrial = trialIdentity.get(example.trialId);
+      if (
+        priorTrial &&
+        (priorTrial.sessionId !== example.sessionId ||
+          priorTrial.artifactChecksum !== example.artifactChecksum ||
+          priorTrial.split !== split)
+      )
+        throw new Error("A trial cannot identify multiple captures or splits");
+      trialIdentity.set(example.trialId, {
+        sessionId: example.sessionId,
+        artifactChecksum: example.artifactChecksum,
+        split,
+      });
+      const priorCapture = captureIdentity.get(example.artifactChecksum);
+      if (
+        priorCapture &&
+        (priorCapture.trialId !== example.trialId ||
+          priorCapture.sessionId !== example.sessionId ||
+          priorCapture.split !== split)
+      )
+        throw new Error("Capture artifact is reused across trials or splits");
+      captureIdentity.set(example.artifactChecksum, {
+        trialId: example.trialId,
+        sessionId: example.sessionId,
+        split,
+      });
+      const contextId = `${example.trialId}:${example.frameIndex}:${example.timestampBackendMs}`;
+      if (seenContexts.has(contextId))
+        throw new Error("Duplicate vision feature context");
+      seenContexts.add(contextId);
+
+      rows.push({
+        type: "example",
+        sessionId: example.sessionId,
+        trialId: example.trialId,
+        artifactChecksum: example.artifactChecksum,
+        split,
+        timestampBackendMs: example.timestampBackendMs,
+        frameIndex: example.frameIndex,
+        frequencyGrid: grid,
+        calibrationSeed: example.calibrationSeed,
+        features: Array.from(example.features),
+        opponent: Array.from(example.opponent),
+        rgb: Array.from(example.rgb),
+        colorClassIndex: example.colorClassIndex,
+      });
+    }
+  }
+  if (!frequencyGrid)
+    throw new Error("Offline vision dataset requires an RF frequency grid");
+
+  const manifest = {
+    type: "manifest",
+    format: VISION_TRAINING_DATASET_FORMAT,
+    version: VISION_TRAINING_DATASET_VERSION,
+    preprocessing: VISION_PREPROCESSING,
+    target: {
+      width: VISION_WIDTH,
+      height: VISION_HEIGHT,
+      fps: 10,
+      coordinates: "opponent",
+      colorTransform: "linear-srgb-lms-opponent-v1",
+    },
+    frequencyGrid,
+    sessionSplits,
+    exampleCount: rows.length,
+    excludedTransitionCount: dataset.excludedTransitionCount,
+  };
+  return (
+    [manifest, ...rows].map((row) => JSON.stringify(row)).join("\n") + "\n"
+  );
 }
 
 /**

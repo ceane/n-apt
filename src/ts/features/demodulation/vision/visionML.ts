@@ -436,6 +436,11 @@ const assertTrainableModel = (model: VisionDecoderModel) => {
  * Train the compact frequency-convolution/temporal encoder with SGD. Each
  * epoch is seeded from the checkpoint epoch, making pause/resume reproducible.
  */
+/**
+ * Deterministic in-process reference trainer retained for TypeScript parity
+ * tests. Product model fitting uses scripts/vision_decoder/train.py.
+ * @deprecated Do not wire this trainer into the application workflow.
+ */
 export function trainVisionDecoder(
   examples: readonly VisionTrainingExample[],
   options: VisionDecoderTrainingOptions,

@@ -224,7 +224,7 @@ const createWorkflowGraph = (props: VisionDemodWorkflowFlowProps) => {
       position: { x: 5, y: 159 },
       data: {
         title: "Build frequency features",
-        detail: "100 ms windows · 10 temporal slices · deterministic features",
+        detail: "30 ms I/Q contexts · 10 temporal slices · 1024-bin FFT",
         status: "planned",
       },
       width: 132,
@@ -237,8 +237,9 @@ const createWorkflowGraph = (props: VisionDemodWorkflowFlowProps) => {
       type: "visionDemodWorkflowStep",
       position: { x: 149, y: 159 },
       data: {
-        title: "Automatic RGB + preset labels",
-        detail: "RGB from reference · S/M/L/Red class from selected preset",
+        title: "Timed RGB + preset labels",
+        detail:
+          "RGB/opponent targets from paired reference · S/M/L/Red class is secondary",
         status: "planned",
       },
       width: 132,
@@ -266,7 +267,7 @@ const createWorkflowGraph = (props: VisionDemodWorkflowFlowProps) => {
       type: "visionDemodWorkflowStep",
       position: { x: 5, y: 313 },
       data: {
-        title: "Band-to-region mapping",
+        title: "Partial-band spatial estimator",
         detail:
           "A channel band may cover only part of the frame · learn from spatial references",
         status: "waiting",
@@ -281,8 +282,9 @@ const createWorkflowGraph = (props: VisionDemodWorkflowFlowProps) => {
       type: "visionDemodWorkflowStep",
       position: { x: 149, y: 236 },
       data: {
-        title: "Train + hold out",
-        detail: "Trainer ready · needs session-disjoint reference captures",
+        title: "Python offline train + hold out",
+        detail:
+          "Versioned JSONL · whole-session splits · validation stop · untouched test",
         status: "waiting",
       },
       width: 132,
@@ -295,9 +297,9 @@ const createWorkflowGraph = (props: VisionDemodWorkflowFlowProps) => {
       type: "visionDemodWorkflowStep",
       position: { x: 149, y: 313 },
       data: {
-        title: "Reconstructed frames",
+        title: "Local ONNX reconstruction",
         detail:
-          "16 × 16 RGB · references stay RGB; opponent head is experimental",
+          "Browser inference · 16 × 16 RGB at 10 fps · experimental until held-out validation",
         status: "planned",
       },
       width: 132,
@@ -366,7 +368,7 @@ export const VisionDemodWorkflowFlow = memo(function VisionDemodWorkflowFlow(
     >
       <WorkflowHeading>
         <strong>Visual demodulation flow</strong>
-        <small>Channel C morphology or neural RGB</small>
+        <small>Channel C bins → N-APT baseline + spatial decoder</small>
       </WorkflowHeading>
       <FlowCanvas className="nodrag nowheel" data-edge-count={edges.length}>
         <ReactFlowProvider>

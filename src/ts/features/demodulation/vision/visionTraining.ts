@@ -376,6 +376,11 @@ const classificationAccuracy = (
   return { accuracy: correct / labeled.length, count: labeled.length };
 };
 
+/**
+ * Legacy TypeScript checkpoint harness kept for contract tests. Offline model
+ * fitting and checkpoint selection belong to scripts/vision_decoder/train.py.
+ * @deprecated Do not expose this class as an in-app training control.
+ */
 export class VisionTrainer {
   private readonly options: Required<
     Pick<

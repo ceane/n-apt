@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +10,10 @@ import {
   trainVisionDecoder,
 } from "@n-apt/demodulation/vision/visionML";
 import { serializeVisionDecoderToOnnx } from "@n-apt/demodulation/vision/visionOnnx";
+import {
+  createVisionOnnxRuntimeFromPythonArtifact,
+  type VisionPythonDecoderManifest,
+} from "@n-apt/demodulation/vision/visionPythonArtifact";
 import {
   createVisionOnnxRuntime,
   visionOnnxOutputToDecodedFrame,
@@ -48,13 +53,38 @@ describe("vision ONNX export and local inference", () => {
     ];
     const windows = Float32Array.from(rows.flatMap((row) => Array.from(row)));
     const onnx = serializeVisionDecoderToOnnx(model);
+    const manifest: VisionPythonDecoderManifest = {
+      format: "napt-vision-decoder",
+      artifactVersion: 1,
+      modelVersion: 2,
+      modelId: "vision-decoder-test",
+      architecture: "freq-conv-temporal-v2",
+      modelFile: "vision_decoder.onnx",
+      modelSha256: createHash("sha256").update(onnx).digest("hex"),
+      datasetSha256: "a".repeat(64),
+      preprocessingVersion: 2,
+      featureShape: [10, 1024, 2],
+      referenceVersion: 1,
+      colorTransform: "linear-srgb-lms-opponent-v1",
+      frequencyGrid,
+      output: { width: 16, height: 16, fps: 10, coordinates: "opponent" },
+      sessionSplits: { "train-session": "train" },
+      trainingTrialIds: ["trial-0"],
+      status: "experimental",
+      promotionAllowed: false,
+    };
     const directory = mkdtempSync(join(tmpdir(), "napt-vision-onnx-"));
     writeFileSync(join(directory, "model.onnx"), onnx);
+    writeFileSync(join(directory, "manifest.json"), JSON.stringify(manifest));
     writeFileSync(
       join(directory, "input.f32"),
       Buffer.from(windows.buffer, windows.byteOffset, windows.byteLength),
     );
-    let runtimeResults: { opponent: number[]; colorLogits: number[] };
+    let runtimeResults: {
+      opponent: number[];
+      colorLogits: number[];
+      checksumRejected: boolean;
+    };
     try {
       runtimeResults = JSON.parse(
         execFileSync(
@@ -65,20 +95,28 @@ describe("vision ONNX export and local inference", () => {
             "-e",
             `
             (async () => {
-              const { createVisionOnnxRuntime } = await import("./src/ts/features/demodulation/vision/visionOnnxRuntime.ts");
+              const { createVisionOnnxRuntimeFromPythonArtifact } = await import("./src/ts/features/demodulation/vision/visionPythonArtifact.ts");
               const { readFileSync } = await import("node:fs");
               const { join } = await import("node:path");
               const directory = process.env.NAPT_VISION_ONNX_DIR;
               const model = Uint8Array.from(readFileSync(join(directory, "model.onnx")));
+              const manifest = JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8"));
               const input = readFileSync(join(directory, "input.f32"));
               const windows = new Float32Array(input.buffer, input.byteOffset, input.byteLength / 4);
               const frequencyGrid = { centerFrequencyHz: 100000000, sampleRateHz: 3200000 };
-              const runtime = await createVisionOnnxRuntime(model, { executionProvider: "wasm", frequencyGrid });
+              const runtime = await createVisionOnnxRuntimeFromPythonArtifact(model, manifest, { executionProvider: "wasm" });
               try {
                 const output = await runtime.predict(windows, 2, frequencyGrid);
+                let checksumRejected = false;
+                try {
+                  await createVisionOnnxRuntimeFromPythonArtifact(model, { ...manifest, modelSha256: "b".repeat(64) }, { executionProvider: "wasm" });
+                } catch (error) {
+                  checksumRejected = String(error).includes("checksum mismatch");
+                }
                 process.stdout.write(JSON.stringify({
                   opponent: Array.from(output.opponent),
                   colorLogits: Array.from(output.colorLogits),
+                  checksumRejected,
                 }));
               } finally {
                 await runtime.release();
@@ -97,7 +135,11 @@ describe("vision ONNX export and local inference", () => {
             },
           },
         ),
-      ) as { opponent: number[]; colorLogits: number[] };
+      ) as {
+        opponent: number[];
+        colorLogits: number[];
+        checksumRejected: boolean;
+      };
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -111,6 +153,7 @@ describe("vision ONNX export and local inference", () => {
     );
     expect(runtimeResults.opponent).toHaveLength(2 * 768);
     expect(runtimeResults.colorLogits).toHaveLength(2 * 4);
+    expect(runtimeResults.checksumRejected).toBe(true);
     expected.forEach((prediction, index) => {
       for (let output = 0; output < 768; output++)
         expect(runtimeResults.opponent[index * 768 + output]).toBeCloseTo(
