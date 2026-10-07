@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { resolveBackendBinaryPath } from "../../../scripts/build/backendBinaryPath";
 import type { RootState } from "@n-apt/redux/store";
 import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
 import {
@@ -387,7 +388,8 @@ export const createLiveReduxStreamHarness = async (
   const shouldStartBackend = options.startBackend ?? true;
   const backendBinary =
     options.backendBinary ??
-    resolve(process.cwd(), "target/debug/n-apt-backend");
+    process.env.BACKEND_BINARY_PATH ??
+    resolveBackendBinaryPath(resolve(process.cwd()));
   let backendProcess: ChildProcess | null = null;
   let redisProcess: ChildProcess | null = null;
   let temporaryRedisDirectory: string | null = null;
