@@ -4,6 +4,8 @@ export type SnapshotLocationAddress = {
   city?: string;
   town?: string;
   village?: string;
+  municipality?: string;
+  province?: string;
   state?: string;
   country?: string;
 };
@@ -21,6 +23,21 @@ export function formatSnapshotLocation(
   return parts.length ? parts.join(", ") : null;
 }
 
+export function formatSnapshotLocality(
+  address: SnapshotLocationAddress,
+): string | null {
+  const locality =
+    address.city ??
+    address.municipality ??
+    address.town ??
+    address.village;
+  const province = address.province ?? address.state;
+  const parts = [locality, province].filter((part): part is string =>
+    Boolean(part?.trim()),
+  );
+  return parts.length ? parts.join(", ") : null;
+}
+
 export function formatSnapshotLocationLine(
   geolocation: { lat: string; lon: string },
   place?: string | null,
@@ -28,16 +45,34 @@ export function formatSnapshotLocationLine(
   return `Location: ${geolocation.lat}, ${geolocation.lon}${place ? ` – ${place}` : ""}`;
 }
 
-export async function reverseGeocodeSnapshotLocation(
+async function reverseGeocodeSnapshotAddress(
   lat: string,
   lon: string,
   signal?: AbortSignal,
-): Promise<string | null> {
+): Promise<SnapshotLocationAddress | null> {
   const response = await fetch(
     `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`,
     { headers: { Accept: "application/json" }, signal },
   );
   if (!response.ok) throw new Error(`Reverse geocoding failed (${response.status})`);
   const payload = (await response.json()) as { address?: SnapshotLocationAddress };
-  return payload.address ? formatSnapshotLocation(payload.address) : null;
+  return payload.address ?? null;
+}
+
+export async function reverseGeocodeSnapshotLocation(
+  lat: string,
+  lon: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const address = await reverseGeocodeSnapshotAddress(lat, lon, signal);
+  return address ? formatSnapshotLocation(address) : null;
+}
+
+export async function reverseGeocodeSnapshotLocality(
+  lat: string,
+  lon: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const address = await reverseGeocodeSnapshotAddress(lat, lon, signal);
+  return address ? formatSnapshotLocality(address) : null;
 }

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AlertTriangle } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
+import { reverseGeocodeSnapshotLocality } from "@n-apt/capture/snapshotLocation";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import type { AnalysisType } from "@n-apt/consts/types";
 import { FFT_MAX_DB, FFT_MIN_DB } from "@n-apt/consts";
@@ -775,6 +776,28 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [captureGeolocationEnabled, setCaptureGeolocationEnabled] = useState(true);
   const [captureGeolocationStatus, setCaptureGeolocationStatus] = useState("");
   const { getLocation } = useGeolocation();
+  const geolocationRequestRef = useRef<ReturnType<typeof getLocation> | null>(
+    null,
+  );
+  const requestGeolocation = useCallback(() => {
+    if (geolocationRequestRef.current) return geolocationRequestRef.current;
+
+    const request = getLocation();
+    geolocationRequestRef.current = request;
+    void request.then(
+      () => {
+        if (geolocationRequestRef.current === request) {
+          geolocationRequestRef.current = null;
+        }
+      },
+      () => {
+        if (geolocationRequestRef.current === request) {
+          geolocationRequestRef.current = null;
+        }
+      },
+    );
+    return request;
+  }, [getLocation]);
   const captureGeolocationLabelRef = useRef<string | null>(null);
   const [selectedReferenceMedia, setSelectedReferenceMedia] =
     useState<SelectedReferenceMedia | null>(null);
@@ -893,6 +916,54 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     durationError !== null ||
     !stimulusChannelCompatible ||
     (previewMode === "vision" && visionCaptureBlockers.length > 0);
+
+  useEffect(() => {
+    if (!captureGeolocationEnabled || isEphemeralCapture) {
+      captureGeolocationLabelRef.current = null;
+      if (!captureGeolocationEnabled) {
+        setCaptureGeolocationStatus("Location is off for this session.");
+      }
+      return;
+    }
+
+    let isCurrent = true;
+    const controller = new AbortController();
+    setCaptureGeolocationStatus("Requesting location permission…");
+    void requestGeolocation().then((location) => {
+      if (!isCurrent) return;
+      captureGeolocationLabelRef.current = location
+        ? formatGeolocationCaptureLabel(location)
+        : null;
+      if (!location) {
+        setCaptureGeolocationStatus(
+          "Location unavailable or permission declined; capture can continue without it.",
+        );
+        return;
+      }
+
+      const readyStatus = "Location is ready";
+      setCaptureGeolocationStatus(`${readyStatus} for the next reference capture.`);
+      void reverseGeocodeSnapshotLocality(
+        location.latitude.toFixed(6),
+        location.longitude.toFixed(6),
+        controller.signal,
+      )
+        .then((place) => {
+          if (!isCurrent || !place) return;
+          setCaptureGeolocationStatus(
+            `${readyStatus} (${place}) for the next reference capture.`,
+          );
+        })
+        .catch(() => {
+          // Keep the location-ready status if reverse geocoding is unavailable.
+        });
+    });
+
+    return () => {
+      isCurrent = false;
+      controller.abort();
+    };
+  }, [captureGeolocationEnabled, isEphemeralCapture, requestGeolocation]);
 
   useEffect(() => {
     setSelectedVisionPreset(visionPreset);
@@ -1357,7 +1428,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
 
     captureGeolocationLabelRef.current = null;
     if (captureGeolocationEnabled && !isEphemeralCapture) {
-      const location = await getLocation();
+      const location = await requestGeolocation();
       captureGeolocationLabelRef.current = location ? formatGeolocationCaptureLabel(location) : null;
       setCaptureGeolocationStatus(location ? "Location will be attached to this reference capture." : "Location unavailable or permission declined; capture will continue without it.");
     }
@@ -1416,7 +1487,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     stopReferenceMediaPlayback,
     captureGeolocationEnabled,
     isEphemeralCapture,
-    getLocation,
+    requestGeolocation,
   ]);
 
   const handleChooseVisionDisplay = async () => {
@@ -1480,7 +1551,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     }
     captureGeolocationLabelRef.current = null;
     const locationPromise = captureGeolocationEnabled && !isEphemeralCapture
-      ? getLocation()
+      ? requestGeolocation()
       : Promise.resolve(null);
     if (previewMode === "vision") {
       try {
@@ -1918,7 +1989,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
                     captureGeolocationLabelRef.current = null;
                     setCaptureGeolocationStatus("Location is off for this session.");
                   } else {
-                    setCaptureGeolocationStatus("Location will be requested when the next reference capture starts.");
+                    setCaptureGeolocationStatus("Requesting location permission…");
                   }
                 }}
                 disabled={isBusy || isCapturingReferenceMedia}
@@ -1926,7 +1997,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               Include geolocation (on by default)
             </StimulusLabel>
             <StimulusSubtext role="status" aria-live="polite">
-              {captureGeolocationStatus || "Location permission is requested when a training reference capture starts. Captures can continue without it."}
+              {captureGeolocationStatus || "Location permission is requested while this option is enabled. Captures can continue without it."}
             </StimulusSubtext>
           </CaptureLabelControl>
         )}
