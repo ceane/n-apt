@@ -1155,10 +1155,50 @@ fn configured_huggingface_repo_path() -> Option<PathBuf> {
     .then_some(configured)
 }
 
+fn configured_dataset_path_is_safe(root: &Path, candidate: &Path) -> bool {
+  let Ok(canonical_root) = root.canonicalize() else {
+    return false;
+  };
+  let Ok(relative) = candidate.strip_prefix(root) else {
+    return false;
+  };
+  if relative
+    .components()
+    .any(|component| !matches!(component, Component::Normal(_)))
+  {
+    return false;
+  }
+
+  let mut existing = candidate;
+  while !existing.exists() {
+    let Some(parent) = existing.parent() else {
+      return false;
+    };
+    existing = parent;
+  }
+
+  existing
+    .canonicalize()
+    .is_ok_and(|path| path.starts_with(canonical_root))
+}
+
 #[cfg(test)]
 mod huggingface_path_tests {
-  use super::{default_huggingface_repo_path, display_path_from_home};
+  use super::{
+    configured_dataset_path_is_safe, default_huggingface_repo_path,
+    display_path_from_home,
+  };
   use std::path::PathBuf;
+
+  #[test]
+  fn dataset_targets_must_stay_inside_the_configured_checkout() {
+    let root = tempfile::tempdir().expect("temporary checkout");
+    let allowed = root.path().join("training-captures/classification/train");
+    assert!(configured_dataset_path_is_safe(root.path(), &allowed));
+
+    let escaped = root.path().join("../outside");
+    assert!(!configured_dataset_path_is_safe(root.path(), &escaped));
+  }
 
   #[test]
   fn default_dataset_path_is_a_sibling_checkout() {
@@ -1735,6 +1775,11 @@ pub async fn save_capture_to_huggingface_handler(
       relative_directory.clone()
     };
     let directory = repo_path.join(&relative_directory);
+    if !configured_dataset_path_is_safe(&repo_path, &directory) {
+      return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
+        "error": "Dataset target escapes the configured checkout"
+      }))).into_response();
+    }
     if let Err(error) = tokio::fs::create_dir_all(&directory).await {
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
         "error": format!("Failed to create dataset folder: {error}")
@@ -1758,6 +1803,11 @@ pub async fn save_capture_to_huggingface_handler(
   }
   if section == "classification" {
     let labels_path = repo_path.join("training-captures/classification/labels.csv");
+    if !configured_dataset_path_is_safe(&repo_path, &labels_path) {
+      return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
+        "error": "Classification labels path escapes the configured checkout"
+      }))).into_response();
+    }
     if let Err(error) = append_classifier_label_to_csv(&labels_path, &params, &artifacts).await {
       error!("Failed to update classification labels.csv: {error}");
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
@@ -1770,6 +1820,11 @@ pub async fn save_capture_to_huggingface_handler(
     } else {
       repo_path.join("training-captures/evidentiary/manifests")
     };
+    if !configured_dataset_path_is_safe(&repo_path, &metadata_directory) {
+      return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
+        "error": "Dataset metadata path escapes the configured checkout"
+      }))).into_response();
+    }
     if let Err(error) = tokio::fs::create_dir_all(&metadata_directory).await {
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
         "error": format!("Failed to create dataset metadata folder: {error}")
@@ -1792,6 +1847,11 @@ pub async fn save_capture_to_huggingface_handler(
     let manifest_id = uuid::Uuid::new_v4();
     let manifest_path = metadata_directory.join(format!("capture-manifest-{manifest_id}.json"));
     let temporary_path = manifest_path.with_extension("json.tmp");
+    if !configured_dataset_path_is_safe(&repo_path, &manifest_path) {
+      return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
+        "error": "Dataset manifest path escapes the configured checkout"
+      }))).into_response();
+    }
     if let Err(error) = tokio::fs::write(&temporary_path, manifest_bytes).await {
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
         "error": format!("Failed to write dataset manifest: {error}")
