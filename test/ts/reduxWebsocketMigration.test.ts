@@ -1001,6 +1001,8 @@ describe("managed stream option synchronization", () => {
 
     streamSocket.send.mockClear();
     middlewareStore.dispatch(setSampleRate(6_270_000));
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"type":"stream_subscribe"'),
@@ -1021,6 +1023,8 @@ describe("managed stream option synchronization", () => {
 
     streamSocket.send.mockClear();
     middlewareStore.dispatch(setFftSize(4096));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"sampleRateHz":6270000'),
     );
@@ -1033,6 +1037,8 @@ describe("managed stream option synchronization", () => {
       type: "spectrum/setSdrSettingsBundle",
       payload: { fftSize: 8192 },
     });
+    await Promise.resolve();
+    await Promise.resolve();
     expect(streamSocket.send).toHaveBeenCalledWith(
       expect.stringContaining('"type":"stream_subscribe"'),
     );
@@ -3466,6 +3472,8 @@ describe("Redux WebSocket Migration", () => {
 
         sourceSocket.send.mockClear();
         middlewareStore.dispatch(setTxSampleRateHz(1_300_000));
+        await Promise.resolve();
+        await Promise.resolve();
         expect(sourceSocket.send).toHaveBeenCalledWith(
           expect.stringContaining('"sampleRateHz":1300000'),
         );

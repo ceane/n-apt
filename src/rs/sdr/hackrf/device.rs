@@ -49,16 +49,52 @@ fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
   payload
 }
 
-fn should_resume_rx_after_tx_stop(tx_started: bool, streaming_started: bool) -> bool {
+fn should_resume_rx_after_tx_stop(
+  tx_started: bool,
+  streaming_started: bool,
+) -> bool {
   tx_started && !streaming_started
 }
 
 fn drain_rx_queue(rx: &Receiver<Vec<u8>>) -> usize {
+  // A live RX callback can refill the bounded queue while a retune flushes it.
+  // Limit each flush to one queue's capacity so a gesture cannot monopolize
+  // the acquisition worker while discarding stale chunks.
   let mut drained = 0;
-  while rx.try_recv().is_ok() {
+  while drained < HACKRF_RX_QUEUE_DEPTH {
+    if rx.try_recv().is_err() {
+      break;
+    }
     drained += 1;
   }
   drained
+}
+
+/// Tap every block consumed for one display read and return the newest block.
+/// `max_blocks` includes `first`, so a live callback cannot keep this drain
+/// loop occupied by replenishing the bounded receiver as quickly as it drains.
+fn take_freshest_rx_block(
+  rx: &Receiver<Vec<u8>>,
+  mut first: Vec<u8>,
+  max_blocks: usize,
+  mut tap: impl FnMut(&[u8]),
+) -> (Vec<u8>, usize) {
+  if max_blocks == 0 {
+    return (first, 0);
+  }
+  tap(&first);
+  let mut drained = 0;
+  while drained + 1 < max_blocks {
+    match rx.try_recv() {
+      Ok(next) => {
+        tap(&next);
+        first = next;
+        drained += 1;
+      }
+      Err(_) => break,
+    }
+  }
+  (first, drained)
 }
 
 fn apply_ppm_correction(freq_hz: u32, ppm: u32) -> u32 {
@@ -74,6 +110,27 @@ fn apply_ppm_correction(freq_hz: u32, ppm: u32) -> u32 {
 
   let corrected = (numerator + (denominator / 2)) / denominator;
   corrected.clamp(0, u32::MAX as i128) as u32
+}
+
+fn apply_hackrf_frequency_tune(
+  frequency_hz: u32,
+  ppm: u32,
+  requested_frequency: &mut u32,
+  effective_frequency: &mut u32,
+  write_frequency: impl FnOnce(u64) -> i32,
+) -> Result<()> {
+  let corrected_frequency = apply_ppm_correction(frequency_hz, ppm);
+  let result = write_frequency(u64::from(corrected_frequency));
+  if result != 0 {
+    return Err(anyhow!(
+      "Failed to set HackRF One center frequency to {} (corrected {})",
+      frequency_hz,
+      corrected_frequency
+    ));
+  }
+  *requested_frequency = frequency_hz;
+  *effective_frequency = frequency_hz;
+  Ok(())
 }
 
 pub struct HackRfDevice {
@@ -413,7 +470,10 @@ impl SdrDevice for HackRfDevice {
         let was_transmitting = self.tx_started;
         self.stop_transmitting();
         self.tx_context = None;
-        if should_resume_rx_after_tx_stop(was_transmitting, self.streaming_started) {
+        if should_resume_rx_after_tx_stop(
+          was_transmitting,
+          self.streaming_started,
+        ) {
           self.ensure_streaming()?;
         }
       }
@@ -448,7 +508,7 @@ impl SdrDevice for HackRfDevice {
     fft_size: usize,
   ) -> Result<crate::signal_port::fft::types::RawSamples> {
     self.ensure_streaming()?;
-    let mut frame = self.rx_queue.recv_timeout(HACKRF_RX_TIMEOUT).map_err(
+    let first = self.rx_queue.recv_timeout(HACKRF_RX_TIMEOUT).map_err(
       |err| match err {
         crossbeam_channel::RecvTimeoutError::Timeout => {
           anyhow!("Timeout waiting for HackRF One RX samples")
@@ -459,15 +519,22 @@ impl SdrDevice for HackRfDevice {
       },
     )?;
 
-    // Tap every byte that arrives before the display path below truncates to a
-    // single FFT, and drain the rest of the queue so the audio timeline has no
-    // hole between display frames. The display keeps the freshest frame.
-    if self.audio_tap.is_enabled() {
-      self.tap_normalized(&frame);
-      while let Ok(next) = self.rx_queue.try_recv() {
-        self.tap_normalized(&next);
-        frame = next;
-      }
+    // Keep display acquisition real-time even if audio retention is disabled:
+    // drain a bounded number of buffered blocks and display the freshest one.
+    let audio_enabled = self.audio_tap.is_enabled();
+    let rx_queue = self.rx_queue.clone();
+    let (mut frame, drained) = if audio_enabled {
+      take_freshest_rx_block(&rx_queue, first, HACKRF_RX_QUEUE_DEPTH, |chunk| {
+        self.tap_normalized(chunk)
+      })
+    } else {
+      take_freshest_rx_block(&rx_queue, first, HACKRF_RX_QUEUE_DEPTH, |_| {})
+    };
+    if drained > 0 {
+      crate::performance::pipeline_metrics().increment(
+        crate::performance::CounterKind::HackrfDisplayBlocksDrained,
+        drained as u64,
+      );
     }
 
     let target_len = fft_size.saturating_mul(2);
@@ -528,24 +595,15 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
-    let ret = unsafe { ffi::hackrf_set_freq(self.dev, freq as u64) };
-    if ret != 0 {
-      return Err(anyhow!(
-        "Failed to set HackRF One center frequency to {}",
-        freq
-      ));
-    }
-    self.requested_center_frequency = freq;
-    self.center_frequency = freq;
-    let corrected_freq = apply_ppm_correction(freq, self.ppm);
-    let ret = unsafe { ffi::hackrf_set_freq(self.dev, corrected_freq as u64) };
-    if ret != 0 {
-      return Err(anyhow!(
-        "Failed to set HackRF One center frequency to {}",
-        corrected_freq
-      ));
-    }
-    Ok(())
+    apply_hackrf_frequency_tune(
+      freq,
+      self.ppm,
+      &mut self.requested_center_frequency,
+      &mut self.center_frequency,
+      |corrected_freq| unsafe {
+        ffi::hackrf_set_freq(self.dev, corrected_freq as u64)
+      },
+    )
   }
 
   fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
@@ -831,6 +889,99 @@ mod tests {
 
     assert_eq!(drain_rx_queue(&rx), 2);
     assert!(rx.try_recv().is_err());
+  }
+
+  #[test]
+  fn live_queue_flush_is_bounded_while_rx_continues_to_produce() {
+    let (tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    for value in 0..HACKRF_RX_QUEUE_DEPTH {
+      tx.send(vec![value as u8]).unwrap();
+    }
+    let (started_tx, started_rx) = bounded(1);
+    let producer = std::thread::spawn(move || {
+      started_tx.send(()).unwrap();
+      for value in 0..512u16 {
+        if tx.send(vec![value as u8]).is_err() {
+          break;
+        }
+      }
+    });
+    started_rx.recv().unwrap();
+    std::thread::sleep(Duration::from_millis(5));
+
+    let drained = drain_rx_queue(&rx);
+    drop(rx);
+    producer.join().unwrap();
+
+    assert!(drained <= HACKRF_RX_QUEUE_DEPTH);
+  }
+
+  #[test]
+  fn display_read_selects_latest_bounded_block_and_taps_in_arrival_order() {
+    let (tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    for block in [vec![1], vec![2], vec![3], vec![4]] {
+      tx.send(block).unwrap();
+    }
+    let first = rx.try_recv().unwrap();
+    let mut tapped = Vec::new();
+
+    let (latest, drained) =
+      take_freshest_rx_block(&rx, first, HACKRF_RX_QUEUE_DEPTH, |block| {
+        tapped.push(block[0])
+      });
+
+    assert_eq!(latest, vec![4]);
+    assert_eq!(drained, 3);
+    assert_eq!(tapped, vec![1, 2, 3, 4]);
+  }
+
+  #[test]
+  fn display_read_bounds_drain_and_leaves_excess_blocks_queued() {
+    let (tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    for value in 1..=4 {
+      tx.send(vec![value]).unwrap();
+    }
+    let first = rx.try_recv().unwrap();
+
+    let (latest, drained) = take_freshest_rx_block(&rx, first, 2, |_| {});
+
+    assert_eq!(latest, vec![2]);
+    assert_eq!(drained, 1);
+    assert_eq!(rx.try_iter().count(), 2);
+  }
+
+  #[test]
+  fn corrected_frequency_is_written_once_and_only_committed_on_success() {
+    let mut requested = 10_000_000;
+    let mut effective = 10_000_000;
+    let mut writes = Vec::new();
+
+    apply_hackrf_frequency_tune(
+      100_000_000,
+      10,
+      &mut requested,
+      &mut effective,
+      |hz| {
+        writes.push(hz);
+        0
+      },
+    )
+    .unwrap();
+
+    assert_eq!(writes, vec![100_001_000]);
+    assert_eq!(requested, 100_000_000);
+    assert_eq!(effective, 100_000_000);
+
+    let result = apply_hackrf_frequency_tune(
+      200_000_000,
+      10,
+      &mut requested,
+      &mut effective,
+      |_| -1,
+    );
+    assert!(result.is_err());
+    assert_eq!(requested, 100_000_000);
+    assert_eq!(effective, 100_000_000);
   }
 
   #[test]

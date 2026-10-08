@@ -1700,18 +1700,23 @@ impl WebSocketServer {
               StreamMode::Rx
             },
           );
-          let _ = stream_manager.publish_iq_frame_with_metadata(
-            &publish_key,
-            timestamp,
-            Some(center_frequency as u64),
-            sample_rate,
-            Arc::new(spectrum_message.iq_data.clone()),
-            false,
-          );
+          let stream_published = stream_manager
+            .publish_iq_frame_with_metadata(
+              &publish_key,
+              timestamp,
+              Some(center_frequency as u64),
+              sample_rate,
+              Arc::new(spectrum_message.iq_data.clone()),
+              false,
+            )
+            .is_ok();
 
           // Broadcast to all connected WebSocket clients
           if let Err(_e) = spectrum_tx.send(Arc::new(spectrum_message)) {
             // No receivers, which is normal when no clients are connected
+          }
+          if stream_published {
+            shared_state.record_live_retune_frame_published();
           }
         }
         Err(e) => {

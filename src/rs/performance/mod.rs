@@ -79,6 +79,9 @@ impl CeilingModel {
 pub enum Stage {
   DeviceCallback,
   Acquisition,
+  CommandToRetune,
+  HardwareRetune,
+  RetuneToFirstFrame,
   CaptureQueue,
   CaptureWrite,
   FftDsp,
@@ -142,6 +145,8 @@ pub enum CounterKind {
   CopiedBytes,
   Allocations,
   AllocatedBytes,
+  SupersededRuntimeOptions,
+  HackrfDisplayBlocksDrained,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -165,6 +170,8 @@ pub struct CounterSnapshot {
   pub copied_bytes: u64,
   pub allocations: u64,
   pub allocated_bytes: u64,
+  pub superseded_runtime_options: u64,
+  pub hackrf_display_blocks_drained: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -205,6 +212,8 @@ struct AtomicCounters {
   copied_bytes: AtomicU64,
   allocations: AtomicU64,
   allocated_bytes: AtomicU64,
+  superseded_runtime_options: AtomicU64,
+  hackrf_display_blocks_drained: AtomicU64,
 }
 
 #[derive(Default)]
@@ -273,11 +282,20 @@ impl PipelineMetrics {
       CounterKind::CopiedBytes => &self.counters.copied_bytes,
       CounterKind::Allocations => &self.counters.allocations,
       CounterKind::AllocatedBytes => &self.counters.allocated_bytes,
+      CounterKind::SupersededRuntimeOptions => {
+        &self.counters.superseded_runtime_options
+      }
+      CounterKind::HackrfDisplayBlocksDrained => {
+        &self.counters.hackrf_display_blocks_drained
+      }
     };
     counter.fetch_add(amount, Ordering::Relaxed);
   }
 
   pub fn record_latency(&self, stage: Stage, duration: Duration) {
+    if !self.detailed {
+      return;
+    }
     let nanos = duration.as_nanos().min(u64::MAX as u128) as u64;
     let mut stages = self.stages.lock().unwrap();
     let measurement = stages.entry(stage).or_default();
@@ -309,6 +327,12 @@ impl PipelineMetrics {
       copied_bytes: load(&self.counters.copied_bytes),
       allocations: load(&self.counters.allocations),
       allocated_bytes: load(&self.counters.allocated_bytes),
+      superseded_runtime_options: load(
+        &self.counters.superseded_runtime_options,
+      ),
+      hackrf_display_blocks_drained: load(
+        &self.counters.hackrf_display_blocks_drained,
+      ),
     };
     let stages = self
       .stages
@@ -353,5 +377,43 @@ fn summarize(values: &[u64]) -> LatencySummary {
     p95_ms: percentile(0.95),
     p99_ms: percentile(0.99),
     max_ms: *sorted.last().unwrap() as f64 / 1_000_000.0,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn snapshots_include_live_tuning_and_hackrf_queue_metrics() {
+    let metrics = PipelineMetrics::new(true);
+    metrics.increment(CounterKind::SupersededRuntimeOptions, 3);
+    metrics.increment(CounterKind::HackrfDisplayBlocksDrained, 5);
+    metrics.record_latency(Stage::CommandToRetune, Duration::from_millis(40));
+    metrics.record_latency(Stage::HardwareRetune, Duration::from_millis(2));
+    metrics
+      .record_latency(Stage::RetuneToFirstFrame, Duration::from_millis(15));
+
+    let snapshot = metrics.snapshot();
+
+    assert_eq!(snapshot.counters.superseded_runtime_options, 3);
+    assert_eq!(snapshot.counters.hackrf_display_blocks_drained, 5);
+    assert_eq!(
+      snapshot.stages[&Stage::CommandToRetune].latency.p95_ms,
+      40.0,
+    );
+    assert_eq!(snapshot.stages[&Stage::HardwareRetune].latency.p50_ms, 2.0,);
+    assert_eq!(
+      snapshot.stages[&Stage::RetuneToFirstFrame].latency.max_ms,
+      15.0,
+    );
+  }
+
+  #[test]
+  fn detailed_latency_samples_remain_opt_in() {
+    let metrics = PipelineMetrics::new(false);
+    metrics.record_latency(Stage::CommandToRetune, Duration::from_millis(40));
+
+    assert!(metrics.snapshot().stages.is_empty());
   }
 }

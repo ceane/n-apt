@@ -574,15 +574,11 @@ let pendingManagedRxSubscribeOverrides:
   | null = null;
 let unsubscribeDeliveryDemandListener: (() => void) | null = null;
 const managedRxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
-  publish: (options) => {
-    void managedRxSubscription?.updateOptions(options).catch(() => undefined);
-  },
+  publish: (options) => managedRxSubscription?.updateOptions(options),
   equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
 });
 const managedTxOptionsScheduler = createDeviceOptionScheduler<StreamOptions>({
-  publish: (options) => {
-    void managedTxSubscription?.updateOptions(options).catch(() => undefined);
-  },
+  publish: (options) => managedTxSubscription?.updateOptions(options),
   equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
 });
 

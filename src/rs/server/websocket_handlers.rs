@@ -645,25 +645,21 @@ fn resolve_authoritative_subscribe_options(
   }
 }
 
-fn apply_rx_stream_device_options(
+fn request_active_rx_stream_options(
   shared: &SharedState,
-  center_frequency_hz: u32,
-  settings: super::types::SdrProcessorSettings,
+  source_id: &str,
+  options: super::stream_manager::RxStreamOptions,
+  baseline: Option<super::stream_manager::RxStreamOptions>,
 ) {
-  shared.request_center_frequency(center_frequency_hz);
-  shared.enqueue_pending_fast_settings(settings.clone());
+  shared.request_active_rx_options(source_id, options.clone(), baseline);
   let mut current = shared.sdr_settings.lock().unwrap();
-  current.center_frequency = center_frequency_hz;
-  if let Some(sample_rate) = settings.sample_rate {
-    current.sample_rate = sample_rate;
-  }
-  if let Some(fft_size) = settings.fft_size {
-    current.fft.default_size = fft_size;
-  }
-  if let Some(frame_rate) = settings.frame_rate {
+  current.center_frequency = options.center_frequency_hz as u32;
+  current.sample_rate = options.sample_rate_hz;
+  current.fft.default_size = options.fft_size;
+  if let Some(frame_rate) = options.frame_rate {
     current.fft.default_frame_rate = frame_rate;
   }
-  if let Some(gain) = settings.gain {
+  if let Some(gain) = options.gain {
     current.gain.tuner_gain = gain;
   }
 }
@@ -935,34 +931,54 @@ async fn handle_stream_connection(
   session_store: crate::session::SessionStore,
   expected_stream_id: Option<String>,
 ) {
-  let (mut sender, mut receiver) = socket.split();
-  let (event_tx, mut event_rx) = mpsc::channel::<StreamEvent>(32);
+  let (socket_sender, mut receiver) = socket.split();
+  // Incoming control traffic never waits on a WebSocket frame write. Responses
+  // share a bounded queue with the writer; stream events remain on their
+  // existing bounded channel.
+  let (sender, outbound_rx) = mpsc::channel::<Message>(32);
+  let (event_tx, event_rx) = mpsc::channel::<StreamEvent>(32);
   let mut subscriptions: HashMap<String, (StreamKey, u64, JoinHandle<()>)> =
     HashMap::new();
   shared.client_count.fetch_add(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_add(1, Ordering::Relaxed);
 
+  let writer_session_store = session_store.clone();
+  let writer_session_token = session_token.clone();
+  let mut writer_task = tokio::spawn(run_stream_writer(
+    socket_sender,
+    outbound_rx,
+    event_rx,
+    enc_key,
+    async move {
+      writer_session_store
+        .wait_until_invalid(&writer_session_token)
+        .await;
+    },
+  ));
+
   let invalid_session = session_store.wait_until_invalid(&session_token);
   tokio::pin!(invalid_session);
   loop {
     tokio::select! {
-      biased;
       _ = &mut invalid_session => {
-        let _ = tokio::time::timeout(std::time::Duration::from_millis(250), sender.send(Message::Close(None))).await;
+        let _ = tokio::time::timeout(
+          std::time::Duration::from_millis(300),
+          &mut writer_task,
+        ).await;
         break;
       }
-      Some(event) = event_rx.recv() => {
-        let Ok(payload) = stream_event_json(&event, &enc_key) else {
-          continue;
-        };
-        if sender.send(Message::Text(payload.to_string().into())).await.is_err() {
-          break;
-        }
+      writer_result = &mut writer_task => {
+        let _ = writer_result;
+        break;
       }
       message = receiver.next() => {
         let Some(Ok(message)) = message else { break; };
         if !session_store.is_active(&session_token).await {
-          let _ = sender.send(Message::Close(None)).await;
+          let _ = sender.try_send(Message::Close(None));
+          let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            &mut writer_task,
+          ).await;
           break;
         }
         let Message::Text(text) = message else {
@@ -1040,6 +1056,14 @@ async fn handle_stream_connection(
                 continue;
               }
             };
+            if source_is_active && stream.mode == StreamMode::Rx {
+              if let StreamOptions::Rx(options) = &effective_subscribe_options {
+                shared.seed_active_rx_options(
+                  &stream.source_id,
+                  options.clone(),
+                );
+              }
+            }
             if stream.source_id == MOCK_TX_SOURCE_ID {
               if let StreamOptions::Tx(tx_options) = &effective_subscribe_options {
               apply_tx_stream_options(tx_options, true);
@@ -1175,9 +1199,9 @@ async fn handle_stream_connection(
               let _ = sender.send(Message::Text(response.to_string().into())).await;
               continue;
             }
-            let rx_device_settings = match &options {
+            let rx_device_options = match &options {
               StreamOptions::Rx(rx_options) => {
-                let Some(settings) = stream_rx_processor_settings(rx_options) else {
+                if stream_rx_processor_settings(rx_options).is_none() {
                   let response = stream_error_json(
                     &subscription_id,
                     &stream,
@@ -1186,11 +1210,17 @@ async fn handle_stream_connection(
                   );
                   let _ = sender.send(Message::Text(response.to_string().into())).await;
                   continue;
-                };
-                Some(settings)
+                }
+                Some(rx_options.clone())
               }
               StreamOptions::Tx(_) => None,
             };
+            let previous_rx_options = manager.options(&stream).and_then(|previous| {
+              match previous {
+                StreamOptions::Rx(options) => Some(options),
+                StreamOptions::Tx(_) => None,
+              }
+            });
             let mock_tx_options = if stream.source_id == MOCK_TX_SOURCE_ID {
               match &options {
                 StreamOptions::Tx(tx_options) => Some(tx_options.clone()),
@@ -1208,7 +1238,7 @@ async fn handle_stream_connection(
                 if let Some(tx_options) = mock_tx_options.as_ref() {
               apply_tx_stream_options(tx_options, true);
                 }
-                if let Some((center_frequency_hz, settings)) = rx_device_settings {
+                if let Some(rx_options) = rx_device_options.as_ref() {
                   // Managed RX options are device-scoped, not presentation-only.
                   // Apply them through the same lock-free acquisition path used by
                   // legacy settings and VFO commands so accepted stream revisions
@@ -1216,24 +1246,45 @@ async fn handle_stream_connection(
                   if stream.mode == StreamMode::Rx
                     && active_source_id(&shared) != stream.source_id
                   {
-                    let _ = source_runtime_manager.update_rx_options(
-                      &stream,
-                      center_frequency_hz,
-                      settings,
-                    );
+                    if let Err(error) = source_runtime_manager
+                      .update_rx_options(&stream, rx_options.clone())
+                    {
+                      let _ = manager.publish_error(
+                        &stream,
+                        "options_apply",
+                        error.to_string(),
+                      );
+                    }
                   } else {
-                    apply_rx_stream_device_options(
+                    request_active_rx_stream_options(
                       &shared,
-                      center_frequency_hz,
-                      settings,
+                      &stream.source_id,
+                      rx_options.clone(),
+                      previous_rx_options.clone(),
                     );
                   }
                 }
               }
               Ok((_, _, false)) => {
                 // A duplicate write is already represented by the authoritative
-                // stream revision. Do not enqueue another hardware application
-                // or create another frontend feedback event.
+                // stream revision. Retry only when the active device has not
+                // successfully applied that complete option set yet.
+                if let Some(rx_options) = rx_device_options.as_ref() {
+                  if stream.mode == StreamMode::Rx
+                    && active_source_id(&shared) == stream.source_id
+                    && shared.active_rx_options_need_application(
+                      &stream.source_id,
+                      rx_options,
+                    )
+                  {
+                    request_active_rx_stream_options(
+                      &shared,
+                      &stream.source_id,
+                      rx_options.clone(),
+                      previous_rx_options.clone(),
+                    );
+                  }
+                }
               }
             }
           }
@@ -1372,12 +1423,107 @@ async fn handle_stream_connection(
     }
   }
 
-  for (_, (stream, id, task)) in subscriptions {
-    task.abort();
-    manager.unsubscribe(&stream, id, true);
+  cleanup_stream_subscriptions(&manager, &mut subscriptions).await;
+  drop(sender);
+  drop(event_tx);
+  if !writer_task.is_finished() {
+    writer_task.abort();
   }
+  let _ = writer_task.await;
   shared.client_count.fetch_sub(1, Ordering::Relaxed);
   shared.authenticated_count.fetch_sub(1, Ordering::Relaxed);
+}
+
+async fn cleanup_stream_subscriptions(
+  manager: &StreamingSourceModeManager,
+  subscriptions: &mut HashMap<String, (StreamKey, u64, JoinHandle<()>)>,
+) {
+  let mut forwarders = Vec::with_capacity(subscriptions.len());
+  for (_, (stream, id, task)) in subscriptions.drain() {
+    task.abort();
+    manager.unsubscribe(&stream, id, true);
+    forwarders.push(task);
+  }
+  for forwarder in forwarders {
+    let _ = forwarder.await;
+  }
+}
+
+async fn run_stream_writer<S, F>(
+  mut socket_sender: S,
+  mut outbound_rx: mpsc::Receiver<Message>,
+  mut event_rx: mpsc::Receiver<StreamEvent>,
+  enc_key: [u8; 32],
+  invalid_session: F,
+) where
+  S: futures_util::Sink<Message> + Unpin,
+  F: std::future::Future<Output = ()> + Send,
+{
+  let mut outbound_open = true;
+  let mut events_open = true;
+  tokio::pin!(invalid_session);
+  loop {
+    if !outbound_open && !events_open {
+      break;
+    }
+    tokio::select! {
+      _ = &mut invalid_session => {
+        let _ = tokio::time::timeout(
+          std::time::Duration::from_millis(250),
+          socket_sender.send(Message::Close(None)),
+        ).await;
+        break;
+      }
+      outbound = outbound_rx.recv(), if outbound_open => {
+        let Some(message) = outbound else {
+          outbound_open = false;
+          continue;
+        };
+        if !send_writer_message_or_invalidation(
+          &mut socket_sender,
+          message,
+          &mut invalid_session,
+        ).await { break; }
+      }
+      event = event_rx.recv(), if events_open => {
+        let Some(event) = event else {
+          events_open = false;
+          continue;
+        };
+        let Ok(payload) = stream_event_json(&event, &enc_key) else {
+          continue;
+        };
+        if !send_writer_message_or_invalidation(
+          &mut socket_sender,
+          Message::Text(payload.to_string().into()),
+          &mut invalid_session,
+        ).await {
+          break;
+        }
+      }
+    }
+  }
+}
+
+async fn send_writer_message_or_invalidation<S, F>(
+  socket_sender: &mut S,
+  message: Message,
+  invalid_session: &mut std::pin::Pin<&mut F>,
+) -> bool
+where
+  S: futures_util::Sink<Message> + Unpin,
+  F: std::future::Future<Output = ()>,
+{
+  tokio::select! {
+    result = socket_sender.send(message) => result.is_ok(),
+    _ = invalid_session.as_mut() => {
+      let _ = tokio::time::timeout(
+        std::time::Duration::from_millis(250),
+        socket_sender.send(Message::Close(None)),
+      ).await;
+      false
+    }
+  }
 }
 
 /// Send an encrypted I/Q frame as a binary websocket message.
@@ -3067,34 +3213,344 @@ pub fn handle_message(
 #[cfg(test)]
 mod tests {
   use super::{
-    apply_rx_stream_device_options, build_mock_tx_standby_preview_frame,
-    apply_tx_stream_options,
-    build_tx_preview_frame, drain_latest_source_iq_frame,
-    encode_encrypted_iq_frame, handle_message, is_frame_after_paused_request,
-    is_tx_preview_source, live_tune_is_out_of_bounds,
-    resolve_live_center_frequency, should_send_source_iq_frame,
+    apply_tx_stream_options, build_mock_tx_standby_preview_frame,
+    build_tx_preview_frame, cleanup_stream_subscriptions,
+    drain_latest_source_iq_frame, encode_encrypted_iq_frame, handle_message,
+    is_frame_after_paused_request, is_tx_preview_source,
+    live_tune_is_out_of_bounds, request_active_rx_stream_options,
+    resolve_authoritative_subscribe_options, resolve_live_center_frequency,
+    run_stream_writer, should_send_source_iq_frame,
     source_iq_frame_matches_source,
     source_iq_subscription_matches_active_source,
     source_iq_v2_frame_matches_source, stream_event_json,
     stream_rx_processor_settings, take_source_owned_paused_frame_request,
-    resolve_authoritative_subscribe_options, IqFrameStatus, IqStreamProtocol,
-    StreamCommand,
+    IqFrameStatus, IqStreamProtocol, StreamCommand,
   };
   use crate::sdr::processor::SdrProcessor;
   use crate::server::shared_state::SharedState;
-  use crate::server::stream_manager::{
-    RxStreamOptions, StreamEvent, StreamKey, StreamMode, TxStreamOptions,
-  };
   use crate::server::stream_contract::StreamDeliveryPolicy;
+  use crate::server::stream_manager::{
+    RxStreamOptions, SourceStreamCapabilities, StreamEvent, StreamKey,
+    StreamMode, StreamOptions, StreamingSourceModeManager, TxStreamOptions,
+  };
   use crate::server::types::{
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
   };
   use crate::server::websocket_server::active_source_id;
   use serial_test::serial;
+  use std::collections::HashMap;
   use std::sync::atomic::Ordering;
   use std::sync::mpsc;
-  use std::sync::Arc;
+  use std::sync::{Arc, Mutex};
+  use std::task::{Context, Poll, Waker};
   use std::time::Duration;
+
+  struct TaskDropNotice(Option<tokio::sync::oneshot::Sender<()>>);
+
+  impl Drop for TaskDropNotice {
+    fn drop(&mut self) {
+      if let Some(notice) = self.0.take() {
+        let _ = notice.send(());
+      }
+    }
+  }
+
+  struct ControlledWriterState {
+    blocked: bool,
+    waiting_waker: Option<Waker>,
+    started: Option<tokio::sync::oneshot::Sender<()>>,
+    messages: Vec<axum::extract::ws::Message>,
+  }
+
+  #[derive(Clone)]
+  struct ControlledWriterSink(Arc<Mutex<ControlledWriterState>>);
+
+  impl futures_util::Sink<axum::extract::ws::Message> for ControlledWriterSink {
+    type Error = std::convert::Infallible;
+
+    fn poll_ready(
+      self: std::pin::Pin<&mut Self>,
+      context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+      let mut state = self.0.lock().unwrap();
+      if state.blocked {
+        if let Some(started) = state.started.take() {
+          let _ = started.send(());
+        }
+        state.waiting_waker = Some(context.waker().clone());
+        Poll::Pending
+      } else {
+        Poll::Ready(Ok(()))
+      }
+    }
+
+    fn start_send(
+      self: std::pin::Pin<&mut Self>,
+      item: axum::extract::ws::Message,
+    ) -> Result<(), Self::Error> {
+      self.0.lock().unwrap().messages.push(item);
+      Ok(())
+    }
+
+    fn poll_flush(
+      self: std::pin::Pin<&mut Self>,
+      _context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+      Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+      self: std::pin::Pin<&mut Self>,
+      _context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+      Poll::Ready(Ok(()))
+    }
+  }
+
+  struct FailingWriterSink;
+
+  impl futures_util::Sink<axum::extract::ws::Message> for FailingWriterSink {
+    type Error = std::io::Error;
+
+    fn poll_ready(
+      self: std::pin::Pin<&mut Self>,
+      _context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+      Poll::Ready(Ok(()))
+    }
+
+    fn start_send(
+      self: std::pin::Pin<&mut Self>,
+      _item: axum::extract::ws::Message,
+    ) -> Result<(), Self::Error> {
+      Err(std::io::Error::other("controlled socket failure"))
+    }
+
+    fn poll_flush(
+      self: std::pin::Pin<&mut Self>,
+      _context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+      Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+      self: std::pin::Pin<&mut Self>,
+      _context: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+      Poll::Ready(Ok(()))
+    }
+  }
+
+  #[tokio::test]
+  async fn blocked_frame_write_does_not_block_bounded_control_responses() {
+    let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(32);
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let event_producer = tokio::spawn(async move {
+      for sequence in 0..256 {
+        if event_tx
+          .send(StreamEvent::Error {
+            key: key.clone(),
+            stream_epoch: 1,
+            options_revision: 1,
+            code: "queued".to_string(),
+            message: sequence.to_string(),
+          })
+          .await
+          .is_err()
+        {
+          break;
+        }
+      }
+    });
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let state = Arc::new(Mutex::new(ControlledWriterState {
+      blocked: true,
+      waiting_waker: None,
+      started: Some(started_tx),
+      messages: Vec::new(),
+    }));
+    let writer = tokio::spawn(run_stream_writer(
+      ControlledWriterSink(Arc::clone(&state)),
+      outbound_rx,
+      event_rx,
+      [0; 32],
+      std::future::pending(),
+    ));
+
+    tokio::time::timeout(Duration::from_secs(1), started_rx)
+      .await
+      .expect("writer should begin the queued frame")
+      .expect("writer sink should report its blocked write");
+    tokio::time::timeout(
+      Duration::from_millis(100),
+      outbound_tx
+        .send(axum::extract::ws::Message::Text("tune-response".into())),
+    )
+    .await
+    .expect("bounded response enqueue should not wait for the socket")
+    .expect("writer should still own the response channel");
+
+    let waiting_waker = {
+      let mut state = state.lock().unwrap();
+      state.blocked = false;
+      state.waiting_waker.take()
+    };
+    if let Some(waker) = waiting_waker {
+      waker.wake();
+    }
+    drop(outbound_tx);
+    event_producer.await.expect("event producer should finish");
+    tokio::time::timeout(Duration::from_secs(1), writer)
+      .await
+      .expect("writer should drain and stop")
+      .expect("writer task should complete");
+
+    let state = state.lock().unwrap();
+    let messages = &state.messages;
+    let response_index = messages
+      .iter()
+      .position(|message| {
+        matches!(message, axum::extract::ws::Message::Text(text) if text.as_str() == "tune-response")
+      })
+      .expect("tuning response should be written");
+    assert!(
+      response_index < 64,
+      "control response starved behind stream events: index={response_index}"
+    );
+  }
+
+  #[tokio::test]
+  async fn writer_failure_closes_both_bounded_input_queues() {
+    let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(32);
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let writer = tokio::spawn(run_stream_writer(
+      FailingWriterSink,
+      outbound_rx,
+      event_rx,
+      [0; 32],
+      std::future::pending(),
+    ));
+
+    outbound_tx
+      .send(axum::extract::ws::Message::Text(
+        "controlled failure".into(),
+      ))
+      .await
+      .expect("writer should initially accept a queued response");
+    tokio::time::timeout(Duration::from_secs(1), writer)
+      .await
+      .expect("writer should stop after its sink fails")
+      .expect("writer task should exit cleanly");
+
+    assert!(outbound_tx
+      .try_send(axum::extract::ws::Message::Text("after failure".into()))
+      .is_err());
+    assert!(event_tx
+      .try_send(StreamEvent::Error {
+        key: StreamKey::new("mock-apt", StreamMode::Rx),
+        stream_epoch: 1,
+        options_revision: 1,
+        code: "after_failure".to_string(),
+        message: "writer should release the event receiver".to_string(),
+      })
+      .is_err());
+  }
+
+  #[tokio::test]
+  async fn session_invalidation_cancels_a_blocked_writer_send() {
+    let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(32);
+    let (_event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let state = Arc::new(Mutex::new(ControlledWriterState {
+      blocked: true,
+      waiting_waker: None,
+      started: None,
+      messages: Vec::new(),
+    }));
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    state.lock().unwrap().started = Some(started_tx);
+    let (invalid_tx, invalid_rx) = tokio::sync::oneshot::channel();
+    let mut writer = tokio::spawn(run_stream_writer(
+      ControlledWriterSink(Arc::clone(&state)),
+      outbound_rx,
+      event_rx,
+      [0; 32],
+      async move {
+        let _ = invalid_rx.await;
+      },
+    ));
+
+    outbound_tx
+      .send(axum::extract::ws::Message::Text("blocked frame".into()))
+      .await
+      .expect("writer should accept a message before invalidation");
+    tokio::time::timeout(Duration::from_secs(1), started_rx)
+      .await
+      .expect("writer should begin the blocked socket write")
+      .expect("sink should report its blocked write");
+    invalid_tx
+      .send(())
+      .expect("session invalidation should signal");
+    let stopped = tokio::time::timeout(Duration::from_secs(1), &mut writer)
+      .await
+      .is_ok();
+    if !stopped {
+      writer.abort();
+      let _ = writer.await;
+    }
+    assert!(stopped, "session invalidation must cancel a blocked send");
+  }
+
+  #[tokio::test]
+  async fn connection_cleanup_aborts_forwarders_and_unsubscribes_streams() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    manager.register_source(
+      key.source_id.clone(),
+      SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: false,
+        full_duplex: false,
+      },
+    );
+    let options = StreamOptions::Rx(RxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      sample_rate_hz: 3_200_000,
+      fft_size: 1024,
+      fft_window: None,
+      frame_rate: Some(20),
+      gain: None,
+    });
+    let subscription = manager
+      .subscribe(key.clone(), options)
+      .expect("test stream should subscribe");
+    let manager_subscription_id = subscription.subscription_id();
+    let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let forwarder = tokio::spawn(async move {
+      let _notice = TaskDropNotice(Some(dropped_tx));
+      let _ = started_tx.send(());
+      std::future::pending::<()>().await;
+    });
+    started_rx
+      .await
+      .expect("forwarder should start before cleanup");
+    let mut subscriptions = HashMap::new();
+    subscriptions.insert(
+      "subscription-1".to_string(),
+      (key.clone(), manager_subscription_id, forwarder),
+    );
+
+    cleanup_stream_subscriptions(&manager, &mut subscriptions).await;
+
+    tokio::time::timeout(Duration::from_secs(1), dropped_rx)
+      .await
+      .expect("forwarder should be cancelled")
+      .expect("forwarder drop signal should arrive");
+    assert!(subscriptions.is_empty());
+    assert!(manager.metrics(&key).is_none());
+    drop(subscription);
+  }
 
   #[test]
   fn capture_preflight_settings_reach_start_capture_command() {
@@ -3213,30 +3669,76 @@ mod tests {
   #[serial]
   fn managed_rx_options_reach_the_acquisition_fast_path() {
     let shared = test_shared_state();
-    let (_, settings) = stream_rx_processor_settings(&RxStreamOptions {
+    let options = RxStreamOptions {
       center_frequency_hz: 6_374_000,
       sample_rate_hz: 4_372_000,
       fft_size: 2_048,
       fft_window: Some("Rectangular".to_string()),
       frame_rate: Some(60),
       gain: Some(46.9),
-    })
-    .expect("valid RX options");
+    };
 
-    apply_rx_stream_device_options(&shared, 6_374_000, settings);
-
-    assert_eq!(
-      shared.pending_center_freq.load(Ordering::Acquire),
-      6_374_000
+    request_active_rx_stream_options(
+      &shared,
+      "rtl-sdr-1",
+      options.clone(),
+      None,
     );
-    assert!(shared.pending_center_freq_dirty.load(Ordering::Acquire));
-    let pending = shared.pending_fast_settings.lock().unwrap();
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].sample_rate, Some(4_372_000));
-    drop(pending);
+
+    let pending = shared
+      .take_pending_active_rx_options()
+      .expect("complete RX options should reach acquisition");
+    assert_eq!(pending.options, options);
+    assert!(pending.applied_options.is_none());
+    assert!(!shared.pending_center_freq_dirty.load(Ordering::Acquire));
+    assert!(shared.pending_fast_settings.lock().unwrap().is_empty());
     let current = shared.sdr_settings.lock().unwrap();
     assert_eq!(current.center_frequency, 6_374_000);
     assert_eq!(current.sample_rate, 4_372_000);
+  }
+
+  #[test]
+  #[serial]
+  fn managed_center_frequency_only_change_does_not_enqueue_processor_settings()
+  {
+    let shared = test_shared_state();
+    let baseline = RxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      sample_rate_hz: 3_200_000,
+      fft_size: 1024,
+      fft_window: Some("Hanning".to_string()),
+      frame_rate: Some(20),
+      gain: Some(12.0),
+    };
+    let next = RxStreamOptions {
+      center_frequency_hz: baseline.center_frequency_hz + 1_000,
+      ..baseline.clone()
+    };
+    shared.seed_active_rx_options("rtl-sdr-1", baseline.clone());
+    request_active_rx_stream_options(
+      &shared,
+      "rtl-sdr-1",
+      next.clone(),
+      Some(baseline.clone()),
+    );
+
+    let pending = shared
+      .take_pending_active_rx_options()
+      .expect("center-frequency update should reach acquisition");
+    let delta = crate::server::source_runtime::rx_settings_delta(
+      &pending.applied_options.expect("seeded baseline"),
+      &pending.options,
+    );
+    assert!(delta.sample_rate.is_none());
+    assert!(delta.fft_size.is_none());
+    assert!(delta.fft_window.is_none());
+    assert!(delta.frame_rate.is_none());
+    assert!(delta.gain.is_none());
+    assert_eq!(
+      pending.options.center_frequency_hz,
+      next.center_frequency_hz
+    );
+    assert!(shared.pending_fast_settings.lock().unwrap().is_empty());
   }
   use tokio::sync::broadcast;
   use validator::Validate;

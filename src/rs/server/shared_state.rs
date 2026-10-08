@@ -9,6 +9,7 @@ use tokio::sync::Notify;
 use crate::app::readiness::ReadinessState;
 use crate::infrastructure::redis::{RedisReadiness, RedisStore};
 
+use super::stream_manager::RxStreamOptions;
 use super::types::{DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage};
 use super::utils::{load_available_spectrum, load_channels, load_sdr_settings};
 
@@ -51,6 +52,105 @@ pub const DEVICE_OPEN_DEADLINE: std::time::Duration =
 /// left to unwind in the background.
 pub const DEVICE_RELEASE_DEADLINE: std::time::Duration =
   std::time::Duration::from_secs(5);
+
+#[derive(Clone)]
+pub(crate) struct ActiveRxOptionsAttempt {
+  pub source_id: String,
+  pub revision: u64,
+  pub options: RxStreamOptions,
+  pub applied_options: Option<RxStreamOptions>,
+  pub requested_at: Instant,
+}
+
+#[derive(Default)]
+struct ActiveRxOptionsState {
+  source_id: Option<String>,
+  next_revision: u64,
+  desired: Option<ActiveRxOptionsAttempt>,
+  applied_revision: u64,
+  applied_options: Option<RxStreamOptions>,
+  last_attempted_revision: u64,
+}
+
+impl ActiveRxOptionsState {
+  fn seed(&mut self, source_id: &str, options: RxStreamOptions) {
+    if self.source_id.as_deref() == Some(source_id)
+      && self.applied_options.is_some()
+    {
+      return;
+    }
+    self.source_id = Some(source_id.to_string());
+    self.next_revision = 0;
+    self.desired = None;
+    self.applied_revision = 0;
+    self.applied_options = Some(options);
+    self.last_attempted_revision = 0;
+  }
+
+  fn request(
+    &mut self,
+    source_id: &str,
+    options: RxStreamOptions,
+    baseline: Option<RxStreamOptions>,
+  ) {
+    if self.source_id.as_deref() != Some(source_id) {
+      self.source_id = Some(source_id.to_string());
+      self.next_revision = 0;
+      self.desired = None;
+      self.applied_revision = 0;
+      self.applied_options = baseline;
+      self.last_attempted_revision = 0;
+    } else if self.applied_options.is_none() {
+      self.applied_options = baseline;
+    }
+    self.next_revision = self.next_revision.wrapping_add(1);
+    self.desired = Some(ActiveRxOptionsAttempt {
+      source_id: source_id.to_string(),
+      revision: self.next_revision,
+      options,
+      applied_options: self.applied_options.clone(),
+      requested_at: Instant::now(),
+    });
+  }
+
+  fn take_pending(&mut self) -> Option<ActiveRxOptionsAttempt> {
+    let desired = self.desired.as_ref()?;
+    if desired.revision <= self.last_attempted_revision {
+      return None;
+    }
+    self.last_attempted_revision = desired.revision;
+    let mut attempt = desired.clone();
+    attempt.applied_options = self.applied_options.clone();
+    Some(attempt)
+  }
+
+  fn mark_applied(
+    &mut self,
+    source_id: &str,
+    revision: u64,
+    options: RxStreamOptions,
+  ) {
+    if self.source_id.as_deref() == Some(source_id)
+      && revision >= self.applied_revision
+    {
+      self.applied_revision = revision;
+      self.applied_options = Some(options);
+    }
+  }
+
+  fn applied_options(&self) -> Option<RxStreamOptions> {
+    self.applied_options.clone()
+  }
+
+  fn needs_application(
+    &self,
+    source_id: &str,
+    options: &RxStreamOptions,
+  ) -> bool {
+    self.source_id.as_deref() != Some(source_id)
+      || self.applied_options.as_ref() != Some(options)
+  }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HackRfInventoryDevice {
@@ -112,6 +212,15 @@ pub struct SharedState {
   pub pending_center_freq: AtomicU32,
   /// Whether there is a pending frequency change
   pub pending_center_freq_dirty: AtomicBool,
+  /// Request timestamp paired with the latest center frequency for latency
+  /// profiling at the frame-loop retune boundary.
+  pub pending_center_freq_requested_at: Mutex<Option<(u32, Instant)>>,
+  /// Latest active-source managed RX options and the last complete values
+  /// successfully applied to the active processor.
+  active_rx_options: Mutex<ActiveRxOptionsState>,
+  /// Timestamp of the most recent successful live retune, consumed when its
+  /// first frame is published.
+  pub live_retune_started_at: Mutex<Option<Instant>>,
   /// Wakes the frame loop as soon as a new retune request arrives.
   pub pending_center_freq_notify: Notify,
   /// Shutdown signal — I/O thread checks this each iteration
@@ -280,6 +389,9 @@ impl SharedState {
       source_pause_states: Mutex::new(HashMap::new()),
       pending_center_freq: AtomicU32::new(sdr_settings.center_frequency),
       pending_center_freq_dirty: AtomicBool::new(false),
+      pending_center_freq_requested_at: Mutex::new(None),
+      active_rx_options: Mutex::new(ActiveRxOptionsState::default()),
+      live_retune_started_at: Mutex::new(None),
       pending_center_freq_notify: Notify::new(),
       shutdown: AtomicBool::new(false),
       device_released: AtomicBool::new(false),
@@ -355,6 +467,8 @@ impl SharedState {
   /// Publish the newest center-frequency request without taking the processor
   /// mutex. The frame loop consumes the latest value before its next read.
   pub fn request_center_frequency(&self, center_frequency_hz: u32) {
+    *self.pending_center_freq_requested_at.lock().unwrap() =
+      Some((center_frequency_hz, Instant::now()));
     self
       .pending_center_freq
       .store(center_frequency_hz, Ordering::Release);
@@ -362,6 +476,90 @@ impl SharedState {
       .pending_center_freq_dirty
       .store(true, Ordering::Release);
     self.pending_center_freq_notify.notify_one();
+  }
+
+  pub fn take_center_frequency_request_time(
+    &self,
+    center_frequency_hz: u32,
+  ) -> Option<Instant> {
+    let mut pending = self.pending_center_freq_requested_at.lock().unwrap();
+    if pending.as_ref().is_some_and(|(requested_frequency, _)| {
+      *requested_frequency == center_frequency_hz
+    }) {
+      pending.take().map(|(_, requested_at)| requested_at)
+    } else {
+      None
+    }
+  }
+
+  pub fn mark_live_retune_started(&self) {
+    *self.live_retune_started_at.lock().unwrap() = Some(Instant::now());
+  }
+
+  pub fn record_live_retune_frame_published(&self) {
+    if let Some(started_at) = self.live_retune_started_at.lock().unwrap().take()
+    {
+      crate::performance::pipeline_metrics().record_latency(
+        crate::performance::Stage::RetuneToFirstFrame,
+        started_at.elapsed(),
+      );
+    }
+  }
+
+  pub fn seed_active_rx_options(
+    &self,
+    source_id: &str,
+    options: RxStreamOptions,
+  ) {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .seed(source_id, options);
+  }
+
+  pub fn request_active_rx_options(
+    &self,
+    source_id: &str,
+    options: RxStreamOptions,
+    baseline: Option<RxStreamOptions>,
+  ) {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .request(source_id, options, baseline);
+  }
+
+  pub fn active_rx_options_need_application(
+    &self,
+    source_id: &str,
+    options: &RxStreamOptions,
+  ) -> bool {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .needs_application(source_id, options)
+  }
+
+  pub(crate) fn take_pending_active_rx_options(
+    &self,
+  ) -> Option<ActiveRxOptionsAttempt> {
+    self.active_rx_options.lock().unwrap().take_pending()
+  }
+
+  pub(crate) fn mark_active_rx_options_applied(
+    &self,
+    source_id: &str,
+    revision: u64,
+    options: RxStreamOptions,
+  ) {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .mark_applied(source_id, revision, options);
   }
 
   /// Queue the newest value for every device-scoped setting without allowing
@@ -814,12 +1012,89 @@ fn unsafe_local_user_password() -> String {
 #[cfg(test)]
 mod tests {
   use super::{
-    unsafe_local_user_password, HackRfInventoryDevice,
+    unsafe_local_user_password, ActiveRxOptionsState, HackRfInventoryDevice,
     RtlSdrInventoryDevice, SharedState,
   };
+  use crate::server::stream_manager::RxStreamOptions;
   use crate::server::types::SdrProcessorSettings;
   use serial_test::serial;
   use std::sync::atomic::Ordering;
+
+  fn rx_options(center_frequency_hz: u64) -> RxStreamOptions {
+    RxStreamOptions {
+      center_frequency_hz,
+      sample_rate_hz: 3_200_000,
+      fft_size: 1024,
+      fft_window: Some("Hanning".to_string()),
+      frame_rate: Some(20),
+      gain: Some(12.0),
+    }
+  }
+
+  #[test]
+  fn failed_active_rx_option_attempt_does_not_advance_applied_state() {
+    let mut state = ActiveRxOptionsState::default();
+    let baseline = rx_options(137_100_000);
+    state.seed("rtl-1", baseline.clone());
+
+    let first = rx_options(137_200_000);
+    state.request("rtl-1", first.clone(), None);
+    let attempted = state
+      .take_pending()
+      .expect("first option update should be pending");
+    assert_eq!(attempted.applied_options, Some(baseline.clone()));
+
+    // Simulate a failed device application by not acknowledging the attempt.
+    // Repeating the desired value must retry from the last successful baseline.
+    assert!(state.needs_application("rtl-1", &first));
+    state.request("rtl-1", first.clone(), None);
+    let retry = state
+      .take_pending()
+      .expect("duplicate failed option update should retry");
+    assert_eq!(retry.applied_options, Some(baseline));
+    state.mark_applied("rtl-1", retry.revision, first.clone());
+
+    assert!(state.take_pending().is_none());
+    assert!(!state.needs_application("rtl-1", &first));
+    assert_eq!(state.applied_options(), Some(first));
+  }
+
+  #[test]
+  fn active_rx_option_burst_keeps_only_the_latest_complete_options() {
+    let mut state = ActiveRxOptionsState::default();
+    let baseline = rx_options(137_100_000);
+    state.seed("rtl-1", baseline.clone());
+    state.request("rtl-1", rx_options(137_200_000), None);
+    state.request("rtl-1", rx_options(137_300_000), None);
+
+    let pending = state
+      .take_pending()
+      .expect("latest option update should remain pending");
+
+    assert_eq!(pending.revision, 2);
+    assert_eq!(pending.options.center_frequency_hz, 137_300_000);
+    assert_eq!(pending.applied_options, Some(baseline));
+  }
+
+  #[test]
+  fn old_source_application_cannot_overwrite_new_source_tracking() {
+    let mut state = ActiveRxOptionsState::default();
+    let old_baseline = rx_options(137_100_000);
+    let old_update = rx_options(137_200_000);
+    state.seed("rtl-1", old_baseline);
+    state.request("rtl-1", old_update.clone(), None);
+    let old_attempt = state.take_pending().expect("old source update");
+
+    let new_baseline = rx_options(144_800_000);
+    state.request(
+      "hackrf-1",
+      rx_options(145_000_000),
+      Some(new_baseline.clone()),
+    );
+    state.mark_applied("rtl-1", old_attempt.revision, old_update);
+
+    assert_eq!(state.applied_options(), Some(new_baseline));
+  }
 
   #[test]
   #[serial]

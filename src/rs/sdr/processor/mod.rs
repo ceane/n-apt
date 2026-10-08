@@ -1493,8 +1493,10 @@ impl SdrProcessor {
           0.0
         };
         self.current_gain_db = effective_lna + effective_vga + effective_amp;
-        config.gain = 1.0;
-        config_changed = true;
+        if config.gain != 1.0 {
+          config.gain = 1.0;
+          config_changed = true;
+        }
       } else if let Some(g_db) = gain {
         if (self.current_gain_db - g_db).abs() > 0.01 {
           if let Err(e) = self.device.set_gain(g_db) {
@@ -1502,8 +1504,10 @@ impl SdrProcessor {
           }
           self.current_gain_db = g_db;
         }
-        config.gain = 1.0;
-        config_changed = true;
+        if config.gain != 1.0 {
+          config.gain = 1.0;
+          config_changed = true;
+        }
       }
     } else if let Some(g_db) = gain {
       if (self.current_gain_db - g_db).abs() > 0.01 {
@@ -1517,8 +1521,10 @@ impl SdrProcessor {
       // Mock devices handle gain internally in IQ generation (signal amplitude
       // scales with gain, noise floor stays fixed). Real hardware gain is
       // applied by the physical tuner before ADC sampling.
-      config.gain = 1.0;
-      config_changed = true;
+      if config.gain != 1.0 {
+        config.gain = 1.0;
+        config_changed = true;
+      }
     }
 
     if let Some(p) = ppm {
@@ -1529,12 +1535,11 @@ impl SdrProcessor {
         self.current_ppm = p;
       }
 
-      if self.is_mock() {
-        config.ppm = p as f32;
-      } else {
-        config.ppm = 0.0;
+      let config_ppm = if self.is_mock() { p as f32 } else { 0.0 };
+      if config.ppm != config_ppm {
+        config.ppm = config_ppm;
+        config_changed = true;
       }
-      config_changed = true;
     }
 
     if let Some(tuner_agc) = tuner_agc {
@@ -1603,6 +1608,11 @@ impl SdrProcessor {
   /// center-frequency metadata, so the presentation layer can reject a stale
   /// frame while the hardware settles without starving the renderer.
   pub fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
+    let metrics = crate::performance::pipeline_metrics();
+    let _span = crate::performance::ProfilingSpan::start(
+      metrics,
+      crate::performance::Stage::HardwareRetune,
+    );
     self.device.set_center_frequency_live(freq)?;
     self.fft_processor.set_center_frequency(freq);
     self.frame.avg_spectrum = None;
