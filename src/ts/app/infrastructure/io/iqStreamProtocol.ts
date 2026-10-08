@@ -121,9 +121,14 @@ export const decodeIqFrameEnvelope = (
     throw new Error("Invalid I/Q frame header length");
   }
 
-  const sourceId = new TextDecoder("utf-8", { fatal: true })
-    .decode(new Uint8Array(buffer, V2_FIXED_HEADER_BYTES, sourceIdLength))
-    .trim();
+  let sourceId: string;
+  try {
+    sourceId = new TextDecoder("utf-8", { fatal: true })
+      .decode(new Uint8Array(buffer, V2_FIXED_HEADER_BYTES, sourceIdLength))
+      .trim();
+  } catch {
+    throw new Error("Invalid I/Q frame source ID: invalid UTF-8");
+  }
   if (!sourceId) {
     throw new Error("Invalid I/Q frame header: empty source ID");
   }

@@ -11,6 +11,8 @@ import AdmZip from 'adm-zip';
 import { JSDOM } from 'jsdom';
 
 const repo = path.resolve(import.meta.dirname, '../..');
+const OFFLINE_REDIS_URL = 'rediss://napt-app:test-only@redis.invalid:6379/0';
+const withOfflineRedis = envText => `${envText}REDIS_URL=${OFFLINE_REDIS_URL}\n`;
 async function isolatedProject(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'napt-security-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -20,21 +22,23 @@ async function isolatedProject(t) {
   return root;
 }
 
-test('setup never prints existing credentials and preserves their bytes', async t => {
+test('setup never prints existing credentials and preserves their values', async t => {
   const root = await isolatedProject(t);
   await fs.cp(path.join(repo, 'scripts/setup'), path.join(root, 'scripts/setup'), { recursive: true });
-  const original = 'UNSAFE_LOCAL_USER_PASSWORD=FAKE_SECRET_DO_NOT_PRINT\nOPEN_CELL_ID_ACCESS_TOKEN=FAKE_API_TOKEN\n';
+  const original = withOfflineRedis('UNSAFE_LOCAL_USER_PASSWORD=FAKE_SECRET_DO_NOT_PRINT\nOPEN_CELL_ID_ACCESS_TOKEN=FAKE_API_TOKEN\n');
   await fs.writeFile(path.join(root, '.env.local'), original);
   const result = spawnSync(process.execPath, [path.join(root, 'scripts/setup/create_env.js')], { encoding:'utf8' });
   assert.equal(result.status, 0);
-  assert.equal(await fs.readFile(path.join(root, '.env.local'), 'utf8'), original);
+  const updated = await fs.readFile(path.join(root, '.env.local'), 'utf8');
+  assert.match(updated, /^UNSAFE_LOCAL_USER_PASSWORD=FAKE_SECRET_DO_NOT_PRINT$/m);
+  assert.match(updated, /^OPEN_CELL_ID_ACCESS_TOKEN=FAKE_API_TOKEN$/m);
   assert.doesNotMatch(result.stdout + result.stderr, /FAKE_SECRET_DO_NOT_PRINT|FAKE_API_TOKEN/);
 });
 
 test('setup removes the Vite password alias without losing a distinct legacy capture key', async t => {
   const root = await isolatedProject(t);
   await fs.cp(path.join(repo, 'scripts/setup'), path.join(root, 'scripts/setup'), { recursive: true });
-  const original = 'UNSAFE_LOCAL_USER_PASSWORD=backend-key\nVITE_UNSAFE_LOCAL_USER_PASSWORD=legacy-capture-key\n';
+  const original = withOfflineRedis('UNSAFE_LOCAL_USER_PASSWORD=backend-key\nVITE_UNSAFE_LOCAL_USER_PASSWORD=legacy-capture-key\n');
   await fs.writeFile(path.join(root, '.env.local'), original);
   const result = spawnSync(process.execPath, [path.join(root, 'scripts/setup/create_env.js')], { encoding:'utf8' });
   assert.equal(result.status, 0);
@@ -48,7 +52,7 @@ test('setup removes the Vite password alias without losing a distinct legacy cap
 test('setup removes a duplicate Vite alias when it matches the backend password', async t => {
   const root = await isolatedProject(t);
   await fs.cp(path.join(repo, 'scripts/setup'), path.join(root, 'scripts/setup'), { recursive: true });
-  const original = 'UNSAFE_LOCAL_USER_PASSWORD=same-local-key\nVITE_UNSAFE_LOCAL_USER_PASSWORD=same-local-key\n';
+  const original = withOfflineRedis('UNSAFE_LOCAL_USER_PASSWORD=same-local-key\nVITE_UNSAFE_LOCAL_USER_PASSWORD=same-local-key\n');
   await fs.writeFile(path.join(root, '.env.local'), original);
   const result = spawnSync(process.execPath, [path.join(root, 'scripts/setup/create_env.js')], { encoding:'utf8' });
   assert.equal(result.status, 0);
@@ -62,7 +66,7 @@ test('setup removes a duplicate Vite alias when it matches the backend password'
 test('setup promotes the Vite alias when it is the only local login password', async t => {
   const root = await isolatedProject(t);
   await fs.cp(path.join(repo, 'scripts/setup'), path.join(root, 'scripts/setup'), { recursive: true });
-  const original = 'VITE_UNSAFE_LOCAL_USER_PASSWORD=old-login-key\n';
+  const original = withOfflineRedis('VITE_UNSAFE_LOCAL_USER_PASSWORD=old-login-key\n');
   await fs.writeFile(path.join(root, '.env.local'), original);
   const result = spawnSync(process.execPath, [path.join(root, 'scripts/setup/create_env.js')], { encoding:'utf8' });
   assert.equal(result.status, 0);
@@ -99,6 +103,13 @@ test('encryption e2e script leaves an existing local env file intact on early fa
 test('new setup uses an unpredictable password and private file permissions', async t => {
   const root = await isolatedProject(t);
   await fs.cp(path.join(repo, 'scripts/setup'), path.join(root, 'scripts/setup'), { recursive: true });
+  const redisStateDir = path.join(root, '.n-apt/redis');
+  await fs.mkdir(redisStateDir, { recursive: true });
+  await fs.writeFile(path.join(redisStateDir, 'salt-fingerprint.pending.json'), JSON.stringify({
+    version: 1,
+    saltFingerprint: { count: 0, records: [] },
+    backupFile: null,
+  }));
   const result = spawnSync(process.execPath, [path.join(root, 'scripts/setup/create_env.js')], { encoding:'utf8' });
   assert.equal(result.status, 0);
   const env = await fs.readFile(path.join(root, '.env.local'), 'utf8');

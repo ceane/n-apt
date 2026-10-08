@@ -30,6 +30,43 @@ impl Drop for RedisGuard {
   }
 }
 
+/// Isolates credential files for the duration of each endpoint test and
+/// restores the process environment when the Redis/server guard is dropped.
+struct TestHome {
+  _directory: tempfile::TempDir,
+  previous: Option<std::ffi::OsString>,
+}
+
+impl TestHome {
+  fn new() -> Self {
+    let directory = tempfile::tempdir().unwrap();
+    let previous = std::env::var_os("HOME");
+    unsafe {
+      std::env::set_var("HOME", directory.path());
+    }
+    Self {
+      _directory: directory,
+      previous,
+    }
+  }
+}
+
+impl Drop for TestHome {
+  fn drop(&mut self) {
+    unsafe {
+      match &self.previous {
+        Some(home) => std::env::set_var("HOME", home),
+        None => std::env::remove_var("HOME"),
+      }
+    }
+  }
+}
+
+struct TestServerGuard {
+  _redis: RedisGuard,
+  _home: TestHome,
+}
+
 /// Spawn a redis-server on a free port. Returns the (url, guard).
 fn spawn_test_redis() -> (String, RedisGuard) {
   // Bind to port 0 to let the OS pick a free port, then release it.
@@ -81,7 +118,8 @@ fn ensure_test_password() {
   }
 }
 
-async fn setup_test_server() -> (TestServer, Arc<AppState>, String, RedisGuard) {
+async fn setup_test_server(
+) -> (TestServerGuard, TestServer, Arc<AppState>, String) {
   ensure_test_password();
   let (redis_url, guard) = spawn_test_redis();
 
@@ -89,10 +127,7 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>, String, RedisGuard) 
   let (spectrum_tx, _) = broadcast::channel(100);
   let (cmd_tx, _) = std::sync::mpsc::channel();
 
-  let temp_dir = tempfile::tempdir().unwrap();
-  unsafe {
-    std::env::set_var("HOME", temp_dir.path());
-  }
+  let home = TestHome::new();
 
   let shared = SharedState::new(&redis_url);
   let credential_store =
@@ -129,17 +164,20 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>, String, RedisGuard) 
 
   let app = WebSocketServer::create_app(state.clone());
   (
+    TestServerGuard {
+      _redis: guard,
+      _home: home,
+    },
     TestServer::builder().http_transport().build(app),
     state,
     redis_url,
-    guard,
   )
 }
 
 #[tokio::test]
 #[serial]
 async fn test_protected_endpoints_deny_unauthorized() {
-  let (server, _, _url, _guard) = setup_test_server().await;
+  let (_guard, server, _, _url) = setup_test_server().await;
 
   // List of endpoints to check
   let endpoints = vec![
@@ -168,7 +206,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
 #[tokio::test]
 #[serial]
 async fn test_protected_endpoints_allow_authorized() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   // Create a valid session
   let token = state
@@ -193,7 +231,7 @@ async fn test_protected_endpoints_allow_authorized() {
 #[tokio::test]
 #[serial]
 async fn test_invalid_token_denied() {
-  let (server, _, _url, _guard) = setup_test_server().await;
+  let (_guard, server, _, _url) = setup_test_server().await;
 
   let response = server
     .get("/api/towers/bounds")
@@ -209,7 +247,7 @@ async fn test_invalid_token_denied() {
 #[tokio::test]
 #[serial]
 async fn test_vault_key_matches_shared_password_key() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let token = state
     .session_store
@@ -233,7 +271,7 @@ async fn test_vault_key_matches_shared_password_key() {
 #[tokio::test]
 #[serial]
 async fn test_live_stream_uses_shared_password_key_not_session_key() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let session_key = [7u8; 32];
   assert_ne!(session_key, state.shared.encryption_key);
@@ -314,7 +352,7 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
 #[tokio::test]
 #[serial]
 async fn test_password_auth_flow_issues_working_session() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   // Step 1: challenge
   let challenge_res = server.post("/auth/challenge").await;
@@ -382,7 +420,7 @@ async fn test_password_auth_flow_issues_working_session() {
 #[tokio::test]
 #[serial]
 async fn test_session_lifecycle_roundtrip_and_revoke() {
-  let (_server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, _server, state, _url) = setup_test_server().await;
 
   let session_key = [9u8; 32];
   let token = state
@@ -415,7 +453,7 @@ async fn test_session_lifecycle_roundtrip_and_revoke() {
 #[tokio::test]
 #[serial]
 async fn security_registration_requires_session_even_on_first_run() {
-  let (server, _state, _, _guard) = setup_test_server().await;
+  let (_guard, server, _state, _) = setup_test_server().await;
   for endpoint in ["/auth/passkey/register/start", "/auth/passkey/register/finish"] {
     server.post(endpoint).json(&serde_json::json!({})).await.assert_status_unauthorized();
   }
@@ -424,7 +462,7 @@ async fn security_registration_requires_session_even_on_first_run() {
 #[tokio::test]
 #[serial]
 async fn security_registration_challenge_is_bound_to_authorizing_session() {
-  let (server, state, _, _guard) = setup_test_server().await;
+  let (_guard, server, state, _) = setup_test_server().await;
   let owner = state.session_store.create_session(crypto::generate_key()).await.unwrap();
   let other = state.session_store.create_session(crypto::generate_key()).await.unwrap();
   let response = server.post("/auth/passkey/register/start").add_header(
@@ -451,7 +489,7 @@ async fn security_registration_challenge_is_bound_to_authorizing_session() {
 #[tokio::test]
 #[serial]
 async fn security_exported_vault_key_cannot_authenticate() {
-  let (server, state, _, _guard) = setup_test_server().await;
+  let (_guard, server, state, _) = setup_test_server().await;
   let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
   let vault = server.get("/auth/vault-key").add_header(
     axum::http::header::AUTHORIZATION,
@@ -470,7 +508,7 @@ async fn security_exported_vault_key_cannot_authenticate() {
 #[tokio::test]
 #[serial]
 async fn security_revocation_closes_every_socket_transport() {
-  let (server, state, _, _guard) = setup_test_server().await;
+  let (_guard, server, state, _) = setup_test_server().await;
   for route in ["/ws", "/ws/source/mock-apt/iq", "/ws/streams", "/ws/streams/unused-stream"] {
     let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
     let mut socket = server.get_websocket(&format!("{route}?token={token}")).await.into_websocket().await;
@@ -493,7 +531,7 @@ async fn security_revocation_closes_every_socket_transport() {
 #[tokio::test]
 #[serial]
 async fn security_redis_expiry_closes_an_idle_socket() {
-  let (server, state, redis_url, _guard) = setup_test_server().await;
+  let (_guard, server, state, redis_url) = setup_test_server().await;
   let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
   let mut socket = server.get_websocket(&format!("/ws/streams?token={token}")).await.into_websocket().await;
   let client = redis::Client::open(redis_url).unwrap();
@@ -511,7 +549,7 @@ async fn security_redis_expiry_closes_an_idle_socket() {
 #[tokio::test]
 #[serial]
 async fn test_session_key_material_stored_in_redis_json() {
-  let (_server, state, redis_url, _guard) = setup_test_server().await;
+  let (_guard, _server, state, redis_url) = setup_test_server().await;
 
   let session_key = [42u8; 32];
   let token = state
@@ -548,7 +586,7 @@ async fn test_session_key_material_stored_in_redis_json() {
 #[tokio::test]
 #[serial]
 async fn test_vault_key_accepts_bearer_header() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let token = state
     .session_store
@@ -577,7 +615,7 @@ async fn test_vault_key_accepts_bearer_header() {
 #[tokio::test]
 #[serial]
 async fn test_vault_key_without_token_denied() {
-  let (server, _, _url, _guard) = setup_test_server().await;
+  let (_guard, server, _, _url) = setup_test_server().await;
   server.get("/auth/vault-key").await.assert_status_unauthorized();
 }
 
@@ -586,7 +624,7 @@ async fn test_vault_key_without_token_denied() {
 #[tokio::test]
 #[serial]
 async fn test_protected_endpoint_accepts_query_token() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let token = state
     .session_store
