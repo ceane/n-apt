@@ -24,6 +24,8 @@ import {
 } from "@n-apt/demodulation/react-flow/nodes/audioWaveformPreview";
 import { TestWrapper } from "./testUtils";
 
+let mockSessionToken: string | null = null;
+
 const mockDemodValue: {
   analysisSession: {
     state: string;
@@ -56,6 +58,10 @@ jest.mock("@n-apt/redux", () => {
   const reactRedux = jest.requireActual("react-redux");
   return { useAppSelector: reactRedux.useSelector };
 });
+
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ sessionToken: mockSessionToken }),
+}));
 
 jest.mock("@n-apt/webusb/initialSpectrumFrequencyRange", () => ({
   INITIAL_SPECTRUM_FREQUENCY_RANGE: { min: 18_000, max: 4_390_000 },
@@ -97,6 +103,7 @@ describe("StimulusNode", () => {
   let previousRequestFullscreen: PropertyDescriptor | undefined;
 
   beforeEach(() => {
+    mockSessionToken = null;
     previousScreenDetails = Object.getOwnPropertyDescriptor(
       window,
       "getScreenDetails",
@@ -602,8 +609,9 @@ describe("StimulusNode", () => {
     expect(button).toBeInTheDocument();
   });
 
-  it("selects the Hugging Face destination before starting a demod capture", async () => {
+  it("keeps the Hugging Face destination selectable before starting a demod capture", async () => {
     window.localStorage.removeItem("napt.capture-destination.v1");
+    mockSessionToken = "test-session";
     const fetchSpy = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -617,12 +625,7 @@ describe("StimulusNode", () => {
       value: fetchSpy,
     });
     render(
-      <TestWrapper
-        preloadedState={{
-          ...channelACompatibleState,
-          auth: { sessionToken: "test-session" },
-        }}
-      >
+      <TestWrapper preloadedState={channelACompatibleState}>
         <StimulusNode {...defaultProps} />
       </TestWrapper>,
     );
@@ -630,6 +633,7 @@ describe("StimulusNode", () => {
     const destination = screen.getByRole("combobox", {
       name: "Demod output destination",
     });
+    expect(destination).toHaveClass("nodrag", "nopan");
     await waitFor(() =>
       expect(
         within(destination).getByRole("option", {

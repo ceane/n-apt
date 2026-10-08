@@ -9,6 +9,7 @@ import styled from "styled-components";
 import { z } from "zod";
 import { AlertTriangle } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
+import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { CAPTURE_DESTINATION_STORAGE_KEY } from "@n-apt/capture/public/destinations";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocality } from "@n-apt/capture";
@@ -731,7 +732,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     (state) => state.spectrum.frequencyRange,
   );
   const channels = useAppSelector((state) => state.websocket.channels);
-  const sessionToken = useAppSelector((state) => state.auth.sessionToken);
+  const { sessionToken } = useAuthentication();
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
@@ -2053,6 +2054,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
           <SelectLabel htmlFor="demod-output-destination">Output destination</SelectLabel>
           <StimulusSelect
             id="demod-output-destination"
+            className="nodrag nopan"
             aria-label="Demod output destination"
             value={outputDestination}
             onChange={(event) => updateOutputDestination(event.target.value as "local" | "huggingface")}
