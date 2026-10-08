@@ -238,23 +238,54 @@ pub fn read_job_manifest(
 pub fn recover_artifact_paths(
   artifacts: &[CaptureArtifact],
 ) -> Result<Vec<CaptureArtifact>, String> {
-  recover_artifact_paths_with_dirs(artifacts, &replica_capture_dirs())
+  recover_artifact_paths_with_dirs(artifacts, &artifact_directories())
 }
 
 fn recover_artifact_paths_with_dirs(
   artifacts: &[CaptureArtifact],
-  replica_dirs: &[PathBuf],
+  trusted_dirs: &[PathBuf],
 ) -> Result<Vec<CaptureArtifact>, String> {
+  let canonical_roots: Vec<PathBuf> = trusted_dirs
+    .iter()
+    .filter_map(|directory| directory.canonicalize().ok())
+    .collect();
   let mut recovered = Vec::with_capacity(artifacts.len());
   for artifact in artifacts {
-    if artifact.path.is_file() {
-      recovered.push(artifact.clone());
+    if !safe_basename(&artifact.filename) {
+      return Err(format!(
+        "capture artifact {} has an unsafe filename",
+        artifact.filename
+      ));
+    }
+
+    if let Some(path) = artifact
+      .path
+      .canonicalize()
+      .ok()
+      .filter(|path| {
+        path.is_file()
+          && canonical_roots.iter().any(|root| path.starts_with(root))
+      })
+    {
+      let mut copy = artifact.clone();
+      copy.path = path;
+      recovered.push(copy);
       continue;
     }
-    let replacement = replica_dirs
+
+    let replacement = trusted_dirs
       .iter()
       .map(|directory| directory.join(&artifact.filename))
-      .find(|path| path.is_file())
+      .find_map(|path| {
+        let canonical = path.canonicalize().ok()?;
+        if canonical.is_file()
+          && canonical_roots.iter().any(|root| canonical.starts_with(root))
+        {
+          Some(canonical)
+        } else {
+          None
+        }
+      })
       .ok_or_else(|| {
         format!("capture artifact {} has no available copy", artifact.filename)
       })?;
@@ -331,6 +362,43 @@ mod tests {
     assert!(safe_basename("capture-1.iq"));
     assert!(!safe_basename("../capture.iq"));
     assert!(!safe_basename("folder/capture.iq"));
+  }
+
+  #[test]
+  fn recovery_rejects_unsafe_artifact_filenames() {
+    let root = tempfile::tempdir().expect("temporary storage root");
+    let artifacts = vec![CaptureArtifact {
+      filename: "../outside.iq".into(),
+      path: root.path().join("missing.iq"),
+      file_size: 0,
+      checksum: String::new(),
+    }];
+
+    let result =
+      recover_artifact_paths_with_dirs(&artifacts, &[root.path().to_path_buf()]);
+
+    assert!(result.is_err());
+  }
+
+  #[test]
+  fn recovery_rejects_artifact_paths_outside_trusted_directories() {
+    let root = tempfile::tempdir().expect("temporary storage root");
+    let trusted = root.path().join("trusted");
+    let outside = root.path().join("outside");
+    fs::create_dir_all(&trusted).expect("create trusted storage");
+    fs::create_dir_all(&outside).expect("create outside directory");
+    let outside_file = outside.join("capture.iq");
+    fs::write(&outside_file, b"must not be recovered").expect("write outside file");
+    let artifacts = vec![CaptureArtifact {
+      filename: "capture.iq".into(),
+      path: outside_file,
+      file_size: 21,
+      checksum: String::new(),
+    }];
+
+    let result = recover_artifact_paths_with_dirs(&artifacts, &[trusted]);
+
+    assert!(result.is_err());
   }
 
   #[test]
