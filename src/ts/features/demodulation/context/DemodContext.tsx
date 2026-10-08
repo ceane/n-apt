@@ -267,6 +267,7 @@ interface DemodContextValue {
     mediaContent?: string,
     baselineVector?: number[],
     captureLabels?: string[],
+    outputDestination?: "local" | "huggingface",
   ) => string | null;
   clearAnalysis: () => void;
 
@@ -1876,6 +1877,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       mediaContentOrBaselineVector?: string | number[],
       baselineVector?: number[],
       captureLabels?: string[],
+      outputDestination: "local" | "huggingface" = "local",
     ) => {
       const legacySignature = typeof durationSOrScriptContent === "string";
       const durationS = legacySignature ? 5.0 : durationSOrScriptContent;
@@ -1915,6 +1917,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         scriptContent,
         mediaContent,
         baselineVector: resolvedBaselineVector,
+        outputDestination,
       });
 
       // Capture flow: request a real encrypted reference capture from the

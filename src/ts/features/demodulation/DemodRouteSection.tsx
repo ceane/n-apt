@@ -1201,6 +1201,7 @@ const DemodRouteSectionInner: React.FC = () => {
               state: "result",
               result: analysisSession.result,
               vector: analysisSession.type,
+              outputDestination: analysisSession.outputDestination ?? "local",
             },
           };
         }),
@@ -1222,6 +1223,7 @@ const DemodRouteSectionInner: React.FC = () => {
           state: "result",
           result: analysisSession.result,
           vector: analysisSession.type,
+          outputDestination: analysisSession.outputDestination ?? "local",
         },
       };
 

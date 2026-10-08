@@ -602,6 +602,59 @@ describe("StimulusNode", () => {
     expect(button).toBeInTheDocument();
   });
 
+  it("selects the Hugging Face destination before starting a demod capture", async () => {
+    window.localStorage.removeItem("napt.capture-destination.v1");
+    const fetchSpy = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        destinations: [
+          { id: "huggingface", available: true, path: "/datasets/n-apt-ml" },
+        ],
+      }),
+    } as Response);
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: fetchSpy,
+    });
+    render(
+      <TestWrapper
+        preloadedState={{
+          ...channelACompatibleState,
+          auth: { sessionToken: "test-session" },
+        }}
+      >
+        <StimulusNode {...defaultProps} />
+      </TestWrapper>,
+    );
+
+    const destination = screen.getByRole("combobox", {
+      name: "Demod output destination",
+    });
+    await waitFor(() =>
+      expect(
+        within(destination).getByRole("option", {
+          name: "Hugging Face dataset",
+        }),
+      ).toBeEnabled(),
+    );
+    fireEvent.change(destination, { target: { value: "huggingface" } });
+    fireEvent.click(screen.getByRole("button", { name: "TRIGGER" }));
+    await waitFor(() =>
+      expect(mockDemodValue.startAnalysis).toHaveBeenCalled(),
+    );
+
+    const lastStartAnalysisCall =
+      mockDemodValue.startAnalysis.mock.calls[
+        mockDemodValue.startAnalysis.mock.calls.length - 1
+      ];
+    expect(lastStartAnalysisCall?.[7]).toBe("huggingface");
+    expect(window.localStorage.getItem("napt.capture-destination.v1")).toBe(
+      "huggingface",
+    );
+    Reflect.deleteProperty(globalThis, "fetch");
+    window.localStorage.removeItem("napt.capture-destination.v1");
+  });
+
   it("resumes audio from the trigger gesture before starting the RF capture", async () => {
     mockAudioContext!.state = "suspended";
     render(
@@ -851,6 +904,7 @@ describe("StimulusNode", () => {
       undefined,
       undefined,
       expect.arrayContaining(["vision-test-only:mock-source"]),
+      "local",
     );
   });
 

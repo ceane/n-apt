@@ -21,6 +21,7 @@ export interface CaptureResult {
 export interface AnalysisSession {
   state: "idle" | "starting" | "capturing" | "analyzing" | "result";
   type?: "audio" | "internal" | "speech" | "vision" | "apt";
+  outputDestination?: "local" | "huggingface";
   startTime?: number;
   durationS?: number; // The requested duration in seconds
   sampleRateHz?: number;

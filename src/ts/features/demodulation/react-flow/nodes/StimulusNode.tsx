@@ -9,6 +9,7 @@ import styled from "styled-components";
 import { z } from "zod";
 import { AlertTriangle } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
+import { CAPTURE_DESTINATION_STORAGE_KEY } from "@n-apt/capture/destinations";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocality } from "@n-apt/capture";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
@@ -730,6 +731,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     (state) => state.spectrum.frequencyRange,
   );
   const channels = useAppSelector((state) => state.websocket.channels);
+  const sessionToken = useAppSelector((state) => state.auth.sessionToken);
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
@@ -775,6 +777,15 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
   const [captureLabels, setCaptureLabels] = useState<string[]>([]);
   const [captureGeolocationEnabled, setCaptureGeolocationEnabled] = useState(true);
   const [captureGeolocationStatus, setCaptureGeolocationStatus] = useState("");
+  const [outputDestination, setOutputDestination] = useState<"local" | "huggingface">(() => {
+    try {
+      return window.localStorage.getItem(CAPTURE_DESTINATION_STORAGE_KEY) === "huggingface" ? "huggingface" : "local";
+    } catch {
+      return "local";
+    }
+  });
+  const [huggingFaceAvailable, setHuggingFaceAvailable] = useState(false);
+  const [huggingFacePath, setHuggingFacePath] = useState("");
   const { getLocation } = useGeolocation();
   const geolocationRequestRef = useRef<ReturnType<typeof getLocation> | null>(
     null,
@@ -916,6 +927,41 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
     durationError !== null ||
     !stimulusChannelCompatible ||
     (previewMode === "vision" && visionCaptureBlockers.length > 0);
+
+  useEffect(() => {
+    let active = true;
+    setHuggingFaceAvailable(false);
+    setHuggingFacePath("");
+    if (!sessionToken || typeof fetch === "undefined") return;
+    const query = new URLSearchParams({ token: sessionToken });
+    void fetch(`/api/capture/destinations?${query.toString()}`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json()) as { destinations?: { id: string; available: boolean; path?: string }[] };
+        if (!active) return;
+        const destination = body.destinations?.find((item) => item.id === "huggingface");
+        const available = destination?.available === true;
+        setHuggingFaceAvailable(available);
+        setHuggingFacePath(destination?.path ?? "");
+        if (!available) {
+          setOutputDestination("local");
+          try { window.localStorage.setItem(CAPTURE_DESTINATION_STORAGE_KEY, "local"); } catch { /* Optional preference. */ }
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setHuggingFaceAvailable(false);
+        setHuggingFacePath("");
+        setOutputDestination("local");
+        try { window.localStorage.setItem(CAPTURE_DESTINATION_STORAGE_KEY, "local"); } catch { /* Optional preference. */ }
+      });
+    return () => { active = false; };
+  }, [sessionToken]);
+
+  const updateOutputDestination = (destination: "local" | "huggingface") => {
+    setOutputDestination(destination);
+    try { window.localStorage.setItem(CAPTURE_DESTINATION_STORAGE_KEY, destination); } catch { /* Optional preference. */ }
+  };
 
   useEffect(() => {
     if (!captureGeolocationEnabled || isEphemeralCapture) {
@@ -1598,6 +1644,7 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
               ...captureLabels,
             ]
           : captureLabels,
+        outputDestination,
       ) ?? null;
     if (previewMode === "audio") {
       setToneCaptureStatus({
@@ -2001,6 +2048,28 @@ export const StimulusNode: React.FC<StimulusNodeProps> = ({ data }) => {
             </StimulusSubtext>
           </CaptureLabelControl>
         )}
+
+        <CaptureLabelControl>
+          <SelectLabel htmlFor="demod-output-destination">Output destination</SelectLabel>
+          <StimulusSelect
+            id="demod-output-destination"
+            aria-label="Demod output destination"
+            value={outputDestination}
+            onChange={(event) => updateOutputDestination(event.target.value as "local" | "huggingface")}
+            disabled={isBusy || isCapturingReferenceMedia}
+          >
+            <option value="local">Local Downloads</option>
+            <option value="huggingface" disabled={!huggingFaceAvailable}>Hugging Face dataset</option>
+          </StimulusSelect>
+          <StimulusSubtext>
+            {isEphemeralCapture
+              ? "This capture is ephemeral and will not be saved or exported."
+              : outputDestination === "huggingface"
+                ? `Encrypted reference captures will be saved to ${huggingFacePath || "the configured dataset checkout"}.`
+                : "The output node will provide a local .napt download."}
+          </StimulusSubtext>
+          {!huggingFaceAvailable && <StimulusSubtext>Hugging Face is unavailable until the backend has a configured dataset checkout.</StimulusSubtext>}
+        </CaptureLabelControl>
 
         <CaptureLabelControl>
           <SelectLabel htmlFor="stimulus-capture-label">

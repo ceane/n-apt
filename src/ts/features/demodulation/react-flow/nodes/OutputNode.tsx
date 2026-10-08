@@ -94,6 +94,35 @@ const DownloadButton = styled.a`
   }
 `;
 
+const OutputActionButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  color: ${({ theme }) => theme.colors.primary};
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+
+  &:hover:not(:disabled) {
+    background: ${({ theme }) => theme.colors.primary}18;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+`;
+
 const MetadataList = styled.div`
   display: flex;
   flex-direction: column;
@@ -121,6 +150,7 @@ interface OutputNodeProps {
   data: {
     label?: string;
     vector?: string;
+    outputDestination?: "local" | "huggingface";
     naptFilePath?: string;
     result: {
       jobId: string;
@@ -128,6 +158,7 @@ interface OutputNodeProps {
       timestamp?: string | number;
       summary?: string;
       fileName?: string;
+      isEphemeral?: boolean;
       naptFilePath?: string;
       fileSize?: number;
       sampleRateHz?: number;
@@ -140,6 +171,8 @@ interface OutputNodeProps {
 
 export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
   const { sessionToken } = useAuthentication();
+  const [saveStatus, setSaveStatus] = React.useState("");
+  const [isSaving, setIsSaving] = React.useState(false);
   const storeSampleRateHz = useAppSelector(
     (state) => state.spectrum.sampleRateHz,
   );
@@ -158,22 +191,56 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
     Number.isFinite(storeFrequencyRange.max) &&
     (storeFrequencyRange.min !== INITIAL_SPECTRUM_FREQUENCY_RANGE.min ||
       storeFrequencyRange.max !== INITIAL_SPECTRUM_FREQUENCY_RANGE.max);
-  const sampleRateHz =
-    hasLiveSampleRate
-      ? storeSampleRateHz
-      : result?.sampleRateHz;
+  const sampleRateHz = hasLiveSampleRate
+    ? storeSampleRateHz
+    : result?.sampleRateHz;
   const centerFrequencyHz =
-    hasLiveFrequencyRange &&
-    storeFrequencyRange.max > storeFrequencyRange.min
+    hasLiveFrequencyRange && storeFrequencyRange.max > storeFrequencyRange.min
       ? (storeFrequencyRange.min + storeFrequencyRange.max) / 2
       : result?.centerFrequencyHz;
   const naptFilePath = data.naptFilePath || result?.naptFilePath;
+  const outputDestination = data.outputDestination ?? "local";
   const downloadHref = React.useMemo(() => {
     return buildSafeDownloadUrl(naptFilePath, sessionToken);
   }, [naptFilePath, sessionToken]);
 
   const isProcessing = state && state !== "idle" && state !== "result";
   const isAwaiting = state === "idle";
+
+  const saveToHuggingFace = async () => {
+    if (!sessionToken || result?.isEphemeral) return;
+    setIsSaving(true);
+    setSaveStatus("");
+    try {
+      const query = new URLSearchParams({
+        token: sessionToken,
+        jobId: result.jobId,
+        section: "demod",
+      });
+      const response = await fetch(
+        `/api/capture/save/huggingface?${query.toString()}`,
+        { method: "POST" },
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        files?: string[];
+      };
+      if (!response.ok) {
+        throw new Error(
+          body.error || `Hugging Face save failed: HTTP ${response.status}`,
+        );
+      }
+      setSaveStatus(
+        `Saved encrypted ${body.files?.join(", ") || result.fileName || "capture"} to Hugging Face.`,
+      );
+    } catch (error) {
+      setSaveStatus(
+        error instanceof Error ? error.message : "Could not save capture.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (!result || isProcessing || isAwaiting) {
     return (
@@ -227,8 +294,27 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
         result.fileSize !== undefined ||
         sampleRateHz !== undefined ||
         centerFrequencyHz !== undefined ||
+        result.fileName ||
         result.summary) && (
         <MetadataList>
+          <MetadataRow>
+            <MetadataLabel>Destination</MetadataLabel>
+            <MetadataValue>
+              {result.isEphemeral
+                ? "Ephemeral (discarded)"
+                : outputDestination === "huggingface"
+                  ? "Hugging Face dataset"
+                  : "Local Downloads"}
+            </MetadataValue>
+          </MetadataRow>
+
+          {result.fileName && (
+            <MetadataRow>
+              <MetadataLabel>File</MetadataLabel>
+              <MetadataValue>{result.fileName}</MetadataValue>
+            </MetadataRow>
+          )}
+
           {result.timestamp && (
             <MetadataRow>
               <MetadataLabel>Timestamp</MetadataLabel>
@@ -287,7 +373,26 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
         </MetadataList>
       )}
 
-      {downloadHref && (
+      {outputDestination === "huggingface" && !result.isEphemeral ? (
+        <>
+          <OutputActionButton
+            type="button"
+            className="nodrag nopan"
+            disabled={isSaving || !sessionToken}
+            onClick={(event) => {
+              event.stopPropagation();
+              void saveToHuggingFace();
+            }}
+          >
+            {isSaving ? "Saving…" : "Save encrypted to Hugging Face"}
+          </OutputActionButton>
+          {saveStatus && (
+            <div role="status" style={{ fontSize: 10 }}>
+              {saveStatus}
+            </div>
+          )}
+        </>
+      ) : outputDestination === "local" && downloadHref ? (
         <DownloadButton
           href={downloadHref}
           download={safeDownloadFilename(result.fileName)}
@@ -298,6 +403,12 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
         >
           Download .napt
         </DownloadButton>
+      ) : (
+        <div style={{ fontSize: 10, opacity: 0.65 }}>
+          {result.isEphemeral
+            ? "Ephemeral capture was discarded and cannot be exported."
+            : "No downloadable capture artifact is available."}
+        </div>
       )}
     </NodeWrapper>
   );
