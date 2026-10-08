@@ -1200,6 +1200,20 @@ mod huggingface_path_tests {
     assert!(!configured_dataset_path_is_safe(root.path(), &escaped));
   }
 
+  #[cfg(unix)]
+  #[test]
+  fn dataset_targets_reject_symlink_escapes() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().expect("temporary checkout");
+    let outside = tempfile::tempdir().expect("outside directory");
+    let link = root.path().join("training-captures");
+    symlink(outside.path(), &link).expect("create directory symlink");
+    let candidate = link.join("classification/train");
+
+    assert!(!configured_dataset_path_is_safe(root.path(), &candidate));
+  }
+
   #[test]
   fn default_dataset_path_is_a_sibling_checkout() {
     let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
