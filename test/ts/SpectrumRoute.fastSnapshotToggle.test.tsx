@@ -352,6 +352,46 @@ describe("SpectrumRoute fast snapshot three-state toggle", () => {
     });
   });
 
+  it("passes configured channel bounds to fast snapshots when frame bounds are unavailable", async () => {
+    const mockValue = baseMockValue();
+    mockValue.state.frequencyRange = { min: 24_184_300, max: 27_384_300 };
+    const store = createStore({
+      spectrum: {
+        ...spectrumSlice(undefined, { type: "@@INIT" as any }),
+        ...mockValue.state,
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider mockValue={mockValue}>
+            <SpectrumRoute activeTab="visualizer" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(latestControl()).toBeTruthy();
+    });
+
+    await act(async () => {
+      latestControl()?.props?.onImage();
+    });
+
+    expect(stableUseSnapshot.takeFastSnapshot).toHaveBeenCalled();
+    const calls = stableUseSnapshot.takeFastSnapshot.mock.calls;
+    const call = calls[calls.length - 1];
+    expect(call?.[5]).toMatchObject({
+      activeSignalArea: "A",
+      signalAreaBounds: {
+        A: { min: 18_000, max: 4_390_000 },
+        B: { min: 24_100_000, max: 30_370_000 },
+      },
+    });
+  });
+
   it("falls back to On when geolocation permission is denied", async () => {
     mockFastSnapshotGetLocation.mockResolvedValue(null);
     const mockValue = baseMockValue();

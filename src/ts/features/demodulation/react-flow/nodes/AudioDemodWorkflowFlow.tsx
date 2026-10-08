@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef, type RefObject } from "react";
 import styled from "styled-components";
 import {
   Background,
@@ -8,6 +8,9 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  getNodesBounds,
+  getViewportForBounds,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
@@ -172,6 +175,73 @@ const FlowNode = memo(function FlowNode({ id, data }: NodeProps<WorkflowNode>) {
 });
 
 const nodeTypes = { demodWorkflowStep: FlowNode };
+
+const workflowFitViewOptions = {
+  padding: 0.04,
+  minZoom: 0.45,
+  maxZoom: 1,
+} as const;
+
+function FitWorkflowToCanvasResize({
+  canvasRef,
+}: {
+  canvasRef: RefObject<HTMLDivElement | null>;
+}) {
+  const { getNodes, setViewport } = useReactFlow();
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof ResizeObserver === "undefined") return;
+
+    let frameId: number | null = null;
+    // The parent readiness node can finish sizing after React Flow's initial fit.
+    // Compute from the measured canvas and current nodes; the nested flow can retain stale bounds.
+    const observer = new ResizeObserver(([entry]) => {
+      if (
+        !entry ||
+        entry.contentRect.width <= 0 ||
+        entry.contentRect.height <= 0
+      ) {
+        return;
+      }
+
+      if (frameId !== null) cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        frameId = null;
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const bounds = getNodesBounds(getNodes());
+        if (
+          width <= 0 ||
+          height <= 0 ||
+          bounds.width <= 0 ||
+          bounds.height <= 0
+        ) {
+          return;
+        }
+
+        void setViewport(
+          getViewportForBounds(
+            bounds,
+            width,
+            height,
+            workflowFitViewOptions.minZoom,
+            workflowFitViewOptions.maxZoom,
+            workflowFitViewOptions.padding,
+          ),
+        );
+      });
+    });
+
+    observer.observe(canvas);
+    return () => {
+      observer.disconnect();
+      if (frameId !== null) cancelAnimationFrame(frameId);
+    };
+  }, [canvasRef, getNodes, setViewport]);
+
+  return null;
+}
 
 const algorithmLabels: Record<string, string> = {
   am: "AM envelope detector",
@@ -441,6 +511,7 @@ const createWorkflowGraph = (props: AudioDemodWorkflowFlowProps) => {
 export const AudioDemodWorkflowFlow = memo(function AudioDemodWorkflowFlow(
   props: AudioDemodWorkflowFlowProps,
 ) {
+  const flowCanvasRef = useRef<HTMLDivElement | null>(null);
   const { nodes, edges } = useMemo(
     () => createWorkflowGraph(props),
     [
@@ -486,14 +557,13 @@ export const AudioDemodWorkflowFlow = memo(function AudioDemodWorkflowFlow(
         <strong>Audio demodulation flow</strong>
         <small>I/Q → DSP or ML → playback</small>
       </WorkflowHeading>
-      <FlowCanvas className="nodrag nowheel">
+      <FlowCanvas ref={flowCanvasRef} className="nodrag nowheel">
         <ReactFlowProvider>
+          <FitWorkflowToCanvasResize canvasRef={flowCanvasRef} />
           <ReactFlow
             nodes={nodes}
             edges={arrowEdges}
             nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.04, minZoom: 0.45, maxZoom: 1 }}
             nodesDraggable={false}
             nodesConnectable={false}
             elementsSelectable={false}

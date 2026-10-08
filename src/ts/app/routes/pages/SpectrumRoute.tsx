@@ -1051,6 +1051,31 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const hardwareSpectrumBounds = useAppSelector(
     (reduxState) => reduxState.demod.hardwareRange,
   );
+  const channelsList = useMemo(() => {
+    const defaultChannels = [
+      { label: "A", min: 18_000, max: 4_390_000 },
+      { label: "B", min: 24_100_000, max: 30_370_000 },
+      { label: "C", min: 4_750_000, max: 23_000_000 },
+    ];
+    if (websocketChannels && websocketChannels.length > 0) {
+      return websocketChannels.map((ch) => ({
+        label: ch.label,
+        min: ch.min_hz,
+        max: ch.max_hz,
+      }));
+    }
+    return defaultChannels;
+  }, [websocketChannels]);
+  const snapshotChannelBounds = useMemo(
+    () =>
+      Object.fromEntries(
+        channelsList.map((channel) => [
+          channel.label,
+          { min: channel.min, max: channel.max },
+        ]),
+      ),
+    [channelsList],
+  );
   const activeSignalAreaBounds =
     signalAreaBounds?.[state.activeSignalArea] ??
     signalAreaBounds?.[state.activeSignalArea?.toLowerCase?.()] ??
@@ -1143,6 +1168,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         locationLabel: fastSnapshotLocationLabel,
         activeSignalArea: state.activeSignalArea,
         activeSignalAreaBounds,
+        signalAreaBounds: snapshotChannelBounds,
         sourceName,
         sdrSettingsLabel,
         gain: state.gain ?? undefined,
@@ -1257,6 +1283,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       state.fftSize,
       activeSignalAreaBounds,
       signalAreaBounds,
+      snapshotChannelBounds,
       effectiveSdrSettings,
       selectedSourceDerived.deviceProfile?.kind,
       selectedSourceDerived.deviceName,
@@ -2350,22 +2377,6 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     txViewerSampleRateHz,
     txSignal,
   ]);
-
-  const channelsList = useMemo(() => {
-    const defaultChannels = [
-      { label: "A", min: 18_000, max: 4_390_000 },
-      { label: "B", min: 24_100_000, max: 30_370_000 },
-      { label: "C", min: 4_750_000, max: 23_000_000 },
-    ];
-    if (websocketChannels && websocketChannels.length > 0) {
-      return websocketChannels.map((ch) => ({
-        label: ch.label,
-        min: ch.min_hz,
-        max: ch.max_hz,
-      }));
-    }
-    return defaultChannels;
-  }, [websocketChannels]);
 
   const effectiveRxSampleRate =
     sampleRateHzEffective ?? maxSampleRateHz ?? 3_200_000;

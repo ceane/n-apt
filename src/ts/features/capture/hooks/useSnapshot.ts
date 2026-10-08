@@ -458,14 +458,97 @@ function formatVisibleChannels(
       const channelLabel = name.trim() ? name.trim().toUpperCase() : "Unknown";
       return {
         min: channelMin,
-        label: `${channelLabel} (${isWhole ? "whole" : "partial"})`,
+        name: channelLabel,
+        coverage: isWhole ? "whole" : "partial",
       };
     })
-    .filter((entry): entry is { min: number; label: string } => entry !== null)
+    .filter(
+      (entry): entry is { min: number; name: string; coverage: string } =>
+        entry !== null,
+    )
     .sort((a, b) => a.min - b.min);
 
   if (!visibleChannels.length) return null;
-  return `Channels ${visibleChannels.map((channel) => channel.label).join(", ")}`;
+  if (visibleChannels.length === 1) {
+    return `Channel ${visibleChannels[0].name}, ${visibleChannels[0].coverage}`;
+  }
+  return `Channels ${visibleChannels.map((channel) => `${channel.name} (${channel.coverage})`).join(", ")}`;
+}
+
+function drawTwoChannelSnapshotBoundaries(
+  canvas: HTMLCanvasElement,
+  data: SnapshotData,
+  range: Range,
+  signalAreaBounds: SignalAreaBounds | null | undefined,
+): void {
+  if (!signalAreaBounds) return;
+  const seen = new Set<string>();
+  const visibleChannels = Object.entries(signalAreaBounds)
+    .map(([name, bounds]) => {
+      const label = name.trim().toUpperCase();
+      if (!label || seen.has(label)) return null;
+      seen.add(label);
+      const min = Math.min(bounds.min, bounds.max);
+      const max = Math.max(bounds.min, bounds.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+      const visibleMin = Math.max(min, range.min);
+      const visibleMax = Math.min(max, range.max);
+      return visibleMax > visibleMin
+        ? { label, min, max, visibleMin, visibleMax }
+        : null;
+    })
+    .filter((channel): channel is NonNullable<typeof channel> => channel !== null)
+    .sort((a, b) => a.min - b.min);
+  if (visibleChannels.length !== 2) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const { dpr, mapper } = computeSpectrumGeometry(
+    data,
+    range,
+    canvas.width,
+    canvas.height,
+    data.frequencyRange,
+  );
+  const area = mapper.getPlotArea();
+  const dc = new CanvasDrawingContext(ctx);
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dc.clipRect(area.x, area.y, area.width, area.height);
+  dc.setStroke("#b86b00", Math.max(1 / dpr, 1), [3, 4]);
+  dc.beginPath();
+  const boundaries = new Set(
+    visibleChannels
+      .flatMap((channel) => [channel.min, channel.max])
+      .filter((frequency) => frequency > range.min && frequency < range.max),
+  );
+  for (const frequency of boundaries) {
+    const x = mapper.freqToX(frequency);
+    dc.moveTo(x, area.y);
+    dc.lineTo(x, area.y + area.height);
+  }
+  dc.stroke();
+
+  dc.setFont("11px JetBrains Mono, monospace");
+  dc.setTextAlign("center");
+  dc.setTextBaseline("middle");
+  visibleChannels.forEach((channel, index) => {
+    const label = `Channel ${channel.label}`;
+    const boxWidth = dc.measureTextWidth(label) + 16;
+    const centerX = mapper.freqToX(
+      (channel.visibleMin + channel.visibleMax) / 2,
+    );
+    const boxX = Math.max(
+      area.x + 4,
+      Math.min(area.x + area.width - boxWidth - 4, centerX - boxWidth / 2),
+    );
+    const boxY = area.y + 8 + index * 26;
+    dc.setFill("rgba(7, 10, 18, 0.88)");
+    dc.roundRect(boxX, boxY, boxWidth, 20, 4);
+    dc.setFill("#ffffff");
+    dc.fillText(label, boxX + boxWidth / 2, boxY + 10);
+  });
+  ctx.restore();
 }
 
 export function buildSnapshotStatsLines({
@@ -524,10 +607,20 @@ export function buildSnapshotStatsLines({
     modeLabel !== undefined
       ? modeLabel === "Whole Channel"
       : whole || wholeBySpan || wholeBySampleRate;
+  const configuredActiveBounds = channelName
+    ? (signalAreaBounds?.[channelName] ??
+      signalAreaBounds?.[channelName.toLowerCase()])
+    : null;
+  const activeChannelVisible =
+    !configuredActiveBounds ||
+    (Math.min(configuredActiveBounds.min, configuredActiveBounds.max) <
+      range.max &&
+      Math.max(configuredActiveBounds.min, configuredActiveBounds.max) >
+        range.min);
 
   const channelLabel =
     formatVisibleChannels(range, signalAreaBounds) ??
-    (channelName
+    (channelName && activeChannelVisible
       ? isWholeChannel
         ? `Whole Channel ${channelName}`
         : `Onscreen / partial Channel ${channelName}`
@@ -2335,6 +2428,13 @@ export function buildFastSpectrumCanvas(
   if (!spectrumCanvas) {
     return null;
   }
+
+  drawTwoChannelSnapshotBoundaries(
+    spectrumCanvas,
+    snapshotData,
+    visualRange,
+    options?.signalAreaBounds,
+  );
 
   const statsRow = options?.showStats
     ? renderReusableStatsRow(
