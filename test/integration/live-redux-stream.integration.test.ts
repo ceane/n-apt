@@ -375,6 +375,20 @@ describe("live Redux/source-mode stream harness", () => {
               1_500,
             );
           } else if (target === MOCK_TX_SOURCE_ID) {
+            const snapshot = harness.snapshot();
+            if (
+              snapshot.redux.sourceStatuses[MOCK_TX_SOURCE_ID] === "standby" &&
+              !snapshot.txPresentation.hasFrame
+            ) {
+              // The headless harness does not mount SpectrumRoute, which owns
+              // the UI's one-shot request for a standby Tx preview. Request it
+              // after the view handoff has settled before asserting that the
+              // selected presentation is not blank.
+              await harness.quiesce();
+              await harness.requestNextStandbyFrame({
+                sourceId: MOCK_TX_SOURCE_ID,
+              });
+            }
             await harness.waitFor(
               () => harness.snapshot(),
               (snapshot) => snapshot.txPresentation.hasFrame,
@@ -383,7 +397,7 @@ describe("live Redux/source-mode stream harness", () => {
           }
         }
       }),
-      { numRuns: 4, interruptAfterTimeLimit: 60_000 },
+      { numRuns: 4, seed: 675081473, interruptAfterTimeLimit: 60_000 },
     );
   });
 

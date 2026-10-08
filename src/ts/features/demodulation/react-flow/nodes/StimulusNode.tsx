@@ -9,7 +9,7 @@ import styled from "styled-components";
 import { z } from "zod";
 import { AlertTriangle } from "lucide-react";
 import { useAppSelector } from "@n-apt/redux";
-import { CAPTURE_DESTINATION_STORAGE_KEY } from "@n-apt/capture/destinations";
+import { CAPTURE_DESTINATION_STORAGE_KEY } from "@n-apt/capture/public/destinations";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocality } from "@n-apt/capture";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
