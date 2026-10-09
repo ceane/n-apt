@@ -817,6 +817,10 @@ What is even more suprising is that some scant parts of the signal are even lowe
 
 For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain and nervous system are apparently responsive to a unique frequency, which I believed was the beat frequencies + physics of x y z (impossible for a radio wave to target specific neurons with physics and compute; ALSO the stream is too fast and real-time to support conclusions of ***billions of additional complex operations*** in regular old infra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
 
+### ...or timing
+
+TODO: Add copy explaining the timing relationships here and the measurements or observations that support them.
+
 ### Impedance <a id="impedance"></a>
 
 ```Canvas::Impedance
