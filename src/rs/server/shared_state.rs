@@ -138,6 +138,7 @@ impl ActiveRxOptionsState {
     }
   }
 
+  #[cfg(test)]
   fn applied_options(&self) -> Option<RxStreamOptions> {
     self.applied_options.clone()
   }
