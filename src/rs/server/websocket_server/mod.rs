@@ -25,7 +25,6 @@ use crate::sdr::processor::SdrProcessor;
 use crate::streaming::acquisition_worker::{
   AcquisitionWorker, FramePublicationGate, ProcessedFrame,
 };
-use crate::streaming::analysis_worker::AnalysisWorker;
 use crate::streaming::commands::{into_fast_path, FastPathCommand};
 use crate::tx::monitor::{TxStatusRequest, TxWorker};
 
@@ -1189,8 +1188,6 @@ impl WebSocketServer {
     let _broadcast_tx = self.broadcast_tx.clone();
     let acquisition_worker =
       AcquisitionWorker::new(sdr_processor.clone(), shared_state.clone());
-    let analysis_worker =
-      AnalysisWorker::new(sdr_processor.clone(), _broadcast_tx.clone());
     let capture_worker = CaptureWorker::new(
       sdr_processor.clone(),
       shared_state.clone(),
@@ -1249,7 +1246,7 @@ impl WebSocketServer {
       // `shared_state.pending_fast_settings` so they can be applied inside
       // the blocking frame loop WITHOUT waiting for the processor lock.
       // Only commands that need broadcast_tx / shared_state interaction
-      // (StartCapture, transmit, and analysis commands) remain here.
+      // (StartCapture and transmit commands) remain here.
       while let Ok(cmd) = cmd_rx.try_recv() {
         let cmd = match into_fast_path(cmd) {
           Ok(FastPathCommand::ApplySettings(settings)) => {
@@ -1260,10 +1257,6 @@ impl WebSocketServer {
             shared_state.request_center_frequency(frequency);
             continue;
           }
-          Err(command) => command,
-        };
-        let cmd = match analysis_worker.try_handle(cmd).await {
-          Ok(()) => continue,
           Err(command) => command,
         };
         match cmd {

@@ -5,7 +5,6 @@
 //! will use as that loop is migrated in small, behavior-preserving slices.
 
 pub mod acquisition_worker;
-pub mod analysis_worker;
 pub mod commands;
 pub mod dsp_worker;
 pub mod publisher;

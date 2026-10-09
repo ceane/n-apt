@@ -9,15 +9,11 @@ use rustfft::num_complex::Complex;
 use std::collections::VecDeque;
 use std::time::Instant;
 
+use crate::server::types::ChannelSpec;
 use crate::signal_port::fft::{
   CorrelationMethod, CorrelationResult, FFTProcessor, PhaseCoherenceResult,
   StitchingValidationResult,
 };
-use crate::server::types::ChannelSpec;
-#[cfg(rs_decrypted)]
-use crate::server::types::{FrequencyRegion, ScanProgressResponse};
-#[cfg(rs_decrypted)]
-use crate::simd::demod_kernels;
 use crate::stitching::SignalStitcher;
 
 use super::{SdrDevice, SdrDeviceFactory};
@@ -2273,122 +2269,7 @@ impl SdrProcessor {
     })
   }
 
-  #[cfg(rs_decrypted)]
-  pub fn handle_scan(
-    &mut self,
-    range_hz: (f64, f64),
-    window_hz: f64,
-    step_hz: f64,
-    threshold: f32,
-    job_id: &str,
-    broadcast_tx: &tokio::sync::broadcast::Sender<String>,
-  ) -> Vec<FrequencyRegion> {
-    if self.frame.last_frame_raw_iq.is_empty() {
-      return vec![];
-    }
 
-    let iq_samples = &self.frame.last_frame_raw_iq;
-    let sample_rate = self.get_sample_rate() as f32;
-    let total_samples = (iq_samples.len() / 2) as f32;
-
-    let start_hz = range_hz.0;
-    let end_hz = range_hz.1;
-    let total_steps = ((end_hz - start_hz) / step_hz).ceil() as usize;
-
-    let mut regions = Vec::new();
-
-    for step in 0..total_steps {
-      let center_hz = start_hz + (step as f64 * step_hz) + (window_hz / 2.0);
-      if center_hz + (window_hz / 2.0) > end_hz {
-        break;
-      }
-
-      let freq_to_sample_ratio = total_samples / sample_rate;
-      let center_sample = (center_hz * freq_to_sample_ratio as f64) as usize;
-      let window_samples = (window_hz * freq_to_sample_ratio as f64) as usize;
-
-      let start_idx = center_sample.saturating_sub(window_samples / 2);
-      let end_idx =
-        (center_sample + window_samples / 2).min(total_samples as usize);
-
-      if start_idx >= end_idx {
-        continue;
-      }
-
-      let window_iq = &iq_samples[start_idx * 2..end_idx * 2];
-      let demodulated = demod_kernels::fm_demodulate(window_iq, sample_rate);
-      let audio_score =
-        demod_kernels::calculate_audio_score(&demodulated, sample_rate);
-
-      if audio_score >= threshold {
-        regions.push(FrequencyRegion {
-          start_freq: center_hz - window_hz / 2.0,
-          end_freq: center_hz + window_hz / 2.0,
-          center_freq: center_hz,
-          audio_score,
-          signal_strength: 0.0, // Should implement signal power calculation
-          snr: 15.0,            // Mock SNR
-        });
-      }
-
-      // Progress reporting
-      if step % 20 == 0 || step == total_steps - 1 {
-        let progress = (step + 1) as f32 / total_steps as f32;
-        let prog_msg = ScanProgressResponse {
-          message_type: "scan_progress".to_string(),
-          job_id: job_id.to_string(),
-          progress,
-          current_freq: center_hz,
-          regions_length: regions.len(),
-        };
-        if let Ok(json) = serde_json::to_string(&prog_msg) {
-          let _ = broadcast_tx.send(json);
-        }
-      }
-    }
-
-    regions
-  }
-
-  #[cfg(rs_decrypted)]
-  pub fn handle_demodulate(
-    &mut self,
-    region: &FrequencyRegion,
-  ) -> (Vec<f32>, u32) {
-    if self.frame.last_frame_raw_iq.is_empty() {
-      return (vec![], 48000);
-    }
-
-    let iq_samples = &self.frame.last_frame_raw_iq;
-    let sample_rate = self.get_sample_rate() as f32;
-    let total_samples = (iq_samples.len() / 2) as f32;
-
-    let freq_to_sample_ratio = total_samples / sample_rate;
-    let center_sample =
-      (region.center_freq * freq_to_sample_ratio as f64) as usize;
-    let width_hz = region.end_freq - region.start_freq;
-    let window_samples = (width_hz * freq_to_sample_ratio as f64) as usize;
-
-    let start_idx = center_sample.saturating_sub(window_samples / 2);
-    let end_idx =
-      (center_sample + window_samples / 2).min(total_samples as usize);
-
-    if start_idx >= end_idx {
-      return (vec![], 48000);
-    }
-
-    let window_iq = &iq_samples[start_idx * 2..end_idx * 2];
-    let demodulated_fm = demod_kernels::fm_demodulate(window_iq, sample_rate);
-
-    let target_rate = 48000.0;
-    let audio_buffer = demod_kernels::am_demodulate_and_resample(
-      &demodulated_fm,
-      sample_rate,
-      target_rate,
-    );
-
-    (audio_buffer, target_rate as u32)
-  }
 }
 
 #[cfg(test)]

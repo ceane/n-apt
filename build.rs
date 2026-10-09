@@ -13,8 +13,7 @@ fn main() {
   println!("cargo:rustc-check-cfg=cfg(has_hackrf)");
 
   // Check for decrypted modules (Surgical Encryption)
-  let decrypted_marker =
-    Path::new("src/encrypted-modules/tmp/rs/simd/fast_math.rs");
+  let decrypted_marker = Path::new("src/encrypted-modules/tmp/rs/mod.rs");
   if decrypted_marker.exists() {
     println!("cargo:rustc-cfg=rs_decrypted");
   }
