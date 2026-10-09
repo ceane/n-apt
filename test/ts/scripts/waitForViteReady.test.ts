@@ -26,7 +26,7 @@ describe("waitForViteReady", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it("probes Main.tsx as well as the document by default", async () => {
+  it("probes the app entry and document by default", async () => {
     const fetchImpl = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("Main.tsx") || url.endsWith("/")) {
@@ -47,7 +47,7 @@ describe("waitForViteReady", () => {
     const urls = (fetchImpl as jest.Mock).mock.calls.map((call) =>
       String(call[0]),
     );
-    expect(urls.some((url) => url.includes("127.0.0.1:5173"))).toBe(true);
+    expect(urls.some((url) => url.includes("localhost:5173"))).toBe(true);
     expect(urls.some((url) => url.includes("Main.tsx"))).toBe(true);
   });
 

@@ -20,8 +20,8 @@ export interface WaitForViteReadyResult {
 }
 
 const DEFAULT_URLS = [
-  "http://127.0.0.1:5173/",
-  "http://127.0.0.1:5173/Main.tsx",
+  "http://localhost:5173/",
+  "http://localhost:5173/app/Main.tsx",
 ];
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_INTERVAL_MS = 500;

@@ -43,6 +43,7 @@ import { writeBackendTarget } from './backend-handoff-proxy';
 import { removeActiveChild } from './processLifecycle';
 import { isRustSourceChange } from './rustWatchFilter';
 import { getCompletedStepLabel } from './buildStepLabels';
+import { stopExistingProjectVite } from './managedViteProcess';
 import { waitForViteReady } from './waitForViteReady';
 import {
   isRebuildStatusStale,
@@ -1458,6 +1459,7 @@ exit 1
 
       if (step.pidKey === 'vitePid') {
         await closeDevStatusServer();
+        await stopExistingProjectVite();
       }
 
       let success: boolean;
@@ -2620,6 +2622,7 @@ node scripts/redis/promote_tower_staging.cjs`,
       description: 'Starting frontend server',
       run: async () => {
         await closeDevStatusServer();
+        await stopExistingProjectVite();
         return startBackgroundProcessNonTty(
           isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
           'Starting frontend server'
