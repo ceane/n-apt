@@ -1,22 +1,30 @@
 # Rust development cache
 
-- [x] Keep dev-incremental at opt-level 3; enable incremental compilation and 16 codegen units.
-- [x] Route interactive startup, noninteractive startup, and hot reload builds through rustBuild.mjs.
-- [x] Collect successful Cargo compiler-artifact records, including fresh dependencies.
-- [x] Prune unused dev-incremental deps older than 24 hours; preserve current artifacts, sibling Rust metadata, and dep-info.
-- [x] Expire incremental caches after 14 days based on the newest nested write, replacing the global five-crate limit.
-- [x] Hold Cargo's Unix profile .cargo-lock while pruning; defer when another Cargo command holds it.
-- [x] Preserve caches on failed compilation or malformed output; cleanup errors do not fail successful builds.
-- [x] Filesystem and fake-Cargo regression tests and TypeScript check passed.
-- [ ] Measure actual rebuild time and runtime throughput on the operator's workload.
+Profiles: dev-incremental and release, both incremental. Development retains
+opt-level 3 and sixteen codegen units. Release retains thin LTO and one unit.
+Backend build commands and hot reload use scripts/build/rustBuild.mjs.
 
-The first build after the profile change regenerates artifacts. Release retains opt-level 3, thin LTO, and one codegen unit, and now also enables incremental compilation.
-Retention is not a hard disk quota: the current working set and recent generations are preserved.
-Backend builds and tests use dev-incremental; production builds use release. Cargo still has an implicit built-in dev profile; its separate project configuration was removed. After a successful dev-incremental build, legacy native debug/dev-fast artifacts are retired under their own Cargo locks; busy profiles are deferred. Empty lock directories remain to preserve lock inode identity. WASM/custom target caches remain separate. No live target cache was deleted during implementation.
-Automatic pruning requires python3 and Unix flock support. Windows builds explicitly skip automatic pruning.
+## Successful-build cleanup
 
-Focused checks: node --test test/scripts/rust_artifact_cache.test.mjs
+- [x] Read Cargo artifact messages, including fresh dependencies, target identities, and build-script OUT_DIR paths.
+- [x] Immediately remove unused dependency artifacts and symbol bundles; no default 24-hour retention window.
+- [x] Retain current hashed executables, metadata, dep-info, and split debug objects. Match copied macOS executables by content when inode identity does not apply.
+- [x] Remove stale build-script output generations and fingerprints, retaining current output directories.
+- [x] Retain the latest incremental generation per active Cargo target and one finalized session in each generation. Count library and binary targets separately when crate names match.
+- [x] Remove abandoned working sessions and inactive crate generations immediately. Unknown incremental layouts retain the conservative fourteen-day expiry.
+- [x] Remove the previous .old executable and its symbols after successful replacement compilation.
+- [x] Serialize cleanup with Cargo's Unix profile lock; defer busy profiles and preserve failed-build caches.
+- [x] Retire obsolete native dev-fast/debug caches under their own locks.
+- [x] Twelve regression tests pass, including real Cargo unchanged-build and source-edit cycles with generated code and a same-name library/bin.
+- [ ] Measure real N-APT disk size and edited-source rebuild throughput. The operator deleted the reported 16 GB target folder before this review.
 
-- [x] Removed dev-fast and the explicit dev profile configuration; updated orchestrator paths, npm backend/test commands, and CI to dev-incremental/release.
+Cleanup completes in the build wrapper before the orchestrator begins its backend
+handoff. Changes to this wrapper apply to subsequent hot reload invocations; no
+orchestrator restart is required for these wrapper changes.
 
-- [x] Verify retired-profile cleanup and preservation when a retired profile is locked; five regression tests pass. Final TypeScript check and Cargo metadata validation passed.
+Current working-set size is a floor, not a hard disk quota. Alternate feature/test
+artifacts can need recompilation after eviction. Custom target/WASM/release caches
+are separate. Automatic pruning requires python3 and Unix flock support; Windows
+builds explicitly skip it. Empty retired lock directories preserve lock identity.
+
+Focused check: node --test test/scripts/rust_artifact_cache.test.mjs
