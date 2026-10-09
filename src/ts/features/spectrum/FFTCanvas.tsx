@@ -47,6 +47,7 @@ import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
 } from "@n-apt/ui/CanvasPlaceholder";
+import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
 import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import * as NativeClassifier from "@n-apt/classification";
@@ -57,6 +58,7 @@ import {
   type NativeClassifierCaptureUploadResponse,
   type PersistedNativeClassifierDownload,
 } from "@n-apt/classification";
+import { loadEncryptedMlModule } from "@n-apt/shared/ui/loadEncryptedMlModule";
 import type { Alignment, FrequencyRange } from "@n-apt/consts/types";
 import type { FFTCanvasWaterfallBindings } from "@n-apt/types/canvas";
 import type { SdrLimitMarker } from "@n-apt/math/sdrLimitMarkers";
@@ -69,6 +71,11 @@ import {
   createDeviceOptionScheduler,
   type DeviceOptionScheduler,
 } from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
+const loadNativeClassifierPanel = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.nativeClassifier.NativeClassifierPanel,
+  }));
+
 // New hooks
 import { useCanvasNodes } from "@n-apt/spectrum/hooks/useCanvasState";
 import { useWaterfallBuffers } from "@n-apt/spectrum/hooks/useWaterfallBufferPool";
@@ -6068,25 +6075,29 @@ const FFTCanvas = memo(
                 )}
                 {!nodePreview && showNativeClassifier && nativeClassifierSidebarTarget && createPortal(
                   <>
-                    <NativeClassifier.NativeClassifierPanel
-                      result={nativeShadowResult}
-                      resultState={nativeShadowResultState}
-                      legacy={gpuSpikeAnalysis ? { isNapt: gpuSpikeAnalysis.isNapt, confidence: gpuSpikeAnalysis.confidence } : null}
-                      captureAvailable={nativeCaptureAvailable && nativeCaptureConfig !== null}
-                      captureActive={nativeCaptureUi.active}
-                      captureFrameCount={nativeCaptureUi.frameCount}
-                      captureStatus={nativeCaptureUi.status || (!nativeCaptureAvailable ? nativeCaptureBlockReason : '')}
-                      captureTimestampDiagnostic={nativeCaptureTimestampDiagnostic}
-                      captureDownloads={nativeCaptureDownloads}
-                      captureDownloadsPersisted={latestPersistedNativeClassifierDownload !== null}
-                      sessionToken={nativeClassifierSessionToken}
-                      onToggleCapture={toggleNativeCapture}
-                      onExportCapture={exportNativeCapture}
-                      onClearCapture={clearNativeCaptureExport}
-                      onAnnotationsChange={updateNativeCaptureAnnotations}
-                      canonicalChannels={nativeClassifierCanonicalChannels}
-                      activeStreamId={nativeClassifierActiveStreamId}
-                      onModel={(model) => { nativeModelRef.current = model; setNativeModel(model); setNativeShadowResult(null); }}
+                    <RetryableMlFeature
+                      label="Native classifier"
+                      loader={loadNativeClassifierPanel}
+                      componentProps={{
+                        result: nativeShadowResult,
+                        resultState: nativeShadowResultState,
+                        legacy: gpuSpikeAnalysis ? { isNapt: gpuSpikeAnalysis.isNapt, confidence: gpuSpikeAnalysis.confidence } : null,
+                        captureAvailable: nativeCaptureAvailable && nativeCaptureConfig !== null,
+                        captureActive: nativeCaptureUi.active,
+                        captureFrameCount: nativeCaptureUi.frameCount,
+                        captureStatus: nativeCaptureUi.status || (!nativeCaptureAvailable ? nativeCaptureBlockReason : ''),
+                        captureTimestampDiagnostic: nativeCaptureTimestampDiagnostic,
+                        captureDownloads: nativeCaptureDownloads,
+                        captureDownloadsPersisted: latestPersistedNativeClassifierDownload !== null,
+                        sessionToken: nativeClassifierSessionToken,
+                        onToggleCapture: toggleNativeCapture,
+                        onExportCapture: exportNativeCapture,
+                        onClearCapture: clearNativeCaptureExport,
+                        onAnnotationsChange: updateNativeCaptureAnnotations,
+                        canonicalChannels: nativeClassifierCanonicalChannels,
+                        activeStreamId: nativeClassifierActiveStreamId,
+                        onModel: (model: NativeClassifier.NativeModel | null) => { nativeModelRef.current = model; setNativeModel(model); setNativeShadowResult(null); },
+                      }}
                     />
                     {nativeShadowError && !compact && showNativeClassifier && (
                       <div role="status" style={{ padding: '4px 10px',

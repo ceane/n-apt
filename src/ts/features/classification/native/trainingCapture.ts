@@ -1,4 +1,4 @@
-import { normalizeNativeWindowKind, type WindowKind } from './core';
+import { normalizeNativeWindowKind, type WindowKind } from '@n-apt/encryptedAdapters/ml/classificationNativeFallback';
 import type { IqAppliedStreamOptions, IqRawFrame } from '@n-apt/consts/schemas/websocket';
 import { encodeIqCaptureV4, readIqCaptureTrailerDigest, type CaptureMetadata, type IqCaptureChunk, type IqCaptureFrameUpdate } from '@n-apt/webusb/iqCaptureFormat';
 import { verifyStampedIntegrity } from '@n-apt/webusb/iqIntegrity';

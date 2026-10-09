@@ -7,11 +7,35 @@ import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
 import { useDemodAudio } from "@n-apt/demodulation/context/DemodAudioContext";
-import { AudioDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/AudioDemodWorkflowFlow";
-import { VisionDemodWorkflowFlow } from "@n-apt/demodulation/react-flow/nodes/VisionDemodWorkflowFlow";
+import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
+import { loadEncryptedMlModule } from "@n-apt/shared/ui/loadEncryptedMlModule";
 import { evaluateStimulusChannelAccess } from "@n-apt/demodulation/react-flow/nodes/stimulusChannelPolicy";
 import { getVisionReceiverLabel } from "@n-apt/demodulation/vision/visionSourcePolicy";
 import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/public/activeAcquisitionOperations";
+
+const loadAudioDemodWorkflow = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.AudioDemodWorkflowFlow,
+  }));
+const loadVisionDemodWorkflow = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.VisionDemodWorkflowFlow,
+  }));
+
+const AudioDemodWorkflowFlow: React.FC<Record<string, unknown>> = (props) => (
+  <RetryableMlFeature
+    label="Audio Survey workflow"
+    loader={loadAudioDemodWorkflow}
+    componentProps={props}
+  />
+);
+const VisionDemodWorkflowFlow: React.FC<Record<string, unknown>> = (props) => (
+  <RetryableMlFeature
+    label="Vision workflow"
+    loader={loadVisionDemodWorkflow}
+    componentProps={props}
+  />
+);
 
 const ReadinessCard = styled.section`
   width: 100%;

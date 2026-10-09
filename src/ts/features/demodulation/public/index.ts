@@ -1,8 +1,5 @@
 export * from "../utils/audioFile";
-export * from "../vision/visionCapture";
-export * from "../vision/visionDataset";
-export * from "../vision/visionModel";
-export * from "../vision/visionReference";
-export * from "../vision/visionStorage";
+export { VISION_PRESETS } from "@n-apt/encryptedAdapters/ml/audioSurveyFallback";
+export type { VisionPreset } from "../vision/visionModel";
 export * from "./context/DemodAnalysisContext";
 export * from "./context/DemodContext";

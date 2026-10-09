@@ -4,12 +4,13 @@ import { DemodRouteSection } from "@n-apt/demodulation/DemodRouteSection";
 import { useDemodAnalysis } from "@n-apt/demodulation/public/context/DemodAnalysisContext";
 import { useAppSelector } from "@n-apt/redux";
 import { useDemod } from "@n-apt/demodulation/context/DemodContext";
+import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
+import { loadEncryptedMlModule } from "@n-apt/shared/ui/loadEncryptedMlModule";
 
-const VisionScene = React.lazy(() =>
-  import("@n-apt/three-d/VisionScene").then((m) => ({
-    default: m.VisionScene,
-  })),
-);
+const loadVisionScene = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.VisionScene,
+  }));
 
 const DemodFilePlaybackBridge = React.lazy(() =>
   import("@n-apt/capture/DemodFilePlaybackBridge").then((m) => ({
@@ -64,9 +65,11 @@ export const DemodRoute: React.FC = () => {
       {(analysisSession.state === "starting" ||
         analysisSession.state === "capturing") &&
         analysisSession.type === "vision" && (
-          <Suspense fallback={null}>
-            <VisionScene session={analysisSession} preset={visionPreset} />
-          </Suspense>
+          <RetryableMlFeature
+            label="Vision stimulus"
+            loader={loadVisionScene}
+            componentProps={{ session: analysisSession, preset: visionPreset }}
+          />
         )}
     </DemodContainer>
   );

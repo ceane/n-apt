@@ -1,313 +1,286 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
-import { resolveContainedPath } from './pathSafety';
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import {
+  createBundleSnapshot,
+  decryptBundleBytes,
+  decryptLegacyBundleBytes,
+  encryptBundleBytes,
+  extractBundleAtomically,
+  isBundleExtracted,
+  type BundleInputFile,
+  type DecryptedBundle,
+} from "./bundle";
+import { ensureMlBundle, ML_REQUIRED_FILES } from "./mlRuntime";
 
-const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12;
-const SALT_LENGTH = 16;
-const KEY_LENGTH = 32;
+const ROOT = path.resolve(process.env.NAPT_ENCRYPTED_MODULE_ROOT || process.cwd());
+const BUNDLE_DIR = "src/encrypted-modules";
 
-interface FileBundle {
-  files: {
-    path: string;
-    content: string; // base64
-  }[];
+type ModuleTarget = {
+  label: string;
+  password: "latex" | "demod";
+  bundle: string;
+  source: string;
+  requiredFiles: string[];
+};
+
+const MODULES: ModuleTarget[] = [
+  {
+    label: "TS modules",
+    password: "latex",
+    bundle: `${BUNDLE_DIR}/ts.bundle.enc`,
+    source: `${BUNDLE_DIR}/tmp/ts`,
+    requiredFiles: ["math/napt-spike-eq.ts"],
+  },
+  {
+    label: "RS modules",
+    password: "demod",
+    bundle: `${BUNDLE_DIR}/rs.bundle.enc`,
+    source: `${BUNDLE_DIR}/tmp/rs`,
+    requiredFiles: ["mod.rs"],
+  },
+  {
+    label: "ML modules",
+    password: "latex",
+    bundle: `${BUNDLE_DIR}/ml.bundle.enc`,
+    source: `${BUNDLE_DIR}/tmp/ml`,
+    requiredFiles: [...ML_REQUIRED_FILES],
+  },
+];
+
+function parseEnvFile(): Record<string, string> {
+  const envPath = path.resolve(
+    process.env.NAPT_ENCRYPTED_MODULE_ENV_FILE || path.join(ROOT, ".env.local"),
+  );
+  if (!fs.existsSync(envPath)) return {};
+  const values: Record<string, string> = {};
+  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match || match[1].startsWith("#")) continue;
+    let value = match[2];
+    if (
+      (value.startsWith("\"") && value.endsWith("\"")) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) value = value.slice(1, -1);
+    values[match[1]] = value;
+  }
+  return values;
 }
 
-function getPasswords() {
-  const envPath = path.resolve(process.cwd(), '.env.local');
-  if (!fs.existsSync(envPath)) {
-    console.error('✗ .env.local not found');
-    process.exit(1);
-  }
-  const envContent = fs.readFileSync(envPath, 'utf8');
-  const latexMatch = envContent.match(/UNSAFE_LOCAL_LATEX_PASSWORD=(.*)/);
-  const demodMatch = envContent.match(/UNSAFE_LOCAL_DEMOD_PASSWORD=(.*)/);
-  
+function getPasswords(): { latex?: string; demod?: string } {
+  const fileValues = parseEnvFile();
   return {
-    latex: latexMatch ? latexMatch[1].trim() : null,
-    demod: demodMatch ? demodMatch[1].trim() : null,
+    latex: process.env.UNSAFE_LOCAL_LATEX_PASSWORD || fileValues.UNSAFE_LOCAL_LATEX_PASSWORD,
+    demod: process.env.UNSAFE_LOCAL_DEMOD_PASSWORD || fileValues.UNSAFE_LOCAL_DEMOD_PASSWORD,
   };
 }
 
 function getCurrentBranch(): string | null {
   try {
-    return execSync('git branch --show-current', { encoding: 'utf8' }).trim();
+    return execSync("git branch --show-current", { cwd: ROOT, encoding: "utf8" }).trim();
   } catch {
     return null;
   }
 }
 
-
-function deriveKey(password: string, salt: Buffer): Buffer {
-  // Use scryptSync for better security than PBKDF2
-  return crypto.scryptSync(password, salt, KEY_LENGTH, { N: 131072, r: 8, p: 1, maxmem: 134217728 * 2 });
+function readSourceFiles(directory: string): BundleInputFile[] {
+  const root = path.resolve(ROOT, directory);
+  if (!fs.existsSync(root) || !fs.lstatSync(root).isDirectory()) {
+    throw new Error(`Encrypted module source directory is missing: ${directory}`);
+  }
+  const files: BundleInputFile[] = [];
+  const visit = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.name === ".DS_Store" || entry.name === ".gitkeep") continue;
+      const fullPath = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`Encrypted module sources cannot include symlinks: ${fullPath}`);
+      if (entry.isDirectory()) {
+        visit(fullPath);
+      } else if (entry.isFile()) {
+        const relative = path.relative(root, fullPath).split(path.sep).join("/");
+        if (directory.endsWith("/tmp/ml")) validateMlSourcePath(relative);
+        files.push({ path: relative, content: fs.readFileSync(fullPath) });
+      } else {
+        throw new Error(`Encrypted module source has an unsupported filesystem entry: ${fullPath}`);
+      }
+    }
+  };
+  visit(root);
+  return files.sort((left, right) => left.path.localeCompare(right.path, "en"));
 }
 
-function encrypt(data: string, password: string): Buffer {
-  const salt = crypto.randomBytes(SALT_LENGTH);
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const key = deriveKey(password, salt);
-  
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  let encrypted = cipher.update(data, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag();
-  
-  // Format: salt(16) | iv(12) | authTag(16) | encrypted
-  return Buffer.concat([
-    salt,
-    iv,
-    authTag,
-    Buffer.from(encrypted, 'hex')
+function validateMlSourcePath(filePath: string): void {
+  const segments = filePath.toLocaleLowerCase("en-US").split("/");
+  const extension = path.extname(filePath).toLocaleLowerCase("en-US");
+  const forbiddenExtensions = new Set([
+    ".env", ".iq", ".napt", ".wav", ".onnx", ".pt", ".pth", ".safetensors",
+    ".gguf", ".npy", ".npz", ".pkl", ".pickle", ".key", ".pem", ".p12",
   ]);
+  const forbiddenSegments = new Set([
+    "capture", "captures", "dataset", "datasets", "credentials", "models",
+    "training-captures", "training_captures",
+  ]);
+  if (
+    forbiddenExtensions.has(extension) ||
+    path.basename(filePath).startsWith(".env") ||
+    segments.some((segment) => forbiddenSegments.has(segment))
+  ) {
+    throw new Error(`ML bundle source path is reserved for local data or secrets: ${filePath}`);
+  }
 }
 
-function decrypt(buffer: Buffer, password: string): string {
-  const salt = buffer.subarray(0, SALT_LENGTH);
-  const iv = buffer.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
-  const authTag = buffer.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + 16);
-  const encrypted = buffer.subarray(SALT_LENGTH + IV_LENGTH + 16);
-  
+function writeFileAtomically(filePath: string, bytes: Uint8Array): void {
+  const target = path.resolve(ROOT, filePath);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const temporary = `${target}.stage-${process.pid}-${Date.now()}`;
   try {
-    const key = deriveKey(password, salt);
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
-    let decrypted = decipher.update(encrypted.toString('hex'), 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch {
-    // Fallback to pbkdf2Sync (legacy encryption format)
-    const key = crypto.pbkdf2Sync(password, salt, 100000, KEY_LENGTH, 'sha256');
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
-    let decrypted = decipher.update(encrypted.toString('hex'), 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    fs.writeFileSync(temporary, bytes, { mode: 0o600, flag: "wx" });
+    fs.renameSync(temporary, target);
+  } finally {
+    fs.rmSync(temporary, { force: true });
   }
 }
 
-function bundle(dir: string): FileBundle {
-  const bundle: FileBundle = { files: [] };
-  const getFiles = (currentDir: string) => {
-    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name === '.DS_Store' || entry.name === '.gitkeep') continue;
-      const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
-        getFiles(fullPath);
-      } else {
-        const relativePath = path.relative(dir, fullPath).split(path.sep).join('/');
-        const content = fs.readFileSync(fullPath).toString('base64');
-        bundle.files.push({ path: relativePath, content });
-      }
-    }
-  };
-  if (fs.existsSync(dir)) getFiles(dir);
-  return bundle;
+function encryptTarget(target: ModuleTarget, password: string): void {
+  const sourceFiles = readSourceFiles(target.source);
+  const encrypted = encryptBundleBytes(sourceFiles, password, {
+    requiredFiles: target.requiredFiles,
+  });
+  writeFileAtomically(target.bundle, encrypted);
+  console.log(`✔ [pass] ${target.label}: encrypted ${sourceFiles.length} source files`);
 }
 
-function unbundle(bundle: FileBundle, targetDir: string) {
-  if (!bundle || !Array.isArray(bundle.files)) {
-    throw new Error('Invalid encrypted bundle');
-  }
-  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-  const realTargetDir = fs.realpathSync(targetDir);
-  for (const file of bundle.files) {
-    const fullPath = resolveContainedPath(targetDir, file.path);
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    const realParent = fs.realpathSync(path.dirname(fullPath));
-    if (
-      realParent !== realTargetDir &&
-      !realParent.startsWith(`${realTargetDir}${path.sep}`)
-    ) {
-      throw new Error('Bundle path resolves through a symlink outside target directory');
-    }
-    if (fs.existsSync(fullPath)) {
-      const realFile = fs.realpathSync(fullPath);
-      if (
-        realFile !== realTargetDir &&
-        !realFile.startsWith(`${realTargetDir}${path.sep}`)
-      ) {
-        throw new Error('Bundle file resolves through a symlink outside target directory');
+function decodeBundle(encrypted: Buffer, password: string, target: ModuleTarget): DecryptedBundle {
+  try {
+    const bundle = decryptBundleBytes(encrypted, password);
+    const required = new Set(bundle.requiredFiles);
+    for (const requiredFile of target.requiredFiles) {
+      if (!required.has(requiredFile)) {
+        throw new Error(`${target.label} manifest is missing required entry ${requiredFile}`);
       }
     }
-    // Write file content. For text-like files, run a sanitizer to remove
-    // zero-width / combining characters that can corrupt KaTeX and other
-    // sensitive text pipelines. Binary files are written verbatim.
-    const textExt = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html', '.md', '.txt']);
-    const ext = path.extname(fullPath).toLowerCase();
-    if (textExt.has(ext)) {
-      try {
-        const decoded = Buffer.from(file.content, 'base64').toString('utf8');
-        // Strip zero-width and common combining ranges (U+200B..U+200D, U+FEFF, U+0300..U+036F)
-        const cleaned = decoded.replace(/[\u200B-\u200D\uFEFF\u00AD\u00B8\u02DA\u0300-\u036F]/g, '');
-        fs.writeFileSync(fullPath, cleaned, { encoding: 'utf8' });
-      } catch {
-        // If decoding fails, fall back to writing raw buffer
-        fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+    return bundle;
+  } catch (versionedError) {
+    const versionedMessage = versionedError instanceof Error ? versionedError.message : String(versionedError);
+    if (!/format or version is unsupported/i.test(versionedMessage)) {
+      throw versionedError;
+    }
+    try {
+      const legacy = decryptLegacyBundleBytes(encrypted, password);
+      return {
+        ...createBundleSnapshot(legacy.files, target.requiredFiles),
+        ciphertextSha256: legacy.ciphertextSha256 ?? crypto.createHash("sha256").update(encrypted).digest("hex"),
+      };
+    } catch (legacyError) {
+      const legacyMessage = legacyError instanceof Error ? legacyError.message : String(legacyError);
+      if (/authentication failed/i.test(versionedMessage) && /authentication failed/i.test(legacyMessage)) {
+        throw new Error(`${target.label} bundle authentication failed (check its configured password)`);
       }
-    } else {
-      fs.writeFileSync(fullPath, Buffer.from(file.content, 'base64'));
+      throw new Error(`${target.label} bundle validation failed: ${versionedMessage}; legacy format: ${legacyMessage}`);
     }
   }
 }
 
-/**
- * Recursively find the newest file modification time in a directory.
- * Returns 0 if the directory doesn't exist or is empty.
- */
-function getNewestMtime(dir: string): number {
-  if (!fs.existsSync(dir)) return 0;
-  let newest = 0;
-  const walk = (currentDir: string) => {
-    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-      if (entry.name === '.DS_Store' || entry.name === '.gitkeep') continue;
-      const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
-        walk(fullPath);
-      } else {
-        const mtime = fs.statSync(fullPath).mtimeMs;
-        if (mtime > newest) newest = mtime;
-      }
-    }
-  };
-  walk(dir);
-  return newest;
-}
-
-/**
- * Check if local tmp/ files have been modified since the last decryption.
- * Returns true if local files are newer than the encrypted bundle (i.e. local edits exist).
- */
-function hasLocalEdits(bundlePath: string, tmpDir: string): boolean {
-  if (!fs.existsSync(bundlePath) || !fs.existsSync(tmpDir)) return false;
-  const bundleMtime = fs.statSync(bundlePath).mtimeMs;
-  const newestTmpMtime = getNewestMtime(tmpDir);
-  return newestTmpMtime > bundleMtime;
-}
-
-/** Decrypt a single bundle into its target dir, with optional local-edit protection. */
-function decryptBundle(
+function decryptTarget(
+  target: ModuleTarget,
   password: string,
-  bundlePath: string,
-  tmpDir: string,
-  opts: { protectLocalEdits: boolean; label: string },
+  options: { reportReady: boolean },
 ): boolean {
-  if (!fs.existsSync(bundlePath)) return false;
-
-  if (opts.protectLocalEdits && hasLocalEdits(bundlePath, tmpDir)) {
-    console.log(
-      `⚠ [skip] ${opts.label}: local changes in ${tmpDir} are newer than ${bundlePath}. ` +
-      `Run "npm run encrypt-modules" first to persist your edits, then decrypt again.`,
-    );
-    return false;
+  const bundlePath = path.resolve(ROOT, target.bundle);
+  if (!fs.existsSync(bundlePath)) throw new Error(`${target.label} bundle is missing: ${target.bundle}`);
+  const bundle = decodeBundle(fs.readFileSync(bundlePath), password, target);
+  const extractionPath = path.resolve(ROOT, target.source);
+  if (!isBundleExtracted(bundle, extractionPath)) {
+    extractBundleAtomically(bundle, extractionPath);
   }
-
-  const buffer = fs.readFileSync(bundlePath);
-  const decrypted = decrypt(buffer, password);
-  unbundle(JSON.parse(decrypted), tmpDir);
+  if (!isBundleExtracted(bundle, extractionPath)) {
+    throw new Error(`${target.label} extraction failed final integrity validation`);
+  }
+  if (options.reportReady) console.log(`✔ [pass] ${target.label}: ${bundle.bundleId}`);
   return true;
 }
 
-const mode = process.argv[2]; // 'encrypt', 'decrypt', or 'decrypt-if-needed'
-const forceFlag = process.argv.includes('--force');
-const branch = getCurrentBranch();
+function isStrictEnvironment(): boolean {
+  return ["1", "true"].includes((process.env.CI ?? "").toLocaleLowerCase("en-US"));
+}
 
-const { latex, demod } = getPasswords();
+async function main(argv: string[]): Promise<number> {
+  const [mode, ...options] = argv;
+  const passwords = getPasswords();
+  const branch = getCurrentBranch();
+  const onlyRs = options.includes("--only-rs");
+  const onlyMl = options.includes("--only-ml");
+  const requireMl = options.includes("--require-ml") || isStrictEnvironment();
 
-if (mode === 'encrypt') {
-  if (branch !== 'encrypted-modules') {
-    console.log('ℹ [skip] Encryption is only allowed on the `encrypted-modules` branch.');
-    process.exit(0);
-  }
-  try {
-    // Encrypt LaTeX
-    if (latex) {
-      const latexBundle = bundle('src/encrypted-modules/tmp/ts');
-      if (latexBundle.files.length > 0) {
-        const encrypted = encrypt(JSON.stringify(latexBundle), latex);
-        fs.writeFileSync('src/encrypted-modules/ts.bundle.enc', encrypted);
-      }
+  if (mode === "encrypt") {
+    if (branch !== "encrypted-modules") {
+      console.log("ℹ [skip] Encryption is only allowed on the `encrypted-modules` branch.");
+      return 0;
     }
-
-    // Encrypt Demod
-    if (demod) {
-      const demodBundle = bundle('src/encrypted-modules/tmp/rs');
-      if (demodBundle.files.length > 0) {
-        const encrypted = encrypt(JSON.stringify(demodBundle), demod);
-        fs.writeFileSync('src/encrypted-modules/rs.bundle.enc', encrypted);
-      }
+    const targets = onlyRs
+      ? MODULES.filter((target) => target.password === "demod")
+      : onlyMl
+        ? MODULES.filter((target) => target.label === "ML modules")
+        : MODULES;
+    for (const target of targets) {
+      const password = passwords[target.password];
+      if (!password) throw new Error(`${target.label} password is not configured`);
+      encryptTarget(target, password);
     }
-    console.log('✔ [pass] Encrypting N-APT modules...');
-  } catch (e) {
-    console.error('✗ [fail] Encrypting N-APT modules:', e);
-    process.exit(1);
-  }
-} else if (mode === 'decrypt' || mode === 'decrypt-if-needed') {
-  if (branch === 'encrypted-modules') {
-    if (mode === 'decrypt-if-needed') {
-      process.exit(0);
-    }
-    console.log('ℹ [skip] Decryption is prevented on the `encrypted-modules` branch to avoid overwriting local changes.');
-    process.exit(0);
+    console.log("✔ [pass] Encrypted module bundles are ready.");
+    return 0;
   }
 
-  if (mode === 'decrypt') {
-    // Explicit decrypt: protect local edits unless --force is passed
-    const protect = !forceFlag;
+  if (mode !== "decrypt" && mode !== "decrypt-if-needed") {
+    console.error("Usage: tsx scripts/encrypted-modules/crypt.ts [encrypt|decrypt|decrypt-if-needed] [--force] [--require-ml]");
+    return 64;
+  }
+  if (branch === "encrypted-modules") {
+    if (mode === "decrypt-if-needed") return 0;
+    console.log("ℹ [skip] Decryption is prevented on the `encrypted-modules` branch to preserve source edits.");
+    return 0;
+  }
+
+  for (const target of MODULES.filter((item) => item.label !== "ML modules")) {
+    const password = passwords[target.password];
+    if (!password) throw new Error(`${target.label} password is not configured`);
+    decryptTarget(target, password, { reportReady: mode === "decrypt" });
+  }
+
+  const mlTarget = MODULES.find((target) => target.label === "ML modules")!;
+  const mlPassword = passwords[mlTarget.password];
+  if (!fs.existsSync(path.resolve(ROOT, mlTarget.bundle))) {
+    const message = `Encrypted ML bundle is unavailable: ${mlTarget.bundle}`;
+    if (requireMl || mode === "decrypt") throw new Error(message);
+    console.warn(`⚠ [unavailable] ${message}; development surfaces will use their retryable fallback.`);
+  } else if (!mlPassword) {
+    const message = "UNSAFE_LOCAL_LATEX_PASSWORD is required to load encrypted ML modules";
+    if (requireMl || mode === "decrypt") throw new Error(message);
+    console.warn(`⚠ [unavailable] ${message}; development surfaces will use their retryable fallback.`);
+  } else {
     try {
-      if (latex) {
-        decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
-          protectLocalEdits: protect,
-          label: 'TS modules',
-        });
-      }
-
-      if (demod) {
-        decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
-          protectLocalEdits: protect,
-          label: 'RS modules',
-        });
-      }
-      console.log('✔ [pass] Decrypting N-APT modules...');
-    } catch (e) {
-      console.error('✗ [fail] Decrypting N-APT modules:', e);
-    }
-  } else if (mode === 'decrypt-if-needed') {
-    // Check if tmp/ files exist at all (not just a single sentinel)
-    const rsTmpExists = fs.existsSync('src/encrypted-modules/tmp/rs') &&
-      getNewestMtime('src/encrypted-modules/tmp/rs') > 0;
-    const tsTmpExists = fs.existsSync('src/encrypted-modules/tmp/ts') &&
-      getNewestMtime('src/encrypted-modules/tmp/ts') > 0;
-
-    if (rsTmpExists && tsTmpExists) {
-      // Already decrypted, exit silently
-      process.exit(0);
-    }
-
-    // Decrypt only the missing bundles, always protect existing local edits
-    try {
-      if (latex && !tsTmpExists) {
-        decryptBundle(latex, 'src/encrypted-modules/ts.bundle.enc', 'src/encrypted-modules/tmp/ts', {
-          protectLocalEdits: true,
-          label: 'TS modules',
-        });
-      }
-
-      if (demod && !rsTmpExists) {
-        decryptBundle(demod, 'src/encrypted-modules/rs.bundle.enc', 'src/encrypted-modules/tmp/rs', {
-          protectLocalEdits: true,
-          label: 'RS modules',
-        });
-      }
-      console.log('✔ [pass] Decrypting N-APT modules...');
-    } catch (e) {
-      console.error('✗ [fail] Decrypting N-APT modules:', e);
+      const ready = await ensureMlBundle(ROOT, { password: mlPassword });
+      if (mode === "decrypt") console.log(`✔ [pass] ML modules: ${ready.bundleId}`);
+    } catch (error) {
+      if (requireMl || mode === "decrypt") throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠ [unavailable] ML bundle validation failed: ${detail}; development surfaces will use their retryable fallback.`);
     }
   }
-} else {
-  console.log('Usage: tsx scripts/crypt.ts [encrypt|decrypt|decrypt-if-needed] [--force]');
+
+  if (mode === "decrypt") console.log("✔ [pass] Decrypting N-APT modules.");
+  return 0;
+}
+
+const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
+if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
+  main(process.argv.slice(2)).then((status) => {
+    process.exitCode = status;
+  }).catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`✗ [fail] Encrypted modules: ${detail}`);
+    process.exitCode = 1;
+  });
 }

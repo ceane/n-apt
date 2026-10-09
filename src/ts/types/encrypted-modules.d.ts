@@ -1,3 +1,5 @@
+declare const __N_APT_ML_BUNDLE_READY__: boolean;
+
 declare module "@n-apt/encrypted-modules/tmp/ts/math/napt-spike-eq" {
   const calculateX: (t: number, clump: unknown) => number;
   export default calculateX;
@@ -11,6 +13,22 @@ declare module "@n-apt/encrypted-modules/tmp/ts/components/math/MockNAPTMath" {
 declare module "@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath" {
   const DemodMath: React.ComponentType;
   export default DemodMath;
+}
+
+declare module "@n-apt/encrypted-modules/tmp/ml/index" {
+  export const CoreMLNode: React.ComponentType<any>;
+  export const StimulusNode: React.ComponentType<any>;
+  export const StimulusNodeLibraryEntry: React.ComponentType<any>;
+  export const AudioDemodWorkflowFlow: React.ComponentType<any>;
+  export const VisionDemodWorkflowFlow: React.ComponentType<any>;
+  export const VisionScene: React.ComponentType<any>;
+  export const nativeClassifier: Record<string, any>;
+  export const visionModel: Record<string, any>;
+  export const visionDecoder: Record<string, any>;
+  export const visionOnnx: Record<string, any>;
+  export const audioSurveyModel: Record<string, any>;
+  export const audioSurveyRuntime: Record<string, any>;
+  export const ML_MODULE_BUNDLE_API_VERSION: 1;
 }
 
 declare module "@n-apt/webmcp/integration" {

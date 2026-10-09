@@ -89,4 +89,28 @@ describe("DemodSidebarNodes", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+
+  it("shows a retryable bundle fallback instead of an active ML stimulus entry", async () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <DemodSidebarNodes />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Node Library/i }));
+
+    expect(
+      await screen.findByRole("alert", { name: "Stimulus Node unavailable" }),
+    ).toHaveTextContent(
+      "The stimulus node isn't decrypted, so it can't be added from the node library yet.",
+    );
+    expect(
+      screen.queryByText(
+        "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Retry Stimulus Node" }),
+    ).toBeInTheDocument();
+  });
 });

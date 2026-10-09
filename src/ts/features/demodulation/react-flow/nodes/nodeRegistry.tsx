@@ -1,10 +1,11 @@
 import React, { Suspense, useCallback, useEffect, useRef } from "react";
+import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
+import { loadEncryptedMlModule } from "@n-apt/shared/ui/loadEncryptedMlModule";
 import { SourceNode } from "@n-apt/demodulation/react-flow/nodes/SourceNode";
 import { MetadataNode } from "@n-apt/demodulation/react-flow/nodes/MetadataNode";
 import { SpanNode } from "@n-apt/demodulation/react-flow/nodes/SpanNode";
 import { SignalConfigNode } from "@n-apt/demodulation/react-flow/nodes/SignalConfigNode";
 import { DemodReadinessNode } from "@n-apt/demodulation/react-flow/nodes/DemodReadinessNode";
-import { StimulusNode } from "@n-apt/demodulation/react-flow/nodes/StimulusNode";
 import { OutputNode } from "@n-apt/demodulation/react-flow/nodes/OutputNode";
 import { ExperimentControlNode } from "@n-apt/demodulation/react-flow/nodes/ExperimentControlNode";
 import { ExperimentObservationNode } from "@n-apt/demodulation/react-flow/nodes/ExperimentObservationNode";
@@ -17,10 +18,29 @@ export interface DemodNodeData {
 
 type DemodNodeComponent = React.ComponentType<{ data: any; id?: string }>;
 
-const LazyCoreMLNode = React.lazy(() =>
-  import("@n-apt/demodulation/react-flow/nodes/CoreMLNode").then((m) => ({
-    default: m.CoreMLNode as DemodNodeComponent,
-  })),
+const loadCoreMLNode = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.CoreMLNode as DemodNodeComponent,
+  }));
+
+const LazyCoreMLNode: DemodNodeComponent = (props) => (
+  <RetryableMlFeature
+    label="Audio Survey ML"
+    loader={loadCoreMLNode}
+    componentProps={props}
+  />
+);
+const loadStimulusNode = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.StimulusNode as DemodNodeComponent,
+  }));
+const LazyStimulusNode: DemodNodeComponent = (props) => (
+  <RetryableMlFeature
+    label="Stimulus Node"
+    fallbackMessage="The stimulus node isn't decrypted, so it can't be loaded in this flow."
+    loader={loadStimulusNode}
+    componentProps={props}
+  />
 );
 const LazySpikeDetectionNode = React.lazy(() =>
   import("@n-apt/demodulation/react-flow/nodes/SpikeDetectionNode").then(
@@ -144,7 +164,7 @@ export const DEMOD_NODE_REGISTRY: DemodNodeRegistryEntry[] = [
   { flag: "metadataNode", Component: MetadataNode },
   { flag: "channelOptions", Component: LazyChannelOptionsNode },
   { flag: "spanOptions", Component: SpanNode },
-  { flag: "stimulusOptions", Component: StimulusNode },
+  { flag: "stimulusOptions", Component: LazyStimulusNode },
   { flag: "tempoNoteOptions", Component: LazyTempoNoteNode },
   { flag: "radioOptions", Component: LazyRadioNode },
   { flag: "streamOptions", Component: LazyStreamNode },

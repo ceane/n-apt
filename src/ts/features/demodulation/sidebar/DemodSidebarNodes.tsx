@@ -7,7 +7,6 @@ import {
   Radio,
   Settings,
   Wifi,
-  Volume2,
   Play,
   Image,
   RadioIcon,
@@ -27,6 +26,30 @@ import {
   SatelliteDish,
   Brush,
 } from "lucide-react";
+import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
+import { loadEncryptedMlModule } from "@n-apt/shared/ui/loadEncryptedMlModule";
+import type {
+  DemodNodeLibraryDragStart,
+  DemodNodeLibraryItem,
+} from "@n-apt/types/demodNodeLibrary";
+
+type ProtectedStimulusEntryProps = {
+  onDragStart: DemodNodeLibraryDragStart;
+};
+
+const loadStimulusNodeLibraryEntry = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.StimulusNodeLibraryEntry as React.ComponentType<ProtectedStimulusEntryProps>,
+  }));
+
+const ProtectedStimulusEntry: React.FC<ProtectedStimulusEntryProps> = (props) => (
+  <RetryableMlFeature
+    label="Stimulus Node"
+    fallbackMessage="The stimulus node isn't decrypted, so it can't be added from the node library yet."
+    loader={loadStimulusNodeLibraryEntry}
+    componentProps={props}
+  />
+);
 
 const NodePaletteContainer = styled.div`
   display: flex;
@@ -99,17 +122,7 @@ const NodeDescription = styled.div`
   line-height: 1.2;
 `;
 
-interface NodeType {
-  id: string;
-  type: string;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-  position: { x: number; y: number };
-  data: any;
-}
-
-const availableNodes: NodeType[] = [
+const availableNodes: DemodNodeLibraryItem[] = [
   {
     id: "tx",
     type: "custom",
@@ -206,21 +219,6 @@ const availableNodes: NodeType[] = [
       description:
         "Turns those signal points into a stream of 0s and 1s—the raw data before it is organized.",
       bitstreamOptions: true,
-    },
-  },
-  {
-    id: "stimulus",
-    type: "custom",
-    label: "Stimulus (N-APT)",
-    description:
-      "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
-    icon: <Volume2 size={16} />,
-    position: { x: 150, y: 550 },
-    data: {
-      label: "Stimulus",
-      description:
-        "Record I/Q captures of N-APT channels using a baseline media content to detect where is what.",
-      stimulusOptions: true,
     },
   },
   {
@@ -482,7 +480,7 @@ const availableNodes: NodeType[] = [
 ];
 
 export const DemodSidebarNodes: React.FC = () => {
-  const handleDragStart = (event: React.DragEvent, nodeType: NodeType) => {
+  const handleDragStart: DemodNodeLibraryDragStart = (event, nodeType) => {
     event.dataTransfer.setData(
       "application/reactflow",
       JSON.stringify(nodeType),
@@ -499,17 +497,21 @@ export const DemodSidebarNodes: React.FC = () => {
       >
         <NodePaletteContainer>
           {availableNodes.map((node) => (
-            <NodeItem
-              key={node.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, node)}
-            >
-              <NodeIcon>{node.icon}</NodeIcon>
-              <NodeInfo>
-                <NodeTitle>{node.label}</NodeTitle>
-                <NodeDescription>{node.description}</NodeDescription>
-              </NodeInfo>
-            </NodeItem>
+            <React.Fragment key={node.id}>
+              <NodeItem
+                draggable
+                onDragStart={(e) => handleDragStart(e, node)}
+              >
+                <NodeIcon>{node.icon}</NodeIcon>
+                <NodeInfo>
+                  <NodeTitle>{node.label}</NodeTitle>
+                  <NodeDescription>{node.description}</NodeDescription>
+                </NodeInfo>
+              </NodeItem>
+              {node.id === "bitstream" && (
+                <ProtectedStimulusEntry onDragStart={handleDragStart} />
+              )}
+            </React.Fragment>
           ))}
         </NodePaletteContainer>
       </Collapsible>

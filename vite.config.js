@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
@@ -37,6 +38,146 @@ const scopedFrontendRoots = {
   workers: "src/ts/workers",
   shaders: "src/ts/shaders",
 };
+
+const encryptedMlSourceRoot = path.resolve(
+  dirname,
+  "src/encrypted-modules/tmp/ml/src/ts/features",
+);
+const mlBundlePath = path.resolve(dirname, "src/encrypted-modules/ml.bundle.enc");
+const mlExtractionRoot = path.resolve(dirname, "src/encrypted-modules/tmp/ml");
+const mlEntryPath = path.join(mlExtractionRoot, "index.ts");
+const mlExtractionStatePath = path.join(
+  mlExtractionRoot,
+  ".module-bundle-state.json",
+);
+const requiredMlBundleFiles = [
+  "index.ts",
+  "src/ts/features/classification/index.ts",
+  "src/ts/features/demodulation/react-flow/nodes/AudioDemodWorkflowFlow.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/CoreMLNode.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/StimulusNode.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/VisionDemodWorkflowFlow.tsx",
+  "src/ts/features/demodulation/sidebar/StimulusNodeLibraryEntry.tsx",
+  "src/ts/features/demodulation/survey/audioSurveyLiveDemod.ts",
+  "src/ts/features/demodulation/survey/audioSurveyModel.ts",
+  "src/ts/features/demodulation/vision/visionML.ts",
+  "src/ts/features/demodulation/vision/visionModel.ts",
+  "src/ts/features/demodulation/vision/visionOnnxRuntime.ts",
+  "src/ts/features/three-d/VisionScene.tsx",
+];
+const hasDecryptedMlSource = (() => {
+  try {
+    if (
+      !fs.lstatSync(mlBundlePath).isFile() ||
+      !fs.lstatSync(mlEntryPath).isFile() ||
+      !fs.lstatSync(mlExtractionStatePath).isFile()
+    ) {
+      return false;
+    }
+    const state = JSON.parse(fs.readFileSync(mlExtractionStatePath, "utf8"));
+    const bundleSha256 = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(mlBundlePath))
+      .digest("hex");
+    return (
+      state.format === "n-apt-encrypted-module-bundle" &&
+      state.version === 1 &&
+      /^[a-f0-9]{64}$/.test(state.bundleId) &&
+      state.ciphertextSha256 === bundleSha256 &&
+      Array.isArray(state.requiredFiles) &&
+      Array.isArray(state.files) &&
+      requiredMlBundleFiles.every(
+        (filePath) =>
+          state.requiredFiles.includes(filePath) && state.files.includes(filePath),
+      )
+    );
+  } catch {
+    return false;
+  }
+})();
+const publicMlAdapterRoot = path.resolve(
+  dirname,
+  "src/ts/encryptedAdapters/ml",
+);
+const protectedSurveyRoot = path.join(
+  encryptedMlSourceRoot,
+  "demodulation",
+  "survey",
+);
+const protectedVisionRoot = path.join(
+  encryptedMlSourceRoot,
+  "demodulation",
+  "vision",
+);
+const protectedClassificationRoot = path.join(
+  encryptedMlSourceRoot,
+  "classification",
+);
+const protectedClassificationNativeRoot = path.join(
+  protectedClassificationRoot,
+  "native",
+);
+const publicClassificationNativeRoot = path.resolve(
+  dirname,
+  "src/ts/features/classification/native",
+);
+
+const encryptedMlAliases = [
+  {
+    find: /^\/?@n-apt\/demodulation\/survey\/audioSurveyMedia$/,
+    replacement: path.resolve(
+      dirname,
+      "src/ts/features/demodulation/survey/audioSurveyMedia.ts",
+    ),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/vision\/visionScreens$/,
+    replacement: path.resolve(
+      dirname,
+      "src/ts/features/demodulation/vision/visionScreens.ts",
+    ),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/vision\/visionSourcePolicy$/,
+    replacement: path.resolve(
+      dirname,
+      "src/ts/features/demodulation/vision/visionSourcePolicy.ts",
+    ),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/survey\/(.*)$/,
+    replacement: hasDecryptedMlSource
+      ? `${protectedSurveyRoot}/$1`
+      : path.join(publicMlAdapterRoot, "audioSurveyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/vision\/(.*)$/,
+    replacement: hasDecryptedMlSource
+      ? `${protectedVisionRoot}/$1`
+      : path.join(publicMlAdapterRoot, "audioSurveyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/classification\/native\/(core|gpu)$/,
+    replacement: path.join(
+      hasDecryptedMlSource
+        ? protectedClassificationNativeRoot
+        : publicMlAdapterRoot,
+      hasDecryptedMlSource ? "$1" : "classificationNativeFallback.ts",
+    ),
+  },
+  {
+    find: /^\/?@n-apt\/classification\/native\/(.*)$/,
+    replacement: hasDecryptedMlSource
+      ? `${protectedClassificationNativeRoot}/$1`
+      : `${publicClassificationNativeRoot}/$1`,
+  },
+  {
+    find: /^\/?@n-apt\/classification$/,
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedClassificationRoot, "index.ts")
+      : path.join(publicMlAdapterRoot, "classificationFallback.ts"),
+  },
+];
 
 const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
   ([namespace, relativeRoot]) => {
@@ -210,6 +351,7 @@ export default defineConfig(({ mode }) => {
   return {
   define: {
     __DEV__: JSON.stringify(mode !== "production"),
+    __N_APT_ML_BUNDLE_READY__: JSON.stringify(hasDecryptedMlSource),
   },
   plugins: [
     injectBrowserEnv(browserEnv),
@@ -304,7 +446,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   resolve: {
-    alias: [...scopedFrontendAliases, {
+    alias: [...encryptedMlAliases, ...scopedFrontendAliases, {
       find: /^\/?@n-apt\/app-article$/,
       replacement: path.resolve(dirname, "src/app-article")
     }, {
