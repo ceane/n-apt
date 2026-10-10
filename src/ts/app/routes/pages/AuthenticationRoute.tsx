@@ -89,15 +89,6 @@ const heterodyneCarrierSamples = Array.from(
   { length: FFT_SAMPLE_COUNT },
   (_, index) => Math.sin((index / FFT_SAMPLE_COUNT) * Math.PI * 2 * 2.4),
 );
-const shiftSamples = (values: readonly number[], shift: number) =>
-  values.map((_, index) => {
-    const sourceIndex = (index - shift + values.length) % values.length;
-    const lowerIndex = Math.floor(sourceIndex);
-    const upperIndex = (lowerIndex + 1) % values.length;
-    const fraction = sourceIndex - lowerIndex;
-    return values[lowerIndex] * (1 - fraction) + values[upperIndex] * fraction;
-  });
-const heterodyneOffsetSamples = shiftSamples(heterodyneCarrierSamples, 0.65);
 const sourceComponents = [
   { cycles: 4.7, amplitude: 0.48, phase: 0.1 },
   { cycles: 11.8, amplitude: 0.3, phase: 1.4 },
@@ -123,7 +114,6 @@ const rawSourceSamples = Array.from(
 );
 const sourcePeak = Math.max(...rawSourceSamples.map(Math.abs));
 const sourceSamples = rawSourceSamples.map((sample) => sample / sourcePeak);
-const sourceOffsetSamples = shiftSamples(sourceSamples, 0.65);
 
 const makeTracePath = (
   values: readonly number[],
@@ -178,19 +168,8 @@ const heterodyneCarrierPath = makeTracePath(
   WAVE_BASELINE,
   WAVE_AMPLITUDE,
 );
-const heterodyneOffsetPath = makeTracePath(
-  heterodyneOffsetSamples,
-  WAVE_BASELINE,
-  WAVE_AMPLITUDE,
-);
 const rectifiedWavePath = makeTracePath(
   sourceSamples,
-  WAVE_BASELINE,
-  WAVE_AMPLITUDE,
-  (value) => -Math.abs(value),
-);
-const rectifiedOffsetWavePath = makeTracePath(
-  sourceOffsetSamples,
   WAVE_BASELINE,
   WAVE_AMPLITUDE,
   (value) => -Math.abs(value),
@@ -1181,10 +1160,13 @@ export const AuthenticationUI = ({
                         repeatCount="indefinite"
                       />
                     </SpectrumArea>
-                    <SecondWavePath d={heterodyneOffsetPath}>
+                    <SecondWavePath
+                      d={heterodyneCarrierPath}
+                      transform="translate(8 0)"
+                    >
                       <animate
                         attributeName="d"
-                        values={`${heterodyneOffsetPath};${heterodyneOffsetPath};${sourceWavePath};${rectifiedOffsetWavePath};${rectifiedOffsetWavePath};${rectifiedOffsetWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${heterodyneOffsetPath}`}
+                        values={`${heterodyneCarrierPath};${heterodyneCarrierPath};${sourceWavePath};${rectifiedWavePath};${rectifiedWavePath};${rectifiedWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${heterodyneCarrierPath}`}
                         keyTimes={animationKeyTimes}
                         dur={LOGIN_FFT_CYCLE_DURATION}
                         repeatCount="indefinite"
