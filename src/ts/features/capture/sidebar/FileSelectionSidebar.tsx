@@ -35,6 +35,7 @@ type NaptMetadata = {
   duration_s?: number;
   acquisition_mode?: string;
   source_device?: string;
+  capture_labels?: string[];
   fft_window?: string;
   tuner_agc?: boolean;
   rtl_agc?: boolean;

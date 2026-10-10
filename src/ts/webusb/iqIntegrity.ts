@@ -1,7 +1,7 @@
 const PLACEHOLDER = "0".repeat(64);
 const encoder = new TextEncoder();
 
-export const NAPT_FORMAT_VERSION = 5;
+export const NAPT_FORMAT_VERSION = 6;
 export const NAPT_TRAILER_VERSION = 2;
 export const INTEGRITY_SCOPE = "file-with-integrity-digest-placeholder";
 
@@ -10,7 +10,11 @@ const toHex = (bytes: Uint8Array): string =>
 
 const findToken = (bytes: Uint8Array, token: string): number => {
   const marker = encoder.encode(token);
-  outer: for (let offset = 0; offset <= bytes.length - marker.length; offset += 1) {
+  outer: for (
+    let offset = 0;
+    offset <= bytes.length - marker.length;
+    offset += 1
+  ) {
     for (let index = 0; index < marker.length; index += 1) {
       if (bytes[offset + index] !== marker[index]) continue outer;
     }
@@ -19,12 +23,17 @@ const findToken = (bytes: Uint8Array, token: string): number => {
   return -1;
 };
 
-export const stampIntegrity = async (bytes: Uint8Array): Promise<Uint8Array> => {
+export const stampIntegrity = async (
+  bytes: Uint8Array,
+): Promise<Uint8Array> => {
   const placeholderOffset = findToken(bytes, PLACEHOLDER);
-  if (placeholderOffset < 0) throw new Error("Integrity digest placeholder is missing");
-  const digestInput = bytes.slice();
-  const digest = toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", digestInput.buffer)));
-  const result = bytes.slice();
+  if (placeholderOffset < 0)
+    throw new Error("Integrity digest placeholder is missing");
+  const digestInput = Uint8Array.from(bytes);
+  const digest = toHex(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", digestInput.buffer)),
+  );
+  const result = Uint8Array.from(bytes);
   result.set(encoder.encode(digest), placeholderOffset);
   return result;
 };
@@ -36,9 +45,14 @@ export const verifyStampedIntegrity = async (
   if (!/^[0-9a-f]{64}$/.test(digest)) return false;
   const placeholderOffset = findToken(bytes, digest);
   if (placeholderOffset < 0) return false;
-  const normalized = bytes.slice();
+  // Buffer.slice() returns a view, unlike Uint8Array.slice(). Clone through
+  // Uint8Array so verification neither mutates Buffer callers nor hashes an
+  // oversized backing slab.
+  const normalized = Uint8Array.from(bytes);
   normalized.set(encoder.encode(PLACEHOLDER), placeholderOffset);
-  const calculated = toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", normalized.buffer)));
+  const calculated = toHex(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", normalized.buffer)),
+  );
   return calculated === digest;
 };
 

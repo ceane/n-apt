@@ -484,6 +484,7 @@ pub fn load_channels() -> Vec<super::types::SpectrumFrameMessage> {
       min_hz,
       max_hz,
       description: f.description,
+      prerequisite_for: f.prerequisite_for,
     });
   }
   out
@@ -1027,6 +1028,7 @@ mod tests {
         label: "A".to_string(),
         freq_range_hz: vec![18_000.0, 4_390_000.0],
         description: "A".to_string(),
+        prerequisite_for: None,
       },
     );
     channels.insert(
@@ -1035,6 +1037,7 @@ mod tests {
         label: "C".to_string(),
         freq_range_hz: vec![4_750_000.0, 23_000_000.0],
         description: "C".to_string(),
+        prerequisite_for: None,
       },
     );
     let floor = compute_min_receive_sample_rate(&channels, 20_000_000);
@@ -1260,6 +1263,8 @@ signals:
       label: "C"
       freq_range_hz: [11000000.0, 23000000.0]
       description: "C"
+      prerequisite_for:
+        demod.stimulus.vision: all
     a:
       label: "A"
       freq_range_hz: [18000.0, 4370000.0]
@@ -1268,6 +1273,9 @@ signals:
       label: "B"
       freq_range_hz: [24720000.0, 29880000.0]
       description: "B"
+      prerequisite_for:
+        demod.stimulus.audio: any
+        demod.audio_survey: all
   sdr:
     sample_rate: 3200000
     center_frequency: 137500000
@@ -1295,6 +1303,23 @@ signals:
       config.signals.channels.keys().cloned().collect();
     assert_eq!(ordered_ids, vec!["c", "a", "b"]);
 
+    let vision_requirement = config.signals.channels["c"]
+      .prerequisite_for
+      .as_ref()
+      .unwrap()["demod.stimulus.vision"];
+    assert_eq!(
+      vision_requirement,
+      crate::server::types::ChannelPrerequisiteMode::All
+    );
+    let audio_requirement = config.signals.channels["b"]
+      .prerequisite_for
+      .as_ref()
+      .unwrap()["demod.stimulus.audio"];
+    assert_eq!(
+      audio_requirement,
+      crate::server::types::ChannelPrerequisiteMode::Any
+    );
+
     let mut out = Vec::new();
     for (id, f) in config.signals.channels.clone() {
       out.push((id, f.label));
@@ -1307,6 +1332,26 @@ signals:
         ("a".to_string(), "A".to_string()),
         ("b".to_string(), "B".to_string())
       ]
+    );
+
+    let channel_messages = config
+      .signals
+      .channels
+      .iter()
+      .map(|(id, channel)| crate::server::types::SpectrumFrameMessage {
+        id: id.clone(),
+        label: channel.label.clone(),
+        min_hz: channel.freq_range_hz[0],
+        max_hz: channel.freq_range_hz[1],
+        description: channel.description.clone(),
+        prerequisite_for: channel.prerequisite_for.clone(),
+      })
+      .collect::<Vec<_>>();
+    let serialized =
+      serde_json::to_value(channel_messages).expect("serialize channels");
+    assert_eq!(
+      serialized[2]["prerequisite_for"]["demod.audio_survey"],
+      "all"
     );
   }
 
@@ -1408,6 +1453,7 @@ signals:
       geolocation: None,
       frequency_range: Some((137_100_000.0, 137_900_000.0)),
       ref_based_demod_baseline: None,
+      capture_labels: None,
       is_mock_apt: false,
       is_ephemeral: false,
       dek: None,
@@ -1774,7 +1820,35 @@ impl<W: std::io::Write> std::io::Write for HashingWriter<W> {
   }
 }
 
-/// Save capture IQ data to a file (.wav with metadata, or encrypted .napt)
+/// Convert channel-local frame update offsets to the flattened IQ byte stream.
+fn flatten_capture_frame_updates(
+  channels: &[crate::sdr::processor::CaptureChannel],
+  updates: &[crate::server::iq_format::FrameUpdate],
+) -> Vec<crate::server::iq_format::FrameUpdate> {
+  let mut channel_byte_offsets = Vec::with_capacity(channels.len());
+  let mut next_offset = 0u64;
+  for channel in channels {
+    channel_byte_offsets.push(next_offset);
+    next_offset = next_offset.saturating_add(channel.iq_data.len() as u64);
+  }
+
+  let mut flattened = updates
+    .iter()
+    .cloned()
+    .map(|mut update| {
+      if let Some(channel_index) = update.channel.map(|index| index as usize) {
+        if let Some(channel_offset) = channel_byte_offsets.get(channel_index) {
+          update.sample_offset = channel_offset.saturating_add(update.sample_offset);
+        }
+      }
+      update
+    })
+    .collect::<Vec<_>>();
+  flattened.sort_by_key(|update| (update.sample_offset, update.timestamp_us));
+  flattened
+}
+
+/// Save capture IQ data to a file (.wav with metadata, or encrypted .napt).
 /// Supports multiple channels.
 pub fn save_capture_file_multi(
   result: &crate::sdr::processor::CaptureResult,
@@ -1793,16 +1867,25 @@ pub fn save_capture_file_multi(
   {
     return Err(format!("Unsupported file_type: '{}'", result.file_type));
   }
+  match (result.file_type.as_str(), result.encrypted) {
+    (".napt", false) => {
+      return Err("Unencrypted .napt captures are not supported".into());
+    }
+    (".wav", true) => {
+      return Err("Encrypted .wav captures are not supported".into());
+    }
+    _ => {}
+  }
 
-  // Create temp directory if it doesn't exist
-  let temp_dir = std::env::temp_dir().join("n-apt-captures");
+  // Capture bytes must survive process restarts and OS temp cleanup.
+  let temp_dir = crate::capture::storage::capture_storage_dir();
   std::fs::create_dir_all(&temp_dir)
-    .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    .map_err(|e| format!("Failed to create durable capture directory: {}", e))?;
 
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
   let filename = if result.file_type == ".iq" {
     format!("capture_{}_{}.iq", result.job_id, timestamp)
-  } else if result.encrypted && result.file_type == ".napt" {
+  } else if result.file_type == ".napt" {
     format!("capture_{}_{}.napt", result.job_id, timestamp)
   } else {
     // default to wav for non-encrypted capture
@@ -1832,7 +1915,7 @@ pub fn save_capture_file_multi(
     "data_format": "iq_u8",
     "spectrum_shifted": true,
     "format": if result.file_type == ".iq" { "iq" } else if result.file_type == ".wav" { "wav" } else { "napt" },
-    "format_version": if result.file_type == ".wav" { 3 } else { 5 },
+    "format_version": if result.file_type == ".wav" { 3 } else { crate::server::iq_format::IQ_FORMAT_VERSION },
     "interleaving": "IQ",
     "device_profile": {
       "kind": result.source_device,
@@ -1842,6 +1925,12 @@ pub fn save_capture_file_multi(
 
   if let Some(baseline) = &result.ref_based_demod_baseline {
     meta_obj["ref_based_demod_baseline"] = serde_json::json!(baseline);
+  }
+
+  if let Some(labels) = &result.capture_labels {
+    if !labels.is_empty() {
+      meta_obj["capture_labels"] = serde_json::json!(labels);
+    }
   }
 
   if let Some((min_hz, max_hz)) = result.frequency_range {
@@ -1902,7 +1991,10 @@ pub fn save_capture_file_multi(
       } else {
         None
       },
-      frames: result.frame_updates.clone(),
+      frames: flatten_capture_frame_updates(
+        &result.channels,
+        &result.frame_updates,
+      ),
       chunks: result
         .channels
         .iter()
@@ -1932,9 +2024,10 @@ pub fn save_capture_file_multi(
       .collect::<String>();
     std::fs::write(&path, &encoded)
       .map_err(|e| format!("Failed to write IQ: {e}"))?;
+    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
     return Ok(CaptureArtifact {
       filename,
-      path,
+      path: durable_path,
       file_size: encoded.len() as u64,
       checksum,
     });
@@ -1960,6 +2053,7 @@ pub fn save_capture_file_multi(
       }));
     }
 
+    meta_obj["frame_updates"] = serde_json::json!(result.frame_updates);
     meta_obj["channels"] = serde_json::Value::Array(channel_metas);
 
     // Phase 2: Per-file key wrapping
@@ -2083,17 +2177,18 @@ pub fn save_capture_file_multi(
     let file_size = encoded.len() as u64;
     std::fs::write(&path, &encoded)
       .map_err(|e| format!("Failed to write encrypted capture: {}", e))?;
+    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
 
     info!(
       "Saved encrypted capture: {} ({} bytes, sha256:{})",
-      path.display(),
+      durable_path.display(),
       file_size,
       checksum
     );
 
     return Ok(CaptureArtifact {
       filename,
-      path,
+      path: durable_path,
       file_size,
       checksum,
     });
@@ -2119,13 +2214,14 @@ pub fn save_capture_file_multi(
     let mut chan_list = Vec::new();
     for ch in &result.channels {
       chan_list.push(serde_json::json!({
-          "center_freq_hz": ch.center_freq_hz,
-          "sample_rate_hz": ch.sample_rate_hz,
-          "bins_per_frame": ch.bins_per_frame,
-          "label": ch.label,
+        "center_freq_hz": ch.center_freq_hz,
+        "sample_rate_hz": ch.sample_rate_hz,
+        "bins_per_frame": ch.bins_per_frame,
+        "label": ch.label,
       }));
     }
     meta_with_channels["channels"] = serde_json::Value::Array(chan_list);
+    meta_with_channels["frame_updates"] = serde_json::json!(result.frame_updates);
     let meta_json = meta_with_channels.to_string();
     let meta_bytes = meta_json.as_bytes();
     let meta_padding = if (meta_bytes.len() + 1).is_multiple_of(2) {
@@ -2217,17 +2313,18 @@ pub fn save_capture_file_multi(
 
     writer.flush().map_err(|e| e.to_string())?;
     let (checksum, file_size) = writer.finalize();
+    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
 
     info!(
       "Saved WAV capture: {} ({} bytes, sha256:{})",
-      path.display(),
+      durable_path.display(),
       file_size,
       checksum
     );
 
     Ok(CaptureArtifact {
       filename,
-      path,
+      path: durable_path,
       file_size,
       checksum,
     })
@@ -2281,6 +2378,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2361,6 +2459,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2438,6 +2537,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2478,6 +2578,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: false,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2536,6 +2637,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: true,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2633,6 +2735,7 @@ mod save_tests {
       is_ephemeral: false,
       is_mock_apt: true,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2761,6 +2864,7 @@ mod dynamic_header_tests {
       is_ephemeral: false,
       is_mock_apt: true,
       ref_based_demod_baseline: None,
+      capture_labels: None,
       dek: None,
       bandwidth: None,
       bandwidth_center_frequency: None,
@@ -2785,7 +2889,7 @@ mod dynamic_header_tests {
       .expect("header newline");
     let header: serde_json::Value =
       serde_json::from_slice(&file[..newline]).expect("parse header json");
-    assert_eq!(header["metadata"]["format_version"], 5);
+    assert_eq!(header["metadata"]["format_version"], 6);
 
     // Header size is a 1024-multiple >= 4096 that covers the JSON + newline.
     let binary_offset = header["metadata"]["sections"]["binary"]["offset_bytes"]
@@ -2812,6 +2916,7 @@ mod dynamic_header_tests {
     assert_eq!(binary_offset + binary_len, trailer_offset);
     assert_eq!(trailer_offset + trailer_len, file.len());
     assert_eq!(&file[trailer_offset..trailer_offset + 8], b"NAPTTRLR");
+    assert_eq!(file[trailer_offset + 8], 2);
   }
 
   #[test]

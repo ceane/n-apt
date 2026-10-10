@@ -2,6 +2,7 @@
 import { spawn, ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
+import { resolveBackendBinaryPath } from "../../scripts/build/backendBinaryPath";
 
 describe("Backend Health Integration", () => {
   let backendProcess: ChildProcess;
@@ -13,7 +14,7 @@ describe("Backend Health Integration", () => {
     const projectRoot = path.resolve(process.cwd());
     const binaryPath =
       process.env.BACKEND_BINARY_PATH ||
-      path.join(projectRoot, "target/debug/n-apt-backend");
+      resolveBackendBinaryPath(projectRoot);
 
     if (!fs.existsSync(binaryPath)) {
       throw new Error(

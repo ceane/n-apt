@@ -221,7 +221,7 @@ pub fn mock_tx_monitor_noise_floor_rms(power_model: &TxIqPowerModel) -> f64 {
 
 use std::sync::{Arc, LazyLock, Mutex};
 
-use crate::s::ifft::complex_baseband::{
+use crate::signal_port::ifft::complex_baseband::{
   canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator,
   ComplexBasebandIQParams,
 };

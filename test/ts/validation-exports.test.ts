@@ -42,10 +42,8 @@ describe("Validation Exports", () => {
       source_id: "mock-apt",
     };
     const result = validateWebSocketMessage(validMessage);
-    expect(typeof result).toBe("boolean");
+    expect(result).toBe(true);
 
-    // Test with invalid message
-    const invalidResult = validateWebSocketMessage({ type: "test" });
-    expect(typeof invalidResult).toBe("boolean");
+    expect(validateWebSocketMessage({ type: "not-a-real-type" })).toBe(false);
   });
 });

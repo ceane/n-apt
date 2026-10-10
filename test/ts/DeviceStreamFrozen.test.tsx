@@ -6,6 +6,10 @@ import { FrequencyRange } from "@n-apt/consts/types";
 import { MemoryRouter } from "react-router";
 import { TestWrapper } from "./testUtils";
 
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ sessionToken: null }),
+}));
+
 // Mock the hooks that FFTCanvas uses
 jest.mock("@n-apt/spectrum/hooks/useFFTAnimation", () => ({
   useFFTAnimation: () => ({

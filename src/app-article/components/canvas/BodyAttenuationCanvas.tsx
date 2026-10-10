@@ -5,7 +5,7 @@ import { useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { CanvasText } from "@n-apt/app-article/components/CanvasText";
 import { assetImageUrl } from "@n-apt/app-article/utils/asset-helpers";
-import * as External from "@n-apt/app-article/externalImports";
+import * as External from "@n-apt/app-article/frequencyFormatters";
 import * as CanvasMath from "@n-apt/app-article/utils/canvas-math";
 import CanvasHarness from "@n-apt/app-article/components/canvas/CanvasHarness";
 const BODY_CHARACTER_SRC = assetImageUrl("body-attenuation-character.png");

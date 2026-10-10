@@ -63,6 +63,7 @@ describe("GetStartedRoute", () => {
     expect(screen.getByText(".napt")).toBeInTheDocument();
     expect(screen.getByText(".iq")).toBeInTheDocument();
     expect(screen.getByText(".wav")).toBeInTheDocument();
+    expect(screen.getByText(".enc")).toBeInTheDocument();
     expect(screen.queryByText("RTL-SDR")).not.toBeInTheDocument();
     expect(screen.queryByText("HackRF One")).not.toBeInTheDocument();
   });
@@ -136,7 +137,7 @@ describe("GetStartedRoute", () => {
     fireEvent.click(playbackCard);
 
     const fileInput = container.querySelector(
-      'input[type="file"][accept=".napt,.iq,.wav"]',
+      'input[type="file"][accept=".napt,.iq,.wav,.enc"]',
     ) as HTMLInputElement;
     expect(fileInput).not.toBeNull();
 
@@ -162,6 +163,21 @@ describe("GetStartedRoute", () => {
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-checked", "true");
     expect(localStorage.getItem("n-apt-bypass-start-page")).toBe("true");
+  });
+
+  it("keeps the bypass switch track from shrinking inside the card footer", () => {
+    renderRoute();
+
+    const toggle = screen.getByRole("switch", {
+      name: /Bypass Start Page Next Time/i,
+    });
+    const track = toggle.lastElementChild as HTMLElement;
+    const label = toggle.querySelector("span") as HTMLElement;
+
+    expect(getComputedStyle(track).width).toBe("32px");
+    expect(getComputedStyle(track).flexShrink).toBe("0");
+    expect(getComputedStyle(label).whiteSpace).toBe("normal");
+    expect(getComputedStyle(label).textAlign).toBe("left");
   });
 
   it("renders source names from the Redux websocket inventory", () => {

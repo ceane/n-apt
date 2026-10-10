@@ -2,6 +2,8 @@ import { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/hooks/useWasmSimdMa
 import { dbToColor } from "@n-apt/capture/hooks/useSnapshot";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
 
+export { resolveCliSnapshotFrameCount } from "@n-apt/cli/snapshotPolicy";
+
 export interface CliSnapshotFrame {
   iqData: Uint8Array;
   centerFrequencyHz: number;
@@ -13,24 +15,35 @@ export interface CliSnapshotModel {
   frequencyRange: { min: number; max: number };
   waterfallBuffer: Uint8ClampedArray | null;
   waterfallDims: { width: number; height: number } | null;
+  /** One spectrum per input frame, index-aligned; the last entry is `waveform`. */
+  spectra: Float32Array[];
 }
 
 /** Converts Rust IQ frames into inputs for the shared 2D snapshot renderers. */
 export function buildCliSnapshotModel(
   input: CliSnapshotFrame | CliSnapshotFrame[],
-  options: { fftSize: number; waterfall: boolean; waterfallRows?: number },
+  options: {
+    fftSize: number;
+    waterfall: boolean;
+    waterfallRows?: number;
+    powerScale?: "dB" | "dBm";
+    dbMin?: number;
+    dbMax?: number;
+  },
 ): CliSnapshotModel {
   const frames = Array.isArray(input) ? input : [input];
   if (!frames.length) throw new Error("At least one Rust IQ frame is required");
   const spectra = frames.map((frame) =>
     computeIqToDbSpectrumScalar(frame.iqData, {
       fftSize: options.fftSize,
-      offsetDb: 0,
-      windowType: "hanning",
+      offsetDb: options.powerScale === "dBm" ? 30 : 0,
+      windowType: "rectangular",
     }),
   );
   const frame = frames[frames.length - 1];
   const waveform = spectra[spectra.length - 1];
+  const dbMin = options.dbMin ?? -120;
+  const dbMax = options.dbMax ?? 0;
   const halfSpan = frame.sampleRateHz / 2;
   const frequencyRange = {
     min: frame.centerFrequencyHz - halfSpan,
@@ -42,6 +55,7 @@ export function buildCliSnapshotModel(
       frequencyRange,
       waterfallBuffer: null,
       waterfallDims: null,
+      spectra,
     };
   }
   const rows = Math.max(1, options.waterfallRows ?? 96);
@@ -56,8 +70,8 @@ export function buildCliSnapshotModel(
     for (let column = 0; column < width; column++) {
       const [red, green, blue] = dbToColor(
         rowSpectrum[column],
-        -80,
-        20,
+        dbMin,
+        dbMax,
         WATERFALL_COLORMAPS.classic,
       );
       const offset = (row * width + column) * 4;
@@ -72,5 +86,6 @@ export function buildCliSnapshotModel(
     frequencyRange,
     waterfallBuffer,
     waterfallDims: { width, height: rows },
+    spectra,
   };
 }

@@ -3,6 +3,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { randomBytes } from 'node:crypto';
+import dotenv from 'dotenv';
+import { ensureRedisAuthConfig, isLocalRedisUrl } from './redis_auth_config.mjs';
+import { capturePreAuthRedisState } from './preserve_redis_salts.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +39,59 @@ function logError(message) {
   log(`❌ ${message}`, 'red');
 }
 
+const legacyVitePasswordKey = 'VITE_UNSAFE_LOCAL_USER_PASSWORD';
+const localCapturePasswordKey = 'NAPT_LEGACY_CAPTURE_PASSWORD';
+
+function migrateLegacyVitePassword(envPath) {
+  const original = fs.readFileSync(envPath, 'utf8');
+  const values = dotenv.parse(original);
+  if (!Object.hasOwn(values, legacyVitePasswordKey)) return false;
+
+  const hasBackendPassword = Object.hasOwn(values, 'UNSAFE_LOCAL_USER_PASSWORD');
+  const hasLocalCapturePassword = Object.hasOwn(values, localCapturePasswordKey);
+  const legacyPassword = values[legacyVitePasswordKey];
+  let targetKey = null;
+
+  if (!hasBackendPassword) {
+    targetKey = 'UNSAFE_LOCAL_USER_PASSWORD';
+  } else if (legacyPassword !== values.UNSAFE_LOCAL_USER_PASSWORD) {
+    if (!hasLocalCapturePassword) {
+      targetKey = localCapturePasswordKey;
+    } else if (values[localCapturePasswordKey] !== legacyPassword) {
+      throw new Error('A different NAPT_LEGACY_CAPTURE_PASSWORD already exists. Resolve the two local capture passwords before rerunning setup.');
+    }
+  }
+
+  const lines = original.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  let lastAliasLine = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^\s*(?:export\s+)?VITE_UNSAFE_LOCAL_USER_PASSWORD\s*=/.test(lines[index])) {
+      lastAliasLine = index;
+    }
+  }
+
+  const migrated = lines.flatMap((line, index) => {
+    if (!/^\s*(?:export\s+)?VITE_UNSAFE_LOCAL_USER_PASSWORD\s*=/.test(line)) return [line];
+    if (index !== lastAliasLine || !targetKey) return [];
+    return [line.replace(/^([ \t]*(?:export[ \t]+)?)VITE_UNSAFE_LOCAL_USER_PASSWORD([ \t]*=)/, `$1${targetKey}$2`)];
+  }).join('');
+
+  const temporaryPath = `${envPath}.${process.pid}.tmp`;
+  try {
+    const fd = fs.openSync(temporaryPath, 'wx', 0o600);
+    try {
+      fs.writeFileSync(fd, migrated, 'utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(temporaryPath, envPath);
+  } catch (error) {
+    try { fs.unlinkSync(temporaryPath); } catch {}
+    throw error;
+  }
+  return true;
+}
+
 // Environment variables configuration
 const envConfig = {
   // Development/Production
@@ -56,8 +113,7 @@ const envConfig = {
   
   // Password for decrypting streaming frames and files
   // Ensure to set the correct password for the files here
-  'UNSAFE_LOCAL_USER_PASSWORD': 'your_password',
-  'VITE_UNSAFE_LOCAL_USER_PASSWORD': 'your_password',
+  'UNSAFE_LOCAL_USER_PASSWORD': randomBytes(32).toString('hex'),
   'UNSAFE_LOCAL_DEMOD_PASSWORD': 'the_demod_password',
   'UNSAFE_LOCAL_LATEX_PASSWORD': 'the_latex_password',
 
@@ -103,7 +159,7 @@ function createEnvContent() {
   content += '# Used for decrypting streaming frames and files\n';
   content += '# Ensure to set the correct password for the files here\n';
   content += `UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n`;
-  content += `VITE_UNSAFE_LOCAL_USER_PASSWORD=${envConfig.UNSAFE_LOCAL_USER_PASSWORD}\n\n`;
+  content += '\n';
 
   content += '# Encrypted Modules Decryption\n';
   content += '# Used for decrypting encrypted modules\n';
@@ -136,37 +192,66 @@ function checkExistingFile() {
   if (fs.existsSync(envPath)) {
     logSuccess('.env.local already exists!');
     
-    // Read existing file to show current values
-    const existingContent = fs.readFileSync(envPath, 'utf8');
-    log('\n📄 Current .env.local configuration:', 'bright');
-    log('─'.repeat(50), 'cyan');
-    log(existingContent, 'cyan');
-    log('─'.repeat(50), 'cyan');
+    // Preserve existing passwords and salts: changing them would orphan captures.
+    fs.chmodSync(envPath, 0o600);
+    try {
+      if (migrateLegacyVitePassword(envPath)) {
+        log('Removed the legacy Vite password entry; local capture credentials were retained.', 'cyan');
+      }
+    } catch {
+      logError('Could not safely migrate the legacy Vite password entry. Resolve any conflicting local capture passwords, then rerun setup.');
+      process.exitCode = 1;
+      return false;
+    }
+    log('\nExisting credentials preserved; values are hidden.', 'cyan');
     
     log('\n💡 Your environment is already configured!', 'green');
-    log('   If you need to recreate it, delete .env.local first:', 'yellow');
-    log('   rm .env.local', 'cyan');
-    log('   Then run: npm run setup', 'cyan');
-    
-    return false; // Don't overwrite
+    return true;
   }
   
-  return true; // Safe to create
+  return false;
 }
 
-// Create .env.local file
-function createEnvFile() {
-  const envPath = path.join(projectRoot, '.env.local');
-  const content = createEnvContent();
-  
+function writeOwnerOnlyFile(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  fs.chmodSync(path.dirname(filePath), 0o700);
+  const temporaryPath = `${filePath}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(envPath, content, 'utf8');
-    logSuccess('.env.local created successfully!');
-    return true;
+    const fd = fs.openSync(temporaryPath, 'w', 0o600);
+    try {
+      fs.writeFileSync(fd, content, 'utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(temporaryPath, filePath);
+    fs.chmodSync(filePath, 0o600);
   } catch (error) {
-    logError(`Failed to create .env.local: ${error.message}`);
-    return false;
+    try { fs.unlinkSync(temporaryPath); } catch {}
+    throw error;
   }
+}
+
+async function configureRedisAuthentication(envPath, aclPath, wasExisting) {
+  const envText = wasExisting ? fs.readFileSync(envPath, 'utf8') : createEnvContent();
+  const stateFile = path.join(projectRoot, '.n-apt', 'redis', 'salt-fingerprint.pending.json');
+  let alreadyConfiguredAppUrl = false;
+  try {
+    const redisUrl = new URL(dotenv.parse(envText).REDIS_URL || 'redis://127.0.0.1:6379/0');
+    alreadyConfiguredAppUrl = decodeURIComponent(redisUrl.username) === 'napt-app' && Boolean(redisUrl.password);
+  } catch {}
+  if (isLocalRedisUrl(envText) && (!fs.existsSync(aclPath) || !alreadyConfiguredAppUrl)) {
+    await capturePreAuthRedisState({
+      projectRoot,
+      redisUrl: dotenv.parse(envText).REDIS_URL || 'redis://127.0.0.1:6379/0',
+      stateFile,
+    });
+  }
+  const configured = ensureRedisAuthConfig({ envText });
+  if (configured.aclText) writeOwnerOnlyFile(aclPath, configured.aclText);
+  writeOwnerOnlyFile(envPath, configured.envText);
+  if (!wasExisting) logSuccess('.env.local created with local Redis authentication.');
+  else logSuccess('Redis authentication configured; existing credentials and salts were preserved.');
+  if (configured.managedLocalRedis) logSuccess('Redis ACL file created with owner-only permissions.');
 }
 
 // Show next steps
@@ -175,7 +260,8 @@ function showNextSteps() {
   log('\n1. Start the development server:', 'blue');
   log('   npm run dev', 'cyan');
   log('\n2. Login with the development password:', 'blue');
-  log('   Set UNSAFE_LOCAL_USER_PASSWORD in .env.local', 'cyan');
+  log('   Read UNSAFE_LOCAL_USER_PASSWORD from .env.local locally.', 'cyan');
+  log('   Keep that password and the salts to decrypt existing captures.', 'cyan');
   log('\n3. Optional: Configure OpenCellID API token for tower data:', 'blue');
   log('   - Get token from https://opencellid.org/');
   log('   - Edit .env.local and replace "your_opencellid_api_token_here"');
@@ -187,24 +273,25 @@ function showNextSteps() {
 }
 
 // Main setup function
-function main() {
+async function main() {
   log('🔧 N-APT Environment Setup', 'bright');
   log('==============================', 'bright');
   
   logStep(1);
   log('Checking for existing .env.local file...');
-  
-  if (!checkExistingFile()) {
-    log('\n🎉 Setup complete - environment already configured!', 'green');
-    showNextSteps();
-    return;
-  }
-  
+  const envPath = path.join(projectRoot, '.env.local');
+  const aclPath = path.join(projectRoot, '.n-apt', 'redis', 'users.acl');
+  const wasExisting = checkExistingFile();
+  if (process.exitCode) return;
+
   logStep(2);
-  log('Creating .env.local with default configuration...');
-  
-  if (!createEnvFile()) {
-    process.exit(1);
+  log(wasExisting ? 'Adding Redis authentication without replacing existing configuration...' : 'Creating .env.local and local Redis authentication...');
+  try {
+    await configureRedisAuthentication(envPath, aclPath, wasExisting);
+  } catch (error) {
+    logError(`Could not configure Redis authentication: ${error.message}`);
+    process.exitCode = 1;
+    return;
   }
   
   logStep(3);
@@ -216,4 +303,7 @@ function main() {
 }
 
 // Run setup
-main();
+main().catch((error) => {
+  logError(`Could not configure Redis authentication: ${error.message}`);
+  process.exitCode = 1;
+});

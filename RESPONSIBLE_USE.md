@@ -44,6 +44,14 @@ Licensees are expected to:
 
 ---
 
+### AI/ML Training and Evaluation
+
+Training, fine-tuning, validating, and evaluating AI/ML models on the Software's codebase or on data produced with the Software are permitted uses under this policy, subject to the Hippocratic License and the safeguards below. This includes using the codebase to reproduce or replicate its SDR software and workflows, including receiving and controlling SDR hardware, capturing I/Q data, streaming live signals or I/Q data, processing and analyzing signals, drawing FFTs (magnitude), displaying waterfall views (FIFO, first in, first out), and conducting related experiments and research.
+
+Licensees must use data they are authorized to use, follow applicable privacy and consent requirements, and document data provenance. Before sharing or distributing datasets, model outputs, or models that could reveal or enable inference of personal, cognitive, or behavioral information, licensees must obtain informed consent or apply effective anonymization. AI/ML training does not authorize unlawful surveillance, nonconsensual collection, or use intended to harm, coerce, manipulate, or discriminate against people. It also does not authorize using the Software, training data, models, or outputs to identify or deanonymize a person without lawful authority and an appropriate legitimate purpose; expose personal or identifying information (including doxxing); or conceal, disguise, or launder the source of investigative information or leads, including through parallel construction, to evade legal process, oversight, disclosure duties, or accountability. These restrictions do not prohibit lawful, appropriately authorized investigation or good-faith research into privacy, anonymity, or investigative practices.
+
+---
+
 ## 3. Enforcement and Escalation
 
 Violations of this Responsible Use Policy are treated as **violations of the License’s Ethical Standards (Section 3)** and may result in:

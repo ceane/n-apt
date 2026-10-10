@@ -3,20 +3,22 @@ import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import {
-  getCenteredWaterfallZoomView,
   getBrushCurveControlPoint,
   getWaterfallNodeFrequencyRange,
   getWaterfallNodeDisplayRange,
-  getWaterfallPinchZoomView,
-  getWaterfallVfoDragPan,
-  getWaterfallVfoDisplayFrequency,
-  getWaterfallScrollPan,
-  getWaterfallZoomBoxView,
-  formatMiniVfoFrequency,
   normalizeSpectrumToBrushLine,
   remapBrushLineToZoomBox,
   WaterfallNode,
 } from "@n-apt/demodulation/react-flow/nodes/WaterfallNode";
+import {
+  formatMiniVfoFrequency,
+  getCenteredWaterfallZoomView,
+  getWaterfallPinchZoomView,
+  getWaterfallScrollPan,
+  getWaterfallVfoDisplayFrequency,
+  getWaterfallVfoDragPan,
+  getWaterfallZoomBoxView,
+} from "@n-apt/demodulation/react-flow/nodes/waterfallView";
 import {
   getSourcePresentationSessionKey,
   isFilePlaybackPaused,

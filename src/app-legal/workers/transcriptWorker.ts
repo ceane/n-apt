@@ -48,6 +48,8 @@ function buildMentionDisplay(tweet) {
   if (!leadMention) {
     return '';
   }
+  // Archive metadata is untrusted, including names outside X's username syntax.
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(leadMention.screen_name)) return '';
 
   const extraCount = mentions.length - 1;
   return `<a href="https://twitter.com/${leadMention.screen_name}" target="_blank" rel="noreferrer">@${leadMention.screen_name}</a>${extraCount > 0 ? ` <span class="muted">and ${extraCount} others</span>` : ''}`;

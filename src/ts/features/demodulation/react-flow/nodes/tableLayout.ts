@@ -135,6 +135,32 @@ export const resolveAvailableSampleCount = (
   return resolveSampleCount(fallbackFftSize, liveSampleCount);
 };
 
+export const resolveClosestSampleIndex = ({
+  frequencyHz,
+  rangeMinHz,
+  stepPerSampleHz,
+  sampleCount,
+}: {
+  frequencyHz: number;
+  rangeMinHz: number;
+  stepPerSampleHz: number;
+  sampleCount: number;
+}): number | null => {
+  if (
+    !Number.isFinite(frequencyHz) ||
+    !Number.isFinite(rangeMinHz) ||
+    !Number.isFinite(stepPerSampleHz) ||
+    stepPerSampleHz <= 0 ||
+    !Number.isFinite(sampleCount) ||
+    sampleCount <= 0
+  ) {
+    return null;
+  }
+
+  const rawIndex = Math.round((frequencyHz - rangeMinHz) / stepPerSampleHz);
+  return clamp(rawIndex, 0, sampleCount - 1);
+};
+
 export const readVisibleIQSample = (
   view: DataView | null,
   sampleIndex: number,

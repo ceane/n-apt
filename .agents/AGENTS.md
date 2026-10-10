@@ -6,6 +6,8 @@ feature notes and implementation summaries in `.agents/`.
 For signal-processing, IQ-capture, FFT, demodulation, `/learn`, or signals CLI
 work, load `.agents/signals/SKILL.md`. It defines the project's plain-language
 terminology, current demod modes, evidence standards, and RX-only safety rules.
+For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
+`.agents/CLI.md`.
 
 ## Working Rules
 
@@ -21,9 +23,11 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
   use `http://localhost:5173`; `127.0.0.1` is blocked.
 - Do not preserve backwards compatibility.
 - Prefer inspecting code and focused tests over repeating broad verification.
-- Use the Act MCP tool for repository searches.
+- Use the Act MCP tool for repository searches, except when it is sensitve to use such as during a security review.
 - Add regression tests for bugs and run `npm run typecheck` after TypeScript
   changes. Run `cargo check` after Rust changes.
+- This project and the author uses American English, not British English. color not colour. Other nuances breaking with camelCase and align with the industry case, such as ML and not Ml.
+- When code passess tests or a stopping point is reached, create detailed commits, use git hunks to make contained edits; when progressing a feature or edits commit messages should follow a prefix of WIP → Draft → v1
 
 ## Real-Time Device I/O
 
@@ -49,15 +53,23 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
 
 ## I/Q Captures and Privacy
 
-- Never add I/Q capture data to Git. This includes `.napt, .iq, .wav`, and
-  related extensions such as `.c64`. Keep captures local or in
-  external storage; version only metadata, manifests, and synthetic fixtures.
+- Keep I/Q capture data out of Git by default. The sole authorized exception is
+  the explicit Hugging Face / Download / Training flow: it may write capture
+  artifacts into the separate configured `n-apt-ml` dataset checkout under
+  `training-captures/`; never add them to this source repository. Encrypt every
+  capture artifact with AES-256-GCM and a
+  per-capture salt before writing it there; keep the salt in Redis and the key
+  in the existing environment configuration. Never write credentials or keys
+  into browser storage, manifests, or Git.
+- Store evidentiary captures, classifier captures, and demod/reference data in
+  their corresponding dataset folders. Require an explicit classification
+  split; never infer labels or splits from filenames or capture contents.
 - Treat every I/Q capture as potentially sensitive: it may reveal information
   about the recording environment, and some signals may contain exceptionally
   sensitive or otherwise private information.
 - Treat N-APT captures as the greatest privacy risk in this project. Minimize
-  copying and exposure, and never share, upload, or commit them without the
-  user's explicit authorization.
+  copying and exposure. Do not share, upload, or commit captures outside the
+  authorized Hugging Face / Download / Training flow.
 
 ## Temporary and Test Files
 
@@ -79,6 +91,20 @@ terminology, current demod modes, evidence standards, and RX-only safety rules.
 - Backend: Rust/Axum WebSocket server with Tokio.
 - WASM: Rust FFT processing.
 - Rendering: custom FFT and waterfall renderers, including WebGPU paths.
+
+## Security Model
+
+- Assume a single trusted operator on a trusted local machine/network. The Rust
+  backend defaults to `localhost:8765`; Vite stays on loopback unless LAN access
+  is explicitly enabled with `NAPT_ALLOW_LAN_DEV=1`. LAN testing is for trusted
+  networks, not public exposure. The backend bind address can be changed through
+  `WEBSOCKETS_URL`.
+- App login is not a security boundary against other processes running as the
+  same local user. Auth endpoints currently have no rate limiting; revisit this
+  before supporting untrusted LAN clients, shared hosts, or public deployment.
+- Treat I/Q captures and credentials as sensitive. Before expanding network
+  exposure, review authentication, WebSocket authorization, CORS, request/work
+  limits, and file-serving boundaries together.
 
 ## Common Commands
 

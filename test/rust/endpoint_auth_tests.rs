@@ -30,17 +30,57 @@ impl Drop for RedisGuard {
   }
 }
 
+/// Isolates credential files for the duration of each endpoint test and
+/// restores the process environment when the Redis/server guard is dropped.
+struct TestHome {
+  _directory: tempfile::TempDir,
+  previous: Option<std::ffi::OsString>,
+}
+
+impl TestHome {
+  fn new() -> Self {
+    let directory = tempfile::tempdir().unwrap();
+    let previous = std::env::var_os("HOME");
+    unsafe {
+      std::env::set_var("HOME", directory.path());
+    }
+    Self {
+      _directory: directory,
+      previous,
+    }
+  }
+}
+
+impl Drop for TestHome {
+  fn drop(&mut self) {
+    unsafe {
+      match &self.previous {
+        Some(home) => std::env::set_var("HOME", home),
+        None => std::env::remove_var("HOME"),
+      }
+    }
+  }
+}
+
+struct TestServerGuard {
+  _redis: RedisGuard,
+  _home: TestHome,
+}
+
 /// Spawn a redis-server on a free port. Returns the (url, guard).
 fn spawn_test_redis() -> (String, RedisGuard) {
   // Bind to port 0 to let the OS pick a free port, then release it.
   let listener = TcpListener::bind("127.0.0.1:0").unwrap();
   let port = listener.local_addr().unwrap().port();
   drop(listener);
+  let password = uuid::Uuid::new_v4().simple().to_string();
 
   let child = Command::new("redis-server")
     .args([
       "--port",
       &port.to_string(),
+      "--requirepass",
+      &password,
       "--save",
       "",
       "--appendonly",
@@ -56,7 +96,7 @@ fn spawn_test_redis() -> (String, RedisGuard) {
        (brew install redis)",
     );
 
-  let url = format!("redis://127.0.0.1:{port}");
+  let url = format!("redis://:{password}@127.0.0.1:{port}");
 
   // Wait for Redis to accept connections (up to 2 s).
   for _ in 0..200 {
@@ -78,7 +118,8 @@ fn ensure_test_password() {
   }
 }
 
-async fn setup_test_server() -> (TestServer, Arc<AppState>, String, RedisGuard) {
+async fn setup_test_server(
+) -> (TestServerGuard, TestServer, Arc<AppState>, String) {
   ensure_test_password();
   let (redis_url, guard) = spawn_test_redis();
 
@@ -86,10 +127,7 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>, String, RedisGuard) 
   let (spectrum_tx, _) = broadcast::channel(100);
   let (cmd_tx, _) = std::sync::mpsc::channel();
 
-  let temp_dir = tempfile::tempdir().unwrap();
-  unsafe {
-    std::env::set_var("HOME", temp_dir.path());
-  }
+  let home = TestHome::new();
 
   let shared = SharedState::new(&redis_url);
   let credential_store =
@@ -126,17 +164,20 @@ async fn setup_test_server() -> (TestServer, Arc<AppState>, String, RedisGuard) 
 
   let app = WebSocketServer::create_app(state.clone());
   (
+    TestServerGuard {
+      _redis: guard,
+      _home: home,
+    },
     TestServer::builder().http_transport().build(app),
     state,
     redis_url,
-    guard,
   )
 }
 
 #[tokio::test]
 #[serial]
 async fn test_protected_endpoints_deny_unauthorized() {
-  let (server, _, _url, _guard) = setup_test_server().await;
+  let (_guard, server, _, _url) = setup_test_server().await;
 
   // List of endpoints to check
   let endpoints = vec![
@@ -144,6 +185,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
     ("/api/debug/pipeline-performance", "GET"),
     ("/api/towers/bounds", "GET"),
     ("/api/capture/download", "GET"),
+    ("/api/classifier/captures/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/iq?filename=capture.iq", "POST"),
     ("/api/webmcp/execute", "POST"),
     ("/ws/streams?token=invalid-token", "GET"),
   ];
@@ -164,7 +206,7 @@ async fn test_protected_endpoints_deny_unauthorized() {
 #[tokio::test]
 #[serial]
 async fn test_protected_endpoints_allow_authorized() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   // Create a valid session
   let token = state
@@ -189,7 +231,7 @@ async fn test_protected_endpoints_allow_authorized() {
 #[tokio::test]
 #[serial]
 async fn test_invalid_token_denied() {
-  let (server, _, _url, _guard) = setup_test_server().await;
+  let (_guard, server, _, _url) = setup_test_server().await;
 
   let response = server
     .get("/api/towers/bounds")
@@ -205,7 +247,7 @@ async fn test_invalid_token_denied() {
 #[tokio::test]
 #[serial]
 async fn test_vault_key_matches_shared_password_key() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let token = state
     .session_store
@@ -229,7 +271,7 @@ async fn test_vault_key_matches_shared_password_key() {
 #[tokio::test]
 #[serial]
 async fn test_live_stream_uses_shared_password_key_not_session_key() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let session_key = [7u8; 32];
   assert_ne!(session_key, state.shared.encryption_key);
@@ -310,7 +352,7 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
 #[tokio::test]
 #[serial]
 async fn test_password_auth_flow_issues_working_session() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   // Step 1: challenge
   let challenge_res = server.post("/auth/challenge").await;
@@ -324,13 +366,13 @@ async fn test_password_auth_flow_issues_working_session() {
   let mut key_material = [0u8; 32];
   key_material.copy_from_slice(&nonce_bytes);
   let _ = key_material; // nonce is exactly the HMAC input
-  let derived = crypto::derive_key(
+  let derived = crypto::derive_auth_key(
     &std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap(),
   );
   let _hmac = crypto::to_base64(&crypto::compute_hmac(&derived, &nonce_bytes));
 
   // Step 3: verify — wrong-password proof must be rejected first
-  let other_key = crypto::derive_key("definitely-not-the-password");
+  let other_key = crypto::derive_auth_key("definitely-not-the-password");
   let bad_hmac =
     crypto::to_base64(&crypto::compute_hmac(&other_key, &nonce_bytes));
   server
@@ -378,7 +420,7 @@ async fn test_password_auth_flow_issues_working_session() {
 #[tokio::test]
 #[serial]
 async fn test_session_lifecycle_roundtrip_and_revoke() {
-  let (_server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, _server, state, _url) = setup_test_server().await;
 
   let session_key = [9u8; 32];
   let token = state
@@ -408,6 +450,98 @@ async fn test_session_lifecycle_roundtrip_and_revoke() {
     .expect("re-revoking a well-formed deleted token stays Ok (idempotent DEL)");
 }
 
+#[tokio::test]
+#[serial]
+async fn security_registration_requires_session_even_on_first_run() {
+  let (_guard, server, _state, _) = setup_test_server().await;
+  for endpoint in ["/auth/passkey/register/start", "/auth/passkey/register/finish"] {
+    server.post(endpoint).json(&serde_json::json!({})).await.assert_status_unauthorized();
+  }
+}
+
+#[tokio::test]
+#[serial]
+async fn security_registration_challenge_is_bound_to_authorizing_session() {
+  let (_guard, server, state, _) = setup_test_server().await;
+  let owner = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let other = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let response = server.post("/auth/passkey/register/start").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {owner}")).unwrap(),
+  ).await;
+  response.assert_status_ok();
+  let challenge = response.json::<serde_json::Value>()["challenge_id"].as_str().unwrap().to_owned();
+  server.post("/auth/passkey/register/finish").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {other}")).unwrap(),
+  ).json(&serde_json::json!({"challenge_id":challenge,"credential":{
+    "id":"AA","rawId":"AA","type":"public-key",
+    "response":{"attestationObject":"AA","clientDataJSON":"AA"},"extensions":{}
+  }})).await.assert_status_unauthorized();
+  assert!(state.pending_passkey_registrations.lock().unwrap().contains_key(&challenge), "wrong session must not consume the owner's ceremony");
+  state.session_store.revoke(&owner).await.unwrap();
+  server.post("/auth/passkey/register/start").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {owner}")).unwrap(),
+  ).await.assert_status_unauthorized();
+}
+
+#[tokio::test]
+#[serial]
+async fn security_exported_vault_key_cannot_authenticate() {
+  let (_guard, server, state, _) = setup_test_server().await;
+  let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let vault = server.get("/auth/vault-key").add_header(
+    axum::http::header::AUTHORIZATION,
+    axum::http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+  ).await.json::<serde_json::Value>();
+  let challenge = server.post("/auth/challenge").await.json::<serde_json::Value>();
+  let key: [u8; 32] = crypto::from_base64(vault["vault_key"].as_str().unwrap()).unwrap().try_into().unwrap();
+  assert_eq!(key, state.shared.encryption_key);
+  let nonce = crypto::from_base64(challenge["nonce"].as_str().unwrap()).unwrap();
+  server.post("/auth/verify").json(&serde_json::json!({
+    "challenge_id": challenge["challenge_id"],
+    "hmac": crypto::to_base64(&crypto::compute_hmac(&key, &nonce)),
+  })).await.assert_status_unauthorized();
+}
+
+#[tokio::test]
+#[serial]
+async fn security_revocation_closes_every_socket_transport() {
+  let (_guard, server, state, _) = setup_test_server().await;
+  for route in ["/ws", "/ws/source/mock-apt/iq", "/ws/streams", "/ws/streams/unused-stream"] {
+    let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+    let mut socket = server.get_websocket(&format!("{route}?token={token}")).await.into_websocket().await;
+    server
+      .post("/auth/logout")
+      .add_header(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {token}"),
+      )
+      .await
+      .assert_status(axum::http::StatusCode::NO_CONTENT);
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+      loop {
+        if matches!(socket.receive_message().await, WsMessage::Close(_)) { break; }
+      }
+    }).await.expect("revoked transport must close without a client command");
+  }
+}
+
+#[tokio::test]
+#[serial]
+async fn security_redis_expiry_closes_an_idle_socket() {
+  let (_guard, server, state, redis_url) = setup_test_server().await;
+  let token = state.session_store.create_session(crypto::generate_key()).await.unwrap();
+  let mut socket = server.get_websocket(&format!("/ws/streams?token={token}")).await.into_websocket().await;
+  let client = redis::Client::open(redis_url).unwrap();
+  let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+  redis::cmd("SELECT").arg(1).query_async::<()>(&mut conn).await.unwrap();
+  redis::cmd("EXPIRE").arg(format!("session:{token}")).arg(1).query_async::<i64>(&mut conn).await.unwrap();
+  let close = tokio::time::timeout(std::time::Duration::from_secs(4), socket.receive_message()).await.expect("expired session must close idle stream");
+  assert!(matches!(close, WsMessage::Close(_)));
+}
+
 /// Pins the current at-rest representation (#4): sessions are stored as
 /// plaintext JSON containing the `encryption_key` field. If this ever moves
 /// to encrypted-at-rest or memory-only keys, this test fails on purpose so
@@ -415,7 +549,7 @@ async fn test_session_lifecycle_roundtrip_and_revoke() {
 #[tokio::test]
 #[serial]
 async fn test_session_key_material_stored_in_redis_json() {
-  let (_server, state, redis_url, _guard) = setup_test_server().await;
+  let (_guard, _server, state, redis_url) = setup_test_server().await;
 
   let session_key = [42u8; 32];
   let token = state
@@ -452,7 +586,7 @@ async fn test_session_key_material_stored_in_redis_json() {
 #[tokio::test]
 #[serial]
 async fn test_vault_key_accepts_bearer_header() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let token = state
     .session_store
@@ -481,7 +615,7 @@ async fn test_vault_key_accepts_bearer_header() {
 #[tokio::test]
 #[serial]
 async fn test_vault_key_without_token_denied() {
-  let (server, _, _url, _guard) = setup_test_server().await;
+  let (_guard, server, _, _url) = setup_test_server().await;
   server.get("/auth/vault-key").await.assert_status_unauthorized();
 }
 
@@ -490,7 +624,7 @@ async fn test_vault_key_without_token_denied() {
 #[tokio::test]
 #[serial]
 async fn test_protected_endpoint_accepts_query_token() {
-  let (server, state, _url, _guard) = setup_test_server().await;
+  let (_guard, server, state, _url) = setup_test_server().await;
 
   let token = state
     .session_store

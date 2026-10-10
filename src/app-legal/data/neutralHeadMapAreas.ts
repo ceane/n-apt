@@ -1,0 +1,78 @@
+import type { Area } from '@n-apt/three-d/hooks/useModel3D';
+
+/** World coordinates for the front-facing neutral model used by the questionnaire HeadMap. */
+export const NEUTRAL_HEAD_MAP_AREAS: Area[] = [
+  {
+    name: 'Mouth',
+    position: [0, 1.89, 0.48],
+    target: [0, 1.866, 0.145],
+    markerPosition: [0, 1.866, 0.17],
+    markerRadius: 0.007,
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Throat',
+    position: [0, 1.79, 0.46],
+    target: [0, 1.78, 0.06],
+    markerPosition: [0, 1.78, 0.087],
+    markerRadius: 0.008,
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Vocal cords',
+    position: [0, 1.755, 0.46],
+    target: [0, 1.755, 0.06],
+    markerPosition: [0, 1.755, 0.087],
+    markerRadius: 0.006,
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Tongue',
+    position: [0, 1.855, 0.47],
+    target: [0, 1.842, 0.145],
+    markerPosition: [0, 1.842, 0.17],
+    markerRadius: 0.007,
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Jaw',
+    position: [0, 1.82, 0.47],
+    target: [0, 1.817, 0.14],
+    markerPosition: [0, 1.817, 0.165],
+    markerRadius: 0.008,
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Facial muscles',
+    position: [0, 1.86, 0.48],
+    target: [0, 1.87, 0.13],
+    markerPositions: [[-0.052, 1.87, 0.15], [0.052, 1.87, 0.15]],
+    markerRadius: 0.007,
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Eye muscles',
+    position: [0, 1.935, 0.47],
+    target: [0, 1.928, 0.1],
+    markerPositions: [[-0.038, 1.928, 0.12], [0.038, 1.928, 0.12]],
+    markerRadius: 0.006,
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Head movement (turns, jolts, etc.)',
+    position: [0, 1.99, 0.48],
+    target: [0, 1.99, 0.02],
+    markerPosition: [0, 1.995, 0.18],
+    markerRadius: 0.035,
+    markerStyle: 'rotation',
+    meshName: 'human_model_neutral',
+  },
+  {
+    name: 'Breathing',
+    position: [0, 1.72, 1.08],
+    target: [0, 1.72, 0.02],
+    markerPositions: [[0, 1.905, 0.16], [-0.075, 1.56, 0.15], [0.075, 1.56, 0.15]],
+    markerRadius: 0.008,
+    meshName: 'human_model_neutral',
+  },
+];

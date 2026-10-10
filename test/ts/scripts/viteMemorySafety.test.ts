@@ -11,7 +11,7 @@ describe("Vite development-server memory safety", () => {
     ) as { devDependencies?: Record<string, string> };
     const version = packageJson.devDependencies?.vite;
 
-    expect(version).toBe("8.2.2");
+    expect(version).toBe("8.3.0");
   });
 
   it("does not use a broad process-name kill for Vite startup cleanup", () => {

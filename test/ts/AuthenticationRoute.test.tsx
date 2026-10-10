@@ -4,6 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 
+jest.mock("@n-apt/ui/AppThemePicker", () => ({
+  AppThemePickerUI: () => null,
+}));
+
 jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: jest.fn(() => ({
     authState: "ready" as const,
@@ -66,14 +70,12 @@ describe("AuthenticationRoute", () => {
     expect(document.head.textContent).toContain("mix-blend-mode:darken");
   });
 
-  it("should show the files and SDR hardware row beneath the auth controls", () => {
+  it("should show the SDR hardware row beneath the auth controls", () => {
     renderAuthenticationUI(<AuthenticationUI {...defaultProps} />);
 
-    expect(screen.getByRole("region", { name: /what you need/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /I\/Q captures and files/i })).toHaveAttribute(
-      "href",
-      "/learn/iq-captures",
-    );
+    expect(
+      screen.getByRole("region", { name: /SDR hardware for seeing signals/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /RTL-SDR/i })).toHaveAttribute(
       "href",
       "https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/",
@@ -82,18 +84,13 @@ describe("AuthenticationRoute", () => {
       "href",
       "https://greatscottgadgets.com/hackrf/one/",
     );
-    expect(
-      screen.getByText("Simplex (only one mode; can only do Rx)"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Half-Duplex (either Rx/receive or read or Tx/transmit or write)",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Simplex")).toBeInTheDocument();
+    expect(screen.getByText("Half-duplex")).toBeInTheDocument();
     expect(screen.getByText("No Tx")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Good")).toHaveLength(2);
-    expect(screen.getByText("Playback .napt and .iq files")).toBeInTheDocument();
-    expect(screen.getByLabelText("HackRF One 3D model spinning")).toBeInTheDocument();
+    expect(screen.getAllByText("Good")).toHaveLength(2);
+    expect(
+      screen.getByLabelText("HackRF One with antenna 3D model spinning"),
+    ).toBeInTheDocument();
   });
 
   it("should show loading state during authentication", () => {
@@ -260,9 +257,11 @@ describe("AuthenticationRoute", () => {
     const registerButton = screen.getByRole("button", {
       name: /Register a passkey/,
     });
+    expect(registerButton).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: "enrollment-password" } });
     fireEvent.click(registerButton);
 
-    expect(mockRegisterPasskey).toHaveBeenCalled();
+    expect(mockRegisterPasskey).toHaveBeenCalledWith("enrollment-password");
   });
 
   it("should disable submit button when password is empty", async () => {

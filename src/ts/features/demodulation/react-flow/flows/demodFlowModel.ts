@@ -45,11 +45,125 @@ export const shouldDeferDemodAutoLayout = ({
   nodesInitialized: boolean;
 }): boolean => hasNodes && !nodesInitialized;
 
+/** Reference Capture uses a centered top-down chain. Channel and Signal
+ * Configuration share the second row; the readiness, stimulus, and output
+ * nodes continue below them. Keep these coordinates shared with its template. */
+export const REFERENCE_CAPTURE_NODE_POSITIONS = {
+  source: { x: 445, y: 50 },
+  channel: { x: 45, y: 450 },
+  "signal-config": { x: 455, y: 450 },
+  "demod-readiness": { x: 250, y: 1200 },
+  stimulus: { x: 250, y: 1650 },
+  output: { x: 250, y: 2350 },
+} satisfies Record<
+  "source" | "channel" | "signal-config" | "demod-readiness" | "stimulus" | "output",
+  { x: number; y: number }
+>;
+
 export const serializeDemodFlow = (
   sourceMode: SourceMode,
   nodes: Node[],
   edges: Edge[],
 ): string => JSON.stringify({ sourceMode, nodes, edges });
+
+/** React Flow keeps its viewport in memory only. Persisting it next to the
+ * flow lets a remount (notably a dev hot reload) come back to the exact framing
+ * instead of dropping to the identity transform.
+ *
+ * v3: a fit taken while node boxes were still arriving was framed on a partial
+ * bounding box and persisted as if it were the user's framing, so every remount
+ * restored a zoomed-in view. v4 also drops framing captured against the older
+ * Reference Capture node positions. */
+export const DEMOD_FLOW_VIEWPORT_SESSION_KEY = "n-apt:demod-flow-viewport:v4";
+
+export interface DemodFlowViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface PersistedDemodFlowViewport {
+  sourceMode: SourceMode;
+  flowVersion: number;
+  /** The graph this framing was captured for; see getDemodFlowGraphKey. */
+  graphKey: string;
+  viewport: DemodFlowViewport;
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+/** Identity of the node/edge set a framing belongs to. Positions are not part
+ * of it: a layout pass that only moves nodes still frames the same graph. */
+export const getDemodFlowGraphKey = (nodes: Node[], edges: Edge[]): string =>
+  `${nodes
+    .map((node) => node.id)
+    .sort()
+    .join(",")}|${edges
+    .map((edge) => edge.id)
+    .sort()
+    .join(",")}`;
+
+export const serializeDemodFlowViewport = (
+  persisted: PersistedDemodFlowViewport,
+): string => JSON.stringify(persisted);
+
+/** React Flow's untouched transform is not a framing. Persisting it would make
+ * the next remount "restore" the graph at 1:1 off the origin instead of framing
+ * it, which reads as nodes zoomed in on one corner of the flow. */
+export const isDefaultDemodFlowViewport = (viewport: DemodFlowViewport): boolean =>
+  viewport.x === 0 && viewport.y === 0 && viewport.zoom === 1;
+
+export const parseDemodFlowViewport = (
+  raw: string | null | undefined,
+): PersistedDemodFlowViewport | null => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      sourceMode?: unknown;
+      flowVersion?: unknown;
+      graphKey?: unknown;
+      viewport?: { x?: unknown; y?: unknown; zoom?: unknown };
+    };
+    const viewport = parsed?.viewport;
+    if (
+      typeof parsed?.sourceMode !== "string" ||
+      typeof parsed?.graphKey !== "string" ||
+      !viewport ||
+      !isFiniteNumber(viewport.x) ||
+      !isFiniteNumber(viewport.y) ||
+      !isFiniteNumber(viewport.zoom) ||
+      viewport.zoom <= 0
+    ) {
+      return null;
+    }
+    return {
+      sourceMode: parsed.sourceMode as SourceMode,
+      flowVersion: isFiniteNumber(parsed.flowVersion) ? parsed.flowVersion : 0,
+      graphKey: parsed.graphKey,
+      viewport: { x: viewport.x, y: viewport.y, zoom: viewport.zoom },
+    };
+  } catch {
+    return null;
+  }
+};
+
+/** A persisted viewport frames the graph it was captured for. Revision 0 is the
+ * flow restored from session storage, which is that same graph — a remount (a
+ * dev hot reload, a route re-entry) resets the revision counter, so the
+ * framing still applies and re-running ELK over it would only move the nodes
+ * the user was looking at. */
+export const shouldReusePersistedDemodViewport = (
+  persisted: PersistedDemodFlowViewport | null | undefined,
+  sourceMode: SourceMode,
+  flowVersion: number,
+  graphKey: string,
+): persisted is PersistedDemodFlowViewport => {
+  if (!persisted) return false;
+  if (persisted.sourceMode !== sourceMode) return false;
+  if (persisted.graphKey !== graphKey) return false;
+  return persisted.flowVersion === flowVersion || flowVersion === 0;
+};
 
 export const DEMOD_FIT_VIEW_OPTIONS = {
   padding: 0.15,
@@ -63,11 +177,13 @@ export const DEMOD_FIT_VIEW_OPTIONS = {
 
 /** Waterfalls own temporal history in their mounted canvas runtime. Keep every
  * waterfall mounted when zooming moves it outside the viewport. Tx Suite FFTs
- * are also source-bound runtime producers for their adjacent waterfalls. */
+ * are also source-bound runtime producers for their adjacent waterfalls. The
+ * phase waterfall keeps its history the same way, so it is exempt too. */
 export const shouldVirtualizeDemodFlowNodes = (nodes: Node[]): boolean =>
   !nodes.some(
     (node) =>
       node.data?.waterfallOptions === true ||
+      node.data?.phaseOptions === true ||
       (node.data?.sourceBindingGroup === "tx-suite" &&
         node.data?.fftOptions === true),
   );
@@ -455,13 +571,13 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "source",
       type: "custom",
-      position: { x: 250, y: 50 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.source },
       data: { label: "Source", description: "Signal source", sourceNode: true },
     },
     {
       id: middleId,
       type: "custom",
-      position: { x: -600, y: 450 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.channel },
       data: isFileSource
         ? { label: "Metadata", metadataNode: true }
         : { label: "Channel", description: "Channel configuration", channelNode: true },
@@ -469,27 +585,34 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
     {
       id: "signal-config",
       type: "custom",
-      position: { x: 500, y: 450 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["signal-config"] },
       data: { label: "Signal Configuration", signalOptions: true },
+    },
+    {
+      id: "demod-readiness",
+      type: "custom",
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["demod-readiness"] },
+      data: { label: "Demodulation Readiness", demodReadinessOptions: true },
     },
     {
       id: "stimulus",
       type: "custom",
-      position: { x: 250, y: 950 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.stimulus },
       data: { label: "Stimulus", description: "Select a known reference stimulus", stimulusOptions: true },
     },
     {
       id: "output",
       type: "custom",
-      position: { x: 250, y: 1350 },
+      position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.output },
       data: { label: "Output", description: "Use the generated I/Q capture for demodulation", outputNode: true },
     },
   ];
   const edges: Edge[] = [
     { id: `e-source-${middleId}`, source: "source", target: middleId, animated: true },
     { id: "e-source-signal-config", source: "source", target: "signal-config", animated: true },
-    { id: `e-${middleId}-stimulus`, source: middleId, target: "stimulus", animated: true },
-    { id: "e-signal-config-stimulus", source: "signal-config", target: "stimulus", animated: true },
+    { id: `e-${middleId}-readiness`, source: middleId, target: "demod-readiness", animated: true },
+    { id: "e-signal-config-readiness", source: "signal-config", target: "demod-readiness", animated: true },
+    { id: "e-readiness-stimulus", source: "demod-readiness", target: "stimulus", animated: true },
     { id: "e-stimulus-output", source: "stimulus", target: "output", animated: true },
   ];
   return { nodes, edges };

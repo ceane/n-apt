@@ -13,9 +13,10 @@ describe("logoutSession", () => {
     }
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/auth/logout?token=session%2Ftoken",
+      "/auth/logout",
       expect.objectContaining({
-        method: "GET",
+        method: "POST",
+        headers: { Authorization: "Bearer session/token" },
         credentials: "include",
         keepalive: true,
       }),

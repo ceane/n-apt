@@ -8,7 +8,8 @@ export type DeviceOptionScheduler<T> = {
 };
 
 type DeviceOptionSchedulerOptions<T> = {
-  publish: (value: T) => void;
+  /** A returned promise serializes writes while retaining only the latest pending value. */
+  publish: (value: T) => unknown;
   equals?: (left: T, right: T) => boolean;
   intervalMs?: number;
   idleFlushMs?: number;
@@ -37,6 +38,7 @@ export const createDeviceOptionScheduler = <T>({
   let hasPending = false;
   let cadenceTimer: ReturnType<typeof setTimeout> | null = null;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let publishInFlight = false;
   let disposed = false;
 
   const clearCadenceTimer = () => {
@@ -55,15 +57,30 @@ export const createDeviceOptionScheduler = <T>({
 
   const publishIfChanged = (value: T) => {
     if (hasPublished && equals(lastPublished as T, value)) return false;
-    publish(value);
+    const result = publish(value);
     lastPublished = value;
     hasPublished = true;
     lastPublishedAt = Date.now();
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+      publishInFlight = true;
+      void Promise.resolve(result).then(
+        () => finishAsyncPublish(value, true),
+        () => finishAsyncPublish(value, false),
+      );
+    }
     return true;
   };
 
+  const finishAsyncPublish = (value: T, succeeded: boolean) => {
+    publishInFlight = false;
+    if (!succeeded && hasPublished && equals(lastPublished as T, value)) {
+      hasPublished = false;
+    }
+    if (!disposed && hasPending) flush();
+  };
+
   const flush = () => {
-    if (disposed || !hasPending) return;
+    if (disposed || !hasPending || publishInFlight) return;
     const value = pending as T;
     pending = undefined;
     hasPending = false;
@@ -73,18 +90,24 @@ export const createDeviceOptionScheduler = <T>({
 
   const scheduleCadenceFlush = (delayMs: number) => {
     clearCadenceTimer();
-    cadenceTimer = setTimeout(() => {
-      cadenceTimer = null;
-      flush();
-    }, Math.max(0, delayMs));
+    cadenceTimer = setTimeout(
+      () => {
+        cadenceTimer = null;
+        flush();
+      },
+      Math.max(0, delayMs),
+    );
   };
 
   const scheduleIdleFlush = () => {
     clearIdleTimer();
-    idleTimer = setTimeout(() => {
-      idleTimer = null;
-      flush();
-    }, Math.max(0, idleFlushMs));
+    idleTimer = setTimeout(
+      () => {
+        idleTimer = null;
+        flush();
+      },
+      Math.max(0, idleFlushMs),
+    );
   };
 
   const cancel = () => {
@@ -100,6 +123,11 @@ export const createDeviceOptionScheduler = <T>({
 
       if (mode === "immediate") {
         cancel();
+        if (publishInFlight) {
+          pending = value;
+          hasPending = true;
+          return;
+        }
         publishIfChanged(value);
         return;
       }
@@ -111,6 +139,7 @@ export const createDeviceOptionScheduler = <T>({
       const elapsed = hasPublished ? Date.now() - lastPublishedAt : intervalMs;
       if (
         leadingPublish &&
+        !publishInFlight &&
         (!hasPublished || elapsed >= intervalMs)
       ) {
         const leadingValue = pending as T;
@@ -121,9 +150,7 @@ export const createDeviceOptionScheduler = <T>({
         return;
       }
 
-      scheduleCadenceFlush(
-        hasPublished ? intervalMs - elapsed : intervalMs,
-      );
+      scheduleCadenceFlush(hasPublished ? intervalMs - elapsed : intervalMs);
     },
     flush,
     cancel,

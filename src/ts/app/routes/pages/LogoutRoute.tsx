@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useCallback, useState, useRef } from "react";
 import styled, { keyframes } from "styled-components";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 
@@ -55,20 +55,37 @@ const Dot = styled.span<{ $delay: number }>`
 export const LogoutRoute: React.FC = () => {
   const { logout } = useAuthentication();
 
-  useEffect(() => {
-    logout();
+  const [error, setError] = useState<string | null>(null);
+  const started = useRef(false);
+  const signOut = useCallback(() => {
+    setError(null);
+    void logout().catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : "Unable to log out");
+    });
   }, [logout]);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    signOut();
+  }, [signOut]);
 
   return (
     <Page>
-      <Status role="status" aria-live="polite">
-        Logging out
-        <Ellipsis data-testid="logout-ellipsis" aria-hidden="true">
-          <Dot $delay={0}>.</Dot>
-          <Dot $delay={0.15}>.</Dot>
-          <Dot $delay={0.3}>.</Dot>
-        </Ellipsis>
-      </Status>
+      {error ? (
+        <div>
+          <p role="alert">{error}. Your session has not been cleared.</p>
+          <button onClick={signOut}>Retry logout</button>
+        </div>
+      ) : (
+        <Status role="status" aria-live="polite">
+          Logging out
+          <Ellipsis data-testid="logout-ellipsis" aria-hidden="true">
+            <Dot $delay={0}>.</Dot>
+            <Dot $delay={0.15}>.</Dot>
+            <Dot $delay={0.3}>.</Dot>
+          </Ellipsis>
+        </Status>
+      )}
     </Page>
   );
 };

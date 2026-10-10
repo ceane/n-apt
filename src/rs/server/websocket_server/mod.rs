@@ -68,6 +68,13 @@ pub(crate) const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 pub(crate) const TX_MONITOR_FRAME_INTERVAL: Duration =
   Duration::from_micros(16_667);
 
+fn should_stop_capture_for_source_switch(
+  active_source_id: &str,
+  requested_source_id: &str,
+) -> bool {
+  active_source_id != requested_source_id
+}
+
 pub(crate) fn sync_shared_sample_rate(
   shared_state: &SharedState,
   processor: &SdrProcessor,
@@ -414,6 +421,34 @@ mod tests {
   use serial_test::serial;
 
   #[test]
+  fn same_source_selection_does_not_interrupt_capture() {
+    assert!(!should_stop_capture_for_source_switch("rtl-sdr-0", "rtl-sdr-0"));
+    assert!(should_stop_capture_for_source_switch("rtl-sdr-0", "mock-apt"));
+  }
+
+  #[test]
+  fn restart_dispatch_never_invokes_the_blocking_restart_on_the_reactor() {
+    // The SDR worker drives a `current_thread` runtime. The blocking restart
+    // takes the processor lock with `blocking_lock`, which panics inside a
+    // runtime context, so dispatching it inline unwinds the worker and freezes
+    // frames, health checks, and hotplug fallback together. It must go through
+    // the deadline-bounded, blocking-pool entry point instead.
+    // The needles are assembled at runtime so this test's own source text
+    // cannot satisfy or trip the scan.
+    let source = include_str!("mod.rs");
+    let blocking_entry = format!(".{}(&shared_state", "restart");
+    let off_reactor_entry = format!(".{}_off_reactor(&shared_state", "restart");
+    assert!(
+      !source.contains(&blocking_entry),
+      "RestartDevice must not call the blocking restart inline"
+    );
+    assert!(
+      source.contains(&off_reactor_entry),
+      "RestartDevice must dispatch through restart_off_reactor"
+    );
+  }
+
+  #[test]
   fn mock_tx_request_next_frame_uses_monitor_synthesis_when_not_transmitting() {
     assert!(should_synthesize_mock_tx_monitor_frame(
       "mock-tx", false, true
@@ -493,7 +528,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("hackrf_one");
     *shared.device_serial.lock().unwrap() = "test".to_string();
     let tx_iq = vec![128, 129, 127, 130, 126, 131];
@@ -564,7 +599,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
@@ -625,7 +660,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_apt");
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
@@ -684,7 +719,7 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
     shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
@@ -744,7 +779,7 @@ mod tests {
   #[test]
   fn shutdown_flag_stops_streaming() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     assert!(!should_stop_streaming(&shared));
     shared.shutdown.store(true, Ordering::Relaxed);
     assert!(should_stop_streaming(&shared));
@@ -753,7 +788,7 @@ mod tests {
   #[test]
   fn selecting_a_source_opens_its_rx_gate_until_the_first_frame() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_active_source_pause_state("hackrf-one", true);
 
     prepare_selected_source_for_rx(
@@ -770,7 +805,7 @@ mod tests {
   #[test]
   fn mock_fallback_releases_pending_source_switch_fence() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("rtl_sdr");
     let failed_source_id = active_source_id(&shared);
     shared.request_source_switch(&failed_source_id);
@@ -1246,6 +1281,12 @@ impl WebSocketServer {
             source_id,
             sample_rate,
           } => {
+            if should_stop_capture_for_source_switch(
+              &active_source_id(&shared_state),
+              &source_id,
+            ) {
+              capture_worker.stop_for_source_switch().await;
+            }
             // A source-owned runtime must yield before its source resumes
             // ownership of the legacy control processor. Its managed stream
             // remains subscribed, so the active acquisition loop can keep
@@ -1292,9 +1333,26 @@ impl WebSocketServer {
                 .await;
               }
               _ => {
-                self
+                // The restart performs blocking USB work under the processor
+                // lock, so it runs on the blocking pool behind a deadline.
+                // Calling it inline stalls this current-thread reactor, which
+                // takes the frame loop, health checks, and hotplug fallback
+                // down with it.
+                //
+                // The restart detaches the device and releases the lock while
+                // it reopens, so the hotplug poll would otherwise race it with
+                // an open of its own. Arm the retry cooldown for the duration.
+                hotplug_state.last_failure_at = Some(Instant::now());
+                let restarted = self
                   .device_supervisor
-                  .restart(&shared_state, &_broadcast_tx, &mut hotplug_state);
+                  .restart_off_reactor(&shared_state, &_broadcast_tx)
+                  .await;
+                if restarted {
+                  hotplug_state.last_hardware_swap = Some(Instant::now());
+                  hotplug_state.last_failure_at = None;
+                } else {
+                  hotplug_state.last_failure_at = Some(Instant::now());
+                }
               }
             }
           }
@@ -1320,6 +1378,7 @@ impl WebSocketServer {
           }
           crate::server::types::SdrCommand::StartCapture {
             job_id,
+            source_id,
             fragments,
             bandwidth,
             bandwidth_center_frequency,
@@ -1328,16 +1387,20 @@ impl WebSocketServer {
             file_type,
             acquisition_mode,
             encrypted,
+            sample_rate,
             fft_size,
             fft_window,
+            frame_rate,
             geolocation,
             ref_based_demod_baseline,
+            capture_labels,
             is_ephemeral,
             channels,
           } => {
             capture_worker
               .start(CaptureStartRequest {
                 job_id,
+                source_id,
                 fragments,
                 bandwidth,
                 bandwidth_center_frequency,
@@ -1346,10 +1409,13 @@ impl WebSocketServer {
                 file_type,
                 acquisition_mode,
                 encrypted,
+                sample_rate,
                 fft_size,
                 fft_window,
+                frame_rate,
                 geolocation,
                 ref_based_demod_baseline,
+                capture_labels,
                 is_ephemeral,
                 channels,
               })
@@ -1527,8 +1593,26 @@ impl WebSocketServer {
           sample_rate,
           raw_iq,
           target_fps: fps,
+          capture_events,
         }) => {
           target_fps = fps;
+          for event in capture_events {
+            if active_source_id(&shared_state) == frame_source_id
+              && event.source_id.as_deref() == Some(frame_source_id.as_str())
+            {
+              let payload = serde_json::json!({
+                "type": "capture_event",
+                "kind": event.kind,
+                "jobId": event.job_id,
+                "sourceId": event.source_id,
+                "channel": event.channel,
+                "sampleOffset": event.sample_offset,
+                "timestampUs": event.timestamp_us,
+                "patch": event.patch,
+              });
+              let _ = _broadcast_tx.send(payload.to_string());
+            }
+          }
           // Successful read — clear any failure streak and confirm
           // recovery if we were in "loading" state from a recovery attempt.
           // The legacy frame bit identifies Mock APT only. Recovery and
@@ -1616,18 +1700,23 @@ impl WebSocketServer {
               StreamMode::Rx
             },
           );
-          let _ = stream_manager.publish_iq_frame_with_metadata(
-            &publish_key,
-            timestamp,
-            Some(center_frequency as u64),
-            sample_rate,
-            Arc::new(spectrum_message.iq_data.clone()),
-            false,
-          );
+          let stream_published = stream_manager
+            .publish_iq_frame_with_metadata(
+              &publish_key,
+              timestamp,
+              Some(center_frequency as u64),
+              sample_rate,
+              Arc::new(spectrum_message.iq_data.clone()),
+              false,
+            )
+            .is_ok();
 
           // Broadcast to all connected WebSocket clients
           if let Err(_e) = spectrum_tx.send(Arc::new(spectrum_message)) {
             // No receivers, which is normal when no clients are connected
+          }
+          if stream_published {
+            shared_state.record_live_retune_frame_published();
           }
         }
         Err(e) => {

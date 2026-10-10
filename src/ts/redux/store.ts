@@ -14,26 +14,35 @@ import demodSlice from "@n-apt/redux/slices/demodSlice";
 import snapshotSlice from "@n-apt/redux/slices/snapshotSlice";
 import sourceRoutingSlice from "@n-apt/redux/slices/sourceRoutingSlice";
 import sourceSelectionSlice from "@n-apt/redux/slices/sourceSelectionSlice";
+import { resolveStorePreloadedState } from "@n-apt/redux/storeHydration";
 
 // Import middleware (will be created next)
 import websocketMiddleware from "@n-apt/redux/middleware/websocketMiddleware";
 import noteCardsMiddleware from "@n-apt/redux/middleware/noteCardsMiddleware";
 import localStorageMiddleware, {
+  loadPersistedColdStartFrequencyRange,
   loadPersistedSdrSettings,
   loadPersistedTheme,
   loadPersistedSnapshotGrid,
   mergePersistedSdrSettings,
   loadPersistedSettings,
 } from "@n-apt/redux/middleware/localStorageMiddleware";
+import { loadSelectedSourceId } from "@n-apt/spectrum/utils/sourcePersistence";
 
 const persistedSnapshotGrid = loadPersistedSnapshotGrid();
 const waterfallDefaults = waterfallSlice(undefined, { type: "@@INIT" });
+const initialSourceId = loadSelectedSourceId();
+const initialSpectrum = mergePersistedSdrSettings(
+  spectrumSlice(undefined, { type: "@@INIT" }),
+  loadPersistedSdrSettings(),
+);
+const persistedColdStartFrequencyRange =
+  loadPersistedColdStartFrequencyRange(initialSourceId);
 
-const preloadedState = {
-  spectrum: mergePersistedSdrSettings(
-    spectrumSlice(undefined, { type: "@@INIT" }),
-    loadPersistedSdrSettings(),
-  ),
+const coldStartPreloadedState = {
+  spectrum: persistedColdStartFrequencyRange
+    ? { ...initialSpectrum, frequencyRange: persistedColdStartFrequencyRange }
+    : initialSpectrum,
   theme: loadPersistedTheme() || undefined,
   settings: {
     ...settingsSlice(undefined, { type: "@@INIT" }),
@@ -44,6 +53,17 @@ const preloadedState = {
       ? waterfallDefaults
       : { ...waterfallDefaults, snapshotGridPreference: persistedSnapshotGrid },
 };
+
+// Vite can recreate this module during hot reload. Preserve the live Redux
+// snapshot across that module replacement; localStorage is only for a real
+// page reload, where the selected source's last tune is loaded above.
+const hotReloadPreloadedState = import.meta.hot?.data?.reduxState as
+  | typeof coldStartPreloadedState
+  | undefined;
+const preloadedState = resolveStorePreloadedState(
+  coldStartPreloadedState,
+  hotReloadPreloadedState,
+);
 
 export const store = configureStore({
   reducer: {
@@ -83,6 +103,13 @@ export const store = configureStore({
     }).concat(websocketMiddleware, localStorageMiddleware, noteCardsMiddleware),
   devTools: process.env.NODE_ENV !== "production",
 });
+
+if (import.meta.hot) {
+  import.meta.hot.accept();
+  import.meta.hot.dispose((data) => {
+    data.reduxState = store.getState();
+  });
+}
 
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;

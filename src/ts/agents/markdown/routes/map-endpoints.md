@@ -1,66 +1,36 @@
-# Map Endpoints - Geographic Location Monitoring
+# Map Endpoints
 
-## Overview
+`/map-endpoints` combines an interactive map with a sidebar for saved places,
+route paths, nearby cellular endpoints, and reference links. The sidebar also
+filters the displayed tower records by radio technology and carrier/network.
+The map can show a current-location marker, a searched-place preview, and
+cellular tower markers; select a tower to inspect its radio/network identifiers.
 
-The Map Endpoints interface provides geographic visualization and monitoring of signal transmission and reception points. It allows for the mapping of N-APT signal sources, biological targets, and monitoring stations on a world map, facilitating spatial analysis of signal propagation and impact.
+## Places and route paths
 
-## Capabilities
+In **Locations**, search for a place, select a result to preview it, then use
+**Add to Saved** to keep it as a named map location. Select a saved location to
+recenter the map. The built-in current location is shown separately; other
+saved locations can be removed after confirmation.
 
-- **Interactive Geographic Map**: Real-time visualization of locations across the globe
-- **Location Search**: Search for specific coordinates or named geographic locations
-- **Endpoint Management**: Add, modify, and remove signal transmission and reception points
-- **Real-time Geolocation**: Track and map current monitor location
-- **Spatial Clustering**: Visualize density of signal activity in specific regions
-- **Location Presets**: Save and quickly switch between frequently monitored areas
+In **Route Paths**, search an address/intersection or enter start and end
+coordinates, then add a segment. Segments appear on the map and in the list;
+remove individual segments or clear the list. The route panel reports nearby
+endpoints associated with the paths. **Nearest Endpoints** provides its own
+endpoint view, and **Useful Links** links to radio, tower, and FCC references.
 
-## Available Controls
+## Data and limits
 
-### Map Interaction
+Cell tower records are supplied by OpenCelliD (attribution appears in the
+sidebar). Map routes are coordinate paths and nearby-endpoint comparisons;
+they are not RF propagation estimates, proof of a transmission, or evidence of
+signal effects. Location searches and current-location access may send or use
+precise location data; handle it according to the user's request and app
+permissions.
 
-- **Navigation**: Pan, zoom, and rotate the geographic display
-- **Search**: Enter names or coordinates to find specific locations
-- **View Modes**: Switch between satellite, terrain, and street views
-- **Scale Control**: Measure distances between transmission and reception points
+## Agent and WebMCP access
 
-### Location Management
-
-- **Add Location**: Mark new signal sources or reception endpoints on the map
-- **Select Location**: Focus the map view on a specific saved or searched location
-- **Remove Location**: Delete endpoints that are no longer active or relevant
-- **Current Location**: Instantly snap the map view to the current monitor's geolocation
-
-### Monitoring Parameters
-
-- **Signal Range**: Visualize the theoretical propagation range of transmitters
-- **Impact Zones**: Map geographic areas affected by specific N-APT frequencies
-- **Network Topology**: Visualize connections between multiple transmission nodes
-- **Station Metadata**: View and edit technical details for each mapped endpoint
-
-## Data Formats
-
-- **Input**: Geographic coordinates (Lat/Lng), GeoJSON location data
-- **Output**: Location manifests, propagation maps, geographic analysis reports
-- **Real-time**: Live location tracking and signal propagation updates
-
-## Workflows
-
-1. **New Site Setup**: Search for location → Add endpoint marker → Define transmission range → Save as preset
-2. **Propagation Analysis**: Select source location → Identify target endpoints → Map intervening terrain → Calculate impact
-3. **Mobile Monitoring**: Enable geolocation → Track current position → Map local signal environment → Record snapshots
-
-## Related Routes
-
-- `/` - Spectrum visualization and capture
-- `/demodulate` - ML-based signal analysis at specific locations
-- `/3d-model` - Biological target visualization at the endpoint level
-
-## Technical Specifications
-
-- **Map Engine**: Leaflet with high-resolution tile support
-- **Coordinate System**: WGS 84 (GPS)
-- **Search API**: OpenStreetMap Nominatim integration
-- **Update Rate**: Real-time panning and zooming (60 FPS)
-
-## Agent Integration
-
-This interface supports WebMCP tools for automated geographic monitoring. AI agents can search for locations, manage endpoint manifests, and perform spatial signal analysis through structured tool calls. Agents can correlate geographic data with signal captures to build comprehensive transmission maps.
+The registered tools are `searchLocation`, `selectLocation`, `addLocation`,
+and `removeLocation`. They cover saved-location search and management, not map
+gestures, tower filters, route segments, or nearest-endpoint analysis. Check
+the capability manifest for schemas and execution policy before using a tool.

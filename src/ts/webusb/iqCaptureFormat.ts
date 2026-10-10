@@ -1,14 +1,79 @@
 export interface IqCaptureChunk {
+  /** Complex-sample offset within this channel (one I byte and one Q byte per sample). */
   sample_offset: number;
   channel: number;
   data: Uint8Array;
 }
 
 export interface IqCaptureFrameUpdate {
+  /** Byte offset within this channel's raw interleaved I/Q stream. */
   sample_offset: number;
   timestamp_us: number;
   patch: Record<string, unknown>;
+  channel?: number;
+  kind?: "PatchOptionsApplied" | "Frame" | string;
+  source_id?: string;
+  job_id?: string;
+  frame_sequence?: number;
+  next_frame_sequence?: number;
 }
+
+export interface IqCaptureFrameOptions {
+  centerFrequencyHz: number;
+  sampleRateHz: number;
+  fftSize: number;
+  fftWindow: string;
+  gainDb: number;
+  ppm: number;
+}
+
+/** Build the frame timestamp and any options patch at one V6 frame boundary. */
+export const buildIqCaptureFrameUpdates = ({
+  sampleOffset,
+  timestampUs,
+  frameSequence,
+  options,
+  previousSignature,
+}: {
+  sampleOffset: number;
+  timestampUs: number;
+  frameSequence: number;
+  options: IqCaptureFrameOptions;
+  previousSignature: string | null;
+}): { updates: IqCaptureFrameUpdate[]; signature: string } => {
+  const signature = JSON.stringify([
+    options.centerFrequencyHz,
+    options.sampleRateHz,
+    options.fftSize,
+    options.fftWindow,
+    options.gainDb,
+    options.ppm,
+  ]);
+  const updates: IqCaptureFrameUpdate[] = [{
+    sample_offset: sampleOffset,
+    timestamp_us: timestampUs,
+    kind: "Frame",
+    frame_sequence: frameSequence,
+    patch: {},
+  }];
+  if (previousSignature !== signature) {
+    updates.push({
+      sample_offset: sampleOffset,
+      timestamp_us: timestampUs,
+      kind: "PatchOptionsApplied",
+      frame_sequence: frameSequence,
+      patch: {
+        center_frequency_hz: options.centerFrequencyHz,
+        capture_sample_rate_hz: options.sampleRateHz,
+        fft_size: options.fftSize,
+        fft_window: options.fftWindow,
+        gain: options.gainDb,
+        ppm: options.ppm,
+      },
+    });
+  }
+  return { updates, signature };
+};
 
 export interface NaptCaptureChannel {
   center_freq_hz: number;
@@ -55,6 +120,21 @@ const concatBytes = (...parts: Uint8Array[]): CaptureBytes => {
   return result;
 };
 
+export const advanceIqCaptureByteOffset = (
+  offset: number,
+  data: Uint8Array,
+): number => offset + data.byteLength;
+
+export const advanceIqCaptureSampleOffset = (
+  offset: number,
+  data: Uint8Array,
+): number => {
+  if (data.byteLength % 2 !== 0) {
+    throw new Error("Interleaved I/Q data must contain complete I/Q sample pairs.");
+  }
+  return offset + data.byteLength / 2;
+};
+
 const utf8 = (value: string): CaptureBytes =>
   copyBytes(new TextEncoder().encode(value));
 
@@ -71,10 +151,11 @@ const writeU64 = (value: number): CaptureBytes => {
 };
 
 const readU64 = (bytes: Uint8Array, offset: number): number => {
-  const value = new DataView(bytes.buffer, bytes.byteOffset + offset, 8).getBigUint64(
-    0,
-    true,
-  );
+  const value = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + offset,
+    8,
+  ).getBigUint64(0, true);
   if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new Error("Capture size exceeds JavaScript precision");
   }
@@ -88,6 +169,7 @@ const base64 = (bytes: Uint8Array): string => {
 };
 
 const createIqMetadata = (metadata: CaptureMetadata): CaptureMetadata => ({
+  ...metadata,
   format: "iq",
   format_version: NAPT_FORMAT_VERSION,
   interleaving: "IQ",
@@ -98,7 +180,6 @@ const createIqMetadata = (metadata: CaptureMetadata): CaptureMetadata => ({
     byte_order: "little",
     normalization: "(value - 128) / 127",
   },
-  ...metadata,
 });
 
 const encodeIqPayload = (
@@ -121,33 +202,57 @@ const encodeIqPayload = (
   return concatBytes(...parts);
 };
 
+/**
+ * I/Q format history: v1-v2 are legacy/undated; v3 (2026-07-18),
+ * v4 (2026-08-05), v5 (2026-09-14), and v6 (2026-09-23, still WIP).
+ * `format_version` names the current schema; `originalVersion` is only set
+ * when an older capture is upgraded into v6.
+ */
 export const encodeIqCaptureV4 = async ({
   metadata,
+  originalVersion,
   frameUpdates,
   chunks,
   privateMetadata,
 }: {
   metadata: CaptureMetadata;
+  /** Source format version when this V6 container was produced by an upgrade. */
+  originalVersion?: number;
   frameUpdates: IqCaptureFrameUpdate[];
   chunks: IqCaptureChunk[];
   privateMetadata?: Record<string, unknown>;
 }): Promise<Uint8Array> => {
+  if (
+    originalVersion !== undefined &&
+    (
+      !Number.isInteger(originalVersion) ||
+      originalVersion < 1 ||
+      originalVersion >= NAPT_FORMAT_VERSION
+    )
+  ) {
+    throw new Error(`originalVersion must be an integer from 1 to ${NAPT_FORMAT_VERSION - 1}`);
+  }
   const metadataObject = createIqMetadata({ ...metadata, encrypted: false });
+  if (originalVersion !== undefined) metadataObject.originalVersion = originalVersion;
   const framesBytes = utf8(JSON.stringify(frameUpdates));
   const payload = encodeIqPayload(chunks, privateMetadata);
+  const sectionMetadata = metadataObject;
+  sectionMetadata.format_version = NAPT_FORMAT_VERSION;
   let binaryOffset = 0;
   let trailerOffset = 0;
   let metadataBytes = new Uint8Array(0);
-  const trailerBytes = utf8(JSON.stringify({
-    integrity: {
-      algorithm: "SHA-256",
-      scope: INTEGRITY_SCOPE,
-      digest: integrityPlaceholder(),
-    },
-  }));
+  const trailerBytes = utf8(
+    JSON.stringify({
+      integrity: {
+        algorithm: "SHA-256",
+        scope: INTEGRITY_SCOPE,
+        digest: integrityPlaceholder(),
+      },
+    }),
+  );
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    metadataObject.sections = {
+    sectionMetadata.sections = {
       binary: {
         offset_bytes: binaryOffset,
         length_bytes: payload.byteLength,
@@ -161,11 +266,14 @@ export const encodeIqCaptureV4 = async ({
         version: NAPT_TRAILER_VERSION,
       },
     };
-    metadataBytes = utf8(JSON.stringify(metadataObject));
+    metadataBytes = utf8(JSON.stringify(sectionMetadata));
     const nextBinaryOffset =
       IQ_HEADER_SIZE + metadataBytes.byteLength + framesBytes.byteLength;
     const nextTrailerOffset = nextBinaryOffset + payload.byteLength;
-    if (nextBinaryOffset === binaryOffset && nextTrailerOffset === trailerOffset) {
+    if (
+      nextBinaryOffset === binaryOffset &&
+      nextTrailerOffset === trailerOffset
+    ) {
       break;
     }
     binaryOffset = nextBinaryOffset;
@@ -183,7 +291,7 @@ export const encodeIqCaptureV4 = async ({
     framesBytes,
     payload,
     TRAILER_MAGIC,
-    Uint8Array.of(1),
+    Uint8Array.of(NAPT_TRAILER_VERSION),
     new Uint8Array(7),
     writeU64(trailerBytes.byteLength),
     trailerBytes,
@@ -198,8 +306,10 @@ export const decodeIqCaptureHeader = (
   frameUpdates: IqCaptureFrameUpdate[];
   payload: Uint8Array;
 } => {
-  if (bytes.byteLength < IQ_HEADER_SIZE ||
-      !IQ_MAGIC.every((value, index) => bytes[index] === value)) {
+  if (
+    bytes.byteLength < IQ_HEADER_SIZE ||
+    !IQ_MAGIC.every((value, index) => bytes[index] === value)
+  ) {
     throw new Error("Invalid NAPT-IQ3 header");
   }
   const metadataLength = readU64(bytes, 8);
@@ -222,6 +332,41 @@ export const decodeIqCaptureHeader = (
     frameUpdates,
     payload: bytes.subarray(payloadStart, payloadStart + payloadLength),
   };
+};
+
+/** Read the declared SHA-256 identity from a validated-shape V6 IQ trailer. */
+export const readIqCaptureTrailerDigest = (bytes: Uint8Array): string => {
+  const { metadata } = decodeIqCaptureHeader(bytes);
+  if (metadata.format !== "iq" || metadata.format_version !== NAPT_FORMAT_VERSION) {
+    throw new Error("Capture is not a supported V6 IQ file");
+  }
+  const sections = metadata.sections as {
+    trailer?: { offset_bytes?: unknown; length_bytes?: unknown; version?: unknown };
+  } | undefined;
+  const offset = sections?.trailer?.offset_bytes;
+  const length = sections?.trailer?.length_bytes;
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) ||
+    (offset as number) < 0 || (length as number) < TRAILER_HEADER_SIZE ||
+    (offset as number) + (length as number) !== bytes.byteLength) {
+    throw new Error("V6 IQ capture has an invalid integrity trailer range");
+  }
+  const trailerOffset = offset as number;
+  const trailerLength = length as number;
+  const trailer = bytes.subarray(trailerOffset, trailerOffset + trailerLength);
+  if (!TRAILER_MAGIC.every((value, index) => trailer[index] === value) ||
+    trailer[8] !== NAPT_TRAILER_VERSION || sections?.trailer?.version !== NAPT_TRAILER_VERSION ||
+    readU64(trailer, 16) + TRAILER_HEADER_SIZE !== trailerLength) {
+    throw new Error("V6 IQ capture has an invalid integrity trailer");
+  }
+  const parsed = JSON.parse(new TextDecoder().decode(trailer.subarray(TRAILER_HEADER_SIZE))) as {
+    integrity?: { algorithm?: unknown; scope?: unknown; digest?: unknown };
+  };
+  const integrity = parsed?.integrity;
+  if (integrity?.algorithm !== "SHA-256" || integrity.scope !== INTEGRITY_SCOPE ||
+    typeof integrity.digest !== "string" || !/^[\da-f]{64}$/i.test(integrity.digest)) {
+    throw new Error("V6 IQ capture has incomplete trailer integrity metadata");
+  }
+  return integrity.digest.toLowerCase();
 };
 
 const deriveVaultKey = async (passphrase: string): Promise<CryptoKey> => {
@@ -261,16 +406,19 @@ const encryptPayload = async (
 
 export const encodeNaptCaptureV4 = async ({
   metadata,
+  frameUpdates,
   channels,
   data,
   passphrase,
 }: {
   metadata: CaptureMetadata;
+  frameUpdates?: IqCaptureFrameUpdate[];
   channels: NaptCaptureChannel[];
   data: Uint8Array;
   passphrase: string;
 }): Promise<Uint8Array> => {
-  if (!passphrase.trim()) throw new Error("A passphrase is required for .napt captures.");
+  if (!passphrase.trim())
+    throw new Error("A passphrase is required for .napt captures.");
   const vaultKey = await deriveVaultKey(passphrase);
   const dekBytes = crypto.getRandomValues(new Uint8Array(32));
   const dekKey = await crypto.subtle.importKey(
@@ -284,16 +432,14 @@ export const encodeNaptCaptureV4 = async ({
   const wrappedDek = await encryptPayload(vaultKey, copyBytes(dekBytes));
   const channelMetadata = channels.map((channel, index) => ({
     ...channel,
-    offset_iq: channels
-      .slice(0, index)
-      .reduce((offset, previous) => {
-        if (previous.iq_length === undefined) {
-          throw new Error(
-            "Multi-channel .napt captures require an iq_length for every channel.",
-          );
-        }
-        return offset + previous.iq_length;
-      }, 0),
+    offset_iq: channels.slice(0, index).reduce((offset, previous) => {
+      if (previous.iq_length === undefined) {
+        throw new Error(
+          "Multi-channel .napt captures require an iq_length for every channel.",
+        );
+      }
+      return offset + previous.iq_length;
+    }, 0),
     iq_length:
       channel.iq_length ??
       (channels.length === 1
@@ -317,6 +463,7 @@ export const encodeNaptCaptureV4 = async ({
     format_version: NAPT_FORMAT_VERSION,
     encrypted: true,
     interleaving: "IQ",
+    frame_updates: frameUpdates ?? [],
     channels: channelMetadata,
     wrapped_dek: base64(wrappedDek),
   };
@@ -333,7 +480,10 @@ export const encodeNaptCaptureV4 = async ({
   );
   let headerSize = Math.max(
     4096,
-    Math.ceil((utf8(JSON.stringify({ metadata: metadataObject })).byteLength + 513) / 1024) * 1024,
+    Math.ceil(
+      (utf8(JSON.stringify({ metadata: metadataObject })).byteLength + 513) /
+        1024,
+    ) * 1024,
   );
   let completeJson = "";
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -361,17 +511,21 @@ export const encodeNaptCaptureV4 = async ({
     headerSize = needed;
   }
   const headerBytes = utf8(completeJson);
-  const padding = new Uint8Array(Math.max(0, headerSize - headerBytes.byteLength - 1));
+  const padding = new Uint8Array(
+    Math.max(0, headerSize - headerBytes.byteLength - 1),
+  );
   padding.fill(0x20);
-  return stampIntegrity(concatBytes(
-    headerBytes,
-    Uint8Array.of(0x0a),
-    padding,
-    encryptedData,
-    TRAILER_MAGIC,
-    Uint8Array.of(1),
-    new Uint8Array(7),
-    writeU64(trailerJson.byteLength),
-    trailerJson,
-  ));
+  return stampIntegrity(
+    concatBytes(
+      headerBytes,
+      Uint8Array.of(0x0a),
+      padding,
+      encryptedData,
+      TRAILER_MAGIC,
+      Uint8Array.of(NAPT_TRAILER_VERSION),
+      new Uint8Array(7),
+      writeU64(trailerJson.byteLength),
+      trailerJson,
+    ),
+  );
 };

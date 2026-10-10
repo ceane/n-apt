@@ -9,7 +9,9 @@ import React, {
   SetStateAction,
 } from "react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
+import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/public/activeAcquisitionOperations";
 import {
   useFrequencyScanner,
   FrequencyScannerHandle,
@@ -22,6 +24,60 @@ import { useAudioDemodFM } from "@n-apt/demodulation/hooks/useAudioDemodFM";
 import { useAPTImageDemod } from "@n-apt/demodulation/hooks/useAPTImageDemod";
 import { useAPTAudioDemod } from "@n-apt/demodulation/hooks/useAPTAudioDemod";
 import type { DemodAlgorithm } from "@n-apt/demodulation/utils/demodProcessors";
+import {
+  AUDIO_SURVEY_STORAGE_CAP_BYTES,
+  AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES,
+  DEFAULT_AUDIO_SURVEY_CONFIG,
+  AUDIO_SURVEY_SAMPLE_RATE_HZ,
+  type CandidateRecord,
+  type AudioSurveyReferenceLabel,
+  type AudioSurveyDecoderStrategy,
+  type AudioSurveySourceMode,
+  type SurveyChannelRange,
+  type SurveyJobState,
+} from "@n-apt/demodulation/survey/audioSurveyModel";
+import {
+  audioSurveyRepository,
+  estimateAudioSurveyArtifactBytes,
+  type AudioSurveyArtifact,
+  type AudioSurveyStorageUsage,
+} from "@n-apt/demodulation/survey/audioSurveyStorage";
+import {
+  AudioSurveyRunner,
+} from "@n-apt/demodulation/survey/audioSurveyRunner";
+import {
+  createLiveAudioSurveySource,
+  createReplayAudioSurveySource,
+} from "@n-apt/demodulation/survey/audioSurveyFrameSources";
+import {
+  captureAudioSurveyStimulusPair,
+} from "@n-apt/demodulation/survey/audioSurveyStimulusCapture";
+import {
+  AudioSurveyTrainer,
+  type AudioSurveyTrainingState,
+} from "@n-apt/demodulation/survey/audioSurveyTraining";
+import {
+  loadAudioSurveyPythonArtifact,
+  type AudioSurveyPythonArtifactFiles,
+} from "@n-apt/demodulation/survey/audioSurveyPythonArtifact";
+import {
+  predictTimeDomainAudio,
+  type TimeDomainDemodModel,
+} from "@n-apt/demodulation/survey/audioSurveyMl";
+import {
+  createAudioSurveyNeuralDemodulator,
+  createAudioSurveyOnnxNeuralDemodulator,
+  isAudioSurveyNeuralModelReady,
+  shouldResetAudioSurveyNeuralStream,
+  type AudioSurveyOnnxNeuralDemodulator,
+  type AudioSurveyNeuralFrameIdentity,
+} from "@n-apt/demodulation/survey/audioSurveyLiveDemod";
+import type { AudioSurveyNeuralBackend } from "@n-apt/demodulation/survey/audioSurveyLiveDemod";
+import {
+  TimeDomainOnnxDemodStream,
+  createAudioSurveyOnnxRuntime,
+} from "@n-apt/demodulation/survey/audioSurveyOnnxRuntime";
+import { setSourceMode, setStitchPaused, triggerStitch } from "@n-apt/redux/slices/waterfallSlice";
 import {
   demodFrameRuntime,
   liveFrameRuntime,
@@ -51,6 +107,8 @@ import {
   AnalysisSession,
   AnalysisType,
 } from "@n-apt/consts/types";
+import type { CaptureQualityAssessment } from "@n-apt/features/capture/quality";
+import type { VisionPreset } from "@n-apt/demodulation/vision/visionModel";
 import { NaptSpikeDetectionResult } from "@n-apt/demodulation/utils/naptSpikeDetection";
 import {
   DemodFlowContext,
@@ -67,7 +125,82 @@ import {
 
 // Bump the key after changing the default graph/layout contract so an old
 // persisted template cannot resurrect the pre-fix flow on first entry.
-const DEMOD_FLOW_SESSION_KEY = "n-apt:demod-flow:v3";
+const DEMOD_FLOW_SESSION_KEY = "n-apt:demod-flow:v5";
+const EMPTY_SELECTED_REPLAY_FILES: Array<{ id: string; name: string }> = [];
+
+const addReadinessNodeToStoredFlow = (
+  stored: { nodes: Node[]; edges: Edge[] },
+  fallback: { nodes: Node[]; edges: Edge[] },
+) => {
+  if (stored.nodes.some((node) => node.id === "demod-readiness")) {
+    return stored;
+  }
+
+  const readinessTemplate = fallback.nodes.find(
+    (node) => node.id === "demod-readiness",
+  );
+  const signalConfig = stored.nodes.find((node) => node.id === "signal-config");
+  const stimulus = stored.nodes.find((node) => node.id === "stimulus");
+  if (!readinessTemplate || !signalConfig || !stimulus) return stored;
+
+  const eligibleInputs = new Set(["signal-config", "channel", "metadata"]);
+  const incomingEdges = stored.edges.filter(
+    (edge) =>
+      edge.target === "stimulus" && eligibleInputs.has(edge.source),
+  );
+  if (incomingEdges.length === 0) return stored;
+
+  const channelOrMetadata = stored.nodes.find(
+    (node) => node.id === "channel" || node.id === "metadata",
+  );
+  const readinessY =
+    Math.max(signalConfig.position.y, channelOrMetadata?.position.y ?? -Infinity) +
+    500;
+  const stimulusY = Math.max(stimulus.position.y, readinessY + 500);
+  const downstreamIds = new Set(["stimulus"]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const edge of stored.edges) {
+      if (downstreamIds.has(edge.source) && !downstreamIds.has(edge.target)) {
+        downstreamIds.add(edge.target);
+        grew = true;
+      }
+    }
+  }
+  const downstreamShift = stimulusY - stimulus.position.y;
+  const nodes = stored.nodes.map((node) =>
+    downstreamShift !== 0 && downstreamIds.has(node.id)
+      ? {
+          ...node,
+          position: { ...node.position, y: node.position.y + downstreamShift },
+        }
+      : node,
+  );
+  const readinessNode = {
+    ...readinessTemplate,
+    position: { x: stimulus.position.x, y: readinessY },
+  };
+  const edges = stored.edges.map((edge) =>
+    edge.target === "stimulus" && eligibleInputs.has(edge.source)
+      ? { ...edge, target: "demod-readiness" }
+      : edge,
+  );
+  const readinessEdgeTemplate = fallback.edges.find(
+    (edge) =>
+      edge.source === "demod-readiness" && edge.target === "stimulus",
+  );
+  const readinessEdge = readinessEdgeTemplate
+    ? { ...readinessEdgeTemplate }
+    : {
+        id: "e-readiness-stimulus",
+        source: "demod-readiness",
+        target: "stimulus",
+        animated: true,
+      };
+
+  return { nodes: [...nodes, readinessNode], edges: [...edges, readinessEdge] };
+};
 
 const readSessionFlow = (
   sourceMode: string,
@@ -89,7 +222,10 @@ const readSessionFlow = (
     ) {
       return fallback;
     }
-    return { nodes: parsed.nodes, edges: parsed.edges };
+    return addReadinessNodeToStoredFlow(
+      { nodes: parsed.nodes, edges: parsed.edges },
+      fallback,
+    );
   } catch {
     return fallback;
   }
@@ -113,6 +249,12 @@ interface DemodContextValue {
   scanRange: { min: number; max: number } | undefined;
 
   analysisSession: AnalysisSession;
+  demodQualityStatus: Pick<CaptureQualityAssessment, "fit" | "reasons"> | null;
+  setDemodQualityStatus: Dispatch<
+    SetStateAction<Pick<CaptureQualityAssessment, "fit" | "reasons"> | null>
+  >;
+  visionPreset: VisionPreset;
+  setVisionPreset: (preset: VisionPreset) => void;
   selectedBaseline: AnalysisType;
   setSelectedBaseline: (type: AnalysisType) => void;
   liveMode: boolean;
@@ -124,8 +266,45 @@ interface DemodContextValue {
     scriptContent?: string,
     mediaContent?: string,
     baselineVector?: number[],
-  ) => void;
+    captureLabels?: string[],
+    outputDestination?: "local" | "huggingface",
+  ) => string | null;
   clearAnalysis: () => void;
+
+  audioSurveyJob: SurveyJobState | null;
+  audioSurveyCandidates: CandidateRecord[];
+  audioSurveyStorageUsage: AudioSurveyStorageUsage;
+  audioSurveyTraining: AudioSurveyTrainingState | null;
+  audioSurveyNeuralModelReady: boolean;
+  audioSurveyNeuralBackend: AudioSurveyNeuralBackend;
+  setAudioSurveyNeuralBackend: (backend: AudioSurveyNeuralBackend) => void;
+  audioSurveyOnnxModelAvailable: boolean;
+  audioSurveyOnnxLoading: boolean;
+  audioSurveyError: string | null;
+  startAudioSurvey: (
+    sourceMode?: AudioSurveySourceMode,
+    storageCapBytes?: number,
+    decoderStrategy?: AudioSurveyDecoderStrategy | null,
+  ) => Promise<void>;
+  resumeAudioSurvey: () => Promise<void>;
+  pauseAudioSurvey: () => void;
+  stopAudioSurvey: () => void;
+  trainAudioSurveyModel: () => Promise<void>;
+  importAudioSurveyPythonModel: (
+    files: AudioSurveyPythonArtifactFiles,
+  ) => Promise<AudioSurveyTrainingState>;
+  pauseAudioSurveyTraining: () => void;
+  playAudioSurveyArtifact: (artifactId: string) => Promise<void>;
+  playAudioSurveyCandidate: (candidateId: string) => Promise<void>;
+  recordAudioSurveyStimulusReference: (input: {
+    captureId: string;
+    pcmData: Float32Array;
+    pcmSampleRateHz: number;
+    startedAtMs?: number;
+    startPlayback?: () => Promise<number> | number;
+    audioSignalLabel?: AudioSurveyReferenceLabel;
+    labels?: string[];
+  }) => Promise<AudioSurveyArtifact | null>;
 
   startScan: () => Promise<void>;
   stopScan: () => void;
@@ -176,8 +355,12 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({
     state: "idle",
   });
+  const [demodQualityStatus, setDemodQualityStatus] = useState<
+    Pick<CaptureQualityAssessment, "fit" | "reasons"> | null
+  >(null);
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
+  const [visionPreset, setVisionPreset] = useState<VisionPreset>("Red");
   const [selectedAlgorithm, setSelectedAlgorithm] =
     useState<DemodAlgorithm>("fm");
   const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
@@ -193,6 +376,94 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+  const selectedReplayFiles = useAppSelector(
+    (state) => state.waterfall?.selectedFiles ?? EMPTY_SELECTED_REPLAY_FILES,
+  );
+  const surveyChannels = useMemo<SurveyChannelRange[]>(() => {
+    const seen = new Set<string>();
+    return (Array.isArray(effectiveFrames) ? effectiveFrames : [])
+      .filter(
+        (frame) =>
+          frame.prerequisite_for?.["demod.audio_survey"] !== undefined,
+      )
+      .map((frame) => ({
+        id: frame.id,
+        label: frame.label,
+        minHz: frame.min_hz,
+        maxHz: frame.max_hz,
+        prerequisite_for: frame.prerequisite_for,
+      }))
+      .filter((channel) => {
+        if (seen.has(channel.id)) return false;
+        seen.add(channel.id);
+        return true;
+      });
+  }, [effectiveFrames]);
+  const [audioSurveyJob, setAudioSurveyJob] = useState<SurveyJobState | null>(null);
+  const [audioSurveyCandidates, setAudioSurveyCandidates] = useState<CandidateRecord[]>([]);
+  const [audioSurveyStorageUsage, setAudioSurveyStorageUsage] =
+    useState<AudioSurveyStorageUsage>({
+      usedBytes: 0,
+      capBytes: AUDIO_SURVEY_STORAGE_CAP_BYTES,
+      artifactCount: 0,
+    });
+  const [audioSurveyTraining, setAudioSurveyTraining] =
+    useState<AudioSurveyTrainingState | null>(null);
+  const [audioSurveyModel, setAudioSurveyModel] =
+    useState<TimeDomainDemodModel | null>(null);
+  const [audioSurveyOnnxModelData, setAudioSurveyOnnxModelData] =
+    useState<Uint8Array | null>(null);
+  const [audioSurveyNeuralBackend, setAudioSurveyNeuralBackendState] =
+    useState<AudioSurveyNeuralBackend>("typescript");
+  const [audioSurveyOnnxLoading, setAudioSurveyOnnxLoading] = useState(false);
+  const [audioSurveyOnnxDemodState, setAudioSurveyOnnxDemodState] = useState<{
+    model: TimeDomainDemodModel;
+    modelData: Uint8Array;
+    centerFrequencyHz: number;
+    bandwidthHz: number;
+    demodulator: AudioSurveyOnnxNeuralDemodulator;
+  } | null>(null);
+  const liveNeuralBandwidthHz = Math.max(
+    2_000,
+    (demodState.bandwidthKhz || 200) * 1_000,
+  );
+  const audioSurveyNeuralModelReady = isAudioSurveyNeuralModelReady(
+    audioSurveyModel,
+    audioSurveyTraining,
+    {
+      inputSampleRateHz:
+        demodState.sampleRateHz ?? AUDIO_SURVEY_SAMPLE_RATE_HZ,
+      channelBandwidthHz: liveNeuralBandwidthHz,
+    },
+  );
+  const [audioSurveyError, setAudioSurveyError] = useState<string | null>(null);
+  const audioSurveyOnnxModelAvailable =
+    audioSurveyNeuralModelReady &&
+    audioSurveyOnnxModelData instanceof Uint8Array &&
+    audioSurveyOnnxModelData.byteLength > 0;
+  const setAudioSurveyNeuralBackend = useCallback(
+    (backend: AudioSurveyNeuralBackend) => {
+      if (backend === "onnx" && !audioSurveyOnnxModelAvailable) {
+        setAudioSurveyError(
+          "Train a held-out-winning model with an ONNX artifact before selecting ONNX Runtime.",
+        );
+        return;
+      }
+      setAudioSurveyNeuralBackendState(backend);
+      setAudioSurveyError(null);
+    },
+    [audioSurveyOnnxModelAvailable],
+  );
+  const audioSurveyRunnerRef = React.useRef<AudioSurveyRunner | null>(null);
+  const audioSurveyTrainerRef = React.useRef<AudioSurveyTrainer | null>(null);
+  const audioSurveyPhaseRef = React.useRef<string | null>(null);
+  const audioSurveyModelPreferenceRef = React.useRef<{
+    jobId: string;
+    preferred: boolean;
+    score?: number;
+  } | null>(null);
+  const audioSurveyNeuralFrameIdentityRef =
+    React.useRef<AudioSurveyNeuralFrameIdentity | null>(null);
 
   useEffect(() => {
     if (
@@ -435,6 +706,94 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     [setNodes, setEdges, state.sourceMode],
   );
 
+  const liveNeuralCenterFrequencyHz =
+    demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0;
+  const liveNeuralDemodulator = useMemo(() => {
+    if (!audioSurveyNeuralModelReady || !audioSurveyModel) return null;
+    return createAudioSurveyNeuralDemodulator({
+      model: audioSurveyModel,
+      centerFrequencyHz: liveNeuralCenterFrequencyHz,
+      bandwidthHz: liveNeuralBandwidthHz,
+    });
+  }, [
+    audioSurveyModel,
+    audioSurveyNeuralModelReady,
+    liveNeuralBandwidthHz,
+    liveNeuralCenterFrequencyHz,
+  ]);
+
+  useEffect(() => {
+    if (
+      demodState.algorithm !== "neural" ||
+      audioSurveyNeuralBackend !== "onnx" ||
+      !audioSurveyOnnxModelAvailable ||
+      !audioSurveyModel ||
+      !audioSurveyOnnxModelData
+    ) {
+      setAudioSurveyOnnxLoading(false);
+      setAudioSurveyOnnxDemodState(null);
+      return;
+    }
+
+    let cancelled = false;
+    let ownedDemodulator: AudioSurveyOnnxNeuralDemodulator | null = null;
+    setAudioSurveyOnnxLoading(true);
+    setAudioSurveyOnnxDemodState(null);
+    void createAudioSurveyOnnxNeuralDemodulator({
+      model: audioSurveyModel,
+      onnxModelData: audioSurveyOnnxModelData,
+      centerFrequencyHz: liveNeuralCenterFrequencyHz,
+      bandwidthHz: liveNeuralBandwidthHz,
+    })
+      .then((demodulator) => {
+        if (cancelled) {
+          void demodulator.dispose();
+          return;
+        }
+        ownedDemodulator = demodulator;
+        setAudioSurveyOnnxDemodState({
+          model: audioSurveyModel,
+          modelData: audioSurveyOnnxModelData,
+          centerFrequencyHz: liveNeuralCenterFrequencyHz,
+          bandwidthHz: liveNeuralBandwidthHz,
+          demodulator,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAudioSurveyError(
+          error instanceof Error ? error.message : String(error),
+        );
+        setAudioSurveyNeuralBackendState("typescript");
+      })
+      .finally(() => {
+        if (!cancelled) setAudioSurveyOnnxLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      ownedDemodulator?.reset();
+      if (ownedDemodulator) void ownedDemodulator.dispose();
+    };
+  }, [
+    audioSurveyNeuralBackend,
+    demodState.algorithm,
+    audioSurveyOnnxModelAvailable,
+    audioSurveyModel,
+    audioSurveyOnnxModelData,
+    liveNeuralBandwidthHz,
+    liveNeuralCenterFrequencyHz,
+  ]);
+
+  const liveOnnxNeuralDemodulator =
+    audioSurveyOnnxDemodState?.model === audioSurveyModel &&
+    audioSurveyOnnxDemodState.modelData === audioSurveyOnnxModelData &&
+    audioSurveyOnnxDemodState.centerFrequencyHz ===
+      liveNeuralCenterFrequencyHz &&
+    audioSurveyOnnxDemodState.bandwidthHz === liveNeuralBandwidthHz
+      ? audioSurveyOnnxDemodState.demodulator
+      : null;
+
   const fmDemod = useAudioDemodFM({
     targetSampleRate: 48000,
     bufferSize: 4096,
@@ -442,15 +801,25 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0,
     bandwidth: (demodState.bandwidthKhz || 200) * 1000,
     algorithm:
-      demodState.algorithm === "fmDiscriminator" ? "fmDiscriminator" : "fm",
+      demodState.algorithm === "am"
+        ? "am"
+        : demodState.algorithm === "fmDiscriminator"
+          ? "fmDiscriminator"
+          : "fm",
   });
   const aptImageDemod = useAPTImageDemod({
     targetSampleRate: 48000,
     bufferSize: 4096,
+    centerFrequency:
+      demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0,
+    bandwidth: (demodState.bandwidthKhz || 200) * 1000,
   });
   const aptAudioDemod = useAPTAudioDemod({
     targetSampleRate: 48000,
     bufferSize: 4096,
+    centerFrequency:
+      demodState.bandwidthCenterFreqHz ?? demodState.centerFreqHz ?? 0,
+    bandwidth: (demodState.bandwidthKhz || 200) * 1000,
   });
   const {
     processIQData: processFmIQData,
@@ -469,21 +838,721 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     detectSpikes: _detectNaptSpikes,
   } = aptAudioDemod;
 
+  const refreshAudioSurveySnapshot = useCallback(
+    async (jobId?: string, capBytes = AUDIO_SURVEY_STORAGE_CAP_BYTES) => {
+      try {
+        const [candidates, usage] = await Promise.all([
+          jobId ? audioSurveyRepository.listCandidates(jobId) : Promise.resolve([]),
+          audioSurveyRepository.getStorageUsage(capBytes),
+        ]);
+        if (jobId) setAudioSurveyCandidates(candidates);
+        setAudioSurveyStorageUsage(usage);
+      } catch (error) {
+        setAudioSurveyError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    },
+    [],
+  );
+
+  const handleAudioSurveyJobUpdated = useCallback(
+    (job: SurveyJobState) => {
+      setAudioSurveyJob(job);
+      void refreshAudioSurveySnapshot(job.id, job.config.storageCapBytes);
+      if (job.status !== "running") return;
+      if (audioSurveyPhaseRef.current === job.checkpoint.sourcePhase) return;
+      audioSurveyPhaseRef.current = job.checkpoint.sourcePhase;
+      if (job.checkpoint.sourcePhase === "replay") {
+        if (selectedReplayFiles.length > 0) {
+          reduxDispatch(setSourceMode("file"));
+          reduxDispatch(setStitchPaused(false));
+          reduxDispatch(triggerStitch());
+        }
+      } else {
+        reduxDispatch(setSourceMode("live"));
+      }
+    },
+    [
+      refreshAudioSurveySnapshot,
+      reduxDispatch,
+      selectedReplayFiles.length,
+    ],
+  );
+
+  const createAudioSurveyRunner = useCallback(() => {
+    if (surveyChannels.length === 0) {
+      throw new Error(
+        "Configured audio survey prerequisite channel ranges are not available yet",
+      );
+    }
+    return new AudioSurveyRunner({
+      channels: surveyChannels,
+      sources: {
+        live: createLiveAudioSurveySource({
+          getSourceId: () => activeSourceId,
+          sendFrequencyRange: (range) => wsConnection.sendFrequencyRange(range),
+        }),
+        replay:
+          selectedReplayFiles.length > 0
+            ? createReplayAudioSurveySource()
+            : null,
+      },
+      onJobUpdated: handleAudioSurveyJobUpdated,
+      onCandidateUpdated: (candidate) => {
+        const preference = audioSurveyModelPreferenceRef.current;
+        const nextCandidate =
+          preference?.jobId === candidate.jobId
+            ? {
+                ...candidate,
+                demodulationModelPreferred: preference.preferred,
+                ...(preference.score === undefined
+                  ? {}
+                  : { demodulationModelScore: preference.score }),
+              }
+            : candidate;
+        if (nextCandidate !== candidate) {
+          void audioSurveyRepository.saveCandidate(nextCandidate);
+        }
+        setAudioSurveyCandidates((current) => {
+          const index = current.findIndex((item) => item.id === nextCandidate.id);
+          const next = current.slice();
+          if (index >= 0) next[index] = nextCandidate;
+          else next.push(nextCandidate);
+          return next.sort((left, right) => right.score - left.score);
+        });
+      },
+    });
+  }, [
+    activeSourceId,
+    handleAudioSurveyJobUpdated,
+    selectedReplayFiles.length,
+    surveyChannels,
+    wsConnection,
+  ]);
+
+  const trackAudioSurveyRun = useCallback(
+    (
+      runner: AudioSurveyRunner,
+      jobId: string,
+      sourceMode: AudioSurveySourceMode,
+    ) => {
+      // Combined runs can move from replay into live RF. Keep one lease across
+      // the entire runner promise so a route change cannot pause between phases.
+      const release =
+        sourceMode === "replay"
+          ? null
+          : registerActiveAcquisitionOperation(
+              "live-audio-survey",
+              activeSourceId,
+            );
+      return runner.start(jobId).finally(() => release?.());
+    },
+    [activeSourceId],
+  );
+
+  const startAudioSurvey = useCallback(
+    async (
+      sourceMode: AudioSurveySourceMode = "combined",
+      storageCapBytes = DEFAULT_AUDIO_SURVEY_CONFIG.storageCapBytes,
+      decoderStrategy: AudioSurveyDecoderStrategy | null = null,
+    ) => {
+      const releaseActiveRun =
+        sourceMode === "replay"
+          ? null
+          : registerActiveAcquisitionOperation(
+              "live-audio-survey",
+              activeSourceId,
+            );
+      try {
+        setAudioSurveyError(null);
+        setAudioSurveyModel(null);
+        setAudioSurveyOnnxModelData(null);
+        setAudioSurveyNeuralBackendState("typescript");
+        setAudioSurveyTraining(null);
+        audioSurveyModelPreferenceRef.current = null;
+        audioSurveyNeuralFrameIdentityRef.current = null;
+        const runner = createAudioSurveyRunner();
+        audioSurveyRunnerRef.current = runner;
+        audioSurveyPhaseRef.current = null;
+        const job = await runner.createJob({
+          ...DEFAULT_AUDIO_SURVEY_CONFIG,
+          sourceMode,
+          decoderStrategy,
+          storageCapBytes: Math.max(
+            32_000_000,
+            Math.min(AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES, storageCapBytes),
+          ),
+        });
+        setAudioSurveyJob(job);
+        void runner
+          .start(job.id)
+          .finally(() => releaseActiveRun?.())
+          .catch((error) => {
+            setAudioSurveyError(error instanceof Error ? error.message : String(error));
+          });
+      } catch (error) {
+        releaseActiveRun?.();
+        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [activeSourceId, createAudioSurveyRunner],
+  );
+
+  const resumeAudioSurvey = useCallback(async () => {
+    try {
+      setAudioSurveyError(null);
+      let job = audioSurveyJob;
+      if (!job) {
+        job = (await audioSurveyRepository.listJobs()).find(
+          (candidate) => candidate.status === "paused" || candidate.status === "ready",
+        ) ?? null;
+      }
+      if (!job) throw new Error("There is no paused audio survey job to resume");
+      const runner = createAudioSurveyRunner();
+      audioSurveyRunnerRef.current = runner;
+      audioSurveyPhaseRef.current = null;
+      void trackAudioSurveyRun(runner, job.id, job.config.sourceMode)
+        .then(setAudioSurveyJob)
+        .catch((error) => {
+          setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        });
+    } catch (error) {
+      setAudioSurveyError(error instanceof Error ? error.message : String(error));
+    }
+  }, [audioSurveyJob, createAudioSurveyRunner, trackAudioSurveyRun]);
+
+  const pauseAudioSurvey = useCallback(() => {
+    audioSurveyRunnerRef.current?.pause();
+  }, []);
+
+  const stopAudioSurvey = useCallback(() => {
+    const jobId = audioSurveyJob?.id;
+    const stop = async () => {
+      try {
+        const runner = audioSurveyRunnerRef.current;
+        const job = runner
+          ? await runner.stop(jobId)
+          : jobId
+            ? await audioSurveyRepository.getJob(jobId)
+            : undefined;
+        if (job) {
+          const stopped = { ...job, status: "stopped" as const, updatedAt: Date.now() };
+          await audioSurveyRepository.saveJob(stopped);
+          setAudioSurveyJob(stopped);
+        }
+      } catch (error) {
+        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+      }
+    };
+    void stop();
+  }, [audioSurveyJob]);
+
+  const trainAudioSurveyModel = useCallback(async () => {
+    const job = audioSurveyJob;
+    if (!job) {
+      setAudioSurveyError("Run or resume a survey before starting local training");
+      return;
+    }
+    setAudioSurveyError(null);
+    const trainer = new AudioSurveyTrainer({
+      totalEpochs: 30,
+      storageCapBytes: job.config.storageCapBytes,
+      onStateUpdated: setAudioSurveyTraining,
+    });
+    audioSurveyTrainerRef.current = trainer;
+    const state = await trainer.start(job.id);
+    setAudioSurveyTraining(state);
+    if (state.status === "failed" && state.error) setAudioSurveyError(state.error);
+    if (state.status === "completed") {
+      const trainedArtifact = await audioSurveyRepository.getArtifact(
+        `${job.id}:audio-demod-training`,
+      );
+      const trainedPayload = trainedArtifact?.payload as
+        | {
+            artifactType?: string;
+            model?: TimeDomainDemodModel;
+            onnxModelData?: unknown;
+          }
+        | undefined;
+      const hasTrainedModel =
+        trainedPayload?.artifactType === "audio-survey-trained-model";
+      setAudioSurveyModel(
+        hasTrainedModel ? (trainedPayload?.model ?? null) : null,
+      );
+      setAudioSurveyOnnxModelData(
+        hasTrainedModel &&
+          trainedPayload?.onnxModelData instanceof Uint8Array &&
+          trainedPayload.onnxModelData.byteLength > 0
+          ? trainedPayload.onnxModelData.slice()
+          : null,
+      );
+      const candidates = await audioSurveyRepository.listCandidates(job.id);
+      const relativeScore =
+        state.modelRmse !== undefined && state.dspRmse !== undefined && state.dspRmse > 0
+          ? Math.max(0, 1 - state.modelRmse / state.dspRmse)
+          : undefined;
+      audioSurveyModelPreferenceRef.current = {
+        jobId: job.id,
+        preferred: state.modelPreferred === true,
+        ...(relativeScore === undefined ? {} : { score: relativeScore }),
+      };
+      for (const candidate of candidates) {
+        await audioSurveyRepository.saveCandidate({
+          ...candidate,
+          demodulationModelPreferred: state.modelPreferred === true,
+          ...(relativeScore === undefined
+            ? {}
+            : { demodulationModelScore: relativeScore }),
+        });
+      }
+    }
+    await refreshAudioSurveySnapshot(job.id, job.config.storageCapBytes);
+  }, [audioSurveyJob, refreshAudioSurveySnapshot]);
+
+  const importAudioSurveyPythonModel = useCallback(
+    async (files: AudioSurveyPythonArtifactFiles) => {
+      const job = audioSurveyJob;
+      if (!job) {
+        throw new Error("Start or restore an audio survey before loading a Python model");
+      }
+      setAudioSurveyError(null);
+      try {
+        const imported = await loadAudioSurveyPythonArtifact(files, job.id);
+        const payload = {
+          artifactType: "audio-survey-trained-model",
+          state: imported.training,
+          model: imported.model,
+          onnxModelData: imported.modelData,
+          sourceArtifactIds: [],
+          seed: 1729,
+          maxTrainingSamples: imported.model.trainingSamples,
+          learningRate: 0,
+          pythonArtifact: {
+            modelSha256: imported.modelSha256,
+            datasetSha256: imported.datasetSha256,
+          },
+        };
+        const artifact: AudioSurveyArtifact = {
+          id: `${job.id}:audio-demod-training`,
+          jobId: job.id,
+          kind: "model",
+          sizeBytes: estimateAudioSurveyArtifactBytes(payload),
+          score: imported.training.modelPreferred ? 1 : 0.5,
+          createdAt: Date.now(),
+          payload,
+        };
+        await audioSurveyRepository.saveArtifact(
+          artifact,
+          job.config.storageCapBytes,
+        );
+        setAudioSurveyModel(imported.model);
+        setAudioSurveyOnnxModelData(imported.modelData.slice());
+        setAudioSurveyTraining(imported.training);
+        setAudioSurveyNeuralBackendState("onnx");
+        audioSurveyModelPreferenceRef.current = {
+          jobId: job.id,
+          preferred: imported.training.modelPreferred === true,
+        };
+        await refreshAudioSurveySnapshot(job.id, job.config.storageCapBytes);
+        return imported.training;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setAudioSurveyError(message);
+        throw error;
+      }
+    },
+    [audioSurveyJob, refreshAudioSurveySnapshot],
+  );
+
+  const pauseAudioSurveyTraining = useCallback(() => {
+    audioSurveyTrainerRef.current?.pause();
+  }, []);
+
+  const playAudioSurveyArtifact = useCallback(
+    async (artifactId: string) => {
+      try {
+        const artifact = await audioSurveyRepository.getArtifact(artifactId);
+        const payload = artifact?.payload as { pcmData?: unknown } | undefined;
+        if (!(payload?.pcmData instanceof Float32Array)) {
+          throw new Error("This survey artifact has no playable PCM clip");
+        }
+        playFmAudio(payload.pcmData);
+      } catch (error) {
+        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [playFmAudio],
+  );
+
+  const playAudioSurveyCandidate = useCallback(
+    async (candidateId: string) => {
+      try {
+        const candidate = audioSurveyCandidates.find((item) => item.id === candidateId) ??
+          (audioSurveyJob
+            ? (await audioSurveyRepository.listCandidates(audioSurveyJob.id)).find(
+                (item) => item.id === candidateId,
+              )
+            : undefined);
+        if (!candidate) throw new Error("Audio candidate was removed or is no longer available");
+        const artifacts = (await audioSurveyRepository.listArtifacts(candidate.jobId))
+          .filter(
+            (artifact) =>
+              artifact.candidateId === candidate.id &&
+              artifact.kind === "event-clip",
+          )
+          .sort((left, right) => right.createdAt - left.createdAt);
+        const clip = artifacts.find((artifact) => {
+          const payload = artifact.payload as { iqData?: unknown; pcmData?: unknown };
+          return payload.iqData instanceof Uint8Array && payload.pcmData instanceof Float32Array;
+        });
+        if (!clip) throw new Error("No retained candidate clip is available to play");
+        const payload = clip.payload as {
+          iqData: Uint8Array;
+          iqSampleRateHz: number;
+          pcmData: Float32Array;
+          pcmSampleRateHz: number;
+        };
+        let output = payload.pcmData;
+        if (candidate.demodulationModelPreferred) {
+          const trainedArtifact = await audioSurveyRepository.getArtifact(
+            `${candidate.jobId}:audio-demod-training`,
+          );
+          const trainedPayload = trainedArtifact?.payload as {
+            artifactType?: string;
+            model?: Parameters<typeof predictTimeDomainAudio>[0];
+            onnxModelData?: unknown;
+          } | undefined;
+          if (
+            trainedPayload?.artifactType === "audio-survey-trained-model" &&
+            trainedPayload.model
+          ) {
+            if (
+              audioSurveyNeuralBackend === "onnx" &&
+              trainedPayload.onnxModelData instanceof Uint8Array &&
+              trainedPayload.onnxModelData.byteLength > 0
+            ) {
+              const runtime = await createAudioSurveyOnnxRuntime(
+                trainedPayload.onnxModelData,
+              );
+              try {
+                const stream = new TimeDomainOnnxDemodStream(runtime, {
+                  inputSampleRateHz: payload.iqSampleRateHz,
+                  pcmSampleRateHz: trainedPayload.model.pcmSampleRateHz,
+                });
+                output = await stream.processIqChunk(payload.iqData);
+                stream.reset();
+              } finally {
+                await runtime.release();
+              }
+            } else {
+              output = predictTimeDomainAudio(trainedPayload.model, {
+                iqData: payload.iqData,
+                sampleRateHz: payload.iqSampleRateHz,
+                pcmSampleRateHz: payload.pcmSampleRateHz,
+                outputSampleCount: payload.pcmData.length,
+              }).samples;
+            }
+          }
+        }
+        playFmAudio(output);
+      } catch (error) {
+        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [audioSurveyCandidates, audioSurveyJob, audioSurveyNeuralBackend, playFmAudio],
+  );
+
+  const recordAudioSurveyStimulusReference = useCallback(
+    async (input: {
+      captureId: string;
+      pcmData: Float32Array;
+      pcmSampleRateHz: number;
+      startedAtMs?: number;
+      startPlayback?: () => Promise<number> | number;
+      audioSignalLabel?: AudioSurveyReferenceLabel;
+      labels?: string[];
+    }) => {
+      const resumeRunner =
+        audioSurveyJob?.status === "running"
+          ? audioSurveyRunnerRef.current
+          : null;
+      const releaseActiveAcquisition = registerActiveAcquisitionOperation(
+        "audio-reference-capture",
+        activeSourceId,
+      );
+      let resumeAfterCapture = false;
+      try {
+        setAudioSurveyError(null);
+        const activeRun = audioSurveyRunnerRef.current?.pauseAtBoundary();
+        if (activeRun) {
+          const pausedJob = await activeRun;
+          resumeAfterCapture = pausedJob.status === "paused";
+        }
+        if (surveyChannels.length === 0) {
+          throw new Error(
+            "Configured audio survey prerequisite channel metadata is required for a paired stimulus capture",
+          );
+        }
+        const centerFrequencyHz =
+          demodState.bandwidthCenterFreqHz ??
+          demodState.centerFreqHz ??
+          ((demodLiveFrequencyRange?.min ?? 0) + (demodLiveFrequencyRange?.max ?? 0)) / 2;
+        const channel = surveyChannels.find(
+          (candidate) =>
+            centerFrequencyHz >= candidate.minHz &&
+            centerFrequencyHz <= candidate.maxHz,
+        );
+        if (!channel) {
+          const allowedLabels = surveyChannels
+            .map((candidate) => candidate.label)
+            .join(" or ");
+          throw new Error(
+            `Select a demodulation frequency in ${allowedLabels} before capturing a stimulus pair`,
+          );
+        }
+        const algorithm =
+          demodState.algorithm === "am"
+            ? "am"
+            : demodState.algorithm === "aptAudio" ||
+                demodState.algorithm === "aptImage"
+              ? "apt"
+              : "fm";
+        const bandwidthHz = Math.max(
+          2_000,
+          (demodState.bandwidthKhz || (algorithm === "am" ? 25 : 200)) * 1_000,
+        );
+        let job = audioSurveyJob;
+        if (!job) {
+          const runner = createAudioSurveyRunner();
+          audioSurveyRunnerRef.current = runner;
+          job = await runner.createJob({
+            ...DEFAULT_AUDIO_SURVEY_CONFIG,
+            sourceMode: "live",
+          });
+          setAudioSurveyJob(job);
+        }
+        const source = createLiveAudioSurveySource({
+          getSourceId: () => activeSourceId,
+          sendFrequencyRange: (range) => wsConnection.sendFrequencyRange(range),
+        });
+        let artifact: AudioSurveyArtifact | null;
+        try {
+          artifact = await captureAudioSurveyStimulusPair(
+            {
+              ...input,
+              jobId: job.id,
+              centerFrequencyHz,
+              bandwidthHz,
+              channelId: channel.id,
+              baselineAlgorithm: algorithm,
+              storageCapBytes: job.config.storageCapBytes,
+            },
+            {
+              source,
+              channels: surveyChannels,
+              repository: audioSurveyRepository,
+              ...(input.startPlayback
+                ? { startPlayback: input.startPlayback }
+                : {}),
+            },
+          );
+        } finally {
+          source.endView?.();
+        }
+        if (!artifact) {
+          throw new Error("Could not collect enough timestamp-overlapping I/Q for this stimulus");
+        }
+        await refreshAudioSurveySnapshot(job.id, job.config.storageCapBytes);
+        return artifact;
+      } catch (error) {
+        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        return null;
+      } finally {
+        releaseActiveAcquisition();
+        if (resumeAfterCapture && resumeRunner && audioSurveyJob) {
+          void trackAudioSurveyRun(
+            resumeRunner,
+            audioSurveyJob.id,
+            audioSurveyJob.config.sourceMode,
+          )
+            .then(setAudioSurveyJob)
+            .catch((error) => {
+              setAudioSurveyError(error instanceof Error ? error.message : String(error));
+            });
+        }
+      }
+    },
+    [
+      activeSourceId,
+      audioSurveyJob,
+      createAudioSurveyRunner,
+      demodLiveFrequencyRange,
+      demodState.algorithm,
+      demodState.bandwidthCenterFreqHz,
+      demodState.bandwidthKhz,
+      demodState.centerFreqHz,
+      refreshAudioSurveySnapshot,
+      surveyChannels,
+      trackAudioSurveyRun,
+      wsConnection,
+    ],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const restoreAudioSurvey = async () => {
+      try {
+        const jobs = await audioSurveyRepository.listJobs();
+        let usage = await audioSurveyRepository.getStorageUsage(
+          AUDIO_SURVEY_STORAGE_CAP_BYTES,
+        );
+        if (cancelled) return;
+        setAudioSurveyStorageUsage(usage);
+        const latest = jobs[0];
+        if (!latest) return;
+        const restored = latest.status === "running"
+          ? { ...latest, status: "paused" as const, updatedAt: Date.now() }
+          : latest;
+        if (restored !== latest) await audioSurveyRepository.saveJob(restored);
+        usage = await audioSurveyRepository.getStorageUsage(
+          restored.config.storageCapBytes,
+        );
+        if (cancelled) return;
+        setAudioSurveyStorageUsage(usage);
+        setAudioSurveyJob(restored);
+        const [candidates, trainingArtifact] = await Promise.all([
+          audioSurveyRepository.listCandidates(restored.id),
+          audioSurveyRepository.getArtifact(`${restored.id}:audio-demod-training`),
+        ]);
+        if (cancelled) return;
+        setAudioSurveyCandidates(candidates);
+        const trainingPayload = trainingArtifact?.payload as
+          | {
+              artifactType?: string;
+              state?: AudioSurveyTrainingState;
+              model?: TimeDomainDemodModel;
+              onnxModelData?: unknown;
+            }
+          | undefined;
+        if (trainingPayload?.state) {
+          setAudioSurveyTraining(trainingPayload.state);
+          setAudioSurveyModel(
+            trainingPayload.artifactType === "audio-survey-trained-model"
+              ? (trainingPayload.model ?? null)
+              : null,
+          );
+          setAudioSurveyOnnxModelData(
+            trainingPayload.artifactType === "audio-survey-trained-model" &&
+              trainingPayload.onnxModelData instanceof Uint8Array &&
+              trainingPayload.onnxModelData.byteLength > 0
+              ? trainingPayload.onnxModelData.slice()
+              : null,
+          );
+          if (trainingPayload.state.status === "completed") {
+            const trainingState = trainingPayload.state;
+            audioSurveyModelPreferenceRef.current = {
+              jobId: restored.id,
+              preferred: trainingState.modelPreferred === true,
+              ...(trainingState.modelRmse !== undefined &&
+              trainingState.dspRmse !== undefined &&
+              trainingState.dspRmse > 0
+                ? {
+                    score: Math.max(
+                      0,
+                      1 - trainingState.modelRmse / trainingState.dspRmse,
+                    ),
+                  }
+                : {}),
+            };
+          }
+        }
+      } catch {
+        // IndexedDB is unavailable in some browsers and test environments.
+      }
+    };
+    void restoreAudioSurvey();
+    return () => {
+      cancelled = true;
+      audioSurveyRunnerRef.current?.pause();
+      audioSurveyTrainerRef.current?.pause();
+    };
+  }, []);
+
   // Throttled IQ demod processing — polls the frame runtime instead of subscribing
   // to dataFrameCounter to avoid re-rendering the entire DemodProvider tree on every frame.
   // 30fps is more than sufficient for audio buffer processing.
   useEffect(() => {
+    let active = true;
+    let onnxErrorReported = false;
+
     if (isPaused) {
       demodFrameRuntime.clear();
       stopFmAudio();
       stopAptImageAudio();
       stopAptAudio();
-      return;
+      liveNeuralDemodulator?.reset();
+      liveOnnxNeuralDemodulator?.reset();
+      audioSurveyNeuralFrameIdentityRef.current = null;
+      return () => {
+        active = false;
+      };
     }
 
     if (!demodState.isListening || !demodState.centerFreqHz) {
       demodFrameRuntime.clear();
-      return;
+      liveNeuralDemodulator?.reset();
+      liveOnnxNeuralDemodulator?.reset();
+      audioSurveyNeuralFrameIdentityRef.current = null;
+      return () => {
+        active = false;
+      };
+    }
+
+    if (
+      demodState.algorithm === "neural" &&
+      audioSurveyNeuralBackend === "onnx" &&
+      !audioSurveyOnnxModelAvailable
+    ) {
+      demodFrameRuntime.clear();
+      audioSurveyNeuralFrameIdentityRef.current = null;
+      setAudioSurveyError(
+        "The selected ONNX model is no longer available for this channel profile.",
+      );
+      setAudioSurveyNeuralBackendState("typescript");
+      return () => {
+        active = false;
+      };
+    }
+
+    if (
+      demodState.algorithm === "neural" &&
+      audioSurveyNeuralBackend === "typescript" &&
+      !liveNeuralDemodulator
+    ) {
+      demodFrameRuntime.clear();
+      audioSurveyNeuralFrameIdentityRef.current = null;
+      reduxDispatch(setAlgorithm("fm"));
+      setAudioSurveyError(
+        "Neural live decoding needs a held-out-winning model trained at this channel's width and sample rate.",
+      );
+      return () => {
+        active = false;
+      };
+    }
+
+    if (
+      demodState.algorithm === "neural" &&
+      audioSurveyNeuralBackend === "onnx" &&
+      !liveOnnxNeuralDemodulator
+    ) {
+      demodFrameRuntime.clear();
+      liveNeuralDemodulator?.reset();
+      audioSurveyNeuralFrameIdentityRef.current = null;
+      stopFmAudio();
+      return () => {
+        active = false;
+      };
     }
 
     const id = setInterval(() => {
@@ -503,9 +1572,55 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         const sampleRate = current.sample_rate || 3200000;
         const frameCenterFrequencyHz = current.center_frequency_hz ?? null;
 
-        if (
+        if (demodState.algorithm === "neural") {
+          const identity: AudioSurveyNeuralFrameIdentity = {
+            sourceId: current.source_id,
+            streamEpoch: current.stream_epoch,
+            sequence: current.sequence,
+            optionsRevision: current.options_revision,
+            centerFrequencyHz: frameCenterFrequencyHz,
+            sampleRateHz: sampleRate,
+          };
+          if (
+            shouldResetAudioSurveyNeuralStream(
+              audioSurveyNeuralFrameIdentityRef.current,
+              identity,
+            )
+          ) {
+            liveNeuralDemodulator?.reset();
+            liveOnnxNeuralDemodulator?.reset();
+          }
+          audioSurveyNeuralFrameIdentityRef.current = identity;
+          if (audioSurveyNeuralBackend === "onnx") {
+            const inference = liveOnnxNeuralDemodulator?.process(
+              iqData,
+              sampleRate,
+              frameCenterFrequencyHz,
+            );
+            void inference
+              ?.then((audioData) => {
+                if (active && audioData.length > 0) playFmAudio(audioData);
+              })
+              .catch((error) => {
+                if (!active || onnxErrorReported) return;
+                onnxErrorReported = true;
+                setAudioSurveyError(
+                  error instanceof Error ? error.message : String(error),
+                );
+                setAudioSurveyNeuralBackendState("typescript");
+              });
+          } else {
+            const audioData = liveNeuralDemodulator?.process(
+              iqData,
+              sampleRate,
+              frameCenterFrequencyHz,
+            );
+            if (audioData && audioData.length > 0) playFmAudio(audioData);
+          }
+        } else if (
           demodState.algorithm === "fm" ||
-          demodState.algorithm === "fmDiscriminator"
+          demodState.algorithm === "fmDiscriminator" ||
+          demodState.algorithm === "am"
         ) {
           const audioData = processFmIQData(
             iqData,
@@ -529,16 +1644,22 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     }, 33);
 
     return () => {
+      active = false;
       clearInterval(id);
       demodFrameRuntime.clear();
       stopFmAudio();
       stopAptImageAudio();
       stopAptAudio();
+      liveNeuralDemodulator?.reset();
+      liveOnnxNeuralDemodulator?.reset();
+      audioSurveyNeuralFrameIdentityRef.current = null;
     };
   }, [
     demodState.isListening,
     demodState.centerFreqHz,
     demodState.algorithm,
+    audioSurveyNeuralBackend,
+    audioSurveyOnnxModelAvailable,
     activeSourceId,
     isPaused,
     processFmIQData,
@@ -550,6 +1671,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     playAptAudio,
     stopAptAudio,
     processAptAudioIQData,
+    liveNeuralDemodulator,
+    liveOnnxNeuralDemodulator,
+    reduxDispatch,
+    setAudioSurveyError,
+    stopFmAudio,
   ]);
 
   // Initialize the scanner manager with the WS sender functions
@@ -585,11 +1711,17 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       (analysisSession.state as any) === "starting"
     ) {
       // Backend confirmed capture has officially started
+      const receivedAtMs = Date.now();
       setAnalysisSession((prev) => ({
         ...prev,
         state: "capturing",
         jobId: captureStatus.jobId,
-        startTime: captureStatus.timestamp || Date.now(), // Use server time if available
+        // The vision progress bar uses the browser clock; the server epoch has
+        // no measured offset here. Preserve the server timestamp for audio.
+        startTime:
+          prev.type === "vision"
+            ? receivedAtMs
+            : (captureStatus.timestamp ?? receivedAtMs),
       }));
     } else if (
       captureStatus.status === "done" &&
@@ -636,6 +1768,44 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     sampleRate: 3200000,
     _fftSize: 32768,
   });
+
+  useEffect(() => {
+    const captureOrAnalysisActive =
+      analysisSession.state === "starting" ||
+      analysisSession.state === "capturing" ||
+      analysisSession.state === "analyzing";
+    if (
+      !captureOrAnalysisActive ||
+      state.sourceMode !== "live" ||
+      isPaused
+    ) {
+      return;
+    }
+    return registerActiveAcquisitionOperation(
+      "live-reference-capture",
+      activeSourceId,
+    );
+  }, [
+    activeSourceId,
+    analysisSession.state,
+    isPaused,
+    state.sourceMode,
+  ]);
+
+  useEffect(() => {
+    if (!scanner.isScanning || state.sourceMode !== "live" || isPaused) {
+      return;
+    }
+    return registerActiveAcquisitionOperation(
+      "live-frequency-scan",
+      activeSourceId,
+    );
+  }, [
+    activeSourceId,
+    isPaused,
+    scanner.isScanning,
+    state.sourceMode,
+  ]);
 
   const audioPlayback = useAudioExtraction({
     _targetSampleRate: 48000,
@@ -706,6 +1876,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       scriptContentOrMediaContent?: string,
       mediaContentOrBaselineVector?: string | number[],
       baselineVector?: number[],
+      captureLabels?: string[],
+      outputDestination: "local" | "huggingface" = "local",
     ) => {
       const legacySignature = typeof durationSOrScriptContent === "string";
       const durationS = legacySignature ? 5.0 : durationSOrScriptContent;
@@ -745,6 +1917,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         scriptContent,
         mediaContent,
         baselineVector: resolvedBaselineVector,
+        outputDestination,
       });
 
       // Capture flow: request a real encrypted reference capture from the
@@ -759,6 +1932,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
       sendCaptureCommand({
         jobId,
+        sourceId: activeSourceId ?? undefined,
         fragments, // current range
         durationMode: durationS ? "timed" : "manual",
         durationS: durationS,
@@ -772,6 +1946,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             ? "audio_hearing"
             : ((type === "internal" ? "audio_internal" : type) as any),
         liveMode: isLive,
+        captureLabels: captureLabels
+          ?.map((label) => label.trim().slice(0, 80))
+          .filter(Boolean)
+          .slice(0, 32),
       });
 
       // Transition to analyzing after the requested capture duration
@@ -784,12 +1962,14 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         },
         durationS * 1000 + 500,
       ); // Dynamic capture duration + 0.5s margin
+      return jobId;
     },
     [
       clearAnalysis,
       sendCaptureCommand,
       demodLiveFrequencyRange,
       fileCapturedRange,
+      activeSourceId,
       state.frequencyRange,
       state.sampleRateHz,
     ],
@@ -810,12 +1990,36 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       currentFreq: scanner.currentFreq,
       scanRange,
       analysisSession,
+      demodQualityStatus,
+      setDemodQualityStatus,
       selectedBaseline,
       setSelectedBaseline,
+      visionPreset,
+      setVisionPreset,
       liveMode,
       setLiveMode,
       startAnalysis,
       clearAnalysis,
+      audioSurveyJob,
+      audioSurveyCandidates,
+      audioSurveyStorageUsage,
+      audioSurveyTraining,
+      audioSurveyNeuralModelReady,
+      audioSurveyNeuralBackend,
+      setAudioSurveyNeuralBackend,
+      audioSurveyOnnxModelAvailable,
+      audioSurveyOnnxLoading,
+      audioSurveyError,
+      startAudioSurvey,
+      resumeAudioSurvey,
+      pauseAudioSurvey,
+      stopAudioSurvey,
+      trainAudioSurveyModel,
+      importAudioSurveyPythonModel,
+      pauseAudioSurveyTraining,
+      playAudioSurveyArtifact,
+      playAudioSurveyCandidate,
+      recordAudioSurveyStimulusReference,
       startScan,
       stopScan,
       selectedAlgorithm,
@@ -842,9 +2046,31 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       currentIQData,
       scanRange,
       analysisSession,
+      demodQualityStatus,
       selectedBaseline,
+      visionPreset,
       startAnalysis,
       clearAnalysis,
+      audioSurveyJob,
+      audioSurveyCandidates,
+      audioSurveyStorageUsage,
+      audioSurveyTraining,
+      audioSurveyNeuralModelReady,
+      audioSurveyNeuralBackend,
+      setAudioSurveyNeuralBackend,
+      audioSurveyOnnxModelAvailable,
+      audioSurveyOnnxLoading,
+      audioSurveyError,
+      startAudioSurvey,
+      resumeAudioSurvey,
+      pauseAudioSurvey,
+      stopAudioSurvey,
+      trainAudioSurveyModel,
+      importAudioSurveyPythonModel,
+      pauseAudioSurveyTraining,
+      playAudioSurveyArtifact,
+      playAudioSurveyCandidate,
+      recordAudioSurveyStimulusReference,
       startScan,
       stopScan,
       selectedAlgorithm,

@@ -8,9 +8,12 @@
 const fs = require('fs');
 const path = require('path');
 const redis = require('redis');
+const { FAST_TOWER_STAGE_DB, invalidateTowerStageMarker } = require('./tower_staging.cjs');
+require('dotenv').config({ path: '.env.local', quiet: true });
 
 // Configuration
-const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const REDIS_URL = process.env.REDIS_ADMIN_URL;
+if (!REDIS_URL) throw new Error('REDIS_ADMIN_URL is required for tower imports. Run npm run setup.');
 const STATES_DIR = path.join(__dirname, '../data/opencellid/states');
 const BATCH_SIZE = 100; // Smaller batches for stability
 
@@ -51,9 +54,10 @@ function log(message, color = 'reset') {
 
 async function connectRedis() {
   try {
-    const client = redis.createClient({ url: REDIS_URL });
+    invalidateTowerStageMarker();
+    const client = redis.createClient({ url: REDIS_URL, database: FAST_TOWER_STAGE_DB });
     await client.connect();
-    log('✓ Connected to Redis', 'green');
+    log(`✓ Connected to Redis staging DB ${FAST_TOWER_STAGE_DB}`, 'green');
     return client;
   } catch (error) {
     log(`✗ Redis connection failed: ${error.message}`, 'red');

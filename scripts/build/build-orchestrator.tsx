@@ -82,6 +82,19 @@ const findAvailableTcpPort = async (startingPort: number): Promise<number> => {
 dotenv.config({ path: '.env.local', quiet: true });
 dotenv.config({ quiet: true });
 
+function shouldLaunchRedisWithAcl() {
+  const aclFile = path.join(appRuntimeDirectory, 'redis', 'users.acl');
+  if (!fs.existsSync(aclFile)) return false;
+  try {
+    const redisUrl = new URL(process.env.REDIS_URL || 'redis://127.0.0.1:6379/0');
+    const hostname = redisUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    return isLocal && Boolean(redisUrl.username) && Boolean(redisUrl.password);
+  } catch {
+    return false;
+  }
+}
+
 const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   const failing: FailingServices[] = [];
   const errorText = errorDetails.join(' ').toLowerCase();
@@ -100,44 +113,6 @@ const getFailingServices = (errorDetails: string[]): FailingServices[] => {
   }
 
   return failing;
-};
-
-const pruneIncrementalCache = (addLog?: (msg: string) => void) => {
-  for (const profile of ['dev-fast', 'debug']) {
-    const incDir = path.resolve(`target/${profile}/incremental`);
-    if (!fs.existsSync(incDir)) continue;
-    try {
-      const subdirs = fs.readdirSync(incDir)
-        .map(name => {
-          const fullPath = path.join(incDir, name);
-          const stat = fs.statSync(fullPath);
-          return { name, fullPath, mtime: stat.mtimeMs };
-        })
-        .filter(item => {
-          try {
-            return fs.statSync(item.fullPath).isDirectory();
-          } catch {
-            return false;
-          }
-        });
-
-      subdirs.sort((a, b) => b.mtime - a.mtime);
-
-      if (subdirs.length > 5) {
-        const toDelete = subdirs.slice(5);
-        for (const item of toDelete) {
-          fs.rmSync(item.fullPath, { recursive: true, force: true });
-        }
-        if (addLog) {
-          addLog(`Pruned ${toDelete.length} old incremental folders in target/${profile} to free disk space.`);
-        }
-      }
-    } catch (err: any) {
-      if (addLog) {
-        addLog(`Failed to prune target/${profile}/incremental cache: ${err.message}`);
-      }
-    }
-  }
 };
 
 const rustBackendFeatureArgs =
@@ -1124,16 +1099,13 @@ const BuildOrchestrator = () => {
       setBuildState(prev => ({ ...prev, activeBuildOutputStep: stepIndex }));
   
       try {
-        // Prune incremental cache to prevent garbage accumulation
-        pruneIncrementalCache(addLog);
-
         // Build in the foreground so compiler output is visible, but start the
         // long-running backend as a detached child. Running `cargo run` here
         // keeps the orchestrator attached to server logs forever and causes the
         // Rust step to appear hung while state churn grows over time.
         addLog(chalk.blue('Building Rust backend binary...'));
         const buildResult = await executeForegroundCommand(
-          `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
+          `node scripts/build/rustBuild.mjs --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend',
           stepIndex
         );
@@ -1167,8 +1139,8 @@ const BuildOrchestrator = () => {
         addLog(chalk.blue('Starting Rust backend in background...'));
         const startCommand: BackgroundCommand = {
           executable: isNativeWindows
-            ? path.resolve('target/dev-fast/n-apt-backend.exe')
-            : path.resolve('target/dev-fast/n-apt-backend'),
+            ? path.resolve('target/dev-incremental/n-apt-backend.exe')
+            : path.resolve('target/dev-incremental/n-apt-backend'),
           args: [],
           env: {
             WEBSOCKETS_URL: `http://127.0.0.1:${backendPort}`,
@@ -1251,7 +1223,7 @@ exit 1
 
     const redisPort = process.env.REDIS_PORT || '6379';
     const readRedisTowerCount = (db: string) => {
-      const result = spawnSync('bash', ['-lc', `redis-cli -p ${redisPort} -n ${db} --raw keys 'tower:*' | wc -l`], { encoding: 'utf8' });
+      const result = spawnSync('bash', ['-lc', `node scripts/redis/redis_cli_auth.cjs -p ${redisPort} -n ${db} --raw keys 'tower:*' | wc -l`], { encoding: 'utf8' });
       if (result.status !== 0) return 0;
       const parsed = Number.parseInt((result.stdout || '').trim(), 10);
       return Number.isFinite(parsed) ? parsed : 0;
@@ -1330,7 +1302,7 @@ sleep 0.5
     exit 1
   fi
   echo "[Rust] Running cargo check before config validation..."
-  cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
+  cargo check --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1
   `,
           description: 'Validating Rust backend code',
           isBackground: false,
@@ -1343,11 +1315,11 @@ sleep 0.5
             : `
   set -euo pipefail
   echo "[Config] Loading signals.yaml through the Rust backend (--validate-config)..."
-  if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
-    ./target/dev-fast/n-apt-backend --validate-config 2>&1
+  if [ -f "./target/dev-incremental/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
+    ./target/dev-incremental/n-apt-backend --validate-config 2>&1
   else
     echo "[Config] Backend binary unavailable; cargo may compile Rust before config validation."
-    cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
+    cargo run --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
   fi
   `,
           description: 'Validating signals.yaml (via backend config loader)',
@@ -1361,6 +1333,13 @@ sleep 0.5
           args: [
             '--port',
             '6379',
+            '--bind',
+            '127.0.0.1',
+            '--protected-mode',
+            'yes',
+            ...(shouldLaunchRedisWithAcl()
+              ? ['--aclfile', path.join(appRuntimeDirectory, 'redis', 'users.acl')]
+              : []),
             '--dir',
             '.redis_data',
             '--daemonize',
@@ -1380,10 +1359,15 @@ sleep 0.5
       },
       {
         index: 4,
-        command: process.env.NAPT_CLI_STARTED === '1'
-          ? 'echo CLI startup: skipping optional Redis tower swap.'
-          : isNativeWindows ? 'echo Redis tower swap requires bash/redis-cli on non-Windows environments.' : `
+        command: isNativeWindows
+          ? 'node scripts/setup/verify_redis_salts.mjs'
+          : `
 set -euo pipefail
+node scripts/setup/verify_redis_salts.mjs
+if [ "${'${'}NAPT_CLI_STARTED:-0}" = "1" ]; then
+  echo "CLI startup: skipping optional Redis tower import."
+  exit 0
+fi
 REDIS_PORT="${'${'}REDIS_PORT:-6379}"
 if ! [[ "$REDIS_PORT" =~ ^[0-9]+$ ]] || [ "$REDIS_PORT" -le 0 ] || [ "$REDIS_PORT" -gt 65535 ]; then
   REDIS_PORT=6379
@@ -1405,15 +1389,7 @@ fi
   echo "Tower download failed; skipping tower import"
   exit 0
 }
-
-TEMP_FAST=${'$'}(redis-cli -p "$REDIS_PORT" -n 0 dbsize 2>/dev/null || echo 0)
-TEMP_FULL=${'$'}(redis-cli -p "$REDIS_PORT" -n 1 dbsize 2>/dev/null || echo 0)
-if [ "$TEMP_FAST" -eq 0 ] || [ "$TEMP_FULL" -eq 0 ]; then
-  echo "Tower download skipped or produced no data; leaving existing DBs untouched."
-  exit 0
-fi
-redis-cli -p "$REDIS_PORT" swapdb 0 2 >/dev/null
-redis-cli -p "$REDIS_PORT" swapdb 1 3 >/dev/null
+node scripts/redis/promote_tower_staging.cjs
 exit 0
 `,
         description: 'Swapping Redis Database...',
@@ -1457,7 +1433,10 @@ exit 1
       },
       {
         index: 8,
-        command: isNativeWindows ? 'npx vite dev --host' : 'node_modules/.bin/vite dev --host',
+        // Vite serves source files; expose it to the LAN only by explicit opt-in.
+        command: isNativeWindows
+          ? `npx vite dev${process.env.NAPT_ALLOW_LAN_DEV === '1' ? ' --host' : ''}`
+          : `node_modules/.bin/vite dev${process.env.NAPT_ALLOW_LAN_DEV === '1' ? ' --host' : ''}`,
         description: 'Starting frontend server',
         isBackground: true,
         pidKey: 'vitePid' as const,
@@ -1856,8 +1835,8 @@ exit 1
       const newPort = await findAvailableTcpPort(backendPortRef.current + 1);
       const candidateCommand: BackgroundCommand = {
         executable: isNativeWindows
-          ? path.resolve('target/dev-fast/n-apt-backend.exe')
-          : path.resolve('target/dev-fast/n-apt-backend'),
+          ? path.resolve('target/dev-incremental/n-apt-backend.exe')
+          : path.resolve('target/dev-incremental/n-apt-backend'),
         args: [],
         env: {
           WEBSOCKETS_URL: `http://127.0.0.1:${newPort}`,
@@ -2015,10 +1994,8 @@ exit 1
         '[HOT-RELOAD] Rebuilding Rust backend...',
       );
 
-      pruneIncrementalCache((message) => addLogRef.current(message));
-
-      const checkCommand = `cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
-      const buildCommand = `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
+      const checkCommand = `cargo check --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
+      const buildCommand = `node scripts/build/rustBuild.mjs --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim();
       let buildTimedOut = false;
       const buildWatchdog = setInterval(() => {
         if (
@@ -2050,7 +2027,7 @@ exit 1
             output: 'Skipping separate cargo check; cargo build will validate Rust backend compilation.',
           }),
         cargoBuild: async () => {
-          const binPath = isNativeWindows ? 'target\\dev-fast\\n-apt-backend.exe' : 'target/dev-fast/n-apt-backend';
+          const binPath = isNativeWindows ? 'target\\dev-incremental\\n-apt-backend.exe' : 'target/dev-incremental/n-apt-backend';
           try {
             if (fs.existsSync(binPath)) {
               fs.renameSync(binPath, `${binPath}.old`);
@@ -2504,11 +2481,10 @@ async function runNonTtyBuild() {
       index: 1,
       description: 'Validating Rust backend code',
       run: () => {
-        pruneIncrementalCache();
         return executeCommandNonTty(
           isNativeWindows
             ? 'echo Config validation skipped'
-            : `echo "[Rust] Running cargo check before config validation..." && cargo check --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
+            : `echo "[Rust] Running cargo check before config validation..." && cargo check --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} 2>&1`,
           'Validating Rust backend code'
         );
       }
@@ -2519,11 +2495,11 @@ async function runNonTtyBuild() {
       run: () => executeCommandNonTty(
         isNativeWindows ? 'echo Validation skipped' : `
           echo "[Config] Loading signals.yaml through the Rust backend (--validate-config)..."
-          if [ -f "./target/dev-fast/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
-            ./target/dev-fast/n-apt-backend --validate-config 2>&1
+          if [ -f "./target/dev-incremental/n-apt-backend" ] && [ -z "${rustBackendFeatureArgs}" ]; then
+            ./target/dev-incremental/n-apt-backend --validate-config 2>&1
           else
             echo "[Config] Backend binary unavailable; cargo may compile Rust before config validation."
-            cargo run --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
+            cargo run --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs} -- --validate-config 2>&1
           fi
         `,
         'Validating signals.yaml (via backend config loader)'
@@ -2536,9 +2512,16 @@ async function runNonTtyBuild() {
         {
           executable: 'redis-server',
           args: [
-            '--port',
-            '6379',
-            '--dir',
+          '--port',
+          '6379',
+          '--bind',
+          '127.0.0.1',
+          '--protected-mode',
+          'yes',
+          ...(shouldLaunchRedisWithAcl()
+            ? ['--aclfile', path.join(appRuntimeDirectory, 'redis', 'users.acl')]
+            : []),
+          '--dir',
             '.redis_data',
             '--daemonize',
             'no',
@@ -2558,9 +2541,16 @@ async function runNonTtyBuild() {
       index: 4,
       description: 'Swapping Redis Database',
       run: () => executeCommandNonTty(
-        process.env.NAPT_CLI_STARTED === '1' || isNativeWindows
-          ? 'echo CLI startup: skipping optional Redis tower swap.'
-          : `npm run towers:download:cached`,
+        isNativeWindows
+          ? 'node scripts/setup/verify_redis_salts.mjs'
+          : `set -euo pipefail
+node scripts/setup/verify_redis_salts.mjs
+if [ "${'${'}NAPT_CLI_STARTED:-0}" = "1" ]; then
+  echo "CLI startup: skipping optional Redis tower import."
+  exit 0
+fi
+npm run towers:download:cached || { echo "Tower download failed; leaving permanent tower data untouched."; exit 0; }
+node scripts/redis/promote_tower_staging.cjs`,
         'Swapping Redis Database'
       )
     },
@@ -2595,16 +2585,14 @@ async function runNonTtyBuild() {
           icon: path.join(__dirname, 'public/icon-5112.png'),
         });
         console.log('N-APT, Almost done building...');
-        
-        pruneIncrementalCache();
 
         const buildRes = await executeCommandNonTty(
-          `cargo build --profile dev-fast --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
+          `node scripts/build/rustBuild.mjs --profile dev-incremental --bin n-apt-backend ${rustBackendFeatureArgs}`.trim(),
           'Building Rust backend'
         );
         if (!buildRes.success) return { success: false, output: buildRes.output };
 
-        const startCommand = isNativeWindows ? 'target\\dev-fast\\n-apt-backend.exe' : './target/dev-fast/n-apt-backend';
+        const startCommand = isNativeWindows ? 'target\\dev-incremental\\n-apt-backend.exe' : './target/dev-incremental/n-apt-backend';
         const startRes = await startBackgroundProcessNonTty(startCommand, 'Rust backend');
         if (!startRes) return { success: false, output: '' };
 

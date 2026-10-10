@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 // @ts-ignore - Jest module mapper handles this
 import { OutputNode } from "@n-apt/demodulation/react-flow/nodes/OutputNode";
@@ -166,5 +166,46 @@ describe("OutputNode", () => {
       "http://localhost/api/iq-captures/reference-1/download?token=test-token",
     );
     expect(download).toHaveAttribute("download", "reference-1.napt");
+  });
+
+  it("shows the selected Hugging Face destination and saves the encrypted capture", async () => {
+    const fetchSpy = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        files: ["training-captures/demod/reference_captures/reference-1.napt.enc"],
+      }),
+    } as Response);
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetchSpy });
+    render(
+      <TestWrapper>
+        <OutputNode
+          data={{
+            label: "Output",
+            outputDestination: "huggingface",
+            result: {
+              jobId: "reference-1",
+              confidence: 0.9,
+              isEphemeral: false,
+              naptFilePath: "/api/iq-captures/reference-1/download",
+              fileName: "reference-1.napt",
+              fileSize: 2048,
+              sampleRateHz: 3_200_000,
+              centerFrequencyHz: 137_500_000,
+            },
+          }}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("Hugging Face dataset")).toBeInTheDocument();
+    expect(screen.getByText("reference-1.napt")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save encrypted to Hugging Face" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Saved encrypted training-captures/demod/reference_captures/reference-1.napt.enc to Hugging Face.",
+      ),
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("section=demod"), { method: "POST" });
+    Reflect.deleteProperty(globalThis, "fetch");
   });
 });

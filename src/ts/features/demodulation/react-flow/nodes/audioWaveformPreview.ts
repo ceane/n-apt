@@ -72,6 +72,22 @@ export const getAudioToneGain = (
   );
 };
 
+/** Materialize the exact reference tone and envelope used by StimulusNode. */
+export const createAudioToneReferencePcm = (
+  durationSeconds: number,
+  sampleRateHz = 48_000,
+): Float32Array => {
+  const count = Math.max(0, Math.floor(durationSeconds * sampleRateHz));
+  const samples = new Float32Array(count);
+  for (let index = 0; index < count; index++) {
+    const time = index / sampleRateHz;
+    samples[index] =
+      Math.sin(2 * Math.PI * AUDIO_TONE_FREQUENCY_HZ * time) *
+      getAudioToneGain(time, durationSeconds);
+  }
+  return samples;
+};
+
 export interface AudioWaveformFeed {
   getCurrent: () => Float32Array | null;
   subscribe: (listener: (waveform: Float32Array) => void) => () => void;

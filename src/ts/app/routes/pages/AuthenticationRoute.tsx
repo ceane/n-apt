@@ -1,13 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import styled, {
+  css,
   keyframes,
   ThemeProvider,
   ThemeContext,
 } from "styled-components";
 import { Link, useLocation } from "react-router";
 import { Button } from "@n-apt/ui/Button";
-import { FileSignal, Lock, Radio, ThumbsUp, TriangleAlert } from "lucide-react";
-import { Tooltip } from "@n-apt/ui/Tooltip";
+import { ArrowRight, Lock, Radio, ThumbsUp, TriangleAlert } from "lucide-react";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import {
   buildAppTheme,
@@ -62,61 +62,263 @@ const pulse = keyframes`
   100% { opacity: 0.4; }
 `;
 
-const makeWavePath = (
-  width: number,
-  baseline: number,
-  amplitude: number,
-  frequency: number,
-  phase: number,
-) => {
-  const segments = Math.max(24, Math.round(width / 48));
-  const step = width / segments;
-  const points = Array.from({ length: segments + 1 }, (_, index) => {
-    const x = index * step;
-    const y =
-      baseline +
-      Math.sin((x / width) * Math.PI * 2 * frequency + phase) * amplitude;
-    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-  });
+const LOGIN_FFT_CYCLE_MS = 30_000;
+const LOGIN_FFT_CYCLE_DURATION = `${LOGIN_FFT_CYCLE_MS / 1000}s`;
 
-  return points.join(" ");
+export type LoginFftStage = "signal" | "dense" | "butterfly" | "magnitude";
+
+export const getLoginFftStage = (elapsedMs: number): LoginFftStage => {
+  const cycleTime =
+    ((elapsedMs % LOGIN_FFT_CYCLE_MS) + LOGIN_FFT_CYCLE_MS) %
+    LOGIN_FFT_CYCLE_MS;
+  if (cycleTime < 10_000) return "signal";
+  if (cycleTime < 15_000) return "dense";
+  if (cycleTime < 20_000) return "butterfly";
+  return "magnitude";
 };
 
-const waveDrift = keyframes`
-  0% {
-    transform: translate3d(0, 0, 0);
+const WAVE_VIEWBOX_WIDTH = 1200;
+const FFT_SAMPLE_COUNT = 128;
+const WAVE_BASELINE = 120;
+const WAVE_AMPLITUDE = 26;
+const SPECTRUM_BASELINE = 218;
+// The opening, closely spaced sine traces represent the two carriers in a
+// heterodyne input. The SDR stages process the sampled signal as it is, without
+// drawing a separate difference tone.
+const heterodyneCarrierSamples = Array.from(
+  { length: FFT_SAMPLE_COUNT },
+  (_, index) => Math.sin((index / FFT_SAMPLE_COUNT) * Math.PI * 2 * 2.4),
+);
+const sourceComponents = [
+  { cycles: 4.7, amplitude: 0.48, phase: 0.1 },
+  { cycles: 11.8, amplitude: 0.3, phase: 1.4 },
+  { cycles: 18.35, amplitude: 0.18, phase: 2.1 },
+  { cycles: 26.6, amplitude: 0.12, phase: 0.8 },
+  { cycles: 39.2, amplitude: 0.08, phase: 2.8 },
+  { cycles: 52.4, amplitude: 0.06, phase: 1.7 },
+];
+const rawSourceSamples = Array.from(
+  { length: FFT_SAMPLE_COUNT },
+  (_, index) => {
+    const position = index / FFT_SAMPLE_COUNT;
+    const signal = sourceComponents.reduce(
+      (value, component) =>
+        value +
+        component.amplitude *
+          Math.sin(position * Math.PI * 2 * component.cycles + component.phase),
+      0,
+    );
+    const noise = Math.sin(index * 12.9898 + 78.233) * 43758.5453;
+    return signal + ((noise - Math.floor(noise)) * 2 - 1) * 0.035;
+  },
+);
+const sourcePeak = Math.max(...rawSourceSamples.map(Math.abs));
+const sourceSamples = rawSourceSamples.map((sample) => sample / sourcePeak);
+
+const makeTracePath = (
+  values: readonly number[],
+  baseline: number,
+  scale: number,
+  transform: (value: number) => number = (value) => value,
+) =>
+  Array.from({ length: FFT_SAMPLE_COUNT + 1 }, (_, index) => {
+    const value = values[index % FFT_SAMPLE_COUNT];
+    const x = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
+    const y = baseline + transform(value) * scale;
+    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(" ");
+
+const makeMagnitudeValues = (amplitude: number) => {
+  const input = sourceSamples.map((sample) => sample * amplitude);
+  return Array.from({ length: FFT_SAMPLE_COUNT / 2 + 1 }, (_, bin) => {
+    let real = 0;
+    let imaginary = 0;
+    for (let sample = 0; sample < FFT_SAMPLE_COUNT; sample += 1) {
+      const angle = (2 * Math.PI * bin * sample) / FFT_SAMPLE_COUNT;
+      real += input[sample] * Math.cos(angle);
+      imaginary -= input[sample] * Math.sin(angle);
+    }
+    const oneSidedScale = bin === 0 || bin === FFT_SAMPLE_COUNT / 2 ? 1 : 2;
+    return (Math.hypot(real, imaginary) / FFT_SAMPLE_COUNT) * oneSidedScale;
+  });
+};
+
+const spectrumMagnitudeAt = (values: readonly number[], position: number) => {
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.min(lowerIndex + 1, values.length - 1);
+  const fraction = position - lowerIndex;
+  return (
+    values[lowerIndex] + (values[upperIndex] - values[lowerIndex]) * fraction
+  );
+};
+
+const spectrumValuesStart = makeMagnitudeValues(0.52);
+const spectrumValuesMiddle = makeMagnitudeValues(0.96);
+const spectrumValuesEnd = makeMagnitudeValues(0.58);
+const makeAreaPath = (tracePath: string) =>
+  `${tracePath} L ${WAVE_VIEWBOX_WIDTH} ${SPECTRUM_BASELINE} L 0 ${SPECTRUM_BASELINE} Z`;
+
+const sourceWavePath = makeTracePath(
+  sourceSamples,
+  WAVE_BASELINE,
+  WAVE_AMPLITUDE,
+);
+const heterodyneCarrierPath = makeTracePath(
+  heterodyneCarrierSamples,
+  WAVE_BASELINE,
+  WAVE_AMPLITUDE,
+);
+const rectifiedWavePath = makeTracePath(
+  sourceSamples,
+  WAVE_BASELINE,
+  WAVE_AMPLITUDE,
+  (value) => -Math.abs(value),
+);
+const makeSpectrumPath = (values: readonly number[]) =>
+  Array.from({ length: FFT_SAMPLE_COUNT + 1 }, (_, index) => {
+    const x = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
+    const magnitude = spectrumMagnitudeAt(values, index / 2);
+    const y = SPECTRUM_BASELINE - magnitude * 240;
+    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(" ");
+
+const spectrumPathStart = makeSpectrumPath(spectrumValuesStart);
+const spectrumPathMiddle = makeSpectrumPath(spectrumValuesMiddle);
+const spectrumPathEnd = makeSpectrumPath(spectrumValuesEnd);
+const spectrumPathReturn = heterodyneCarrierPath;
+const collapsedAreaPath = makeAreaPath(
+  makeTracePath(
+    sourceSamples.map(() => 0),
+    SPECTRUM_BASELINE,
+    0,
+  ),
+);
+const spectrumAreaPathStart = makeAreaPath(spectrumPathStart);
+const spectrumAreaPathMiddle = makeAreaPath(spectrumPathMiddle);
+const spectrumAreaPathEnd = makeAreaPath(spectrumPathEnd);
+const animationKeyTimes =
+  "0;0.3333;0.5;0.5417;0.6;0.6667;0.7167;0.8333;0.9833;1";
+const FftLabel = styled.text`
+  fill: ${(props) => props.theme.primary ?? "#00d4ff"};
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+`;
+
+const waveZoomOut = keyframes`
+  0% { transform: scaleX(2.4); }
+  33.333% { transform: scaleX(1); }
+  98.333% { transform: scaleX(1); }
+  100% { transform: scaleX(2.4); }
+`;
+
+const secondWaveVisibility = keyframes`
+  0%, 66.5% { visibility: visible; }
+  66.667%, 98.2% { visibility: hidden; }
+  98.333% { visibility: visible; }
+  100% { visibility: visible; }
+`;
+
+const magnitudeVisibility = keyframes`
+  0%, 66.5% { visibility: hidden; }
+  66.667%, 98% { visibility: visible; }
+  98.333%, 100% { visibility: hidden; }
+`;
+
+const foldLabelVisibility = keyframes`
+  0%, 49.9% { visibility: hidden; }
+  50%, 54% { visibility: visible; }
+  54.167%, 100% { visibility: hidden; }
+`;
+
+const butterflyLabelVisibility = keyframes`
+  0%, 54.1% { visibility: hidden; }
+  54.167%, 59.9% { visibility: visible; }
+  60%, 100% { visibility: hidden; }
+`;
+
+const twiddleLabelVisibility = keyframes`
+  0%, 59.9% { visibility: hidden; }
+  60%, 66.5% { visibility: visible; }
+  66.667%, 100% { visibility: hidden; }
+`;
+
+const hexByteReflow = keyframes`
+  0%, 49.9% {
+    left: var(--digit-x);
+    top: var(--digit-y);
   }
-  50% {
-    transform: translate3d(-5%, 0, 0);
+  54.167%, 98.333% {
+    left: var(--output-x);
+    top: var(--output-y);
   }
   100% {
-    transform: translate3d(0, 0, 0);
+    left: var(--digit-x);
+    top: var(--digit-y);
   }
 `;
 
-const waveDriftReverse = keyframes`
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(5%, 0, 0);
-  }
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
+const denseBytesVisibility = keyframes`
+  0%, 33.2% { visibility: hidden; }
+  33.333%, 98.333% { visibility: visible; }
+  100% { visibility: hidden; }
+`;
+
+const FoldLabel = styled(FftLabel)`
+  visibility: hidden;
+  animation: ${foldLabelVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
+
+const ButterflyLabel = styled(FftLabel)`
+  visibility: hidden;
+  animation: ${butterflyLabelVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
+
+const TwiddleLabel = styled(FftLabel)`
+  visibility: hidden;
+  animation: ${twiddleLabelVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
+
+const MagnitudeDetails = styled.g`
+  visibility: hidden;
+  animation: ${magnitudeVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
 `;
 
 const Container = styled.div`
   flex: 1;
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  justify-items: center;
+  align-items: stretch;
+  align-content: stretch;
   background-color: ${(props) => props.theme.background};
-  padding: 40px;
-  gap: 32px;
-  min-height: 100dvh;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  padding: clamp(12px, 3.7vh, 40px) clamp(16px, 3vw, 40px);
+  gap: clamp(12px, 3vh, 32px);
+
+  @media (max-aspect-ratio: 4/3) {
+    padding-block: clamp(12px, 2.4vh, 24px);
+    gap: clamp(10px, 2vh, 20px);
+  }
+
+  @media (max-height: 760px) {
+    padding-block: clamp(8px, 1.8vh, 14px);
+    gap: clamp(10px, 2vh, 16px);
+  }
+
+  @media (max-width: 640px) {
+    padding-inline: 16px;
+    gap: 12px;
+  }
 `;
 
 const WaveBackground = styled.div`
@@ -125,6 +327,7 @@ const WaveBackground = styled.div`
   pointer-events: none;
   overflow: hidden;
   opacity: 0.55;
+  z-index: 0;
 `;
 
 const WaveSvg = styled.svg`
@@ -137,79 +340,64 @@ const WaveSvg = styled.svg`
   overflow: visible;
 `;
 
-const WavePath = styled.path<{ $delay?: string; $reverse?: boolean }>`
+const WavePath = styled.path`
   fill: none;
   stroke: ${(props) => props.theme.primary ?? "#00d4ff"};
   stroke-width: 6;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.48;
+  opacity: 0.86;
   filter: blur(0.2px);
-  animation: ${(props) => (props.$reverse ? waveDriftReverse : waveDrift)} 16s
-    ease-in-out infinite;
-  animation-delay: ${(props) => props.$delay ?? "0s"};
+`;
 
-  @supports (color: color-contrast(white vs black, white)) {
-    stroke: color-contrast(
-      ${(props) => props.theme.background} vs
-        ${(props) => props.theme.primary ?? "#00d4ff"},
-      #ffffff,
-      #00d4ff,
-      #66e6ff
-    );
-  }
+const SecondWavePath = styled(WavePath)`
+  animation: ${secondWaveVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
 
-  @media (prefers-color-scheme: dark) {
-    opacity: 0.84;
-    stroke: ${(props) => props.theme.primary ?? "#00d4ff"};
+const WaveZoomGroup = styled.g`
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ${waveZoomOut} ${LOGIN_FFT_CYCLE_DURATION} linear infinite;
 
-    @supports (color: color-contrast(white vs black, white)) {
-      stroke: color-contrast(
-        ${(props) => props.theme.background} vs
-          ${(props) => props.theme.primary ?? "#00d4ff"},
-        #ffffff,
-        #00d4ff,
-        #9ff3ff
-      );
-    }
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    transform: none;
   }
 `;
 
-const binaryTravel = keyframes`
-  0% {
-    left: -5%;
+const HexByteLayer = styled.div`
+  position: absolute;
+  inset: 0;
+
+  @media (prefers-reduced-motion: reduce) {
     opacity: 0;
-    transform: translateY(10px) scale(0.6);
-  }
-  10% {
-    opacity: 0.6;
-  }
-  30% {
-    opacity: 1;
-    transform: translateY(-5px) scale(1.1);
-  }
-  70% {
-    opacity: 1;
-    transform: translateY(10px) scale(1);
-  }
-  90% {
-    opacity: 0.6;
-  }
-  100% {
-    left: 105%;
-    opacity: 0;
-    transform: translateY(0) scale(0.8);
   }
 `;
 
-const BinaryDigitContainer = styled.div<{ $delay: number; $duration: number }>`
+const SpectrumArea = styled.path`
+  fill: ${(props) => props.theme.primary ?? "#00d4ff"};
+  opacity: 0.16;
+  stroke: none;
+`;
+
+const BinaryDigitContainer = styled.div<{ $dense?: boolean }>`
   position: absolute;
   pointer-events: none;
-  z-index: 20;
+  z-index: 0;
+  left: var(--digit-x, 50%);
   top: var(--digit-y, 50%);
-  animation: ${binaryTravel} ${(props) => props.$duration}s linear infinite;
-  animation-delay: ${(props) => props.$delay}s;
-  opacity: 0;
+  animation: ${hexByteReflow} ${LOGIN_FFT_CYCLE_DURATION} linear infinite;
+  opacity: 0.6;
+
+  ${(props) =>
+    props.$dense &&
+    css`
+      visibility: hidden;
+      animation:
+        ${hexByteReflow} ${LOGIN_FFT_CYCLE_DURATION} linear infinite,
+        ${denseBytesVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end) infinite;
+    `}
 `;
 
 const BinaryDigitInner = styled.div<{
@@ -221,19 +409,6 @@ const BinaryDigitInner = styled.div<{
   font-size: ${(props) => props.$size}px;
   text-shadow: 0 0 12px ${(props) => props.theme.primary ?? "#00d4ff"}aa;
   white-space: nowrap;
-`;
-
-const TextBackdrop = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  width: min(100%, 480px);
-  padding: 20px 24px;
-  backdrop-filter: blur(4px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  mask-image: radial-gradient(circle, black 60%, transparent 100%);
-  -webkit-mask-image: radial-gradient(circle, black 60%, transparent 100%);
 `;
 
 const Title = styled.h2`
@@ -315,7 +490,7 @@ const Input = styled.input`
   }
 `;
 
-const AuthButton = styled(Button) <{
+const AuthButton = styled(Button)<{
   $variant?: "primary" | "secondary" | "danger";
 }>`
   width: 24cqw;
@@ -442,52 +617,120 @@ const LogoContainer = styled.div`
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: clamp(4px, 1.5vh, 16px);
+
+  @media (max-height: 760px) {
+    margin-bottom: clamp(0px, 1vh, 8px);
+  }
 `;
 
 const Essentials = styled.section`
-  width: min(100%, 760px);
-  margin-top: 8px;
-  padding: 16px;
-  border: 1px solid ${(props) => props.theme.border};
-  border-radius: 14px;
-  background: ${(props) => props.theme.surface ?? "rgba(0, 0, 0, 0.12)"};
-  backdrop-filter: blur(12px);
-  box-sizing: border-box;
+  width: min(100%, 1440px);
+  grid-row: 2;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  z-index: 1;
 `;
 
-const EssentialsLabel = styled.p`
-  margin: 0 0 12px;
+const DeviceShowcase = styled.section`
+  display: grid;
+  grid-column: span 2;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: var(--card-track) var(--card-track);
+  grid-template-rows: 0 minmax(0, 1fr);
+  align-content: stretch;
+  align-items: center;
+  column-gap: var(--track-gap);
+`;
+
+const DeviceHeadingTrack = styled.div`
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 0;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  height: 0;
+  justify-self: start;
+  overflow: visible;
+`;
+
+const EssentialsLabel = styled.h2`
+  position: absolute;
+  top: -30px;
+  left: 4px;
+  width: max-content;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0;
   color: ${(props) => props.theme.textMuted};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 10px;
+  font-weight: 400;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
 `;
 
 const EssentialsGrid = styled.div`
+  --track-gap: 18px;
+  --card-track: calc((100% - var(--track-gap)) / 1.5);
+  --card-height: min(100%, 720px);
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-columns: var(--card-track);
+  grid-auto-flow: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  gap: var(--track-gap);
+  overflow-x: auto;
+  overscroll-behavior-x: none;
+  scroll-behavior: auto;
+  padding: 42px 2px clamp(8px, 1.2vh, 14px);
+  scrollbar-color: ${(props) => props.theme.primary}
+    ${(props) => props.theme.surface};
 
   @media (max-width: 640px) {
-    grid-template-columns: 1fr;
+    --track-gap: 12px;
+    --card-track: 84vw;
+    --card-height: min(100%, 680px);
   }
 `;
 
 const EssentialCard = styled.a`
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
-  min-height: 220px;
+  min-height: 440px;
   flex-direction: column;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px;
+  gap: 20px;
+  padding: clamp(20px, 3vw, 36px);
   color: ${(props) => props.theme.textPrimary};
   border: 1px solid ${(props) => props.theme.border};
-  border-radius: 10px;
-  background: ${(props) => props.theme.background};
+  border-radius: 16px;
+  background: linear-gradient(
+    150deg,
+    ${(props) => props.theme.surface},
+    ${(props) => props.theme.background} 70%
+  );
   text-decoration: none;
-  transition: border-color 0.18s ease, transform 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease;
+  @media (max-width: 640px) {
+    min-height: 420px;
+    padding: 20px;
+  }
 
   &:hover {
     border-color: ${(props) => props.theme.primary};
@@ -495,15 +738,84 @@ const EssentialCard = styled.a`
   }
 `;
 
+const SDRCard = styled(EssentialCard)`
+  height: var(--card-height);
+  align-self: center;
+  min-height: 0;
+  box-sizing: border-box;
+  gap: 0;
+  padding: 0;
+
+  @media (max-width: 640px) {
+    padding: 0;
+  }
+`;
+
 const CardIcon = styled.div`
+  position: relative;
+  z-index: 1;
   display: flex;
-  height: 158px;
+  height: clamp(220px, 28vw, 340px);
   align-items: center;
   justify-content: center;
   color: ${(props) => props.theme.primary};
-  background: linear-gradient(135deg, ${(props) => props.theme.surface}, transparent);
+  background: linear-gradient(
+    135deg,
+    ${(props) => props.theme.surface},
+    transparent
+  );
   border-radius: 8px;
   overflow: hidden;
+`;
+
+const SDRCanvasArea = styled(CardIcon)`
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  border-radius: 0;
+  background: transparent;
+`;
+
+const LoginCard = styled.div`
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  width: auto;
+  align-self: center;
+  box-sizing: border-box;
+  height: var(--card-height);
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: clamp(20px, 3vw, 36px);
+  color: ${(props) => props.theme.textPrimary};
+  border: 1px solid ${(props) => props.theme.primary}88;
+  border-radius: 16px;
+  background: linear-gradient(
+    150deg,
+    ${(props) => props.theme.surface},
+    ${(props) => props.theme.background} 70%
+  );
+  > *:not(${WaveBackground}) {
+    position: relative;
+    z-index: 1;
+  }
+
+  ${AuthButton} {
+    width: min(100%, 360px);
+  }
+
+  ${StatusText} {
+    max-width: 520px;
+  }
+
+  @media (max-width: 640px) {
+    padding: 20px;
+  }
 `;
 
 const CardCopy = styled.span`
@@ -523,40 +835,111 @@ const CardCopy = styled.span`
 `;
 
 const CardFooter = styled.div`
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
 `;
 
-const CardCapability = styled.span`
-  color: ${(props) => props.theme.textMuted};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 9px;
-  line-height: 1.4;
+const SDRCardFooter = styled(CardFooter)`
+  flex: 0 0 auto;
+  gap: 16px;
+  padding: 20px clamp(20px, 3vw, 36px) 24px;
+  border-top: 1px solid ${(props) => props.theme.border};
+  background: ${(props) => props.theme.surface};
 `;
 
-const RatingRow = styled.div`
+const SDRFooterTop = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  color: ${(props) => props.theme.textMuted};
-  font-family: ${(props) => props.theme.typography.mono};
-  font-size: 10px;
-  line-height: 1.4;
+  gap: 16px;
 `;
 
-const RatingsGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+const SDRTitle = styled(CardCopy)`
+  justify-content: flex-start;
+  font-size: 17px;
+  letter-spacing: 0.015em;
 `;
 
-const RatingValue = styled.span`
+const BuyBadge = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  color: ${(props) => props.theme.textPrimary};
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  color: ${(props) => props.theme.primary};
+  border: 1px solid ${(props) => props.theme.primary}66;
+  border-radius: 999px;
+  background: ${(props) => props.theme.background};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 10px;
+  transition: background 0.18s ease;
+
+  ${SDRCard}:hover & {
+    background: ${(props) => props.theme.primary}12;
+  }
+`;
+
+const SDRSpecs = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 640px) {
+    gap: 6px;
+  }
+`;
+
+const SDRSpec = styled.div`
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 8px;
+  background: ${(props) => props.theme.background};
+
+  @media (max-width: 640px) {
+    padding: 8px;
+  }
+`;
+
+const SDRSpecLabel = styled.span`
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+`;
+
+const SDRSpecValue = styled.span<{ $tone?: "good" | "warning" | "muted" }>`
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: ${({ $tone, theme }) =>
+    $tone === "good"
+      ? "light-dark(#15803d, #4ade80)"
+      : $tone === "warning"
+        ? "light-dark(#b45309, #fbbf24)"
+        : theme.textPrimary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  @media (max-width: 640px) {
+    gap: 4px;
+    font-size: 10px;
+
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
 `;
 
 interface AuthenticationUIProps {
@@ -565,7 +948,7 @@ interface AuthenticationUIProps {
   hasPasskeys: boolean;
   onPasswordSubmit: (password: string) => void;
   onPasskeyAuth: () => void;
-  onRegisterPasskey: () => void;
+  onRegisterPasskey: (password: string) => void;
 }
 
 export const AuthenticationUI = ({
@@ -592,24 +975,20 @@ export const AuthenticationUI = ({
   const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(
     null,
   );
-  const [waveFrame, setWaveFrame] = useState(0);
-  const [waveViewportWidth, setWaveViewportWidth] = useState(() =>
-    typeof window === "undefined" ? 1200 : window.innerWidth,
-  );
   const [binaryDigits] = useState<
     Array<{
       id: number;
       value: string;
+      x: number;
       y: number;
+      outputX: number;
+      outputY: number;
       size: number;
-      delay: number;
-      duration: number;
     }>
   >(() => {
     const digits = [];
-    // Generate pool of 12 persistent hex bytes
-    for (let i = 0; i < 12; i++) {
-      const isWaveA = i < 24;
+    // Keep a readable byte stream with the input, then pack it above the fold.
+    for (let i = 0; i < 24; i++) {
       // Generate random hex byte like "7A 0B"
       const byte1 = Math.floor(Math.random() * 256)
         .toString(16)
@@ -622,15 +1001,18 @@ export const AuthenticationUI = ({
       digits.push({
         id: i,
         value: `${byte1} ${byte2}`,
-        y: isWaveA ? 40 + Math.random() * 8 : 52 + Math.random() * 8, // Lane-based Y
-        size: 8 + Math.random() * 16,
-        delay: -(Math.random() * 20), // Significant negative delay to spread them across the screen immediately
-        duration: 8 + Math.random() * 8, // Variety in speed
+        x: 4 + (i % 12) * 8.1,
+        y: 42 + (i < 12 ? 0 : 11) + Math.random() * 3,
+        outputX: 27 + (i % 6) * 8,
+        outputY: 10 + Math.floor(i / 6) * 6,
+        size: 8 + Math.random() * 2,
       });
     }
     return digits;
   });
   const inputRef = useRef<HTMLInputElement>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const loginCardRef = useRef<HTMLDivElement>(null);
   const resolvedAuthThemeMode = useResolvedThemeMode(authThemeMode);
   const authTheme = React.useMemo(
     () =>
@@ -656,13 +1038,20 @@ export const AuthenticationUI = ({
   const effectiveShowPasswordForm = showPasswordForm ?? !hasPasskeys;
 
   useEffect(() => {
-    if (
-      authState === "ready" &&
-      effectiveShowPasswordForm &&
-      inputRef.current
-    ) {
-      inputRef.current.focus();
-    }
+    if (authState !== "ready" || !effectiveShowPasswordForm) return;
+    const carousel = carouselRef.current;
+    const loginCard = loginCardRef.current;
+    if (!carousel || !loginCard) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting)
+          inputRef.current?.focus({ preventScroll: true });
+      },
+      { root: carousel, threshold: 0.5 },
+    );
+    observer.observe(loginCard);
+    return () => observer.disconnect();
   }, [authState, effectiveShowPasswordForm]);
 
   // Reset user's explicit choice when hasPasskeys changes
@@ -670,61 +1059,8 @@ export const AuthenticationUI = ({
     setShowPasswordForm(null);
   }, [hasPasskeys]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    let raf = 0;
-    let startTime = 0;
-
-    const tick = (time: number) => {
-      if (!startTime) startTime = time;
-      setWaveFrame(time - startTime);
-      raf = window.requestAnimationFrame(tick);
-    };
-
-    const handleResize = () => setWaveViewportWidth(window.innerWidth);
-
-    handleResize();
-    raf = window.requestAnimationFrame(tick);
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
-  const waveWidth = Math.max(waveViewportWidth, 1);
-  const cycle = waveFrame / 1000;
-  const amplitudeA = 18 + Math.sin(cycle * 0.8) * 10;
-  const amplitudeB = 14 + Math.cos(cycle * 1.1) * 8;
-  const minFrequency = Math.max(0.6, 480 / waveWidth);
-  const maxFrequency = Math.max(1.1, waveWidth / 520);
-  const frequencyA =
-    minFrequency +
-    (maxFrequency - minFrequency) * (0.5 + 0.5 * Math.sin(cycle * 0.45));
-  const frequencyB =
-    minFrequency +
-    (maxFrequency - minFrequency) * (0.5 + 0.5 * Math.cos(cycle * 0.52 + 0.8));
-  const phaseA = -cycle * 1.5;
-  const phaseB = -cycle * 1.2 + Math.PI / 1.7;
-  const wavePathA = makeWavePath(
-    waveWidth,
-    110,
-    amplitudeA,
-    frequencyA,
-    phaseA,
-  );
-  const wavePathB = makeWavePath(
-    waveWidth,
-    130,
-    amplitudeB,
-    frequencyB,
-    phaseB,
-  );
-
   // No-op useEffect as digits are now persistent and purely CSS driven
-  useEffect(() => { }, []);
+  useEffect(() => {}, []);
 
   const handlePasswordSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -742,9 +1078,10 @@ export const AuthenticationUI = ({
   );
 
   const handleRegisterPasskey = useCallback(async () => {
-    await onRegisterPasskey();
+    if (!password.trim()) return;
+    await onRegisterPasskey(password.trim());
     // State changes are handled by parent component
-  }, [onRegisterPasskey]);
+  }, [onRegisterPasskey, password]);
 
   const _isLoading =
     authState === "connecting" ||
@@ -802,212 +1139,268 @@ export const AuthenticationUI = ({
           <Radio size={12} strokeWidth={2} />
           <span>Learn More about Signals &gt;</span>
         </LearnMoreLink>
-        <WaveBackground aria-hidden="true">
-          <WaveSvg viewBox={`0 0 ${waveWidth} 240`} preserveAspectRatio="none">
-            <WavePath d={wavePathA} />
-            <WavePath d={wavePathB} $delay="-4s" $reverse />
-          </WaveSvg>
-          {binaryDigits.map((digit) => (
-            <BinaryDigitContainer
-              key={digit.id}
-              $delay={digit.delay}
-              $duration={digit.duration}
-              style={
-                {
-                  "--digit-y": `${digit.y}%`,
-                } as React.CSSProperties
-              }
-            >
-              <BinaryDigitInner $size={digit.size}>
-                {digit.value}
-              </BinaryDigitInner>
-            </BinaryDigitContainer>
-          ))}
-        </WaveBackground>
         <LogoContainer>
           <Logo alt="N-APT Logo" />
         </LogoContainer>
-        <TextBackdrop>
-          <Title>
-            <Lock size={16} strokeWidth={2} />
-            {authState === "server_down" ? (
-              <TitleText>Server is down</TitleText>
-            ) : (
-              <TitleText>Secure Access Required for N-APT</TitleText>
-            )}
-          </Title>
-
-          <StatusText
-            $variant={getStatusVariant()}
-            dangerouslySetInnerHTML={{
-              __html: getStatusMessage().replace(/\n/g, "<br>"),
-            }}
-          />
-        </TextBackdrop>
-
-        {showActions && (
-          <>
-            <LegalNotice>
-              By continuing you are agreeing to the{" "}
-              <Link to="/terms">Terms of Use</Link> and{" "}
-              <Link to="/privacy">Privacy Policy</Link>.
-            </LegalNotice>
-
-            {hasPasskeys && !effectiveShowPasswordForm && (
-              <>
-                <AuthButton
-                  $variant="primary"
-                  onClick={onPasskeyAuth}
-                  disabled={authState === "authenticating"}
+        <Essentials aria-label="Login and browse SDR hardware">
+          <EssentialsGrid ref={carouselRef}>
+            <LoginCard ref={loginCardRef} id="login-card" aria-label="Login">
+              <WaveBackground aria-hidden="true">
+                <WaveSvg
+                  viewBox={`0 0 ${WAVE_VIEWBOX_WIDTH} 240`}
+                  preserveAspectRatio="none"
                 >
-                  {authState === "authenticating"
-                    ? "Authenticating..."
-                    : "Sign in with Passkey"}
-                </AuthButton>
-                <Divider>or</Divider>
-                <LinkButton onClick={() => setShowPasswordForm(true)}>
-                  Use password instead
-                </LinkButton>
-              </>
-            )}
-
-            {(effectiveShowPasswordForm || !hasPasskeys) && (
-              <Form onSubmit={handlePasswordSubmit}>
-                <Input
-                  ref={inputRef}
-                  type="password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={authState === "authenticating"}
-                  autoComplete="off"
-                />
-                <AuthButton
-                  type="submit"
-                  $variant="primary"
-                  disabled={!password.trim() || authState === "authenticating"}
-                >
-                  {authState === "authenticating"
-                    ? "Authenticating..."
-                    : authState === "failed" || authState === "timeout"
-                      ? "Retry"
-                      : "Authenticate"}
-                </AuthButton>
-                {hasPasskeys && effectiveShowPasswordForm && (
-                  <>
-                    <Divider>or</Divider>
-                    <LinkButton onClick={() => setShowPasswordForm(false)}>
-                      Use passkey instead
-                    </LinkButton>
-                  </>
+                  <WaveZoomGroup>
+                    <SpectrumArea d={collapsedAreaPath}>
+                      <animate
+                        attributeName="d"
+                        values={`${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${spectrumAreaPathStart};${spectrumAreaPathMiddle};${spectrumAreaPathEnd};${collapsedAreaPath}`}
+                        keyTimes={animationKeyTimes}
+                        dur={LOGIN_FFT_CYCLE_DURATION}
+                        repeatCount="indefinite"
+                      />
+                    </SpectrumArea>
+                    <SecondWavePath
+                      d={heterodyneCarrierPath}
+                      transform="translate(8 0)"
+                    >
+                      <animate
+                        attributeName="d"
+                        values={`${heterodyneCarrierPath};${heterodyneCarrierPath};${sourceWavePath};${rectifiedWavePath};${rectifiedWavePath};${rectifiedWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${heterodyneCarrierPath}`}
+                        keyTimes={animationKeyTimes}
+                        dur={LOGIN_FFT_CYCLE_DURATION}
+                        repeatCount="indefinite"
+                      />
+                    </SecondWavePath>
+                    <WavePath d={heterodyneCarrierPath}>
+                      <animate
+                        attributeName="d"
+                        values={`${heterodyneCarrierPath};${heterodyneCarrierPath};${sourceWavePath};${rectifiedWavePath};${rectifiedWavePath};${rectifiedWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${spectrumPathReturn}`}
+                        keyTimes={animationKeyTimes}
+                        dur={LOGIN_FFT_CYCLE_DURATION}
+                        repeatCount="indefinite"
+                      />
+                    </WavePath>
+                  </WaveZoomGroup>
+                  <FoldLabel x="600" y="38" textAnchor="middle">
+                    FOLD · MIRROR THE LOWER HALF
+                  </FoldLabel>
+                  <ButterflyLabel x="600" y="38" textAnchor="middle">
+                    BUTTERFLY · SUM / DIFFERENCE
+                  </ButterflyLabel>
+                  <TwiddleLabel x="600" y="38" textAnchor="middle">
+                    TWIDDLE · BIN PLACEMENT
+                  </TwiddleLabel>
+                  <MagnitudeDetails>
+                    <path
+                      d={`M 0 ${SPECTRUM_BASELINE} L ${WAVE_VIEWBOX_WIDTH} ${SPECTRUM_BASELINE}`}
+                      stroke="currentColor"
+                      strokeWidth="1"
+                    />
+                    <FftLabel x={WAVE_VIEWBOX_WIDTH / 2 - 24} y="40">
+                      |X(k)|
+                    </FftLabel>
+                    <FftLabel x={WAVE_VIEWBOX_WIDTH - 120} y="238">
+                      FREQUENCY
+                    </FftLabel>
+                  </MagnitudeDetails>
+                </WaveSvg>
+                <HexByteLayer>
+                  {binaryDigits.map((digit) => (
+                    <BinaryDigitContainer
+                      key={digit.id}
+                      $dense={digit.id >= 12}
+                      style={
+                        {
+                          "--digit-x": `${digit.x}%`,
+                          "--digit-y": `${digit.y}%`,
+                          "--output-x": `${digit.outputX}%`,
+                          "--output-y": `${digit.outputY}%`,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <BinaryDigitInner $size={digit.size}>
+                        {digit.value}
+                      </BinaryDigitInner>
+                    </BinaryDigitContainer>
+                  ))}
+                </HexByteLayer>
+              </WaveBackground>
+              <Title>
+                <Lock size={16} strokeWidth={2} />
+                {authState === "server_down" ? (
+                  <TitleText>Server is down</TitleText>
+                ) : (
+                  <TitleText>Secure Access Required for N-APT</TitleText>
                 )}
-              </Form>
-            )}
+              </Title>
+              <StatusText
+                $variant={getStatusVariant()}
+                dangerouslySetInnerHTML={{
+                  __html: getStatusMessage().replace(/\n/g, "<br>"),
+                }}
+              />
+              {showActions && (
+                <>
+                  <LegalNotice>
+                    By continuing you are agreeing to the{" "}
+                    <Link to="/terms">Terms of Use</Link> and{" "}
+                    <Link to="/privacy">Privacy Policy</Link>.
+                  </LegalNotice>
+                  {hasPasskeys && !effectiveShowPasswordForm && (
+                    <>
+                      <AuthButton
+                        $variant="primary"
+                        onClick={onPasskeyAuth}
+                        disabled={authState === "authenticating"}
+                      >
+                        {authState === "authenticating"
+                          ? "Authenticating..."
+                          : "Sign in with Passkey"}
+                      </AuthButton>
+                      <Divider>or</Divider>
+                      <LinkButton onClick={() => setShowPasswordForm(true)}>
+                        Use password instead
+                      </LinkButton>
+                    </>
+                  )}
 
-            {!hasPasskeys && canInteract && (
-              <>
-                <Divider>setup</Divider>
-                <LinkButton onClick={handleRegisterPasskey}>
-                  Register a passkey for this device
-                </LinkButton>
-              </>
-            )}
+                  {(effectiveShowPasswordForm || !hasPasskeys) && (
+                    <Form onSubmit={handlePasswordSubmit}>
+                      <Input
+                        ref={inputRef}
+                        type="password"
+                        placeholder="Password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        disabled={authState === "authenticating"}
+                        autoComplete="off"
+                      />
+                      <AuthButton
+                        type="submit"
+                        $variant="primary"
+                        disabled={
+                          !password.trim() || authState === "authenticating"
+                        }
+                      >
+                        {authState === "authenticating"
+                          ? "Authenticating..."
+                          : authState === "failed" || authState === "timeout"
+                            ? "Retry"
+                            : "Authenticate"}
+                      </AuthButton>
+                      {hasPasskeys && effectiveShowPasswordForm && (
+                        <>
+                          <Divider>or</Divider>
+                          <LinkButton
+                            onClick={() => setShowPasswordForm(false)}
+                          >
+                            Use passkey instead
+                          </LinkButton>
+                        </>
+                      )}
+                    </Form>
+                  )}
 
-            <Essentials aria-label="What you need to get started (and view signals in the air)">
-              <EssentialsLabel>What you need to get started (and view signals in the air)</EssentialsLabel>
-              <EssentialsGrid>
-                <EssentialCard
-                  to="/learn/iq-captures"
-                  as={Link}
-                  aria-label="I/Q captures and files"
-                >
-                  <CardIcon>
-                    <FileSignal size={30} strokeWidth={1.5} />
-                  </CardIcon>
-                  <CardFooter>
-                    <CardCopy>
-                      I/Q captures <small>learn more →</small>
-                    </CardCopy>
-                    <CardCapability>Playback .napt and .iq files</CardCapability>
-                  </CardFooter>
-                </EssentialCard>
-                <EssentialCard
-                  href="https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/"
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="RTL-SDR"
-                >
-                  <CardIcon>
-                    <LazySDRCanvas variant="rtl" />
-                  </CardIcon>
-                  <CardFooter>
-                    <CardCopy>
-                      RTL-SDR <small>buy →</small>
-                    </CardCopy>
-                    <RatingsGrid>
-                      <RatingRow>
-                        <span>Rx</span>
-                        <RatingValue>
-                          <ThumbsUp size={12} aria-label="Good" />
-                        </RatingValue>
-                      </RatingRow>
-                      <RatingRow>
-                        <span>Tx</span>
-                        <RatingValue>
-                          <span>No Tx</span>
-                        </RatingValue>
-                      </RatingRow>
-                    </RatingsGrid>
-                    <CardCapability>
-                      Simplex (only one mode; can only do Rx)
-                    </CardCapability>
-                  </CardFooter>
-                </EssentialCard>
-                <EssentialCard
-                  href="https://greatscottgadgets.com/hackrf/one/"
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="HackRF One"
-                >
-                  <CardIcon>
-                    <LazySDRCanvas variant="hackrf" />
-                  </CardIcon>
-                  <CardFooter>
-                    <CardCopy>
-                      HackRF One <small>buy →</small>
-                    </CardCopy>
-                    <RatingsGrid>
-                      <RatingRow>
-                        <span>Rx</span>
-                        <RatingValue>
-                          <Tooltip
-                            title="Rx quality"
-                            content="Not recommended for LF/MF/HF frequencies due to poor quality when testing real-world signals in the app"
-                            trigger={
-                              <TriangleAlert
-                                size={12}
-                                aria-label="Rx quality warning"
-                              />
-                            }
-                          />
-                        </RatingValue>
-                      </RatingRow>
-                      <RatingRow>
-                        <span>Tx</span>
-                        <RatingValue>
-                          <ThumbsUp size={12} aria-label="Good" />
-                        </RatingValue>
-                      </RatingRow>
-                    </RatingsGrid>
-                    <CardCapability>
-                      Half-Duplex (either Rx/receive or read or Tx/transmit or write)
-                    </CardCapability>
-                  </CardFooter>
-                </EssentialCard>
-              </EssentialsGrid>
-            </Essentials>
-          </>
-        )}
+                  {!hasPasskeys && canInteract && (
+                    <>
+                      <Divider>setup</Divider>
+                      <LinkButton
+                        onClick={handleRegisterPasskey}
+                        disabled={!password.trim()}
+                      >
+                        Register a passkey for this device
+                      </LinkButton>
+                    </>
+                  )}
+                </>
+              )}
+            </LoginCard>
+            <DeviceShowcase aria-label="SDR hardware for seeing signals in the air">
+              <DeviceHeadingTrack>
+                <EssentialsLabel>
+                  What you need to see signals in the air
+                </EssentialsLabel>
+              </DeviceHeadingTrack>
+              <SDRCard
+                href="https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="RTL-SDR"
+              >
+                <SDRCanvasArea>
+                  <LazySDRCanvas
+                    variant="rtl"
+                    withAntenna
+                    framing="wide"
+                    fitToCanvas
+                  />
+                </SDRCanvasArea>
+                <SDRCardFooter>
+                  <SDRFooterTop>
+                    <SDRTitle>RTL-SDR</SDRTitle>
+                    <BuyBadge>
+                      Buy device <ArrowRight size={13} />
+                    </BuyBadge>
+                  </SDRFooterTop>
+                  <SDRSpecs role="group" aria-label="Device capabilities">
+                    <SDRSpec>
+                      <SDRSpecLabel>Mode</SDRSpecLabel>
+                      <SDRSpecValue>Simplex</SDRSpecValue>
+                    </SDRSpec>
+                    <SDRSpec>
+                      <SDRSpecLabel>Receive</SDRSpecLabel>
+                      <SDRSpecValue $tone="good">
+                        <ThumbsUp size={14} aria-hidden="true" /> Good
+                      </SDRSpecValue>
+                    </SDRSpec>
+                    <SDRSpec>
+                      <SDRSpecLabel>Transmit</SDRSpecLabel>
+                      <SDRSpecValue $tone="muted">No Tx</SDRSpecValue>
+                    </SDRSpec>
+                  </SDRSpecs>
+                </SDRCardFooter>
+              </SDRCard>
+              <SDRCard
+                href="https://greatscottgadgets.com/hackrf/one/"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="HackRF One"
+              >
+                <SDRCanvasArea>
+                  <LazySDRCanvas variant="hackrf" />
+                </SDRCanvasArea>
+                <SDRCardFooter>
+                  <SDRFooterTop>
+                    <SDRTitle>HackRF One</SDRTitle>
+                    <BuyBadge>
+                      Buy device <ArrowRight size={13} />
+                    </BuyBadge>
+                  </SDRFooterTop>
+                  <SDRSpecs>
+                    <SDRSpec>
+                      <SDRSpecLabel>Mode</SDRSpecLabel>
+                      <SDRSpecValue>Half-duplex</SDRSpecValue>
+                    </SDRSpec>
+                    <SDRSpec>
+                      <SDRSpecLabel>Receive</SDRSpecLabel>
+                      <SDRSpecValue $tone="warning">
+                        <TriangleAlert size={14} aria-hidden="true" />
+                        Poor below HF (&lt;HF)
+                      </SDRSpecValue>
+                    </SDRSpec>
+                    <SDRSpec>
+                      <SDRSpecLabel>Transmit</SDRSpecLabel>
+                      <SDRSpecValue $tone="good">
+                        <ThumbsUp size={14} aria-hidden="true" /> Good
+                      </SDRSpecValue>
+                    </SDRSpec>
+                  </SDRSpecs>
+                </SDRCardFooter>
+              </SDRCard>
+            </DeviceShowcase>
+          </EssentialsGrid>
+        </Essentials>
       </Container>
     </ThemeProvider>
   );

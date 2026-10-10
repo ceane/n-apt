@@ -35,6 +35,7 @@ pub struct ProcessedFrame {
   pub sample_rate: u32,
   pub raw_iq: Vec<u8>,
   pub target_fps: u32,
+  pub capture_events: Vec<crate::server::iq_format::FrameUpdate>,
 }
 
 /// Resolve the IQ payload for the visualizer without forcing every live frame
@@ -102,6 +103,77 @@ impl AcquisitionWorker {
         crate::performance::Stage::Acquisition,
       );
       let mut processor = processor.blocking_lock();
+      let capture_event_start = processor.capture_frame_updates.len();
+      let old_fft_size = processor.fft_processor.config().fft_size;
+
+      if let Some(update) = shared_state.take_pending_active_rx_options() {
+        let settings = update
+          .applied_options
+          .as_ref()
+          .map(|applied| {
+            crate::server::source_runtime::rx_settings_delta(
+              applied,
+              &update.options,
+            )
+          })
+          .unwrap_or_else(|| {
+            crate::server::source_runtime::rx_processor_settings(
+              &update.options,
+            )
+          });
+        let has_settings_delta = settings.sample_rate.is_some()
+          || settings.fft_size.is_some()
+          || settings.fft_window.is_some()
+          || settings.frame_rate.is_some()
+          || settings.gain.is_some();
+        let center_frequency = u32::try_from(update.options.center_frequency_hz)
+          .map_err(|_| anyhow::anyhow!("center frequency exceeds u32"))?;
+        let mut succeeded = true;
+
+        if center_frequency != processor.get_center_frequency() {
+          crate::performance::pipeline_metrics().record_latency(
+            crate::performance::Stage::CommandToRetune,
+            update.requested_at.elapsed(),
+          );
+          if processor
+            .set_center_frequency_live(center_frequency)
+            .is_ok()
+          {
+            shared_state.mark_live_retune_started();
+          } else {
+            succeeded = false;
+          }
+        }
+
+        if has_settings_delta {
+          if let Err(error) = processor.apply_settings(settings) {
+            let supported_device_present = shared_state
+              .usb_inventory_known
+              .load(std::sync::atomic::Ordering::Acquire)
+              && shared_state
+                .supported_usb_device_count
+                .load(std::sync::atomic::Ordering::Relaxed)
+                > 0;
+            if !processor.is_mock()
+              && crate::server::websocket_server::should_promote_fast_path_error_to_read_error(
+                &error,
+                supported_device_present,
+              )
+            {
+              return Err(error);
+            }
+            succeeded = false;
+          }
+        }
+
+        if succeeded {
+          shared_state.mark_active_rx_options_applied(
+            &update.source_id,
+            update.revision,
+            update.options,
+          );
+        }
+      }
 
       if shared_state
         .pending_center_freq_dirty
@@ -110,17 +182,29 @@ impl AcquisitionWorker {
         let pending_frequency = shared_state
           .pending_center_freq
           .load(std::sync::atomic::Ordering::Acquire);
+        let requested_at = shared_state
+          .take_center_frequency_request_time(pending_frequency);
         if pending_frequency > 0
           && pending_frequency != processor.get_center_frequency()
         {
           // This is the device-read hot path. The control plane observes the
           // unchanged frequency; never acquire a logger lock from here.
-          let _ = processor.set_center_frequency_live(pending_frequency);
+          if let Some(requested_at) = requested_at {
+            crate::performance::pipeline_metrics().record_latency(
+              crate::performance::Stage::CommandToRetune,
+              requested_at.elapsed(),
+            );
+          }
+          if processor
+            .set_center_frequency_live(pending_frequency)
+            .is_ok()
+          {
+            shared_state.mark_live_retune_started();
+          }
         }
       }
 
       let pending = shared_state.take_pending_fast_settings();
-      let old_fft_size = processor.fft_processor.config().fft_size;
       for settings in pending {
         if let Err(error) = processor.apply_settings(settings) {
           let supported_device_present = shared_state
@@ -275,6 +359,7 @@ impl AcquisitionWorker {
         sample_rate: frame_sample_rate,
         raw_iq,
         target_fps: processor.display_frame_rate,
+        capture_events: processor.capture_frame_updates[capture_event_start..].to_vec(),
       })
     })
     .await
@@ -378,6 +463,7 @@ mod tests {
       sample_rate: 2_400_000,
       raw_iq: vec![128, 128, 129, 127],
       target_fps: 30,
+      capture_events: Vec::new(),
     };
 
     assert_eq!(frame.source_id, "rtl-sdr-1");

@@ -13,6 +13,7 @@ import {
   RadioIcon,
   Brain,
   Activity,
+  AudioWaveform,
   Zap,
   Cpu,
   Waves,
@@ -178,6 +179,21 @@ const availableNodes: NodeType[] = [
     },
   },
   {
+    id: "phase",
+    type: "custom",
+    label: "Phase",
+    description:
+      "Phase-angle waterfall: hue shows the phase of each frequency over time—spot repeating or drifting phase patterns.",
+    icon: <AudioWaveform size={16} />,
+    position: { x: 550, y: 850 },
+    data: {
+      label: "Phase",
+      description:
+        "Phase-angle waterfall: hue shows the phase of each frequency over time—spot repeating or drifting phase patterns.",
+      phaseOptions: true,
+    },
+  },
+  {
     id: "bitstream",
     type: "custom",
     label: "Bitstream (0s/1s)",
@@ -265,13 +281,15 @@ const availableNodes: NodeType[] = [
   {
     id: "coreml",
     type: "custom",
-    label: "CoreML",
-    description: "Machine learning inference",
+    label: "ML Audio Demodulator",
+    description:
+      "Resumable local A/B audio survey, paired stimulus captures, and time-domain machine-learning demodulation.",
     icon: <Cpu size={16} />,
     position: { x: 100, y: 150 },
     data: {
-      label: "CoreML",
-      description: "Machine learning inference",
+      label: "ML Audio Demodulator",
+      description:
+        "Resumable local A/B audio survey, paired stimulus captures, and time-domain machine-learning demodulation.",
       coremlOptions: true,
     },
   },

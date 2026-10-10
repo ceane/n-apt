@@ -57,7 +57,7 @@ const FALLBACK_SAMPLE_RATES = [
 const FALLBACK_FFT_SIZES = [2048, 4096, 8192, 16384, 32768, 65536];
 
 interface TxSignalConfigNodeProps {
-  data: { txSignalOptions: boolean; label: string };
+  data: { txSignalOptions: boolean; label: string; sourceBindingGroup?: string };
 }
 
 const TxSignalConfigNodeComponent: React.FC<TxSignalConfigNodeProps> = ({
@@ -88,9 +88,10 @@ const TxSignalConfigNodeComponent: React.FC<TxSignalConfigNodeProps> = ({
   const txViewerPowerScale = useAppSelector(
     (state) => state.spectrum.txViewerPowerScale,
   );
+  const sourceBindingGroup = data.sourceBindingGroup ?? "tx-suite";
   const websocketBackend = useAppSelector((state) => state.websocket.backend);
   const txSourceId = useAppSelector(
-    (state) => state.sourceRouting.bindings[sourceBindingKey("tx-suite", "tx")],
+    (state) => state.sourceRouting.bindings[sourceBindingKey(sourceBindingGroup, "tx")],
   );
   const txSource = useAppSelector((state) =>
     (state.websocket.sources ?? []).find((source) => source.id === txSourceId),
@@ -135,9 +136,9 @@ const TxSignalConfigNodeComponent: React.FC<TxSignalConfigNodeProps> = ({
   // Tx setting changes are refreshed by websocket middleware after the Redux
   // action lands, avoiding duplicate stream subscriptions.
   React.useEffect(() => {
-    dispatch({ type: "txSuite/requestPreview" });
+    dispatch({ type: "txSuite/requestPreview", payload: { sourceBindingGroup } });
     dispatch(setTxViewerTemporalResolution("lossless"));
-  }, [dispatch]);
+  }, [dispatch, sourceBindingGroup]);
 
   return (
     <NodeContent>

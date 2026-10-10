@@ -1,4 +1,11 @@
 // @ts-nocheck
+import { getStoredSession } from '@n-apt/app/infrastructure/services/auth';
+
+async function authenticatedFetch(url, options = {}) {
+  const token = getStoredSession();
+  if (!token) throw new Error('Sign in to access archives');
+  return fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } });
+}
 async function parseJson(response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -9,29 +16,41 @@ async function parseJson(response) {
 
 export const transcriptApi = {
   listArchives() {
-    return fetch('/api/archives').then(parseJson);
+    return authenticatedFetch('/api/archives').then(parseJson);
   },
   uploadArchive(formData) {
-    return fetch('/api/archives/upload', {
+    return authenticatedFetch('/api/archives/upload', {
       method: 'POST',
       body: formData,
     }).then(parseJson);
   },
   extractArchive(archiveName) {
-    return fetch('/api/archives/extract', {
+    return authenticatedFetch('/api/archives/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ archiveName }),
     }).then(parseJson);
   },
   loadTweets(archiveName) {
-    return fetch(`/api/archives/${encodeURIComponent(archiveName)}/tweets`).then(parseJson);
+    return authenticatedFetch(`/api/archives/${encodeURIComponent(archiveName)}/tweets`).then(parseJson);
   },
   exportArchive(body) {
-    return fetch('/api/export', {
+    return authenticatedFetch('/api/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(parseJson);
+  },
+  async downloadArchive(filename) {
+    const response = await authenticatedFetch(`/api/download/${encodeURIComponent(filename)}`);
+    if (!response.ok) { await parseJson(response); return; }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
 };

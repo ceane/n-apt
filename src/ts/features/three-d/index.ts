@@ -1,7 +1,7 @@
 export { Model3DCanvas } from "@n-apt/three-d/Model3DCanvas";
 export { Model3DPerson } from "@n-apt/three-d/Model3DPerson";
 export { Model3DBrain } from "@n-apt/three-d/Model3DBrain";
-export { PolarRadioWaveWebGPU } from "@n-apt/three-d/PolarRadioWaveWebGPU";
+export { PolarRadioWaveWebGPU, PolarRadioWavePreview } from "@n-apt/three-d/PolarRadioWaveWebGPU";
 export * from "@n-apt/three-d/modelAssetUrls";
 export { RadiationLobe3D } from "@n-apt/three-d/RadiationLobe3D";
 export { default as Brain } from "@n-apt/three-d/Brain";
@@ -23,6 +23,7 @@ export { DirectDigitalSynthesizer } from "@n-apt/three-d/DirectDigitalSynthesize
 export { BandpassFilter } from "@n-apt/three-d/BandpassFilter";
 export { HighPassFilter } from "@n-apt/three-d/HighPassFilter";
 export { LocalOscillator } from "@n-apt/three-d/LocalOscillator";
+export { VoltageControlledOscillator } from "@n-apt/three-d/VoltageControlledOscillator";
 export { RFMixer } from "@n-apt/three-d/RFMixer";
 export { BasebandAmplifier } from "@n-apt/three-d/BasebandAmplifier";
 export { AnalogDigitalConverter } from "@n-apt/three-d/AnalogDigitalConverter";

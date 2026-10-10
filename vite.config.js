@@ -1,6 +1,5 @@
 /// <reference types="vitest/config" />
 import fs from "node:fs";
-import { execSync } from "node:child_process";
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
@@ -55,33 +54,9 @@ const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
   },
 );
 
-const resolveGitRoot = () => {
-  try {
-    const gitCommonDir = execSync("git rev-parse --git-common-dir", {
-      cwd: dirname,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-
-    if (!gitCommonDir) {
-      return null;
-    }
-
-    const absoluteCommonDir = path.isAbsolute(gitCommonDir)
-      ? gitCommonDir
-      : path.resolve(dirname, gitCommonDir);
-
-    return path.resolve(absoluteCommonDir, "..");
-  } catch {
-    return null;
-  }
-};
-
 const fsAllow = Array.from(
   new Set(
-    [dirname, resolveGitRoot()]
-      .filter((value) => Boolean(value))
+    [path.resolve(dirname, "src"), path.resolve(dirname, "node_modules")]
       .map((value) => {
         const resolved = path.resolve(value);
         try {
@@ -106,6 +81,22 @@ const injectBrowserEnv = (browserEnv) => ({
     );
   },
 });
+
+const PUBLIC_BROWSER_ENV_KEYS = new Set([
+  "NAPT_PBKDF2_SALT",
+  "VITE_APP_URL",
+  "VITE_BACKEND_URL",
+  "VITE_GOOGLE_MAPS_API_KEY",
+  "VITE_PBKDF2_SALT",
+  "VITE_SESSION_KEY",
+  "VITE_WASM_BUILD_PATH",
+  "VITE_WS_URL",
+]);
+
+export const selectBrowserEnv = (env) =>
+  Object.fromEntries(
+    Object.entries(env).filter(([key]) => PUBLIC_BROWSER_ENV_KEYS.has(key)),
+  );
 
 const styledComponentsFixPlugin = () => ({
   name: 'styled-components-fix',
@@ -151,17 +142,20 @@ const markdownForAgentsPlugin = () => ({
           "",
           "This index describes the Markdown-for-Agents and WebMCP surfaces. CLI mutations require `--allow-mutations`; transmission and destructive operations are blocked.",
           "",
-          "## Supported Markdown routes",
+          "## Markdown routes",
           "",
-          "- `/` and `/visualizer` — [visualizer](visualizer.md)",
-          "- `/demodulate` and `/demod` — [analysis](analysis.md)",
-          "- `/draw-signal` — [draw-signal](draw-signal.md)",
-          "- `/3d-model` — [3d-model](3d-model.md)",
-          "- `/map-endpoints` — [map-endpoints](map-endpoints.md)",
+          "- [Visualizer](/visualizer) (also `/`)",
+          "- [Demodulate](/demodulate) (also `/demod`)",
+          "- [Draw Signal](/draw-signal)",
+          "- [3D Model](/3d-model)",
+          "- [Map Endpoints](/map-endpoints)",
+          "- [Get Started](/get-started)",
+          "- Legal document reader: [Terms](/terms), [Privacy](/privacy), [License](/license), [Responsible Use](/responsible-use)",
+          "- [Cellular Triangulation Demo](/game)",
           "",
           "## Coverage policy",
           "",
-          "Settings and I/Q captures require authentication. Educational, legal, onboarding, and demo routes are not executable agent surfaces.",
+          "Onboarding, legal, and demo routes have descriptive Markdown only and expose no executable WebMCP tools. `non-agent` in the capability manifest means the route has no agent-driven actions; it does not prevent Markdown retrieval.",
         ].join("\n");
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -180,6 +174,12 @@ const markdownForAgentsPlugin = () => ({
         "/draw-signal": "draw-signal.md",
         "/3d-model": "3d-model.md",
         "/map-endpoints": "map-endpoints.md",
+        "/get-started": "start-page.md",
+        "/terms": "legal.md",
+        "/privacy": "legal.md",
+        "/license": "legal.md",
+        "/responsible-use": "legal.md",
+        "/game": "game.md",
       };
       const file = files[urlPath];
       if (!file) return next();
@@ -205,13 +205,7 @@ export default defineConfig(({ mode }) => {
     "ws:",
   );
   const env = loadEnv(mode, dirname, "");
-  const browserEnv = Object.fromEntries(
-    Object.entries(env).filter(
-      ([key]) =>
-        (key.startsWith("VITE_") && key !== "VITE_UNSAFE_LOCAL_USER_PASSWORD") ||
-        key === "NAPT_PBKDF2_SALT",
-    ),
-  );
+  const browserEnv = selectBrowserEnv(env);
 
   return {
   define: {
@@ -286,6 +280,9 @@ export default defineConfig(({ mode }) => {
   },
   root: useFrameworkViteRoot ? dirname : "./src/ts",
   envDir: useFrameworkViteRoot ? dirname : "../../",
+  // All app config is passed through the explicit browserEnv allowlist above.
+  // Vite's default VITE_ prefix would expose every matching local variable.
+  envPrefix: [],
   publicDir: path.resolve(dirname, "public"),
   build: {
     // Keep the existing CSS surface compatible with Vite 8's default
@@ -404,23 +401,6 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/status": {
-        target: backendProxyTarget,
-        changeOrigin: true,
-        timeout: 10000,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, req, res) => {
-            if (err.code === 'ECONNREFUSED') {
-              if (!res.headersSent) {
-                res.writeHead(503, { 'Content-Type': 'text/plain' });
-                res.end('Backend not ready yet, please retry');
-              }
-            } else {
-              console.error('Proxy error:', err);
-            }
-          });
-        }
-      },
-      "/logout": {
         target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,

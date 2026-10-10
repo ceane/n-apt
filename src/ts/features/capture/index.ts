@@ -8,9 +8,11 @@ export { default as IQCaptureCanvasGraphic } from "@n-apt/capture/canvas/IQCaptu
 export { IQCaptureControlsSection } from "@n-apt/capture/sidebar/IQCaptureControlsSection";
 export { default as FileMetadata } from "@n-apt/capture/sidebar/FileMetadata";
 export { default as FileSelectionSidebar } from "@n-apt/capture/sidebar/FileSelectionSidebar";
+export * from "@n-apt/capture/quality";
 export { SnapshotControlsSection } from "@n-apt/capture/sidebar/SnapshotControlsSection";
 export {
   formatSnapshotLocation,
   formatSnapshotLocationLine,
+  reverseGeocodeSnapshotLocality,
   reverseGeocodeSnapshotLocation,
 } from "@n-apt/capture/snapshotLocation";

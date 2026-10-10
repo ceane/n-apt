@@ -19,6 +19,7 @@ jobs:
   # Frontend type checking
   frontend-typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 4
 
     steps:
       - name: Checkout code
@@ -47,6 +48,7 @@ jobs:
   # Frontend tests
   frontend-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout code
@@ -74,26 +76,51 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  security-script-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js 26.x
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26.x
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run script security tests
+        run: npm run test:security-scripts
+
   # Rust tests
   rust-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     services:
       redis:
         image: redis
         ports:
           - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Setup Node.js for authenticated Redis test provisioning
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26.x
+          cache: "npm"
+
+      - name: Install Redis ACL provisioning dependencies
+        run: npm ci --legacy-peer-deps
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev redis-server
@@ -110,8 +137,11 @@ jobs:
           workspaces: .
           cache-on-failure: true
 
+      - name: Configure and verify authenticated Redis
+        run: node scripts/setup/configure_test_redis.mjs
+
       - name: Compile check (warnings are errors)
-        run: RUSTFLAGS="-D warnings" cargo check --workspace --all-targets
+        run: RUSTFLAGS="-D warnings" cargo check --profile dev-incremental --workspace --all-targets
 
       - name: Run Rust tests
         run: |
@@ -119,6 +149,7 @@ jobs:
             authentication_tests
             capture_stitch_tests
             device_stream_frozen_tests
+            endpoint_auth_tests
             encryption_e2e_tests
             fft_processor_tests
             frequency_scaling_e2e
@@ -136,13 +167,12 @@ jobs:
 
           run_selected_tests() {
             for test_name in "$@"; do
-              cargo nextest run --test "$test_name"
+              cargo nextest run --cargo-profile dev-incremental --test "$test_name"
             done
           }
 
           run_selected_tests "${all_tests[@]}"
         env:
-          REDIS_URL: redis://localhost:6379
           UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key
           PROPTEST_SEED: "0xdeadbeef00000001"
 
@@ -156,13 +186,14 @@ jobs:
   # Rust Performance Tests (Release mode)
   rust-performance-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 9
 
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev
+        run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev redis-server
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -175,8 +206,8 @@ jobs:
 
       - name: Run Rust Performance Tests
         run: |
-          cargo --config .cargo/performance.toml test --test performance_tests --release -- --nocapture
-          cargo test --test performance_program_tests
+          cargo --config .cargo/performance.toml test --test performance_tests --profile release -- --nocapture
+          cargo test --profile dev-incremental --test performance_program_tests
 
       - name: Compile report-only uncapped benchmarks
         run: cargo bench --bench pipeline_benchmarks --no-run
@@ -184,6 +215,7 @@ jobs:
   # WASM tests
   wasm-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -214,17 +246,13 @@ jobs:
   # Integration tests
   integration-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 7
 
     services:
       redis:
         image: redis
         ports:
           - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -239,7 +267,7 @@ jobs:
           cache: "npm"
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev
+        run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev redis-server
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -253,6 +281,29 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Test Redis auth configuration
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_auth_setup.test.mjs
+
+      - name: Test Redis salt fingerprints
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_salt_fingerprint.test.mjs
+
+      - name: Test Redis tower staging
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_tower_staging.test.mjs
+
+      - name: Test Redis ACL integration
+        timeout-minutes: 1
+        run: node --import tsx --test test/scripts/redis_acl.integration.test.mjs
+
+      - name: Test capture salt backup integration
+        timeout-minutes: 1
+        run: node --import tsx --test test/classifier/capture-salt-backup.integration.test.mjs
+
+      - name: Configure and verify authenticated Redis
+        run: node scripts/setup/configure_test_redis.mjs
+
       - name: Build WASM
         run: npm run build:wasm
 
@@ -260,10 +311,9 @@ jobs:
         run: npm run build:rust
 
       - name: Generate Encrypted Test Artifacts
-        run: cargo test --test encryption_e2e_tests generate_test_artifacts -- --nocapture
+        run: cargo test --profile dev-incremental --test encryption_e2e_tests generate_test_artifacts -- --nocapture
 
       - name: Run all integration tests
         run: npm run test:integration
         env:
-          REDIS_URL: redis://localhost:6379
           UNSAFE_LOCAL_USER_PASSWORD: n-apt-dev-key

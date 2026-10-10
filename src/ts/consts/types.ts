@@ -21,6 +21,7 @@ export interface CaptureResult {
 export interface AnalysisSession {
   state: "idle" | "starting" | "capturing" | "analyzing" | "result";
   type?: "audio" | "internal" | "speech" | "vision" | "apt";
+  outputDestination?: "local" | "huggingface";
   startTime?: number;
   durationS?: number; // The requested duration in seconds
   sampleRateHz?: number;
@@ -63,6 +64,7 @@ export interface NaptMetadata {
   gain?: number;
   acquisition_mode?: string;
   source_device?: string;
+  capture_labels?: string[];
   fft_window?: string;
   tuner_agc?: boolean;
   rtl_agc?: boolean;

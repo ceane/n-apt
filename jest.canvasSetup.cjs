@@ -88,6 +88,7 @@ function wrapCanvas2DContext(ctx) {
 
   const methodsToLog = [
     'setTransform',
+    'setLineDash',
     'clearRect',
     'fillRect',
     'strokeRect',

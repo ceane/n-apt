@@ -21,7 +21,7 @@ fn theoretical_ceiling_is_not_limited_by_presentation_rate() {
 
 #[test]
 fn latency_summary_reports_distribution_without_inventing_missing_metrics() {
-  let metrics = PipelineMetrics::new(false);
+  let metrics = PipelineMetrics::new(true);
   for millis in [1_u64, 2, 3, 4, 100] {
     metrics.record_latency(Stage::FftDsp, Duration::from_millis(millis));
   }

@@ -7,6 +7,8 @@ import {
   authenticateWithPassword,
   authenticateWithPasskey,
   buildWsUrl,
+  registerPasskey,
+  logoutSession,
 } from "@n-apt/app/infrastructure/services/auth";
 
 describe("auth service", () => {
@@ -17,6 +19,12 @@ describe("auth service", () => {
   });
 
   describe("Session Storage", () => {
+    test("passkey enrollment without a session requires password authentication first", async () => {
+      Object.defineProperty(navigator, 'credentials', {configurable:true, value:{create:jest.fn().mockResolvedValue(null)}});
+      (global.fetch as jest.Mock).mockResolvedValue({ok:true,json:async()=>({challenge_id:'unsafe-unauthenticated-enrollment',options:{challenge:'AA',user:{id:'AA'}}})});
+      await expect(registerPasskey()).rejects.toThrow(/password|sign in/i);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
     test("storeSession and getStoredSession work correctly", () => {
       const token = "valid.session.token.long.enough";
       storeSession(token);
@@ -32,6 +40,50 @@ describe("auth service", () => {
   });
 
   describe("REST API calls", () => {
+    test("logout uses authenticated POST and preserves non-auth storage", async () => {
+      localStorage.setItem("questionnaire", "answers");
+      localStorage.setItem("settings", "preferences");
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+      });
+      await logoutSession("session-token");
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/\/auth\/logout$/),
+        expect.objectContaining({
+          method: "POST",
+          headers: { Authorization: "Bearer session-token" },
+        }),
+      );
+      expect(localStorage.getItem("questionnaire")).toBe("answers");
+      expect(localStorage.getItem("settings")).toBe("preferences");
+    });
+    test("logout failure preserves the session for retry", async () => {
+      storeSession("session-token");
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+      });
+      await expect(logoutSession("session-token")).rejects.toThrow(
+        "logout failed: 503",
+      );
+      expect(getStoredSession()).toBe("session-token");
+    });
+    test("logout does not clear a session when validation fails", async () => {
+      storeSession("session-token");
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      });
+      await expect(logoutSession("session-token")).rejects.toThrow(
+        "logout failed: 401",
+      );
+      expect(getStoredSession()).toBe("session-token");
+    });
+    test("logout refuses anonymous requests", async () => {
+      await expect(logoutSession()).rejects.toThrow();
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
     test("fetchServerStatus returns parsed JSON on success", async () => {
       const mockStatus = { status: "ok", version: "1.0" };
       (global.fetch as jest.Mock).mockResolvedValueOnce({

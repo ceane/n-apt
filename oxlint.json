@@ -4,7 +4,9 @@
     "typescript/no-unused-vars": "warn",
     "no-console": "warn",
     "prefer-const": "error",
-    "no-var": "error"
+    "no-var": "error",
+    "no-control-regex": "off",
+    "no-misleading-character-class": "off"
   },
   "settings": { "typescript": { "parserOptions": { "project": "./tsconfig.json" } } }
 }

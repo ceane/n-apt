@@ -66,6 +66,10 @@ name = "iq_capture_integration_tests"
 path = "test/rust/iq_capture_integration_tests.rs"
 
 [[test]]
+name = "iq_capture_format_acceptance"
+path = "test/rust/iq_capture_format_acceptance.rs"
+
+[[test]]
 name = "hardware_failure_recovery_tests"
 path = "test/rust/hardware_failure_recovery_tests.rs"
 
@@ -231,22 +235,17 @@ wasm-opt = false
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
 
-[profile.dev]
-opt-level = 0
-incremental = true
-debug = true
-codegen-units = 16
-
-[profile.dev-fast]
+[profile.dev-incremental]
 inherits = "dev"
 opt-level = 3
 debug = 1
 debug-assertions = false
 overflow-checks = false
-codegen-units = 1
-incremental = false
+codegen-units = 16
+incremental = true
 
 [profile.release]
+incremental = true
 opt-level = 3
 lto = "thin"
 codegen-units = 1
