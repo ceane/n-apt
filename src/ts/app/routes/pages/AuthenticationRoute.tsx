@@ -78,7 +78,9 @@ export const getLoginFftStage = (elapsedMs: number): LoginFftStage => {
 };
 
 const WAVE_VIEWBOX_WIDTH = 1200;
+const HETERODYNE_PAIR_OFFSET = 24;
 const FFT_SAMPLE_COUNT = 128;
+const DENSE_SIGNAL_CYCLES = 18;
 const WAVE_BASELINE = 120;
 const WAVE_AMPLITUDE = 26;
 const SPECTRUM_BASELINE = 218;
@@ -89,31 +91,15 @@ const heterodyneCarrierSamples = Array.from(
   { length: FFT_SAMPLE_COUNT },
   (_, index) => Math.sin((index / FFT_SAMPLE_COUNT) * Math.PI * 2 * 2.4),
 );
-const sourceComponents = [
-  { cycles: 4.7, amplitude: 0.48, phase: 0.1 },
-  { cycles: 11.8, amplitude: 0.3, phase: 1.4 },
-  { cycles: 18.35, amplitude: 0.18, phase: 2.1 },
-  { cycles: 26.6, amplitude: 0.12, phase: 0.8 },
-  { cycles: 39.2, amplitude: 0.08, phase: 2.8 },
-  { cycles: 52.4, amplitude: 0.06, phase: 1.7 },
-];
-const rawSourceSamples = Array.from(
+// Keep the dense phase as a clean, symmetric sine wave so both paired traces
+// remain legible before the fold and twiddle stages.
+const sourceSamples = Array.from(
   { length: FFT_SAMPLE_COUNT },
-  (_, index) => {
-    const position = index / FFT_SAMPLE_COUNT;
-    const signal = sourceComponents.reduce(
-      (value, component) =>
-        value +
-        component.amplitude *
-          Math.sin(position * Math.PI * 2 * component.cycles + component.phase),
-      0,
-    );
-    const noise = Math.sin(index * 12.9898 + 78.233) * 43758.5453;
-    return signal + ((noise - Math.floor(noise)) * 2 - 1) * 0.035;
-  },
+  (_, index) =>
+    Math.sin(
+      (index / FFT_SAMPLE_COUNT) * Math.PI * 2 * DENSE_SIGNAL_CYCLES,
+    ),
 );
-const sourcePeak = Math.max(...rawSourceSamples.map(Math.abs));
-const sourceSamples = rawSourceSamples.map((sample) => sample / sourcePeak);
 
 const makeTracePath = (
   values: readonly number[],
@@ -213,14 +199,14 @@ const waveZoomOut = keyframes`
 `;
 
 const secondWaveVisibility = keyframes`
-  0%, 66.5% { visibility: visible; }
+  0%, 66.666% { visibility: visible; }
   66.667%, 98.2% { visibility: hidden; }
   98.333% { visibility: visible; }
   100% { visibility: visible; }
 `;
 
 const magnitudeVisibility = keyframes`
-  0%, 66.5% { visibility: hidden; }
+  0%, 66.666% { visibility: hidden; }
   66.667%, 98% { visibility: visible; }
   98.333%, 100% { visibility: hidden; }
 `;
@@ -239,7 +225,7 @@ const butterflyLabelVisibility = keyframes`
 
 const twiddleLabelVisibility = keyframes`
   0%, 59.9% { visibility: hidden; }
-  60%, 66.5% { visibility: visible; }
+  60%, 66.666% { visibility: visible; }
   66.667%, 100% { visibility: hidden; }
 `;
 
@@ -1162,7 +1148,7 @@ export const AuthenticationUI = ({
                     </SpectrumArea>
                     <SecondWavePath
                       d={heterodyneCarrierPath}
-                      transform="translate(8 0)"
+                      transform={`translate(${HETERODYNE_PAIR_OFFSET} 0)`}
                     >
                       <animate
                         attributeName="d"
