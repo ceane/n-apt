@@ -84,6 +84,7 @@ const DENSE_SIGNAL_CYCLES = 18;
 const WAVE_BASELINE = 120;
 const WAVE_AMPLITUDE = 26;
 const SPECTRUM_BASELINE = 218;
+const SPECTRUM_MAGNITUDE_FLOOR = 0.1;
 // The opening, closely spaced sine traces represent the two carriers in a
 // heterodyne input. The SDR stages process the sampled signal as it is, without
 // drawing a separate difference tone.
@@ -91,8 +92,8 @@ const heterodyneCarrierSamples = Array.from(
   { length: FFT_SAMPLE_COUNT },
   (_, index) => Math.sin((index / FFT_SAMPLE_COUNT) * Math.PI * 2 * 2.4),
 );
-// Keep the dense phase as a clean, symmetric sine wave so both paired traces
-// remain legible before the fold and twiddle stages.
+// Keep the dense display as a clean, symmetric sine wave. Use a separate
+// multi-tone input for folding and magnitude so its spectrum has several bins.
 const sourceSamples = Array.from(
   { length: FFT_SAMPLE_COUNT },
   (_, index) =>
@@ -100,6 +101,36 @@ const sourceSamples = Array.from(
       (index / FFT_SAMPLE_COUNT) * Math.PI * 2 * DENSE_SIGNAL_CYCLES,
     ),
 );
+const spectrumComponents = [
+  { cycles: 5, amplitude: 0.64 },
+  { cycles: 12, amplitude: 0.38 },
+  { cycles: 18, amplitude: 0.58 },
+  { cycles: 27, amplitude: 0.32 },
+  { cycles: 39, amplitude: 0.46 },
+  { cycles: 52, amplitude: 0.27 },
+];
+const spectrumProfiles = [
+  [1, 0.42, 0.7, 0.34, 0.52, 0.22],
+  [0.44, 1, 0.38, 0.86, 0.3, 0.72],
+  [0.68, 0.3, 1, 0.46, 0.95, 0.4],
+] as const;
+const makeSpectrumSamples = (profile: readonly number[]) => {
+  const samples = Array.from({ length: FFT_SAMPLE_COUNT }, (_, index) =>
+    spectrumComponents.reduce(
+      (value, component, componentIndex) =>
+        value +
+        component.amplitude *
+          profile[componentIndex] *
+          Math.sin(
+            (index / FFT_SAMPLE_COUNT) * Math.PI * 2 * component.cycles,
+          ),
+      0,
+    ),
+  );
+  const peak = Math.max(...samples.map(Math.abs)) || 1;
+  return samples.map((sample) => sample / peak);
+};
+const spectrumInputSamples = makeSpectrumSamples(spectrumProfiles[0]);
 
 const makeTracePath = (
   values: readonly number[],
@@ -114,8 +145,11 @@ const makeTracePath = (
     return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
   }).join(" ");
 
-const makeMagnitudeValues = (amplitude: number) => {
-  const input = sourceSamples.map((sample) => sample * amplitude);
+const makeMagnitudeValues = (
+  profile: readonly number[],
+  amplitude: number,
+) => {
+  const input = makeSpectrumSamples(profile).map((sample) => sample * amplitude);
   return Array.from({ length: FFT_SAMPLE_COUNT / 2 + 1 }, (_, bin) => {
     let real = 0;
     let imaginary = 0;
@@ -138,9 +172,9 @@ const spectrumMagnitudeAt = (values: readonly number[], position: number) => {
   );
 };
 
-const spectrumValuesStart = makeMagnitudeValues(0.52);
-const spectrumValuesMiddle = makeMagnitudeValues(0.96);
-const spectrumValuesEnd = makeMagnitudeValues(0.58);
+const spectrumValuesStart = makeMagnitudeValues(spectrumProfiles[0], 0.56);
+const spectrumValuesMiddle = makeMagnitudeValues(spectrumProfiles[1], 1);
+const spectrumValuesEnd = makeMagnitudeValues(spectrumProfiles[2], 0.64);
 const makeAreaPath = (tracePath: string) =>
   `${tracePath} L ${WAVE_VIEWBOX_WIDTH} ${SPECTRUM_BASELINE} L 0 ${SPECTRUM_BASELINE} Z`;
 
@@ -155,7 +189,7 @@ const heterodyneCarrierPath = makeTracePath(
   WAVE_AMPLITUDE,
 );
 const rectifiedWavePath = makeTracePath(
-  sourceSamples,
+  spectrumInputSamples,
   WAVE_BASELINE,
   WAVE_AMPLITUDE,
   (value) => -Math.abs(value),
@@ -164,7 +198,8 @@ const makeSpectrumPath = (values: readonly number[]) =>
   Array.from({ length: FFT_SAMPLE_COUNT + 1 }, (_, index) => {
     const x = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
     const magnitude = spectrumMagnitudeAt(values, index / 2);
-    const y = SPECTRUM_BASELINE - magnitude * 240;
+    const y =
+      SPECTRUM_BASELINE - (SPECTRUM_MAGNITUDE_FLOOR + magnitude) * 240;
     return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
   }).join(" ");
 
@@ -363,7 +398,7 @@ const HexByteLayer = styled.div`
 
 const SpectrumArea = styled.path`
   fill: ${(props) => props.theme.primary ?? "#00d4ff"};
-  opacity: 0.16;
+  opacity: 0.24;
   stroke: none;
 `;
 
@@ -1136,8 +1171,27 @@ export const AuthenticationUI = ({
                   viewBox={`0 0 ${WAVE_VIEWBOX_WIDTH} 240`}
                   preserveAspectRatio="none"
                 >
+                  <defs>
+                    <clipPath
+                      id="login-spectrum-reveal"
+                      clipPathUnits="userSpaceOnUse"
+                    >
+                      <rect x="0" y="0" width="0" height="240">
+                        <animate
+                          attributeName="width"
+                          values="0;0;0;0;0;0;1200;1200;1200;0"
+                          keyTimes={animationKeyTimes}
+                          dur={LOGIN_FFT_CYCLE_DURATION}
+                          repeatCount="indefinite"
+                        />
+                      </rect>
+                    </clipPath>
+                  </defs>
                   <WaveZoomGroup>
-                    <SpectrumArea d={collapsedAreaPath}>
+                    <SpectrumArea
+                      d={collapsedAreaPath}
+                      clipPath="url(#login-spectrum-reveal)"
+                    >
                       <animate
                         attributeName="d"
                         values={`${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${spectrumAreaPathStart};${spectrumAreaPathMiddle};${spectrumAreaPathEnd};${collapsedAreaPath}`}
