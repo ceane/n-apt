@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import styled, {
-  createGlobalStyle,
   keyframes,
   ThemeProvider,
   ThemeContext,
@@ -8,7 +7,6 @@ import styled, {
 import { Link, useLocation } from "react-router";
 import { Button } from "@n-apt/ui/Button";
 import { ArrowRight, Lock, Radio, ThumbsUp, TriangleAlert } from "lucide-react";
-import { Tooltip } from "@n-apt/ui/Tooltip";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import {
   buildAppTheme,
@@ -63,89 +61,268 @@ const pulse = keyframes`
   100% { opacity: 0.4; }
 `;
 
-const makeWavePath = (
-  width: number,
-  baseline: number,
-  amplitude: number,
-  frequency: number,
-  phase: number,
-  offsetX = 0,
-) => {
-  const segments = Math.max(24, Math.round(width / 48));
-  const step = width / segments;
-  const points = Array.from({ length: segments + 1 }, (_, index) => {
-    const x = index * step + offsetX;
-    const y =
-      baseline +
-      Math.sin((index / segments) * Math.PI * 2 * frequency + phase) *
-        amplitude;
-    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-  });
+const LOGIN_FFT_CYCLE_MS = 30_000;
+const LOGIN_FFT_CYCLE_DURATION = `${LOGIN_FFT_CYCLE_MS / 1000}s`;
 
-  return points.join(" ");
+export type LoginFftStage = "signal" | "dense" | "butterfly" | "magnitude";
+
+export const getLoginFftStage = (elapsedMs: number): LoginFftStage => {
+  const cycleTime =
+    ((elapsedMs % LOGIN_FFT_CYCLE_MS) + LOGIN_FFT_CYCLE_MS) %
+    LOGIN_FFT_CYCLE_MS;
+  if (cycleTime < 10_000) return "signal";
+  if (cycleTime < 15_000) return "dense";
+  if (cycleTime < 20_000) return "butterfly";
+  return "magnitude";
 };
 
 const WAVE_VIEWBOX_WIDTH = 1200;
-const WAVE_PATH_WIDTH = 1800;
-const WAVE_PATH_OFFSET = (WAVE_VIEWBOX_WIDTH - WAVE_PATH_WIDTH) / 2;
-const wavePathA = makeWavePath(
-  WAVE_PATH_WIDTH,
-  110,
-  28,
-  1.35,
-  0,
-  WAVE_PATH_OFFSET,
+const FFT_SAMPLE_COUNT = 128;
+const FFT_MARKER_COUNT = 32;
+const WAVE_BASELINE = 120;
+const WAVE_AMPLITUDE = 26;
+const SPECTRUM_BASELINE = 218;
+// The opening pair of symmetric sine traces represents the two carriers in a
+// heterodyne input. They converge into the sampled signal; the SDR stages
+// process that waveform as it is, without drawing a separate difference tone.
+const heterodyneCarrierSamples = Array.from(
+  { length: FFT_SAMPLE_COUNT },
+  (_, index) => Math.sin((index / FFT_SAMPLE_COUNT) * Math.PI * 2 * 2.4),
 );
-const wavePathB = makeWavePath(
-  WAVE_PATH_WIDTH,
-  130,
-  28,
-  1.35,
-  0,
-  WAVE_PATH_OFFSET,
+const heterodyneMirrorSamples = heterodyneCarrierSamples.map(
+  (sample) => -sample,
 );
+const sourceComponents = [
+  { cycles: 4.7, amplitude: 0.48, phase: 0.1 },
+  { cycles: 11.8, amplitude: 0.3, phase: 1.4 },
+  { cycles: 18.35, amplitude: 0.18, phase: 2.1 },
+  { cycles: 26.6, amplitude: 0.12, phase: 0.8 },
+  { cycles: 39.2, amplitude: 0.08, phase: 2.8 },
+  { cycles: 52.4, amplitude: 0.06, phase: 1.7 },
+];
+const rawSourceSamples = Array.from(
+  { length: FFT_SAMPLE_COUNT },
+  (_, index) => {
+    const position = index / FFT_SAMPLE_COUNT;
+    const signal = sourceComponents.reduce(
+      (value, component) =>
+        value +
+        component.amplitude *
+          Math.sin(position * Math.PI * 2 * component.cycles + component.phase),
+      0,
+    );
+    const noise = Math.sin(index * 12.9898 + 78.233) * 43758.5453;
+    return signal + ((noise - Math.floor(noise)) * 2 - 1) * 0.035;
+  },
+);
+const sourcePeak = Math.max(...rawSourceSamples.map(Math.abs));
+const sourceSamples = rawSourceSamples.map((sample) => sample / sourcePeak);
 
-const WaveMotionProperties = createGlobalStyle`
-  @property --wave-wavelength-scale {
-    syntax: "<number>";
-    inherits: true;
-    initial-value: 1;
-  }
+const makeTracePath = (
+  values: readonly number[],
+  baseline: number,
+  scale: number,
+  transform: (value: number) => number = (value) => value,
+) =>
+  Array.from({ length: FFT_SAMPLE_COUNT + 1 }, (_, index) => {
+    const value = values[index % FFT_SAMPLE_COUNT];
+    const x = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
+    const y = baseline + transform(value) * scale;
+    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(" ");
 
-  @property --wave-progress {
-    syntax: "<number>";
-    inherits: false;
-    initial-value: 0;
-  }
+const makeMagnitudeValues = (amplitude: number) => {
+  const input = sourceSamples.map((sample) => sample * amplitude);
+  return Array.from({ length: FFT_SAMPLE_COUNT / 2 + 1 }, (_, bin) => {
+    let real = 0;
+    let imaginary = 0;
+    for (let sample = 0; sample < FFT_SAMPLE_COUNT; sample += 1) {
+      const angle = (2 * Math.PI * bin * sample) / FFT_SAMPLE_COUNT;
+      real += input[sample] * Math.cos(angle);
+      imaginary -= input[sample] * Math.sin(angle);
+    }
+    const oneSidedScale = bin === 0 || bin === FFT_SAMPLE_COUNT / 2 ? 1 : 2;
+    return (Math.hypot(real, imaginary) / FFT_SAMPLE_COUNT) * oneSidedScale;
+  });
+};
+
+const spectrumMagnitudeAt = (values: readonly number[], position: number) => {
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.min(lowerIndex + 1, values.length - 1);
+  const fraction = position - lowerIndex;
+  return (
+    values[lowerIndex] + (values[upperIndex] - values[lowerIndex]) * fraction
+  );
+};
+
+const spectrumValuesStart = makeMagnitudeValues(0.52);
+const spectrumValuesMiddle = makeMagnitudeValues(0.96);
+const spectrumValuesEnd = makeMagnitudeValues(0.58);
+const makeAreaPath = (tracePath: string) =>
+  `${tracePath} L ${WAVE_VIEWBOX_WIDTH} ${SPECTRUM_BASELINE} L 0 ${SPECTRUM_BASELINE} Z`;
+
+const sourceWavePath = makeTracePath(
+  sourceSamples,
+  WAVE_BASELINE,
+  WAVE_AMPLITUDE,
+);
+const heterodyneCarrierPath = makeTracePath(
+  heterodyneCarrierSamples,
+  WAVE_BASELINE,
+  WAVE_AMPLITUDE,
+);
+const heterodyneMirrorPath = makeTracePath(
+  heterodyneMirrorSamples,
+  WAVE_BASELINE,
+  WAVE_AMPLITUDE,
+);
+const rectifiedWavePath = makeTracePath(
+  sourceSamples,
+  WAVE_BASELINE,
+  WAVE_AMPLITUDE,
+  (value) => -Math.abs(value),
+);
+const makeSpectrumPath = (values: readonly number[]) =>
+  Array.from({ length: FFT_SAMPLE_COUNT + 1 }, (_, index) => {
+    const x = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
+    const magnitude = spectrumMagnitudeAt(values, index / 2);
+    const y = SPECTRUM_BASELINE - magnitude * 240;
+    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(" ");
+
+const spectrumPathStart = makeSpectrumPath(spectrumValuesStart);
+const spectrumPathMiddle = makeSpectrumPath(spectrumValuesMiddle);
+const spectrumPathEnd = makeSpectrumPath(spectrumValuesEnd);
+const spectrumPathReturn = heterodyneCarrierPath;
+const collapsedAreaPath = makeAreaPath(
+  makeTracePath(
+    sourceSamples.map(() => 0),
+    SPECTRUM_BASELINE,
+    0,
+  ),
+);
+const spectrumAreaPathStart = makeAreaPath(spectrumPathStart);
+const spectrumAreaPathMiddle = makeAreaPath(spectrumPathMiddle);
+const spectrumAreaPathEnd = makeAreaPath(spectrumPathEnd);
+const animationKeyTimes =
+  "0;0.3333;0.5;0.5417;0.6;0.6667;0.7167;0.8333;0.9833;1";
+const makePointYValues = (index: number) => {
+  const sample = sourceSamples[index];
+  const carrierSample = heterodyneCarrierSamples[index];
+  const foldedY = WAVE_BASELINE - Math.abs(sample) * WAVE_AMPLITUDE;
+  return [
+    WAVE_BASELINE + carrierSample * WAVE_AMPLITUDE,
+    WAVE_BASELINE + carrierSample * WAVE_AMPLITUDE,
+    WAVE_BASELINE + sample * WAVE_AMPLITUDE,
+    foldedY,
+    foldedY,
+    foldedY,
+    SPECTRUM_BASELINE -
+      spectrumMagnitudeAt(spectrumValuesStart, index / 2) * 240,
+    SPECTRUM_BASELINE -
+      spectrumMagnitudeAt(spectrumValuesMiddle, index / 2) * 240,
+    SPECTRUM_BASELINE - spectrumMagnitudeAt(spectrumValuesEnd, index / 2) * 240,
+    WAVE_BASELINE + sample * WAVE_AMPLITUDE,
+  ].join(";");
+};
+
+const butterflyPaths = [4, 12, 20, 28].map((index) => {
+  const pairedIndex = index + FFT_SAMPLE_COUNT / 2;
+  const x1 = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
+  const x2 = (pairedIndex / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
+  const y1 = WAVE_BASELINE - Math.abs(sourceSamples[index]) * WAVE_AMPLITUDE;
+  const y2 =
+    WAVE_BASELINE - Math.abs(sourceSamples[pairedIndex]) * WAVE_AMPLITUDE;
+  const centerX = (x1 + x2) / 2;
+  const inputX = centerX - 26;
+  const outputX = centerX + 26;
+  const upperY = 76;
+  const lowerY = 164;
+  return [
+    `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${inputX.toFixed(2)} ${upperY}`,
+    `M ${x2.toFixed(2)} ${y2.toFixed(2)} L ${inputX.toFixed(2)} ${lowerY}`,
+    `M ${inputX.toFixed(2)} ${upperY} L ${outputX.toFixed(2)} ${upperY}`,
+    `M ${inputX.toFixed(2)} ${lowerY} L ${outputX.toFixed(2)} ${lowerY}`,
+    `M ${inputX.toFixed(2)} ${upperY} L ${outputX.toFixed(2)} ${lowerY}`,
+    `M ${inputX.toFixed(2)} ${lowerY} L ${outputX.toFixed(2)} ${upperY}`,
+  ].join(" ");
+});
+
+const waveZoomOut = keyframes`
+  0% { transform: scaleX(2.4); }
+  33.333% { transform: scaleX(1); }
+  98.333% { transform: scaleX(1); }
+  100% { transform: scaleX(2.4); }
 `;
 
-const waveDrift = keyframes`
-  0% {
-    transform: translate3d(0, 0, 0) scaleX(var(--wave-wavelength-scale));
-  }
-  50% {
-    transform: translate3d(-5%, 0, 0) scaleX(var(--wave-wavelength-scale));
-  }
-  100% {
-    transform: translate3d(0, 0, 0) scaleX(var(--wave-wavelength-scale));
-  }
+const secondWaveVisibility = keyframes`
+  0%, 49.9% { visibility: visible; }
+  50% { visibility: hidden; }
+  98.2% { visibility: hidden; }
+  98.333% { visibility: visible; }
+  100% { visibility: visible; }
 `;
 
-const waveDriftReverse = keyframes`
-  0% {
-    transform: translate3d(0, 0, 0) scaleX(var(--wave-wavelength-scale));
-  }
-  50% {
-    transform: translate3d(5%, 0, 0) scaleX(var(--wave-wavelength-scale));
-  }
-  100% {
-    transform: translate3d(0, 0, 0) scaleX(var(--wave-wavelength-scale));
-  }
+const hexBytesExit = keyframes`
+  0% { transform: translateY(0); }
+  33.333% { transform: translateY(-140%); }
+  98.333% { transform: translateY(-140%); }
+  100% { transform: translateY(0); }
 `;
 
-const waveProgress = keyframes`
-  from { --wave-progress: 0; }
-  to { --wave-progress: 1; }
+const foldVisibility = keyframes`
+  0%, 49.9% { visibility: hidden; }
+  50% { visibility: visible; }
+  54% { visibility: visible; }
+  54.167%, 100% { visibility: hidden; }
+`;
+
+const butterflyVisibility = keyframes`
+  0%, 54.1% { visibility: hidden; }
+  54.167% { visibility: visible; }
+  59.9% { visibility: visible; }
+  60%, 100% { visibility: hidden; }
+`;
+
+const twiddleVisibility = keyframes`
+  0%, 59.9% { visibility: hidden; }
+  60% { visibility: visible; }
+  66.5% { visibility: visible; }
+  66.667%, 100% { visibility: hidden; }
+`;
+
+const magnitudeVisibility = keyframes`
+  0%, 66.5% { visibility: hidden; }
+  66.667% { visibility: visible; }
+  98% { visibility: visible; }
+  98.333%, 100% { visibility: hidden; }
+`;
+
+const FoldDetails = styled.g`
+  color: ${(props) => props.theme.primary ?? "#00d4ff"};
+  visibility: hidden;
+  animation: ${foldVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
+
+const ButterflyDetails = styled.g`
+  color: ${(props) => props.theme.primary ?? "#00d4ff"};
+  visibility: hidden;
+  animation: ${butterflyVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
+
+const TwiddleDetails = styled.g`
+  color: ${(props) => props.theme.primary ?? "#00d4ff"};
+  visibility: hidden;
+  animation: ${twiddleVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
+
+const MagnitudeDetails = styled.g`
+  visibility: hidden;
+  animation: ${magnitudeVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
 `;
 
 const Container = styled.div`
@@ -191,7 +368,6 @@ const WaveBackground = styled.div`
 `;
 
 const WaveSvg = styled.svg`
-  --wave-wavelength-scale: 1;
   position: absolute;
   left: 50%;
   top: 50%;
@@ -199,65 +375,62 @@ const WaveSvg = styled.svg`
   height: auto;
   transform: translate(-50%, -50%);
   overflow: visible;
-
-  @supports (transform: scaleX(random(0.8, 1.2))) {
-    --wave-wavelength-scale: random(--wave-wavelength, 0.8, 1.2);
-  }
 `;
 
-const WavePath = styled.path<{
-  $reverse?: boolean;
-}>`
+const WavePath = styled.path`
   fill: none;
   stroke: ${(props) => props.theme.primary ?? "#00d4ff"};
   stroke-width: 6;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.48;
+  opacity: 0.86;
   filter: blur(0.2px);
-  animation: ${(props) => (props.$reverse ? waveDriftReverse : waveDrift)} 1s
-    ease-in-out infinite;
+`;
 
-  @supports (transform: translateX(calc(1px * progress(0.5, 0, 1)))) and
-    (transform: translateX(calc(1px * abs(-1)))) {
-    animation-name: ${waveProgress};
-    animation-duration: 1s;
-    animation-timing-function: linear;
-    transform: translate3d(
-        calc(
-          ${(props) => (props.$reverse ? "-1" : "1")} * 5% *
-            (1 - abs(2 * progress(no-clamp var(--wave-progress), 0, 1) - 1))
-        ),
-        0,
-        0
-      )
-      scaleX(var(--wave-wavelength-scale));
+const SecondWavePath = styled(WavePath)`
+  animation: ${secondWaveVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
+    infinite;
+`;
+
+const WaveZoomGroup = styled.g`
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ${waveZoomOut} ${LOGIN_FFT_CYCLE_DURATION} linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    transform: none;
   }
+`;
 
-  @supports (color: color-contrast(white vs black, white)) {
-    stroke: color-contrast(
-      ${(props) => props.theme.background} vs
-        ${(props) => props.theme.primary ?? "#00d4ff"},
-      #ffffff,
-      #00d4ff,
-      #66e6ff
-    );
+const HexByteLayer = styled.div`
+  position: absolute;
+  inset: 0;
+  animation: ${hexBytesExit} ${LOGIN_FFT_CYCLE_DURATION} linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0;
   }
+`;
 
-  @media (prefers-color-scheme: dark) {
-    opacity: 0.84;
-    stroke: ${(props) => props.theme.primary ?? "#00d4ff"};
+const SpectrumArea = styled.path`
+  fill: ${(props) => props.theme.primary ?? "#00d4ff"};
+  opacity: 0.16;
+  stroke: none;
+`;
 
-    @supports (color: color-contrast(white vs black, white)) {
-      stroke: color-contrast(
-        ${(props) => props.theme.background} vs
-          ${(props) => props.theme.primary ?? "#00d4ff"},
-        #ffffff,
-        #00d4ff,
-        #9ff3ff
-      );
-    }
-  }
+const SpectrumPoint = styled.circle`
+  fill: ${(props) => props.theme.primary ?? "#00d4ff"};
+  stroke: ${(props) => props.theme.background};
+  stroke-width: 1;
+`;
+
+const FftLabel = styled.text`
+  fill: ${(props) => props.theme.primary ?? "#00d4ff"};
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  letter-spacing: 0.08em;
 `;
 
 const binaryTravel = keyframes`
@@ -1024,7 +1197,6 @@ export const AuthenticationUI = ({
   return (
     <ThemeProvider theme={authTheme}>
       <GlobalThemeStyle theme={authTheme} />
-      <WaveMotionProperties />
       <Container>
         <AppThemePickerUI
           mode={authThemeMode}
@@ -1047,25 +1219,180 @@ export const AuthenticationUI = ({
                   viewBox={`0 0 ${WAVE_VIEWBOX_WIDTH} 240`}
                   preserveAspectRatio="none"
                 >
-                  <WavePath d={wavePathA} />
-                  <WavePath d={wavePathB} $reverse />
+                  <WaveZoomGroup>
+                    <SpectrumArea d={collapsedAreaPath}>
+                      <animate
+                        attributeName="d"
+                        values={`${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${spectrumAreaPathStart};${spectrumAreaPathMiddle};${spectrumAreaPathEnd};${collapsedAreaPath}`}
+                        keyTimes={animationKeyTimes}
+                        dur={LOGIN_FFT_CYCLE_DURATION}
+                        repeatCount="indefinite"
+                      />
+                    </SpectrumArea>
+                    <SecondWavePath d={heterodyneMirrorPath}>
+                      <animate
+                        attributeName="d"
+                        values={`${heterodyneMirrorPath};${heterodyneMirrorPath};${sourceWavePath};${rectifiedWavePath};${rectifiedWavePath};${rectifiedWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${heterodyneMirrorPath}`}
+                        keyTimes={animationKeyTimes}
+                        dur={LOGIN_FFT_CYCLE_DURATION}
+                        repeatCount="indefinite"
+                      />
+                    </SecondWavePath>
+                    <WavePath d={heterodyneCarrierPath}>
+                      <animate
+                        attributeName="d"
+                        values={`${heterodyneCarrierPath};${heterodyneCarrierPath};${sourceWavePath};${rectifiedWavePath};${rectifiedWavePath};${rectifiedWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${spectrumPathReturn}`}
+                        keyTimes={animationKeyTimes}
+                        dur={LOGIN_FFT_CYCLE_DURATION}
+                        repeatCount="indefinite"
+                      />
+                    </WavePath>
+                    {Array.from(
+                      { length: FFT_MARKER_COUNT },
+                      (_, pointIndex) => {
+                        const sampleIndex =
+                          pointIndex * (FFT_SAMPLE_COUNT / FFT_MARKER_COUNT);
+                        return (
+                          <SpectrumPoint
+                            key={sampleIndex}
+                            cx={
+                              (sampleIndex / FFT_SAMPLE_COUNT) *
+                              WAVE_VIEWBOX_WIDTH
+                            }
+                            cy={
+                              WAVE_BASELINE +
+                              sourceSamples[sampleIndex] * WAVE_AMPLITUDE
+                            }
+                            r="3.2"
+                          >
+                            <animate
+                              attributeName="cy"
+                              values={makePointYValues(sampleIndex)}
+                              keyTimes={animationKeyTimes}
+                              dur={LOGIN_FFT_CYCLE_DURATION}
+                              repeatCount="indefinite"
+                            />
+                          </SpectrumPoint>
+                        );
+                      },
+                    )}
+                  </WaveZoomGroup>
+                  <FoldDetails>
+                    <path
+                      d={`M 520 48 L 600 68 L 680 48 M 600 68 L 600 82`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeDasharray="4 5"
+                    />
+                    <FftLabel x={WAVE_VIEWBOX_WIDTH / 2 - 35} y="38">
+                      FOLD
+                    </FftLabel>
+                  </FoldDetails>
+                  <ButterflyDetails fill="none">
+                    <FftLabel x="600" y="38" textAnchor="middle">
+                      BUTTERFLY · SUM / DIFFERENCE
+                    </FftLabel>
+                    {butterflyPaths.map((path, index) => (
+                      <path
+                        key={index}
+                        d={path}
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeDasharray="5 6"
+                      />
+                    ))}
+                  </ButterflyDetails>
+                  <TwiddleDetails>
+                    <FftLabel x="600" y="38" textAnchor="middle">
+                      TWIDDLE · BIN PLACEMENT
+                    </FftLabel>
+                    {[0, 1, 2, 3].map((index) => {
+                      const centerX = 360 + index * 160;
+                      const angle = index * 45;
+                      return (
+                        <g key={index}>
+                          <circle
+                            cx={centerX}
+                            cy="112"
+                            r="13"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeDasharray="3 3"
+                          />
+                          <path
+                            d={`M ${centerX} 112 L ${centerX} 99`}
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                          >
+                            <animateTransform
+                              attributeName="transform"
+                              attributeType="XML"
+                              type="rotate"
+                              from={`${angle} ${centerX} 112`}
+                              to={`${angle + 360} ${centerX} 112`}
+                              begin="18s"
+                              dur="1.6s"
+                              repeatCount="indefinite"
+                            />
+                          </path>
+                          <path
+                            d={`M ${centerX} 130 L ${centerX} 171`}
+                            stroke="currentColor"
+                            strokeWidth="1"
+                            strokeDasharray="3 4"
+                            opacity="0.65"
+                          />
+                          <circle
+                            cx={centerX}
+                            cy="176"
+                            r="3"
+                            fill="currentColor"
+                          />
+                          <FftLabel
+                            x={centerX - 23}
+                            y="202"
+                            textAnchor="middle"
+                          >
+                            BIN {index * 16}
+                          </FftLabel>
+                        </g>
+                      );
+                    })}
+                  </TwiddleDetails>
+                  <MagnitudeDetails>
+                    <path
+                      d={`M 0 ${SPECTRUM_BASELINE} L ${WAVE_VIEWBOX_WIDTH} ${SPECTRUM_BASELINE}`}
+                      stroke="currentColor"
+                      strokeWidth="1"
+                    />
+                    <FftLabel x={WAVE_VIEWBOX_WIDTH / 2 - 24} y="40">
+                      |X(k)|
+                    </FftLabel>
+                    <FftLabel x={WAVE_VIEWBOX_WIDTH - 120} y="238">
+                      FREQUENCY
+                    </FftLabel>
+                  </MagnitudeDetails>
                 </WaveSvg>
-                {binaryDigits.map((digit) => (
-                  <BinaryDigitContainer
-                    key={digit.id}
-                    $delay={digit.delay}
-                    $duration={digit.duration}
-                    style={
-                      {
-                        "--digit-y": `${digit.y}%`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <BinaryDigitInner $size={digit.size}>
-                      {digit.value}
-                    </BinaryDigitInner>
-                  </BinaryDigitContainer>
-                ))}
+                <HexByteLayer>
+                  {binaryDigits.map((digit) => (
+                    <BinaryDigitContainer
+                      key={digit.id}
+                      $delay={digit.delay}
+                      $duration={digit.duration}
+                      style={
+                        {
+                          "--digit-y": `${digit.y}%`,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <BinaryDigitInner $size={digit.size}>
+                        {digit.value}
+                      </BinaryDigitInner>
+                    </BinaryDigitContainer>
+                  ))}
+                </HexByteLayer>
               </WaveBackground>
               <Title>
                 <Lock size={16} strokeWidth={2} />
@@ -1146,7 +1473,10 @@ export const AuthenticationUI = ({
                   {!hasPasskeys && canInteract && (
                     <>
                       <Divider>setup</Divider>
-                      <LinkButton onClick={handleRegisterPasskey} disabled={!password.trim()}>
+                      <LinkButton
+                        onClick={handleRegisterPasskey}
+                        disabled={!password.trim()}
+                      >
                         Register a passkey for this device
                       </LinkButton>
                     </>
