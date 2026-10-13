@@ -87,7 +87,8 @@ describe("AuthenticationRoute", () => {
     expect(screen.getByText("Simplex")).toBeInTheDocument();
     expect(screen.getByText("Half-duplex")).toBeInTheDocument();
     expect(screen.getByText("No Tx")).toBeInTheDocument();
-    expect(screen.getAllByText("Good")).toHaveLength(2);
+    expect(screen.getAllByText(/Good/)).toHaveLength(2);
+    expect(screen.getByText(/Ok \(1MHz-6GHz\)/)).toBeInTheDocument();
     expect(
       screen.getByLabelText("HackRF One with antenna 3D model spinning"),
     ).toBeInTheDocument();

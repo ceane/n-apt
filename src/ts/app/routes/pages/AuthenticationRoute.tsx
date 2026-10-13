@@ -1486,7 +1486,7 @@ export const AuthenticationUI = ({
         if (!hasPasskeys) return "Enter password to authenticate and start streaming";
         return (
           <>
-            To use the web app, <strong>enter your passkey or password</strong> to unlock.
+            To use the web app, <strong>Enter your passkey or password</strong> to unlock.
             <br />
             <br />
             Streaming frames from radios (compatible SDRs) and I/Q captures are

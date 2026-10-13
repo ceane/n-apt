@@ -6,7 +6,10 @@ import type { LucideIcon } from "lucide-react";
 export const LinkCardGrid = styled.div<{ $columns?: number }>`
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(${(props) => props.$columns ?? 4}, minmax(0, 1fr));
+  grid-template-columns: repeat(
+    ${(props) => props.$columns ?? 4},
+    minmax(0, 1fr)
+  );
   gap: 16px;
 
   @media (max-width: 1200px) {
@@ -22,23 +25,39 @@ export const LinkCardGrid = styled.div<{ $columns?: number }>`
   }
 `;
 
-export const LinkCard = styled.article<{ $compact?: boolean }>`
+export const LinkCard = styled.article<{
+  $compact?: boolean;
+  $tone?: "orange";
+}>`
   display: flex;
   min-height: ${(props) => (props.$compact ? "150px" : "250px")};
   flex-direction: column;
   gap: ${(props) => (props.$compact ? "16px" : "24px")};
   box-sizing: border-box;
   padding: ${(props) => (props.$compact ? "16px" : "20px")};
-  border: 1px solid ${(props) => props.theme.border};
+  border: 1px solid
+    ${(props) =>
+      props.$tone === "orange"
+        ? `${props.theme.warning}66`
+        : props.theme.border};
   border-radius: 18px;
-  background: ${(props) => props.theme.surface};
+  background: ${(props) =>
+    props.$tone === "orange"
+      ? `${props.theme.warning}12`
+      : props.theme.surface};
   transition:
     border-color 0.18s ease,
     transform 0.18s ease;
 
   &:hover {
-    border-color: ${(props) => props.theme.borderHover};
-    background: ${(props) => props.theme.surfaceHover};
+    border-color: ${(props) =>
+      props.$tone === "orange"
+        ? `${props.theme.warning}99`
+        : props.theme.borderHover};
+    background: ${(props) =>
+      props.$tone === "orange"
+        ? `${props.theme.warning}22`
+        : props.theme.surfaceHover};
     transform: translateY(-2px);
   }
 `;
@@ -60,16 +79,24 @@ export const LinkCardBody = styled(Link)`
   text-decoration: none;
 `;
 
-export const LinkCardIconFrame = styled.div`
+export const LinkCardIconFrame = styled.div<{ $tone?: "orange" }>`
   display: flex;
   width: 48px;
   height: 48px;
   align-items: center;
   justify-content: center;
-  border: 1px solid ${(props) => props.theme.border};
+  border: 1px solid
+    ${(props) =>
+      props.$tone === "orange"
+        ? `${props.theme.warning}66`
+        : props.theme.border};
   border-radius: 12px;
-  color: ${(props) => props.theme.primary};
-  background: ${(props) => props.theme.background};
+  color: ${(props) =>
+    props.$tone === "orange" ? props.theme.warning : props.theme.primary};
+  background: ${(props) =>
+    props.$tone === "orange"
+      ? `${props.theme.warning}1a`
+      : props.theme.background};
 `;
 
 export const LinkCardBodyInner = styled.div`
@@ -105,6 +132,7 @@ export interface LinkCardItem {
   to?: string;
   footer?: React.ReactNode;
   compact?: boolean;
+  tone?: "orange";
 }
 
 export const LinkCardItemView: React.FC<LinkCardItem> = ({
@@ -115,10 +143,11 @@ export const LinkCardItemView: React.FC<LinkCardItem> = ({
   to,
   footer,
   compact = false,
+  tone,
 }) => {
   const content = (
     <>
-      <LinkCardIconFrame aria-hidden="true">
+      <LinkCardIconFrame $tone={tone} aria-hidden="true">
         <Icon size={compact ? 20 : 23} strokeWidth={1.7} />
       </LinkCardIconFrame>
       <LinkCardBodyInner>
@@ -131,7 +160,7 @@ export const LinkCardItemView: React.FC<LinkCardItem> = ({
 
   if (href) {
     return (
-      <LinkCard $compact={compact}>
+      <LinkCard $compact={compact} $tone={tone}>
         <a
           href={href}
           target="_blank"
@@ -154,11 +183,15 @@ export const LinkCardItemView: React.FC<LinkCardItem> = ({
 
   if (to) {
     return (
-      <LinkCard $compact={compact}>
+      <LinkCard $compact={compact} $tone={tone}>
         <LinkCardBody to={to}>{content}</LinkCardBody>
       </LinkCard>
     );
   }
 
-  return <LinkCard $compact={compact}>{content}</LinkCard>;
+  return (
+    <LinkCard $compact={compact} $tone={tone}>
+      {content}
+    </LinkCard>
+  );
 };
