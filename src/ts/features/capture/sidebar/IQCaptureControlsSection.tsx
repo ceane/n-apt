@@ -52,7 +52,7 @@ import {
   CAPTURE_DESTINATION_PROVIDERS,
   resolveCaptureDestination,
   type CaptureDestinationId,
-} from "@n-apt/capture/destinations";
+} from "@n-apt/capture/public/destinations";
 import {
   getCaptureDirectoryPicker,
   loadLastCaptureDirectory,
