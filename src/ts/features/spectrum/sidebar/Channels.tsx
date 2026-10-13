@@ -151,11 +151,14 @@ const ActiveChannelInfoBox = styled.div`
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 0 16px 16px;
+  margin-top: 8px;
   margin-right: 20px;
   grid-column: 1 / -1;
   font-family: sans-serif;
   font-size: 12px;
 `;
+
+const OtherChannelInfoBox = styled(ActiveChannelInfoBox)``;
 
 const ActiveChannelInfoTitle = styled.div`
   color: ${(props) => props.theme.primary};
@@ -308,10 +311,6 @@ const Divider = styled.hr`
   height: 1px;
   background: ${(props) => props.theme.borderHover};
   margin: 8px 0 12px;
-`;
-
-const OtherChannelInfoBox = styled(ActiveChannelInfoBox)`
-  margin-top: 8px;
 `;
 
 export type ChannelsVariant = "demod" | "spectrum";
@@ -791,62 +790,65 @@ export const Channels: React.FC<ChannelsProps> = ({
             <EmptyStateText>No active signal areas</EmptyStateText>
           )}
         </ChannelsSpectrumGrid>
-        {/* Active Channel Description & Stats Box */}
-        {activeFrame && !shouldShowOtherChannel && (
+        {/* Keep one stable info slot as the viewport crosses channel bounds. */}
+        {(activeFrame || shouldShowOtherChannel) && (
           <ActiveChannelInfoBox>
             <Collapsible title="Channel Description">
-              {activeDescription ? (
+              {shouldShowOtherChannel ? (
                 <>
                   <br />
-                  <ActiveChannelInfoTitle>
-                    Channel {activeFrame.label}
-                  </ActiveChannelInfoTitle>
+                  <ActiveChannelInfoTitle>Other...</ActiveChannelInfoTitle>
                   <ActiveChannelDescription>
-                    {activeDescription}
+                    {otherChannelRangeLabel}
                   </ActiveChannelDescription>
                   <Divider />
+                  <ActiveChannelBandwidthList>
+                    Center Frequency ={" "}
+                    <MonoValue>{otherChannelFrequencyLabel}</MonoValue>
+                    <br />
+                    Sample Rate ={" "}
+                    <MonoValue>
+                      {channelSampleRateHz
+                        ? formatFrequency(channelSampleRateHz)
+                        : "X.X MHz"}
+                    </MonoValue>
+                  </ActiveChannelBandwidthList>
                 </>
-              ) : null}
+              ) : (
+                <>
+                  {activeDescription ? (
+                    <>
+                      <br />
+                      <ActiveChannelInfoTitle>
+                        Channel {activeFrame?.label}
+                      </ActiveChannelInfoTitle>
+                      <ActiveChannelDescription>
+                        {activeDescription}
+                      </ActiveChannelDescription>
+                      <Divider />
+                    </>
+                  ) : null}
 
-              <Collapsible title="More...">
-                <ActiveChannelBandwidthList>
-                  <IQExplainerTooltip /> Naive Signal Bandwidth (I/Q) ={" "}
-                  <MonoValue>{iqDataRateMBps}</MonoValue> <br />
-                  Naive Data Bandwidth ={" "}
-                  <MonoValue>{formattedDataBandwidth}</MonoValue> of{" "}
-                  <MonoValue>{formattedSignalBandwidth} MHz</MonoValue>
-                  <br />5 mins ={" "}
-                  <MonoValue>{formatDataTotal(minutes5MB * 1_000_000)}</MonoValue>
-                  <br />1 hour = <MonoValue>{formatDataTotal(hourMB * 1_000_000)}</MonoValue>
-                  <br />
-                  24 hours = <MonoValue>{formatDataTotal(dayMB * 1_000_000)}</MonoValue>
-                </ActiveChannelBandwidthList>
-              </Collapsible>
+                  <Collapsible title="More...">
+                    <ActiveChannelBandwidthList>
+                      <IQExplainerTooltip /> Naive Signal Bandwidth (I/Q) ={" "}
+                      <MonoValue>{iqDataRateMBps}</MonoValue> <br />
+                      Naive Data Bandwidth ={" "}
+                      <MonoValue>{formattedDataBandwidth}</MonoValue> of{" "}
+                      <MonoValue>{formattedSignalBandwidth} MHz</MonoValue>
+                      <br />5 mins ={" "}
+                      <MonoValue>{formatDataTotal(minutes5MB * 1_000_000)}</MonoValue>
+                      <br />1 hour ={" "}
+                      <MonoValue>{formatDataTotal(hourMB * 1_000_000)}</MonoValue>
+                      <br />
+                      24 hours ={" "}
+                      <MonoValue>{formatDataTotal(dayMB * 1_000_000)}</MonoValue>
+                    </ActiveChannelBandwidthList>
+                  </Collapsible>
+                </>
+              )}
             </Collapsible>
           </ActiveChannelInfoBox>
-        )}
-        {shouldShowOtherChannel && (
-          <OtherChannelInfoBox>
-            <Collapsible title="Channel Description">
-              <br />
-              <ActiveChannelInfoTitle>Other...</ActiveChannelInfoTitle>
-              <ActiveChannelDescription>
-                {otherChannelRangeLabel}
-              </ActiveChannelDescription>
-              <Divider />
-              <ActiveChannelBandwidthList>
-                Center Frequency ={" "}
-                <MonoValue>{otherChannelFrequencyLabel}</MonoValue>
-                <br />
-                Sample Rate ={" "}
-                <MonoValue>
-                  {channelSampleRateHz
-                    ? formatFrequency(channelSampleRateHz)
-                    : "X.X MHz"}
-                </MonoValue>
-              </ActiveChannelBandwidthList>
-            </Collapsible>
-          </OtherChannelInfoBox>
         )}
       </ChannelsSection>
     );
