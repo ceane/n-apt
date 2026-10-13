@@ -3182,8 +3182,9 @@ mod tests {
   use crate::server::shared_state::SharedState;
   use crate::server::stream_contract::StreamDeliveryPolicy;
   use crate::server::stream_manager::{
-    RxStreamOptions, SourceStreamCapabilities, StreamEvent, StreamKey,
-    StreamMode, StreamOptions, StreamingSourceModeManager, TxStreamOptions,
+    RxStreamOptions, SourceStreamCapabilities, StreamEvent, StreamFrame,
+    StreamKey, StreamMode, StreamOptions, StreamingSourceModeManager,
+    TxStreamOptions,
   };
   use crate::server::types::{
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
@@ -3370,6 +3371,91 @@ mod tests {
       response_index < 64,
       "control response starved behind stream events: index={response_index}"
     );
+  }
+
+  #[tokio::test]
+  async fn blocked_latest_stream_writer_coalesces_queued_frames() {
+    let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(32);
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel(32);
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let state = Arc::new(Mutex::new(ControlledWriterState {
+      blocked: true,
+      waiting_waker: None,
+      started: None,
+      messages: Vec::new(),
+    }));
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    state.lock().unwrap().started = Some(started_tx);
+    let writer = tokio::spawn(run_stream_writer(
+      ControlledWriterSink(Arc::clone(&state)),
+      outbound_rx,
+      event_rx,
+      [0; 32],
+      std::future::pending(),
+    ));
+
+    event_tx
+      .send(StreamEvent::Error {
+        key: key.clone(),
+        stream_epoch: 1,
+        options_revision: 1,
+        code: "test_barrier".to_string(),
+        message: "hold the socket writer".to_string(),
+      })
+      .await
+      .expect("writer should accept the barrier event");
+    tokio::time::timeout(Duration::from_secs(1), started_rx)
+      .await
+      .expect("writer should block while sending the barrier")
+      .expect("writer sink should report its blocked write");
+
+    for sequence in 1..=8 {
+      event_tx
+        .send(StreamEvent::Frame(StreamFrame {
+          key: key.clone(),
+          stream_epoch: 1,
+          options_revision: 1,
+          sequence,
+          timestamp: sequence as i64,
+          center_frequency_hz: Some(137_500_000),
+          sample_rate_hz: 3_200_000,
+          iq_data: Arc::new(vec![0; 16]),
+          is_tx_preview: false,
+        }))
+        .await
+        .expect("queued frame should fit while the writer is blocked");
+    }
+
+    let waiting_waker = {
+      let mut state = state.lock().unwrap();
+      state.blocked = false;
+      state.waiting_waker.take()
+    };
+    if let Some(waiting_waker) = waiting_waker {
+      waiting_waker.wake();
+    }
+    drop(event_tx);
+    drop(outbound_tx);
+    tokio::time::timeout(Duration::from_secs(1), writer)
+      .await
+      .expect("writer should drain and stop")
+      .expect("writer task should complete");
+
+    let state = state.lock().unwrap();
+    let frames: Vec<_> = state
+      .messages
+      .iter()
+      .filter_map(|message| {
+        let axum::extract::ws::Message::Text(text) = message else {
+          return None;
+        };
+        let payload: serde_json::Value =
+          serde_json::from_str(text.as_str()).ok()?;
+        (payload["type"] == "stream_frame").then_some(payload)
+      })
+      .collect();
+    assert_eq!(frames.len(), 1, "stale queued frames should be skipped");
+    assert_eq!(frames[0]["sequence"], 8);
   }
 
   #[tokio::test]
