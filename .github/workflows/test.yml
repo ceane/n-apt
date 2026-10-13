@@ -96,6 +96,9 @@ jobs:
       - name: Run script security tests
         run: npm run test:security-scripts
 
+      - name: Run encrypted ML smoke test when local-only credentials exist
+        run: npm run test:e2e:encrypted-ml
+
   # Rust tests
   rust-tests:
     runs-on: ubuntu-latest

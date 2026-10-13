@@ -66,4 +66,24 @@ describe("loadEncryptedMlModule", () => {
     );
     expect(importModule).not.toHaveBeenCalled();
   });
+
+  it("rejects a module with an unsupported bundle API version", async () => {
+    Object.defineProperty(globalThis, "__DEV__", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(globalThis, "__N_APT_ML_BUNDLE_READY__", {
+      configurable: true,
+      value: false,
+    });
+
+    const importModule = jest.fn().mockResolvedValue({
+      ML_MODULE_BUNDLE_API_VERSION: 2,
+    });
+
+    await expect(
+      loadEncryptedMlModule(importModule as never),
+    ).rejects.toThrow("The encrypted ML bundle API version is unsupported.");
+    expect(importModule).toHaveBeenCalledTimes(1);
+  });
 });

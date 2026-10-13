@@ -5,6 +5,7 @@ import { resolveBackendBinaryPath } from './scripts/build/backendBinaryPath';
 export default defineConfig({
   testDir: './test',
   testMatch: /.*\.spec\.(ts|tsx)$/,
+  testIgnore: /EncryptedMlBundleE2E\.spec\.ts$/,
   timeout: 60 * 1000,
   expect: {
     timeout: 10000,
