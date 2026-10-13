@@ -480,6 +480,10 @@ const StatusText = styled.p<{ $variant?: "info" | "error" | "success" }>`
     line-height: 1.2;
     white-space: nowrap;
   }
+
+  strong {
+    font-weight: 700;
+  }
 `;
 
 const TitleText = styled.span`
@@ -528,7 +532,7 @@ const AuthButton = styled(Button)<{
   width: 24cqw;
   padding: 14px 24px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 
   ${(props) =>
     props.$variant === "primary" &&
@@ -591,7 +595,8 @@ const LinkButton = styled.button`
   border: none;
   color: ${(props) => props.theme.textMuted};
   font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
   padding: 4px 0;
   transition: color 0.2s ease;
@@ -612,7 +617,9 @@ const LegalNotice = styled.p`
 
   a {
     color: ${(props) => props.theme.primary};
-    text-decoration: none;
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   a:hover {
@@ -969,7 +976,7 @@ const SDRSpecs = styled.div`
   }
 `;
 
-const SDRSpec = styled.div`
+const SDRSpec = styled.div<{ $unsupported?: boolean }>`
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -977,7 +984,9 @@ const SDRSpec = styled.div`
   padding: 10px 12px;
   border: 1px solid ${(props) => props.theme.border};
   border-radius: 8px;
-  background: ${(props) => props.theme.background};
+  background: ${({ $unsupported, theme }) =>
+    $unsupported ? theme.surface : theme.background};
+  opacity: ${({ $unsupported }) => ($unsupported ? 0.58 : 1)};
 
   @media (max-width: 640px) {
     padding: 8px;
@@ -992,21 +1001,26 @@ const SDRSpecLabel = styled.span`
   text-transform: uppercase;
 `;
 
-const SDRSpecValue = styled.span<{ $tone?: "good" | "warning" | "muted" }>`
+const SDRSpecValue = styled.span<{
+  $tone?: "good" | "warning" | "muted" | "yellow";
+  $wrap?: boolean;
+}>`
   display: inline-flex;
   min-width: 0;
   align-items: center;
   gap: 6px;
   color: ${({ $tone, theme }) =>
-    $tone === "good"
-      ? "light-dark(#15803d, #4ade80)"
-      : $tone === "warning"
-        ? "light-dark(#b45309, #fbbf24)"
-        : theme.textPrimary};
+    $tone === "yellow"
+      ? "#b8860b"
+      : $tone === "good"
+        ? "light-dark(#15803d, #4ade80)"
+        : $tone === "warning"
+          ? "light-dark(#b45309, #fbbf24)"
+          : theme.textPrimary};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   font-weight: 600;
-  white-space: nowrap;
+  white-space: ${({ $wrap }) => ($wrap ? "normal" : "nowrap")};
 
   @media (max-width: 640px) {
     gap: 4px;
@@ -1427,18 +1441,30 @@ export const AuthenticationUI = ({
     authState === "ready" || authState === "failed" || authState === "timeout";
   const showActions = canInteract || authState === "authenticating";
 
-  const getStatusMessage = () => {
+  const getStatusMessage = (): React.ReactNode => {
     switch (authState) {
       case "connecting":
         return "Connecting to server...";
       case "server_down":
-        return "Try to restart the server by running <code>npm run dev</code> and wait until this message is gone";
+        return (
+          <>
+            Try to restart the server by running <code>npm run dev</code> and
+            wait until this message is gone
+          </>
+        );
       case "awaiting_challenge":
         return "Establishing secure channel...";
       case "ready":
-        return hasPasskeys
-          ? "To use the web app, enter your passkey or password to unlock. \n\nStreaming frames from radios (compatible SDRs) and I/Q captures are encrypted — your credentials are used to decrypt incoming frames and files."
-          : "Enter password to authenticate and start streaming";
+        if (!hasPasskeys) return "Enter password to authenticate and start streaming";
+        return (
+          <>
+            To use the web app, <strong>enter your passkey or password</strong> to unlock.
+            <br />
+            <br />
+            Streaming frames from radios (compatible SDRs) and I/Q captures are
+            encrypted — your credentials are used to decrypt incoming frames and files.
+          </>
+        );
       case "authenticating":
         return "Verifying credentials...";
       case "success":
@@ -1557,12 +1583,9 @@ export const AuthenticationUI = ({
                     <TitleText>Secure Access Required for N-APT</TitleText>
                   )}
                 </Title>
-                <StatusText
-                  $variant={getStatusVariant()}
-                  dangerouslySetInnerHTML={{
-                    __html: getStatusMessage().replace(/\n/g, "<br>"),
-                  }}
-                />
+                <StatusText $variant={getStatusVariant()}>
+                  {getStatusMessage()}
+                </StatusText>
               </LoginCardIntro>
               <LoginCardActions>
                 {showActions && (
@@ -1677,11 +1700,12 @@ export const AuthenticationUI = ({
                     </SDRSpec>
                     <SDRSpec>
                       <SDRSpecLabel>Receive</SDRSpecLabel>
-                      <SDRSpecValue $tone="good">
+                      <SDRSpecValue $tone="good" $wrap>
                         <ThumbsUp size={14} aria-hidden="true" /> Good
+                        (500kHz-1.766GHz)
                       </SDRSpecValue>
                     </SDRSpec>
-                    <SDRSpec>
+                    <SDRSpec $unsupported aria-disabled="true">
                       <SDRSpecLabel>Transmit</SDRSpecLabel>
                       <SDRSpecValue $tone="muted">No Tx</SDRSpecValue>
                     </SDRSpec>
@@ -1714,6 +1738,10 @@ export const AuthenticationUI = ({
                       <SDRSpecValue $tone="warning">
                         <TriangleAlert size={14} aria-hidden="true" />
                         Poor below HF (&lt;HF)
+                      </SDRSpecValue>
+                      <SDRSpecValue $tone="yellow" $wrap>
+                        <ThumbsUp size={14} aria-hidden="true" />
+                        {" "}Ok (1MHz-6GHz)
                       </SDRSpecValue>
                     </SDRSpec>
                     <SDRSpec>
