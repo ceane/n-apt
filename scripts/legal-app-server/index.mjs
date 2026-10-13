@@ -201,6 +201,10 @@ app.post('/api/archives/extract', async (req, res) => {
     await fs.rename(temporaryPath, extractPath);
     return res.json({ success: true, extractedPath: extractPath });
   } catch (error) {
+    if (temporaryPath) {
+      await fs.remove(temporaryPath);
+      temporaryPath = undefined;
+    }
     return res.status(error.status ?? 400).json({ error: error.message });
   } finally {
     if (temporaryPath) await fs.remove(temporaryPath);
