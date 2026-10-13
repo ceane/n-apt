@@ -55,11 +55,16 @@ const requiredMlBundleFiles = [
   "src/ts/features/classification/index.ts",
   "src/ts/features/demodulation/react-flow/nodes/AudioDemodWorkflowFlow.tsx",
   "src/ts/features/demodulation/react-flow/nodes/CoreMLNode.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/DemodReadinessNode.tsx",
   "src/ts/features/demodulation/react-flow/nodes/StimulusNode.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/stimulusChannelPolicy.ts",
   "src/ts/features/demodulation/react-flow/nodes/VisionDemodWorkflowFlow.tsx",
   "src/ts/features/demodulation/sidebar/StimulusNodeLibraryEntry.tsx",
   "src/ts/features/demodulation/survey/audioSurveyLiveDemod.ts",
   "src/ts/features/demodulation/survey/audioSurveyModel.ts",
+  "src/ts/features/demodulation/survey/audioSurveyMedia.ts",
+  "src/ts/features/demodulation/vision/visionScreens.ts",
+  "src/ts/features/demodulation/vision/visionSourcePolicy.ts",
   "src/ts/features/demodulation/vision/visionML.ts",
   "src/ts/features/demodulation/vision/visionModel.ts",
   "src/ts/features/demodulation/vision/visionOnnxRuntime.ts",
@@ -124,25 +129,43 @@ const publicClassificationNativeRoot = path.resolve(
 
 const encryptedMlAliases = [
   {
+    find: /^\/?@n-apt\/encrypted-modules\/tmp\/ml\/index$/,
+    replacement: hasDecryptedMlSource
+      ? mlEntryPath
+      : path.join(publicMlAdapterRoot, "encryptedMlUnavailable.ts"),
+  },
+  {
     find: /^\/?@n-apt\/demodulation\/survey\/audioSurveyMedia$/,
-    replacement: path.resolve(
-      dirname,
-      "src/ts/features/demodulation/survey/audioSurveyMedia.ts",
-    ),
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedSurveyRoot, "audioSurveyMedia.ts")
+      : path.join(publicMlAdapterRoot, "audioSurveyFallback.ts"),
   },
   {
     find: /^\/?@n-apt\/demodulation\/vision\/visionScreens$/,
-    replacement: path.resolve(
-      dirname,
-      "src/ts/features/demodulation/vision/visionScreens.ts",
-    ),
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedVisionRoot, "visionScreens.ts")
+      : path.join(publicMlAdapterRoot, "visionScreensFallback.ts"),
   },
   {
     find: /^\/?@n-apt\/demodulation\/vision\/visionSourcePolicy$/,
-    replacement: path.resolve(
-      dirname,
-      "src/ts/features/demodulation/vision/visionSourcePolicy.ts",
-    ),
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedVisionRoot, "visionSourcePolicy.ts")
+      : path.join(publicMlAdapterRoot, "visionSourcePolicyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/react-flow\/nodes\/stimulusChannelPolicy$/,
+    replacement: hasDecryptedMlSource
+      ? path.join(
+          encryptedMlSourceRoot,
+          "demodulation/react-flow/nodes/stimulusChannelPolicy.ts",
+        )
+      : path.join(publicMlAdapterRoot, "stimulusChannelPolicyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/react-flow\/nodes\/(AudioDemodWorkflowFlow|VisionDemodWorkflowFlow)$/,
+    replacement: hasDecryptedMlSource
+      ? `${encryptedMlSourceRoot}/demodulation/react-flow/nodes/$1`
+      : path.join(publicMlAdapterRoot, "demodReadinessFallbackDependencies.tsx"),
   },
   {
     find: /^\/?@n-apt\/demodulation\/survey\/(.*)$/,

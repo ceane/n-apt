@@ -16,6 +16,7 @@ declare module "@n-apt/encrypted-modules/tmp/ts/components/math/DemodMath" {
 }
 
 declare module "@n-apt/encrypted-modules/tmp/ml/index" {
+  export const DemodReadinessNode: React.ComponentType<any>;
   export const CoreMLNode: React.ComponentType<any>;
   export const StimulusNode: React.ComponentType<any>;
   export const StimulusNodeLibraryEntry: React.ComponentType<any>;

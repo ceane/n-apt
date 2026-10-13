@@ -66,15 +66,29 @@ module.exports = {
     "^@n-apt/encrypted-modules/tmp/ml/(.*)$": hasEncryptedMlSources
       ? `<rootDir>/src/encrypted-modules/tmp/ml/$1`
       : "<rootDir>/src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
-    "^@n-apt/demodulation/vision/(visionScreens|visionSourcePolicy)$":
-      "<rootDir>/src/ts/features/demodulation/vision/$1",
-    "^@n-apt/demodulation/survey/(?!audioSurveyMedia$)(.*)$": mlSource(
+    "^@n-apt/demodulation/survey/audioSurveyMedia$": mlSource(
+      "features/demodulation/survey/audioSurveyMedia.ts",
+      "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    ),
+    "^@n-apt/demodulation/survey/(.*)$": mlSource(
       "features/demodulation/survey/$1",
       "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
     ),
-    "^@n-apt/demodulation/vision/(?!visionScreens$|visionSourcePolicy$)(.*)$": mlSource(
+    "^@n-apt/demodulation/vision/visionScreens$": mlSource(
+      "features/demodulation/vision/visionScreens.ts",
+      "src/ts/encryptedAdapters/ml/visionScreensFallback.ts",
+    ),
+    "^@n-apt/demodulation/vision/visionSourcePolicy$": mlSource(
+      "features/demodulation/vision/visionSourcePolicy.ts",
+      "src/ts/encryptedAdapters/ml/visionSourcePolicyFallback.ts",
+    ),
+    "^@n-apt/demodulation/vision/(.*)$": mlSource(
       "features/demodulation/vision/$1",
       "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    ),
+    "^@n-apt/demodulation/react-flow/nodes/stimulusChannelPolicy$": mlSource(
+      "features/demodulation/react-flow/nodes/stimulusChannelPolicy.ts",
+      "src/ts/encryptedAdapters/ml/stimulusChannelPolicyFallback.ts",
     ),
     "^@n-apt/demodulation/react-flow/nodes/(CoreMLNode|AudioDemodWorkflowFlow|VisionDemodWorkflowFlow)$": hasEncryptedMlSources
       ? "<rootDir>/src/encrypted-modules/tmp/ml/src/ts/features/demodulation/react-flow/nodes/$1"
