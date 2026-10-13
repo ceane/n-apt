@@ -37,7 +37,7 @@ export function useFFTAnimation({
   const isVisibleRef = useRef(true);
   const renderFrameFailedRef = useRef(false);
 
-  const animate = useCallback((force: boolean = false) => {
+  const animate = useCallback((force: boolean = false, reprocessFrame = force) => {
     const runId = animationRunIdRef.current;
 
     if (!isVisibleRef.current) {
@@ -58,7 +58,7 @@ export function useFFTAnimation({
         lastFrameTimeRef.current += frameRateLimiterRef.current;
       }
       try {
-        onRenderFrameRef.current(runId, force);
+        onRenderFrameRef.current(runId, reprocessFrame);
         renderFrameFailedRef.current = false;
       } catch (error) {
         // A throw inside the frame render must not kill the rAF loop: the
@@ -145,13 +145,15 @@ export function useFFTAnimation({
     };
   }, []);
 
-  const forceRender = useCallback(() => {
+  // Interaction redraws bypass the paint cadence but reuse the resident FFT.
+  // Recovery redraws still reprocess it after visibility/context changes.
+  const forceRender = useCallback((reprocessFrame = true) => {
     animationRunIdRef.current += 1;
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-    animate(true);
+    animate(true, reprocessFrame);
   }, [animate]);
 
   return {

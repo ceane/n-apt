@@ -122,9 +122,9 @@ export const useFrequencyTuning = (options: UseFrequencyTuningOptions) => {
         reduxDispatch(setTuningPreviewActive(false));
       }
       if (source === "user-pan" || source === "hardware-retune") {
-        // The interaction hook updates its live refs synchronously. Keep the
-        // route/device fan-out bounded so a trackpad burst cannot cause one
-        // React render and socket command per native wheel event.
+        // The interaction hook updates its live refs synchronously. Keep
+        // Redux state and device commands aligned at the shared frame cadence,
+        // without emitting one update for every native wheel tick.
         liveFrequencyRangePublisherRef.current?.publish(range);
         return;
       }

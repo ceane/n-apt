@@ -106,6 +106,21 @@ describe("useFFTAnimation", () => {
     unmount();
   });
 
+  it("repaints interactions without requesting repeated FFT processing", () => {
+    const render = jest.fn();
+    const { result, unmount } = renderHook(() =>
+      useFFTAnimation({ isPaused: false, onRenderFrame: render }),
+    );
+    render.mockClear();
+
+    act(() => result.current.forceRender(false));
+
+    expect(render).toHaveBeenLastCalledWith(expect.any(Number), false);
+    act(() => result.current.forceRender());
+    expect(render).toHaveBeenLastCalledWith(expect.any(Number), true);
+    unmount();
+  });
+
   it("keeps the render loop active across visibility changes during receiver work", () => {
     const previousVisibilityState = Object.getOwnPropertyDescriptor(
       document,

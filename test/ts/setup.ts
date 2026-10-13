@@ -420,9 +420,9 @@ jest.mock(
           clampedPan: 0,
         }));
         transform_to_screen_coords = jest.fn(() => []);
-        process_iq_to_dbm_spectrum = jest.fn(
-          (input) => new Float32Array(input.length / 2),
-        );
+        process_iq_to_dbm_spectrum(input: Uint8Array) {
+          return new Float32Array(input.length / 2);
+        }
       },
       match_noise_floor_db_wasm: jest.fn(
         (_reference: Float32Array, target: Float32Array) =>

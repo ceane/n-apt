@@ -226,18 +226,19 @@ export const shouldPublishFrequencyRangeForSource = ({
   isMockTxMonitorActive: boolean;
 }): boolean => sourceMode === "live" && !isMockTxMonitorActive;
 
-/** Coalesces live pan publication without rerendering the spectrum every frame. */
+/** Coalesces live pan publication to one latest-value update per display frame. */
 export const createLiveFrequencyRangePublisher = (
   setFrequencyRange: (range: FrequencyRange) => void,
   sendFrequencyRange: (range: FrequencyRange) => void,
 ) => {
+  const equalsRange = (left: FrequencyRange, right: FrequencyRange) =>
+    left.min === right.min && left.max === right.max;
   const scheduler = createDeviceOptionScheduler<FrequencyRange>({
     publish: (range) => {
       setFrequencyRange(range);
       sendFrequencyRange(range);
     },
-    equals: (left, right) =>
-      left.min === right.min && left.max === right.max,
+    equals: equalsRange,
     // One display frame. The frame rate governs scroll responsiveness; a coarser
     // cadence made scrolling feel bogged down, and the backend already coalesces
     // retunes to the latest value.
@@ -678,8 +679,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     ) => {
       // The canvas keeps the live view in refs while a gesture is in flight.
       // Coalesce Redux and device updates to one latest-value publish per
-      // display frame. The interaction hook already updates the live refs and
-      // asks the canvas to repaint synchronously, so this does not slow the drag.
+      // display frame. The interaction hook updates live refs and repaints
+      // during the gesture, so state stays in step without handling every tick.
       const publisher = liveFrequencyRangePublisherRef.current;
       if (source === "user-pan") {
         if (publisher) {

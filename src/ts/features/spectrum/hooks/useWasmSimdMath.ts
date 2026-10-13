@@ -136,7 +136,10 @@ export const shouldUseWasmIqPath = ({
   simdAvailable &&
   Number.isFinite(requestedFftSize) &&
   requestedFftSize > 0 &&
-  normalizeWindowType(windowType) === "hanning";
+  Number.isInteger(Math.log2(requestedFftSize)) &&
+  ["rectangular", "hanning", "hamming", "blackman", "nuttall"].includes(
+    normalizeWindowType(windowType),
+  );
 
 export function computeIqToDbSpectrumScalar(
   input: Uint8Array,
@@ -355,6 +358,7 @@ export function useSpectrumMath(
       // Prefer the WASM FFT path when available; it now accepts the requested
       // FFT size and window type directly.
       if (
+        input.length >= requestedFftSize * 2 &&
         shouldUseWasmIqPath({
           processorAvailable: !!renderingProcessorRef.current,
           simdAvailable: isSimdAvailable,

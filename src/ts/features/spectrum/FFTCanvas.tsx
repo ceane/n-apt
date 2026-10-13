@@ -181,8 +181,8 @@ export const createVizPanScheduler = (
     publish,
     intervalMs: 50,
     idleFlushMs: 80,
-    // Visual pan is ref-driven during the gesture. Defer Redux until cadence
-    // or idle flush so a trackpad burst does not re-render the route every tick.
+    // Visual pan is ref-driven during the gesture; publish the live Redux
+    // mirror at 20 Hz while the canvas remains responsive between updates.
     leadingPublish: false,
   });
 
@@ -3198,7 +3198,7 @@ const FFTCanvas = memo(
       forceRenderRef.current?.();
     }, [resolvedThemeMode, fftColor, waterfallTheme]);
 
-    const forceRenderRef = useRef<(() => void) | null>(null);
+    const forceRenderRef = useRef<((reprocessFrame?: boolean) => void) | null>(null);
 
     // Pointer moves can arrive much faster than the FFT frame cadence. Keep
     // paused overlays responsive, but never synchronously force a full FFT
@@ -3217,7 +3217,7 @@ const FFTCanvas = memo(
       if (dragRepaintFrameRef.current !== null) return;
       dragRepaintFrameRef.current = window.requestAnimationFrame(() => {
         dragRepaintFrameRef.current = null;
-        forceRenderRef.current?.();
+        forceRenderRef.current?.(false);
       });
     }, []);
 
