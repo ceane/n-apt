@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 import React from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import { DemodSidebarNodes } from "@n-apt/demodulation/sidebar/DemodSidebarNodes";
@@ -13,6 +15,13 @@ const theme = buildAppTheme({
   resolvedMode: "dark",
   waterfallTheme: "classic",
 });
+const hasEncryptedStimulusSource = fs.existsSync(
+  path.resolve(
+    process.cwd(),
+    "src/encrypted-modules/tmp/ml/src/ts/features/demodulation/sidebar/StimulusNodeLibraryEntry.tsx",
+  ),
+);
+const testWhenBundleUnavailable = hasEncryptedStimulusSource ? it.skip : it;
 
 describe("DemodSidebarNodes", () => {
   it("explains symbols and bitstreams in plain language", () => {
@@ -90,7 +99,7 @@ describe("DemodSidebarNodes", () => {
     ).toBeTruthy();
   });
 
-  it("shows a retryable bundle fallback instead of an active ML stimulus entry", async () => {
+  testWhenBundleUnavailable("shows a retryable bundle fallback instead of an active ML stimulus entry", async () => {
     render(
       <ThemeProvider theme={theme}>
         <DemodSidebarNodes />

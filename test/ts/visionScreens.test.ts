@@ -1,5 +1,6 @@
 import {
   getVisionDisplayOptions,
+  requestStimulusFullscreen,
   requestVisionFullscreen,
   type VisionDisplay,
 } from "@n-apt/demodulation/vision/visionScreens";
@@ -65,6 +66,15 @@ describe("vision display selection", () => {
     await requestVisionFullscreen(element, second, {
       getScreenDetails,
     } as unknown as Window);
+    expect(requestFullscreen).toHaveBeenCalledWith({ screen: second });
+  });
+
+  test("exposes the stimulus fullscreen adapter used by the protected UI", async () => {
+    const requestFullscreen = jest.fn().mockResolvedValue(undefined);
+    const element = { requestFullscreen } as unknown as HTMLElement;
+
+    await requestStimulusFullscreen(element, second, {} as Window);
+
     expect(requestFullscreen).toHaveBeenCalledWith({ screen: second });
   });
 

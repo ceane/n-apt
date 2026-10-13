@@ -1,15 +1,32 @@
-import {
-  DEFAULT_AUDIO_SURVEY_CONFIG,
-  AUDIO_SURVEY_STORAGE_CAP_BYTES,
-  AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES,
-  buildAudioSurveyViews,
-  advanceAudioSurveyCheckpoint,
-  getAudioSurveySourceOrder,
-  hasAudioSurveyBudgetRemaining,
-  type SurveyChannelRange,
-} from "@n-apt/demodulation/survey/audioSurveyModel";
+import fs from "node:fs";
+import path from "node:path";
+import type { SurveyChannelRange as AudioSurveyChannelRange } from "@n-apt/demodulation/survey/audioSurveyModel";
 
-const configuredChannels: SurveyChannelRange[] = [
+const hasEncryptedAudioSurveySource = fs.existsSync(
+  path.resolve(
+    process.cwd(),
+    "src/encrypted-modules/tmp/ml/src/ts/features/demodulation/survey/audioSurveyModel.ts",
+  ),
+);
+const describeWhenSourceAvailable = hasEncryptedAudioSurveySource
+  ? describe
+  : describe.skip;
+const audioSurveyModel = (
+  hasEncryptedAudioSurveySource
+    ? require("@n-apt/demodulation/survey/audioSurveyModel")
+    : {}
+) as Pick<
+  typeof import("@n-apt/demodulation/survey/audioSurveyModel"),
+  | "buildAudioSurveyViews"
+  | "DEFAULT_AUDIO_SURVEY_CONFIG"
+  | "AUDIO_SURVEY_STORAGE_CAP_BYTES"
+  | "AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES"
+  | "getAudioSurveySourceOrder"
+  | "advanceAudioSurveyCheckpoint"
+  | "hasAudioSurveyBudgetRemaining"
+>;
+
+const configuredChannels: AudioSurveyChannelRange[] = [
   {
     id: "a",
     label: "A",
@@ -27,9 +44,9 @@ const configuredChannels: SurveyChannelRange[] = [
   { id: "c", label: "C", minHz: 4_750_000, maxHz: 23_000_000 },
 ];
 
-describe("audio survey view planner", () => {
+describeWhenSourceAvailable("audio survey view planner", () => {
   it("plans its required channels from the audio survey prerequisite metadata", () => {
-    const views = buildAudioSurveyViews([
+    const views = audioSurveyModel.buildAudioSurveyViews([
       {
         id: "primary",
         label: "Primary",
@@ -52,34 +69,34 @@ describe("audio survey view planner", () => {
       },
     ]);
 
-    expect(views.map((view) => view.channelId)).toEqual([
+    expect(views.map((view: any) => view.channelId)).toEqual([
       "primary",
       "secondary",
     ]);
   });
 
   it("uses four independent full-rate views to cover only channels A and B", () => {
-    const views = buildAudioSurveyViews(configuredChannels);
+    const views = audioSurveyModel.buildAudioSurveyViews(configuredChannels);
 
-    expect(DEFAULT_AUDIO_SURVEY_CONFIG.sampleRateHz).toBe(3_200_000);
-    expect(DEFAULT_AUDIO_SURVEY_CONFIG.storageCapBytes).toBe(256_000_000);
-    expect(AUDIO_SURVEY_STORAGE_CAP_BYTES).toBe(256_000_000);
-    expect(AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES).toBe(1_000_000_000);
+    expect(audioSurveyModel.DEFAULT_AUDIO_SURVEY_CONFIG.sampleRateHz).toBe(3_200_000);
+    expect(audioSurveyModel.DEFAULT_AUDIO_SURVEY_CONFIG.storageCapBytes).toBe(256_000_000);
+    expect(audioSurveyModel.AUDIO_SURVEY_STORAGE_CAP_BYTES).toBe(256_000_000);
+    expect(audioSurveyModel.AUDIO_SURVEY_STORAGE_HARD_CAP_BYTES).toBe(1_000_000_000);
     expect(views).toHaveLength(4);
-    expect(views.map((view) => view.channelId)).toEqual(["a", "a", "b", "b"]);
-    expect(views.every((view) => view.sampleRateHz === 3_200_000)).toBe(true);
-    expect(views.every((view) => view.maxHz - view.minHz === 3_200_000)).toBe(
+    expect(views.map((view: any) => view.channelId)).toEqual(["a", "a", "b", "b"]);
+    expect(views.every((view: any) => view.sampleRateHz === 3_200_000)).toBe(true);
+    expect(views.every((view: any) => view.maxHz - view.minHz === 3_200_000)).toBe(
       true,
     );
     expect(views[0].minHz).toBe(18_000);
     expect(views[1].maxHz).toBe(4_390_000);
     expect(views[2].minHz).toBe(24_100_000);
     expect(views[3].maxHz).toBe(30_370_000);
-    expect(views.some((view) => view.channelId === "c")).toBe(false);
+    expect(views.some((view: any) => view.channelId === "c")).toBe(false);
   });
 
   it("does not duplicate or blend a single-window channel", () => {
-    const views = buildAudioSurveyViews([
+    const views = audioSurveyModel.buildAudioSurveyViews([
       {
         id: "a",
         label: "A",
@@ -96,13 +113,13 @@ describe("audio survey view planner", () => {
       },
     ]);
 
-    expect(views.filter((view) => view.channelId === "a")).toHaveLength(1);
+    expect(views.filter((view: any) => view.channelId === "a")).toHaveLength(1);
     expect(views[0]).toMatchObject({
       centerHz: 10_500_000,
       minHz: 8_900_000,
       maxHz: 12_100_000,
     });
-    expect(views.slice(1).map((view) => view.centerHz)).toEqual([
+    expect(views.slice(1).map((view: any) => view.centerHz)).toEqual([
       11_600_000,
       13_866_666.666666666,
       16_133_333.333333332,
@@ -111,8 +128,8 @@ describe("audio survey view planner", () => {
   });
 
   it("processes replay before live and checkpoints each independent view", () => {
-    expect(getAudioSurveySourceOrder("combined")).toEqual(["replay", "live"]);
-    const replayDone = advanceAudioSurveyCheckpoint(
+    expect(audioSurveyModel.getAudioSurveySourceOrder("combined")).toEqual(["replay", "live"]);
+    const replayDone = audioSurveyModel.advanceAudioSurveyCheckpoint(
       { sourcePhase: "replay", viewIndex: 3, passIndex: 0, lastFrameTimestamp: 12, elapsedMsToday: 100 },
       4,
       "combined",
@@ -123,7 +140,7 @@ describe("audio survey view planner", () => {
       passIndex: 0,
       lastFrameTimestamp: 12,
     });
-    expect(hasAudioSurveyBudgetRemaining(8 * 60 * 60 * 1000, 8 * 60 * 60 * 1000)).toBe(
+    expect(audioSurveyModel.hasAudioSurveyBudgetRemaining(8 * 60 * 60 * 1000, 8 * 60 * 60 * 1000)).toBe(
       false,
     );
   });

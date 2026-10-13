@@ -87,3 +87,5 @@ export async function requestVisionFullscreen(
     throw new Error("Fullscreen could not start on the selected display");
   }
 }
+
+export const requestStimulusFullscreen = requestVisionFullscreen;

@@ -1,4 +1,6 @@
 import React from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { TestWrapper } from "./testUtils";
@@ -60,6 +62,25 @@ jest.mock("@n-apt/spectrum/activeAcquisitionOperations", () => ({
 }));
 
 import { DemodReadinessNode } from "@n-apt/demodulation/react-flow/nodes/DemodReadinessNode";
+
+const hasEncryptedVisionSource = fs.existsSync(
+  path.resolve(
+    process.cwd(),
+    "src/encrypted-modules/tmp/ml/src/ts/features/demodulation/react-flow/nodes/VisionDemodWorkflowFlow.tsx",
+  ),
+);
+const encryptedMlRuntimeAvailable =
+  (typeof __DEV__ !== "undefined" && __DEV__) ||
+  (typeof __N_APT_ML_BUNDLE_READY__ !== "undefined" &&
+    __N_APT_ML_BUNDLE_READY__);
+const canRunVisionImplementationTests =
+  hasEncryptedVisionSource && encryptedMlRuntimeAvailable;
+const testWhenVisionSourceAvailable = canRunVisionImplementationTests
+  ? test
+  : test.skip;
+const testWhenVisionSourceUnavailable = hasEncryptedVisionSource
+  ? test.skip
+  : test;
 
 describe("DemodReadinessNode", () => {
   beforeEach(() => {
@@ -215,7 +236,7 @@ describe("DemodReadinessNode", () => {
   });
 });
 
-test("Vision switches readiness to the spatial reference and decoder stages", () => {
+testWhenVisionSourceAvailable("Vision switches readiness to the spatial reference and decoder stages", async () => {
   mockDemodContext.selectedBaseline = "vision";
   render(
     <TestWrapper
@@ -248,7 +269,7 @@ test("Vision switches readiness to the spatial reference and decoder stages", ()
       <DemodReadinessNode data={{ label: "Demod Readiness" }} />
     </TestWrapper>,
   );
-  expect(screen.getByTestId("vision-demod-workflow")).toBeInTheDocument();
+  expect(await screen.findByTestId("vision-demod-workflow")).toBeInTheDocument();
   expect(screen.getByTestId("vision-demod-flow-node-source")).toHaveTextContent(
     "RF source",
   );
@@ -316,7 +337,7 @@ test("Vision switches readiness to the spatial reference and decoder stages", ()
   expect(screen.queryByTestId("audio-demod-workflow")).not.toBeInTheDocument();
 });
 
-test("Vision readiness qualifies a live HackRF One receiver", () => {
+testWhenVisionSourceAvailable("Vision readiness qualifies a live HackRF One receiver", async () => {
   mockDemodContext.selectedBaseline = "vision";
   render(
     <TestWrapper
@@ -351,12 +372,12 @@ test("Vision readiness qualifies a live HackRF One receiver", () => {
     </TestWrapper>,
   );
 
-  expect(screen.getByTestId("vision-demod-flow-node-source")).toHaveTextContent(
+  expect(await screen.findByTestId("vision-demod-flow-node-source")).toHaveTextContent(
     "Live HackRF One selected",
   );
 });
 
-test("Vision readiness does not qualify an unrelated live receiver", () => {
+testWhenVisionSourceAvailable("Vision readiness does not qualify an unrelated live receiver", async () => {
   mockDemodContext.selectedBaseline = "vision";
   render(
     <TestWrapper
@@ -382,7 +403,7 @@ test("Vision readiness does not qualify an unrelated live receiver", () => {
     </TestWrapper>,
   );
 
-  expect(screen.getByTestId("vision-demod-flow-node-source")).toHaveTextContent(
+  expect(await screen.findByTestId("vision-demod-flow-node-source")).toHaveTextContent(
     "Select a live RTL-SDR or HackRF One",
   );
   expect(screen.getByTestId("vision-demod-flow-node-source")).toHaveAttribute(
@@ -394,7 +415,7 @@ test("Vision readiness does not qualify an unrelated live receiver", () => {
   ).toHaveTextContent("range unavailable");
 });
 
-test("Vision readiness requires live mode even with a supported receiver selected", () => {
+testWhenVisionSourceAvailable("Vision readiness requires live mode even with a supported receiver selected", async () => {
   mockDemodContext.selectedBaseline = "vision";
   render(
     <TestWrapper
@@ -429,11 +450,27 @@ test("Vision readiness requires live mode even with a supported receiver selecte
     </TestWrapper>,
   );
 
-  expect(screen.getByTestId("vision-demod-flow-node-source")).toHaveTextContent(
+  expect(await screen.findByTestId("vision-demod-flow-node-source")).toHaveTextContent(
     "Replay selected · live RTL-SDR or HackRF One required",
   );
   expect(screen.getByTestId("vision-demod-flow-node-source")).toHaveAttribute(
     "data-state",
     "waiting",
   );
+});
+
+testWhenVisionSourceUnavailable("shows the retryable fallback when the vision workflow is not loaded", async () => {
+  mockDemodContext.selectedBaseline = "vision";
+  render(
+    <TestWrapper>
+      <DemodReadinessNode data={{ label: "Demod Readiness" }} />
+    </TestWrapper>,
+  );
+
+  expect(
+    await screen.findByRole("button", { name: "Retry Vision workflow" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText("The encrypted ML feature bundle could not be loaded."),
+  ).toBeInTheDocument();
 });

@@ -2,6 +2,15 @@
 // deterministic across developer machines and CI runners.
 process.env.TZ = "America/Los_Angeles";
 
+const fs = require("node:fs");
+const path = require("node:path");
+const encryptedMlSourceRoot = "src/encrypted-modules/tmp/ml/src/ts";
+const hasEncryptedMlSources = fs.existsSync(
+  path.resolve(process.cwd(), encryptedMlSourceRoot),
+);
+const mlSource = (relativePath, fallbackPath) =>
+  `<rootDir>/${hasEncryptedMlSources ? `${encryptedMlSourceRoot}/${relativePath}` : fallbackPath}`;
+
 const scopedFrontendRoots = {
   app: "src/ts/app",
   ui: "src/ts/shared/ui",
@@ -54,6 +63,22 @@ module.exports = {
     "^@n-apt/app-game/(.*)$": "<rootDir>/src/app-game/$1",
     "^@n-apt/app-legal$": "<rootDir>/src/app-legal",
     "^@n-apt/app-legal/(.*)$": "<rootDir>/src/app-legal/$1",
+    "^@n-apt/encrypted-modules/tmp/ml/(.*)$": hasEncryptedMlSources
+      ? `<rootDir>/src/encrypted-modules/tmp/ml/$1`
+      : "<rootDir>/src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    "^@n-apt/demodulation/vision/(visionScreens|visionSourcePolicy)$":
+      "<rootDir>/src/ts/features/demodulation/vision/$1",
+    "^@n-apt/demodulation/survey/(?!audioSurveyMedia$)(.*)$": mlSource(
+      "features/demodulation/survey/$1",
+      "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    ),
+    "^@n-apt/demodulation/vision/(?!visionScreens$|visionSourcePolicy$)(.*)$": mlSource(
+      "features/demodulation/vision/$1",
+      "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    ),
+    "^@n-apt/demodulation/react-flow/nodes/(CoreMLNode|AudioDemodWorkflowFlow|VisionDemodWorkflowFlow)$": hasEncryptedMlSources
+      ? "<rootDir>/src/encrypted-modules/tmp/ml/src/ts/features/demodulation/react-flow/nodes/$1"
+      : "<rootDir>/src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
     ...scopedFrontendMappers,
     // Stub like other static assets: alias must not point at raw .svg or Jest parses XML as JS.
     "^@n-apt/public/(.*)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",

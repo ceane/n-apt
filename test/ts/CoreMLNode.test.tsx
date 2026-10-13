@@ -1,4 +1,6 @@
 import React from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { TestWrapper } from "./testUtils";
@@ -27,9 +29,22 @@ jest.mock("@n-apt/demodulation/context/DemodContext", () => ({
   useDemod: () => mockDemodContext,
 }));
 
-import { CoreMLNode } from "@n-apt/demodulation/react-flow/nodes/CoreMLNode";
+const hasEncryptedCoreMlSource = fs.existsSync(
+  path.resolve(
+    process.cwd(),
+    "src/encrypted-modules/tmp/ml/src/ts/features/demodulation/react-flow/nodes/CoreMLNode.tsx",
+  ),
+);
+const describeWhenSourceAvailable = hasEncryptedCoreMlSource
+  ? describe
+  : describe.skip;
+const { CoreMLNode } = hasEncryptedCoreMlSource
+  ? (require("@n-apt/demodulation/react-flow/nodes/CoreMLNode") as {
+      CoreMLNode: React.ComponentType<any>;
+    })
+  : { CoreMLNode: () => null };
 
-describe("local audio survey controls", () => {
+describeWhenSourceAvailable("local audio survey controls", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockDemodContext.audioSurveyNeuralModelReady = false;
