@@ -205,13 +205,25 @@ const testSeeds = new Set(
 );
 
 // Intentional keepers: manual CLI / agent tooling that is run by hand or by
-// external agents rather than imported from an app entry point.
+// external agents rather than imported from an app entry point, plus the
+// checked-in fallback/compatibility modules used when encrypted ML sources
+// are unavailable. The encrypted bundle imports some of these modules by
+// path after runtime extraction, which this static graph cannot observe.
 const intentionalKeepers = new Set([
   "src/ts/agents/capabilities.ts",
   "src/ts/agents/webmcp/registry.ts",
   "src/ts/cli/signalCli.ts",
   "src/ts/cli/snapshotHarness.ts",
   "src/ts/cli/snapshotModel.ts",
+  "src/ts/encryptedAdapters/ml/demodReadinessFallbackDependencies.tsx",
+  "src/ts/encryptedAdapters/ml/encryptedMlUnavailable.ts",
+  "src/ts/encryptedAdapters/ml/stimulusChannelPolicyFallback.ts",
+  "src/ts/encryptedAdapters/ml/visionScreensFallback.ts",
+  "src/ts/encryptedAdapters/ml/visionSourcePolicyFallback.ts",
+  "src/ts/features/demodulation/react-flow/nodes/stimulusChannelPolicy.ts",
+  "src/ts/features/demodulation/survey/audioSurveyMedia.ts",
+  "src/ts/features/demodulation/vision/visionScreens.ts",
+  "src/ts/features/demodulation/vision/visionSourcePolicy.ts",
 ]);
 
 function bfs(seeds) {

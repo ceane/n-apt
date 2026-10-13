@@ -71,6 +71,7 @@ function normalizedBundlePath(value: string): string {
   return segments.join("/");
 }
 
+// codeql[js/insufficient-password-hash] This hashes bundle/file bytes for integrity; deriveKey uses scrypt for passwords.
 function hash(bytes: Uint8Array): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
