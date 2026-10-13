@@ -124,6 +124,24 @@ describe("useWasmSimdMath", () => {
 
   it("does not let SIMD bypass the requested non-rectangular window", async () => {
     const iq = buildToneIqSamples(64, 5);
+    const { RenderingProcessor } = jest.requireMock("n_apt_canvas") as {
+      RenderingProcessor: new () => unknown;
+    };
+    const processorMethod = jest.spyOn(
+      RenderingProcessor.prototype,
+      "process_iq_to_dbm_spectrum",
+    );
+    processorMethod.mockImplementation((...args: unknown[]) => {
+      const [, , fftSize, windowType] = args as [
+        Uint8Array,
+        number,
+        number,
+        string,
+      ];
+      return new Float32Array(fftSize).fill(
+        windowType === "rectangular" ? 1 : 2,
+      );
+    });
 
     const { result } = renderHook(() =>
       useWasmSimdMath({
@@ -146,5 +164,11 @@ describe("useWasmSimdMath", () => {
     const nuttall = result.current.processIqToDbmSpectrum(iq, 0, 64, "Nuttall");
 
     expect(Array.from(rectangular)).not.toEqual(Array.from(nuttall));
+    expect(processorMethod).toHaveBeenLastCalledWith(
+      iq,
+      0,
+      64,
+      "nuttall",
+    );
   });
 });

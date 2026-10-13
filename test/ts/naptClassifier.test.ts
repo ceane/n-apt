@@ -102,8 +102,13 @@ describe("N-APT classifier", () => {
 
   it("copies the complete classifier result before reading extended diagnostics", () => {
     expect(FFT_HOOK_SOURCE).toContain(
-      "state.naptClassifyReadbackBuffer,\n            0,\n            132,",
+      "state.naptClassifyReadbackBuffer,\n            0,\n            160,",
     );
+    expect(FFT_HOOK_SOURCE).toContain("naptClassifyResultBuffer = device.createBuffer({\n        size: 160,");
+    expect(FFT_HOOK_SOURCE).toContain("result.getFloat32(156, true)");
+    expect(NAPT_CLASSIFY_WGSL).toContain("valley_fill_score: f32");
+    expect(NAPT_CLASSIFY_WGSL).toContain("broad_floor_variation_score: f32");
+    expect(NAPT_CLASSIFY_WGSL).toContain("interference_score: f32");
     expect(FFT_CANVAS_SOURCE).toContain(
       'import { presentSpikeAnalysis } from "@n-apt/spectrum/fft/spikeAnalysisPresentation";',
     );
@@ -115,6 +120,23 @@ describe("N-APT classifier", () => {
     ).toMatch(
       /captureQualityScore:\s*Math\.max\(\s*0,\s*Math\.min\(\s*1,\s*1\s*-\s*sincPenaltyScore\s*\)\s*,?\s*\)/,
     );
+  });
+
+  it("keeps the GPU interference history/readback ABI synchronized end to end", () => {
+    expect(FFT_HOOK_SOURCE).toContain(
+      "size: NAPT_TEMPORAL_HISTORY_LENGTH * 40,",
+    );
+    expect(FFT_HOOK_SOURCE).toContain(
+      "new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 10)",
+    );
+    expect(FFT_HOOK_SOURCE).toContain("temporal.getFloat32(56, true)");
+    expect(FFT_HOOK_SOURCE.replace(/\s+/g, "")).toContain(
+      "constinterferenceEvidenceFrames=temporal.getUint32(60,true,)",
+    );
+    expect(NAPT_TEMPORAL_WGSL).toContain("interference_score: f32");
+    expect(NAPT_TEMPORAL_WGSL).toContain("interference_evidence_frames: u32");
+    expect(NAPT_TEMPORAL_WGSL).toContain("strong_count >= 3u");
+    expect(NAPT_TEMPORAL_WGSL).toContain("interference_weak_run >= 3u");
   });
 
   it("uses suspension_bridge as the dominant detection weight and rejects weak structure", () => {

@@ -4,6 +4,7 @@
 # Manages Redis data persistence in the /redis folder
 
 set -e
+umask 077
 
 # Colors for output
 RED='\033[0;31m'
@@ -20,6 +21,8 @@ REDIS_DATA_DIR="$REDIS_DIR/data"
 REDIS_LOG="$REDIS_DIR/logs/redis.log"
 REDIS_PID_FILE="$REDIS_DIR/redis.pid"
 REDIS_BIN="/opt/homebrew/opt/redis/bin/redis-server"
+cd "$PROJECT_ROOT"
+redis-cli() { node "$PROJECT_ROOT/scripts/redis/redis_cli_auth.cjs" "$@"; }
 
 # Function to print colored output
 print_status() {
@@ -61,10 +64,16 @@ start_redis() {
         return 0
     fi
 
-    print_status "Starting Redis with persistent configuration..."
+    if [[ ! -s "$PROJECT_ROOT/.n-apt/redis/users.acl" ]]; then
+        print_error "Redis ACL configuration is missing. Run npm run setup first."
+        return 1
+    fi
+
+    print_status "Starting Redis with persistent authenticated configuration..."
     
     # Create directories if they don't exist
     mkdir -p "$REDIS_DATA_DIR" "$REDIS_DIR/logs" "$REDIS_DIR/backups"
+    chmod 700 "$REDIS_DATA_DIR" "$REDIS_DIR/logs" "$REDIS_DIR/backups"
     
     # Start Redis with custom config
     "$REDIS_BIN" "$REDIS_CONF" --daemonize yes --pidfile "$REDIS_PID_FILE"
@@ -126,21 +135,34 @@ create_snapshot() {
     
     # Create snapshot directory
     mkdir -p "$snapshot_dir"
+    chmod 700 "$snapshot_dir"
     
     # Force Redis to save current data
-    redis-cli BGSAVE
-    
-    # Wait for background save to complete
+    redis-cli BGSAVE >/dev/null
+
+    # Wait for background save to complete on macOS and Linux.
     print_status "Waiting for background save to complete..."
-    while [[ $(redis-cli LASTSAVE) -eq $(stat -c %Y "$REDIS_DATA_DIR/dump.rdb" 2>/dev/null || echo 0) ]]; do
+    while [[ $(redis-cli INFO persistence | awk -F: '/^rdb_bgsave_in_progress:/ {gsub("\\r", "", $2); print $2}') == "1" ]]; do
         sleep 1
     done
+    if [[ $(redis-cli INFO persistence | awk -F: '/^rdb_last_bgsave_status:/ {gsub("\\r", "", $2); print $2}') != "ok" ]]; then
+        print_error "Redis RDB snapshot failed"
+        return 1
+    fi
     
     # Copy data files
     cp "$REDIS_DATA_DIR/dump.rdb" "$snapshot_dir/"
     if [[ -f "$REDIS_DATA_DIR/appendonly.aof" ]]; then
         cp "$REDIS_DATA_DIR/appendonly.aof" "$snapshot_dir/"
     fi
+    if [[ -d "$REDIS_DATA_DIR/appendonlydir" ]]; then
+        mkdir -p "$snapshot_dir/appendonlydir"
+        cp -R "$REDIS_DATA_DIR/appendonlydir/." "$snapshot_dir/appendonlydir/"
+        chmod 700 "$snapshot_dir/appendonlydir"
+        find "$snapshot_dir/appendonlydir" -type f -exec chmod 600 {} +
+    fi
+    chmod 600 "$snapshot_dir"/dump.rdb "$snapshot_dir"/appendonly.aof 2>/dev/null || true
+    chmod 600 "$snapshot_dir"/appendonlydir/* 2>/dev/null || true
     
     # Create metadata
     cat > "$snapshot_dir/metadata.json" << EOF
@@ -186,11 +208,23 @@ restore_snapshot() {
     if [[ -f "$REDIS_DATA_DIR/appendonly.aof" ]]; then
         mv "$REDIS_DATA_DIR/appendonly.aof" "$REDIS_DATA_DIR/appendonly.aof.backup.$(date +%s)"
     fi
+    if [[ -d "$REDIS_DATA_DIR/appendonlydir" ]]; then
+        mv "$REDIS_DATA_DIR/appendonlydir" "$REDIS_DATA_DIR/appendonlydir.backup.$(date +%s)"
+    fi
     
     # Restore snapshot data
     cp "$snapshot_dir/dump.rdb" "$REDIS_DATA_DIR/"
     if [[ -f "$snapshot_dir/appendonly.aof" ]]; then
         cp "$snapshot_dir/appendonly.aof" "$REDIS_DATA_DIR/"
+    fi
+    if [[ -d "$snapshot_dir/appendonlydir" ]]; then
+        cp -R "$snapshot_dir/appendonlydir" "$REDIS_DATA_DIR/"
+    fi
+    chmod 700 "$REDIS_DATA_DIR"
+    chmod 600 "$REDIS_DATA_DIR"/dump.rdb "$REDIS_DATA_DIR"/appendonly.aof 2>/dev/null || true
+    chmod 700 "$REDIS_DATA_DIR"/appendonlydir 2>/dev/null || true
+    if [[ -d "$REDIS_DATA_DIR/appendonlydir" ]]; then
+        find "$REDIS_DATA_DIR/appendonlydir" -type f -exec chmod 600 {} +
     fi
     
     print_status "Starting Redis with restored data..."

@@ -1,10 +1,14 @@
 import React, { Suspense, useCallback, useEffect, useRef } from "react";
+import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
+import { loadEncryptedMlModule } from "@n-apt/shared/ui/loadEncryptedMlModule";
 import { SourceNode } from "@n-apt/demodulation/react-flow/nodes/SourceNode";
 import { MetadataNode } from "@n-apt/demodulation/react-flow/nodes/MetadataNode";
 import { SpanNode } from "@n-apt/demodulation/react-flow/nodes/SpanNode";
 import { SignalConfigNode } from "@n-apt/demodulation/react-flow/nodes/SignalConfigNode";
-import { StimulusNode } from "@n-apt/demodulation/react-flow/nodes/StimulusNode";
+import { DemodReadinessNode } from "@n-apt/demodulation/react-flow/nodes/DemodReadinessNode";
 import { OutputNode } from "@n-apt/demodulation/react-flow/nodes/OutputNode";
+import { ExperimentControlNode } from "@n-apt/demodulation/react-flow/nodes/ExperimentControlNode";
+import { ExperimentObservationNode } from "@n-apt/demodulation/react-flow/nodes/ExperimentObservationNode";
 
 export interface DemodNodeData {
   label?: React.ReactNode;
@@ -14,10 +18,29 @@ export interface DemodNodeData {
 
 type DemodNodeComponent = React.ComponentType<{ data: any; id?: string }>;
 
-const LazyCoreMLNode = React.lazy(() =>
-  import("@n-apt/demodulation/react-flow/nodes/CoreMLNode").then((m) => ({
-    default: m.CoreMLNode as DemodNodeComponent,
-  })),
+const loadCoreMLNode = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.CoreMLNode as DemodNodeComponent,
+  }));
+
+const LazyCoreMLNode: DemodNodeComponent = (props) => (
+  <RetryableMlFeature
+    label="Audio Survey ML"
+    loader={loadCoreMLNode}
+    componentProps={props}
+  />
+);
+const loadStimulusNode = () =>
+  loadEncryptedMlModule().then((module) => ({
+    default: module.StimulusNode as DemodNodeComponent,
+  }));
+const LazyStimulusNode: DemodNodeComponent = (props) => (
+  <RetryableMlFeature
+    label="Stimulus Node"
+    fallbackMessage="The stimulus node isn't decrypted, so it can't be loaded in this flow."
+    loader={loadStimulusNode}
+    componentProps={props}
+  />
 );
 const LazySpikeDetectionNode = React.lazy(() =>
   import("@n-apt/demodulation/react-flow/nodes/SpikeDetectionNode").then(
@@ -115,6 +138,11 @@ export const LazyBitstreamViewer = React.lazy(() =>
     default: m.BitstreamViewer,
   })),
 );
+export const LazyPhaseWaterfallNode = React.lazy(() =>
+  import("@n-apt/demodulation/react-flow/nodes/PhaseWaterfallNode").then(
+    (m) => ({ default: m.PhaseWaterfallNode }),
+  ),
+);
 
 interface DemodNodeRegistryEntry {
   flag: string;
@@ -132,10 +160,11 @@ export const DEMOD_NODE_REGISTRY: DemodNodeRegistryEntry[] = [
   { flag: "channelNode", Component: LazyChannelNode },
   { flag: "txSignalOptions", Component: LazyTxSignalConfigNode },
   { flag: "signalOptions", Component: SignalConfigNode },
+  { flag: "demodReadinessOptions", Component: DemodReadinessNode },
   { flag: "metadataNode", Component: MetadataNode },
   { flag: "channelOptions", Component: LazyChannelOptionsNode },
   { flag: "spanOptions", Component: SpanNode },
-  { flag: "stimulusOptions", Component: StimulusNode },
+  { flag: "stimulusOptions", Component: LazyStimulusNode },
   { flag: "tempoNoteOptions", Component: LazyTempoNoteNode },
   { flag: "radioOptions", Component: LazyRadioNode },
   { flag: "streamOptions", Component: LazyStreamNode },
@@ -145,6 +174,8 @@ export const DEMOD_NODE_REGISTRY: DemodNodeRegistryEntry[] = [
   { flag: "fileOptions", Component: LazyFileOptionsNode },
   { flag: "iqCaptureNode", Component: LazyIQCaptureNode },
   { flag: "txOptions", Component: LazyTxNode },
+  { flag: "experimentControlOptions", Component: ExperimentControlNode },
+  { flag: "experimentObservationOptions", Component: ExperimentObservationNode },
   { flag: "outputNode", Component: OutputNode },
 ];
 

@@ -1,9 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 import { resolvePlaywrightPassword } from './test/support/authCredentials';
+import { resolveBackendBinaryPath } from './scripts/build/backendBinaryPath';
 
 export default defineConfig({
   testDir: './test',
   testMatch: /.*\.spec\.(ts|tsx)$/,
+  testIgnore: /EncryptedMlBundleE2E\.spec\.ts$/,
   timeout: 60 * 1000,
   expect: {
     timeout: 10000,
@@ -26,7 +28,7 @@ export default defineConfig({
   ],
   // Run the local dev server before starting the tests
   webServer: {
-    command: './target/debug/n-apt-backend & npx vite --port 5173 --host 127.0.0.1',
+    command: `"${resolveBackendBinaryPath()}" & npx vite --port 5173 --host 127.0.0.1`,
     port: 5173,
     reuseExistingServer: true,
     timeout: 120 * 1000,

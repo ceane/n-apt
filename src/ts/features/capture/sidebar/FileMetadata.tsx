@@ -46,6 +46,7 @@ export type NaptMetadata = {
   duration_s?: number;
   acquisition_mode?: string;
   source_device?: string;
+  capture_labels?: string[];
   fft_window?: string;
   tuner_agc?: boolean;
   rtl_agc?: boolean;
@@ -271,6 +272,14 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
               {naptMetadata.source_device || naptMetadata.hardware || "N/A"}
             </MetadataValue>
           </MetadataItem>
+          {!!naptMetadata.capture_labels?.length && (
+            <MetadataItem style={{ gridColumn: "1 / -1" }}>
+              <MetadataLabel>Capture Labels</MetadataLabel>
+              <MetadataValue>
+                {naptMetadata.capture_labels.join(", ")}
+              </MetadataValue>
+            </MetadataItem>
+          )}
           <MetadataItem>
             <MetadataLabel>
               FFT Size/Win

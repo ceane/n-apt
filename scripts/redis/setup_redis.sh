@@ -2,11 +2,16 @@
 
 # Redis setup and management for N-APT tower data
 set -e
+umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+REDIS_ACL_FILE="$PROJECT_ROOT/.n-apt/redis/users.acl"
+cd "$PROJECT_ROOT"
+redis-cli() { node "$SCRIPT_DIR/redis_cli_auth.cjs" "$@"; }
 REDIS_PID=""
 REDIS_PORT=6379
-REDIS_DATA_DIR="$SCRIPT_DIR/../.redis_data"
+REDIS_DATA_DIR="$PROJECT_ROOT/.redis_data"
 
 # Colors
 GREEN="\033[32m"
@@ -17,7 +22,7 @@ RESET="\033[0m"
 
 # Check if Redis is installed
 check_redis_installation() {
-    if command -v redis-server &> /dev/null && command -v redis-cli &> /dev/null; then
+    if command -v redis-server &> /dev/null && type -P redis-cli &> /dev/null; then
         return 0
     else
         return 1
@@ -54,6 +59,7 @@ install_redis() {
 start_redis() {
     # Create data directory if it doesn't exist
     mkdir -p "$REDIS_DATA_DIR"
+    chmod 700 "$REDIS_DATA_DIR"
     
     # Check if Redis is already running on our port
     if lsof -tPni :$REDIS_PORT > /dev/null 2>&1; then
@@ -62,10 +68,15 @@ start_redis() {
         return 0
     fi
     
-    echo -e "${ORANGE}Starting Redis server...${RESET}"
+    if [ ! -s "$REDIS_ACL_FILE" ]; then
+        echo -e "${RED}Redis ACL configuration is missing. Run npm run setup first.${RESET}"
+        return 1
+    fi
+
+    echo -e "${ORANGE}Starting Redis server with ACL authentication...${RESET}"
     
     # Start Redis with custom config
-    redis-server --port $REDIS_PORT --dir "$REDIS_DATA_DIR" --daemonize yes --appendonly yes
+    redis-server --port "$REDIS_PORT" --bind 127.0.0.1 --protected-mode yes --aclfile "$REDIS_ACL_FILE" --dir "$REDIS_DATA_DIR" --daemonize yes --appendonly yes
     
     # Wait for Redis to start
     sleep 2
@@ -156,8 +167,7 @@ load_tower_data() {
         echo -e "${GREEN}✓ Tower data loaded from OpenCellID API/CSV with caching${RESET}"
         # Move tower data from temporary databases to permanent ones
         echo -e "${ORANGE}Moving tower data to permanent databases...${RESET}"
-        redis-cli -p $REDIS_PORT swapdb 0 2 >/dev/null
-        redis-cli -p $REDIS_PORT swapdb 1 3 >/dev/null
+        node "$SCRIPT_DIR/promote_tower_staging.cjs"
         echo -e "${GREEN}✓ Tower data moved to permanent databases (db2, db3)${RESET}"
         return 0
     else
@@ -167,8 +177,7 @@ load_tower_data() {
             echo -e "${GREEN}✓ Tower data loaded from CSV files${RESET}"
             # Move tower data from temporary databases to permanent ones
             echo -e "${ORANGE}Moving tower data to permanent databases...${RESET}"
-            redis-cli -p $REDIS_PORT swapdb 0 2 >/dev/null
-            redis-cli -p $REDIS_PORT swapdb 1 3 >/dev/null
+            node "$SCRIPT_DIR/promote_tower_staging.cjs"
             echo -e "${GREEN}✓ Tower data moved to permanent databases (db2, db3)${RESET}"
             return 0
         else

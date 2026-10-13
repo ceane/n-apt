@@ -2,6 +2,7 @@
  * Frequency formatting utilities for precise and consistent display
  */
 import type { FrequencyRange } from "@n-apt/consts/types";
+import { FREQUENCY_UNITS, getSiUnitScale, getOptimalSiScale } from "@n-apt/math/unitsOfMeasure";
 
 /**
  * Standard frequency formatting: 100.000 MHz or 500 kHz
@@ -38,25 +39,11 @@ export const clampFrequencyHz = (
 };
 
 export const getFrequencyUnitScale = (unit: FrequencyUnit): number => {
-  switch (unit) {
-    case "GHz":
-      return 1_000_000_000;
-    case "MHz":
-      return 1_000_000;
-    case "kHz":
-      return 1_000;
-    case "Hz":
-    default:
-      return 1;
-  }
+  return getSiUnitScale(unit, FREQUENCY_UNITS);
 };
 
 export const getOptimalFrequencyScale = (hz: number): FrequencyScale => {
-  const absHz = Math.abs(hz);
-  if (absHz >= 1_000_000_000) return { value: hz / 1_000_000_000, unit: "GHz" };
-  if (absHz >= 1_000_000) return { value: hz / 1_000_000, unit: "MHz" };
-  if (absHz >= 1_000) return { value: hz / 1_000, unit: "kHz" };
-  return { value: hz, unit: "Hz" };
+  return getOptimalSiScale(hz, FREQUENCY_UNITS) as FrequencyScale;
 };
 
 export const getCenteredFrequencyHz = (

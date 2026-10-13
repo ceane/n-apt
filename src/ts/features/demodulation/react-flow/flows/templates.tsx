@@ -2,6 +2,9 @@ import React from "react";
 import { Zap, Activity, Waves, Music, Radio } from "lucide-react";
 import type { Node, Edge } from "@xyflow/react";
 import { FindBeatsFlow } from "@n-apt/demodulation/react-flow/flows/FindBeatsFlow";
+import {
+  REFERENCE_CAPTURE_NODE_POSITIONS,
+} from "@n-apt/demodulation/react-flow/flows/demodFlowModel";
 
 export interface FlowTemplate {
   id: string;
@@ -13,6 +16,108 @@ export interface FlowTemplate {
 }
 
 const flowTemplatesDefinition: FlowTemplate[] = [
+  {
+    id: "reverse-engineering",
+    label: "Reverse Engineering by Tx",
+    description: "Compare one HackRF Tx pattern at a time against the RTL-SDR's 3.2 MS/s receive window; HackRF's 20 MHz bandwidth does not widen Rx visibility.",
+    icon: <Radio size={16} />,
+    nodes: [
+      {
+        id: "source",
+        type: "custom",
+        position: { x: 520, y: 40 },
+        data: {
+          label: "Rx / Tx Devices",
+          sourceNode: true,
+          txSuiteSource: true,
+          sourceBindingGroup: "reverse-engineering",
+          reverseEngineeringFlow: true,
+          preferredRxName: "RTL-SDR",
+          preferredTxName: "HackRF",
+        },
+      },
+      {
+        id: "rx-channel",
+        type: "custom",
+        position: { x: 760, y: 320 },
+        data: {
+          label: "Rx Channel A / B / C",
+          description: "Tune one channel at a time; RTL-SDR receive span is limited to 3.2 MS/s.",
+          channelNode: true,
+          channelLabels: ["A", "B", "C"],
+          receiveSampleRateLimitHz: 3_200_000,
+          sourceRole: "rx",
+          sourceBindingGroup: "reverse-engineering",
+        },
+      },
+      {
+        id: "rx-signal-config",
+        type: "custom",
+        position: { x: 1160, y: 760 },
+        data: { label: "RTL-SDR Receive Configuration", signalOptions: true, sourceRole: "rx", sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "tx-settings",
+        type: "custom",
+        position: { x: 100, y: 320 },
+        data: { label: "HackRF Tx Settings", txOptions: true, sourceRole: "tx", sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "experiment-control",
+        type: "custom",
+        position: { x: 100, y: 800 },
+        data: { label: "Tx Pattern Condition", experimentControlOptions: true, sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "tx-signal-config",
+        type: "custom",
+        position: { x: 100, y: 1370 },
+        data: { label: "HackRF Tx Signal Configuration", txSignalOptions: true, sourceRole: "tx", sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "rx-fft",
+        type: "custom",
+        position: { x: 760, y: 1190 },
+        data: { label: "RTL-SDR Receive Spectrum", fftOptions: true, sourceRole: "rx", sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "rx-waterfall",
+        type: "custom",
+        position: { x: 760, y: 1740 },
+        data: { label: "RTL-SDR Receive History", waterfallOptions: true, showMiniVfo: true, miniVfoPosition: "top", sourceRole: "rx", sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "experiment-observation",
+        type: "custom",
+        position: { x: 760, y: 2390 },
+        data: { label: "Observation Log", experimentObservationOptions: true, sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "tx-fft",
+        type: "custom",
+        position: { x: 100, y: 1900 },
+        data: { label: "HackRF Tx Preview", fftOptions: true, sourceRole: "tx", sourceBindingGroup: "reverse-engineering" },
+      },
+      {
+        id: "tx-waterfall",
+        type: "custom",
+        position: { x: 100, y: 2460 },
+        data: { label: "HackRF Tx History", waterfallOptions: true, showMiniVfo: true, miniVfoPosition: "top", sourceRole: "tx", sourceBindingGroup: "reverse-engineering" },
+      },
+    ],
+    edges: [
+      { id: "reverse-source-rx", source: "source", target: "rx-channel", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "reverse-source-tx", source: "source", target: "tx-settings", animated: true, style: { stroke: "#a855f7" } },
+      { id: "reverse-rx-channel-config", source: "rx-channel", target: "rx-signal-config", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "reverse-rx-config-fft", source: "rx-signal-config", target: "rx-fft", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "reverse-rx-fft-waterfall", source: "rx-fft", target: "rx-waterfall", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "reverse-rx-observation", source: "rx-fft", target: "experiment-observation", animated: true, style: { stroke: "#00d4ff" } },
+      { id: "reverse-tx-condition", source: "tx-settings", target: "experiment-control", animated: true, style: { stroke: "#a855f7" } },
+      { id: "reverse-tx-signal-config", source: "experiment-control", target: "tx-signal-config", animated: true, style: { stroke: "#a855f7" } },
+      { id: "reverse-tx-preview", source: "tx-signal-config", target: "tx-fft", animated: true, style: { stroke: "#a855f7" } },
+      { id: "reverse-tx-history", source: "tx-fft", target: "tx-waterfall", animated: true, style: { stroke: "#a855f7" } },
+    ],
+  },
   {
     id: "tx-suite",
     label: "Tx Suite (Two Devices or One Duplex Device)",
@@ -94,7 +199,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "source",
         type: "custom",
-        position: { x: 250, y: 50 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.source },
         data: {
           label: "Source",
           description: "Signal source",
@@ -104,7 +209,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "channel",
         type: "custom",
-        position: { x: -600, y: 450 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.channel },
         data: {
           label: "Channel",
           description: "Channel configuration",
@@ -114,7 +219,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "signal-config",
         type: "custom",
-        position: { x: 500, y: 450 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["signal-config"] },
         data: {
           label: "Signal Configuration",
           description: "Configure sampling and FFT",
@@ -122,9 +227,18 @@ const flowTemplatesDefinition: FlowTemplate[] = [
         },
       },
       {
+        id: "demod-readiness",
+        type: "custom",
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS["demod-readiness"] },
+        data: {
+          label: "Demodulation Readiness",
+          demodReadinessOptions: true,
+        },
+      },
+      {
         id: "stimulus",
         type: "custom",
-        position: { x: 250, y: 950 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.stimulus },
         data: {
           label: "Stimulus",
           description: "Select a known reference stimulus",
@@ -134,7 +248,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "output",
         type: "custom",
-        position: { x: 250, y: 1350 },
+        position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.output },
         data: {
           label: "Output",
           description: "Use the generated I/Q capture for demodulation",
@@ -160,13 +274,20 @@ const flowTemplatesDefinition: FlowTemplate[] = [
       {
         id: "e3",
         source: "channel",
-        target: "stimulus",
+        target: "demod-readiness",
         animated: true,
         style: { stroke: "#666" },
       },
       {
         id: "e4",
         source: "signal-config",
+        target: "demod-readiness",
+        animated: true,
+        style: { stroke: "#666" },
+      },
+      {
+        id: "e-readiness-stimulus",
+        source: "demod-readiness",
         target: "stimulus",
         animated: true,
         style: { stroke: "#666" },
@@ -499,8 +620,9 @@ export const flowTemplates: FlowTemplate[] = [
   // Reference Capture is the canonical first/default experience.
   flowTemplatesDefinition.find(({ id }) => id === "default")!,
   flowTemplatesDefinition.find(({ id }) => id === "tx-suite")!,
+  flowTemplatesDefinition.find(({ id }) => id === "reverse-engineering")!,
   flowTemplatesDefinition.find(({ id }) => id === "apt-audio")!,
   ...flowTemplatesDefinition.filter(
-    ({ id }) => id !== "default" && id !== "apt-audio" && id !== "tx-suite",
+    ({ id }) => id !== "default" && id !== "apt-audio" && id !== "tx-suite" && id !== "reverse-engineering",
   ),
 ];

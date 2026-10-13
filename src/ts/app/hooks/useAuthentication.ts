@@ -23,6 +23,7 @@ import {
   fetchServerStatus,
   fetchVaultKey,
   clearSession,
+  logoutSession,
   type AuthInfo,
 } from "@n-apt/app/infrastructure/services/auth";
 import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
@@ -30,8 +31,8 @@ import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
 interface UseAuthenticationReturn extends AuthenticationState {
   handlePasswordAuth: (password: string) => Promise<void>;
   handlePasskeyAuth: () => Promise<void>;
-  handleRegisterPasskey: () => Promise<void>;
-  logout: () => void;
+  handleRegisterPasskey: (password?: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const getInitialHasPasskeys = () => {
@@ -403,7 +404,7 @@ const useAuthenticationInternal = (
     }
   }, []);
 
-  const handleRegisterPasskey = useCallback(async () => {
+  const handleRegisterPasskey = useCallback(async (password?: string) => {
     // Check if WebAuthn is available before attempting registration
     if (!isWebAuthnAvailable) {
       dispatch({
@@ -415,7 +416,7 @@ const useAuthenticationInternal = (
 
     try {
       dispatch({ type: "AUTHENTICATING" });
-      await registerPasskey();
+      await registerPasskey(password);
       const info = await fetchAuthInfo();
       // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
       const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
@@ -436,19 +437,11 @@ const useAuthenticationInternal = (
     }
   }, [isWebAuthnAvailable]);
 
-  const logout = useCallback(() => {
-    const token = state.sessionToken;
+  const logout = useCallback(async () => {
+    if (state.sessionToken) await logoutSession(state.sessionToken);
     clearSession();
-    dispatch({ type: "READY" });
-
-    // Trigger backend logout to revoke token and clear site data.
-    // We use window.location.href to ensure a full navigation, which is
-    // required for Clear-Site-Data to be processed reliably and to
-    // handle the server-side redirect back to the root.
-    const logoutUrl = token
-      ? `/auth/logout?token=${encodeURIComponent(token)}`
-      : "/auth/logout";
-    window.location.href = logoutUrl;
+    // Reload to discard in-memory keys, workers, and authenticated connections.
+    window.location.href = "/";
   }, [state.sessionToken]);
 
   return {

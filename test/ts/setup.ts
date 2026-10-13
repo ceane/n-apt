@@ -136,7 +136,6 @@ global.Worker = jest.fn().mockImplementation(() => ({
     url: "mock://worker/fileWorker.js",
     env: {
       VITE_GOOGLE_MAPS_API_KEY: "mock-api-key",
-      VITE_UNSAFE_LOCAL_USER_PASSWORD: "test-password",
       VITE_COREML_SERVER_URL: "http://localhost:9999",
       VITE_BACKEND_BASE_URL: "http://localhost:8765",
       BASE_URL: "/",
@@ -421,9 +420,9 @@ jest.mock(
           clampedPan: 0,
         }));
         transform_to_screen_coords = jest.fn(() => []);
-        process_iq_to_dbm_spectrum = jest.fn(
-          (input) => new Float32Array(input.length / 2),
-        );
+        process_iq_to_dbm_spectrum(input: Uint8Array) {
+          return new Float32Array(input.length / 2);
+        }
       },
       match_noise_floor_db_wasm: jest.fn(
         (_reference: Float32Array, target: Float32Array) =>

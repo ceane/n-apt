@@ -152,6 +152,8 @@ import {
   resolveMockTxTransmitViewCenterHz,
 } from "@n-apt/transmit/public/txSliderPlacement";
 
+const NOTES_UI_ENABLED = false;
+
 const SidebarContent = memo(styled.div`
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
@@ -1554,8 +1556,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     return [
       { value: "d", label: "D" },
       { value: "d_sharp", label: "D#" },
-      { value: "wifi", label: "Mock WiFi" },
-      { value: "5g", label: "Mock 5G" },
+      { value: "wifi", label: "Naive WiFi" },
+      { value: "5g", label: "Naive 5G" },
     ];
   }, [mockTxSource]);
 
@@ -2615,6 +2617,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
     const req: CaptureRequest = {
       jobId: `cap_${Date.now()}`,
+      sourceId: selectedSource?.id ?? selectedSourceId,
       fragments,
       durationMode: captureDurationMode,
       durationS: Math.max(1, Math.round(captureDurationS)),
@@ -2622,7 +2625,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       acquisitionMode: effectiveAcquisitionMode,
       encrypted:
         !isMockSource &&
-        (captureFileTypeState === ".napt" || captureEncrypted),
+        (captureFileTypeState === ".napt" || (captureFileTypeState === ".iq" && captureEncrypted)),
       fftSize,
       fftWindow,
       geolocation: geolocationData,
@@ -2644,6 +2647,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveDeviceProfileToUse?.kind,
     liveBackend,
     liveDeviceNameToUse,
+    selectedSource?.id,
+    selectedSourceId,
     captureEncrypted,
     captureGeolocation,
     fftSize,
@@ -3129,6 +3134,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         />
       </StickyHeaderWrapper>
 
+      <Section role="region" aria-label="N-APT Signal Classifier" data-testid="classifier-sidebar-section">
+        <SectionTitle $fileMode={sourceMode === "file"}>
+          <SectionIcon>
+            <SatelliteDish size={14} />
+          </SectionIcon>
+          <SectionText>N-APT Signal Classifier</SectionText>
+        </SectionTitle>
+        <div id="native-classifier-sidebar-slot" data-testid="native-classifier-sidebar-slot" />
+      </Section>
+
       {sourceMode === "live" ? (
         <>
           <Section>
@@ -3213,7 +3228,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             wholeChannelDisabledReason="RTL-SDR is limited to its current 3.2MHz hardware window; whole-channel retune/stitch snapshots are disabled."
           />
 
-          <Collapsible
+          {NOTES_UI_ENABLED && <Collapsible
             key={`notes-collapsible-${notesCollapsed ? "closed" : "open"}`}
             title="Notes"
             defaultOpen={!notesCollapsed}
@@ -3286,7 +3301,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 ))
               )}
             </Section>
-          </Collapsible>
+          </Collapsible>}
 
           {isTxModeGlobal ? (
             <Collapsible

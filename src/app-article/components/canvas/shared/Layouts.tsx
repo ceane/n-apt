@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import React, { useLayoutEffect, useState } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import styled from "styled-components";
 import * as THREE from "three";
 import { WebGPURenderer } from "three/webgpu";
@@ -31,12 +31,35 @@ const Overlay = styled.div`
   pointer-events: none;
 `;
 
-export const SignalCanvasFrame: React.FC<React.PropsWithChildren<{ title: string; overlay?: React.ReactNode; hideTitle?: boolean }>> = ({
-  children,
-  title,
-  overlay,
-  hideTitle,
-}) => (
+function syncRendererSizeToCanvas(
+  renderer: {
+    setSize: (width: number, height: number, updateStyle?: boolean) => void;
+  },
+  canvas: HTMLCanvasElement,
+) {
+  const { width, height } = canvas.getBoundingClientRect();
+  if (width > 0 && height > 0) {
+    renderer.setSize(width, height, false);
+  }
+}
+
+function RendererSizeSync() {
+  const { gl, size } = useThree();
+
+  useLayoutEffect(() => {
+    gl.setSize(size.width, size.height, false);
+  }, [gl, size.width, size.height]);
+
+  return null;
+}
+
+export const SignalCanvasFrame: React.FC<
+  React.PropsWithChildren<{
+    title: string;
+    overlay?: React.ReactNode;
+    hideTitle?: boolean;
+  }>
+> = ({ children, title, overlay, hideTitle }) => (
   <CanvasHarness aspectRatio={theme.layout.aspectRatio}>
     <CanvasHost>{children}</CanvasHost>
     <Overlay>
@@ -46,11 +69,9 @@ export const SignalCanvasFrame: React.FC<React.PropsWithChildren<{ title: string
   </CanvasHarness>
 );
 
-export const SignalGraphFrame: React.FC<React.PropsWithChildren<{ title: string; overlay?: React.ReactNode }>> = ({
-  children,
-  title,
-  overlay,
-}) => (
+export const SignalGraphFrame: React.FC<
+  React.PropsWithChildren<{ title: string; overlay?: React.ReactNode }>
+> = ({ children, title, overlay }) => (
   <CanvasHarness aspectRatio={theme.layout.aspectRatio}>
     {children}
     <Overlay>
@@ -73,15 +94,20 @@ export const CanvasHost: React.FC<React.PropsWithChildren> = ({ children }) => {
           const renderer = new WebGPURenderer(props as never);
           await renderer.init();
           renderer.setClearColor(theme.colors.background);
+          syncRendererSizeToCanvas(renderer, props.canvas as HTMLCanvasElement);
           return renderer;
         } catch {
           setFallback(true);
-          const renderer = new THREE.WebGLRenderer(props as THREE.WebGLRendererParameters);
+          const renderer = new THREE.WebGLRenderer(
+            props as THREE.WebGLRendererParameters,
+          );
           renderer.setClearColor(theme.colors.background);
+          syncRendererSizeToCanvas(renderer, props.canvas as HTMLCanvasElement);
           return renderer;
         }
       }}
     >
+      <RendererSizeSync />
       {/* eslint-disable-next-line react/no-unknown-property */}
       <color attach="background" args={[theme.colors.background]} />
       {/* eslint-disable-next-line react/no-unknown-property */}

@@ -47,6 +47,7 @@ describe("Find Beats flow template", () => {
       "source",
       "channel",
       "signal-config",
+      "demod-readiness",
       "stimulus",
       "output",
     ]);

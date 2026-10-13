@@ -2,4 +2,5 @@
 
 pub mod formats;
 pub mod session;
+pub mod storage;
 pub mod writer;

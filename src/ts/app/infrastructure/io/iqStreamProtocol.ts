@@ -16,6 +16,8 @@ export type IqFrameEnvelopeMetadata = {
   sample_rate: number;
   flags?: number;
   frame_status?: IqFrameStatus;
+  /** False when this frame carries a held, previously acquired I/Q buffer. */
+  is_fresh?: boolean;
 };
 
 /** A validated wire envelope whose payload is still encrypted. */
@@ -90,6 +92,7 @@ export const decodeIqFrameEnvelope = (
         data_type: dataType,
         sample_rate: sampleRate,
         frame_status: "receiving",
+        is_fresh: true,
       },
       encryptedPayload,
     };
@@ -101,10 +104,14 @@ export const decodeIqFrameEnvelope = (
   const version = view.getUint8(4);
   const flags = view.getUint8(5);
   const frameStatus = view.getUint8(10);
+  const freshnessFlag = view.getUint8(11);
   const headerLength = view.getUint16(6, true);
   const sourceIdLength = view.getUint16(8, true);
   if (version !== 2) {
     throw new Error(`Invalid I/Q frame version: ${version}`);
+  }
+  if (freshnessFlag > 1) {
+    throw new Error(`Invalid I/Q frame freshness: ${freshnessFlag}`);
   }
   if (
     headerLength < V2_FIXED_HEADER_BYTES ||
@@ -114,9 +121,14 @@ export const decodeIqFrameEnvelope = (
     throw new Error("Invalid I/Q frame header length");
   }
 
-  const sourceId = new TextDecoder("utf-8", { fatal: true })
-    .decode(new Uint8Array(buffer, V2_FIXED_HEADER_BYTES, sourceIdLength))
-    .trim();
+  let sourceId: string;
+  try {
+    sourceId = new TextDecoder("utf-8", { fatal: true })
+      .decode(new Uint8Array(buffer, V2_FIXED_HEADER_BYTES, sourceIdLength))
+      .trim();
+  } catch {
+    throw new Error("Invalid I/Q frame source ID: invalid UTF-8");
+  }
   if (!sourceId) {
     throw new Error("Invalid I/Q frame header: empty source ID");
   }
@@ -140,6 +152,7 @@ export const decodeIqFrameEnvelope = (
       sample_rate: sampleRate,
       flags,
       frame_status: decodeFrameStatus(frameStatus),
+      is_fresh: freshnessFlag === 0,
     },
     encryptedPayload,
   };

@@ -7,6 +7,7 @@ import React, {
   useMemo,
   useCallback,
   memo,
+  useSyncExternalStore,
 } from "react";
 import type {
   FrequencyRange,
@@ -90,6 +91,11 @@ import {
   sourceVisualizationRuntime,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { SpectrumStoreContext } from "@n-apt/spectrum/hooks/spectrumStoreContext";
+import {
+  getActiveAcquisitionOperationsRevision,
+  hasActiveAcquisitionOperations,
+  subscribeToActiveAcquisitionOperations,
+} from "@n-apt/spectrum/activeAcquisitionOperations";
 import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import {
   sendPowerScaleCommand as sendPowerScaleCommandThunk,
@@ -151,6 +157,7 @@ import {
 } from "@n-apt/transmit/public/txSliderPlacement";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
+import { INITIAL_SPECTRUM_FREQUENCY_RANGE } from "@n-apt/webusb/initialSpectrumFrequencyRange";
 
 // Types
 export type SourceMode = "live" | "file";
@@ -1074,9 +1081,7 @@ export type SpectrumState = {
 };
 
 // Only subscriber-local presentation state belongs in a browser's source
-// view cache. The live center/range is device-scoped SSOT: persisting it here
-// lets a second client replay a trapped range during hydration and retune the
-// shared source, which later appears as a pause/unpause frequency jump.
+// view cache. Device tune state is restored into Redux before WebSocket sync.
 const PERSISTED_SOURCE_VIEW_FIELDS: Array<keyof SpectrumState> = [
   "displayTemporalResolution",
   "powerScale",
@@ -1123,8 +1128,8 @@ export const resolveLiveAcquisitionBounds = ({
   return getAvailableSpectrumBounds(null);
 };
 
-// Every persisted source-view field is subscriber-local and safe to restore
-// immediately; device options come from the current live stream instead.
+// Persisted view fields are presentation-only; device-owned SDR options come
+// from the live stream or the Redux cold-start tune state.
 const INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS = PERSISTED_SOURCE_VIEW_FIELDS;
 
 export const buildPersistedSourceViewState = (
@@ -1258,7 +1263,7 @@ export type SpectrumAction =
 
 export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   activeSignalArea: "A",
-  frequencyRange: null,
+  frequencyRange: INITIAL_SPECTRUM_FREQUENCY_RANGE,
   tuningPreviewActive: false,
   displayTemporalResolution: "reduced",
   powerScale: "dB",
@@ -2182,6 +2187,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const manualPausedSourceIdsRef = useRef<Set<string>>(new Set());
     const pauseReplaySentForSourceIdRef = useRef<string | null>(null);
     const autoPausedSourceIdsRef = useRef<Set<string>>(new Set());
+    const pendingRoutePauseSourceIdsRef = useRef<Set<string>>(new Set());
     const previousSelectedSourceIdRef = useRef<string | null>(null);
     const previousIsVisualizerRouteRef = useRef(
       isLiveVisualizerPathname(location.pathname),
@@ -2241,6 +2247,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const wsSpectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
     const signalsDefaults = useAppSelector((s) => s.websocket.signalsDefaults);
     const captureStatus = useAppSelector((s) => s.websocket.captureStatus);
+    const demodIsListening = useAppSelector((s) => s.demod.isListening);
+    const activeAcquisitionRevision = useSyncExternalStore(
+      subscribeToActiveAcquisitionOperations,
+      getActiveAcquisitionOperationsRevision,
+      getActiveAcquisitionOperationsRevision,
+    );
     const error = useAppSelector((s) => s.websocket.error);
     // liveDataRef is written directly by the middleware — never goes through Redux.
     const selectedSourceStatus = selectedSource
@@ -3003,6 +3015,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         previousSelectedSourceId &&
         previousSelectedSourceId !== selectedSourceId
       ) {
+        pendingRoutePauseSourceIdsRef.current.clear();
+      }
+
+      if (
+        previousSelectedSourceId &&
+        previousSelectedSourceId !== selectedSourceId
+      ) {
         const previousSource = effectiveWebsocketSources.find(
           (source) => source.id === previousSelectedSourceId,
         );
@@ -3176,7 +3195,20 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         return;
       }
 
-      if (wasVisualizerRoute && !isVisualizerRoute) {
+      const captureMatchesSelectedSource =
+        !captureStatus?.sourceId || captureStatus.sourceId === selectedSourceId;
+      const activeCapture =
+        captureMatchesSelectedSource &&
+        (captureStatus?.status === "started" ||
+          captureStatus?.status === "progress");
+      const activeLiveDemodulation =
+        demodIsListening && state.sourceMode === "live" && !isPaused;
+      const activeDataFlow =
+        activeCapture ||
+        activeLiveDemodulation ||
+        hasActiveAcquisitionOperations(selectedSourceId);
+
+      const autoPauseSelectedSource = () => {
         if (
           isTxCapableSourceInfo(selectedSource) ||
           manualPausedSourceIdsRef.current.has(selectedSourceId) ||
@@ -3191,10 +3223,29 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         );
         wsConnection.sendPauseCommand(true, selectedSourceId);
         syncSelectedSourcePauseState(selectedSourceId);
+      };
+
+      if (wasVisualizerRoute && !isVisualizerRoute) {
+        if (
+          isTxCapableSourceInfo(selectedSource) ||
+          manualPausedSourceIdsRef.current.has(selectedSourceId) ||
+          autoPausedSourceIdsRef.current.has(selectedSourceId)
+        ) {
+          return;
+        }
+
+        if (activeDataFlow) {
+          pendingRoutePauseSourceIdsRef.current.add(selectedSourceId);
+          return;
+        }
+
+        pendingRoutePauseSourceIdsRef.current.delete(selectedSourceId);
+        autoPauseSelectedSource();
         return;
       }
 
       if (!wasVisualizerRoute && isVisualizerRoute) {
+        pendingRoutePauseSourceIdsRef.current.clear();
         if (!autoPausedSourceIdsRef.current.has(selectedSourceId)) {
           syncSelectedSourcePauseState(selectedSourceId);
           return;
@@ -3206,11 +3257,35 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         );
         wsConnection.sendPauseCommand(false, selectedSourceId);
         syncSelectedSourcePauseState(selectedSourceId);
+        return;
+      }
+
+      if (
+        !isVisualizerRoute &&
+        pendingRoutePauseSourceIdsRef.current.has(selectedSourceId)
+      ) {
+        if (
+          manualPausedSourceIdsRef.current.has(selectedSourceId) ||
+          isTxCapableSourceInfo(selectedSource)
+        ) {
+          pendingRoutePauseSourceIdsRef.current.delete(selectedSourceId);
+          return;
+        }
+        if (activeDataFlow) return;
+
+        pendingRoutePauseSourceIdsRef.current.delete(selectedSourceId);
+        autoPauseSelectedSource();
       }
     }, [
+      activeAcquisitionRevision,
+      captureStatus,
+      demodIsListening,
+      isPaused,
       isVisualizerRoute,
+      manualVisualizerPaused,
       selectedSource,
       selectedSourceId,
+      state.sourceMode,
       syncSelectedSourcePauseState,
       storeDispatch,
       wsConnection,
@@ -4169,6 +4244,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
               : false),
           requestedPaused,
         });
+        pendingRoutePauseSourceIdsRef.current.delete(pauseTargetSourceId);
         if (nextPaused) {
           manualPausedSourceIdsRef.current.add(pauseTargetSourceId);
           autoPausedSourceIdsRef.current.delete(pauseTargetSourceId);
@@ -4191,6 +4267,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             pauseTargetSourceId,
           })
         ) {
+          pendingRoutePauseSourceIdsRef.current.delete(selectedSourceId);
           manualPausedSourceIdsRef.current.add(selectedSourceId);
           autoPausedSourceIdsRef.current.delete(selectedSourceId);
           setLocalSourcePauseOverrides((current) =>

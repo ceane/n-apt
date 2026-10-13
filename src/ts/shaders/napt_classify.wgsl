@@ -29,8 +29,8 @@ const MAX_SPIKES: u32 = 1024u;
 
 // The first ten members are atomic accumulators used by classify(). The
 // remaining members are finalized scalar outputs. The host reads the scalar
-// fields at byte offsets 40 through 128, so changing this layout requires a
-  // matching update in useDrawWebGPUFFTSignal.ts, the harness, and readback tests.
+// fields at byte offsets 40 through 156, so changing this layout requires a
+// matching update in useDrawWebGPUFFTSignal.ts, the harness, and readback tests.
 struct ClassifierResult {
   floor_sum_fixed: atomic<i32>,
   floor_count: atomic<u32>,
@@ -71,6 +71,14 @@ struct ClassifierResult {
   // [128] Quality is the inverse of the independently measured hardware-artifact
   // penalty. It is diagnostic and decision-gating data, not N-APT evidence.
   capture_quality_score: f32,
+  // Per-frame cadence metrics, appended to preserve the established prefix.
+  spacing_hz: f32,
+  spacing_score: f32,
+  spacing_support: f32,
+  spacing_tolerance_hz: f32,
+  valley_fill_score: f32,
+  broad_floor_variation_score: f32,
+  interference_score: f32,
 }
 
 @group(0) @binding(0) var<storage, read> waveform: array<f32>;
@@ -79,6 +87,388 @@ struct ClassifierResult {
 @group(0) @binding(3) var<storage, read_write> result: ClassifierResult;
 @group(0) @binding(4) var<storage, read_write> spike_count: atomic<u32>;
 @group(0) @binding(5) var<storage, read_write> spike_metrics: array<SpikeMetric>;
+
+const SPACING_SPIKE_LIMIT: u32 = 192u;
+const MIN_SPACING_HZ: f32 = 12000.0;
+const MAX_SPACING_HZ: f32 = 80000.0;
+const SPACING_HISTOGRAM_BIN_HZ: f32 = 2000.0;
+
+// Marker append order is atomic and therefore arbitrary. Find each marker's
+// nearest higher-frequency neighbor rather than assuming the storage array is
+// sorted, then score the dominant gap mode against the remaining gaps.
+fn estimate_spike_spacing() -> vec4<f32> {
+  let marker_count = min(result.spike_count, SPACING_SPIKE_LIMIT);
+  if (marker_count < 5u) { return vec4<f32>(0.0); }
+
+  var candidate_indices: array<u32, 192>;
+  var candidate_count = 0u;
+  for (var marker = 0u; marker < marker_count; marker = marker + 1u) {
+    if (spikes[marker].value >= result.floor_dbm + 6.0) {
+      candidate_indices[candidate_count] = spikes[marker].index;
+      candidate_count = candidate_count + 1u;
+    }
+  }
+  if (candidate_count < 5u) { return vec4<f32>(0.0); }
+
+  var gap_histogram: array<u32, 40>;
+  var gap_count = 0u;
+  let frequency_span = params.frequency_max - params.frequency_min;
+  for (var left = 0u; left < candidate_count; left = left + 1u) {
+    let left_index = candidate_indices[left];
+    var nearest_higher_index = params.source_length;
+    for (var right = 0u; right < candidate_count; right = right + 1u) {
+      let right_index = candidate_indices[right];
+      if (right_index > left_index && right_index < nearest_higher_index) {
+        nearest_higher_index = right_index;
+      }
+    }
+    if (nearest_higher_index >= params.source_length) { continue; }
+    let gap_hz = f32(nearest_higher_index - left_index) * frequency_span /
+      f32(max(1u, params.source_length - 1u));
+    if (gap_hz < MIN_SPACING_HZ || gap_hz > MAX_SPACING_HZ) { continue; }
+    let bin = min(u32(round(gap_hz / SPACING_HISTOGRAM_BIN_HZ)), 39u);
+    gap_histogram[bin] = gap_histogram[bin] + 1u;
+    gap_count = gap_count + 1u;
+  }
+  if (gap_count < 4u) { return vec4<f32>(0.0); }
+
+  var mode_bin = 0u;
+  var mode_count = 0u;
+  for (var bin = 0u; bin < 40u; bin = bin + 1u) {
+    if (gap_histogram[bin] > mode_count) {
+      mode_count = gap_histogram[bin];
+      mode_bin = bin;
+    }
+  }
+  if (mode_count < 3u) { return vec4<f32>(0.0); }
+  let mode_hz = f32(mode_bin) * SPACING_HISTOGRAM_BIN_HZ;
+  let inlier_tolerance = max(SPACING_HISTOGRAM_BIN_HZ * 2.25, mode_hz * 0.12);
+  var inlier_count = 0u;
+  var inlier_gap_sum = 0.0;
+  var absolute_deviation_sum = 0.0;
+  for (var left = 0u; left < candidate_count; left = left + 1u) {
+    let left_index = candidate_indices[left];
+    var nearest_higher_index = params.source_length;
+    for (var right = 0u; right < candidate_count; right = right + 1u) {
+      let right_index = candidate_indices[right];
+      if (right_index > left_index && right_index < nearest_higher_index) {
+        nearest_higher_index = right_index;
+      }
+    }
+    if (nearest_higher_index >= params.source_length) { continue; }
+    let gap_hz = f32(nearest_higher_index - left_index) * frequency_span /
+      f32(max(1u, params.source_length - 1u));
+    if (gap_hz >= MIN_SPACING_HZ && gap_hz <= MAX_SPACING_HZ &&
+        abs(gap_hz - mode_hz) <= inlier_tolerance) {
+      inlier_count = inlier_count + 1u;
+      inlier_gap_sum = inlier_gap_sum + gap_hz;
+    }
+  }
+  let support = f32(inlier_count) / f32(max(1u, gap_count));
+  if (inlier_count < 4u || support < 0.35) { return vec4<f32>(0.0); }
+  let spacing_hz = inlier_gap_sum / f32(inlier_count);
+  for (var left = 0u; left < candidate_count; left = left + 1u) {
+    let left_index = candidate_indices[left];
+    var nearest_higher_index = params.source_length;
+    for (var right = 0u; right < candidate_count; right = right + 1u) {
+      let right_index = candidate_indices[right];
+      if (right_index > left_index && right_index < nearest_higher_index) {
+        nearest_higher_index = right_index;
+      }
+    }
+    if (nearest_higher_index >= params.source_length) { continue; }
+    let gap_hz = f32(nearest_higher_index - left_index) * frequency_span /
+      f32(max(1u, params.source_length - 1u));
+    if (gap_hz >= MIN_SPACING_HZ && gap_hz <= MAX_SPACING_HZ &&
+        abs(gap_hz - mode_hz) <= inlier_tolerance) {
+      absolute_deviation_sum = absolute_deviation_sum + abs(gap_hz - spacing_hz);
+    }
+  }
+  let regularity = clamp(
+    1.0 - absolute_deviation_sum / f32(inlier_count) /
+      max(SPACING_HISTOGRAM_BIN_HZ, spacing_hz * 0.12),
+    0.0,
+    1.0);
+  let cadence_support = min(1.0, f32(mode_count) / 5.0);
+  let score = cadence_support * 0.70 + regularity * 0.30;
+  return vec4<f32>(spacing_hz, score, support, inlier_tolerance);
+}
+
+// Estimate floor lift after removing the smooth, frequency-dependent spectral
+// shape. The asymmetric positive residual is the cue for a local hump; its
+// position is never tied to a preferred RF frequency or channel.
+fn estimate_local_interference() -> vec3<f32> {
+  const BAND_COUNT: u32 = 32u;
+  const SAMPLES_PER_BAND: u32 = 32u;
+  if (params.length < BAND_COUNT * 8u) { return vec3<f32>(0.0); }
+  var band_floors: array<f32, 32>;
+  var band_peaks: array<f32, 32>;
+  let band_width = params.length / BAND_COUNT;
+  for (var band = 0u; band < BAND_COUNT; band = band + 1u) {
+    let start = band * band_width;
+    let end = select((band + 1u) * band_width, params.length, band == BAND_COUNT - 1u);
+    var levels: array<f32, 32>;
+    for (var sample = 0u; sample < SAMPLES_PER_BAND; sample = sample + 1u) {
+      let index = start + sample * (end - start) / SAMPLES_PER_BAND;
+      levels[sample] = waveform[min(index, params.length - 1u)];
+    }
+    for (var left = 0u; left < SAMPLES_PER_BAND; left = left + 1u) {
+      var smallest = left;
+      for (var right = left + 1u; right < SAMPLES_PER_BAND; right = right + 1u) {
+        if (levels[right] < levels[smallest]) { smallest = right; }
+      }
+      let value = levels[left];
+      levels[left] = levels[smallest];
+      levels[smallest] = value;
+    }
+    // The median is robust to sparse spike tops but rises when a broad hump
+    // occupies the inter-spike valleys. A low-tail quantile can discard those
+    // lifted valleys and make a real interference clump look like clean comb
+    // teeth even when the majority of the local spectrum is raised.
+    band_floors[band] = levels[15u];
+    band_peaks[band] = levels[30u];
+  }
+
+  // Spike markers are appended atomically, so their array order is not a
+  // frequency order. Bin them by index before calculating regional contrast.
+  let marker_count = min(result.spike_count, SPACING_SPIKE_LIMIT);
+  var band_spike_counts: array<u32, 32>;
+  for (var marker = 0u; marker < marker_count; marker = marker + 1u) {
+    let spike = spikes[marker];
+    if (spike.value < result.floor_dbm + 6.0) { continue; }
+    let band = min(spike.index * BAND_COUNT / params.length, BAND_COUNT - 1u);
+    band_peaks[band] = max(band_peaks[band], spike.value);
+    band_spike_counts[band] = band_spike_counts[band] + 1u;
+  }
+
+  // Fit a quadratic smooth floor in a symmetric basis (constant, slope, and
+  // curvature). This accepts smooth tilt/bowl response while leaving a local
+  // positive hump as a residual for the multi-band scan below.
+  var mean_t_squared = 0.0;
+  for (var band = 0u; band < BAND_COUNT; band = band + 1u) {
+    let t = 2.0 * f32(band) / f32(BAND_COUNT - 1u) - 1.0;
+    mean_t_squared = mean_t_squared + t * t;
+  }
+  mean_t_squared = mean_t_squared / f32(BAND_COUNT);
+  var mean_floor = 0.0;
+  for (var band = 0u; band < BAND_COUNT; band = band + 1u) {
+    mean_floor = mean_floor + band_floors[band];
+  }
+  mean_floor = mean_floor / f32(BAND_COUNT);
+  var slope = 0.0;
+  var curve = 0.0;
+  // Refit after winsorizing positive floor outliers. A broad local hump must
+  // remain visible as residual instead of bending the baseline up to absorb
+  // itself; clipping both signs also limits the influence of narrow valleys.
+  for (var iteration = 0u; iteration < 4u; iteration = iteration + 1u) {
+    var adjusted_mean = 0.0;
+    var adjusted_slope_numerator = 0.0;
+    var adjusted_curve_numerator = 0.0;
+    var slope_denominator = 0.0;
+    var curve_denominator = 0.0;
+    for (var band = 0u; band < BAND_COUNT; band = band + 1u) {
+      let t = 2.0 * f32(band) / f32(BAND_COUNT - 1u) - 1.0;
+      let curve_basis = t * t - mean_t_squared;
+      let trend = mean_floor + slope * t + curve * curve_basis;
+      let adjusted_floor = trend + clamp(band_floors[band] - trend, -3.5, 3.5);
+      adjusted_mean = adjusted_mean + adjusted_floor;
+      adjusted_slope_numerator = adjusted_slope_numerator + t * adjusted_floor;
+      adjusted_curve_numerator = adjusted_curve_numerator + curve_basis * adjusted_floor;
+      slope_denominator = slope_denominator + t * t;
+      curve_denominator = curve_denominator + curve_basis * curve_basis;
+    }
+    mean_floor = adjusted_mean / f32(BAND_COUNT);
+    slope = adjusted_slope_numerator / max(0.0001, slope_denominator);
+    curve = adjusted_curve_numerator / max(0.0001, curve_denominator);
+  }
+  var floor_residuals: array<f32, 32>;
+  var peak_reliefs: array<f32, 32>;
+  for (var band = 0u; band < BAND_COUNT; band = band + 1u) {
+    let t = 2.0 * f32(band) / f32(BAND_COUNT - 1u) - 1.0;
+    let trend = mean_floor + slope * t + curve * (t * t - mean_t_squared);
+    floor_residuals[band] = band_floors[band] - trend;
+    peak_reliefs[band] = max(0.0, band_peaks[band] - band_floors[band]);
+  }
+  for (var left = 0u; left < BAND_COUNT; left = left + 1u) {
+    var smallest = left;
+    for (var right = left + 1u; right < BAND_COUNT; right = right + 1u) {
+      if (peak_reliefs[right] < peak_reliefs[smallest]) { smallest = right; }
+    }
+    let value = peak_reliefs[left];
+    peak_reliefs[left] = peak_reliefs[smallest];
+    peak_reliefs[smallest] = value;
+  }
+  let healthy_peak_relief = peak_reliefs[24u];
+
+  var broad_floor_score = 0.0;
+  var local_interference_score = 0.0;
+  // Multiple region widths catch a hump that straddles a tile boundary while
+  // keeping the floor lift and peak-to-floor degradation spatially coupled.
+  for (var width = 3u; width <= 5u; width = width + 1u) {
+    for (var start = 0u; start + width <= BAND_COUNT; start = start + 1u) {
+      var residual_sum = 0.0;
+      var peak_relief_sum = 0.0;
+      var local_spike_count = 0u;
+      for (var offset = 0u; offset < width; offset = offset + 1u) {
+        let band = start + offset;
+        residual_sum = residual_sum + max(0.0, floor_residuals[band]);
+        peak_relief_sum = peak_relief_sum + peak_reliefs[band];
+        local_spike_count = local_spike_count + band_spike_counts[band];
+      }
+      let local_floor_lift = residual_sum / f32(width);
+      // A modest (roughly 1.5 dB) local rise is meaningful only when the same
+      // region also loses spike-to-valley contrast and contains detected
+      // spikes. Keep the other two cues multiplicative so ordinary floor
+      // texture cannot trigger interference by itself.
+      let floor_score = clamp((local_floor_lift - 1.5) / 1.5, 0.0, 1.0);
+      broad_floor_score = max(broad_floor_score, floor_score);
+      let local_peak_relief = peak_relief_sum / f32(width);
+      let local_valley_fill = clamp(
+        (healthy_peak_relief - local_peak_relief - 3.0) /
+          max(8.0, healthy_peak_relief * 0.45),
+        0.0,
+        1.0);
+      let spike_support = clamp(f32(local_spike_count) / 4.0, 0.0, 1.0);
+      local_interference_score = max(
+        local_interference_score,
+        floor_score * local_valley_fill * spike_support);
+    }
+  }
+  // Some broadband interferers lift most of the FFT floor together, leaving
+  // no clean low-floor region for the local trend fit to anchor against. In
+  // that case use a joint floor-level × weak-peak-relief cue. This stays
+  // frequency-agnostic and cannot trigger from raised power alone; the local
+  // hump/valley detector remains active for localized interference.
+  let elevated_floor_score = clamp((result.floor_dbm + 28.5) / 7.5, 0.0, 1.0);
+  let lower_quartile_peak_relief = peak_reliefs[8u];
+  let masked_peak_relief_score = clamp(
+    (11.0 - lower_quartile_peak_relief) / 4.0,
+    0.0,
+    1.0);
+  let broadband_mask_score = elevated_floor_score * masked_peak_relief_score;
+  return vec3<f32>(
+    broad_floor_score,
+    clamp(local_interference_score + broadband_mask_score, 0.0, 1.0),
+    healthy_peak_relief);
+}
+
+fn estimate_spike_valley_fill(spacing_hz: f32) -> f32 {
+  const MAX_OBSERVATIONS: u32 = 128u;
+  if (spacing_hz <= 0.0 || result.spike_count < 5u) { return 0.0; }
+  let frequency_span = params.frequency_max - params.frequency_min;
+  if (frequency_span <= spacing_hz * 5.0) { return 0.0; }
+  let marker_count = min(result.spike_count, SPACING_SPIKE_LIMIT);
+  var phases: array<f32, 192>;
+  var phase_count = 0u;
+  for (var marker = 0u; marker < marker_count; marker = marker + 1u) {
+    if (spikes[marker].value >= result.floor_dbm + 4.0) {
+      let offset = f32(spikes[marker].index) * frequency_span /
+        f32(max(1u, params.source_length - 1u));
+      phases[phase_count] = offset - floor(offset / spacing_hz) * spacing_hz;
+      phase_count = phase_count + 1u;
+    }
+  }
+  if (phase_count < 5u) { return 0.0; }
+
+  let phase_tolerance = spacing_hz * 0.12;
+  var phase = phases[0];
+  var best_support = 0u;
+  for (var candidate = 0u; candidate < phase_count; candidate = candidate + 1u) {
+    var support = 0u;
+    for (var observed = 0u; observed < phase_count; observed = observed + 1u) {
+      let distance = abs(phases[observed] - phases[candidate]);
+      if (min(distance, spacing_hz - distance) <= phase_tolerance) {
+        support = support + 1u;
+      }
+    }
+    if (support > best_support) {
+      best_support = support;
+      phase = phases[candidate];
+    }
+  }
+  if (best_support < 5u) { return 0.0; }
+
+  let bins_per_hz = f32(params.length - 1u) / frequency_span;
+  let spacing_bins = spacing_hz * bins_per_hz;
+  let peak_radius = min(20u, max(1u, u32(floor(spacing_bins * 0.10))));
+  let valley_radius = min(20u, max(1u, u32(floor(spacing_bins * 0.07))));
+  let first_cycle = i32(ceil(-phase / spacing_hz));
+  let last_cycle = i32(floor((frequency_span - phase) / spacing_hz));
+  if (last_cycle < first_cycle) { return 0.0; }
+  let total_cycles = u32(last_cycle - first_cycle + 1);
+  let cycle_step = max(1u, u32(ceil(f32(total_cycles) / f32(MAX_OBSERVATIONS))));
+  var peak_levels: array<f32, 128>;
+  var valley_levels: array<f32, 128>;
+  var observation_count = 0u;
+  for (var cycle_offset = 0u; cycle_offset < total_cycles; cycle_offset = cycle_offset + cycle_step) {
+    let cycle = first_cycle + i32(cycle_offset);
+    let peak_offset = phase + f32(cycle) * spacing_hz;
+    let valley_offset = peak_offset + spacing_hz * 0.5;
+    if (valley_offset > frequency_span) { continue; }
+    let peak_index = i32(round(peak_offset * bins_per_hz));
+    let valley_index = i32(round(valley_offset * bins_per_hz));
+    var peak_dbm = -1.0e30;
+    for (var delta = -i32(peak_radius); delta <= i32(peak_radius); delta = delta + 1) {
+      let sample_index = clamp(peak_index + delta, 0, i32(params.length) - 1);
+      peak_dbm = max(peak_dbm, waveform[u32(sample_index)]);
+    }
+    var local_valleys: array<f32, 9>;
+    for (var sample = 0u; sample < 9u; sample = sample + 1u) {
+      let delta = i32(sample) * i32(valley_radius) / 4 - i32(valley_radius);
+      let sample_index = clamp(valley_index + delta, 0, i32(params.length) - 1);
+      local_valleys[sample] = waveform[u32(sample_index)];
+    }
+    for (var left = 0u; left < 9u; left = left + 1u) {
+      var smallest = left;
+      for (var right = left + 1u; right < 9u; right = right + 1u) {
+        if (local_valleys[right] < local_valleys[smallest]) { smallest = right; }
+      }
+      let value = local_valleys[left];
+      local_valleys[left] = local_valleys[smallest];
+      local_valleys[smallest] = value;
+    }
+    peak_levels[observation_count] = peak_dbm;
+    valley_levels[observation_count] = local_valleys[4u];
+    observation_count = observation_count + 1u;
+  }
+  if (observation_count < 5u) { return 0.0; }
+
+  var sorted_valleys = valley_levels;
+  for (var left = 0u; left < observation_count; left = left + 1u) {
+    var smallest = left;
+    for (var right = left + 1u; right < observation_count; right = right + 1u) {
+      if (sorted_valleys[right] < sorted_valleys[smallest]) { smallest = right; }
+    }
+    let value = sorted_valleys[left];
+    sorted_valleys[left] = sorted_valleys[smallest];
+    sorted_valleys[smallest] = value;
+  }
+  let floor_reference = sorted_valleys[(observation_count - 1u) / 4u];
+  var fills: array<f32, 128>;
+  for (var index = 0u; index < observation_count; index = index + 1u) {
+    let peak_relief = peak_levels[index] - floor_reference;
+    if (peak_relief < 5.0) {
+      fills[index] = -1.0;
+    } else {
+      fills[index] = clamp(max(0.0, valley_levels[index] - floor_reference) / peak_relief, 0.0, 1.0);
+    }
+  }
+  var strongest_run = 0.0;
+  for (var start = 0u; start + 5u <= observation_count; start = start + 1u) {
+    var active_count = 0u;
+    var run_sum = 0.0;
+    for (var index = start; index < start + 5u; index = index + 1u) {
+      if (fills[index] >= 0.0) {
+        active_count = active_count + 1u;
+        run_sum = run_sum + fills[index];
+      }
+    }
+    if (active_count >= 3u) {
+      strongest_run = max(strongest_run, run_sum / f32(active_count));
+    }
+  }
+  return strongest_run;
+}
 
 // A bridge is measured over 3.125% of the capture span. This is intentionally
 // span-relative rather than a fixed number of FFT bins so it survives tuning
@@ -1605,4 +1995,13 @@ fn finalize() {
     spike_metrics[spike_index].index = raw_index;
     spike_metrics[spike_index].padding = 0u;
   }
+  let spacing = estimate_spike_spacing();
+  result.spacing_hz = spacing.x;
+  result.spacing_score = spacing.y;
+  result.spacing_support = spacing.z;
+  result.spacing_tolerance_hz = spacing.w;
+  result.valley_fill_score = estimate_spike_valley_fill(spacing.x);
+  let local_interference = estimate_local_interference();
+  result.broad_floor_variation_score = local_interference.x;
+  result.interference_score = local_interference.y;
 }

@@ -53,9 +53,23 @@ export interface NoteCardSize {
   height: number;
 }
 
+export interface NoteCardExperimentContext {
+  channel: string | null;
+  txPattern: string;
+  txPowerDbm: number;
+  txCenterFrequencyHz?: number;
+  txBandwidthHz?: number;
+  txVgaGainDb?: number;
+  txAmpEnabled?: boolean;
+  txSafetyEnabled?: boolean;
+}
+
 export interface NoteCardModel {
   id: string;
   title: string;
+  observation?: string;
+  labels?: string[];
+  experiment?: NoteCardExperimentContext;
   stats: NoteCardStatsSnapshot;
   snapshot?: NoteCardSnapshotMedia | null;
   position: NoteCardPosition;
@@ -66,6 +80,7 @@ export interface NoteCardModel {
 
 interface NoteCardsState {
   cards: NoteCardModel[];
+  experimentLabels: string[];
   activeCardId: string | null;
   nextZIndex: number;
   isCollapsed: boolean;
@@ -138,6 +153,52 @@ const normalizeNoteCardTitle = (card: NoteCardModel): string => {
   return title;
 };
 
+const normalizeLabels = (labels: unknown): string[] =>
+  Array.isArray(labels)
+    ? Array.from(
+        new Set(
+          labels
+            .filter((label): label is string => typeof label === "string")
+            .map((label) => label.trim().replace(/\s+/g, " "))
+            .filter(Boolean),
+        ),
+      )
+    : [];
+
+const normalizeExperimentContext = (
+  experiment: unknown,
+): NoteCardExperimentContext | undefined => {
+  if (!experiment || typeof experiment !== "object") return undefined;
+  const value = experiment as Partial<NoteCardExperimentContext>;
+  if (
+    typeof value.txPattern !== "string" ||
+    typeof value.txPowerDbm !== "number" ||
+    !Number.isFinite(value.txPowerDbm)
+  ) {
+    return undefined;
+  }
+  return {
+    channel: typeof value.channel === "string" ? value.channel : null,
+    txPattern: value.txPattern,
+    txPowerDbm: value.txPowerDbm,
+    ...(Number.isFinite(value.txCenterFrequencyHz)
+      ? { txCenterFrequencyHz: value.txCenterFrequencyHz }
+      : {}),
+    ...(Number.isFinite(value.txBandwidthHz)
+      ? { txBandwidthHz: value.txBandwidthHz }
+      : {}),
+    ...(Number.isFinite(value.txVgaGainDb)
+      ? { txVgaGainDb: value.txVgaGainDb }
+      : {}),
+    ...(typeof value.txAmpEnabled === "boolean"
+      ? { txAmpEnabled: value.txAmpEnabled }
+      : {}),
+    ...(typeof value.txSafetyEnabled === "boolean"
+      ? { txSafetyEnabled: value.txSafetyEnabled }
+      : {}),
+  };
+};
+
 export const buildNoteCardTitle = (stats: NoteCardStatsSnapshot): string => {
   const centerText = formatFrequencyText(stats.centerFrequencyHz);
   const zoomText = Number.isFinite(stats.vizZoom)
@@ -153,6 +214,7 @@ export const buildNoteCardTitle = (stats: NoteCardStatsSnapshot): string => {
 
 const initialState: NoteCardsState = {
   cards: [],
+  experimentLabels: [],
   activeCardId: null,
   nextZIndex: 1,
   isCollapsed: false,
@@ -192,6 +254,9 @@ export const buildStatsSnapshot = (
 
 interface CreateNoteCardArgs {
   title?: string;
+  observation?: string;
+  labels?: string[];
+  experiment?: NoteCardExperimentContext;
   snapshot?: NoteCardSnapshotMedia | null;
   stats?: Partial<NoteCardStatsSnapshot>;
 }
@@ -209,6 +274,9 @@ export const createNoteCardFromSpectrum = createAsyncThunk<
   const card: NoteCardModel = {
     id: nanoid(),
     title: args?.title ?? "",
+    observation: args?.observation?.trim() ?? "",
+    labels: normalizeLabels(args?.labels),
+    experiment: normalizeExperimentContext(args?.experiment),
     stats,
     snapshot: args?.snapshot ?? null,
     position: DEFAULT_POSITION,
@@ -230,11 +298,19 @@ const noteCardsSlice = createSlice({
         return {
           ...card,
           title: normalizeNoteCardTitle(card),
+          observation:
+            typeof card.observation === "string" ? card.observation : "",
+          labels: normalizeLabels(card.labels),
+          experiment: normalizeExperimentContext(card.experiment),
           stats,
           position: card.position ?? DEFAULT_POSITION,
           size: card.size ?? DEFAULT_SIZE,
         };
       });
+      state.experimentLabels = normalizeLabels([
+        ...state.experimentLabels,
+        ...state.cards.flatMap((card) => card.labels ?? []),
+      ]);
       if (state.cards.length === 0) {
         state.activeCardId = null;
         state.nextZIndex = 1;
@@ -251,6 +327,18 @@ const noteCardsSlice = createSlice({
       });
       state.activeCardId = activeId ?? state.cards[state.cards.length - 1].id;
       state.nextZIndex = maxZ + 1;
+    },
+    hydrateExperimentLabels: (state, action: PayloadAction<string[]>) => {
+      state.experimentLabels = normalizeLabels([
+        ...state.experimentLabels,
+        ...(action.payload ?? []),
+      ]);
+    },
+    addExperimentLabel: (state, action: PayloadAction<string>) => {
+      state.experimentLabels = normalizeLabels([
+        ...state.experimentLabels,
+        action.payload,
+      ]);
     },
     updateNoteCardText: (
       state,
@@ -334,6 +422,10 @@ const noteCardsSlice = createSlice({
   extraReducers: (builder) => {
     builder.addCase(createNoteCardFromSpectrum.fulfilled, (state, action) => {
       const cardPayload = action.payload;
+      state.experimentLabels = normalizeLabels([
+        ...state.experimentLabels,
+        ...(cardPayload.labels ?? []),
+      ]);
       state.cards.forEach((card) => {
         if (card.isActive) {
           card.isActive = false;
@@ -348,6 +440,8 @@ const noteCardsSlice = createSlice({
 
 export const {
   hydrateNoteCards,
+  hydrateExperimentLabels,
+  addExperimentLabel,
   updateNoteCardText,
   updateNoteCardPosition,
   updateNoteCardSize,
@@ -360,6 +454,8 @@ export const {
 
 export const selectNoteCardsState = (state: RootState) => state.noteCards;
 export const selectNoteCards = (state: RootState) => state.noteCards.cards;
+export const selectExperimentLabels = (state: RootState) =>
+  state.noteCards.experimentLabels;
 export const selectActiveNoteCard = (state: RootState) =>
   state.noteCards.cards.find(
     (card) => card.id === state.noteCards.activeCardId,

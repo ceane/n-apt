@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN=$(command -v node)
+elif [ -x "/Users/ceanelamerez/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node" ]; then
+  NODE_BIN="/Users/ceanelamerez/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+else
+  echo "pre-push: Node.js is required to validate capture encryption." >&2
+  exit 1
+fi
+
+"$NODE_BIN" scripts/git/check_encrypted_captures.mjs --pre-push

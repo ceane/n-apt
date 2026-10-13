@@ -1060,7 +1060,7 @@ mod stable_source_order_tests {
   #[test]
   fn inventory_source_ids_include_mocks_and_every_cached_peer() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_rtl_sdr_inventory(vec![
       crate::server::shared_state::RtlSdrInventoryDevice {
         index: 0,
@@ -1090,7 +1090,7 @@ mod stable_source_order_tests {
   #[test]
   fn source_inventory_advertises_versioned_iq_lifecycle_metadata() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let snapshot = build_source_info_snapshot(&shared);
     let active_id = snapshot["active_source"].as_str().unwrap();
     let active = snapshot["sources"]
@@ -1145,7 +1145,7 @@ mod stable_source_order_tests {
       .expect("write temp signals.yaml");
     std::env::set_current_dir(&temp_dir).expect("set temp dir");
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     shared.update_device_status(
       true,
@@ -1225,7 +1225,7 @@ mod stable_source_order_tests {
   #[test]
   fn rtl_inventory_snapshot_uses_sdr_owned_cache() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared
       .supported_usb_device_count
       .store(1, Ordering::Relaxed);

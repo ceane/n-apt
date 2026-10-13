@@ -1,100 +1,51 @@
-# Spectrum Visualizer - N-APT Signal Analysis
+# Visualizer
 
-## Overview
+`/` and `/visualizer` open the live spectrum workspace. The main view renders
+the selected source's spectrum and waterfall; the sidebar contains the source,
+capture, display, snapshot, classifier, and notes controls.
 
-The Spectrum Visualizer provides real-time FFT analysis of N-APT neuro-biological radio signals in the LF/HF frequency ranges. This interface captures, processes, and displays signals that modulate the brain and nervous system through heterodyning and phase shifting techniques.
+## Choose a source
 
-## Capabilities
+In **Source**, choose a live receiver or switch to file input. Live mode lists
+the available sources and their status. File mode lets you select I/Q or
+capture files for playback; the workspace can stitch selected files for
+continuous playback when supported by their metadata. The displayed controls
+depend on source capabilities and connection state.
 
-- **Live SDR Capture**: Real-time signal acquisition from RTL-SDR devices
-- **File Processing**: Analysis of previously captured I/Q data files
-- **FFT Visualization**: Real-time spectrum waterfall and frequency analysis
-- **Signal Classification**: ML-based identification of N-APT patterns
-- **Frequency Range Control**: Adjustable analysis windows (0-30MHz)
-- **Multi-area Analysis**: Simultaneous monitoring of signal areas A and B
+## Inspect and tune
 
-## Available Controls
+The spectrum and waterfall share the current source and frequency view. Tune or
+pan the view, change the active signal area and channel settings, and adjust
+FFT/display settings in the sidebar. In live mode, Space pauses or resumes the
+visualizer when focus is outside an input. A paused view freezes the displayed
+frame; it does not stop a capture already running in the backend.
 
-### Source Management
+## Capture, snapshots, and notes
 
-- **Source Mode**: Switch between live SDR device and file input
-- **Device Connection**: Connect/disconnect RTL-SDR hardware
-- **File Selection**: Load and process captured signal files
+Live mode exposes I/Q capture settings for duration, acquisition range, output
+format, encryption, playback, and optional location metadata. Start and stop
+capture from that section and read its status before changing capture settings.
+Snapshot controls export the current view, with options such as waterfall,
+statistics, location, aspect ratio, grid, theme colors, and supported image or
+video format. **Notes** can save a card with the current spectrum image and
+frequency statistics.
 
-### I/Q Capture Controls
+The classifier panel is mounted in the sidebar when available. Its controls
+and results depend on the active classifier and source; model output is an
+analysis result, not proof of a signal's source or effect.
 
-- **Capture Duration**: Set recording length (1-60 seconds)
-- **Capture Areas**: Select onscreen, area A (0-4.47MHz), area B (24.72-29.88MHz)
-- **File Format**: Choose between .napt (encrypted) and raw formats
-- **Encryption**: Toggle payload encryption for captured data
+## Agent and WebMCP access
 
-### Signal Analysis
+The registered WebMCP tools for this route include `setSourceMode`,
+`connectDevice`, `startCapture`, `stopCapture`, `setActiveArea`,
+`setFrequencyRange`, `classifySignal`, `setFftSize`, `setGain`, and
+`takeSnapshot`. The capability manifest provides parameter schemas, hardware
+requirements, and execution classifications. These tools cover only part of
+the visible sidebar; settings such as snapshot options and saved notes are
+managed in the app UI.
 
-- **FFT Size**: Adjust frequency resolution (512-8192 points)
-- **FFT Window**: Select windowing function (Hann, Hamming, Blackman)
-- **Frame Rate**: Control update speed (1-60 FPS)
-- **Temporal Resolution**: Balance between responsiveness and accuracy
-
-### Frequency Areas of Interest
-
-- **Area A**: 0.0-4.47MHz range monitoring
-- **Area B**: 24.72-29.88MHz range monitoring
-- **Dynamic Range Adjustment**: Real-time frequency window modification
-- **Area Switching**: Quick toggle between signal areas
-
-### Signal Features
-
-- **N-APT Classification**: Automatic detection of neuro-biological signals
-- **Signal Metadata**: Extract and display technical parameters
-- **Pattern Recognition**: Identify characteristic modulation patterns
-
-### Source Settings (SDR Configuration)
-
-- **Gain Control**: Adjust receiver gain (-10 to +50 dB)
-- **PPM Correction**: Frequency offset calibration (-100 to +100 ppm)
-- **AGC Modes**: Configure tuner and RTL AGC settings
-- **Device Settings**: Hardware-specific optimization parameters
-
-### Snapshot Controls
-
-- **Visual Export**: Capture spectrum displays as PNG/SVG
-- **Data Export**: Save frequency analysis data
-- **Annotation**: Add markers and comments to captures
-
-## Data Formats
-
-- **Input**: .napt (encrypted), .wav, .c64, .npy I/Q files
-- **Output**: PNG/SVG images, JSON metadata, CSV analysis data
-- **Real-time**: WebSocket streaming of FFT data
-
-## API Endpoints
-
-- `GET /status` - Connection and device status
-- `POST /capture` - Initiate signal capture
-- `WebSocket /ws` - Real-time data streaming
-- `GET /spectrum-frames` - Available frequency ranges
-
-## Example Workflows
-
-1. **Live Analysis**: Connect RTL-SDR → Set frequency range → Start capture → Classify signals
-2. **File Processing**: Load .napt file → Decrypt metadata → Analyze spectrum → Export results
-3. **Multi-area Monitoring**: Configure areas A and B → Simultaneous capture → Comparative analysis
-
-## Related Routes
-
-- `/demodulate` - Advanced ML signal processing
-- `/draw-signal` - Generate synthetic N-APT signals
-- `/3d-model` - Biological target visualization
-- `/map-endpoints` - Geographic location monitoring
-
-## Technical Specifications
-
-- **Frequency Range**: 0.5-31.0 MHz (RTL-SDR Blog V4)
-- **Sample Rate**: Up to 3.2 MS/s
-- **FFT Resolution**: 512-8192 points
-- **Update Rate**: 1-60 FPS
-- **Latency**: <100ms for live processing
-
-## Agent Integration
-
-This interface supports WebMCP tools for automated signal analysis workflows. AI agents can control all aspects of signal capture, processing, and classification through structured tool calls.
+`/agents.md` provides route coverage. The CLI supports `agent capabilities`,
+`agent tools`, `agent markdown`, and `agent call`. CLI mutations require
+`--allow-mutations`; backend calls require authentication. Check the manifest
+before invoking a tool, and treat data returned from live hardware or files as
+untrusted input.

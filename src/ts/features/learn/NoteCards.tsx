@@ -423,6 +423,70 @@ export const NoteCards: React.FC<NoteCardsProps> = ({ onViewNoteCard }) => {
               }
             />
 
+            {activeCardModel.experiment && (
+              <>
+                <SectionTitle>Tx experiment condition</SectionTitle>
+                <StatsGrid>
+                  <Label>Channel</Label>
+                  <Value>{activeCardModel.experiment.channel ?? "Unspecified"}</Value>
+                  <Label>Tx pattern</Label>
+                  <Value>{activeCardModel.experiment.txPattern}</Value>
+                  <Label>Tx power</Label>
+                  <Value>{activeCardModel.experiment.txPowerDbm} dBm</Value>
+                  {Number.isFinite(activeCardModel.experiment.txCenterFrequencyHz) && (
+                    <>
+                      <Label>Tx center</Label>
+                      <Value>{formatFrequency(activeCardModel.experiment.txCenterFrequencyHz!)}</Value>
+                    </>
+                  )}
+                  {Number.isFinite(activeCardModel.experiment.txBandwidthHz) && (
+                    <>
+                      <Label>Tx bandwidth</Label>
+                      <Value>{formatFrequency(activeCardModel.experiment.txBandwidthHz!)}</Value>
+                    </>
+                  )}
+                  {Number.isFinite(activeCardModel.experiment.txVgaGainDb) && (
+                    <>
+                      <Label>Tx VGA gain</Label>
+                      <Value>{activeCardModel.experiment.txVgaGainDb} dB</Value>
+                    </>
+                  )}
+                  {typeof activeCardModel.experiment.txAmpEnabled === "boolean" && (
+                    <>
+                      <Label>Tx amplifier</Label>
+                      <Value>{activeCardModel.experiment.txAmpEnabled ? "On" : "Off"}</Value>
+                    </>
+                  )}
+                  {typeof activeCardModel.experiment.txSafetyEnabled === "boolean" && (
+                    <>
+                      <Label>Tx safety limit</Label>
+                      <Value>{activeCardModel.experiment.txSafetyEnabled ? "On" : "Off"}</Value>
+                    </>
+                  )}
+                </StatsGrid>
+              </>
+            )}
+            {activeCardModel.observation && (
+              <>
+                <SectionTitle>Observation</SectionTitle>
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                  {activeCardModel.observation}
+                </div>
+              </>
+            )}
+            {activeCardModel.labels && activeCardModel.labels.length > 0 && (
+              <>
+                <SectionTitle>Experiment labels</SectionTitle>
+                <div aria-label="Saved experiment labels" style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {activeCardModel.labels.map((label) => (
+                    <span key={label} style={{ border: "1px solid rgba(128,128,128,.45)", borderRadius: 12, padding: "3px 8px", fontSize: 11, overflowWrap: "anywhere" }}>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+
             <SummaryButton
               type="button"
               onClick={() => onViewNoteCard?.(activeCardModel)}

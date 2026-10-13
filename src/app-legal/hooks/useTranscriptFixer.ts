@@ -212,6 +212,11 @@ export function useTranscriptFixer() {
     }
   }
 
+  async function downloadArchive(filename) {
+    try { await transcriptApi.downloadArchive(filename); }
+    catch (error) { setStatus(previous => ({ ...previous, error: error.message })); }
+  }
+
   return {
     archives,
     selectedArchive,
@@ -238,6 +243,7 @@ export function useTranscriptFixer() {
     deselectAll,
     invertSelection,
     exportArchive,
+    downloadArchive,
     refreshArchives,
     uploadArchive,
   };

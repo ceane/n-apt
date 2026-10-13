@@ -1,114 +1,47 @@
-# N-APT Demodulate - Machine Learning Signal Decoding
+# Demodulate
 
-## Overview
+`/demodulate` (also `/demod`) is a configurable signal-processing workspace.
+The center of the page is a node graph: connect source, tuning/configuration,
+visualization, and analysis nodes to build a workflow. The sidebar supplies
+starter flows and graph controls. The route is not a single fixed ML
+classifier or a batch-analysis screen.
 
-The Demodulate interface provides advanced machine learning tools for decoding and interpreting N-APT neuro-biological radio signals. This route leverages sophisticated ML models to identify patterns, extract meaningful data, and classify signal types that affect brain and nervous system function.
+## Start with a flow
 
-## Capabilities
+Choose a starter flow in the sidebar, then adapt its nodes to the selected
+source and question. Current templates include **Reference Capture**,
+**Try N-APT Audio**, **Listen to FM radio**, **Visualize**, **Find Spikes**,
+**Tx Suite**, and **Reverse Engineering by Tx**. The exact list can evolve;
+inspect the sidebar in the running app for the installed templates.
 
-- **ML Signal Classification**: Automated identification of N-APT signal types
-- **Pattern Recognition**: Detection of characteristic modulation patterns
-- **Neural Decoding**: Extraction of potential neural information from radio signals
-- **Statistical Analysis**: Comprehensive signal metrics and correlations
-- **Real-time Processing**: Live ML inference on incoming signal data
-- **Batch Analysis**: Process multiple signal files for comparative studies
+Nodes can be moved, connected, duplicated, and deleted. Right-click a node for
+node actions; visualization nodes with a fullscreen view can be opened from
+that menu. Source and file nodes follow the app's selected live/file source.
+When file playback is selected, the route connects the playback bridge to the
+graph. Existing graph layouts and viewport state are persisted by graph.
 
-## Available Controls
+## Analysis workflows
 
-### Core SDR Controls (Inherited)
+- **Visualize** uses source, channel/configuration, FFT, and waterfall nodes.
+- **Find Spikes** connects an FFT view to spike detection.
+- **Try N-APT Audio** explores a demodulation path with Span, FFT, waterfall,
+  and radio nodes. The audio survey exposes candidates and decoder choices in
+  its node controls.
+- **Reference Capture** builds a capture/readiness path around a known
+  stimulus and I/Q data.
+- **Tx Suite** and **Reverse Engineering by Tx** pair receive and transmit
+  roles, device settings, spectra, histories, and observation controls. These
+  are hardware workflows; verify source capability, binding, and operating
+  conditions before using them.
 
-All controls from the Spectrum Visualizer are available:
+The graph represents configured processing steps. Results and visual
+correlations do not establish the identity, intent, or biological effect of a
+signal.
 
-- Source management (live/file)
-- I/Q capture controls
-- Signal display settings
-- Frequency area configuration
-- Source settings (gain, PPM, AGC)
+## Agent and WebMCP access
 
-### ML Analysis Controls
-
-- **Model Selection**: Choose between different ML architectures
-- **Analysis Mode**: Real-time vs batch processing
-- **Confidence Threshold**: Set minimum confidence for classifications
-- **Feature Extraction**: Configure which signal features to analyze
-- **Output Format**: JSON, CSV, or binary result formats
-
-### Processing Parameters
-
-- **Window Size**: Analysis window duration (0.1-10 seconds)
-- **Overlap**: Sliding window overlap percentage (0-90%)
-- **Sampling Rate**: Input resampling for optimal ML performance
-- **Frequency Bands**: Select specific frequency ranges for analysis
-
-### Visualization Tools
-
-- **Classification Timeline**: Real-time classification results over time
-- **Confidence Meters**: Visual confidence indicators for predictions
-- **Feature Plots**: Extracted feature visualization
-- **Correlation Matrices**: Signal relationship analysis
-
-## Data Formats
-
-- **Input**: Same as visualizer (.napt, .wav, .c64, .npy, live streams)
-- **Output**:
-  - JSON classifications with confidence scores
-  - CSV feature extraction data
-  - Binary ML model outputs
-  - Visual analysis reports
-
-## ML Models Available
-
-- **Neural Network Classifier**: Deep learning for signal pattern recognition
-- **Random Forest**: Ensemble method for feature-based classification
-- **SVM Classifier**: Support vector machine for binary classification
-- **Autoencoder**: Unsupervised anomaly detection
-- **Ensemble Model**: Combined predictions from multiple models
-
-## Analysis Workflows
-
-1. **Live Classification**: Connect device → Start capture → Enable ML analysis → Monitor classifications
-2. **Batch Processing**: Load files → Select model → Run analysis → Export results
-3. **Comparative Study**: Multiple files → Cross-model analysis → Statistical comparison
-4. **Feature Research**: Extract features → Analyze patterns → Generate insights
-
-## API Endpoints
-
-- `POST /analysis/start` - Begin ML analysis session
-- `POST /analysis/stop` - Stop current analysis
-- `GET /analysis/models` - List available ML models
-- `POST /analysis/predict` - Single prediction request
-- `GET /analysis/results` - Retrieve analysis results
-- `POST /analysis/export` - Export analysis data
-
-## Performance Metrics
-
-- **Latency**: <50ms for real-time predictions
-- **Accuracy**: 95%+ on trained signal types
-- **Throughput**: Up to 1000 predictions/second
-- **Memory**: <2GB for model loading
-
-## Integration Features
-
-- **WebMCP Tools**: Full automation support for ML workflows
-- **Real-time Updates**: WebSocket streaming of predictions
-- **Model Management**: Dynamic model loading and unloading
-- **Result Caching**: Store and retrieve previous analyses
-
-## Related Routes
-
-- `/` - Spectrum visualization and capture
-- `/draw-signal` - Generate training signals
-- `/3d-model` - Biological target correlation
-- `/map-endpoints` - Geographic location monitoring
-
-## Technical Specifications
-
-- **Framework**: TensorFlow.js for browser-based inference
-- **Model Size**: 10-100MB per model
-- **Input Shape**: Variable, auto-resized to model requirements
-- **Output Classes**: Up to 50 signal categories
-- **Update Rate**: Real-time (up to 60 FPS)
-
-## Agent Integration
-
-AI agents can automate the entire analysis pipeline through WebMCP tools, from signal capture through ML classification to result export. The interface supports complex analytical workflows and can process multiple signals simultaneously.
+The route's registered tools are `startAnalysis`, `getAnalysisResults`, and
+`exportAnalysisResults`. They do not create or edit the node graph. Use the
+capability manifest for parameters and execution policy; the route's graph
+templates and interactive node controls remain app UI workflows. CLI
+mutations require `--allow-mutations`, and backend calls require authentication.

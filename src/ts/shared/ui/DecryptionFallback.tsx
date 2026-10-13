@@ -7,7 +7,6 @@ import {
   RefreshCcw,
   Shield,
 } from "lucide-react";
-import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { Button } from "./Button";
 
 const FallbackContainer = styled.div`
@@ -125,26 +124,41 @@ const ActionButton = styled(Button)`
   flex: 1;
 `;
 
-export type DecryptionErrorType = "vault" | "demod" | "latex";
+export type DecryptionErrorType = "vault" | "demod" | "latex" | "ml";
 
 interface DecryptionFallbackProps {
   moduleName: string;
   errorType?: DecryptionErrorType;
+  messageOverride?: string;
+  onRetry?: () => void;
+  retryLabel?: string;
 }
 
 export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
   moduleName,
   errorType = "vault",
+  messageOverride,
+  onRetry,
+  retryLabel,
 }) => {
-  const { logout } = useAuthentication();
-
   const getErrorInfo = () => {
     switch (errorType) {
+      case "ml":
+        return {
+          envVar: "UNSAFE_LOCAL_LATEX_PASSWORD",
+          message: "The encrypted ML feature bundle could not be loaded.",
+          asideMessage:
+            "The bundle may be missing, outdated, or fail authentication or integrity validation.",
+          troubleshooting:
+            "Check that the current ML bundle and module password are available, then retry this feature.",
+        };
       case "demod":
         return {
           envVar: "UNSAFE_LOCAL_DEMOD_PASSWORD",
           message:
             "Demodulation logic is encrypted and requires a specific password for this environment.",
+          asideMessage:
+            "This usually happens if the session key has expired or the password was incorrect.",
           troubleshooting:
             "Ensure the demodulation keys are correctly synchronized with your .env.local file.",
         };
@@ -153,6 +167,8 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           envVar: "UNSAFE_LOCAL_LATEX_PASSWORD",
           message:
             "LaTeX math rendering components are encrypted to protect proprietary formatting logic.",
+          asideMessage:
+            "This usually happens if the session key has expired or the password was incorrect.",
           troubleshooting:
             "Check if the LaTeX renderer service is authenticated correctly.",
         };
@@ -162,28 +178,31 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
           envVar: "UNSAFE_LOCAL_USER_PASSWORD",
           message:
             "This file or module is encrypted and the current vault session cannot unlock it.",
+          asideMessage:
+            "This usually happens if the session key has expired or the password was incorrect.",
           troubleshooting:
             "Try locking and unlocking the vault again from the sidebar header.",
         };
     }
   };
 
-  const { envVar, message, troubleshooting } = getErrorInfo();
+  const { envVar, message, asideMessage, troubleshooting } = getErrorInfo();
 
   return (
-    <FallbackContainer>
+    <FallbackContainer
+      role="alert"
+      aria-label={`${moduleName} unavailable`}
+      data-testid="decryption-fallback"
+    >
       <Header>
         <ShieldAlert size={16} />
         <Title>{moduleName} Decryption Failed</Title>
       </Header>
 
       <Message>
-        {message}
+        {messageOverride ?? message}
         <br />
-        <AsideText>
-          This usually happens if the session key has expired or the password
-          was incorrect.
-        </AsideText>
+        <AsideText>{asideMessage}</AsideText>
       </Message>
 
       <Instructions>
@@ -205,17 +224,31 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
       </Instructions>
 
       <ButtonRow>
-        <ActionButton
-          $variant="primary"
-          onClick={() => window.location.reload()}
-        >
-          <RefreshCcw size={10} />
-          Reload
-        </ActionButton>
-        <ActionButton $variant="secondary" onClick={logout}>
-          <Shield size={10} />
-          Re-auth
-        </ActionButton>
+        {onRetry ? (
+          <ActionButton $variant="primary" onClick={onRetry}>
+            <RefreshCcw size={10} />
+            {retryLabel ?? `Retry ${moduleName}`}
+          </ActionButton>
+        ) : (
+          <>
+            <ActionButton
+              $variant="primary"
+              onClick={() => window.location.reload()}
+            >
+              <RefreshCcw size={10} />
+              Reload
+            </ActionButton>
+            <ActionButton
+              $variant="secondary"
+              onClick={() => {
+                window.location.href = "/logout";
+              }}
+            >
+              <Shield size={10} />
+              Re-auth
+            </ActionButton>
+          </>
+        )}
       </ButtonRow>
     </FallbackContainer>
   );

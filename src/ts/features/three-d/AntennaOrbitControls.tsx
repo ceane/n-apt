@@ -40,6 +40,7 @@ export const AntennaOrbitControls: React.FC = () => {
   return (
     <OrbitControls
       ref={controlsRef}
+      makeDefault
       enablePan={false}
       enableZoom={false}
       enableDamping

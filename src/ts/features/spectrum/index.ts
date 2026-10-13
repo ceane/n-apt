@@ -21,3 +21,4 @@ export { SourceSidebar } from "@n-apt/spectrum/sidebar/SourceSidebar";
 export { ScanningProgress } from "@n-apt/spectrum/sidebar/ScanningProgress";
 export { PolarCoordsRadiationSidebar } from "@n-apt/spectrum/sidebar/PolarCoordsRadiationSidebar";
 export * from "@n-apt/spectrum/fft/frameProcessing";
+export { computeComplexIqSpectrum } from "@n-apt/spectrum/fft/complexSpectrum";

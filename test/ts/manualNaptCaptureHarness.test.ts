@@ -40,10 +40,15 @@ describe("manual NAPT capture harness", () => {
       headerJson.copy(header);
       const input = join(directory, "labeled.napt");
       writeFileSync(input, Buffer.concat([header, encryptGcm(iq, dataKey)]));
+      const envFile = join(directory, ".env.local");
+      writeFileSync(envFile, `NAPT_LEGACY_CAPTURE_PASSWORD=${password}\n`);
       const outputDir = join(directory, "output");
-      const output = execFileSync(process.execPath, [SCRIPT, "--input", input, "--out-dir", outputDir, "--frames", "3,1,3"], {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, NAPT_PBKDF2_SALT: salt };
+      delete childEnv.UNSAFE_LOCAL_USER_PASSWORD;
+      delete childEnv.VITE_UNSAFE_LOCAL_USER_PASSWORD;
+      const output = execFileSync(process.execPath, [SCRIPT, "--input", input, "--out-dir", outputDir, "--frames", "3,1,3", "--env-file", envFile], {
         encoding: "utf8",
-        env: { ...process.env, UNSAFE_LOCAL_USER_PASSWORD: password, NAPT_PBKDF2_SALT: salt },
+        env: childEnv,
       });
       const summary = JSON.parse(output);
       expect(summary.frame_count).toBe(2);

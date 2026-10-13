@@ -6,7 +6,7 @@ const probeHtml = fs.readFileSync(
   "utf8",
 );
 const probeScript = fs.readFileSync(
-  path.resolve(process.cwd(), "src/ts/webusb/vanillaProbe.ts"),
+  path.resolve(process.cwd(), "src/ts/webusb/standaloneReceiverApp.ts"),
   "utf8",
 );
 

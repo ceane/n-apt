@@ -6,12 +6,14 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
-use super::stream_manager::{SourceStreamCapabilities, StreamMode};
+use super::shared_state::SharedState;
+use super::stream_manager::{
+  RxStreamOptions, SourceStreamCapabilities, StreamMode,
+};
 use super::stream_manager::{
   StreamKey, StreamOptions, StreamingSourceModeManager,
 };
 use super::websocket_server::open_device_for_source_id;
-use super::shared_state::SharedState;
 use crate::sdr::processor::SdrProcessor;
 use crate::server::types::SdrProcessorSettings;
 
@@ -181,16 +183,16 @@ impl SourceRuntimeRegistry {
   }
 }
 
-enum RuntimeCommand {
-  ApplyRxOptions {
-    center_frequency_hz: u32,
-    settings: SdrProcessorSettings,
-  },
+#[derive(Clone)]
+struct RuntimeOptionsUpdate {
+  revision: u64,
+  options: RxStreamOptions,
+  requested_at: std::time::Instant,
 }
 
 struct RuntimeHandle {
   stop: tokio::sync::watch::Sender<bool>,
-  commands: tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
+  options: tokio::sync::watch::Sender<RuntimeOptionsUpdate>,
 }
 
 #[derive(Default)]
@@ -274,6 +276,7 @@ impl SourceRuntimeManager {
         });
       }
     };
+    let initial_options_for_runtime = initial_options.clone();
     let initialized = tokio::task::spawn_blocking(move || {
       processor
         .initialize()
@@ -304,7 +307,12 @@ impl SourceRuntimeManager {
     };
 
     let (stop, stop_rx) = tokio::sync::watch::channel(false);
-    let (commands, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (options, options_rx) =
+      tokio::sync::watch::channel(RuntimeOptionsUpdate {
+        revision: 0,
+        options: initial_options_for_runtime.clone(),
+        requested_at: std::time::Instant::now(),
+      });
     {
       let mut inner = self
         .inner
@@ -316,7 +324,7 @@ impl SourceRuntimeManager {
       }
       inner
         .handles
-        .insert(key.clone(), RuntimeHandle { stop, commands });
+        .insert(key.clone(), RuntimeHandle { stop, options });
     }
 
     let inner = Arc::clone(&self.inner);
@@ -325,7 +333,8 @@ impl SourceRuntimeManager {
       processor,
       stream_manager,
       stop_rx,
-      command_rx,
+      options_rx,
+      initial_options_for_runtime,
       inner,
     ));
     Ok(())
@@ -334,8 +343,7 @@ impl SourceRuntimeManager {
   pub fn update_rx_options(
     &self,
     key: &StreamKey,
-    center_frequency_hz: u32,
-    settings: SdrProcessorSettings,
+    options: RxStreamOptions,
   ) -> Result<(), SourceRuntimeError> {
     let inner = self
       .inner
@@ -347,18 +355,16 @@ impl SourceRuntimeManager {
         key.source_id
       )));
     };
-    handle
-      .commands
-      .send(RuntimeCommand::ApplyRxOptions {
-        center_frequency_hz,
-        settings,
-      })
-      .map_err(|_| {
-        SourceRuntimeError::Startup(format!(
-          "source runtime {} is stopping",
-          key.source_id
-        ))
-      })
+    let mut update = handle.options.borrow().clone();
+    update.revision = update.revision.wrapping_add(1);
+    update.options = options;
+    update.requested_at = std::time::Instant::now();
+    handle.options.send(update).map_err(|_| {
+      SourceRuntimeError::Startup(format!(
+        "source runtime {} is stopping",
+        key.source_id
+      ))
+    })
   }
 
   pub fn is_running(&self, key: &StreamKey) -> bool {
@@ -384,7 +390,8 @@ impl SourceRuntimeManager {
       if key.source_id == active_source_id || self.is_running(&key) {
         continue;
       }
-      let Some(capabilities) = stream_manager.capabilities(&key.source_id) else {
+      let Some(capabilities) = stream_manager.capabilities(&key.source_id)
+      else {
         continue;
       };
       let Some(options) = stream_manager.options(&key) else {
@@ -498,31 +505,178 @@ fn apply_rx_options(
   Ok(())
 }
 
+pub(crate) fn rx_settings_delta(
+  current: &RxStreamOptions,
+  next: &RxStreamOptions,
+) -> SdrProcessorSettings {
+  SdrProcessorSettings {
+    sample_rate: (current.sample_rate_hz != next.sample_rate_hz)
+      .then_some(next.sample_rate_hz),
+    fft_size: (current.fft_size != next.fft_size).then_some(next.fft_size),
+    fft_window: (current.fft_window != next.fft_window)
+      .then(|| next.fft_window.clone())
+      .flatten(),
+    frame_rate: (current.frame_rate != next.frame_rate)
+      .then_some(next.frame_rate)
+      .flatten(),
+    gain: (current.gain != next.gain).then_some(next.gain).flatten(),
+    ..Default::default()
+  }
+}
+
+pub(crate) fn rx_processor_settings(
+  options: &RxStreamOptions,
+) -> SdrProcessorSettings {
+  SdrProcessorSettings {
+    sample_rate: Some(options.sample_rate_hz),
+    fft_size: Some(options.fft_size),
+    fft_window: options.fft_window.clone(),
+    frame_rate: options.frame_rate,
+    gain: options.gain,
+    ..Default::default()
+  }
+}
+
+fn has_rx_settings_delta(settings: &SdrProcessorSettings) -> bool {
+  settings.sample_rate.is_some()
+    || settings.fft_size.is_some()
+    || settings.fft_window.is_some()
+    || settings.frame_rate.is_some()
+    || settings.gain.is_some()
+}
+
+pub(crate) fn apply_rx_options_live(
+  processor: &mut SdrProcessor,
+  current: Option<&RxStreamOptions>,
+  next: &RxStreamOptions,
+  requested_at: std::time::Instant,
+) -> anyhow::Result<Option<std::time::Instant>> {
+  let center_frequency_hz = u32::try_from(next.center_frequency_hz)
+    .map_err(|_| anyhow::anyhow!("center frequency exceeds u32"))?;
+  let settings = current
+    .map(|current| rx_settings_delta(current, next))
+    .unwrap_or_else(|| rx_processor_settings(next));
+  if has_rx_settings_delta(&settings) {
+    processor.apply_settings(settings)?;
+  }
+  if center_frequency_hz != processor.get_center_frequency() {
+    let metrics = crate::performance::pipeline_metrics();
+    metrics.record_latency(
+      crate::performance::Stage::CommandToRetune,
+      requested_at.elapsed(),
+    );
+    processor.set_center_frequency_live(center_frequency_hz)?;
+    return Ok(Some(std::time::Instant::now()));
+  }
+  Ok(None)
+}
+
+async fn apply_runtime_options_update(
+  key: &StreamKey,
+  processor: &Arc<Mutex<SdrProcessor>>,
+  stream_manager: &StreamingSourceModeManager,
+  update: RuntimeOptionsUpdate,
+  last_seen_revision: &mut u64,
+  applied_options: &mut RxStreamOptions,
+  pending_retune_started_at: &mut Option<std::time::Instant>,
+) {
+  if update.revision > last_seen_revision.saturating_add(1) {
+    crate::performance::pipeline_metrics().increment(
+      crate::performance::CounterKind::SupersededRuntimeOptions,
+      update.revision - *last_seen_revision - 1,
+    );
+  }
+  *last_seen_revision = update.revision;
+
+  let processor = Arc::clone(processor);
+  let current = applied_options.clone();
+  let next = update.options.clone();
+  let requested_at = update.requested_at;
+  let apply_result = tokio::task::spawn_blocking(move || {
+    let mut processor = processor
+      .lock()
+      .map_err(|_| anyhow::anyhow!("source processor lock was poisoned"))?;
+    apply_rx_options_live(&mut processor, Some(&current), &next, requested_at)
+  })
+  .await;
+
+  match apply_result {
+    Ok(Ok(retune_started_at)) => {
+      *applied_options = update.options;
+      if retune_started_at.is_some() {
+        *pending_retune_started_at = retune_started_at;
+      }
+    }
+    Ok(Err(error)) => {
+      let _ =
+        stream_manager.publish_error(key, "options_apply", error.to_string());
+    }
+    Err(error) => {
+      let _ = stream_manager.publish_error(
+        key,
+        "options_apply",
+        format!("source processor became unavailable: {error}"),
+      );
+    }
+  }
+}
+
 async fn run_runtime(
   key: StreamKey,
   processor: Arc<Mutex<SdrProcessor>>,
   stream_manager: StreamingSourceModeManager,
   mut stop_rx: tokio::sync::watch::Receiver<bool>,
-  mut command_rx: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+  mut options_rx: tokio::sync::watch::Receiver<RuntimeOptionsUpdate>,
+  mut applied_options: RxStreamOptions,
   inner: Arc<Mutex<RuntimeManagerInner>>,
 ) {
+  let mut last_seen_revision = 0u64;
+  let mut pending_retune_started_at = None;
   let frame_interval = Duration::from_millis(20);
+  let mut frame_tick = tokio::time::interval(frame_interval);
+  frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+  // Start the first acquisition after one cadence interval, as with the old
+  // sleep-based loop, without resetting the cadence on each tuning command.
+  frame_tick.tick().await;
   loop {
     tokio::select! {
       changed = stop_rx.changed() => {
         if changed.is_err() || *stop_rx.borrow() { break; }
       }
-      Some(command) = command_rx.recv() => {
-        let processor = Arc::clone(&processor);
-        let _ = tokio::task::spawn_blocking(move || {
-          let mut processor = processor.lock().ok()?;
-          match command {
-            RuntimeCommand::ApplyRxOptions { center_frequency_hz, settings } =>
-              apply_rx_options(&mut processor, center_frequency_hz.into(), settings).ok(),
-          }
-        }).await;
+      changed = options_rx.changed() => {
+        if changed.is_err() { break; }
+        let update = options_rx.borrow_and_update().clone();
+        apply_runtime_options_update(
+          &key,
+          &processor,
+          &stream_manager,
+          update,
+          &mut last_seen_revision,
+          &mut applied_options,
+          &mut pending_retune_started_at,
+        ).await;
       }
-      _ = tokio::time::sleep(frame_interval) => {
+      _ = frame_tick.tick() => {
+        // The timer can win a fair select while the watch channel is also
+        // ready. Consume its latest value here so every acquisition observes
+        // the newest pending hardware options.
+        if matches!(options_rx.has_changed(), Ok(true)) {
+          let update = options_rx.borrow_and_update().clone();
+          apply_runtime_options_update(
+            &key,
+            &processor,
+            &stream_manager,
+            update,
+            &mut last_seen_revision,
+            &mut applied_options,
+            &mut pending_retune_started_at,
+          ).await;
+          // A newer request may arrive during the blocking hardware write.
+          // Let the next fair select consume it before starting a read.
+          if matches!(options_rx.has_changed(), Ok(true)) {
+            continue;
+          }
+        }
         if !stream_manager.has_subscribers(&key) {
           continue;
         }
@@ -537,14 +691,22 @@ async fn run_runtime(
           ))
         }).await.ok().flatten();
         if let Some((center_frequency, sample_rate, iq_data)) = frame {
-          let _ = stream_manager.publish_iq_frame_with_metadata(
+          let published = stream_manager.publish_iq_frame_with_metadata(
             &key,
             chrono::Utc::now().timestamp_millis(),
             Some(center_frequency.into()),
             sample_rate,
             iq_data,
             false,
-          );
+          ).is_ok();
+          if published {
+            if let Some(retune_started_at) = pending_retune_started_at.take() {
+              crate::performance::pipeline_metrics().record_latency(
+                crate::performance::Stage::RetuneToFirstFrame,
+                retune_started_at.elapsed(),
+              );
+            }
+          }
         }
       }
     }
@@ -784,6 +946,165 @@ mod tests {
     assert_eq!(frame_a.key, key_a);
     assert_eq!(frame_b.key, key_b);
     assert_eq!(runtime_manager.running_source_count(), 2);
+    runtime_manager.stop_all();
+  }
+
+  #[test]
+  fn center_frequency_only_change_produces_no_unrelated_settings() {
+    let current = RxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      sample_rate_hz: 3_200_000,
+      fft_size: 1024,
+      fft_window: Some("Hanning".to_string()),
+      frame_rate: Some(20),
+      gain: Some(12.0),
+    };
+    let next = RxStreamOptions {
+      center_frequency_hz: 137_200_000,
+      ..current.clone()
+    };
+
+    let delta = rx_settings_delta(&current, &next);
+
+    assert!(delta.sample_rate.is_none());
+    assert!(delta.fft_size.is_none());
+    assert!(delta.fft_window.is_none());
+    assert!(delta.frame_rate.is_none());
+    assert!(delta.gain.is_none());
+    assert!(!has_rx_settings_delta(&delta));
+  }
+
+  #[test]
+  fn live_center_only_update_leaves_processor_configuration_unchanged() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    let current = RxStreamOptions {
+      center_frequency_hz: u64::from(processor.get_center_frequency()),
+      sample_rate_hz: processor.get_sample_rate(),
+      fft_size: processor.fft_processor.config().fft_size,
+      fft_window: None,
+      frame_rate: None,
+      gain: None,
+    };
+    let next = RxStreamOptions {
+      center_frequency_hz: current.center_frequency_hz + 1_000,
+      ..current.clone()
+    };
+    let sample_rate_before = processor.get_sample_rate();
+    let fft_size_before = processor.fft_processor.config().fft_size;
+    let frame_rate_before = processor.display_frame_rate;
+
+    let retune_started = apply_rx_options_live(
+      &mut processor,
+      Some(&current),
+      &next,
+      std::time::Instant::now(),
+    )
+    .expect("center-only live update should succeed");
+
+    assert!(retune_started.is_some());
+    assert_eq!(
+      processor.get_center_frequency(),
+      next.center_frequency_hz as u32,
+    );
+    assert_eq!(processor.get_sample_rate(), sample_rate_before);
+    assert_eq!(processor.fft_processor.config().fft_size, fft_size_before);
+    assert_eq!(processor.display_frame_rate, frame_rate_before);
+  }
+
+  #[test]
+  fn live_rx_options_apply_changed_sample_rate_and_fft_size() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    let current = RxStreamOptions {
+      center_frequency_hz: u64::from(processor.get_center_frequency()),
+      sample_rate_hz: processor.get_sample_rate(),
+      fft_size: processor.fft_processor.config().fft_size,
+      fft_window: None,
+      frame_rate: None,
+      gain: None,
+    };
+    let next = RxStreamOptions {
+      sample_rate_hz: current.sample_rate_hz + 100_000,
+      fft_size: 2048,
+      ..current.clone()
+    };
+
+    apply_rx_options_live(
+      &mut processor,
+      Some(&current),
+      &next,
+      std::time::Instant::now(),
+    )
+    .expect("changed settings should apply");
+
+    assert_eq!(processor.get_sample_rate(), next.sample_rate_hz);
+    assert_eq!(processor.fft_processor.config().fft_size, next.fft_size);
+  }
+
+  #[tokio::test]
+  async fn coalesces_rx_option_burst_to_latest_center_frequency() {
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(20));
+    let runtime_manager = SourceRuntimeManager::new();
+    let capabilities = SourceStreamCapabilities {
+      can_receive: true,
+      can_transmit: false,
+      full_duplex: false,
+    };
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    let options = |center_frequency_hz| RxStreamOptions {
+      center_frequency_hz,
+      sample_rate_hz: 4_372_000,
+      fft_size: 1024,
+      fft_window: None,
+      frame_rate: Some(20),
+      gain: Some(0.0),
+    };
+    stream_manager.register_source(key.source_id.clone(), capabilities);
+    let mut subscription = stream_manager
+      .subscribe(key.clone(), StreamOptions::Rx(options(2_204_000)))
+      .expect("runtime stream should open");
+    runtime_manager
+      .start(
+        key.clone(),
+        capabilities,
+        SdrProcessor::new_mock_apt().expect("mock processor"),
+        StreamOptions::Rx(options(2_204_000)),
+        stream_manager.clone(),
+      )
+      .await
+      .expect("runtime should start");
+    let superseded_before = crate::performance::pipeline_metrics()
+      .snapshot()
+      .counters
+      .superseded_runtime_options;
+
+    for frequency in 2_205_000..2_225_000 {
+      runtime_manager
+        .update_rx_options(&key, options(frequency))
+        .expect("runtime should accept latest options");
+    }
+
+    let final_frequency = 2_224_999;
+    let observed = tokio::time::timeout(Duration::from_secs(2), async {
+      loop {
+        let frame = receive_frame(&mut subscription).await;
+        if frame.center_frequency_hz == Some(final_frequency) {
+          break frame.center_frequency_hz.unwrap();
+        }
+      }
+    })
+    .await
+    .expect("runtime should publish the final requested frequency");
+
+    assert_eq!(observed, final_frequency);
+    let superseded_after = crate::performance::pipeline_metrics()
+      .snapshot()
+      .counters
+      .superseded_runtime_options;
+    assert!(
+      superseded_after.saturating_sub(superseded_before) >= 19_999,
+      "watch options should supersede every intermediate update"
+    );
     runtime_manager.stop_all();
   }
 

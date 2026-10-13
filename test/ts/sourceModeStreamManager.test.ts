@@ -142,6 +142,51 @@ describe("SourceModeStreamManager", () => {
     expect(firstSubscription.effectiveOptions).toEqual(rxOptions());
   });
 
+  it("publishes the authoritative revision for a locally requested live correction", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const events: StreamEvent[] = [];
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), (event) => events.push(event));
+
+    transports[0].onEvent({
+      type: "stream_opened",
+      sourceId: "source-a",
+      mode: "rx",
+      streamEpoch: 4,
+      optionsRevision: 12,
+      state: "ready",
+      options: rxOptions(),
+    });
+    const corrected = rxOptions(101_000_000);
+    const update = subscription.updateOptions(corrected);
+    expect(events[events.length - 1]).toEqual(expect.objectContaining({
+      type: "stream_options_applied",
+      origin: "local",
+      optionsRevision: 13,
+      options: corrected,
+    }));
+
+    transports[0].onEvent({
+      type: "stream_options_applied",
+      sourceId: "source-a",
+      mode: "rx",
+      streamEpoch: 4,
+      optionsRevision: 15,
+      options: corrected,
+    });
+
+    await expect(update).resolves.toBeUndefined();
+    expect(events[events.length - 1]).toEqual(expect.objectContaining({
+      type: "stream_options_applied",
+      origin: "acknowledgement",
+      optionsRevision: 15,
+      options: corrected,
+    }));
+    subscription.unsubscribe({ immediate: true });
+    manager.dispose();
+  });
+
   it("closes the old mode immediately for a half-duplex handoff", async () => {
     const { factory, transports } = createTransportFactory();
     const manager = createSourceModeStreamManager({

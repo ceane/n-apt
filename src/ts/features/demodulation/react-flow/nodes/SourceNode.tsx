@@ -103,6 +103,8 @@ interface SourceNodeProps {
     txSuiteSource?: boolean;
     sourceBindingGroup?: string;
     sourceAssignmentGroup?: string;
+    preferredRxName?: string;
+    preferredTxName?: string;
   };
 }
 
@@ -119,6 +121,8 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
   const isAssignmentNode = Boolean(
     data.sourceBindingGroup || data.sourceAssignmentGroup || data.txSuiteSource,
   );
+  const preferredRxName = data.preferredRxName?.toLowerCase();
+  const preferredTxName = data.preferredTxName?.toLowerCase();
   const rxSourceId = useAppSelector(
     (state) =>
       state.sourceRouting.bindings[sourceBindingKey(bindingGroup, "rx")] ??
@@ -151,10 +155,22 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
     const hasRx = options.some((option) => option.id === rxSourceId);
     const hasTx = options.some((option) => option.id === txSourceId);
     const rxCandidate =
+      (preferredRxName
+        ? options.find((option) =>
+            `${option.label} ${option.id}`.toLowerCase().includes(preferredRxName),
+          )
+        : undefined) ??
       options.find(
         (option) => option.capability === "rx" || option.capability === "tx_rx",
       ) ?? options[0];
     const txCandidate =
+      (preferredTxName
+        ? options.find(
+            (option) =>
+              option.id !== (hasRx ? rxSourceId : rxCandidate.id) &&
+              `${option.label} ${option.id}`.toLowerCase().includes(preferredTxName),
+          )
+        : undefined) ??
       options.find(
         (option) =>
           option.id !== (hasRx ? rxSourceId : rxCandidate.id) &&
@@ -187,6 +203,8 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
     options,
     rxSourceId,
     txSourceId,
+    preferredRxName,
+    preferredTxName,
   ]);
 
   const displayTitle = sourceMode === "file" ? "File" : "Source";
@@ -211,6 +229,11 @@ export const SourceNode: React.FC<SourceNodeProps> = ({ data }) => {
           </TextContainer>
         </SourceHeader>
         <RoleAssignments>
+          <div role="status" style={{ fontSize: 10, lineHeight: 1.45, opacity: 0.8 }}>
+            {options.length === 0
+              ? "Waiting for devices. Connect the RTL-SDR for Rx and keep the HackRF One assigned to Tx standby."
+              : `Rx: ${options.find((option) => option.id === rxSourceId)?.label ?? "not assigned"} · Tx: ${options.find((option) => option.id === txSourceId)?.label ?? "not assigned"}`}
+          </div>
           <RoleRow>
             Rx source
             <RoleSelect

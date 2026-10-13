@@ -45,6 +45,7 @@ export function runDemodulationAlgorithm(
   options: { sampleRateHz?: number; targetSampleRate?: number; centerFrequencyHz?: number; bandwidthHz?: number } = {},
 ): Float32Array {
   if (
+    algorithm !== "am" &&
     algorithm !== "fm" &&
     algorithm !== "fmDiscriminator" &&
     algorithm !== "aptAudio" &&

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useMemo, useState, useRef } from 'react';
 import { useTranscriptFixer } from '../hooks/useTranscriptFixer';
+import { safeHtmlToReactNodes } from '@n-apt/ui/safeMarkup';
 
 export default function TranscriptFixerRoute() {
   const [keywordInput, setKeywordInput] = useState('');
@@ -200,8 +201,8 @@ export default function TranscriptFixerRoute() {
                   <span>{tweet.dateLabel}</span>
                 </div>
               </div>
-              {tweet.mentionDisplay ? <div className="muted" dangerouslySetInnerHTML={{ __html: tweet.mentionDisplay }} /> : null}
-              <div className="tweet-text" dangerouslySetInnerHTML={{ __html: tweet.htmlText }} />
+              {tweet.mentionDisplay ? <div className="muted">{safeHtmlToReactNodes(tweet.mentionDisplay)}</div> : null}
+              <div className="tweet-text">{safeHtmlToReactNodes(tweet.htmlText)}</div>
               <div className="tweet-flags muted">
                 {tweet.isRetweet ? <span className="flag-pill">RT</span> : null}
                 {tweet.isReply ? <span className="flag-pill">Reply</span> : null}
@@ -246,7 +247,7 @@ export default function TranscriptFixerRoute() {
         {transcript.status.exportResult ? (
           <div className="tag-list">
             <span className="tag">{transcript.status.exportResult.tweetCount} tweets exported</span>
-            <a className="button primary" href={`/api/download/${transcript.status.exportResult.zipPath}`}>Download zip</a>
+            <button type="button" className="button primary" onClick={() => transcript.downloadArchive(transcript.status.exportResult.zipPath)}>Download zip</button>
           </div>
         ) : null}
       </section>

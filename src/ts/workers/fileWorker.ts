@@ -1,5 +1,10 @@
 /**
  * File Processing Worker - Handles file I/O and stitching operations
+ *
+ * I/Q format history: v1-v2 are legacy/undated; v3 (2026-07-18),
+ * v4 (2026-08-05), v5 (2026-09-14), and v6 (2026-09-23, still WIP).
+ * `format_version` identifies the current schema; upgraded v6 files may also
+ * include `originalVersion` with the detected source schema version.
  */
 
 import { parseFrequency } from "@n-apt/math/frequency";
@@ -30,9 +35,20 @@ function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
 type FileMetadata = {
   format?: string;
   format_version?: number;
+  originalVersion?: number;
   sections?: {
-    binary?: { offset_bytes: number; length_bytes: number; encoding?: string; encrypted?: boolean };
-    trailer?: { offset_bytes: number; length_bytes: number; encoding?: string; version?: number };
+    binary?: {
+      offset_bytes: number;
+      length_bytes: number;
+      encoding?: string;
+      encrypted?: boolean;
+    };
+    trailer?: {
+      offset_bytes: number;
+      length_bytes: number;
+      encoding?: string;
+      version?: number;
+    };
   };
   trailer?: Record<string, unknown> | null;
   interleaving?: string;
@@ -53,7 +69,12 @@ type FileMetadata = {
   frame_updates?: {
     sample_offset: number;
     timestamp_us?: number;
-    patch: Record<string, unknown>;
+    channel?: number;
+    kind?: string;
+    frame_sequence?: number;
+    source_id?: string;
+    job_id?: string;
+    patch?: Record<string, unknown>;
   }[];
   center_frequency_hz?: number;
   capture_sample_rate_hz?: number;
@@ -86,24 +107,38 @@ type FileMetadata = {
 
 type IntegrityStatus = "verified" | "failed" | "unavailable";
 
+function rejectLocalProtectedCapture(fileName: string): void {
+  if (fileName.toLowerCase().endsWith(".enc")) {
+    throw new Error(
+      "This Increased protection .enc file keeps its salt in Redis and requires authenticated backend playback; local browser decryption is disabled.",
+    );
+  }
+}
+
 const verifyFileIntegrity = async (
   fileData: ArrayBuffer,
   metadata: FileMetadata,
 ): Promise<IntegrityStatus> => {
   if ((metadata.format_version ?? 3) < 5) return "unavailable";
-  const trailer = metadata.trailer as { integrity?: {
-    algorithm?: string;
-    scope?: string;
-    digest?: string;
-  } } | null;
+  const trailer = metadata.trailer as {
+    integrity?: {
+      algorithm?: string;
+      scope?: string;
+      digest?: string;
+    };
+  } | null;
   const integrity = trailer?.integrity;
   if (
     !integrity ||
     integrity.algorithm !== "SHA-256" ||
     integrity.scope !== "file-with-integrity-digest-placeholder" ||
     !integrity.digest
-  ) return "failed";
-  return (await verifyStampedIntegrity(new Uint8Array(fileData), integrity.digest))
+  )
+    return "failed";
+  return (await verifyStampedIntegrity(
+    new Uint8Array(fileData),
+    integrity.digest,
+  ))
     ? "verified"
     : "failed";
 };
@@ -121,8 +156,6 @@ type WavLoadResult = {
     bins_per_frame?: number;
   }[];
 };
-
-type NaptDecodePolicy = "loadFile" | "stitchFiles";
 
 const LEGACY_NAPT_HEADER_SIZES = [4096, 2048, 8192, 1024];
 
@@ -170,19 +203,15 @@ function scanNaptHeader(bytes: Uint8Array, previousEnd = -1) {
   return { jsonStr: headerText.slice(0, jsonEndIdx), jsonEndIdx };
 }
 
-function parseNaptHeader(fileData: ArrayBuffer, policy: NaptDecodePolicy, fileName: string) {
-  if (policy === "loadFile") {
-    const { jsonStr, jsonEndIdx } = scanNaptHeader(
-      new Uint8Array(fileData, 0, Math.min(16384, fileData.byteLength)),
-    );
-    if (jsonEndIdx <= 0) throw new Error("Invalid NAPT header: no JSON boundary found");
-    return JSON.parse(jsonStr);
-  }
+function parseNaptHeader(fileData: ArrayBuffer, fileName: string) {
   let naptJsonStr = "";
   let jsonEndIdx = -1;
   for (const headerSize of LEGACY_NAPT_HEADER_SIZES) {
     if (fileData.byteLength < headerSize) continue;
-    const scanned = scanNaptHeader(new Uint8Array(fileData, 0, headerSize), jsonEndIdx);
+    const scanned = scanNaptHeader(
+      new Uint8Array(fileData, 0, headerSize),
+      jsonEndIdx,
+    );
     jsonEndIdx = scanned.jsonEndIdx;
     if (jsonEndIdx <= 0) continue;
     naptJsonStr = scanned.jsonStr;
@@ -192,7 +221,8 @@ function parseNaptHeader(fileData: ArrayBuffer, policy: NaptDecodePolicy, fileNa
       continue;
     }
   }
-  if (!naptJsonStr) throw new Error(`Could not parse NAPT header for ${fileName}`);
+  if (!naptJsonStr)
+    throw new Error(`Could not parse NAPT header for ${fileName}`);
   return JSON.parse(naptJsonStr);
 }
 
@@ -201,37 +231,55 @@ function decodeIndexedTrailer(
   trailer: { offset_bytes: number; length_bytes: number },
   format: "IQ" | "NAPT",
 ) {
-  const trailerBytes = new Uint8Array(fileData, trailer.offset_bytes, trailer.length_bytes);
-  if (new TextDecoder().decode(trailerBytes.slice(0, 8)) !== "NAPTTRLR" || trailerBytes[8] !== 1) {
+  const trailerBytes = new Uint8Array(
+    fileData,
+    trailer.offset_bytes,
+    trailer.length_bytes,
+  );
+  if (
+    new TextDecoder().decode(trailerBytes.slice(0, 8)) !== "NAPTTRLR" ||
+    (trailerBytes[8] !== 1 && trailerBytes[8] !== 2)
+  ) {
     throw new Error(`Invalid ${format} v4 trailer marker`);
   }
-  const trailerJsonLength = Number(new DataView(trailerBytes.buffer, trailerBytes.byteOffset + 16, 8).getBigUint64(0, true));
-  if (trailerJsonLength + 24 !== trailerBytes.length) throw new Error(`Invalid ${format} v4 trailer length`);
+  const trailerJsonLength = Number(
+    new DataView(
+      trailerBytes.buffer,
+      trailerBytes.byteOffset + 16,
+      8,
+    ).getBigUint64(0, true),
+  );
+  if (trailerJsonLength + 24 !== trailerBytes.length)
+    throw new Error(`Invalid ${format} v4 trailer length`);
   return JSON.parse(new TextDecoder().decode(trailerBytes.slice(24)));
 }
 
 async function decodeNaptContainer(
   fileData: ArrayBuffer,
   fileName: string,
-  policy: NaptDecodePolicy,
   allowIntegrityFailure: boolean,
 ) {
-  const metaObj = parseNaptHeader(fileData, policy, fileName);
+  const metaObj = parseNaptHeader(fileData, fileName);
   const metadata = metaObj.metadata || metaObj;
-  if (policy === "stitchFiles" && !metadata) throw new Error("Invalid NAPT metadata");
+  if (!metadata) throw new Error("Invalid NAPT metadata");
   let naptBinaryFileData = fileData;
   if ((metadata.format_version ?? 3) >= 4) {
     const binary = metadata.sections?.binary;
     const trailer = metadata.sections?.trailer;
-    if (!binary || !trailer ||
-        (policy === "loadFile" && (binary.offset_bytes < 1 || binary.length_bytes < 1)) ||
-        binary.offset_bytes + binary.length_bytes !== trailer.offset_bytes ||
-        trailer.offset_bytes + trailer.length_bytes !== fileData.byteLength ||
-        trailer.length_bytes < 24) {
+    if (
+      !binary ||
+      !trailer ||
+      binary.offset_bytes + binary.length_bytes !== trailer.offset_bytes ||
+      trailer.offset_bytes + trailer.length_bytes !== fileData.byteLength ||
+      trailer.length_bytes < 24
+    ) {
       throw new Error("Invalid NAPT v4 section index");
     }
     metadata.trailer = decodeIndexedTrailer(fileData, trailer, "NAPT");
-    if (!allowIntegrityFailure && (await verifyFileIntegrity(fileData, metadata)) === "failed") {
+    if (
+      !allowIntegrityFailure &&
+      (await verifyFileIntegrity(fileData, metadata)) === "failed"
+    ) {
       throw new Error("INTEGRITY_FAILED: file appears corrupted or modified");
     }
     naptBinaryFileData = fileData.slice(0, trailer.offset_bytes);
@@ -247,11 +295,18 @@ async function decodeNaptContainer(
       : []),
     ...LEGACY_NAPT_HEADER_SIZES,
   ];
-  return { metaObj, metadata, naptBinaryFileData, isEncrypted, possibleHeaderSizes };
+  return {
+    metaObj,
+    metadata,
+    naptBinaryFileData,
+    isEncrypted,
+    possibleHeaderSizes,
+  };
 }
 
 function wrappedNaptKey(metaObj: any): string | undefined {
-  return metaObj.wrapped_dek ||
+  return (
+    metaObj.wrapped_dek ||
     (metaObj.metadata && metaObj.metadata.wrapped_dek) ||
     metaObj.encrypted_dek ||
     (metaObj.metadata && metaObj.metadata.encrypted_dek) ||
@@ -260,7 +315,8 @@ function wrappedNaptKey(metaObj: any): string | undefined {
     metaObj.encrypted_key ||
     (metaObj.metadata && metaObj.metadata.encrypted_key) ||
     metaObj.session_key ||
-    (metaObj.metadata && metaObj.metadata.session_key);
+    (metaObj.metadata && metaObj.metadata.session_key)
+  );
 }
 
 async function loadIqFile(
@@ -282,28 +338,44 @@ async function loadIqFile(
   if (payloadStart + payloadLength > fileData.byteLength) {
     throw new Error("Truncated IQ v3 file");
   }
-  const metadata = JSON.parse(new TextDecoder().decode(
-    new Uint8Array(fileData, metadataStart, metadataLength),
-  )) as FileMetadata;
+  const metadata = JSON.parse(
+    new TextDecoder().decode(
+      new Uint8Array(fileData, metadataStart, metadataLength),
+    ),
+  ) as FileMetadata;
   if ((metadata.format_version ?? 3) >= 4) {
     const binary = metadata.sections?.binary;
     const trailerSection = metadata.sections?.trailer;
-    if (!binary || !trailerSection || binary.offset_bytes !== payloadStart || binary.length_bytes !== payloadLength) {
+    if (
+      !binary ||
+      !trailerSection ||
+      binary.offset_bytes !== payloadStart ||
+      binary.length_bytes !== payloadLength
+    ) {
       throw new Error("Invalid IQ v4 section index");
     }
     const trailerStart = trailerSection.offset_bytes;
     const trailerEnd = trailerStart + trailerSection.length_bytes;
-    if (trailerStart !== payloadStart + payloadLength || trailerEnd !== fileData.byteLength || trailerSection.length_bytes < 24) {
+    if (
+      trailerStart !== payloadStart + payloadLength ||
+      trailerEnd !== fileData.byteLength ||
+      trailerSection.length_bytes < 24
+    ) {
       throw new Error("Invalid IQ v4 trailer bounds");
     }
     metadata.trailer = decodeIndexedTrailer(fileData, trailerSection, "IQ");
-    if (trailerSection.version === 2 && (await verifyFileIntegrity(fileData, metadata)) === "failed") {
+    if (
+      trailerSection.version === 2 &&
+      (await verifyFileIntegrity(fileData, metadata)) === "failed"
+    ) {
       throw new Error("INTEGRITY_FAILED: file appears corrupted or modified");
     }
   }
-  const frameUpdates = JSON.parse(new TextDecoder().decode(
-    new Uint8Array(fileData, framesStart, framesLength),
-  )) as FileMetadata["frame_updates"];
+  const frameUpdates = JSON.parse(
+    new TextDecoder().decode(
+      new Uint8Array(fileData, framesStart, framesLength),
+    ),
+  ) as FileMetadata["frame_updates"];
   metadata.frame_updates = frameUpdates;
   let payload = new Uint8Array(fileData, payloadStart, payloadLength).slice();
   if (encrypted) {
@@ -319,26 +391,48 @@ async function loadIqFile(
   const chunks: Uint8Array[] = [];
   let offset = 0;
   while (offset < payload.length) {
-    if (offset + 12 <= payload.length &&
-        new TextDecoder().decode(payload.slice(offset, offset + 4)) === "PMD3") {
-      const privateLength = Number(new DataView(payload.buffer, payload.byteOffset + offset + 4, 8).getBigUint64(0, true));
+    if (
+      offset + 12 <= payload.length &&
+      new TextDecoder().decode(payload.slice(offset, offset + 4)) === "PMD3"
+    ) {
+      const privateLength = Number(
+        new DataView(
+          payload.buffer,
+          payload.byteOffset + offset + 4,
+          8,
+        ).getBigUint64(0, true),
+      );
       offset += 12;
-      if (offset + privateLength > payload.length) throw new Error("Truncated IQ private metadata");
-      privateMetadata = JSON.parse(new TextDecoder().decode(payload.slice(offset, offset + privateLength)));
+      if (offset + privateLength > payload.length)
+        throw new Error("Truncated IQ private metadata");
+      privateMetadata = JSON.parse(
+        new TextDecoder().decode(payload.slice(offset, offset + privateLength)),
+      );
       offset += privateLength;
       continue;
     }
     if (offset + 20 > payload.length) throw new Error("Truncated IQ chunk");
-    const length = Number(new DataView(payload.buffer, payload.byteOffset + offset + 12, 8).getBigUint64(0, true));
+    const length = Number(
+      new DataView(
+        payload.buffer,
+        payload.byteOffset + offset + 12,
+        8,
+      ).getBigUint64(0, true),
+    );
     offset += 20;
-    if (offset + length > payload.length) throw new Error("Truncated IQ chunk data");
+    if (offset + length > payload.length)
+      throw new Error("Truncated IQ chunk data");
     chunks.push(payload.slice(offset, offset + length));
     offset += length;
   }
   const total = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
   let write = 0;
-  for (const chunk of chunks) { total.set(chunk, write); write += chunk.length; }
-  if (privateMetadata) metadata.device_profile = privateMetadata as FileMetadata["device_profile"];
+  for (const chunk of chunks) {
+    total.set(chunk, write);
+    write += chunk.length;
+  }
+  if (privateMetadata)
+    metadata.device_profile = privateMetadata as FileMetadata["device_profile"];
   return { raw: total, metadata };
 }
 
@@ -675,6 +769,7 @@ function stitchAdjacentChannels(
       frame_rate: first.frame_rate,
       hardware_sample_rate_hz: first.hardware_sample_rate_hz,
       label: first.label,
+      frame_updates: first.frame_updates,
     };
   });
 }
@@ -785,123 +880,6 @@ self.onmessage = async function (e) {
 
   try {
     switch (type) {
-      case "loadFile": {
-        const { fileData, fileName, aesKey: rawAesKey, allowIntegrityFailure = false } = data;
-        const aesKey = rawAesKey
-          ? await crypto.subtle.importKey(
-              "raw",
-              rawAesKey,
-              { name: "AES-GCM" },
-              true,
-              ["decrypt"],
-            )
-          : null;
-
-        const lower = fileName.toLowerCase();
-        let rawData: Uint8Array = new Uint8Array(0);
-        if (lower.endsWith(".iq")) {
-          const res = await loadIqFile(fileData, aesKey);
-          rawData = res.raw;
-          (self as any).postMessage({ type: "result", id, data: { rawData, fileName, metadata: res.metadata } }, [rawData.buffer]);
-        } else if (lower.endsWith(".wav")) {
-          const res = loadWavFile(fileData);
-          rawData = res.raw; // res.raw is already Uint8Array from loadWavFile
-
-          (self as any).postMessage(
-            {
-              type: "result",
-              id,
-              data: { rawData, fileName, metadata: res.metadata },
-            },
-            [rawData.buffer],
-          );
-        } else if (lower.endsWith(".napt") && aesKey) {
-          const { metaObj, metadata, naptBinaryFileData, isEncrypted, possibleHeaderSizes } =
-            await decodeNaptContainer(fileData, fileName, "loadFile", allowIntegrityFailure);
-
-          // Check for channels at top-level OR inside metadata
-          const channels = metaObj.channels ||
-            metaObj.metadata?.channels || [
-              {
-                offset_iq: metaObj.offset_iq ?? metaObj.metadata?.offset_iq,
-                iq_length: metaObj.iq_length ?? metaObj.metadata?.iq_length,
-              },
-            ];
-          const firstChannel = channels[0];
-
-          if (firstChannel && firstChannel.offset_iq !== undefined) {
-            try {
-              let decryptedData: ArrayBuffer | null = null;
-              if (!isEncrypted) {
-                const hSize =
-                  possibleHeaderSizes.find(
-                    (size) => fileData.byteLength > size + 12,
-                  ) ?? 0;
-                const encryptedView = new Uint8Array(naptBinaryFileData, hSize);
-                decryptedData = encryptedView.buffer.slice(
-                  encryptedView.byteOffset,
-                );
-              } else {
-                decryptedData = await decryptNaptPayloadAtOffsets(
-                  naptBinaryFileData,
-                  aesKey as CryptoKey,
-                  fileName,
-                  possibleHeaderSizes,
-                  wrappedNaptKey(metaObj),
-                );
-              }
-
-              if (!decryptedData) {
-                throw new Error(
-                  "Decryption failed for all possible header sizes.",
-                );
-              }
-
-              const payloadArray = new Uint8Array(decryptedData);
-              const chOffsetIq = firstChannel.offset_iq;
-              const iqByteLength =
-                firstChannel.iq_length ?? payloadArray.length - chOffsetIq;
-
-              const iqPart = payloadArray.slice(
-                chOffsetIq,
-                chOffsetIq + iqByteLength,
-              );
-
-              const responseData = { rawData: iqPart, fileName, metadata };
-              (self as any).postMessage(
-                { type: "result", id, data: responseData },
-                [iqPart.buffer],
-              );
-            } catch (decryptErr: any) {
-              const errType =
-                decryptErr instanceof Error
-                  ? decryptErr.name
-                  : typeof decryptErr;
-              console.error(
-                "NAPT Load Decryption Failed:",
-                fileName,
-                errType,
-                decryptErr,
-              );
-              let detail = decryptErr.message || String(decryptErr);
-              if (errType === "OperationError") {
-                detail =
-                  "AES-GCM authentication failed (wrong key or corrupted data). Check if the file matches your current Vault session.";
-              }
-              throw new Error(`Decryption failed for ${fileName}: ${detail}`);
-            }
-          } else {
-            throw new Error(
-              `Invalid .napt header in ${fileName}: missing offset_iq in channels`,
-            );
-          }
-        } else {
-          rawData = loadC64File(fileData, fileName);
-          self.postMessage({ type: "result", id, data: { rawData, fileName } });
-        }
-        break;
-      }
-
       case "stitchFiles": {
         const {
           files,
@@ -943,28 +921,33 @@ self.onmessage = async function (e) {
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           try {
-            const lower = file.fileName.toLowerCase();
+            const fileName = file.fileName as string;
+            const fileData = file.fileData as ArrayBuffer;
+            rejectLocalProtectedCapture(fileName);
+            const lower = fileName.toLowerCase();
             let rawData: Uint8Array = new Uint8Array(0);
             let metadata: FileMetadata | null = null;
 
             if (lower.endsWith(".iq")) {
-              const res = await loadIqFile(file.fileData, aesKey);
+              const res = await loadIqFile(fileData, aesKey);
               rawData = res.raw;
               metadata = res.metadata;
-              (metadata as any).channels_data = [{
-                iq_data: rawData,
-                center_freq_hz: metadata?.center_frequency_hz || 0,
-                sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
-                bins_per_frame: metadata?.fft_size,
-                frame_rate: metadata?.frame_rate,
-                frame_updates: metadata?.frame_updates,
-              }];
+              (metadata as any).channels_data = [
+                {
+                  iq_data: rawData,
+                  center_freq_hz: metadata?.center_frequency_hz || 0,
+                  sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
+                  bins_per_frame: metadata?.fft_size,
+                  frame_rate: metadata?.frame_rate,
+                  frame_updates: metadata?.frame_updates,
+                },
+              ];
             } else if (lower.endsWith(".wav")) {
               const {
                 raw,
                 metadata: wavMeta,
                 channels,
-              } = loadWavFile(file.fileData);
+              } = loadWavFile(fileData);
               rawData = raw;
               metadata = wavMeta as FileMetadata;
 
@@ -976,8 +959,17 @@ self.onmessage = async function (e) {
                 );
               }
             } else if (lower.endsWith(".napt") && aesKey) {
-              const { metaObj, metadata: naptMetadata, naptBinaryFileData, isEncrypted, possibleHeaderSizes } =
-                await decodeNaptContainer(file.fileData, file.fileName, "stitchFiles", allowIntegrityFailure);
+              const {
+                metaObj,
+                metadata: naptMetadata,
+                naptBinaryFileData,
+                isEncrypted,
+                possibleHeaderSizes,
+              } = await decodeNaptContainer(
+                fileData,
+                fileName,
+                allowIntegrityFailure,
+              );
               metadata = naptMetadata;
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
@@ -999,7 +991,10 @@ self.onmessage = async function (e) {
                     possibleHeaderSizes.find(
                       (size) => naptBinaryFileData.byteLength > size + 12,
                     ) ?? 0;
-                  const encryptedView = new Uint8Array(naptBinaryFileData, hSize);
+                  const encryptedView = new Uint8Array(
+                    naptBinaryFileData,
+                    hSize,
+                  );
                   decryptedData = encryptedView.buffer.slice(
                     encryptedView.byteOffset,
                   );
@@ -1007,7 +1002,7 @@ self.onmessage = async function (e) {
                   decryptedData = await decryptNaptPayloadAtOffsets(
                     naptBinaryFileData,
                     aesKey as CryptoKey,
-                    file.fileName,
+                    fileName,
                     possibleHeaderSizes,
                     wrappedNaptKey(metaObj),
                   );
@@ -1038,6 +1033,13 @@ self.onmessage = async function (e) {
                     bins_per_frame: ch.bins_per_frame,
                     frame_rate: metadata?.frame_rate,
                     hardware_sample_rate_hz: metadata?.hardware_sample_rate_hz,
+                    frame_updates: (metadata?.frame_updates ?? [])
+                      .filter((update) =>
+                        update.channel === undefined
+                          ? channelsMetadata.length === 1
+                          : update.channel === j,
+                      )
+                      .map(({ channel: _channel, ...update }) => update),
                     frequency_range: ch.requested_min_freq_hz
                       ? [ch.requested_min_freq_hz, ch.requested_max_freq_hz]
                       : undefined,
@@ -1070,8 +1072,8 @@ self.onmessage = async function (e) {
                   if (!groupIq || groupIq.length === 0) return;
                   const entryName =
                     groupIndex === 0
-                      ? file.fileName
-                      : `${file.fileName}__group${groupIndex}`;
+                      ? fileName
+                      : `${fileName}__group${groupIndex}`;
                   const entryCenterHz = group.frequency_range
                     ? (group.frequency_range[0] + group.frequency_range[1]) / 2
                     : group.center_freq_hz;
@@ -1088,22 +1090,22 @@ self.onmessage = async function (e) {
                 });
               }
             } else {
-              rawData = loadC64File(file.fileData, file.fileName);
+              rawData = loadC64File(fileData, fileName);
             }
 
             if (rawData && rawData.length > 0) {
-              if (!fileDataCache.has(file.fileName))
-                fileDataCache.set(file.fileName, rawData);
-              if (metadata && !metadataMap.has(file.fileName))
-                metadataMap.set(file.fileName, metadata);
+              if (!fileDataCache.has(fileName))
+                fileDataCache.set(fileName, rawData);
+              if (metadata && !metadataMap.has(fileName))
+                metadataMap.set(fileName, metadata);
               loadedCount++;
             }
 
             const baseFrequency =
               metadata?.center_frequency_hz ||
-              parseFrequencyFromFilename(file.fileName);
+              parseFrequencyFromFilename(fileName);
             freqMap.set(
-              file.fileName,
+              fileName,
               baseFrequency * (1 + (settings.ppm || 0) * 1e-6),
             );
 
@@ -1113,7 +1115,7 @@ self.onmessage = async function (e) {
               data: {
                 current: i + 1,
                 total: files.length,
-                status: `Loaded ${sanitizeFilename(file.fileName)}`,
+                status: `Loaded ${sanitizeFilename(fileName)}`,
               },
             });
           } catch (error: any) {

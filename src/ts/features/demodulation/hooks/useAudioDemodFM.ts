@@ -7,7 +7,7 @@ export interface AudioDemodFMOptions {
   centerFrequency?: number; // Target FM station frequency offset from SDR center in Hz
   bandwidth?: number; // Bandwidth to select (default: 200kHz for ±100kHz)
   /** Defaults to broadcast FM; pass `fmDiscriminator` for the N-APT valley probe. */
-  algorithm?: "fm" | "fmDiscriminator";
+  algorithm?: "am" | "fm" | "fmDiscriminator";
 }
 
 export interface AudioDemodFMHandle {

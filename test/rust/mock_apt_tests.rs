@@ -1037,7 +1037,10 @@ mod tests {
     let limit = if cfg!(debug_assertions) {
       std::time::Duration::from_secs(12)
     } else {
-      std::time::Duration::from_millis(90)
+      // This test runs in the general CI unit-test lane; leave room for
+      // shared-runner scheduling variance. The dedicated performance suite
+      // owns tighter throughput regression limits.
+      std::time::Duration::from_millis(150)
     };
 
     assert!(

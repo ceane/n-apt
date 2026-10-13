@@ -9,6 +9,7 @@ use tokio::sync::Notify;
 use crate::app::readiness::ReadinessState;
 use crate::infrastructure::redis::{RedisReadiness, RedisStore};
 
+use super::stream_manager::RxStreamOptions;
 use super::types::{DeviceProfile, SdrProcessorSettings, SpectrumFrameMessage};
 use super::utils::{load_available_spectrum, load_channels, load_sdr_settings};
 
@@ -33,6 +34,124 @@ pub const MAX_RECOVERY_ATTEMPTS: u32 = 2;
 /// counters on every restart and loop loading→restart forever with a dead
 /// stream; past this budget the terminal fallback path runs instead.
 pub const MAX_READER_RESTARTS: u32 = 8;
+
+/// Overall watchdog for an active-device restart. Bounds how long a restart may
+/// hold the processor lock before the UI is resolved to an actionable state
+/// instead of pinning on the `loading`/`restart` placeholder.
+pub const DEVICE_RESTART_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(8);
+
+/// Bound on the native device open performed inside a restart. librtlsdr's open
+/// can block well past any internal retry budget on a busy or half-detached
+/// USB handle; this caps how long the processor lock can be held for it.
+pub const DEVICE_OPEN_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(5);
+
+/// Bound on releasing the previous device during a restart. The close itself is
+/// unbounded in librtlsdr, so the wait is capped and an overrunning handle is
+/// left to unwind in the background.
+pub const DEVICE_RELEASE_DEADLINE: std::time::Duration =
+  std::time::Duration::from_secs(5);
+
+#[derive(Clone)]
+pub(crate) struct ActiveRxOptionsAttempt {
+  pub source_id: String,
+  pub revision: u64,
+  pub options: RxStreamOptions,
+  pub applied_options: Option<RxStreamOptions>,
+  pub requested_at: Instant,
+}
+
+#[derive(Default)]
+struct ActiveRxOptionsState {
+  source_id: Option<String>,
+  next_revision: u64,
+  desired: Option<ActiveRxOptionsAttempt>,
+  applied_revision: u64,
+  applied_options: Option<RxStreamOptions>,
+  last_attempted_revision: u64,
+}
+
+impl ActiveRxOptionsState {
+  fn seed(&mut self, source_id: &str, options: RxStreamOptions) {
+    if self.source_id.as_deref() == Some(source_id)
+      && self.applied_options.is_some()
+    {
+      return;
+    }
+    self.source_id = Some(source_id.to_string());
+    self.next_revision = 0;
+    self.desired = None;
+    self.applied_revision = 0;
+    self.applied_options = Some(options);
+    self.last_attempted_revision = 0;
+  }
+
+  fn request(
+    &mut self,
+    source_id: &str,
+    options: RxStreamOptions,
+    baseline: Option<RxStreamOptions>,
+  ) {
+    if self.source_id.as_deref() != Some(source_id) {
+      self.source_id = Some(source_id.to_string());
+      self.next_revision = 0;
+      self.desired = None;
+      self.applied_revision = 0;
+      self.applied_options = baseline;
+      self.last_attempted_revision = 0;
+    } else if self.applied_options.is_none() {
+      self.applied_options = baseline;
+    }
+    self.next_revision = self.next_revision.wrapping_add(1);
+    self.desired = Some(ActiveRxOptionsAttempt {
+      source_id: source_id.to_string(),
+      revision: self.next_revision,
+      options,
+      applied_options: self.applied_options.clone(),
+      requested_at: Instant::now(),
+    });
+  }
+
+  fn take_pending(&mut self) -> Option<ActiveRxOptionsAttempt> {
+    let desired = self.desired.as_ref()?;
+    if desired.revision <= self.last_attempted_revision {
+      return None;
+    }
+    self.last_attempted_revision = desired.revision;
+    let mut attempt = desired.clone();
+    attempt.applied_options = self.applied_options.clone();
+    Some(attempt)
+  }
+
+  fn mark_applied(
+    &mut self,
+    source_id: &str,
+    revision: u64,
+    options: RxStreamOptions,
+  ) {
+    if self.source_id.as_deref() == Some(source_id)
+      && revision >= self.applied_revision
+    {
+      self.applied_revision = revision;
+      self.applied_options = Some(options);
+    }
+  }
+
+  #[cfg(test)]
+  fn applied_options(&self) -> Option<RxStreamOptions> {
+    self.applied_options.clone()
+  }
+
+  fn needs_application(
+    &self,
+    source_id: &str,
+    options: &RxStreamOptions,
+  ) -> bool {
+    self.source_id.as_deref() != Some(source_id)
+      || self.applied_options.as_ref() != Some(options)
+  }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HackRfInventoryDevice {
@@ -94,6 +213,15 @@ pub struct SharedState {
   pub pending_center_freq: AtomicU32,
   /// Whether there is a pending frequency change
   pub pending_center_freq_dirty: AtomicBool,
+  /// Request timestamp paired with the latest center frequency for latency
+  /// profiling at the frame-loop retune boundary.
+  pub pending_center_freq_requested_at: Mutex<Option<(u32, Instant)>>,
+  /// Latest active-source managed RX options and the last complete values
+  /// successfully applied to the active processor.
+  active_rx_options: Mutex<ActiveRxOptionsState>,
+  /// Timestamp of the most recent successful live retune, consumed when its
+  /// first frame is published.
+  pub live_retune_started_at: Mutex<Option<Instant>>,
   /// Wakes the frame loop as soon as a new retune request arrives.
   pub pending_center_freq_notify: Notify,
   /// Shutdown signal — I/O thread checks this each iteration
@@ -128,6 +256,8 @@ pub struct SharedState {
   pub device_state: Mutex<String>,
   /// AES-256 encryption key derived from passkey (set once at startup)
   pub encryption_key: [u8; 32],
+  /// Login-only key. Never export this key to authenticated clients.
+  pub authentication_key: [u8; 32],
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// Device-scoped channel selected by the control plane. This is kept apart
@@ -217,6 +347,7 @@ impl SharedState {
   pub fn new(redis_url: &str) -> Arc<Self> {
     let passkey = unsafe_local_user_password();
     let encryption_key = crate::crypto::derive_key(&passkey);
+    let authentication_key = crate::crypto::derive_auth_key(&passkey);
     let sdr_settings = load_sdr_settings();
     let (redis_store, redis_readiness) = match redis::Client::open(redis_url) {
       Ok(client) => (RedisStore::from_client(client), RedisReadiness::Unknown),
@@ -259,6 +390,9 @@ impl SharedState {
       source_pause_states: Mutex::new(HashMap::new()),
       pending_center_freq: AtomicU32::new(sdr_settings.center_frequency),
       pending_center_freq_dirty: AtomicBool::new(false),
+      pending_center_freq_requested_at: Mutex::new(None),
+      active_rx_options: Mutex::new(ActiveRxOptionsState::default()),
+      live_retune_started_at: Mutex::new(None),
       pending_center_freq_notify: Notify::new(),
       shutdown: AtomicBool::new(false),
       device_released: AtomicBool::new(false),
@@ -278,6 +412,7 @@ impl SharedState {
       device_loading_reason: Mutex::new(None),
       device_state: Mutex::new("disconnected".to_string()),
       encryption_key,
+      authentication_key,
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),
@@ -333,6 +468,8 @@ impl SharedState {
   /// Publish the newest center-frequency request without taking the processor
   /// mutex. The frame loop consumes the latest value before its next read.
   pub fn request_center_frequency(&self, center_frequency_hz: u32) {
+    *self.pending_center_freq_requested_at.lock().unwrap() =
+      Some((center_frequency_hz, Instant::now()));
     self
       .pending_center_freq
       .store(center_frequency_hz, Ordering::Release);
@@ -340,6 +477,90 @@ impl SharedState {
       .pending_center_freq_dirty
       .store(true, Ordering::Release);
     self.pending_center_freq_notify.notify_one();
+  }
+
+  pub fn take_center_frequency_request_time(
+    &self,
+    center_frequency_hz: u32,
+  ) -> Option<Instant> {
+    let mut pending = self.pending_center_freq_requested_at.lock().unwrap();
+    if pending.as_ref().is_some_and(|(requested_frequency, _)| {
+      *requested_frequency == center_frequency_hz
+    }) {
+      pending.take().map(|(_, requested_at)| requested_at)
+    } else {
+      None
+    }
+  }
+
+  pub fn mark_live_retune_started(&self) {
+    *self.live_retune_started_at.lock().unwrap() = Some(Instant::now());
+  }
+
+  pub fn record_live_retune_frame_published(&self) {
+    if let Some(started_at) = self.live_retune_started_at.lock().unwrap().take()
+    {
+      crate::performance::pipeline_metrics().record_latency(
+        crate::performance::Stage::RetuneToFirstFrame,
+        started_at.elapsed(),
+      );
+    }
+  }
+
+  pub fn seed_active_rx_options(
+    &self,
+    source_id: &str,
+    options: RxStreamOptions,
+  ) {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .seed(source_id, options);
+  }
+
+  pub fn request_active_rx_options(
+    &self,
+    source_id: &str,
+    options: RxStreamOptions,
+    baseline: Option<RxStreamOptions>,
+  ) {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .request(source_id, options, baseline);
+  }
+
+  pub fn active_rx_options_need_application(
+    &self,
+    source_id: &str,
+    options: &RxStreamOptions,
+  ) -> bool {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .needs_application(source_id, options)
+  }
+
+  pub(crate) fn take_pending_active_rx_options(
+    &self,
+  ) -> Option<ActiveRxOptionsAttempt> {
+    self.active_rx_options.lock().unwrap().take_pending()
+  }
+
+  pub(crate) fn mark_active_rx_options_applied(
+    &self,
+    source_id: &str,
+    revision: u64,
+    options: RxStreamOptions,
+  ) {
+    self
+      .active_rx_options
+      .lock()
+      .unwrap()
+      .mark_applied(source_id, revision, options);
   }
 
   /// Queue the newest value for every device-scoped setting without allowing
@@ -779,6 +1000,9 @@ fn merge_pending_fast_settings(
 
 fn unsafe_local_user_password() -> String {
   match std::env::var("UNSAFE_LOCAL_USER_PASSWORD") {
+    Ok(passkey) if passkey.trim() == "your_password" => panic!(
+      "The public setup password cannot enable login. Configure a private password; preserve the old password and salts for existing captures."
+    ),
     Ok(passkey) if !passkey.trim().is_empty() => passkey,
     _ => panic!(
       "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
@@ -789,18 +1013,95 @@ fn unsafe_local_user_password() -> String {
 #[cfg(test)]
 mod tests {
   use super::{
-    unsafe_local_user_password, HackRfInventoryDevice,
+    unsafe_local_user_password, ActiveRxOptionsState, HackRfInventoryDevice,
     RtlSdrInventoryDevice, SharedState,
   };
+  use crate::server::stream_manager::RxStreamOptions;
   use crate::server::types::SdrProcessorSettings;
   use serial_test::serial;
   use std::sync::atomic::Ordering;
+
+  fn rx_options(center_frequency_hz: u64) -> RxStreamOptions {
+    RxStreamOptions {
+      center_frequency_hz,
+      sample_rate_hz: 3_200_000,
+      fft_size: 1024,
+      fft_window: Some("Hanning".to_string()),
+      frame_rate: Some(20),
+      gain: Some(12.0),
+    }
+  }
+
+  #[test]
+  fn failed_active_rx_option_attempt_does_not_advance_applied_state() {
+    let mut state = ActiveRxOptionsState::default();
+    let baseline = rx_options(137_100_000);
+    state.seed("rtl-1", baseline.clone());
+
+    let first = rx_options(137_200_000);
+    state.request("rtl-1", first.clone(), None);
+    let attempted = state
+      .take_pending()
+      .expect("first option update should be pending");
+    assert_eq!(attempted.applied_options, Some(baseline.clone()));
+
+    // Simulate a failed device application by not acknowledging the attempt.
+    // Repeating the desired value must retry from the last successful baseline.
+    assert!(state.needs_application("rtl-1", &first));
+    state.request("rtl-1", first.clone(), None);
+    let retry = state
+      .take_pending()
+      .expect("duplicate failed option update should retry");
+    assert_eq!(retry.applied_options, Some(baseline));
+    state.mark_applied("rtl-1", retry.revision, first.clone());
+
+    assert!(state.take_pending().is_none());
+    assert!(!state.needs_application("rtl-1", &first));
+    assert_eq!(state.applied_options(), Some(first));
+  }
+
+  #[test]
+  fn active_rx_option_burst_keeps_only_the_latest_complete_options() {
+    let mut state = ActiveRxOptionsState::default();
+    let baseline = rx_options(137_100_000);
+    state.seed("rtl-1", baseline.clone());
+    state.request("rtl-1", rx_options(137_200_000), None);
+    state.request("rtl-1", rx_options(137_300_000), None);
+
+    let pending = state
+      .take_pending()
+      .expect("latest option update should remain pending");
+
+    assert_eq!(pending.revision, 2);
+    assert_eq!(pending.options.center_frequency_hz, 137_300_000);
+    assert_eq!(pending.applied_options, Some(baseline));
+  }
+
+  #[test]
+  fn old_source_application_cannot_overwrite_new_source_tracking() {
+    let mut state = ActiveRxOptionsState::default();
+    let old_baseline = rx_options(137_100_000);
+    let old_update = rx_options(137_200_000);
+    state.seed("rtl-1", old_baseline);
+    state.request("rtl-1", old_update.clone(), None);
+    let old_attempt = state.take_pending().expect("old source update");
+
+    let new_baseline = rx_options(144_800_000);
+    state.request(
+      "hackrf-1",
+      rx_options(145_000_000),
+      Some(new_baseline.clone()),
+    );
+    state.mark_applied("rtl-1", old_attempt.revision, old_update);
+
+    assert_eq!(state.applied_options(), Some(new_baseline));
+  }
 
   #[test]
   #[serial]
   fn clearing_one_hardware_inventory_does_not_remove_the_other_device() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_rtl_sdr_inventory(vec![RtlSdrInventoryDevice {
       index: 0,
       serial_number: "rtl-1".to_string(),
@@ -825,7 +1126,7 @@ mod tests {
   #[serial]
   fn entering_loading_starts_one_new_stream_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let initial_epoch = shared.current_stream_epoch();
     shared.stream_sequence.store(9, Ordering::Release);
 
@@ -842,7 +1143,7 @@ mod tests {
   #[serial]
   fn frame_identity_is_monotonic_and_resets_with_the_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let (epoch, first) = shared.next_stream_frame_identity();
     let (same_epoch, second) = shared.next_stream_frame_identity();
     assert_eq!(same_epoch, epoch);
@@ -856,7 +1157,7 @@ mod tests {
   #[serial]
   fn new_stream_epoch_requires_a_fresh_successful_read() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.record_successful_read();
     assert!(shared.last_successful_read.lock().unwrap().is_some());
 
@@ -869,7 +1170,7 @@ mod tests {
   #[serial]
   fn syncing_same_source_clears_a_stale_global_pause_gate() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.is_paused.store(true, Ordering::SeqCst);
 
     // The source-scoped state says RTL is resumable even though the legacy
@@ -883,7 +1184,7 @@ mod tests {
   #[serial]
   fn coalesces_pending_device_settings_by_field() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     shared.enqueue_pending_fast_settings(SdrProcessorSettings {
       sample_rate: Some(2_400_000),
@@ -918,6 +1219,15 @@ mod tests {
 
   #[test]
   #[serial]
+  fn refuses_public_setup_placeholder_without_changing_capture_keys() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "your_password");
+    let result = std::panic::catch_unwind(unsafe_local_user_password);
+    std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
+    assert!(result.is_err(), "public setup placeholder must not enable login");
+  }
+
+  #[test]
+  #[serial]
   #[should_panic(
     expected = "UNSAFE_LOCAL_USER_PASSWORD missing. .env.local missing or incomplete; run npm run setup"
   )]
@@ -927,17 +1237,16 @@ mod tests {
     let _ = unsafe_local_user_password();
   }
 
-  /// Pins the vault/auth key contract: the server's `encryption_key` is
-  /// exactly `PBKDF2-HMAC-SHA256(password, salt, 100k)`. Both the password
-  /// challenge-response (HMAC over a server nonce) and .napt capture
-  /// encryption/playback (`scripts/decrypt_napt.mjs` re-derives this same
-  /// key client-side) depend on this derivation staying byte-stable.
+  /// Pins the legacy vault contract: `encryption_key` is exactly
+  /// `PBKDF2-HMAC-SHA256(password, salt, 100k)`. Capture encryption/playback
+  /// depend on this derivation staying byte-stable. Authentication now uses
+  /// an independent password derivation; the exported vault is not a login key.
   /// Changing it orphans every previously recorded capture.
   #[test]
   #[serial]
   fn encryption_key_is_pbkdf2_of_configured_password() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "vault-contract-test");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     let expected = crate::crypto::derive_key("vault-contract-test");
     assert_eq!(shared.encryption_key, expected);
@@ -951,12 +1260,13 @@ mod tests {
     assert_eq!(expected, crate::crypto::derive_key(" vault-contract-test "));
 
     // End-to-end auth proof shape: a client that knows the password can HMAC
-    // a server nonce with its derived key and the server verifies it with the
-    // shared key — no plaintext password ever crosses the wire.
+    // a server nonce with the independently derived authentication key.
     let nonce = crate::crypto::generate_nonce();
-    let client_tag = crate::crypto::compute_hmac(&expected, &nonce);
+    let auth_key = crate::crypto::derive_auth_key("vault-contract-test");
+    assert_ne!(auth_key, expected);
+    let client_tag = crate::crypto::compute_hmac(&auth_key, &nonce);
     assert!(crate::crypto::verify_hmac(
-      &shared.encryption_key,
+      &shared.authentication_key,
       &nonce,
       &client_tag
     ));

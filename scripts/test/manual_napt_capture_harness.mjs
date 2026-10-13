@@ -96,7 +96,19 @@ function decryptWithHeader(bytes, headerSize, vaultKey, root, metadata) {
   const wrappedDek = getWrappedDek(root, metadata);
   let dataKey = vaultKey;
   if (wrappedDek) dataKey = decryptGcm(Buffer.from(wrappedDek, "base64"), vaultKey);
-  return decryptGcm(bytes.subarray(headerSize), dataKey);
+  const binarySection = metadata.sections?.binary;
+  const offset = Number(binarySection?.offset_bytes ?? headerSize);
+  const length = Number(binarySection?.length_bytes ?? bytes.length - offset);
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 ||
+    length <= 0 ||
+    offset + length > bytes.length
+  ) {
+    throw new Error("Invalid binary section boundaries in .napt header");
+  }
+  return decryptGcm(bytes.subarray(offset, offset + length), dataKey);
 }
 
 function captureChannel(root, metadata, plaintextLength) {
@@ -114,6 +126,7 @@ function loadPassword(envFile) {
   const rawPassword = process.env.UNSAFE_LOCAL_USER_PASSWORD ??
     process.env.VITE_UNSAFE_LOCAL_USER_PASSWORD ??
     fileValues.UNSAFE_LOCAL_USER_PASSWORD ??
+    fileValues.NAPT_LEGACY_CAPTURE_PASSWORD ??
     fileValues.VITE_UNSAFE_LOCAL_USER_PASSWORD;
   if (!rawPassword) throw new Error("UNSAFE_LOCAL_USER_PASSWORD is missing; set it in .env.local or the environment");
   return resolveEnvReference(rawPassword, values).trim();

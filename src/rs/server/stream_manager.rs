@@ -529,6 +529,26 @@ impl StreamingSourceModeManager {
     )
   }
 
+  /// Publish a device-option application failure to every subscriber of the
+  /// stream that owns the device.
+  pub fn publish_error(
+    &self,
+    key: &StreamKey,
+    code: impl Into<String>,
+    message: impl Into<String>,
+  ) -> Result<(), StreamError> {
+    let streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get(key).ok_or(StreamError::MissingStream)?;
+    let _ = entry.sender.send(StreamEvent::Error {
+      key: key.clone(),
+      stream_epoch: entry.stream_epoch,
+      options_revision: entry.options_revision,
+      code: code.into(),
+      message: message.into(),
+    });
+    Ok(())
+  }
+
   fn publish_iq_frame_with_metadata_inner(
     &self,
     key: &StreamKey,
@@ -1021,6 +1041,38 @@ mod tests {
     );
     assert!(manager.has_stream(&key));
     subscription.unsubscribe();
+  }
+
+  #[tokio::test]
+  async fn publishes_option_application_errors_to_stream_subscribers() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("mock-apt", StreamMode::Rx);
+    manager.register_source(
+      key.source_id.clone(),
+      SourceStreamCapabilities {
+        can_receive: true,
+        can_transmit: false,
+        full_duplex: false,
+      },
+    );
+    let mut subscription =
+      manager.subscribe(key.clone(), rx_options()).unwrap();
+
+    manager
+      .publish_error(&key, "options_apply", "device rejected options")
+      .expect("active stream should accept its error event");
+
+    match subscription
+      .recv()
+      .await
+      .expect("error event should arrive")
+    {
+      StreamEvent::Error { code, message, .. } => {
+        assert_eq!(code, "options_apply");
+        assert_eq!(message, "device rejected options");
+      }
+      event => panic!("expected error event, got {event:?}"),
+    }
   }
 
   #[test]

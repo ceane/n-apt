@@ -2,6 +2,15 @@
 // deterministic across developer machines and CI runners.
 process.env.TZ = "America/Los_Angeles";
 
+const fs = require("node:fs");
+const path = require("node:path");
+const encryptedMlSourceRoot = "src/encrypted-modules/tmp/ml/src/ts";
+const hasEncryptedMlSources = fs.existsSync(
+  path.resolve(process.cwd(), encryptedMlSourceRoot),
+);
+const mlSource = (relativePath, fallbackPath) =>
+  `<rootDir>/${hasEncryptedMlSources ? `${encryptedMlSourceRoot}/${relativePath}` : fallbackPath}`;
+
 const scopedFrontendRoots = {
   app: "src/ts/app",
   ui: "src/ts/shared/ui",
@@ -38,13 +47,11 @@ const scopedFrontendMappers = Object.fromEntries(
 
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: "ts-jest",
   testEnvironment: "jsdom",
   setupFilesAfterEnv: [
     "<rootDir>/test/ts/setup.ts",
     "<rootDir>/jest.canvasSetup.cjs",
   ],
-  extensionsToTreatAsEsm: [".ts", ".tsx"],
   moduleNameMapper: {
     "^react-router$": "<rootDir>/test/ts/__mocks__/react-router.cjs",
     "^(\\.{1,2}/.*)\\.js$": "$1",
@@ -56,11 +63,42 @@ module.exports = {
     "^@n-apt/app-game/(.*)$": "<rootDir>/src/app-game/$1",
     "^@n-apt/app-legal$": "<rootDir>/src/app-legal",
     "^@n-apt/app-legal/(.*)$": "<rootDir>/src/app-legal/$1",
+    "^@n-apt/encrypted-modules/tmp/ml/(.*)$": hasEncryptedMlSources
+      ? `<rootDir>/src/encrypted-modules/tmp/ml/$1`
+      : "<rootDir>/src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    "^@n-apt/demodulation/survey/audioSurveyMedia$": mlSource(
+      "features/demodulation/survey/audioSurveyMedia.ts",
+      "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    ),
+    "^@n-apt/demodulation/survey/(.*)$": mlSource(
+      "features/demodulation/survey/$1",
+      "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    ),
+    "^@n-apt/demodulation/vision/visionScreens$": mlSource(
+      "features/demodulation/vision/visionScreens.ts",
+      "src/ts/encryptedAdapters/ml/visionScreensFallback.ts",
+    ),
+    "^@n-apt/demodulation/vision/visionSourcePolicy$": mlSource(
+      "features/demodulation/vision/visionSourcePolicy.ts",
+      "src/ts/encryptedAdapters/ml/visionSourcePolicyFallback.ts",
+    ),
+    "^@n-apt/demodulation/vision/(.*)$": mlSource(
+      "features/demodulation/vision/$1",
+      "src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
+    ),
+    "^@n-apt/demodulation/react-flow/nodes/stimulusChannelPolicy$": mlSource(
+      "features/demodulation/react-flow/nodes/stimulusChannelPolicy.ts",
+      "src/ts/encryptedAdapters/ml/stimulusChannelPolicyFallback.ts",
+    ),
+    "^@n-apt/demodulation/react-flow/nodes/(CoreMLNode|AudioDemodWorkflowFlow|VisionDemodWorkflowFlow)$": hasEncryptedMlSources
+      ? "<rootDir>/src/encrypted-modules/tmp/ml/src/ts/features/demodulation/react-flow/nodes/$1"
+      : "<rootDir>/src/ts/encryptedAdapters/ml/audioSurveyFallback.ts",
     ...scopedFrontendMappers,
     // Stub like other static assets: alias must not point at raw .svg or Jest parses XML as JS.
     "^@n-apt/public/(.*)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
     "^@n-apt/(.*)$": "<rootDir>/src/ts/$1",
     "\\.(gif|jpg|jpeg|png|svg|webp)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
+    "^.+\\.yaml\\?raw$": "<rootDir>/test/ts/__mocks__/signalsYaml.cjs",
     "\\.css$": "<rootDir>/test/ts/__mocks__/styleMock.cjs",
   },
   testMatch: [
@@ -118,10 +156,11 @@ module.exports = {
     },
   },
   transform: {
+    '^.+/node_modules/.+\\.js$': '<rootDir>/scripts/test/esbuild-jest.cjs',
     "^.+\\.(ts|tsx)$": "<rootDir>/scripts/test/ts-jest-typescript6.cjs",
     "\\.wgsl$": "jest-transform-stub"
   },
-  transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$|@chenglou/pretext))"],
+  transformIgnorePatterns: ["node_modules/(?!(.*\\.mjs$|three/examples/jsm/|@chenglou/pretext|unified|remark-parse|remark-gfm|remark-stringify|mdast-util-[^/]+|micromark[^/]*|unist-util-[^/]+|bail|devlop|extend|is-plain-obj|trough|vfile|decode-named-character-reference|character-entities[^/]*|ccount|longest-streak|markdown-table|trim-lines|zwitch|comma-separated-tokens|property-information|space-separated-tokens|escape-string-regexp))"],
   modulePathIgnorePatterns: ["<rootDir>/.shared-worktree-cache/"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
 };

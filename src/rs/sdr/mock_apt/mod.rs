@@ -14,8 +14,8 @@
 //! (`wifi`/`5g`/related modes) so those blocks can be reused when the transmit
 //! parameters are unchanged. That cache is not the main Mock APT I/Q source.
 
-use crate::s::fft::types::RawSamples;
-use crate::s::ifft::complex_baseband::{
+use crate::signal_port::fft::types::RawSamples;
+use crate::signal_port::ifft::complex_baseband::{
   canonical_complex_baseband_signal_key, ComplexBasebandIQGenerator,
   ComplexBasebandIQParams,
 };

@@ -695,7 +695,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
       <HiddenFileInput
         ref={fileInputRef}
         type="file"
-        accept=".napt,.iq,.wav"
+        accept=".napt,.iq,.wav,.enc"
         multiple
         onChange={(event) => {
           const files = event.target.files

@@ -15,6 +15,7 @@ import {
   spectrumActions,
   websocketActions,
   hydrateNoteCards,
+  hydrateExperimentLabels,
   setNoteCardsCollapsed,
 } from "@n-apt/redux";
 
@@ -58,6 +59,9 @@ const ReduxProvider: React.FC<ReduxProviderProps> = ({ children }) => {
         if (!cancelled) {
           if (persistedNoteCards.cards.length > 0) {
             store.dispatch(hydrateNoteCards(persistedNoteCards.cards));
+          }
+          if (persistedNoteCards.experimentLabels.length > 0) {
+            store.dispatch(hydrateExperimentLabels(persistedNoteCards.experimentLabels));
           }
           store.dispatch(setNoteCardsCollapsed(persistedNoteCards.isCollapsed));
         }

@@ -44,7 +44,7 @@ export const articleSanitizeSchema: typeof defaultSchema = {
     td: ["align", "colSpan", "rowSpan"],
     th: ["align", "colSpan", "rowSpan", "scope"],
     details: ["open"],
-    "latex-block": ["dataExpressions"],
+    "latex-block": ["dataExpressions", ["className", "math-variable-key"]],
     "icon-inline": ["dataIcon"],
   },
 };

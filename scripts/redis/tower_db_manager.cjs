@@ -9,6 +9,7 @@
  */
 
 const redis = require('redis');
+require('dotenv').config({ path: '.env.local', quiet: true });
 
 class TowerDataManager {
   constructor() {
@@ -18,10 +19,12 @@ class TowerDataManager {
 
   async init() {
     console.log('🔄 Connecting to Redis...');
+    const redisUrl = process.env.REDIS_ADMIN_URL;
+    if (!redisUrl) throw new Error('REDIS_ADMIN_URL is required for tower maintenance. Run npm run setup.');
     
     // Use permanent databases for tower data (db2, db3)
-    this.fastClient = redis.createClient({ database: 2 }); // Fast Select DB
-    this.completeClient = redis.createClient({ database: 3 }); // Complete DB
+    this.fastClient = redis.createClient({ url: redisUrl, database: 2 }); // Fast Select DB
+    this.completeClient = redis.createClient({ url: redisUrl, database: 3 }); // Complete DB
     
     await this.fastClient.connect();
     await this.completeClient.connect();

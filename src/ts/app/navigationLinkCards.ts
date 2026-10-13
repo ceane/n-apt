@@ -29,4 +29,5 @@ export const LOG_OUT_LINK_CARD: LinkCardItem = {
     "Logging out prevents unauthorized use of the app or access to your I/Q captures.",
   Icon: LogOut,
   to: "/logout",
+  tone: "orange",
 };

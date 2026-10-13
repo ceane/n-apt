@@ -79,8 +79,8 @@ export type StreamOptionsAppliedEvent = {
   streamEpoch: number;
   optionsRevision: number;
   options: StreamOptions;
-  /** Identifies an optimistic local echo before backend acknowledgement. */
-  origin?: "local" | "backend";
+  /** Distinguishes optimistic changes, peer changes, and local acknowledgements. */
+  origin?: "local" | "backend" | "acknowledgement";
 };
 
 export type StreamErrorEvent = {
@@ -449,6 +449,11 @@ export const createSourceModeStreamManager = ({
         entry.optionsRevision = event.optionsRevision;
         entry.lastSequence = null;
         entry.localOptionsRevision = null;
+        // The optimistic local event already updated presentation state, but
+        // consumers still need the device-global revision used by subsequent
+        // frames. Publish a narrow acknowledgement so readiness can advance
+        // without rehydrating the spectrum view a second time.
+        notify(entry, { ...event, origin: "acknowledgement" });
         return;
       }
       // A backend event at the exact revision of a local update must describe

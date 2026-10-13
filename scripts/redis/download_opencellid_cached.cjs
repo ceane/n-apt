@@ -15,6 +15,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { resolveSafeMccCsvPath } = require('../shared/opencellidPath.cjs');
+const { FAST_TOWER_STAGE_DB, FULL_TOWER_STAGE_DB, canPromoteTowerStage, invalidateTowerStageMarker } = require('./tower_staging.cjs');
 
 // Load environment variables
 require('dotenv').config({ path: '.env.local' });
@@ -26,14 +27,18 @@ if (!OPENCELLID_API_TOKEN) {
   process.exit(1);
 }
 
-// Redis configuration
-const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
-const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
+// Tower import needs administrative rights because it builds and promotes indexes.
+const REDIS_ADMIN_URL = process.env.REDIS_ADMIN_URL;
+if (!REDIS_ADMIN_URL) {
+  console.error('❌ REDIS_ADMIN_URL is required for tower imports. Run npm run setup.');
+  process.exit(1);
+}
 
 // Cache configuration
 const CACHE_DIR = path.join(__dirname, '../.cache/opencellid');
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 1 week in milliseconds
 const LAST_RUN_FILE = path.join(CACHE_DIR, 'last_run.json');
+const STAGING_MARKER_FILE = path.resolve('.n-apt/redis/tower-staging-ready.json');
 
 // Ensure cache directory exists
 if (!fs.existsSync(CACHE_DIR)) {
@@ -82,8 +87,8 @@ function recordRunTimestamp() {
 }
 
 async function hasExistingTowerData() {
-  const fastClient = redis.createClient({ socket: { host: REDIS_HOST, port: REDIS_PORT }, database: 2 });
-  const completeClient = redis.createClient({ socket: { host: REDIS_HOST, port: REDIS_PORT }, database: 3 });
+  const fastClient = redis.createClient({ url: REDIS_ADMIN_URL, database: 2 });
+  const completeClient = redis.createClient({ url: REDIS_ADMIN_URL, database: 3 });
 
   try {
     await fastClient.connect();
@@ -166,21 +171,21 @@ const stats = {
 async function initRedis() {
   console.log('🔄 Initializing Redis connections...');
   
-  // Use temporary databases first (db0, db1), then swap to permanent (db2, db3)
+  // Use reserved staging databases (db5, db6); db1 contains sessions and capture salts.
   fastRedisClient = redis.createClient({
-    socket: { host: REDIS_HOST, port: REDIS_PORT },
-    database: 0  // Temporary Fast Select DB
+    url: REDIS_ADMIN_URL,
+    database: FAST_TOWER_STAGE_DB
   });
   
   completeRedisClient = redis.createClient({
-    socket: { host: REDIS_HOST, port: REDIS_PORT },
-    database: 1  // Temporary Complete DB
+    url: REDIS_ADMIN_URL,
+    database: FULL_TOWER_STAGE_DB
   });
   
   await fastRedisClient.connect();
   await completeRedisClient.connect();
   
-  console.log('✅ Redis connections established (temporary: db0, db1)');
+  console.log(`✅ Redis connections established (tower staging: db${FAST_TOWER_STAGE_DB}, db${FULL_TOWER_STAGE_DB})`);
 }
 
 // Get cache file path for MCC
@@ -489,7 +494,7 @@ async function clearDatabases() {
   await fastRedisClient.flushDb();
   await completeRedisClient.flushDb();
   
-  console.log('✅ Temporary databases cleared (db0, db1)');
+  console.log(`✅ Tower staging databases cleared (db${FAST_TOWER_STAGE_DB}, db${FULL_TOWER_STAGE_DB})`);
 }
 
 // Create region indexes for fast queries
@@ -557,12 +562,14 @@ async function main() {
   try {
     console.log('🚀 OpenCellID API Data Processor with Caching for N-APT');
     console.log('='.repeat(50));
-    console.log(`🔑 Using API token: ${OPENCELLID_API_TOKEN.substring(0, 10)}...`);
+    console.log('🔑 OpenCellID API token is configured.');
     
     if (await shouldSkipRun()) {
       console.log('✅ OpenCellID import skipped; existing Redis tower data is still fresh.');
       return;
     }
+
+    invalidateTowerStageMarker(path.resolve('.'));
     
     // Initialize Redis
     await initRedis();
@@ -578,6 +585,16 @@ async function main() {
     
     // Generate statistics
     generateStats();
+    const [fastKeyCount, fullKeyCount] = await Promise.all([
+      fastRedisClient.dbSize(),
+      completeRedisClient.dbSize(),
+    ]);
+    if (!canPromoteTowerStage(fastKeyCount, fullKeyCount)) {
+      throw new Error('Tower import did not populate both staging databases; permanent data was not promoted.');
+    }
+    fs.mkdirSync(path.dirname(STAGING_MARKER_FILE), { recursive: true, mode: 0o700 });
+    fs.chmodSync(path.dirname(STAGING_MARKER_FILE), 0o700);
+    fs.writeFileSync(STAGING_MARKER_FILE, `${JSON.stringify({ fastKeyCount, fullKeyCount, completedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
     recordRunTimestamp();
     
     // Close connections

@@ -401,6 +401,52 @@ describe("fast snapshot canvases", () => {
     expect(drawImageCalls.length).toBe(0);
   });
 
+  it("marks the two visible channel boundaries and names both channels in a fast FFT snapshot", () => {
+    const canvas = buildFastSpectrumCanvas(
+      {
+        frequencyRange: { min: 22_500_000, max: 25_500_000 },
+        waveform: new Float32Array([-90, -80, -70, -85]),
+        vizZoom: 1,
+        vizPanOffset: 0,
+        dbMin: -120,
+        dbMax: 0,
+      } as any,
+      640,
+      360,
+      {
+        bg: "#ffffff",
+        grid: "#dddddd",
+        line: "#0066ff",
+        shadow: "#eeeeee",
+        text: "#333333",
+        hwLine: "#999999",
+        hwText: "#555555",
+        cfText: "#111111",
+      },
+      null,
+      {
+        signalAreaBounds: {
+          A: { min: 18_000, max: 4_390_000 },
+          B: { min: 24_100_000, max: 30_370_000 },
+          C: { min: 4_750_000, max: 23_000_000 },
+        },
+      },
+    );
+
+    expect(canvas).toBeTruthy();
+    const calls = (global as any).__CANVAS_CALLS__ as Array<{
+      name: string;
+      args: any[];
+    }>;
+    const labels = calls
+      .filter((call) => call.name === "fillText")
+      .map((call) => call.args[0]);
+    expect(labels).toContain("Channel C");
+    expect(labels).toContain("Channel B");
+    expect(calls.some((call) => call.name === "setLineDash" &&
+      JSON.stringify(call.args[0]) === JSON.stringify([3, 4]))).toBe(true);
+  });
+
   it("trims the live waterfall render inset before adding the fast VFO axis", () => {
     const waterfallGpu = document.createElement("canvas");
     waterfallGpu.width = 320;
@@ -885,6 +931,22 @@ describe("buildSnapshotStatsLines", () => {
     expect(lines[3]).toBe("Channels C (partial), B (whole)");
   });
 
+  it("names a single visible channel with its coverage after the name", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 24_184_300, max: 27_384_300 },
+      timestampLabel: "2026-10-08 14:20:30 (America/Los_Angeles)",
+      deviceName: "RTL-SDR v4",
+      channelName: "A",
+      signalAreaBounds: {
+        A: { min: 18_000, max: 4_390_000 },
+        B: { min: 24_100_000, max: 30_370_000 },
+        C: { min: 4_750_000, max: 23_000_000 },
+      },
+    });
+
+    expect(lines[3]).toBe("Channel B, partial");
+  });
+
   it("marks a straddled channel partial when only part of it is visible", () => {
     const lines = buildSnapshotStatsLines({
       range: { min: 22_000_000, max: 27_000_000 },
@@ -921,6 +983,21 @@ describe("buildSnapshotStatsLines", () => {
     });
 
     expect(lines[3]).toBe("Onscreen / partial Channel A");
+  });
+
+  it("does not assign the active channel when the captured range is outside it", () => {
+    const lines = buildSnapshotStatsLines({
+      range: { min: 10_000_000, max: 12_000_000 },
+      timestampLabel: "2026-06-03 12:00:00 (America/Los_Angeles)",
+      deviceName: "RTL-SDR Blog V4",
+      channelName: "A",
+      activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
+      signalAreaBounds: { a: { min: 18_000, max: 4_390_000 } },
+      whole: false,
+      fftSize: 2048,
+    });
+
+    expect(lines[3]).toBe("Onscreen");
   });
 
   it("falls back to Onscreen when no channel name is present", () => {

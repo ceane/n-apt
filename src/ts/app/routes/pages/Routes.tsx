@@ -318,6 +318,7 @@ const AppShellLayout: React.FC = () => {
             element={<CellularTriangulationTargetingDemoRoute />}
           />
           <Route path="/questionnaire" element={<QuestionnaireRoute />} />
+          <Route path="/questionnaire/*" element={<QuestionnaireRoute />} />
           <Route
             path="/x-archive-formatter"
             element={<XArchiveFormatterRoute />}

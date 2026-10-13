@@ -12,6 +12,7 @@ import {
   MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
   isValidSampleRateHz,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import { INITIAL_SPECTRUM_FREQUENCY_RANGE } from "@n-apt/webusb/initialSpectrumFrequencyRange";
 
 const DEFAULT_DB_LIMITS = getVisualizerDefaultDbLimits("dB");
 
@@ -26,8 +27,30 @@ export interface GpuSpikeAnalysis {
   multiFrameFrameCount: number;
   multiFrameBridgeScore: number;
   multiFrameUDipScore: number;
+  multiFrameUnimodalBridgeScore?: number;
+  multiFramePartialBridgeScore?: number;
+  multiFrameApexProminenceScore?: number;
+  multiFrameShoulderSymmetryScore?: number;
+  multiFrameSincPenaltyScore?: number;
+  multiFrameCoalescingScore?: number;
+  tuningPersistence?: number;
+  coalescingScore?: number;
+  tuningPersistenceArmed?: boolean;
+  tuningPersistenceMissingFrames?: number;
   floorDbm: number;
   spikes: Array<{ frequencyHz: number; powerDbm: number; index: number }>;
+  spacingHz?: number | null;
+  spacingToleranceHz?: number | null;
+  spacingScore?: number;
+  spacingSupport?: number;
+  spacingStableFrames?: number;
+  floorStabilityScore?: number | null;
+  floorStabilityFrames?: number;
+  spikeValleyFillScore?: number | null;
+  interferenceScore?: number | null;
+  interferenceEvidenceFrames?: number;
+  interferenceMissingFrames?: number;
+  spikePresenceScore?: number;
   suspensionBridgeScore: number;
   clumpCount: number;
   bridgeWidthScore: number;
@@ -189,8 +212,7 @@ export interface LocalSpectrumState {
 }
 
 export interface SpectrumState
-  extends DeviceScopedSpectrumState,
-    LocalSpectrumState {}
+  extends DeviceScopedSpectrumState, LocalSpectrumState {}
 
 const LIVE_CONTROL_DEFAULTS = {
   displayTemporalResolution: "reduced" as const,
@@ -307,7 +329,7 @@ function sanitizeSettingsBundle(
 const initialState: SpectrumState = {
   ...LIVE_CONTROL_DEFAULTS,
   activeSignalArea: "A",
-  frequencyRange: null,
+  frequencyRange: INITIAL_SPECTRUM_FREQUENCY_RANGE,
   sourceViewFrequencyRanges: {},
   tuningPreviewActive: false,
   lastKnownRanges: {},
@@ -514,9 +536,9 @@ const spectrumSlice = createSlice({
       const primaryBw = Math.max(1, primaryMax - primaryMin);
       const primaryCenter = Math.round((primaryMin + primaryMax) / 2);
       const primaryLabel = primary.label.toUpperCase();
-      const lowerLabels = (selectedLabels ?? channels.map((ch) => ch.label)).map(
-        (l) => l.toLowerCase(),
-      );
+      const lowerLabels = (
+        selectedLabels ?? channels.map((ch) => ch.label)
+      ).map((l) => l.toLowerCase());
 
       state.activeSignalArea = primaryLabel;
       const initialRange = action.payload.frequencyRange ?? {
@@ -887,7 +909,10 @@ const spectrumSlice = createSlice({
             ? action.payload.activeSignalArea
             : state.activeSignalArea;
         if (area && frequencyRange) {
-          if (!state.lastKnownRanges || typeof state.lastKnownRanges !== "object") {
+          if (
+            !state.lastKnownRanges ||
+            typeof state.lastKnownRanges !== "object"
+          ) {
             state.lastKnownRanges = {};
           }
           state.lastKnownRanges[area] = frequencyRange;
@@ -896,10 +921,7 @@ const spectrumSlice = createSlice({
       }
     },
 
-    setBasebandFilterPinned: (
-      state,
-      action: PayloadAction<boolean>,
-    ) => {
+    setBasebandFilterPinned: (state, action: PayloadAction<boolean>) => {
       state.basebandFilterPinned = action.payload;
     },
 
@@ -940,7 +962,10 @@ const spectrumSlice = createSlice({
       state.gpuSpikeCount = Math.max(0, Math.floor(action.payload));
     },
 
-    setGpuSpikeAnalysis: (state, action: PayloadAction<GpuSpikeAnalysis | null>) => {
+    setGpuSpikeAnalysis: (
+      state,
+      action: PayloadAction<GpuSpikeAnalysis | null>,
+    ) => {
       state.gpuSpikeAnalysis = action.payload;
     },
 
@@ -1001,13 +1026,16 @@ const spectrumSlice = createSlice({
       state.fftMaxDb = defaultDbLimits.max;
     },
 
-  resetLiveControls: (
+    resetLiveControls: (
       state,
-      action: PayloadAction<{
-        fftSize?: number;
-        fftFrameRate?: number;
-        sdrDefaults?: SignalsSdrDefaults | null;
-      } | undefined>,
+      action: PayloadAction<
+        | {
+            fftSize?: number;
+            fftFrameRate?: number;
+            sdrDefaults?: SignalsSdrDefaults | null;
+          }
+        | undefined
+      >,
     ) => {
       return {
         ...state,

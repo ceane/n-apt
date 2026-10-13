@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import fs from "node:fs";
-import { execSync } from "node:child_process";
+import crypto from "node:crypto";
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
@@ -39,6 +39,169 @@ const scopedFrontendRoots = {
   shaders: "src/ts/shaders",
 };
 
+const encryptedMlSourceRoot = path.resolve(
+  dirname,
+  "src/encrypted-modules/tmp/ml/src/ts/features",
+);
+const mlBundlePath = path.resolve(dirname, "src/encrypted-modules/ml.bundle.enc");
+const mlExtractionRoot = path.resolve(dirname, "src/encrypted-modules/tmp/ml");
+const mlEntryPath = path.join(mlExtractionRoot, "index.ts");
+const mlExtractionStatePath = path.join(
+  mlExtractionRoot,
+  ".module-bundle-state.json",
+);
+const requiredMlBundleFiles = [
+  "index.ts",
+  "src/ts/features/classification/index.ts",
+  "src/ts/features/demodulation/react-flow/nodes/AudioDemodWorkflowFlow.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/CoreMLNode.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/DemodReadinessNode.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/StimulusNode.tsx",
+  "src/ts/features/demodulation/react-flow/nodes/stimulusChannelPolicy.ts",
+  "src/ts/features/demodulation/react-flow/nodes/VisionDemodWorkflowFlow.tsx",
+  "src/ts/features/demodulation/sidebar/StimulusNodeLibraryEntry.tsx",
+  "src/ts/features/demodulation/survey/audioSurveyLiveDemod.ts",
+  "src/ts/features/demodulation/survey/audioSurveyModel.ts",
+  "src/ts/features/demodulation/survey/audioSurveyMedia.ts",
+  "src/ts/features/demodulation/vision/visionScreens.ts",
+  "src/ts/features/demodulation/vision/visionSourcePolicy.ts",
+  "src/ts/features/demodulation/vision/visionML.ts",
+  "src/ts/features/demodulation/vision/visionModel.ts",
+  "src/ts/features/demodulation/vision/visionOnnxRuntime.ts",
+  "src/ts/features/three-d/VisionScene.tsx",
+];
+const hasDecryptedMlSource = (() => {
+  try {
+    if (
+      !fs.lstatSync(mlBundlePath).isFile() ||
+      !fs.lstatSync(mlEntryPath).isFile() ||
+      !fs.lstatSync(mlExtractionStatePath).isFile()
+    ) {
+      return false;
+    }
+    const state = JSON.parse(fs.readFileSync(mlExtractionStatePath, "utf8"));
+    const bundleSha256 = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(mlBundlePath))
+      .digest("hex");
+    return (
+      state.format === "n-apt-encrypted-module-bundle" &&
+      state.version === 1 &&
+      /^[a-f0-9]{64}$/.test(state.bundleId) &&
+      state.ciphertextSha256 === bundleSha256 &&
+      Array.isArray(state.requiredFiles) &&
+      Array.isArray(state.files) &&
+      requiredMlBundleFiles.every(
+        (filePath) =>
+          state.requiredFiles.includes(filePath) && state.files.includes(filePath),
+      )
+    );
+  } catch {
+    return false;
+  }
+})();
+const publicMlAdapterRoot = path.resolve(
+  dirname,
+  "src/ts/encryptedAdapters/ml",
+);
+const protectedSurveyRoot = path.join(
+  encryptedMlSourceRoot,
+  "demodulation",
+  "survey",
+);
+const protectedVisionRoot = path.join(
+  encryptedMlSourceRoot,
+  "demodulation",
+  "vision",
+);
+const protectedClassificationRoot = path.join(
+  encryptedMlSourceRoot,
+  "classification",
+);
+const protectedClassificationNativeRoot = path.join(
+  protectedClassificationRoot,
+  "native",
+);
+const publicClassificationNativeRoot = path.resolve(
+  dirname,
+  "src/ts/features/classification/native",
+);
+
+const encryptedMlAliases = [
+  {
+    find: /^\/?@n-apt\/encrypted-modules\/tmp\/ml\/index$/,
+    replacement: hasDecryptedMlSource
+      ? mlEntryPath
+      : path.join(publicMlAdapterRoot, "encryptedMlUnavailable.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/survey\/audioSurveyMedia$/,
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedSurveyRoot, "audioSurveyMedia.ts")
+      : path.join(publicMlAdapterRoot, "audioSurveyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/vision\/visionScreens$/,
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedVisionRoot, "visionScreens.ts")
+      : path.join(publicMlAdapterRoot, "visionScreensFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/vision\/visionSourcePolicy$/,
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedVisionRoot, "visionSourcePolicy.ts")
+      : path.join(publicMlAdapterRoot, "visionSourcePolicyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/react-flow\/nodes\/stimulusChannelPolicy$/,
+    replacement: hasDecryptedMlSource
+      ? path.join(
+          encryptedMlSourceRoot,
+          "demodulation/react-flow/nodes/stimulusChannelPolicy.ts",
+        )
+      : path.join(publicMlAdapterRoot, "stimulusChannelPolicyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/react-flow\/nodes\/(AudioDemodWorkflowFlow|VisionDemodWorkflowFlow)$/,
+    replacement: hasDecryptedMlSource
+      ? `${encryptedMlSourceRoot}/demodulation/react-flow/nodes/$1`
+      : path.join(publicMlAdapterRoot, "demodReadinessFallbackDependencies.tsx"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/survey\/(.*)$/,
+    replacement: hasDecryptedMlSource
+      ? `${protectedSurveyRoot}/$1`
+      : path.join(publicMlAdapterRoot, "audioSurveyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/demodulation\/vision\/(.*)$/,
+    replacement: hasDecryptedMlSource
+      ? `${protectedVisionRoot}/$1`
+      : path.join(publicMlAdapterRoot, "audioSurveyFallback.ts"),
+  },
+  {
+    find: /^\/?@n-apt\/classification\/native\/(core|gpu)$/,
+    replacement: path.join(
+      hasDecryptedMlSource
+        ? protectedClassificationNativeRoot
+        : publicMlAdapterRoot,
+      hasDecryptedMlSource ? "$1" : "classificationNativeFallback.ts",
+    ),
+  },
+  {
+    find: /^\/?@n-apt\/classification\/native\/(.*)$/,
+    replacement: hasDecryptedMlSource
+      ? `${protectedClassificationNativeRoot}/$1`
+      : `${publicClassificationNativeRoot}/$1`,
+  },
+  {
+    find: /^\/?@n-apt\/classification$/,
+    replacement: hasDecryptedMlSource
+      ? path.join(protectedClassificationRoot, "index.ts")
+      : path.join(publicMlAdapterRoot, "classificationFallback.ts"),
+  },
+];
+
 const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
   ([namespace, relativeRoot]) => {
     const root = path.resolve(dirname, relativeRoot);
@@ -55,33 +218,9 @@ const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
   },
 );
 
-const resolveGitRoot = () => {
-  try {
-    const gitCommonDir = execSync("git rev-parse --git-common-dir", {
-      cwd: dirname,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-
-    if (!gitCommonDir) {
-      return null;
-    }
-
-    const absoluteCommonDir = path.isAbsolute(gitCommonDir)
-      ? gitCommonDir
-      : path.resolve(dirname, gitCommonDir);
-
-    return path.resolve(absoluteCommonDir, "..");
-  } catch {
-    return null;
-  }
-};
-
 const fsAllow = Array.from(
   new Set(
-    [dirname, resolveGitRoot()]
-      .filter((value) => Boolean(value))
+    [path.resolve(dirname, "src"), path.resolve(dirname, "node_modules")]
       .map((value) => {
         const resolved = path.resolve(value);
         try {
@@ -106,6 +245,22 @@ const injectBrowserEnv = (browserEnv) => ({
     );
   },
 });
+
+const PUBLIC_BROWSER_ENV_KEYS = new Set([
+  "NAPT_PBKDF2_SALT",
+  "VITE_APP_URL",
+  "VITE_BACKEND_URL",
+  "VITE_GOOGLE_MAPS_API_KEY",
+  "VITE_PBKDF2_SALT",
+  "VITE_SESSION_KEY",
+  "VITE_WASM_BUILD_PATH",
+  "VITE_WS_URL",
+]);
+
+export const selectBrowserEnv = (env) =>
+  Object.fromEntries(
+    Object.entries(env).filter(([key]) => PUBLIC_BROWSER_ENV_KEYS.has(key)),
+  );
 
 const styledComponentsFixPlugin = () => ({
   name: 'styled-components-fix',
@@ -151,17 +306,20 @@ const markdownForAgentsPlugin = () => ({
           "",
           "This index describes the Markdown-for-Agents and WebMCP surfaces. CLI mutations require `--allow-mutations`; transmission and destructive operations are blocked.",
           "",
-          "## Supported Markdown routes",
+          "## Markdown routes",
           "",
-          "- `/` and `/visualizer` — [visualizer](visualizer.md)",
-          "- `/demodulate` and `/demod` — [analysis](analysis.md)",
-          "- `/draw-signal` — [draw-signal](draw-signal.md)",
-          "- `/3d-model` — [3d-model](3d-model.md)",
-          "- `/map-endpoints` — [map-endpoints](map-endpoints.md)",
+          "- [Visualizer](/visualizer) (also `/`)",
+          "- [Demodulate](/demodulate) (also `/demod`)",
+          "- [Draw Signal](/draw-signal)",
+          "- [3D Model](/3d-model)",
+          "- [Map Endpoints](/map-endpoints)",
+          "- [Get Started](/get-started)",
+          "- Legal document reader: [Terms](/terms), [Privacy](/privacy), [License](/license), [Responsible Use](/responsible-use)",
+          "- [Cellular Triangulation Demo](/game)",
           "",
           "## Coverage policy",
           "",
-          "Settings and I/Q captures require authentication. Educational, legal, onboarding, and demo routes are not executable agent surfaces.",
+          "Onboarding, legal, and demo routes have descriptive Markdown only and expose no executable WebMCP tools. `non-agent` in the capability manifest means the route has no agent-driven actions; it does not prevent Markdown retrieval.",
         ].join("\n");
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -180,6 +338,12 @@ const markdownForAgentsPlugin = () => ({
         "/draw-signal": "draw-signal.md",
         "/3d-model": "3d-model.md",
         "/map-endpoints": "map-endpoints.md",
+        "/get-started": "start-page.md",
+        "/terms": "legal.md",
+        "/privacy": "legal.md",
+        "/license": "legal.md",
+        "/responsible-use": "legal.md",
+        "/game": "game.md",
       };
       const file = files[urlPath];
       if (!file) return next();
@@ -205,17 +369,12 @@ export default defineConfig(({ mode }) => {
     "ws:",
   );
   const env = loadEnv(mode, dirname, "");
-  const browserEnv = Object.fromEntries(
-    Object.entries(env).filter(
-      ([key]) =>
-        (key.startsWith("VITE_") && key !== "VITE_UNSAFE_LOCAL_USER_PASSWORD") ||
-        key === "NAPT_PBKDF2_SALT",
-    ),
-  );
+  const browserEnv = selectBrowserEnv(env);
 
   return {
   define: {
     __DEV__: JSON.stringify(mode !== "production"),
+    __N_APT_ML_BUNDLE_READY__: JSON.stringify(hasDecryptedMlSource),
   },
   plugins: [
     injectBrowserEnv(browserEnv),
@@ -286,6 +445,9 @@ export default defineConfig(({ mode }) => {
   },
   root: useFrameworkViteRoot ? dirname : "./src/ts",
   envDir: useFrameworkViteRoot ? dirname : "../../",
+  // All app config is passed through the explicit browserEnv allowlist above.
+  // Vite's default VITE_ prefix would expose every matching local variable.
+  envPrefix: [],
   publicDir: path.resolve(dirname, "public"),
   build: {
     // Keep the existing CSS surface compatible with Vite 8's default
@@ -307,7 +469,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   resolve: {
-    alias: [...scopedFrontendAliases, {
+    alias: [...encryptedMlAliases, ...scopedFrontendAliases, {
       find: /^\/?@n-apt\/app-article$/,
       replacement: path.resolve(dirname, "src/app-article")
     }, {
@@ -404,23 +566,6 @@ export default defineConfig(({ mode }) => {
         }
       },
       "/status": {
-        target: backendProxyTarget,
-        changeOrigin: true,
-        timeout: 10000,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, req, res) => {
-            if (err.code === 'ECONNREFUSED') {
-              if (!res.headersSent) {
-                res.writeHead(503, { 'Content-Type': 'text/plain' });
-                res.end('Backend not ready yet, please retry');
-              }
-            } else {
-              console.error('Proxy error:', err);
-            }
-          });
-        }
-      },
-      "/logout": {
         target: backendProxyTarget,
         changeOrigin: true,
         timeout: 10000,

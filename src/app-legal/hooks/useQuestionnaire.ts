@@ -1,7 +1,19 @@
 // @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
-import questions from '../data/questionnaire/questions.json';
-import { pages } from '../data/questionnaire/pages';
+import { useLocation, useNavigate } from 'react-router';
+import legacyQuestions from '../data/questionnaire/questions.json';
+import { pages as legacyPages } from '../data/questionnaire/pages';
+import questionnaireMarkdown from '../data/questionnaire/questionnaire.md?raw';
+import {
+  groupQuestionPages,
+  migrateQuestionnaireAnswers,
+  parseQuestionnaireMarkdown,
+} from '../utils/questionnaireMarkdown';
+import {
+  pageIndexFromQuestionnairePath,
+  questionIdFromQuestionnairePath,
+  questionnairePathForPage,
+} from '../utils/questionnaireRouting';
 
 const ANSWERS_KEY = 'questionnaire.answers';
 const PAGE_KEY = 'questionnaire.currentPage';
@@ -15,21 +27,45 @@ function readStorage(key, fallback) {
   }
 }
 
-function resolveQuestions(pageIndex) {
+const questions = parseQuestionnaireMarkdown(questionnaireMarkdown);
+const pages = groupQuestionPages(questions).map((page) => page.map((question) => question.id));
+
+function resolveQuestions(pageIndex, pages) {
   const chunk = pages[pageIndex] || [];
   return chunk.map((id) => questions.find((question) => question.id === id)).filter(Boolean);
 }
 
+function resolveStoredPage(storedPage, pages) {
+  if (storedPage >= legacyPages.length) return pages.length;
+  const legacyQuestionId = legacyPages[storedPage]?.[0];
+  const legacyQuestion = legacyQuestions.find((question) => question.id === legacyQuestionId);
+  if (!legacyQuestion) return 0;
+  const question = questions.find((item) => item.id === legacyQuestion.id)
+    ?? questions.find((item) => item.text.trim().toLocaleLowerCase() === legacyQuestion.text.trim().toLocaleLowerCase());
+  if (!question) return 0;
+  const pageIndex = pages.findIndex((page) => page.includes(question.id));
+  return pageIndex >= 0 ? pageIndex : 0;
+}
+
 export function useQuestionnaire() {
   const workerRef = useRef(null);
-  const [currentPage, setCurrentPage] = useState(() => readStorage(PAGE_KEY, 0));
-  const [answers, setAnswers] = useState(() => readStorage(ANSWERS_KEY, {}));
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [answers, setAnswers] = useState(() => migrateQuestionnaireAnswers(
+    readStorage(ANSWERS_KEY, {}),
+    questions,
+    legacyQuestions,
+  ));
+  const [currentPage, setCurrentPage] = useState(() => (
+    pageIndexFromQuestionnairePath(location.pathname, pages)
+      ?? resolveStoredPage(readStorage(PAGE_KEY, 0), pages)
+  ));
   const [scrollToId, setScrollToId] = useState('');
   const [derived, setDerived] = useState({
     totalPages: pages.length,
     isFirstPage: true,
     isLastPage: false,
-    currentQuestions: resolveQuestions(0),
+    currentQuestions: resolveQuestions(0, pages),
     summaryItems: [],
   });
 
@@ -46,6 +82,18 @@ export function useQuestionnaire() {
   useEffect(() => {
     window.localStorage.setItem(PAGE_KEY, JSON.stringify(currentPage));
   }, [currentPage]);
+
+  useEffect(() => {
+    const routedPage = pageIndexFromQuestionnairePath(location.pathname, pages);
+    if (routedPage !== null) {
+      setCurrentPage(routedPage);
+      const routedQuestionId = questionIdFromQuestionnairePath(location.pathname, pages);
+      setScrollToId(routedQuestionId ?? '');
+      return;
+    }
+
+    navigate(questionnairePathForPage(currentPage, pages), { replace: true });
+  }, [currentPage, location.pathname, navigate]);
 
   useEffect(() => {
     workerRef.current?.postMessage({ questions, pages, currentPage, answers });
@@ -67,31 +115,32 @@ export function useQuestionnaire() {
 
   function goNext() {
     setScrollToId('');
-    setCurrentPage((previous) => Math.min(previous + 1, derived.totalPages));
+    const nextPage = Math.min(currentPage + 1, Math.max(0, derived.totalPages - 1));
+    navigate(questionnairePathForPage(nextPage, pages));
   }
 
   function goPrevious() {
     setScrollToId('');
-    setCurrentPage((previous) => Math.max(previous - 1, 0));
+    navigate(questionnairePathForPage(Math.max(currentPage - 1, 0), pages));
   }
 
   function submit() {
-    setCurrentPage(derived.totalPages);
+    navigate(questionnairePathForPage(derived.totalPages, pages));
   }
 
   function backToSummary() {
-    setCurrentPage(derived.totalPages);
+    navigate(questionnairePathForPage(derived.totalPages, pages));
     setScrollToId(derived.currentQuestions[0]?.id || '');
   }
 
   function editQuestion(pageIndex, questionId) {
-    setCurrentPage(pageIndex);
+    navigate(questionnairePathForPage(pageIndex, pages, questionId));
     setScrollToId(questionId);
   }
 
   function resetQuestionnaire() {
     setAnswers({});
-    setCurrentPage(0);
+    navigate(questionnairePathForPage(0, pages));
     setScrollToId('');
     window.localStorage.removeItem(ANSWERS_KEY);
     window.localStorage.removeItem(PAGE_KEY);
@@ -99,7 +148,7 @@ export function useQuestionnaire() {
       totalPages: pages.length,
       isFirstPage: true,
       isLastPage: false,
-      currentQuestions: resolveQuestions(0),
+      currentQuestions: resolveQuestions(0, pages),
       summaryItems: [],
     });
   }

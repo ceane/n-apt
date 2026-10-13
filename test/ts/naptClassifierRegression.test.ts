@@ -45,6 +45,24 @@ describe("manual N-APT capture regression evaluator", () => {
     expect(result.cases[0].expected.suspension_bridge).toBe("positive");
   });
 
+  it("accepts interference-only cases and skips omitted morphology assertions", () => {
+    const manifest = {
+      version: 1,
+      cases: [{
+        id: "interference-only",
+        capture_dir: "captures/interference-only",
+        expected: { interference: "high" },
+        thresholds: { interference: { mean_min: 0.75 } },
+      }],
+    };
+    const parsed = invoke(`console.log(JSON.stringify(parseRegressionManifest(${JSON.stringify(manifest)}, process.cwd())))`);
+    expect(parsed.cases[0].expected.interference).toBe("high");
+    const testCase = parsed.cases[0];
+    const aggregate = { metrics: { interference: { peak: 0.9, mean: 0.8 } }, interference_confirmed: { mean: 0.8, present_fraction: 1 } };
+    const result = invoke(`console.log(JSON.stringify(evaluateRegressionCase(${JSON.stringify(testCase)}, ${JSON.stringify(aggregate)})))`);
+    expect(result).toEqual({ ok: true, failures: [] });
+  });
+
   it("rejects missing expected feature labels", () => {
     const result = invoke(`try { parseRegressionManifest(${JSON.stringify({ version: 1, cases: [{ id: "broken", capture_dir: "x", expected: { napt: "yes" } }] })}, process.cwd()); console.log(JSON.stringify({ ok: true })); } catch (error) { console.log(JSON.stringify({ ok: false, message: String(error.message) })); }`);
     expect(result.ok).toBe(false);

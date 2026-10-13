@@ -19,6 +19,10 @@ const IV_LENGTH = 12; // AES-GCM standard nonce size
  * Returns a CryptoKey usable for both HMAC signing and AES-GCM decryption.
  */
 export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
+  return derivePasswordBits(passkey, PBKDF2_SALT);
+}
+
+async function derivePasswordBits(passkey: string, salt: Uint8Array): Promise<ArrayBuffer> {
   const enc = new TextEncoder();
   const trimmed = passkey.trim();
   const keyMaterial = await crypto.subtle.importKey(
@@ -32,7 +36,7 @@ export async function deriveRawKey(passkey: string): Promise<ArrayBuffer> {
   return crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
-      salt: PBKDF2_SALT,
+      salt: salt as Uint8Array<ArrayBuffer>,
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
@@ -68,7 +72,7 @@ export async function computeHmac(
   passkey: string,
   nonceBase64: string,
 ): Promise<string> {
-  const rawKey = await deriveRawKey(passkey);
+  const rawKey = await derivePasswordBits(passkey, new TextEncoder().encode(`n-apt/password-auth/v2\0${PBKDF2_SALT_VAL}`));
   const hmacKey = await crypto.subtle.importKey(
     "raw",
     rawKey,

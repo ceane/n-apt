@@ -8,7 +8,7 @@ describe("Estimated data table mobile layout", () => {
       "utf8",
     );
 
-    expect(source).toMatch(/--article-gutter:\s*clamp\(32px, 5vw, 72px\);[\s\S]*?padding:\s*var\(--article-gutter\);/);
+    expect(source).toMatch(/--article-gutter:\s*clamp\(32px, 5vw, 72px\);[\s\S]*?grid-template-columns:\s*var\(--article-gutter\) minmax\(0, 1fr\) var\(--article-gutter\);/);
     expect(source).toMatch(/\.estimated-data-table[\s\S]*?width:\s*min\(100%,\s*calc\(100vw - \(2 \* var\(--article-gutter\)\)\)\);/);
     expect(source).toMatch(/\.estimated-data-table[\s\S]*?max-width:\s*calc\(100vw - \(2 \* var\(--article-gutter\)\)\);[\s\S]*?overflow-x:\s*auto;/);
     expect(source).toMatch(/\.estimated-data-table[\s\S]*?table[\s\S]*?min-width:\s*720px;/);

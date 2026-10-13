@@ -1,8 +1,10 @@
 use n_apt_backend::consts::fft::NUM_SAMPLES;
-use n_apt_backend::s::fft::processor::utils::freq_to_bin;
-use n_apt_backend::s::fft::processor::{EnhancedFFTConfig, FFTProcessor};
-use n_apt_backend::s::fft::types::*;
-use n_apt_backend::s::fft::{
+use n_apt_backend::signal_port::fft::processor::utils::freq_to_bin;
+use n_apt_backend::signal_port::fft::processor::{
+  EnhancedFFTConfig, FFTProcessor,
+};
+use n_apt_backend::signal_port::fft::types::*;
+use n_apt_backend::signal_port::fft::{
   apply_window, bin_to_freq, calculate_snr, detect_peaks, find_peak_frequency,
   frequency_resolution, zoom_fft, WindowType,
 };

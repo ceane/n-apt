@@ -1,5 +1,6 @@
 // @ts-nocheck
-function formatQuestionId(id) {
+function formatQuestionId(id, formattedId) {
+  if (formattedId) return formattedId;
   return /^\d+$/.test(id) ? `Q${id}` : `${id.slice(-1)})`;
 }
 
@@ -18,10 +19,10 @@ self.onmessage = (event) => {
 
   const summaryItems = questions.map((question) => ({
     ...question,
-    formattedId: formatQuestionId(question.id),
+    formattedId: formatQuestionId(question.id, question.formattedId),
     answer: answers[question.id],
     pageIndex: pageMap[question.id],
-    isSubQuestion: /[a-z]/i.test(question.id),
+    isSubQuestion: question.isSubQuestion ?? /[a-z]/i.test(question.id),
   }));
 
   self.postMessage({
@@ -30,8 +31,8 @@ self.onmessage = (event) => {
     isLastPage: currentPage === totalPages - 1,
     currentQuestions: currentQuestions.map((question) => ({
       ...question,
-      formattedId: formatQuestionId(question.id),
-      isSubQuestion: /[a-z]/i.test(question.id),
+      formattedId: formatQuestionId(question.id, question.formattedId),
+      isSubQuestion: question.isSubQuestion ?? /[a-z]/i.test(question.id),
     })),
     summaryItems,
   });

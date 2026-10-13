@@ -10,6 +10,7 @@
 /// for SDR I/O operations to avoid blocking the async runtime.
 // mod authentication; // Moved to top-level
 use anyhow::Result;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::Router;
 use log::info;
@@ -56,7 +57,7 @@ pub struct AppState {
   pub shared: Arc<shared_state::SharedState>,
   pub credential_store: CredentialStore,
   pub pending_passkey_registrations: std::sync::Mutex<
-    HashMap<String, (std::time::Instant, PasskeyRegistration)>,
+    HashMap<String, (std::time::Instant, (String, PasskeyRegistration))>,
   >,
   pub pending_passkey_authentications: std::sync::Mutex<
     HashMap<String, (std::time::Instant, PasskeyAuthentication)>,
@@ -298,6 +299,12 @@ impl websocket_server::WebSocketServer {
     // Protected control and diagnostic endpoints
     let protected_routes = Router::new()
       .route(
+        "/api/vision/references/{trial_id}",
+        post(super::vision_references::save_reference)
+          .get(super::vision_references::load_reference)
+          .layer(DefaultBodyLimit::max(1_048_576)),
+      )
+      .route(
         "/api/webmcp/execute",
         post(http_endpoints::execute_webmcp_tool_handler),
       )
@@ -316,6 +323,23 @@ impl websocket_server::WebSocketServer {
       .route(
         "/api/capture/download",
         get(http_endpoints::capture_download_handler),
+      )
+      .route(
+        "/api/classifier/captures/{capture_id}/{part}",
+        post(http_endpoints::classifier_capture_upload_handler)
+          .layer(DefaultBodyLimit::max(128 * 1024 * 1024)),
+      )
+      .route(
+        "/api/capture/destinations",
+        get(http_endpoints::capture_destinations_handler),
+      )
+      .route(
+        "/api/capture/save/aspect",
+        post(http_endpoints::save_capture_to_aspect_handler),
+      )
+      .route(
+        "/api/capture/save/huggingface",
+        post(http_endpoints::save_capture_to_huggingface_handler),
       )
       .route(
         "/api/cli/snapshot-frame",
@@ -349,8 +373,8 @@ impl websocket_server::WebSocketServer {
     // Standard routes that benefit from compression (JSON, text, etc.)
     let compressible_routes = Router::new()
       // Authentication endpoints
-      // SECURITY (known flaw, accepted for local deployments): these /auth/*
-      // routes are unauthenticated and have no rate limiting. N-APT targets
+      // SECURITY (accepted for local deployments): login routes are
+      // unauthenticated and have no rate limiting. N-APT targets
       // localhost / trusted LANs; add throttling before ever exposing this
       // server publicly.
       .route(
@@ -359,11 +383,11 @@ impl websocket_server::WebSocketServer {
       )
       .route(
         "/auth/logout",
-        get(crate::authentication::auth_handlers::auth_logout_handler),
+        post(crate::authentication::auth_handlers::auth_logout_handler),
       )
       .route(
         "/logout",
-        get(crate::authentication::auth_handlers::auth_logout_handler),
+        post(crate::authentication::auth_handlers::auth_logout_handler),
       )
       .route(
         "/auth/challenge",
@@ -385,13 +409,13 @@ impl websocket_server::WebSocketServer {
         "/auth/passkey/register/start",
         post(
           crate::authentication::auth_handlers::passkey_register_start_handler,
-        ),
+        ).route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::authentication::require_session)),
       )
       .route(
         "/auth/passkey/register/finish",
         post(
           crate::authentication::auth_handlers::passkey_register_finish_handler,
-        ),
+        ).route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::authentication::require_session)),
       )
       .route(
         "/auth/passkey/auth/start",

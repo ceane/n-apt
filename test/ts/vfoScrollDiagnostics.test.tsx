@@ -507,7 +507,10 @@ describe("zoom reset and subscriber-independent VFO bounds", () => {
 
     expect(harness.vizZoomRef.current).toBeCloseTo(1, 8);
 
-    harness.wheel({ deltaY: 40, clientY: VFO_WHEEL_CLIENT_Y });
+    // The harness starts at the lower hardware edge. A negative wheel delta
+    // moves into the available spectrum; a positive delta is correctly
+    // treated as an edge-clamped no-op.
+    harness.wheel({ deltaY: -40, clientY: VFO_WHEEL_CLIENT_Y });
 
     expect(harness.mocks.onFrequencyRangeChange).toHaveBeenCalled();
     expect(harness.vizPanOffsetRef.current).toBe(0);

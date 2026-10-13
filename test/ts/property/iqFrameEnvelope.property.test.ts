@@ -106,6 +106,58 @@ describe("IQ frame envelope decoder fuzz", () => {
     );
   });
 
+  it("classifies invalid UTF-8 in a valid v2 source ID as malformed protocol input", () => {
+    const buffer = buildValidV2Buffer("a", 1, 2, 8);
+    new Uint8Array(buffer)[56] = 0xff;
+
+    expect(() => decodeIqFrameEnvelope(buffer, "fallback")).toThrow(
+      "Invalid I/Q frame source ID: invalid UTF-8",
+    );
+  });
+
+  it("rejects single-field mutations of otherwise valid v2 envelopes", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(
+          "version",
+          "freshness",
+          "status",
+          "dataType",
+          "sampleRate",
+          "sourceIdUtf8",
+        ),
+        (field) => {
+          const buffer = buildValidV2Buffer("a", 1, 2, 8);
+          const view = new DataView(buffer);
+          switch (field) {
+            case "version":
+              view.setUint8(4, 3);
+              break;
+            case "freshness":
+              view.setUint8(11, 2);
+              break;
+            case "status":
+              view.setUint8(10, 255);
+              break;
+            case "dataType":
+              view.setUint32(48, 2, true);
+              break;
+            case "sampleRate":
+              view.setUint32(52, 0, true);
+              break;
+            case "sourceIdUtf8":
+              new Uint8Array(buffer)[56] = 0xff;
+              break;
+          }
+
+          expect(() => decodeIqFrameEnvelope(buffer, "fallback")).toThrow(
+            /^Invalid I\/Q frame/,
+          );
+        },
+      ),
+    );
+  });
+
   it("successful v2 decode yields finite, non-negative lifecycle fields", () => {
     fc.assert(
       fc.property(
@@ -144,6 +196,16 @@ describe("IQ frame envelope decoder fuzz", () => {
         },
       ),
     );
+  });
+
+  it("preserves held-IQ freshness metadata from the v2 reserved header byte", () => {
+    const buffer = buildValidV2Buffer("rtl-1", 1, 2, 16);
+    new DataView(buffer).setUint8(11, 1); // is_fresh = false
+
+    expect(decodeIqFrameEnvelope(buffer, "fallback").metadata).toMatchObject({
+      protocol_version: 2,
+      is_fresh: false,
+    });
   });
 
   it("valid v1 (non-magic) buffers parse the legacy 24-byte header", () => {

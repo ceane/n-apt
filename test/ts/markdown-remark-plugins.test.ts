@@ -126,6 +126,21 @@ describe("Markdown Remark Plugins", () => {
       });
     });
 
+    test("preserves the variable-key marker for responsive styling", () => {
+      const tree = {
+        type: "root",
+        children: [{ type: "code", lang: "latex", meta: "math-variable-key", value: "\\[x\\]" }],
+      };
+
+      // @ts-ignore - remark plugin type signature is complex for tests
+      applyPlugin(remarkLatexCodeBlocks(), tree);
+
+      expect(tree.children[0]).toEqual({
+        type: "html",
+        value: '<latex-block class="math-variable-key" data-expressions="%5B%22x%22%5D"></latex-block>',
+      });
+    });
+
     test("collects multiple LaTeX expressions and strips rule expressions", () => {
       const tree = {
         type: "root",

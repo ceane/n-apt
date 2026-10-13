@@ -12,6 +12,8 @@ import {
 export interface APTAudioDemodOptions {
   targetSampleRate: number; // Output audio sample rate (48kHz)
   bufferSize: number; // Audio buffer size
+  centerFrequency?: number;
+  bandwidth?: number;
 }
 
 export interface APTAudioDemodHandle {
@@ -45,8 +47,13 @@ export function useAPTAudioDemod(
   const APT_AUDIO_CARRIER = 2400;
   const { targetSampleRate } = options;
   const sharedProcessor = useMemo(
-    () => createDemodProcessor("aptAudio", { targetSampleRate }),
-    [targetSampleRate],
+    () =>
+      createDemodProcessor("aptAudio", {
+        targetSampleRate,
+        centerFrequency: options.centerFrequency,
+        bandwidth: options.bandwidth,
+      }),
+    [targetSampleRate, options.centerFrequency, options.bandwidth],
   );
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -202,23 +209,9 @@ export function useAPTAudioDemod(
       const imageEnvelope = envelopeDetectAPTAudio(baseband, inputSampleRate);
       const detection = detectNaptSpikeCandidates(imageEnvelope);
       setDetectionResult(detection);
-      const selected = detection.selectedCandidate;
       let finalAudio = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
-      if (selected) {
-        const segment = imageEnvelope.slice(
-          selected.startIndex,
-          selected.endIndex + 1,
-        );
-        const maxAmp = segment.reduce(
-          (acc, value) => Math.max(acc, Math.abs(value)),
-          0,
-        );
-        if (maxAmp > 0) {
-          for (let i = 0; i < finalAudio.length; i++) {
-            finalAudio[i] /= maxAmp;
-          }
-        }
-      }
+      // Keep the full APT amplitude stream. The spike detector remains a
+      // diagnostic and must not crop, normalize, or otherwise reshape payload.
       if (finalAudio.length === 0) {
         processedAudioBufferRef.current = null;
         return;

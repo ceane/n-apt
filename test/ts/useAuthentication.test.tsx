@@ -58,6 +58,23 @@ afterEach(() => {
 });
 
 describe("Context auth compatibility", () => {
+  test("logout retains authentication until server revocation succeeds", async () => {
+    service.getStoredSession.mockReturnValue("stored-session");
+    const revocation = deferred<void>();
+    service.logoutSession.mockReturnValue(revocation.promise);
+    const {result} = mountAuth();
+    await flush();
+    let logout!: Promise<void>;
+    act(() => { logout = result.current.logout(); });
+    expect(service.logoutSession).toHaveBeenCalledWith("stored-session");
+    expect(service.clearSession).not.toHaveBeenCalled();
+    expect(result.current.isAuthenticated).toBe(true);
+    const failure = expect(logout).rejects.toThrow("Redis unavailable");
+    await act(async () => { revocation.reject(new Error("Redis unavailable")); await failure; });
+    expect(service.clearSession).not.toHaveBeenCalled();
+    expect(result.current.isAuthenticated).toBe(true);
+  });
+
   test("bootstrap bypass stays unauthenticated without fetching or persisting", async () => {
     const { result } = mountAuth(true);
     await flush();

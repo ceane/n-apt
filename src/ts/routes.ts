@@ -74,7 +74,9 @@ export default [
       id: "transformers",
     }),
     route("game", "./app/routes/FullApplicationRoute.tsx", { id: "game" }),
-    route("questionnaire", "./app/routes/QuestionnaireRoute.tsx"),
+    route("questionnaire/*", "./app/routes/QuestionnaireRoute.tsx", {
+      id: "questionnaire",
+    }),
     route("x-archive-formatter", "./app/routes/XArchiveFormatterRoute.tsx"),
   ]),
   route("*", "./app/routes/NotFoundRoute.tsx"),

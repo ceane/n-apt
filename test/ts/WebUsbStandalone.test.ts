@@ -23,7 +23,7 @@ import {
   getSpectrumLoadingPlaceholder,
   getSpectrumPlaceholderState,
 } from "@n-apt/webusb/spectrumPlaceholder";
-import { getOptionSyncIndicator } from "@n-apt/webusb/optionSync";
+import { getOptionSyncIndicator } from "@n-apt/webusb/receiverSettingsSyncIndicator";
 import {
   clampFrequencyHz,
   formatFrequency,

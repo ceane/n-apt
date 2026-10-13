@@ -39,11 +39,11 @@ const resolveTxSignalDisplayLabel = (signal: string) => {
     case "d":
       return "D";
     case "wifi":
-      return "Mock WiFi";
+      return "Naive WiFi";
     case "d_sharp":
       return "D#";
     case "5g":
-      return "Mock 5G";
+      return "Naive 5G";
     default:
       return signal.toUpperCase();
   }

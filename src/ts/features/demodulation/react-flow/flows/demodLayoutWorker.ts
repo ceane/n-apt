@@ -28,29 +28,39 @@ type ElkInstance = {
 let elkInstancePromise: Promise<ElkInstance> | null = null;
 
 const resolveElkInstance = (): Promise<ElkInstance> => {
-  elkInstancePromise ??= import("elkjs/lib/elk.bundled.js").then(
-    (moduleValue) => {
-      const candidate = moduleValue as {
-        default?: unknown;
-        ELK?: unknown;
-      };
-      const globalCandidate = globalThis as { ELK?: unknown };
-      const values = [
-        candidate?.default,
-        (candidate?.default as { default?: unknown } | undefined)?.default,
-        candidate?.ELK,
-        moduleValue,
-        globalCandidate?.ELK,
-      ];
-      const Constructor = values.find(
-        (value): value is new () => ElkInstance => typeof value === "function",
-      );
-      if (!Constructor) {
-        throw new Error("Unable to resolve the ELK layout constructor");
-      }
-      return new Constructor();
-    },
-  );
+  elkInstancePromise ??= Promise.all([
+    import("elkjs/lib/elk-api.js"),
+    import("elkjs/lib/elk-worker.min.js"),
+  ]).then(([apiModule, workerModule]) => {
+    const apiCandidate = apiModule as {
+      default?: unknown;
+      ELK?: unknown;
+    };
+    const workerCandidate = workerModule as {
+      default?: unknown;
+      Worker?: unknown;
+    };
+    const apiValues = [apiCandidate.default, apiCandidate.ELK, apiModule];
+    const workerValues = [
+      workerCandidate.Worker,
+      (workerCandidate.default as { Worker?: unknown } | undefined)?.Worker,
+      workerCandidate.default,
+    ];
+    const ElkConstructor = apiValues.find(
+      (value): value is new (options: {
+        workerFactory: () => unknown;
+      }) => ElkInstance => typeof value === "function",
+    );
+    const ElkWorkerConstructor = workerValues.find(
+      (value): value is new () => unknown => typeof value === "function",
+    );
+    if (!ElkConstructor || !ElkWorkerConstructor) {
+      throw new Error("Unable to resolve the ELK layout constructors");
+    }
+    return new ElkConstructor({
+      workerFactory: () => new ElkWorkerConstructor(),
+    });
+  });
   return elkInstancePromise;
 };
 

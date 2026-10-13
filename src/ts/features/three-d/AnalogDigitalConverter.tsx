@@ -240,7 +240,9 @@ export function AnalogDigitalConverter(props: any) {
       {/* Bottom Terminal Blocks */}
       <group position={[0, -2.5, 0]}>
         {[-3.0, -2.1, -1.2, -0.3, 0.6, 1.5, 2.4, 3.3].map((x, i) =>
-          renderTerminalBlock(x, 0, `+ CH${i} -`),
+          <React.Fragment key={`terminal-${i}`}>
+            {renderTerminalBlock(x, 0, `+ CH${i} -`)}
+          </React.Fragment>,
         )}
       </group>
 

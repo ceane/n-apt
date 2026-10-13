@@ -1,4 +1,7 @@
 import {
+  advanceIqCaptureByteOffset,
+  advanceIqCaptureSampleOffset,
+  buildIqCaptureFrameUpdates,
   encodeIqCaptureV4,
   encodeNaptCaptureV4,
   type CaptureMetadata,
@@ -48,6 +51,7 @@ type CaptureState = {
   options: IqCaptureOptions;
   chunks: IqCaptureChunk[];
   frameUpdates: IqCaptureFrameUpdate[];
+  byteOffset: number;
   sampleOffset: number;
   bytes: number;
   frameCount: number;
@@ -60,7 +64,10 @@ type CaptureState = {
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<CaptureWorkerMessage>) => void) | null;
-  postMessage: (message: CaptureWorkerResponse, transfer?: Transferable[]) => void;
+  postMessage: (
+    message: CaptureWorkerResponse,
+    transfer?: Transferable[],
+  ) => void;
 };
 
 const postError = (error: unknown): void => {
@@ -69,16 +76,6 @@ const postError = (error: unknown): void => {
     error: error instanceof Error ? error.message : String(error),
   });
 };
-
-const captureSignature = (options: IqCaptureOptions): string =>
-  JSON.stringify([
-    options.centerFrequencyHz,
-    options.sampleRateHz,
-    options.fftSize,
-    options.fftWindow,
-    options.gainDb,
-    options.ppm,
-  ]);
 
 const hasNaptCrypto = async (): Promise<boolean> => {
   if (typeof crypto === "undefined" || !crypto.subtle) return false;
@@ -111,8 +108,7 @@ const makeFinalMetadata = (state: CaptureState): CaptureMetadata => {
   return {
     ...state.metadata,
     duration_s: durationSeconds,
-    frame_rate:
-      durationSeconds > 0 ? state.frameCount / durationSeconds : 0,
+    frame_rate: durationSeconds > 0 ? state.frameCount / durationSeconds : 0,
   };
 };
 
@@ -134,6 +130,7 @@ const completeCapture = async (state: CaptureState): Promise<void> => {
     }
     bytes = await encodeNaptCaptureV4({
       metadata,
+      frameUpdates: state.frameUpdates,
       channels: [
         {
           ...state.channel,
@@ -170,15 +167,21 @@ scope.onmessage = (event: MessageEvent<CaptureWorkerMessage>): void => {
     }
     if (message.type === "start") {
       if (message.capture.format === ".napt" && !(await hasNaptCrypto())) {
-        throw new Error("Encrypted .napt captures are unavailable in this browser.");
+        throw new Error(
+          "Encrypted .napt captures are unavailable in this browser.",
+        );
       }
-      if (message.capture.format === ".napt" && !message.capture.passphrase?.trim()) {
+      if (
+        message.capture.format === ".napt" &&
+        !message.capture.passphrase?.trim()
+      ) {
         throw new Error("A passphrase is required for .napt captures.");
       }
       state = {
         ...message.capture,
         chunks: [],
         frameUpdates: [],
+        byteOffset: 0,
         sampleOffset: 0,
         bytes: 0,
         frameCount: 0,
@@ -201,28 +204,28 @@ scope.onmessage = (event: MessageEvent<CaptureWorkerMessage>): void => {
     }
     if (message.type === "frame") {
       const frame = new Uint8Array(message.data);
-      const signature = captureSignature(message.options);
-      if (state.lastSignature !== signature) {
-        state.frameUpdates.push({
-          sample_offset: state.sampleOffset,
-          timestamp_us: message.timestampUs,
-          patch: {
-            center_frequency_hz: message.options.centerFrequencyHz,
-            capture_sample_rate_hz: message.options.sampleRateHz,
-            fft_size: message.options.fftSize,
-            fft_window: message.options.fftWindow,
-            gain: message.options.gainDb,
-            ppm: message.options.ppm,
-          },
-        });
-        state.lastSignature = signature;
-      }
+      const frameUpdates = buildIqCaptureFrameUpdates({
+        sampleOffset: state.byteOffset,
+        timestampUs: message.timestampUs,
+        frameSequence: state.frameCount,
+        options: message.options,
+        previousSignature: state.lastSignature,
+      });
+      state.frameUpdates.push(...frameUpdates.updates);
+      state.lastSignature = frameUpdates.signature;
       state.chunks.push({
         sample_offset: state.sampleOffset,
         channel: 0,
         data: frame,
       });
-      state.sampleOffset += Math.floor(frame.byteLength / 2);
+      state.byteOffset = advanceIqCaptureByteOffset(
+        state.byteOffset,
+        frame,
+      );
+      state.sampleOffset = advanceIqCaptureSampleOffset(
+        state.sampleOffset,
+        frame,
+      );
       state.bytes += frame.byteLength;
       state.frameCount += 1;
       state.firstFrameAtUs ??= message.timestampUs;

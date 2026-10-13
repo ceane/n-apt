@@ -39,8 +39,21 @@ const Container = styled.div`
 
 const CopyRow = styled.div`
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+  gap: 1rem;
+`;
+
+const CopyTitle = styled.h3`
+  min-width: 0;
+  margin: 0;
+`;
+
+const CopyActions = styled.div`
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
 `;
 
 const CopyButton = styled.button`
@@ -113,6 +126,15 @@ const DataContainer = styled.div`
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 2rem;
   position: relative;
+
+  > div {
+    gap: 0.25rem;
+  }
+
+  > div > div {
+    margin-top: 0;
+  }
+
   @media (max-width: 768px) { gap: 1.25rem; }
 `;
 
@@ -244,18 +266,14 @@ const DataMinMaxGrid = styled(MinMaxGrid)`
 const CostContainer = styled(DataContainer)`
   margin-top: 0;
 
-  /* Keep both Min/Max rows aligned when the left heading wraps. */
-  > ${StatBox} > ${Label} {
+  /* Reserve two title lines; wrapped labels expand naturally. */
+  > div > small {
     display: block;
     min-height: 2.6em;
     line-height: 1.3;
   }
 
   @media (max-width: 768px) {
-    > ${StatBox} > ${Label} {
-      min-height: 1.3em;
-    }
-
     ${MinMaxGrid} {
       column-gap: 1.25rem;
 
@@ -1070,16 +1088,21 @@ export const DaysSince: React.FC = () => {
   return (
     <Container ref={containerRef}>
       <CopyRow>
-        {copied && <CopyStatus role="status">Copied Table (.png)</CopyStatus>}
-        <CopyButton
-          type="button"
-          onClick={() => void handleCopyImage()}
-          data-copied={copied}
-          aria-label={copied ? 'Copied Table (.png)' : 'Copy stats as image'}
-          title={copied ? 'Copied!' : 'Copy stats as image'}
-        >
-          {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={2} />}
-        </CopyButton>
+        <CopyTitle className="days-since-heading" id="how-long-have-i-been-trapped">
+          How long have I been trapped?
+        </CopyTitle>
+        <CopyActions>
+          {copied && <CopyStatus role="status">Copied Table (.png)</CopyStatus>}
+          <CopyButton
+            type="button"
+            onClick={() => void handleCopyImage()}
+            data-copied={copied}
+            aria-label={copied ? 'Copied Table (.png)' : 'Copy stats as image'}
+            title={copied ? 'Copied!' : 'Copy stats as image'}
+          >
+            {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={2} />}
+          </CopyButton>
+        </CopyActions>
       </CopyRow>
       <TopRow>
         <StatBox

@@ -10,14 +10,12 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream};
 use super::algorithms::AlgorithmTester;
 use super::data_parser::parse_binary_message;
 use super::types::{AuthChallenge, AuthRequest};
-use crate::crypto::derive_key;
 
 /// WebSocket client for n-apt live stream
 pub struct WebSocketClient {
   server_url: String,
   passkey: String,
   session_token: Option<String>,
-  encryption_key: [u8; 32],
   algorithm_tester: AlgorithmTester,
 }
 
@@ -31,14 +29,12 @@ impl WebSocketClient {
         format!("ws://{}", server_url)
       };
 
-    let encryption_key = derive_key(passkey);
     let algorithm_tester = AlgorithmTester::new();
 
     Ok(Self {
       server_url,
       passkey: passkey.to_string(),
       session_token: None,
-      encryption_key,
       algorithm_tester,
     })
   }
@@ -83,7 +79,8 @@ impl WebSocketClient {
       .decode(&challenge.nonce)
       .map_err(|e| anyhow!("Failed to decode nonce: {}", e))?;
 
-    let hmac = crate::crypto::compute_hmac(&self.encryption_key, &nonce_bytes);
+    let auth_key = crate::crypto::derive_auth_key(&self.passkey);
+    let hmac = crate::crypto::compute_hmac(&auth_key, &nonce_bytes);
     let hmac_b64 = general_purpose::STANDARD.encode(&hmac);
 
     // Step 3: Submit HMAC response

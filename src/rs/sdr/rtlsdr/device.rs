@@ -485,7 +485,7 @@ impl RtlSdrDevice {
   /// * `Vec<f32>` - Power spectrum in calibrated dBm
   pub fn rtl_sdr_fft_power_spectrum_dbm(
     &self,
-    samples: &crate::s::fft::types::RawSamples,
+    samples: &crate::signal_port::fft::types::RawSamples,
   ) -> Result<Vec<f32>> {
     use rustfft::{num_complex::Complex, FftPlanner};
     use std::f32::consts::PI;
@@ -832,7 +832,7 @@ impl SdrDevice for RtlSdrDevice {
   fn read_samples(
     &mut self,
     fft_size: usize,
-  ) -> Result<crate::s::fft::types::RawSamples> {
+  ) -> Result<crate::signal_port::fft::types::RawSamples> {
     let bytes_needed = fft_size * 2;
 
     if let Some(rx) = &self.rx_queue {
@@ -904,7 +904,7 @@ impl SdrDevice for RtlSdrDevice {
     let bytes_to_take = bytes_needed; // Guaranteed by the while condition
     let data = self.iq_overflow.drain(..bytes_to_take).collect::<Vec<u8>>();
 
-    Ok(crate::s::fft::types::RawSamples {
+    Ok(crate::signal_port::fft::types::RawSamples {
       data,
       sample_rate: self.get_sample_rate(),
     })

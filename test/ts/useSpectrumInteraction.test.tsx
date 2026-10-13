@@ -247,7 +247,7 @@ describe("useSpectrumInteraction Hook", () => {
     expect(lastCall.max).toBeCloseTo(109, 1);
   });
 
-  it("keeps a zoomed positive VFO retune independent of channel bounds", () => {
+  it("keeps a zoomed positive VFO pan independent of channel bounds", () => {
     if (defaultOptions.vizZoomRef) defaultOptions.vizZoomRef.current = 2;
 
     renderHook(() =>
@@ -258,17 +258,15 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
-    // At zoom 2 the viewport is 5 Hz wide inside [100, 110]. A VFO drag is a
-    // global device tune even while the visible window is still covered, and
-    // must ignore unrelated channel bounds that would trap the center.
+    // At zoom 2 the viewport is 5 Hz wide inside [100, 110]. A covered VFO
+    // drag stays subscriber-local and must ignore unrelated channel bounds
+    // that would trap the visual center.
     triggerPointerDown(500, 550);
     triggerPointerMove(700, 550);
 
-    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
-      min: 99,
-      max: 109,
-    });
-    expect(defaultOptions.vizPanOffsetRef.current).toBe(0);
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(-1);
+    expect(defaultOptions.vizPanOffsetRef.current).toBe(-1);
   });
 
   it("does not retune a covered negative DC-crossing pan", () => {
@@ -1042,12 +1040,9 @@ describe("useSpectrumInteraction Hook", () => {
     triggerPointerMove(400, 550);
     flushHardwareRetune();
 
-    const lastCall =
-      mockOnFrequencyRangeChange.mock.calls[
-        mockOnFrequencyRangeChange.mock.calls.length - 1
-      ][0];
-    expect(lastCall.max).toBe(110);
-    expect(lastCall.min).toBe(100);
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(frequencyRangeRef.current).toEqual({ min: 100, max: 110 });
+    expect(defaultOptions.vizPanOffsetRef.current).toBe(0);
   });
 
   it("drags the canvas TX slider in the bottom stats row", () => {
@@ -1447,7 +1442,7 @@ describe("useSpectrumInteraction Hook", () => {
     });
   });
 
-  it("retunes a paused zoomed VFO wheel so play keeps the new center", () => {
+  it("keeps a paused covered zoomed VFO wheel local", () => {
     renderHook(() =>
       useSpectrumInteraction({
         ...defaultOptions,
@@ -1459,14 +1454,11 @@ describe("useSpectrumInteraction Hook", () => {
 
     triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
 
-    expect(mockOnVizPanChange).not.toHaveBeenCalled();
-    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
-      min: 101,
-      max: 111,
-    });
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(0.5);
   });
 
-  it("retunes a playing zoomed positive VFO instead of storing a local center", () => {
+  it("keeps a playing covered zoomed positive VFO local", () => {
     defaultOptions.vizZoomRef.current = 2;
     defaultOptions.vizPanOffsetRef.current = 0;
 
@@ -1480,11 +1472,9 @@ describe("useSpectrumInteraction Hook", () => {
 
     triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
 
-    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
-      min: 101,
-      max: 111,
-    });
-    expect(defaultOptions.vizPanOffsetRef.current).toBe(0);
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(0.5);
+    expect(defaultOptions.vizPanOffsetRef.current).toBe(0.5);
   });
 
   it("absorbs an existing positive VFO pan into the global range", () => {
@@ -1502,12 +1492,10 @@ describe("useSpectrumInteraction Hook", () => {
 
     triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
 
-    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
-      min: 103,
-      max: 113,
-    });
-    expect(mockOnVizPanReanchor).toHaveBeenLastCalledWith(0);
-    expect(defaultOptions.vizPanOffsetRef.current).toBe(0);
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanReanchor).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(2.5);
+    expect(defaultOptions.vizPanOffsetRef.current).toBe(2.5);
   });
 
   it("does not mistake an ordinary positive-band negative pan for a mirror view", () => {
@@ -1579,7 +1567,7 @@ describe("useSpectrumInteraction Hook", () => {
     expect(mockOnVizPanChange).toHaveBeenLastCalledWith(-3.5);
   });
 
-  it("retunes a paused mirror-off zoomed VFO", () => {
+  it("keeps a paused mirror-off covered zoomed VFO local", () => {
     frequencyRangeRef.current = { min: 100, max: 110 };
     defaultOptions.vizZoomRef.current = 2;
     defaultOptions.vizPanOffsetRef.current = 0;
@@ -1594,11 +1582,8 @@ describe("useSpectrumInteraction Hook", () => {
 
     triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
 
-    expect(mockOnVizPanChange).not.toHaveBeenCalled();
-    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
-      min: 101,
-      max: 111,
-    });
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(0.5);
   });
 
   it("publishes a paused pointer retune once as the universal range", () => {
@@ -1626,7 +1611,7 @@ describe("useSpectrumInteraction Hook", () => {
     expect(mockOnHardwareRangeReanchor).toHaveBeenCalledTimes(1);
   });
 
-  it("reanchors paused VFO pan immediately when the universal range retunes", () => {
+  it("keeps paused covered VFO pan local without reanchoring", () => {
     defaultOptions.vizZoomRef.current = 2;
     defaultOptions.vizPanOffsetRef.current = 2;
 
@@ -1640,12 +1625,10 @@ describe("useSpectrumInteraction Hook", () => {
 
     triggerWheel({ clientX: 500, clientY: 590, deltaY: 100 });
 
-    expect(mockOnVizPanReanchor).toHaveBeenLastCalledWith(0);
-    expect(defaultOptions.vizPanOffsetRef.current).toBe(0);
-    expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
-      min: 103,
-      max: 113,
-    });
+    expect(mockOnVizPanReanchor).not.toHaveBeenCalled();
+    expect(defaultOptions.vizPanOffsetRef.current).toBe(2.5);
+    expect(mockOnVizPanChange).toHaveBeenLastCalledWith(2.5);
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
   });
 
   it("does not restore the pre-pause center when continuous delivery resumes", () => {
@@ -1669,7 +1652,7 @@ describe("useSpectrumInteraction Hook", () => {
     rerender({ paused: false });
 
     expect(frequencyRangeRef.current).toEqual(tunedRange);
-    expect(defaultOptions.vizPanOffsetRef.current).toBe(0);
+    expect(defaultOptions.vizPanOffsetRef.current).toBe(2.5);
     expect(mockOnFrequencyRangeChange).toHaveBeenCalledTimes(publishCount);
   });
 
@@ -1988,7 +1971,7 @@ describe("useSpectrumInteraction Hook", () => {
       mockOnVizPanChange.mock.calls[
         mockOnVizPanChange.mock.calls.length - 1
       ][0],
-    ).toBe(0);
+    ).toBe(2.4);
   });
 
   it("does not accumulate hidden inertial pan across zoomed wheel ticks", () => {

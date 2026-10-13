@@ -122,7 +122,7 @@ export type SnapshotVideoFormat = "mp4" | "webm";
 
 export type SnapshotAnimatedFormat = "animated-svg";
 
-const SNAPSHOT_VIDEO_MIME_TYPES: Record<SnapshotVideoFormat, string[]> = {
+export const SNAPSHOT_VIDEO_MIME_TYPES: Record<SnapshotVideoFormat, string[]> = {
   webm: [
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
@@ -458,14 +458,97 @@ function formatVisibleChannels(
       const channelLabel = name.trim() ? name.trim().toUpperCase() : "Unknown";
       return {
         min: channelMin,
-        label: `${channelLabel} (${isWhole ? "whole" : "partial"})`,
+        name: channelLabel,
+        coverage: isWhole ? "whole" : "partial",
       };
     })
-    .filter((entry): entry is { min: number; label: string } => entry !== null)
+    .filter(
+      (entry): entry is { min: number; name: string; coverage: string } =>
+        entry !== null,
+    )
     .sort((a, b) => a.min - b.min);
 
   if (!visibleChannels.length) return null;
-  return `Channels ${visibleChannels.map((channel) => channel.label).join(", ")}`;
+  if (visibleChannels.length === 1) {
+    return `Channel ${visibleChannels[0].name}, ${visibleChannels[0].coverage}`;
+  }
+  return `Channels ${visibleChannels.map((channel) => `${channel.name} (${channel.coverage})`).join(", ")}`;
+}
+
+function drawTwoChannelSnapshotBoundaries(
+  canvas: HTMLCanvasElement,
+  data: SnapshotData,
+  range: Range,
+  signalAreaBounds: SignalAreaBounds | null | undefined,
+): void {
+  if (!signalAreaBounds) return;
+  const seen = new Set<string>();
+  const visibleChannels = Object.entries(signalAreaBounds)
+    .map(([name, bounds]) => {
+      const label = name.trim().toUpperCase();
+      if (!label || seen.has(label)) return null;
+      seen.add(label);
+      const min = Math.min(bounds.min, bounds.max);
+      const max = Math.max(bounds.min, bounds.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+      const visibleMin = Math.max(min, range.min);
+      const visibleMax = Math.min(max, range.max);
+      return visibleMax > visibleMin
+        ? { label, min, max, visibleMin, visibleMax }
+        : null;
+    })
+    .filter((channel): channel is NonNullable<typeof channel> => channel !== null)
+    .sort((a, b) => a.min - b.min);
+  if (visibleChannels.length !== 2) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const { dpr, mapper } = computeSpectrumGeometry(
+    data,
+    range,
+    canvas.width,
+    canvas.height,
+    data.frequencyRange,
+  );
+  const area = mapper.getPlotArea();
+  const dc = new CanvasDrawingContext(ctx);
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dc.clipRect(area.x, area.y, area.width, area.height);
+  dc.setStroke("#b86b00", Math.max(1 / dpr, 1), [3, 4]);
+  dc.beginPath();
+  const boundaries = new Set(
+    visibleChannels
+      .flatMap((channel) => [channel.min, channel.max])
+      .filter((frequency) => frequency > range.min && frequency < range.max),
+  );
+  for (const frequency of boundaries) {
+    const x = mapper.freqToX(frequency);
+    dc.moveTo(x, area.y);
+    dc.lineTo(x, area.y + area.height);
+  }
+  dc.stroke();
+
+  dc.setFont("11px JetBrains Mono, monospace");
+  dc.setTextAlign("center");
+  dc.setTextBaseline("middle");
+  visibleChannels.forEach((channel, index) => {
+    const label = `Channel ${channel.label}`;
+    const boxWidth = dc.measureTextWidth(label) + 16;
+    const centerX = mapper.freqToX(
+      (channel.visibleMin + channel.visibleMax) / 2,
+    );
+    const boxX = Math.max(
+      area.x + 4,
+      Math.min(area.x + area.width - boxWidth - 4, centerX - boxWidth / 2),
+    );
+    const boxY = area.y + 8 + index * 26;
+    dc.setFill("rgba(7, 10, 18, 0.88)");
+    dc.roundRect(boxX, boxY, boxWidth, 20, 4);
+    dc.setFill("#ffffff");
+    dc.fillText(label, boxX + boxWidth / 2, boxY + 10);
+  });
+  ctx.restore();
 }
 
 export function buildSnapshotStatsLines({
@@ -521,11 +604,23 @@ export function buildSnapshotStatsLines({
     Number.isFinite(renderedSpanHz) &&
     renderedSpanHz >= (hardwareSampleRateHz ?? 0) - 1;
   const isWholeChannel =
-    modeLabel === "Whole Channel" || whole || wholeBySpan || wholeBySampleRate;
+    modeLabel !== undefined
+      ? modeLabel === "Whole Channel"
+      : whole || wholeBySpan || wholeBySampleRate;
+  const configuredActiveBounds = channelName
+    ? (signalAreaBounds?.[channelName] ??
+      signalAreaBounds?.[channelName.toLowerCase()])
+    : null;
+  const activeChannelVisible =
+    !configuredActiveBounds ||
+    (Math.min(configuredActiveBounds.min, configuredActiveBounds.max) <
+      range.max &&
+      Math.max(configuredActiveBounds.min, configuredActiveBounds.max) >
+        range.min);
 
   const channelLabel =
     formatVisibleChannels(range, signalAreaBounds) ??
-    (channelName
+    (channelName && activeChannelVisible
       ? isWholeChannel
         ? `Whole Channel ${channelName}`
         : `Onscreen / partial Channel ${channelName}`
@@ -1274,6 +1369,44 @@ export function renderSpectrumSnapshotCanvas(
   ) as HTMLCanvasElement;
 }
 
+/** Vector-SVG variant of renderSpectrumSnapshotCanvas, returning SVG markup. */
+export function renderSpectrumSnapshotSvg(
+  data: SnapshotData,
+  frequencyRange: Range,
+  showGrid: boolean,
+  pixelWidth: number,
+  pixelHeight: number,
+  fullCaptureRange?: Range,
+  statsLines?: string[],
+  waveform?: Float32Array,
+  theme?: SnapshotTheme,
+  aspectRatio?: SnapshotAspectRatio,
+  activeSignalAreaBounds?: { min: number; max: number } | null,
+  activeSignalAreaLabel?: string,
+): string {
+  const result = renderSpectrumSnapshot(
+    data,
+    frequencyRange,
+    showGrid,
+    pixelWidth,
+    pixelHeight,
+    "svg",
+    fullCaptureRange,
+    statsLines,
+    waveform,
+    theme,
+    aspectRatio,
+    false,
+    false,
+    activeSignalAreaBounds,
+    activeSignalAreaLabel,
+  );
+  if (typeof result !== "string") {
+    throw new Error("SVG snapshot renderer did not produce SVG markup");
+  }
+  return result;
+}
+
 export function composeWholeChannelWaterfallCanvas(
   segments: WholeChannelSnapshotSegment[],
   fullRange: { min: number; max: number },
@@ -1448,7 +1581,7 @@ async function recordSVGFramesToAnimatedSvg(
   await collectFrame();
 }
 
-function sampleFramesEvenly(frames: string[], targetCount: number): string[] {
+export function sampleFramesEvenly(frames: string[], targetCount: number): string[] {
   if (frames.length <= targetCount) return frames;
 
   // Sample frames evenly across the entire capture duration
@@ -1461,13 +1594,13 @@ function sampleFramesEvenly(frames: string[], targetCount: number): string[] {
   return sampled;
 }
 
-function extractSvgContent(svgString: string): string {
+export function extractSvgContent(svgString: string): string {
   // Extract just the inner content from an SVG string
   const match = svgString.match(/<svg[^>]*>([\s\S]*)<\/svg>/);
   return match ? match[1].trim() : svgString;
 }
 
-function generateSvgWithSymbols(svgString: string): string {
+export function generateSvgWithSymbols(svgString: string): string {
   // Takes a full SVG and wraps the content into a <symbol> structure
   // for easy reuse with <use> elements
   const svgMatch = svgString.match(/<svg[^>]*>/);
@@ -1476,10 +1609,12 @@ function generateSvgWithSymbols(svgString: string): string {
   const svgTag = svgMatch[0];
   const viewBoxMatch = svgTag.match(/viewBox="([^"]*)"/);
   const viewBox = viewBoxMatch ? viewBoxMatch[1] : "0 0 1200 700";
-  const content = extractSvgContent(svgString);
 
   const sanitizedViewBox = escapeAttr(sanitizeViewBox(viewBox));
-  const sanitizedContent = sanitizeSVG(content);
+  // Sanitize the full document so the parser keeps children in the SVG
+  // namespace; extracting first would leave a rootless fragment of unknown
+  // elements that DOMPurify removes outright.
+  const sanitizedContent = extractSvgContent(sanitizeSVG(svgString));
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${sanitizedViewBox}">
   <defs>
@@ -1493,7 +1628,7 @@ function generateSvgWithSymbols(svgString: string): string {
 </svg>`;
 }
 
-function createAnimatedSvgFromFrames(frames: string[]): string {
+export function createAnimatedSvgFromFrames(frames: string[]): string {
   // Creates a smooth 1-second looping animation from sampled frames
   // Using SMIL animate elements for reliable frame-by-frame playback
   // Each frame fades in and out at the right time in the cycle
@@ -1515,14 +1650,15 @@ function createAnimatedSvgFromFrames(frames: string[]): string {
   const frameCount = frames.length;
 
   // Extract first frame for fallback (shown when animations not supported)
-  const firstFrameContent = extractSvgContent(frames[0]);
+  const firstFrameContent = extractSvgContent(sanitizeSVG(frames[0]));
 
   // Create individual group elements for each frame with SMIL animation
   // Each frame gets its own begin time offset for sequential display
   let frameGroups = "";
   frames.forEach((frameContent, index) => {
-    // Sanitize frame content using DOMPurify
-    const content = sanitizeSVG(extractSvgContent(frameContent));
+    // Sanitize the full frame so the parser keeps children in the SVG
+    // namespace, then extract the inner content.
+    const content = extractSvgContent(sanitizeSVG(frameContent));
     const frameStartTime = escapeAttr(
       sanitizeNumeric((index / frameCount) * totalDurationSeconds),
     );
@@ -1543,7 +1679,7 @@ function createAnimatedSvgFromFrames(frames: string[]): string {
   // Build the animated content with fallback
   const animatedContent = `  <!-- Fallback: first frame (shown when animations are not supported) -->
   <g id="fallback" class="fallback-frame">
-    ${sanitizeSVG(firstFrameContent)}
+    ${firstFrameContent}
   </g>
   <!-- Animated frames -->
 ${frameGroups}`;
@@ -2292,6 +2428,13 @@ export function buildFastSpectrumCanvas(
   if (!spectrumCanvas) {
     return null;
   }
+
+  drawTwoChannelSnapshotBoundaries(
+    spectrumCanvas,
+    snapshotData,
+    visualRange,
+    options?.signalAreaBounds,
+  );
 
   const statsRow = options?.showStats
     ? renderReusableStatsRow(
@@ -3761,7 +3904,13 @@ export function useSnapshot(
                 options.activeSignalAreaBounds ?? null,
                 options.activeSignalArea,
               );
-              spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+              // Inline the spectrum parts so the composed root has a single
+              // <svg> element; sections after a nested </svg> are dropped
+              // by sanitization.
+              spectrumSvg =
+                typeof svgResult === "string"
+                  ? extractSvgContent(svgResult)
+                  : "";
             }
           }
 
@@ -3981,7 +4130,13 @@ export function useSnapshot(
                     options.activeSignalAreaBounds ?? null,
                     options.activeSignalArea,
                   );
-                  spectrumSvg = typeof svgResult === "string" ? svgResult : "";
+                  // Inline the spectrum parts so the composed root has a single
+              // <svg> element; sections after a nested </svg> are dropped
+              // by sanitization.
+              spectrumSvg =
+                typeof svgResult === "string"
+                  ? extractSvgContent(svgResult)
+                  : "";
                 }
               }
 

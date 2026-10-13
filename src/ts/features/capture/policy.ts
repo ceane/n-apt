@@ -52,6 +52,65 @@ export function resolveCliCaptureFftSize(args: readonly string[]): number {
   return fftSize;
 }
 
+export function resolveCliCaptureFrequencySpan(
+  args: readonly string[],
+  source: {
+    sdr: {
+      max_sample_rate: number;
+      sample_rate_options: number[];
+      settings: { center_frequency?: number; sample_rate?: number };
+    };
+  },
+): { centerFrequencyHz: number; sampleRateHz: number } {
+  const readNumber = (name: string): number | undefined => {
+    const index = args.indexOf(name);
+    if (index < 0) return undefined;
+    const value = Number(args[index + 1]);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`${name} must be a positive finite frequency`);
+    }
+    return value;
+  };
+  const sampleRateHz =
+    readNumber("--sample-rate") ??
+    source.sdr.settings.sample_rate ??
+    source.sdr.sample_rate_options.find((value) => value > 0) ??
+    source.sdr.max_sample_rate;
+  const centerFrequencyHz =
+    readNumber("--center-frequency") ?? source.sdr.settings.center_frequency;
+  if (
+    typeof centerFrequencyHz !== "number" ||
+    !Number.isFinite(centerFrequencyHz) ||
+    centerFrequencyHz <= 0
+  ) {
+    throw new Error(
+      "Capture target center frequency is unavailable; pass --center-frequency <Hz>",
+    );
+  }
+  if (
+    typeof sampleRateHz !== "number" ||
+    !Number.isFinite(sampleRateHz) ||
+    sampleRateHz <= 0
+  ) {
+    throw new Error(
+      "Capture sample rate is unavailable; pass --sample-rate <Hz>",
+    );
+  }
+  const minimumHz = centerFrequencyHz - sampleRateHz / 2;
+  const maximumHz = centerFrequencyHz + sampleRateHz / 2;
+  if (minimumHz < 0) {
+    throw new Error(
+      `Capture span minimum must be at least 0 Hz; received ${minimumHz}`,
+    );
+  }
+  if (maximumHz > 30_000_000_000) {
+    throw new Error(
+      `Capture span maximum must be at most 30000000000 Hz; received ${maximumHz}`,
+    );
+  }
+  return { centerFrequencyHz, sampleRateHz };
+}
+
 /**
  * Resolves N-APT's receive defaults for a selected source. RTL-SDR uses its
  * maximum supported manual tuner gain and the frequency correction required
@@ -124,10 +183,10 @@ export function resolveRequestedDevice({
     const selected = sources.find((source) => source.id === requested);
     if (
       !selected ||
-      selected.status !== "connected" &&
-      selected.status !== "receiving" &&
-      selected.status !== "paused" &&
-      selected.status !== "streaming"
+      (selected.status !== "connected" &&
+        selected.status !== "receiving" &&
+        selected.status !== "paused" &&
+        selected.status !== "streaming")
     ) {
       throw new Error(`Device '${requested}' is unavailable`);
     }
@@ -135,13 +194,14 @@ export function resolveRequestedDevice({
   }
 
   if (connected.length > 1) {
-    throw new Error(
-      "Multiple sources are available; specify --device",
-    );
+    throw new Error("Multiple sources are available; specify --device");
   }
-  return connected[0] ?? (() => {
-    throw new Error("No connected source is available");
-  })();
+  return (
+    connected[0] ??
+    (() => {
+      throw new Error("No connected source is available");
+    })()
+  );
 }
 
 /**

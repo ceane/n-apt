@@ -6,7 +6,9 @@ export interface FftRenderCoordinatorOptions {
   onRenderFrame: (runId: number, force?: boolean) => void;
   onBecomeVisible?: () => void;
   targetFPS?: number;
-  forceRenderRef?: React.MutableRefObject<(() => void) | null>;
+  forceRenderRef?: React.MutableRefObject<
+    ((reprocessFrame?: boolean) => void) | null
+  >;
 }
 
 /** Owns animation cadence and exposes the imperative repaint bridge. */

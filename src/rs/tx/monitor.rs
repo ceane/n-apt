@@ -604,7 +604,7 @@ mod tests {
     *crate::safety::TX_CENTER_FREQUENCY_HZ.lock().unwrap() = 1_000_000.0;
     crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(2_000_000, Ordering::Relaxed);
 
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let stream_manager = StreamingSourceModeManager::new(Duration::from_millis(20));
     let key = StreamKey::new("hackrf-one-00000001", StreamMode::Tx);
     stream_manager.register_source(
@@ -662,7 +662,7 @@ mod tests {
   #[test]
   fn hardware_tx_monitor_generates_a_new_iq_block_for_each_tick() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new("redis://127.0.0.1:6379");
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
     let first = super::synthesize_next_hardware_tx_iq(
       &shared,
       4096,

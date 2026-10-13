@@ -4,6 +4,7 @@ import websocketSlice, {
   setSpectrumFrames,
 } from "@n-apt/redux/slices/websocketSlice";
 import {
+  loadPersistedColdStartFrequencyRange,
   loadPersistedSdrSettings,
   loadPersistedSnapshotGrid,
   loadPersistedSignalsDefaults,
@@ -14,6 +15,14 @@ import spectrumSlice, {
   setSignalAreaAndRange,
 } from "@n-apt/redux/slices/spectrumSlice";
 import waterfallSlice, { setSnapshotGrid } from "@n-apt/redux/slices/waterfallSlice";
+import sourceSelectionSlice, {
+  setSelectedSourceId,
+} from "@n-apt/redux/slices/sourceSelectionSlice";
+import { updateDeviceState } from "@n-apt/redux/slices/websocketSlice";
+
+jest.mock("@n-apt/webusb/initialSpectrumFrequencyRange", () => ({
+  INITIAL_SPECTRUM_FREQUENCY_RANGE: { min: 18_000, max: 3_218_000 },
+}));
 
 describe("loadPersistedSdrSettings", () => {
   beforeEach(() => {
@@ -109,6 +118,63 @@ describe("loadPersistedSdrSettings", () => {
     expect(parsed.frequencyRange).toBeUndefined();
     expect(parsed.fftSize).toBeUndefined();
     expect(parsed.gain).toBeUndefined();
+  });
+
+  it("persists a changed tune for the active selected source for cold start", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+        sourceSelection: sourceSelectionSlice,
+        websocket: websocketSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          localStorageMiddleware,
+        ),
+    });
+    store.dispatch(setSelectedSourceId("rtl-sdr-0"));
+    store.dispatch(updateDeviceState({ activeSourceId: "rtl-sdr-0" }));
+
+    const range = { min: 7_000_000, max: 10_200_000 };
+    store.dispatch({ type: "spectrum/setFrequencyRange", payload: range });
+
+    expect(
+      loadPersistedColdStartFrequencyRange("rtl-sdr-0"),
+    ).toEqual(range);
+    expect(
+      loadPersistedColdStartFrequencyRange("another-source"),
+    ).toBeNull();
+  });
+
+  it("does not pin a pending source's range before it becomes active", () => {
+    const store = configureStore({
+      reducer: {
+        spectrum: spectrumSlice,
+        sourceSelection: sourceSelectionSlice,
+        websocket: websocketSlice,
+      },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ serializableCheck: false }).concat(
+          localStorageMiddleware,
+        ),
+    });
+    store.dispatch(setSelectedSourceId("rtl-sdr-1"));
+    store.dispatch(updateDeviceState({ activeSourceId: "rtl-sdr-0" }));
+    store.dispatch({
+      type: "spectrum/setFrequencyRange",
+      payload: { min: 7_000_000, max: 10_200_000 },
+    });
+
+    expect(loadPersistedColdStartFrequencyRange("rtl-sdr-1")).toBeNull();
+  });
+
+  it("ignores invalid pinned cold-start ranges", () => {
+    localStorage.setItem(
+      "napt-cold-start-frequency-range-v1:rtl-sdr-0",
+      JSON.stringify({ min: 10, max: 10 }),
+    );
+
+    expect(loadPersistedColdStartFrequencyRange("rtl-sdr-0")).toBeNull();
   });
 
   it("repairs persisted defaults to match initialization without tightening valid legacy values", () => {

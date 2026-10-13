@@ -49,12 +49,6 @@ pub struct WebMCPToolResponse {
   pub tool: String,
 }
 
-/// Parameters for the logout endpoint
-#[derive(Debug, Deserialize)]
-pub struct LogoutParams {
-  pub token: Option<String>,
-}
-
 /// Power scale mode for spectrum display
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PowerScale {
@@ -62,45 +56,6 @@ pub enum PowerScale {
   DB,
   /// Calibrated dBm scale (RTL-SDR specific)
   DBm,
-}
-
-/// Content types for APT analysis
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AptContentType {
-  #[serde(rename = "audio_hearing")]
-  AudioHearing,
-  #[serde(rename = "audio_internal")]
-  AudioInternal,
-  #[serde(rename = "speech")]
-  Speech,
-  #[serde(rename = "video_vision")]
-  VideoVision,
-}
-
-/// APT Analysis Configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AptAnalysisConfig {
-  /// Content type for analysis
-  #[serde(rename = "contentType")]
-  pub content_type: AptContentType,
-  /// Analysis window size in Hz
-  #[serde(rename = "windowSizeHz")]
-  pub window_size_hz: f64,
-  /// Sub-channel frequency range (Hz)
-  #[serde(rename = "subChannelRange")]
-  pub sub_channel_range: (f64, f64),
-  /// Frontend-generated script content (optional)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub script_content: Option<String>,
-  /// Frontend-generated media content (base64, optional)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub media_content: Option<String>,
-  /// Baseline vector for comparison (optional)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub baseline_vector: Option<Vec<f32>>,
-  /// Generated demod processor math (placeholder)
-  #[serde(rename = "demodProcessor")]
-  pub demod_processor: String,
 }
 
 /// Command enum for the dedicated SDR I/O thread
@@ -132,6 +87,7 @@ pub enum SdrCommand {
   },
   StartCapture {
     job_id: String,
+    source_id: Option<String>,
     fragments: Vec<(f64, f64)>,
     bandwidth: Option<u64>,
     bandwidth_center_frequency: Option<u64>,
@@ -140,10 +96,13 @@ pub enum SdrCommand {
     file_type: String,
     acquisition_mode: String,
     encrypted: bool,
+    sample_rate: Option<u32>,
     fft_size: usize,
     fft_window: String,
+    frame_rate: Option<u32>,
     geolocation: Option<GeolocationData>,
     ref_based_demod_baseline: Option<String>,
+    capture_labels: Option<Vec<String>>,
     is_ephemeral: bool,
     channels: Option<Vec<ChannelSpec>>,
   },
@@ -167,21 +126,6 @@ pub enum SdrCommand {
     tuner_agc: Option<bool>,
     rtl_agc: Option<bool>,
     ppm: Option<u32>,
-  },
-  ScanForAudio {
-    job_id: String,
-    frequency_range: (f64, f64),
-    window_size_hz: f64,
-    step_size_hz: f64,
-    audio_threshold: f32,
-  },
-  DemodulateRegion {
-    job_id: String,
-    region: FrequencyRegion,
-  },
-  StartAptAnalysis {
-    job_id: String,
-    config: AptAnalysisConfig,
   },
 }
 
@@ -440,6 +384,13 @@ pub struct WebSocketMessage {
     alias = "refBasedDemodBaseline"
   )]
   pub ref_based_demod_baseline: Option<String>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "captureLabels",
+    default
+  )]
+  #[validate(length(max = 32))]
+  pub capture_labels: Option<Vec<String>>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "powerScale")]
   pub power_scale: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "liveMode")]
@@ -450,7 +401,7 @@ pub struct WebSocketMessage {
   pub duplex_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
   pub tx_device: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(skip_serializing_if = "Option::is_none", alias = "sourceId")]
   #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub source_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -507,158 +458,6 @@ pub struct HardwareInfoResponse {
   pub hardware_freq_range: HardwareFreqRange,
   #[serde(rename = "sampleRate")]
   pub sample_rate: u32,
-}
-
-/// Frequency region detected during scan
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FrequencyRegion {
-  #[serde(rename = "startFreq")]
-  pub start_freq: f64,
-  #[serde(rename = "endFreq")]
-  pub end_freq: f64,
-  #[serde(rename = "centerFreq")]
-  pub center_freq: f64,
-  #[serde(rename = "audioScore")]
-  pub audio_score: f32,
-  #[serde(rename = "signalStrength")]
-  pub signal_strength: f32,
-  pub snr: f32,
-}
-
-/// Result of a frequency scan
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScanResultResponse {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  #[serde(rename = "jobId")]
-  pub job_id: String,
-  pub regions: Vec<FrequencyRegion>,
-}
-
-/// Result of a region demodulation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DemodResultResponse {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  #[serde(rename = "jobId")]
-  pub job_id: String,
-  pub region: FrequencyRegion,
-  #[serde(rename = "audioBuffer")]
-  pub audio_buffer: Vec<f32>,
-  #[serde(rename = "sampleRate")]
-  pub sample_rate: u32,
-}
-
-/// APT Analysis Result
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AptAnalysisResult {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  #[serde(rename = "jobId")]
-  pub job_id: String,
-  /// Channel metadata
-  #[serde(rename = "channelMetadata")]
-  pub channel_metadata: AptChannelMetadata,
-  /// Analysis progress (0.0 to 1.0)
-  pub progress: f32,
-  /// Current processing stage
-  #[serde(rename = "processingStage")]
-  pub processing_stage: AptProcessingStage,
-  /// Analysis results (populated when complete)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub analysis_data: Option<AptAnalysisData>,
-}
-
-/// Channel metadata for APT analysis
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AptChannelMetadata {
-  /// Analysis window size in Hz
-  #[serde(rename = "windowSizeHz")]
-  pub window_size_hz: f64,
-  /// Content type being analyzed
-  #[serde(rename = "contentType")]
-  pub content_type: AptContentType,
-  /// Sub-channel frequency range
-  #[serde(rename = "subChannelRange")]
-  pub sub_channel_range: (f64, f64),
-  /// Center frequency in Hz
-  #[serde(rename = "centerFreqHz")]
-  pub center_freq_hz: u32,
-  /// Signal strength in dB
-  #[serde(rename = "signalStrengthDb")]
-  pub signal_strength_db: f32,
-  /// Signal-to-noise ratio
-  #[serde(rename = "snr")]
-  pub snr: f32,
-  /// Demod processor description
-  #[serde(rename = "demodProcessor")]
-  pub demod_processor: String,
-}
-
-/// APT processing stages
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AptProcessingStage {
-  #[serde(rename = "initializing")]
-  Initializing,
-  #[serde(rename = "fm_demodulation")]
-  FmDemodulation,
-  #[serde(rename = "subcarrier_isolation")]
-  SubcarrierIsolation,
-  #[serde(rename = "envelope_detection")]
-  EnvelopeDetection,
-  #[serde(rename = "baseband_recovery")]
-  BasebandRecovery,
-  #[serde(rename = "content_analysis")]
-  ContentAnalysis,
-  #[serde(rename = "completed")]
-  Completed,
-  #[serde(rename = "error")]
-  Error(String),
-}
-
-/// APT analysis data results
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AptAnalysisData {
-  /// Match confidence score (0.0 to 1.0)
-  #[serde(rename = "confidence")]
-  pub confidence: f32,
-  /// Extracted content patterns
-  #[serde(rename = "contentPatterns")]
-  pub content_patterns: Vec<String>,
-  /// Comparison results against baseline
-  #[serde(rename = "baselineComparison")]
-  pub baseline_comparison: Option<AptBaselineComparison>,
-  /// Processing time in milliseconds
-  #[serde(rename = "processingTimeMs")]
-  pub processing_time_ms: u64,
-}
-
-/// Baseline comparison results
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AptBaselineComparison {
-  /// Similarity score (0.0 to 1.0)
-  #[serde(rename = "similarity")]
-  pub similarity: f32,
-  /// Matched features
-  #[serde(rename = "matchedFeatures")]
-  pub matched_features: Vec<String>,
-  /// Feature differences
-  #[serde(rename = "featureDifferences")]
-  pub feature_differences: Vec<String>,
-}
-
-/// Progress update for scanning
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScanProgressResponse {
-  #[serde(rename = "type")]
-  pub message_type: String,
-  #[serde(rename = "jobId")]
-  pub job_id: String,
-  pub progress: f32,
-  #[serde(rename = "currentFreq")]
-  pub current_freq: f64,
-  #[serde(rename = "regionsLength")]
-  pub regions_length: usize,
 }
 
 /// Spectrum data message sent to clients
@@ -1266,6 +1065,15 @@ pub struct SpectrumFrameConfig {
   #[serde(rename = "freq_range_hz", alias = "freq_range_mhz")]
   pub freq_range_hz: Vec<f64>,
   pub description: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub prerequisite_for: Option<IndexMap<String, ChannelPrerequisiteMode>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChannelPrerequisiteMode {
+  Any,
+  All,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1275,6 +1083,8 @@ pub struct SpectrumFrameMessage {
   pub min_hz: f64,
   pub max_hz: f64,
   pub description: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub prerequisite_for: Option<IndexMap<String, ChannelPrerequisiteMode>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1340,6 +1150,13 @@ pub struct CaptureDownloadParams {
   #[serde(rename = "jobId")]
   #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub job_id: String,
+  #[serde(default)]
+  pub artifact: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CaptureDestinationParams {
+  pub token: String,
 }
 
 /// Helper struct for capture fragments in tests
@@ -1364,4 +1181,20 @@ pub struct CaptureRequest {
   pub geolocation: Option<GeolocationData>,
   pub bandwidth: Option<u64>,
   pub bandwidth_center_frequency: Option<u64>,
+}
+
+#[cfg(test)]
+mod capture_source_transport_tests {
+  use super::WebSocketMessage;
+
+  #[test]
+  fn capture_source_id_uses_the_websocket_camel_case_field() {
+    let message: WebSocketMessage = serde_json::from_value(serde_json::json!({
+      "type": "capture",
+      "sourceId": "rtl-sdr-0"
+    }))
+    .expect("capture command should deserialize");
+
+    assert_eq!(message.source_id.as_deref(), Some("rtl-sdr-0"));
+  }
 }

@@ -59,6 +59,16 @@ describe("webcrypto service", () => {
     expect(hmac1).not.toBe(hmacDifferent);
   });
 
+  test("login proof uses an independent password derivation, while vault bytes stay compatible", async () => {
+    const nonce = Buffer.from("auth-domain-regression");
+    const vault = crypto.pbkdf2Sync(testPassword, "n-apt-aes-salt-v1", 100_000, 32, "sha256");
+    const auth = crypto.pbkdf2Sync(testPassword, "n-apt/password-auth/v2\0n-apt-aes-salt-v1", 100_000, 32, "sha256");
+    const proof = await computeHmac(testPassword, nonce.toString("base64"));
+    expect(proof).toBe(crypto.createHmac("sha256", auth).update(nonce).digest("base64"));
+    expect(proof).not.toBe(crypto.createHmac("sha256", vault).update(nonce).digest("base64"));
+    expect(Buffer.from(await deriveRawKey(testPassword))).toEqual(vault);
+  });
+
   test("AES-GCM decryption works for valid payloads", async () => {
     const rawKey = await deriveRawKey(testPassword);
     const aesKey = (await crypto.subtle.importKey(

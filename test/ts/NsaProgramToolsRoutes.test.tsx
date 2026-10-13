@@ -8,6 +8,17 @@ jest.mock("@n-apt/app-legal/routes/QuestionnaireRoute", () => ({
   __esModule: true,
   default: () => <h1>Questionnaire</h1>,
 }));
+jest.mock("@n-apt/app/routes/QuestionnaireRoute", () => ({
+  __esModule: true,
+  default: () => {
+    const { NsaProgramToolsShell } = require("@n-apt/app-legal/NsaProgramToolsShell");
+    return (
+      <NsaProgramToolsShell>
+        <h1>Questionnaire</h1>
+      </NsaProgramToolsShell>
+    );
+  },
+}));
 jest.mock("@n-apt/app-legal/routes/TranscriptFixerRoute", () => ({
   __esModule: true,
   default: () => <h1>X Archive Formatter</h1>,

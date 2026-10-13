@@ -38,15 +38,9 @@ const HarnessContainer = styled.div<{ $aspectRatio: string; $transparent?: boole
     margin: 0;
   }
 
-  @media (max-width: 640px) {
-    width: 100vw;
-    margin-left: 50%;
-    transform: translateX(-50%);
+  @media (max-width: 768px) {
     border: none;
     border-radius: 0;
-    border-left: none;
-    border-right: none;
-    margin-right: calc(-50vw + 100%);
   }
 `;
 
@@ -168,7 +162,7 @@ export function CanvasHarness({
       ref={containerRef}
       $aspectRatio={aspectRatio}
       $transparent={transparent}
-      className={`${className || ''} ${isFullscreen ? 'fullscreen' : ''}`}
+      className={`article-canvas ${className || ''} ${isFullscreen ? 'fullscreen' : ''}`}
     >
       {/* 
         Only mount the heavy canvas children when visible initially.

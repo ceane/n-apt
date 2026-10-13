@@ -91,4 +91,33 @@ describe("device option scheduler", () => {
 
     expect(publish).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps only the newest value while an async publish is in flight", async () => {
+    const releases: Array<() => void> = [];
+    const publish = jest.fn((value: number) => {
+      void value;
+      return new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+    });
+    const scheduler = createDeviceOptionScheduler({ publish });
+
+    scheduler.submit(1, "gesture");
+    jest.advanceTimersByTime(10);
+    scheduler.submit(2, "gesture");
+    scheduler.submit(3, "gesture");
+    jest.advanceTimersByTime(40);
+
+    expect(publish.mock.calls.map(([value]) => value)).toEqual([1]);
+
+    releases[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(publish.mock.calls.map(([value]) => value)).toEqual([1, 3]);
+
+    releases[1]();
+    await Promise.resolve();
+    scheduler.dispose();
+  });
 });

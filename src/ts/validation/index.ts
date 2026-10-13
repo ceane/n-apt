@@ -44,6 +44,7 @@ export {
   SignalsDefaultsMessageSchema,
   SourceErrorMessageSchema,
   SpectrumFrameSchema,
+  CaptureEffectiveSettingsSchema,
   CaptureRequestSchema,
   CaptureStatusSchema,
   EnhancedSdrSettingsSchema,
