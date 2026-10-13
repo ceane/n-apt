@@ -369,6 +369,7 @@ const Container = styled.div`
   position: relative;
   box-sizing: border-box;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   justify-items: center;
   align-items: stretch;
@@ -394,6 +395,12 @@ const Container = styled.div`
   @media (max-width: 640px) {
     padding-inline: 16px;
     gap: 12px;
+    grid-template-rows: auto auto;
+    align-content: start;
+    height: auto;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 `;
 
@@ -663,19 +670,30 @@ const LogoContainer = styled.div`
   @media (max-height: 760px) {
     margin-bottom: clamp(0px, 1vh, 8px);
   }
+
+  @media (max-width: 640px) {
+    padding-top: 48px;
+  }
 `;
 
 const Essentials = styled.section`
   width: min(100%, 1440px);
+  min-width: 0;
   grid-row: 2;
   height: 100%;
   min-height: 0;
   position: relative;
   z-index: 1;
+
+  @media (max-width: 640px) {
+    height: auto;
+    min-height: 670px;
+  }
 `;
 
 const LoginShowcase = styled.div`
   display: grid;
+  min-width: 0;
   grid-column: 1;
   grid-row: 1;
   width: 100%;
@@ -700,6 +718,7 @@ const LoginHeadingTrack = styled.div`
 
 const DeviceShowcase = styled.section`
   display: grid;
+  min-width: 0;
   grid-column: span 2;
   width: 100%;
   height: 100%;
@@ -766,7 +785,9 @@ const EssentialsGrid = styled.div`
   @media (max-width: 640px) {
     --track-gap: 12px;
     --card-track: 84vw;
-    --card-height: min(100%, 680px);
+    --card-height: 620px;
+    height: 670px;
+    min-height: 670px;
   }
 `;
 
@@ -812,6 +833,7 @@ const SDRCard = styled(EssentialCard)`
   padding: 0;
 
   @media (max-width: 640px) {
+    min-height: 620px;
     padding: 0;
   }
 `;
@@ -880,6 +902,7 @@ const LoginCard = styled.div`
   }
 
   @media (max-width: 640px) {
+    min-height: 620px;
     padding: 5vh 20px 2vh;
   }
 `;
@@ -994,18 +1017,20 @@ const SDRSpec = styled.div<{ $unsupported?: boolean }>`
 `;
 
 const SDRSpecLabel = styled.span`
+  min-width: 0;
   color: ${(props) => props.theme.textMuted};
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 `;
 
 const SDRSpecValue = styled.span<{
   $tone?: "good" | "warning" | "muted" | "yellow";
-  $wrap?: boolean;
 }>`
   display: inline-flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   gap: 6px;
@@ -1020,15 +1045,18 @@ const SDRSpecValue = styled.span<{
   font-family: ${(props) => props.theme.typography.mono};
   font-size: 11px;
   font-weight: 600;
-  white-space: ${({ $wrap }) => ($wrap ? "normal" : "nowrap")};
+  white-space: normal;
+  overflow-wrap: anywhere;
 
   @media (max-width: 640px) {
     gap: 4px;
     font-size: 10px;
+    align-items: flex-start;
 
     svg {
       width: 12px;
       height: 12px;
+      flex: 0 0 12px;
     }
   }
 `;
@@ -1700,7 +1728,7 @@ export const AuthenticationUI = ({
                     </SDRSpec>
                     <SDRSpec>
                       <SDRSpecLabel>Receive</SDRSpecLabel>
-                      <SDRSpecValue $tone="good" $wrap>
+                      <SDRSpecValue $tone="good">
                         <ThumbsUp size={14} aria-hidden="true" /> Good
                         (500kHz-1.766GHz)
                       </SDRSpecValue>
@@ -1739,7 +1767,7 @@ export const AuthenticationUI = ({
                         <TriangleAlert size={14} aria-hidden="true" />
                         Poor below HF (&lt;HF)
                       </SDRSpecValue>
-                      <SDRSpecValue $tone="yellow" $wrap>
+                      <SDRSpecValue $tone="yellow">
                         <ThumbsUp size={14} aria-hidden="true" />
                         {" "}Ok (1MHz-6GHz)
                       </SDRSpecValue>
