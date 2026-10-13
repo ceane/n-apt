@@ -32,9 +32,9 @@ test.describe("Encrypted ML bundle E2E", () => {
     }
     await page.getByRole("button", { name: "Demod N-APT with ML" }).click();
 
-    await expect(page.getByTestId("demod-readiness-node")).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(
+      page.getByRole("region", { name: "Demodulation Readiness" }),
+    ).toBeVisible({ timeout: 30_000 });
     await expect(
       page.getByRole("alert", { name: "Demod readiness unavailable" }),
     ).toHaveCount(0);
