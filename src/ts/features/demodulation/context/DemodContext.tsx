@@ -745,7 +745,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       centerFrequencyHz: liveNeuralCenterFrequencyHz,
       bandwidthHz: liveNeuralBandwidthHz,
     })
-      .then((demodulator) => {
+      .then((demodulator: any) => {
         if (cancelled) {
           void demodulator.dispose();
           return;
@@ -759,7 +759,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           demodulator,
         });
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (cancelled) return;
         setAudioSurveyError(
           error instanceof Error ? error.message : String(error),
@@ -785,13 +785,15 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     liveNeuralCenterFrequencyHz,
   ]);
 
+  const currentOnnxDemodState = audioSurveyOnnxDemodState;
   const liveOnnxNeuralDemodulator =
-    audioSurveyOnnxDemodState?.model === audioSurveyModel &&
-    audioSurveyOnnxDemodState.modelData === audioSurveyOnnxModelData &&
-    audioSurveyOnnxDemodState.centerFrequencyHz ===
+    currentOnnxDemodState !== null &&
+    currentOnnxDemodState.model === audioSurveyModel &&
+    currentOnnxDemodState.modelData === audioSurveyOnnxModelData &&
+    currentOnnxDemodState.centerFrequencyHz ===
       liveNeuralCenterFrequencyHz &&
-    audioSurveyOnnxDemodState.bandwidthHz === liveNeuralBandwidthHz
-      ? audioSurveyOnnxDemodState.demodulator
+    currentOnnxDemodState.bandwidthHz === liveNeuralBandwidthHz
+      ? currentOnnxDemodState.demodulator
       : null;
 
   const fmDemod = useAudioDemodFM({
@@ -891,7 +893,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       sources: {
         live: createLiveAudioSurveySource({
           getSourceId: () => activeSourceId,
-          sendFrequencyRange: (range) => wsConnection.sendFrequencyRange(range),
+          sendFrequencyRange: (range: any) => wsConnection.sendFrequencyRange(range),
         }),
         replay:
           selectedReplayFiles.length > 0
@@ -899,10 +901,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             : null,
       },
       onJobUpdated: handleAudioSurveyJobUpdated,
-      onCandidateUpdated: (candidate) => {
+      onCandidateUpdated: (candidate: any) => {
         const preference = audioSurveyModelPreferenceRef.current;
         const nextCandidate =
-          preference?.jobId === candidate.jobId
+          preference && preference.jobId === candidate.jobId
             ? {
                 ...candidate,
                 demodulationModelPreferred: preference.preferred,
@@ -988,7 +990,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         void runner
           .start(job.id)
           .finally(() => releaseActiveRun?.())
-          .catch((error) => {
+          .catch((error: unknown) => {
             setAudioSurveyError(error instanceof Error ? error.message : String(error));
           });
       } catch (error) {
@@ -1005,7 +1007,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       let job = audioSurveyJob;
       if (!job) {
         job = (await audioSurveyRepository.listJobs()).find(
-          (candidate) => candidate.status === "paused" || candidate.status === "ready",
+          (candidate: any) => candidate.status === "paused" || candidate.status === "ready",
         ) ?? null;
       }
       if (!job) throw new Error("There is no paused audio survey job to resume");
@@ -1014,7 +1016,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       audioSurveyPhaseRef.current = null;
       void trackAudioSurveyRun(runner, job.id, job.config.sourceMode)
         .then(setAudioSurveyJob)
-        .catch((error) => {
+        .catch((error: unknown) => {
           setAudioSurveyError(error instanceof Error ? error.message : String(error));
         });
     } catch (error) {
@@ -1191,18 +1193,18 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         const candidate = audioSurveyCandidates.find((item) => item.id === candidateId) ??
           (audioSurveyJob
             ? (await audioSurveyRepository.listCandidates(audioSurveyJob.id)).find(
-                (item) => item.id === candidateId,
+                (item: any) => item.id === candidateId,
               )
             : undefined);
         if (!candidate) throw new Error("Audio candidate was removed or is no longer available");
         const artifacts = (await audioSurveyRepository.listArtifacts(candidate.jobId))
           .filter(
-            (artifact) =>
+            (artifact: any) =>
               artifact.candidateId === candidate.id &&
               artifact.kind === "event-clip",
           )
-          .sort((left, right) => right.createdAt - left.createdAt);
-        const clip = artifacts.find((artifact) => {
+          .sort((left: any, right: any) => right.createdAt - left.createdAt);
+        const clip = artifacts.find((artifact: any) => {
           const payload = artifact.payload as { iqData?: unknown; pcmData?: unknown };
           return payload.iqData instanceof Uint8Array && payload.pcmData instanceof Float32Array;
         });
@@ -1220,7 +1222,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           );
           const trainedPayload = trainedArtifact?.payload as {
             artifactType?: string;
-            model?: Parameters<typeof predictTimeDomainAudio>[0];
+            model?: any;
             onnxModelData?: unknown;
           } | undefined;
           if (
@@ -1334,7 +1336,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         const source = createLiveAudioSurveySource({
           getSourceId: () => activeSourceId,
-          sendFrequencyRange: (range) => wsConnection.sendFrequencyRange(range),
+          sendFrequencyRange: (range: any) => wsConnection.sendFrequencyRange(range),
         });
         let artifact: AudioSurveyArtifact | null;
         try {
@@ -1377,7 +1379,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             audioSurveyJob.config.sourceMode,
           )
             .then(setAudioSurveyJob)
-            .catch((error) => {
+            .catch((error: unknown) => {
               setAudioSurveyError(error instanceof Error ? error.message : String(error));
             });
         }
@@ -1598,10 +1600,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               frameCenterFrequencyHz,
             );
             void inference
-              ?.then((audioData) => {
+              ?.then((audioData: any) => {
                 if (active && audioData.length > 0) playFmAudio(audioData);
               })
-              .catch((error) => {
+              .catch((error: unknown) => {
                 if (!active || onnxErrorReported) return;
                 onnxErrorReported = true;
                 setAudioSurveyError(

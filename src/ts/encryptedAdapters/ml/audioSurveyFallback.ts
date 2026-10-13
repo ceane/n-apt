@@ -63,27 +63,27 @@ const emptyUsage = (capBytes: number): AudioSurveyStorageUsage => ({
 export const estimateAudioSurveyArtifactBytes = (_payload: unknown): number => 0;
 
 export const audioSurveyRepository: AudioSurveyRepository = {
-  async saveJob(_job) {},
-  async getJob(_jobId) {
+  async saveJob(_job: any) {},
+  async getJob(_jobId: any) {
     return undefined;
   },
   async listJobs() {
     return [];
   },
-  async saveCandidate(_candidate) {},
-  async listCandidates(_jobId) {
+  async saveCandidate(_candidate: any) {},
+  async listCandidates(_jobId: any) {
     return [];
   },
-  async saveArtifact(_artifact, _capBytes) {
+  async saveArtifact(_artifact: any, _capBytes: any) {
     return [];
   },
-  async getArtifact(_artifactId) {
+  async getArtifact(_artifactId: any) {
     return undefined;
   },
-  async listArtifacts(_jobId) {
+  async listArtifacts(_jobId: any) {
     return [];
   },
-  async getStorageUsage(capBytes) {
+  async getStorageUsage(capBytes: any) {
     return emptyUsage(capBytes);
   },
 };
