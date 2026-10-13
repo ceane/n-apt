@@ -1,4 +1,6 @@
 /** @jest-environment jsdom */
+import fs from "node:fs";
+import path from "node:path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
@@ -251,6 +253,24 @@ const mockTheme = {
 };
 
 describe("FFTCanvas Component", () => {
+  const hasEncryptedClassifierSource = fs.existsSync(
+    path.resolve(
+      process.cwd(),
+      "src/encrypted-modules/tmp/ml/src/ts/features/classification/native/NativeClassifierPanel.tsx",
+    ),
+  );
+const encryptedMlRuntimeAvailable =
+  (typeof __DEV__ !== "undefined" && __DEV__) ||
+  (typeof __N_APT_ML_BUNDLE_READY__ !== "undefined" &&
+    __N_APT_ML_BUNDLE_READY__);
+const canRunClassifierImplementationTests =
+  hasEncryptedClassifierSource && encryptedMlRuntimeAvailable;
+const testWhenClassifierSourceAvailable = canRunClassifierImplementationTests
+    ? test
+    : test.skip;
+const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
+  ? test.skip
+  : test;
   const defaultProps = {
     dataRef: {
       current: {
@@ -440,7 +460,7 @@ describe("FFTCanvas Component", () => {
     ).toBeNull();
   });
 
-  it("shows native classifier diagnostics independently of the spike overlay", () => {
+  testWhenClassifierSourceAvailable("shows native classifier diagnostics independently of the spike overlay", async () => {
     const classifierSlot = document.createElement("div");
     classifierSlot.id = "native-classifier-sidebar-slot";
     document.body.append(classifierSlot);
@@ -449,12 +469,12 @@ describe("FFTCanvas Component", () => {
         <FFTCanvas {...defaultProps} {...{ showNativeClassifier: true }} showSpikeOverlay={false} />
       </SpectrumProvider></MemoryRouter></TestWrapper>,
     );
-    expect(within(classifierSlot).getByRole('region', { name: 'Experimental native resolution classifier' })).toBeInTheDocument();
+    expect(await within(classifierSlot).findByRole('region', { name: 'Experimental native resolution classifier' })).toBeInTheDocument();
     unmount();
     classifierSlot.remove();
   });
 
-  it("rehydrates classifier package links with the authenticated context token", async () => {
+  testWhenClassifierSourceAvailable("rehydrates classifier package links with the authenticated context token", async () => {
     const captureId = "a".repeat(64);
     const downloadKey = NATIVE_CLASSIFIER_DOWNLOADS_STORAGE_KEY;
     localStorage.setItem(downloadKey, JSON.stringify([{
@@ -480,6 +500,32 @@ describe("FFTCanvas Component", () => {
     } finally {
       rendered.unmount();
       localStorage.removeItem(downloadKey);
+      classifierSlot.remove();
+    }
+  });
+
+  testWhenClassifierSourceUnavailable("shows a retryable classifier fallback when the bundle is unavailable", async () => {
+    const classifierSlot = document.createElement("div");
+    classifierSlot.id = "native-classifier-sidebar-slot";
+    document.body.append(classifierSlot);
+    const rendered = render(
+      <TestWrapper><MemoryRouter><SpectrumProvider>
+        <FFTCanvas {...defaultProps} showNativeClassifier />
+      </SpectrumProvider></MemoryRouter></TestWrapper>,
+    );
+    try {
+      expect(
+        await within(classifierSlot).findByRole("button", {
+          name: "Retry Native classifier",
+        }),
+      ).toBeInTheDocument();
+      expect(
+        within(classifierSlot).getByText(
+          "The encrypted ML feature bundle could not be loaded.",
+        ),
+      ).toBeInTheDocument();
+    } finally {
+      rendered.unmount();
       classifierSlot.remove();
     }
   });
