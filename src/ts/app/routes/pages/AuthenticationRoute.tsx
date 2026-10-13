@@ -62,8 +62,9 @@ const pulse = keyframes`
   100% { opacity: 0.4; }
 `;
 
-const LOGIN_FFT_CYCLE_MS = 30_000;
-const LOGIN_FFT_CYCLE_DURATION = `${LOGIN_FFT_CYCLE_MS / 1000}s`;
+// Keep the complete signal → dense → twiddle → magnitude sequence visible
+// within a short login-card glance.
+const LOGIN_FFT_CYCLE_MS = 15_000;
 
 export type LoginFftStage = "signal" | "dense" | "butterfly" | "magnitude";
 
@@ -71,20 +72,28 @@ export const getLoginFftStage = (elapsedMs: number): LoginFftStage => {
   const cycleTime =
     ((elapsedMs % LOGIN_FFT_CYCLE_MS) + LOGIN_FFT_CYCLE_MS) %
     LOGIN_FFT_CYCLE_MS;
-  if (cycleTime < 10_000) return "signal";
-  if (cycleTime < 15_000) return "dense";
-  if (cycleTime < 20_000) return "butterfly";
+  if (cycleTime < 4_000) return "signal";
+  if (cycleTime < 6_000) return "dense";
+  if (cycleTime < 8_750) return "butterfly";
   return "magnitude";
 };
 
 const WAVE_VIEWBOX_WIDTH = 1200;
-const HETERODYNE_PAIR_OFFSET = 24;
+const WAVE_VIEWBOX_HEIGHT = 720;
+const HETERODYNE_PAIR_PHASE_OFFSET = 0.055;
+const HETERODYNE_DENSE_PHASE_OFFSET = 0.075;
+const INPUT_WAVE_STROKE_WIDTH = 6;
+const DENSE_WAVE_STROKE_WIDTH = 3.5;
 const FFT_SAMPLE_COUNT = 128;
 const DENSE_SIGNAL_CYCLES = 18;
-const WAVE_BASELINE = 120;
-const WAVE_AMPLITUDE = 26;
-const SPECTRUM_BASELINE = 218;
-const SPECTRUM_MAGNITUDE_FLOOR = 0.1;
+const WAVE_BASELINE = 360;
+const WAVE_AMPLITUDE = 40;
+const SPECTRUM_BASELINE = WAVE_VIEWBOX_HEIGHT;
+const SPECTRUM_CURVE_TOP = 255;
+const SPECTRUM_CURVE_FLOOR = 335;
+const SPECTRUM_PEAK_SIGMA_BINS = 3.3;
+const LOGIN_HEX_BYTE_COUNT = 18;
+const LOGIN_HEX_FONT_SIZE = 20;
 // The opening, closely spaced sine traces represent the two carriers in a
 // heterodyne input. The SDR stages process the sampled signal as it is, without
 // drawing a separate difference tone.
@@ -92,27 +101,20 @@ const heterodyneCarrierSamples = Array.from(
   { length: FFT_SAMPLE_COUNT },
   (_, index) => Math.sin((index / FFT_SAMPLE_COUNT) * Math.PI * 2 * 2.4),
 );
-// Keep the dense display as a clean, symmetric sine wave. Use a separate
-// multi-tone input for folding and magnitude so its spectrum has several bins.
-const sourceSamples = Array.from(
-  { length: FFT_SAMPLE_COUNT },
-  (_, index) =>
-    Math.sin(
-      (index / FFT_SAMPLE_COUNT) * Math.PI * 2 * DENSE_SIGNAL_CYCLES,
-    ),
-);
+// Keep the input stages as a clean, symmetric sine pair. Use a separate
+// multi-tone signal only for the magnitude stage so its spectrum has several bins.
 const spectrumComponents = [
-  { cycles: 5, amplitude: 0.64 },
-  { cycles: 12, amplitude: 0.38 },
-  { cycles: 18, amplitude: 0.58 },
-  { cycles: 27, amplitude: 0.32 },
-  { cycles: 39, amplitude: 0.46 },
-  { cycles: 52, amplitude: 0.27 },
+  { cycles: 7, amplitude: 0.35 },
+  { cycles: 18, amplitude: 0.28 },
+  { cycles: 29, amplitude: 0.56 },
+  { cycles: 39, amplitude: 0.35 },
+  { cycles: 50, amplitude: 0.72 },
+  { cycles: 60, amplitude: 0.26 },
 ];
 const spectrumProfiles = [
-  [1, 0.42, 0.7, 0.34, 0.52, 0.22],
-  [0.44, 1, 0.38, 0.86, 0.3, 0.72],
-  [0.68, 0.3, 1, 0.46, 0.95, 0.4],
+  [0.55, 0.12, 0.72, 0.24, 1, 0.1],
+  [0.25, 0.22, 0.35, 1, 0.28, 0.8],
+  [0.42, 0.16, 1, 0.42, 0.72, 0.12],
 ] as const;
 const makeSpectrumSamples = (profile: readonly number[]) => {
   const samples = Array.from({ length: FFT_SAMPLE_COUNT }, (_, index) =>
@@ -121,16 +123,13 @@ const makeSpectrumSamples = (profile: readonly number[]) => {
         value +
         component.amplitude *
           profile[componentIndex] *
-          Math.sin(
-            (index / FFT_SAMPLE_COUNT) * Math.PI * 2 * component.cycles,
-          ),
+          Math.sin((index / FFT_SAMPLE_COUNT) * Math.PI * 2 * component.cycles),
       0,
     ),
   );
   const peak = Math.max(...samples.map(Math.abs)) || 1;
   return samples.map((sample) => sample / peak);
 };
-const spectrumInputSamples = makeSpectrumSamples(spectrumProfiles[0]);
 
 const makeTracePath = (
   values: readonly number[],
@@ -145,22 +144,138 @@ const makeTracePath = (
     return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
   }).join(" ");
 
-const makeMagnitudeValues = (
-  profile: readonly number[],
-  amplitude: number,
-) => {
-  const input = makeSpectrumSamples(profile).map((sample) => sample * amplitude);
-  return Array.from({ length: FFT_SAMPLE_COUNT / 2 + 1 }, (_, bin) => {
-    let real = 0;
-    let imaginary = 0;
-    for (let sample = 0; sample < FFT_SAMPLE_COUNT; sample += 1) {
-      const angle = (2 * Math.PI * bin * sample) / FFT_SAMPLE_COUNT;
-      real += input[sample] * Math.cos(angle);
-      imaginary -= input[sample] * Math.sin(angle);
-    }
-    const oneSidedScale = bin === 0 || bin === FFT_SAMPLE_COUNT / 2 ? 1 : 2;
-    return (Math.hypot(real, imaginary) / FFT_SAMPLE_COUNT) * oneSidedScale;
+const carrierSamplesAt = (seconds: number) =>
+  heterodyneCarrierSamples.map((_, index) =>
+    Math.sin(
+      (index / FFT_SAMPLE_COUNT) * Math.PI * 2 * 2.4 +
+        0.5 * seconds * Math.PI * 2,
+    ),
+  );
+const densePhaseCyclesAt = (seconds: number) =>
+  seconds <= 6
+    ? 0.5 * (seconds - 4)
+    : 1 +
+      ((seconds - 6) / 2) * (0.5 - DENSE_SIGNAL_CYCLES / FFT_SAMPLE_COUNT / 5);
+const denseSignalCyclesAt = (seconds: number) => {
+  const transition = Math.max(0, Math.min(1, (seconds - 4) / 2));
+  const easedTransition = transition * transition * (3 - 2 * transition);
+  return 2.4 + (DENSE_SIGNAL_CYCLES - 2.4) * easedTransition;
+};
+const denseSignalSamplesAt = (seconds: number) => {
+  const cycles = denseSignalCyclesAt(seconds);
+  const phaseCycles = densePhaseCyclesAt(seconds);
+
+  return Array.from({ length: FFT_SAMPLE_COUNT }, (_, index) =>
+    Math.sin(
+      (index / FFT_SAMPLE_COUNT) * Math.PI * 2 * cycles +
+        phaseCycles * Math.PI * 2,
+    ),
+  );
+};
+const ease = (progress: number) => {
+  const clamped = Math.max(0, Math.min(1, progress));
+  return clamped * clamped * (3 - 2 * clamped);
+};
+const mix = (from: number, to: number, progress: number) =>
+  from + (to - from) * ease(progress);
+const makeYValues = (
+  values: readonly number[],
+  baseline: number,
+  scale: number,
+) =>
+  Array.from(
+    { length: FFT_SAMPLE_COUNT + 1 },
+    (_, index) => baseline + values[index % FFT_SAMPLE_COUNT] * scale,
+  );
+const makePathFromYValues = (values: readonly number[]) =>
+  values
+    .map((y, index) => {
+      const x = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+const makeMagnitudeYValues = (values: readonly number[]) =>
+  Array.from({ length: FFT_SAMPLE_COUNT + 1 }, (_, index) => {
+    const magnitude = spectrumMagnitudeAt(values, index / 2);
+    const level = Math.max(0, Math.min(1, magnitude / maxSpectrumMagnitude));
+    return (
+      SPECTRUM_CURVE_FLOOR - level * (SPECTRUM_CURVE_FLOOR - SPECTRUM_CURVE_TOP)
+    );
   });
+const extremaOf = (values: readonly number[]) => {
+  const extrema: Array<{ index: number; peak: boolean }> = [];
+  for (let index = 0; index < FFT_SAMPLE_COUNT; index += 1) {
+    const previous = values[(index + FFT_SAMPLE_COUNT - 1) % FFT_SAMPLE_COUNT];
+    const current = values[index];
+    const next = values[(index + 1) % FFT_SAMPLE_COUNT];
+    if (
+      (current >= previous && current > next) ||
+      (current <= previous && current < next)
+    ) {
+      // Positive signal peaks point down in this SVG because y increases down.
+      extrema.push({ index, peak: current < previous && current <= next });
+    }
+  }
+  return extrema;
+};
+const uniqueByte = (rawValue: number, usedValues: Set<number>) => {
+  let value = rawValue;
+  for (let distance = 1; usedValues.has(value); distance += 1) {
+    const lower = rawValue - distance;
+    const upper = rawValue + distance;
+    if (lower >= 0 && !usedValues.has(lower)) value = lower;
+    else if (upper <= 255 && !usedValues.has(upper)) value = upper;
+  }
+  usedValues.add(value);
+  return value.toString(16).toUpperCase().padStart(2, "0");
+};
+const magnitudeBytesAt = (curveYValues: readonly number[]) => {
+  const usedValues = new Set<number>();
+  return Array.from({ length: LOGIN_HEX_BYTE_COUNT }, (_, index) => {
+    const sampleIndex = Math.min(
+      FFT_SAMPLE_COUNT,
+      Math.round(((index + 0.5) * FFT_SAMPLE_COUNT) / LOGIN_HEX_BYTE_COUNT),
+    );
+    const level = Math.max(
+      0,
+      Math.min(
+        1,
+        (SPECTRUM_CURVE_FLOOR - curveYValues[sampleIndex]) /
+          (SPECTRUM_CURVE_FLOOR - SPECTRUM_CURVE_TOP),
+      ),
+    );
+    return uniqueByte(Math.round(level * 255), usedValues);
+  });
+};
+
+const makeMagnitudeValues = (profile: readonly number[], amplitude: number) => {
+  const input = makeSpectrumSamples(profile);
+  const magnitudes = Array.from(
+    { length: FFT_SAMPLE_COUNT / 2 + 1 },
+    (_, bin) => {
+      let real = 0;
+      let imaginary = 0;
+      for (let sample = 0; sample < FFT_SAMPLE_COUNT; sample += 1) {
+        const angle = (2 * Math.PI * bin * sample) / FFT_SAMPLE_COUNT;
+        real += input[sample] * Math.cos(angle);
+        imaginary -= input[sample] * Math.sin(angle);
+      }
+      const oneSidedScale = bin === 0 || bin === FFT_SAMPLE_COUNT / 2 ? 1 : 2;
+      return (Math.hypot(real, imaginary) / FFT_SAMPLE_COUNT) * oneSidedScale;
+    },
+  );
+
+  // Keep the FFT peak values as anchors, then broaden them into readable lobes.
+  return magnitudes.map(
+    (_, bin) =>
+      spectrumComponents.reduce((contour, component) => {
+        const distance = (bin - component.cycles) / SPECTRUM_PEAK_SIGMA_BINS;
+        return (
+          contour +
+          magnitudes[component.cycles] * Math.exp(-0.5 * distance * distance)
+        );
+      }, 0) * amplitude,
+  );
 };
 
 const spectrumMagnitudeAt = (values: readonly number[], position: number) => {
@@ -175,139 +290,79 @@ const spectrumMagnitudeAt = (values: readonly number[], position: number) => {
 const spectrumValuesStart = makeMagnitudeValues(spectrumProfiles[0], 0.56);
 const spectrumValuesMiddle = makeMagnitudeValues(spectrumProfiles[1], 1);
 const spectrumValuesEnd = makeMagnitudeValues(spectrumProfiles[2], 0.64);
+// Mirror fft_compute.wgsl: bit reversal, growing radix-2 groups, twiddle
+// multiplication before sum/difference butterflies, then FFT shift.
+const makeButterflyFrames = (input: readonly number[]) => {
+  const bits = Math.log2(input.length);
+  const real = input.map((_, index) => {
+    let reversed = 0;
+    for (let bit = 0; bit < bits; bit += 1) {
+      reversed = (reversed << 1) | ((index >> bit) & 1);
+    }
+    return input[reversed];
+  });
+  const imaginary = input.map(() => 0);
+  const frames: number[][] = [];
+  const snapshot = () => {
+    // Project complex values onto the drawing plane; retain the imaginary
+    // component so twiddle rotations remain visible in the trace.
+    const projected = real.map((value, index) => value + imaginary[index] * 0.5);
+    const scale = Math.max(...projected.map(Math.abs), 1e-9);
+    frames.push(projected.map((value) => value / scale));
+  };
+  snapshot();
+  for (let size = 2; size <= input.length; size *= 2) {
+    const half = size / 2;
+    for (let base = 0; base < input.length; base += size) {
+      for (let offset = 0; offset < half; offset += 1) {
+        const a = base + offset;
+        const b = a + half;
+        const angle = (-2 * Math.PI * offset) / size;
+        const br = real[b];
+        const bi = imaginary[b];
+        real[b] = br * Math.cos(angle) - bi * Math.sin(angle);
+        imaginary[b] = br * Math.sin(angle) + bi * Math.cos(angle);
+      }
+    }
+    snapshot();
+    for (let base = 0; base < input.length; base += size) {
+      for (let offset = 0; offset < half; offset += 1) {
+        const a = base + offset;
+        const b = a + half;
+        const ar = real[a];
+        const ai = imaginary[a];
+        const br = real[b];
+        const bi = imaginary[b];
+        real[a] = ar + br;
+        imaginary[a] = ai + bi;
+        real[b] = ar - br;
+        imaginary[b] = ai - bi;
+      }
+    }
+    snapshot();
+  }
+  const ordered = real.map((_, index) => {
+    const shifted = (index + input.length / 2) % input.length;
+    return real[shifted] + imaginary[shifted] * 0.5;
+  });
+  const scale = Math.max(...ordered.map(Math.abs), 1e-9);
+  frames.push(ordered.map((value) => value / scale));
+  return frames;
+};
+const butterflyFrames = makeButterflyFrames(makeSpectrumSamples(spectrumProfiles[0]));
+const maxSpectrumMagnitude = Math.max(
+  ...spectrumValuesStart,
+  ...spectrumValuesMiddle,
+  ...spectrumValuesEnd,
+);
+const carrierPathAt = (seconds: number) =>
+  makeTracePath(carrierSamplesAt(seconds), WAVE_BASELINE, WAVE_AMPLITUDE);
+const collapsedSpectrumPath = makePathFromYValues(
+  Array(FFT_SAMPLE_COUNT + 1).fill(SPECTRUM_BASELINE),
+);
 const makeAreaPath = (tracePath: string) =>
   `${tracePath} L ${WAVE_VIEWBOX_WIDTH} ${SPECTRUM_BASELINE} L 0 ${SPECTRUM_BASELINE} Z`;
-
-const sourceWavePath = makeTracePath(
-  sourceSamples,
-  WAVE_BASELINE,
-  WAVE_AMPLITUDE,
-);
-const heterodyneCarrierPath = makeTracePath(
-  heterodyneCarrierSamples,
-  WAVE_BASELINE,
-  WAVE_AMPLITUDE,
-);
-const rectifiedWavePath = makeTracePath(
-  spectrumInputSamples,
-  WAVE_BASELINE,
-  WAVE_AMPLITUDE,
-  (value) => -Math.abs(value),
-);
-const makeSpectrumPath = (values: readonly number[]) =>
-  Array.from({ length: FFT_SAMPLE_COUNT + 1 }, (_, index) => {
-    const x = (index / FFT_SAMPLE_COUNT) * WAVE_VIEWBOX_WIDTH;
-    const magnitude = spectrumMagnitudeAt(values, index / 2);
-    const y =
-      SPECTRUM_BASELINE - (SPECTRUM_MAGNITUDE_FLOOR + magnitude) * 240;
-    return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-  }).join(" ");
-
-const spectrumPathStart = makeSpectrumPath(spectrumValuesStart);
-const spectrumPathMiddle = makeSpectrumPath(spectrumValuesMiddle);
-const spectrumPathEnd = makeSpectrumPath(spectrumValuesEnd);
-const spectrumPathReturn = heterodyneCarrierPath;
-const collapsedAreaPath = makeAreaPath(
-  makeTracePath(
-    sourceSamples.map(() => 0),
-    SPECTRUM_BASELINE,
-    0,
-  ),
-);
-const spectrumAreaPathStart = makeAreaPath(spectrumPathStart);
-const spectrumAreaPathMiddle = makeAreaPath(spectrumPathMiddle);
-const spectrumAreaPathEnd = makeAreaPath(spectrumPathEnd);
-const animationKeyTimes =
-  "0;0.3333;0.5;0.5417;0.6;0.6667;0.7167;0.8333;0.9833;1";
-const FftLabel = styled.text`
-  fill: ${(props) => props.theme.primary ?? "#00d4ff"};
-  font-family: "JetBrains Mono", monospace;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-`;
-
-const waveZoomOut = keyframes`
-  0% { transform: scaleX(2.4); }
-  33.333% { transform: scaleX(1); }
-  98.333% { transform: scaleX(1); }
-  100% { transform: scaleX(2.4); }
-`;
-
-const secondWaveVisibility = keyframes`
-  0%, 66.666% { visibility: visible; }
-  66.667%, 98.2% { visibility: hidden; }
-  98.333% { visibility: visible; }
-  100% { visibility: visible; }
-`;
-
-const magnitudeVisibility = keyframes`
-  0%, 66.666% { visibility: hidden; }
-  66.667%, 98% { visibility: visible; }
-  98.333%, 100% { visibility: hidden; }
-`;
-
-const foldLabelVisibility = keyframes`
-  0%, 49.9% { visibility: hidden; }
-  50%, 54% { visibility: visible; }
-  54.167%, 100% { visibility: hidden; }
-`;
-
-const butterflyLabelVisibility = keyframes`
-  0%, 54.1% { visibility: hidden; }
-  54.167%, 59.9% { visibility: visible; }
-  60%, 100% { visibility: hidden; }
-`;
-
-const twiddleLabelVisibility = keyframes`
-  0%, 59.9% { visibility: hidden; }
-  60%, 66.666% { visibility: visible; }
-  66.667%, 100% { visibility: hidden; }
-`;
-
-const hexByteReflow = keyframes`
-  0%, 49.9% {
-    left: var(--digit-x);
-    top: var(--digit-y);
-  }
-  54.167%, 98.333% {
-    left: var(--output-x);
-    top: var(--output-y);
-  }
-  100% {
-    left: var(--digit-x);
-    top: var(--digit-y);
-  }
-`;
-
-const denseBytesVisibility = keyframes`
-  0%, 33.2% { visibility: hidden; }
-  33.333%, 98.333% { visibility: visible; }
-  100% { visibility: hidden; }
-`;
-
-const FoldLabel = styled(FftLabel)`
-  visibility: hidden;
-  animation: ${foldLabelVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
-    infinite;
-`;
-
-const ButterflyLabel = styled(FftLabel)`
-  visibility: hidden;
-  animation: ${butterflyLabelVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
-    infinite;
-`;
-
-const TwiddleLabel = styled(FftLabel)`
-  visibility: hidden;
-  animation: ${twiddleLabelVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
-    infinite;
-`;
-
-const MagnitudeDetails = styled.g`
-  visibility: hidden;
-  animation: ${magnitudeVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
-    infinite;
-`;
+const collapsedAreaPath = makeAreaPath(collapsedSpectrumPath);
 
 const Container = styled.div`
   flex: 1;
@@ -347,17 +402,15 @@ const WaveBackground = styled.div`
   inset: 0;
   pointer-events: none;
   overflow: hidden;
-  opacity: 0.55;
   z-index: 0;
 `;
 
 const WaveSvg = styled.svg`
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: min(140vw, 1400px);
-  height: auto;
-  transform: translate(-50%, -50%);
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
   overflow: visible;
 `;
 
@@ -367,69 +420,27 @@ const WavePath = styled.path`
   stroke-width: 6;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.86;
+  opacity: 0.473;
   filter: blur(0.2px);
 `;
 
-const SecondWavePath = styled(WavePath)`
-  animation: ${secondWaveVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end)
-    infinite;
-`;
-
-const WaveZoomGroup = styled.g`
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: ${waveZoomOut} ${LOGIN_FFT_CYCLE_DURATION} linear infinite;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-    transform: none;
-  }
-`;
-
-const HexByteLayer = styled.div`
-  position: absolute;
-  inset: 0;
-
-  @media (prefers-reduced-motion: reduce) {
-    opacity: 0;
-  }
-`;
+const InputWavePath = styled(WavePath)``;
+const SecondWavePath = styled(WavePath)``;
+const WaveZoomGroup = styled.g``;
 
 const SpectrumArea = styled.path`
   fill: ${(props) => props.theme.primary ?? "#00d4ff"};
-  opacity: 0.24;
+  opacity: 0.176;
   stroke: none;
 `;
 
-const BinaryDigitContainer = styled.div<{ $dense?: boolean }>`
-  position: absolute;
-  pointer-events: none;
-  z-index: 0;
-  left: var(--digit-x, 50%);
-  top: var(--digit-y, 50%);
-  animation: ${hexByteReflow} ${LOGIN_FFT_CYCLE_DURATION} linear infinite;
-  opacity: 0.6;
-
-  ${(props) =>
-    props.$dense &&
-    css`
-      visibility: hidden;
-      animation:
-        ${hexByteReflow} ${LOGIN_FFT_CYCLE_DURATION} linear infinite,
-        ${denseBytesVisibility} ${LOGIN_FFT_CYCLE_DURATION} steps(1, end) infinite;
-    `}
-`;
-
-const BinaryDigitInner = styled.div<{
-  $size: number;
-}>`
-  color: ${(props) => props.theme.primary ?? "#00d4ff"};
-  font-family: "Courier New", monospace;
-  font-weight: bold;
-  font-size: ${(props) => props.$size}px;
-  text-shadow: 0 0 12px ${(props) => props.theme.primary ?? "#00d4ff"}aa;
-  white-space: nowrap;
+const SpectrumCurve = styled.path`
+  fill: none;
+  stroke: ${(props) => props.theme.primary ?? "#00d4ff"};
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.539;
 `;
 
 const Title = styled.h2`
@@ -611,16 +622,18 @@ const LegalNotice = styled.p`
 
 const LearnMoreLink = styled(Link)`
   position: absolute;
-  top: 24px;
-  right: 24px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: ${(props) => props.theme.textSecondary};
-  font-family: ${(props) =>
-    props.theme.typography?.mono ?? '"JetBrains Mono", monospace'};
-  font-size: 12px;
-  font-weight: 500;
+  gap: 6px;
+  top: -30px;
+  right: 4px;
+  color: ${(props) => props.theme.textMuted};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
   text-decoration: none;
   transition: color 0.2s ease;
   z-index: 30;
@@ -652,6 +665,30 @@ const Essentials = styled.section`
   min-height: 0;
   position: relative;
   z-index: 1;
+`;
+
+const LoginShowcase = styled.div`
+  display: grid;
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 0 minmax(0, 1fr);
+  align-items: center;
+`;
+
+const LoginHeadingTrack = styled.div`
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 100%;
+  grid-column: 1;
+  grid-row: 1;
+  height: 0;
+  justify-self: stretch;
+  overflow: visible;
 `;
 
 const DeviceShowcase = styled.section`
@@ -800,6 +837,7 @@ const SDRCanvasArea = styled(CardIcon)`
 
 const LoginCard = styled.div`
   position: relative;
+  grid-row: 2;
   isolation: isolate;
   overflow: hidden;
   display: flex;
@@ -810,9 +848,9 @@ const LoginCard = styled.div`
   min-height: 0;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 18px;
-  padding: clamp(20px, 3vw, 36px);
+  padding: 5vh clamp(20px, 3vw, 36px) 2vh;
   color: ${(props) => props.theme.textPrimary};
   border: 1px solid ${(props) => props.theme.primary}88;
   border-radius: 16px;
@@ -835,8 +873,26 @@ const LoginCard = styled.div`
   }
 
   @media (max-width: 640px) {
-    padding: 20px;
+    padding: 5vh 20px 2vh;
   }
+`;
+
+const LoginCardIntro = styled.div`
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+`;
+
+const LoginCardActions = styled.div`
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 1.2vh, 14px);
+  width: 100%;
 `;
 
 const CardCopy = styled.span`
@@ -996,44 +1052,33 @@ export const AuthenticationUI = ({
   const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(
     null,
   );
-  const [binaryDigits] = useState<
-    Array<{
-      id: number;
-      value: string;
-      x: number;
-      y: number;
-      outputX: number;
-      outputY: number;
-      size: number;
-    }>
-  >(() => {
-    const digits = [];
-    // Keep a readable byte stream with the input, then pack it above the fold.
-    for (let i = 0; i < 24; i++) {
-      // Generate random hex byte like "7A 0B"
-      const byte1 = Math.floor(Math.random() * 256)
-        .toString(16)
-        .toUpperCase()
-        .padStart(2, "0");
-      const byte2 = Math.floor(Math.random() * 256)
-        .toString(16)
-        .toUpperCase()
-        .padStart(2, "0");
-      digits.push({
-        id: i,
-        value: `${byte1} ${byte2}`,
-        x: 4 + (i % 12) * 8.1,
-        y: 42 + (i < 12 ? 0 : 11) + Math.random() * 3,
-        outputX: 27 + (i % 6) * 8,
-        outputY: 10 + Math.floor(i / 6) * 6,
-        size: 8 + Math.random() * 2,
-      });
-    }
-    return digits;
+  const [binaryDigits] = useState(() => {
+    const used = new Set<string>();
+    return Array.from({ length: LOGIN_HEX_BYTE_COUNT }, (_, id) => {
+      let value = "00";
+      do {
+        value = Math.floor(Math.random() * 256)
+          .toString(16)
+          .toUpperCase()
+          .padStart(2, "0");
+      } while (used.has(value));
+      used.add(value);
+      return { id, value };
+    });
   });
   const inputRef = useRef<HTMLInputElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
   const loginCardRef = useRef<HTMLDivElement>(null);
+  const inputWaveRef = useRef<SVGPathElement>(null);
+  const secondWaveRef = useRef<SVGPathElement>(null);
+  const spectrumAreaRef = useRef<SVGPathElement>(null);
+  const spectrumCurveRef = useRef<SVGPathElement>(null);
+  const spectrumRevealRef = useRef<SVGRectElement>(null);
+  const waveSvgRef = useRef<SVGSVGElement>(null);
+  const byteGlyphScaleYRef = useRef(1);
+  const zoomGroupRef = useRef<SVGGElement>(null);
+  const byteRefs = useRef<Array<SVGTextElement | null>>([]);
+  const bytePositionRefs = useRef<Array<{ x: number; y: number } | null>>([]);
   const resolvedAuthThemeMode = useResolvedThemeMode(authThemeMode);
   const authTheme = React.useMemo(
     () =>
@@ -1080,8 +1125,277 @@ export const AuthenticationUI = ({
     setShowPasswordForm(null);
   }, [hasPasskeys]);
 
-  // No-op useEffect as digits are now persistent and purely CSS driven
-  useEffect(() => {}, []);
+  useEffect(() => {
+    const svg = waveSvgRef.current;
+    if (!svg) return;
+
+    const updateGlyphScale = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      const xScale = width / WAVE_VIEWBOX_WIDTH;
+      const yScale = height / WAVE_VIEWBOX_HEIGHT;
+      byteGlyphScaleYRef.current = xScale / yScale;
+    };
+    const bounds = svg.getBoundingClientRect();
+    updateGlyphScale(bounds.width, bounds.height);
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      updateGlyphScale(entry.contentRect.width, entry.contentRect.height);
+    });
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let frame = 0;
+    let startedAt: number | undefined;
+
+    const update = (now: number) => {
+      startedAt ??= now;
+      const seconds = ((now - startedAt) / 1000) % 15;
+      let samples = carrierSamplesAt(seconds * 2);
+      let pairCycles = 2.4;
+      let zoom = 1;
+      let reveal = 0;
+      let inputVisible = seconds < 8.75;
+      let magnitudeVisible = false;
+      let fillVisible = false;
+      let curveY: number[];
+      const denseWaveProgress =
+        seconds >= 4 && seconds < 8.75
+          ? ease(Math.min(1, (seconds - 4) / 0.45))
+          : 0;
+      const pairPhaseOffset = mix(
+        HETERODYNE_PAIR_PHASE_OFFSET,
+        HETERODYNE_DENSE_PHASE_OFFSET,
+        denseWaveProgress,
+      );
+      const waveStrokeWidth = mix(
+        INPUT_WAVE_STROKE_WIDTH,
+        DENSE_WAVE_STROKE_WIDTH,
+        denseWaveProgress,
+      );
+      inputWaveRef.current?.style.setProperty(
+        "stroke-width",
+        `${waveStrokeWidth}px`,
+      );
+      secondWaveRef.current?.style.setProperty(
+        "stroke-width",
+        `${waveStrokeWidth}px`,
+      );
+
+      if (seconds < 4) {
+        samples = carrierSamplesAt(seconds);
+        curveY = makeYValues(samples, WAVE_BASELINE, WAVE_AMPLITUDE);
+        zoom = 2.4 - 1.4 * ease(seconds / 4);
+        inputVisible = true;
+      } else if (seconds < 6) {
+        pairCycles = denseSignalCyclesAt(seconds);
+        samples = denseSignalSamplesAt(seconds);
+        curveY = makeYValues(samples, WAVE_BASELINE, WAVE_AMPLITUDE);
+        inputVisible = true;
+      } else {
+        magnitudeVisible = seconds >= 8.75 && seconds < 14.5;
+        fillVisible = seconds >= 8.75 && seconds < 14.5;
+        if (seconds < 8.75) {
+          pairCycles = DENSE_SIGNAL_CYCLES;
+          const binProgress = Math.max(0, (seconds - 8) / 0.75);
+          const denseY = makeYValues(
+            denseSignalSamplesAt(seconds),
+            WAVE_BASELINE,
+            WAVE_AMPLITUDE,
+          );
+          let foldedY: number[];
+          if (seconds < 6.6) {
+            const target = makeYValues(butterflyFrames[0], WAVE_BASELINE, WAVE_AMPLITUDE);
+            foldedY = denseY.map((value, index) => mix(value, target[index], (seconds - 6) / 0.6));
+          } else {
+            const framePosition = seconds < 7.25
+              ? (seconds - 6.6) / 0.65
+              : 1 + Math.min(1, (seconds - 7.25) / 0.75) * (butterflyFrames.length - 2);
+            const lower = Math.floor(framePosition);
+            const upper = Math.min(lower + 1, butterflyFrames.length - 1);
+            const from = makeYValues(butterflyFrames[lower], WAVE_BASELINE, WAVE_AMPLITUDE);
+            const to = makeYValues(butterflyFrames[upper], WAVE_BASELINE, WAVE_AMPLITUDE);
+            foldedY = from.map((value, index) => mix(value, to[index], framePosition - lower));
+          }
+          const spectrumY = makeMagnitudeYValues(spectrumValuesStart);
+          curveY = foldedY.map((value, index) =>
+            mix(value, spectrumY[index], binProgress),
+          );
+        } else if (seconds < 10.25) {
+          reveal = Math.min(1, (seconds - 8.75) / 0.75);
+          const from = makeMagnitudeYValues(spectrumValuesStart);
+          const to = makeMagnitudeYValues(spectrumValuesMiddle);
+          const progress = (seconds - 8.75) / 1.5;
+          curveY = from.map((value, index) => mix(value, to[index], progress));
+        } else if (seconds < 11.75) {
+          reveal = 1;
+          const from = makeMagnitudeYValues(spectrumValuesMiddle);
+          const to = makeMagnitudeYValues(spectrumValuesEnd);
+          const progress = (seconds - 10.25) / 1.5;
+          curveY = from.map((value, index) => mix(value, to[index], progress));
+        } else if (seconds < 14.5) {
+          reveal = 1;
+          curveY = makeMagnitudeYValues(spectrumValuesEnd);
+        } else {
+          const progress = (seconds - 14.5) / 0.5;
+          const from = makeMagnitudeYValues(spectrumValuesEnd);
+          samples = carrierSamplesAt(seconds * 2);
+          const to = makeYValues(samples, WAVE_BASELINE, WAVE_AMPLITUDE);
+          curveY = from.map((value, index) => mix(value, to[index], progress));
+          zoom = 1 + 1.4 * ease(progress);
+          inputVisible = true;
+        }
+      }
+
+      const d = makePathFromYValues(curveY);
+      inputWaveRef.current?.setAttribute("d", d);
+      secondWaveRef.current?.setAttribute("d", d);
+      secondWaveRef.current?.setAttribute(
+        "transform",
+        `translate(${(WAVE_VIEWBOX_WIDTH * pairPhaseOffset) / pairCycles} 0)`,
+      );
+      spectrumCurveRef.current?.setAttribute("d", d);
+      spectrumAreaRef.current?.setAttribute("d", makeAreaPath(d));
+      spectrumRevealRef.current?.setAttribute(
+        "width",
+        String(WAVE_VIEWBOX_WIDTH * reveal),
+      );
+      zoomGroupRef.current?.setAttribute(
+        "transform",
+        `translate(${WAVE_VIEWBOX_WIDTH / 2} 0) scale(${zoom} 1) translate(${-WAVE_VIEWBOX_WIDTH / 2} 0)`,
+      );
+      inputWaveRef.current?.setAttribute(
+        "visibility",
+        inputVisible ? "visible" : "hidden",
+      );
+      secondWaveRef.current?.setAttribute(
+        "visibility",
+        inputVisible ? "visible" : "hidden",
+      );
+      spectrumCurveRef.current?.setAttribute(
+        "visibility",
+        magnitudeVisible ? "visible" : "hidden",
+      );
+      spectrumAreaRef.current?.setAttribute(
+        "visibility",
+        fillVisible ? "visible" : "hidden",
+      );
+
+      // Match the preview: use extrema of the live dense wave, then carry each
+      // byte into its magnitude bin during the fold. The SVG group transform
+      // applies equally to wave, fill, and labels.
+      const byteWave =
+        seconds >= 14.5
+          ? samples
+          : denseSignalSamplesAt(Math.min(seconds, 8.75));
+      const extrema = extremaOf(seconds >= 6 && seconds < 8 ? curveY : byteWave);
+      const activeByteCount = Math.min(extrema.length, binaryDigits.length);
+      const selectedExtrema: typeof extrema = [];
+      let previousExtremum = -1;
+      for (let index = 0; index < activeByteCount; index += 1) {
+        const target = activeByteCount === 1
+          ? 0
+          : (index * (extrema.length - 1)) / (activeByteCount - 1);
+        const peak = index % 2 === 0 ? extrema[0].peak : !extrema[0].peak;
+        const lastCandidate = extrema.length - (activeByteCount - index);
+        let best = previousExtremum + 1;
+        let distance = Infinity;
+        for (let candidate = best; candidate <= lastCandidate; candidate += 1) {
+          if (extrema[candidate].peak !== peak) continue;
+          const candidateDistance = Math.abs(candidate - target);
+          if (candidateDistance < distance) {
+            best = candidate;
+            distance = candidateDistance;
+          }
+        }
+        selectedExtrema.push(extrema[best]);
+        previousExtremum = best;
+      }
+      const byteCurveY = seconds >= 6 && seconds < 8
+        ? curveY
+        : makeYValues(byteWave, WAVE_BASELINE, WAVE_AMPLITUDE);
+      const bytesAreMagnitude = seconds >= 8.75 && seconds < 14.5;
+      if (bytesAreMagnitude) {
+        magnitudeBytesAt(curveY).forEach((value, index) => {
+          const node = byteRefs.current[index];
+          if (node && node.textContent !== value) node.textContent = value;
+        });
+      }
+      const binPosition = (index: number, yValues: readonly number[]) => {
+        const sampleIndex = Math.min(
+          FFT_SAMPLE_COUNT,
+          Math.round(((index + 0.5) * FFT_SAMPLE_COUNT) / binaryDigits.length),
+        );
+        return {
+          x: (WAVE_VIEWBOX_WIDTH * sampleIndex) / FFT_SAMPLE_COUNT,
+          y: Math.max(12, yValues[sampleIndex] - 22),
+        };
+      };
+      binaryDigits.forEach((_, index) => {
+        const node = byteRefs.current[index];
+        const point = selectedExtrema[index];
+        if (!node) return;
+        if (seconds < 4) {
+          bytePositionRefs.current[index] = null;
+          node.setAttribute("visibility", "hidden");
+          return;
+        }
+        const peakPosition = point
+          ? {
+              x: (WAVE_VIEWBOX_WIDTH * point.index) / FFT_SAMPLE_COUNT,
+              y: byteCurveY[point.index] + (point.peak ? -24 : 40),
+            }
+          : seconds < 14.5
+            ? bytePositionRefs.current[index]
+            : null;
+        if (!peakPosition) {
+          bytePositionRefs.current[index] = null;
+          node.setAttribute("visibility", "hidden");
+          return;
+        }
+        let position = peakPosition;
+        if (seconds >= 8 && seconds < 8.75) {
+          const target = binPosition(
+            index,
+            makeMagnitudeYValues(spectrumValuesStart),
+          );
+          const progress = (seconds - 8) / 0.75;
+          position = {
+            x: mix(peakPosition.x, target.x, progress),
+            y: mix(peakPosition.y, target.y, progress),
+          };
+        } else if (seconds >= 8.75 && seconds < 14.5) {
+          position = binPosition(index, curveY);
+        } else if (seconds >= 14.5) {
+          const source = binPosition(
+            index,
+            makeMagnitudeYValues(spectrumValuesEnd),
+          );
+          const progress = (seconds - 14.5) / 0.5;
+          position = {
+            x: mix(source.x, peakPosition.x, progress),
+            y: mix(source.y, peakPosition.y, progress),
+          };
+        }
+        bytePositionRefs.current[index] = position;
+        node.setAttribute("x", String(position.x));
+        node.setAttribute("y", String(position.y));
+        const scaleY = byteGlyphScaleYRef.current;
+        node.setAttribute(
+          "transform",
+          `translate(${position.x} ${position.y}) scale(1 ${scaleY}) translate(${-position.x} ${-position.y})`,
+        );
+        node.setAttribute("visibility", "visible");
+      });
+
+      frame = requestAnimationFrame(update);
+    };
+
+    frame = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frame);
+  }, [binaryDigits]);
 
   const handlePasswordSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -1123,7 +1437,7 @@ export const AuthenticationUI = ({
         return "Establishing secure channel...";
       case "ready":
         return hasPasskeys
-          ? "Enter your passkey or password to unlock the web app and features such as software defined radio (SDR) streaming, I/Q playback and more.\n\nStreaming data and I/Q captures are encrypted — your credentials establish the session key used to decrypt incoming frames and files."
+          ? "To use the web app, enter your passkey or password to unlock. \n\nStreaming frames from radios (compatible SDRs) and I/Q captures are encrypted — your credentials are used to decrypt incoming frames and files."
           : "Enter password to authenticate and start streaming";
       case "authenticating":
         return "Verifying credentials...";
@@ -1156,19 +1470,23 @@ export const AuthenticationUI = ({
           placement="floating"
           autoIntroExpand
         />
-        <LearnMoreLink to="/learn">
-          <Radio size={12} strokeWidth={2} />
-          <span>Learn More about Signals &gt;</span>
-        </LearnMoreLink>
         <LogoContainer>
           <Logo alt="N-APT Logo" />
         </LogoContainer>
         <Essentials aria-label="Login and browse SDR hardware">
           <EssentialsGrid ref={carouselRef}>
-            <LoginCard ref={loginCardRef} id="login-card" aria-label="Login">
+            <LoginShowcase>
+              <LoginHeadingTrack>
+                <LearnMoreLink to="/learn">
+                  <Radio size={10} strokeWidth={2} />
+                  <span>Learn More about Signals</span>
+                </LearnMoreLink>
+              </LoginHeadingTrack>
+              <LoginCard ref={loginCardRef} id="login-card" aria-label="Login">
               <WaveBackground aria-hidden="true">
                 <WaveSvg
-                  viewBox={`0 0 ${WAVE_VIEWBOX_WIDTH} 240`}
+                  ref={waveSvgRef}
+                  viewBox={`0 0 ${WAVE_VIEWBOX_WIDTH} ${WAVE_VIEWBOX_HEIGHT}`}
                   preserveAspectRatio="none"
                 >
                   <defs>
@@ -1176,186 +1494,155 @@ export const AuthenticationUI = ({
                       id="login-spectrum-reveal"
                       clipPathUnits="userSpaceOnUse"
                     >
-                      <rect x="0" y="0" width="0" height="240">
-                        <animate
-                          attributeName="width"
-                          values="0;0;0;0;0;0;1200;1200;1200;0"
-                          keyTimes={animationKeyTimes}
-                          dur={LOGIN_FFT_CYCLE_DURATION}
-                          repeatCount="indefinite"
-                        />
-                      </rect>
+                      <rect
+                        ref={spectrumRevealRef}
+                        x="0"
+                        y="0"
+                        width="0"
+                        height={WAVE_VIEWBOX_HEIGHT}
+                      />
                     </clipPath>
                   </defs>
-                  <WaveZoomGroup>
+                  <WaveZoomGroup ref={zoomGroupRef}>
                     <SpectrumArea
+                      ref={spectrumAreaRef}
                       d={collapsedAreaPath}
                       clipPath="url(#login-spectrum-reveal)"
-                    >
-                      <animate
-                        attributeName="d"
-                        values={`${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${collapsedAreaPath};${spectrumAreaPathStart};${spectrumAreaPathMiddle};${spectrumAreaPathEnd};${collapsedAreaPath}`}
-                        keyTimes={animationKeyTimes}
-                        dur={LOGIN_FFT_CYCLE_DURATION}
-                        repeatCount="indefinite"
-                      />
-                    </SpectrumArea>
-                    <SecondWavePath
-                      d={heterodyneCarrierPath}
-                      transform={`translate(${HETERODYNE_PAIR_OFFSET} 0)`}
-                    >
-                      <animate
-                        attributeName="d"
-                        values={`${heterodyneCarrierPath};${heterodyneCarrierPath};${sourceWavePath};${rectifiedWavePath};${rectifiedWavePath};${rectifiedWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${heterodyneCarrierPath}`}
-                        keyTimes={animationKeyTimes}
-                        dur={LOGIN_FFT_CYCLE_DURATION}
-                        repeatCount="indefinite"
-                      />
-                    </SecondWavePath>
-                    <WavePath d={heterodyneCarrierPath}>
-                      <animate
-                        attributeName="d"
-                        values={`${heterodyneCarrierPath};${heterodyneCarrierPath};${sourceWavePath};${rectifiedWavePath};${rectifiedWavePath};${rectifiedWavePath};${spectrumPathStart};${spectrumPathMiddle};${spectrumPathEnd};${spectrumPathReturn}`}
-                        keyTimes={animationKeyTimes}
-                        dur={LOGIN_FFT_CYCLE_DURATION}
-                        repeatCount="indefinite"
-                      />
-                    </WavePath>
-                  </WaveZoomGroup>
-                  <FoldLabel x="600" y="38" textAnchor="middle">
-                    FOLD · MIRROR THE LOWER HALF
-                  </FoldLabel>
-                  <ButterflyLabel x="600" y="38" textAnchor="middle">
-                    BUTTERFLY · SUM / DIFFERENCE
-                  </ButterflyLabel>
-                  <TwiddleLabel x="600" y="38" textAnchor="middle">
-                    TWIDDLE · BIN PLACEMENT
-                  </TwiddleLabel>
-                  <MagnitudeDetails>
-                    <path
-                      d={`M 0 ${SPECTRUM_BASELINE} L ${WAVE_VIEWBOX_WIDTH} ${SPECTRUM_BASELINE}`}
-                      stroke="currentColor"
-                      strokeWidth="1"
+                      visibility="hidden"
                     />
-                    <FftLabel x={WAVE_VIEWBOX_WIDTH / 2 - 24} y="40">
-                      |X(k)|
-                    </FftLabel>
-                    <FftLabel x={WAVE_VIEWBOX_WIDTH - 120} y="238">
-                      FREQUENCY
-                    </FftLabel>
-                  </MagnitudeDetails>
-                </WaveSvg>
-                <HexByteLayer>
-                  {binaryDigits.map((digit) => (
-                    <BinaryDigitContainer
-                      key={digit.id}
-                      $dense={digit.id >= 12}
-                      style={
-                        {
-                          "--digit-x": `${digit.x}%`,
-                          "--digit-y": `${digit.y}%`,
-                          "--output-x": `${digit.outputX}%`,
-                          "--output-y": `${digit.outputY}%`,
-                        } as React.CSSProperties
-                      }
+                    <SecondWavePath
+                      ref={secondWaveRef}
+                      d={carrierPathAt(0)}
+                      transform={`translate(${(WAVE_VIEWBOX_WIDTH * HETERODYNE_PAIR_PHASE_OFFSET) / 2.4} 0)`}
+                    />
+                    <InputWavePath ref={inputWaveRef} d={carrierPathAt(0)} />
+                    <SpectrumCurve
+                      ref={spectrumCurveRef}
+                      d={collapsedSpectrumPath}
+                    />
+                    <g
+                      fill={authTheme.primary}
+                      opacity="0.9"
+                      fontFamily="Courier New, monospace"
+                      fontSize={LOGIN_HEX_FONT_SIZE}
+                      fontWeight="900"
+                      stroke={authTheme.primary}
+                      strokeWidth="0.35"
+                      paintOrder="stroke fill"
+                      textAnchor="middle"
                     >
-                      <BinaryDigitInner $size={digit.size}>
-                        {digit.value}
-                      </BinaryDigitInner>
-                    </BinaryDigitContainer>
-                  ))}
-                </HexByteLayer>
+                      {binaryDigits.map((digit) => (
+                        <text
+                          key={digit.id}
+                          ref={(node) => {
+                            byteRefs.current[digit.id] = node;
+                          }}
+                          x="0"
+                          y="0"
+                          visibility="hidden"
+                        >
+                          {digit.value}
+                        </text>
+                      ))}
+                    </g>
+                  </WaveZoomGroup>
+                </WaveSvg>
               </WaveBackground>
-              <Title>
-                <Lock size={16} strokeWidth={2} />
-                {authState === "server_down" ? (
-                  <TitleText>Server is down</TitleText>
-                ) : (
-                  <TitleText>Secure Access Required for N-APT</TitleText>
+              <LoginCardIntro>
+                <Title>
+                  <Lock size={16} strokeWidth={2} />
+                  {authState === "server_down" ? (
+                    <TitleText>Server is down</TitleText>
+                  ) : (
+                    <TitleText>Secure Access Required for N-APT</TitleText>
+                  )}
+                </Title>
+                <StatusText
+                  $variant={getStatusVariant()}
+                  dangerouslySetInnerHTML={{
+                    __html: getStatusMessage().replace(/\n/g, "<br>"),
+                  }}
+                />
+              </LoginCardIntro>
+              <LoginCardActions>
+                {showActions && (
+                  <>
+                    <LegalNotice>
+                      By continuing you are agreeing to the{" "}
+                      <Link to="/terms">Terms of Use</Link> and{" "}
+                      <Link to="/privacy">Privacy Policy</Link>.
+                    </LegalNotice>
+                    {hasPasskeys && !effectiveShowPasswordForm && (
+                      <>
+                        <AuthButton
+                          $variant="primary"
+                          onClick={onPasskeyAuth}
+                          disabled={authState === "authenticating"}
+                        >
+                          {authState === "authenticating"
+                            ? "Authenticating..."
+                            : "Sign in with Passkey"}
+                        </AuthButton>
+                        <Divider>or</Divider>
+                        <LinkButton onClick={() => setShowPasswordForm(true)}>
+                          Use password instead
+                        </LinkButton>
+                      </>
+                    )}
+
+                    {(effectiveShowPasswordForm || !hasPasskeys) && (
+                      <Form onSubmit={handlePasswordSubmit}>
+                        <Input
+                          ref={inputRef}
+                          type="password"
+                          placeholder="Password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          disabled={authState === "authenticating"}
+                          autoComplete="off"
+                        />
+                        <AuthButton
+                          type="submit"
+                          $variant="primary"
+                          disabled={
+                            !password.trim() || authState === "authenticating"
+                          }
+                        >
+                          {authState === "authenticating"
+                            ? "Authenticating..."
+                            : authState === "failed" || authState === "timeout"
+                              ? "Retry"
+                              : "Authenticate"}
+                        </AuthButton>
+                        {hasPasskeys && effectiveShowPasswordForm && (
+                          <>
+                            <Divider>or</Divider>
+                            <LinkButton
+                              onClick={() => setShowPasswordForm(false)}
+                            >
+                              Use passkey instead
+                            </LinkButton>
+                          </>
+                        )}
+                      </Form>
+                    )}
+
+                    {!hasPasskeys && canInteract && (
+                      <>
+                        <Divider>setup</Divider>
+                        <LinkButton
+                          onClick={handleRegisterPasskey}
+                          disabled={!password.trim()}
+                        >
+                          Register a passkey for this device
+                        </LinkButton>
+                      </>
+                    )}
+                  </>
                 )}
-              </Title>
-              <StatusText
-                $variant={getStatusVariant()}
-                dangerouslySetInnerHTML={{
-                  __html: getStatusMessage().replace(/\n/g, "<br>"),
-                }}
-              />
-              {showActions && (
-                <>
-                  <LegalNotice>
-                    By continuing you are agreeing to the{" "}
-                    <Link to="/terms">Terms of Use</Link> and{" "}
-                    <Link to="/privacy">Privacy Policy</Link>.
-                  </LegalNotice>
-                  {hasPasskeys && !effectiveShowPasswordForm && (
-                    <>
-                      <AuthButton
-                        $variant="primary"
-                        onClick={onPasskeyAuth}
-                        disabled={authState === "authenticating"}
-                      >
-                        {authState === "authenticating"
-                          ? "Authenticating..."
-                          : "Sign in with Passkey"}
-                      </AuthButton>
-                      <Divider>or</Divider>
-                      <LinkButton onClick={() => setShowPasswordForm(true)}>
-                        Use password instead
-                      </LinkButton>
-                    </>
-                  )}
-
-                  {(effectiveShowPasswordForm || !hasPasskeys) && (
-                    <Form onSubmit={handlePasswordSubmit}>
-                      <Input
-                        ref={inputRef}
-                        type="password"
-                        placeholder="Password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        disabled={authState === "authenticating"}
-                        autoComplete="off"
-                      />
-                      <AuthButton
-                        type="submit"
-                        $variant="primary"
-                        disabled={
-                          !password.trim() || authState === "authenticating"
-                        }
-                      >
-                        {authState === "authenticating"
-                          ? "Authenticating..."
-                          : authState === "failed" || authState === "timeout"
-                            ? "Retry"
-                            : "Authenticate"}
-                      </AuthButton>
-                      {hasPasskeys && effectiveShowPasswordForm && (
-                        <>
-                          <Divider>or</Divider>
-                          <LinkButton
-                            onClick={() => setShowPasswordForm(false)}
-                          >
-                            Use passkey instead
-                          </LinkButton>
-                        </>
-                      )}
-                    </Form>
-                  )}
-
-                  {!hasPasskeys && canInteract && (
-                    <>
-                      <Divider>setup</Divider>
-                      <LinkButton
-                        onClick={handleRegisterPasskey}
-                        disabled={!password.trim()}
-                      >
-                        Register a passkey for this device
-                      </LinkButton>
-                    </>
-                  )}
-                </>
-              )}
-            </LoginCard>
+              </LoginCardActions>
+              </LoginCard>
+            </LoginShowcase>
             <DeviceShowcase aria-label="SDR hardware for seeing signals in the air">
               <DeviceHeadingTrack>
                 <EssentialsLabel>
