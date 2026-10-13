@@ -1,11 +1,7 @@
 import React from "react";
 import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
 import { loadEncryptedMlModule } from "@n-apt/shared/ui/loadEncryptedMlModule";
-import type { NativeClassifierPanel as ProtectedNativeClassifierPanel } from "@n-apt/classification/native/NativeClassifierPanel";
-
-type NativeClassifierPanelProps = Parameters<
-  typeof ProtectedNativeClassifierPanel
->[0];
+type NativeClassifierPanelProps = any;
 
 const loadNativeClassifierPanel = () =>
   loadEncryptedMlModule().then((module) => ({

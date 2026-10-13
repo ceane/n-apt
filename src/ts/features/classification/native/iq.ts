@@ -1,4 +1,4 @@
-import type { WindowKind } from './core';
+import type { WindowKind } from '@n-apt/classification/native/core';
 /** Interleaved normalized I/Q; actual samples determine window and next-power-of-two FFT. */
 export function spectrumFromIq(iq: Float32Array, requestedFftSize: number, window: WindowKind) {
   if (!Number.isInteger(requestedFftSize) || requestedFftSize < 2 || requestedFftSize > 1048576 || (requestedFftSize & (requestedFftSize - 1)) !== 0 || iq.length % 2 || iq.some(v => !Number.isFinite(v))) throw new Error('Invalid I/Q or FFT size');
