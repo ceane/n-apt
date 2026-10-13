@@ -93,7 +93,11 @@ function readSourceFiles(directory: string): BundleInputFile[] {
   const files: BundleInputFile[] = [];
   const visit = (current: string) => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === ".DS_Store" || entry.name === ".gitkeep") continue;
+      if (
+        entry.name === ".DS_Store" ||
+        entry.name === ".gitkeep" ||
+        (current === root && entry.name === ".module-bundle-state.json")
+      ) continue;
       const fullPath = path.join(current, entry.name);
       if (entry.isSymbolicLink()) throw new Error(`Encrypted module sources cannot include symlinks: ${fullPath}`);
       if (entry.isDirectory()) {
@@ -215,9 +219,11 @@ async function main(argv: string[]): Promise<number> {
   const requireMl = options.includes("--require-ml") || isStrictEnvironment();
 
   if (mode === "encrypt") {
+    if (isStrictEnvironment()) {
+      throw new Error("Encryption is restricted to local checkouts; CI must consume committed encrypted bundles");
+    }
     if (branch !== "encrypted-modules") {
-      console.log("ℹ [skip] Encryption is only allowed on the `encrypted-modules` branch.");
-      return 0;
+      throw new Error("Encryption is only allowed on the `encrypted-modules` branch");
     }
     const targets = onlyRs
       ? MODULES.filter((target) => target.password === "demod")

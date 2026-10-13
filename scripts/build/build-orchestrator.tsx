@@ -1408,16 +1408,8 @@ exit 0
         index: 6,
         command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `
 set -euo pipefail
-if npm run decrypt-modules-if-needed >/dev/null 2>&1; then
-  if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
-    echo "${encryptedModulesStatus.success}"
-    exit 0
-  fi
-  echo "${encryptedModulesStatus.warning}"
-  exit 0
-fi
-echo "${encryptedModulesStatus.error}"
-exit 1
+npm run decrypt-modules-if-needed
+echo "${encryptedModulesStatus.success}"
 `,
         description: 'N-APT Encrypted Modules',
         isBackground: false,
@@ -2565,15 +2557,7 @@ node scripts/redis/promote_tower_staging.cjs`,
       index: 6,
       description: 'Building N-APT Encrypted Modules',
       run: () => executeCommandNonTty(
-        isNativeWindows ? 'echo Encrypted modules skipped' : `
-          if npm run decrypt-modules-if-needed >/dev/null 2>&1; then
-            if [ -f "src/encrypted-modules/tmp/rs/simd/fast_math.rs" ]; then
-              exit 0
-            fi
-            exit 0
-          fi
-          exit 1
-        `,
+        isNativeWindows ? 'echo Encrypted modules skipped' : 'npm run decrypt-modules-if-needed',
         'Building N-APT Encrypted Modules'
       )
     },

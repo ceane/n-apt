@@ -287,3 +287,82 @@ test('ML command entrypoint forwards arguments unchanged when the encrypted bund
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), args);
 });
+
+test('local ML encryption excludes extraction state and refuses non-local runs', async (t) => {
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'napt-ml-encrypt-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+
+  const initialized = spawnSync('git', ['init', '--quiet', '--initial-branch=encrypted-modules'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(initialized.status, 0, initialized.stderr);
+
+  const sourceRoot = path.join(root, 'src/encrypted-modules/tmp/ml');
+  for (const filePath of ML_REQUIRED_FILES) {
+    const target = path.join(sourceRoot, filePath);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, `fixture source: ${filePath}\n`);
+  }
+  await fs.writeFile(path.join(sourceRoot, '.module-bundle-state.json'), '{"stale":true}\n');
+  const runner = path.resolve('scripts/encrypted-modules/crypt.ts');
+  const env = {
+    ...process.env,
+    CI: '',
+    NAPT_ENCRYPTED_MODULE_ROOT: root,
+    UNSAFE_LOCAL_LATEX_PASSWORD: 'fixture-password',
+  };
+  const encrypted = spawnSync(process.execPath, [
+    '--import', 'tsx', runner, 'encrypt', '--only-ml',
+  ], { cwd: process.cwd(), encoding: 'utf8', env });
+
+  assert.equal(encrypted.status, 0, encrypted.stderr);
+  const bundleBytes = await fs.readFile(path.join(root, 'src/encrypted-modules/ml.bundle.enc'));
+  const bundle = decryptBundleBytes(bundleBytes, 'fixture-password');
+  assert.equal(bundle.files.length, ML_REQUIRED_FILES.length);
+  assert.equal(bundle.files.some((file) => file.path === '.module-bundle-state.json'), false);
+
+  const trackedBytesBeforeRejectedRuns = Buffer.from(bundleBytes);
+  const nonProtectedBranch = spawnSync('git', ['branch', '--quiet', '-m', 'feature/test'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(nonProtectedBranch.status, 0, nonProtectedBranch.stderr);
+  const rejectedBranchRun = spawnSync(process.execPath, [
+    '--import', 'tsx', runner, 'encrypt', '--only-ml',
+  ], { cwd: process.cwd(), encoding: 'utf8', env });
+  assert.notEqual(rejectedBranchRun.status, 0);
+  assert.deepEqual(
+    await fs.readFile(path.join(root, 'src/encrypted-modules/ml.bundle.enc')),
+    trackedBytesBeforeRejectedRuns,
+  );
+
+  const protectedBranch = spawnSync('git', ['branch', '--quiet', '-m', 'encrypted-modules'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(protectedBranch.status, 0, protectedBranch.stderr);
+  const ciEnv = { ...env, CI: 'true' };
+  const rejectedCiRun = spawnSync(process.execPath, [
+    '--import', 'tsx', runner, 'encrypt', '--only-ml',
+  ], { cwd: process.cwd(), encoding: 'utf8', env: ciEnv });
+  assert.notEqual(rejectedCiRun.status, 0);
+  assert.deepEqual(
+    await fs.readFile(path.join(root, 'src/encrypted-modules/ml.bundle.enc')),
+    trackedBytesBeforeRejectedRuns,
+  );
+});
+
+test('build orchestrator preserves encrypted-module decrypt diagnostics', async () => {
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const source = await fs.readFile(
+    path.resolve('scripts/build/build-orchestrator.tsx'),
+    'utf8',
+  );
+  assert.match(source, /npm run decrypt-modules-if-needed/);
+  assert.doesNotMatch(source, /npm run decrypt-modules-if-needed\s*>\s*\/dev\/null/);
+});
