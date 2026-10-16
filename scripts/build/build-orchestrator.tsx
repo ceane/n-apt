@@ -190,6 +190,7 @@ interface BuildState {
   rustPid?: number;
   redisPid?: number;
   proxyPid?: number;
+  encryptedModulesPid?: number;
   rustCandidatePid?: number;
   warningCount: number;
   errorDetails: string[];
@@ -440,12 +441,14 @@ const BuildOrchestrator = () => {
       { name: 'Building N-APT Encrypted Modules', status: 'pending' },
       { name: 'Building and starting Rust backend', status: 'pending' },
       { name: 'Starting frontend server', status: 'pending' },
+      { name: 'Watching encrypted module source', status: 'pending' },
     ],
     currentStep: 0,
     isBuilding: false,
     errorCount: 0,
     startTime: 0,
     vitePid: undefined,
+    encryptedModulesPid: undefined,
     rustPid: undefined,
     redisPid: undefined,
     warningCount: 0,
@@ -841,7 +844,7 @@ const BuildOrchestrator = () => {
     });
   }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus, writeRebuildStatus]);
 
-  const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid' | 'proxyPid' | 'rustCandidatePid'): Promise<boolean> => {
+  const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid' | 'proxyPid' | 'rustCandidatePid' | 'encryptedModulesPid'): Promise<boolean> => {
     const displayCommand = describeBackgroundCommand(command);
     const isRustBackendBinary =
       pidKey === 'rustPid' &&
@@ -1408,6 +1411,7 @@ exit 0
         index: 6,
         command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `
 set -euo pipefail
+node scripts/build/encryptedModulesSync.mjs
 npm run decrypt-modules-if-needed
 echo "${encryptedModulesStatus.success}"
 `,
@@ -1434,6 +1438,15 @@ echo "${encryptedModulesStatus.success}"
         isBackground: true,
         pidKey: 'vitePid' as const,
         showOutput: false,
+      },
+      {
+        index: 9,
+        command: isNativeWindows
+          ? 'echo Encrypted module source watcher is not supported in this Windows shell path.'
+          : { executable: process.execPath, args: [path.resolve('scripts/build/encryptedModulesSync.mjs'), '--watch'] },
+        description: 'Watching encrypted module source',
+        isBackground: true,
+        pidKey: 'encryptedModulesPid' as const,
       },
     ];
 
@@ -1493,6 +1506,8 @@ echo "${encryptedModulesStatus.success}"
             metalBackendStatusRef.current ?? undefined,
             getCompletedStepLabel(step.description),
           );
+        } else if (step.index === 9) {
+          updateProcessStatus(step.index, 'success', undefined, 'Watching encrypted module source.');
         } else if (step.index === 6 && commandOutput.includes(encryptedModulesStatus.warning)) {
           updateProcessStatus(step.index, 'warning', encryptedModulesStatus.warning, stepLabel);
           appendWarningDetail('N-APT Encrypted Modules not available');
@@ -2557,7 +2572,9 @@ node scripts/redis/promote_tower_staging.cjs`,
       index: 6,
       description: 'Building N-APT Encrypted Modules',
       run: () => executeCommandNonTty(
-        isNativeWindows ? 'echo Encrypted modules skipped' : 'npm run decrypt-modules-if-needed',
+        isNativeWindows
+          ? 'echo Encrypted modules skipped'
+          : 'node scripts/build/encryptedModulesSync.mjs && npm run decrypt-modules-if-needed',
         'Building N-APT Encrypted Modules'
       )
     },
@@ -2612,7 +2629,17 @@ node scripts/redis/promote_tower_staging.cjs`,
           'Starting frontend server'
         );
       }
-    }
+    },
+    {
+      index: 9,
+      description: 'Watching encrypted module source',
+      run: () => startBackgroundProcessNonTty(
+        isNativeWindows
+          ? 'echo Encrypted module source watcher is not supported in this Windows shell path.'
+          : { executable: process.execPath, args: [path.resolve('scripts/build/encryptedModulesSync.mjs'), '--watch'] },
+        'Watching encrypted module source'
+      )
+    },
   ];
 
   let failedComponents: string[] = [];
