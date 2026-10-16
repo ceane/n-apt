@@ -334,6 +334,7 @@
     - [ ] Feet (Right)
     - [ ] Torso
     - [ ] Heart
+    - [ ] Heart Palpitations/Pains
     - [ ] Stomach
     - [ ] Genitals
     - [ ] Buttocks
