@@ -13,10 +13,6 @@ import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/public/activeAcquisitionOperations";
 import {
-  useFrequencyScanner,
-  FrequencyScannerHandle,
-} from "@n-apt/spectrum/public/useFrequencyScanner";
-import {
   useAudioExtraction,
   AudioPlaybackHandle,
 } from "@n-apt/demodulation/hooks/useAudioExtraction";
@@ -88,7 +84,6 @@ import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
 } from "@n-apt/redux/thunks/demodThunks";
-import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
 import {
   Node,
   Edge,
@@ -229,21 +224,7 @@ const readSessionFlow = (
 };
 
 interface DemodContextValue {
-  windowSizeHz: number;
-  setWindowSizeHz: (size: number) => void;
-  stepSizeHz: number;
-  setStepSizeHz: (size: number) => void;
-  audioThreshold: number;
-  setAudioThreshold: (threshold: number) => void;
-
-  scanner: FrequencyScannerHandle;
   audioPlayback: AudioPlaybackHandle;
-
-  currentIQData: Uint8Array | null;
-  setCurrentIQData: (data: Uint8Array | null) => void;
-
-  currentFreq: number | undefined;
-  scanRange: { min: number; max: number } | undefined;
 
   analysisSession: AnalysisSession;
   demodQualityStatus: Pick<CaptureQualityAssessment, "fit" | "reasons"> | null;
@@ -298,13 +279,14 @@ interface DemodContextValue {
     pcmData: Float32Array;
     pcmSampleRateHz: number;
     startedAtMs?: number;
+    liveCapture?: Promise<{
+      pcmData: Float32Array;
+      pcmSampleRateHz: number;
+    }>;
     startPlayback?: () => Promise<number> | number;
     audioSignalLabel?: AudioSurveyReferenceLabel;
     labels?: string[];
   }) => Promise<AudioSurveyArtifact | null>;
-
-  startScan: () => Promise<void>;
-  stopScan: () => void;
 
   // FM demodulation state
   selectedAlgorithm: DemodAlgorithm;
@@ -342,13 +324,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const reduxDispatch = useAppDispatch();
-  const [windowSizeHz, setWindowSizeHz] = useState(25000);
-  const [stepSizeHz, setStepSizeHz] = useState(10000);
-  const [audioThreshold, setAudioThreshold] = useState(0.3);
-  const [currentIQData, setCurrentIQData] = useState<Uint8Array | null>(null);
-  const [scanRange, setScanRange] = useState<
-    { min: number; max: number } | undefined
-  >();
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({
     state: "idle",
   });
@@ -363,8 +338,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     useState<DemodAlgorithm>("fm");
   const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
     useSpectrumStore();
-  const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } =
-    wsConnection;
+  const { sendCaptureCommand } = wsConnection;
 
   const demodState = useAppSelector((state) => state.demod) ?? {
     isListening: false,
@@ -742,7 +716,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       centerFrequencyHz: liveNeuralCenterFrequencyHz,
       bandwidthHz: liveNeuralBandwidthHz,
     })
-      .then((demodulator: any) => {
+      .then((demodulator) => {
         if (cancelled) {
           void demodulator.dispose();
           return;
@@ -756,7 +730,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           demodulator,
         });
       })
-      .catch((error: unknown) => {
+      .catch((error) => {
         if (cancelled) return;
         setAudioSurveyError(
           error instanceof Error ? error.message : String(error),
@@ -782,7 +756,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     liveNeuralCenterFrequencyHz,
   ]);
 
-  const currentOnnxDemodState = audioSurveyOnnxDemodState;
   const liveOnnxNeuralDemodulator =
     currentOnnxDemodState !== null &&
     currentOnnxDemodState.model === audioSurveyModel &&
@@ -896,10 +869,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             : null,
       },
       onJobUpdated: handleAudioSurveyJobUpdated,
-      onCandidateUpdated: (candidate: any) => {
+      onCandidateUpdated: (candidate) => {
         const preference = audioSurveyModelPreferenceRef.current;
         const nextCandidate =
-          preference && preference.jobId === candidate.jobId
+          preference?.jobId === candidate.jobId
             ? {
                 ...candidate,
                 demodulationModelPreferred: preference.preferred,
@@ -1228,7 +1201,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           await audioSurveyRepository.listArtifacts(candidate.jobId)
         )
           .filter(
-            (artifact: any) =>
+            (artifact) =>
               artifact.candidateId === candidate.id &&
               artifact.kind === "event-clip",
           )
@@ -1316,6 +1289,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       pcmData: Float32Array;
       pcmSampleRateHz: number;
       startedAtMs?: number;
+      liveCapture?: Promise<{
+        pcmData: Float32Array;
+        pcmSampleRateHz: number;
+      }>;
       startPlayback?: () => Promise<number> | number;
       audioSignalLabel?: AudioSurveyReferenceLabel;
       labels?: string[];
@@ -1402,6 +1379,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               source,
               channels: surveyChannels,
               repository: audioSurveyRepository,
+              ...(input.liveCapture
+                ? { liveCapture: input.liveCapture }
+                : {}),
               ...(input.startPlayback
                 ? { startPlayback: input.startPlayback }
                 : {}),
@@ -1657,10 +1637,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               frameCenterFrequencyHz,
             );
             void inference
-              ?.then((audioData: any) => {
+              ?.then((audioData) => {
                 if (active && audioData.length > 0) playFmAudio(audioData);
               })
-              .catch((error: unknown) => {
+              .catch((error) => {
                 if (!active || onnxErrorReported) return;
                 onnxErrorReported = true;
                 setAudioSurveyError(
@@ -1737,26 +1717,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     stopFmAudio,
   ]);
 
-  // Initialize the scanner manager with the WS sender functions
-  React.useEffect(() => {
-    scannerWorkerManager.setWSCommandSender((msg: any) => {
-      if (msg.type === "scan") {
-        sendScanCommand(msg.job_id, msg.min_freq, msg.max_freq, msg.options);
-      } else if (msg.type === "demodulate") {
-        sendDemodulateCommand(msg.job_id, msg.region);
-      }
-    });
-  }, [sendScanCommand, sendDemodulateCommand]);
-
-  // Handle incoming WS messages for the scanner
-  React.useEffect(() => {
-    // In this app, the WebSocket message handling is centralized in the middleware/store.
-    // We should ideally subscribe to the store's message stream or update scannerWorkerManager
-    // to handle results dispatched to the store.
-    // For now, if we cannot directly observe messages here, we might need to update the useSpectrumStore
-    // or adding an observer pattern.
-  }, []);
-
   // Listen for capture status changes from Redux
   const captureStatus = useAppSelector(
     (state) => state.websocket.captureStatus,
@@ -1820,14 +1780,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [captureStatus, analysisSession.state]);
 
-  const scanner = useFrequencyScanner({
-    windowSizeHz,
-    stepSizeHz,
-    audioThreshold,
-    sampleRate: 3200000,
-    _fftSize: 32768,
-  });
-
   useEffect(() => {
     const captureOrAnalysisActive =
       analysisSession.state === "starting" ||
@@ -1857,49 +1809,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     _bufferSize: 4096,
     enableFiltering: true,
   });
-
-  const channelRanges = useMemo(
-    () => ({
-      A: { min: 18_000, max: 4_370_000 },
-      B: { min: 24_720_000, max: 29_880_000 },
-    }),
-    [],
-  );
-
-  const startScan = useCallback(async () => {
-    if (!currentIQData) return;
-
-    const activeChannel = state.activeSignalArea || "A";
-    const channelRange =
-      channelRanges[activeChannel as keyof typeof channelRanges];
-    if (!channelRange) return;
-
-    const range = {
-      min: channelRange.min,
-      max: channelRange.max,
-    };
-
-    setScanRange(range);
-
-    try {
-      await scanner.scanForAudio(currentIQData, range);
-    } catch (error) {
-      console.error("Scan failed:", error);
-    } finally {
-      setScanRange(undefined);
-    }
-  }, [
-    currentIQData,
-    state.activeSignalArea,
-    channelRanges,
-    stepSizeHz,
-    scanner,
-  ]);
-
-  const stopScan = useCallback(() => {
-    scanner.stopScan();
-    setScanRange(undefined);
-  }, [scanner]);
 
   const [liveMode, setLiveMode] = useState(false);
 
@@ -1980,7 +1889,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         sourceId: activeSourceId ?? undefined,
         fragments, // current range
         durationMode: durationS ? "timed" : "manual",
-        durationS: durationS,
+        durationS: durationS || undefined,
         fileType: ".napt",
         acquisitionMode: "whole_sample",
         encrypted: true,
@@ -1997,16 +1906,17 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           .slice(0, 32),
       });
 
-      // Transition to analyzing after the requested capture duration
-      progressTimerRef.current = setTimeout(
-        () => {
-          setAnalysisSession((prev) => ({
-            ...prev,
-            state: "analyzing",
-          }));
-        },
-        durationS * 1000 + 500,
-      ); // Dynamic capture duration + 0.5s margin
+      if (durationS > 0) {
+        progressTimerRef.current = setTimeout(
+          () => {
+            setAnalysisSession((prev) => ({
+              ...prev,
+              state: "analyzing",
+            }));
+          },
+          durationS * 1000 + 500,
+        ); // Dynamic capture duration + 0.5s margin
+      }
       return jobId;
     },
     [
@@ -2022,18 +1932,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const value = useMemo(
     () => ({
-      windowSizeHz,
-      setWindowSizeHz,
-      stepSizeHz,
-      setStepSizeHz,
-      audioThreshold,
-      setAudioThreshold,
-      scanner,
       audioPlayback,
-      currentIQData,
-      setCurrentIQData,
-      currentFreq: scanner.currentFreq,
-      scanRange,
       analysisSession,
       demodQualityStatus,
       setDemodQualityStatus,
@@ -2065,8 +1964,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       playAudioSurveyArtifact,
       playAudioSurveyCandidate,
       recordAudioSurveyStimulusReference,
-      startScan,
-      stopScan,
       selectedAlgorithm,
       setSelectedAlgorithm,
       nodes,
@@ -2083,13 +1980,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       detectNaptSpikes: aptAudioDemod.detectSpikes,
     }),
     [
-      windowSizeHz,
-      stepSizeHz,
-      audioThreshold,
-      scanner,
       audioPlayback,
-      currentIQData,
-      scanRange,
       analysisSession,
       demodQualityStatus,
       selectedBaseline,
@@ -2116,8 +2007,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       playAudioSurveyArtifact,
       playAudioSurveyCandidate,
       recordAudioSurveyStimulusReference,
-      startScan,
-      stopScan,
       selectedAlgorithm,
       nodes,
       edges,
