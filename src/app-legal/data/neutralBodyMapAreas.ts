@@ -113,6 +113,13 @@ export const NEUTRAL_BODY_MAP_AREAS: Area[] = [
     meshName: 'human_model_neutral',
   },
   {
+    name: 'Heart Palpitations/Pains',
+    position: [0, 1.72, 2.3],
+    target: [0, 1.67, 0],
+    markerPosition: [0.075, 1.55, 0.151],
+    meshName: 'human_model_neutral',
+  },
+  {
     name: 'Stomach',
     position: [0, 1.28, 0.6],
     target: [0, 1.28, 0],
