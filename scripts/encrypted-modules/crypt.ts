@@ -16,6 +16,7 @@ import {
 import { ensureMlBundle, ML_REQUIRED_FILES } from "./mlRuntime";
 
 const ROOT = path.resolve(process.env.NAPT_ENCRYPTED_MODULE_ROOT || process.cwd());
+const SCRIPT_ROOT = path.resolve(process.env.NAPT_ENCRYPTED_MODULE_BRANCH_ROOT || process.cwd());
 const BUNDLE_DIR = "src/encrypted-modules";
 
 type ModuleTarget = {
@@ -79,7 +80,7 @@ function getPasswords(): { latex?: string; demod?: string } {
 
 function getCurrentBranch(): string | null {
   try {
-    return execSync("git branch --show-current", { cwd: ROOT, encoding: "utf8" }).trim();
+    return execSync("git branch --show-current", { cwd: SCRIPT_ROOT, encoding: "utf8" }).trim();
   } catch {
     return null;
   }

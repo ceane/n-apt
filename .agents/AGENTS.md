@@ -79,6 +79,14 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
   copying and exposure. Do not share, upload, or commit captures outside the
   authorized Hugging Face / Download / Training flow.
 
+## Encrypted Modules
+
+- For manual edits to an encrypted module's plaintext source, edit the
+  checked-in `src/encrypted-modules/tmp/` files in the `encrypted-modules`
+  worktree. In other branches, the matching `tmp/` files are ignored generated
+  extraction/build input and can be overwritten when a bundle is decrypted or
+  regenerated; do not make manual edits to those copies.
+
 ## Temporary and Test Files
 
 - Do not create unnecessary temporary or test files.
