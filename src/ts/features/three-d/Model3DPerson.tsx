@@ -1700,6 +1700,7 @@ const HintOverlay = styled.div`
 `;
 
 export const Model3DPerson: React.FC<{
+  children?: React.ReactNode;
   onAreaSelect?: (area: Area) => void;
   modelUrl?: string;
   modelOffset?: [number, number, number];
@@ -1715,6 +1716,7 @@ export const Model3DPerson: React.FC<{
   initialCameraPosition?: [number, number, number];
   initialCameraTarget?: [number, number, number];
 }> = ({
+  children,
   onAreaSelect,
   modelUrl = HUMAN_MODEL_AFRO_MALE_GLB_URL,
   modelOffset = [0, 0, 0],
