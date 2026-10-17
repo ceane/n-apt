@@ -216,13 +216,16 @@ export function animateGhostRig(rig: ReturnType<typeof createGhostRig>, time: nu
     : peeking ? (.2 + Math.sin(time * 1.2) * .045) * approach : Math.sin(time * 1.2) * .08;
   for (const { bone, rest, restPosition, weight } of rig.bones) {
     const nodPhaseLag = bone.name === 'neck' ? 0 : bone.name === 'neck.02' ? .32 : .68;
-    const peekingPitch = (.12 + .78 * Math.sin(time * 1.15 - nodPhaseLag)) * approach;
+    const peekingPitch = (.08 + .42 * Math.sin(time * 1.15 - nodPhaseLag * .35)) * approach;
     const bonePitch = peeking ? peekingPitch : pitch;
     rig.offset.setFromEuler(rig.euler.set(bonePitch * weight, yaw * weight, tilt * weight));
     bone.quaternion.copy(rest).multiply(rig.offset);
     bone.position.copy(restPosition);
     if (peeking) {
-      const forwardReach = bone.name === 'neck' ? .035 : bone.name === 'neck.02' ? .045 : .045;
+      // Treat forward movement as one small reach shared by the whole neck
+      // chain. Giving every joint the full reach accumulates translation and
+      // pulls the neck skin apart at the joint-weight boundaries.
+      const forwardReach = .045 * weight;
       bone.position.z += forwardReach * approach;
     }
   }
