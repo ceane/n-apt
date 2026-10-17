@@ -71,7 +71,7 @@
   - [ ] Manufactured states of mind
   - [ ] Unintelligible background audio
   - [ ] Coordinated scripts from people speaking
-  - [ ] Physiological movements
+  - [ ] Physiological expression or movements
 
 - What about afterwards?
   <!-- radio -->
@@ -135,7 +135,7 @@
   - Frequency
     <!-- radio -->
     - [ ] One-time
-    - [ ] Occasional
+    - [ ] Occasionally
     - [ ] Daily
     - [ ] Multiple times per day
 
@@ -197,9 +197,9 @@
   - [ ] No
 
   - Frequency
-    <!-- radio -->
+    <!-- checkbox -->
     - [ ] One-time
-    - [ ] Occasional
+    - [ ] Occasionally
     - [ ] Daily
     - [ ] Multiple times per day
 
@@ -213,7 +213,7 @@
   - Episodic or continual
     <!-- radio -->
     - [ ] Episodic
-    - [ ] Continual
+    - [ ] Continual (including real-time)
 
   - Intensity
     <!-- radio -->
@@ -334,7 +334,6 @@
     - [ ] Feet (Right)
     - [ ] Torso
     - [ ] Heart
-    - [ ] Heart Palpitations/Pains
     - [ ] Stomach
     - [ ] Genitals
     - [ ] Buttocks
@@ -362,6 +361,7 @@
     - [ ] Chemical
     - [ ] Somatic (sensations, pressure, jolts)
     - [ ] Autonomic (manipulating involuntary functions of your body)
+    - [ ] Heart Palpitations/Pains
 
 - Did the program affect appetite, metabolism, stress responses, or increase risk for heart disease, diabetes, sepsis, or cancer?
   <!-- radio -->
@@ -382,6 +382,12 @@
     - [ ] Minutes
     - [ ] Longer episodes
     - [ ] Variable
+
+  - Which of the following would you say the program increased the risk of?
+    - [ ] Heart Disease
+    - [ ] Diabetes
+    - [ ] Sepsis
+    - [ ] Cancer
 
   - Episodic or continual
     <!-- radio -->
@@ -408,7 +414,7 @@
   - [ ] No
   - [ ] Unsure
 
-- Do you believe that others were exposed to sexualized effects originating from your experience?
+- Do you believe that others were exposed to any effects originating from your experience?
   <!-- radio -->
   - [ ] Yes
   - [ ] No

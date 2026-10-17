@@ -1,8 +1,9 @@
-import React, { Suspense, useRef, useCallback, useEffect } from "react";
+import React, { Suspense, useRef, useCallback, useEffect, useMemo } from "react";
 import styled from "styled-components";
-import { Canvas, useThree } from "@react-three/fiber";
-import { Clone, OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
-import { Vector3 } from "three";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
+import { Object3D, Vector3 } from "three";
+import { clone as cloneSkinnedModel } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/three-d";
 import { useHotspotEditor } from "@n-apt/three-d/hooks/useHotspotEditor";
@@ -96,10 +97,12 @@ function ModelScrollRotation({ enabled }: { enabled: boolean }) {
 function PhysiologyOrb({
   area,
   isActive,
+  hideVisual,
   onSelect,
 }: {
   area: Area;
   isActive: boolean;
+  hideVisual: boolean;
   onSelect?: (area: Area) => void;
 }) {
   const markerPositions = area.markerPositions ?? [area.markerPosition ?? area.target];
@@ -115,6 +118,33 @@ function PhysiologyOrb({
     (area.markerRadius ?? compactRadiusByArea[area.name] ?? normalRadius) * (isActive ? 1.55 : 1);
   const color = isActive ? "#2563eb" : "#9ca3af";
   const baseOpacity = isActive ? 0.95 : 0.68;
+
+  if (hideVisual) {
+    return (
+      <group
+        position={worldToModelLocal(area.markerPosition ?? area.target)}
+        onClick={onSelect ? (event) => {
+          event.stopPropagation();
+          onSelect(area);
+        } : undefined}
+      >
+        <mesh>
+          <sphereGeometry args={[baseRadius, 16, 16]} />
+          <meshBasicMaterial transparent opacity={0} colorWrite={false} depthWrite={false} />
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[baseRadius * 1.8, 16, 16]} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={isActive ? 0.6 : 0.12}
+            transparent
+            opacity={isActive ? 0.2 : 0.08}
+          />
+        </mesh>
+      </group>
+    );
+  }
 
   if (area.markerStyle === "rotation") {
     const position = area.markerPosition ?? area.target;
@@ -299,6 +329,7 @@ function PersonModel({
   modelOffset,
   showSelectionHalo,
   children,
+  poseModel,
 }: {
   selectedArea: Area | null;
   isEditMode: boolean;
@@ -307,9 +338,21 @@ function PersonModel({
   modelOffset: [number, number, number];
   showSelectionHalo: boolean;
   children?: React.ReactNode;
+  poseModel?: (instance: Object3D, source: Object3D) => void;
 }) {
   const { scene } = useGLTF(modelUrl);
   const groupRef = useRef<any>(null);
+  const modelInstance = useMemo(() => {
+    const instance = cloneSkinnedModel(scene);
+    instance.traverse((object) => {
+      if (object.name === 'gulpMouthInterior' || object.name === 'gulpTongue') object.visible = false;
+    });
+    return instance;
+  }, [scene]);
+
+  useFrame(() => {
+    if (poseModel) poseModel(modelInstance, scene);
+  });
 
   const onPointerDown = useCallback(
     (e: any) => {
@@ -325,8 +368,8 @@ function PersonModel({
 
   return (
     <group ref={groupRef} position={MODEL_ROOT_POSITION}>
-      {/* useGLTF caches scenes by URL; Clone gives each canvas its own Object3D tree. */}
-      <Clone object={scene} position={modelOffset} onPointerDown={onPointerDown} />
+      {/* useGLTF caches scenes by URL; each canvas gets its own tree and optional pose. */}
+      <primitive object={modelInstance} position={modelOffset} onPointerDown={onPointerDown} dispose={null} />
       {showSelectionHalo && selectedArea && <AreaMarker selectedArea={selectedArea} />}
       {children}
     </group>
@@ -366,12 +409,14 @@ export const Model3DPerson: React.FC<{
   modelOffset?: [number, number, number];
   areas?: Area[];
   visibleAreaNames?: string[];
+  hiddenAreaMarkerNames?: string[];
   activeAreaName?: string;
   showSelectionHalo?: boolean;
   showTransformControls?: boolean;
   scrollRotate?: boolean;
   initialCameraPosition?: [number, number, number];
   initialCameraTarget?: [number, number, number];
+  poseModel?: (instance: Object3D, source: Object3D) => void;
 }> = ({
   children,
   onAreaSelect,
@@ -379,12 +424,14 @@ export const Model3DPerson: React.FC<{
   modelOffset = [0, 0, 0],
   areas = PHYSIOLOGY_AREAS,
   visibleAreaNames,
+  hiddenAreaMarkerNames = [],
   activeAreaName,
   showSelectionHalo = true,
   showTransformControls = true,
   scrollRotate = false,
   initialCameraPosition = DEFAULT_MODEL_CAMERA_POSITION,
   initialCameraTarget = DEFAULT_MODEL_CAMERA_TARGET,
+  poseModel,
 }) => {
   const { selectedArea, controlsRef, setSelectedArea } = useModel3D();
   const {
@@ -413,6 +460,7 @@ export const Model3DPerson: React.FC<{
       modelUrl={modelUrl}
       modelOffset={modelOffset}
       showSelectionHalo={showSelectionHalo}
+      poseModel={poseModel}
     >
       {children}
       <HorizonFocusGlobe active={isEditMode} />
@@ -422,6 +470,7 @@ export const Model3DPerson: React.FC<{
             key={area.name}
             area={area}
             isActive={currentActiveAreaName === area.name}
+            hideVisual={hiddenAreaMarkerNames.includes(area.name)}
             onSelect={handleAreaSelect}
           />
         ))}

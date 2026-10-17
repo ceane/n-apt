@@ -4,6 +4,8 @@ import { Blend, ScanFace } from 'lucide-react';
 import { HEAD_EFFECT_APPEARANCE_STYLES } from '../data/headEffectBlobs';
 import { HeadEffectsScene } from './HeadEffectsScene';
 
+const HEART_SYMPTOM_OPTION = 'Heart Palpitations/Pains';
+
 const EffectsLayout = styled.div`
   display: grid;
   gap: 16px;
@@ -106,24 +108,26 @@ export function QuestionnaireHeadEffects({ question, answer, onAnswerChange }: Q
   const cycleAppearanceStyle = () => {
     setAppearanceStyleIndex((current) => (current + 1) % HEAD_EFFECT_APPEARANCE_STYLES.length);
   };
-  const selectAppearanceStyle = (style: 'Evil ghost' | 'Peeking ghost') => {
+  const selectAppearanceStyle = (style: 'Evil ghost' | 'Peeking ghost' | 'Twitching ghost') => {
     const index = HEAD_EFFECT_APPEARANCE_STYLES.indexOf(style);
     if (index >= 0) setAppearanceStyleIndex(index);
   };
   const selectedEffects = Array.isArray(answer) ? answer : [];
-  const selectedEffect = selectedEffects[selectedEffects.length - 1];
   const toggleEffect = (effect: string) => {
     const nextAnswer = selectedEffects.includes(effect)
       ? selectedEffects.filter((selected) => selected !== effect)
       : [...selectedEffects, effect];
     onAnswerChange(question.id, nextAnswer);
   };
+  const selectedHeadEffect = [...selectedEffects].reverse().find((effect) => effect !== HEART_SYMPTOM_OPTION);
+  const heartSelected = selectedEffects.includes(HEART_SYMPTOM_OPTION);
 
   return (
     <EffectsLayout>
       <ModelFrame aria-label="Headshot with a translucent model and visible brain">
         <HeadEffectsScene
-          selectedEffect={selectedEffect}
+          selectedEffect={selectedHeadEffect}
+          heartSelected={heartSelected}
           appearanceStyle={appearanceStyle}
           onResetReady={handleResetReady}
         />
@@ -153,6 +157,13 @@ export function QuestionnaireHeadEffects({ question, answer, onAnswerChange }: Q
           onClick={() => selectAppearanceStyle('Peeking ghost')}
         >
           Peeking ghost
+        </GhostPreviewButton>
+        <GhostPreviewButton
+          type="button"
+          aria-pressed={appearanceStyle === 'Twitching ghost'}
+          onClick={() => selectAppearanceStyle('Twitching ghost')}
+        >
+          Twitching ghost
         </GhostPreviewButton>
       </GhostPreviewOptions>
       <EffectOptions role="group" aria-label="Select experienced effects or feelings">

@@ -1,10 +1,10 @@
 export const HEAD_EFFECT_BRAIN_SCALE = 0.4365;
-export const HEAD_EFFECT_BRAIN_POSITION = [0.139593, 0.242673, 0.226651] as const;
+export const HEAD_EFFECT_BRAIN_POSITION = [0.139593, 0.242673, 0.245] as const;
 export const HEAD_EFFECT_BRAIN_OPACITY = 0.72;
 export const HEAD_EFFECT_INACTIVE_COLOR = '#9ca3af';
 export const HEAD_EFFECT_BLOB_POSITION = [0, 1.01, 0.045] as const;
 export const HEAD_EFFECT_BLOB_RADIUS = 0.052;
-export const HEAD_EFFECT_APPEARANCE_STYLES = ['Fur dot', 'Vortex clouds', 'Magic carpet', 'Scraggles', 'C-clamp', 'Water pipe', 'Rusty pistons', 'Evil ghost', 'Peeking ghost'] as const;
+export const HEAD_EFFECT_APPEARANCE_STYLES = ['Fur dot', 'Vortex clouds', 'Magic carpet', 'Scraggles', 'C-clamp', 'Water pipe', 'Rusty pistons', 'Evil ghost', 'Peeking ghost', 'Twitching ghost'] as const;
 export const HEAD_EFFECT_FUR_CORE_RADIUS = 0.034;
 export const HEAD_EFFECT_FUR_LENGTH = 0.012;
 
