@@ -1,10 +1,13 @@
 import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
-import { Color, FrontSide, ShaderMaterial, Vector3 } from 'three';
-import { HUMAN_GHOST_EXPRESSIVE_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
+import { Color, FrontSide, Material, Mesh, ShaderMaterial, Vector3 } from 'three';
+import { HUMAN_MODEL_NEUTRAL_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
 
-import { animateGhostRig, applyAPose, createGhostRig } from './ghostRig';
+import { animateGhostRig, applyAPose, applyHeartClutchPose, createGhostRig, createDeformationDepthPass, GHOST_DEPTH_FRAGMENT_SHADER, type GhostVariant } from './ghostRig';
+
+const GHOST_GROUP_SCALE = 0.73;
+const GHOST_GROUP_POSITION: [number, number, number] = [0, 1, 0.14];
 
 const GHOST_VERTEX_SHADER = `
   #include <common>
@@ -16,6 +19,7 @@ const GHOST_VERTEX_SHADER = `
   varying vec3 vWorld;
   varying float vFade;
   varying float vDrapeFold;
+  varying float vLocalHeight;
   void main() {
     #include <beginnormal_vertex>
     #include <morphnormal_vertex>
@@ -24,6 +28,7 @@ const GHOST_VERTEX_SHADER = `
     #include <begin_vertex>
     #include <morphtarget_vertex>
     #include <skinning_vertex>
+    vLocalHeight = transformed.y;
     // Fade follows the posed surface, leaving a short shoulder cap above the arm cut.
     float shoulderSpan = smoothstep(0.12, 0.5, abs(transformed.x));
     float folds = sin(transformed.x * 34.0 + transformed.z * 8.0) * 0.058
@@ -115,22 +120,62 @@ function createGhostMaterial(tint: string, cutoff: number, brainCenter: Vector3,
   });
 }
 
-function GhostBust({ variant, brainCenter, brainRadii }: { variant: 'evil' | 'peeking'; brainCenter: Vector3; brainRadii: Vector3 }) {
+function GhostBust({ variant, brainCenter, brainRadii, heartSelected }: { variant: GhostVariant; brainCenter: Vector3; brainRadii: Vector3; heartSelected: boolean }) {
   const peeking = variant === 'peeking';
-  const tint = peeking ? '#3ba8b6' : '#8054b5';
-  const { scene } = useGLTF(HUMAN_GHOST_EXPRESSIVE_GLB_URL);
+  const twitching = variant === 'twitching';
+  const tint = peeking ? '#3ba8b6' : twitching ? '#cf6698' : '#8054b5';
+  const { scene } = useGLTF(HUMAN_MODEL_NEUTRAL_GLB_URL);
   const material = useMemo(() => createGhostMaterial(tint, 1.58, brainCenter, brainRadii, true), [tint, brainCenter, brainRadii]);
   const rig = useMemo(() => {
     const result = createGhostRig(scene);
+    // Keep head occlusion local to this ghost's draw sequence. The anatomy
+    // stays behind the lips even though the ghost skin itself is translucent.
+    const depthMaterial = new ShaderMaterial({
+      uniforms: material.uniforms,
+      vertexShader: GHOST_VERTEX_SHADER,
+      fragmentShader: GHOST_DEPTH_FRAGMENT_SHADER,
+      colorWrite: false,
+      depthWrite: true,
+      depthTest: true,
+      transparent: true,
+      side: FrontSide,
+    });
+    const ownedMaterials: Material[] = [depthMaterial];
+    const depthPairs: { source: Mesh; depth: Mesh }[] = [];
+    const anatomy: Mesh[] = [];
     for (const mesh of result.meshes) {
+      if (mesh.name === 'gulpMouthInterior' || mesh.name === 'gulpTongue') {
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const anatomyMaterial of materials) {
+          anatomyMaterial.transparent = true;
+          anatomyMaterial.depthTest = true;
+          anatomyMaterial.depthWrite = false;
+          ownedMaterials.push(anatomyMaterial);
+        }
+        mesh.visible = false;
+        mesh.renderOrder = mesh.name === 'gulpTongue' ? 8 : 7;
+        anatomy.push(mesh);
+        continue;
+      }
+      const depth = createDeformationDepthPass(mesh, depthMaterial);
+      depth.renderOrder = 5;
+      depthPairs.push({ source: mesh, depth });
       mesh.material = material;
       mesh.renderOrder = 6;
     }
-    return result;
+    for (const { source, depth } of depthPairs) source.parent?.add(depth);
+    if (depthPairs.length) depthPairs[0].depth.onBeforeRender = (renderer) => renderer.clearDepth();
+    const lastAnatomy = anatomy.find((mesh) => mesh.name === 'gulpTongue') ?? anatomy[anatomy.length - 1];
+    if (lastAnatomy) lastAnatomy.onAfterRender = (renderer) => renderer.clearDepth();
+    return { ...result, ownedMaterials };
   }, [scene, material]);
-  useEffect(() => () => material.dispose(), [material]);
+  useEffect(() => () => {
+    material.dispose();
+    for (const owned of rig.ownedMaterials) owned.dispose();
+  }, [material, rig]);
   useFrame((_, delta) => {
-    applyAPose(rig.scene, scene);
+    if (heartSelected) applyHeartClutchPose(rig.scene, scene);
+    else applyAPose(rig.scene, scene);
     material.uniforms.uTime.value += delta;
     const time = material.uniforms.uTime.value as number;
     const approach = animateGhostRig(rig, time, variant);
@@ -138,12 +183,12 @@ function GhostBust({ variant, brainCenter, brainRadii }: { variant: 'evil' | 'pe
   });
 
   return (
-    <group position={[0, 1, 0.14]} scale={0.73}>
+    <group position={GHOST_GROUP_POSITION} scale={GHOST_GROUP_SCALE}>
       <primitive object={rig.scene} position={[0, -1.95, 0]} dispose={null} />
     </group>
   );
 }
 
-export function HeadGhostsEffect({ variant, brainCenter, brainRadii }: { variant: 'evil' | 'peeking'; brainCenter: Vector3; brainRadii: Vector3 }) {
-  return <GhostBust variant={variant} brainCenter={brainCenter} brainRadii={brainRadii} />;
+export function HeadGhostsEffect({ variant, brainCenter, brainRadii, heartSelected = false }: { variant: GhostVariant; brainCenter: Vector3; brainRadii: Vector3; heartSelected?: boolean }) {
+  return <GhostBust variant={variant} brainCenter={brainCenter} brainRadii={brainRadii} heartSelected={heartSelected} />;
 }

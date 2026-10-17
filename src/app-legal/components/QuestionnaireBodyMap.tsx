@@ -1,19 +1,19 @@
 import React, { useCallback, useRef, useState } from 'react';
 import styled from 'styled-components';
-import { Clone, useGLTF } from '@react-three/drei';
 import { PersonStanding, Rotate3D, ScanFace } from 'lucide-react';
 import { gsap } from 'gsap';
 import { Model3DPerson } from '@n-apt/three-d/Model3DPerson';
-import { HEART_GLB_URL, HUMAN_MODEL_NEUTRAL_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
-import { MODEL_ROOT_POSITION } from '@n-apt/consts';
+import { HUMAN_MODEL_NEUTRAL_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
 import { Model3DInteractionProvider } from '@n-apt/three-d/hooks/useHotspotEditor';
 import { Model3DProvider, useModel3D, type Area } from '@n-apt/three-d/hooks/useModel3D';
 import { findBodyMapArea, findBodyMapOptionForArea, addBodyMapSelection } from '../utils/questionnaireBodyMap';
 import { NEUTRAL_BODY_MAP_AREAS } from '../data/neutralBodyMapAreas';
+import { QuestionnaireHeartOverlay } from './QuestionnaireHeartOverlay';
+import { applyAPose } from './ghostRig';
 
 const BODY_MAP_INITIAL_AREA = NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === 'Head')!;
-const HEART_SYMPTOM_OPTION = 'Heart Palpitations/Pains';
-const HEART_FOCUS_AREA = NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === HEART_SYMPTOM_OPTION)!;
+const HEART_OPTION = 'Heart';
+const HEART_AREA = NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === HEART_OPTION)!;
 const CAMERA_VIEWS = [
   {
     label: 'Headshot',
@@ -34,17 +34,6 @@ const CAMERA_VIEWS = [
     target: [0, 1.02, 0] as [number, number, number],
   },
 ];
-
-function QuestionnaireHeartOverlay() {
-  const { scene } = useGLTF(HEART_GLB_URL);
-  return (
-    <Clone
-      object={scene}
-      position={[0.075, 1.55 - MODEL_ROOT_POSITION[1] - 0.074, 0.16]}
-      scale={0.9}
-    />
-  );
-}
 
 const BodyMapLayout = styled.div`
   display: grid;
@@ -123,8 +112,9 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
   const [nextCameraViewIndex, setNextCameraViewIndex] = useState(1);
   const orbitTweenTarget = useRef<object | null>(null);
   const selectedOptions = Array.isArray(answer) ? answer : [];
-  const initialCameraArea = selectedOptions.includes(HEART_SYMPTOM_OPTION)
-    ? HEART_FOCUS_AREA
+  const hasHeartSelection = selectedOptions.includes(HEART_OPTION);
+  const initialCameraArea = hasHeartSelection
+    ? HEART_AREA
     : BODY_MAP_INITIAL_AREA;
   const NextViewIcon = CAMERA_VIEWS[nextCameraViewIndex].icon;
 
@@ -232,9 +222,11 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
         <Model3DPerson
           onAreaSelect={handleRegionClick}
           modelUrl={HUMAN_MODEL_NEUTRAL_GLB_URL}
+          poseModel={applyAPose}
           modelOffset={[0, -0.95, 0]}
           areas={NEUTRAL_BODY_MAP_AREAS}
           visibleAreaNames={selectedOptions}
+          hiddenAreaMarkerNames={selectedOptions.includes(HEART_OPTION) ? [HEART_OPTION] : []}
           activeAreaName={selectedArea?.name ?? BODY_MAP_INITIAL_AREA.name}
           showSelectionHalo={false}
           showTransformControls={false}
@@ -242,7 +234,7 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
           initialCameraPosition={initialCameraArea.position}
           initialCameraTarget={initialCameraArea.target}
         >
-          {selectedOptions.includes(HEART_SYMPTOM_OPTION) && <QuestionnaireHeartOverlay />}
+          {hasHeartSelection && <QuestionnaireHeartOverlay />}
         </Model3DPerson>
       </ModelFrame>
       <RegionOptions role="group" aria-label="Select affected body areas">

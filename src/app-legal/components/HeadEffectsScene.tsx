@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
 import { gsap } from 'gsap';
-import { Box3, BufferAttribute, BufferGeometry, Color, DoubleSide, Group, Mesh, MeshStandardMaterial, ShaderMaterial, SphereGeometry, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, ShaderMaterial, SphereGeometry, Vector3 } from 'three';
 import { clone as cloneSkinnedModel } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { BRAIN_GLB_URL, HUMAN_MODEL_NEUTRAL_GLB_URL } from '@n-apt/three-d/modelAssetUrls';
 import { attachModelWheelRotation } from '@n-apt/three-d/modelWheelRotation';
@@ -13,7 +13,9 @@ import { HeadClampEffect } from './HeadClampEffect';
 import { HeadPipeEffect } from './HeadPipeEffect';
 import { HeadPistonsEffect } from './HeadPistonsEffect';
 import { HeadGhostsEffect } from './HeadGhostsEffect';
-import { applyAPose } from './ghostRig';
+import { QuestionnaireHeartCircle, QuestionnaireHeartOverlay } from './QuestionnaireHeartOverlay';
+import { applyAPose, applyHeartClutchPose, createDeformationDepthPass } from './ghostRig';
+import { heartBeatPulse } from './QuestionnaireHeartOverlay';
 import { createBrainHologram } from './brainHologram';
 import {
   HEAD_EFFECT_BLOB_DEFINITIONS,
@@ -28,9 +30,13 @@ import {
 const MODEL_ROOT_POSITION: [number, number, number] = [0, 0.95, 0];
 const HEADSHOT_POSITION: [number, number, number] = [0, 1.94, 0.67];
 const HEADSHOT_TARGET: [number, number, number] = [0, 1.88, 0.01];
+const HEART_FOCUS_POSITION: [number, number, number] = [0.075, 1.7, 1.25];
+const HEART_FOCUS_TARGET: [number, number, number] = [0.075, 1.65, 0];
+const HEART_BODY_PULSE_RED = new Color('#ff1824');
 
 type HeadEffectsSceneProps = {
   selectedEffect?: string;
+  heartSelected?: boolean;
   appearanceStyle?: (typeof HEAD_EFFECT_APPEARANCE_STYLES)[number];
   onResetReady?: (reset: (() => void) | null) => void;
 };
@@ -181,30 +187,86 @@ function createBlobMaterial(shell: boolean): ShaderMaterial {
   });
 }
 
-function TranslucentHead() {
+function TranslucentHead({ heartSelected }: { heartSelected: boolean }) {
   const { scene } = useGLTF(HUMAN_MODEL_NEUTRAL_GLB_URL);
-  const translucentScene = useMemo(() => {
+  const translucentModel = useMemo(() => {
     const clone = cloneSkinnedModel(scene);
-    applyAPose(clone, scene);
+    const materials: { material: MeshStandardMaterial; baseColor: Color; baseEmissive: Color; baseIntensity: number }[] = [];
+    const depthPasses: Mesh[] = [];
+    const depthPairs: { source: Mesh; depth: Mesh }[] = [];
     clone.traverse((object) => {
       if (!(object instanceof Mesh)) return;
+      if (object.name === 'gulpMouthInterior' || object.name === 'gulpTongue') {
+        object.visible = false;
+        return;
+      }
+      if (heartSelected) {
+        const depthPass = createDeformationDepthPass(object, new MeshBasicMaterial({ colorWrite: false, depthWrite: true, transparent: true }));
+        depthPass.renderOrder = -100;
+        depthPasses.push(depthPass);
+        depthPairs.push({ source: object, depth: depthPass });
+        object.renderOrder = -90;
+        object.onAfterRender = (renderer) => renderer.clearDepth();
+      }
       const makeTranslucent = (material: MeshStandardMaterial) => {
         const copy = material.clone();
+        // A depth pass limits blending to the nearest skin surface.
         copy.transparent = true;
-        copy.opacity = 0.18;
+        copy.opacity = 0.2;
         copy.depthWrite = false;
+        materials.push({
+          material: copy,
+          baseColor: copy.color.clone(),
+          baseEmissive: copy.emissive.clone(),
+          baseIntensity: copy.emissiveIntensity,
+        });
         return copy;
       };
       object.material = Array.isArray(object.material)
         ? object.material.map((material) => makeTranslucent(material as MeshStandardMaterial))
         : makeTranslucent(object.material as MeshStandardMaterial);
     });
-    return clone;
-  }, [scene]);
+    // The copies share the posed skeleton and sit beside their source meshes.
+    const meshes: Mesh[] = [];
+    clone.traverse((object) => { if (object instanceof Mesh) meshes.push(object); });
+    for (const { source, depth } of depthPairs) source.parent?.add(depth);
+    return {
+      scene: clone,
+      materials,
+      depthPasses,
+      morphMeshes: meshes.filter((mesh) => mesh.morphTargetDictionary && mesh.morphTargetInfluences),
+    };
+  }, [scene, heartSelected]);
+  useEffect(() => () => {
+    for (const { material } of translucentModel.materials) material.dispose();
+    for (const mesh of translucentModel.depthPasses) (mesh.material as MeshBasicMaterial).dispose();
+  }, [translucentModel]);
+  useFrame(({ clock }) => {
+    if (heartSelected) applyHeartClutchPose(translucentModel.scene, scene);
+    else applyAPose(translucentModel.scene, scene);
 
-  useFrame(() => applyAPose(translucentScene, scene));
+    const pulse = heartSelected ? heartBeatPulse(clock.elapsedTime) : 0;
+    for (const mesh of translucentModel.morphMeshes) {
+      const dictionary = mesh.morphTargetDictionary!;
+      const influences = mesh.morphTargetInfluences!;
+      for (const [name, index] of Object.entries(dictionary)) {
+        let value = 0;
+        if (heartSelected && name.startsWith('eyeSquint')) value = 0.42;
+        else if (heartSelected && name.startsWith('browDown')) value = 0.38;
+        else if (heartSelected && name.startsWith('mouthSneer')) value = 0.12;
+        else if (heartSelected && name === 'jawOpen') value = 0.035;
+        influences[index] = value;
+      }
+    }
+    for (const { material, baseColor, baseEmissive, baseIntensity } of translucentModel.materials) {
+      material.color.copy(baseColor).lerp(HEART_BODY_PULSE_RED, pulse * 0.68);
+      material.emissive.copy(baseEmissive).lerp(HEART_BODY_PULSE_RED, pulse);
+      material.emissiveIntensity = baseIntensity + pulse * 1.5;
+      material.opacity = 0.2 + pulse * 0.14;
+    }
+  });
 
-  return <primitive object={translucentScene} position={[0, -0.95, 0]} />;
+  return <primitive object={translucentModel.scene} position={[0, -0.95, 0]} />;
 }
 
 function TranslucentBrain({ scene, ghostActive }: { scene: Group; ghostActive: boolean }) {
@@ -308,7 +370,7 @@ function EffectBlob({
   );
 }
 
-function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEffectsSceneProps) {
+function EffectsScene({ selectedEffect, heartSelected = false, appearanceStyle, onResetReady }: HeadEffectsSceneProps) {
   const controlsRef = useRef<any>(null);
   const shakePlayedRef = useRef(false);
   const { scene: brainScene } = useGLTF(BRAIN_GLB_URL);
@@ -326,6 +388,18 @@ function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEff
   }, [brainScene]);
   const effect = HEAD_EFFECT_BLOB_DEFINITIONS.find(({ name }) => name === selectedEffect)
     ?? HEAD_EFFECT_BLOB_DEFINITIONS[0];
+
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    gsap.killTweensOf(controls.object.position);
+    gsap.killTweensOf(controls.target);
+    const position = heartSelected ? HEART_FOCUS_POSITION : HEADSHOT_POSITION;
+    const target = heartSelected ? HEART_FOCUS_TARGET : HEADSHOT_TARGET;
+    const animation = { duration: 0.9, ease: 'power2.inOut', onUpdate: () => controls.update() };
+    gsap.to(controls.object.position, { ...animation, x: position[0], y: position[1], z: position[2] });
+    gsap.to(controls.target, { ...animation, x: target[0], y: target[1], z: target[2] });
+  }, [heartSelected]);
   const shakeCameraOnce = useCallback(() => {
     if (shakePlayedRef.current) return;
     const controls = controlsRef.current;
@@ -345,6 +419,8 @@ function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEff
 
     gsap.killTweensOf(controls.object.position);
     gsap.killTweensOf(controls.target);
+    const position = heartSelected ? HEART_FOCUS_POSITION : HEADSHOT_POSITION;
+    const target = heartSelected ? HEART_FOCUS_TARGET : HEADSHOT_TARGET;
     const animation = {
       duration: 0.9,
       ease: 'power2.inOut',
@@ -352,17 +428,17 @@ function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEff
     };
     gsap.to(controls.object.position, {
       ...animation,
-      x: HEADSHOT_POSITION[0],
-      y: HEADSHOT_POSITION[1],
-      z: HEADSHOT_POSITION[2],
+      x: position[0],
+      y: position[1],
+      z: position[2],
     });
     gsap.to(controls.target, {
       ...animation,
-      x: HEADSHOT_TARGET[0],
-      y: HEADSHOT_TARGET[1],
-      z: HEADSHOT_TARGET[2],
+      x: target[0],
+      y: target[1],
+      z: target[2],
     });
-  }, []);
+  }, [heartSelected]);
 
   useEffect(() => {
     onResetReady?.(resetCamera);
@@ -371,9 +447,18 @@ function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEff
 
   return (
     <group position={MODEL_ROOT_POSITION}>
-      <TranslucentHead />
-      <TranslucentBrain scene={brainScene} ghostActive={appearanceStyle === 'Evil ghost' || appearanceStyle === 'Peeking ghost'} />
-      {appearanceStyle === 'Scraggles'
+      <TranslucentHead heartSelected={heartSelected} />
+      {!heartSelected && (
+        <TranslucentBrain
+          scene={brainScene}
+          ghostActive={appearanceStyle === 'Evil ghost' || appearanceStyle === 'Peeking ghost' || appearanceStyle === 'Twitching ghost'}
+        />
+      )}
+      {heartSelected && <>
+        <QuestionnaireHeartOverlay />
+        <QuestionnaireHeartCircle />
+      </>}
+      {!heartSelected && (appearanceStyle === 'Scraggles'
         ? <HeadScraggleEffect effect={effect} />
         : appearanceStyle === 'Magic carpet'
           ? <HeadMagicCarpetEffect effect={effect} />
@@ -384,30 +469,32 @@ function EffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEff
         : appearanceStyle === 'Rusty pistons'
           ? <HeadPistonsEffect effect={effect} onClap={shakeCameraOnce} />
         : appearanceStyle === 'Evil ghost'
-          ? <HeadGhostsEffect variant="evil" brainCenter={brainCollider.center} brainRadii={brainCollider.radii} />
+          ? <HeadGhostsEffect variant="evil" brainCenter={brainCollider.center} brainRadii={brainCollider.radii} heartSelected={heartSelected} />
         : appearanceStyle === 'Peeking ghost'
-          ? <HeadGhostsEffect variant="peeking" brainCenter={brainCollider.center} brainRadii={brainCollider.radii} />
+          ? <HeadGhostsEffect variant="peeking" brainCenter={brainCollider.center} brainRadii={brainCollider.radii} heartSelected={heartSelected} />
+        : appearanceStyle === 'Twitching ghost'
+          ? <HeadGhostsEffect variant="twitching" brainCenter={brainCollider.center} brainRadii={brainCollider.radii} heartSelected={heartSelected} />
         : appearanceStyle === 'Fur dot'
           ? <HeadFurDotEffect effect={effect} />
           : <EffectBlob
               effect={effect}
               isActive={Boolean(selectedEffect) || appearanceStyle === 'Vortex clouds'}
               appearanceStyle={appearanceStyle}
-            />}
+            />)}
       <ambientLight intensity={1.25} />
       <directionalLight position={[1, 2.4, 3]} intensity={2.1} />
       <pointLight position={[-1.6, 2.2, 1.8]} color="#dce8ff" intensity={0.7} />
-      <OrbitControls ref={controlsRef} makeDefault enableDamping enableRotate={false} target={HEADSHOT_TARGET} minDistance={0.42} maxDistance={1.55} />
+      <OrbitControls ref={controlsRef} makeDefault enableDamping enableRotate={false} target={HEADSHOT_TARGET} minDistance={0.42} maxDistance={1.8} />
       <HeadEffectsWheelRotation controlsRef={controlsRef} />
     </group>
   );
 }
 
-export function HeadEffectsScene({ selectedEffect, appearanceStyle, onResetReady }: HeadEffectsSceneProps) {
+export function HeadEffectsScene({ selectedEffect, heartSelected, appearanceStyle, onResetReady }: HeadEffectsSceneProps) {
   return (
     <Canvas camera={{ position: HEADSHOT_POSITION, fov: 38 }}>
       <Suspense fallback={null}>
-        <EffectsScene selectedEffect={selectedEffect} appearanceStyle={appearanceStyle} onResetReady={onResetReady} />
+        <EffectsScene selectedEffect={selectedEffect} heartSelected={heartSelected} appearanceStyle={appearanceStyle} onResetReady={onResetReady} />
       </Suspense>
     </Canvas>
   );

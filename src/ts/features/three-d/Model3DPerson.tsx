@@ -1166,6 +1166,7 @@ function PersonModel({
   visibleAreas,
   onAreaSelect,
   children,
+  poseModel,
 }: {
   selectedArea: Area | null;
   isEditMode: boolean;
@@ -1180,6 +1181,7 @@ function PersonModel({
   visibleAreas?: Area[];
   onAreaSelect?: (area: Area) => void;
   children?: React.ReactNode;
+  poseModel?: (instance: Object3D, source: Object3D) => void;
 }) {
   const { scene } = useGLTF(modelUrl);
   useEffect(() => { prepareMuscleProjection(scene); }, [scene]);
@@ -1706,6 +1708,7 @@ export const Model3DPerson: React.FC<{
   modelOffset?: [number, number, number];
   areas?: Area[];
   visibleAreaNames?: string[];
+  hiddenAreaMarkerNames?: string[];
   activeAreaName?: string;
   showSelectionHalo?: boolean;
   anatomyView?: boolean;
@@ -1715,6 +1718,7 @@ export const Model3DPerson: React.FC<{
   scrollRotate?: boolean;
   initialCameraPosition?: [number, number, number];
   initialCameraTarget?: [number, number, number];
+  poseModel?: (instance: Object3D, source: Object3D) => void;
 }> = ({
   children,
   onAreaSelect,
@@ -1730,6 +1734,7 @@ export const Model3DPerson: React.FC<{
   scrollRotate = false,
   initialCameraPosition = DEFAULT_MODEL_CAMERA_POSITION,
   initialCameraTarget = DEFAULT_MODEL_CAMERA_TARGET,
+  poseModel,
 }) => {
   const { selectedArea, controlsRef } = useModel3D();
   const {

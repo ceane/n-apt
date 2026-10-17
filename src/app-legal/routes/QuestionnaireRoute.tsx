@@ -23,6 +23,7 @@ export default function QuestionnaireRoute() {
   const deepLinkScrollSpaceRef = useRef(0);
   const isSummary = questionnaire.currentPage >= questionnaire.totalPages;
   const routeQuestionId = questionIdFromQuestionnairePath(location.pathname, questionnaire.pages);
+  const currentQuestionIds = questionnaire.currentQuestions.map((question) => question.id).join('\0');
 
   useLayoutEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration;
@@ -100,7 +101,7 @@ export default function QuestionnaireRoute() {
       window.clearTimeout(stopObserving);
       observer?.disconnect();
     };
-  }, [hasAcceptedDisclaimer, location.pathname, questionnaire.currentPage, questionnaire.currentQuestions, questionnaire.pages, questionnaire.setScrollToId, routeQuestionId]);
+  }, [hasAcceptedDisclaimer, location.pathname, questionnaire.currentPage, currentQuestionIds, questionnaire.pages, questionnaire.setScrollToId, routeQuestionId]);
 
   if (!hasAcceptedDisclaimer) {
     return (
