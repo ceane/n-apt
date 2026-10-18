@@ -212,7 +212,9 @@ function TranslucentHead({ heartSelected }: { heartSelected: boolean }) {
         const copy = material.clone();
         // A depth pass limits blending to the nearest skin surface.
         copy.transparent = true;
-        copy.opacity = 0.2;
+        // Give the heart-pain pose enough body opacity for facial contours to
+        // read, while keeping the ghost visibly translucent.
+        copy.opacity = heartSelected ? 0.27 : 0.2;
         copy.depthWrite = false;
         materials.push({
           material: copy,
@@ -250,11 +252,12 @@ function TranslucentHead({ heartSelected }: { heartSelected: boolean }) {
       const dictionary = mesh.morphTargetDictionary!;
       const influences = mesh.morphTargetInfluences!;
       for (const [name, index] of Object.entries(dictionary)) {
+        if (name === 'heartClutchElbows') continue;
         let value = 0;
-        if (heartSelected && name.startsWith('eyeSquint')) value = 0.42;
-        else if (heartSelected && name.startsWith('browDown')) value = 0.38;
-        else if (heartSelected && name.startsWith('mouthSneer')) value = 0.12;
-        else if (heartSelected && name === 'jawOpen') value = 0.035;
+        if (heartSelected && name.startsWith('eyeSquint')) value = 0.5;
+        else if (heartSelected && name.startsWith('browDown')) value = 0.46;
+        else if (heartSelected && name.startsWith('mouthSneer')) value = 0.16;
+        else if (heartSelected && name === 'jawOpen') value = 0.025;
         influences[index] = value;
       }
     }
@@ -262,7 +265,7 @@ function TranslucentHead({ heartSelected }: { heartSelected: boolean }) {
       material.color.copy(baseColor).lerp(HEART_BODY_PULSE_RED, pulse * 0.68);
       material.emissive.copy(baseEmissive).lerp(HEART_BODY_PULSE_RED, pulse);
       material.emissiveIntensity = baseIntensity + pulse * 1.5;
-      material.opacity = 0.2 + pulse * 0.14;
+      material.opacity = (heartSelected ? 0.27 : 0.2) + pulse * (heartSelected ? 0.09 : 0.14);
     }
   });
 
@@ -481,9 +484,9 @@ function EffectsScene({ selectedEffect, heartSelected = false, appearanceStyle, 
               isActive={Boolean(selectedEffect) || appearanceStyle === 'Vortex clouds'}
               appearanceStyle={appearanceStyle}
             />)}
-      <ambientLight intensity={1.25} />
-      <directionalLight position={[1, 2.4, 3]} intensity={2.1} />
-      <pointLight position={[-1.6, 2.2, 1.8]} color="#dce8ff" intensity={0.7} />
+      <ambientLight intensity={heartSelected ? 0.78 : 1.25} />
+      <directionalLight position={[1, 2.4, 3]} intensity={heartSelected ? 2.35 : 2.1} />
+      <pointLight position={[-1.6, 2.2, 1.8]} color="#dce8ff" intensity={heartSelected ? 0.48 : 0.7} />
       <OrbitControls ref={controlsRef} makeDefault enableDamping enableRotate={false} target={HEADSHOT_TARGET} minDistance={0.42} maxDistance={1.8} />
       <HeadEffectsWheelRotation controlsRef={controlsRef} />
     </group>

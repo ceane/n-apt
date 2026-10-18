@@ -1,5 +1,5 @@
 import { Bone, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, Skeleton, SkinnedMesh, Uint16BufferAttribute, Vector3 } from 'three';
-import { createGhostRig, animateGhostRig, createDeformationDepthPass, GHOST_DEPTH_FRAGMENT_SHADER } from '../../src/app-legal/components/ghostRig';
+import { createGhostRig, animateGhostRig, applyAPose, applyHeartClutchPose, createDeformationDepthPass, GHOST_DEPTH_FRAGMENT_SHADER } from '../../src/app-legal/components/ghostRig';
 
 function fixture() {
   const scene = new Group();
@@ -189,4 +189,36 @@ test('head flick snaps away and recoils instead of turning smoothly', () => {
   expect(before.angleTo(snap)).toBeGreaterThan(0.2);
   animateGhostRig(rig, 2.68, 'twitching');
   expect(snap.angleTo(head.quaternion)).toBeGreaterThan(0.08);
+});
+
+
+test('authored heart pose keeps twist and elbow correction independent and resets on deselection', () => {
+  const source = fixture();
+  const arm = new Bone(); arm.name = 'upper_arm.L';
+  const forearm = new Bone(); forearm.name = 'forearm.L';
+  const twist = new Bone(); twist.name = 'forearm_twist.02.L';
+  const hand = new Bone(); hand.name = 'hand.L';
+  source.scene.add(arm); arm.add(forearm); forearm.add(twist, hand);
+  for (const [bone, angle] of [[arm, .6], [forearm, 1.3], [twist, .25], [hand, -.4]] as const) {
+    bone.userData.heartClutchRotation = [0, Math.sin(angle / 2), 0, Math.cos(angle / 2)];
+  }
+  source.mesh.morphTargetDictionary!.heartClutchElbows = 4;
+  source.mesh.morphTargetInfluences!.push(0);
+  const first = createGhostRig(source.scene);
+  const second = createGhostRig(source.scene);
+  applyHeartClutchPose(first.scene, source.scene);
+  const firstHand = first.scene.getObjectByName('hand.L')!;
+  const firstTwist = first.scene.getObjectByName('forearm_twist.02.L')!;
+  expect(firstHand.quaternion.toArray()).toEqual(hand.userData.heartClutchRotation);
+  expect(firstTwist.quaternion.toArray()).toEqual(twist.userData.heartClutchRotation);
+  animateGhostRig(first, 2, 'evil');
+  expect(first.meshes[0].morphTargetInfluences![4]).toBe(1);
+  expect(second.meshes[0].morphTargetInfluences![4]).toBe(0);
+  expect(source.mesh.morphTargetInfluences![4]).toBe(0);
+  expect(second.scene.getObjectByName('hand.L')!.quaternion.w).toBe(1);
+  expect(hand.quaternion.w).toBe(1);
+  applyAPose(first.scene, source.scene);
+  expect(firstHand.quaternion.w).toBe(1);
+  expect(firstTwist.quaternion.w).toBe(1);
+  expect(first.meshes[0].morphTargetInfluences![4]).toBe(0);
 });
