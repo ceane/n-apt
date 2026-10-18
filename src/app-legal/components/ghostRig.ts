@@ -1,4 +1,4 @@
-import { Bone, Euler, Matrix4, Material, Mesh, Object3D, Quaternion, Vector3 } from 'three';
+import { Bone, Euler, Material, Mesh, Object3D, Quaternion, Vector3 } from 'three';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export type GhostVariant = 'evil' | 'peeking' | 'twitching';
@@ -19,42 +19,46 @@ const aPoseJoints = [
   { name: 'upper_arm.L', rotation: new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), -0.52) },
   { name: 'upper_arm.R', rotation: new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), 0.52) },
 ];
-const heartClutchHandTargets = {
-  // Place the palms in front of the heart so the hands read as covering it
-  // instead of disappearing behind the heart marker.
-  // The L hand rests against the chest; the R hand overlaps it from the front.
-  L: new Vector3(0.075, 1.49, 0.14),
-  R: new Vector3(0.115, 1.50, 0.18),
+// Authored in the canonical Blender model: the left palm rests on the chest
+// over the heart; the right palm rests on the back of that hand. Both palms
+// face inward. Keep the elbow corrective and these bone poses together when
+// editing the asset, including the forearm twist bones and chest clearance.
+type ArmPose = {
+  joints: { bone: Bone; rest: Quaternion; heart: Quaternion }[];
+  corrections: { mesh: Mesh; index: number }[];
 };
+const armPoses = new WeakMap<Object3D, ArmPose>();
 
 function getRigBone(root: Object3D, name: string) {
   return root.getObjectByName(name) ?? root.getObjectByName(name.replace(/\./g, ''));
 }
 
-function aimBoneAt(bone: Bone, nextBone: Bone, end: Vector3, root: Object3D) {
-  root.updateMatrixWorld(true);
-  const start = bone.getWorldPosition(new Vector3());
-  const currentEnd = nextBone.getWorldPosition(new Vector3());
-  const currentDirection = currentEnd.sub(start).normalize();
-  const desiredDirection = end.clone().sub(start).normalize();
-  if (currentDirection.lengthSq() === 0 || desiredDirection.lengthSq() === 0) return;
-
-  const worldRotation = bone.getWorldQuaternion(new Quaternion());
-  worldRotation.premultiply(new Quaternion().setFromUnitVectors(currentDirection, desiredDirection));
-  const parentRotation = bone.parent?.getWorldQuaternion(new Quaternion()).invert() ?? new Quaternion();
-  bone.quaternion.copy(parentRotation.multiply(worldRotation));
-  root.updateMatrixWorld(true);
+function getArmPose(target: Object3D, source: Object3D): ArmPose {
+  const cached = armPoses.get(target);
+  if (cached) return cached;
+  const pose: ArmPose = { joints: [], corrections: [] };
+  target.traverse((object) => {
+    if (object instanceof Bone) {
+      const restBone = source.getObjectByName(object.name);
+      const rotation: unknown = restBone?.userData.heartClutchRotation;
+      if (restBone instanceof Bone && Array.isArray(rotation) && rotation.length === 4
+        && rotation.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+        const rest = restBone.quaternion.clone();
+        pose.joints.push({ bone: object, rest, heart: rest.clone().multiply(new Quaternion().fromArray(rotation)) });
+      }
+    } else if (object instanceof Mesh) {
+      const index = object.morphTargetDictionary?.heartClutchElbows;
+      if (index !== undefined && object.morphTargetInfluences) pose.corrections.push({ mesh: object, index });
+    }
+  });
+  armPoses.set(target, pose);
+  return pose;
 }
 
 export function applyAPose(target: Object3D, source: Object3D) {
-  for (const side of ['L', 'R'] as const) {
-    for (const segment of ['upper_arm', 'forearm', 'hand']) {
-      const name = `${segment}.${side}`;
-      const posedBone = getRigBone(target, name);
-      const restBone = getRigBone(source, name);
-      if (posedBone instanceof Bone && restBone instanceof Bone) posedBone.quaternion.copy(restBone.quaternion);
-    }
-  }
+  const pose = getArmPose(target, source);
+  for (const { bone, rest } of pose.joints) bone.quaternion.copy(rest);
+  for (const { mesh, index } of pose.corrections) mesh.morphTargetInfluences![index] = 0;
   for (const { name, rotation } of aPoseJoints) {
     const posedBone = getRigBone(target, name);
     const restBone = getRigBone(source, name);
@@ -64,67 +68,11 @@ export function applyAPose(target: Object3D, source: Object3D) {
   }
 }
 
-export function applyHeartClutchPose(
-  target: Object3D,
-  source: Object3D,
-  handTargets = heartClutchHandTargets,
-) {
-  source.updateMatrixWorld(true);
-  applyAPose(target, source);
+export function applyHeartClutchPose(target: Object3D, source: Object3D) {
+  const pose = getArmPose(target, source);
+  for (const { bone, heart } of pose.joints) bone.quaternion.copy(heart);
+  for (const { mesh, index } of pose.corrections) mesh.morphTargetInfluences![index] = 1;
   target.updateMatrixWorld(true);
-
-  for (const side of ['L', 'R'] as const) {
-    const upperArm = getRigBone(target, `upper_arm.${side}`);
-    const forearm = getRigBone(target, `forearm.${side}`);
-    const hand = getRigBone(target, `hand.${side}`);
-    const middleFinger = getRigBone(target, `middle.01.${side}`);
-    const restUpperArm = getRigBone(source, `upper_arm.${side}`);
-    const restForearm = getRigBone(source, `forearm.${side}`);
-    const restHand = getRigBone(source, `hand.${side}`);
-    if (!(upperArm instanceof Bone) || !(forearm instanceof Bone) || !(hand instanceof Bone) || !(middleFinger instanceof Bone)
-      || !(restUpperArm instanceof Bone) || !(restForearm instanceof Bone) || !(restHand instanceof Bone)) continue;
-
-    const aPoseRotation = aPoseJoints.find(({ name }) => name === `upper_arm.${side}`)?.rotation;
-    upperArm.quaternion.copy(restUpperArm.quaternion);
-    if (aPoseRotation) upperArm.quaternion.multiply(aPoseRotation);
-    forearm.quaternion.copy(restForearm.quaternion);
-    hand.quaternion.copy(restHand.quaternion);
-    target.updateMatrixWorld(true);
-
-    const shoulder = upperArm.getWorldPosition(new Vector3());
-    const elbowRest = restForearm.getWorldPosition(new Vector3());
-    const wristRest = restHand.getWorldPosition(new Vector3());
-    const upperLength = shoulder.distanceTo(elbowRest);
-    const forearmLength = elbowRest.distanceTo(wristRest);
-    const wristTarget = handTargets[side].clone();
-    const reach = wristTarget.clone().sub(shoulder);
-    const distance = Math.min(reach.length(), upperLength + forearmLength - 0.001);
-    if (distance < 0.001 || upperLength < 0.001 || forearmLength < 0.001) continue;
-
-    const direction = reach.normalize();
-    const along = (upperLength ** 2 - forearmLength ** 2 + distance ** 2) / (2 * distance);
-    const bendHeight = Math.sqrt(Math.max(upperLength ** 2 - along ** 2, 0));
-    // Keep elbows low and outside the chest; only the forearms cross over the heart.
-    // In this GLB, the L arm is on +X and the R arm is on -X.
-    const outward = new Vector3(side === 'L' ? 1 : -1, -0.65, 0.15);
-    outward.addScaledVector(direction, -outward.dot(direction)).normalize();
-    const elbowTarget = shoulder.clone().addScaledVector(direction, along).addScaledVector(outward, bendHeight);
-
-    aimBoneAt(upperArm, forearm, elbowTarget, target);
-    aimBoneAt(forearm, hand, wristTarget, target);
-    // Local +Y follows the fingers. Set the complete hand frame so the
-    // palms lie against the chest rather than retaining the arm's twist.
-    const fingerDirection = new Vector3(side === 'L' ? 0.3 : -0.3, 0.74, -0.6).normalize();
-    // Face the palms into the chest; the backs of the hands face outward.
-    const handNormal = new Vector3(0, 0, 1);
-    const acrossPalm = fingerDirection.clone().cross(handNormal).normalize();
-    const worldHandRotation = new Quaternion().setFromRotationMatrix(
-      new Matrix4().makeBasis(acrossPalm, fingerDirection, handNormal),
-    );
-    const parentRotation = hand.parent!.getWorldQuaternion(new Quaternion()).invert();
-    hand.quaternion.copy(parentRotation.multiply(worldHandRotation));
-    target.updateMatrixWorld(true);
-  }
 }
 
 /** A sibling draw of the same deformation, including live morph weights. */
@@ -237,6 +185,8 @@ export function animateGhostRig(rig: ReturnType<typeof createGhostRig>, time: nu
     const influences = mesh.morphTargetInfluences;
     if (!dictionary || !influences) continue;
     for (const [name, index] of Object.entries(dictionary)) {
+      // The arm pose owns this corrective; facial animation must not reset it.
+      if (name === 'heartClutchElbows') continue;
       let value = 0;
       if (name.startsWith('eyeBlink')) value = blink;
       else if (name.startsWith('eyeWide')) value = peeking ? .65 * approach * (1 - blink) : twitching ? .82 * eyeWiden * (1 - blink) : 0;
