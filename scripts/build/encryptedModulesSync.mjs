@@ -71,7 +71,7 @@ function syncSource(source, destination) {
 }
 
 function generateBundles(worktree) {
-  const encryptScript = path.join(worktree, "scripts/encrypted-modules/crypt.ts");
+  const encryptScript = path.join(root, "scripts/encrypted-modules/crypt.ts");
   const result = spawnSync(process.execPath, ["--import", "tsx", encryptScript, "encrypt"], {
     cwd: root,
     encoding: "utf8",
