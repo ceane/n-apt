@@ -1,3 +1,6 @@
+import { acquireStreamDeliveryDemand } from "@n-apt/app/infrastructure/streams/streamDeliveryDemand";
+import type { StreamDeliveryPolicy } from "@n-apt/app/infrastructure/streams/streamContract";
+
 type ActiveAcquisitionOperation = {
   kind: string;
   sourceId?: string | null;
@@ -29,9 +32,17 @@ const notifyListeners = () => {
 export const registerActiveAcquisitionOperation = (
   kind: string,
   sourceId?: string | null,
+  options: { streamDeliveryPolicy?: StreamDeliveryPolicy } = {},
 ): (() => void) => {
   const token = Symbol(kind);
   registry.activeOperations.set(token, { kind, sourceId });
+  const releaseStreamDeliveryDemand =
+    sourceId && options.streamDeliveryPolicy
+      ? acquireStreamDeliveryDemand(
+          { sourceId, mode: "rx" },
+          options.streamDeliveryPolicy,
+        )
+      : null;
   notifyListeners();
 
   let registered = true;
@@ -39,6 +50,7 @@ export const registerActiveAcquisitionOperation = (
     if (!registered) return;
     registered = false;
     registry.activeOperations.delete(token);
+    releaseStreamDeliveryDemand?.();
     notifyListeners();
   };
 };

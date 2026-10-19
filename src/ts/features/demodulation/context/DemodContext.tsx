@@ -5,11 +5,13 @@ import React, {
   useState,
   useEffect,
   useMemo,
+  useRef,
   Dispatch,
   SetStateAction,
 } from "react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
+import { setSignalAreaAndRange } from "@n-apt/redux/slices/spectrumSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/public/activeAcquisitionOperations";
 import {
@@ -84,6 +86,7 @@ import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
 } from "@n-apt/redux/thunks/demodThunks";
+import { resolveDemodChannelSelectionAndRange } from "@n-apt/demodulation/channelPrerequisites";
 import {
   Node,
   Edge,
@@ -124,24 +127,74 @@ const addReadinessNodeToStoredFlow = (
   stored: { nodes: Node[]; edges: Edge[] },
   fallback: { nodes: Node[]; edges: Edge[] },
 ) => {
-  if (stored.nodes.some((node) => node.id === "demod-readiness")) {
-    return stored;
+  const fallbackChannel = fallback.nodes.find((node) => node.id === "channel");
+  const hasLiveReferenceCaptureFlow =
+    Boolean(fallbackChannel) &&
+    stored.nodes.some((node) => node.id === "signal-config") &&
+    stored.nodes.some((node) => node.id === "stimulus");
+  let nodes = stored.nodes;
+  let edges = stored.edges;
+
+  // Older saved graphs can retain channel edges after the node was removed.
+  // Restore the standard Channels node so the route can show its real tuned range.
+  if (
+    hasLiveReferenceCaptureFlow &&
+    fallbackChannel &&
+    !nodes.some((node) => node.id === "channel")
+  ) {
+    nodes = [...nodes, { ...fallbackChannel, data: { ...fallbackChannel.data } }];
+  }
+  if (hasLiveReferenceCaptureFlow) {
+    nodes = nodes.map((node) =>
+      node.id === "channel"
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              channelNode: true,
+              channelLabels: ["A", "B", "C"],
+            },
+          }
+        : node,
+    );
+    const requiredChannelEdges = [
+      { id: "e-source-channel", source: "source", target: "channel", animated: true },
+      { id: "e-channel-readiness", source: "channel", target: "demod-readiness", animated: true },
+    ];
+    for (const requiredEdge of requiredChannelEdges) {
+      if (
+        nodes.some((node) => node.id === requiredEdge.source) &&
+        !edges.some(
+          (edge) =>
+            edge.source === requiredEdge.source &&
+            edge.target === requiredEdge.target,
+        )
+      ) {
+        edges = [...edges, requiredEdge];
+      }
+    }
+  }
+
+  if (nodes.some((node) => node.id === "demod-readiness")) {
+    return nodes === stored.nodes && edges === stored.edges
+      ? stored
+      : { nodes, edges };
   }
 
   const readinessTemplate = fallback.nodes.find(
     (node) => node.id === "demod-readiness",
   );
-  const signalConfig = stored.nodes.find((node) => node.id === "signal-config");
-  const stimulus = stored.nodes.find((node) => node.id === "stimulus");
-  if (!readinessTemplate || !signalConfig || !stimulus) return stored;
+  const signalConfig = nodes.find((node) => node.id === "signal-config");
+  const stimulus = nodes.find((node) => node.id === "stimulus");
+  if (!readinessTemplate || !signalConfig || !stimulus) return { nodes, edges };
 
   const eligibleInputs = new Set(["signal-config", "channel", "metadata"]);
-  const incomingEdges = stored.edges.filter(
+  const incomingEdges = edges.filter(
     (edge) => edge.target === "stimulus" && eligibleInputs.has(edge.source),
   );
-  if (incomingEdges.length === 0) return stored;
+  if (incomingEdges.length === 0) return { nodes, edges };
 
-  const channelOrMetadata = stored.nodes.find(
+  const channelOrMetadata = nodes.find(
     (node) => node.id === "channel" || node.id === "metadata",
   );
   const readinessY =
@@ -154,7 +207,7 @@ const addReadinessNodeToStoredFlow = (
   let grew = true;
   while (grew) {
     grew = false;
-    for (const edge of stored.edges) {
+    for (const edge of edges) {
       if (downstreamIds.has(edge.source) && !downstreamIds.has(edge.target)) {
         downstreamIds.add(edge.target);
         grew = true;
@@ -162,7 +215,7 @@ const addReadinessNodeToStoredFlow = (
     }
   }
   const downstreamShift = stimulusY - stimulus.position.y;
-  const nodes = stored.nodes.map((node) =>
+  nodes = nodes.map((node) =>
     downstreamShift !== 0 && downstreamIds.has(node.id)
       ? {
           ...node,
@@ -174,7 +227,7 @@ const addReadinessNodeToStoredFlow = (
     ...readinessTemplate,
     position: { x: stimulus.position.x, y: readinessY },
   };
-  const edges = stored.edges.map((edge) =>
+  edges = edges.map((edge) =>
     edge.target === "stimulus" && eligibleInputs.has(edge.source)
       ? { ...edge, target: "demod-readiness" }
       : edge,
@@ -336,6 +389,11 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [visionPreset, setVisionPreset] = useState<VisionPreset>("Red");
   const [selectedAlgorithm, setSelectedAlgorithm] =
     useState<DemodAlgorithm>("fm");
+  const initialDemodTuneAppliedRef = useRef(false);
+  const initialDemodTuneTargetRef = useRef<{
+    channelLabel: string;
+    range: { min: number; max: number };
+  } | null>(null);
   const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
     useSpectrumStore();
   const { sendCaptureCommand } = wsConnection;
@@ -348,9 +406,38 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+  const isConnected = useAppSelector((state) => state.websocket.isConnected);
+  const activeSignalArea = useAppSelector(
+    (state) => state.spectrum.activeSignalArea,
+  );
+  const reduxFrequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+  const websocketChannels = useAppSelector(
+    (state) => state.websocket.channels,
+  );
   const selectedReplayFiles = useAppSelector(
     (state) => state.waterfall?.selectedFiles ?? EMPTY_SELECTED_REPLAY_FILES,
   );
+  const demodRouteChannels = useMemo(() => {
+    const seen = new Set<string>();
+    const sourceChannels =
+      Array.isArray(effectiveFrames) && effectiveFrames.length > 0
+        ? effectiveFrames
+        : Array.isArray(websocketChannels)
+          ? websocketChannels
+          : [];
+    return sourceChannels
+      .filter((frame) => {
+        const label = frame.label?.trim().toUpperCase();
+        return label === "A" || label === "B" || label === "C";
+      })
+      .filter((frame) => {
+        if (seen.has(frame.id)) return false;
+        seen.add(frame.id);
+        return true;
+      });
+  }, [effectiveFrames, websocketChannels]);
   const surveyChannels = useMemo<SurveyChannelRange[]>(() => {
     const seen = new Set<string>();
     return (Array.isArray(effectiveFrames) ? effectiveFrames : [])
@@ -370,6 +457,87 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         return true;
       });
   }, [effectiveFrames]);
+
+  // The reference-capture route starts at Channel A's lower edge. Keep the
+  // displayed range and the receiver's acquisition window in sync; a persisted
+  // channel highlight can otherwise survive while the hardware remains at 0 Hz.
+  useEffect(() => {
+    if (
+      !isConnected ||
+      !activeSourceId ||
+      state.sourceMode !== "live" ||
+      demodRouteChannels.length === 0
+    ) {
+      return;
+    }
+    const sampleRateHz = Math.min(
+      AUDIO_SURVEY_SAMPLE_RATE_HZ,
+      Number.isFinite(state.sampleRateHz) && state.sampleRateHz > 0
+        ? state.sampleRateHz
+        : AUDIO_SURVEY_SAMPLE_RATE_HZ,
+    );
+    let resolved = initialDemodTuneTargetRef.current;
+    if (!initialDemodTuneAppliedRef.current && !resolved) {
+      resolved = resolveDemodChannelSelectionAndRange(
+        "A",
+        null,
+        demodRouteChannels,
+        sampleRateHz,
+      );
+      if (!resolved) return;
+      initialDemodTuneTargetRef.current = resolved;
+    }
+    if (!resolved) {
+      resolved = resolveDemodChannelSelectionAndRange(
+        activeSignalArea,
+        reduxFrequencyRange,
+        demodRouteChannels,
+        sampleRateHz,
+      );
+    }
+    if (!resolved) return;
+    const routeIsAtResolvedRange =
+      activeSignalArea?.trim().toUpperCase() === resolved.channelLabel &&
+      resolved.range.min === reduxFrequencyRange?.min &&
+      resolved.range.max === reduxFrequencyRange?.max;
+    if (initialDemodTuneTargetRef.current && !initialDemodTuneAppliedRef.current) {
+      if (!routeIsAtResolvedRange) {
+        reduxDispatch(
+          setSignalAreaAndRange({
+            area: resolved.channelLabel,
+            range: resolved.range,
+          }),
+        );
+        wsConnection.sendFrequencyRange(resolved.range);
+        return;
+      }
+      initialDemodTuneAppliedRef.current = true;
+      initialDemodTuneTargetRef.current = null;
+      return;
+    }
+    if (
+      routeIsAtResolvedRange
+    ) {
+      return;
+    }
+    reduxDispatch(
+      setSignalAreaAndRange({
+        area: resolved.channelLabel,
+        range: resolved.range,
+      }),
+    );
+    wsConnection.sendFrequencyRange(resolved.range);
+  }, [
+    activeSignalArea,
+    activeSourceId,
+    isConnected,
+    reduxDispatch,
+    reduxFrequencyRange,
+    state.sampleRateHz,
+    state.sourceMode,
+    demodRouteChannels,
+    wsConnection.sendFrequencyRange,
+  ]);
   const [audioSurveyJob, setAudioSurveyJob] = useState<SurveyJobState | null>(
     null,
   );
@@ -1295,6 +1463,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       }>;
       startPlayback?: () => Promise<number> | number;
       audioSignalLabel?: AudioSurveyReferenceLabel;
+      referenceTrackId?: string;
+      referenceTrackName?: string;
       labels?: string[];
     }) => {
       const resumeRunner =
@@ -1304,6 +1474,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       const releaseActiveAcquisition = registerActiveAcquisitionOperation(
         "audio-reference-capture",
         activeSourceId,
+        { streamDeliveryPolicy: "lossless" },
       );
       let resumeAfterCapture = false;
       try {
@@ -1379,9 +1550,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               source,
               channels: surveyChannels,
               repository: audioSurveyRepository,
-              ...(input.liveCapture
-                ? { liveCapture: input.liveCapture }
-                : {}),
+              ...(input.liveCapture ? { liveCapture: input.liveCapture } : {}),
               ...(input.startPlayback
                 ? { startPlayback: input.startPlayback }
                 : {}),
