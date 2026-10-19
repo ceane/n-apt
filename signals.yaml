@@ -126,7 +126,7 @@ signals:
       # HackRF baseband filter bandwidth
       tuner_bandwidth: 3200000
     
-    # Frequency correction
+    # Frequency correction for the SDR's reference oscillator, in parts per million.
     ppm: 1.0
     
     # Display settings
