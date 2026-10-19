@@ -109,7 +109,12 @@ signals:
     # Center frequency for SDR
     center_frequency: !frequency 1.6MHz  # center of the sample rate
     
-    # SDR gain settings
+    # AGC made signals visible in observed runs, but its changing gain can
+    # shift the displayed noise floor and make the same signal look different
+    # at an unchanged center frequency and sample rate. Manual gain is used for
+    # repeatable spectrum views. Some devices need near-maximum manual gain to
+    # show signals, including strong FM; high gain can also raise noise or
+    # overload the receiver.
     gain:
       # Tuner gain in dB
       tuner_gain: !dB 46.9dB
