@@ -1848,6 +1848,54 @@ fn flatten_capture_frame_updates(
   flattened
 }
 
+fn capture_label_value<'a>(
+  labels: Option<&'a [String]>,
+  prefix: &str,
+) -> Option<&'a str> {
+  labels?
+    .iter()
+    .find_map(|label| label.strip_prefix(prefix))
+    .filter(|value| !value.trim().is_empty())
+}
+
+fn capture_filename_slug(value: &str, max_len: usize) -> String {
+  let mut slug = String::new();
+  let mut needs_separator = false;
+  for character in value.chars() {
+    if character.is_ascii_alphanumeric() {
+      if needs_separator && !slug.is_empty() && slug.len() < max_len {
+        slug.push('_');
+      }
+      needs_separator = false;
+      if slug.len() < max_len {
+        slug.push(character.to_ascii_lowercase());
+      }
+    } else if !slug.is_empty() {
+      needs_separator = true;
+    }
+    if slug.len() >= max_len {
+      break;
+    }
+  }
+  slug.trim_end_matches('_').to_string()
+}
+
+fn reference_track_filename_segment(labels: Option<&[String]>) -> Option<String> {
+  let track_id = capture_label_value(labels, "reference-track-id:")
+    .map(|value| capture_filename_slug(value, 32))
+    .filter(|value| !value.is_empty());
+  let track_name = capture_label_value(labels, "reference-track-name:")
+    .map(|value| capture_filename_slug(value, 48))
+    .filter(|value| !value.is_empty());
+
+  match (track_id, track_name) {
+    (Some(id), Some(name)) => Some(format!("{}_{}", id, name)),
+    (Some(id), None) => Some(id),
+    (None, Some(name)) => Some(name),
+    (None, None) => None,
+  }
+}
+
 /// Save capture IQ data to a file (.wav with metadata, or encrypted .napt).
 /// Supports multiple channels.
 pub fn save_capture_file_multi(
@@ -1883,13 +1931,26 @@ pub fn save_capture_file_multi(
     .map_err(|e| format!("Failed to create durable capture directory: {}", e))?;
 
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+  let track_filename_segment =
+    reference_track_filename_segment(result.capture_labels.as_deref())
+      .map(|segment| format!("_{segment}"))
+      .unwrap_or_default();
   let filename = if result.file_type == ".iq" {
-    format!("capture_{}_{}.iq", result.job_id, timestamp)
+    format!(
+      "capture_{}{}_{}.iq",
+      result.job_id, track_filename_segment, timestamp
+    )
   } else if result.file_type == ".napt" {
-    format!("capture_{}_{}.napt", result.job_id, timestamp)
+    format!(
+      "capture_{}{}_{}.napt",
+      result.job_id, track_filename_segment, timestamp
+    )
   } else {
     // default to wav for non-encrypted capture
-    format!("capture_{}_{}.wav", result.job_id, timestamp)
+    format!(
+      "capture_{}{}_{}.wav",
+      result.job_id, track_filename_segment, timestamp
+    )
   };
 
   let path = temp_dir.join(&filename);
@@ -1931,6 +1992,18 @@ pub fn save_capture_file_multi(
     if !labels.is_empty() {
       meta_obj["capture_labels"] = serde_json::json!(labels);
     }
+  }
+  if let Some(track_id) = capture_label_value(
+    result.capture_labels.as_deref(),
+    "reference-track-id:",
+  ) {
+    meta_obj["reference_track_id"] = serde_json::json!(track_id);
+  }
+  if let Some(track_name) = capture_label_value(
+    result.capture_labels.as_deref(),
+    "reference-track-name:",
+  ) {
+    meta_obj["reference_track_name"] = serde_json::json!(track_name);
   }
 
   if let Some((min_hz, max_hz)) = result.frequency_range {

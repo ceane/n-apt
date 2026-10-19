@@ -30,4 +30,26 @@ describe("active acquisition operations during Fast Refresh", () => {
       false,
     );
   });
+
+  it("keeps reference capture frames lossless until the capture lease is released", () => {
+    const demand =
+      require("@n-apt/app/infrastructure/streams/streamDeliveryDemand") as typeof import("@n-apt/app/infrastructure/streams/streamDeliveryDemand");
+    const registry =
+      require("@n-apt/spectrum/activeAcquisitionOperations") as typeof import("@n-apt/spectrum/activeAcquisitionOperations");
+    const sourceId = "rtl-reference-capture";
+
+    const release = registry.registerActiveAcquisitionOperation(
+      "audio-reference-capture",
+      sourceId,
+      { streamDeliveryPolicy: "lossless" },
+    );
+
+    expect(demand.getStreamDeliveryDemandPolicy({ sourceId, mode: "rx" })).toBe(
+      "lossless",
+    );
+    release();
+    expect(demand.getStreamDeliveryDemandPolicy({ sourceId, mode: "rx" })).toBe(
+      "latest",
+    );
+  });
 });

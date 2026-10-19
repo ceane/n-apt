@@ -580,7 +580,12 @@ export const buildDemodFlowGraph = (sourceMode: SourceMode): DemodFlowGraph => {
       position: { ...REFERENCE_CAPTURE_NODE_POSITIONS.channel },
       data: isFileSource
         ? { label: "Metadata", metadataNode: true }
-        : { label: "Channel", description: "Channel configuration", channelNode: true },
+        : {
+            label: "Channel",
+            description: "Channel configuration",
+            channelNode: true,
+            channelLabels: ["A", "B", "C"],
+          },
     },
     {
       id: "signal-config",
