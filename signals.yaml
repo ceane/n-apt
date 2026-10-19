@@ -106,8 +106,8 @@ signals:
       # Maximum logical spectrum update rate exposed to the frontend.
       max_frame_rate: 60
 
-    # Center frequency for SDR
-    center_frequency: !frequency 1.6MHz  # center of the sample rate
+    # Center frequency of the captured window; sample_rate sets its width.
+    center_frequency: !frequency 1.6MHz
     
     # AGC made signals visible in observed runs, but its changing gain can
     # shift the displayed noise floor and make the same signal look different
