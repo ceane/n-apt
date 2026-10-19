@@ -126,7 +126,9 @@ signals:
       # HackRF baseband filter bandwidth
       tuner_bandwidth: 3200000
     
-    # Frequency correction for the SDR's reference oscillator, in parts per million.
+    # In observed runs, N-APT comb spikes appear with PPM set to 1.0 or higher
+    # and are absent when PPM correction is disabled. The correction shifts the
+    # tuned frequency; the reason it affects spike visibility is not yet clear.
     ppm: 1.0
     
     # Display settings
