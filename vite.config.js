@@ -350,6 +350,59 @@ const styledComponentsFixPlugin = () => ({
   },
 });
 
+const connectionAllowlistPlugin = (browserEnv) => {
+  const backendOrigins = new Set();
+  const addBackendOrigin = (value) => {
+    if (!value) return;
+    try {
+      const url = new URL(value);
+      if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) return;
+      backendOrigins.add(`${url.protocol}//${url.host}/*`);
+    } catch {
+      // Ignore malformed optional backend URLs; Vite and the app will surface
+      // their own configuration errors when they attempt to use them.
+    }
+  };
+
+  addBackendOrigin(browserEnv.VITE_BACKEND_URL ?? "http://127.0.0.1:8765");
+  addBackendOrigin(browserEnv.VITE_WS_URL);
+  for (const originPattern of [...backendOrigins]) {
+    if (originPattern.startsWith("http://")) {
+      backendOrigins.add(originPattern.replace("http://", "ws://"));
+    } else if (originPattern.startsWith("https://")) {
+      backendOrigins.add(originPattern.replace("https://", "wss://"));
+    }
+  }
+
+  const destinations = [
+    ...backendOrigins,
+    "https://fonts.googleapis.com/*",
+    "https://fonts.gstatic.com/*",
+    "https://nominatim.openstreetmap.org/*",
+    "https://*.basemaps.cartocdn.com/*",
+  ];
+  const headerValue = `(${[
+    "response-origin",
+    ...destinations.map((destination) => `"${destination}"`),
+  ].join(" ")})`;
+  const applyHeader = (middlewares) => {
+    middlewares.use((_req, res, next) => {
+      res.setHeader("Connection-Allowlist", headerValue);
+      next();
+    });
+  };
+
+  return {
+    name: "n-apt-connection-allowlist",
+    configureServer(server) {
+      applyHeader(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      applyHeader(server.middlewares);
+    },
+  };
+};
+
 const rebuildStatusPlugin = () => ({
   name: "n-apt-rebuild-status",
   configureServer(server) {
@@ -457,6 +510,7 @@ export default defineConfig(({ mode }) => {
   plugins: [
     injectBrowserEnv(browserEnv),
     frontendContentSecurityPolicyPlugin(browserEnv, mode === "production"),
+    connectionAllowlistPlugin(browserEnv),
     styledComponentsFixPlugin(),
     rebuildStatusPlugin(),
     markdownForAgentsPlugin(),

@@ -148,5 +148,14 @@ for (const config of [
       "normal frontend source should remain available to Vite",
     );
     assert.match(await appModule.text(), /appModule/);
+    if (config === "vite.config.js") {
+      const connectionAllowlist = appModule.headers.get("connection-allowlist");
+      assert.ok(connectionAllowlist, "app responses should carry a connection allowlist");
+      assert.match(connectionAllowlist, /^\(response-origin /);
+      assert.ok(connectionAllowlist.includes('"http://127.0.0.1:8765/*"'));
+      assert.ok(connectionAllowlist.includes('"ws://127.0.0.1:8765/*"'));
+      assert.ok(connectionAllowlist.includes('"https://nominatim.openstreetmap.org/*"'));
+      assert.ok(connectionAllowlist.includes('"https://*.basemaps.cartocdn.com/*"'));
+    }
   });
 }
