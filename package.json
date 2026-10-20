@@ -91,7 +91,7 @@
     "test:e2e": "playwright test",
     "test:e2e:encrypted-ml": "playwright test --config=playwright.encrypted-ml.config.ts",
     "test:all": "npm run test && npm run test:security-scripts && npm run test:rust && npm run test:integration && npm run test:e2e && npm run test:e2e:encrypted-ml",
-    "test:security-scripts": "node --test test/scripts/security-scripts.test.mjs test/scripts/article-server-security.test.mjs test/scripts/vite-env-security.test.mjs && npm run test:encrypted-ml:contract",
+    "test:security-scripts": "node --test test/scripts/security-scripts.test.mjs test/scripts/article-server-security.test.mjs test/scripts/vite-env-security.test.mjs test/scripts/frontend-csp.test.mjs && npm run test:encrypted-ml:contract",
     "test:architecture": "jest --runInBand test/ts/componentArchitecture.test.ts",
     "test:iq-capture": "cargo test --profile dev-incremental --test iq_capture_integration_tests && npm run test:iq-capture:cross-language && npm run test:classifier-captures && npm run test:capture-tools",
     "test:iq-capture:install": "cargo test --profile dev-incremental --test iq_capture_integration_tests",
