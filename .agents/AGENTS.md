@@ -21,6 +21,14 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
   article changes.
 - Do not use browser automation for testing. If frontend testing is necessary,
   use `http://localhost:5173`; `127.0.0.1` is blocked.
+- Never pass passwords, tokens, or other secrets as shell or CLI arguments,
+  including to `npm`, `npx`, or browser automation tools; launchers and wrappers
+  can echo arguments into notices or logs. For local browser login, use a
+  credential provider or auth vault with a stdin-based secret input, or an
+  in-process browser script that reads the secret directly from its protected
+  source and never logs or serializes it. Keep secrets out of tool call text,
+  process arguments, command output, screenshots, and saved browser state unless
+  persistence was explicitly requested.
 - Do not preserve backwards compatibility.
 - Prefer inspecting code and focused tests over repeating broad verification.
 - Use the Act MCP tool for repository searches, except when it is sensitve to use such as during a security review.
