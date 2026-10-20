@@ -262,7 +262,7 @@ export const selectBrowserEnv = (env) =>
     Object.entries(env).filter(([key]) => PUBLIC_BROWSER_ENV_KEYS.has(key)),
   );
 
-const frontendContentSecurityPolicyPlugin = (browserEnv) => {
+const frontendContentSecurityPolicyPlugin = (browserEnv, reportOnly) => {
   const backendConnectSources = new Set(["'self'"]);
   const addBackendSource = (value, fallbackProtocol) => {
     try {
@@ -285,6 +285,13 @@ const frontendContentSecurityPolicyPlugin = (browserEnv) => {
   backendConnectSources.add("https://*.xethub.hf.co");
 
   const applyPolicy = (middlewares, isDev) => {
+    const scriptSrc = ["'self'", "'wasm-unsafe-eval'"];
+    if (isDev) {
+      // Vite's React Refresh runtime is injected as an inline module script.
+      // The development policy allows it; production preview stays strict.
+      scriptSrc.push("'unsafe-inline'");
+    }
+
     middlewares.use((req, res, next) => {
       const connectSources = new Set(backendConnectSources);
       if (isDev && typeof req.headers.host === "string") {
@@ -300,14 +307,16 @@ const frontendContentSecurityPolicyPlugin = (browserEnv) => {
       }
 
       res.setHeader(
-        "Content-Security-Policy",
+        reportOnly
+          ? "Content-Security-Policy-Report-Only"
+          : "Content-Security-Policy",
         [
           "default-src 'self'",
           "base-uri 'self'",
           "object-src 'none'",
           "frame-ancestors 'none'",
           "form-action 'self'",
-          "script-src 'self' 'wasm-unsafe-eval'",
+          `script-src ${scriptSrc.join(" ")}`,
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' data: https://fonts.gstatic.com",
           "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
@@ -447,7 +456,7 @@ export default defineConfig(({ mode }) => {
   },
   plugins: [
     injectBrowserEnv(browserEnv),
-    frontendContentSecurityPolicyPlugin(browserEnv),
+    frontendContentSecurityPolicyPlugin(browserEnv, mode === "production"),
     styledComponentsFixPlugin(),
     rebuildStatusPlugin(),
     markdownForAgentsPlugin(),
