@@ -380,6 +380,8 @@ const connectionAllowlistPlugin = (browserEnv) => {
     "https://fonts.gstatic.com/*",
     "https://nominatim.openstreetmap.org/*",
     "https://*.basemaps.cartocdn.com/*",
+    "https://huggingface.co/*",
+    "https://*.hf.co/*",
   ];
   const headerValue = `(${[
     "response-origin",

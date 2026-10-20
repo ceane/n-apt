@@ -156,6 +156,8 @@ for (const config of [
       assert.ok(connectionAllowlist.includes('"ws://127.0.0.1:8765/*"'));
       assert.ok(connectionAllowlist.includes('"https://nominatim.openstreetmap.org/*"'));
       assert.ok(connectionAllowlist.includes('"https://*.basemaps.cartocdn.com/*"'));
+      assert.ok(connectionAllowlist.includes('"https://huggingface.co/*"'));
+      assert.ok(connectionAllowlist.includes('"https://*.hf.co/*"'));
     }
   });
 }
