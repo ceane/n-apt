@@ -237,6 +237,13 @@ async fn test_server_status_endpoint() {
   // Test /status
   let response = server.get("/status").await;
   response.assert_status_ok();
+  assert_eq!(
+    response
+      .headers()
+      .get("connection-allowlist")
+      .and_then(|value| value.to_str().ok()),
+    Some("(response-origin)"),
+  );
 
   let json = response.json::<serde_json::Value>();
   let meta = json.get("meta").expect("Expected 'meta' field");

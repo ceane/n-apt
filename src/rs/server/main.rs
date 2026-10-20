@@ -294,6 +294,10 @@ impl websocket_server::WebSocketServer {
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("connection-allowlist"),
+        HeaderValue::from_static("(response-origin)"),
       ));
 
     // Protected control and diagnostic endpoints
