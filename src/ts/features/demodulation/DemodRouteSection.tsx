@@ -6,12 +6,14 @@ import React, {
   useState,
 } from "react";
 import styled from "styled-components";
+import { LayoutGrid } from "lucide-react";
 import {
   ReactFlow,
   Node,
   Edge,
   Background,
   Controls,
+  ControlButton,
   addEdge,
   useReactFlow,
   Connection,
@@ -987,6 +989,105 @@ const DemodRouteSectionInner: React.FC = () => {
     [measureAndLayout],
   );
 
+  const handleTidyNodes = useCallback(() => {
+    const flowNodes = nodesRef.current.filter((node) => !node.hidden);
+    if (flowNodes.length === 0) return;
+
+    // Cancel any older async layout so it cannot undo this explicit user action.
+    layoutRunIdRef.current += 1;
+    layoutCacheRef.current.clear();
+
+    const nodeIds = new Set(flowNodes.map((node) => node.id));
+    const incomingCount = new Map(flowNodes.map((node) => [node.id, 0]));
+    const outgoing = new Map(flowNodes.map((node) => [node.id, [] as string[]]));
+    edgesRef.current.forEach((edge) => {
+      if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
+      outgoing.get(edge.source)?.push(edge.target);
+      incomingCount.set(
+        edge.target,
+        (incomingCount.get(edge.target) ?? 0) + 1,
+      );
+    });
+
+    // Layer the DAG from its source nodes. Nodes in each layer are laid out in
+    // a centered row, with spacing based on their measured sizes.
+    const levels = new Map<string, number>();
+    const ready = flowNodes
+      .filter((node) => incomingCount.get(node.id) === 0)
+      .map((node) => node.id);
+    for (const id of ready) levels.set(id, 0);
+    for (let index = 0; index < ready.length; index += 1) {
+      const sourceId = ready[index];
+      for (const targetId of outgoing.get(sourceId) ?? []) {
+        levels.set(
+          targetId,
+          Math.max(levels.get(targetId) ?? 0, (levels.get(sourceId) ?? 0) + 1),
+        );
+        const remaining = (incomingCount.get(targetId) ?? 1) - 1;
+        incomingCount.set(targetId, remaining);
+        if (remaining === 0) ready.push(targetId);
+      }
+    }
+    // Cycles or disconnected leftovers still get deterministic positions.
+    flowNodes.forEach((node) => {
+      if (!levels.has(node.id)) levels.set(node.id, 0);
+    });
+
+    const layers = new Map<number, Node[]>();
+    flowNodes.forEach((node) => {
+      const level = levels.get(node.id) ?? 0;
+      const layer = layers.get(level) ?? [];
+      layer.push(node);
+      layers.set(level, layer);
+    });
+    const sizeOf = (node: Node) => ({
+      width:
+        node.measured?.width ??
+        node.width ??
+        lastMeasuredSizesRef.current.get(node.id)?.w ??
+        360,
+      height:
+        node.measured?.height ??
+        node.height ??
+        lastMeasuredSizesRef.current.get(node.id)?.h ??
+        240,
+    });
+    const nodeGap = 80;
+    const layerGap = 100;
+    const layerWidths = new Map<number, number>();
+    const layerHeights = new Map<number, number>();
+    let widestLayer = 0;
+    for (const [level, layer] of layers) {
+      const width =
+        layer.reduce((sum, node) => sum + sizeOf(node).width, 0) +
+        nodeGap * Math.max(0, layer.length - 1);
+      const height = Math.max(...layer.map((node) => sizeOf(node).height));
+      layerWidths.set(level, width);
+      layerHeights.set(level, height);
+      widestLayer = Math.max(widestLayer, width);
+    }
+
+    const positions = new Map<string, { x: number; y: number }>();
+    let y = 0;
+    for (const level of [...layers.keys()].sort((left, right) => left - right)) {
+      const layer = layers.get(level) ?? [];
+      let x = (widestLayer - (layerWidths.get(level) ?? 0)) / 2;
+      for (const node of layer) {
+        positions.set(node.id, { x, y });
+        x += sizeOf(node).width + nodeGap;
+      }
+      y += (layerHeights.get(level) ?? 0) + layerGap;
+    }
+
+    setNodesLocal((currentNodes) =>
+      currentNodes.map((node) => {
+        const position = positions.get(node.id);
+        return position ? { ...node, position } : node;
+      }),
+    );
+    frameAfterLayout(true);
+  }, [frameAfterLayout, setNodesLocal]);
+
   // A fit needs real boxes, and a node type that never reports one must not hold
   // every framing pass off (that leaves the graph at 1:1 off the origin), so the
   // wait for measurement is bounded.
@@ -1425,7 +1526,16 @@ const DemodRouteSectionInner: React.FC = () => {
             size={1}
             color="#666"
           />
-          <Controls />
+          <Controls position="top-left">
+            <ControlButton
+              type="button"
+              title="Tidy Nodes"
+              aria-label="Tidy Nodes"
+              onClick={handleTidyNodes}
+            >
+              <LayoutGrid aria-hidden="true" size={14} />
+            </ControlButton>
+          </Controls>
         </StyledReactFlow>
       </VisibleFrequencyRangeContext.Provider>
 
