@@ -169,6 +169,14 @@ interface OutputNodeProps {
   };
 }
 
+const getDemodDatasetModality = (
+  vector?: string,
+): "audio" | "vision" | "speech" =>
+  vector === "vision" ? "vision" : vector === "speech" ? "speech" : "audio";
+
+const getDemodDatasetLabel = (vector?: string): string =>
+  `Hugging Face Dataset (${getDemodDatasetModality(vector)})`;
+
 export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
   const { sessionToken } = useAuthentication();
   const [saveStatus, setSaveStatus] = React.useState("");
@@ -216,6 +224,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
         token: sessionToken,
         jobId: result.jobId,
         section: "demod",
+        modality: getDemodDatasetModality(data.vector),
       });
       const response = await fetch(
         `/api/capture/save/huggingface?${query.toString()}`,
@@ -303,7 +312,7 @@ export const OutputNode: React.FC<OutputNodeProps> = ({ data }) => {
               {result.isEphemeral
                 ? "Ephemeral (discarded)"
                 : outputDestination === "huggingface"
-                  ? "Hugging Face dataset"
+                  ? getDemodDatasetLabel(data.vector)
                   : "Local Downloads"}
             </MetadataValue>
           </MetadataRow>
