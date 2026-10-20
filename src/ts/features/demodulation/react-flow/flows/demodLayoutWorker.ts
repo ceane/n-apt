@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import elkWorkerUrl from "elkjs/lib/elk-worker.min.js?url";
+
 interface DemodLayoutRequest {
   kind: "layout";
   runId: number;
@@ -19,47 +21,29 @@ interface DemodLayoutFailure {
   error: string;
 }
 
-type ElkInstance = {
-  layout: (graph: unknown) => Promise<{
+interface ElkInstance {
+  layout: (graph: {
+    id: string;
+    layoutOptions: Record<string, string>;
+    children: { id: string; width: number; height: number }[];
+    edges: { id: string; sources: string[]; targets: string[] }[];
+  }) => Promise<{
     children?: { id?: string; x?: number; y?: number }[];
   }>;
-};
+}
+
+type ElkConstructor = new (options: { workerUrl: string }) => ElkInstance;
 
 let elkInstancePromise: Promise<ElkInstance> | null = null;
 
 const resolveElkInstance = (): Promise<ElkInstance> => {
-  elkInstancePromise ??= Promise.all([
-    import("elkjs/lib/elk-api.js"),
-    import("elkjs/lib/elk-worker.min.js"),
-  ]).then(([apiModule, workerModule]) => {
-    const apiCandidate = apiModule as {
-      default?: unknown;
-      ELK?: unknown;
-    };
-    const workerCandidate = workerModule as {
-      default?: unknown;
-      Worker?: unknown;
-    };
-    const apiValues = [apiCandidate.default, apiCandidate.ELK, apiModule];
-    const workerValues = [
-      workerCandidate.Worker,
-      (workerCandidate.default as { Worker?: unknown } | undefined)?.Worker,
-      workerCandidate.default,
-    ];
-    const ElkConstructor = apiValues.find(
-      (value): value is new (options: {
-        workerFactory: () => unknown;
-      }) => ElkInstance => typeof value === "function",
-    );
-    const ElkWorkerConstructor = workerValues.find(
-      (value): value is new () => unknown => typeof value === "function",
-    );
-    if (!ElkConstructor || !ElkWorkerConstructor) {
-      throw new Error("Unable to resolve the ELK layout constructors");
-    }
-    return new ElkConstructor({
-      workerFactory: () => new ElkWorkerConstructor(),
-    });
+  elkInstancePromise ??= import("elkjs/lib/elk-api.js").then(() => {
+    // elk-api.js is a UMD bundle: importing it for its side effect installs
+    // the constructor on the worker global instead of exporting it as ESM.
+    const Elk = (self as DedicatedWorkerGlobalScope & { ELK?: ElkConstructor })
+      .ELK;
+    if (!Elk) throw new Error("ELK layout constructor did not load");
+    return new Elk({ workerUrl: elkWorkerUrl });
   });
   return elkInstancePromise;
 };
