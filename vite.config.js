@@ -262,6 +262,75 @@ export const selectBrowserEnv = (env) =>
     Object.entries(env).filter(([key]) => PUBLIC_BROWSER_ENV_KEYS.has(key)),
   );
 
+const frontendContentSecurityPolicyPlugin = (browserEnv) => {
+  const backendConnectSources = new Set(["'self'"]);
+  const addBackendSource = (value, fallbackProtocol) => {
+    try {
+      const url = new URL(value);
+      if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) return;
+      backendConnectSources.add(url.origin);
+      if (fallbackProtocol && ["http:", "https:"].includes(url.protocol)) {
+        backendConnectSources.add(`${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}`);
+      }
+    } catch {
+      // Invalid optional backend URLs are handled by the app when it connects.
+    }
+  };
+
+  addBackendSource(browserEnv.VITE_BACKEND_URL ?? "http://127.0.0.1:8765", true);
+  addBackendSource(browserEnv.VITE_WS_URL);
+  backendConnectSources.add("https://nominatim.openstreetmap.org");
+  backendConnectSources.add("https://huggingface.co");
+  backendConnectSources.add("https://cdn-lfs.huggingface.co");
+  backendConnectSources.add("https://*.xethub.hf.co");
+
+  const applyPolicy = (middlewares, isDev) => {
+    middlewares.use((req, res, next) => {
+      const connectSources = new Set(backendConnectSources);
+      if (isDev && typeof req.headers.host === "string") {
+        try {
+          const host = req.headers.host;
+          const url = new URL(`http://${host}`);
+          if (url.host === host && !url.username && !url.password) {
+            connectSources.add(`${req.socket.encrypted ? "wss" : "ws"}://${url.host}`);
+          }
+        } catch {
+          // Ignore malformed Host headers; Vite HMR can still use its configured URL.
+        }
+      }
+
+      res.setHeader(
+        "Content-Security-Policy",
+        [
+          "default-src 'self'",
+          "base-uri 'self'",
+          "object-src 'none'",
+          "frame-ancestors 'none'",
+          "form-action 'self'",
+          "script-src 'self' 'wasm-unsafe-eval'",
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+          "font-src 'self' data: https://fonts.gstatic.com",
+          "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
+          "media-src 'self' blob:",
+          `connect-src ${[...connectSources].join(" ")}`,
+          "worker-src 'self' blob:",
+        ].join("; "),
+      );
+      next();
+    });
+  };
+
+  return {
+    name: "n-apt-frontend-content-security-policy",
+    configureServer(server) {
+      applyPolicy(server.middlewares, true);
+    },
+    configurePreviewServer(server) {
+      applyPolicy(server.middlewares, false);
+    },
+  };
+};
+
 const styledComponentsFixPlugin = () => ({
   name: 'styled-components-fix',
   async resolveId(id) {
@@ -378,6 +447,7 @@ export default defineConfig(({ mode }) => {
   },
   plugins: [
     injectBrowserEnv(browserEnv),
+    frontendContentSecurityPolicyPlugin(browserEnv),
     styledComponentsFixPlugin(),
     rebuildStatusPlugin(),
     markdownForAgentsPlugin(),
