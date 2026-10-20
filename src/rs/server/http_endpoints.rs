@@ -1114,6 +1114,7 @@ pub struct HuggingFaceCaptureSaveQuery {
   token: String,
   job_id: String,
   section: Option<String>,
+  modality: Option<String>,
   split: Option<String>,
 }
 
@@ -1142,6 +1143,18 @@ fn default_huggingface_repo_path() -> PathBuf {
     .parent()
     .unwrap_or_else(|| Path::new("."))
     .join("n-apt-ml")
+}
+
+fn demod_capture_relative_directory(modality: &str) -> Option<PathBuf> {
+  let modality_directory = match modality {
+    "audio" => "audio",
+    "vision" => "vision",
+    "speech" => "speech",
+    _ => return None,
+  };
+  Some(
+    PathBuf::from("training-captures/demod").join(modality_directory),
+  )
 }
 
 fn configured_huggingface_repo_path() -> Option<PathBuf> {
@@ -1186,7 +1199,7 @@ fn configured_dataset_path_is_safe(root: &Path, candidate: &Path) -> bool {
 mod huggingface_path_tests {
   use super::{
     configured_dataset_path_is_safe, default_huggingface_repo_path,
-    display_path_from_home,
+    demod_capture_relative_directory, display_path_from_home,
   };
   use std::path::PathBuf;
 
@@ -1228,6 +1241,23 @@ mod huggingface_path_tests {
     let home = std::env::var_os("HOME").map(PathBuf::from).expect("home directory");
     let display = display_path_from_home(&home.join("codescratch.nosync/n-apt-ml"));
     assert_eq!(display, "~/codescratch.nosync/n-apt-ml");
+  }
+
+  #[test]
+  fn demod_capture_destination_is_partitioned_by_modality() {
+    assert_eq!(
+      demod_capture_relative_directory("audio"),
+      Some(PathBuf::from("training-captures/demod/audio")),
+    );
+    assert_eq!(
+      demod_capture_relative_directory("vision"),
+      Some(PathBuf::from("training-captures/demod/vision")),
+    );
+    assert_eq!(
+      demod_capture_relative_directory("speech"),
+      Some(PathBuf::from("training-captures/demod/speech")),
+    );
+    assert_eq!(demod_capture_relative_directory("unknown"), None);
   }
 }
 
@@ -1707,7 +1737,20 @@ pub async fn save_capture_to_huggingface_handler(
   let section = params.section.as_deref().unwrap_or("evidentiary");
   let relative_directory = match section {
     "evidentiary" => PathBuf::from("training-captures/evidentiary/captures"),
-    "demod" => PathBuf::from("training-captures/demod"),
+    "demod" => match demod_capture_relative_directory(
+      params.modality.as_deref().unwrap_or("audio"),
+    ) {
+      Some(directory) => directory,
+      None => {
+        return (
+          StatusCode::BAD_REQUEST,
+          Json(serde_json::json!({
+            "error": "demod modality must be audio, vision, or speech"
+          })),
+        )
+          .into_response()
+      }
+    },
     "classification" => {
       let split = match params.split.as_deref() {
         Some("train") => "train",
@@ -1771,15 +1814,6 @@ pub async fn save_capture_to_huggingface_handler(
   };
   let mut saved = Vec::new();
   for artifact in &artifacts {
-    let relative_directory = if section == "demod" {
-      if artifact.filename.ends_with(".wav") {
-        relative_directory.join("audio")
-      } else {
-        relative_directory.join("reference_captures")
-      }
-    } else {
-      relative_directory.clone()
-    };
     let directory = repo_path.join(&relative_directory);
     if !configured_dataset_path_is_safe(&repo_path, &directory) {
       return (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({
@@ -3973,6 +4007,7 @@ mod classifier_dataset_label_tests {
       token: "not-used-by-helper".into(),
       job_id: format!("classifier_{}", "a".repeat(64)),
       section: Some("classification".into()),
+      modality: None,
       split: Some("validation".into()),
     };
     let artifacts = vec![

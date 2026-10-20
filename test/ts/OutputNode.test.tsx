@@ -172,7 +172,7 @@ describe("OutputNode", () => {
     const fetchSpy = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        files: ["training-captures/demod/reference_captures/reference-1.napt.enc"],
+        files: ["training-captures/demod/audio/reference-1.napt.enc"],
       }),
     } as Response);
     Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetchSpy });
@@ -197,15 +197,60 @@ describe("OutputNode", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Hugging Face dataset")).toBeInTheDocument();
+    expect(screen.getByText("Hugging Face Dataset (audio)")).toBeInTheDocument();
     expect(screen.getByText("reference-1.napt")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save encrypted to Hugging Face" }));
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
-        "Saved encrypted training-captures/demod/reference_captures/reference-1.napt.enc to Hugging Face.",
+        "Saved encrypted training-captures/demod/audio/reference-1.napt.enc to Hugging Face.",
       ),
     );
-    expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("section=demod"), { method: "POST" });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("section=demod"),
+      { method: "POST" },
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("modality=audio"),
+      { method: "POST" },
+    );
+    expect(screen.getByText("Hugging Face Dataset (audio)")).toBeInTheDocument();
+    Reflect.deleteProperty(globalThis, "fetch");
+  });
+
+  it.each([
+    ["vision", "Hugging Face Dataset (vision)"],
+    ["speech", "Hugging Face Dataset (speech)"],
+  ])("labels and routes the %s dataset destination", async (vector, expectedLabel) => {
+    const fetchSpy = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ files: [] }),
+    } as Response);
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetchSpy });
+    render(
+      <TestWrapper>
+        <OutputNode
+          data={{
+            label: "Output",
+            outputDestination: "huggingface",
+            vector,
+            result: {
+              jobId: "modality-result",
+              confidence: 0.9,
+              fileName: "modality.napt",
+            },
+          }}
+        />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save encrypted to Hugging Face" }));
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`modality=${vector}`),
+        { method: "POST" },
+      ),
+    );
     Reflect.deleteProperty(globalThis, "fetch");
   });
 });
