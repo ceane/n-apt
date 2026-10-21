@@ -230,8 +230,8 @@
     "styled-components": "6.5.3",
     "tailwind-merge": "3.7.0",
     "three": "0.185.1",
-    "unist-util-visit": "^5.1.0",
     "unified": "11.0.5",
+    "unist-util-visit": "^5.1.0",
     "vaul": "1.1.2",
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
@@ -290,7 +290,7 @@
     "ts-jest": "29.4.12",
     "tsx": "4.23.13",
     "typescript": "7.0.2",
-    "vite": "8.3.0",
+    "vite": "8.3.3",
     "vite-plugin-glsl": "^1.5.6",
     "vitest": "5.0.0",
     "wgsl-test": "0.2.35"
