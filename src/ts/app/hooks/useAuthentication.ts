@@ -22,6 +22,8 @@ import {
   fetchAuthInfo,
   fetchServerStatus,
   fetchVaultKey,
+  fetchFidoVaultUnlocked,
+  unlockFidoVaultWithRecovery,
   clearSession,
   logoutSession,
   type AuthInfo,
@@ -31,7 +33,9 @@ import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
 interface UseAuthenticationReturn extends AuthenticationState {
   handlePasswordAuth: (password: string) => Promise<void>;
   handlePasskeyAuth: () => Promise<void>;
+  handleFidoKeyAuth: () => Promise<void>;
   handleRegisterPasskey: (password?: string) => Promise<void>;
+  handleRegisterFidoKey: (password?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -54,7 +58,9 @@ const initialState: AuthenticationState = {
   authError: null,
   sessionToken: null,
   aesKey: null,
+  fidoVaultUnlocked: false,
   hasPasskeys: getInitialHasPasskeys(),
+  hasFidoSecurityKey: false,
   isInitialAuthCheck: true,
 };
 
@@ -82,7 +88,9 @@ export const AuthProvider: React.FC<{
       auth.authError,
       auth.sessionToken,
       auth.aesKey,
+      auth.fidoVaultUnlocked,
       auth.hasPasskeys,
+      auth.hasFidoSecurityKey,
       auth.isInitialAuthCheck,
     ],
   );
@@ -201,6 +209,7 @@ const useAuthenticationInternal = (
               type: "READY",
               hasPasskeys: effectiveHasPasskeys,
             });
+            dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key && isWebAuthnAvailable });
             stopHeartbeat();
             return;
           }
@@ -258,6 +267,7 @@ const useAuthenticationInternal = (
               type: "SET_PASSKEYS",
               hasPasskeys: effectiveHasPasskeys,
             });
+            dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key && isWebAuthnAvailable });
           }
         } catch {
           if (!cancelled) {
@@ -283,6 +293,8 @@ const useAuthenticationInternal = (
                   sessionToken: storedToken,
                   aesKey: key,
                 });
+                const fidoUnlocked = await fetchFidoVaultUnlocked(storedToken);
+                dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: fidoUnlocked });
                 return;
               }
               throw new Error("Could not fetch vault key for session");
@@ -310,6 +322,7 @@ const useAuthenticationInternal = (
             // Safari private mode - localStorage not available
           }
           dispatch({ type: "READY", hasPasskeys: effectiveHasPasskeys });
+          dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key && isWebAuthnAvailable });
         }
       } catch {
         if (!cancelled) {
@@ -347,6 +360,8 @@ const useAuthenticationInternal = (
         sessionToken: result.token,
         aesKey: key,
       });
+      const fidoUnlocked = await unlockFidoVaultWithRecovery(result.token, password);
+      dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: fidoUnlocked });
     } catch (e: any) {
       if (
         e?.message?.includes("Server disconnected") ||
@@ -363,10 +378,10 @@ const useAuthenticationInternal = (
     }
   }, []);
 
-  const handlePasskeyAuth = useCallback(async () => {
+  const authenticateWithWebAuthn = useCallback(async (fidoSecurityKey: boolean) => {
     dispatch({ type: "AUTHENTICATING" });
     try {
-      const result = await authenticateWithPasskey();
+      const result = await authenticateWithPasskey(fidoSecurityKey);
       const vaultKeyB64 = await fetchVaultKey(result.token);
       if (!vaultKeyB64) {
         throw new Error(
@@ -379,11 +394,13 @@ const useAuthenticationInternal = (
         sessionToken: result.token,
         aesKey: key,
       });
+      dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: Boolean(result.fido_vault_unlocked) });
     } catch (e: any) {
-      const errorMessage = e.message || "Passkey authentication failed";
+      const errorMessage = e.message || (fidoSecurityKey ? "FIDO security-key authentication failed" : "Passkey authentication failed");
       if (
         errorMessage.includes("Server disconnected") ||
         errorMessage.includes("Failed to start passkey authentication") ||
+        errorMessage.includes("Failed to start FIDO security-key authentication") ||
         errorMessage.includes("The app isn't running")
       ) {
         dispatch({ type: "SERVER_DOWN" });
@@ -403,8 +420,10 @@ const useAuthenticationInternal = (
       }
     }
   }, []);
+  const handlePasskeyAuth = useCallback(() => authenticateWithWebAuthn(false), [authenticateWithWebAuthn]);
+  const handleFidoKeyAuth = useCallback(() => authenticateWithWebAuthn(true), [authenticateWithWebAuthn]);
 
-  const handleRegisterPasskey = useCallback(async (password?: string) => {
+  const registerWebAuthnCredential = useCallback(async (password: string | undefined, fidoSecurityKey: boolean) => {
     // Check if WebAuthn is available before attempting registration
     if (!isWebAuthnAvailable) {
       dispatch({
@@ -416,7 +435,7 @@ const useAuthenticationInternal = (
 
     try {
       dispatch({ type: "AUTHENTICATING" });
-      await registerPasskey(password);
+      await registerPasskey(password, fidoSecurityKey);
       const info = await fetchAuthInfo();
       // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
       const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
@@ -429,13 +448,17 @@ const useAuthenticationInternal = (
         // Safari private mode - localStorage not available
       }
       dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: effectiveHasPasskeys });
+      dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key && isWebAuthnAvailable });
+      dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: fidoSecurityKey });
     } catch (e: any) {
       dispatch({
         type: "AUTH_FAILED",
-        error: e.message || "Passkey registration failed",
+        error: e.message || (fidoSecurityKey ? "FIDO security-key enrollment failed" : "Passkey registration failed"),
       });
     }
   }, [isWebAuthnAvailable]);
+  const handleRegisterPasskey = useCallback((password?: string) => registerWebAuthnCredential(password, false), [registerWebAuthnCredential]);
+  const handleRegisterFidoKey = useCallback((password?: string) => registerWebAuthnCredential(password, true), [registerWebAuthnCredential]);
 
   const logout = useCallback(async () => {
     if (state.sessionToken) await logoutSession(state.sessionToken);
@@ -448,7 +471,9 @@ const useAuthenticationInternal = (
     ...state,
     handlePasswordAuth,
     handlePasskeyAuth,
+    handleFidoKeyAuth,
     handleRegisterPasskey,
+    handleRegisterFidoKey,
     logout,
   };
 };

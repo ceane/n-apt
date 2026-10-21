@@ -112,6 +112,7 @@ export const IQCaptureNode = memo(
       "stepwise" | "interleaved" | "whole_sample"
     >("whole_sample");
     const [captureEncrypted, setCaptureEncrypted] = useState(true);
+    const [captureFidoVault, setCaptureFidoVault] = useState(false);
     const [capturePlayback, setCapturePlayback] = useState(false);
     const [captureGeolocation, setCaptureGeolocation] = useState(false);
 
@@ -333,7 +334,10 @@ export const IQCaptureNode = memo(
             captureDurationMode === "timed" ? captureDurationS : undefined,
           fileType: captureFileType,
           acquisitionMode,
-          encrypted: captureEncrypted,
+          encrypted:
+            captureFileType === ".napt" ||
+            (captureFileType === ".iq" && (captureEncrypted || captureFidoVault)),
+          fidoVault: captureFidoVault && captureFileType !== ".wav",
           fftSize,
           fftWindow,
           geolocation: geolocation ?? undefined,
@@ -360,6 +364,7 @@ export const IQCaptureNode = memo(
           captureFileType={captureFileType}
           acquisitionMode={acquisitionMode}
           captureEncrypted={captureEncrypted}
+          captureFidoVault={captureFidoVault}
           capturePlayback={capturePlayback}
           captureGeolocation={captureGeolocation}
           captureRange={captureRange}
@@ -373,6 +378,7 @@ export const IQCaptureNode = memo(
           onCaptureFileTypeChange={setCaptureFileType}
           onAcquisitionModeChange={setAcquisitionMode}
           onCaptureEncryptedChange={setCaptureEncrypted}
+          onCaptureFidoVaultChange={setCaptureFidoVault}
           onCapturePlaybackChange={setCapturePlayback}
           onCaptureGeolocationChange={setCaptureGeolocation}
           onCapture={handleCapture}

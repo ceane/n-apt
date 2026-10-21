@@ -24,6 +24,7 @@ pub struct CaptureStartRequest {
   pub file_type: String,
   pub acquisition_mode: String,
   pub encrypted: bool,
+  pub fido_vault: bool,
   pub sample_rate: Option<u32>,
   pub fft_size: usize,
   pub fft_window: String,
@@ -97,6 +98,7 @@ impl CaptureWorker {
       file_type,
       acquisition_mode,
       encrypted,
+      fido_vault,
       sample_rate,
       fft_size,
       fft_window,
@@ -110,6 +112,31 @@ impl CaptureWorker {
     let shared_state = self.shared_state.clone();
     let broadcast_tx = self.broadcast_tx.clone();
     let mut processor = self.processor.lock().await;
+
+    let fido_key = if fido_vault {
+      let key = *shared_state.fido_vault_key.lock().unwrap();
+      let recovery = shared_state.fido_vault_recovery_wrapper.lock().unwrap().clone();
+      match (key, recovery) {
+        (Some(key), Some(recovery))
+          if encrypted && (file_type == ".iq" || file_type == ".napt") =>
+        {
+          Some((key, recovery))
+        }
+        _ => {
+          reject_capture_start(
+            &shared_state,
+            &broadcast_tx,
+            &job_id,
+            source_id.as_deref(),
+            "fido_vault_locked",
+            "Unlock the FIDO capture vault and choose encrypted .iq or .napt capture before recording",
+          );
+          return;
+        }
+      }
+    } else {
+      None
+    };
 
     // Device-scoped guard (single-Rx mode): the currently supported radios —
     // simplex and half-duplex devices with one Rx pipeline — can run exactly
@@ -296,6 +323,9 @@ impl CaptureWorker {
 
     processor.capture_current_fragment = 0;
     processor.capture_encrypted = encrypted;
+    processor.capture_fido_vault = fido_vault;
+    processor.capture_vault_key = fido_key.as_ref().map(|(key, _)| *key);
+    processor.capture_vault_recovery_wrapper = fido_key.map(|(_, wrapper)| wrapper);
     processor.capture_actual_frames = 0;
     processor.capture_fft_size = effective_fft_size;
     processor.capture_fft_window = effective_window_name;
@@ -555,7 +585,7 @@ impl CaptureWorker {
     });
     let _ = broadcast_tx.send(processing_msg.to_string());
 
-    let enc_key = shared_state.encryption_key;
+    let enc_key = result.vault_key.unwrap_or(shared_state.encryption_key);
     let shared_clone = shared_state.clone();
     let bcast = broadcast_tx.clone();
     // Async end-to-end: only the blocking file write runs on the blocking
@@ -616,7 +646,7 @@ fn spawn_capture_persistence(
   shared_state: Arc<SharedState>,
   broadcast_tx: broadcast::Sender<String>,
 ) {
-  let enc_key = shared_state.encryption_key;
+  let enc_key = result.vault_key.unwrap_or(shared_state.encryption_key);
   let result = std::sync::Arc::new(result);
   let result_for_save = std::sync::Arc::clone(&result);
   tokio::spawn(async move {
@@ -778,6 +808,7 @@ mod tests {
       file_type: ".iq".to_string(),
       acquisition_mode: "whole_sample".to_string(),
       encrypted: false,
+      fido_vault: false,
       sample_rate: Some(3_200_000),
       fft_size: 65_536,
       fft_window: fft_window.to_string(),

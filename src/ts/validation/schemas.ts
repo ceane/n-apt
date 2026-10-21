@@ -36,6 +36,7 @@ const DataLatencySchema = z.object({
 // Authentication schemas (from auth.ts)
 export const AuthInfoSchema = z.object({
   has_passkeys: z.boolean(),
+  has_fido_security_key: z.boolean(),
 });
 
 export const AuthResultSchema = z.object({

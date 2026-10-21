@@ -185,7 +185,7 @@ export function validateCaptureStatus(data: unknown): boolean {
 // Authentication validation
 export function validateAuthInfo(
   data: unknown,
-): data is { has_passkeys: boolean } {
+): data is { has_passkeys: boolean; has_fido_security_key: boolean } {
   return measureValidationTime(() => {
     const result = AuthInfoSchema.safeParse(data);
 

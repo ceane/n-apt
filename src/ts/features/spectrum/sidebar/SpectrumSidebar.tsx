@@ -1445,6 +1445,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const [captureEncrypted, setCaptureEncrypted] = useState(
     settingsDefaults.capture.captureEncrypted,
   );
+  const [captureFidoVault, setCaptureFidoVault] = useState(false);
   const [capturePlayback, setCapturePlayback] = useState(
     settingsDefaults.capture.capturePlayback,
   );
@@ -2624,8 +2625,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
       encrypted:
-        !isMockSource &&
-        (captureFileTypeState === ".napt" || (captureFileTypeState === ".iq" && captureEncrypted)),
+        (captureFidoVault && captureFileTypeState !== ".wav") ||
+        captureFileTypeState === ".napt" ||
+        (captureFileTypeState === ".iq" && captureEncrypted),
+      fidoVault: captureFidoVault && captureFileTypeState !== ".wav",
       fftSize,
       fftWindow,
       geolocation: geolocationData,
@@ -2650,6 +2653,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     selectedSource?.id,
     selectedSourceId,
     captureEncrypted,
+    captureFidoVault,
     captureGeolocation,
     fftSize,
     fftWindow,
@@ -3181,6 +3185,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             isMockSource={isMockSource}
             acquisitionMode={acquisitionMode}
             captureEncrypted={captureEncrypted}
+            captureFidoVault={captureFidoVault}
             capturePlayback={capturePlayback}
             captureGeolocation={captureGeolocation}
             captureRange={captureRange}
@@ -3194,6 +3199,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onCaptureFileTypeChange={setCaptureFileTypeState}
             onAcquisitionModeChange={setAcquisitionMode}
             onCaptureEncryptedChange={setCaptureEncrypted}
+            onCaptureFidoVaultChange={setCaptureFidoVault}
             onCapturePlaybackChange={setCapturePlayback}
             onCaptureGeolocationChange={setCaptureGeolocation}
             onCapture={handleCapture}

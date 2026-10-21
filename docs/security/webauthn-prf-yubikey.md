@@ -11,10 +11,16 @@ closed if it is missing. YubiKey 5 and Bio models with FIDO2 support are a
 target, but browser, OS, firmware, and credential configuration all affect
 availability.
 
-The branch adds `src/ts/crypto/webauthnPrf.ts` as a small primitive layer. It
-provides a stable vault-purpose PRF input, validates returned output, and
-derives non-extractable AES-GCM keys through HKDF-SHA-256. It is not wired into
-the login or file pipeline yet.
+The implementation uses `src/ts/crypto/webauthnPrf.ts` for PRF validation and
+vault wrapping. Ordinary passkeys and FIDO security keys have separate login
+choices and credential IDs. The FIDO choice sends only the explicitly enrolled
+security-key credential IDs in WebAuthn's `allowCredentials` list and requests
+the `security-key` hint. Ordinary passkey login excludes that credential ID.
+The hint is for browser UI; the credential list is what separates the flows.
+Cross-platform attachment is a registration constraint, not hardware
+attestation: this local setup distinguishes credentials enrolled through the
+security-key flow, but does not make a remote-verifiable claim about device
+make or model.
 
 ## Capture control behavior
 
@@ -35,13 +41,12 @@ boundary. For downloads to external destinations, upload only the encrypted
 artifact.
 
 The current acquisition path is Rust-backend-driven and persists capture
-artifacts there. To keep the PRF key out of the backend, the selected mode
-needs a streamed capture path that sends chunks to the browser for encryption
-before the backend or another destination persists them. Sending the raw
-PRF-derived key to Rust would make it a server-held key and would not provide
-client-side-only encryption. If the product instead chooses server-side
-encryption with an ephemeral key handed to Rust, state that trust boundary
-clearly and keep the key memory-only for the session/capture.
+artifacts there. The selected local-app trust boundary permits the authenticated
+Rust backend to hold the unlocked vault key in memory for capture and playback.
+The browser unwraps the key after the PRF ceremony and sends it only over the
+authenticated local session; the backend never persists it. This is not
+end-to-end encryption against the local backend or other processes running as
+the same OS user.
 
 ## Current application boundary
 
@@ -55,35 +60,41 @@ clearly and keep the key memory-only for the session/capture.
   that vault key.
 
 Therefore, adding a YubiKey button by itself would authenticate a user but
-would not unlock a distinct YubiKey-protected vault. Sending the PRF output or
-derived vault key to the existing server would let that server decrypt files;
-the current arrangement is server-side encryption at rest, not end-to-end
-encryption.
+would not unlock a distinct YubiKey-protected vault. The selected design sends
+the unwrapped VMK to the local backend after authentication, so that backend
+can encrypt capture files. The PRF result remains in the browser; the backend
+is within the trusted local-app boundary.
 
 ## Recommended key hierarchy
 
 1. Generate a random 256-bit vault master key (VMK) once, using the browser
    cryptographic RNG.
-2. For each enrolled FIDO credential, request PRF output using the fixed,
+2. For the enrolled FIDO credential, request PRF output using the fixed,
    application-specific input in the helper. Derive a wrapping key using
    HKDF-SHA-256 with a fresh random 32-byte salt and a purpose label.
 3. AES-GCM-wrap the VMK with that wrapping key. Store only the ciphertext,
    salt, nonce, credential identifier, and format version on the server.
-4. At sign-in, verify the ordinary WebAuthn assertion, request the same PRF
-   output, derive the wrapping key, and unwrap the VMK locally. Never send the
-   PRF result or VMK to the server.
+4. At FIDO sign-in, verify the selected security-key WebAuthn assertion,
+   request the same PRF output, derive the wrapping key, and unwrap the VMK locally. Send the VMK to
+   the authenticated local backend over the existing secure session for
+   capture encryption; never send the PRF result.
 5. Derive per-file data-encryption keys from the VMK and random per-file salts,
    or generate random per-file keys and wrap them with a VMK-derived key.
    Preserve a versioned envelope so old files can be migrated only after a
    successful old-key unlock.
-6. Let multiple enrolled keys wrap the same VMK. Require an explicit recovery
-   method before enabling this mode; losing the only security key otherwise
-   makes the vault unrecoverable. Password fallback must not silently return
-   the old server key.
+6. Require a recovery wrapper before enabling this mode; losing the only
+   enrolled security key otherwise makes the vault unrecoverable. The current
+   implementation supports one enrolled vault security key. Password login
+   explicitly unwraps the FIDO VMK through the recovery wrapper. Existing
+   unclassified credentials remain ordinary passkeys until a separate security
+   key is enrolled; legacy wrappers remain recoverable with the password.
 
-This changes key custody and requires moving encryption/decryption of protected
-files into the client. Keeping the server able to use a master key for capture
-streams would not provide the intended client-side protection.
+For offline bulk decryption, wrap the same VMK with the existing local capture
+passphrase using a random KDF salt and AES-GCM nonce. Embed this recovery
+wrapper in FIDO-vault artifacts so the classifier tooling can unlock once and
+decrypt in bulk without WebAuthn. This KDF salt is file metadata; it is distinct
+from Increased protection's Redis `capture-protection` salt, which FIDO-vault
+artifacts omit.
 
 ## Streaming and session keys
 
@@ -109,12 +120,14 @@ it does not make the current server-side file encryption YubiKey-bound.
 
 ## Integration steps
 
-1. Extend passkey enrollment to request PRF support and persist whether that
-   credential returned the expected capability. Keep ordinary passkeys
-   working when PRF is absent.
-2. Add an explicit YubiKey/vault-unlock ceremony that requests PRF on an
-   assertion and verifies the assertion server-side as it does today.
-3. Introduce versioned VMK wrapper records and recovery/multiple-key flows.
+1. Keep ordinary passkey enrollment and security-key enrollment separate;
+   security-key registration requests cross-platform attachment and requires a
+   successful PRF result before storing the credential and wrapper.
+2. Use a distinct security-key login ceremony that filters by the enrolled
+   credential ID and requires PRF unwrapping before completing login.
+3. The credential store currently supports one FIDO vault security key and a
+   password recovery wrapper; additional security keys require wrapping the
+   same VMK per credential.
 4. Move the protected file read/write path to client-side chunked encryption;
    migrate legacy files after successful unlock.
 5. Keep the authentication bearer token and vault-unlock key separate, add

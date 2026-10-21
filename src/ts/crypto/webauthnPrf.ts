@@ -25,15 +25,131 @@ export type WebAuthnPrfCredential = PublicKeyCredential & {
   };
 };
 
+export interface VaultKeyWrapper {
+  format: "n-apt-vault-key-wrapper-v1";
+  salt: string;
+  nonce: string;
+  ciphertext: string;
+}
+
+export const VAULT_RECOVERY_KDF_ITERATIONS = 600_000;
+
 /** Add this extension input to WebAuthn creation or request options. */
-export function requestVaultPrf(): PrfExtensionInput {
+export function requestVaultPrf(
+  input: Uint8Array = WEBAUTHN_PRF_VAULT_INPUT,
+): PrfExtensionInput {
   return {
     prf: {
       eval: {
-        first: WEBAUTHN_PRF_VAULT_INPUT.slice().buffer,
+        first: input.slice().buffer,
       },
     },
   };
+}
+
+/** Derive a local recovery wrapper key for offline capture tools. */
+export async function deriveRecoveryAesKey(
+  recoveryCredential: string,
+  salt: Uint8Array,
+): Promise<CryptoKey> {
+  if (!recoveryCredential.trim()) {
+    throw new Error("Vault recovery credential must not be empty.");
+  }
+  if (salt.byteLength !== 32) {
+    throw new Error("Vault recovery salt must contain 32 random bytes.");
+  }
+  const material = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(recoveryCredential.trim()),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: salt.slice().buffer as ArrayBuffer,
+      iterations: VAULT_RECOVERY_KDF_ITERATIONS,
+    },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt", "encrypt"],
+  );
+}
+
+/** Wrap a random 32-byte vault master key for FIDO or offline recovery. */
+export async function wrapVaultMasterKey(
+  vaultMasterKey: Uint8Array,
+  wrappingKey: CryptoKey,
+  salt: Uint8Array,
+): Promise<VaultKeyWrapper> {
+  if (vaultMasterKey.byteLength !== 32) {
+    throw new Error("Vault master key must contain 32 bytes.");
+  }
+  if (salt.byteLength !== 32) {
+    throw new Error("Vault wrapper salt must contain 32 random bytes.");
+  }
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const format = "n-apt-vault-key-wrapper-v1" as const;
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: nonce,
+      additionalData: new TextEncoder().encode(format),
+    },
+    wrappingKey,
+    vaultMasterKey.slice().buffer as ArrayBuffer,
+  );
+  return {
+    format,
+    salt: encodeBase64(salt),
+    nonce: encodeBase64(nonce),
+    ciphertext: encodeBase64(new Uint8Array(ciphertext)),
+  };
+}
+
+/** Fail closed if wrapper metadata is malformed or its authenticated data fails. */
+export async function unwrapVaultMasterKey(
+  wrapper: VaultKeyWrapper,
+  wrappingKey: CryptoKey,
+): Promise<Uint8Array> {
+  if (wrapper.format !== "n-apt-vault-key-wrapper-v1") {
+    throw new Error("Unsupported vault key wrapper format.");
+  }
+  const nonce = decodeBase64(wrapper.nonce);
+  const ciphertext = decodeBase64(wrapper.ciphertext);
+  if (nonce.byteLength !== 12 || ciphertext.byteLength !== 48) {
+    throw new Error("Vault key wrapper has invalid nonce or ciphertext length.");
+  }
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: nonce.slice().buffer as ArrayBuffer,
+      additionalData: new TextEncoder().encode(wrapper.format).buffer as ArrayBuffer,
+    },
+    wrappingKey,
+    ciphertext.slice().buffer as ArrayBuffer,
+  );
+  if (plaintext.byteLength !== 32) {
+    throw new Error("Unwrapped vault master key has an invalid length.");
+  }
+  return new Uint8Array(plaintext);
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function decodeBase64(value: string): Uint8Array {
+  try {
+    return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+  } catch {
+    throw new Error("Vault key wrapper contains invalid base64 data.");
+  }
 }
 
 /**

@@ -173,6 +173,53 @@ describe("AuthenticationRoute", () => {
     expect(screen.getByText("Use password instead")).toBeInTheDocument();
   });
 
+  it("explains the password requirement when FIDO enrollment is selected", () => {
+    renderAuthenticationUI(
+      <AuthenticationUI
+        {...defaultProps}
+        hasPasskeys={true}
+        hasFidoSecurityKey={false}
+        onRegisterFidoKey={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Set up FIDO security key/i }),
+    );
+
+    const enrollmentButton = screen.getByRole("button", {
+      name: /Enroll FIDO security key/i,
+    });
+    expect(screen.getByPlaceholderText(/password to authorize FIDO enrollment/i)).toBeInTheDocument();
+    expect(screen.getByText(/password authorizes.*browser will ask you to tap/i)).toBeInTheDocument();
+    expect(enrollmentButton).toBeEnabled();
+
+    fireEvent.click(enrollmentButton);
+    expect(screen.getByRole("alert")).toHaveTextContent(/enter your password to authorize enrollment/i);
+  });
+
+  it("shows key-touch progress while FIDO enrollment is pending", async () => {
+    const registerFidoKey = jest.fn(() => new Promise<void>(() => {}));
+    renderAuthenticationUI(
+      <AuthenticationUI
+        {...defaultProps}
+        hasPasskeys={true}
+        hasFidoSecurityKey={false}
+        onRegisterFidoKey={registerFidoKey}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Set up FIDO security key/i }));
+    await userEvent.type(
+      screen.getByPlaceholderText(/password to authorize FIDO enrollment/i),
+      "enrollment-password",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Enroll FIDO security key/i }));
+
+    expect(registerFidoKey).toHaveBeenCalledWith("enrollment-password");
+    expect(screen.getByRole("status")).toHaveTextContent(/follow the browser prompt and tap your security key/i);
+  });
+
   it("should not display passkey option when not available", () => {
     renderAuthenticationUI(
       <AuthenticationUI {...defaultProps} hasPasskeys={false} />,
@@ -291,7 +338,7 @@ describe("AuthenticationRoute", () => {
       },
       {
         state: "ready" as AuthState,
-        expectedMessage: /Enter your passkey or password/,
+        expectedMessage: /Passkey, Password or FIDO security key/,
       },
       {
         state: "authenticating" as AuthState,
@@ -308,12 +355,16 @@ describe("AuthenticationRoute", () => {
     });
   });
 
-  it("should show different message for ready state without passkeys", () => {
+  it("lists passkey, password, and FIDO security key in the ready message", () => {
     renderAuthenticationUI(
-      <AuthenticationUI {...defaultProps} hasPasskeys={false} />,
+      <AuthenticationUI
+        {...defaultProps}
+        hasPasskeys={false}
+        hasFidoSecurityKey={false}
+      />,
     );
     expect(
-      screen.getByText("Enter password to authenticate and start streaming"),
+      screen.getByText(/Passkey, Password or FIDO security key/),
     ).toBeInTheDocument();
   });
 });

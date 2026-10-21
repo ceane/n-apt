@@ -266,6 +266,38 @@ const CaptureActions = styled.div`
   grid-column: 1 / -1;
 `;
 
+const FidoVaultControls = styled.div`
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+`;
+
+const FidoVaultUnlockButton = styled.button`
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 6px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  font: 11px ${(props) => props.theme.typography.mono};
+  white-space: normal;
+  cursor: pointer;
+
+  &:hover {
+    border-color: ${(props) => props.theme.primary};
+  }
+`;
+
+const FidoVaultHint = styled.span`
+  max-width: 180px;
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: right;
+`;
+
 const PlaybackOption = styled.div`
   display: grid;
   grid-auto-flow: column;
@@ -595,6 +627,7 @@ interface IQCaptureControlsSectionProps {
   isMockSource?: boolean;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   captureEncrypted: boolean;
+  captureFidoVault?: boolean;
   capturePlayback: boolean;
   captureGeolocation: boolean;
   captureRange: CaptureRange;
@@ -610,6 +643,7 @@ interface IQCaptureControlsSectionProps {
     mode: "stepwise" | "interleaved" | "whole_sample",
   ) => void;
   onCaptureEncryptedChange: (value: boolean) => void;
+  onCaptureFidoVaultChange?: (value: boolean) => void;
   onCapturePlaybackChange: (value: boolean) => void;
   onCaptureGeolocationChange: (value: boolean) => void;
   onCapture: () => void;
@@ -634,6 +668,7 @@ export const IQCaptureControlsSection: React.FC<
   isMockSource = false,
   acquisitionMode,
   captureEncrypted,
+  captureFidoVault = false,
   capturePlayback,
   captureGeolocation,
   captureRange,
@@ -647,6 +682,7 @@ export const IQCaptureControlsSection: React.FC<
   onCaptureFileTypeChange,
   onAcquisitionModeChange,
   onCaptureEncryptedChange,
+  onCaptureFidoVaultChange,
   onCapturePlaybackChange,
   onCaptureGeolocationChange,
   onCapture,
@@ -727,7 +763,13 @@ export const IQCaptureControlsSection: React.FC<
       onCaptureWithChannels(channelsPayload);
     }
   };
-  const { isAuthenticated, sessionToken } = useAuthentication();
+  const {
+    isAuthenticated,
+    sessionToken,
+    fidoVaultUnlocked,
+    hasFidoSecurityKey,
+    handleFidoKeyAuth,
+  } = useAuthentication();
   const dispatch = useDispatch();
 
   React.useEffect(() => {
@@ -873,12 +915,15 @@ export const IQCaptureControlsSection: React.FC<
         const body = (await response.json().catch(() => ({}))) as {
           error?: string;
           files?: string[];
+          increasedProtection?: boolean;
         };
         if (!response.ok) {
           throw new Error(body.error || `Hugging Face save failed: HTTP ${response.status}`);
         }
         setDestinationMessage(
-          `Saved encrypted ${body.files?.join(", ") || filename} to Hugging Face.`,
+          body.increasedProtection === false
+            ? `Saved FIDO-vault encrypted ${body.files?.join(", ") || filename} to Hugging Face. Increased protection was not applied.`
+            : `Saved encrypted ${body.files?.join(", ") || filename} to Hugging Face.`,
         );
         return;
       }
@@ -1030,10 +1075,6 @@ export const IQCaptureControlsSection: React.FC<
 
   // Raw .iq is the lossless default fallback when .napt eligibility is lost.
   React.useEffect(() => {
-    if (isMockSource && captureFileType === ".napt") {
-      onCaptureFileTypeChange(".iq");
-      return;
-    }
     if (
       captureFileType === ".napt" &&
       !naptValidation.isValid &&
@@ -1044,7 +1085,6 @@ export const IQCaptureControlsSection: React.FC<
   }, [
     naptValidation.isValid,
     captureFileType,
-    isMockSource,
     onCaptureFileTypeChange,
     activeCaptureAreas.length,
   ]);
@@ -1201,12 +1241,16 @@ export const IQCaptureControlsSection: React.FC<
           : "Idle";
   const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
   const isCaptureActive = captureStatus?.status === "started";
+  const captureUsesFidoVault = captureFileType !== ".wav" && captureFidoVault;
   const encryptionLocked =
-    isMockSource || captureFileType === ".napt" || captureFileType === ".wav";
+    captureFileType === ".napt" || captureFileType === ".wav" || captureUsesFidoVault;
+  const fidoVaultUnavailable =
+    captureUsesFidoVault && (!hasFidoSecurityKey || !fidoVaultUnlocked);
   const isCaptureDisabled =
     !isConnected ||
     deviceState === "loading" ||
     !isAuthenticated ||
+    (!isCaptureActive && fidoVaultUnavailable) ||
     (!isCaptureActive && !hasSelectedCaptureAreas);
 
   const handleGeolocationToggle = async (enabled: boolean) => {
@@ -1287,11 +1331,13 @@ export const IQCaptureControlsSection: React.FC<
         >
           <SettingSelect
             value={captureFileType}
-            onChange={(e) =>
-              onCaptureFileTypeChange(e.target.value as CaptureFileType)
-            }
+            onChange={(e) => {
+              const fileType = e.target.value as CaptureFileType;
+              if (fileType === ".wav") onCaptureFidoVaultChange?.(false);
+              onCaptureFileTypeChange(fileType);
+            }}
           >
-            <option value=".napt" disabled={isMockSource || !naptValidation.isValid}>
+            <option value=".napt" disabled={!naptValidation.isValid}>
               .napt {!naptValidation.isValid ? "(Invalid)" : ""}
             </option>
             <option value=".iq">.iq</option>
@@ -1346,8 +1392,7 @@ export const IQCaptureControlsSection: React.FC<
         >
           <ToggleSwitchInput
             type="checkbox"
-            checked={!isMockSource &&
-              (captureFileType === ".napt" || (captureFileType === ".iq" && captureEncrypted))}
+            checked={captureFileType === ".napt" || (captureFileType === ".iq" && (captureEncrypted || captureUsesFidoVault))}
             disabled={encryptionLocked}
             onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
           />
@@ -1357,14 +1402,53 @@ export const IQCaptureControlsSection: React.FC<
         </ToggleSwitch>
       </Row>
 
+      <Row
+        label={<IconLabel icon={LockKeyhole} text="FIDO vault encryption" />}
+        tooltipTitle="FIDO-unlocked capture vault"
+        tooltip="Encrypt this .iq or .napt capture with the vault key unlocked by your FIDO security key or recovery password. Batch decryption uses the recovery wrapper. Redis Increased protection salts are not used."
+      >
+        <FidoVaultControls>
+          {captureUsesFidoVault && !hasFidoSecurityKey && (
+            <FidoVaultHint>
+              {isAuthenticated
+                ? "Your sign-in passkey is separate. Finish FIDO vault setup in Auth to capture with vault encryption."
+                : "Sign in, then finish FIDO vault setup in Auth to capture with vault encryption."}
+            </FidoVaultHint>
+          )}
+          {captureUsesFidoVault && hasFidoSecurityKey && !fidoVaultUnlocked && isAuthenticated && (
+            <FidoVaultUnlockButton type="button" onClick={() => void handleFidoKeyAuth()}>
+              Unlock with FIDO security key
+            </FidoVaultUnlockButton>
+          )}
+          {captureUsesFidoVault && hasFidoSecurityKey && !fidoVaultUnlocked && !isAuthenticated && (
+            <FidoVaultHint>Sign in and unlock the FIDO vault before capturing.</FidoVaultHint>
+          )}
+          <ToggleSwitch $disabled={captureFileType === ".wav"}>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={captureUsesFidoVault}
+              disabled={captureFileType === ".wav"}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                if (enabled) onCaptureEncryptedChange(true);
+                onCaptureFidoVaultChange?.(enabled);
+              }}
+            />
+            <ToggleSwitchSlider $disabled={captureFileType === ".wav"} />
+          </ToggleSwitch>
+        </FidoVaultControls>
+      </Row>
+
       {(captureDestination === "aspect" || captureDestination === "huggingface") && (
         <Row
           label={<IconLabel icon={LockKeyhole} text="Increased protection" />}
           tooltipTitle="Per-capture protection"
-          tooltip="Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."
+          tooltip={captureUsesFidoVault
+            ? "Disabled for FIDO vault captures. They use the FIDO vault key and do not use a Redis protection salt."
+            : "Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."}
         >
           <ToggleSwitch $disabled>
-            <ToggleSwitchInput type="checkbox" checked disabled readOnly />
+            <ToggleSwitchInput type="checkbox" checked={!captureUsesFidoVault} disabled readOnly />
             <ToggleSwitchSlider $disabled />
           </ToggleSwitch>
         </Row>
