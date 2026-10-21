@@ -2,14 +2,12 @@ import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { IQCaptureControlsSection } from "@n-apt/capture/sidebar/IQCaptureControlsSection";
+import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { TestWrapper } from "./testUtils";
 
 // Mock useAuthentication
 jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
-  useAuthentication: () => ({
-    isAuthenticated: true,
-    sessionToken: "mock-token",
-  }),
+  useAuthentication: jest.fn(),
 }));
 
 jest.mock("@n-apt/maps/public/useGeolocation", () => ({
@@ -52,10 +50,24 @@ const defaultProps = {
   onClearStatus: jest.fn(),
 };
 
+const defaultAuthentication = {
+  isAuthenticated: true,
+  authState: "ready" as const,
+  authError: null,
+  sessionToken: "mock-token",
+  fidoVaultUnlocked: false,
+  hasFidoSecurityKey: false,
+  handleFidoKeyAuth: jest.fn().mockResolvedValue(false),
+  handleRegisterFidoKey: jest.fn().mockResolvedValue(undefined),
+};
+
 describe("IQCaptureControlsSection", () => {
   beforeEach(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    jest.mocked(useAuthentication).mockReturnValue(
+      defaultAuthentication as ReturnType<typeof useAuthentication>,
+    );
   });
 
   afterEach(() => {
@@ -313,8 +325,47 @@ describe("IQCaptureControlsSection", () => {
     expect(screen.queryByRole("option", { name: /^\.napt/ })).toBeDisabled();
     expect(screen.getByRole("option", { name: ".iq" })).toBeEnabled();
     expect(screen.getByRole("option", { name: ".wav" })).toBeEnabled();
-    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
-    expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Encrypt capture with AES-256-GCM" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Encrypt capture with AES-256-GCM" })).not.toBeChecked();
+    expect(defaultProps.onCaptureFileTypeChange).toHaveBeenCalledWith(".iq");
+  });
+
+  it("keeps the FIDO vault toggle available for authenticated non-WAV captures", () => {
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          captureFileType=".iq"
+          captureFidoVault={false}
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(
+      screen.getByRole("checkbox", { name: "Encrypt capture with FIDO vault" }),
+    ).toBeEnabled();
+  });
+
+  it("hides enrollment and shows enrolled status when a FIDO key is already registered", () => {
+    jest.mocked(useAuthentication).mockReturnValue({
+      ...defaultAuthentication,
+      hasFidoSecurityKey: true,
+    } as ReturnType<typeof useAuthentication>);
+
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection {...defaultProps} captureFileType=".iq" />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(screen.queryByRole("button", { name: "Enroll a FIDO security key" })).not.toBeInTheDocument();
+    expect(screen.getByText(/FIDO security key enrolled/i)).toBeInTheDocument();
+    expect(screen.getByText("FIDO KEY ENROLLED")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unlock with FIDO security key" })).toBeInTheDocument();
   });
 
   it("disables encryption for WAV even when stale encrypted state is true", () => {
@@ -331,6 +382,35 @@ describe("IQCaptureControlsSection", () => {
     expect(encryptionToggle).not.toBeChecked();
   });
 
+  it("shows encryption enabled when the FIDO vault supplies the capture key", () => {
+    jest.mocked(useAuthentication).mockReturnValue({
+      ...defaultAuthentication,
+      fidoVaultUnlocked: true,
+      hasFidoSecurityKey: true,
+    } as ReturnType<typeof useAuthentication>);
+
+    render(
+      <TestWrapper>
+        <IQCaptureControlsSection
+          {...defaultProps}
+          isMockSource
+          captureFileType=".iq"
+          captureEncrypted={false}
+          captureFidoVault
+        />
+      </TestWrapper>,
+    );
+
+    fireEvent.click(screen.getByText("Take an I/Q Capture"));
+
+    expect(
+      screen.getByRole("checkbox", { name: "Encrypt capture with AES-256-GCM" }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Encrypt capture with FIDO vault" }),
+    ).toBeChecked();
+  });
+
   it("keeps geolocation available for every capture format", () => {
     render(
       <TestWrapper>
@@ -344,7 +424,7 @@ describe("IQCaptureControlsSection", () => {
     fireEvent.click(screen.getByText("Take an I/Q Capture"));
 
     expect(screen.getByText("Geolocation")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")[1]).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "Include geolocation" })).toBeEnabled();
   });
 
   it("should handle duration change", () => {

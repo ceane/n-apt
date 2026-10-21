@@ -7,6 +7,11 @@ import React, {
   memo,
 } from "react";
 import styled from "styled-components";
+import { parseNaptMetadata } from "@n-apt/capture/naptHeader";
+import {
+  parseIqCaptureMetadata,
+  selectPrimaryMetadataCaptureFile,
+} from "@n-apt/capture/captureMetadata";
 import { SatelliteDish, Trash2, Unplug, ChevronDown } from "lucide-react";
 import { useLocation } from "react-router";
 import {
@@ -2229,11 +2234,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   // Memoized values for sections
   const selectedPrimaryFile = useMemo(() => {
-    if (sourceMode !== "file") return null;
-    if (selectedFiles.length !== 1) return null;
-    const f = selectedFiles[0];
-    const lower = f.name.toLowerCase();
-    return lower.endsWith(".napt") || lower.endsWith(".wav") ? f : null;
+    return selectPrimaryMetadataCaptureFile(sourceMode, selectedFiles);
   }, [sourceMode, selectedFiles]);
 
   const _isMockFile = useMemo(() => {
@@ -2748,27 +2749,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     );
   }, []);
 
-  // NAPT/WAV Metadata Effect
+  // Capture metadata effect: IQ and NAPT headers keep public metadata outside the encrypted payload.
   useEffect(() => {
     let cancelled = false;
     if (!selectedPrimaryFile) {
-      if (naptMetadata !== null) {
-        setNaptMetadata(null);
-      }
-      if (naptMetadataError !== null) {
-        setNaptMetadataError(null);
-      }
+      setNaptMetadata(null);
+      setNaptMetadataError(null);
       return;
     }
 
     const isNapt = selectedPrimaryFile.name.toLowerCase().endsWith(".napt");
     const isWav = selectedPrimaryFile.name.toLowerCase().endsWith(".wav");
-
-    if (isNapt && !aesKey) {
-      setNaptMetadata(null);
-      setNaptMetadataError("Locked (no session key)");
-      return;
-    }
+    const isIq = selectedPrimaryFile.name.toLowerCase().endsWith(".iq");
 
     const run = async () => {
       try {
@@ -2777,59 +2769,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
         const buf = await fileObj.arrayBuffer();
 
-        if (isNapt && aesKey) {
-          // Read up to 8192 bytes to cover both 2048 and 4096-byte padded headers
-          const maxHeaderRead = Math.min(8192, buf.byteLength);
-          const headerBytes = new Uint8Array(buf, 0, maxHeaderRead);
-          const newlineIdx = headerBytes.indexOf(10); // Find newline terminator
-
-          // Robust parsing: try newline first, then JSON boundary detection
-          let jsonStr: string;
-          if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(
-              headerBytes.slice(0, newlineIdx),
-            );
-          } else {
-            // Fallback: find the closing brace of the root JSON object
-            const headerText = new TextDecoder().decode(headerBytes);
-            let braceDepth = 0;
-            let inString = false;
-            let escape = false;
-            let jsonEnd = -1;
-            for (let ci = 0; ci < headerText.length; ci++) {
-              const c = headerText[ci];
-              if (escape) {
-                escape = false;
-                continue;
-              }
-              if (c === "\\") {
-                escape = true;
-                continue;
-              }
-              if (c === '"') {
-                inString = !inString;
-                continue;
-              }
-              if (inString) continue;
-              if (c === "{") braceDepth++;
-              if (c === "}") {
-                braceDepth--;
-                if (braceDepth === 0) {
-                  jsonEnd = ci + 1;
-                  break;
-                }
-              }
-            }
-            if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
-            jsonStr = headerText.slice(0, jsonEnd);
-          }
-
-          const metaObj = JSON.parse(jsonStr);
-
+        if (isIq) {
+          const metadata = parseIqCaptureMetadata(new Uint8Array(buf));
           if (!cancelled) {
-            // The metadata object itself is inside `metadata` key
-            const metadata = metaObj.metadata || metaObj;
-            setNaptMetadata(metadata);
+            setNaptMetadata(metadata as NaptMetadata);
+            setNaptMetadataError(null);
+          }
+        } else if (isNapt) {
+          const metadata = parseNaptMetadata(new Uint8Array(buf));
+          if (!cancelled) {
+            setNaptMetadata(metadata as NaptMetadata);
             setNaptMetadataError(null);
           }
         } else if (isWav) {
@@ -2875,7 +2824,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedPrimaryFile, aesKey, naptMetadata, naptMetadataError]);
+  }, [selectedPrimaryFile]);
 
   const limitMarkers = useMemo(
     () =>

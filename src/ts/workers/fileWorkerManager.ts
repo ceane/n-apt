@@ -142,6 +142,7 @@ export class FileWorkerManager {
       currentSampleRateHz: number;
     },
     allowIntegrityFailure = false,
+    fidoVaultKey?: Uint8Array | null,
   ): Promise<any> {
     const filesData = [];
 
@@ -164,6 +165,7 @@ export class FileWorkerManager {
         settings,
         fftSize,
         aesKey: aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null,
+        fidoVaultKey: fidoVaultKey?.slice().buffer ?? null,
         allowIntegrityFailure,
         sampleRateOptions, // Pass current sample rate options dynamically
       },

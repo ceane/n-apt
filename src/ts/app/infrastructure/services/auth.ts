@@ -56,6 +56,8 @@ export interface AuthResult {
   token: string;
   expires_in: number;
   fido_vault_unlocked?: boolean;
+  /** Ephemeral browser copy used only by the local playback worker. */
+  fido_vault_key?: Uint8Array;
 }
 
 type FidoVaultWrappers = { fido: VaultKeyWrapper; recovery: VaultKeyWrapper };
@@ -321,7 +323,7 @@ export async function authenticateWithPassword(
 export async function registerPasskey(
   password?: string,
   fidoSecurityKey = false,
-): Promise<void> {
+): Promise<Uint8Array | null> {
   // First enrollment also requires password knowledge. Keep the vault
   // password unchanged and authorize the ceremony with a fresh session.
   let storedToken = getStoredSession();
@@ -459,11 +461,14 @@ export async function registerPasskey(
     const text = await finishRes.text();
     throw new Error(`Failed to finish passkey registration: ${text}`);
   }
+  let playbackVaultKey: Uint8Array | null = null;
   if (fidoSecurityKey && vmk) {
     await unlockFidoVault(storedToken, vmk);
+    playbackVaultKey = vmk.slice();
     vmk.fill(0);
   }
   authInfoPromise = null;
+  return playbackVaultKey;
 }
 
 /** Authenticate with an existing passkey. */
@@ -553,6 +558,7 @@ export async function authenticateWithPasskey(
       vmk = unwrappedVmk;
       await unlockFidoVault(result.token, unwrappedVmk);
       result.fido_vault_unlocked = true;
+      result.fido_vault_key = unwrappedVmk.slice();
     } catch {
       throw new Error("Security key did not unlock the FIDO capture vault");
     } finally {
@@ -575,21 +581,23 @@ export async function unlockFidoVault(token: string, key: Uint8Array): Promise<v
   if (!response.ok) throw new Error("Failed to unlock the FIDO capture vault");
 }
 
-export async function unlockFidoVaultWithRecovery(token: string, password: string): Promise<boolean> {
+export async function unlockFidoVaultWithRecovery(token: string, password: string): Promise<Uint8Array | null> {
+  let vmk: Uint8Array | null = null;
   try {
     const response = await fetch(`${API_BASE}/auth/fido-vault/recovery-wrapper`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!response.ok) return false;
+    if (!response.ok) return null;
     const { fido_vault_recovery: wrapper } = await response.json() as { fido_vault_recovery: VaultKeyWrapper };
     const salt = decodeBase64(wrapper.salt);
     const recoveryKey = await deriveRecoveryAesKey(password, salt);
-    const vmk = await unwrapVaultMasterKey(wrapper, recoveryKey);
+    vmk = await unwrapVaultMasterKey(wrapper, recoveryKey);
     await unlockFidoVault(token, vmk);
-    vmk.fill(0);
-    return true;
+    return vmk.slice();
   } catch {
-    return false;
+    return null;
+  } finally {
+    vmk?.fill(0);
   }
 }
 

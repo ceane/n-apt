@@ -6,6 +6,9 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "napt-iq-cross-language-"));
 const backendCapture = path.join(temporaryDirectory, "backend.iq");
+const fidoNaptCapture = path.join(temporaryDirectory, "backend-fido.napt");
+const fidoIqCapture = path.join(temporaryDirectory, "backend-fido.iq");
+const wavCapture = path.join(temporaryDirectory, "backend.wav");
 const captureStorage = path.join(temporaryDirectory, "capture-storage");
 const captureDownloads = path.join(temporaryDirectory, "capture-downloads");
 const captureBackup = path.join(temporaryDirectory, "capture-backup");
@@ -36,9 +39,43 @@ try {
     N_APT_CAPTURE_BACKUP_PATH: captureBackup,
   });
   if (wroteBackendFile) {
-    run(process.execPath, ["node_modules/jest/bin/jest.js", "--runInBand", "test/ts/iqCaptureCrossLanguage.test.ts"], {
-      NAPT_IQ_CROSS_LANGUAGE_FIXTURE: backendCapture,
+    const wroteFidoFiles = run("cargo", [
+      "test",
+      "--test",
+      "iq_capture_format_acceptance",
+      "backend_fido_vault_capture_writes_cross_language_playback_fixtures",
+      "--",
+      "--exact",
+    ], {
+      NAPT_FIDO_NAPT_CROSS_LANGUAGE_FIXTURE: fidoNaptCapture,
+      NAPT_FIDO_IQ_CROSS_LANGUAGE_FIXTURE: fidoIqCapture,
+      N_APT_CAPTURE_STORAGE_PATH: captureStorage,
+      N_APT_CAPTURE_DOWNLOADS_PATH: captureDownloads,
+      N_APT_CAPTURE_BACKUP_PATH: captureBackup,
     });
+    if (wroteFidoFiles) {
+      const wroteWav = run("cargo", [
+        "test",
+        "--test",
+        "iq_capture_format_acceptance",
+        "backend_wav_capture_writes_cross_language_playback_fixture",
+        "--",
+        "--exact",
+      ], {
+        NAPT_WAV_CROSS_LANGUAGE_FIXTURE: wavCapture,
+        N_APT_CAPTURE_STORAGE_PATH: captureStorage,
+        N_APT_CAPTURE_DOWNLOADS_PATH: captureDownloads,
+        N_APT_CAPTURE_BACKUP_PATH: captureBackup,
+      });
+      if (wroteWav) {
+        run(process.execPath, ["node_modules/jest/bin/jest.js", "--runInBand", "test/ts/iqCaptureCrossLanguage.test.ts"], {
+          NAPT_IQ_CROSS_LANGUAGE_FIXTURE: backendCapture,
+          NAPT_FIDO_NAPT_CROSS_LANGUAGE_FIXTURE: fidoNaptCapture,
+          NAPT_FIDO_IQ_CROSS_LANGUAGE_FIXTURE: fidoIqCapture,
+          NAPT_WAV_CROSS_LANGUAGE_FIXTURE: wavCapture,
+        });
+      }
+    }
   }
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });

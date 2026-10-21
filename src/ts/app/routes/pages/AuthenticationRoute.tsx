@@ -1075,24 +1075,24 @@ interface AuthenticationUIProps {
   authState: AuthState;
   error: string | null;
   hasPasskeys: boolean;
-  hasFidoSecurityKey: boolean;
+  hasFidoSecurityKey?: boolean;
   onPasswordSubmit: (password: string) => void;
   onPasskeyAuth: () => void;
-  onFidoKeyAuth: () => void;
+  onFidoKeyAuth?: () => void;
   onRegisterPasskey: (password: string) => void;
-  onRegisterFidoKey: (password: string) => Promise<void> | void;
+  onRegisterFidoKey?: (password: string) => Promise<void> | void;
 }
 
 export const AuthenticationUI = ({
   authState,
   error,
   hasPasskeys,
-  hasFidoSecurityKey,
+  hasFidoSecurityKey = false,
   onPasswordSubmit,
   onPasskeyAuth,
-  onFidoKeyAuth,
+  onFidoKeyAuth = () => undefined,
   onRegisterPasskey,
-  onRegisterFidoKey,
+  onRegisterFidoKey = () => undefined,
 }: AuthenticationUIProps) => {
   const themeContext = React.useContext(ThemeContext);
   const baseTheme = (themeContext ??

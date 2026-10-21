@@ -50,14 +50,20 @@ export const useStitchingLogic = ({
   onProcessedDataChange,
   sampleRateOptions,
 }: UseStitchingLogicProps): StitchingResult => {
-  const { aesKey } = useAuthentication();
+  const { aesKey, fidoVaultKey } = useAuthentication();
   const aesKeyRef = useRef(aesKey);
+  const fidoVaultKeyRef = useRef(fidoVaultKey);
+  const previousFidoKeyAvailableRef = useRef(Boolean(fidoVaultKey));
   const onStitchStatusRef = useRef(onStitchStatus);
   const restoredSessionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     aesKeyRef.current = aesKey;
   }, [aesKey]);
+
+  useEffect(() => {
+    fidoVaultKeyRef.current = fidoVaultKey;
+  }, [fidoVaultKey]);
 
   useEffect(() => {
     onStitchStatusRef.current = onStitchStatus;
@@ -226,6 +232,7 @@ export const useStitchingLogic = ({
         aesKeyRef.current,
         sampleRateOptions, // Pass dynamic sample rate options
         allowIntegrityFailure,
+        fidoVaultKeyRef.current,
       );
 
       if (!result.stitchedData) {
@@ -357,6 +364,15 @@ export const useStitchingLogic = ({
       stitchFiles();
     }
   }, [stitchTrigger, stitchFiles]);
+
+  useEffect(() => {
+    const wasAvailable = previousFidoKeyAvailableRef.current;
+    const isAvailable = Boolean(fidoVaultKey);
+    previousFidoKeyAvailableRef.current = isAvailable;
+    if (!wasAvailable && isAvailable && selectedFileIdentityKey) {
+      void stitchFiles();
+    }
+  }, [fidoVaultKey, selectedFileIdentityKey, stitchFiles]);
 
   useEffect(() => {
     if (!selectedFileIdentityKey) return;
