@@ -139,3 +139,22 @@ it does not make the current server-side file encryption YubiKey-bound.
 Unit tests cover PRF output validation and HKDF key derivation. They cannot
 verify YubiKey/browser support or the full vault lifecycle; that needs a real
 FIDO2 device and integration tests in a secure browser origin.
+
+
+## Backend unlock lifetime
+
+The vault master key remains stable across logins. File encryption, existing
+capture playback, and offline recovery do not derive keys from a session token.
+The backend verifies a submitted VMK against the enrolled password recovery
+wrapper before accepting it. This uses the already-configured local password;
+changing that password requires a recovery-wrapper migration.
+
+Backend capture access is scoped to the authenticated session and expires after
+15 minutes, on logout, or on session revocation/expiry. Unlock again to start
+another FIDO capture. A capture that already passed preflight keeps its own key
+snapshot until persistence completes. Other sessions cannot borrow or clear its
+unlock. Browser playback keys remain available independently of backend capture
+readiness. Neither the capture format nor the offline recovery KDF changes.
+
+FIDO enrollment commits its credential, wrappers, and credential identity in one
+atomic file replacement, checking uniqueness while holding the write lock.

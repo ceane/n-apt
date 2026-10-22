@@ -299,3 +299,30 @@ describe("passkey persistence", () => {
     expect(localStorage.getItem("n_apt_has_passkeys")).toBeNull();
   });
 });
+
+describe("FIDO capture unlock expiry", () => {
+  test("updates capture readiness without erasing the stable playback key", async () => {
+    jest.useFakeTimers();
+    service.fetchFidoVaultUnlocked.mockResolvedValue(false);
+    service.authenticateWithPasskey.mockResolvedValue({
+      token: "fido-session", expires_in: 3600,
+      fido_vault_unlocked: true, fido_vault_key: new Uint8Array(32).fill(7),
+    });
+    const { result, unmount } = mountAuth(true);
+    try {
+      await act(async () => { await result.current.handleFidoKeyAuth(); });
+      expect(result.current.fidoVaultUnlocked).toBe(true);
+      const playbackKey = result.current.fidoVaultKey;
+      await act(async () => { jest.advanceTimersByTime(30_000); });
+      expect(service.fetchFidoVaultUnlocked).toHaveBeenCalledWith("fido-session");
+      expect(result.current.fidoVaultUnlocked).toBe(false);
+      expect(result.current.fidoVaultKey).toBe(playbackKey);
+      expect(result.current.fidoVaultKey).toEqual(new Uint8Array(32).fill(7));
+      unmount();
+      expect(playbackKey).toEqual(new Uint8Array(32));
+    } finally {
+      unmount();
+      jest.useRealTimers();
+    }
+  });
+});

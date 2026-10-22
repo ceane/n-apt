@@ -25,6 +25,7 @@ pub struct CaptureStartRequest {
   pub acquisition_mode: String,
   pub encrypted: bool,
   pub fido_vault: bool,
+  pub session_token: Option<crate::authentication::fido_vault::VaultSessionId>,
   pub sample_rate: Option<u32>,
   pub fft_size: usize,
   pub fft_window: String,
@@ -99,6 +100,7 @@ impl CaptureWorker {
       acquisition_mode,
       encrypted,
       fido_vault,
+      session_token,
       sample_rate,
       fft_size,
       fft_window,
@@ -114,7 +116,9 @@ impl CaptureWorker {
     let mut processor = self.processor.lock().await;
 
     let fido_key = if fido_vault {
-      let key = *shared_state.fido_vault_key.lock().unwrap();
+      let key = session_token.as_ref().and_then(|token| {
+        shared_state.fido_vault_keys.lock().unwrap().key(token.as_str())
+      });
       let recovery = shared_state.fido_vault_recovery_wrapper.lock().unwrap().clone();
       match (key, recovery) {
         (Some(key), Some(recovery))
@@ -809,6 +813,7 @@ mod tests {
       acquisition_mode: "whole_sample".to_string(),
       encrypted: false,
       fido_vault: false,
+      session_token: None,
       sample_rate: Some(3_200_000),
       fft_size: 65_536,
       fft_window: fft_window.to_string(),

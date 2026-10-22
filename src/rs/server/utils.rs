@@ -1857,9 +1857,17 @@ pub fn save_capture_file_multi(
   result: &crate::sdr::processor::CaptureResult,
   encryption_key: &[u8; 32],
 ) -> Result<CaptureArtifact, String> {
-  if result.fido_vault && result.vault_key.is_none() {
-    return Err("FIDO vault capture is missing its unlocked vault key".into());
-  }
+  // Enforce the scheme at the persistence boundary too, even for callers
+  // other than CaptureWorker. Never substitute the ordinary server key.
+  let encryption_key = if result.fido_vault {
+    if !result.encrypted || !matches!(result.file_type.as_str(), ".iq" | ".napt") {
+      return Err("FIDO vault capture requires encrypted .iq or .napt output".into());
+    }
+    result.vault_key.as_ref()
+      .ok_or("FIDO vault capture is missing its unlocked vault key")?
+  } else {
+    encryption_key
+  };
   // SECURITY: Strict validation of job_id to prevent Path Traversal.
   // Only alphanumeric characters, underscores, and hyphens are allowed.
   if !RE_SAFE_ID.is_match(&result.job_id) {

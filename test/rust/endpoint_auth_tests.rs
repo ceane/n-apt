@@ -641,3 +641,121 @@ async fn test_protected_endpoint_accepts_query_token() {
     .await;
   assert_ne!(response.status_code(), axum::http::StatusCode::UNAUTHORIZED);
 }
+
+/// A real recovery envelope using the same PBKDF2/AES-GCM contract as WebCrypto.
+fn fido_recovery_wrapper(
+  key: &[u8; 32],
+) -> n_apt_backend::authentication::VaultKeyWrapper {
+  use aes_gcm::aead::{Aead, KeyInit, Payload};
+  use aes_gcm::{Aes256Gcm, Nonce};
+  let password = std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap();
+  let salt = [31u8; 32];
+  let nonce = [19u8; 12];
+  let mut wrapping_key = [0u8; 32];
+  pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
+    password.trim().as_bytes(),
+    &salt,
+    600_000,
+    &mut wrapping_key,
+  );
+  let format = "n-apt-vault-key-wrapper-v1";
+  let ciphertext = Aes256Gcm::new_from_slice(&wrapping_key)
+    .unwrap()
+    .encrypt(
+      &Nonce::from(nonce),
+      Payload {
+        msg: key,
+        aad: format.as_bytes(),
+      },
+    )
+    .unwrap();
+  n_apt_backend::authentication::VaultKeyWrapper {
+    format: format.into(),
+    salt: crypto::to_base64(&salt),
+    nonce: crypto::to_base64(&nonce),
+    ciphertext: crypto::to_base64(&ciphertext),
+  }
+}
+
+#[tokio::test]
+#[serial]
+async fn fido_unlock_rejects_wrong_key_and_isolates_sessions() {
+  let (_guard, server, state, _) = setup_test_server().await;
+  let key = [41u8; 32];
+  let wrapper = fido_recovery_wrapper(&key);
+  let mut credentials =
+    n_apt_backend::authentication::CredentialFile::default();
+  credentials.fido_vault =
+    Some(n_apt_backend::authentication::FidoVaultWrappers {
+      fido: wrapper.clone(),
+      recovery: wrapper,
+    });
+  state.credential_store.save(&credentials).await.unwrap();
+  let a = state.session_store.create_session([1; 32]).await.unwrap();
+  let b = state.session_store.create_session([2; 32]).await.unwrap();
+  let auth = |token: &str| {
+    axum::http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap()
+  };
+
+  server
+    .post("/auth/fido-vault/unlock")
+    .add_header(axum::http::header::AUTHORIZATION, auth(&a))
+    .json(&serde_json::json!({"vault_key":crypto::to_base64(&[99;32])}))
+    .await
+    .assert_status_bad_request();
+  assert_eq!(state.shared.fido_vault_keys.lock().unwrap().key(&a), None);
+
+  server
+    .post("/auth/fido-vault/unlock")
+    .add_header(axum::http::header::AUTHORIZATION, auth(&a))
+    .json(&serde_json::json!({"vault_key":crypto::to_base64(&key)}))
+    .await
+    .assert_status(axum::http::StatusCode::NO_CONTENT);
+  assert_eq!(
+    state.shared.fido_vault_keys.lock().unwrap().key(&a),
+    Some(key)
+  );
+  server
+    .get("/auth/fido-vault/status")
+    .add_header(axum::http::header::AUTHORIZATION, auth(&b))
+    .await
+    .assert_json(&serde_json::json!({"unlocked":false}));
+
+  // An unrelated session's logout cannot lock the session holding the key.
+  server
+    .post("/auth/logout")
+    .add_header(axum::http::header::AUTHORIZATION, auth(&b))
+    .await
+    .assert_status(axum::http::StatusCode::NO_CONTENT);
+  assert_eq!(
+    state.shared.fido_vault_keys.lock().unwrap().key(&a),
+    Some(key)
+  );
+
+  // Revocation outside the logout handler also clears the in-memory lease.
+  state.session_store.revoke(&a).await.unwrap();
+  tokio::time::timeout(std::time::Duration::from_secs(4), async {
+    loop {
+      if state
+        .shared
+        .fido_vault_keys
+        .lock()
+        .unwrap()
+        .key(&a)
+        .is_none()
+      {
+        break;
+      }
+      tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+  })
+  .await
+  .expect("revocation must erase the backend vault lease");
+  // The stable key still opens pre-existing files after the session ends.
+  let encrypted =
+    crypto::encrypt_payload_binary(&key, b"existing capture").unwrap();
+  assert_eq!(
+    crypto::decrypt_payload_binary(&key, &encrypted).unwrap(),
+    b"existing capture"
+  );
+}
