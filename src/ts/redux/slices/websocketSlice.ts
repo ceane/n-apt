@@ -205,6 +205,19 @@ const websocketSlice = createSlice({
     softDisconnect: (state) => {
       state.isConnected = false;
       state.connectionStatus = "disconnected";
+      state.isPaused = false;
+      state.serverPaused = false;
+      state.sources = state.sources.map((source) => ({
+        ...source,
+        paused: false,
+        status: "disconnected",
+      }));
+      state.sourceStatuses = Object.fromEntries(
+        Object.keys(state.sourceStatuses).map((sourceId) => [
+          sourceId,
+          "disconnected",
+        ]),
+      );
       state.appliedStreamOptionsBySource = {};
       // Keep hasConnectedOnce, sources, activeSourceId, transport metadata.
       // Hard reset remains available via setDisconnected/reset.
@@ -213,6 +226,8 @@ const websocketSlice = createSlice({
     setDisconnected: (state) => {
       state.isConnected = false;
       state.connectionStatus = "disconnected";
+      state.isPaused = false;
+      state.serverPaused = false;
       // Keep hasConnectedOnce so a killed backend can show Server Down instead
       // of the first-boot Loading FFT path.
       state.deviceState = null;

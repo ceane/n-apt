@@ -171,10 +171,11 @@ export const persistManualVisualizerPaused = (paused: boolean): void => {
   try {
     // Pause is presentation state owned by this browser session. localStorage
     // is shared by windows/tabs and would make one subscriber pause another.
-    window.sessionStorage.setItem(
-      MANUAL_VISUALIZER_PAUSE_KEY,
-      JSON.stringify(paused),
-    );
+    if (paused) {
+      window.sessionStorage.setItem(MANUAL_VISUALIZER_PAUSE_KEY, "true");
+    } else {
+      window.sessionStorage.removeItem(MANUAL_VISUALIZER_PAUSE_KEY);
+    }
   } catch {
     /* ignore */
   }
@@ -2948,8 +2949,18 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       if (isConnected && !wasConnectedRef.current) {
         hasInitializedBackendSettingsRef.current = false;
       }
+      if (!isConnected && wasConnectedRef.current) {
+        setManualVisualizerPaused(false);
+        reduxDispatch(setVisualizerPausedAction(false));
+        setLocalSourcePauseOverrides({});
+        manualPausedSourceIdsRef.current.clear();
+        autoPausedSourceIdsRef.current.clear();
+        pendingRoutePauseSourceIdsRef.current.clear();
+        pauseReplaySentForSourceIdRef.current = null;
+        restoredPauseAppliedRef.current = null;
+      }
       wasConnectedRef.current = isConnected;
-    }, [isConnected]);
+    }, [isConnected, reduxDispatch]);
 
     const [cachedFrames, setCachedFrames] = useState<SpectrumFrame[]>(() => {
       if (typeof window === "undefined") return [];

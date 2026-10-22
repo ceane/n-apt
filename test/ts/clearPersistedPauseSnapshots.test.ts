@@ -5,12 +5,14 @@ describe("clearPersistedPauseSnapshots", () => {
     sessionStorage.clear();
   });
 
-  it("removes old pause IQ and visualization snapshots but keeps other session state", () => {
+  it("clears retained pause data and intent but keeps other session state", () => {
     sessionStorage.setItem("n-apt-fft-iq-snapshot:source-a:rx", "old-iq");
     sessionStorage.setItem("n-apt-fft-waterfall-snapshot:source-a:rx", "old-waterfall");
     sessionStorage.setItem("n-apt-fft-waterfall-dims:source-a:rx", "old-dimensions");
     sessionStorage.setItem("n-apt-fft-waveform-snapshot:source-a:rx", "old-waveform");
-    sessionStorage.setItem("n-apt-subscriber-pause-intent", "paused");
+    sessionStorage.setItem("napt-visualizer-manual-paused", "true");
+    sessionStorage.setItem("n-apt:subscriber-pause-intent", "paused");
+    sessionStorage.setItem("n-apt-other-session-state", "preserved");
 
     clearPersistedPauseSnapshots();
 
@@ -18,6 +20,8 @@ describe("clearPersistedPauseSnapshots", () => {
     expect(sessionStorage.getItem("n-apt-fft-waterfall-snapshot:source-a:rx")).toBeNull();
     expect(sessionStorage.getItem("n-apt-fft-waterfall-dims:source-a:rx")).toBeNull();
     expect(sessionStorage.getItem("n-apt-fft-waveform-snapshot:source-a:rx")).toBeNull();
-    expect(sessionStorage.getItem("n-apt-subscriber-pause-intent")).toBe("paused");
+    expect(sessionStorage.getItem("napt-visualizer-manual-paused")).toBeNull();
+    expect(sessionStorage.getItem("n-apt:subscriber-pause-intent")).toBeNull();
+    expect(sessionStorage.getItem("n-apt-other-session-state")).toBe("preserved");
   });
 });

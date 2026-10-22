@@ -6824,10 +6824,13 @@ describe("Redux WebSocket Migration", () => {
               id: "mock-apt",
               name: "Mock APT SDR",
               capability: "mock",
-              status: "receiving",
+              status: "paused",
+              paused: true,
             } as any,
           ],
-          sourceStatuses: { "mock-apt": "receiving" },
+          sourceStatuses: { "mock-apt": "paused" },
+          isPaused: true,
+          serverPaused: true,
         }),
       );
 
@@ -6839,6 +6842,11 @@ describe("Redux WebSocket Migration", () => {
       expect(state.hasConnectedOnce).toBe(true);
       expect(state.activeSourceId).toBe("mock-apt");
       expect(state.sources).toHaveLength(1);
+      expect(state.sources[0].paused).toBe(false);
+      expect(state.sources[0].status).toBe("disconnected");
+      expect(state.sourceStatuses["mock-apt"]).toBe("disconnected");
+      expect(state.isPaused).toBe(false);
+      expect(state.serverPaused).toBe(false);
     });
 
     it("does not queue Tx or preview frame requests while disconnected", () => {

@@ -658,6 +658,16 @@ const pauseIntentStorage = (): Storage | null => {
   }
 };
 
+const clearSubscriberPauseIntent = (): void => {
+  subscriberPausedBySource.clear();
+  subscriberPauseIntentRestored = false;
+  try {
+    pauseIntentStorage()?.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+  } catch {
+    // Best effort: a blocked store must not disturb the stream.
+  }
+};
+
 /**
  * Identifies the current document. A Fast Refresh re-evaluates this module
  * inside the same document, so `timeOrigin` is unchanged and the intent is
@@ -731,6 +741,10 @@ const persistSubscriberPauseIntent = (): void => {
   const storage = pauseIntentStorage();
   if (!storage) return;
   try {
+    if (subscriberPausedBySource.size === 0) {
+      storage.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+      return;
+    }
     const record: PersistedPauseIntent = {
       page: currentPageGeneration(),
       paused: Object.fromEntries(subscriberPausedBySource),
@@ -998,9 +1012,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   resetPausedFrameRequestGate();
   lastPauseCommandTime = 0;
   lastExpectedPauseState = null;
-  subscriberPausedBySource.clear();
-  subscriberPauseIntentRestored = false;
-  pauseIntentStorage()?.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+  clearSubscriberPauseIntent();
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
@@ -4257,6 +4269,7 @@ const createWebSocketMiddleware =
               // backend before the control plane reconnects after a hot-reload
               // swap. Recreate so Mock APT / live sources can subscribe cleanly.
               resetManagedStreamPipeline(true);
+              clearSubscriberPauseIntent();
               clearPersistedPauseSnapshots();
               clearLiveSpectrumFrames(dispatch);
               cachedRxFrameBySourceId.clear();
@@ -4305,6 +4318,7 @@ const createWebSocketMiddleware =
         }
 
         clearLiveSpectrumFrames(dispatch);
+        clearSubscriberPauseIntent();
         clearPersistedPauseSnapshots();
         cachedRxFrameBySourceId.clear();
         presentationController.reset();
@@ -4688,7 +4702,11 @@ const createWebSocketMiddleware =
         }
 
         if (sourceId) {
-          subscriberPausedBySource.set(sourceId, isPaused);
+          if (isPaused) {
+            subscriberPausedBySource.set(sourceId, true);
+          } else {
+            subscriberPausedBySource.delete(sourceId);
+          }
           persistSubscriberPauseIntent();
           presentationController.setPaused(sourceId, mode, isPaused);
           if (managedRxSubscription?.stream.sourceId === sourceId) {
