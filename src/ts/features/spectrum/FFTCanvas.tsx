@@ -3617,9 +3617,8 @@ const FFTCanvas = memo(
       forceRenderRef.current?.();
     }, [resolvedThemeMode, fftColor, waterfallTheme]);
 
-    const forceRenderRef = useRef<((reprocessFrame?: boolean) => void) | null>(
-      null,
-    );
+    const forceRenderRef = useRef<((reprocessFrame?: boolean) => void) | null>(null);
+    const requestRenderRef = useRef<(() => void) | null>(null);
 
     // Pointer moves can arrive much faster than the FFT frame cadence. Keep
     // paused overlays responsive, but never synchronously force a full FFT
@@ -3930,7 +3929,7 @@ const FFTCanvas = memo(
         offsetDb: effectiveDbmOffsetDb,
         windowType: fftWindow,
       },
-      onSpectrumReady: () => forceRenderRef.current?.(false),
+      onSpectrumReady: () => requestRenderRef.current?.(),
     });
 
     // Synchronous fallback for environments where workers are unavailable.
@@ -4962,7 +4961,7 @@ const FFTCanvas = memo(
               colormap: colormapRef.current,
               colormapName: waterfallThemeRef.current,
               backgroundColor: waterfallBackgroundColorRef.current,
-              onReady: () => forceRenderRef.current?.(false),
+              onReady: () => requestRenderRef.current?.(),
             });
           }
         } else {
@@ -5731,7 +5730,7 @@ const FFTCanvas = memo(
                 colormap: colormapRef.current,
                 colormapName: waterfallThemeRef.current,
                 backgroundColor: waterfallBackgroundColorRef.current,
-                onReady: () => forceRenderRef.current?.(false),
+                onReady: () => requestRenderRef.current?.(),
               });
               if (restoreTexture) {
                 restoredWaterfallRef.current = true;
@@ -5775,7 +5774,7 @@ const FFTCanvas = memo(
                   colormap: colormapRef.current,
                   colormapName: waterfallThemeRef.current,
                   backgroundColor: waterfallBackgroundColorRef.current,
-                  onReady: () => forceRenderRef.current?.(false),
+                  onReady: () => requestRenderRef.current?.(),
                 });
               }
             }
@@ -5862,6 +5861,7 @@ const FFTCanvas = memo(
       onBecomeVisible,
       targetFPS: fftFrameRate,
       forceRenderRef,
+      requestRenderRef,
     });
 
     useFftCanvasInvalidation({
