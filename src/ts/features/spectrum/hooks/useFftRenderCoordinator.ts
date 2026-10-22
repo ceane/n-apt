@@ -9,11 +9,13 @@ export interface FftRenderCoordinatorOptions {
   forceRenderRef?: React.MutableRefObject<
     ((reprocessFrame?: boolean) => void) | null
   >;
+  requestRenderRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 /** Owns animation cadence and exposes the imperative repaint bridge. */
 export function useFftRenderCoordinator({
   forceRenderRef,
+  requestRenderRef,
   ...animationOptions
 }: FftRenderCoordinatorOptions) {
   const animation = useFFTAnimation(animationOptions);
@@ -22,12 +24,18 @@ export function useFftRenderCoordinator({
     if (forceRenderRef) {
       forceRenderRef.current = animation.forceRender;
     }
+    if (requestRenderRef) {
+      requestRenderRef.current = animation.requestRender;
+    }
     return () => {
       if (forceRenderRef?.current === animation.forceRender) {
         forceRenderRef.current = null;
       }
+      if (requestRenderRef?.current === animation.requestRender) {
+        requestRenderRef.current = null;
+      }
     };
-  }, [animation.forceRender, forceRenderRef]);
+  }, [animation.forceRender, animation.requestRender, forceRenderRef, requestRenderRef]);
 
   return animation;
 }

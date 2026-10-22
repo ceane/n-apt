@@ -156,9 +156,22 @@ export function useFFTAnimation({
     animate(true, reprocessFrame);
   }, [animate]);
 
+  // Async completions normally arrive while the continuous render loop already
+  // has a frame queued. Leave that cadence intact; only restart it if it stopped.
+  const requestRender = useCallback(() => {
+    if (!isVisibleRef.current || animationFrameRef.current !== null) return;
+    const runId = animationRunIdRef.current;
+    animationFrameRef.current = requestAnimationFrame(() => {
+      if (animationRunIdRef.current !== runId) return;
+      animationFrameRef.current = null;
+      animate(false);
+    });
+  }, [animate]);
+
   return {
     animate,
     forceRender,
+    requestRender,
     isVisibleRef,
     setTargetFPS: useCallback((fps: number) => {
       frameRateLimiterRef.current = 1000 / fps;

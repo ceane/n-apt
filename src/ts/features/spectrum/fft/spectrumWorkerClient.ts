@@ -43,8 +43,13 @@ export class SpectrumWorkerClient {
       this.completed = completed;
       const pending = this.pending;
       this.pending = null;
+      // Publish every frame that can still be displayed in the active scope.
+      // A newer same-scope frame may be pending, but waiting for it freezes the
+      // spectrum on slower workers. Different-scope results are already stale.
+      if (!pending || pending.scope === completed.scope) {
+        this.onResult?.({ frame: completed.frame, spectrum: completed.spectrum });
+      }
       if (pending) this.start(pending);
-      else this.onResult?.({ frame: completed.frame, spectrum: completed.spectrum });
     };
     worker.onerror = () => this.fail();
     worker.onmessageerror = () => this.fail();
@@ -95,9 +100,11 @@ export class SpectrumWorkerClient {
     if (this.failed || this.disposed) return undefined;
     const scope = JSON.stringify([frame.source_id, frame.stream_epoch, frame.options_revision,
       frame.center_frequency_hz, frame.sample_rate, config.fftSize, config.offsetDb, config.windowType]);
-    const signature = `${scope}:${frame.sequence}:${frame.timestamp}`;
-    return this.completed?.signature === signature && this.completed.frame.iq_data === frame.iq_data
-      ? this.completed
+    // The canvas should show the newest completed result from this source and
+    // configuration while newer FFT work is pending. The result carries its
+    // own frame so frequency axes remain aligned to the processed IQ data.
+    return this.completed?.scope === scope
+      ? { frame: this.completed.frame, spectrum: this.completed.spectrum }
       : null;
   }
 
