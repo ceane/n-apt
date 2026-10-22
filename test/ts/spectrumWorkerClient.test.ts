@@ -8,19 +8,24 @@ const frame = (sequence: number, source = "mock-apt") => ({
 }) as LiveFrameData;
 const config = { fftSize: 8, offsetDb: 0, windowType: "hanning" };
 
-test("bounds FFT work to one in flight and the newest pending frame", () => {
+test("submits frames on arrival and notifies when the newest result completes", () => {
   const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
-  const client = new SpectrumWorkerClient(worker);
+  const onResult = jest.fn();
+  const client = new SpectrumWorkerClient(worker, onResult);
   const a = frame(1), b = frame(2), c = frame(3);
-  expect(client.read(a, config)).toBeNull();
-  client.read(b, config); client.read(c, config);
+  client.submit(a, config);
+  client.submit(b, config); client.submit(c, config);
   expect(worker.postMessage).toHaveBeenCalledTimes(1);
   expect(a.iq_data.length).toBe(32);
   worker.onmessage({ data: { id: worker.postMessage.mock.calls[0][0].id, spectrum: new Float32Array(8).fill(-50) } });
   expect(worker.postMessage).toHaveBeenCalledTimes(2);
+  expect(onResult).not.toHaveBeenCalled();
+  worker.onmessage({ data: { id: worker.postMessage.mock.calls[1][0].id, spectrum: new Float32Array(8).fill(-42) } });
+  expect(onResult).toHaveBeenCalledTimes(1);
+  expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ frame: c }));
   const result = client.read(c, config);
-  expect(result?.frame).toBe(a);
-  expect(result?.spectrum[0]).toBe(-50);
+  expect(result?.frame).toBe(c);
+  expect(result?.spectrum[0]).toBe(-42);
   expect(client.read(frame(1, "rtl-1"), config)).toBeNull();
   client.dispose();
   expect(worker.terminate).toHaveBeenCalledTimes(1);
@@ -30,10 +35,21 @@ test("rejects completed FFT work from an older processing configuration", () => 
   const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
   const client = new SpectrumWorkerClient(worker);
   const a = frame(1);
-  client.read(a, config);
+  client.submit(a, config);
   const next = { ...config, windowType: "blackman" };
-  client.read(a, next);
+  client.submit(a, next);
   worker.onmessage({ data: { id: 1, spectrum: new Float32Array(8) } });
   expect(client.read(a, next)).toBeNull();
+  client.dispose();
+});
+
+test("does not expose an older completed frame while a newer frame is pending", () => {
+  const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
+  const client = new SpectrumWorkerClient(worker);
+  const a = frame(1), b = frame(2);
+  client.submit(a, config);
+  client.submit(b, config);
+  worker.onmessage({ data: { id: 1, spectrum: new Float32Array(8).fill(-50) } });
+  expect(client.read(b, config)).toBeNull();
   client.dispose();
 });

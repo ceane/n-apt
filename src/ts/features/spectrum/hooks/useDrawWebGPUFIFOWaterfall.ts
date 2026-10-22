@@ -2,6 +2,7 @@ import { forEachRepackedWaterfallRow } from "@n-apt/spectrum/utils/waterfallRows
 import { WATERFALL_FIFO_WGSL } from "@n-apt/shaders";
 import { useCallback, useRef } from "react";
 import { readCssColor } from "@n-apt/layout/rendering/cssColor";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 import { validateSpectrumDataComprehensive } from "@n-apt/validation";
 import type { WaterfallBinSubset } from "@n-apt/spectrum/public/waterfallBinSubset";
 
@@ -52,6 +53,39 @@ function parseCssColorToRgba(color: string): [number, number, number, number] {
 //   default  = nearest-neighbour
 // ---------------------------------------------------------------------------
 const waterfallShader = WATERFALL_FIFO_WGSL;
+const waterfallPipelines = new WeakMap<
+  GPUDevice,
+  Map<GPUTextureFormat, Promise<GPURenderPipeline>>
+>();
+
+const getWaterfallPipeline = (
+  device: GPUDevice,
+  format: GPUTextureFormat,
+): Promise<GPURenderPipeline> => {
+  let pipelinesByFormat = waterfallPipelines.get(device);
+  if (!pipelinesByFormat) {
+    pipelinesByFormat = new Map();
+    waterfallPipelines.set(device, pipelinesByFormat);
+  }
+  const existing = pipelinesByFormat.get(format);
+  if (existing) return existing;
+
+  const module = device.createShaderModule({ code: waterfallShader });
+  const pending = device.createRenderPipelineAsync({
+    layout: "auto",
+    vertex: { module, entryPoint: "vs_main" },
+    fragment: { module, entryPoint: "fs_main", targets: [{ format }] },
+    primitive: { topology: "triangle-list" },
+  });
+  pipelinesByFormat.set(format, pending);
+  void pending.catch(() => {
+    if (pipelinesByFormat?.get(format) === pending) {
+      pipelinesByFormat.delete(format);
+    }
+  });
+  return pending;
+};
+
 const DEFAULT_PLOT_MARGIN = { x: 40, y: 8 } as const;
 const DEFAULT_COLORMAP: number[][] = [
   [0, 0, 0],
@@ -164,6 +198,10 @@ export interface WebGPUFIFOWaterfallOptions {
   fftSize?: number;
   sampleRate?: number;
   centerFrequencyHz?: number;
+  /** Called after async GPU setup so the latest frame can be drawn. */
+  onReady?: () => void;
+  /** Called after async setup fails so the caller can select its fallback. */
+  onError?: () => void;
   isPaused?: boolean;
   isFirstFrame?: boolean;
   historyZoom?: number;
@@ -176,6 +214,20 @@ export interface WebGPUFIFOWaterfallOptions {
 // ---------------------------------------------------------------------------
 export function useDrawWebGPUFIFOWaterfall() {
   const stateRef = useRef<WaterfallState | null>(null);
+  const pendingInitRef = useRef<{
+    canvas: HTMLCanvasElement;
+    device: GPUDevice;
+    format: GPUTextureFormat;
+    generation: number;
+  } | null>(null);
+  const failedInitRef = useRef<{
+    canvas: HTMLCanvasElement;
+    device: GPUDevice;
+    format: GPUTextureFormat;
+  } | null>(null);
+  const generationRef = useRef(0);
+  const onReadyRef = useRef<(() => void) | undefined>(undefined);
+  const onErrorRef = useRef<(() => void) | undefined>(undefined);
   const lastErrorRef = useRef<string | null>(null);
 
   const createColorTex = useCallback(
@@ -199,23 +251,19 @@ export function useDrawWebGPUFIFOWaterfall() {
   );
 
   const initState = useCallback(
-    (
+    async (
       canvas: HTMLCanvasElement,
       device: GPUDevice,
       format: GPUTextureFormat,
       colormap: number[][],
+      isCurrent: () => boolean,
       colormapName?: string,
-    ): WaterfallState => {
+    ): Promise<WaterfallState | null> => {
       const ctx = canvas.getContext("webgpu")!;
+      const pipeline = await getWaterfallPipeline(device, format);
+      if (!isCurrent()) return null;
+      // Keep the existing canvas contents visible while the pipeline compiles.
       ctx.configure({ device, format, alphaMode: "premultiplied" });
-
-      const module = device.createShaderModule({ code: waterfallShader });
-      const pipeline = device.createRenderPipeline({
-        layout: "auto",
-        vertex: { module, entryPoint: "vs_main" },
-        fragment: { module, entryPoint: "fs_main", targets: [{ format }] },
-        primitive: { topology: "triangle-list" },
-      });
 
       const uniforms = new Float32Array(20);
       const uniformBuf = device.createBuffer({
@@ -291,37 +339,86 @@ export function useDrawWebGPUFIFOWaterfall() {
         historyPan = 0,
         binSubset,
       } = options;
+      onReadyRef.current = options.onReady;
+      onErrorRef.current = options.onError;
 
       const existingState = stateRef.current;
+      const existingPending = pendingInitRef.current;
       if (
-        existingState &&
-        (existingState.canvas !== canvas ||
-          existingState.device !== device ||
-          existingState.format !== format)
+        (existingState &&
+          (existingState.canvas !== canvas ||
+            existingState.device !== device ||
+            existingState.format !== format)) ||
+        (existingPending &&
+          (existingPending.canvas !== canvas ||
+            existingPending.device !== device ||
+            existingPending.format !== format))
       ) {
         destroyWaterfallState(existingState);
         stateRef.current = null;
+        pendingInitRef.current = null;
+        failedInitRef.current = null;
+        generationRef.current += 1;
       }
 
       const effectiveColormap =
         colormap && colormap.length > 0 ? colormap : DEFAULT_COLORMAP;
       if (!stateRef.current) {
-        try {
-          stateRef.current = initState(
+        if (
+          failedInitRef.current?.canvas === canvas &&
+          failedInitRef.current.device === device &&
+          failedInitRef.current.format === format
+        ) {
+          return false;
+        }
+        const pending = pendingInitRef.current;
+        if (
+          !pending ||
+          pending.canvas !== canvas ||
+          pending.device !== device ||
+          pending.format !== format
+        ) {
+          const generation = ++generationRef.current;
+          const nextPending = { canvas, device, format, generation };
+          pendingInitRef.current = nextPending;
+          void initState(
             canvas,
             device,
             format,
             effectiveColormap,
+            () =>
+              generationRef.current === generation &&
+              pendingInitRef.current === nextPending,
             colormapName,
-          );
-        } catch (e) {
-          lastErrorRef.current =
-            e instanceof Error
-              ? e.message
+          ).then((nextState) => {
+            if (!nextState) return;
+            if (
+              generationRef.current !== generation ||
+              pendingInitRef.current !== nextPending
+            ) {
+              destroyWaterfallState(nextState);
+              return;
+            }
+            stateRef.current = nextState;
+            pendingInitRef.current = null;
+            failedInitRef.current = null;
+            lastErrorRef.current = null;
+            onReadyRef.current?.();
+          }).catch((error: unknown) => {
+            if (
+              generationRef.current !== generation ||
+              pendingInitRef.current !== nextPending
+            ) return;
+            pendingInitRef.current = null;
+            failedInitRef.current = { canvas, device, format };
+            lastErrorRef.current = error instanceof Error
+              ? error.message
               : "Unknown WebGPU initialization error";
-          console.error("WebGPU waterfall init failed:", e);
-          return false;
+            onErrorRef.current?.();
+          });
         }
+        // Keep the current canvas content until the async pipeline is ready.
+        return true;
       }
       const s = stateRef.current;
       const backgroundColor =
@@ -472,6 +569,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         // =========================================================
         // updateWaterfall() — push one row of raw dB into buffer
         // =========================================================
+        const renderSubmitStartedAt = browserPipelineMetrics.startTiming();
         const enc = device.createCommandEncoder();
 
         const hasCpuFftRow = fftData.length > 0;
@@ -656,6 +754,7 @@ export function useDrawWebGPUFIFOWaterfall() {
         pass.draw(3);
         pass.end();
         device.queue.submit([enc.finish()]);
+        browserPipelineMetrics.finishTiming("renderSubmit", renderSubmitStartedAt);
 
         lastErrorRef.current = null;
         return true;
@@ -672,8 +771,12 @@ export function useDrawWebGPUFIFOWaterfall() {
   );
 
   const cleanup = useCallback(() => {
+    generationRef.current += 1;
+    pendingInitRef.current = null;
+    failedInitRef.current = null;
     destroyWaterfallState(stateRef.current);
     stateRef.current = null;
+    lastErrorRef.current = null;
   }, []);
   const getLastError = useCallback(() => lastErrorRef.current, []);
   return { drawWebGPUFIFOWaterfall, cleanup, getLastError };

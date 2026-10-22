@@ -8,6 +8,10 @@ import {
   type StreamTransport,
 } from "./sourceModeStreamManager";
 import type { StreamDeliveryPolicy } from "./streamContract";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
+
+type FrameIngressTiming = { receivedAt: number | null; wireBytes: number };
+const frameIngressTimings = new WeakMap<object, FrameIngressTiming>();
 
 type StreamInboundItem =
   | {
@@ -183,14 +187,31 @@ const drainInbound = (
   }
   connection.inboundItemInFlight = true;
   const generation = connection.generation;
+  const ingressTiming = frameIngressTimings.get(nextItem.message);
+  const decryptStartedAt = browserPipelineMetrics.startTiming();
 
   void makeFrame(nextItem.message, aesKey)
     .then((frame) => {
-      if (generation === connection.generation && frame.optionsRevision >= connection.minimumOptionsRevision) {
+      browserPipelineMetrics.finishTiming("frameDecrypt", decryptStartedAt);
+      browserPipelineMetrics.finishTiming("frameReceiptToDecrypt", ingressTiming?.receivedAt ?? null);
+      frameIngressTimings.delete(nextItem.message);
+      if (
+        generation === connection.generation &&
+        frame.type === "stream_frame" &&
+        frame.optionsRevision >= connection.minimumOptionsRevision
+      ) {
+        browserPipelineMetrics.frameAccepted(
+          frame.sequence,
+          ingressTiming?.wireBytes ?? 0,
+          JSON.stringify([connection.key.sourceId, connection.key.mode, frame.streamEpoch]),
+        );
         connection.onEvent(frame);
       }
     })
     .catch(() => {
+      browserPipelineMetrics.finishTiming("frameDecrypt", decryptStartedAt);
+      browserPipelineMetrics.finishTiming("frameReceiptToDecrypt", ingressTiming?.receivedAt ?? null);
+      frameIngressTimings.delete(nextItem.message);
       if (generation !== connection.generation) return;
       connection.onEvent({
         type: "stream_error",
@@ -225,13 +246,17 @@ const enqueueFrame = (
   if (optionsRevision > connection.minimumOptionsRevision) {
     advanceOptionsRevision(connection, optionsRevision);
   }
-  if (optionsRevision < connection.minimumOptionsRevision) return;
+  if (optionsRevision < connection.minimumOptionsRevision) {
+    browserPipelineMetrics.frameDropped();
+    return;
+  }
 
   if (connection.deliveryPolicy === "lossless") {
     const queuedLosslessFrames = connection.inboundQueue.filter(
       (item) => item.kind === "frame" && item.deliveryPolicy === "lossless",
     ).length;
     if (queuedLosslessFrames >= MAX_PENDING_LOSSLESS_FRAMES) {
+      browserPipelineMetrics.frameDropped();
       if (!connection.losslessLagReported) {
         connection.losslessLagReported = true;
         connection.onEvent({
@@ -260,6 +285,7 @@ const enqueueFrame = (
       lastItem?.kind === "frame" &&
       lastItem.deliveryPolicy === "latest"
     ) {
+      browserPipelineMetrics.frameDropped();
       lastItem.message = message;
     } else {
       connection.inboundQueue.push({
@@ -364,6 +390,7 @@ export const createMultiplexedStreamTransport = ({
     };
     nextSocket.onmessage = (event) => {
       if (socket !== nextSocket) return;
+      const receivedAt = browserPipelineMetrics.startTiming();
       let message: Record<string, unknown>;
       try {
         if (event.data instanceof ArrayBuffer) {
@@ -435,6 +462,14 @@ export const createMultiplexedStreamTransport = ({
       }
       if (message.type === "stream_unsubscribe") return;
       if (message.type === "stream_frame") {
+        if (receivedAt !== null) {
+          const wireBytes = event.data instanceof ArrayBuffer
+            ? event.data.byteLength
+            : typeof event.data === "string"
+              ? event.data.length
+              : 0;
+          frameIngressTimings.set(message, { receivedAt, wireBytes });
+        }
         enqueueFrame(connection, message, aesKey);
         return;
       }

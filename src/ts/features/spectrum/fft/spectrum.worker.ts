@@ -8,6 +8,7 @@ const processor = import("n_apt_canvas").then(async module => {
 }).catch(() => null);
 
 self.onmessage = async ({ data }: MessageEvent<SpectrumWorkerRequest>) => {
+  const startedAt = performance.now();
   try {
     const wasm = await processor;
     let spectrum: Float32Array;
@@ -17,8 +18,13 @@ self.onmessage = async ({ data }: MessageEvent<SpectrumWorkerRequest>) => {
     } catch {
       spectrum = computeIqToDbSpectrumScalar(data.iq, data);
     }
-    self.postMessage({ id: data.id, spectrum } satisfies SpectrumWorkerResponse, { transfer: [spectrum.buffer] });
+    const computeDurationMs = performance.now() - startedAt;
+    self.postMessage({ id: data.id, spectrum, computeDurationMs } satisfies SpectrumWorkerResponse, { transfer: [spectrum.buffer] });
   } catch (error) {
-    self.postMessage({ id: data.id, error: String(error) } satisfies SpectrumWorkerResponse);
+    self.postMessage({
+      id: data.id,
+      error: String(error),
+      computeDurationMs: performance.now() - startedAt,
+    } satisfies SpectrumWorkerResponse);
   }
 };

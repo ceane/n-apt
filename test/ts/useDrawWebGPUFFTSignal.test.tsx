@@ -39,12 +39,23 @@ jest.mock("@n-apt/shaders", () => ({
   COPY_DST: 2,
   COPY_SRC: 4,
   UNIFORM: 8,
+  MAP_READ: 16,
 };
+(global as any).GPUMapMode = { READ: 1 };
 
 describe("useDrawWebGPUFFTSignal", () => {
-  const createMockBuffer = () => ({
-    destroy: jest.fn(),
-  });
+  const createMockBuffer = (descriptor?: GPUBufferDescriptor) => {
+    const mapped = new ArrayBuffer(Math.max(20_000, Number(descriptor?.size ?? 0)));
+    if ((Number(descriptor?.usage ?? 0) & GPUBufferUsage.MAP_READ) !== 0) {
+      new DataView(mapped).setUint32(160 + 8 + 64 + 1024 * 16, 1, true);
+    }
+    return {
+      destroy: jest.fn(),
+      mapAsync: jest.fn(() => Promise.resolve()),
+      getMappedRange: jest.fn(() => mapped),
+      unmap: jest.fn(),
+    };
+  };
 
   const computePass = {
     setPipeline: jest.fn(),
@@ -64,7 +75,7 @@ describe("useDrawWebGPUFFTSignal", () => {
     createPipelineLayout: jest.fn(() => ({})),
     createBindGroupLayout: jest.fn(() => ({})),
     createBindGroup: jest.fn(() => ({})),
-    createBuffer: jest.fn(() => createMockBuffer()),
+    createBuffer: jest.fn((descriptor?: GPUBufferDescriptor) => createMockBuffer(descriptor)),
     createCommandEncoder: jest.fn(() => ({
       clearBuffer: jest.fn(),
       beginComputePass: jest.fn(() => computePass),
@@ -75,6 +86,7 @@ describe("useDrawWebGPUFFTSignal", () => {
         end: jest.fn(),
       })),
       finish: jest.fn(() => ({})),
+      copyBufferToBuffer: jest.fn(),
     })),
     queue: {
       writeBuffer: jest.fn(),
@@ -245,6 +257,43 @@ describe("useDrawWebGPUFFTSignal", () => {
     );
     expect(mockDevice.createCommandEncoder).toHaveBeenCalledTimes(1);
     expect(mockDevice.queue.submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("packs count and classifier results into one mapped readback buffer", async () => {
+    jest.spyOn(performance, "now").mockReturnValue(1000);
+    const onSpikeCount = jest.fn();
+    const onSpikeAnalysis = jest.fn();
+    const { result } = renderHook(() => useDrawWebGPUFFTSignal());
+
+    await result.current.drawWebGPUFFTSignal({
+      canvas: mockCanvas,
+      device: mockDevice as any,
+      format: "rgba8unorm" as GPUTextureFormat,
+      waveform: new Float32Array(2048).fill(-50),
+      frequencyRange: { min: 0, max: 1 },
+      showSpikeOverlay: true,
+      onSpikeCount,
+      onSpikeAnalysis,
+    });
+    await Promise.resolve();
+
+    const readbackBuffers = mockDevice.createBuffer.mock.results
+      .map((entry) => entry.value)
+      .filter((buffer) => buffer.mapAsync.mock.calls.length > 0);
+    expect(readbackBuffers).toHaveLength(1);
+    expect(readbackBuffers[0].mapAsync).toHaveBeenCalledTimes(1);
+    const encoder = mockDevice.createCommandEncoder.mock.results[0].value;
+    const copies = encoder.copyBufferToBuffer.mock.calls;
+    expect(copies).toHaveLength(5);
+    expect(new Set(copies.map((call: unknown[]) => call[2])).size).toBe(1);
+    expect(onSpikeCount).toHaveBeenCalledWith(1);
+    expect(onSpikeAnalysis).toHaveBeenCalledWith(expect.objectContaining({
+      spikes: [],
+      isNapt: false,
+      confidence: 0,
+    }));
+    result.current.cleanup();
+    jest.restoreAllMocks();
   });
 
   it("defers destroying resized buffers until submitted work completes", async () => {

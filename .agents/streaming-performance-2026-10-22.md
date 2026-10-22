@@ -59,3 +59,31 @@ Those generated sources are outside this change. Two classifier-sidebar tests
 fail in the full FFTCanvas suite and pass in isolation. The same failures were
 reproduced by substituting the original FFTCanvas source from `main` through a
 temporary Jest transformer, without changing the working tree.
+
+## Safari stutter follow-up — October 22, 2026
+
+- [x] Submit FFT work on frame arrival while retaining one in-flight job and
+  one replaceable latest pending job. Request a repaint as soon as the newest
+  result is ready; reject results whose source, stream revision, frame, or FFT
+  configuration no longer matches.
+- [x] Initialize the FIFO waterfall pipeline with
+  `createRenderPipelineAsync`. Reuse one pending pipeline promise per device
+  and format, keep the existing canvas contents while compilation is pending,
+  and discard late initialization after cleanup or device/format replacement.
+- [x] Copy classifier, decision, temporal, spike, and count results into one
+  staging buffer and map it once per sampled readback interval.
+- [x] Add bounded DevTools timing samples behind
+  `localStorage.setItem("napt.pipelineProfile", "1")`. Reload the page, then
+  inspect `window.naptPipelineMetrics.snapshot()`. Timing stages include frame
+  receipt-to-decryption, decryption, worker queue/compute/round trip, CPU render
+  and queue submit, and render-loop intervals. Render-loop intervals are a
+  pre-paint proxy; they do not measure browser paint or display presentation.
+- [x] Add focused regression tests for immediate worker repaint, stale worker
+  results, async waterfall setup/cleanup, and one-map classifier readback.
+
+The focused frontend run passed 61 tests across 9 suites. The seeded Mock APT
+identity regression passed with checksum `68178474`. `npm run typecheck` was
+run; its 10 remaining errors are confined to generated sources under
+`src/encrypted-modules/tmp/ml`. Safari before/after profiling still requires a
+manual comparison with the same source, stream settings, and viewport, plus a
+Web Inspector timeline review.

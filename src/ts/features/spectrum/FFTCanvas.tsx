@@ -3503,7 +3503,15 @@ const FFTCanvas = memo(
       txSliderLocked: isTxSliderLocked,
     });
 
-    const { readSpectrum: readWorkerSpectrum, fallbackRequired } = useSpectrumWorker();
+    const { readSpectrum: readWorkerSpectrum, fallbackRequired } = useSpectrumWorker({
+      frameRef: dataRef,
+      config: {
+        fftSize: frontendFftSize,
+        offsetDb: effectiveDbmOffsetDb,
+        windowType: fftWindow,
+      },
+      onSpectrumReady: () => forceRenderRef.current?.(false),
+    });
 
     // Synchronous fallback for environments where workers are unavailable.
     // Initialize WASM SIMD for optimized data processing
@@ -4386,6 +4394,7 @@ const FFTCanvas = memo(
               freeze: !isExplicitStandbyPlaceholder,
               colormap: colormapRef.current,
               colormapName: waterfallThemeRef.current,
+              onReady: () => forceRenderRef.current?.(false),
             });
           }
         } else {
@@ -5083,6 +5092,7 @@ const FFTCanvas = memo(
                 wfSmooth: wfSmoothEnabledRef.current,
                 colormap: colormapRef.current,
                 colormapName: waterfallThemeRef.current,
+                onReady: () => forceRenderRef.current?.(false),
               });
               if (restoreTexture) {
                 restoredWaterfallRef.current = true;
@@ -5125,6 +5135,7 @@ const FFTCanvas = memo(
                   restoreTexture: restore,
                   colormap: colormapRef.current,
                   colormapName: waterfallThemeRef.current,
+                  onReady: () => forceRenderRef.current?.(false),
                 });
               }
             }
