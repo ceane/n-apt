@@ -158,7 +158,7 @@ export const resolveLiveSpectrumCoordinateModel = ({
 };
 
 export interface LiveSpectrumPaintContract {
-  /** Pan/zoom axis — always the frame's CF ± fs/2. */
+  /** Pan/zoom axis; may follow a newly requested rate before its frame arrives. */
   paintViewportRange: { min: number; max: number };
   sourceFrequencyRange: { min: number; max: number };
   /** Absolute Hz the gesture is looking at. */
@@ -231,6 +231,40 @@ export const resolveLiveSpectrumPaintContract = ({
     activeRate !== null &&
     sourceSpan > 0 &&
     Math.abs(sourceSpan - activeRate) <= Math.max(1_000, sourceSpan * 0.001);
+  const requestedViewMatchesPendingRate =
+    !mirrorEnabled &&
+    !isPaused &&
+    activeRate !== null &&
+    requestedBaseSpan > 0 &&
+    Math.abs(requestedBaseSpan - activeRate) <= Math.max(1_000, activeRate * 0.001) &&
+    !acceptedFrameMatchesActiveRate;
+  const requestedCoordinates = resolveLiveSpectrumCoordinateModel({
+    viewportBaseRange: safeRequestedRange,
+    sourceRange: safeSourceRange,
+    zoom: safeZoom,
+    panOffsetHz: safePan,
+    mirrorEnabled,
+  });
+  const requestedViewWithNegativeResidentFrame =
+    safeRequestedRange.min >= 0 &&
+    requestedBaseSpan > 0 &&
+    (mirrorEnabled || requestedCoordinates.displayRange.min >= 0) &&
+    safeSourceRange.min < 0;
+  if (requestedViewMatchesPendingRate || requestedViewWithNegativeResidentFrame) {
+    // Keep the selected sample-rate window on the VFO during a retune. The
+    // GPU still maps bins against their actual source axis, leaving uncovered
+    // frequencies at the floor until the wider acquisition frame arrives.
+    // A fallback frame can straddle DC even though the requested view is
+    // positive. Preserve explicit mirrored pans too; changing the producer's
+    // axis must not shift either view just to fit the resident frame.
+    return {
+      paintViewportRange: safeRequestedRange,
+      sourceFrequencyRange: safeSourceRange,
+      displayRange: requestedCoordinates.displayRange,
+      zoom: safeZoom,
+      panOffsetHz: requestedCoordinates.clampedPan,
+    };
+  }
   const stalePositiveWholeView =
     safeZoom <= 1.0001 &&
     safeRequestedRange.min >= 0 &&

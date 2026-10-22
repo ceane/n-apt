@@ -48,8 +48,7 @@ export const resolveWholeChannelFrame = ({
   const isWholeChannel =
     supportsWholeChannel &&
     spanHz > 0 &&
-    (wholeChannelMode ||
-      (isFinitePositive(sampleRateHz) && sampleRateHz >= spanHz));
+    wholeChannelMode;
 
   return {
     isWholeChannel,

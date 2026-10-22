@@ -254,6 +254,10 @@ export const useLiveSampleRateControl = ({
   );
   const lastAppliedWholeChannelRateRef = useRef<number | null>(null);
   const lastAppliedFrequencyRangeKeyRef = useRef<string | null>(null);
+  const wholeChannelStartupRestoreAttemptedRef = useRef(false);
+  const pendingAcquisitionRateRef = useRef<number | null>(null);
+  const wholeChannelBoundsKeyRef = useRef<string | null>(null);
+  const pendingWholeChannelBoundsKeyRef = useRef<string | null>(null);
   const [pendingSampleRateHz, setPendingSampleRateHz] = useState<number | null>(
     null,
   );
@@ -263,11 +267,14 @@ export const useLiveSampleRateControl = ({
     if (
       pendingSampleRateHz !== null &&
       typeof sampleRateHz === "number" &&
-      Math.round(sampleRateHz) === Math.round(pendingSampleRateHz)
+      Math.round(sampleRateHz) === Math.round(pendingSampleRateHz) &&
+      (!frequencyRange ||
+        rangeSpanHz(frequencyRange) === Math.round(pendingSampleRateHz))
     ) {
+      pendingAcquisitionRateRef.current = null;
       setPendingSampleRateHz(null);
     }
-  }, [pendingSampleRateHz, sampleRateHz]);
+  }, [pendingSampleRateHz, sampleRateHz, frequencyRange]);
 
   const canUseWholeChannel =
     sourceMode === "live" &&
@@ -280,23 +287,23 @@ export const useLiveSampleRateControl = ({
     ? getWholeChannelSampleRate(activeChannelSampleRate)
     : null;
 
-  // Whole Channel is derived from the live rate, not from the last gesture.
-  // A sticky `whole` mode kept claiming Whole Channel after the active channel
-  // changed underneath it, so the selector showed one channel's width while the
-  // source was still acquiring another's (the "Whole Channel, but stuck at
-  // 3.2MHz" report). `manual` stays sticky because it is an explicit
-  // acquisition choice that panning must not reinterpret as a channel request.
+  // An explicit Whole Channel selection follows channel changes: Channels
+  // uses this value to request the newly selected channel's full bounds and
+  // rate. When no mode has been selected in this session, infer the mode from
+  // the live rate. Manual remains sticky because panning must not reinterpret
+  // an explicit acquisition choice as a channel request.
   const isWholeChannelMode =
     canUseWholeChannel &&
-    sampleRateMode !== "manual" &&
-    resolveWholeChannelMode({
-      supportsWholeChannel: true,
-      sampleRateHz: requestedSampleRateHz,
-      activeChannelBounds: {
-        min: 0,
-        max: wholeChannelSampleRate ?? 0,
-      },
-    });
+    (sampleRateMode === "whole" ||
+      (sampleRateMode !== "manual" &&
+        resolveWholeChannelMode({
+          supportsWholeChannel: true,
+          sampleRateHz: requestedSampleRateHz,
+          activeChannelBounds: {
+            min: 0,
+            max: wholeChannelSampleRate ?? 0,
+          },
+        })));
 
   const applyFrequencyRangeIfChanged = useCallback(
     (range: FrequencyRange) => {
@@ -341,17 +348,26 @@ export const useLiveSampleRateControl = ({
           Math.round(nextWholeChannelRate) === Math.round(nextSampleRate)
             ? nextWholeChannelRate
             : nextSampleRate;
+      pendingAcquisitionRateRef.current = resolvedSampleRate;
       setPendingSampleRateHz(resolvedSampleRate);
 
-      if (requestedMode) {
-        setSampleRateMode(requestedMode);
-      } else if (
+      const nextMode = requestedMode ?? (
         wholeChannelSampleRate &&
         Math.round(wholeChannelSampleRate) !== Math.round(resolvedSampleRate)
-      ) {
-        setSampleRateMode("manual");
+          ? "manual"
+          : "whole"
+      );
+      setSampleRateMode(nextMode);
+      wholeChannelStartupRestoreAttemptedRef.current = true;
+      if (nextMode === "whole") {
+        const bounds = frequencyRangeOverride ?? activeSignalAreaBounds;
+        const key = bounds ? `${bounds.min}:${bounds.max}` : null;
+        wholeChannelBoundsKeyRef.current = key;
+        pendingWholeChannelBoundsKeyRef.current = frequencyRangeOverride
+          ? key
+          : null;
       } else {
-        setSampleRateMode("whole");
+        pendingWholeChannelBoundsKeyRef.current = null;
       }
 
       let nextRange: FrequencyRange | null = null;
@@ -402,9 +418,9 @@ export const useLiveSampleRateControl = ({
       }
     },
     [
+      activeChannelSampleRate,
       activeSignalAreaBounds,
       frequencyRange,
-      requestedSampleRateHz,
       startingAnchorPosition,
       setSampleRate,
       setSampleRateWithFrequencyRange,
@@ -427,6 +443,33 @@ export const useLiveSampleRateControl = ({
         ? Math.round(requestedSampleRateHz)
         : null;
 
+    const boundsKey = activeSignalAreaBounds
+      ? `${activeSignalAreaBounds.min}:${activeSignalAreaBounds.max}`
+      : null;
+    if (sampleRateMode === "whole" && activeSignalAreaBounds) {
+      // A click supplies the target before source/channel metadata catches up.
+      // Do not reinterpret that previous metadata as a second channel switch.
+      const pendingBoundsKey = pendingWholeChannelBoundsKeyRef.current;
+      if (pendingBoundsKey !== null && pendingBoundsKey !== boundsKey) return;
+      pendingWholeChannelBoundsKeyRef.current = null;
+      if (
+        wholeChannelBoundsKeyRef.current !== boundsKey ||
+        currentRate !== nextRate
+      ) {
+        wholeChannelBoundsKeyRef.current = boundsKey;
+        pendingAcquisitionRateRef.current = nextRate;
+        setPendingSampleRateHz(nextRate);
+        if (setSampleRateWithFrequencyRange) {
+          setSampleRateWithFrequencyRange(nextRate, activeSignalAreaBounds);
+        } else {
+          setSampleRate(nextRate);
+        }
+        onSampleRateApplied?.(nextRate);
+        applyFrequencyRangeIfChanged(activeSignalAreaBounds);
+        return;
+      }
+    }
+
     // A valid receive rate is explicit acquisition state. Merely panning into
     // another channel must not reinterpret it as a request for that channel's
     // Whole Channel width. Explicit selector/channel actions call
@@ -435,14 +478,26 @@ export const useLiveSampleRateControl = ({
       if (
         preferWholeChannelOnLiveStart &&
         sampleRateMode === null &&
-        currentRate === 3_200_000 &&
-        currentRate !== nextRate
+        !wholeChannelStartupRestoreAttemptedRef.current &&
+        (currentRate === 3_200_000 || currentRate === nextRate)
       ) {
-        handleSampleRateChange(
-          nextRate,
-          "whole",
-          activeSignalAreaBounds ?? undefined,
-        );
+        // Restore rate and VFO bounds together once. Explicit user commands
+        // mark startup handled before publishing their own acquisition state.
+        wholeChannelStartupRestoreAttemptedRef.current = true;
+        wholeChannelBoundsKeyRef.current = boundsKey;
+        pendingAcquisitionRateRef.current = nextRate;
+        setPendingSampleRateHz(nextRate);
+        setSampleRateMode("whole");
+        const wholeRange = activeSignalAreaBounds;
+        if (currentRate !== nextRate) {
+          if (wholeRange && setSampleRateWithFrequencyRange) {
+            setSampleRateWithFrequencyRange(nextRate, wholeRange);
+          } else {
+            setSampleRate(nextRate);
+          }
+          onSampleRateApplied?.(nextRate);
+        }
+        if (wholeRange) applyFrequencyRangeIfChanged(wholeRange);
         return;
       }
       if (currentRate !== nextRate) return;
@@ -479,7 +534,6 @@ export const useLiveSampleRateControl = ({
     activeSignalAreaBounds,
     applyFrequencyRangeIfChanged,
     frequencyRange,
-    handleSampleRateChange,
     preferWholeChannelOnLiveStart,
     requestedSampleRateHz,
     setSampleRate,
@@ -489,10 +543,12 @@ export const useLiveSampleRateControl = ({
     startingAnchorPosition,
     wholeChannelSampleRate,
     canUseWholeChannel,
+    setSampleRateWithFrequencyRange,
   ]);
 
   useEffect(() => {
     if (
+      pendingAcquisitionRateRef.current !== null ||
       !frequencyRange ||
       !activeSignalAreaBounds ||
       typeof requestedSampleRateHz !== "number" ||
@@ -505,10 +561,10 @@ export const useLiveSampleRateControl = ({
     const currentSpan = rangeSpanHz(frequencyRange);
 
     if (canUseWholeChannel) {
-      const targetRate =
-        isWholeChannelMode && typeof wholeChannelSampleRate === "number"
-          ? wholeChannelSampleRate
-          : requestedSampleRateHz;
+      // The selected mode controls the next channel-click command, while the
+      // requested rate owns the current acquisition. Channel metadata can lag
+      // that command; using its span here overwrites the just-clicked window.
+      const targetRate = requestedSampleRateHz;
       // Span-only reconciliation, anchored on the current centre. The channel
       // bounds deliberately do NOT participate: passing them made the builder
       // clamp the window back inside the active channel (and re-publish whenever
@@ -540,13 +596,7 @@ export const useLiveSampleRateControl = ({
     applyFrequencyRangeIfChanged,
     canUseWholeChannel,
     frequencyRange,
-    // Both are read below and both are derived from the selected mode and the
-    // channel span — not from the range. Leaving them out let this effect run
-    // with a stale whole-channel snapshot until an unrelated render refreshed it.
-    isWholeChannelMode,
     requestedSampleRateHz,
-    startingAnchorPosition,
-    wholeChannelSampleRate,
   ]);
 
   return {

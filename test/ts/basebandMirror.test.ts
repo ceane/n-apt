@@ -25,6 +25,76 @@ import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom"
 
 const FLOOR = -200;
 
+it("preserves a deliberate below-DC viewport when a fallback frame shifts its acquisition axis", () => {
+  const contract = resolveLiveSpectrumPaintContract({
+    requestedViewRange: { min: 18_000, max: 4_390_000 },
+    sourceFrequencyRange: { min: -55_000, max: 4_317_000 },
+    activeSampleRateHz: 4_372_000,
+    zoom: 1,
+    panOffsetHz: -4_408_000,
+    mirrorEnabled: true,
+  });
+  expect(contract.displayRange).toEqual({ min: -4_390_000, max: -18_000 });
+});
+
+it.each([false, true])("does not flash a positive VFO below zero when a fallback frame straddles DC (mirror=%s)", (mirrorEnabled) => {
+  const requestedViewRange = { min: 18_000, max: 4_390_000 };
+  const sourceFrequencyRange = { min: -55_000, max: 4_317_000 };
+  const contract = resolveLiveSpectrumPaintContract({
+    requestedViewRange,
+    sourceFrequencyRange,
+    activeSampleRateHz: 4_372_000,
+    zoom: 1,
+    panOffsetHz: 0,
+    mirrorEnabled,
+  });
+  const prepared = prepareSpectrumRenderData({
+    waveform: new Float32Array([-80, -40, -80]),
+    frequencyRange: contract.paintViewportRange,
+    sourceFrequencyRange: contract.sourceFrequencyRange,
+    zoom: contract.zoom,
+    panOffset: contract.panOffsetHz,
+    invert: false,
+    dbMin: FLOOR,
+    dbMax: 0,
+    allowNegativeFrequencies: mirrorEnabled,
+    mirrorOnGpu: mirrorEnabled,
+    resampleOnGpu: true,
+    getZoomedData: createFFTZoomProcessor(FLOOR).process,
+  });
+  expect(prepared.visualRange).toEqual(requestedViewRange);
+  expect(contract.sourceFrequencyRange).toEqual(sourceFrequencyRange);
+});
+
+it("keeps the requested Whole Channel VFO span while a narrower frame is still resident", () => {
+  const requestedViewRange = { min: 4_750_000, max: 23_000_000 };
+  const sourceFrequencyRange = { min: 11_689_000, max: 16_061_000 };
+  const contract = resolveLiveSpectrumPaintContract({
+    requestedViewRange,
+    sourceFrequencyRange,
+    activeSampleRateHz: 18_250_000,
+    zoom: 1,
+    panOffsetHz: 0,
+    mirrorEnabled: false,
+  });
+  const prepared = prepareSpectrumRenderData({
+    waveform: new Float32Array([-80, -40, -80]),
+    frequencyRange: contract.paintViewportRange,
+    sourceFrequencyRange: contract.sourceFrequencyRange,
+    zoom: contract.zoom,
+    panOffset: contract.panOffsetHz,
+    invert: false,
+    dbMin: FLOOR,
+    dbMax: 0,
+    resampleOnGpu: true,
+    getZoomedData: createFFTZoomProcessor(FLOOR).process,
+  });
+  expect(prepared.visualRange).toEqual(requestedViewRange);
+  // Samples retain their real acquisition coordinates; widening the VFO must
+  // not stretch a 4.372MHz frame over 18.25MHz of spectrum.
+  expect(contract.sourceFrequencyRange).toEqual(sourceFrequencyRange);
+});
+
 /** Compares a rendered row tolerantly, since Float32 storage rounds. */
 const expectRow = (actual: Float32Array, expected: number[]) => {
   expect(actual.length).toBe(expected.length);

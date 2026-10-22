@@ -50,6 +50,7 @@ import {
   resolveManagedRxDeviceOptionUpdates,
   resolveManagedRxOptionsOverride,
   resolveManagedRxSubscribeOverrides,
+  mergeManagedRxOptions,
   resolveLocalRxTuningOverride,
   buildManagedTxOptions,
   shouldApplySourceStatusToPresentation,
@@ -89,6 +90,15 @@ import { waitFor } from "@testing-library/react";
 import * as websocketMiddlewareExports from "@n-apt/redux/middleware/websocketMiddleware";
 
 describe("hardware source transition cleanup", () => {
+  it("preserves a queued Whole Channel rate when a later center retune arrives before acknowledgement", () => {
+    const accepted = { mode: "rx" as const, sampleRateHz: 4_372_000, centerFrequencyHz: 2_204_000, fftSize: 2048 };
+    const pending = { ...accepted, sampleRateHz: 18_250_000 };
+    const merged = mergeManagedRxOptions(
+      accepted, { centerFrequencyHz: 13_875_000 }, pending,
+    );
+    expect(merged).toMatchObject({ sampleRateHz: 18_250_000, centerFrequencyHz: 13_875_000 });
+  });
+
   it("arms one startup frame when the active source reaches receiving", () => {
     expect(
       shouldRequestManagedRxStartupFrame({
@@ -2968,6 +2978,41 @@ describe("Redux WebSocket Migration", () => {
     expect(
       middlewareStore.getState().websocket.sources.map((candidate) => candidate.id),
     ).toEqual(["mock-apt", "mock-tx"]);
+  });
+
+  it.each([false, true])("keeps the positive acquisition tune when unplugging hardware (mirror=%s)", (mirrorEnabled) => {
+    const mock = {
+      id: "mock-apt", name: "Mock APT", kind: "mock_apt", capability: "mock", status: "streaming",
+      loading_attempt: 0, loading_attempt_max: 2, supports_approx_dbm: true,
+      iq_format: { element_type: "u8", layout: "interleaved_iq", typed_array: "Uint8Array" },
+      stream_key: "mock-apt", stream_key_kind: "source_id",
+      sdr: { max_sample_rate: 20_000_000, sample_rate_options: [4_372_000], fft_display: { markers: [] },
+        // This default would put the first Mock frame at -55kHz.
+        settings: { sample_rate: 4_372_000, center_frequency: 2_131_000 } },
+    };
+    const hardware = { ...mock, id: "hackrf-1", name: "HackRF One", kind: "hackrf_one", capability: "tx_rx" };
+    const fallbackStore = configureStore({
+      reducer: {
+        websocket: websocketSlice, spectrum: spectrumSlice, sourceSelection: sourceSelectionSlice,
+        settings: (state: { mirrorIqBasebandBelowZero: boolean } = { mirrorIqBasebandBelowZero: mirrorEnabled }) => state,
+      },
+      middleware: (getDefaultMiddleware) => getDefaultMiddleware({ serializableCheck: false }),
+    });
+    fallbackStore.dispatch(updateDeviceState({ activeSourceId: hardware.id, sources: [hardware, mock] as any }));
+    fallbackStore.dispatch(setSelectedSourceId(hardware.id));
+    fallbackStore.dispatch(setSampleRate(4_372_000));
+    const positiveRange = { min: 18_000, max: 4_390_000 };
+    fallbackStore.dispatch(setFrequencyRange(positiveRange));
+    processWebSocketMessage(fallbackStore.dispatch, fallbackStore.getState, {
+      type: "source_info", active_source: mock.id, active_source_mode: "live", sources: [mock],
+    });
+    const state = fallbackStore.getState();
+    expect(state.websocket.sources[0].sdr.settings).toMatchObject({
+      sample_rate: 4_372_000, center_frequency: 2_204_000,
+    });
+    expect(state.spectrum.frequencyRange).toEqual(positiveRange);
+    expect(state.spectrum.vizPanOffset).toBe(0);
+    expect(state.settings.mirrorIqBasebandBelowZero).toBe(mirrorEnabled);
   });
 
   describe("Thunk payload shaping", () => {

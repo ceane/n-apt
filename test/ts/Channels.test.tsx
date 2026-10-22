@@ -845,7 +845,7 @@ describe("Channels", () => {
     });
   });
 
-  it("switches to the selected channel rate from a wide sample rate", () => {
+  it("preserves a wide numeric sample rate when selecting a smaller channel", () => {
     const store = createTestStore();
     const onSampleRateChange = jest.fn();
     const sendFrequencyRange = jest.fn();
@@ -899,10 +899,8 @@ describe("Channels", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "A" }));
 
-    expect(onSampleRateChange).toHaveBeenCalledWith(4_372_000, "whole", {
-      min: 18_000,
-      max: 4_390_000,
-    });
+    expect(onSampleRateChange).not.toHaveBeenCalled();
+    expect(sendFrequencyRange).toHaveBeenCalledWith({ min: 0, max: 20_000_000 });
   });
 
   it("applies the target channel Whole Channel rate when switching channels in whole-channel mode", () => {

@@ -1733,8 +1733,10 @@ const buildManagedRxOptions = (
 export const mergeManagedRxOptions = (
   current: RxDeviceOptions,
   overrides: Partial<Omit<RxDeviceOptions, "mode">>,
+  pending?: RxDeviceOptions,
 ): RxDeviceOptions => ({
   ...current,
+  ...pending,
   ...overrides,
   mode: "rx",
 });
@@ -2694,8 +2696,13 @@ const syncManagedStreamSubscriptions = (
     // override and is allowed to enter the scheduler.
     const currentOptions = managedRxSubscription.effectiveOptions;
     if (currentOptions.mode === "rx") {
+      const pendingOptions = managedRxOptionsScheduler.getPendingValue();
       managedRxOptionsScheduler.submit(
-        mergeManagedRxOptions(currentOptions, rxOptionsOverride),
+        mergeManagedRxOptions(
+          currentOptions,
+          rxOptionsOverride,
+          pendingOptions?.mode === "rx" ? pendingOptions : undefined,
+        ),
         publishMode,
       );
     }
@@ -3350,6 +3357,34 @@ export const processWebSocketMessage = (
         sources = sources.filter(
           (source: SourceInfo) => source.id !== previousActiveSourceId,
         );
+        const requestedRange = getState().spectrum?.frequencyRange;
+        if (
+          requestedRange &&
+          Number.isFinite(requestedRange.min) &&
+          Number.isFinite(requestedRange.max) &&
+          requestedRange.min >= 0 &&
+          requestedRange.max > requestedRange.min
+        ) {
+          // Seed the new fallback subscription with the existing acquisition
+          // window. Mock defaults can have a different center for the same
+          // rate, causing its first frame to cross DC after a positive tune.
+          // The stream acknowledgement will replace this optimistic snapshot.
+          sources = sources.map((source: SourceInfo) =>
+            source.id === backendFallback.fallbackSourceId
+              ? {
+                  ...source,
+                  sdr: {
+                    ...source.sdr,
+                    settings: {
+                      ...source.sdr.settings,
+                      sample_rate: requestedRange.max - requestedRange.min,
+                      center_frequency: (requestedRange.min + requestedRange.max) / 2,
+                    },
+                  },
+                }
+              : source,
+          );
+        }
         requestedSourceId = null;
         dispatch(setSelectedSourceId(backendFallback.fallbackSourceId));
         dispatch(setSelectionIntentSourceId(null));
