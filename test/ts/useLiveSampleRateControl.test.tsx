@@ -34,6 +34,31 @@ describe("resolveHackrfBasebandSampleRateHz", () => {
 });
 
 describe("useLiveSampleRateControl", () => {
+  it("keeps a clicked Whole Channel window while the previous channel metadata lags", () => {
+    const applyFrequencyRange = jest.fn();
+    const initialProps = {
+      sourceMode: "live" as const,
+      supportsWholeChannelSampleRate: true,
+      activeChannelSampleRate: 6_270_000,
+      activeSignalAreaBounds: { min: 24_100_000, max: 30_370_000 },
+      frequencyRange: { min: 24_100_000, max: 30_370_000 },
+      sampleRateHz: 6_270_000,
+      setSampleRate: jest.fn(),
+      setSampleRateWithFrequencyRange: jest.fn(),
+      applyFrequencyRange,
+    };
+    const { result, rerender } = renderHook(useLiveSampleRateControl, { initialProps });
+    const clickedRange = { min: 4_750_000, max: 23_000_000 };
+    act(() => result.current.handleSampleRateChange(18_250_000, "whole", clickedRange));
+    applyFrequencyRange.mockClear();
+
+    // Redux has accepted the new window, but source-owned channel metadata
+    // still describes B. It must not resize C back to B's width.
+    rerender({ ...initialProps, frequencyRange: clickedRange, sampleRateHz: 18_250_000 });
+    expect(result.current.isWholeChannelMode).toBe(true);
+    expect(applyFrequencyRange).not.toHaveBeenCalled();
+  });
+
   it("initializes a live HackRF at Whole Channel instead of the generic 3.2MHz floor", () => {
     const setSampleRateWithFrequencyRange = jest.fn();
     const applyFrequencyRange = jest.fn();
@@ -92,7 +117,9 @@ describe("useLiveSampleRateControl", () => {
       18_250_000,
       clickedChannelRange,
     );
-    expect(applyFrequencyRange).toHaveBeenCalledWith(clickedChannelRange);
+    // Channel metadata can arrive after the click. No passive effect may
+    // replace C's explicit window with B's still-visible width.
+    expect(applyFrequencyRange).toHaveBeenLastCalledWith(clickedChannelRange);
   });
 
   it("fuzzes Whole Channel clicks so stale channel rates cannot survive", () => {

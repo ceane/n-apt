@@ -2829,7 +2829,7 @@ const FFTCanvas = memo(
     const effectiveFftSize = fftSize ?? 32768;
     const frontendFftSize = getFrontendFftSize(effectiveFftSize);
     const effectiveCanvasStatusRow = useMemo<LiveCanvasStatusRow | null>(() => {
-      const txModeLabel = canTransmit
+      const txModeLabel = canTransmit && txSliderAllowed
         ? txModeDeviceName
           ? `${txModeDeviceName} > ${resolveTxSignalDisplayLabel(reduxTxSignal)}`
           : resolveTxSignalDisplayLabel(reduxTxSignal)
@@ -2871,6 +2871,7 @@ const FFTCanvas = memo(
       };
     }, [
       canTransmit,
+      txSliderAllowed,
       canvasStatusRow,
       displayTemporalResolution,
       effectiveFftSize,

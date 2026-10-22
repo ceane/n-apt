@@ -11,7 +11,9 @@ import { ThemeProvider } from "styled-components";
 import { Channels } from "@n-apt/spectrum/sidebar/Channels";
 import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { setHardwareInfo } from "@n-apt/redux/slices/demodSlice";
-import { setFrequencyRange } from "@n-apt/redux/slices/spectrumSlice";
+import { setFrequencyRange, setSampleRate } from "@n-apt/redux/slices/spectrumSlice";
+import { useAppDispatch, useAppSelector } from "@n-apt/redux";
+import { useLiveSampleRateControl } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 import { createTestStore } from "./testUtils";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
@@ -37,6 +39,77 @@ const baseFrames = [
   { id: "a", label: "A", min_hz: 18_000, max_hz: 4_390_000 },
   { id: "c", label: "C", min_hz: 4_750_000, max_hz: 23_000_000 },
 ];
+
+const wholeChannelFrames = [
+  baseFrames[0],
+  { id: "b", label: "B", min_hz: 24_100_000, max_hz: 30_370_000 },
+  baseFrames[1],
+];
+
+function WholeChannelHarness({ renders }: { renders: { current: number } }) {
+  renders.current += 1;
+  if (renders.current > 100) throw new Error("Channel selection did not settle");
+  const state = useAppSelector((root) => root.spectrum);
+  const dispatch = useAppDispatch();
+  const channel = wholeChannelFrames.find((item) => item.label === state.activeSignalArea)!;
+  const control = useLiveSampleRateControl({
+    sourceMode: "live",
+    supportsWholeChannelSampleRate: true,
+    preferWholeChannelOnLiveStart: true,
+    activeChannelSampleRate: channel.max_hz - channel.min_hz,
+    activeSignalAreaBounds: { min: channel.min_hz, max: channel.max_hz },
+    frequencyRange: state.frequencyRange,
+    sampleRateHz: state.sampleRateHz,
+    maxSampleRateHz: 20_000_000,
+    setSampleRate: (rate) => dispatch(setSampleRate(rate)),
+    setSampleRateWithFrequencyRange: (rate, range) => {
+      dispatch(setSampleRate(rate));
+      dispatch(setFrequencyRange(range));
+    },
+    applyFrequencyRange: (range) => dispatch(setFrequencyRange(range)),
+  });
+  return (
+    <SpectrumProvider mockValue={{
+      state,
+      dispatch: jest.fn(),
+      selectedSourceDerived: {
+        deviceName: "HackRF One", deviceProfile: { kind: "hackrf_one" }, backend: "hackrf_one",
+      },
+      effectiveFrames: wholeChannelFrames,
+      sampleRateHzEffective: 3_200_000, // deliberately stale source telemetry
+      wsConnection: { sendFrequencyRange: jest.fn() },
+    } as any}>
+      <button onClick={() => control.handleSampleRateChange(20_000_000, "manual")}>Manual 20MHz</button>
+      <output data-testid="whole-mode">{String(control.isWholeChannelMode)}</output>
+      <Channels variant="spectrum" activeSampleRateHz={state.sampleRateHz}
+        wholeChannelMode={control.isWholeChannelMode} onSampleRateChange={control.handleSampleRateChange} />
+    </SpectrumProvider>
+  );
+}
+
+describe("Whole Channel with live Redux feedback", () => {
+  it("settles after repeated A/B/C selections and preserves a later manual rate", () => {
+    const store = createTestStore();
+    const renders = { current: 0 };
+    render(<Provider store={store}><ThemeProvider theme={theme}>
+      <React.StrictMode><WholeChannelHarness renders={renders} /></React.StrictMode>
+    </ThemeProvider></Provider>);
+    for (const label of ["C", "B", "A", "B", "C", "A"]) {
+      fireEvent.click(screen.getByText(label));
+      const channel = wholeChannelFrames.find((item) => item.label === label)!;
+      expect(store.getState().spectrum.frequencyRange).toEqual({ min: channel.min_hz, max: channel.max_hz });
+      expect(store.getState().spectrum.sampleRateHz).toBe(channel.max_hz - channel.min_hz);
+      expect(screen.getByTestId("whole-mode")).toHaveTextContent("true");
+    }
+    fireEvent.click(screen.getByText("Manual 20MHz"));
+    for (const label of ["B", "C", "A"]) {
+      fireEvent.click(screen.getByText(label));
+      expect(store.getState().spectrum.sampleRateHz).toBe(20_000_000);
+      expect(screen.getByTestId("whole-mode")).toHaveTextContent("false");
+    }
+    expect(renders.current).toBeLessThan(100);
+  });
+});
 
 const renderChannels = ({
   sendFrequencyRange,
