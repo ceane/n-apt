@@ -225,6 +225,8 @@ const fsAllow = Array.from(
     [
       path.resolve(dirname, "src"),
       path.resolve(dirname, "node_modules"),
+      // `n_apt_canvas` is a local linked package. Vite resolves it to this
+      // directory and wasm-bindgen fetches its sibling `.wasm` through `/@fs/`.
       path.resolve(dirname, "packages/n_apt_canvas"),
     ]
       .map((value) => {
