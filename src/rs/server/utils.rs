@@ -1438,6 +1438,9 @@ signals:
       acquisition_mode: "live".to_string(),
       duration_mode: "fixed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 32768,
       duration_s: 1.0,
       actual_frame_count: 100,
@@ -1854,6 +1857,9 @@ pub fn save_capture_file_multi(
   result: &crate::sdr::processor::CaptureResult,
   encryption_key: &[u8; 32],
 ) -> Result<CaptureArtifact, String> {
+  if result.fido_vault && result.vault_key.is_none() {
+    return Err("FIDO vault capture is missing its unlocked vault key".into());
+  }
   // SECURITY: Strict validation of job_id to prevent Path Traversal.
   // Only alphanumeric characters, underscores, and hyphens are allowed.
   if !RE_SAFE_ID.is_match(&result.job_id) {
@@ -1922,6 +1928,12 @@ pub fn save_capture_file_multi(
       "firmware_version": serde_json::Value::Null,
     },
   });
+  if result.fido_vault {
+    meta_obj["encryption"] = serde_json::json!("AES-256-GCM-FIDO-VAULT-V1");
+    let recovery = result.vault_key_recovery.as_ref()
+      .ok_or_else(|| "FIDO vault capture is missing its recovery wrapper".to_string())?;
+    meta_obj["vault_key_recovery"] = recovery.clone();
+  }
 
   if let Some(baseline) = &result.ref_based_demod_baseline {
     meta_obj["ref_based_demod_baseline"] = serde_json::json!(baseline);
@@ -2361,6 +2373,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2442,6 +2457,9 @@ mod save_tests {
       acquisition_mode: "interleaved".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: true,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2520,6 +2538,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2561,6 +2582,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2620,6 +2644,9 @@ mod save_tests {
       acquisition_mode: "interleaved".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: true,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2718,6 +2745,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2847,6 +2877,9 @@ mod dynamic_header_tests {
       acquisition_mode: "interleaved".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: true,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,

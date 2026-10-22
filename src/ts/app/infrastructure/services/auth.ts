@@ -7,6 +7,15 @@
 
 import { computeHmac } from "@n-apt/crypto/webcrypto";
 import {
+  derivePrfAesKey,
+  deriveRecoveryAesKey,
+  getVaultPrfResult,
+  requestVaultPrf,
+  unwrapVaultMasterKey,
+  wrapVaultMasterKey,
+  type VaultKeyWrapper,
+} from "@n-apt/crypto/webauthnPrf";
+import {
   BACKEND_HTTP_URL,
   WS_URL,
   SESSION_KEY as ENV_SESSION_KEY,
@@ -40,12 +49,18 @@ const AUTH_SERVER_DISCONNECTED_MESSAGE =
 
 export interface AuthInfo {
   has_passkeys: boolean;
+  has_fido_security_key: boolean;
 }
 
 export interface AuthResult {
   token: string;
   expires_in: number;
+  fido_vault_unlocked?: boolean;
+  /** Ephemeral browser copy used only by the local playback worker. */
+  fido_vault_key?: Uint8Array;
 }
+
+type FidoVaultWrappers = { fido: VaultKeyWrapper; recovery: VaultKeyWrapper };
 
 export interface SessionValidation {
   valid: boolean;
@@ -305,12 +320,16 @@ export async function authenticateWithPassword(
 // ── Passkey (WebAuthn) authentication ──────────────────────────────────
 
 /** Register a new passkey. */
-export async function registerPasskey(password?: string): Promise<void> {
+export async function registerPasskey(
+  password?: string,
+  fidoSecurityKey = false,
+): Promise<Uint8Array | null> {
   // First enrollment also requires password knowledge. Keep the vault
   // password unchanged and authorize the ceremony with a fresh session.
   let storedToken = getStoredSession();
   if (password?.trim()) storedToken = (await authenticateWithPassword(password)).token;
   if (!storedToken) throw new Error("Enter your password or sign in before registering a passkey");
+  if (!password?.trim()) throw new Error("Enter your password to register this authentication credential");
   const authHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
@@ -322,7 +341,7 @@ export async function registerPasskey(password?: string): Promise<void> {
     startRes = await fetch(`${API_BASE}/auth/passkey/register/start`, {
       method: "POST",
       headers: authHeaders,
-      body: "{}",
+      body: JSON.stringify({ fido_security_key: fidoSecurityKey }),
     });
   } catch (error) {
     throw authServerDisconnectedError(error);
@@ -334,11 +353,89 @@ export async function registerPasskey(password?: string): Promise<void> {
   const { challenge_id, options } = await startRes.json();
 
   // Step 2: Create credential via WebAuthn API
+  const creationOptions = parseCreationOptions(options);
+  const fidoSalt = fidoSecurityKey
+    ? crypto.getRandomValues(new Uint8Array(32))
+    : null;
   const credential = await navigator.credentials.create({
-    publicKey: parseCreationOptions(options),
+    publicKey: {
+      ...creationOptions,
+      ...(fidoSecurityKey
+        ? {
+            authenticatorSelection: {
+              ...creationOptions.authenticatorSelection,
+              authenticatorAttachment: "cross-platform",
+            },
+            extensions: {
+              ...creationOptions.extensions,
+              // Registration must enable PRF for this credential. Browsers
+              // are allowed to omit PRF evaluation results from create();
+              // request the secret in a follow-up assertion below instead.
+              prf: {},
+            },
+          }
+        : {}),
+    },
   });
   if (!credential) {
     throw new Error("Passkey creation cancelled");
+  }
+
+  const credentialPublicKey = credential as PublicKeyCredential;
+  let vmk: Uint8Array | null = null;
+  let wrappers: FidoVaultWrappers | undefined;
+  if (fidoSecurityKey) {
+    const prfEnabled = (credentialPublicKey.getClientExtensionResults() as {
+      prf?: { enabled?: boolean };
+    }).prf?.enabled;
+    if (!prfEnabled) {
+      throw new Error(
+        "This security key or browser did not enable WebAuthn PRF for the new credential. Login may still work, but I/Q capture encryption needs a PRF-capable FIDO key and browser.",
+      );
+    }
+
+    // PRF evaluation output is not guaranteed during credential creation.
+    // Run an assertion for the credential just created and derive the vault
+    // wrapping key from that assertion's PRF result.
+    const prfAssertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        ...(creationOptions.rp.id ? { rpId: creationOptions.rp.id } : {}),
+        allowCredentials: [
+          { type: "public-key", id: credentialPublicKey.rawId },
+        ],
+        extensions: requestVaultPrf(fidoSalt!),
+      },
+    });
+    if (!prfAssertion) {
+      throw new Error("FIDO security-key PRF verification was cancelled");
+    }
+    const prfResult = getVaultPrfResult(prfAssertion as PublicKeyCredential);
+    const fidoWrappingKey = await derivePrfAesKey(
+      prfResult,
+      fidoSalt!,
+      "n-apt/fido-vault-wrapper/v1",
+    );
+    let recoveryWrapper: VaultKeyWrapper | undefined;
+    const existingRecovery = await fetch(`${API_BASE}/auth/fido-vault/recovery-wrapper`, {
+      headers: { Authorization: `Bearer ${storedToken}` },
+    });
+    if (existingRecovery.ok) {
+      const payload = await existingRecovery.json() as { fido_vault_recovery: VaultKeyWrapper };
+      recoveryWrapper = payload.fido_vault_recovery;
+      const recoveryKey = await deriveRecoveryAesKey(password, decodeBase64(recoveryWrapper.salt));
+      vmk = await unwrapVaultMasterKey(recoveryWrapper, recoveryKey);
+    } else if (existingRecovery.status === 404) {
+      vmk = crypto.getRandomValues(new Uint8Array(32));
+      const recoverySalt = crypto.getRandomValues(new Uint8Array(32));
+      const recoveryWrappingKey = await deriveRecoveryAesKey(password, recoverySalt);
+      recoveryWrapper = await wrapVaultMasterKey(vmk, recoveryWrappingKey, recoverySalt);
+    } else {
+      throw new Error("Unable to load the existing FIDO vault recovery wrapper");
+    }
+    const fidoWrapper = await wrapVaultMasterKey(vmk!, fidoWrappingKey, fidoSalt!);
+    prfResult.fill(0);
+    wrappers = { fido: fidoWrapper, recovery: recoveryWrapper! };
   }
 
   // Step 3: Send credential to server
@@ -349,9 +446,11 @@ export async function registerPasskey(password?: string): Promise<void> {
       headers: authHeaders,
       body: JSON.stringify({
         challenge_id,
+        fido_security_key: fidoSecurityKey,
         credential: serializeRegistrationCredential(
-          credential as PublicKeyCredential,
+          credentialPublicKey,
         ),
+        ...(wrappers ? { fido_vault: wrappers } : {}),
       }),
     });
   } catch (error) {
@@ -362,30 +461,59 @@ export async function registerPasskey(password?: string): Promise<void> {
     const text = await finishRes.text();
     throw new Error(`Failed to finish passkey registration: ${text}`);
   }
+  let playbackVaultKey: Uint8Array | null = null;
+  if (fidoSecurityKey && vmk) {
+    await unlockFidoVault(storedToken, vmk);
+    playbackVaultKey = vmk.slice();
+    vmk.fill(0);
+  }
   authInfoPromise = null;
+  return playbackVaultKey;
 }
 
 /** Authenticate with an existing passkey. */
-export async function authenticateWithPasskey(): Promise<AuthResult> {
+export async function authenticateWithPasskey(
+  fidoSecurityKey = false,
+): Promise<AuthResult> {
   // Step 1: Get authentication options from server
   let startRes: Response;
   try {
     startRes = await fetch(`${API_BASE}/auth/passkey/auth/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ fido_security_key: fidoSecurityKey }),
     });
   } catch (error) {
     throw authServerDisconnectedError(error);
   }
-  if (!startRes.ok) throw new Error("Failed to start passkey authentication");
-  const { challenge_id, options } = await startRes.json();
+  if (!startRes.ok) {
+    throw new Error(`Failed to start ${fidoSecurityKey ? "FIDO security-key" : "passkey"} authentication`);
+  }
+  const { challenge_id, options, fido_vault: fidoWrapper } = await startRes.json() as {
+    challenge_id: string;
+    options: any;
+    fido_vault: VaultKeyWrapper | null;
+  };
 
   // Step 2: Get credential assertion via WebAuthn API
+  const requestOptions = parseRequestOptions(options);
+  if (fidoSecurityKey && !fidoWrapper) {
+    throw new Error("This device has no enrolled FIDO security key vault");
+  }
   const credential = await navigator.credentials.get({
-    publicKey: parseRequestOptions(options),
+    publicKey: {
+      ...requestOptions,
+      ...(fidoSecurityKey ? { hints: ["security-key"] } : {}),
+      ...(fidoWrapper ? { extensions: {
+        ...requestOptions.extensions,
+        prf: { eval: { first: decodeBase64(fidoWrapper.salt).buffer as ArrayBuffer } },
+      } } : {}),
+    },
   });
   if (!credential) throw new Error("Passkey authentication cancelled");
+  if (fidoSecurityKey) {
+    getVaultPrfResult(credential as PublicKeyCredential).fill(0);
+  }
 
   // Step 3: Send assertion to server
   let finishRes: Response;
@@ -418,8 +546,72 @@ export async function authenticateWithPasskey(): Promise<AuthResult> {
     throw new Error("Invalid passkey authentication result from server");
   }
 
+  if (fidoSecurityKey && fidoWrapper) {
+    let prfResult: Uint8Array | undefined;
+    let vmk: Uint8Array | undefined;
+    try {
+      const activePrfResult = getVaultPrfResult(credential as PublicKeyCredential);
+      prfResult = activePrfResult;
+      const fidoSalt = decodeBase64(fidoWrapper.salt);
+      const fidoWrappingKey = await derivePrfAesKey(activePrfResult, fidoSalt, "n-apt/fido-vault-wrapper/v1");
+      const unwrappedVmk = await unwrapVaultMasterKey(fidoWrapper, fidoWrappingKey);
+      vmk = unwrappedVmk;
+      await unlockFidoVault(result.token, unwrappedVmk);
+      result.fido_vault_unlocked = true;
+      result.fido_vault_key = unwrappedVmk.slice();
+    } catch {
+      throw new Error("Security key did not unlock the FIDO capture vault");
+    } finally {
+      prfResult?.fill(0);
+      vmk?.fill(0);
+    }
+  } else {
+    result.fido_vault_unlocked = false;
+  }
   storeSession(result.token);
   return result;
+}
+
+export async function unlockFidoVault(token: string, key: Uint8Array): Promise<void> {
+  const response = await fetch(`${API_BASE}/auth/fido-vault/unlock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ vault_key: encodeBase64(key) }),
+  });
+  if (!response.ok) throw new Error("Failed to unlock the FIDO capture vault");
+}
+
+export async function unlockFidoVaultWithRecovery(token: string, password: string): Promise<Uint8Array | null> {
+  let vmk: Uint8Array | null = null;
+  try {
+    const response = await fetch(`${API_BASE}/auth/fido-vault/recovery-wrapper`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    const { fido_vault_recovery: wrapper } = await response.json() as { fido_vault_recovery: VaultKeyWrapper };
+    const salt = decodeBase64(wrapper.salt);
+    const recoveryKey = await deriveRecoveryAesKey(password, salt);
+    vmk = await unwrapVaultMasterKey(wrapper, recoveryKey);
+    await unlockFidoVault(token, vmk);
+    return vmk.slice();
+  } catch {
+    return null;
+  } finally {
+    vmk?.fill(0);
+  }
+}
+
+export async function fetchFidoVaultUnlocked(token: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/auth/fido-vault/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return false;
+    const status = await response.json() as { unlocked?: unknown };
+    return status.unlocked === true;
+  } catch {
+    return false;
+  }
 }
 
 // ── WebAuthn serialization helpers ─────────────────────────────────────
@@ -431,6 +623,16 @@ function bufferToBase64url(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function decodeBase64(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 }
 
 function base64urlToBuffer(base64url: string): ArrayBuffer {

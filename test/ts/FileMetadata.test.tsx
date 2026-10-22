@@ -105,4 +105,45 @@ describe("FileMetadata", () => {
 
     expect(screen.queryByText("File", { exact: true })).not.toBeInTheDocument();
   });
+
+  it("renders public metadata for a selected I/Q capture", () => {
+    const theme = {
+      mode: "dark" as const,
+      requestedMode: "system" as const,
+      waterfallTheme: "magma",
+      colors: THEME_TOKENS.colors.dark,
+      typography: THEME_TOKENS.typography,
+      spacing: THEME_TOKENS.spacing,
+      layout: THEME_TOKENS.layout,
+      cssVariables: {},
+      primary: "#00d4ff",
+      primaryAlpha: "#00d4ff33",
+      primaryAnchor: "#00d4ff1a",
+      fft: "#00d4ff",
+      background: THEME_TOKENS.colors.dark.background,
+      surface: THEME_TOKENS.colors.dark.surface,
+      border: THEME_TOKENS.colors.dark.border,
+      textPrimary: THEME_TOKENS.colors.dark.textPrimary,
+      textSecondary: THEME_TOKENS.colors.dark.textSecondary,
+      metadataLabel: THEME_TOKENS.colors.dark.metadataLabel,
+      danger: THEME_TOKENS.colors.dark.danger,
+    };
+
+    render(
+      <ThemeProvider theme={theme}>
+        <FileMetadata
+          selectedNaptFile={{ id: "encrypted-iq", name: "capture.iq" }}
+          naptMetadata={{
+            center_frequency_hz: 1_618_000,
+            capture_sample_rate_hz: 3_200_000,
+            source_device: "RTL-SDR Blog V4",
+          }}
+          naptMetadataError={null}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText("1.618MHz")).toBeInTheDocument();
+    expect(screen.getByText("RTL-SDR Blog V4")).toBeInTheDocument();
+  });
 });

@@ -15,8 +15,8 @@ of Use and the Privacy Policy, and includes an external N-APT information link.
   sources when they are available. If none are connected, the card says so.
 - **Playback I/Q Captures** opens a multi-file picker for `.napt`, `.iq`,
   `.wav`, and `.enc` files, switches the app to file mode, and sends the user
-  to the visualizer. Protected `.enc` playback requires an authenticated
-  backend session.
+  to the visualizer. Increased Protection `.enc` files cannot be played in the
+  browser yet; playback requires a server feature that is not available yet.
 - **See hardware gallery** opens `/3d-model-gallery`.
 - **Learn more about signals** opens `/learn`.
 

@@ -7,6 +7,11 @@ import React, {
   memo,
 } from "react";
 import styled from "styled-components";
+import {
+  parseIqCaptureMetadata,
+  parseNaptMetadata,
+  selectPrimaryMetadataCaptureFile,
+} from "@n-apt/capture/public/metadata";
 import { SatelliteDish, Trash2, Unplug, ChevronDown } from "lucide-react";
 import { useLocation } from "react-router";
 import {
@@ -171,7 +176,7 @@ const SidebarNavigationLinkCards = memo(styled.div`
   gap: 12px;
   grid-column: 1 / -1;
   width: 100%;
-  margin-top: 180px;
+  margin-top: 24px;
 
   & > article {
     width: 56%;
@@ -478,12 +483,49 @@ const playbackAfterCapture = async (
 
     schedule(() => {
       if (getCancelled()) return;
-      dispatch(triggerStitch());
+      scrollToPlaybackSelectedFile();
     }, 800);
   } catch (e) {
     console.error("Playback after capture failed:", e);
     if (e instanceof Error) {
       setNaptMetadataError(`Playback failed: ${e.message}`);
+    }
+  }
+};
+
+export const scrollToPlaybackSelectedFile = (root: ParentNode = document) => {
+  const target = root.querySelector<HTMLElement>("[data-sidebar-selected-file]");
+  if (!target) return;
+
+  let scrollContainer: HTMLElement | Window = window;
+  let parent = target.parentElement;
+  while (parent) {
+    const { overflowY } = window.getComputedStyle(parent);
+    if (
+      /(auto|scroll|overlay)/.test(overflowY) &&
+      parent.scrollHeight > parent.clientHeight
+    ) {
+      scrollContainer = parent;
+      break;
+    }
+    parent = parent.parentElement;
+  }
+
+  const scrollElement: HTMLElement | null =
+    scrollContainer === window ? null : (scrollContainer as HTMLElement);
+  const containerTop = scrollElement?.getBoundingClientRect().top ?? 0;
+  const stickyHeaderBottom =
+    root
+      .querySelector<HTMLElement>("[data-sidebar-sticky-header]")
+      ?.getBoundingClientRect().bottom ?? containerTop;
+  const visibleTop = Math.max(containerTop, stickyHeaderBottom) + 8;
+  const top = target.getBoundingClientRect().top - visibleTop;
+
+  if (Math.abs(top) > 1) {
+    if (scrollElement) {
+      scrollElement.scrollBy({ top, behavior: "smooth" });
+    } else {
+      window.scrollBy({ top, behavior: "smooth" });
     }
   }
 };
@@ -1445,6 +1487,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const [captureEncrypted, setCaptureEncrypted] = useState(
     settingsDefaults.capture.captureEncrypted,
   );
+  const [captureFidoVault, setCaptureFidoVault] = useState(false);
   const [capturePlayback, setCapturePlayback] = useState(
     settingsDefaults.capture.capturePlayback,
   );
@@ -2162,31 +2205,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
     null,
   );
-  const [lastAutoProcessSignature, setLastAutoProcessSignature] = useState<
-    string | null
-  >(null);
-
   useEffect(() => {
     dispatch(setFileMetadata(naptMetadata));
   }, [naptMetadata, dispatch]);
-
-  useEffect(() => {
-    if (sourceMode !== "file") return;
-    if (selectedFiles.length === 0) {
-      setLastAutoProcessSignature(null);
-      return;
-    }
-
-    const signature = selectedFiles
-      .map((file) => `${file.id}:${file.name}`)
-      .sort()
-      .join("|");
-
-    if (!signature || signature === lastAutoProcessSignature) return;
-
-    setLastAutoProcessSignature(signature);
-    dispatch(triggerStitch());
-  }, [sourceMode, selectedFiles, lastAutoProcessSignature, dispatch]);
 
   // Handle Playback after capture
   useEffect(() => {
@@ -2228,11 +2249,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
   // Memoized values for sections
   const selectedPrimaryFile = useMemo(() => {
-    if (sourceMode !== "file") return null;
-    if (selectedFiles.length !== 1) return null;
-    const f = selectedFiles[0];
-    const lower = f.name.toLowerCase();
-    return lower.endsWith(".napt") || lower.endsWith(".wav") ? f : null;
+    return selectPrimaryMetadataCaptureFile(sourceMode, selectedFiles);
   }, [sourceMode, selectedFiles]);
 
   const _isMockFile = useMemo(() => {
@@ -2248,9 +2265,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     if (sourceMode !== "file") return "File";
     const status = stitchStatus?.toLowerCase?.() ?? "";
     if (!selectedFiles.length) return "Browse";
-    if (status.includes("processing") || status.includes("loading")) {
-      return "Process [auto]";
-    }
+    if (status.includes("processing") || status.includes("loading")) return "Processing…";
+    if (!status.includes("processed successfully") && !status.includes("stitched successfully")) return "Process";
     if (isStitchPaused) return "Play";
     return "Pause";
   }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
@@ -2260,7 +2276,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const status = stitchStatus?.toLowerCase?.() ?? "";
     if (!selectedFiles.length) return "Browse files";
     if (status.includes("processing") || status.includes("loading")) {
-      return "Process selected file automatically";
+      return "Processing selected file";
+    }
+    if (!status.includes("processed successfully") && !status.includes("stitched successfully")) {
+      return "Process or retry the selected file";
     }
     if (isStitchPaused) return "Resume playback";
     return "Pause playback";
@@ -2273,6 +2292,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     if (!selectedFiles.length) return;
     const status = stitchStatus?.toLowerCase?.() ?? "";
     if (status.includes("processing") || status.includes("loading")) {
+      return;
+    }
+    if (!status.includes("processed successfully") && !status.includes("stitched successfully")) {
       dispatch(triggerStitch());
       return;
     }
@@ -2624,8 +2646,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
       encrypted:
-        !isMockSource &&
-        (captureFileTypeState === ".napt" || (captureFileTypeState === ".iq" && captureEncrypted)),
+        (captureFidoVault && captureFileTypeState !== ".wav") ||
+        captureFileTypeState === ".napt" ||
+        (captureFileTypeState === ".iq" && captureEncrypted),
+      fidoVault: captureFidoVault && captureFileTypeState !== ".wav",
       fftSize,
       fftWindow,
       geolocation: geolocationData,
@@ -2650,6 +2674,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     selectedSource?.id,
     selectedSourceId,
     captureEncrypted,
+    captureFidoVault,
     captureGeolocation,
     fftSize,
     fftWindow,
@@ -2744,27 +2769,18 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     );
   }, []);
 
-  // NAPT/WAV Metadata Effect
+  // Capture metadata effect: IQ and NAPT headers keep public metadata outside the encrypted payload.
   useEffect(() => {
     let cancelled = false;
     if (!selectedPrimaryFile) {
-      if (naptMetadata !== null) {
-        setNaptMetadata(null);
-      }
-      if (naptMetadataError !== null) {
-        setNaptMetadataError(null);
-      }
+      setNaptMetadata(null);
+      setNaptMetadataError(null);
       return;
     }
 
     const isNapt = selectedPrimaryFile.name.toLowerCase().endsWith(".napt");
     const isWav = selectedPrimaryFile.name.toLowerCase().endsWith(".wav");
-
-    if (isNapt && !aesKey) {
-      setNaptMetadata(null);
-      setNaptMetadataError("Locked (no session key)");
-      return;
-    }
+    const isIq = selectedPrimaryFile.name.toLowerCase().endsWith(".iq");
 
     const run = async () => {
       try {
@@ -2773,59 +2789,16 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
 
         const buf = await fileObj.arrayBuffer();
 
-        if (isNapt && aesKey) {
-          // Read up to 8192 bytes to cover both 2048 and 4096-byte padded headers
-          const maxHeaderRead = Math.min(8192, buf.byteLength);
-          const headerBytes = new Uint8Array(buf, 0, maxHeaderRead);
-          const newlineIdx = headerBytes.indexOf(10); // Find newline terminator
-
-          // Robust parsing: try newline first, then JSON boundary detection
-          let jsonStr: string;
-          if (newlineIdx > 0) {
-            jsonStr = new TextDecoder().decode(
-              headerBytes.slice(0, newlineIdx),
-            );
-          } else {
-            // Fallback: find the closing brace of the root JSON object
-            const headerText = new TextDecoder().decode(headerBytes);
-            let braceDepth = 0;
-            let inString = false;
-            let escape = false;
-            let jsonEnd = -1;
-            for (let ci = 0; ci < headerText.length; ci++) {
-              const c = headerText[ci];
-              if (escape) {
-                escape = false;
-                continue;
-              }
-              if (c === "\\") {
-                escape = true;
-                continue;
-              }
-              if (c === '"') {
-                inString = !inString;
-                continue;
-              }
-              if (inString) continue;
-              if (c === "{") braceDepth++;
-              if (c === "}") {
-                braceDepth--;
-                if (braceDepth === 0) {
-                  jsonEnd = ci + 1;
-                  break;
-                }
-              }
-            }
-            if (jsonEnd <= 0) throw new Error("Invalid NAPT header");
-            jsonStr = headerText.slice(0, jsonEnd);
-          }
-
-          const metaObj = JSON.parse(jsonStr);
-
+        if (isIq) {
+          const metadata = parseIqCaptureMetadata(new Uint8Array(buf));
           if (!cancelled) {
-            // The metadata object itself is inside `metadata` key
-            const metadata = metaObj.metadata || metaObj;
-            setNaptMetadata(metadata);
+            setNaptMetadata(metadata as NaptMetadata);
+            setNaptMetadataError(null);
+          }
+        } else if (isNapt) {
+          const metadata = parseNaptMetadata(new Uint8Array(buf));
+          if (!cancelled) {
+            setNaptMetadata(metadata as NaptMetadata);
             setNaptMetadataError(null);
           }
         } else if (isWav) {
@@ -2871,7 +2844,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedPrimaryFile, aesKey, naptMetadata, naptMetadataError]);
+  }, [selectedPrimaryFile]);
 
   const limitMarkers = useMemo(
     () =>
@@ -3134,16 +3107,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         />
       </StickyHeaderWrapper>
 
-      <Section role="region" aria-label="N-APT Signal Classifier" data-testid="classifier-sidebar-section">
-        <SectionTitle $fileMode={sourceMode === "file"}>
-          <SectionIcon>
-            <SatelliteDish size={14} />
-          </SectionIcon>
-          <SectionText>N-APT Signal Classifier</SectionText>
-        </SectionTitle>
-        <div id="native-classifier-sidebar-slot" data-testid="native-classifier-sidebar-slot" />
-      </Section>
-
       {sourceMode === "live" ? (
         <>
           <Section>
@@ -3181,6 +3144,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             isMockSource={isMockSource}
             acquisitionMode={acquisitionMode}
             captureEncrypted={captureEncrypted}
+            captureFidoVault={captureFidoVault}
             capturePlayback={capturePlayback}
             captureGeolocation={captureGeolocation}
             captureRange={captureRange}
@@ -3194,6 +3158,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onCaptureFileTypeChange={setCaptureFileTypeState}
             onAcquisitionModeChange={setAcquisitionMode}
             onCaptureEncryptedChange={setCaptureEncrypted}
+            onCaptureFidoVaultChange={setCaptureFidoVault}
             onCapturePlaybackChange={setCapturePlayback}
             onCaptureGeolocationChange={setCaptureGeolocation}
             onCapture={handleCapture}

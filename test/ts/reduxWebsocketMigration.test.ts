@@ -5969,6 +5969,37 @@ describe("Redux WebSocket Migration", () => {
         },
       });
     });
+
+    it("preserves the FIDO vault flag in the capture websocket message", async () => {
+      const dispatch = jest.fn();
+      const getState = () => ({ websocket: { isConnected: true } }) as any;
+
+      await (sendCaptureCommand({
+        jobId: "fido-vault-job",
+        sourceId: "mock-apt",
+        fragments: [{ minFreq: 100, maxFreq: 102 }],
+        durationMode: "timed" as const,
+        durationS: 1,
+        fileType: ".iq",
+        acquisitionMode: "whole_sample",
+        encrypted: true,
+        fidoVault: true,
+        fftSize: 2048,
+        fftWindow: "hann",
+      }) as any)(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "capture",
+          data: expect.objectContaining({
+            jobId: "fido-vault-job",
+            encrypted: true,
+            fidoVault: true,
+          }),
+        },
+      });
+    });
   });
 
   describe("Live data ref isolation", () => {

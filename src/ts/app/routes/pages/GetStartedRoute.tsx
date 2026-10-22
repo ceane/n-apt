@@ -81,7 +81,7 @@ const startingPoints: StartingPoint[] = [
   },
   {
     title: "Playback I/Q Captures",
-    description: "Upload I/Q captures to replay or analyze them. Increased protection .enc copies require authenticated backend playback.",
+    description: "Upload I/Q captures to replay or analyze them. Increased Protection .enc copies cannot be played in the browser yet.",
     Icon: FileSignal,
     href: "/?source=fileSelection",
     showFileTypes: true,

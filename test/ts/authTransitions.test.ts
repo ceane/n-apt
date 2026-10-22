@@ -24,6 +24,8 @@ const state: AuthenticationState = {
   sessionToken: "test-session",
   aesKey,
   hasPasskeys: true,
+  hasFidoSecurityKey: false,
+  fidoVaultUnlocked: false,
   isInitialAuthCheck: true,
 };
 
@@ -72,6 +74,7 @@ describe("shared auth transitions", () => {
       expect(getAuthTransition({ type: "AUTHENTICATING" }, policy)).toEqual({
         authState: "authenticating",
         authError: null,
+        fidoVaultUnlocked: false,
       });
       expect(getAuthTransition({ type: "SERVER_DOWN" }, policy)).toEqual({
         authState: "server_down",

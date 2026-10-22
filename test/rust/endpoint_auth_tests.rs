@@ -465,10 +465,14 @@ async fn security_registration_challenge_is_bound_to_authorizing_session() {
   let (_guard, server, state, _) = setup_test_server().await;
   let owner = state.session_store.create_session(crypto::generate_key()).await.unwrap();
   let other = state.session_store.create_session(crypto::generate_key()).await.unwrap();
-  let response = server.post("/auth/passkey/register/start").add_header(
-    axum::http::header::AUTHORIZATION,
-    axum::http::HeaderValue::from_str(&format!("Bearer {owner}")).unwrap(),
-  ).await;
+  let response = server
+    .post("/auth/passkey/register/start")
+    .add_header(
+      axum::http::header::AUTHORIZATION,
+      axum::http::HeaderValue::from_str(&format!("Bearer {owner}")).unwrap(),
+    )
+    .json(&serde_json::json!({}))
+    .await;
   response.assert_status_ok();
   let challenge = response.json::<serde_json::Value>()["challenge_id"].as_str().unwrap().to_owned();
   server.post("/auth/passkey/register/finish").add_header(

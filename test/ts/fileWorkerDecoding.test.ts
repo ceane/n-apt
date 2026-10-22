@@ -97,9 +97,13 @@ async function encrypt(
   payload: Uint8Array,
   rawKey = keyBytes,
 ): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, [
-    "encrypt",
-  ]);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(rawKey).buffer,
+    "AES-GCM",
+    false,
+    ["encrypt"],
+  );
   const iv = new Uint8Array(12).fill(3);
   const cipher = new Uint8Array(
     await crypto.subtle.encrypt(
@@ -112,6 +116,64 @@ async function encrypt(
   result.set(iv);
   result.set(cipher, 12);
   return result;
+}
+
+async function fidoVaultIqFile(
+  rawKey: Uint8Array,
+  iqSamples: Uint8Array,
+): Promise<ArrayBuffer> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(rawKey).buffer,
+    "AES-GCM",
+    false,
+    ["encrypt"],
+  );
+  const iv = new Uint8Array(12).fill(31);
+  const chunk = new Uint8Array(20 + iqSamples.byteLength);
+  const chunkView = new DataView(chunk.buffer);
+  chunkView.setBigUint64(0, 0n, true);
+  chunkView.setUint32(8, 0, true);
+  chunkView.setBigUint64(12, BigInt(iqSamples.byteLength), true);
+  chunk.set(iqSamples, 20);
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      Uint8Array.from(chunk).buffer,
+    ),
+  );
+  const payload = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+  payload.set(iv);
+  payload.set(ciphertext, iv.byteLength);
+
+  const metadata = encoder.encode(
+    JSON.stringify({
+      format: "iq",
+      format_version: 3,
+      interleaving: "IQ",
+      encryption: "AES-256-GCM-FIDO-VAULT-V1",
+      encrypted: true,
+      center_frequency_hz: channels[0].center_freq_hz,
+      capture_sample_rate_hz: channels[0].sample_rate_hz,
+      fft_size: 8,
+      channels: [channels[0]],
+    }),
+  );
+  const frames = encoder.encode("[]");
+  const file = new Uint8Array(
+    40 + metadata.byteLength + frames.byteLength + payload.byteLength,
+  );
+  file.set(encoder.encode("NAPT-IQ3"), 0);
+  const header = new DataView(file.buffer);
+  header.setBigUint64(8, BigInt(metadata.byteLength), true);
+  header.setBigUint64(16, BigInt(frames.byteLength), true);
+  header.setBigUint64(24, BigInt(payload.byteLength), true);
+  file[32] = 1;
+  file.set(metadata, 40);
+  file.set(frames, 40 + metadata.byteLength);
+  file.set(payload, 40 + metadata.byteLength + frames.byteLength);
+  return file.buffer;
 }
 
 async function protectCapture(plaintext: Uint8Array): Promise<Uint8Array> {
@@ -213,6 +275,18 @@ function rawResult(result: any): Uint8Array {
 }
 
 describe("NAPT decoding", () => {
+  it("decrypts a FIDO vault I/Q capture with the unlocked vault key", async () => {
+    const fidoVaultKey = new Uint8Array(32).fill(29);
+    const file = await fidoVaultIqFile(fidoVaultKey, samples);
+
+    const result = await run(file, {
+      files: [{ fileData: file, fileName: "capture.iq" }],
+      fidoVaultKey,
+    });
+
+    expect(rawResult(result)).toEqual(samples);
+  });
+
   it.each([1024, 2048, 4096, 8192])(
     "decrypts legacy header offset %i",
     async (offset) => {
@@ -490,7 +564,7 @@ describe("IQ trailer compatibility", () => {
 });
 
 describe("protected capture playback", () => {
-  it("refuses local decryption because the salt must come from authenticated Redis-backed playback", async () => {
+  it("explains that Increased Protection files need server playback", async () => {
     const capture = await encodeIqCaptureV4({
       metadata: {
         center_frequency_hz: 137_500_000,
@@ -506,7 +580,7 @@ describe("protected capture playback", () => {
     });
 
     expect(result.type).toBe("error");
-    expect(result.error).toContain("salt in Redis");
+    expect(result.error).toContain("Increased Protection .enc files cannot be played in this browser yet");
   });
 });
 
@@ -530,7 +604,7 @@ describe("NAPT stitching policies", () => {
     expect(rawResult(await run(file))).toEqual(samples.slice(0, 16));
   });
 
-  it("rejects headers smaller than the legacy probe sizes", async () => {
+  it("accepts valid headers smaller than the legacy probe sizes", async () => {
     const file = legacyFile(
       {
         channels: [{ offset_iq: 0, iq_length: 4 }],
@@ -539,7 +613,7 @@ describe("NAPT stitching policies", () => {
       samples,
       256,
     );
-    expect((await run(file)).error).toContain("Could not parse NAPT header");
+    expect(rawResult(await run(file))).toEqual(samples.slice(0, 4));
   });
 
   it("retains unencrypted offset probes for short indexed payloads", async () => {

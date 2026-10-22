@@ -9,11 +9,33 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use webauthn_rs::prelude::*;
 
+/// AES-GCM envelope that wraps the random vault master key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultKeyWrapper {
+  pub format: String,
+  pub salt: String,
+  pub nonce: String,
+  pub ciphertext: String,
+}
+
+/// The same VMK has one authenticator wrapper and one offline recovery wrapper.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FidoVaultWrappers {
+  pub fido: VaultKeyWrapper,
+  pub recovery: VaultKeyWrapper,
+}
+
 /// On-disk format for the credential store.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CredentialFile {
   /// Map of user ID → list of registered passkey credentials
   pub passkeys: HashMap<String, Vec<Passkey>>,
+  /// Credential ID enrolled explicitly through the cross-platform security-key flow.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fido_security_key_credential_id: Option<String>,
+  /// Wrapped FIDO vault key material. The unwrapped key is never written here.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fido_vault: Option<FidoVaultWrappers>,
 }
 
 /// Manages passkey credential persistence.
@@ -153,10 +175,54 @@ impl CredentialStore {
     creds.passkeys.values().any(|v| !v.is_empty())
   }
 
+  pub async fn has_ordinary_passkeys(&self) -> bool {
+    let credentials = self.load().await;
+    let fido_id = credentials.fido_security_key_credential_id;
+    credentials
+      .passkeys
+      .get("default")
+      .is_some_and(|keys| keys.iter().any(|key| Some(credential_id_string(key)) != fido_id))
+  }
+
+  pub async fn has_fido_security_key(&self) -> bool {
+    self
+      .try_load()
+      .await
+      .is_ok_and(|credentials| credentials.fido_security_key_credential_id.is_some())
+  }
+
   /// Get all passkeys for the default user.
   pub async fn get_passkeys(&self) -> Vec<Passkey> {
     let creds = self.load().await;
     creds.passkeys.get("default").cloned().unwrap_or_default()
+  }
+
+  pub async fn get_ordinary_passkeys(&self) -> Vec<Passkey> {
+    let credentials = self.load().await;
+    let fido_id = credentials.fido_security_key_credential_id;
+    credentials
+      .passkeys
+      .get("default")
+      .cloned()
+      .unwrap_or_default()
+      .into_iter()
+      .filter(|key| Some(credential_id_string(key)) != fido_id)
+      .collect()
+  }
+
+  pub async fn get_fido_security_key_passkeys(&self) -> Vec<Passkey> {
+    let credentials = self.load().await;
+    let Some(fido_id) = credentials.fido_security_key_credential_id else {
+      return Vec::new();
+    };
+    credentials
+      .passkeys
+      .get("default")
+      .cloned()
+      .unwrap_or_default()
+      .into_iter()
+      .filter(|key| credential_id_string(key) == fido_id)
+      .collect()
   }
 
   /// Store a new passkey for the default user.
@@ -182,6 +248,51 @@ impl CredentialStore {
     .await
     .map_err(|e| format!("credential write task failed: {e}"))?
   }
+
+  /// Save the client-created FIDO and recovery wrappers without persisting the VMK.
+  pub async fn set_fido_vault(
+    &self,
+    wrappers: FidoVaultWrappers,
+  ) -> Result<(), String> {
+    let write_lock = std::sync::Arc::clone(&self.write_lock);
+    let paths = self.resolve_paths()?;
+    tokio::task::spawn_blocking(move || {
+      let _guard = write_lock.lock().map_err(|error| {
+        format!("Credential write lock poisoned: {error}")
+      })?;
+      let mut credentials = Self::load_from_paths(&paths)?;
+      credentials.fido_vault = Some(wrappers);
+      Self::save_to_paths(&paths, &credentials)
+    })
+    .await
+    .map_err(|e| format!("credential write task failed: {e}"))?
+  }
+
+  pub async fn set_fido_security_key_credential_id(
+    &self,
+    credential_id: String,
+  ) -> Result<(), String> {
+    let write_lock = std::sync::Arc::clone(&self.write_lock);
+    let paths = self.resolve_paths()?;
+    tokio::task::spawn_blocking(move || {
+      let _guard = write_lock.lock().map_err(|error| format!("Credential write lock poisoned: {error}"))?;
+      let mut credentials = Self::load_from_paths(&paths)?;
+      credentials.fido_security_key_credential_id = Some(credential_id);
+      Self::save_to_paths(&paths, &credentials)
+    })
+    .await
+    .map_err(|e| format!("credential write task failed: {e}"))?
+  }
+
+  /// Return the stored wrapper pair for passkey login and offline recovery.
+  pub async fn get_fido_vault(&self) -> Result<Option<FidoVaultWrappers>, String> {
+    Ok(self.try_load().await?.fido_vault)
+  }
+}
+
+pub fn credential_id_string(passkey: &Passkey) -> String {
+  use base64::Engine;
+  base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(passkey.cred_id().as_ref())
 }
 
 fn build_paths() -> Result<CredentialPaths, String> {

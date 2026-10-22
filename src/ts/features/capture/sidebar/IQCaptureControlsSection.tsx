@@ -19,6 +19,7 @@ import { formatChannelFreq } from "@n-apt/math/frequency";
 import { isValidNaptRange } from "@n-apt/math/signals";
 import {
   AlertTriangle,
+  BadgeCheck,
   ChevronDown,
   Clock,
   Download,
@@ -26,6 +27,7 @@ import {
   FileSignal,
   FolderOpen,
   HardDrive,
+  KeyRound,
   LockKeyhole,
   MapPin,
   PanelLeftDashed,
@@ -66,6 +68,18 @@ const Section = styled.div`
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
+`;
+
+const FidoEnrollmentBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  color: ${(props) => props.theme.success || "#22c55e"};
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 `;
 
 const CAPTURE_DOWNLOADS_STORAGE_KEY = "napt.iq-capture-downloads.v1";
@@ -264,6 +278,134 @@ const CaptureActions = styled.div`
   align-items: stretch;
   margin-top: 0;
   grid-column: 1 / -1;
+`;
+
+const FidoVaultControls = styled.div`
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+`;
+
+const FidoVaultUnlockButton = styled.button`
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 6px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  font: 11px ${(props) => props.theme.typography.mono};
+  white-space: normal;
+  cursor: pointer;
+
+  &:hover {
+    border-color: ${(props) => props.theme.primary};
+  }
+`;
+
+const FidoVaultHint = styled.span`
+  max-width: 180px;
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: right;
+`;
+
+const FidoVaultDialog = styled.dialog`
+  position: fixed;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  width: min(420px, calc(100vw - 32px));
+  max-width: 420px;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 20px;
+  color: ${(props) => props.theme.textPrimary};
+  background: ${(props) => props.theme.colors.surface};
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 10px;
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.35);
+  font-family: ${(props) => props.theme.typography.mono};
+
+  &::backdrop {
+    background: rgba(8, 16, 28, 0.58);
+    backdrop-filter: blur(2px);
+  }
+`;
+
+const FidoVaultDialogTitle = styled.h2`
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 10px;
+  font-size: 16px;
+  line-height: 1.4;
+
+  svg {
+    flex: 0 0 auto;
+  }
+`;
+
+const FidoVaultDialogCopy = styled.p`
+  margin: 0 0 16px;
+  color: ${(props) => props.theme.textSecondary};
+  font-size: 12px;
+  line-height: 1.7;
+
+  strong {
+    display: block;
+    margin: 10px 0;
+    color: ${(props) => props.theme.text};
+  }
+`;
+
+const FidoVaultDialogForm = styled.form`
+  display: grid;
+  gap: 10px;
+`;
+
+const FidoVaultPassword = styled.input`
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  color: ${(props) => props.theme.textPrimary};
+  background: ${(props) => props.theme.colors.surface};
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 6px;
+  font: 13px ${(props) => props.theme.typography.mono};
+`;
+
+const FidoVaultDialogError = styled.p`
+  margin: 0;
+  color: ${(props) => props.theme.danger};
+  font-size: 11px;
+  line-height: 1.45;
+`;
+
+const FidoVaultDialogActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+`;
+
+const FidoVaultDialogButton = styled.button<{ $primary?: boolean }>`
+  min-height: 36px;
+  padding: 7px 11px;
+  color: ${(props) => props.$primary ? props.theme.colors.surface : props.theme.textPrimary};
+  background: ${(props) => props.$primary ? props.theme.primary : props.theme.colors.surface};
+  border: 1px solid ${(props) => props.$primary ? props.theme.primary : props.theme.border};
+  border-radius: 6px;
+  font: 11px ${(props) => props.theme.typography.mono};
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
 `;
 
 const PlaybackOption = styled.div`
@@ -595,6 +737,7 @@ interface IQCaptureControlsSectionProps {
   isMockSource?: boolean;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   captureEncrypted: boolean;
+  captureFidoVault?: boolean;
   capturePlayback: boolean;
   captureGeolocation: boolean;
   captureRange: CaptureRange;
@@ -610,6 +753,7 @@ interface IQCaptureControlsSectionProps {
     mode: "stepwise" | "interleaved" | "whole_sample",
   ) => void;
   onCaptureEncryptedChange: (value: boolean) => void;
+  onCaptureFidoVaultChange?: (value: boolean) => void;
   onCapturePlaybackChange: (value: boolean) => void;
   onCaptureGeolocationChange: (value: boolean) => void;
   onCapture: () => void;
@@ -634,6 +778,7 @@ export const IQCaptureControlsSection: React.FC<
   isMockSource = false,
   acquisitionMode,
   captureEncrypted,
+  captureFidoVault = false,
   capturePlayback,
   captureGeolocation,
   captureRange,
@@ -647,6 +792,7 @@ export const IQCaptureControlsSection: React.FC<
   onCaptureFileTypeChange,
   onAcquisitionModeChange,
   onCaptureEncryptedChange,
+  onCaptureFidoVaultChange,
   onCapturePlaybackChange,
   onCaptureGeolocationChange,
   onCapture,
@@ -671,6 +817,11 @@ export const IQCaptureControlsSection: React.FC<
   const [huggingFacePath, setHuggingFacePath] = React.useState("");
   const [destinationMessage, setDestinationMessage] = React.useState("");
   const [savingCaptureId, setSavingCaptureId] = React.useState<string | null>(null);
+  const [fidoDialogMode, setFidoDialogMode] = React.useState<"enroll" | "unlock" | null>(null);
+  const [fidoEnrollmentPassword, setFidoEnrollmentPassword] = React.useState("");
+  const [fidoDialogPending, setFidoDialogPending] = React.useState(false);
+  const [fidoDialogError, setFidoDialogError] = React.useState<string | null>(null);
+  const fidoDialogRef = React.useRef<HTMLDialogElement>(null);
   const directoryHandle = React.useRef<Awaited<ReturnType<CaptureDirectoryPicker>> | null>(null);
   const [savedCollapsibleOpen] = React.useState(loadIqCaptureOpenState);
   const initialCaptureDestination = React.useRef(captureDestination).current;
@@ -727,8 +878,114 @@ export const IQCaptureControlsSection: React.FC<
       onCaptureWithChannels(channelsPayload);
     }
   };
-  const { isAuthenticated, sessionToken } = useAuthentication();
+  const {
+    isAuthenticated,
+    authState,
+    authError,
+    sessionToken,
+    fidoVaultUnlocked,
+    hasFidoSecurityKey,
+    handleFidoKeyAuth,
+    handleRegisterFidoKey,
+  } = useAuthentication();
   const dispatch = useDispatch();
+
+  React.useEffect(() => {
+    const dialog = fidoDialogRef.current;
+    if (!dialog) return;
+    if (fidoDialogMode && !dialog.open) dialog.showModal();
+    if (!fidoDialogMode && dialog.open) dialog.close();
+  }, [fidoDialogMode]);
+
+  React.useEffect(() => {
+    if (!fidoDialogMode || !fidoDialogPending || authState !== "failed" || !authError) return;
+    const looksLikeMissingKey = /NotAllowedError|timed out|cancelled|canceled/i.test(authError);
+    setFidoDialogError(
+      looksLikeMissingKey
+        ? "No response came from the security key. Plug in your enrolled FIDO key, tap it when the browser asks, then retry."
+        : authError,
+    );
+    setFidoDialogPending(false);
+    setFidoEnrollmentPassword("");
+  }, [authError, authState, fidoDialogMode, fidoDialogPending]);
+
+  React.useEffect(() => {
+    if (!fidoVaultUnlocked || !hasFidoSecurityKey || !fidoDialogMode) return;
+    if (fidoDialogMode === "enroll") {
+      setFidoDialogPending(false);
+      if (isAuthenticated) {
+        onCaptureEncryptedChange(true);
+        onCaptureFidoVaultChange?.(true);
+      }
+      dispatch(addNotification({
+        id: `fido-vault-enrolled-${Date.now()}`,
+        type: "success",
+        title: "FIDO security key enrolled",
+        message: isAuthenticated
+          ? "FIDO vault encryption is enabled for this capture."
+          : "Sign in and unlock the FIDO vault before capturing.",
+        duration: 6000,
+      }));
+      setFidoEnrollmentPassword("");
+      setFidoDialogMode(null);
+      setFidoDialogError(null);
+    }
+  }, [dispatch, fidoDialogMode, fidoVaultUnlocked, hasFidoSecurityKey, isAuthenticated, onCaptureEncryptedChange, onCaptureFidoVaultChange]);
+
+  const openFidoDialog = (mode: "enroll" | "unlock") => {
+    setFidoDialogError(null);
+    setFidoDialogMode(mode);
+  };
+
+  const handleFidoVaultToggle = (enabled: boolean) => {
+    if (!enabled) {
+      onCaptureFidoVaultChange?.(false);
+      return;
+    }
+    if (!hasFidoSecurityKey) {
+      openFidoDialog("enroll");
+      return;
+    }
+    if (!isAuthenticated || !fidoVaultUnlocked) {
+      openFidoDialog("unlock");
+      return;
+    }
+    onCaptureEncryptedChange(true);
+    onCaptureFidoVaultChange?.(true);
+  };
+
+  const submitFidoEnrollment = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!fidoEnrollmentPassword.trim() || !isAuthenticated) return;
+    setFidoDialogPending(true);
+    setFidoDialogError(null);
+    await handleRegisterFidoKey(fidoEnrollmentPassword);
+    setFidoEnrollmentPassword("");
+  };
+
+  const startFidoUnlock = async () => {
+    setFidoDialogPending(true);
+    setFidoDialogError(null);
+    const unlocked = await handleFidoKeyAuth();
+    setFidoDialogPending(false);
+    if (unlocked) {
+      onCaptureEncryptedChange(true);
+      onCaptureFidoVaultChange?.(true);
+      dispatch(addNotification({
+        id: `fido-vault-unlocked-${Date.now()}`,
+        type: "success",
+        title: "FIDO vault unlocked",
+        message: "FIDO vault encryption is enabled for this capture.",
+        duration: 6000,
+      }));
+      setFidoDialogMode(null);
+      setFidoDialogError(null);
+    } else {
+      setFidoDialogError(
+        "The key was not verified. Plug in your enrolled FIDO security key, tap it when the browser asks, then retry.",
+      );
+    }
+  };
 
   React.useEffect(() => {
     let active = true;
@@ -873,12 +1130,15 @@ export const IQCaptureControlsSection: React.FC<
         const body = (await response.json().catch(() => ({}))) as {
           error?: string;
           files?: string[];
+          increasedProtection?: boolean;
         };
         if (!response.ok) {
           throw new Error(body.error || `Hugging Face save failed: HTTP ${response.status}`);
         }
         setDestinationMessage(
-          `Saved encrypted ${body.files?.join(", ") || filename} to Hugging Face.`,
+          body.increasedProtection === false
+            ? `Saved FIDO-vault encrypted ${body.files?.join(", ") || filename} to Hugging Face. Increased protection was not applied.`
+            : `Saved encrypted ${body.files?.join(", ") || filename} to Hugging Face.`,
         );
         return;
       }
@@ -1030,14 +1290,10 @@ export const IQCaptureControlsSection: React.FC<
 
   // Raw .iq is the lossless default fallback when .napt eligibility is lost.
   React.useEffect(() => {
-    if (isMockSource && captureFileType === ".napt") {
-      onCaptureFileTypeChange(".iq");
-      return;
-    }
     if (
       captureFileType === ".napt" &&
-      !naptValidation.isValid &&
-      activeCaptureAreas.length > 0
+      (isMockSource || !naptValidation.isValid) &&
+      (isMockSource || activeCaptureAreas.length > 0)
     ) {
       onCaptureFileTypeChange(".iq");
     }
@@ -1201,12 +1457,16 @@ export const IQCaptureControlsSection: React.FC<
           : "Idle";
   const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
   const isCaptureActive = captureStatus?.status === "started";
+  const captureUsesFidoVault = captureFileType !== ".wav" && captureFidoVault;
   const encryptionLocked =
-    isMockSource || captureFileType === ".napt" || captureFileType === ".wav";
+    captureFileType === ".napt" || captureFileType === ".wav" || captureUsesFidoVault;
+  const fidoVaultUnavailable =
+    captureUsesFidoVault && (!hasFidoSecurityKey || !fidoVaultUnlocked);
   const isCaptureDisabled =
     !isConnected ||
     deviceState === "loading" ||
     !isAuthenticated ||
+    (!isCaptureActive && fidoVaultUnavailable) ||
     (!isCaptureActive && !hasSelectedCaptureAreas);
 
   const handleGeolocationToggle = async (enabled: boolean) => {
@@ -1287,12 +1547,14 @@ export const IQCaptureControlsSection: React.FC<
         >
           <SettingSelect
             value={captureFileType}
-            onChange={(e) =>
-              onCaptureFileTypeChange(e.target.value as CaptureFileType)
-            }
+            onChange={(e) => {
+              const fileType = e.target.value as CaptureFileType;
+              if (fileType === ".wav") onCaptureFidoVaultChange?.(false);
+              onCaptureFileTypeChange(fileType);
+            }}
           >
-            <option value=".napt" disabled={isMockSource || !naptValidation.isValid}>
-              .napt {!naptValidation.isValid ? "(Invalid)" : ""}
+            <option value=".napt" disabled={!naptValidation.isValid || isMockSource}>
+              .napt {!naptValidation.isValid || isMockSource ? "(Unavailable)" : ""}
             </option>
             <option value=".iq">.iq</option>
             <option value=".wav">.wav</option>
@@ -1346,8 +1608,13 @@ export const IQCaptureControlsSection: React.FC<
         >
           <ToggleSwitchInput
             type="checkbox"
-            checked={!isMockSource &&
-              (captureFileType === ".napt" || (captureFileType === ".iq" && captureEncrypted))}
+            aria-label="Encrypt capture with AES-256-GCM"
+            checked={
+              captureUsesFidoVault ||
+              (!isMockSource &&
+                (captureFileType === ".napt" ||
+                  (captureFileType === ".iq" && captureEncrypted)))
+            }
             disabled={encryptionLocked}
             onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
           />
@@ -1357,14 +1624,149 @@ export const IQCaptureControlsSection: React.FC<
         </ToggleSwitch>
       </Row>
 
+      <Row
+        label={<IconLabel icon={LockKeyhole} text="FIDO vault encryption" />}
+        tooltipTitle="FIDO-unlocked capture vault"
+        tooltip="Encrypt this .iq or .napt capture with the vault key unlocked by your FIDO security key or recovery password. Batch decryption uses the recovery wrapper. Redis Increased protection salts are not used."
+      >
+        <FidoVaultControls>
+          {!hasFidoSecurityKey && (
+            <>
+              <FidoVaultHint>
+                Enroll a FIDO security key to enable this option.
+              </FidoVaultHint>
+              <FidoVaultUnlockButton type="button" onClick={() => openFidoDialog("enroll")}>
+                Enroll a FIDO security key
+              </FidoVaultUnlockButton>
+            </>
+          )}
+          {hasFidoSecurityKey && !isAuthenticated && (
+            <FidoVaultHint>FIDO security key enrolled. Sign in to unlock the vault for capture.</FidoVaultHint>
+          )}
+          {hasFidoSecurityKey && isAuthenticated && !fidoVaultUnlocked && (
+            <FidoVaultHint>
+              FIDO security key enrolled. Vault locked. Plug in your key and tap it when the browser asks.
+            </FidoVaultHint>
+          )}
+          {hasFidoSecurityKey && isAuthenticated && fidoVaultUnlocked && (
+            <FidoVaultHint>FIDO security key enrolled. Vault unlocked and ready for capture.</FidoVaultHint>
+          )}
+          {hasFidoSecurityKey && isAuthenticated && !fidoVaultUnlocked && (
+            <FidoVaultUnlockButton type="button" onClick={() => openFidoDialog("unlock")}>
+              {fidoVaultUnlocked ? "Verify key and enable FIDO encryption" : "Unlock with FIDO security key"}
+            </FidoVaultUnlockButton>
+          )}
+          <ToggleSwitch $disabled={captureFileType === ".wav" || !isAuthenticated}>
+            <ToggleSwitchInput
+              type="checkbox"
+              aria-label="Encrypt capture with FIDO vault"
+              checked={captureUsesFidoVault}
+              disabled={captureFileType === ".wav" || !isAuthenticated}
+              onChange={(event) => handleFidoVaultToggle(event.target.checked)}
+            />
+            <ToggleSwitchSlider $disabled={captureFileType === ".wav" || !isAuthenticated} />
+          </ToggleSwitch>
+        </FidoVaultControls>
+      </Row>
+
+      <FidoVaultDialog
+        ref={fidoDialogRef}
+        aria-labelledby="fido-vault-dialog-title"
+        onClose={() => setFidoDialogMode(null)}
+      >
+        <FidoVaultDialogTitle id="fido-vault-dialog-title">
+          <KeyRound aria-hidden="true" size={18} />
+          {fidoDialogMode === "enroll" ? "Enroll a FIDO security key" : "Unlock the FIDO vault"}
+        </FidoVaultDialogTitle>
+        {fidoDialogMode === "enroll" ? (
+          <>
+            <FidoVaultDialogCopy>
+              Keep your sign-in passkey separate.
+              <strong>Plug in your FIDO key first.</strong>
+              Enter your account password to authorize enrollment. Follow the browser prompts and tap the key when asked.
+            </FidoVaultDialogCopy>
+            {!isAuthenticated ? (
+              <>
+                <FidoVaultDialogCopy>
+                  Sign in first, then return here to enroll your key.
+                </FidoVaultDialogCopy>
+                <FidoVaultDialogActions>
+                  <FidoVaultDialogButton type="button" onClick={() => setFidoDialogMode(null)}>
+                    Cancel
+                  </FidoVaultDialogButton>
+                  <FidoVaultDialogButton type="button" $primary onClick={() => { window.location.href = "/auth"; }}>
+                    Sign in
+                  </FidoVaultDialogButton>
+                </FidoVaultDialogActions>
+              </>
+            ) : (
+              <FidoVaultDialogForm onSubmit={(event) => void submitFidoEnrollment(event)}>
+                <FidoVaultPassword
+                  type="password"
+                  autoComplete="current-password"
+                  aria-label="Account password to authorize FIDO enrollment"
+                  placeholder="Account password"
+                  value={fidoEnrollmentPassword}
+                  disabled={fidoDialogPending}
+                  onChange={(event) => setFidoEnrollmentPassword(event.target.value)}
+                  autoFocus
+                />
+                {fidoDialogPending && (
+                  <FidoVaultDialogCopy role="status">
+                    Follow the browser prompt. It may ask you to tap the key more than once.
+                  </FidoVaultDialogCopy>
+                )}
+                {fidoDialogError && <FidoVaultDialogError role="alert">{fidoDialogError}</FidoVaultDialogError>}
+                <FidoVaultDialogActions>
+                  <FidoVaultDialogButton type="button" onClick={() => setFidoDialogMode(null)}>
+                    Cancel
+                  </FidoVaultDialogButton>
+                  <FidoVaultDialogButton type="submit" $primary disabled={!fidoEnrollmentPassword.trim() || fidoDialogPending}>
+                    {fidoDialogPending ? "Waiting for key…" : "Enroll key"}
+                  </FidoVaultDialogButton>
+                </FidoVaultDialogActions>
+              </FidoVaultDialogForm>
+            )}
+          </>
+        ) : (
+          <>
+            <FidoVaultDialogCopy>
+              <strong>Plug in your enrolled FIDO key.</strong>
+              Choose “Unlock with FIDO security key” below, then tap the key when your browser asks.
+              <br />
+              This keeps the capture setup open if the key needs to be reconnected.
+            </FidoVaultDialogCopy>
+            {!isAuthenticated && (
+              <FidoVaultDialogError role="status">Sign in before unlocking the FIDO vault.</FidoVaultDialogError>
+            )}
+            {fidoDialogPending && (
+              <FidoVaultDialogCopy role="status">
+                Waiting for your security key. Follow the browser prompt and tap the key.
+              </FidoVaultDialogCopy>
+            )}
+            {fidoDialogError && <FidoVaultDialogError role="alert">{fidoDialogError}</FidoVaultDialogError>}
+            <FidoVaultDialogActions>
+              <FidoVaultDialogButton type="button" onClick={() => setFidoDialogMode(null)}>
+                Cancel
+              </FidoVaultDialogButton>
+              <FidoVaultDialogButton type="button" $primary disabled={!isAuthenticated || fidoDialogPending} onClick={startFidoUnlock}>
+                {fidoDialogPending ? "Waiting for key…" : "Unlock with FIDO security key"}
+              </FidoVaultDialogButton>
+            </FidoVaultDialogActions>
+          </>
+        )}
+      </FidoVaultDialog>
+
       {(captureDestination === "aspect" || captureDestination === "huggingface") && (
         <Row
           label={<IconLabel icon={LockKeyhole} text="Increased protection" />}
           tooltipTitle="Per-capture protection"
-          tooltip="Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."
+          tooltip={captureUsesFidoVault
+            ? "Disabled for FIDO vault captures. They use the FIDO vault key and do not use a Redis protection salt."
+            : "Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."}
         >
           <ToggleSwitch $disabled>
-            <ToggleSwitchInput type="checkbox" checked disabled readOnly />
+            <ToggleSwitchInput type="checkbox" checked={!captureUsesFidoVault} disabled readOnly />
             <ToggleSwitchSlider $disabled />
           </ToggleSwitch>
         </Row>
@@ -1380,6 +1782,7 @@ export const IQCaptureControlsSection: React.FC<
         >
           <ToggleSwitchInput
             type="checkbox"
+            aria-label="Include geolocation"
             checked={captureGeolocation}
             disabled={!isSupported || geoLoading}
             onChange={(e) => handleGeolocationToggle(e.target.checked)}
@@ -1614,6 +2017,12 @@ export const IQCaptureControlsSection: React.FC<
           label={
             <>
               Take an I/Q Capture
+              {hasFidoSecurityKey && (
+                <FidoEnrollmentBadge title="FIDO security key already enrolled">
+                  <BadgeCheck size={12} aria-hidden="true" />
+                  FIDO KEY ENROLLED
+                </FidoEnrollmentBadge>
+              )}
               {persistedDownloads.length > 0 && (
                 <CaptureAvailableDot title="Saved captures available" />
               )}

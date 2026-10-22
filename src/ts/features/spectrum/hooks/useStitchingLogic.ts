@@ -50,14 +50,20 @@ export const useStitchingLogic = ({
   onProcessedDataChange,
   sampleRateOptions,
 }: UseStitchingLogicProps): StitchingResult => {
-  const { aesKey } = useAuthentication();
+  const { aesKey, fidoVaultKey } = useAuthentication();
   const aesKeyRef = useRef(aesKey);
+  const fidoVaultKeyRef = useRef(fidoVaultKey);
+  const previousFidoKeyAvailableRef = useRef(Boolean(fidoVaultKey));
   const onStitchStatusRef = useRef(onStitchStatus);
   const restoredSessionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     aesKeyRef.current = aesKey;
   }, [aesKey]);
+
+  useEffect(() => {
+    fidoVaultKeyRef.current = fidoVaultKey;
+  }, [fidoVaultKey]);
 
   useEffect(() => {
     onStitchStatusRef.current = onStitchStatus;
@@ -88,6 +94,7 @@ export const useStitchingLogic = ({
     [selectedFiles],
   );
   const lastAutoStitchKeyRef = useRef<string | null>(null);
+  const inFlightStitchKeysRef = useRef(new Set<string>());
   const lastProcessedFilesRef = useRef<string[]>(
     selectedFileNamesKey ? selectedFileNamesKey.split("|") : [],
   );
@@ -191,6 +198,14 @@ export const useStitchingLogic = ({
       return;
     }
 
+    const requestIdentityKey = currentFiles
+      .map((file) => `${file.id}:${file.name}`)
+      .sort()
+      .join("|");
+    const inFlightKey = `${requestIdentityKey}:${allowIntegrityFailure}`;
+    if (inFlightStitchKeysRef.current.has(inFlightKey)) return;
+    inFlightStitchKeysRef.current.add(inFlightKey);
+
     setStitchStatus(`Loading ${currentFiles.length} files...`);
 
     // Check if files have changed to force reset
@@ -226,7 +241,16 @@ export const useStitchingLogic = ({
         aesKeyRef.current,
         sampleRateOptions, // Pass dynamic sample rate options
         allowIntegrityFailure,
+        fidoVaultKeyRef.current,
       );
+
+      // A newer selection may have started processing while this worker
+      // request was running. Do not let an older result replace it.
+      const currentIdentityKey = selectedFilesRef.current
+        .map((file) => `${file.id}:${file.name}`)
+        .sort()
+        .join("|");
+      if (currentIdentityKey !== requestIdentityKey) return;
 
       if (!result.stitchedData) {
         throw new Error("Failed to process file segments");
@@ -315,13 +339,22 @@ export const useStitchingLogic = ({
     } catch (error: any) {
       console.error("Stitch error:", error);
       const msg = error.message || String(error);
-      setStitchStatus(
-        msg.toLowerCase().includes("integrity_failed")
-          ? "File integrity failed: file appears corrupted or modified"
-          : msg.toLowerCase().includes("decryption")
-          ? "File decryption failed, wrong key"
-          : msg,
-      );
+      const normalizedMessage = msg.toLowerCase();
+      if (normalizedMessage.includes("integrity_failed")) {
+        setStitchStatus("File integrity failed: file appears corrupted or modified");
+      } else if (
+        normalizedMessage.includes("fido vault key is not available")
+      ) {
+        setStitchStatus(
+          "FIDO vault decryption requires unlocking your security key",
+        );
+      } else if (normalizedMessage.includes("decryption")) {
+        setStitchStatus("File decryption failed, wrong key");
+      } else {
+        setStitchStatus(msg);
+      }
+    } finally {
+      inFlightStitchKeysRef.current.delete(inFlightKey);
     }
   }, [
     fftSize,
@@ -357,6 +390,15 @@ export const useStitchingLogic = ({
       stitchFiles();
     }
   }, [stitchTrigger, stitchFiles]);
+
+  useEffect(() => {
+    const wasAvailable = previousFidoKeyAvailableRef.current;
+    const isAvailable = Boolean(fidoVaultKey);
+    previousFidoKeyAvailableRef.current = isAvailable;
+    if (!wasAvailable && isAvailable && selectedFileIdentityKey) {
+      void stitchFiles();
+    }
+  }, [fidoVaultKey, selectedFileIdentityKey, stitchFiles]);
 
   useEffect(() => {
     if (!selectedFileIdentityKey) return;

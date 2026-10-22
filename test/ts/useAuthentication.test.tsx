@@ -39,7 +39,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   localStorage.clear();
   service.getStoredSession.mockReturnValue(null);
-  service.fetchAuthInfo.mockResolvedValue({ has_passkeys: true });
+  service.fetchAuthInfo.mockResolvedValue({ has_passkeys: true, has_fido_security_key: false });
   service.fetchVaultKey.mockResolvedValue("test-vault-key");
   service.authenticateWithPassword.mockResolvedValue({ token: "password-session", expires_in: 3600 });
   service.authenticateWithPasskey.mockResolvedValue({ token: "passkey-session", expires_in: 3600 });
@@ -87,9 +87,20 @@ describe("Context auth compatibility", () => {
     expect(localStorage.getItem("n_apt_has_passkeys")).toBeNull();
   });
 
+  test("keeps the backend FIDO enrollment status when this browser lacks WebAuthn", async () => {
+    service.fetchAuthInfo.mockResolvedValue({ has_passkeys: false, has_fido_security_key: true });
+    Object.defineProperty(navigator, "credentials", { configurable: true, value: undefined });
+
+    const { result } = mountAuth();
+    await flush();
+
+    expect(result.current.hasFidoSecurityKey).toBe(true);
+  });
+
   test("restores a stored session only after importing the vault key", async () => {
     const key = deferred<CryptoKey>();
     service.getStoredSession.mockReturnValue("stored-session");
+    service.fetchAuthInfo.mockResolvedValue({ has_passkeys: true, has_fido_security_key: true });
     jest.mocked(importAesKey).mockReturnValue(key.promise);
     const { result } = mountAuth();
     await flush();
@@ -100,8 +111,9 @@ describe("Context auth compatibility", () => {
     expect(result.current).toMatchObject({
       authState: "ready", sessionToken: "stored-session", aesKey,
       isAuthenticated: true, isInitialAuthCheck: false,
+      hasPasskeys: true, hasFidoSecurityKey: true,
     });
-    expect(service.fetchAuthInfo).not.toHaveBeenCalled();
+    expect(service.fetchAuthInfo).toHaveBeenCalledTimes(1);
   });
 
   test.each(["missing", "fetch", "import"])(
@@ -113,7 +125,7 @@ describe("Context auth compatibility", () => {
       if (failure === "import") jest.mocked(importAesKey).mockRejectedValue(new Error("import failed"));
       service.fetchAuthInfo.mockImplementation(async () => {
         expect(service.clearSession).toHaveBeenCalledTimes(1);
-        return { has_passkeys: true };
+        return { has_passkeys: true, has_fido_security_key: false };
       });
       const { result } = mountAuth();
       await flush();
@@ -279,11 +291,11 @@ describe("passkey persistence", () => {
   });
 
   test("cancelled prompt fetch does not persist passkeys", async () => {
-    const info = deferred<{ has_passkeys: boolean }>();
+    const info = deferred<{ has_passkeys: boolean; has_fido_security_key: boolean }>();
     service.fetchAuthInfo.mockReturnValue(info.promise);
     const { unmount } = mountAuth();
     unmount();
-    await act(async () => info.resolve({ has_passkeys: true }));
+    await act(async () => info.resolve({ has_passkeys: true, has_fido_security_key: false }));
     expect(localStorage.getItem("n_apt_has_passkeys")).toBeNull();
   });
 });

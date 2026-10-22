@@ -96,6 +96,7 @@ pub enum SdrCommand {
     file_type: String,
     acquisition_mode: String,
     encrypted: bool,
+    fido_vault: bool,
     sample_rate: Option<u32>,
     fft_size: usize,
     fft_window: String,
@@ -374,6 +375,8 @@ pub struct WebSocketMessage {
   pub file_type: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub encrypted: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "fidoVault")]
+  pub fido_vault: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "screenWidth")]
   pub screen_width: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -1136,12 +1139,33 @@ pub struct WsQueryParams {
 pub struct PasskeyRegisterFinishRequest {
   pub challenge_id: String,
   pub credential: webauthn_rs::prelude::RegisterPublicKeyCredential,
+  #[serde(default)]
+  pub fido_security_key: bool,
+  #[serde(default)]
+  pub fido_vault: Option<crate::authentication::FidoVaultWrappers>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct PasskeyRegisterStartRequest {
+  #[serde(default)]
+  pub fido_security_key: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct PasskeyAuthStartRequest {
+  #[serde(default)]
+  pub fido_security_key: bool,
 }
 
 #[derive(Deserialize)]
 pub struct PasskeyAuthFinishRequest {
   pub challenge_id: String,
   pub credential: webauthn_rs::prelude::PublicKeyCredential,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FidoVaultUnlockRequest {
+  pub vault_key: String,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -1176,6 +1200,8 @@ pub struct CaptureRequest {
   pub file_type: String,
   pub acquisition_mode: String,
   pub encrypted: bool,
+  #[serde(default)]
+  pub fido_vault: bool,
   pub fft_size: usize,
   pub fft_window: String,
   pub geolocation: Option<GeolocationData>,

@@ -421,6 +421,7 @@ describe("WebSocket Validation System", () => {
     test("should validate valid auth info", () => {
       const validAuthInfo = {
         has_passkeys: true,
+        has_fido_security_key: false,
       };
 
       expect(validateAuthInfo(validAuthInfo)).toBe(true);

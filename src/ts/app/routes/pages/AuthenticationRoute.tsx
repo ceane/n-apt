@@ -597,7 +597,17 @@ const Divider = styled.div`
   }
 `;
 
-const LinkButton = styled.button`
+const EnrollmentHint = styled.p`
+  width: min(100%, 360px);
+  margin: 0;
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+`;
+
+const LinkButton = styled.button.attrs({ type: "button" })`
   background: none;
   border: none;
   color: ${(props) => props.theme.textMuted};
@@ -1065,18 +1075,24 @@ interface AuthenticationUIProps {
   authState: AuthState;
   error: string | null;
   hasPasskeys: boolean;
+  hasFidoSecurityKey?: boolean;
   onPasswordSubmit: (password: string) => void;
   onPasskeyAuth: () => void;
+  onFidoKeyAuth?: () => void;
   onRegisterPasskey: (password: string) => void;
+  onRegisterFidoKey?: (password: string) => Promise<void> | void;
 }
 
 export const AuthenticationUI = ({
   authState,
   error,
   hasPasskeys,
+  hasFidoSecurityKey = false,
   onPasswordSubmit,
   onPasskeyAuth,
+  onFidoKeyAuth = () => undefined,
   onRegisterPasskey,
+  onRegisterFidoKey = () => undefined,
 }: AuthenticationUIProps) => {
   const themeContext = React.useContext(ThemeContext);
   const baseTheme = (themeContext ??
@@ -1094,6 +1110,9 @@ export const AuthenticationUI = ({
   const [showPasswordForm, setShowPasswordForm] = useState<boolean | null>(
     null,
   );
+  const [isFidoEnrollmentFlow, setIsFidoEnrollmentFlow] = useState(false);
+  const [isFidoEnrollmentPending, setIsFidoEnrollmentPending] = useState(false);
+  const [fidoEnrollmentError, setFidoEnrollmentError] = useState<string | null>(null);
   const [binaryDigits] = useState(() => {
     const used = new Set<string>();
     return Array.from({ length: LOGIN_HEX_BYTE_COUNT }, (_, id) => {
@@ -1143,7 +1162,8 @@ export const AuthenticationUI = ({
   }, [authThemeMode]);
 
   // Derive effective state: if user hasn't explicitly toggled, follow hasPasskeys
-  const effectiveShowPasswordForm = showPasswordForm ?? !hasPasskeys;
+  const hasWebAuthnLogin = hasPasskeys || hasFidoSecurityKey;
+  const effectiveShowPasswordForm = showPasswordForm ?? !hasWebAuthnLogin;
 
   useEffect(() => {
     if (authState !== "ready" || !effectiveShowPasswordForm) return;
@@ -1165,7 +1185,7 @@ export const AuthenticationUI = ({
   // Reset user's explicit choice when hasPasskeys changes
   useEffect(() => {
     setShowPasswordForm(null);
-  }, [hasPasskeys]);
+  }, [hasPasskeys, hasFidoSecurityKey]);
 
   useEffect(() => {
     const svg = waveSvgRef.current;
@@ -1454,6 +1474,25 @@ export const AuthenticationUI = ({
     [password, authState, onPasswordSubmit],
   );
 
+  const handleFidoEnrollment = useCallback(async () => {
+    const enrollmentPassword = password.trim();
+    if (!enrollmentPassword) {
+      setFidoEnrollmentError(
+        "Enter your password to authorize enrollment, then tap your security key when prompted.",
+      );
+      inputRef.current?.focus({ preventScroll: true });
+      return;
+    }
+
+    setFidoEnrollmentError(null);
+    setIsFidoEnrollmentPending(true);
+    try {
+      await onRegisterFidoKey(enrollmentPassword);
+    } finally {
+      setIsFidoEnrollmentPending(false);
+    }
+  }, [onRegisterFidoKey, password]);
+
   const handleRegisterPasskey = useCallback(async () => {
     if (!password.trim()) return;
     await onRegisterPasskey(password.trim());
@@ -1483,10 +1522,9 @@ export const AuthenticationUI = ({
       case "awaiting_challenge":
         return "Establishing secure channel...";
       case "ready":
-        if (!hasPasskeys) return "Enter password to authenticate and start streaming";
         return (
           <>
-            To use the web app, <strong>Enter your passkey or password</strong> to unlock.
+            To use the web app, choose <strong>Passkey, Password or FIDO security key</strong> to unlock.
             <br />
             <br />
             Streaming frames from radios (compatible SDRs) and I/Q captures are
@@ -1611,8 +1649,15 @@ export const AuthenticationUI = ({
                     <TitleText>Secure Access Required for N-APT</TitleText>
                   )}
                 </Title>
-                <StatusText $variant={getStatusVariant()}>
-                  {getStatusMessage()}
+        <StatusText $variant={getStatusVariant()} role="status" aria-live="polite">
+          {isFidoEnrollmentPending ? (
+            <>
+              <_LoadingDot aria-hidden="true">● </_LoadingDot>
+              Enrollment in progress. Follow each browser prompt and tap your security key when asked; it may prompt twice.
+            </>
+          ) : (
+            getStatusMessage()
+          )}
                 </StatusText>
               </LoginCardIntro>
               <LoginCardActions>
@@ -1623,35 +1668,57 @@ export const AuthenticationUI = ({
                       <Link to="/terms">Terms of Use</Link> and{" "}
                       <Link to="/privacy">Privacy Policy</Link>.
                     </LegalNotice>
-                    {hasPasskeys && !effectiveShowPasswordForm && (
+                    {hasWebAuthnLogin && !effectiveShowPasswordForm && (
                       <>
-                        <AuthButton
+                        {hasPasskeys && <AuthButton
                           $variant="primary"
                           onClick={onPasskeyAuth}
                           disabled={authState === "authenticating"}
                         >
-                          {authState === "authenticating"
-                            ? "Authenticating..."
-                            : "Sign in with Passkey"}
-                        </AuthButton>
+                          {authState === "authenticating" ? "Authenticating..." : "Use Passkey"}
+                        </AuthButton>}
+                        {hasFidoSecurityKey && <AuthButton
+                          $variant={hasPasskeys ? "secondary" : "primary"}
+                          onClick={onFidoKeyAuth}
+                          disabled={authState === "authenticating"}
+                        >
+                          {authState === "authenticating" ? "Authenticating..." : "Use FIDO Security Key"}
+                        </AuthButton>}
                         <Divider>or</Divider>
-                        <LinkButton onClick={() => setShowPasswordForm(true)}>
-                          Use password instead
+                        <LinkButton onClick={() => {
+                          setIsFidoEnrollmentFlow(false);
+                          setShowPasswordForm(true);
+                        }}>
+                          Use Password
                         </LinkButton>
+                        {!hasFidoSecurityKey && canInteract && (
+                          <LinkButton onClick={() => {
+                            setFidoEnrollmentError(null);
+                            setIsFidoEnrollmentFlow(true);
+                            setShowPasswordForm(true);
+                          }}>
+                            Set up FIDO vault with security key
+                          </LinkButton>
+                        )}
                       </>
                     )}
 
-                    {(effectiveShowPasswordForm || !hasPasskeys) && (
+                    {effectiveShowPasswordForm && (
                       <Form onSubmit={handlePasswordSubmit}>
                         <Input
                           ref={inputRef}
                           type="password"
-                          placeholder="Password"
+                          placeholder={isFidoEnrollmentFlow ? "Password to authorize FIDO enrollment" : "Password"}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           disabled={authState === "authenticating"}
                           autoComplete="off"
                         />
+                        {isFidoEnrollmentFlow && (
+                          <EnrollmentHint>
+                            Your password authorizes adding a login key. After verification, follow the browser prompts and tap your key when asked; it may prompt twice.
+                          </EnrollmentHint>
+                        )}
                         <AuthButton
                           type="submit"
                           $variant="primary"
@@ -1665,27 +1732,46 @@ export const AuthenticationUI = ({
                               ? "Retry"
                               : "Authenticate"}
                         </AuthButton>
-                        {hasPasskeys && effectiveShowPasswordForm && (
+                        {hasWebAuthnLogin && effectiveShowPasswordForm && (
                           <>
                             <Divider>or</Divider>
                             <LinkButton
                               onClick={() => setShowPasswordForm(false)}
                             >
-                              Use passkey instead
+                              Other sign-in methods
                             </LinkButton>
+                          </>
+                        )}
+                        {!hasFidoSecurityKey && canInteract && (
+                          <>
+                            <AuthButton
+                              type="button"
+                              $variant="secondary"
+                              onClick={handleFidoEnrollment}
+                              disabled={isFidoEnrollmentPending}
+                            >
+                              {isFidoEnrollmentPending
+                                ? "Waiting for security key…"
+                                : "Set up FIDO vault with security key"}
+                            </AuthButton>
+                            {fidoEnrollmentError && (
+                              <StatusText $variant="error" role="alert">
+                                {fidoEnrollmentError}
+                              </StatusText>
+                            )}
                           </>
                         )}
                       </Form>
                     )}
 
-                    {!hasPasskeys && canInteract && (
+                    {!hasPasskeys && effectiveShowPasswordForm && canInteract && (
                       <>
                         <Divider>setup</Divider>
                         <LinkButton
                           onClick={handleRegisterPasskey}
                           disabled={!password.trim()}
                         >
-                          Register a passkey for this device
+                          Register a passkey
                         </LinkButton>
                       </>
                     )}
@@ -1798,10 +1884,13 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     isAuthenticated,
     authError,
     hasPasskeys,
+    hasFidoSecurityKey,
     isInitialAuthCheck,
     handlePasswordAuth,
     handlePasskeyAuth,
+    handleFidoKeyAuth,
     handleRegisterPasskey,
+    handleRegisterFidoKey,
   } = useAuthentication();
   const isPublicRoute =
     location.pathname === "/terms" ||
@@ -1831,9 +1920,12 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
         authState={authState}
         error={authError}
         hasPasskeys={hasPasskeys}
+        hasFidoSecurityKey={hasFidoSecurityKey}
         onPasswordSubmit={handlePasswordAuth}
         onPasskeyAuth={handlePasskeyAuth}
+        onFidoKeyAuth={handleFidoKeyAuth}
         onRegisterPasskey={handleRegisterPasskey}
+        onRegisterFidoKey={handleRegisterFidoKey}
       />
     );
   }

@@ -3104,6 +3104,7 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
+        fido_vault: message.fido_vault.unwrap_or(false),
         sample_rate: message.sample_rate.map(|rate| rate as u32),
         fft_size: message
           .fft_size
