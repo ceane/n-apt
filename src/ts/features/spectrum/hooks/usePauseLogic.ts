@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { validateWaterfallDataComprehensive } from "@n-apt/validation";
 import { clearPersistedPauseSnapshots } from "@n-apt/app/infrastructure/storage/clearPersistedPauseSnapshots";
-import type { PausedFrameSnapshot } from "@n-apt/spectrum/types/PausedFrameSnapshot";
+import type {
+  PausedFrameSnapshot,
+  PausedWaterfallTextureMeta,
+} from "@n-apt/spectrum/types/PausedFrameSnapshot";
+import type { PendingWaterfallRestore } from "@n-apt/spectrum/utils/waterfallRestore";
 
 export interface PauseLogicOptions {
   isPaused: boolean;
@@ -10,6 +14,11 @@ export interface PauseLogicOptions {
     width: number;
     height: number;
   } | null>;
+  /** CPU copy of the complete circular WebGPU waterfall history. */
+  waterfallTextureSnapshotRef?: React.MutableRefObject<Uint8Array | null>;
+  waterfallTextureMetaRef?: React.MutableRefObject<PausedWaterfallTextureMeta | null>;
+  pendingWaterfallRestoreRef?: React.MutableRefObject<PendingWaterfallRestore | null>;
+  restoredWaterfallRef?: React.MutableRefObject<boolean>;
   dataRef: React.MutableRefObject<{
     iq_data?: Uint8Array;
     data_type?: string;
@@ -31,6 +40,10 @@ export function usePauseLogic({
   isPaused,
   waterfallBufferRef,
   waterfallDimsRef,
+  waterfallTextureSnapshotRef,
+  waterfallTextureMetaRef,
+  pendingWaterfallRestoreRef,
+  restoredWaterfallRef,
   dataRef,
   forceRender,
   fftSize,
@@ -52,12 +65,34 @@ export function usePauseLogic({
     const data = dataRef.current;
     const waterfall = waterfallBufferRef.current;
     const dimensions = waterfallDimsRef.current;
+    const waterfallTexture = waterfallTextureSnapshotRef?.current;
+    const waterfallTextureMeta = waterfallTextureMetaRef?.current;
+    const hasCompleteTextureHistory = !!(
+      waterfallTexture &&
+      waterfallTextureMeta &&
+      waterfallTextureMeta.width > 0 &&
+      waterfallTextureMeta.height > 0 &&
+      waterfallTexture.length ===
+        waterfallTextureMeta.width * waterfallTextureMeta.height * 4
+    );
     return {
       iqData: data?.iq_data ? new Uint8Array(data.iq_data) : null,
       waterfall: waterfall ? new Uint8ClampedArray(waterfall) : null,
       waterfallDimensions: dimensions ? { ...dimensions } : null,
+      waterfallTextureSnapshot: hasCompleteTextureHistory
+        ? new Uint8Array(waterfallTexture)
+        : null,
+      waterfallTextureMeta: hasCompleteTextureHistory
+        ? { ...waterfallTextureMeta }
+        : null,
     };
-  }, [dataRef, waterfallBufferRef, waterfallDimsRef]);
+  }, [
+    dataRef,
+    waterfallBufferRef,
+    waterfallDimsRef,
+    waterfallTextureSnapshotRef,
+    waterfallTextureMetaRef,
+  ]);
 
   const retainPausedSnapshot = useCallback(() => {
     if (!enabled || !isPaused) return null;
@@ -121,10 +156,32 @@ export function usePauseLogic({
       waterfallBufferRef.current = snapshot.waterfall;
       waterfallDimsRef.current = snapshot.waterfallDimensions;
     }
+    const texture = snapshot.waterfallTextureSnapshot;
+    const textureMeta = snapshot.waterfallTextureMeta;
+    if (texture && textureMeta) {
+      const restoredTexture = new Uint8Array(texture);
+      if (waterfallTextureSnapshotRef) {
+        waterfallTextureSnapshotRef.current = restoredTexture;
+      }
+      if (waterfallTextureMetaRef) {
+        waterfallTextureMetaRef.current = { ...textureMeta };
+      }
+      if (pendingWaterfallRestoreRef) {
+        pendingWaterfallRestoreRef.current = {
+          data: new Uint8Array(restoredTexture),
+          ...textureMeta,
+        };
+      }
+      if (restoredWaterfallRef) restoredWaterfallRef.current = false;
+    }
     return snapshot;
   }, [
     waterfallBufferRef,
     waterfallDimsRef,
+    waterfallTextureSnapshotRef,
+    waterfallTextureMetaRef,
+    pendingWaterfallRestoreRef,
+    restoredWaterfallRef,
     enabled,
     isPaused,
     clearSnapshotOnScopeChange,
