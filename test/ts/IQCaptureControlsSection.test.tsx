@@ -66,7 +66,7 @@ describe("IQCaptureControlsSection", () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     jest.mocked(useAuthentication).mockReturnValue(
-      defaultAuthentication as ReturnType<typeof useAuthentication>,
+      defaultAuthentication as unknown as ReturnType<typeof useAuthentication>,
     );
   });
 
@@ -352,7 +352,7 @@ describe("IQCaptureControlsSection", () => {
     jest.mocked(useAuthentication).mockReturnValue({
       ...defaultAuthentication,
       hasFidoSecurityKey: true,
-    } as ReturnType<typeof useAuthentication>);
+    } as unknown as ReturnType<typeof useAuthentication>);
 
     render(
       <TestWrapper>
@@ -387,7 +387,7 @@ describe("IQCaptureControlsSection", () => {
       ...defaultAuthentication,
       fidoVaultUnlocked: true,
       hasFidoSecurityKey: true,
-    } as ReturnType<typeof useAuthentication>);
+    } as unknown as ReturnType<typeof useAuthentication>);
 
     render(
       <TestWrapper>

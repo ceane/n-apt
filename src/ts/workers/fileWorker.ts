@@ -11,7 +11,7 @@ import { parseFrequency } from "@n-apt/math/frequency";
 import { base64ToBytes } from "@n-apt/crypto/webcrypto";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
 import { verifyStampedIntegrity } from "@n-apt/webusb/iqIntegrity";
-import { parseNaptHeader as parseNaptHeaderBytes } from "../features/capture/naptHeader";
+import { parseNaptHeader as parseNaptHeaderBytes } from "@n-apt/capture/public/metadata";
 
 let currentFftSize = 8192;
 const LEGACY_NAPT_HEADER_SIZES = [4096, 2048, 8192, 1024];

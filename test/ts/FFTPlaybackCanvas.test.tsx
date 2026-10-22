@@ -31,6 +31,10 @@ jest.mock("@n-apt/capture/public/useSnapshot", () => ({
   useSnapshot: () => ({ handleSnapshot: jest.fn() }),
 }));
 
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ fidoVaultKey: null }),
+}));
+
 jest.mock("@n-apt/capture/public/usePlaybackAnimation", () => ({
   usePlaybackAnimation: () => ({ animateFrame: jest.fn() }),
 }));
@@ -140,7 +144,7 @@ describe("FFTPlaybackCanvas", () => {
     });
   });
 
-  it("accepts supported dropped files and dispatches the file actions", () => {
+  it("accepts supported dropped files and updates playback selection", () => {
     const container = render(<FFTPlaybackCanvas {...baseProps} />).container;
     const file = new File([new Uint8Array([1, 2])], "new.iq");
 
@@ -151,7 +155,7 @@ describe("FFTPlaybackCanvas", () => {
       },
     });
 
-    expect(dispatchMock).toHaveBeenCalledTimes(2);
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the component mountable across file selection changes", () => {

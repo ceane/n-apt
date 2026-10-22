@@ -80,6 +80,10 @@ jest.mock("@n-apt/capture/public/usePlaybackAnimation", () => ({
   }),
 }));
 
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ fidoVaultKey: null }),
+}));
+
 jest.mock("@n-apt/spectrum/hooks/useChannelManagement", () => ({
   useChannelManagement: () => ({
     switchChannel: jest.fn(),

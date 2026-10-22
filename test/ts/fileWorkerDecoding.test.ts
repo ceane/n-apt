@@ -97,9 +97,13 @@ async function encrypt(
   payload: Uint8Array,
   rawKey = keyBytes,
 ): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, [
-    "encrypt",
-  ]);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(rawKey).buffer,
+    "AES-GCM",
+    false,
+    ["encrypt"],
+  );
   const iv = new Uint8Array(12).fill(3);
   const cipher = new Uint8Array(
     await crypto.subtle.encrypt(
@@ -118,9 +122,13 @@ async function fidoVaultIqFile(
   rawKey: Uint8Array,
   iqSamples: Uint8Array,
 ): Promise<ArrayBuffer> {
-  const key = await crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, [
-    "encrypt",
-  ]);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(rawKey).buffer,
+    "AES-GCM",
+    false,
+    ["encrypt"],
+  );
   const iv = new Uint8Array(12).fill(31);
   const chunk = new Uint8Array(20 + iqSamples.byteLength);
   const chunkView = new DataView(chunk.buffer);
@@ -129,7 +137,11 @@ async function fidoVaultIqFile(
   chunkView.setBigUint64(12, BigInt(iqSamples.byteLength), true);
   chunk.set(iqSamples, 20);
   const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, chunk),
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      Uint8Array.from(chunk).buffer,
+    ),
   );
   const payload = new Uint8Array(iv.byteLength + ciphertext.byteLength);
   payload.set(iv);
@@ -552,7 +564,7 @@ describe("IQ trailer compatibility", () => {
 });
 
 describe("protected capture playback", () => {
-  it("refuses local decryption because the salt must come from authenticated Redis-backed playback", async () => {
+  it("explains that Increased Protection files need server playback", async () => {
     const capture = await encodeIqCaptureV4({
       metadata: {
         center_frequency_hz: 137_500_000,
@@ -568,7 +580,7 @@ describe("protected capture playback", () => {
     });
 
     expect(result.type).toBe("error");
-    expect(result.error).toContain("salt in Redis");
+    expect(result.error).toContain("Increased Protection .enc files cannot be played in this browser yet");
   });
 });
 
@@ -592,7 +604,7 @@ describe("NAPT stitching policies", () => {
     expect(rawResult(await run(file))).toEqual(samples.slice(0, 16));
   });
 
-  it("rejects headers smaller than the legacy probe sizes", async () => {
+  it("accepts valid headers smaller than the legacy probe sizes", async () => {
     const file = legacyFile(
       {
         channels: [{ offset_iq: 0, iq_length: 4 }],
@@ -601,7 +613,7 @@ describe("NAPT stitching policies", () => {
       samples,
       256,
     );
-    expect((await run(file)).error).toContain("Could not parse NAPT header");
+    expect(rawResult(await run(file))).toEqual(samples.slice(0, 4));
   });
 
   it("retains unencrypted offset probes for short indexed payloads", async () => {

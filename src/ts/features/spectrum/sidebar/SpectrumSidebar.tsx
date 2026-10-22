@@ -7,11 +7,11 @@ import React, {
   memo,
 } from "react";
 import styled from "styled-components";
-import { parseNaptMetadata } from "@n-apt/capture/naptHeader";
 import {
   parseIqCaptureMetadata,
+  parseNaptMetadata,
   selectPrimaryMetadataCaptureFile,
-} from "@n-apt/capture/captureMetadata";
+} from "@n-apt/capture/public/metadata";
 import { SatelliteDish, Trash2, Unplug, ChevronDown } from "lucide-react";
 import { useLocation } from "react-router";
 import {
@@ -511,10 +511,9 @@ export const scrollToPlaybackSelectedFile = (root: ParentNode = document) => {
     parent = parent.parentElement;
   }
 
-  const containerTop =
-    scrollContainer === window
-      ? 0
-      : scrollContainer.getBoundingClientRect().top;
+  const scrollElement: HTMLElement | null =
+    scrollContainer === window ? null : (scrollContainer as HTMLElement);
+  const containerTop = scrollElement?.getBoundingClientRect().top ?? 0;
   const stickyHeaderBottom =
     root
       .querySelector<HTMLElement>("[data-sidebar-sticky-header]")
@@ -523,7 +522,11 @@ export const scrollToPlaybackSelectedFile = (root: ParentNode = document) => {
   const top = target.getBoundingClientRect().top - visibleTop;
 
   if (Math.abs(top) > 1) {
-    scrollContainer.scrollBy({ top, behavior: "smooth" });
+    if (scrollElement) {
+      scrollElement.scrollBy({ top, behavior: "smooth" });
+    } else {
+      window.scrollBy({ top, behavior: "smooth" });
+    }
   }
 };
 

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { FileBox } from "lucide-react";
 import { FileMetadata, type NaptMetadata } from "@n-apt/capture";
-import { parseNaptMetadata } from "@n-apt/capture/naptHeader";
+import { parseNaptMetadata } from "@n-apt/capture/public/metadata";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import { useAppSelector } from "@n-apt/redux";

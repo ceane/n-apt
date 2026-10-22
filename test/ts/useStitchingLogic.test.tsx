@@ -116,7 +116,7 @@ describe("useStitchingLogic automatic processing", () => {
   });
 
   it("coalesces file-selection and auto-process triggers for the same file", async () => {
-    const emptyProps = { ...props, selectedFiles: [], stitchTrigger: 0 };
+    const emptyProps: typeof props = { ...props, selectedFiles: [], stitchTrigger: 0 };
     const nextProps = { ...props, stitchTrigger: 1 };
 
     function Stitcher({
