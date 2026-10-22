@@ -58,10 +58,9 @@ fn harden_websocket(ws: WebSocketUpgrade) -> WebSocketUpgrade {
     .max_write_buffer_size(WS_MAX_WRITE_BUFFER_BYTES)
 }
 
-/// Cache kind for `ENCODED_FRAME_CACHE` entries.
-///
-/// 0 = v1 binary wire payload, 1..=4 = v2 binary wire payload by
-/// `IqFrameStatus`, 5 = base64/JSON ciphertext, and 6/7 = NAPS RX/TX envelopes.
+/// Cache kind for `ENCODED_FRAME_CACHE` entries: 1..=4 are v2 binary wire
+/// payloads by `IqFrameStatus`, 5 is managed JSON IQ, and 6 is its raw GPU
+/// spectrum sibling.
 type EncodedFrameCacheKey = (u8, String, u64, u64, u64);
 
 /// Every subscriber of the same frame shares one encryption result.

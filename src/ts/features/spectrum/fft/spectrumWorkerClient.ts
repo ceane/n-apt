@@ -1,4 +1,5 @@
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 import {
   prepareSpectrumIqWindow,
   withSpectrumPpmCorrection,
@@ -40,6 +41,8 @@ type Job = {
   scope: string;
   signature: string;
   config: SpectrumWorkerConfig;
+  queuedAt: number | null;
+  startedAt: number | null;
 };
 
 const scopeFor = (
@@ -86,6 +89,10 @@ export class SpectrumWorkerClient {
       if (!job || data.id !== job.id) {
         return;
       }
+      browserPipelineMetrics.finishTiming("workerRoundTrip", job.startedAt);
+      if (typeof data.computeDurationMs === "number") {
+        browserPipelineMetrics.recordTiming("workerCompute", data.computeDurationMs);
+      }
       if (data.error || !data.spectrum) { this.fail(); return; }
       const backend = data.backend ?? "wasm";
       const isPreview = data.stage === "preview";
@@ -131,6 +138,8 @@ export class SpectrumWorkerClient {
   }
 
   private start(job: Job) {
+    job.startedAt = browserPipelineMetrics.startTiming();
+    browserPipelineMetrics.finishTiming("workerQueueWait", job.queuedAt);
     this.inFlight = job;
     const prepared = prepareSpectrumIqWindow(job.frame, job.config.fftSize);
     const options = withSpectrumPpmCorrection(job.config, prepared.correction);
@@ -170,6 +179,8 @@ export class SpectrumWorkerClient {
       config,
       scope,
       signature,
+      queuedAt: browserPipelineMetrics.startTiming(),
+      startedAt: null,
     };
     if (this.inFlight) {
       this.pending = job;

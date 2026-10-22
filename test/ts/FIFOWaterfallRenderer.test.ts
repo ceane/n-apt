@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { useDrawWebGPUFIFOWaterfall } from "@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall";
 
 // Mock WebGPU constants
@@ -26,6 +26,9 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     createBindGroup: jest.fn(),
     createShaderModule: jest.fn(),
     createRenderPipeline: jest.fn(() => ({
+      getBindGroupLayout: jest.fn(),
+    })),
+    createRenderPipelineAsync: jest.fn(() => Promise.resolve({
       getBindGroupLayout: jest.fn(),
     })),
     createCommandEncoder: jest.fn(() => ({
@@ -64,6 +67,14 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     mockCanvas.height = 600;
   });
 
+  const drawReady = async (hook: any, options: any) => {
+    let rendered = false;
+    act(() => { rendered = hook.drawWebGPUFIFOWaterfall(options); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    if (rendered) act(() => { rendered = hook.drawWebGPUFIFOWaterfall(options); });
+    return rendered;
+  };
+
   it("should initialize and render a waterfall frame", async () => {
     const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
 
@@ -78,7 +89,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
       fftMax: 0,
     };
 
-    const success = await result.current.drawWebGPUFIFOWaterfall(options);
+    const success = await drawReady(result.current, options);
 
     expect(success).toBe(true);
     expect(mockDevice.createTexture).toHaveBeenCalled();
@@ -89,7 +100,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
   it("uploads the initial named colormap only once", async () => {
     const { result } = renderHook(() => useDrawWebGPUFIFOWaterfall());
 
-    await result.current.drawWebGPUFIFOWaterfall({
+    await drawReady(result.current, {
       canvas: mockCanvas,
       device: mockDevice as any,
       format: "rgba8unorm" as GPUTextureFormat,
@@ -110,7 +121,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     const fftData = new Float32Array(4096).fill(-45);
     const gpuRowBuffer = { destroy: jest.fn() } as any;
 
-    const success = await result.current.drawWebGPUFIFOWaterfall({
+    const success = await drawReady(result.current, {
       canvas: mockCanvas,
       device: mockDevice as any,
       format: "rgba8unorm" as GPUTextureFormat,
@@ -153,11 +164,11 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
     };
 
     // First draw
-    await result.current.drawWebGPUFIFOWaterfall(options);
+    await drawReady(result.current, options);
 
     // Change height
     (mockCanvas as any).height = 800;
-    await result.current.drawWebGPUFIFOWaterfall({
+    await drawReady(result.current, {
       ...options,
       canvas: mockCanvas,
     });
@@ -177,13 +188,13 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
       })),
     } as any;
 
-    await result.current.drawWebGPUFIFOWaterfall({
+    await drawReady(result.current, {
       canvas: mockCanvas,
       device: mockDevice as any,
       format: "rgba8unorm" as GPUTextureFormat,
       fftData,
     });
-    await result.current.drawWebGPUFIFOWaterfall({
+    await drawReady(result.current, {
       canvas: nextCanvas,
       device: mockDevice as any,
       format: "rgba8unorm" as GPUTextureFormat,
@@ -207,10 +218,10 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
       isPaused: true,
     };
 
-    await result.current.drawWebGPUFIFOWaterfall(options);
+    await drawReady(result.current, options);
 
     (mockCanvas as any).height = 800;
-    await result.current.drawWebGPUFIFOWaterfall({
+    await drawReady(result.current, {
       ...options,
       canvas: mockCanvas,
     });
@@ -244,7 +255,7 @@ describe("useDrawWebGPUFIFOWaterfall Hook", () => {
       freeze: true,
     };
 
-    await result.current.drawWebGPUFIFOWaterfall(options);
+    await drawReady(result.current, options);
 
     // Should NOT write texture when frozen
     expect(mockDevice.queue.writeTexture).not.toHaveBeenCalledWith(
