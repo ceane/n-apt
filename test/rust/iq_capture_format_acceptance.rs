@@ -443,3 +443,48 @@ fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
   }
   fs::remove_file(artifact.path).expect("remove backend writer artifact");
 }
+
+
+#[test]
+fn backend_fido_files_use_stable_vault_key_and_fail_closed() {
+  use n_apt_backend::authentication::fido_vault::VaultSessions;
+  let vault_key = [73u8; 32];
+  let unrelated_server_key = [91u8; 32];
+  let mut leases = VaultSessions::default();
+  leases.unlock("capture-session".into(), vault_key);
+  for extension in [".iq", ".napt"] {
+    let mut input = capture(extension, true, &format!("fido_stable_{}", &extension[1..]));
+    input.fido_vault = true;
+    input.vault_key = leases.key("capture-session");
+    input.vault_key_recovery = Some(serde_json::json!({"recovery":"retained envelope"}));
+    // A capture owns its snapshot; a lock must not interrupt persistence.
+    leases.lock("capture-session");
+    let artifact = save_capture_file_multi(&input, &unrelated_server_key).unwrap();
+    let bytes = fs::read(&artifact.path).unwrap();
+    if extension == ".iq" {
+      assert!(iq_format::decode(&bytes, Some(&unrelated_server_key)).is_err());
+      let decoded = iq_format::decode(&bytes, Some(&vault_key)).unwrap();
+      assert_eq!(decoded.chunks[0].data, input.channels[0].iq_data);
+    } else {
+      let header = napt_header(&bytes);
+      let metadata = &header["metadata"];
+      let wrapped = crypto::from_base64(metadata["wrapped_dek"].as_str().unwrap()).unwrap();
+      assert!(crypto::decrypt_payload_binary(&unrelated_server_key, &wrapped).is_err());
+      let dek = crypto::decrypt_payload_binary(&vault_key, &wrapped).unwrap();
+      let dek: [u8;32] = dek.try_into().unwrap();
+      let offset = metadata["sections"]["binary"]["offset_bytes"].as_u64().unwrap() as usize;
+      let length = metadata["sections"]["binary"]["length_bytes"].as_u64().unwrap() as usize;
+      assert_eq!(crypto::decrypt_payload_binary(&dek, &bytes[offset..offset+length]).unwrap(), input.channels[0].iq_data);
+    }
+    fs::remove_file(artifact.path).unwrap();
+    input.vault_key = None;
+    assert!(save_capture_file_multi(&input, &unrelated_server_key).is_err());
+    input.vault_key = Some(vault_key);
+    input.encrypted = false;
+    assert!(save_capture_file_multi(&input, &unrelated_server_key).is_err());
+    input.encrypted = true;
+    input.vault_key_recovery = None;
+    assert!(save_capture_file_multi(&input, &unrelated_server_key).is_err());
+    leases.unlock("capture-session".into(), vault_key);
+  }
+}

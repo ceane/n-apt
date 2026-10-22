@@ -97,6 +97,7 @@ pub enum SdrCommand {
     acquisition_mode: String,
     encrypted: bool,
     fido_vault: bool,
+    session_token: Option<crate::authentication::fido_vault::VaultSessionId>,
     sample_rate: Option<u32>,
     fft_size: usize,
     fft_window: String,

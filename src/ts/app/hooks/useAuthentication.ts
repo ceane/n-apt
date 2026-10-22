@@ -130,6 +130,20 @@ const useAuthenticationInternal = (
     fidoVaultKeyRef.current = null;
   }, []);
 
+  // Backend unlock expires independently of the browser's playback key.
+  // Keep the file key available for decryption; refresh only capture readiness.
+  useEffect(() => {
+    if (!state.isAuthenticated || !state.sessionToken) return;
+    let cancelled = false;
+    const token = state.sessionToken;
+    const timer = setInterval(() => {
+      void fetchFidoVaultUnlocked(token).then((unlocked) => {
+        if (!cancelled) dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked });
+      });
+    }, 30_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [state.isAuthenticated, state.sessionToken]);
+
   const importBase64Key = useCallback(
     async (base64: string): Promise<CryptoKey> => {
       const bytes = base64ToBytes(base64);

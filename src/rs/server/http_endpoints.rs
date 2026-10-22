@@ -3442,6 +3442,7 @@ async fn handle_start_capture(
     acquisition_mode: acquisition_mode.to_string(),
     encrypted,
     fido_vault: false,
+    session_token: None,
     sample_rate: None,
     fft_size,
     fft_window: fft_window.to_string(),
