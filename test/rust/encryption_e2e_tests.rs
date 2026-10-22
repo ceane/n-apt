@@ -107,7 +107,7 @@ fn test_encryption_save_load_cycle() {
   dek.copy_from_slice(&dek_bytes);
 
   // 8. Decrypt Payload using DEK
-  let decrypted_payload = crypto::decrypt_payload_binary(&dek, payload_bytes)
+  let decrypted_payload = crypto::decrypt_payload_binary_aad(&dek, payload_bytes, &crypto::capture_aad(&file_bytes,4096,payload_bytes.len()).unwrap())
     .expect("Payload decryption failed");
 
   // 9. Compare with original

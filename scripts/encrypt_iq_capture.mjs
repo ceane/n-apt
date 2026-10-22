@@ -40,7 +40,63 @@ function parseJson(bytes, label) {
   }
 }
 
-function verifyIntegrity(bytes, trailer, trailerJsonStart, label) {
+export function verifyContainerChecksum(input, metadata) {
+  if ((metadata.format_version ?? 3) < 5) return;
+  const bytes = Buffer.from(input);
+  const section = metadata.sections?.trailer;
+  if (
+    !Number.isSafeInteger(section?.offset_bytes) ||
+    !Number.isSafeInteger(section?.length_bytes) ||
+    section.offset_bytes < 0 ||
+    section.length_bytes < 24 ||
+    section.offset_bytes + section.length_bytes !== bytes.length ||
+    bytes
+      .subarray(section.offset_bytes, section.offset_bytes + 8)
+      .toString() !== "NAPTTRLR" ||
+    readU64(bytes, section.offset_bytes + 16, "trailer length") + 24 !==
+      section.length_bytes
+  )
+    throw new Error("Invalid integrity trailer bounds");
+  const start = section.offset_bytes + 24;
+  verifyIntegrity(bytes, parseJson(bytes.subarray(start), "trailer"), start);
+}
+
+export function captureAdditionalData(input, offset, length) {
+  const bytes = Buffer.from(input);
+  const start = offset + length;
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 ||
+    length < 28 ||
+    start + 24 > bytes.length ||
+    bytes.subarray(start, start + 8).toString() !== "NAPTTRLR" ||
+    start + 24 + readU64(bytes, start + 16, "trailer") !== bytes.length
+  )
+    throw new Error("Invalid authenticated capture range");
+  const text = bytes.subarray(start + 24).toString("utf8");
+  const matches = [...text.matchAll(/"digest"\s*:\s*"([a-f0-9]{64})"/g)];
+  if (matches.length !== 1)
+    throw new Error("Missing or ambiguous integrity digest");
+  const normalized = Buffer.from(bytes.subarray(start));
+  const at =
+    24 +
+    Buffer.byteLength(
+      text.slice(0, matches[0].index + matches[0][0].indexOf(matches[0][1])),
+    );
+  normalized.fill(0x30, at, at + 64);
+  return createHash("sha256")
+    .update(bytes.subarray(0, offset))
+    .update(normalized)
+    .digest();
+}
+
+export function verifyIntegrity(
+  bytes,
+  trailer,
+  trailerJsonStart,
+  label = "Capture",
+) {
   const integrity = trailer?.integrity;
   if (
     integrity?.algorithm !== "SHA-256" ||
@@ -50,8 +106,13 @@ function verifyIntegrity(bytes, trailer, trailerJsonStart, label) {
   ) {
     throw new Error(`${label} is missing a valid SHA-256 integrity stamp`);
   }
-  const digestBytes = Buffer.from(integrity.digest, "ascii");
-  const localOffset = bytes.subarray(trailerJsonStart).indexOf(digestBytes);
+  const text = bytes.subarray(trailerJsonStart).toString("utf8");
+  const matches = [...text.matchAll(/"digest"\s*:\s*"([a-f0-9]{64})"/g)];
+  if (matches.length !== 1 || matches[0][1] !== integrity.digest)
+    throw new Error("Missing or ambiguous integrity digest");
+  const localOffset = Buffer.byteLength(
+    text.slice(0, matches[0].index + matches[0][0].indexOf(matches[0][1])),
+  );
   if (localOffset < 0)
     throw new Error(`${label} integrity digest is not in its trailer`);
   const unstamped = Buffer.from(bytes);
@@ -112,7 +173,8 @@ export function inspectIqCapture(input, { allowEncrypted = false } = {}) {
   ) {
     throw new Error(`Unsupported I/Q format version: ${String(formatVersion)}`);
   }
-  const encrypted = metadata.encrypted === true || metadata.encrypted === "true";
+  const encrypted =
+    metadata.encrypted === true || metadata.encrypted === "true";
   if (bytes[32] === 1 && !encrypted && !allowEncrypted) {
     throw new Error(
       "Capture appears already encrypted or has an inconsistent encryption flag",
@@ -127,7 +189,9 @@ export function inspectIqCapture(input, { allowEncrypted = false } = {}) {
     throw new Error("I/Q capture encryption flag disagrees with its metadata");
   }
   if (encrypted && metadata.sections?.binary?.encrypted !== true) {
-    throw new Error("Encrypted I/Q capture binary section is not marked encrypted");
+    throw new Error(
+      "Encrypted I/Q capture binary section is not marked encrypted",
+    );
   }
 
   let trailer = null;
@@ -211,11 +275,14 @@ export function encryptIqCaptureBytes(input, key) {
     throw new Error("AES-256 key must be exactly 32 bytes");
   }
   const parsed = inspectIqCapture(input);
-  const encryptedPayload = encryptPayload(parsed.payload, key);
+  const encryptedPayload = Buffer.alloc(parsed.payload.length + 28);
   const metadata = {
     ...parsed.metadata,
     format_version: parsed.formatVersion,
     encrypted: true,
+    ...(parsed.formatVersion >= 5
+      ? { payload_authentication: "public-sections-v1" }
+      : {}),
   };
   if (metadata.sections?.binary) {
     metadata.sections = {
@@ -294,6 +361,18 @@ export function encryptIqCaptureBytes(input, key) {
     parts.push(trailerHeader, trailerJson);
   }
   let output = Buffer.concat(parts);
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, nonce);
+  if (metadata.payload_authentication === "public-sections-v1")
+    cipher.setAAD(
+      captureAdditionalData(output, payloadOffset, encryptedPayload.length),
+    );
+  Buffer.concat([
+    nonce,
+    cipher.update(parsed.payload),
+    cipher.final(),
+    cipher.getAuthTag(),
+  ]).copy(output, payloadOffset);
   if (parsed.formatVersion >= 5) {
     const digest = createHash("sha256").update(output).digest("hex");
     const marker = Buffer.from(INTEGRITY_PLACEHOLDER);
@@ -314,11 +393,16 @@ export function decryptIqCapturePayload(input, key) {
     throw new Error("AES-256 key must be exactly 32 bytes");
   }
   const parsed = inspectIqCapture(input, { allowEncrypted: true });
-  if (parsed.metadata.encrypted !== true && parsed.metadata.encrypted !== "true") {
+  if (
+    parsed.metadata.encrypted !== true &&
+    parsed.metadata.encrypted !== "true"
+  ) {
     throw new Error("Capture is not encrypted");
   }
   if (parsed.formatVersion < 4) {
-    throw new Error("Encrypted I/Q payload decryption requires indexed V4+ capture sections");
+    throw new Error(
+      "Encrypted I/Q payload decryption requires indexed V4+ capture sections",
+    );
   }
   if (parsed.payload.length < 12 + 16) {
     throw new Error("Encrypted I/Q payload is too short");
@@ -326,13 +410,29 @@ export function decryptIqCapturePayload(input, key) {
   const nonce = parsed.payload.subarray(0, 12);
   const body = parsed.payload.subarray(12);
   const decipher = createDecipheriv("aes-256-gcm", key, nonce);
+  if (parsed.metadata.payload_authentication === "public-sections-v1")
+    decipher.setAAD(
+      captureAdditionalData(
+        parsed.bytes,
+        HEADER_SIZE +
+          readU64(parsed.bytes, 8, "metadata") +
+          readU64(parsed.bytes, 16, "frames"),
+        parsed.payload.length,
+      ),
+    );
   decipher.setAuthTag(body.subarray(-16));
-  return Buffer.concat([decipher.update(body.subarray(0, -16)), decipher.final()]);
+  return Buffer.concat([
+    decipher.update(body.subarray(0, -16)),
+    decipher.final(),
+  ]);
 }
 
 /** Re-encrypts an indexed encrypted IQ payload while preserving its frame section and offsets. */
 export function rewrapIqCapturePayload(input, oldKey, newKey) {
-  for (const [label, key] of [["Old", oldKey], ["New", newKey]]) {
+  for (const [label, key] of [
+    ["Old", oldKey],
+    ["New", newKey],
+  ]) {
     if (!(key instanceof Uint8Array) || key.byteLength !== 32) {
       throw new Error(`${label} AES-256 key must be exactly 32 bytes`);
     }
@@ -344,21 +444,49 @@ export function rewrapIqCapturePayload(input, oldKey, newKey) {
   const plaintext = decryptIqCapturePayload(parsed.bytes, oldKey);
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", newKey, nonce);
-  const body = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);
+  if (parsed.metadata.payload_authentication === "public-sections-v1")
+    cipher.setAAD(
+      captureAdditionalData(
+        parsed.bytes,
+        HEADER_SIZE +
+          readU64(parsed.bytes, 8, "metadata") +
+          readU64(parsed.bytes, 16, "frames"),
+        parsed.payload.length,
+      ),
+    );
+  const body = Buffer.concat([
+    cipher.update(plaintext),
+    cipher.final(),
+    cipher.getAuthTag(),
+  ]);
   const encryptedPayload = Buffer.concat([nonce, body]);
   if (encryptedPayload.length !== parsed.payload.length) {
-    throw new Error("Rewrapped payload length changed; refusing to alter capture offsets");
+    throw new Error(
+      "Rewrapped payload length changed; refusing to alter capture offsets",
+    );
   }
   const output = Buffer.from(parsed.bytes);
-  const payloadStart = HEADER_SIZE + readU64(output, 8, "metadata length") + readU64(output, 16, "frame metadata length");
+  const payloadStart =
+    HEADER_SIZE +
+    readU64(output, 8, "metadata length") +
+    readU64(output, 16, "frame metadata length");
   encryptedPayload.copy(output, payloadStart);
   if (parsed.formatVersion >= 5) {
-    const trailerJsonStart = payloadStart + parsed.payload.length + TRAILER_HEADER_SIZE;
-    const trailerJsonLength = readU64(output, payloadStart + parsed.payload.length + 16, "trailer JSON length");
-    const trailerText = output.subarray(trailerJsonStart, trailerJsonStart + trailerJsonLength).toString("utf8");
+    const trailerJsonStart =
+      payloadStart + parsed.payload.length + TRAILER_HEADER_SIZE;
+    const trailerJsonLength = readU64(
+      output,
+      payloadStart + parsed.payload.length + 16,
+      "trailer JSON length",
+    );
+    const trailerText = output
+      .subarray(trailerJsonStart, trailerJsonStart + trailerJsonLength)
+      .toString("utf8");
     const digestMatch = /("digest"\s*:\s*")[a-f\d]{64}(")/i.exec(trailerText);
-    if (!digestMatch) throw new Error("Could not locate the V5+ integrity checksum");
-    const digestOffset = trailerJsonStart + digestMatch.index + digestMatch[1].length;
+    if (!digestMatch)
+      throw new Error("Could not locate the V5+ integrity checksum");
+    const digestOffset =
+      trailerJsonStart + digestMatch.index + digestMatch[1].length;
     Buffer.from(INTEGRITY_PLACEHOLDER).copy(output, digestOffset);
     const digest = createHash("sha256").update(output).digest("hex");
     Buffer.from(digest).copy(output, digestOffset);

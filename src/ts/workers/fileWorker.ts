@@ -10,7 +10,10 @@
 import { parseFrequency } from "@n-apt/math/frequency";
 import { base64ToBytes } from "@n-apt/crypto/webcrypto";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
-import { verifyStampedIntegrity } from "@n-apt/webusb/iqIntegrity";
+import {
+  verifyStampedIntegrity,
+  captureAdditionalData,
+} from "@n-apt/webusb/iqIntegrity";
 import { parseNaptHeader as parseNaptHeaderBytes } from "@n-apt/capture/public/metadata";
 
 let currentFftSize = 8192;
@@ -173,7 +176,9 @@ function parseNaptHeader(
   fileName: string,
 ): NaptContainerHeader {
   try {
-    return parseNaptHeaderBytes(new Uint8Array(fileData)) as NaptContainerHeader;
+    return parseNaptHeaderBytes(
+      new Uint8Array(fileData),
+    ) as NaptContainerHeader;
   } catch {
     throw new Error(`Could not parse NAPT header for ${fileName}`);
   }
@@ -320,10 +325,7 @@ async function loadIqFile(
       throw new Error("Invalid IQ v4 trailer bounds");
     }
     metadata.trailer = decodeIndexedTrailer(fileData, trailerSection, "IQ");
-    if (
-      trailerSection.version === 2 &&
-      (await verifyFileIntegrity(fileData, metadata)) === "failed"
-    ) {
+    if ((await verifyFileIntegrity(fileData, metadata)) === "failed") {
       throw new Error("INTEGRITY_FAILED: file appears corrupted or modified");
     }
   }
@@ -347,7 +349,18 @@ async function loadIqFile(
       );
     }
     const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: payload.slice(0, 12) },
+      {
+        name: "AES-GCM",
+        iv: payload.slice(0, 12),
+        additionalData:
+          (metadata as any).payload_authentication === "public-sections-v1"
+            ? await captureAdditionalData(
+                new Uint8Array(fileData),
+                payloadStart,
+                payloadLength,
+              )
+            : undefined,
+      },
       decryptionKey,
       payload.slice(12),
     );
@@ -590,6 +603,7 @@ async function decryptNaptPayloadAtOffsets(
   fileName: string,
   offsets: number[],
   wrappedDekBase64?: string | null,
+  additionalData?: ArrayBuffer,
 ): Promise<ArrayBuffer> {
   let lastError: any = null;
 
@@ -624,7 +638,7 @@ async function decryptNaptPayloadAtOffsets(
         );
 
         return await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv: iv as any },
+          { name: "AES-GCM", iv: iv as any, additionalData },
           dek as CryptoKey,
           ciphertext as any,
         );
@@ -632,7 +646,7 @@ async function decryptNaptPayloadAtOffsets(
 
       // Default: direct decryption with vault key
       return await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: iv as any },
+        { name: "AES-GCM", iv: iv as any, additionalData },
         aesKey,
         ciphertext as any,
       );
@@ -883,7 +897,10 @@ self.onmessage = async function (e) {
               ["decrypt"],
             );
           } catch (error) {
-            console.error("[fileWorker] Failed to import FIDO vault key:", error);
+            console.error(
+              "[fileWorker] Failed to import FIDO vault key:",
+              error,
+            );
           }
         }
 
@@ -954,7 +971,8 @@ self.onmessage = async function (e) {
               );
               metadata = naptMetadata;
 
-              const isFidoVault = metadata?.encryption === FIDO_VAULT_ENCRYPTION;
+              const isFidoVault =
+                metadata?.encryption === FIDO_VAULT_ENCRYPTION;
               const captureDecryptionKey = isFidoVault ? fidoVaultKey : aesKey;
               if (isEncrypted && !captureDecryptionKey) {
                 throw new Error(
@@ -997,6 +1015,14 @@ self.onmessage = async function (e) {
                     fileName,
                     possibleHeaderSizes,
                     wrappedNaptKey(metaObj),
+                    (metadata as any).payload_authentication ===
+                      "public-sections-v1"
+                      ? await captureAdditionalData(
+                          new Uint8Array(fileData),
+                          metadata.sections!.binary!.offset_bytes,
+                          metadata.sections!.binary!.length_bytes,
+                        )
+                      : undefined,
                   );
                 }
 
@@ -1009,7 +1035,8 @@ self.onmessage = async function (e) {
                   const chOffsetIq = ch.offset_iq ?? 0;
                   const nextOffsetIq =
                     j + 1 < channelsMetadata.length
-                      ? channelsMetadata[j + 1].offset_iq ?? payloadArray.length
+                      ? (channelsMetadata[j + 1].offset_iq ??
+                        payloadArray.length)
                       : payloadArray.length;
                   const iqLength =
                     ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);

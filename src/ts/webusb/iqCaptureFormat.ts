@@ -49,13 +49,15 @@ export const buildIqCaptureFrameUpdates = ({
     options.gainDb,
     options.ppm,
   ]);
-  const updates: IqCaptureFrameUpdate[] = [{
-    sample_offset: sampleOffset,
-    timestamp_us: timestampUs,
-    kind: "Frame",
-    frame_sequence: frameSequence,
-    patch: {},
-  }];
+  const updates: IqCaptureFrameUpdate[] = [
+    {
+      sample_offset: sampleOffset,
+      timestamp_us: timestampUs,
+      kind: "Frame",
+      frame_sequence: frameSequence,
+      patch: {},
+    },
+  ];
   if (previousSignature !== signature) {
     updates.push({
       sample_offset: sampleOffset,
@@ -100,6 +102,7 @@ import {
   INTEGRITY_SCOPE,
   integrityPlaceholder,
   stampIntegrity,
+  captureAdditionalData,
 } from "./iqIntegrity";
 type CaptureBytes = Uint8Array<ArrayBuffer>;
 
@@ -130,7 +133,9 @@ export const advanceIqCaptureSampleOffset = (
   data: Uint8Array,
 ): number => {
   if (data.byteLength % 2 !== 0) {
-    throw new Error("Interleaved I/Q data must contain complete I/Q sample pairs.");
+    throw new Error(
+      "Interleaved I/Q data must contain complete I/Q sample pairs.",
+    );
   }
   return offset + data.byteLength / 2;
 };
@@ -224,16 +229,17 @@ export const encodeIqCaptureV4 = async ({
 }): Promise<Uint8Array> => {
   if (
     originalVersion !== undefined &&
-    (
-      !Number.isInteger(originalVersion) ||
+    (!Number.isInteger(originalVersion) ||
       originalVersion < 1 ||
-      originalVersion >= NAPT_FORMAT_VERSION
-    )
+      originalVersion >= NAPT_FORMAT_VERSION)
   ) {
-    throw new Error(`originalVersion must be an integer from 1 to ${NAPT_FORMAT_VERSION - 1}`);
+    throw new Error(
+      `originalVersion must be an integer from 1 to ${NAPT_FORMAT_VERSION - 1}`,
+    );
   }
   const metadataObject = createIqMetadata({ ...metadata, encrypted: false });
-  if (originalVersion !== undefined) metadataObject.originalVersion = originalVersion;
+  if (originalVersion !== undefined)
+    metadataObject.originalVersion = originalVersion;
   const framesBytes = utf8(JSON.stringify(frameUpdates));
   const payload = encodeIqPayload(chunks, privateMetadata);
   const sectionMetadata = metadataObject;
@@ -337,33 +343,55 @@ export const decodeIqCaptureHeader = (
 /** Read the declared SHA-256 identity from a validated-shape V6 IQ trailer. */
 export const readIqCaptureTrailerDigest = (bytes: Uint8Array): string => {
   const { metadata } = decodeIqCaptureHeader(bytes);
-  if (metadata.format !== "iq" || metadata.format_version !== NAPT_FORMAT_VERSION) {
+  if (
+    metadata.format !== "iq" ||
+    metadata.format_version !== NAPT_FORMAT_VERSION
+  ) {
     throw new Error("Capture is not a supported V6 IQ file");
   }
-  const sections = metadata.sections as {
-    trailer?: { offset_bytes?: unknown; length_bytes?: unknown; version?: unknown };
-  } | undefined;
+  const sections = metadata.sections as
+    | {
+        trailer?: {
+          offset_bytes?: unknown;
+          length_bytes?: unknown;
+          version?: unknown;
+        };
+      }
+    | undefined;
   const offset = sections?.trailer?.offset_bytes;
   const length = sections?.trailer?.length_bytes;
-  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) ||
-    (offset as number) < 0 || (length as number) < TRAILER_HEADER_SIZE ||
-    (offset as number) + (length as number) !== bytes.byteLength) {
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    (offset as number) < 0 ||
+    (length as number) < TRAILER_HEADER_SIZE ||
+    (offset as number) + (length as number) !== bytes.byteLength
+  ) {
     throw new Error("V6 IQ capture has an invalid integrity trailer range");
   }
   const trailerOffset = offset as number;
   const trailerLength = length as number;
   const trailer = bytes.subarray(trailerOffset, trailerOffset + trailerLength);
-  if (!TRAILER_MAGIC.every((value, index) => trailer[index] === value) ||
-    trailer[8] !== NAPT_TRAILER_VERSION || sections?.trailer?.version !== NAPT_TRAILER_VERSION ||
-    readU64(trailer, 16) + TRAILER_HEADER_SIZE !== trailerLength) {
+  if (
+    !TRAILER_MAGIC.every((value, index) => trailer[index] === value) ||
+    trailer[8] !== NAPT_TRAILER_VERSION ||
+    sections?.trailer?.version !== NAPT_TRAILER_VERSION ||
+    readU64(trailer, 16) + TRAILER_HEADER_SIZE !== trailerLength
+  ) {
     throw new Error("V6 IQ capture has an invalid integrity trailer");
   }
-  const parsed = JSON.parse(new TextDecoder().decode(trailer.subarray(TRAILER_HEADER_SIZE))) as {
+  const parsed = JSON.parse(
+    new TextDecoder().decode(trailer.subarray(TRAILER_HEADER_SIZE)),
+  ) as {
     integrity?: { algorithm?: unknown; scope?: unknown; digest?: unknown };
   };
   const integrity = parsed?.integrity;
-  if (integrity?.algorithm !== "SHA-256" || integrity.scope !== INTEGRITY_SCOPE ||
-    typeof integrity.digest !== "string" || !/^[\da-f]{64}$/i.test(integrity.digest)) {
+  if (
+    integrity?.algorithm !== "SHA-256" ||
+    integrity.scope !== INTEGRITY_SCOPE ||
+    typeof integrity.digest !== "string" ||
+    !/^[\da-f]{64}$/i.test(integrity.digest)
+  ) {
     throw new Error("V6 IQ capture has incomplete trailer integrity metadata");
   }
   return integrity.digest.toLowerCase();
@@ -394,11 +422,16 @@ const deriveVaultKey = async (passphrase: string): Promise<CryptoKey> => {
 const encryptPayload = async (
   key: CryptoKey,
   plaintext: CaptureBytes,
+  additionalData?: ArrayBuffer,
 ): Promise<CaptureBytes> => {
   const iv = copyBytes(crypto.getRandomValues(new Uint8Array(12)));
   const ciphertext = copyBytes(
     new Uint8Array(
-      await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext),
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv, additionalData },
+        key,
+        plaintext,
+      ),
     ),
   );
   return concatBytes(iv, ciphertext);
@@ -428,7 +461,7 @@ export const encodeNaptCaptureV4 = async ({
     false,
     ["encrypt"],
   );
-  const encryptedData = await encryptPayload(dekKey, copyBytes(data));
+  const encryptedData = new Uint8Array(data.length + 28);
   const wrappedDek = await encryptPayload(vaultKey, copyBytes(dekBytes));
   const channelMetadata = channels.map((channel, index) => ({
     ...channel,
@@ -466,6 +499,7 @@ export const encodeNaptCaptureV4 = async ({
     frame_updates: frameUpdates ?? [],
     channels: channelMetadata,
     wrapped_dek: base64(wrappedDek),
+    payload_authentication: "public-sections-v1",
   };
   const trailerJson = utf8(
     JSON.stringify({
@@ -515,17 +549,24 @@ export const encodeNaptCaptureV4 = async ({
     Math.max(0, headerSize - headerBytes.byteLength - 1),
   );
   padding.fill(0x20);
-  return stampIntegrity(
-    concatBytes(
-      headerBytes,
-      Uint8Array.of(0x0a),
-      padding,
-      encryptedData,
-      TRAILER_MAGIC,
-      Uint8Array.of(NAPT_TRAILER_VERSION),
-      new Uint8Array(7),
-      writeU64(trailerJson.byteLength),
-      trailerJson,
-    ),
+  const output = concatBytes(
+    headerBytes,
+    Uint8Array.of(0x0a),
+    padding,
+    encryptedData,
+    TRAILER_MAGIC,
+    Uint8Array.of(NAPT_TRAILER_VERSION),
+    new Uint8Array(7),
+    writeU64(trailerJson.byteLength),
+    trailerJson,
   );
+  output.set(
+    await encryptPayload(
+      dekKey,
+      copyBytes(data),
+      await captureAdditionalData(output, headerSize, encryptedData.length),
+    ),
+    headerSize,
+  );
+  return stampIntegrity(output);
 };

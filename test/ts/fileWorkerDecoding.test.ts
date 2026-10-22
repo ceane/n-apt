@@ -1,4 +1,8 @@
 import {
+  stampIntegrity,
+  integrityDigestOffset,
+} from "@n-apt/webusb/iqIntegrity";
+import {
   encodeIqCaptureV4,
   encodeNaptCaptureV4,
 } from "@n-apt/webusb/iqCaptureFormat";
@@ -580,7 +584,9 @@ describe("protected capture playback", () => {
     });
 
     expect(result.type).toBe("error");
-    expect(result.error).toContain("Increased Protection .enc files cannot be played in this browser yet");
+    expect(result.error).toContain(
+      "Increased Protection .enc files cannot be played in this browser yet",
+    );
   });
 });
 
@@ -658,5 +664,19 @@ describe("NAPT stitching policies", () => {
     expect(
       rawResult(await run(bytes.slice().buffer, { aesKey: rawKey })),
     ).toEqual(samples.slice(0, 16));
+    const tampered = bytes.slice();
+    const text = new TextDecoder().decode(tampered.subarray(0, 4096));
+    const at = text.indexOf('"center_freq_hz":100000');
+    expect(at).toBeGreaterThan(0);
+    tampered[at + '"center_freq_hz":'.length] = 50;
+    const damaged = await run(tampered.slice().buffer, { aesKey: rawKey });
+    expect(damaged.type).toBe("error");
+    expect(damaged.error).toContain("INTEGRITY_FAILED");
+    const digestAt = integrityDigestOffset(tampered);
+    tampered.fill(48, digestAt, digestAt + 64);
+    const restamped = await stampIntegrity(tampered);
+    expect((await run(restamped.slice().buffer, { aesKey: rawKey })).type).toBe(
+      "error",
+    );
   });
 });

@@ -13,7 +13,13 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { decryptIqCapturePayload, encryptIqCaptureBytes, inspectIqCapture, rewrapIqCapturePayload } from "../../scripts/encrypt_iq_capture.mjs";
+import {
+  captureAdditionalData,
+  decryptIqCapturePayload,
+  encryptIqCaptureBytes,
+  inspectIqCapture,
+  rewrapIqCapturePayload,
+} from "../../scripts/encrypt_iq_capture.mjs";
 
 const encoder = new TextEncoder();
 const placeholder = "0".repeat(64);
@@ -193,6 +199,10 @@ test("encrypts a V6 IQ payload, updates section offsets, and restamps integrity"
     {
       name: "AES-GCM",
       iv: encrypted.subarray(payloadStart, payloadStart + 12),
+      additionalData:
+        metadata.payload_authentication === "public-sections-v1"
+          ? captureAdditionalData(encrypted, payloadStart, payloadLength)
+          : undefined,
     },
     aesKey,
     encrypted.subarray(payloadStart + 12, payloadStart + payloadLength),
@@ -262,6 +272,10 @@ test("encrypts V3 without inventing sections or changing its frame timestamps", 
     {
       name: "AES-GCM",
       iv: encrypted.subarray(payloadStart, payloadStart + 12),
+      additionalData:
+        metadata.payload_authentication === "public-sections-v1"
+          ? captureAdditionalData(encrypted, payloadStart, payloadLength)
+          : undefined,
     },
     aesKey,
     encrypted.subarray(payloadStart + 12, payloadStart + payloadLength),
@@ -314,8 +328,60 @@ test("rewraps V6 IQ payloads without changing frame offsets and verifies checksu
   const parsed = inspectIqCapture(rewrapped, { allowEncrypted: true });
 
   assert.equal(parsed.formatVersion, 6);
-  assert.deepEqual(parsed.frames, inspectIqCapture(legacyEncrypted, { allowEncrypted: true }).frames);
+  assert.deepEqual(
+    parsed.frames,
+    inspectIqCapture(legacyEncrypted, { allowEncrypted: true }).frames,
+  );
   assert.deepEqual(decryptIqCapturePayload(rewrapped, newKey), payload);
-  assert.notDeepEqual(parsed.payload, inspectIqCapture(legacyEncrypted, { allowEncrypted: true }).payload);
+  assert.notDeepEqual(
+    parsed.payload,
+    inspectIqCapture(legacyEncrypted, { allowEncrypted: true }).payload,
+  );
   assert.throws(() => decryptIqCapturePayload(rewrapped, oldKey));
+});
+
+test("public metadata and trailer edits fail authentication even after restamping", () => {
+  const { file } = buildV6Iq();
+  const key = Buffer.alloc(32, 42);
+  const encrypted = encryptIqCaptureBytes(file, key);
+  const original = decryptIqCapturePayload(encrypted, key);
+  assert.ok(original.length > 0);
+  for (const edit of [
+    (bytes) => {
+      const at=bytes.indexOf(Buffer.from('"payload_authentication"'));
+      assert.ok(at>=0); bytes[at+1]=120;
+    },
+    (bytes) => {
+      const at = bytes.indexOf(Buffer.from('"interleaving":"IQ"'));
+      assert.ok(at >= 0);
+      bytes[at + '"interleaving":"'.length] = 88;
+    },
+    (bytes) => {
+      const at = bytes.lastIndexOf(Buffer.from("SHA-256"));
+      assert.ok(at >= 0);
+      bytes[at] = 88;
+    },
+  ]) {
+    const changed = Buffer.from(encrypted);
+    edit(changed);
+    const trailer =
+      Number(changed.readBigUInt64LE(8)) +
+      Number(changed.readBigUInt64LE(16)) +
+      40 +
+      Number(changed.readBigUInt64LE(24)) +
+      24;
+    const text = changed.subarray(trailer).toString();
+    const match = /"digest"\s*:\s*"([0-9a-f]{64})"/.exec(text);
+    const at =
+      trailer +
+      Buffer.byteLength(
+        text.slice(0, match.index + match[0].indexOf(match[1])),
+      );
+    changed.fill(48, at, at + 64);
+    Buffer.from(createHash("sha256").update(changed).digest("hex")).copy(
+      changed,
+      at,
+    );
+    assert.throws(() => decryptIqCapturePayload(changed, key));
+  }
 });
