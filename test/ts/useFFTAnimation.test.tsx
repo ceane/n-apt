@@ -121,6 +121,32 @@ describe("useFFTAnimation", () => {
     unmount();
   });
 
+  it("leaves async redraws on the existing frame-rate cadence", () => {
+    const { pendingFrames, fireNext } = installDrivableRaf();
+    const render = jest.fn();
+    const { result, unmount } = renderHook(() =>
+      useFFTAnimation({ isPaused: false, onRenderFrame: render, targetFPS: 30 }),
+    );
+    render.mockClear();
+    const framesBeforeRequest = pendingFrames.size;
+
+    act(() => {
+      result.current.requestRender();
+      result.current.requestRender();
+    });
+
+    expect(render).not.toHaveBeenCalled();
+    expect(pendingFrames.size).toBe(framesBeforeRequest);
+    act(() => fireNext());
+    expect(render).not.toHaveBeenCalled();
+    act(() => fireNext());
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenCalledWith(expect.any(Number), false);
+    expect(pendingFrames.size).toBeGreaterThan(0);
+
+    unmount();
+  });
+
   it("keeps the render loop active across visibility changes during receiver work", () => {
     const previousVisibilityState = Object.getOwnPropertyDescriptor(
       document,
