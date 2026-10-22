@@ -82,7 +82,7 @@ import { useWaterfallBuffers } from "@n-apt/spectrum/hooks/useWaterfallBufferPoo
 import { getTemporalResolutionWindow } from "@n-apt/math/temporalResolution";
 import { presentSpikeAnalysis } from "@n-apt/spectrum/fft/spikeAnalysisPresentation";
 import type { SpikeAnalysis } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal";
-import type { PauseSnapshot } from "@n-apt/capture/public/pauseSnapshotStorage";
+import type { PausedFrameSnapshot } from "@n-apt/spectrum/types/PausedFrameSnapshot";
 import {
   accumulateFullChannelWaveform,
   newestIqWindow,
@@ -1358,7 +1358,7 @@ export interface FFTCanvasProps {
   frameSourceIdFallback?: string | null;
   visualizerMachine?: FFTVisualizerMachine;
   visualizerSessionKey?: string;
-  /** Whether this canvas may read or write persisted paused-frame snapshots. */
+  /** Whether this canvas retains a paused frame in memory. */
   pauseSnapshotEnabled?: boolean;
   /** Increments at a source/reconnect boundary to discard stale GPU output. */
   webGpuStreamResetEpoch?: number;
@@ -2867,7 +2867,7 @@ const FFTCanvas = memo(
     }, [snapshotGridPreference]);
     const waveformFloatRef = useRef<Float32Array | null>(null);
     const renderWaveformRef = useRef<Float32Array | null>(null);
-    const pausedSnapshotRef = useRef<PauseSnapshot | null>(null);
+    const pausedSnapshotRef = useRef<PausedFrameSnapshot | null>(null);
     // Hold the frozen frame across the pause/standby -> live edge until a live
     // frame paints. This is a latch, not a timer: it opens only when a frozen
     // waveform actually exists and closes on a source/epoch change or the first
@@ -5226,6 +5226,10 @@ const FFTCanvas = memo(
       isPaused: retainsFramePresentation,
       waterfallBufferRef,
       waterfallDimsRef,
+      waterfallTextureSnapshotRef,
+      waterfallTextureMetaRef,
+      pendingWaterfallRestoreRef,
+      restoredWaterfallRef,
       dataRef,
       forceRender,
       snapshotScope: visualizerSessionKey,

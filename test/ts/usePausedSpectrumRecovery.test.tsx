@@ -18,6 +18,8 @@ describe("usePausedSpectrumRecovery", () => {
             iqData: new Uint8Array([3, 4]),
             waterfall: null,
             waterfallDimensions: null,
+            waterfallTextureSnapshot: null,
+            waterfallTextureMeta: null,
           },
         },
         processIqToDbmSpectrum: (iqData) => {

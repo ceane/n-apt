@@ -60,6 +60,7 @@ afterEach(() => {
 describe("Context auth compatibility", () => {
   test("logout retains authentication until server revocation succeeds", async () => {
     service.getStoredSession.mockReturnValue("stored-session");
+    sessionStorage.setItem("n-apt-fft-iq-snapshot:source-a:rx", "old-iq");
     const revocation = deferred<void>();
     service.logoutSession.mockReturnValue(revocation.promise);
     const {result} = mountAuth();
@@ -67,6 +68,7 @@ describe("Context auth compatibility", () => {
     let logout!: Promise<void>;
     act(() => { logout = result.current.logout(); });
     expect(service.logoutSession).toHaveBeenCalledWith("stored-session");
+    expect(sessionStorage.getItem("n-apt-fft-iq-snapshot:source-a:rx")).toBeNull();
     expect(service.clearSession).not.toHaveBeenCalled();
     expect(result.current.isAuthenticated).toBe(true);
     const failure = expect(logout).rejects.toThrow("Redis unavailable");

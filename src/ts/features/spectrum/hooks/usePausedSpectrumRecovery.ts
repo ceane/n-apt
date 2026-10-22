@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { PauseSnapshot } from "@n-apt/capture/public/pauseSnapshotStorage";
+import type { PausedFrameSnapshot } from "@n-apt/spectrum/types/PausedFrameSnapshot";
 
 type IqFrame = { iq_data?: Uint8Array | null };
 
@@ -9,7 +9,7 @@ export interface PausedSpectrumRecoveryOptions {
   renderWaveformRef: React.MutableRefObject<Float32Array | null>;
   spectrumOutputBufferRef: React.MutableRefObject<Float32Array | null>;
   lastProcessedFrameRef: React.MutableRefObject<IqFrame | null>;
-  pausedSnapshotRef: React.MutableRefObject<PauseSnapshot | null>;
+  pausedSnapshotRef: React.MutableRefObject<PausedFrameSnapshot | null>;
   processIqToDbmSpectrum: (
     iqData: Uint8Array,
     dbmOffset: number,

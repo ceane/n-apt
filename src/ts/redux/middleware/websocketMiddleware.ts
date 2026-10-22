@@ -1,6 +1,7 @@
 import { Middleware, Dispatch } from "@reduxjs/toolkit";
 import { equalValue } from "../websocketEquality";
 import { buildReconnectSettingsMessage } from "../settingsWire";
+import { clearPersistedPauseSnapshots } from "@n-apt/app/infrastructure/storage/clearPersistedPauseSnapshots";
 import { loadStoredActiveSignalArea as getPersistedActiveSignalArea } from "@n-apt/spectrum/public/sourcePersistence";
 import {
   setConnecting,
@@ -32,7 +33,6 @@ import {
 } from "../slices/spectrumSlice";
 import { setMirrorIqBasebandBelowZero } from "../slices/settingsSlice";
 import { setHardwareInfo } from "../slices/demodSlice";
-import { decryptPayload } from "@n-apt/crypto/webcrypto";
 import {
   type DeviceState,
   type SourceInfo,
@@ -658,6 +658,16 @@ const pauseIntentStorage = (): Storage | null => {
   }
 };
 
+const clearSubscriberPauseIntent = (): void => {
+  subscriberPausedBySource.clear();
+  subscriberPauseIntentRestored = false;
+  try {
+    pauseIntentStorage()?.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+  } catch {
+    // Best effort: a blocked store must not disturb the stream.
+  }
+};
+
 /**
  * Identifies the current document. A Fast Refresh re-evaluates this module
  * inside the same document, so `timeOrigin` is unchanged and the intent is
@@ -731,6 +741,10 @@ const persistSubscriberPauseIntent = (): void => {
   const storage = pauseIntentStorage();
   if (!storage) return;
   try {
+    if (subscriberPausedBySource.size === 0) {
+      storage.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+      return;
+    }
     const record: PersistedPauseIntent = {
       page: currentPageGeneration(),
       paused: Object.fromEntries(subscriberPausedBySource),
@@ -956,6 +970,7 @@ export const isPauseCommandInFlight = (): boolean =>
   lastExpectedPauseState !== null && Date.now() - lastPauseCommandTime < 1000;
 
 export const resetWebSocketMiddlewareState = (): void => {
+  clearPersistedPauseSnapshots();
   requestedSourceId = null;
   pendingInitialLegacyResync = false;
   _lastSettingsRequest = null;
@@ -997,9 +1012,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   resetPausedFrameRequestGate();
   lastPauseCommandTime = 0;
   lastExpectedPauseState = null;
-  subscriberPausedBySource.clear();
-  subscriberPauseIntentRestored = false;
-  pauseIntentStorage()?.removeItem(SUBSCRIBER_PAUSE_STORAGE_KEY);
+  clearSubscriberPauseIntent();
   if (dataBatchFrame !== null) {
     cancelAnimationFrame(dataBatchFrame);
     dataBatchFrame = null;
@@ -1596,10 +1609,8 @@ export const __testQueueLiveDataForMiddleware = (
 };
 
 /**
- * Test-only seam mirroring the control-socket `onmessage` path: parse a raw
- * message (string or already-parsed object) and run it through the real
- * validation + dispatch pipeline against live Redux state. Fuzz inputs may be
- * arbitrary JSON; this must never throw.
+ * Test-only seam mirroring the control-socket `onmessage` path. Fuzz inputs
+ * may be arbitrary JSON; this must never throw.
  */
 export const __testIngestIncomingMessage = (
   dispatch: Dispatch,
@@ -1623,16 +1634,7 @@ export const __testIngestIncomingMessage = (
     return;
   }
   const data = parsed as Record<string, unknown>;
-  // Mirror the onmessage fast path: high-frequency frames queue live data;
-  // batch decryption requires an AES key so it only runs on a live socket.
-  if (data.type === "spectrum") {
-    queueLiveData(data, dispatch, getState);
-    return;
-  }
-  if (data.type === "encrypted_spectrum") {
-    // Without a wired aesKey on a live connection the payload cannot be
-    // decrypted here; fall through so fuzz sees the same validation verdict.
-  }
+  if (data.type === "spectrum" || data.type === "encrypted_spectrum") return;
   processWebSocketMessage(dispatch, getState, parsed);
 };
 
@@ -4227,7 +4229,7 @@ const createWebSocketMiddleware =
               }
             };
 
-            ws.onmessage = async (event) => {
+            ws.onmessage = (event) => {
               if (wsInstance.disposed) return;
 
               const raw = event.data as string;
@@ -4248,52 +4250,12 @@ const createWebSocketMiddleware =
                 return;
               }
 
-              if (parsed?.type === "spectrum") {
-                queueLiveData(parsed, dispatch, getState);
-                return;
-              }
-
-              if (parsed?.type === "encrypted_spectrum") {
-                if (wsInstance.aesKey && typeof parsed.payload === "string") {
-                  try {
-                    const plaintext = await decryptPayload(
-                      wsInstance.aesKey,
-                      parsed.payload,
-                    );
-                    const decrypted = JSON.parse(plaintext);
-                    if (
-                      decrypted?.type === "batch" &&
-                      Array.isArray(decrypted.messages)
-                    ) {
-                      // A batch bundles multiple spectrum frames for delivery
-                      // in one round trip. Feed each through queueLiveData so
-                      // the visualizer's rAF coalescing retains the newest one.
-                      for (const message of decrypted.messages) {
-                        try {
-                          queueLiveData(
-                            JSON.parse(message),
-                            dispatch,
-                            getState,
-                          );
-                        } catch (parseError) {
-                          console.error(
-                            "Failed to parse batched spectrum message:",
-                            parseError,
-                          );
-                        }
-                      }
-                    } else {
-                      if (pendingDataUpdate === null) {
-                        pendingDataUpdate = [decrypted];
-                      } else {
-                        pendingDataUpdate.push(decrypted);
-                        trimPendingDataUpdate();
-                      }
-                    }
-                  } catch (e) {
-                    console.error("Failed to decrypt spectrum data:", e);
-                  }
-                }
+              // Live IQ belongs to the authenticated, multiplexed stream
+              // transport. Ignore the removed control-socket frame protocol.
+              if (
+                parsed?.type === "spectrum" ||
+                parsed?.type === "encrypted_spectrum"
+              ) {
                 return;
               }
 
@@ -4307,6 +4269,10 @@ const createWebSocketMiddleware =
               // backend before the control plane reconnects after a hot-reload
               // swap. Recreate so Mock APT / live sources can subscribe cleanly.
               resetManagedStreamPipeline(true);
+              clearSubscriberPauseIntent();
+              clearPersistedPauseSnapshots();
+              clearLiveSpectrumFrames(dispatch);
+              cachedRxFrameBySourceId.clear();
               dispatch(softDisconnect());
 
               // Exponential backoff reconnection
@@ -4351,8 +4317,11 @@ const createWebSocketMiddleware =
           wsInstance.reconnectTimeout = null;
         }
 
-        liveDataRef.current = null;
-        demodFrameQueue.clear();
+        clearLiveSpectrumFrames(dispatch);
+        clearSubscriberPauseIntent();
+        clearPersistedPauseSnapshots();
+        cachedRxFrameBySourceId.clear();
+        presentationController.reset();
         pendingDataUpdate = null;
         pendingStatusUpdates = null;
         if (statusBatchFrame !== null) {
@@ -4733,7 +4702,11 @@ const createWebSocketMiddleware =
         }
 
         if (sourceId) {
-          subscriberPausedBySource.set(sourceId, isPaused);
+          if (isPaused) {
+            subscriberPausedBySource.set(sourceId, true);
+          } else {
+            subscriberPausedBySource.delete(sourceId);
+          }
           persistSubscriberPauseIntent();
           presentationController.setPaused(sourceId, mode, isPaused);
           if (managedRxSubscription?.stream.sourceId === sourceId) {

@@ -30,6 +30,7 @@ import {
   type AuthInfo,
 } from "@n-apt/app/infrastructure/services/auth";
 import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
+import { clearPersistedPauseSnapshots } from "@n-apt/app/infrastructure/storage/clearPersistedPauseSnapshots";
 
 interface UseAuthenticationReturn extends AuthenticationState {
   fidoVaultKey: Uint8Array | null;
@@ -534,6 +535,7 @@ const useAuthenticationInternal = (
 
   const logout = useCallback(async () => {
     replaceFidoVaultKey(null);
+    clearPersistedPauseSnapshots();
     if (state.sessionToken) await logoutSession(state.sessionToken);
     clearSession();
     // Reload to discard in-memory keys, workers, and authenticated connections.
