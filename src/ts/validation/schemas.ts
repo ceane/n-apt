@@ -6,6 +6,10 @@
 import { z } from "zod";
 import type { TrustLevel, ExpectedLatency } from "./types";
 
+// The app's strict CSP disallows string evaluation. Disable Zod's JIT probe
+// before constructing schemas so it never attempts `new Function` at runtime.
+z.config({ jitless: true });
+
 // Preprocesses null values to undefined so they map properly to optional types rather than null
 const _nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((val) => (val === null ? undefined : val), schema.optional());
