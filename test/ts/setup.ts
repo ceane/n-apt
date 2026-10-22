@@ -435,3 +435,7 @@ jest.mock(
   },
   { virtual: true },
 );
+
+// Canvas tests exercise the explicit synchronous fallback; worker scheduling
+// is covered with an injected worker in spectrumWorkerClient.test.ts.
+jest.mock("@n-apt/spectrum/fft/spectrumWorkerFactory", () => ({ createSpectrumWorker: () => null }));

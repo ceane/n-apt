@@ -608,10 +608,10 @@ impl StreamingSourceModeManager {
       return false;
     };
     !entry.subscribers.is_empty()
-      && entry
-        .subscribers
-        .values()
-        .all(|subscriber| subscriber.paused.load(Ordering::Acquire))
+      && entry.subscribers.values().all(|subscriber| {
+        subscriber.paused.load(Ordering::Acquire)
+          && !subscriber.next_frame_requested.load(Ordering::Acquire)
+      })
   }
 
   /// Returns whether the managed stream has at least one subscriber. This is
@@ -884,8 +884,12 @@ impl StreamSubscription {
         match self.receiver.recv().await {
           Ok(event) => event,
           Err(broadcast::error::RecvError::Lagged(_))
-            if delivery_policy_from_u8(self.delivery_policy.load(Ordering::Acquire))
-              == StreamDeliveryPolicy::Latest => continue,
+            if delivery_policy_from_u8(
+              self.delivery_policy.load(Ordering::Acquire),
+            ) == StreamDeliveryPolicy::Latest =>
+          {
+            continue
+          }
           Err(error) => return Err(error),
         }
       };
@@ -1086,7 +1090,9 @@ mod tests {
       .unwrap();
     let error = match manager.subscribe(tx_key.clone(), tx_options()) {
       Err(error) => error,
-      Ok(_) => panic!("half-duplex Tx subscribe must be rejected while Rx is held"),
+      Ok(_) => {
+        panic!("half-duplex Tx subscribe must be rejected while Rx is held")
+      }
     };
     assert!(matches!(error, StreamError::Arbitration(_)));
 

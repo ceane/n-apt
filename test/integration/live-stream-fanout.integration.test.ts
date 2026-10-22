@@ -136,7 +136,12 @@ const openProbe = (): Promise<ProbeClient> =>
     };
     const toMessage = (dataBuffer: any) => {
       try {
-        return JSON.parse(dataBuffer.toString());
+        const bytes = Buffer.from(dataBuffer);
+        if (bytes.subarray(0, 4).toString() === "NAPS") {
+          const length = bytes.readUInt32LE(4);
+          return JSON.parse(bytes.subarray(8, 8 + length).toString());
+        }
+        return JSON.parse(bytes.toString());
       } catch {
         return { type: "__unparseable" };
       }

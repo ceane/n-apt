@@ -632,13 +632,37 @@ async fn run_runtime(
 ) {
   let mut last_seen_revision = 0u64;
   let mut pending_retune_started_at = None;
-  let frame_interval = Duration::from_millis(20);
+  let frame_interval = Duration::from_secs_f64(
+    1.0
+      / processor
+        .lock()
+        .map(|p| p.display_frame_rate)
+        .unwrap_or(30)
+        .max(1) as f64,
+  );
   let mut frame_tick = tokio::time::interval(frame_interval);
   frame_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-  // Start the first acquisition after one cadence interval, as with the old
-  // sleep-based loop, without resetting the cadence on each tuning command.
-  frame_tick.tick().await;
+  // Tokio's first tick is immediate: low requested frame rates must not
+  // delay the initial frame. Subsequent ticks follow the applied cadence.
   loop {
+    // Pace from the applied processor rate, including its device/FFT limits.
+    // Reads have completed before this lock; no device I/O runs under it here.
+    let interval = Duration::from_secs_f64(
+      1.0
+        / processor
+          .lock()
+          .map(|p| p.display_frame_rate)
+          .unwrap_or(30)
+          .max(1) as f64,
+    );
+    if frame_tick.period() != interval {
+      frame_tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + interval,
+        interval,
+      );
+      frame_tick
+        .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    }
     tokio::select! {
       changed = stop_rx.changed() => {
         if changed.is_err() || *stop_rx.borrow() { break; }
@@ -677,15 +701,15 @@ async fn run_runtime(
             continue;
           }
         }
-        if !stream_manager.has_subscribers(&key) {
+        if !stream_manager.has_subscribers(&key) || stream_manager.all_subscribers_paused(&key) {
           continue;
         }
         let processor = Arc::clone(&processor);
         let frame = tokio::task::spawn_blocking(move || {
           let mut processor = processor.lock().ok()?;
-          processor.read_and_process_frame_with_noise(false).ok()?;
+          processor.read_iq_frame_with_noise(false).ok()?;
           Some((
-            processor.get_center_frequency(),
+            processor.displayed_center_frequency(),
             processor.get_sample_rate(),
             Arc::new(processor.frame.last_frame_raw_iq.clone()),
           ))
@@ -744,6 +768,64 @@ mod tests {
         }
       }
     }
+  }
+
+  #[tokio::test]
+  async fn runtime_honors_frame_rate_and_unanimous_pause() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(20));
+    let runtimes = SourceRuntimeManager::new();
+    let key = StreamKey::new("mock-apt-paced", StreamMode::Rx);
+    let capabilities = SourceStreamCapabilities {
+      can_receive: true,
+      can_transmit: false,
+      full_duplex: false,
+    };
+    manager.register_source(key.source_id.clone(), capabilities);
+    let options = StreamOptions::Rx(RxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      sample_rate_hz: 3_200_000,
+      fft_size: 1024,
+      fft_window: None,
+      frame_rate: Some(5),
+      gain: None,
+    });
+    let mut subscription =
+      manager.subscribe(key.clone(), options.clone()).unwrap();
+    runtimes
+      .start(
+        key.clone(),
+        capabilities,
+        SdrProcessor::new_mock_apt().unwrap(),
+        options,
+        manager.clone(),
+      )
+      .await
+      .unwrap();
+    receive_frame(&mut subscription).await;
+    assert!(tokio::time::timeout(
+      Duration::from_millis(70),
+      receive_frame(&mut subscription)
+    )
+    .await
+    .is_err());
+    manager
+      .set_subscriber_paused(&key, subscription.subscription_id(), true)
+      .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let before = manager.metrics(&key).unwrap().accepted_frames;
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert_eq!(manager.metrics(&key).unwrap().accepted_frames, before);
+    manager
+      .request_next_frame(&key, subscription.subscription_id())
+      .unwrap();
+    tokio::time::timeout(
+      Duration::from_secs(1),
+      receive_frame(&mut subscription),
+    )
+    .await
+    .expect("paused one-shot must wake acquisition");
+    assert_eq!(manager.metrics(&key).unwrap().accepted_frames, before + 1);
+    runtimes.stop_all();
   }
 
   #[test]

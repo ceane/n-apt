@@ -199,6 +199,7 @@ type FFTWebGPUState = {
   format: GPUTextureFormat;
   ctx: GPUCanvasContext;
   uniformBuffer: GPUBuffer;
+  dummyWaveformBuffer: GPUBuffer;
   pipelineLine: GPURenderPipeline;
   pipelineFill: GPURenderPipeline;
   bindGroup: GPUBindGroup;
@@ -337,6 +338,9 @@ export function useDrawWebGPUFFTSignal() {
     ((analysis: SpikeAnalysis) => void) | undefined
   >(undefined);
   const retiredBuffersRef = useRef<GPUBuffer[]>([]);
+  const initializationRef = useRef<{ device: GPUDevice; format: GPUTextureFormat; promise: Promise<FFTWebGPUState | null> } | null>(null);
+  const rendererGenerationRef = useRef(0);
+  const drawRevisionRef = useRef(0);
   const lastDataRef = useRef<{
     waveform: Float32Array;
     frequencyRange: any;
@@ -352,6 +356,7 @@ export function useDrawWebGPUFFTSignal() {
 
   const destroyRendererResources = useCallback((state: FFTWebGPUState) => {
     state.uniformBuffer?.destroy();
+    state.dummyWaveformBuffer?.destroy();
     state.resampleInputBuffer?.destroy();
     state.resampleOutputBuffer?.destroy();
     state.resamplePeakIndexBuffer?.destroy();
@@ -383,16 +388,22 @@ export function useDrawWebGPUFFTSignal() {
   }, []);
 
   const createFFTWebGPUState = useCallback(
-    (
+    async (
       canvas: HTMLCanvasElement,
       device: GPUDevice,
       format: GPUTextureFormat,
-    ): FFTWebGPUState | null => {
+    ): Promise<FFTWebGPUState | null> => {
       const ctx = configureWebGPUCanvas(canvas, device, format);
       if (!ctx) {
         return null;
       }
 
+      const allocatedBuffers: GPUBuffer[] = [];
+      const createBuffer = (descriptor: GPUBufferDescriptor) => {
+        const buffer = device.createBuffer(descriptor);
+        allocatedBuffers.push(buffer);
+        return buffer;
+      };
       const bindGroupLayout = device.createBindGroupLayout({
         entries: [
           {
@@ -415,7 +426,7 @@ export function useDrawWebGPUFFTSignal() {
       device.pushErrorScope("validation");
       const module = device.createShaderModule({ code: SPECTRUM_SHADER });
 
-      const pipelineLine = device.createRenderPipeline({
+      const pipelineLineTask = device.createRenderPipelineAsync({
         layout: pipelineLayout,
         vertex: { module, entryPoint: "vs_line" },
         fragment: {
@@ -428,7 +439,7 @@ export function useDrawWebGPUFFTSignal() {
         },
       });
 
-      const pipelineFill = device.createRenderPipeline({
+      const pipelineFillTask = device.createRenderPipelineAsync({
         layout: pipelineLayout,
         vertex: { module, entryPoint: "vs_fill" },
         fragment: {
@@ -466,13 +477,13 @@ export function useDrawWebGPUFFTSignal() {
       // Uniform buffer holds 16 floats: plot bounds (4), dB range (2), length (1),
       // padding (1), line color RGBA (4), fill color RGBA (4)
       const uniformValues = new Float32Array(16);
-      const uniformBuffer = device.createBuffer({
+      const uniformBuffer = createBuffer({
         size: uniformValues.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
       // Dummy buffer for initial bind group creation - replaced with actual resampled data later
-      const dummyWaveformBuffer = device.createBuffer({
+      const dummyWaveformBuffer = createBuffer({
         size: Float32Array.BYTES_PER_ELEMENT,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
@@ -512,7 +523,7 @@ export function useDrawWebGPUFFTSignal() {
       });
 
       const resampleModule = device.createShaderModule({ code: RESAMPLE_WGSL });
-      const resamplePipeline = device.createComputePipeline({
+      const resamplePipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [resampleBindGroupLayout],
         }),
@@ -520,7 +531,7 @@ export function useDrawWebGPUFFTSignal() {
       });
 
       // Resample params: 12 x 4 bytes (mirror fold + frequency ranges)
-      const resampleParamsBuffer = device.createBuffer({
+      const resampleParamsBuffer = createBuffer({
         size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
@@ -547,13 +558,13 @@ export function useDrawWebGPUFFTSignal() {
       const dcSpikeModule = device.createShaderModule({
         code: DC_SPIKE_COMPUTE_WGSL,
       });
-      const dcSpikeComputePipeline = device.createComputePipeline({
+      const dcSpikeComputePipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [dcSpikeBindGroupLayout],
         }),
         compute: { module: dcSpikeModule, entryPoint: "remove_dc_spike" },
       });
-      const dcSpikeParamsBuffer = device.createBuffer({
+      const dcSpikeParamsBuffer = createBuffer({
         size: 4 * Uint32Array.BYTES_PER_ELEMENT,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
@@ -597,7 +608,7 @@ export function useDrawWebGPUFFTSignal() {
       const spikeComputeModule = device.createShaderModule({
         code: SPIKE_COMPUTE_WGSL,
       });
-      const spikeComputePipeline = device.createComputePipeline({
+      const spikeComputePipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [spikeComputeBindGroupLayout],
         }),
@@ -633,7 +644,7 @@ export function useDrawWebGPUFFTSignal() {
         code: SPIKE_RENDER_WGSL,
       });
 
-      const spikeRenderLinePipeline = device.createRenderPipeline({
+      const spikeRenderLinePipelineTask = device.createRenderPipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [spikeRenderBindGroupLayout],
         }),
@@ -662,7 +673,7 @@ export function useDrawWebGPUFFTSignal() {
         primitive: { topology: "line-list" },
       });
 
-      const spikeRenderCirclePipeline = device.createRenderPipeline({
+      const spikeRenderCirclePipelineTask = device.createRenderPipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [spikeRenderBindGroupLayout],
         }),
@@ -694,14 +705,14 @@ export function useDrawWebGPUFFTSignal() {
         if (error) console.error("Spike Render Pipeline Error:", error.message);
       });
 
-      const spikeParamsBuffer = device.createBuffer({
+      const spikeParamsBuffer = createBuffer({
         size: 16,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.UNIFORM |
           GPUBufferUsage.COPY_DST,
       });
-      const spikeRecoveryParamsBuffer = device.createBuffer({
+      const spikeRecoveryParamsBuffer = createBuffer({
         size: 16,
         usage:
           GPUBufferUsage.STORAGE |
@@ -709,7 +720,7 @@ export function useDrawWebGPUFFTSignal() {
           GPUBufferUsage.COPY_DST,
       });
 
-      const floorAvgResultBuffer = device.createBuffer({
+      const floorAvgResultBuffer = createBuffer({
         size: 12,
         usage:
           GPUBufferUsage.STORAGE |
@@ -741,42 +752,42 @@ export function useDrawWebGPUFFTSignal() {
           },
         ],
       });
-      const floorAvgPipeline = device.createComputePipeline({
+      const floorAvgPipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [floorAvgBindGroupLayout],
         }),
         compute: { module: floorAvgModule, entryPoint: "reduce" },
       });
-      const floorAvgFinalizePipeline = device.createComputePipeline({
+      const floorAvgFinalizePipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [floorAvgBindGroupLayout],
         }),
         compute: { module: floorAvgModule, entryPoint: "finalize" },
       });
 
-      const naptClassifyParamsBuffer = device.createBuffer({
+      const naptClassifyParamsBuffer = createBuffer({
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
-      const naptClassifyResultBuffer = device.createBuffer({
+      const naptClassifyResultBuffer = createBuffer({
         size: 160,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_DST |
           GPUBufferUsage.COPY_SRC,
       });
-      const naptClassifyReadbackBuffer = device.createBuffer({
+      const naptClassifyReadbackBuffer = createBuffer({
         size: 160,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
-      const spikeMetricsBuffer = device.createBuffer({
+      const spikeMetricsBuffer = createBuffer({
         size: MAX_GPU_SPIKES * 16,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_SRC |
           GPUBufferUsage.COPY_DST,
       });
-      const spikeMetricsReadbackBuffer = device.createBuffer({
+      const spikeMetricsReadbackBuffer = createBuffer({
         size: MAX_GPU_SPIKES * 16,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
@@ -817,26 +828,26 @@ export function useDrawWebGPUFFTSignal() {
           },
         ],
       });
-      const naptClassifyPipeline = device.createComputePipeline({
+      const naptClassifyPipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [naptClassifyBindGroupLayout],
         }),
         compute: { module: naptClassifyModule, entryPoint: "classify" },
       });
-      const naptClassifyFinalizePipeline = device.createComputePipeline({
+      const naptClassifyFinalizePipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [naptClassifyBindGroupLayout],
         }),
         compute: { module: naptClassifyModule, entryPoint: "finalize" },
       });
-      const naptDecisionBuffer = device.createBuffer({
+      const naptDecisionBuffer = createBuffer({
         size: 8,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_SRC |
           GPUBufferUsage.COPY_DST,
       });
-      const naptDecisionReadbackBuffer = device.createBuffer({
+      const naptDecisionReadbackBuffer = createBuffer({
         size: 8,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
@@ -857,13 +868,13 @@ export function useDrawWebGPUFFTSignal() {
           },
         ],
       });
-      const naptDetectPipeline = device.createComputePipeline({
+      const naptDetectPipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [naptDetectBindGroupLayout],
         }),
         compute: { module: naptDetectModule, entryPoint: "main" },
       });
-      const naptTemporalHistoryBuffer = device.createBuffer({
+      const naptTemporalHistoryBuffer = createBuffer({
         size: NAPT_TEMPORAL_HISTORY_LENGTH * 40,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
@@ -872,18 +883,18 @@ export function useDrawWebGPUFFTSignal() {
         0,
         new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 10),
       );
-      const naptTemporalParamsBuffer = device.createBuffer({
+      const naptTemporalParamsBuffer = createBuffer({
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
-      const naptTemporalDecisionBuffer = device.createBuffer({
+      const naptTemporalDecisionBuffer = createBuffer({
         size: 64,
         usage:
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_SRC |
           GPUBufferUsage.COPY_DST,
       });
-      const naptTemporalReadbackBuffer = device.createBuffer({
+      const naptTemporalReadbackBuffer = createBuffer({
         size: 64,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       });
@@ -919,7 +930,7 @@ export function useDrawWebGPUFFTSignal() {
           },
         ],
       });
-      const naptTemporalPipeline = device.createComputePipeline({
+      const naptTemporalPipelineTask = device.createComputePipelineAsync({
         layout: device.createPipelineLayout({
           bindGroupLayouts: [naptTemporalBindGroupLayout],
         }),
@@ -940,12 +951,48 @@ export function useDrawWebGPUFFTSignal() {
       const scratchNaptTemporalParams = new Uint32Array(4);
       const scratchZeroCount = new Uint32Array([0]);
 
+      // Start independent compilations together; await readiness before the
+      // first submission so compilation cannot block GPU execution mid-frame.
+      const [
+        pipelineLine,
+        pipelineFill,
+        resamplePipeline,
+        dcSpikeComputePipeline,
+        spikeComputePipeline,
+        spikeRenderLinePipeline,
+        spikeRenderCirclePipeline,
+        floorAvgPipeline,
+        floorAvgFinalizePipeline,
+        naptClassifyPipeline,
+        naptClassifyFinalizePipeline,
+        naptDetectPipeline,
+        naptTemporalPipeline,
+      ] = await Promise.all([
+        pipelineLineTask,
+        pipelineFillTask,
+        resamplePipelineTask,
+        dcSpikeComputePipelineTask,
+        spikeComputePipelineTask,
+        spikeRenderLinePipelineTask,
+        spikeRenderCirclePipelineTask,
+        floorAvgPipelineTask,
+        floorAvgFinalizePipelineTask,
+        naptClassifyPipelineTask,
+        naptClassifyFinalizePipelineTask,
+        naptDetectPipelineTask,
+        naptTemporalPipelineTask,
+      ]).catch(error => {
+        for (const buffer of allocatedBuffers) buffer.destroy();
+        throw error;
+      });
+
       return {
         canvas,
         device,
         format,
         ctx,
         uniformBuffer,
+        dummyWaveformBuffer,
         pipelineLine,
         pipelineFill,
         bindGroup,
@@ -1083,6 +1130,8 @@ export function useDrawWebGPUFFTSignal() {
       ) {
         const staleState = rendererRef.current;
         rendererRef.current = null;
+        initializationRef.current = null;
+        rendererGenerationRef.current++;
         destroyRendererResources(staleState);
       }
 
@@ -1097,6 +1146,8 @@ export function useDrawWebGPUFFTSignal() {
       ) {
         const staleState = rendererRef.current;
         rendererRef.current = null;
+        initializationRef.current = null;
+        rendererGenerationRef.current++;
         destroyRendererResources(staleState);
         lastDataRef.current = null;
       }
@@ -1105,9 +1156,24 @@ export function useDrawWebGPUFFTSignal() {
         if (!canvas || !device || !format) return false;
 
         try {
-          const nextState = createFFTWebGPUState(canvas, device, format);
-          if (!nextState) return false;
+          const drawRevision = ++drawRevisionRef.current;
+          const generation = rendererGenerationRef.current;
+          let initialization = initializationRef.current;
+          if (!initialization || initialization.device !== device || initialization.format !== format) {
+            const promise = createFFTWebGPUState(canvas, device, format);
+            initialization = { device, format, promise };
+            initializationRef.current = initialization;
+            // Cleanup or device replacement may happen while compilation is pending.
+            void promise.then(state => {
+              if (state && (rendererGenerationRef.current !== generation || initializationRef.current !== initialization)) {
+                destroyRendererResources(state);
+              }
+            }).catch(() => {});
+          }
+          const nextState = await initialization.promise;
+          if (!nextState || generation !== rendererGenerationRef.current || initializationRef.current !== initialization) return false;
           rendererRef.current = nextState;
+          if (drawRevision !== drawRevisionRef.current) return false;
         } catch (error) {
           console.error("Failed to create WebGPU FFT renderer:", error);
           return false;
@@ -1762,6 +1828,13 @@ export function useDrawWebGPUFFTSignal() {
         }
         pass.end();
         state.device.queue.submit([encoder.finish()]);
+        // These buffers may still be referenced by submitted commands. Release
+        // them once that work completes instead of retaining every resize.
+        if (retiredBuffersRef.current.length > 0) {
+          const retired = retiredBuffersRef.current.splice(0);
+          const release = () => { for (const buffer of retired) buffer.destroy(); };
+          void state.device.queue.onSubmittedWorkDone().then(release, release);
+        }
 
         if (shouldReadSpikeCount && state.spikeCountReadbackBuffer) {
           const readbackBuffer = state.spikeCountReadbackBuffer;
@@ -2045,6 +2118,8 @@ export function useDrawWebGPUFFTSignal() {
   );
 
   const cleanup = useCallback(() => {
+    rendererGenerationRef.current++;
+    initializationRef.current = null;
     flushRetiredBuffers();
     const state = rendererRef.current;
     if (state) {

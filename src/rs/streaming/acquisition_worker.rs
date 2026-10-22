@@ -329,7 +329,7 @@ impl AcquisitionWorker {
         let force_noise = shared_state
           .force_noise
           .load(std::sync::atomic::Ordering::Relaxed);
-        let waveform = processor.read_and_process_frame_with_noise(force_noise)?;
+        let waveform = processor.read_iq_frame_with_noise(force_noise)?;
         center_frequency = processor.displayed_center_frequency();
         // Keep the live display on the single frame buffer. Enabling the
         // hardware audio tap here copied every USB chunk into a second

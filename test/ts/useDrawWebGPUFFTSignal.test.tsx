@@ -85,6 +85,11 @@ describe("useDrawWebGPUFFTSignal", () => {
     pushErrorScope: jest.fn(),
   };
 
+  Object.assign(mockDevice, {
+    createRenderPipelineAsync: jest.fn(async (descriptor: unknown) => mockDevice.createRenderPipeline()),
+    createComputePipelineAsync: jest.fn(async (descriptor: unknown) => mockDevice.createComputePipeline()),
+  });
+
   const mockCanvas = {
     parentElement: { offsetWidth: 1380 },
     offsetWidth: 1380,
@@ -100,6 +105,54 @@ describe("useDrawWebGPUFFTSignal", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("compiles pipelines asynchronously and shares concurrent initialization", async () => {
+    const device = { ...mockDevice,
+      createRenderPipelineAsync: jest.fn(async () => ({ getBindGroupLayout: () => ({}) })),
+      createComputePipelineAsync: jest.fn(async () => ({ getBindGroupLayout: () => ({}) })),
+    };
+    const { result } = renderHook(() => useDrawWebGPUFFTSignal());
+    const options = { canvas: mockCanvas, device: device as any, format: "rgba8unorm" as GPUTextureFormat,
+      waveform: new Float32Array(2048), frequencyRange: { min: 0, max: 1 } };
+    await Promise.all([result.current.drawWebGPUFFTSignal(options), result.current.drawWebGPUFFTSignal(options)]);
+    expect(device.createRenderPipelineAsync).toHaveBeenCalled();
+    expect(device.createComputePipelineAsync).toHaveBeenCalled();
+    expect(mockDevice.createRenderPipeline).not.toHaveBeenCalled();
+    expect(mockDevice.createComputePipeline).not.toHaveBeenCalled();
+    result.current.cleanup();
+  });
+
+  it("releases initialization buffers when asynchronous compilation fails", async () => {
+    const device = { ...mockDevice,
+      createRenderPipelineAsync: jest.fn(async () => ({ getBindGroupLayout: () => ({}) })),
+      createComputePipelineAsync: jest.fn(async () => { throw new Error("compilation failed"); }),
+    };
+    const { result } = renderHook(() => useDrawWebGPUFFTSignal());
+    expect(await result.current.drawWebGPUFFTSignal({ canvas: mockCanvas, device: device as any, format: "rgba8unorm",
+      waveform: new Float32Array(2048), frequencyRange: { min: 0, max: 1 } })).toBe(false);
+    expect(mockDevice.createBuffer.mock.results.length).toBeGreaterThan(0);
+    expect(mockDevice.createBuffer.mock.results.every(result => result.value.destroy.mock.calls.length === 1)).toBe(true);
+    result.current.cleanup();
+  });
+
+  it("releases resized buffers after submitted GPU work completes", async () => {
+    let finish!: () => void;
+    const completion = new Promise<void>(resolve => { finish = resolve; });
+    const device = { ...mockDevice, queue: { ...mockDevice.queue, onSubmittedWorkDone: jest.fn(() => completion) } };
+    const canvas = { ...mockCanvas, parentElement: { offsetWidth: 800 } };
+    const { result } = renderHook(() => useDrawWebGPUFFTSignal());
+    const draw = () => result.current.drawWebGPUFFTSignal({ canvas, device: device as any, format: "rgba8unorm",
+      waveform: new Float32Array(2048), frequencyRange: { min: 0, max: 1 } });
+    await draw();
+    const previous = mockDevice.createBuffer.mock.results.map(result => result.value);
+    canvas.parentElement.offsetWidth = 1000;
+    await draw();
+    expect(previous.some(buffer => buffer.destroy.mock.calls.length)).toBe(false);
+    finish();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(previous.some(buffer => buffer.destroy.mock.calls.length)).toBe(true);
+    result.current.cleanup();
   });
 
   it("invalidates cached CSS reads on root attributes and head mutations", async () => {
@@ -225,7 +278,7 @@ describe("useDrawWebGPUFFTSignal", () => {
     ).toBe(true);
 
     expect(firstOutputBuffer.destroy).not.toHaveBeenCalled();
-    expect(mockDevice.queue.onSubmittedWorkDone).not.toHaveBeenCalled();
+    expect(mockDevice.queue.onSubmittedWorkDone).toHaveBeenCalled();
     result.current.cleanup();
     expect(firstOutputBuffer.destroy).toHaveBeenCalledTimes(1);
   });

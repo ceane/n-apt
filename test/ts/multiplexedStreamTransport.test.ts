@@ -3,10 +3,11 @@ import {
   makeFrame,
 } from "@n-apt/app/infrastructure/streams/multiplexedStreamTransport";
 import type { StreamKey } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
-import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
+import { decryptPayloadBytes, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 
 jest.mock("@n-apt/crypto/webcrypto", () => ({
   decryptPayloadBytes: jest.fn(),
+  decryptBinaryPayload: jest.fn(),
 }));
 
 describe("multiplexed stream transport", () => {
@@ -33,6 +34,26 @@ describe("multiplexed stream transport", () => {
     expect(event.type).toBe("stream_frame");
     if (event.type !== "stream_frame") throw new Error("expected frame");
     expect(event.frame).toMatchObject({ frame_status: "receiving", is_fresh: false });
+  });
+
+  it("decodes binary IQ and authenticates its metadata as additional data", async () => {
+    const events: any[] = [];
+    const socket: any = { readyState: WebSocket.OPEN, send: jest.fn(), close: jest.fn() };
+    const transport = createMultiplexedStreamTransport({ url: "ws://localhost/ws", aesKey: {} as CryptoKey,
+      webSocketFactory: () => socket });
+    transport.transportFactory({ sourceId: "source-a", mode: "rx" }, event => events.push(event));
+    const metadata = new TextEncoder().encode(JSON.stringify({ type: "stream_frame", sourceId: "source-a", mode: "rx",
+      streamEpoch: 1, optionsRevision: 1, sequence: 1, sampleRateHz: 3200000 }));
+    const bytes = new Uint8Array(8 + metadata.length + 30);
+    bytes.set([78, 65, 80, 83]);
+    new DataView(bytes.buffer).setUint32(4, metadata.length, true);
+    bytes.set(metadata, 8);
+    (decryptBinaryPayload as jest.Mock).mockResolvedValueOnce(Uint8Array.from([128, 129]));
+    socket.onmessage({ data: bytes.buffer });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(decryptBinaryPayload).toHaveBeenCalledWith(expect.anything(), bytes.subarray(8 + metadata.length), bytes.buffer.slice(0, 8 + metadata.length));
+    expect(events.find(event => event.type === "stream_frame")?.iqData).toEqual(Uint8Array.from([128, 129]));
+    transport.dispose();
   });
 
   it("uses one socket for independent source/mode subscriptions", () => {
@@ -188,6 +209,38 @@ describe("multiplexed stream transport", () => {
       }),
     );
     transport.dispose();
+  });
+
+  it("accepts a new stream revision after reconnect and ignores old decryptions", async () => {
+    jest.useFakeTimers();
+    const sockets: any[] = [];
+    const events: any[] = [];
+    let finishOld!: (bytes: Uint8Array) => void;
+    (decryptPayloadBytes as jest.Mock)
+      .mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockResolvedValue(Uint8Array.from([3, 4]));
+    const transport = createMultiplexedStreamTransport({
+      url: "ws://localhost/ws", aesKey: {} as CryptoKey, reconnectDelayMs: 10,
+      webSocketFactory: () => {
+        const socket = { readyState: WebSocket.OPEN, send: jest.fn(), close: jest.fn() };
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+    });
+    transport.transportFactory({ sourceId: "source-a", mode: "rx" }, event => events.push(event));
+    const receive = (socket: any, message: any) => socket.onmessage({ data: JSON.stringify({ sourceId: "source-a", mode: "rx", ...message }) });
+    receive(sockets[0], { type: "stream_subscribed", streamEpoch: 1, optionsRevision: 5, deliveryPolicy: "latest" });
+    receive(sockets[0], { type: "stream_frame", streamEpoch: 1, optionsRevision: 5, sequence: 1, iqData: "old" });
+    sockets[0].onclose();
+    jest.advanceTimersByTime(10);
+    sockets[1].onopen();
+    receive(sockets[1], { type: "stream_subscribed", streamEpoch: 2, optionsRevision: 1, deliveryPolicy: "latest" });
+    receive(sockets[1], { type: "stream_frame", streamEpoch: 2, optionsRevision: 1, sequence: 1, iqData: "new" });
+    finishOld(Uint8Array.from([1, 2]));
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(events.filter(event => event.type === "stream_frame").map(event => event.streamEpoch)).toEqual([2]);
+    transport.dispose();
+    jest.useRealTimers();
   });
 
   it("restores desired subscriptions after reconnect", () => {
