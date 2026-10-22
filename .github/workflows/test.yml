@@ -34,7 +34,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund
 
       - name: Run linting
         run: npm run lint
@@ -63,7 +63,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund
 
       - name: Run all frontend tests
         run: npm test
@@ -91,7 +91,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund
 
       - name: Run script security tests
         run: npm run test:security-scripts
@@ -126,7 +126,7 @@ jobs:
           cache: "npm"
 
       - name: Install Redis ACL provisioning dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y librtlsdr-dev redis-server
@@ -250,7 +250,7 @@ jobs:
         run: cargo install wasm-pack --locked
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund
 
       - name: Run WASM tests
         run: npm run test:wasm
@@ -291,7 +291,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund
 
       - name: Test Redis auth configuration
         timeout-minutes: 1

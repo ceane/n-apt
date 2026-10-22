@@ -1,3 +1,4 @@
+import { captureAdditionalData, verifyStampedIntegrity } from "@n-apt/webusb/iqIntegrity";
 import { describe, it, expect } from "@jest/globals";
 import fs from "fs";
 import path from "path";
@@ -32,7 +33,13 @@ describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () =>
     const headerStr = new TextDecoder().decode(headerBytes).trim();
     const headerJson = JSON.parse(headerStr);
     const binaryLength = headerJson.metadata.sections.binary.length_bytes;
-    const payloadBytes = fileArray.slice(4096, 4096 + binaryLength);
+    const binaryOffset = headerJson.metadata.sections.binary.offset_bytes;
+    const payloadBytes = fileArray.slice(binaryOffset, binaryOffset + binaryLength);
+    const trailerOffset = headerJson.metadata.sections.trailer.offset_bytes;
+    const trailer = JSON.parse(new TextDecoder().decode(fileArray.slice(trailerOffset+24)));
+    await expect(verifyStampedIntegrity(fileArray,trailer.integrity.digest)).resolves.toBe(true);
+    const aad=headerJson.metadata.payload_authentication === "public-sections-v1"
+      ? await captureAdditionalData(fileArray,binaryOffset,binaryLength) : undefined;
 
     expect(headerJson.metadata.encrypted).toBe(true);
 
@@ -55,10 +62,10 @@ describe("Encryption Lifecycle Integration (Rust-Generated Test Vectors)", () =>
         ["decrypt"],
       );
 
-      finalDecrypted = await decryptBinaryPayload(dek as any, payloadBytes);
+      finalDecrypted = await decryptBinaryPayload(dek as any, payloadBytes, aad);
     } else {
       // Legacy format: Decrypt directly with Vault Key
-      finalDecrypted = await decryptBinaryPayload(aesKey, payloadBytes);
+      finalDecrypted = await decryptBinaryPayload(aesKey, payloadBytes, aad);
     }
 
     // 5. Verify decrypted content matches backend original

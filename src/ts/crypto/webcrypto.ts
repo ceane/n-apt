@@ -128,12 +128,13 @@ export async function decryptPayloadBytes(
 export async function decryptBinaryPayload(
   aesKey: CryptoKey,
   encryptedData: Uint8Array,
+  additionalData?: ArrayBuffer,
 ): Promise<Uint8Array> {
   const iv = encryptedData.slice(0, IV_LENGTH);
   const ciphertext = encryptedData.slice(IV_LENGTH);
 
   const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv, additionalData },
     aesKey,
     ciphertext,
   );
