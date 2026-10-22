@@ -562,6 +562,15 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             historyZoom: effectiveHistoryFill === "immutable" ? historyZoom : 1,
             historyPan: effectiveHistoryFill === "immutable" ? historyPan : 0,
             binSubset,
+            onReady: () => liveDrawRef.current?.(renderWaveform, true),
+            onError: () => {
+              const error = getLastError();
+              setRendererError(error);
+              cleanupWebGPUFIFOWaterfall();
+              setGpuDevice(null);
+              setGpuFormat(null);
+              setRendererMode("2d");
+            },
           });
           if (!rendered) {
             setRendererError(getLastError());

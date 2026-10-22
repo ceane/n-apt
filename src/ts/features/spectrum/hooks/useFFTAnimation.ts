@@ -69,7 +69,7 @@ export function useFFTAnimation({
         }
         renderFrameFailedRef.current = true;
       }
-      browserPipelineMetrics.presentationFrame(
+      browserPipelineMetrics.renderLoopCallback(
         now,
         frameRateLimiterRef.current,
       );
