@@ -144,10 +144,41 @@ fn source_stream_options(source: &Value) -> Value {
   })
 }
 
+fn decode_manual_stream_message(
+  message: Message,
+  encryption_key: &[u8; 32],
+) -> Result<Option<Value>, String> {
+  match message {
+    Message::Text(text) => serde_json::from_str(&text)
+      .map(Some)
+      .map_err(|e| e.to_string()),
+    Message::Binary(bytes) => {
+      if bytes.len() < 36 || &bytes[..4] != b"NAPS" {
+        return Err("invalid stream envelope".into());
+      }
+      let offset =
+        8 + u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+      if offset + 28 > bytes.len() {
+        return Err("truncated stream envelope".into());
+      }
+      let mut metadata: Value =
+        serde_json::from_slice(&bytes[8..offset]).map_err(|e| e.to_string())?;
+      let iq = crypto::decrypt_payload_binary_aad(
+        encryption_key,
+        &bytes[offset..],
+        &bytes[..offset],
+      )
+      .map_err(|e| e.to_string())?;
+      metadata["iqByteLength"] = serde_json::json!(iq.len());
+      Ok(Some(metadata))
+    }
+    _ => Ok(None),
+  }
+}
+
 fn validate_manual_rx_frame(
   value: &Value,
   source_id: &str,
-  encryption_key: &[u8; 32],
   last_epoch: &mut Option<u64>,
   last_sequence: &mut Option<u64>,
 ) -> Result<bool, String> {
@@ -195,21 +226,11 @@ fn validate_manual_rx_frame(
   if sample_rate_hz == 0 {
     return Err("frontend RX frame has no sample rate".to_string());
   }
-  let encoded_iq = value["iqData"]
-    .as_str()
-    .ok_or_else(|| "stream frame must contain encrypted IQ data".to_string())?;
-  let encrypted_iq = general_purpose::STANDARD
-    .decode(encoded_iq)
-    .map_err(|error| format!("stream frame IQ data was not base64: {error}"))?;
-  let iq_data = crypto::decrypt_payload_binary(encryption_key, &encrypted_iq)
-    .map_err(|error| {
-    format!("stream frame IQ data did not decrypt: {error}")
-  })?;
-  if iq_data.is_empty() {
-    return Err("frontend RX frame contains no IQ data".to_string());
-  }
-  if iq_data.len() % 2 != 0 {
-    return Err("RTL-SDR IQ data is not interleaved".to_string());
+  let iq_len = value["iqByteLength"]
+    .as_u64()
+    .ok_or_else(|| "missing authenticated IQ payload".to_string())?;
+  if iq_len == 0 || iq_len % 2 != 0 {
+    return Err("invalid interleaved IQ length".into());
   }
   *last_epoch = Some(epoch);
   *last_sequence = Some(sequence);
@@ -855,11 +876,11 @@ async fn source_frontend_startup_and_frame_flow() {
       panic!("frontend WebSocket closed during RTL-SDR flow observation");
     };
     let message = message.expect("frontend WebSocket message must be valid");
-    let Message::Text(text) = message else {
+    let Some(value) = decode_manual_stream_message(message, &encryption_key)
+      .expect("valid authenticated stream message")
+    else {
       continue;
     };
-    let value = serde_json::from_str::<Value>(&text)
-      .expect("frontend WebSocket message must be valid JSON");
 
     if is_control {
       if value["type"] != "source_info" {
@@ -925,7 +946,6 @@ async fn source_frontend_startup_and_frame_flow() {
         validate_manual_rx_frame(
           &value,
           &rtl_source_id,
-          &encryption_key,
           &mut last_epoch,
           &mut last_sequence,
         )
@@ -1038,11 +1058,11 @@ async fn source_frontend_startup_and_frame_flow() {
       };
       let message =
         message.expect("failed-peer isolation message must be valid");
-      let Message::Text(text) = message else {
+      let Some(value) = decode_manual_stream_message(message, &encryption_key)
+        .expect("valid authenticated stream message")
+      else {
         continue;
       };
-      let value = serde_json::from_str::<Value>(&text)
-        .expect("failed-peer isolation message must be valid JSON");
 
       if is_control {
         if value["type"] == "error"
@@ -1065,7 +1085,6 @@ async fn source_frontend_startup_and_frame_flow() {
       if validate_manual_rx_frame(
         &value,
         &rtl_source_id,
-        &encryption_key,
         &mut last_epoch,
         &mut last_sequence,
       )
@@ -1179,11 +1198,11 @@ async fn source_frontend_startup_and_frame_flow() {
       .expect("RTL-SDR stream reconnect must deliver frames")
       .expect("RTL-SDR stream reconnect WebSocket closed")
       .expect("RTL-SDR stream reconnect message must be valid");
-    let Message::Text(text) = message else {
+    let Some(value) = decode_manual_stream_message(message, &encryption_key)
+      .expect("valid authenticated stream message")
+    else {
       continue;
     };
-    let value = serde_json::from_str::<Value>(&text)
-      .expect("reconnected frontend stream message must be valid JSON");
     if value["type"] == "stream_error" {
       stream_errors.push(
         value["message"]
@@ -1196,7 +1215,6 @@ async fn source_frontend_startup_and_frame_flow() {
     if validate_manual_rx_frame(
       &value,
       &rtl_source_id,
-      &encryption_key,
       &mut reconnect_epoch,
       &mut reconnect_sequence,
     )
@@ -1311,11 +1329,11 @@ async fn source_frontend_startup_and_frame_flow() {
         .expect("source hotplug stream must recover")
         .expect("source hotplug stream WebSocket closed")
         .expect("source hotplug stream message must be valid");
-      let Message::Text(text) = message else {
+      let Some(value) = decode_manual_stream_message(message, &encryption_key)
+        .expect("valid authenticated stream message")
+      else {
         continue;
       };
-      let value = serde_json::from_str::<Value>(&text)
-        .expect("source hotplug stream message must be valid JSON");
       if value["type"] == "stream_error" {
         stream_errors.push(
           value["message"]
@@ -1328,7 +1346,6 @@ async fn source_frontend_startup_and_frame_flow() {
       if validate_manual_rx_frame(
         &value,
         &rtl_source_id,
-        &encryption_key,
         &mut hotplug_epoch,
         &mut hotplug_sequence,
       )
