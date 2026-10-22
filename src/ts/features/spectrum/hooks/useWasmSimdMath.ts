@@ -1,6 +1,7 @@
+import { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/fft/iqSpectrum";
+export { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/fft/iqSpectrum";
 import { useCallback, useRef, useEffect, useState } from "react";
 import {
-  computeComplexIqSpectrum,
   normalizeWindowType,
 } from "@n-apt/spectrum/fft/complexSpectrum";
 import { maxInBinRange } from "@n-apt/layout/rendering/maxPool";
@@ -10,6 +11,7 @@ export interface SpectrumMathOptions {
   fftSize: number;
   enableSimd: boolean;
   fallbackToScalar: boolean;
+  enabled?: boolean;
 }
 
 export interface ZoomMathParams {
@@ -141,43 +143,6 @@ export const shouldUseWasmIqPath = ({
     normalizeWindowType(windowType),
   );
 
-export function computeIqToDbSpectrumScalar(
-  input: Uint8Array,
-  options: {
-    fftSize: number;
-    offsetDb: number;
-    windowType?: string;
-  },
-  output?: Float32Array,
-): Float32Array {
-  const { fftSize, offsetDb, windowType } = options;
-  const { real, imag, fftLen, normSq } = computeComplexIqSpectrum(
-    input,
-    fftSize,
-    windowType,
-  );
-  const result =
-    output && output.length === fftLen ? output : new Float32Array(fftLen);
-  const half = fftLen / 2;
-  for (let i = 0; i < half; i++) {
-    const sourceIndex = i + half;
-    const magSq =
-      (real[sourceIndex] * real[sourceIndex] +
-        imag[sourceIndex] * imag[sourceIndex]) /
-      normSq;
-    result[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
-  }
-  for (let i = half; i < fftLen; i++) {
-    const sourceIndex = i - half;
-    const magSq =
-      (real[sourceIndex] * real[sourceIndex] +
-        imag[sourceIndex] * imag[sourceIndex]) /
-      normSq;
-    result[i] = 10 * Math.log10(magSq + 1e-15) + offsetDb;
-  }
-
-  return result;
-}
 
 const writeSpectrumOutput = (source: Float32Array, output?: Float32Array) => {
   if (output && output.length === source.length) {
@@ -190,7 +155,7 @@ const writeSpectrumOutput = (source: Float32Array, output?: Float32Array) => {
 export function useSpectrumMath(
   options: SpectrumMathOptions,
 ): WasmSimdMathHandle {
-  const { fftSize, enableSimd, fallbackToScalar } = options;
+  const { fftSize, enableSimd, fallbackToScalar, enabled = true } = options;
 
   const isMountedRef = useRef(true);
 
@@ -205,6 +170,7 @@ export function useSpectrumMath(
   // Initialize WASM SIMD module
   useEffect(() => {
     isMountedRef.current = true;
+    if (!enabled) return;
     const initWasm = async () => {
       try {
         const wasmModule = await import("n_apt_canvas");
@@ -242,7 +208,7 @@ export function useSpectrumMath(
     return () => {
       isMountedRef.current = false;
     };
-  }, [enableSimd, fallbackToScalar]);
+  }, [enableSimd, fallbackToScalar, enabled]);
 
   // WASM SIMD operations
   const resampleSpectrum = useCallback(

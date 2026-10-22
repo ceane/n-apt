@@ -1038,7 +1038,16 @@ impl SdrProcessor {
     &mut self,
     force_noise: bool,
   ) -> Result<Vec<f32>> {
-    self.read_and_process_frame_with_noise_and_iq_size(force_noise, None)
+    self.read_and_process_frame_with_noise_and_iq_size(force_noise, None, true)
+  }
+
+  /// Acquire display IQ without computing a spectrum the browser will replace.
+  /// Capture still computes and retains its own spectrum and metadata.
+  pub fn read_iq_frame_with_noise(
+    &mut self,
+    force_noise: bool,
+  ) -> Result<Vec<f32>> {
+    self.read_and_process_frame_with_noise_and_iq_size(force_noise, None, false)
   }
 
   /// Read and process one live frame, optionally reading a larger raw IQ block
@@ -1048,6 +1057,7 @@ impl SdrProcessor {
     &mut self,
     force_noise: bool,
     requested_iq_samples: Option<usize>,
+    compute_spectrum: bool,
   ) -> Result<Vec<f32>> {
     // A detached device has no samples to give. This must precede the noise
     // fallbacks below: those return synthesized frames, which would splatter
@@ -1162,6 +1172,17 @@ impl SdrProcessor {
       data: samples.data,
       sample_rate,
     };
+
+    if !compute_spectrum && !self.capture_active {
+      let previous = std::mem::replace(
+        &mut self.frame.last_frame_raw_iq,
+        display_samples.data,
+      );
+      self.device.recycle_read_buffer(previous);
+      self.frame.last_stable_center_frequency = self.get_center_frequency();
+      self.frame.published_held_spectrum = false;
+      return Ok(Vec::new());
+    }
 
     // Process the samples through FFT, keeping the hot live path allocation-free.
     self.fft_processor.process_samples_power(
@@ -1309,7 +1330,10 @@ impl SdrProcessor {
       self.frame.published_held_spectrum = true;
       return held;
     }
-    self.frame.published_held_spectrum = false;
+    // IQ-only acquisition deliberately has no CPU spectrum to cache. Its last
+    // IQ block still owns the old tune axis during a reader gap.
+    self.frame.published_held_spectrum =
+      !self.frame.last_frame_raw_iq.is_empty();
     vec![-120.0; fft_size]
   }
 
@@ -1427,7 +1451,9 @@ impl SdrProcessor {
     // FFT window
     if let Some(ref window_name) = fft_window {
       let window_type = match window_name.to_lowercase().as_str() {
-        "rectangular" | "none" => crate::signal_port::fft::WindowType::Rectangular,
+        "rectangular" | "none" => {
+          crate::signal_port::fft::WindowType::Rectangular
+        }
         "hanning" | "hann" => crate::signal_port::fft::WindowType::Hanning,
         "hamming" => crate::signal_port::fft::WindowType::Hamming,
         "blackman" => crate::signal_port::fft::WindowType::Blackman,
@@ -2282,15 +2308,13 @@ impl SdrProcessor {
       })),
     })
   }
-
-
 }
 
 #[cfg(test)]
 mod hackrf_settings_tests {
   use super::*;
-  use crate::signal_port::fft::types::RawSamples;
   use crate::server::types::SdrProcessorSettings;
+  use crate::signal_port::fft::types::RawSamples;
   use std::sync::{Arc, Mutex};
 
   #[test]
@@ -2324,6 +2348,31 @@ mod hackrf_settings_tests {
     assert_eq!(patch["frame_rate_hz"], 10);
     assert_eq!(patch.len(), 7);
     assert!(changed_capture_options_patch(&after, &after).is_empty());
+  }
+
+  #[test]
+  fn iq_only_acquisition_skips_spectrum_work() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    processor.frame.spectrum_buffer.fill(42.0);
+    processor.read_iq_frame_with_noise(false).expect("IQ frame");
+    assert!(!processor.frame.last_frame_raw_iq.is_empty());
+    assert!(processor
+      .frame
+      .spectrum_buffer
+      .iter()
+      .all(|value| *value == 42.0));
+    assert!(processor.frame.avg_spectrum.is_none());
+    let original_center = processor.displayed_center_frequency();
+    processor.frame.retune_cooldown_until =
+      Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
+    processor
+      .read_iq_frame_with_noise(false)
+      .expect("held IQ frame");
+    assert!(processor.frame.published_held_spectrum);
+    assert_eq!(processor.displayed_center_frequency(), original_center);
+    processor.frame.retune_cooldown_until = None;
+    processor.read_and_process_frame().expect("spectrum frame");
+    assert!(processor.frame.avg_spectrum.is_some());
   }
 
   #[test]
@@ -2377,7 +2426,10 @@ mod hackrf_settings_tests {
       .expect("start capture");
     processor.capture_source_id = Some("mock-apt".into());
     processor.reset_capture_options_baseline();
-    processor.read_and_process_frame().expect("initial frame");
+    processor
+      .read_iq_frame_with_noise(false)
+      .expect("initial frame");
+    assert!(!processor.capture_channels[0].spectrum_data.is_empty());
     let first_frame_bytes = processor.capture_channels[0].iq_data.len();
 
     processor
@@ -2391,7 +2443,9 @@ mod hackrf_settings_tests {
         ..Default::default()
       })
       .expect("apply dynamic settings");
-    processor.read_and_process_frame().expect("frame after settings");
+    processor
+      .read_iq_frame_with_noise(false)
+      .expect("frame after settings");
 
     let update = processor
       .capture_frame_updates
@@ -2485,7 +2539,10 @@ mod hackrf_settings_tests {
     let frame_marker = processor
       .capture_frame_updates
       .iter()
-      .find(|update| update.kind.as_deref() == Some("Frame") && update.sample_offset == interrupted_at)
+      .find(|update| {
+        update.kind.as_deref() == Some("Frame")
+          && update.sample_offset == interrupted_at
+      })
       .expect("per-frame timestamp marker");
     assert_eq!(frame_marker.sample_offset, interrupted_at);
     assert_eq!(frame_marker.timestamp_us, interruption.timestamp_us);

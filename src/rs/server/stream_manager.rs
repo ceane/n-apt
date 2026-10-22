@@ -638,10 +638,10 @@ impl StreamingSourceModeManager {
       return false;
     };
     !entry.subscribers.is_empty()
-      && entry
-        .subscribers
-        .values()
-        .all(|subscriber| subscriber.paused.load(Ordering::Acquire))
+      && entry.subscribers.values().all(|subscriber| {
+        subscriber.paused.load(Ordering::Acquire)
+          && !subscriber.next_frame_requested.load(Ordering::Acquire)
+      })
   }
 
   /// Returns whether the managed stream has at least one subscriber. This is

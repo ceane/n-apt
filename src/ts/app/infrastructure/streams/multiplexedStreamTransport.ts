@@ -1,4 +1,4 @@
-import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
+import { decryptPayloadBytes, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
 import type { IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 import {
   type StreamEvent,
@@ -31,6 +31,7 @@ type StreamConnection = {
   inboundItemInFlight: boolean;
   losslessLagReported: boolean;
   minimumOptionsRevision: number;
+  generation: number;
 };
 
 type MultiplexedStreamTransportOptions = {
@@ -112,10 +113,9 @@ export const makeFrame = async (
   );
   const optionsRevision = nsToFinite(message.optionsRevision ?? 0);
   const timestamp = nsToFinite(message.timestamp ?? 0);
-  const iqData = await decryptPayloadBytes(
-    aesKey,
-    String(message.iqData ?? ""),
-  );
+  const iqData = message.iqCiphertext instanceof Uint8Array
+    ? await decryptBinaryPayload(aesKey, message.iqCiphertext, message.iqAdditionalData as ArrayBuffer)
+    : await decryptPayloadBytes(aesKey, String(message.iqData ?? ""));
   const centerFrequencyHz =
     typeof message.centerFrequencyHz === "number" &&
     Number.isFinite(message.centerFrequencyHz)
@@ -203,14 +203,16 @@ const drainInbound = (
     return;
   }
   connection.inboundItemInFlight = true;
+  const generation = connection.generation;
 
   void makeFrame(nextItem.message, aesKey)
     .then((frame) => {
-      if (frame.optionsRevision >= connection.minimumOptionsRevision) {
+      if (generation === connection.generation && frame.optionsRevision >= connection.minimumOptionsRevision) {
         connection.onEvent(frame);
       }
     })
     .catch(() => {
+      if (generation !== connection.generation) return;
       connection.onEvent({
         type: "stream_error",
         sourceId: connection.key.sourceId,
@@ -222,6 +224,7 @@ const drainInbound = (
       });
     })
     .finally(() => {
+      if (generation !== connection.generation) return;
       connection.inboundItemInFlight = false;
       const queuedLosslessFrames = connection.inboundQueue.filter(
         (item) =>
@@ -357,6 +360,7 @@ export const createMultiplexedStreamTransport = ({
     if (disposed || socket || connections.size === 0) return;
     const nextSocket = webSocketFactory(streamUrl(url));
     socket = nextSocket;
+    nextSocket.binaryType = "arraybuffer";
     nextSocket.onopen = () => {
       if (socket !== nextSocket) return;
       // Put the subscribe commands on the wire before notifying consumers.
@@ -380,10 +384,22 @@ export const createMultiplexedStreamTransport = ({
       }
     };
     nextSocket.onmessage = (event) => {
-      if (socket !== nextSocket || typeof event.data !== "string") return;
+      if (socket !== nextSocket) return;
       let message: Record<string, unknown>;
       try {
-        message = JSON.parse(event.data) as Record<string, unknown>;
+        if (event.data instanceof ArrayBuffer) {
+          const bytes = new Uint8Array(event.data);
+          if (bytes.length < 36 || bytes[0] !== 78 || bytes[1] !== 65 || bytes[2] !== 80 || bytes[3] !== 83) return;
+          const metadataLength = new DataView(event.data).getUint32(4, true);
+          const payloadOffset = 8 + metadataLength;
+          if (metadataLength > 16_384 || payloadOffset + 28 > bytes.length) return;
+          message = JSON.parse(new TextDecoder().decode(bytes.subarray(8, payloadOffset))) as Record<string, unknown>;
+          if (message.type !== "stream_frame") return;
+          message.iqCiphertext = bytes.subarray(payloadOffset);
+          message.iqAdditionalData = event.data.slice(0, payloadOffset);
+        } else if (typeof event.data === "string") {
+          message = JSON.parse(event.data) as Record<string, unknown>;
+        } else return;
       } catch {
         return;
       }
@@ -456,6 +472,11 @@ export const createMultiplexedStreamTransport = ({
       if (socket !== nextSocket) return;
       socket = null;
       for (const connection of connections.values()) {
+        connection.generation++;
+        connection.minimumOptionsRevision = 1;
+        connection.inboundQueue = [];
+        connection.inboundItemInFlight = false;
+        connection.losslessLagReported = false;
         connection.onEvent({
           type: "stream_state",
           sourceId: connection.key.sourceId,
@@ -485,6 +506,7 @@ export const createMultiplexedStreamTransport = ({
       inboundItemInFlight: false,
       losslessLagReported: false,
       minimumOptionsRevision: 1,
+      generation: 0,
     };
     connections.set(keyFor(key), entry);
     connect();
@@ -506,6 +528,8 @@ export const createMultiplexedStreamTransport = ({
         send(message);
       },
       close() {
+        entry.generation++;
+        entry.inboundQueue = [];
         connections.delete(keyFor(key));
         if (connections.size === 0 && reconnectTimer !== null) {
           clearTimeout(reconnectTimer);
@@ -522,6 +546,7 @@ export const createMultiplexedStreamTransport = ({
       disposed = true;
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       reconnectTimer = null;
+      for (const connection of connections.values()) connection.generation++;
       connections.clear();
       socket?.close();
       socket = null;

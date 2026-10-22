@@ -7,7 +7,7 @@ use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use serde_json;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -46,9 +46,9 @@ const MOCK_TX_SOURCE_ID: &str = "mock-tx";
 const MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ: u32 = 3_200_000;
 const WS_MAX_MESSAGE_BYTES: usize = 64 * 1024;
 // A maximum-size RX frame is 262,144 complex samples = 524,288 interleaved
-// I/Q bytes. The multiplexed stream envelope encrypts and base64-encodes that
-// payload, producing roughly 700 KiB of JSON. Keep control messages bounded,
-// but size the WebSocket frame/write limits for the documented FFT ceiling.
+// I/Q bytes. The NAPS envelope adds only small authenticated JSON metadata
+// and an AES-GCM nonce/tag to the encrypted payload. Keep incoming control messages bounded,
+// but size outgoing frame/write limits for the documented FFT ceiling.
 const WS_MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
 const WS_MAX_WRITE_BUFFER_BYTES: usize = 2 * 1024 * 1024;
 
@@ -58,8 +58,10 @@ fn harden_websocket(ws: WebSocketUpgrade) -> WebSocketUpgrade {
     .max_write_buffer_size(WS_MAX_WRITE_BUFFER_BYTES)
 }
 
-/// Cache kind for `ENCODED_FRAME_CACHE` entries: 1..=4 are v2 binary wire
-/// payloads by `IqFrameStatus`, and 5 is base64 ciphertext for managed JSON.
+/// Cache kind for `ENCODED_FRAME_CACHE` entries.
+///
+/// 0 = v1 binary wire payload, 1..=4 = v2 binary wire payload by
+/// `IqFrameStatus`, 5 = base64/JSON ciphertext, and 6/7 = NAPS RX/TX envelopes.
 type EncodedFrameCacheKey = (u8, String, u64, u64, u64);
 
 /// Every subscriber of the same frame shares one encryption result.
@@ -951,6 +953,39 @@ pub fn stream_event_json(
   }
 }
 
+/// NAPS envelope: magic, little-endian metadata length, UTF-8 JSON metadata,
+/// then nonce/ciphertext/tag. The complete header is authenticated as AES-GCM AAD.
+pub fn stream_event_message(
+  event: &StreamEvent,
+  enc_key: &[u8; 32],
+) -> Result<Message, String> {
+  let StreamEvent::Frame(frame) = event else {
+    return stream_event_json(event, enc_key)
+      .map(|value| Message::Text(value.to_string().into()));
+  };
+  let kind = if frame.key.mode == StreamMode::Rx {
+    6
+  } else {
+    7
+  };
+  cached_encoded_frame((kind, frame.key.source_id.clone(), frame.stream_epoch, frame.sequence, frame.timestamp as u64), || {
+    let metadata = serde_json::to_vec(&serde_json::json!({
+      "type": "stream_frame", "sourceId": frame.key.source_id, "mode": frame.key.mode,
+      "streamEpoch": frame.stream_epoch, "optionsRevision": frame.options_revision,
+      "sequence": frame.sequence, "timestamp": frame.timestamp,
+      "centerFrequencyHz": frame.center_frequency_hz, "sampleRateHz": frame.sample_rate_hz,
+      "dataType": "iq_raw", "isTxPreview": frame.is_tx_preview, "encrypted": true,
+    })).map_err(|_| ())?;
+    let mut payload = Vec::with_capacity(8 + metadata.len() + frame.iq_data.len() + 28);
+    payload.extend_from_slice(b"NAPS");
+    payload.extend_from_slice(&(metadata.len() as u32).to_le_bytes());
+    payload.extend_from_slice(&metadata);
+    let ciphertext = crate::crypto::encrypt_payload_binary_aad(enc_key, &frame.iq_data, &payload).map_err(|_| ())?;
+    payload.extend_from_slice(&ciphertext);
+    Ok(payload)
+  }).map(Message::Binary).map_err(|_| "I/Q data encryption failed".to_string())
+}
+
 fn stream_error_json(
   subscription_id: &str,
   stream: &StreamKey,
@@ -1065,7 +1100,7 @@ async fn handle_stream_connection(
   // share a bounded queue with the writer; stream events remain on their
   // existing bounded channel.
   let (sender, outbound_rx) = mpsc::channel::<Message>(32);
-  let (event_tx, event_rx) = mpsc::channel::<StreamEvent>(32);
+  let (event_tx, event_rx) = mpsc::channel::<QueuedStreamEvent>(32);
   let mut subscriptions: HashMap<String, (StreamKey, u64, JoinHandle<()>)> =
     HashMap::new();
   shared.client_count.fetch_add(1, Ordering::Relaxed);
@@ -1282,7 +1317,7 @@ async fn handle_stream_connection(
               loop {
                 match subscription.recv().await {
                   Ok(event) => {
-                    if event_tx_for_task.send(event).await.is_err() { break; }
+                    if event_tx_for_task.send(QueuedStreamEvent { event, delivery_policy: subscription.delivery_policy() }).await.is_err() { break; }
                   }
                   Err(broadcast::error::RecvError::Lagged(count)) => {
                     if event_tx_for_task.send(StreamEvent::Error {
@@ -1291,7 +1326,7 @@ async fn handle_stream_connection(
                       options_revision: 0,
                       code: "lagged".to_string(),
                       message: format!("subscriber lagged by {count} frames"),
-                    }).await.is_err() { break; }
+                    }.into()).await.is_err() { break; }
                   }
                   Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -1620,10 +1655,52 @@ async fn cleanup_stream_subscriptions(
   }
 }
 
+struct QueuedStreamEvent {
+  event: StreamEvent,
+  delivery_policy: StreamDeliveryPolicy,
+}
+
+impl From<StreamEvent> for QueuedStreamEvent {
+  fn from(event: StreamEvent) -> Self {
+    Self {
+      event,
+      delivery_policy: StreamDeliveryPolicy::Latest,
+    }
+  }
+}
+
+// Coalesce only within a control-event boundary. Lossless subscriptions keep
+// every frame, including when they share the socket with latest-only viewers.
+fn queue_writer_event(
+  queue: &mut VecDeque<QueuedStreamEvent>,
+  next: QueuedStreamEvent,
+) {
+  if next.delivery_policy == StreamDeliveryPolicy::Latest {
+    if let StreamEvent::Frame(frame) = &next.event {
+      for queued in queue.iter_mut().rev() {
+        match &queued.event {
+          StreamEvent::Frame(previous) => {
+            if queued.delivery_policy == StreamDeliveryPolicy::Latest
+              && previous.key == frame.key
+              && previous.stream_epoch == frame.stream_epoch
+              && previous.options_revision == frame.options_revision
+            {
+              *queued = next;
+              return;
+            }
+          }
+          _ => break,
+        }
+      }
+    }
+  }
+  queue.push_back(next);
+}
+
 async fn run_stream_writer<S, F>(
   mut socket_sender: S,
   mut outbound_rx: mpsc::Receiver<Message>,
-  mut event_rx: mpsc::Receiver<StreamEvent>,
+  mut event_rx: mpsc::Receiver<QueuedStreamEvent>,
   enc_key: [u8; 32],
   invalid_session: F,
 ) where
@@ -1632,6 +1709,7 @@ async fn run_stream_writer<S, F>(
 {
   let mut outbound_open = true;
   let mut events_open = true;
+  let mut pending = VecDeque::new();
   tokio::pin!(invalid_session);
   loop {
     if !outbound_open && !events_open {
@@ -1656,17 +1734,28 @@ async fn run_stream_writer<S, F>(
           &mut invalid_session,
         ).await { break; }
       }
-      event = event_rx.recv(), if events_open => {
+      event = async {
+        if let Some(event) = pending.pop_front() { Some(event) } else { event_rx.recv().await }
+      }, if events_open => {
         let Some(event) = event else {
           events_open = false;
           continue;
         };
-        let Ok(payload) = stream_event_json(&event, &enc_key) else {
+        pending.push_front(event);
+        // A bounded drain also prevents a busy producer starving control writes.
+        for _ in 0..32usize.saturating_sub(pending.len()) {
+          match event_rx.try_recv() {
+            Ok(next) => queue_writer_event(&mut pending, next),
+            Err(_) => break,
+          }
+        }
+        let event = pending.pop_front().expect("queued event");
+        let Ok(payload) = stream_event_message(&event.event, &enc_key) else {
           continue;
         };
         if !send_writer_message_or_invalidation(
           &mut socket_sender,
-          Message::Text(payload.to_string().into()),
+          payload,
           &mut invalid_session,
         ).await {
           break;
@@ -3033,13 +3122,16 @@ mod tests {
     let event_producer = tokio::spawn(async move {
       for sequence in 0..256 {
         if event_tx
-          .send(StreamEvent::Error {
-            key: key.clone(),
-            stream_epoch: 1,
-            options_revision: 1,
-            code: "queued".to_string(),
-            message: sequence.to_string(),
-          })
+          .send(
+            StreamEvent::Error {
+              key: key.clone(),
+              stream_epoch: 1,
+              options_revision: 1,
+              code: "queued".to_string(),
+              message: sequence.to_string(),
+            }
+            .into(),
+          )
           .await
           .is_err()
         {
@@ -3104,6 +3196,99 @@ mod tests {
     );
   }
 
+  #[test]
+  fn writer_keeps_lossless_frames_and_control_boundaries() {
+    let key = StreamKey::new("writer-policy-test", StreamMode::Rx);
+    let make = |sequence, delivery_policy| super::QueuedStreamEvent {
+      event: StreamEvent::Frame(StreamFrame {
+        key: key.clone(),
+        stream_epoch: 1,
+        options_revision: 1,
+        sequence,
+        timestamp: sequence as i64,
+        center_frequency_hz: Some(100),
+        sample_rate_hz: 3_200_000,
+        iq_data: Arc::new(vec![128, 128]),
+        is_tx_preview: false,
+      }),
+      delivery_policy,
+    };
+    let mut queue = std::collections::VecDeque::new();
+    super::queue_writer_event(
+      &mut queue,
+      make(1, super::StreamDeliveryPolicy::Lossless),
+    );
+    super::queue_writer_event(
+      &mut queue,
+      make(2, super::StreamDeliveryPolicy::Lossless),
+    );
+    super::queue_writer_event(
+      &mut queue,
+      make(3, super::StreamDeliveryPolicy::Latest),
+    );
+    super::queue_writer_event(
+      &mut queue,
+      StreamEvent::Error {
+        key: key.clone(),
+        stream_epoch: 1,
+        options_revision: 1,
+        code: "barrier".into(),
+        message: "barrier".into(),
+      }
+      .into(),
+    );
+    super::queue_writer_event(
+      &mut queue,
+      make(4, super::StreamDeliveryPolicy::Latest),
+    );
+    assert_eq!(queue.len(), 5);
+  }
+
+  #[test]
+  fn binary_stream_frame_authenticates_header_and_iq() {
+    let event = StreamEvent::Frame(StreamFrame {
+      key: StreamKey::new("binary-roundtrip", StreamMode::Rx),
+      stream_epoch: 101,
+      options_revision: 3,
+      sequence: 9,
+      timestamp: 456,
+      center_frequency_hz: Some(100),
+      sample_rate_hz: 3_200_000,
+      iq_data: Arc::new(vec![128, 129, 130, 131]),
+      is_tx_preview: false,
+    });
+    let key = [17; 32];
+    let axum::extract::ws::Message::Binary(bytes) =
+      super::stream_event_message(&event, &key).unwrap()
+    else {
+      panic!("binary frame required")
+    };
+    assert_eq!(&bytes[..4], b"NAPS");
+    let offset =
+      8 + u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+    let metadata: serde_json::Value =
+      serde_json::from_slice(&bytes[8..offset]).unwrap();
+    assert_eq!(metadata["optionsRevision"], 3);
+    assert!(metadata.get("iqData").is_none());
+    assert_eq!(
+      crate::crypto::decrypt_payload_binary_aad(
+        &key,
+        &bytes[offset..],
+        &bytes[..offset]
+      )
+      .unwrap(),
+      vec![128, 129, 130, 131]
+    );
+    let mut changed_header = bytes[..offset].to_vec();
+    changed_header[8] ^= 1;
+    assert!(crate::crypto::decrypt_payload_binary_aad(
+      &key,
+      &bytes[offset..],
+      &changed_header
+    )
+    .is_err());
+  }
+
   #[tokio::test]
   async fn blocked_latest_stream_writer_coalesces_queued_frames() {
     let (outbound_tx, outbound_rx) = tokio::sync::mpsc::channel(32);
@@ -3126,13 +3311,16 @@ mod tests {
     ));
 
     event_tx
-      .send(StreamEvent::Error {
-        key: key.clone(),
-        stream_epoch: 1,
-        options_revision: 1,
-        code: "test_barrier".to_string(),
-        message: "hold the socket writer".to_string(),
-      })
+      .send(
+        StreamEvent::Error {
+          key: key.clone(),
+          stream_epoch: 1,
+          options_revision: 1,
+          code: "test_barrier".to_string(),
+          message: "hold the socket writer".to_string(),
+        }
+        .into(),
+      )
       .await
       .expect("writer should accept the barrier event");
     tokio::time::timeout(Duration::from_secs(1), started_rx)
@@ -3142,17 +3330,20 @@ mod tests {
 
     for sequence in 1..=8 {
       event_tx
-        .send(StreamEvent::Frame(StreamFrame {
-          key: key.clone(),
-          stream_epoch: 1,
-          options_revision: 1,
-          sequence,
-          timestamp: sequence as i64,
-          center_frequency_hz: Some(137_500_000),
-          sample_rate_hz: 3_200_000,
-          iq_data: Arc::new(vec![0; 16]),
-          is_tx_preview: false,
-        }))
+        .send(
+          StreamEvent::Frame(StreamFrame {
+            key: key.clone(),
+            stream_epoch: 1,
+            options_revision: 1,
+            sequence,
+            timestamp: sequence as i64,
+            center_frequency_hz: Some(137_500_000),
+            sample_rate_hz: 3_200_000,
+            iq_data: Arc::new(vec![0; 16]),
+            is_tx_preview: false,
+          })
+          .into(),
+        )
         .await
         .expect("queued frame should fit while the writer is blocked");
     }
@@ -3177,11 +3368,16 @@ mod tests {
       .messages
       .iter()
       .filter_map(|message| {
-        let axum::extract::ws::Message::Text(text) = message else {
-          return None;
+        let payload: serde_json::Value = match message {
+          axum::extract::ws::Message::Binary(bytes) => {
+            let len = u32::from_le_bytes(bytes[4..8].try_into().ok()?) as usize;
+            serde_json::from_slice(&bytes[8..8 + len]).ok()?
+          }
+          axum::extract::ws::Message::Text(text) => {
+            serde_json::from_str(text.as_str()).ok()?
+          }
+          _ => return None,
         };
-        let payload: serde_json::Value =
-          serde_json::from_str(text.as_str()).ok()?;
         (payload["type"] == "stream_frame").then_some(payload)
       })
       .collect();
@@ -3216,13 +3412,16 @@ mod tests {
       .try_send(axum::extract::ws::Message::Text("after failure".into()))
       .is_err());
     assert!(event_tx
-      .try_send(StreamEvent::Error {
-        key: StreamKey::new("mock-apt", StreamMode::Rx),
-        stream_epoch: 1,
-        options_revision: 1,
-        code: "after_failure".to_string(),
-        message: "writer should release the event receiver".to_string(),
-      })
+      .try_send(
+        StreamEvent::Error {
+          key: StreamKey::new("mock-apt", StreamMode::Rx),
+          stream_epoch: 1,
+          options_revision: 1,
+          code: "after_failure".to_string(),
+          message: "writer should release the event receiver".to_string(),
+        }
+        .into()
+      )
       .is_err());
   }
 

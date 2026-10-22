@@ -37,6 +37,7 @@ import {
   type CanvasTxSliderState,
 } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import { useWebGPULifecycle } from "@n-apt/spectrum/hooks/useWebGPUInit";
+import { useSpectrumWorker } from "@n-apt/spectrum/hooks/useSpectrumWorker";
 import { useSpectrumMath } from "@n-apt/spectrum/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { VISUALIZER_MAX_ZOOM } from "@n-apt/consts/visualizerControls";
@@ -3922,11 +3923,15 @@ const FFTCanvas = memo(
       txSliderLocked: isTxSliderLocked,
     });
 
+    const { readSpectrum: readWorkerSpectrum, fallbackRequired } = useSpectrumWorker();
+
+    // Synchronous fallback for environments where workers are unavailable.
     // Initialize WASM SIMD for optimized data processing
     const { processIqToDbmSpectrum } = useSpectrumMath({
       fftSize: 4096,
       enableSimd: true,
       fallbackToScalar: true,
+      enabled: fallbackRequired,
     });
 
     // Use the unified spectrum renderer (WebGPU + Canvas2D fallback)
@@ -4095,6 +4100,20 @@ const FFTCanvas = memo(
           pauseSnapshotEnabled,
           cachedFrame: lastRenderableFrameRef.current,
         });
+        let workerSpectrum: Float32Array | undefined;
+        let workerPending = false;
+        if (currentFrame?.iq_data && currentFrame.iq_data.length >= 2) {
+          const completed = readWorkerSpectrum(currentFrame, {
+            fftSize: frontendFftSize, offsetDb: effectiveDbmOffsetDb, windowType: fftWindow,
+          });
+          // Keep the existing presentation while the worker produces the next
+          // frame. Its result retains the exact source, tune axis and sequence.
+          workerPending = completed === null;
+          if (completed) {
+            currentFrame = completed.frame;
+            workerSpectrum = completed.spectrum;
+          }
+        }
         const isTxPreviewFrame =
           (currentFrame as any)?.frame_status === "standby" ||
           (currentFrame as any)?.is_tx_preview === true ||
@@ -4298,6 +4317,7 @@ const FFTCanvas = memo(
         }
 
         blockingPlaceholderClearKindRef.current = 0;
+        if (workerPending) return;
 
         clearOverlayCanvas(waterfallOverlayCanvas);
         if (shouldPatternNonHardwareSource && waterfallOverlayCanvas) {
@@ -4422,7 +4442,7 @@ const FFTCanvas = memo(
           let waveform: Float32Array;
 
           const nativeIqWindow = newestIqWindow(iqBytes, frontendFftSize);
-          const rawSpectrum = resolveSpectrumWaveform({
+          const rawSpectrum = workerSpectrum ?? resolveSpectrumWaveform({
             source: { iq_data: nativeIqWindow },
             processIq: (iqData) =>
               processIqToDbmSpectrum(
@@ -4770,7 +4790,7 @@ const FFTCanvas = memo(
 
           if (currentFrame.iq_data) {
             // Paused: ingest once to avoid blank frames (file mode or first paused frame)
-            processedWaveform = resolveSpectrumWaveform({
+            processedWaveform = workerSpectrum ?? resolveSpectrumWaveform({
               source: currentFrame,
               processIq: (iqData) =>
                 processIqToDbmSpectrum(
@@ -4787,7 +4807,7 @@ const FFTCanvas = memo(
             previousFftWindowRef.current = fftWindow ?? "Rectangular";
           } else {
             // Handle pre-processed FFT data (playback mode)
-            processedWaveform = resolveSpectrumWaveform({
+            processedWaveform = workerSpectrum ?? resolveSpectrumWaveform({
               source: currentFrame,
             });
           }
@@ -5753,6 +5773,9 @@ const FFTCanvas = memo(
       },
       [
         drawSpectrum,
+        readWorkerSpectrum,
+        processIqToDbmSpectrum,
+        effectiveDbmOffsetDb,
         drawWebGPUFIFOWaterfall,
         waterfallHistoryFill,
         isPaused,
