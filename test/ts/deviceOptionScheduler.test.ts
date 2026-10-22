@@ -1,4 +1,5 @@
 import { createDeviceOptionScheduler } from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
+import { mergeManagedRxOptions } from "@n-apt/redux/middleware/websocketMiddleware";
 
 describe("device option scheduler", () => {
   beforeEach(() => {
@@ -7,6 +8,28 @@ describe("device option scheduler", () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it("keeps the queued sample rate when center updates arrive during an outstanding retune", async () => {
+    const accepted = { mode: "rx" as const, sampleRateHz: 4_372_000, centerFrequencyHz: 2_204_000, fftSize: 2048 };
+    const releases: Array<() => void> = [];
+    const publish = jest.fn((_options: typeof accepted) => new Promise<void>((resolve) => releases.push(resolve)));
+    const scheduler = createDeviceOptionScheduler({ publish });
+    scheduler.submit({ ...accepted, centerFrequencyHz: 13_875_000 }, "gesture");
+    scheduler.submit({ ...accepted, sampleRateHz: 18_250_000, centerFrequencyHz: 13_875_000 }, "immediate");
+    scheduler.submit(mergeManagedRxOptions(
+      accepted,
+      { centerFrequencyHz: 13_875_000 },
+      scheduler.getPendingValue(),
+    ), "gesture");
+    releases[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(publish).toHaveBeenLastCalledWith({ ...accepted, sampleRateHz: 18_250_000, centerFrequencyHz: 13_875_000 });
+    expect(scheduler.getPendingValue()).toBeUndefined();
+    releases[1]();
+    await Promise.resolve();
+    scheduler.dispose();
   });
 
   it("publishes the leading gesture value and coalesces intermediate values", () => {

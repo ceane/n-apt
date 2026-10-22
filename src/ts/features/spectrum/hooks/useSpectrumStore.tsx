@@ -135,7 +135,7 @@ import {
   shouldSkipSelectedSourcePersistence,
 } from "@n-apt/spectrum/utils/sourcePersistence";
 import {
-  clampRtlSdrFrequencyRangeToHardwareWindow,
+  clampFrequencyRangeToHardwareWindow,
   isHackrfDevice,
   isRtlSdrDevice,
   resolveSourceSampleRateHz,
@@ -1988,7 +1988,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
 
     const isConnected = useAppSelector((s) => s.websocket.isConnected);
-    const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
+    const mirrorBelowZero = useAppSelector((s) => s.settings.mirrorIqBasebandBelowZero);
+    const hardwareSpectrumBounds = useAppSelector(
+      (s) => s.demod.hardwareRange,
+    );
     const isPaused = useAppSelector((s) => s.websocket.isPaused);
     const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
     const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
@@ -2150,6 +2153,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     }
     const sourceSwitchCoordinator = sourceSwitchCoordinatorRef.current;
     const selectedSourceViewKeyRef = useRef<string | null>(null);
+    const committedViewSourceIdRef = useRef<string | null>(null);
     const previousSelectedSourceIdForViewRef = useRef<string | null>(
       selectedSourceId || null,
     );
@@ -2345,7 +2349,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     ]);
 
     useEffect(() => {
-      if (!selectedSourceId || !selectedSourceViewKey) {
+      if (!selectedSourceId || !selectedSourceViewKey || selectedSource?.id !== selectedSourceId) {
         return;
       }
 
@@ -2366,6 +2370,23 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           previousSourceViewKey === null
             ? resolveInitialSourceHydrationSettings(persistedSourceView)
             : resolveSourceSwitchDisplaySettings(persistedSourceView, {});
+        const previousSourceId = committedViewSourceIdRef.current;
+        const previousSource = websocketSources.find((source) => source.id === previousSourceId);
+        const automaticFallback = previousSourceId !== null &&
+          previousSourceId !== selectedSourceId && selectedSource.kind === "mock_apt" &&
+          (!previousSource || ["disconnected", "stale", "error"].includes(previousSource.status ?? ""));
+        if (automaticFallback && state.frequencyRange) {
+          // A fallback replaces the producer, not the user's coordinate window.
+          // Never hydrate an older Mock pan/zoom over the departing live view.
+          const span = state.frequencyRange.max - state.frequencyRange.min;
+          const center = (state.frequencyRange.min + state.frequencyRange.max) / 2;
+          const allowedPan = (pan: number, zoom: number) =>
+            mirrorBelowZero || center + pan - span / (2 * Math.max(1, zoom)) >= 0 ? pan : 0;
+          restoredState.vizZoom = state.vizZoom;
+          restoredState.vizPanOffset = allowedPan(state.vizPanOffset, state.vizZoom);
+          restoredState.vizZoomFloor = state.vizZoomFloor;
+          restoredState.vizZoomFloorPan = allowedPan(state.vizZoomFloorPan, state.vizZoomFloor);
+        }
         skipNextSourceViewPersistRef.current = selectedSourceViewKey;
         if (Object.keys(restoredState).length > 0) {
           if (restoredState.frequencyRange) {
@@ -2377,6 +2398,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           reduxDispatch(setSdrSettingsBundleAction(restoredState));
         }
         selectedSourceViewKeyRef.current = selectedSourceViewKey;
+        committedViewSourceIdRef.current = selectedSourceId;
       }
 
       if (
@@ -2395,6 +2417,14 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       reduxDispatch,
       selectedSourceId,
       selectedSourceViewKey,
+      selectedSource,
+      websocketSources,
+      mirrorBelowZero,
+      state.frequencyRange,
+      state.vizZoom,
+      state.vizPanOffset,
+      state.vizZoomFloor,
+      state.vizZoomFloorPan,
       state.sourceMode,
     ]);
 
@@ -3890,15 +3920,23 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
         const rangeSpan = range.max - range.min;
         const boundsSpan = bounds.max - bounds.min;
-        const rtlClampedRange = clampRtlSdrFrequencyRangeToHardwareWindow({
-          range,
-          channelBounds: bounds,
-          hardwareSampleRateHz: sampleRateHzEffective,
+        const isRtlSdr = isRtlSdrDevice({
           deviceKind: deviceProfile?.kind,
           backend,
           deviceName,
           isRtlSdr: deviceProfile?.is_rtl_sdr,
         });
+        // RTL-SDR has a fixed hardware window. Other sources can widen their
+        // acquisition for Whole Channel before backend telemetry acknowledges
+        // it. Clamping those requests to the previous frame's rate makes this
+        // effect fight the rate control indefinitely.
+        const rtlClampedRange = isRtlSdr
+          ? clampFrequencyRangeToHardwareWindow({
+              range,
+              channelBounds: bounds,
+              hardwareSampleRateHz: sampleRateHzEffective,
+            })
+          : range;
         if (
           rtlClampedRange.min !== range.min ||
           rtlClampedRange.max !== range.max

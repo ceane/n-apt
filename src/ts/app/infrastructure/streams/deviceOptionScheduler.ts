@@ -2,6 +2,7 @@ export type DeviceOptionPublishMode = "gesture" | "immediate";
 
 export type DeviceOptionScheduler<T> = {
   submit(value: T, mode?: DeviceOptionPublishMode): void;
+  getPendingValue(): T | undefined;
   flush(): void;
   cancel(): void;
   dispose(): void;
@@ -118,6 +119,7 @@ export const createDeviceOptionScheduler = <T>({
   };
 
   return {
+    getPendingValue: () => hasPending ? pending : undefined,
     submit(value: T, mode: DeviceOptionPublishMode = "gesture") {
       if (disposed) return;
 

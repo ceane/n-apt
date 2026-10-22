@@ -42,6 +42,56 @@ const select = (id: string) => {
 };
 
 describe("SpectrumProvider commit boundaries", () => {
+  it.each([
+    [true, 0, 0],
+    [false, 0, 0],
+    [true, -4_408_000, -4_408_000],
+    [false, -4_408_000, 0],
+  ])("preserves fallback positioning with mirror=%s and pan=%s", (mirror, pan, expectedPan) => {
+    const hardware = { ...apt, id: "hackrf-one", stream_key: "hardware-stream", kind: "hackrf_one", status: "connected" };
+    mockState = {
+      ...mockState,
+      settings: { ...mockState.settings, mirrorIqBasebandBelowZero: mirror as boolean },
+      spectrum: { ...mockState.spectrum, frequencyRange: { min: 18_000, max: 4_390_000 }, vizZoom: 1, vizPanOffset: pan as number },
+      sourceSelection: { ...mockState.sourceSelection, selectedSourceId: hardware.id, selectionIntentSourceId: hardware.id },
+      websocket: { ...mockState.websocket, activeSourceId: hardware.id, sources: [hardware, apt] as never },
+    };
+    const tree = () => <MemoryRouter initialEntries={["/settings"]}><SpectrumProvider>{null}</SpectrumProvider></MemoryRouter>;
+    const view = render(tree());
+    localStorage.setItem(aptKey, JSON.stringify({ vizZoom: 2, vizPanOffset: -55_000 }));
+    mockDispatch.mockClear();
+    select(apt.id);
+    mockState = { ...mockState, websocket: { ...mockState.websocket, activeSourceId: apt.id, sources: [apt] as never } };
+    view.rerender(tree());
+    const restoration = mockDispatch.mock.calls.find(([action]) => action.type === "spectrum/setSdrSettingsBundle");
+    expect(restoration?.[0].payload).toMatchObject({ vizZoom: 1, vizPanOffset: expectedPan });
+  });
+
+  it.each(["mock_apt", "hackrf_one"])("does not clamp a new Whole Channel request to stale %s telemetry", (kind) => {
+    const source = {
+      ...apt,
+      kind,
+      capability: kind === "hackrf_one" ? "tx_rx" : "mock",
+      status: "connected",
+      sdr: { ...apt.sdr, max_sample_rate: 20_000_000, settings: { sample_rate: 4_372_000 } },
+    };
+    mockState = {
+      ...mockState,
+      spectrum: { ...mockState.spectrum, activeSignalArea: "A", sampleRateHz: 4_372_000, frequencyRange: { min: 18_000, max: 4_390_000 } },
+      websocket: { ...mockState.websocket, isConnected: true, sources: [source] as never },
+    };
+    const tree = () => <MemoryRouter initialEntries={["/settings"]}><SpectrumProvider>{null}</SpectrumProvider></MemoryRouter>;
+    const view = render(tree());
+    mockDispatch.mockClear();
+    const clickedRange = { min: 24_100_000, max: 30_370_000 };
+    mockState = {
+      ...mockState,
+      spectrum: { ...mockState.spectrum, activeSignalArea: "B", sampleRateHz: 6_270_000, frequencyRange: clickedRange },
+    };
+    view.rerender(tree());
+    expect(mockDispatch.mock.calls.filter(([action]) => action.type === "spectrum/setFrequencyRange")).toEqual([]);
+  });
+
   it("does not persist an abandoned switch or advance its previous source ID", () => {
     const Probe = ({ suspend }: { suspend: boolean }) => {
       useSpectrumStore();
