@@ -176,7 +176,7 @@ const SidebarNavigationLinkCards = memo(styled.div`
   gap: 12px;
   grid-column: 1 / -1;
   width: 100%;
-  margin-top: 180px;
+  margin-top: 24px;
 
   & > article {
     width: 56%;
@@ -483,13 +483,47 @@ const playbackAfterCapture = async (
 
     schedule(() => {
       if (getCancelled()) return;
-      dispatch(triggerStitch());
+      scrollToPlaybackSelectedFile();
     }, 800);
   } catch (e) {
     console.error("Playback after capture failed:", e);
     if (e instanceof Error) {
       setNaptMetadataError(`Playback failed: ${e.message}`);
     }
+  }
+};
+
+export const scrollToPlaybackSelectedFile = (root: ParentNode = document) => {
+  const target = root.querySelector<HTMLElement>("[data-sidebar-selected-file]");
+  if (!target) return;
+
+  let scrollContainer: HTMLElement | Window = window;
+  let parent = target.parentElement;
+  while (parent) {
+    const { overflowY } = window.getComputedStyle(parent);
+    if (
+      /(auto|scroll|overlay)/.test(overflowY) &&
+      parent.scrollHeight > parent.clientHeight
+    ) {
+      scrollContainer = parent;
+      break;
+    }
+    parent = parent.parentElement;
+  }
+
+  const containerTop =
+    scrollContainer === window
+      ? 0
+      : scrollContainer.getBoundingClientRect().top;
+  const stickyHeaderBottom =
+    root
+      .querySelector<HTMLElement>("[data-sidebar-sticky-header]")
+      ?.getBoundingClientRect().bottom ?? containerTop;
+  const visibleTop = Math.max(containerTop, stickyHeaderBottom) + 8;
+  const top = target.getBoundingClientRect().top - visibleTop;
+
+  if (Math.abs(top) > 1) {
+    scrollContainer.scrollBy({ top, behavior: "smooth" });
   }
 };
 
@@ -2168,31 +2202,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const [naptMetadataError, setNaptMetadataError] = useState<string | null>(
     null,
   );
-  const [lastAutoProcessSignature, setLastAutoProcessSignature] = useState<
-    string | null
-  >(null);
-
   useEffect(() => {
     dispatch(setFileMetadata(naptMetadata));
   }, [naptMetadata, dispatch]);
-
-  useEffect(() => {
-    if (sourceMode !== "file") return;
-    if (selectedFiles.length === 0) {
-      setLastAutoProcessSignature(null);
-      return;
-    }
-
-    const signature = selectedFiles
-      .map((file) => `${file.id}:${file.name}`)
-      .sort()
-      .join("|");
-
-    if (!signature || signature === lastAutoProcessSignature) return;
-
-    setLastAutoProcessSignature(signature);
-    dispatch(triggerStitch());
-  }, [sourceMode, selectedFiles, lastAutoProcessSignature, dispatch]);
 
   // Handle Playback after capture
   useEffect(() => {
@@ -2250,9 +2262,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     if (sourceMode !== "file") return "File";
     const status = stitchStatus?.toLowerCase?.() ?? "";
     if (!selectedFiles.length) return "Browse";
-    if (status.includes("processing") || status.includes("loading")) {
-      return "Process [auto]";
-    }
+    if (status.includes("processing") || status.includes("loading")) return "Processing…";
+    if (!status.includes("processed successfully") && !status.includes("stitched successfully")) return "Process";
     if (isStitchPaused) return "Play";
     return "Pause";
   }, [isStitchPaused, selectedFiles.length, sourceMode, stitchStatus]);
@@ -2262,7 +2273,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const status = stitchStatus?.toLowerCase?.() ?? "";
     if (!selectedFiles.length) return "Browse files";
     if (status.includes("processing") || status.includes("loading")) {
-      return "Process selected file automatically";
+      return "Processing selected file";
+    }
+    if (!status.includes("processed successfully") && !status.includes("stitched successfully")) {
+      return "Process or retry the selected file";
     }
     if (isStitchPaused) return "Resume playback";
     return "Pause playback";
@@ -2275,6 +2289,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     if (!selectedFiles.length) return;
     const status = stitchStatus?.toLowerCase?.() ?? "";
     if (status.includes("processing") || status.includes("loading")) {
+      return;
+    }
+    if (!status.includes("processed successfully") && !status.includes("stitched successfully")) {
       dispatch(triggerStitch());
       return;
     }
@@ -3086,16 +3103,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           txPreviewSourceId={txPreviewSourceId}
         />
       </StickyHeaderWrapper>
-
-      <Section role="region" aria-label="N-APT Signal Classifier" data-testid="classifier-sidebar-section">
-        <SectionTitle $fileMode={sourceMode === "file"}>
-          <SectionIcon>
-            <SatelliteDish size={14} />
-          </SectionIcon>
-          <SectionText>N-APT Signal Classifier</SectionText>
-        </SectionTitle>
-        <div id="native-classifier-sidebar-slot" data-testid="native-classifier-sidebar-slot" />
-      </Section>
 
       {sourceMode === "live" ? (
         <>

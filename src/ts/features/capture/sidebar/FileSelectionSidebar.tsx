@@ -9,7 +9,7 @@ const Section = styled.div<{ $marginTop?: string; $marginBottom?: string }>`
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
-  gap: inherit;
+  gap: 8px;
   margin-bottom: ${({ $marginBottom }) => $marginBottom || "0"};
   margin-top: ${({ $marginTop }) => $marginTop || "0"};
   box-sizing: border-box;
@@ -78,8 +78,8 @@ export const FileSelectionSidebar: React.FC<FileSelectionSidebarProps> = ({
   ...rest
 }) => {
   return (
-    <Section>
-      <Section>
+    <Section data-testid="file-selection-layout">
+      <Section data-sidebar-selected-file data-testid="sidebar-selected-file">
         <SelectedFiles
           title={selectedFiles.length > 0 ? "Selected File" : "Selected Files"}
           selectedFiles={selectedFiles}
@@ -95,7 +95,7 @@ export const FileSelectionSidebar: React.FC<FileSelectionSidebarProps> = ({
       </Section>
 
       {showMetadata ? (
-        <Section $marginTop="12px">
+        <Section $marginTop="0" data-testid="sidebar-file-metadata">
           <FileMetadata
             selectedNaptFile={selectedPrimaryFile}
             naptMetadata={naptMetadata}
@@ -107,7 +107,7 @@ export const FileSelectionSidebar: React.FC<FileSelectionSidebarProps> = ({
       ) : null}
 
       {signalDisplayProps ? (
-        <Section $marginTop="12px">
+        <Section $marginTop="8px">
           <SignalDisplaySection sourceMode="file" {...signalDisplayProps} />
         </Section>
       ) : null}

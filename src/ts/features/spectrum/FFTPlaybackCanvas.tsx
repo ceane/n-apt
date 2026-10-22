@@ -27,7 +27,6 @@ import {
   clearActivePlaybackMetadata,
   setActiveSignalArea,
   setSelectedFiles,
-  triggerStitch,
 } from "@n-apt/redux";
 import type { FFTVisualizerMachine } from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
 import { buildPlaybackSeedFrame } from "@n-apt/app/infrastructure/io/playbackSeedFrame";
@@ -39,6 +38,7 @@ import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameR
 import { shouldRestorePausedFrameSnapshot } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
+import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -220,6 +220,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     forwardedRef,
   ) => {
     const dispatch = useAppDispatch();
+    const { fidoVaultKey, handleFidoKeyAuth } = useAuthentication();
+    const [fidoUnlockPending, setFidoUnlockPending] = useState(false);
+    const [fidoUnlockError, setFidoUnlockError] = useState<string | null>(null);
 
     const handleCanvasDrop = useCallback(
       (event: React.DragEvent<HTMLDivElement>) => {
@@ -239,7 +242,6 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               })),
             ),
           );
-          dispatch(triggerStitch());
         }
       },
       [dispatch],
@@ -292,6 +294,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       setActiveChannel,
       setFrequencyRange,
       playIntegrityFailedFile,
+      stitchFiles,
     } = useStitchingLogic({
       selectedFiles,
       stitchTrigger,
@@ -319,6 +322,32 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         }
       },
     });
+
+    const unlockFidoAndRetry = useCallback(async () => {
+      setFidoUnlockError(null);
+      if (fidoVaultKey) {
+        await stitchFiles();
+        return;
+      }
+
+      setFidoUnlockPending(true);
+      try {
+        const authenticated = await handleFidoKeyAuth();
+        if (!authenticated) {
+          setFidoUnlockError(
+            "FIDO vault unlock did not complete. Check that your enrolled security key is connected, then try again.",
+          );
+        }
+        // Once authentication supplies the in-memory key, the stitching hook
+        // automatically retries the selected capture.
+      } catch {
+        setFidoUnlockError(
+          "FIDO vault unlock failed. Check that your enrolled security key is connected, then try again.",
+        );
+      } finally {
+        setFidoUnlockPending(false);
+      }
+    }, [fidoVaultKey, handleFidoKeyAuth, stitchFiles]);
 
     const { handleSnapshot: takeSnapshot } = useSnapshot(
       frequencyRange ?? null,
@@ -774,7 +803,36 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
                 ? "No files selected"
                 : `${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""} selected`}
             </FileCountText>
-            {stitchStatus.toLowerCase().includes("integrity failed") ? (
+            {stitchStatus.toLowerCase().includes("fido vault decryption") ? (
+              <div
+                style={{
+                  maxWidth: "420px",
+                  margin: "0 auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "16px",
+                  textAlign: "center",
+                }}
+              >
+                <HelpText role="alert" style={{ textAlign: "center" }}>
+                  This capture is encrypted with the FIDO vault. This page
+                  session does not have the unlocked vault key yet. Unlock with
+                  your enrolled FIDO security key to process and play it.
+                </HelpText>
+                {fidoUnlockError && (
+                  <HelpText role="alert" style={{ textAlign: "center" }}>
+                    {fidoUnlockError}
+                  </HelpText>
+                )}
+                <Button
+                  onClick={() => void unlockFidoAndRetry()}
+                  disabled={fidoUnlockPending}
+                >
+                  {fidoUnlockPending ? "Waiting for security key…" : "Unlock with FIDO key"}
+                </Button>
+              </div>
+            ) : stitchStatus.toLowerCase().includes("integrity failed") ? (
               <div style={{ maxWidth: "420px", margin: "0 auto" }}>
                 <HelpText>
                   This file appears corrupted or modified. Its contents do not
@@ -795,7 +853,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               <HelpText>
                 {selectedFiles.length > 0
                   ? "Click Stitch/Process to visualize"
-                  : "Drop .napt, .iq, or .wav files here; protected .enc files need backend playback"}
+                  : "Drop .napt, .iq, or .wav files here. Increased Protection .enc files cannot be played here yet."}
               </HelpText>
             )}
           </EmptyContainer>

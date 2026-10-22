@@ -114,7 +114,7 @@ type IntegrityStatus = "verified" | "failed" | "unavailable";
 function rejectLocalProtectedCapture(fileName: string): void {
   if (fileName.toLowerCase().endsWith(".enc")) {
     throw new Error(
-      "This Increased protection .enc file keeps its salt in Redis and requires authenticated backend playback; local browser decryption is disabled.",
+      "Increased Protection .enc files cannot be played in this browser yet. Playback needs a server feature that is not available yet.",
     );
   }
 }

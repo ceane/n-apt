@@ -25,7 +25,17 @@ Assign every acquisition session to exactly one split before deriving FFT window
 
 For standard classifier archives, `archive-package` requires `REDIS_URL` and the capture passphrase. It creates or reuses a random salt in Redis DB 1 at `capture-protection:<source-capture-checksum>`, then encrypts V6 `.iq` with the derived per-capture key. The package descriptor contains the Redis key name, never the salt. `prepare` looks up the salt and fails closed if it is missing. Back up Redis DB 1 using the deployment's supported backup procedure and test restoration before publishing these packages. Existing globally keyed V6 `.iq` packages are rewrapped with this per-capture key when archived.
 
-FIDO-vault V6 `.iq` and `.napt` captures use the `AES-256-GCM-FIDO-VAULT-V1` marker and include a password-wrapped vault-key recovery record in the capture metadata. `archive-package` verifies and preserves that ciphertext and wrapper without creating a Redis salt or adding `saltKey`. `prepare --package` unwraps the recovery record with the existing local capture passphrase, then decrypts the payload for feature extraction. WebAuthn is not required for offline preparation; the recovery credential must be available in `.env.local` or the process environment. A long-running batch can reuse the same wrapped vault key during that process. Keep prepared plaintext and derived features under a local-only directory.
+FIDO-vault V6 `.iq` and `.napt` captures use the `AES-256-GCM-FIDO-VAULT-V1` marker and include a password-wrapped vault-key recovery record in the capture metadata. `archive-package` verifies and preserves that ciphertext and wrapper without creating a Redis salt or adding `saltKey`. `prepare --package` unwraps the recovery record with the existing local capture passphrase, then decrypts the payload for feature extraction. WebAuthn and a plugged-in key are not required for offline preparation; the recovery credential must be available in `.env.local` or the process environment. To prepare many package directories and ZIP files in one run, use `prepare-batch` below. It processes packages sequentially, preserves one output directory per package, continues after individual failures, and returns a failing exit status if any package failed. Each package is still fully verified and decrypted by the standard `prepare --package` path. Keep prepared plaintext and derived features under a local-only directory.
+
+```sh
+node --import tsx scripts/classifier/prepare-batch.mjs \
+  --packages ../n-apt-ml/training-captures/classification/train \
+  --split train \
+  --out /private/tmp/napt-classifier/prepared-batch \
+  --env-file .env.local
+```
+
+The batch command discovers Data Package directories and `.zip` files recursively under `--packages`, skips symlinks and `.git`, and mirrors their relative paths under `--out`. It does not merge recordings or change their labels. All packages in one invocation receive the supplied `--split`; run it once for each dataset split. Standard password-encrypted captures that depend on Redis still need their configured Redis service and salts; FIDO-vault captures use their recovery wrapper and do not require Redis salts. The batch runner invokes the existing prepare command sequentially for each package, so each file is decrypted independently with the local recovery credential.
 
 On local development machines, restrict `.env.local` and Redis persistence files such as `.redis_data/dump.rdb` and `.redis_data/appendonlydir/*` to owner-only access. Use mode `600` for files and `700` for directories. Keep separate backup copies owner-only too; Redis backups contain the per-capture salts needed to decrypt the captures.
 
