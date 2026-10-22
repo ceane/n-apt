@@ -5,7 +5,8 @@ const MAGIC: &[u8; 8] = b"NAPT-IQ3";
 const HEADER_SIZE: usize = 40;
 const TRAILER_MAGIC: &[u8; 8] = b"NAPTTRLR";
 const TRAILER_HEADER_SIZE: usize = 24;
-const INTEGRITY_PLACEHOLDER: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+const INTEGRITY_PLACEHOLDER: &str =
+  "0000000000000000000000000000000000000000000000000000000000000000";
 
 // I/Q format milestones from repository history: v1-v2 are legacy/undated;
 // v3 (2026-07-18), v4 (2026-08-05), v5 (2026-09-14), v6 (2026-09-23, WIP).
@@ -130,9 +131,16 @@ fn encode_versioned(
     payload.extend_from_slice(&(chunk.data.len() as u64).to_le_bytes());
     payload.extend_from_slice(&chunk.data);
   }
-  if let Some(key) = key {
-    payload = crate::crypto::encrypt_payload_binary(key, &payload)
-      .map_err(|e| format!("IQ encryption failed: {e}"))?;
+  let authenticated = key.is_some() && version >= 5;
+  if authenticated {
+    metadata_obj.fields.insert(
+      "payload_authentication".into(),
+      serde_json::json!("public-sections-v1"),
+    );
+  }
+  let plaintext = payload.clone();
+  if key.is_some() {
+    payload.resize(payload.len() + 28, 0);
   }
   let trailer_json = if version >= 4 {
     let mut trailer = file
@@ -146,8 +154,7 @@ fn encode_versioned(
         "digest": INTEGRITY_PLACEHOLDER,
       });
     }
-    serde_json::to_vec(&trailer)
-    .map_err(|e| e.to_string())?
+    serde_json::to_vec(&trailer).map_err(|e| e.to_string())?
   } else {
     Vec::new()
   };
@@ -198,13 +205,25 @@ fn encode_versioned(
     out.extend_from_slice(&(trailer_json.len() as u64).to_le_bytes());
     out.extend_from_slice(&trailer_json);
   }
+  if let Some(key) = key {
+    let aad = if authenticated {
+      crate::crypto::capture_aad(&out, header_len, payload.len())?
+    } else {
+      vec![]
+    };
+    let ciphertext =
+      crate::crypto::encrypt_payload_binary_aad(key, &plaintext, &aad)
+        .map_err(|e| e.to_string())?;
+    out[header_len..header_len + payload.len()].copy_from_slice(&ciphertext);
+  }
   if version >= 5 {
     let digest = sha2::Sha256::digest(&out);
-    let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let placeholder = INTEGRITY_PLACEHOLDER.as_bytes();
-    let offset = out.windows(placeholder.len()).position(|window| window == placeholder)
-      .ok_or("missing IQ integrity placeholder")?;
-    out[offset..offset + placeholder.len()].copy_from_slice(digest.as_bytes());
+    let digest = digest
+      .iter()
+      .map(|byte| format!("{byte:02x}"))
+      .collect::<String>();
+    let range = crate::crypto::capture_digest_range(&out, trailer_offset)?;
+    out[range].copy_from_slice(digest.as_bytes());
   }
   Ok(out)
 }
@@ -232,9 +251,16 @@ pub fn decode(bytes: &[u8], key: Option<&[u8; 32]>) -> Result<IqFile, String> {
   let payload_len = read_u64(24)? as usize;
   let encrypted = bytes[32] != 0;
   let metadata_start = HEADER_SIZE;
-  let frames_start = metadata_start + metadata_len;
-  let payload_start = frames_start + frames_len;
-  if payload_start + payload_len > bytes.len() {
+  let frames_start = metadata_start
+    .checked_add(metadata_len)
+    .ok_or("invalid IQ metadata length")?;
+  let payload_start = frames_start
+    .checked_add(frames_len)
+    .ok_or("invalid IQ frame length")?;
+  let payload_end = payload_start
+    .checked_add(payload_len)
+    .ok_or("invalid IQ payload length")?;
+  if payload_end > bytes.len() {
     return Err("truncated IQ payload".into());
   }
   let metadata: IqMetadata =
@@ -308,11 +334,30 @@ pub fn decode(bytes: &[u8], key: Option<&[u8; 32]>) -> Result<IqFile, String> {
   } else {
     None
   };
+  if metadata.format_version >= 5 {
+    crate::crypto::verify_capture_integrity(
+      bytes,
+      payload_start + payload_len,
+    )?;
+  }
   let mut payload = bytes[payload_start..payload_start + payload_len].to_vec();
   if encrypted {
     let key = key.ok_or("IQ file is encrypted")?;
-    payload = crate::crypto::decrypt_payload_binary(key, &payload)
-      .map_err(|e| format!("IQ decryption failed: {e}"))?;
+    payload = crate::crypto::decrypt_payload_binary_aad(
+      key,
+      &payload,
+      &if metadata
+        .fields
+        .get("payload_authentication")
+        .and_then(|v| v.as_str())
+        == Some("public-sections-v1")
+      {
+        crate::crypto::capture_aad(bytes, payload_start, payload_len)?
+      } else {
+        vec![]
+      },
+    )
+    .map_err(|e| format!("IQ decryption failed: {e}"))?;
   }
   let mut chunks = Vec::new();
   let mut private_metadata = None;
@@ -450,11 +495,20 @@ mod tests {
     );
     assert_eq!(decoded.chunks[0].data, vec![1, 2, 3, 4]);
     assert_eq!(
-      decoded.trailer.as_ref().and_then(|trailer| trailer["processing"].as_object()),
-      file.trailer.as_ref().and_then(|trailer| trailer["processing"].as_object())
+      decoded
+        .trailer
+        .as_ref()
+        .and_then(|trailer| trailer["processing"].as_object()),
+      file
+        .trailer
+        .as_ref()
+        .and_then(|trailer| trailer["processing"].as_object())
     );
     assert_eq!(
-      decoded.trailer.as_ref().and_then(|trailer| trailer["integrity"]["algorithm"].as_str()),
+      decoded
+        .trailer
+        .as_ref()
+        .and_then(|trailer| trailer["integrity"]["algorithm"].as_str()),
       Some("SHA-256")
     );
 
@@ -512,5 +566,67 @@ mod tests {
     assert_eq!(decode(&encoded, None).unwrap().trailer, None);
     encoded.extend_from_slice(b"legacy trailing bytes");
     assert_eq!(decode(&encoded, None).unwrap().chunks[0].data, vec![9, 8]);
+  }
+}
+
+#[cfg(test)]
+mod authenticated_capture_tests {
+  use super::*;
+  fn sample() -> IqFile {
+    let mut metadata = IqMetadata::default();
+    metadata
+      .fields
+      .insert("center_frequency_hz".into(), serde_json::json!(137500000));
+    metadata
+      .fields
+      .insert("label".into(), serde_json::json!("0".repeat(64)));
+    IqFile {
+      metadata,
+      private_metadata: None,
+      frames: vec![],
+      chunks: vec![IqChunk {
+        sample_offset: 0,
+        channel: 0,
+        data: vec![1, 2, 3, 4],
+      }],
+      trailer: None,
+    }
+  }
+  #[test]
+  fn rejects_tampering_even_with_recomputed_checksum() {
+    let key = [42; 32];
+    let mut bytes = encode(&sample(), Some(&key)).unwrap();
+    assert_eq!(
+      decode(&bytes, Some(&key)).unwrap().chunks[0].data,
+      vec![1, 2, 3, 4]
+    );
+    let at = bytes.windows(9).position(|b| b == b"137500000").unwrap();
+    bytes[at..at + 9].copy_from_slice(b"999500000");
+    assert!(decode(&bytes, Some(&key))
+      .unwrap_err()
+      .contains("integrity"));
+    let start = 40
+      + u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize
+      + u64::from_le_bytes(bytes[16..24].try_into().unwrap()) as usize;
+    let end =
+      start + u64::from_le_bytes(bytes[24..32].try_into().unwrap()) as usize;
+    let range = crate::crypto::capture_digest_range(&bytes, end).unwrap();
+    bytes[range.clone()].fill(b'0');
+    let digest = sha2::Sha256::digest(&bytes)
+      .iter()
+      .map(|b| format!("{b:02x}"))
+      .collect::<String>();
+    bytes[range].copy_from_slice(digest.as_bytes());
+    crate::crypto::verify_capture_integrity(&bytes, end).unwrap();
+    assert!(decode(&bytes, Some(&key))
+      .unwrap_err()
+      .contains("decryption"));
+  }
+  #[test]
+  fn plaintext_checksum_detects_corruption() {
+    let mut bytes = encode(&sample(), None).unwrap();
+    let at = bytes.windows(9).position(|b| b == b"137500000").unwrap();
+    bytes[at] = b'9';
+    assert!(decode(&bytes, None).unwrap_err().contains("integrity"));
   }
 }

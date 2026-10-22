@@ -2103,9 +2103,8 @@ pub fn save_capture_file_multi(
       }
     })
     .to_string();
-    let encrypted_data =
-      crate::crypto::encrypt_payload_binary(&dek, &payload_plaintext)
-        .map_err(|e| format!("Encryption failed: {}", e))?;
+    meta_obj["payload_authentication"] = serde_json::json!("public-sections-v1");
+    let encrypted_data = vec![0u8; payload_plaintext.len()+28];
 
     // Dynamic header size: large captures (many channels + geolocation +
     // baseline fields) outgrow the historical fixed 4096-byte header, which
@@ -2184,12 +2183,13 @@ pub fn save_capture_file_multi(
       .map_err(|e| format!("Failed to flush file: {}", e))?;
 
     let (mut encoded, _) = writer.finalize_with_inner();
-    let placeholder = b"0000000000000000000000000000000000000000000000000000000000000000";
-    let offset = encoded.windows(placeholder.len()).position(|window| window == placeholder)
-      .ok_or("Missing capture integrity placeholder")?;
+    let aad=crate::crypto::capture_aad(&encoded,header_size,encrypted_data.len())?;
+    let ciphertext=crate::crypto::encrypt_payload_binary_aad(&dek,&payload_plaintext,&aad).map_err(|e|e.to_string())?;
+    encoded[header_size..header_size+ciphertext.len()].copy_from_slice(&ciphertext);
+    let range=crate::crypto::capture_digest_range(&encoded,header_size+encrypted_data.len())?;
     let digest = sha2::Sha256::digest(&encoded);
     let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    encoded[offset..offset + placeholder.len()].copy_from_slice(digest.as_bytes());
+    encoded[range].copy_from_slice(digest.as_bytes());
     let checksum = sha2::Sha256::digest(&encoded)
       .iter()
       .map(|byte| format!("{byte:02x}"))

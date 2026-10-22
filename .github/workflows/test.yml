@@ -96,6 +96,9 @@ jobs:
       - name: Run script security tests
         run: npm run test:security-scripts
 
+      - name: Run capture tool regression tests
+        run: npm run test:capture-tools
+
       - name: Run encrypted ML smoke test when local-only credentials exist
         run: npm run test:e2e:encrypted-ml
 
@@ -145,6 +148,12 @@ jobs:
 
       - name: Compile check (warnings are errors)
         run: RUSTFLAGS="-D warnings" cargo check --profile dev-incremental --workspace --all-targets
+
+      - name: Run capture integrity regression tests
+        run: |
+          cargo test --profile dev-incremental --lib authenticated_capture_tests
+          cargo test --profile dev-incremental --lib capture_export_integrity_tests
+          cargo test --profile dev-incremental --test iq_capture_format_acceptance backend_fido_files_use_stable_vault_key_and_fail_closed
 
       - name: Run Rust tests
         run: |

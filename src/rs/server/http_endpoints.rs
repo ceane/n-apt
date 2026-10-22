@@ -1279,22 +1279,6 @@ fn validate_classifier_iq_upload(bytes: &[u8], capture_id: &str) -> Result<(), S
   {
     return Err("I/Q integrity identity does not match this classifier capture".into());
   }
-  let digest_offset = bytes
-    .windows(digest.len())
-    .position(|window| window == digest.as_bytes())
-    .ok_or("V6 I/Q integrity digest is not stamped into the capture")?;
-  let mut hasher = sha2::Sha256::new();
-  hasher.update(&bytes[..digest_offset]);
-  hasher.update([b'0'; 64]);
-  hasher.update(&bytes[digest_offset + digest.len()..]);
-  let computed_digest = hasher
-    .finalize()
-    .iter()
-    .map(|byte| format!("{byte:02x}"))
-    .collect::<String>();
-  if computed_digest != digest {
-    return Err("V6 I/Q capture checksum verification failed".into());
-  }
   Ok(())
 }
 
@@ -2221,7 +2205,6 @@ async fn write_protected_capture_artifacts_to_directory(
 async fn artifacts_are_fido_vault(
   artifacts: &[crate::server::types::CaptureArtifact],
 ) -> std::io::Result<bool> {
-  const MARKER: &[u8] = b"AES-256-GCM-FIDO-VAULT-V1";
   let mut found = None;
   for artifact in artifacts {
     let bytes = tokio::fs::read(&artifact.path).await?;
@@ -2231,7 +2214,10 @@ async fn artifacts_are_fido_vault(
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
       if checksum != artifact.checksum {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "capture checksum verification failed"));
+        return Err(std::io::Error::new(
+          std::io::ErrorKind::InvalidData,
+          "capture checksum verification failed",
+        ));
       }
     }
     // A job may include plaintext sidecars such as classifier annotations.
@@ -2241,9 +2227,65 @@ async fn artifacts_are_fido_vault(
     if !filename.ends_with(".iq") && !filename.ends_with(".napt") {
       continue;
     }
-    let is_fido = bytes.windows(MARKER.len()).any(|window| window == MARKER);
+    let invalid = |message: &str| {
+      std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+    };
+    let metadata: serde_json::Value = if filename.ends_with(".iq") {
+      if bytes.len() < 40 || &bytes[..8] != b"NAPT-IQ3" {
+        return Err(invalid("invalid IQ header"));
+      }
+      let length =
+        u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize;
+      let end = 40usize
+        .checked_add(length)
+        .ok_or_else(|| invalid("invalid IQ metadata length"))?;
+      serde_json::from_slice(
+        bytes
+          .get(40..end)
+          .ok_or_else(|| invalid("truncated IQ metadata"))?,
+      )
+      .map_err(|_| invalid("invalid IQ metadata"))?
+    } else {
+      let end = bytes
+        .iter()
+        .position(|b| *b == b'\n')
+        .ok_or_else(|| invalid("invalid NAPT header"))?;
+      let header: serde_json::Value = serde_json::from_slice(&bytes[..end])
+        .map_err(|_| invalid("invalid NAPT metadata"))?;
+      header.get("metadata").cloned().unwrap_or(header)
+    };
+    let is_fido = metadata["encryption"] == "AES-256-GCM-FIDO-VAULT-V1";
+    if is_fido {
+      let binary = &metadata["sections"]["binary"];
+      let offset = binary["offset_bytes"]
+        .as_u64()
+        .ok_or_else(|| invalid("missing binary offset"))?
+        as usize;
+      let length = binary["length_bytes"]
+        .as_u64()
+        .ok_or_else(|| invalid("missing binary length"))?
+        as usize;
+      let end = offset
+        .checked_add(length)
+        .filter(|end| *end <= bytes.len())
+        .ok_or_else(|| invalid("invalid binary range"))?;
+      if binary["encrypted"] != true
+        || metadata["encrypted"] != true
+        || length < 28
+        || (filename.ends_with(".iq") && bytes[32] != 1)
+        || metadata["vault_key_recovery"].is_null()
+        || (filename.ends_with(".napt") && !metadata["wrapped_dek"].is_string())
+      {
+        return Err(invalid("invalid FIDO encryption declaration"));
+      }
+      crate::crypto::verify_capture_integrity(&bytes, end)
+        .map_err(|e| invalid(&e))?;
+    }
     if found.is_some_and(|previous| previous != is_fido) {
-      return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "capture job mixes FIDO vault and standard encryption modes"));
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "capture job mixes FIDO vault and standard encryption modes",
+      ));
     }
     found = Some(is_fido);
   }
@@ -3959,5 +4001,45 @@ mod classifier_dataset_label_tests {
     assert!(csv.contains("capture_id,split,label,channel,features,tags,capture_file"));
     assert!(csv.contains("\"validation\",\"matching\",\"A\",\"bridge\",\"verified\""));
     assert_eq!(csv.lines().count(), 2);
+  }
+}
+
+#[cfg(test)]
+mod capture_export_integrity_tests {
+  use super::*;
+  #[tokio::test]
+  async fn labels_cannot_bypass_standard_export_protection() {
+    for encrypted in [false, true] {
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("capture.iq");
+      let mut metadata = crate::server::iq_format::IqMetadata::default();
+      metadata.fields.insert(
+        "capture_labels".into(),
+        serde_json::json!(["AES-256-GCM-FIDO-VAULT-V1"]),
+      );
+      let file = crate::server::iq_format::IqFile {
+        metadata,
+        private_metadata: None,
+        frames: vec![],
+        chunks: vec![],
+        trailer: None,
+      };
+      let bytes = crate::server::iq_format::encode(
+        &file,
+        if encrypted { Some(&[42; 32]) } else { None },
+      )
+      .unwrap();
+      tokio::fs::write(&path, &bytes).await.unwrap();
+      let artifact = crate::server::types::CaptureArtifact {
+        filename: "capture.iq".into(),
+        path,
+        file_size: bytes.len() as u64,
+        checksum: sha2::Sha256::digest(&bytes)
+          .iter()
+          .map(|b| format!("{b:02x}"))
+          .collect(),
+      };
+      assert!(!artifacts_are_fido_vault(&[artifact]).await.unwrap());
+    }
   }
 }

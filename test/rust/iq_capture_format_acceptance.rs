@@ -474,7 +474,7 @@ fn backend_fido_files_use_stable_vault_key_and_fail_closed() {
       let dek: [u8;32] = dek.try_into().unwrap();
       let offset = metadata["sections"]["binary"]["offset_bytes"].as_u64().unwrap() as usize;
       let length = metadata["sections"]["binary"]["length_bytes"].as_u64().unwrap() as usize;
-      assert_eq!(crypto::decrypt_payload_binary(&dek, &bytes[offset..offset+length]).unwrap(), input.channels[0].iq_data);
+      assert_eq!(crypto::decrypt_payload_binary_aad(&dek, &bytes[offset..offset+length], &crypto::capture_aad(&bytes,offset,length).unwrap()).unwrap(), input.channels[0].iq_data);
     }
     fs::remove_file(artifact.path).unwrap();
     input.vault_key = None;

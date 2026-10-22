@@ -1,7 +1,17 @@
 import { readFile } from "node:fs/promises";
-import { createDecipheriv, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import {
+  createDecipheriv,
+  createHmac,
+  pbkdf2Sync,
+  randomBytes,
+} from "node:crypto";
 import { createClient } from "redis";
-import { decryptIqCapturePayload, deriveIqCaptureKey } from "../encrypt_iq_capture.mjs";
+import {
+  decryptIqCapturePayload,
+  deriveIqCaptureKey,
+  captureAdditionalData,
+  verifyContainerChecksum,
+} from "../encrypt_iq_capture.mjs";
 
 function parseEnv(text) {
   const values = {};
@@ -9,8 +19,10 @@ function parseEnv(text) {
     const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
     if (!match || match[1].startsWith("#")) continue;
     let value = match[2];
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
       value = value.slice(1, -1);
     }
     values[match[1]] = value;
@@ -19,18 +31,24 @@ function parseEnv(text) {
 }
 
 function resolveReference(value, values) {
-  return value.startsWith("$") ? values[value.slice(1)] ?? value : value;
+  return value.startsWith("$") ? (values[value.slice(1)] ?? value) : value;
 }
 
 function deriveRedisUrl(envFileValues, env) {
   const raw = env.REDIS_URL ?? envFileValues.REDIS_URL;
   if (typeof raw !== "string" || !raw.trim()) {
-    throw new Error("Set REDIS_URL in the shell environment or selected env file for Redis-backed capture salts");
+    throw new Error(
+      "Set REDIS_URL in the shell environment or selected env file for Redis-backed capture salts",
+    );
   }
   return resolveReference(raw.trim(), { ...envFileValues, ...env });
 }
 
-async function connectRedis({ envFile = ".env.local", env = process.env, clientFactory = createClient } = {}) {
+async function connectRedis({
+  envFile = ".env.local",
+  env = process.env,
+  clientFactory = createClient,
+} = {}) {
   let fileValues = {};
   if (envFile) {
     try {
@@ -48,7 +66,9 @@ async function connectRedis({ envFile = ".env.local", env = process.env, clientF
 
 function validateCaptureId(captureId) {
   if (typeof captureId !== "string" || !/^[a-f0-9]{64}$/i.test(captureId)) {
-    throw new Error("Capture protection requires a 64-character V6 capture checksum");
+    throw new Error(
+      "Capture protection requires a 64-character V6 capture checksum",
+    );
   }
 }
 
@@ -138,13 +158,21 @@ export async function unwrapVaultRecoveryWrapper(wrapper, options = {}) {
 }
 
 function decodeWrapperBase64(value, field) {
-  if (typeof value !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+  if (
+    typeof value !== "string" ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      value,
+    )
+  ) {
     throw new Error(`FIDO vault recovery wrapper has invalid ${field}`);
   }
   return Buffer.from(value, "base64");
 }
 
-async function loadRecoveryCredential({ envFile = ".env.local", env = process.env } = {}) {
+async function loadRecoveryCredential({
+  envFile = ".env.local",
+  env = process.env,
+} = {}) {
   let fileValues = {};
   if (envFile) {
     try {
@@ -154,12 +182,18 @@ async function loadRecoveryCredential({ envFile = ".env.local", env = process.en
     }
   }
   const values = { ...fileValues, ...env };
-  const raw = env.UNSAFE_LOCAL_USER_PASSWORD ?? env.N_APT_PASSKEY ??
-    env.VITE_UNSAFE_LOCAL_USER_PASSWORD ?? fileValues.UNSAFE_LOCAL_USER_PASSWORD ??
-    fileValues.N_APT_PASSKEY ?? fileValues.NAPT_LEGACY_CAPTURE_PASSWORD ??
+  const raw =
+    env.UNSAFE_LOCAL_USER_PASSWORD ??
+    env.N_APT_PASSKEY ??
+    env.VITE_UNSAFE_LOCAL_USER_PASSWORD ??
+    fileValues.UNSAFE_LOCAL_USER_PASSWORD ??
+    fileValues.N_APT_PASSKEY ??
+    fileValues.NAPT_LEGACY_CAPTURE_PASSWORD ??
     fileValues.VITE_UNSAFE_LOCAL_USER_PASSWORD;
   if (typeof raw !== "string" || !raw.trim()) {
-    throw new Error("Set the local capture recovery credential in the shell environment or env file");
+    throw new Error(
+      "Set the local capture recovery credential in the shell environment or env file",
+    );
   }
   const credential = resolveReference(raw.trim(), values).trim();
   if (!credential) throw new Error("Vault recovery credential is empty");
@@ -168,11 +202,18 @@ async function loadRecoveryCredential({ envFile = ".env.local", env = process.en
 
 /** Derives the same per-capture AES-256 key as the Rust backend. */
 export function deriveCaptureProtectionKey(vaultKey, salt) {
-  if (!(vaultKey instanceof Uint8Array) || vaultKey.byteLength !== 32) throw new Error("Vault key must be 32 bytes");
-  if (!(salt instanceof Uint8Array) || salt.byteLength !== 32) throw new Error("Capture salt must be 32 bytes");
+  if (!(vaultKey instanceof Uint8Array) || vaultKey.byteLength !== 32)
+    throw new Error("Vault key must be 32 bytes");
+  if (!(salt instanceof Uint8Array) || salt.byteLength !== 32)
+    throw new Error("Capture salt must be 32 bytes");
   const prk = createHmac("sha256", salt).update(vaultKey).digest();
   return createHmac("sha256", prk)
-    .update(Buffer.concat([Buffer.from("n-apt/capture-protection/v1"), Buffer.from([1])]))
+    .update(
+      Buffer.concat([
+        Buffer.from("n-apt/capture-protection/v1"),
+        Buffer.from([1]),
+      ]),
+    )
     .digest();
 }
 
@@ -189,7 +230,10 @@ export async function loadCaptureProtectionSalt(captureId, options = {}) {
 }
 
 /** Creates or reads the archive salt using Redis SET NX to handle concurrent archivers. */
-export async function getOrCreateCaptureProtectionSalt(captureId, options = {}) {
+export async function getOrCreateCaptureProtectionSalt(
+  captureId,
+  options = {},
+) {
   validateCaptureId(captureId);
   const client = await connectRedis(options);
   const key = `capture-protection:${captureId}`;
@@ -197,11 +241,15 @@ export async function getOrCreateCaptureProtectionSalt(captureId, options = {}) 
     let value = await client.get(key);
     if (value !== null) return parseCaptureProtectionSalt(value);
     const generated = randomBytes(32);
-    const created = await client.set(key, generated.toString("hex"), { NX: true });
+    const created = await client.set(key, generated.toString("hex"), {
+      NX: true,
+    });
     value = await client.get(key);
     const persisted = parseCaptureProtectionSalt(value);
     if (created === "OK" && !persisted.equals(generated)) {
-      throw new Error("Redis capture-protection salt changed during creation; refusing to encrypt with an uncommitted salt");
+      throw new Error(
+        "Redis capture-protection salt changed during creation; refusing to encrypt with an uncommitted salt",
+      );
     }
     return persisted;
   } finally {
@@ -210,7 +258,14 @@ export async function getOrCreateCaptureProtectionSalt(captureId, options = {}) 
 }
 
 /** Opens classifier IQ payloads using Redis-backed per-capture salts, with legacy-key fallback. */
-export async function decryptArchivedIqPayload({ captureBytes, archive, metadata, envFile = ".env.local", env = process.env, clientFactory } = {}) {
+export async function decryptArchivedIqPayload({
+  captureBytes,
+  archive,
+  metadata,
+  envFile = ".env.local",
+  env = process.env,
+  clientFactory,
+} = {}) {
   if (
     archive?.encryption === "AES-256-GCM-FIDO-VAULT-V1" ||
     metadata?.encryption === "AES-256-GCM-FIDO-VAULT-V1"
@@ -231,10 +286,19 @@ export async function decryptArchivedIqPayload({ captureBytes, archive, metadata
       return decryptIqCapturePayload(captureBytes, vaultKey);
     }
     const captureId = archive.sourceCaptureId;
-    if (!/^[a-f0-9]{64}$/i.test(captureId ?? "") || archive.saltKey !== `capture-protection:${captureId}`) {
-      throw new Error("Protected classifier archive has invalid Redis salt-key metadata");
+    if (
+      !/^[a-f0-9]{64}$/i.test(captureId ?? "") ||
+      archive.saltKey !== `capture-protection:${captureId}`
+    ) {
+      throw new Error(
+        "Protected classifier archive has invalid Redis salt-key metadata",
+      );
     }
-    const salt = await loadCaptureProtectionSalt(captureId, { envFile, env, clientFactory });
+    const salt = await loadCaptureProtectionSalt(captureId, {
+      envFile,
+      env,
+      clientFactory,
+    });
     const captureKey = deriveCaptureProtectionKey(vaultKey, salt);
     salt.fill(0);
     try {
@@ -248,23 +312,47 @@ export async function decryptArchivedIqPayload({ captureBytes, archive, metadata
 }
 
 /** Opens an encrypted V6 .napt payload whose wrapped DEK is protected by the FIDO vault key. */
-export async function decryptFidoVaultNaptPayload({ captureBytes, metadata, envFile = ".env.local", env = process.env } = {}) {
+export async function decryptFidoVaultNaptPayload({
+  captureBytes,
+  metadata,
+  envFile = ".env.local",
+  env = process.env,
+} = {}) {
   if (metadata?.encryption !== "AES-256-GCM-FIDO-VAULT-V1") {
     throw new Error("Capture is not marked as FIDO vault encrypted");
   }
   const section = metadata?.sections?.binary;
   const offset = section?.offset_bytes;
   const length = section?.length_bytes;
-  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 28 || offset + length > captureBytes?.length) {
-    throw new Error("FIDO vault .napt capture has an invalid encrypted payload range");
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 ||
+    length < 28 ||
+    offset + length > captureBytes?.length
+  ) {
+    throw new Error(
+      "FIDO vault .napt capture has an invalid encrypted payload range",
+    );
   }
+  verifyContainerChecksum(captureBytes, metadata);
   const wrappedDek = decodeWrapperBase64(metadata.wrapped_dek, "wrapped DEK");
-  const vaultKey = await unwrapVaultRecoveryWrapper(metadata.vault_key_recovery, { envFile, env });
+  const vaultKey = await unwrapVaultRecoveryWrapper(
+    metadata.vault_key_recovery,
+    { envFile, env },
+  );
   let dek;
   try {
     dek = decryptAesGcm(vaultKey, wrappedDek);
-    if (dek.length !== 32) throw new Error("Unwrapped .napt data key has an invalid length");
-    return decryptAesGcm(dek, captureBytes.subarray(offset, offset + length));
+    if (dek.length !== 32)
+      throw new Error("Unwrapped .napt data key has an invalid length");
+    return decryptAesGcm(
+      dek,
+      captureBytes.subarray(offset, offset + length),
+      metadata.payload_authentication === "public-sections-v1"
+        ? captureAdditionalData(captureBytes, offset, length)
+        : undefined,
+    );
   } finally {
     vaultKey.fill(0);
     dek?.fill(0);
@@ -272,11 +360,20 @@ export async function decryptFidoVaultNaptPayload({ captureBytes, metadata, envF
   }
 }
 
-function decryptAesGcm(key, payload) {
-  if (!(key instanceof Uint8Array) || key.byteLength !== 32 || payload.byteLength < 28) {
+function decryptAesGcm(key, payload, aad) {
+  if (
+    !(key instanceof Uint8Array) ||
+    key.byteLength !== 32 ||
+    payload.byteLength < 28
+  ) {
     throw new Error("AES-GCM payload has invalid key or ciphertext length");
   }
-  const decipher = createDecipheriv("aes-256-gcm", key, payload.subarray(0, 12));
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    key,
+    payload.subarray(0, 12),
+  );
+  if (aad) decipher.setAAD(aad);
   decipher.setAuthTag(payload.subarray(payload.length - 16));
   return Buffer.concat([
     decipher.update(payload.subarray(12, payload.length - 16)),
@@ -285,7 +382,10 @@ function decryptAesGcm(key, payload) {
 }
 
 /** Loads a local capture key without printing or accepting the passkey as an argument. */
-export async function loadIqCaptureKey({ envFile = ".env.local", env = process.env } = {}) {
+export async function loadIqCaptureKey({
+  envFile = ".env.local",
+  env = process.env,
+} = {}) {
   let fileValues = {};
   if (envFile) {
     try {
@@ -296,8 +396,13 @@ export async function loadIqCaptureKey({ envFile = ".env.local", env = process.e
   }
   const values = { ...fileValues, ...env };
   const passkey = await loadRecoveryCredential({ envFile, env });
-  const salt = env.NAPT_PBKDF2_SALT ?? env.VITE_PBKDF2_SALT ??
-    fileValues.NAPT_PBKDF2_SALT ?? fileValues.VITE_PBKDF2_SALT ?? "n-apt-aes-salt-v1";
-  if (!passkey || !salt) throw new Error("Capture key configuration is incomplete");
+  const salt =
+    env.NAPT_PBKDF2_SALT ??
+    env.VITE_PBKDF2_SALT ??
+    fileValues.NAPT_PBKDF2_SALT ??
+    fileValues.VITE_PBKDF2_SALT ??
+    "n-apt-aes-salt-v1";
+  if (!passkey || !salt)
+    throw new Error("Capture key configuration is incomplete");
   return deriveIqCaptureKey(passkey, salt);
 }

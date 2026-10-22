@@ -1,3 +1,4 @@
+import { captureAdditionalData, verifyContainerChecksum } from "./encrypt_iq_capture.mjs";
 import fs from 'fs';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
@@ -64,6 +65,7 @@ async function decryptFile(filePath) {
 
   const metaObj = JSON.parse(jsonStr);
   const metadata = metaObj.metadata || metaObj;
+  verifyContainerChecksum(fileData,metadata);
   
   // Prefer the v4 section index (exact); fall back to probing the historical
   // fixed header sizes used by older captures.
@@ -85,7 +87,7 @@ async function decryptFile(filePath) {
     if (fileData.length <= hSize + 12) continue;
     
     const iv = fileData.subarray(hSize, hSize + 12);
-    const ciphertextWithTag = fileData.subarray(hSize + 12);
+    const ciphertextWithTag = fileData.subarray(hSize + 12, metadata.sections?.binary ? hSize+metadata.sections.binary.length_bytes : fileData.length);
     
     // Tag is last 16 bytes
     const tag = ciphertextWithTag.subarray(ciphertextWithTag.length - 16);
@@ -110,6 +112,7 @@ async function decryptFile(filePath) {
       }
 
       const decipher = crypto.createDecipheriv('aes-256-gcm', targetKey, iv);
+      if(metadata.payload_authentication === "public-sections-v1") decipher.setAAD(captureAdditionalData(fileData,hSize,metadata.sections.binary.length_bytes));
       decipher.setAuthTag(tag);
       decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       

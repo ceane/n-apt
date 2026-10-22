@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { captureAdditionalData, verifyContainerChecksum } from "../encrypt_iq_capture.mjs";
 
 /**
  * Manual .napt -> raw IQ harness for shader and DSP experiments.
@@ -77,13 +78,14 @@ export function parseNaptHeader(bytes) {
   return { root, metadata: root.metadata ?? root, jsonEnd };
 }
 
-function decryptGcm(payload, key) {
+function decryptGcm(payload, key, aad) {
   if (payload.length < AES_GCM_IV_BYTES + AES_GCM_TAG_BYTES) {
     throw new Error("Encrypted payload is too short");
   }
   const iv = payload.subarray(0, AES_GCM_IV_BYTES);
   const body = payload.subarray(AES_GCM_IV_BYTES);
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  if(aad) decipher.setAAD(aad);
   decipher.setAuthTag(body.subarray(-AES_GCM_TAG_BYTES));
   return Buffer.concat([decipher.update(body.subarray(0, -AES_GCM_TAG_BYTES)), decipher.final()]);
 }
@@ -93,6 +95,7 @@ function getWrappedDek(root, metadata) {
 }
 
 function decryptWithHeader(bytes, headerSize, vaultKey, root, metadata) {
+  verifyContainerChecksum(bytes,metadata);
   const wrappedDek = getWrappedDek(root, metadata);
   let dataKey = vaultKey;
   if (wrappedDek) dataKey = decryptGcm(Buffer.from(wrappedDek, "base64"), vaultKey);
@@ -108,7 +111,7 @@ function decryptWithHeader(bytes, headerSize, vaultKey, root, metadata) {
   ) {
     throw new Error("Invalid binary section boundaries in .napt header");
   }
-  return decryptGcm(bytes.subarray(offset, offset + length), dataKey);
+  return decryptGcm(bytes.subarray(offset, offset + length), dataKey, metadata.payload_authentication === "public-sections-v1" ? captureAdditionalData(bytes,offset,length) : undefined);
 }
 
 function captureChannel(root, metadata, plaintextLength) {
