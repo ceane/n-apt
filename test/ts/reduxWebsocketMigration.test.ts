@@ -54,6 +54,7 @@ import {
   buildManagedTxOptions,
   shouldApplySourceStatusToPresentation,
   processWebSocketMessage,
+  __testIngestIncomingMessage,
   CLIENT_ORIGIN_ID,
   __testQueueLiveDataForMiddleware,
   resolveStaleSpectrumSourceId,
@@ -1870,6 +1871,33 @@ describe("Redux WebSocket Migration", () => {
   });
 
   let store: ReturnType<typeof configureStore>;
+
+  it("ignores the removed control-socket live spectrum protocol", () => {
+    jest.useFakeTimers();
+    try {
+      for (const message of [
+        {
+          type: "spectrum",
+          data_type: "iq_raw",
+          source_id: "mock-apt",
+          iq_data: new Uint8Array([128, 129, 127, 126]),
+        },
+        { type: "encrypted_spectrum", payload: "legacy-payload" },
+      ]) {
+        __testIngestIncomingMessage(
+          store.dispatch as any,
+          store.getState as any,
+          message,
+        );
+      }
+      jest.runOnlyPendingTimers();
+
+      expect(liveDataRef.current).toBeNull();
+      expect(demodFrameQueue.drain()).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 
   it("preserves the user frequency range when a source switch republishes channels", () => {
     const enteredRange = { min: 24_700_000, max: 29_900_000 };
@@ -6864,6 +6892,10 @@ describe("Redux WebSocket Migration", () => {
           deviceState: "connected" as any,
         }),
       );
+      sessionStorage.setItem(
+        "n-apt-fft-iq-snapshot:mock-apt:rx",
+        "old-iq",
+      );
 
       middlewareStore.dispatch({ type: "websocket/disconnect" });
 
@@ -6874,6 +6906,9 @@ describe("Redux WebSocket Migration", () => {
       expect(state.websocket.deviceInfo).toBeNull();
       expect(state.websocket.deviceName).toBeNull();
       expect(state.websocket.deviceProfile).toBeNull();
+      expect(
+        sessionStorage.getItem("n-apt-fft-iq-snapshot:mock-apt:rx"),
+      ).toBeNull();
     });
   });
 });

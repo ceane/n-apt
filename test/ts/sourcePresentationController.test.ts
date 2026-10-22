@@ -69,9 +69,8 @@ const makeFrameWithOrdering = (
     ...meta,
   }) as IqRawFrame;
 
-// Disable session storage in tests
 const createController = (): SourcePresentationController =>
-  createSourcePresentationController({ persistSnapshots: false });
+  createSourcePresentationController();
 
 // --- Tests ---
 
@@ -397,6 +396,7 @@ describe("SourcePresentationController", () => {
       const nextFrame = makeRxFrame("hackrf-1", { sequence: 2 });
       ctrl.acceptFrame(nextFrame);
       expect(ctrl.getPresentationRef("rx").current).toBe(nextFrame);
+      expect(ctrl.getSlot("hackrf-1", "rx")?.frozenFrame).toBeNull();
     });
 
     it("rejects live frames while paused so the frozen frame stays frozen", () => {
@@ -802,6 +802,21 @@ describe("SourcePresentationController", () => {
       expect(slot?.phase).toBe("disconnected");
       expect(slot?.liveFrameRef.current).toBeNull();
       expect(slot?.resetEpoch).toBeGreaterThan(epochBefore);
+    });
+
+    it("disconnection clears the paused frame from memory", () => {
+      const ctrl = createController();
+      ctrl.selectSource("hackrf-1");
+      ctrl.commitActiveSource("hackrf-1");
+      const frame = makeRxFrame("hackrf-1", { sequence: 1 });
+      ctrl.acceptFrame(frame);
+      ctrl.setPaused("hackrf-1", "rx", true);
+
+      ctrl.setSourceStatus("hackrf-1", "disconnected");
+
+      const slot = ctrl.getSlot("hackrf-1", "rx");
+      expect(slot?.frozenFrame).toBeNull();
+      expect(ctrl.getPresentationRef("rx").current).toBeNull();
     });
 
     it("recovery from loading transitions to recovering", () => {
