@@ -13,6 +13,9 @@ export const CenterFrequencyHzSchema = z.number().int().nonnegative();
 export const RxCenterFrequencyHzSchema = CenterFrequencyHzSchema.min(1).max(
   4_294_967_295,
 );
+// The app's strict CSP disallows string evaluation. Disable Zod's JIT probe
+// before constructing schemas so it never attempts `new Function` at runtime.
+z.config({ jitless: true });
 
 // Preprocesses null values to undefined so they map properly to optional types rather than null
 const _nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
