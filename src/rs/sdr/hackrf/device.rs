@@ -3,6 +3,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
@@ -13,15 +14,200 @@ use crate::sdr::SdrDevice;
 const HACKRF_MAX_SAMPLE_RATE: u32 = 20_000_000;
 const HACKRF_MIN_SAMPLE_RATE: u32 = 2_000_000;
 const HACKRF_RX_QUEUE_DEPTH: usize = 8;
-const HACKRF_BLOCK_SIZE: usize = 16_384;
+const HACKRF_DEFAULT_TRANSFER_BUFFER_SIZE: usize = 262_144;
 const HACKRF_RX_TIMEOUT: Duration = Duration::from_millis(500);
 const HACKRF_RX_START_RETRY_ATTEMPTS: usize = 5;
 const HACKRF_RX_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 static HACKRF_NATIVE_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+struct RxBlock {
+  sequence: u64,
+  generation: u64,
+  data: Vec<u8>,
+}
+
 struct RxContext {
-  tx: Sender<Vec<u8>>,
+  tx: Sender<RxBlock>,
+  recycle: Sender<Vec<u8>>,
+  free_buffers: Receiver<Vec<u8>>,
+  next_sequence: AtomicU64,
+  generation: AtomicU64,
+  tuning: AtomicBool,
+  invalid_transfers: AtomicU64,
+  short_transfers: AtomicU64,
+  queue_drops: AtomicU64,
+  tune_discards: AtomicU64,
+  callback_allocations: AtomicU64,
+  callback_allocated_bytes: AtomicU64,
+  copies: AtomicU64,
+  copied_bytes: AtomicU64,
+  recycled_buffers: AtomicU64,
+}
+
+impl RxContext {
+  fn new(
+    tx: Sender<RxBlock>,
+    recycle: Sender<Vec<u8>>,
+    free_buffers: Receiver<Vec<u8>>,
+  ) -> Self {
+    Self {
+      tx,
+      recycle,
+      free_buffers,
+      next_sequence: AtomicU64::new(0),
+      generation: AtomicU64::new(0),
+      tuning: AtomicBool::new(false),
+      invalid_transfers: AtomicU64::new(0),
+      short_transfers: AtomicU64::new(0),
+      queue_drops: AtomicU64::new(0),
+      tune_discards: AtomicU64::new(0),
+      callback_allocations: AtomicU64::new(0),
+      callback_allocated_bytes: AtomicU64::new(0),
+      copies: AtomicU64::new(0),
+      copied_bytes: AtomicU64::new(0),
+      recycled_buffers: AtomicU64::new(0),
+    }
+  }
+
+  fn recycle_buffer(&self, mut buffer: Vec<u8>) {
+    buffer.clear();
+    if self.recycle.try_send(buffer).is_ok() {
+      self.recycled_buffers.fetch_add(1, Ordering::Relaxed);
+    }
+  }
+
+  fn prepare_retune(&self) -> u64 {
+    self.tuning.store(true, Ordering::Release);
+    self.generation.fetch_add(1, Ordering::AcqRel) + 1
+  }
+
+  fn finish_retune(&self) {
+    self.tuning.store(false, Ordering::Release);
+  }
+}
+
+#[derive(Default)]
+struct HackRfFrameAssembler {
+  current: Option<RxBlock>,
+  current_offset: usize,
+  expected_sequence: Option<u64>,
+  generation: Option<u64>,
+  sequence_gaps: u64,
+  incomplete_windows_dropped: u64,
+}
+
+impl HackRfFrameAssembler {
+  fn fill_frame(
+    &mut self,
+    fft_size: usize,
+    output: &mut Vec<u8>,
+    mut next_block: impl FnMut() -> Result<RxBlock>,
+    mut on_block: impl FnMut(&[u8], bool),
+    mut recycle: impl FnMut(Vec<u8>),
+  ) -> Result<()> {
+    let target_len = fft_size
+      .checked_mul(2)
+      .filter(|target| *target > 0)
+      .ok_or_else(|| anyhow!("HackRF FFT size must be positive"))?;
+    output.clear();
+    output.reserve(target_len);
+
+    while output.len() < target_len {
+      if self
+        .current
+        .as_ref()
+        .is_some_and(|block| self.current_offset >= block.data.len())
+      {
+        if let Some(block) = self.current.take() {
+          recycle(block.data);
+        }
+        self.current_offset = 0;
+      }
+
+      if self.current.is_none() {
+        let block = match next_block() {
+          Ok(block) => block,
+          Err(error) => {
+            if !output.is_empty() {
+              self.incomplete_windows_dropped += 1;
+              output.clear();
+            }
+            return Err(error);
+          }
+        };
+        if block.data.is_empty() || block.data.len() % 2 != 0 {
+          recycle(block.data);
+          self.incomplete_windows_dropped += 1;
+          output.clear();
+          continue;
+        }
+
+        let sequence_gap = self
+          .expected_sequence
+          .is_some_and(|expected| expected != block.sequence);
+        let generation_changed = self
+          .generation
+          .is_some_and(|generation| generation != block.generation);
+        let discontinuity = sequence_gap || generation_changed;
+        if sequence_gap {
+          let missed = self
+            .expected_sequence
+            .map(|expected| block.sequence.saturating_sub(expected).max(1))
+            .unwrap_or(1);
+          self.sequence_gaps = self.sequence_gaps.saturating_add(missed);
+        }
+        if discontinuity {
+          if !output.is_empty() {
+            self.incomplete_windows_dropped += 1;
+            output.clear();
+          }
+          self.current_offset = 0;
+        }
+        self.expected_sequence = Some(block.sequence.wrapping_add(1));
+        self.generation = Some(block.generation);
+        on_block(&block.data, discontinuity);
+        self.current = Some(block);
+      }
+
+      let block = self.current.as_ref().expect("current block was loaded");
+      let remaining = target_len - output.len();
+      let available = block.data.len() - self.current_offset;
+      let count = remaining.min(available);
+      // Both offsets stay on complete I/Q byte pairs: valid transfers and the
+      // requested FFT window are even-sized.
+      output.extend_from_slice(
+        &block.data[self.current_offset..self.current_offset + count],
+      );
+      self.current_offset += count;
+    }
+
+    Ok(())
+  }
+
+  fn reset(&mut self, recycle: impl FnMut(Vec<u8>)) {
+    let mut recycle = recycle;
+    if let Some(block) = self.current.take() {
+      recycle(block.data);
+    }
+    self.current_offset = 0;
+    self.expected_sequence = None;
+    self.generation = None;
+  }
+}
+
+fn valid_rx_transfer_length(
+  valid_length: c_int,
+  buffer_length: c_int,
+) -> Option<usize> {
+  if valid_length <= 0
+    || buffer_length <= 0
+    || valid_length > buffer_length
+    || valid_length % 2 != 0
+  {
+    return None;
+  }
+  Some(valid_length as usize)
 }
 struct TxContext {
   iq: Mutex<Vec<u8>>,
@@ -56,7 +242,8 @@ fn should_resume_rx_after_tx_stop(
   tx_started && !streaming_started
 }
 
-fn drain_rx_queue(rx: &Receiver<Vec<u8>>) -> usize {
+#[cfg(test)]
+fn drain_rx_queue<T>(rx: &Receiver<T>) -> usize {
   // A live RX callback can refill the bounded queue while a retune flushes it.
   // Limit each flush to one queue's capacity so a gesture cannot monopolize
   // the acquisition worker while discarding stale chunks.
@@ -73,6 +260,7 @@ fn drain_rx_queue(rx: &Receiver<Vec<u8>>) -> usize {
 /// Tap every block consumed for one display read and return the newest block.
 /// `max_blocks` includes `first`, so a live callback cannot keep this drain
 /// loop occupied by replenishing the bounded receiver as quickly as it drains.
+#[cfg(test)]
 fn take_freshest_rx_block(
   rx: &Receiver<Vec<u8>>,
   mut first: Vec<u8>,
@@ -135,7 +323,7 @@ fn apply_hackrf_frequency_tune(
 
 pub struct HackRfDevice {
   dev: *mut ffi::HackRfDeviceHandle,
-  rx_queue: Receiver<Vec<u8>>,
+  rx_queue: Receiver<RxBlock>,
   rx_context: Option<Arc<RxContext>>,
   tx_context: Option<Arc<TxContext>>,
   tx_started: bool,
@@ -144,6 +332,8 @@ pub struct HackRfDevice {
   center_frequency: u32,
   requested_center_frequency: u32,
   ppm: u32,
+  transfer_buffer_size: usize,
+  frame_assembler: HackRfFrameAssembler,
   iq_buffer: Vec<u8>,
   /// Contiguous IQ retained for streaming consumers such as audio.
   audio_tap: AudioIqTap,
@@ -164,20 +354,77 @@ extern "C" fn hackrf_rx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
     }
 
     let transfer = unsafe { &mut *transfer };
-    if transfer.buffer.is_null()
-      || transfer.valid_length <= 0
-      || transfer.rx_ctx.is_null()
-    {
+    if transfer.rx_ctx.is_null() {
       return 0;
     }
 
     let ctx = unsafe { &*(transfer.rx_ctx as *const RxContext) };
-    let len = transfer.valid_length as usize;
+    let sequence = ctx.next_sequence.fetch_add(1, Ordering::Relaxed);
+    let Some(len) =
+      valid_rx_transfer_length(transfer.valid_length, transfer.buffer_length)
+    else {
+      ctx.invalid_transfers.fetch_add(1, Ordering::Relaxed);
+      return 0;
+    };
+    if transfer.buffer.is_null() {
+      ctx.invalid_transfers.fetch_add(1, Ordering::Relaxed);
+      return 0;
+    }
+    if transfer.valid_length < transfer.buffer_length {
+      ctx.short_transfers.fetch_add(1, Ordering::Relaxed);
+    }
+    if ctx.tuning.load(Ordering::Acquire) {
+      ctx.tune_discards.fetch_add(1, Ordering::Relaxed);
+      return 0;
+    }
+    let generation = ctx.generation.load(Ordering::Acquire);
     let data = unsafe { std::slice::from_raw_parts(transfer.buffer, len) };
-    let mut frame = Vec::with_capacity(len);
-    frame.extend_from_slice(data);
+    let mut block = match ctx.free_buffers.try_recv() {
+      Ok(buffer) if buffer.capacity() >= len => buffer,
+      Ok(_undersized_buffer) => {
+        // A transfer size can differ from the default pool size. Do not return
+        // an undersized buffer to the pool or every callback would allocate
+        // the same larger buffer again.
+        ctx.callback_allocations.fetch_add(1, Ordering::Relaxed);
+        ctx
+          .callback_allocated_bytes
+          .fetch_add(len as u64, Ordering::Relaxed);
+        Vec::with_capacity(len)
+      }
+      Err(_) => {
+        ctx.callback_allocations.fetch_add(1, Ordering::Relaxed);
+        ctx
+          .callback_allocated_bytes
+          .fetch_add(len as u64, Ordering::Relaxed);
+        Vec::with_capacity(len)
+      }
+    };
+    block.clear();
+    block.extend_from_slice(data);
+    ctx.copies.fetch_add(1, Ordering::Relaxed);
+    ctx.copied_bytes.fetch_add(len as u64, Ordering::Relaxed);
 
-    let _ = ctx.tx.try_send(frame);
+    if ctx.tuning.load(Ordering::Acquire)
+      || ctx.generation.load(Ordering::Acquire) != generation
+    {
+      ctx.tune_discards.fetch_add(1, Ordering::Relaxed);
+      ctx.recycle_buffer(block);
+      return 0;
+    }
+
+    let rx_block = RxBlock {
+      sequence,
+      generation,
+      data: block,
+    };
+    if let Err(error) = ctx.tx.try_send(rx_block) {
+      ctx.queue_drops.fetch_add(1, Ordering::Relaxed);
+      let block = match error {
+        crossbeam_channel::TrySendError::Full(block)
+        | crossbeam_channel::TrySendError::Disconnected(block) => block,
+      };
+      ctx.recycle_buffer(block.data);
+    }
 
     0
   });
@@ -192,11 +439,11 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
     let transfer = unsafe { &mut *transfer };
     if transfer.buffer.is_null()
       || transfer.buffer_length <= 0
-      || transfer.rx_ctx.is_null()
+      || transfer.tx_ctx.is_null()
     {
       return -1;
     }
-    let ctx = unsafe { &*(transfer.rx_ctx as *const TxContext) };
+    let ctx = unsafe { &*(transfer.tx_ctx as *const TxContext) };
     let iq = ctx.snapshot_iq();
     if iq.is_empty() {
       return -1;
@@ -295,7 +542,13 @@ impl HackRfDevice {
         let _ = ffi::hackrf_exit();
         return Err(anyhow!("Failed to open HackRF One device #{}", index));
       }
-      let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+      let transfer_buffer_size = ffi::hackrf_get_transfer_buffer_size(dev);
+      let transfer_buffer_size = if transfer_buffer_size >= 2 {
+        transfer_buffer_size
+      } else {
+        HACKRF_DEFAULT_TRANSFER_BUFFER_SIZE
+      };
+      let (_tx, rx) = bounded::<RxBlock>(HACKRF_RX_QUEUE_DEPTH);
       Ok(Self {
         dev,
         rx_queue: rx,
@@ -307,7 +560,9 @@ impl HackRfDevice {
         center_frequency: 0,
         requested_center_frequency: 0,
         ppm: 0,
-        iq_buffer: Vec::with_capacity(HACKRF_BLOCK_SIZE * 2),
+        transfer_buffer_size,
+        frame_assembler: HackRfFrameAssembler::default(),
+        iq_buffer: Vec::with_capacity(32_768 * 2),
         audio_tap: AudioIqTap::new(),
         streaming_started: false,
         serial_number,
@@ -318,36 +573,44 @@ impl HackRfDevice {
 
   fn rx_context_ptr(&mut self) -> *mut std::os::raw::c_void {
     if self.rx_context.is_none() {
-      let (tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+      let (tx, rx) = bounded::<RxBlock>(HACKRF_RX_QUEUE_DEPTH);
+      let (recycle, free_buffers) =
+        bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH * 2);
+      for _ in 0..HACKRF_RX_QUEUE_DEPTH {
+        let _ = recycle.try_send(Vec::with_capacity(self.transfer_buffer_size));
+      }
       self.rx_queue = rx;
-      self.rx_context = Some(Arc::new(RxContext { tx }));
+      self.rx_context =
+        Some(Arc::new(RxContext::new(tx, recycle, free_buffers)));
     }
 
     Arc::as_ptr(self.rx_context.as_ref().expect("rx context")) as *mut _
   }
 
-  /// Retain a received chunk in the audio tap as unsigned offset binary.
-  ///
-  /// The tap feeds consumers that expect the same format the display path
-  /// emits, so the signed i8 samples must be converted before retention rather
-  /// than after.
-  fn tap_normalized(&mut self, chunk: &[u8]) {
-    let mut normalized = chunk.to_vec();
-    normalize_hackrf_buffer(&mut normalized);
-    self.audio_tap.push(&normalized);
-  }
-
   fn set_sample_rate_inner(&mut self, rate: u32) -> Result<()> {
     let clamped = rate.clamp(HACKRF_MIN_SAMPLE_RATE, HACKRF_MAX_SAMPLE_RATE);
+    let context = self.rx_context.as_ref().cloned();
+    if let Some(context) = context.as_ref() {
+      context.prepare_retune();
+    }
     let ret =
       unsafe { ffi::hackrf_set_sample_rate_manual(self.dev, clamped, 1) };
     if ret != 0 {
+      if let Some(context) = context {
+        context.finish_retune();
+      }
       return Err(anyhow!(
         "Failed to set HackRF One sample rate to {} Hz",
         clamped
       ));
     }
     self.sample_rate = clamped;
+    if self.rx_context.is_some() {
+      self.flush_read_queue();
+    }
+    if let Some(context) = context {
+      context.finish_retune();
+    }
     Ok(())
   }
 
@@ -508,49 +771,102 @@ impl SdrDevice for HackRfDevice {
     fft_size: usize,
   ) -> Result<crate::signal_port::fft::types::RawSamples> {
     self.ensure_streaming()?;
-    let first = self.rx_queue.recv_timeout(HACKRF_RX_TIMEOUT).map_err(
-      |err| match err {
-        crossbeam_channel::RecvTimeoutError::Timeout => {
-          anyhow!("Timeout waiting for HackRF One RX samples")
-        }
-        crossbeam_channel::RecvTimeoutError::Disconnected => {
-          anyhow!("HackRF One RX queue closed")
-        }
-      },
-    )?;
-
-    // Keep display acquisition real-time even if audio retention is disabled:
-    // drain a bounded number of buffered blocks and display the freshest one.
     let audio_enabled = self.audio_tap.is_enabled();
     let rx_queue = self.rx_queue.clone();
-    let (mut frame, drained) = if audio_enabled {
-      take_freshest_rx_block(&rx_queue, first, HACKRF_RX_QUEUE_DEPTH, |chunk| {
-        self.tap_normalized(chunk)
-      })
-    } else {
-      take_freshest_rx_block(&rx_queue, first, HACKRF_RX_QUEUE_DEPTH, |_| {})
-    };
-    if drained > 0 {
-      crate::performance::pipeline_metrics().increment(
-        crate::performance::CounterKind::HackrfDisplayBlocksDrained,
-        drained as u64,
+    let context = self.rx_context.as_ref().cloned();
+    let frame_assembler = &mut self.frame_assembler;
+    let iq_buffer = &mut self.iq_buffer;
+    let audio_tap = &mut self.audio_tap;
+    let acquisition_started = std::time::Instant::now();
+    let assembled = frame_assembler.fill_frame(
+      fft_size,
+      iq_buffer,
+      || {
+        rx_queue
+          .recv_timeout(HACKRF_RX_TIMEOUT)
+          .map_err(|err| match err {
+            crossbeam_channel::RecvTimeoutError::Timeout => {
+              anyhow!("Timeout waiting for HackRF One RX samples")
+            }
+            crossbeam_channel::RecvTimeoutError::Disconnected => {
+              anyhow!("HackRF One RX queue closed")
+            }
+          })
+      },
+      |chunk, discontinuity| {
+        if audio_enabled {
+          if discontinuity {
+            audio_tap.clear();
+          }
+          let mut normalized = chunk.to_vec();
+          normalize_hackrf_buffer(&mut normalized);
+          audio_tap.push(&normalized);
+        }
+      },
+      |buffer| {
+        if let Some(context) = context.as_ref() {
+          context.recycle_buffer(buffer);
+        }
+      },
+    );
+    let acquisition_elapsed = acquisition_started.elapsed();
+
+    let metrics = crate::performance::pipeline_metrics();
+    metrics.record_latency(
+      crate::performance::Stage::Acquisition,
+      acquisition_elapsed,
+    );
+    metrics.observe_queue(
+      crate::performance::Stage::Acquisition,
+      rx_queue.len() as u64,
+    );
+    if let Some(context) = self.rx_context.as_ref() {
+      metrics.increment(
+        crate::performance::CounterKind::HackrfShortTransfers,
+        context.short_transfers.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::HackrfQueueDrops,
+        context.queue_drops.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::Allocations,
+        context.callback_allocations.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::AllocatedBytes,
+        context.callback_allocated_bytes.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::Copies,
+        context.copies.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::CopiedBytes,
+        context.copied_bytes.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::HackrfInvalidTransfers,
+        context.invalid_transfers.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::HackrfTuneDiscards,
+        context.tune_discards.swap(0, Ordering::Relaxed),
+      );
+      metrics.increment(
+        crate::performance::CounterKind::HackrfRecycledBuffers,
+        context.recycled_buffers.swap(0, Ordering::Relaxed),
       );
     }
-
-    let target_len = fft_size.saturating_mul(2);
-    if frame.len() > target_len {
-      frame.truncate(target_len);
-    } else if frame.len() < target_len {
-      frame.resize(target_len, 0);
-    }
-
-    if self.iq_buffer.capacity() < target_len {
-      self
-        .iq_buffer
-        .reserve(target_len - self.iq_buffer.capacity());
-    }
-    self.iq_buffer.clear();
-    self.iq_buffer.extend_from_slice(&frame);
+    metrics.increment(
+      crate::performance::CounterKind::SequenceGaps,
+      std::mem::take(&mut self.frame_assembler.sequence_gaps),
+    );
+    metrics.increment(
+      crate::performance::CounterKind::HackrfIncompleteWindowsDropped,
+      std::mem::take(&mut self.frame_assembler.incomplete_windows_dropped),
+    );
+    assembled?;
 
     // Normalize signed i8 IQ data to unsigned u8 offset binary (centered at 128)
     normalize_hackrf_buffer(&mut self.iq_buffer);
@@ -559,6 +875,13 @@ impl SdrDevice for HackRfDevice {
       data: std::mem::take(&mut self.iq_buffer),
       sample_rate: self.sample_rate,
     })
+  }
+
+  fn recycle_read_buffer(&mut self, mut buffer: Vec<u8>) {
+    buffer.clear();
+    if buffer.capacity() > self.iq_buffer.capacity() {
+      self.iq_buffer = buffer;
+    }
   }
 
   fn set_audio_iq_tap_enabled(&mut self, enabled: bool) {
@@ -612,9 +935,16 @@ impl SdrDevice for HackRfDevice {
     // (hackrf_stop_rx can block in firmware) turned every VFO tick into a full
     // stream restart and stalled scrolling. Retune in place, then drop chunks
     // already buffered at the old LO so the next frame is new-frequency content.
-    self.set_center_frequency(freq)?;
+    let context = self.rx_context.as_ref().cloned();
+    if let Some(context) = context.as_ref() {
+      context.prepare_retune();
+    }
+    let result = self.set_center_frequency(freq);
     self.flush_read_queue();
-    Ok(())
+    if let Some(context) = context {
+      context.finish_retune();
+    }
+    result
   }
 
   fn set_gain(&mut self, gain: f64) -> Result<()> {
@@ -691,7 +1021,18 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn flush_read_queue(&mut self) {
-    drain_rx_queue(&self.rx_queue);
+    let context = self.rx_context.as_ref().cloned();
+    while let Ok(block) = self.rx_queue.try_recv() {
+      if let Some(context) = context.as_ref() {
+        context.recycle_buffer(block.data);
+      }
+    }
+    let recycle_context = context.clone();
+    self.frame_assembler.reset(|buffer| {
+      if let Some(context) = recycle_context.as_ref() {
+        context.recycle_buffer(buffer);
+      }
+    });
     self.iq_buffer.clear();
     // A flush is an intentional discontinuity, so retained audio would splice
     // unrelated spectrum into the stream.
@@ -775,6 +1116,109 @@ fn normalize_hackrf_buffer(buffer: &mut [u8]) {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::collections::VecDeque;
+
+  fn rx_block(sequence: u64, generation: u64, data: &[u8]) -> RxBlock {
+    RxBlock {
+      sequence,
+      generation,
+      data: data.to_vec(),
+    }
+  }
+
+  fn fill_frame(
+    assembler: &mut HackRfFrameAssembler,
+    fft_size: usize,
+    blocks: &mut VecDeque<RxBlock>,
+    output: &mut Vec<u8>,
+  ) -> Result<()> {
+    assembler.fill_frame(
+      fft_size,
+      output,
+      || {
+        blocks
+          .pop_front()
+          .ok_or_else(|| anyhow!("test blocks exhausted"))
+      },
+      |_, _| {},
+      |_| {},
+    )
+  }
+
+  #[test]
+  fn transfer_length_accepts_short_complete_iq_pairs_without_padding() {
+    assert_eq!(valid_rx_transfer_length(4, 8), Some(4));
+    assert_eq!(valid_rx_transfer_length(3, 8), None);
+    assert_eq!(valid_rx_transfer_length(9, 8), None);
+    assert_eq!(valid_rx_transfer_length(0, 8), None);
+  }
+
+  #[test]
+  fn frame_assembly_combines_transfers_and_preserves_unconsumed_samples() {
+    let mut assembler = HackRfFrameAssembler::default();
+    let mut blocks = VecDeque::from([
+      rx_block(0, 1, &[1, 2, 3, 4, 5, 6, 7, 8]),
+      rx_block(1, 1, &[9, 10, 11, 12, 13, 14, 15, 16]),
+    ]);
+    let mut frame = Vec::new();
+
+    fill_frame(&mut assembler, 2, &mut blocks, &mut frame).unwrap();
+    assert_eq!(frame, vec![1, 2, 3, 4]);
+    fill_frame(&mut assembler, 2, &mut blocks, &mut frame).unwrap();
+    assert_eq!(frame, vec![5, 6, 7, 8]);
+    fill_frame(&mut assembler, 2, &mut blocks, &mut frame).unwrap();
+    assert_eq!(frame, vec![9, 10, 11, 12]);
+  }
+
+  #[test]
+  fn frame_assembly_waits_for_a_full_window_across_short_transfers() {
+    let mut assembler = HackRfFrameAssembler::default();
+    let mut blocks = VecDeque::from([
+      rx_block(0, 1, &[1, 2]),
+      rx_block(1, 1, &[3, 4]),
+      rx_block(2, 1, &[5, 6]),
+      rx_block(3, 1, &[7, 8]),
+    ]);
+    let mut frame = Vec::new();
+
+    fill_frame(&mut assembler, 4, &mut blocks, &mut frame).unwrap();
+
+    assert_eq!(frame.len(), 8);
+    assert_eq!(frame, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+  }
+
+  #[test]
+  fn frame_assembly_drops_partial_window_on_sequence_gap() {
+    let mut assembler = HackRfFrameAssembler::default();
+    let mut blocks = VecDeque::from([
+      rx_block(0, 1, &[1, 2]),
+      rx_block(2, 1, &[3, 4]),
+      rx_block(3, 1, &[5, 6]),
+    ]);
+    let mut frame = Vec::new();
+
+    fill_frame(&mut assembler, 2, &mut blocks, &mut frame).unwrap();
+
+    assert_eq!(frame, vec![3, 4, 5, 6]);
+    assert_eq!(assembler.sequence_gaps, 1);
+    assert_eq!(assembler.incomplete_windows_dropped, 1);
+  }
+
+  #[test]
+  fn frame_assembly_never_combines_samples_across_retune_generations() {
+    let mut assembler = HackRfFrameAssembler::default();
+    let mut blocks = VecDeque::from([
+      rx_block(0, 1, &[1, 2]),
+      rx_block(1, 2, &[3, 4]),
+      rx_block(2, 2, &[5, 6]),
+    ]);
+    let mut frame = Vec::new();
+
+    fill_frame(&mut assembler, 2, &mut blocks, &mut frame).unwrap();
+
+    assert_eq!(frame, vec![3, 4, 5, 6]);
+    assert_eq!(assembler.incomplete_windows_dropped, 1);
+  }
 
   #[test]
   fn tx_payload_is_padded_to_a_complete_iq_pair() {
@@ -826,7 +1270,7 @@ mod tests {
 
   #[test]
   fn rx_context_is_reused_across_restart_cycles() {
-    let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    let (_tx, rx) = bounded::<RxBlock>(HACKRF_RX_QUEUE_DEPTH);
     let mut device = HackRfDevice {
       dev: ptr::null_mut(),
       rx_queue: rx,
@@ -836,6 +1280,8 @@ mod tests {
       center_frequency: 0,
       requested_center_frequency: 0,
       ppm: 0,
+      transfer_buffer_size: HACKRF_DEFAULT_TRANSFER_BUFFER_SIZE,
+      frame_assembler: HackRfFrameAssembler::default(),
       iq_buffer: Vec::new(),
       audio_tap: AudioIqTap::new(),
       tx_context: None,
@@ -856,7 +1302,7 @@ mod tests {
   fn repeated_cleanup_does_not_reenter_the_native_session() {
     // The shutdown path calls `cleanup()` explicitly and `Drop` calls it again.
     // The second pass must not tear the hackrf session down twice.
-    let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
+    let (_tx, rx) = bounded::<RxBlock>(HACKRF_RX_QUEUE_DEPTH);
     let mut device = HackRfDevice {
       dev: ptr::null_mut(),
       rx_queue: rx,
@@ -866,6 +1312,8 @@ mod tests {
       center_frequency: 0,
       requested_center_frequency: 0,
       ppm: 0,
+      transfer_buffer_size: HACKRF_DEFAULT_TRANSFER_BUFFER_SIZE,
+      frame_assembler: HackRfFrameAssembler::default(),
       iq_buffer: Vec::new(),
       audio_tap: AudioIqTap::new(),
       tx_context: None,
@@ -998,5 +1446,71 @@ mod tests {
     context.replace_iq(vec![5, 6, 7, 8]);
 
     assert_eq!(context.snapshot_iq(), vec![5, 6, 7, 8]);
+  }
+
+  #[test]
+  fn tx_callback_reads_tx_context_without_starting_hardware_tx() {
+    let context = TxContext::new(vec![11, 22, 33, 44]);
+    let mut output = [0_u8; 8];
+    let mut transfer = ffi::HackRfTransfer {
+      device: ptr::null_mut(),
+      buffer: output.as_mut_ptr(),
+      buffer_length: output.len() as c_int,
+      valid_length: 0,
+      rx_ctx: ptr::null_mut(),
+      tx_ctx: (&context as *const TxContext).cast_mut().cast(),
+    };
+
+    assert_eq!(hackrf_tx_callback(&mut transfer), 0);
+    assert_eq!(transfer.valid_length, output.len() as c_int);
+    assert_eq!(output, [11, 22, 33, 44, 11, 22, 33, 44]);
+  }
+
+  #[test]
+  fn rx_callback_uses_buffer_pool_for_a_valid_short_transfer() {
+    let (tx, rx) = bounded::<RxBlock>(HACKRF_RX_QUEUE_DEPTH);
+    let (recycle, free_buffers) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH * 2);
+    recycle.send(Vec::with_capacity(8)).unwrap();
+    let context = RxContext::new(tx, recycle, free_buffers);
+    let mut input = [10_u8, 20, 30, 40, 0, 0, 0, 0];
+    let mut transfer = ffi::HackRfTransfer {
+      device: ptr::null_mut(),
+      buffer: input.as_mut_ptr(),
+      buffer_length: input.len() as c_int,
+      valid_length: 4,
+      rx_ctx: (&context as *const RxContext).cast_mut().cast(),
+      tx_ctx: ptr::null_mut(),
+    };
+
+    assert_eq!(hackrf_rx_callback(&mut transfer), 0);
+
+    let block = rx.try_recv().expect("callback sends the acquired bytes");
+    assert_eq!(block.sequence, 0);
+    assert_eq!(block.generation, 0);
+    assert_eq!(block.data, [10, 20, 30, 40]);
+    assert_eq!(context.short_transfers.load(Ordering::Relaxed), 1);
+    assert_eq!(context.callback_allocations.load(Ordering::Relaxed), 0);
+  }
+
+  #[test]
+  fn callback_replaces_pool_buffers_smaller_than_actual_transfer_size() {
+    let (tx, _rx) = bounded::<RxBlock>(HACKRF_RX_QUEUE_DEPTH);
+    let (recycle, free_buffers) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH * 2);
+    recycle.send(Vec::with_capacity(4)).unwrap();
+    let context = RxContext::new(tx, recycle, free_buffers.clone());
+    let mut input = [10_u8, 20, 30, 40, 50, 60, 70, 80];
+    let mut transfer = ffi::HackRfTransfer {
+      device: ptr::null_mut(),
+      buffer: input.as_mut_ptr(),
+      buffer_length: input.len() as c_int,
+      valid_length: input.len() as c_int,
+      rx_ctx: (&context as *const RxContext).cast_mut().cast(),
+      tx_ctx: ptr::null_mut(),
+    };
+
+    assert_eq!(hackrf_rx_callback(&mut transfer), 0);
+
+    assert!(free_buffers.is_empty());
+    assert_eq!(context.callback_allocations.load(Ordering::Relaxed), 1);
   }
 }

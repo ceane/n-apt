@@ -147,6 +147,12 @@ pub enum CounterKind {
   AllocatedBytes,
   SupersededRuntimeOptions,
   HackrfDisplayBlocksDrained,
+  HackrfShortTransfers,
+  HackrfInvalidTransfers,
+  HackrfQueueDrops,
+  HackrfTuneDiscards,
+  HackrfIncompleteWindowsDropped,
+  HackrfRecycledBuffers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -172,6 +178,12 @@ pub struct CounterSnapshot {
   pub allocated_bytes: u64,
   pub superseded_runtime_options: u64,
   pub hackrf_display_blocks_drained: u64,
+  pub hackrf_short_transfers: u64,
+  pub hackrf_invalid_transfers: u64,
+  pub hackrf_queue_drops: u64,
+  pub hackrf_tune_discards: u64,
+  pub hackrf_incomplete_windows_dropped: u64,
+  pub hackrf_recycled_buffers: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -214,6 +226,12 @@ struct AtomicCounters {
   allocated_bytes: AtomicU64,
   superseded_runtime_options: AtomicU64,
   hackrf_display_blocks_drained: AtomicU64,
+  hackrf_short_transfers: AtomicU64,
+  hackrf_invalid_transfers: AtomicU64,
+  hackrf_queue_drops: AtomicU64,
+  hackrf_tune_discards: AtomicU64,
+  hackrf_incomplete_windows_dropped: AtomicU64,
+  hackrf_recycled_buffers: AtomicU64,
 }
 
 #[derive(Default)]
@@ -288,6 +306,20 @@ impl PipelineMetrics {
       CounterKind::HackrfDisplayBlocksDrained => {
         &self.counters.hackrf_display_blocks_drained
       }
+      CounterKind::HackrfShortTransfers => {
+        &self.counters.hackrf_short_transfers
+      }
+      CounterKind::HackrfInvalidTransfers => {
+        &self.counters.hackrf_invalid_transfers
+      }
+      CounterKind::HackrfQueueDrops => &self.counters.hackrf_queue_drops,
+      CounterKind::HackrfTuneDiscards => &self.counters.hackrf_tune_discards,
+      CounterKind::HackrfIncompleteWindowsDropped => {
+        &self.counters.hackrf_incomplete_windows_dropped
+      }
+      CounterKind::HackrfRecycledBuffers => {
+        &self.counters.hackrf_recycled_buffers
+      }
     };
     counter.fetch_add(amount, Ordering::Relaxed);
   }
@@ -333,6 +365,14 @@ impl PipelineMetrics {
       hackrf_display_blocks_drained: load(
         &self.counters.hackrf_display_blocks_drained,
       ),
+      hackrf_short_transfers: load(&self.counters.hackrf_short_transfers),
+      hackrf_invalid_transfers: load(&self.counters.hackrf_invalid_transfers),
+      hackrf_queue_drops: load(&self.counters.hackrf_queue_drops),
+      hackrf_tune_discards: load(&self.counters.hackrf_tune_discards),
+      hackrf_incomplete_windows_dropped: load(
+        &self.counters.hackrf_incomplete_windows_dropped,
+      ),
+      hackrf_recycled_buffers: load(&self.counters.hackrf_recycled_buffers),
     };
     let stages = self
       .stages

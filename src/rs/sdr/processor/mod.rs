@@ -701,6 +701,10 @@ impl SdrProcessor {
   }
 
   /// Swap devices while honoring a frontend-selected Whole Channel rate.
+  ///
+  /// When no rate is supplied, the live rate of the outgoing device is carried
+  /// over so a source switch does not reset the acquisition window to the
+  /// static configuration default.
   pub fn swap_device_keep_warm_with_sample_rate(
     &mut self,
     mut device: Box<dyn SdrDevice>,
@@ -716,6 +720,11 @@ impl SdrProcessor {
     // The bounded retry lets the old async reader finish before settings or a
     // new reader touch the same USB handle.
     stop_warm_device(device.as_mut())?;
+    // A swap without an explicit rate keeps the rate the user is currently
+    // listening to. Falling back to the YAML default silently reset a
+    // frontend-requested Whole Channel window whenever the active source
+    // changed (hot-plug attach, source switch, or recovery).
+    let live_sample_rate = self.device.get_sample_rate();
     let previous_device = std::mem::replace(&mut self.device, device);
     self.device_generation += 1;
     self.detached = false;
@@ -730,10 +739,15 @@ impl SdrProcessor {
 
     // Push current config to the new hardware
     let settings = crate::server::utils::load_sdr_settings();
+    let fallback_sample_rate = if live_sample_rate > 0 {
+      live_sample_rate
+    } else {
+      settings.sample_rate
+    };
     let swap_result = (|| -> Result<()> {
       self.apply_settings(crate::server::types::SdrProcessorSettings {
         sample_rate: Some(
-          requested_sample_rate.unwrap_or(settings.sample_rate),
+          requested_sample_rate.unwrap_or(fallback_sample_rate),
         ),
         gain: Some(settings.gain.tuner_gain),
         ppm: Some(settings.ppm as u32),
@@ -3067,6 +3081,35 @@ mod hackrf_settings_tests {
       .lock()
       .unwrap()
       .contains(&"sample_rate:3200000".to_string()));
+  }
+
+  #[test]
+  fn warm_swap_preserves_the_live_rate_when_none_is_requested() {
+    let first = RecordingDevice {
+      sample_rate: 4_372_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let mut processor =
+      SdrProcessor::with_device(Box::new(first)).expect("processor");
+    // `with_device` starts from the configured default; move the live device
+    // to a frontend-selected Whole Channel rate first.
+    processor.set_sample_rate(4_372_000).expect("live rate");
+    let replacement = RecordingDevice {
+      sample_rate: 2_000_000,
+      max_sample_rate: 20_000_000,
+      ..Default::default()
+    };
+    let replacement_calls = replacement.calls.clone();
+
+    processor
+      .swap_device_keep_warm(Box::new(replacement))
+      .expect("warm swap");
+
+    assert!(replacement_calls
+      .lock()
+      .unwrap()
+      .contains(&"sample_rate:4372000".to_string()));
   }
 
   #[test]

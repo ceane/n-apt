@@ -27,6 +27,7 @@ import {
   isMockDevice,
   isMockTxSource,
 } from "@n-apt/app/infrastructure/services/deviceCapabilities";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 import { useLocation } from "react-router";
 import {
   FRONTEND_VISUALIZER_DEFAULTS,
@@ -2705,9 +2706,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
 
     const sendFrequencyRangeCommand = useCallback(
       (range: FrequencyRange) => {
+        browserPipelineMetrics.retuneRequested(
+          selectedSourceId,
+          (range.min + range.max) / 2,
+        );
         reduxDispatch(sendFrequencyRangeThunk(range));
       },
-      [reduxDispatch],
+      [reduxDispatch, selectedSourceId],
     );
 
     const sendPauseCommand = useCallback(
