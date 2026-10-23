@@ -20,9 +20,10 @@ pub struct HackRfDeviceList {
 pub struct HackRfTransfer {
   pub device: *mut HackRfDeviceHandle,
   pub buffer: *mut u8,
-  pub valid_length: c_int,
   pub buffer_length: c_int,
+  pub valid_length: c_int,
   pub rx_ctx: *mut c_void,
+  pub tx_ctx: *mut c_void,
 }
 
 pub type HackRfSampleBlockCb =
@@ -32,6 +33,9 @@ extern "C" {
   pub fn hackrf_init() -> c_int;
   pub fn hackrf_exit() -> c_int;
   pub fn hackrf_error_name(error_code: c_int) -> *const c_char;
+  pub fn hackrf_get_transfer_buffer_size(
+    device: *mut HackRfDeviceHandle,
+  ) -> usize;
   pub fn hackrf_device_list() -> *mut HackRfDeviceList;
   pub fn hackrf_device_list_open(
     list: *mut HackRfDeviceList,
@@ -82,4 +86,23 @@ extern "C" {
     bw_hz: u32,
   ) -> c_int;
   pub fn hackrf_is_streaming(device: *mut HackRfDeviceHandle) -> c_int;
+}
+
+#[cfg(test)]
+mod tests {
+  use super::HackRfTransfer;
+  use std::mem::{offset_of, size_of};
+
+  #[test]
+  fn transfer_layout_matches_libhackrf_c_header() {
+    let pointer = size_of::<*mut ()>();
+    assert_eq!(offset_of!(HackRfTransfer, device), 0);
+    assert_eq!(offset_of!(HackRfTransfer, buffer), pointer);
+    assert_eq!(offset_of!(HackRfTransfer, buffer_length), pointer * 2);
+    assert_eq!(offset_of!(HackRfTransfer, valid_length), pointer * 2 + 4);
+    let context_offset = (pointer * 2 + 8 + pointer - 1) / pointer * pointer;
+    assert_eq!(offset_of!(HackRfTransfer, rx_ctx), context_offset);
+    assert_eq!(offset_of!(HackRfTransfer, tx_ctx), context_offset + pointer);
+    assert_eq!(size_of::<HackRfTransfer>(), context_offset + pointer * 2);
+  }
 }
