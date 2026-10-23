@@ -2057,7 +2057,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not restore a stale Whole Channel request over the accepted 3.2MHz source rate on mount", async () => {
+  it("restores a persisted Whole Channel request over the accepted 3.2MHz source rate on mount", async () => {
     mockEffectiveSampleRateHz = 3_200_000;
     mockEffectiveFrames = [
       {
@@ -2160,22 +2160,138 @@ describe("SpectrumSidebar sample rate behavior", () => {
     const sampleRateSelect = within(
       sampleRateRow as HTMLElement,
     ).getByRole("combobox") as HTMLSelectElement;
+    await waitFor(() => expect(sampleRateSelect.value).toBe("whole-channel"));
     expect(
       Array.from(sampleRateSelect.options).some(
         (option) => option.value === "3200000",
       ),
     ).toBe(true);
 
-    const calls = mockWsConnection.sendSettings.mock.calls as Array<
-      [{ sampleRate?: number; tunerBandwidth?: number }]
-    >;
-    expect(
-      calls.some(
-        ([settings]) =>
-          settings?.sampleRate !== undefined ||
-          settings?.tunerBandwidth !== undefined,
+    await waitFor(() =>
+      expect(mockWsConnection.sendSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sampleRate: 18_250_000,
+          frameRate: expect.any(Number),
+        }),
       ),
-    ).toBe(false);
+    );
+    expect(mockWsConnection.sendFrequencyRange).toHaveBeenCalledWith({
+      min: 4_750_000,
+      max: 23_000_000,
+    });
+  });
+
+  it("restores the requested rate when backend settings claim it but frames still report the floor", async () => {
+    // The backend advertises the requested rate in source/settings snapshots,
+    // while the frames being painted are still acquired at 3.2MHz. The frame
+    // metadata is the accepted rate the renderer actually uses.
+    mockEffectiveSampleRateHz = 4_372_000;
+    mockLiveState = {
+      ...mockLiveState,
+      activeSignalArea: "A",
+      frequencyRange: { min: 18_000, max: 4_390_000 },
+      sampleRateHz: 4_372_000,
+      selectedSourceId: "hackrf-1",
+      sourceMode: "live",
+      selectedSourceDerived: {
+        backend: "hackrf",
+        deviceState: "connected",
+        deviceName: "HackRF One",
+        deviceProfile: { kind: "hackrf_one", is_rtl_sdr: false },
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: [
+          2_400_000,
+          3_200_000,
+          5_200_000,
+          20_000_000,
+        ],
+        sampleRateHz: 4_372_000,
+        sdrSettings: {
+          sample_rate: 4_372_000,
+          min_receive_sample_rate: 3_200_000,
+        },
+        supportsBasebandFilter: true,
+      },
+      sources: [
+        {
+          id: "hackrf-1",
+          kind: "hackrf_one",
+          backend: "hackrf",
+          deviceName: "HackRF One",
+          status: "connected",
+          maxSampleRateHz: 20_000_000,
+          sampleRateOptions: [2_400_000, 3_200_000, 5_200_000, 20_000_000],
+          sdr: {
+            max_sample_rate: 20_000_000,
+            sample_rate_options: [
+              2_400_000,
+              3_200_000,
+              5_200_000,
+              20_000_000,
+            ],
+            settings: { sample_rate: 4_372_000 },
+          },
+        },
+      ],
+    };
+    mockEffectiveFrames = [
+      {
+        id: "a",
+        label: "A",
+        min_hz: 18_000,
+        max_hz: 4_390_000,
+        sample_rate: 3_200_000,
+        description: "HackRF test channel",
+      },
+    ];
+    mockSignalAreaBounds = {
+      A: { min: 18_000, max: 4_390_000 },
+      a: { min: 18_000, max: 4_390_000 },
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      sendSettings: jest.fn(),
+      sendFrequencyRange: jest.fn(),
+      sources: mockLiveState.sources,
+      sampleRateOptions: [2_400_000, 3_200_000, 5_200_000, 20_000_000],
+      backend: "hackrf",
+      deviceProfile: { kind: "hackrf_one", is_rtl_sdr: false },
+      deviceName: "HackRF One",
+      deviceState: "connected",
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "hackrf-1",
+        activeSourceMode: "live",
+        sources: mockLiveState.sources,
+      } as any),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    await waitFor(() =>
+      expect(mockWsConnection.sendSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sampleRate: 4_372_000,
+          frameRate: expect.any(Number),
+        }),
+      ),
+    );
+    expect(mockWsConnection.sendFrequencyRange).toHaveBeenCalledWith({
+      min: 18_000,
+      max: 4_390_000,
+    });
   });
 
   it("does not fight the user's manual sample-rate change while the backend rate is stale", async () => {

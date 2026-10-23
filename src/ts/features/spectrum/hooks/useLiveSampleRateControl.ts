@@ -49,6 +49,8 @@ type UseLiveSampleRateControlArgs = {
   activeSignalAreaBounds: FrequencyRange | null;
   frequencyRange: FrequencyRange | null;
   sampleRateHz: number | null;
+  /** Backend-accepted acquisition rate, distinct from persisted/requested UI state. */
+  deviceSampleRateHz?: number | null;
   fftSize?: number;
   maxFrameRateLimit?: number;
   startingAnchorPosition?: SampleRateAnchorPosition;
@@ -235,6 +237,7 @@ export const useLiveSampleRateControl = ({
   activeSignalAreaBounds,
   frequencyRange,
   sampleRateHz,
+  deviceSampleRateHz,
   fftSize,
   maxFrameRateLimit,
   startingAnchorPosition = "start",
@@ -258,6 +261,7 @@ export const useLiveSampleRateControl = ({
   const pendingAcquisitionRateRef = useRef<number | null>(null);
   const wholeChannelBoundsKeyRef = useRef<string | null>(null);
   const pendingWholeChannelBoundsKeyRef = useRef<string | null>(null);
+  const wholeChannelDeviceSyncRateRef = useRef<number | null>(null);
   const [pendingSampleRateHz, setPendingSampleRateHz] = useState<number | null>(
     null,
   );
@@ -298,13 +302,20 @@ export const useLiveSampleRateControl = ({
       (sampleRateMode !== "manual" &&
         resolveWholeChannelMode({
           supportsWholeChannel: true,
-          sampleRateHz: requestedSampleRateHz,
+          // A persisted local request is only intent. Until the device accepts
+          // it, an older channel-width request must not make the selector claim
+          // Whole Channel while the source is still acquiring at its old rate.
+          sampleRateHz:
+            typeof deviceSampleRateHz === "number" &&
+            Number.isFinite(deviceSampleRateHz) &&
+            deviceSampleRateHz > 0
+              ? deviceSampleRateHz
+              : requestedSampleRateHz,
           activeChannelBounds: {
             min: 0,
             max: wholeChannelSampleRate ?? 0,
           },
         })));
-
   const applyFrequencyRangeIfChanged = useCallback(
     (range: FrequencyRange) => {
       const normalizedRange = normalizeFrequencyRangeToHz(range);
@@ -442,6 +453,20 @@ export const useLiveSampleRateControl = ({
       Number.isFinite(requestedSampleRateHz)
         ? Math.round(requestedSampleRateHz)
         : null;
+    // The device-accepted rate is the only proof that a request reached the
+    // hardware. Redux can hold the whole-channel intent (e.g. rehydrated from
+    // storage) while the source still acquires at its generic floor after a
+    // hot-plug or source switch.
+    const deviceRate =
+      typeof deviceSampleRateHz === "number" &&
+      Number.isFinite(deviceSampleRateHz) &&
+      deviceSampleRateHz > 0
+        ? Math.round(deviceSampleRateHz)
+        : null;
+    const acceptedRate = deviceRate ?? currentRate;
+    if (deviceRate !== null && deviceRate === nextRate) {
+      wholeChannelDeviceSyncRateRef.current = null;
+    }
 
     const boundsKey = activeSignalAreaBounds
       ? `${activeSignalAreaBounds.min}:${activeSignalAreaBounds.max}`
@@ -452,11 +477,17 @@ export const useLiveSampleRateControl = ({
       const pendingBoundsKey = pendingWholeChannelBoundsKeyRef.current;
       if (pendingBoundsKey !== null && pendingBoundsKey !== boundsKey) return;
       pendingWholeChannelBoundsKeyRef.current = null;
+      const deviceBehindWholeChannel =
+        deviceRate !== null &&
+        deviceRate !== nextRate &&
+        wholeChannelDeviceSyncRateRef.current !== nextRate;
       if (
         wholeChannelBoundsKeyRef.current !== boundsKey ||
-        currentRate !== nextRate
+        currentRate !== nextRate ||
+        deviceBehindWholeChannel
       ) {
         wholeChannelBoundsKeyRef.current = boundsKey;
+        wholeChannelDeviceSyncRateRef.current = nextRate;
         pendingAcquisitionRateRef.current = nextRate;
         setPendingSampleRateHz(nextRate);
         if (setSampleRateWithFrequencyRange) {
@@ -474,33 +505,35 @@ export const useLiveSampleRateControl = ({
     // another channel must not reinterpret it as a request for that channel's
     // Whole Channel width. Explicit selector/channel actions call
     // handleSampleRateChange themselves.
-    if (currentRate !== null && currentRate > 0) {
+    if (acceptedRate !== null && acceptedRate > 0) {
       if (
         preferWholeChannelOnLiveStart &&
         sampleRateMode === null &&
         !wholeChannelStartupRestoreAttemptedRef.current &&
-        (currentRate === 3_200_000 || currentRate === nextRate)
+        acceptedRate === 3_200_000 &&
+        acceptedRate !== nextRate
       ) {
-        // Restore rate and VFO bounds together once. Explicit user commands
-        // mark startup handled before publishing their own acquisition state.
+        // The device still reports its generic floor even though the local
+        // state carries the Whole Channel intent (persisted across reloads and
+        // source switches). Apply the intent once; the selector already treats
+        // the accepted device rate, not this request, as authoritative.
         wholeChannelStartupRestoreAttemptedRef.current = true;
         wholeChannelBoundsKeyRef.current = boundsKey;
+        wholeChannelDeviceSyncRateRef.current = nextRate;
         pendingAcquisitionRateRef.current = nextRate;
         setPendingSampleRateHz(nextRate);
         setSampleRateMode("whole");
         const wholeRange = activeSignalAreaBounds;
-        if (currentRate !== nextRate) {
-          if (wholeRange && setSampleRateWithFrequencyRange) {
-            setSampleRateWithFrequencyRange(nextRate, wholeRange);
-          } else {
-            setSampleRate(nextRate);
-          }
-          onSampleRateApplied?.(nextRate);
+        if (wholeRange && setSampleRateWithFrequencyRange) {
+          setSampleRateWithFrequencyRange(nextRate, wholeRange);
+        } else {
+          setSampleRate(nextRate);
         }
+        onSampleRateApplied?.(nextRate);
         if (wholeRange) applyFrequencyRangeIfChanged(wholeRange);
         return;
       }
-      if (currentRate !== nextRate) return;
+      if (acceptedRate !== nextRate) return;
       if (lastAppliedWholeChannelRateRef.current !== nextRate) {
         onSampleRateApplied?.(nextRate);
       }
@@ -533,6 +566,7 @@ export const useLiveSampleRateControl = ({
     activeChannelSampleRate,
     activeSignalAreaBounds,
     applyFrequencyRangeIfChanged,
+    deviceSampleRateHz,
     frequencyRange,
     preferWholeChannelOnLiveStart,
     requestedSampleRateHz,

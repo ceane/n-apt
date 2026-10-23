@@ -53,6 +53,54 @@ describe("browser pipeline performance metrics", () => {
     expect(metrics.snapshot().timings.workerCompute.observations).toBe(0);
   });
 
+  it("keeps tune-to-frame latency matched to its source and target frequency", () => {
+    jest.useFakeTimers();
+    try {
+      const metrics = PipelinePerformance.createPipelinePerformanceMetrics(true);
+      metrics.retuneRequested("hackrf_one-secret", 13_400_000);
+      jest.advanceTimersByTime(70);
+      metrics.retuneFrameReceived("rtl_sdr-secret", 13_400_000);
+      metrics.retuneFrameReceived("hackrf_one-secret", 13_400_000);
+
+      expect(metrics.snapshot().timings.tuneRequestToFrameReceipt.p50Ms)
+        .toBe(70);
+      expect(
+        metrics.snapshot().sourceTimings["hackrf_one#1"]
+          .tuneRequestToFrameReceipt.p95Ms,
+      ).toBe(70);
+      expect(metrics.snapshot().sourceTimings["rtl_sdr#1"])
+        .toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("only measures a fresh frame after an actual center-frequency change", () => {
+    jest.useFakeTimers();
+    try {
+      const metrics = PipelinePerformance.createPipelinePerformanceMetrics(true);
+      metrics.retuneFrameReceived("hackrf_one-device", 13_400_000, 10, 2);
+      metrics.retuneRequested("hackrf_one-device", 13_400_000);
+      jest.advanceTimersByTime(20);
+      metrics.retuneFrameReceived("hackrf_one-device", 13_400_000, 11, 2);
+      expect(
+        metrics.snapshot().timings.tuneRequestToFrameReceipt.observations,
+      ).toBe(0);
+
+      metrics.retuneRequested("hackrf_one-device", 13_800_000);
+      jest.advanceTimersByTime(10);
+      metrics.retuneFrameReceived("hackrf_one-device", 13_800_000, 11, 2);
+      jest.advanceTimersByTime(15);
+      metrics.retuneFrameReceived("hackrf_one-device", 13_800_000, 12, 2);
+
+      expect(
+        metrics.snapshot().timings.tuneRequestToFrameReceipt.p50Ms,
+      ).toBe(25);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("exposes an opt-in snapshot accessor on the browser window", () => {
     const previous = window.naptPipelineMetrics;
     localStorage.setItem("napt.pipelineProfile", "1");

@@ -756,6 +756,17 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       null
     );
   }, [activeSignalArea, channelFramesToUse]);
+  // Frames carry the rate the backend actually used for the samples. Backend
+  // settings can still advertise a requested rate that never reached the
+  // hardware (for example after a hot-plug reset); reconciliation must follow
+  // the frames, which are also what the canvas paints.
+  const acceptedFrameSampleRateHz = useMemo(() => {
+    const rate = (activeFrameForArea as { sample_rate?: unknown } | null)
+      ?.sample_rate;
+    return typeof rate === "number" && Number.isFinite(rate) && rate > 0
+      ? rate
+      : null;
+  }, [activeFrameForArea]);
   const txHopType = useAppSelector(
     (state) => state.spectrum.txHopType ?? "range",
   );
@@ -1370,6 +1381,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     activeSignalAreaBounds,
     frequencyRange,
     sampleRateHz: sampleRateHzForSignalDisplay,
+    deviceSampleRateHz:
+      acceptedFrameSampleRateHz ??
+      sampleRateHzEffective ??
+      liveSdrSettingsToUse?.sample_rate ??
+      null,
     fftSize: signalDisplayFftSize,
     maxFrameRateLimit: isMockTxLiveSource ? 60 : maxFrameRate,
     setSampleRate: setSampleRateForVisualizer,
@@ -1407,6 +1423,22 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       Math.round(signalDisplaySampleRate) ===
         Math.round(hackrfWholeChannelSampleRate)
     : isWholeChannelMode;
+  const requestedRateHasManualOption =
+    typeof sampleRateHzForSignalDisplay === "number" &&
+    signalDisplaySampleRateOptions.some(
+      (rate) =>
+        Math.round(rate) === Math.round(sampleRateHzForSignalDisplay),
+    );
+  // Keep a pending manual selection visible while its device acknowledgement
+  // is in flight. A stale saved request that has no manual option must instead
+  // display the accepted device rate; otherwise <select> falls back to its
+  // first option and falsely shows Whole Channel.
+  const sampleRateForControl =
+    isMockTxLiveSource ||
+    signalDisplayWholeChannelMode ||
+    requestedRateHasManualOption
+      ? sampleRateHzForSignalDisplay
+      : (sampleRateHzGlobalFallback ?? sampleRateHzForSignalDisplay);
   const handleSignalDisplaySampleRateChange = useCallback(
     (
       nextSampleRate: number,
@@ -3355,8 +3387,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               liveSdrSettingsToUse?.min_receive_sample_rate ?? undefined
             }
             sampleRate={
-              signalDisplaySampleRate ??
-              sampleRateHzForSignalDisplay ??
+              sampleRateForControl ??
               sampleRateHzGlobalFallback ??
               liveSdrSettingsToUse?.sample_rate ??
               maxSampleRate

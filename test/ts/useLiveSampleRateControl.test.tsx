@@ -85,6 +85,47 @@ describe("useLiveSampleRateControl", () => {
     );
   });
 
+  it("re-asserts a persisted Whole Channel rate the device has not accepted", () => {
+    const setSampleRateWithFrequencyRange = jest.fn();
+    const applyFrequencyRange = jest.fn();
+    const activeSignalAreaBounds = { min: 18_000, max: 4_390_000 };
+    const baseProps = {
+      sourceMode: "live" as const,
+      supportsWholeChannelSampleRate: true,
+      preferWholeChannelOnLiveStart: true,
+      activeChannelSampleRate: 4_372_000,
+      activeSignalAreaBounds,
+      frequencyRange: activeSignalAreaBounds,
+      // Persisted Redux state already says Whole Channel, while the backend's
+      // accepted rate still says the generic HackRF floor.
+      sampleRateHz: 4_372_000,
+      setSampleRate: jest.fn(),
+      setSampleRateWithFrequencyRange,
+      applyFrequencyRange,
+    };
+
+    const { result, rerender } = renderHook(useLiveSampleRateControl, {
+      initialProps: {
+        ...baseProps,
+        deviceSampleRateHz: 3_200_000,
+      },
+    });
+
+    expect(setSampleRateWithFrequencyRange).toHaveBeenCalledWith(
+      4_372_000,
+      activeSignalAreaBounds,
+    );
+    expect(result.current.isWholeChannelMode).toBe(true);
+
+    // After the device accepts the rate, the same request is not resent.
+    rerender({
+      ...baseProps,
+      deviceSampleRateHz: 4_372_000,
+    });
+
+    expect(setSampleRateWithFrequencyRange).toHaveBeenCalledTimes(1);
+  });
+
   it("derives the Whole Channel sample rate from the clicked range edges", () => {
     const setSampleRateWithFrequencyRange = jest.fn();
     const applyFrequencyRange = jest.fn();

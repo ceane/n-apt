@@ -420,6 +420,20 @@ export const createMultiplexedStreamTransport = ({
       if (!key) return;
       const connection = connections.get(key);
       if (!connection) return;
+      if (
+        message.type === "stream_frame" &&
+        message.mode === "rx" &&
+        typeof message.centerFrequencyHz === "number"
+      ) {
+        browserPipelineMetrics.retuneFrameReceived(
+          connection.key.sourceId,
+          message.centerFrequencyHz,
+          typeof message.sequence === "number" ? message.sequence : undefined,
+          typeof message.streamEpoch === "number"
+            ? message.streamEpoch
+            : undefined,
+        );
+      }
       if (message.type === "stream_subscribed") {
         const effectiveOptions = isStreamOptionsForMode(
           message.effectiveOptions,

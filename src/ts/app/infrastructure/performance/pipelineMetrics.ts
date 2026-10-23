@@ -4,6 +4,7 @@ export const RENDER_LOOP_WARNING =
 export const PIPELINE_TIMING_STAGES = [
   "frameReceiptToDecrypt",
   "frameDecrypt",
+  "tuneRequestToFrameReceipt",
   "workerQueueWait",
   "workerCompute",
   "workerRoundTrip",
@@ -34,6 +35,10 @@ export type BrowserPipelineSnapshot = {
     warning: string;
   };
   timings: Record<PipelineTimingStage, PipelineTimingSummary>;
+  sourceTimings: Record<
+    string,
+    { tuneRequestToFrameReceipt: PipelineTimingSummary }
+  >;
 };
 
 export type BrowserPipelineMetrics = {
@@ -43,6 +48,13 @@ export type BrowserPipelineMetrics = {
   finishTiming(stage: PipelineTimingStage, startedAt: number | null): void;
   recordTiming(stage: PipelineTimingStage, durationMs: number): void;
   renderLoopCallback(timestampMs: number, targetIntervalMs?: number): void;
+  retuneRequested(sourceId: string, targetFrequencyHz: number): void;
+  retuneFrameReceived(
+    sourceId: string,
+    centerFrequencyHz: number,
+    sequence?: number,
+    streamEpoch?: number,
+  ): void;
   snapshot(): BrowserPipelineSnapshot;
 };
 
@@ -89,6 +101,40 @@ export const createPipelinePerformanceMetrics = (
   const observations = new Map<PipelineTimingStage, number>(
     PIPELINE_TIMING_STAGES.map((stage) => [stage, 0]),
   );
+  const sourceLabelById = new Map<string, string>();
+  const nextSourceIndexByKind = new Map<string, number>();
+  const pendingRetunes = new Map<
+    string,
+    {
+      startedAt: number;
+      sourceLabel: string;
+      baselineSequence?: number;
+      baselineStreamEpoch?: number;
+    }
+  >();
+  const lastFrameBySource = new Map<
+    string,
+    { centerFrequencyHz: number; sequence?: number; streamEpoch?: number }
+  >();
+  const sourceTuneSamples = new Map<string, number[]>();
+  const sourceTuneObservations = new Map<string, number>();
+
+  const getSourceLabel = (sourceId: string): string | null => {
+    const existing = sourceLabelById.get(sourceId);
+    if (existing) return existing;
+    if (sourceLabelById.size >= 64) return null;
+    const kind =
+      sourceId
+        .trim()
+        .toLowerCase()
+        .split(/[-/:]/, 1)[0]
+        .replace(/[^a-z0-9_]/g, "_") || "source";
+    const sourceIndex = (nextSourceIndexByKind.get(kind) ?? 0) + 1;
+    nextSourceIndexByKind.set(kind, sourceIndex);
+    const label = `${kind}#${sourceIndex}`;
+    sourceLabelById.set(sourceId, label);
+    return label;
+  };
 
   const recordTiming = (stage: PipelineTimingStage, durationMs: number) => {
     if (!detailedProfilingEnabled || !Number.isFinite(durationMs) || durationMs < 0) return;
@@ -132,6 +178,78 @@ export const createPipelinePerformanceMetrics = (
       }
       lastRenderCallbackAt = timestampMs;
     },
+    retuneRequested(sourceId, targetFrequencyHz) {
+      if (
+        !detailedProfilingEnabled ||
+        typeof performance === "undefined" ||
+        !sourceId ||
+        !Number.isFinite(targetFrequencyHz) ||
+        targetFrequencyHz <= 0
+      ) {
+        return;
+      }
+      const sourceLabel = getSourceLabel(sourceId);
+      if (!sourceLabel) return;
+      const target = Math.round(targetFrequencyHz);
+      const lastFrame = lastFrameBySource.get(sourceId);
+      if (lastFrame?.centerFrequencyHz === target) return;
+      const key = `${sourceId}\u0000${target}`;
+      pendingRetunes.set(key, {
+        startedAt: performance.now(),
+        sourceLabel,
+        baselineSequence: lastFrame?.sequence,
+        baselineStreamEpoch: lastFrame?.streamEpoch,
+      });
+      while (pendingRetunes.size > capacity) {
+        const oldestKey = pendingRetunes.keys().next().value;
+        if (oldestKey === undefined) break;
+        pendingRetunes.delete(oldestKey);
+      }
+    },
+    retuneFrameReceived(sourceId, centerFrequencyHz, sequence, streamEpoch) {
+      if (
+        !detailedProfilingEnabled ||
+        typeof performance === "undefined" ||
+        !sourceId ||
+        !Number.isFinite(centerFrequencyHz) ||
+        centerFrequencyHz <= 0
+      ) {
+        return;
+      }
+      const center = Math.round(centerFrequencyHz);
+      const frame = {
+        centerFrequencyHz: center,
+        ...(Number.isFinite(sequence) ? { sequence } : {}),
+        ...(Number.isFinite(streamEpoch) ? { streamEpoch } : {}),
+      };
+      const key = `${sourceId}\u0000${center}`;
+      const request = pendingRetunes.get(key);
+      const isFreshFrame =
+        request?.baselineStreamEpoch !== undefined &&
+        frame.streamEpoch !== undefined
+          ? frame.streamEpoch !== request.baselineStreamEpoch ||
+            request.baselineSequence === undefined ||
+            frame.sequence === undefined ||
+            frame.sequence > request.baselineSequence
+          : request?.baselineSequence === undefined ||
+            frame.sequence === undefined ||
+            frame.sequence > request.baselineSequence;
+      if (lastFrameBySource.has(sourceId) || lastFrameBySource.size < 64) {
+        lastFrameBySource.set(sourceId, frame);
+      }
+      if (!request || !isFreshFrame) return;
+      pendingRetunes.delete(key);
+      const durationMs = performance.now() - request.startedAt;
+      recordTiming("tuneRequestToFrameReceipt", durationMs);
+      const stageSamples = sourceTuneSamples.get(request.sourceLabel) ?? [];
+      stageSamples.push(durationMs);
+      if (stageSamples.length > capacity) stageSamples.shift();
+      sourceTuneSamples.set(request.sourceLabel, stageSamples);
+      sourceTuneObservations.set(
+        request.sourceLabel,
+        (sourceTuneObservations.get(request.sourceLabel) ?? 0) + 1,
+      );
+    },
     snapshot() {
       const timings = Object.fromEntries(
         PIPELINE_TIMING_STAGES.map((stage) => [
@@ -139,6 +257,17 @@ export const createPipelinePerformanceMetrics = (
           summarize(samples.get(stage)!, observations.get(stage)!),
         ]),
       ) as Record<PipelineTimingStage, PipelineTimingSummary>;
+      const sourceTimings = Object.fromEntries(
+        Array.from(sourceTuneSamples, ([sourceId, sourceSamples]) => [
+          sourceId,
+          {
+            tuneRequestToFrameReceipt: summarize(
+              sourceSamples,
+              sourceTuneObservations.get(sourceId) ?? sourceSamples.length,
+            ),
+          },
+        ]),
+      ) as BrowserPipelineSnapshot["sourceTimings"];
       return {
         detailedProfilingEnabled,
         framesAccepted,
@@ -151,6 +280,7 @@ export const createPipelinePerformanceMetrics = (
           warning: RENDER_LOOP_WARNING,
         },
         timings,
+        sourceTimings,
       };
     },
   };
