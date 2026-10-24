@@ -27,12 +27,14 @@ describe("spike_render.wgsl", () => {
   });
 
   it("keeps edge markers fully inside the visible plot", () => {
+    expect(SPIKE_RENDER_WGSL).toContain("fn marker_position(idx: u32, mirror_side: u32)");
+    expect(SPIKE_RENDER_WGSL).toContain("let source_frequency = mix(uniforms[4].x, uniforms[4].y, t);");
+    expect(SPIKE_RENDER_WGSL).toContain("let display_t = (frequency - view_min) / view_span;");
     expect(SPIKE_RENDER_WGSL).toContain("fn marker_x_for_peak");
     expect(SPIKE_RENDER_WGSL).toContain(
       "clamp(peak_x, plot_left + radius, plot_right - radius)",
     );
-    expect(SPIKE_RENDER_WGSL).toContain(
-      "let x = marker_x_for_peak(idx_to_x(spike.index));",
-    );
+    expect(SPIKE_RENDER_WGSL).toContain("let mapped = marker_position(spike.index, mirror_side);");
+    expect(SPIKE_RENDER_WGSL).toContain("let x = marker_x_for_peak(mapped.x);");
   });
 });

@@ -1,5 +1,6 @@
 mod redis_test_support;
 use n_apt_backend::consts::fft::SAMPLE_RATE;
+use n_apt_backend::performance::{CounterKind, PipelineMetrics, Stage};
 use n_apt_backend::sdr::processor::SdrProcessor;
 use n_apt_backend::server::shared_state::SharedState;
 use n_apt_backend::server::types::SdrProcessorSettings;
@@ -158,6 +159,35 @@ fn test_high_resolution_fft_throughput() {
   let limit = base_limit * ci_timing_multiplier();
 
   assert!(elapsed < limit, "256k FFT took too long: {:?}", elapsed);
+}
+
+#[test]
+fn pipeline_metrics_capture_replacements_and_acquisition_transport_stages() {
+  let metrics = PipelineMetrics::new(true);
+  metrics.increment(CounterKind::FramesReplaced, 2);
+  for stage in [
+    Stage::ProcessorLock,
+    Stage::DeviceRead,
+    Stage::Generation,
+    Stage::ManagedStreamQueueAge,
+    Stage::ManagedStreamEncode,
+    Stage::ManagedStreamSend,
+  ] {
+    metrics.record_latency(stage, Duration::from_millis(3));
+  }
+
+  let snapshot = metrics.snapshot();
+  assert_eq!(snapshot.counters.frames_replaced, 2);
+  for stage in [
+    Stage::ProcessorLock,
+    Stage::DeviceRead,
+    Stage::Generation,
+    Stage::ManagedStreamQueueAge,
+    Stage::ManagedStreamEncode,
+    Stage::ManagedStreamSend,
+  ] {
+    assert_eq!(snapshot.stages[&stage].latency.count, 1);
+  }
 }
 
 #[test]

@@ -102,7 +102,12 @@ impl AcquisitionWorker {
         metrics,
         crate::performance::Stage::Acquisition,
       );
+      let processor_lock_span = crate::performance::ProfilingSpan::start(
+        metrics,
+        crate::performance::Stage::ProcessorLock,
+      );
       let mut processor = processor.blocking_lock();
+      drop(processor_lock_span);
       let capture_event_start = processor.capture_frame_updates.len();
       let old_fft_size = processor.fft_processor.config().fft_size;
 

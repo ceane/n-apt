@@ -6,21 +6,41 @@ struct SpikeMarker {
 }
 
 @group(0) @binding(0) var<storage, read> spikes: array<SpikeMarker>;
-@group(0) @binding(1) var<uniform> uniforms: array<vec4<f32>, 4>;
+@group(0) @binding(1) var<uniform> uniforms: array<vec4<f32>, 6>;
 @group(0) @binding(2) var<storage, read> spike_count_buffer: array<u32>;
 // uniforms:
 // [0] = plot bounds (minX, minY, maxX, maxY)
 // [1] = (dBmin, dBmax, displayWidth, srcLen)
 // [2-3] = colors (line RGBA, fill RGBA)
+// [4] = source min/max and viewport min/max in Hz
+// [5].x = mirror enabled
 
 const MAX_SPIKES: u32 = 1024u;
 
-fn idx_to_x(idx: u32) -> f32 {
-  // uniforms[1].w = source waveform length (NOT display width at [1].z)
-  // Spike indices are raw waveform positions, so we must normalize against srcLen
+fn marker_position(idx: u32, mirror_side: u32) -> vec2<f32> {
+  // Spike indices are acquisition-bin indices. Project their absolute
+  // frequency into the current view so resident detections track a pan.
   let len = uniforms[1].w;
   let t = f32(idx) / max(1.0, len - 1.0);
-  return mix(uniforms[0].x, uniforms[0].z, clamp(t, 0.0, 1.0));
+  let source_frequency = mix(uniforms[4].x, uniforms[4].y, t);
+  let mirror_enabled = uniforms[5].x > 0.5;
+  if (!mirror_enabled && mirror_side != 0u) {
+    return vec2<f32>(0.0, 0.0);
+  }
+  let frequency = select(
+    source_frequency,
+    select(abs(source_frequency), -abs(source_frequency), mirror_side != 0u),
+    mirror_enabled,
+  );
+  let view_min = uniforms[4].z;
+  let view_max = uniforms[4].w;
+  let view_span = view_max - view_min;
+  if (view_span <= 0.0 || frequency < view_min || frequency > view_max) {
+    return vec2<f32>(0.0, 0.0);
+  }
+  let display_t = (frequency - view_min) / view_span;
+  let x = mix(uniforms[0].x, uniforms[0].z, display_t);
+  return vec2<f32>(x, 1.0);
 }
 
 fn value_to_y(value: f32) -> f32 {
@@ -59,16 +79,23 @@ struct VertexOut {
 fn vs_line(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32) -> VertexOut {
   let count = spike_count_buffer[0];
   var out: VertexOut;
-  
-  if (instance_index >= count || instance_index >= MAX_SPIKES) {
+
+  let spike_index = instance_index / 2u;
+  let mirror_side = instance_index % 2u;
+  if (spike_index >= count || spike_index >= MAX_SPIKES) {
+    out.is_active = 0u;
+    out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    return out;
+  }
+  let spike = spikes[spike_index];
+  let mapped = marker_position(spike.index, mirror_side);
+  if (mapped.y < 0.5) {
     out.is_active = 0u;
     out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
     return out;
   }
   out.is_active = 1u;
-  
-  let spike = spikes[instance_index];
-  let x = marker_x_for_peak(idx_to_x(spike.index));
+  let x = marker_x_for_peak(mapped.x);
   let peak_y = value_to_y(spike.value);
   let marker_y = marker_y_for_peak(peak_y);
   let radius = marker_radius_ndc();
@@ -97,16 +124,23 @@ fn fs_line(in: VertexOut) -> @location(0) vec4<f32> {
 fn vs_circle(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32) -> VertexOut {
   let count = spike_count_buffer[0];
   var out: VertexOut;
-  
-  if (instance_index >= count || instance_index >= MAX_SPIKES) {
+
+  let spike_index = instance_index / 2u;
+  let mirror_side = instance_index % 2u;
+  if (spike_index >= count || spike_index >= MAX_SPIKES) {
+    out.is_active = 0u;
+    out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    return out;
+  }
+  let spike = spikes[spike_index];
+  let mapped = marker_position(spike.index, mirror_side);
+  if (mapped.y < 0.5) {
     out.is_active = 0u;
     out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
     return out;
   }
   out.is_active = 1u;
-  
-  let spike = spikes[instance_index];
-  let x = marker_x_for_peak(idx_to_x(spike.index));
+  let x = marker_x_for_peak(mapped.x);
   let y = marker_y_for_peak(value_to_y(spike.value));
   let radius = marker_radius_ndc();
   let rx = radius;

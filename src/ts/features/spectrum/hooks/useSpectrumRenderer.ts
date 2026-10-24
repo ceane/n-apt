@@ -198,6 +198,12 @@ export interface SpectrumRendererOptions {
   limitMarkers?: SdrLimitMarker[];
   /** Whether the WebGPU spike overlay should be drawn */
   showSpikeOverlay?: boolean;
+  /** Recompute spike/classifier data only for new spectrum or settings. */
+  analyzeSpikeOverlay?: boolean;
+  /** Append temporal classifier history only for a new eligible frame. */
+  advanceSpikeHistory?: boolean;
+  /** Stable source and processing-settings identity for classifier history. */
+  analysisScope?: string;
   /** Receives a throttled readback of the GPU spike counter */
   onSpikeCount?: (count: number) => void;
   onSpikeAnalysis?: (analysis: SpikeAnalysis) => void;
@@ -286,6 +292,9 @@ export function useSpectrumRenderer() {
         isIqRecordingActive,
         limitMarkers = [],
         showSpikeOverlay = false,
+        analyzeSpikeOverlay = showSpikeOverlay,
+        advanceSpikeHistory = analyzeSpikeOverlay,
+        analysisScope,
         onSpikeCount,
         onSpikeAnalysis,
         demodFocusOverlay,
@@ -492,6 +501,9 @@ export function useSpectrumRenderer() {
           isDeviceConnected,
           showGrid: true, // Internal to drawWebGPU - handled by the overlays above
           showSpikeOverlay,
+          analyzeSpikeOverlay,
+          advanceSpikeHistory,
+          analysisScope,
           onSpikeCount,
           onSpikeAnalysis,
           lineColor,
