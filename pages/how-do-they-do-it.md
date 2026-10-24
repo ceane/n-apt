@@ -1414,9 +1414,9 @@ Taking what this table has and what I've experienced: talking every second, doze
 
 </small>
 
-While not quite sedentary while survival mode, I assume that the physiological and psychological interactive's presence most certainly doesn't come for "free" to the victim, even if the agency continues to orchestrate it's trap as it is a fact of life. For the central victim, my ChatGPT estimates put it in the ballpark of **608-1,048 calories per day** of it being on 24/7 with just basic comparisons of analogous activities. For other hostages with a different experience/non first-person POV present in the same livestream, they are around **608–1,008 calories per day.**
+While not quite sedentary while in survival mode, I assume that the physiological and psychological interactive's presence most certainly doesn't come for "free" to the victim (me), even if the agency continues to orchestrate it's trap and politics of it as it is a fact of life. For the central victim, my ChatGPT estimates put it in the ballpark of **608-1,048 calories per day** of it being on 24/7 with just basic comparisons of analogous activities. For other hostages with a different experience/non first-person POV present in the same livestream, they are around **608–1,008 calories per day.**
 
-That's a lot of calories consumed from a signal pretty much overwriting your brain and nervous system all day. Based on the 70 kg weight figure, that can range from **a quarter to half the calories of a typical day**, simply from the inescapable, passive, all-day experience of being narrated around, using one's vocal cords throughout the day, and enduring terrorizing states of mind and body.
+That's a lot of calories consumed from a signal pretty much overwriting your brain and nervous system all day. Based on the 70 kg weight figure, that can range from **a quarter to half the calories of a typical day**, simply from the inescapable, passive, all-day experience of being narrated through and around, using one's vocal cords throughout the day, and enduring terrorizing states of mind and body.
 
 
 ## <a id="conclusion"></a> Conclusion 
