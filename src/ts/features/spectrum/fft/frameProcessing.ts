@@ -330,10 +330,14 @@ export const resolveLiveSpectrumPaintContract = ({
   if (!(safeSourceRange.max > safeSourceRange.min)) {
     safeSourceRange.max = safeSourceRange.min + 1;
   }
-  const safeRequestedRange = {
+  const requestedRange = {
     min: Number.isFinite(requestedViewRange.min) ? requestedViewRange.min : 0,
     max: Number.isFinite(requestedViewRange.max) ? requestedViewRange.max : 0,
   };
+  const safeRequestedRange =
+    requestedRange.max > requestedRange.min
+      ? requestedRange
+      : { ...safeSourceRange };
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const safePan = Number.isFinite(panOffsetHz) ? panOffsetHz : 0;
   const requestedBaseSpan = safeRequestedRange.max - safeRequestedRange.min;

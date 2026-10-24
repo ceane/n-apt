@@ -56,6 +56,20 @@ describe("resample.wgsl", () => {
     );
   });
 
+  it("extends a source edge by at most half a display pixel to avoid a raster seam", () => {
+    expect(RESAMPLE_WGSL).toContain("edge_coverage_hz");
+    expect(RESAMPLE_WGSL).toContain(
+      "params.source_min - src_hi <= edge_coverage_hz",
+    );
+    expect(RESAMPLE_WGSL).toContain(
+      "src_lo - params.source_max <= edge_coverage_hz",
+    );
+    expect(RESAMPLE_WGSL).toContain("src_lo = params.source_min;");
+    expect(RESAMPLE_WGSL).toContain("src_hi = params.source_min;");
+    expect(RESAMPLE_WGSL).toContain("src_lo = params.source_max;");
+    expect(RESAMPLE_WGSL).toContain("src_hi = params.source_max;");
+  });
+
   it("samples through DC when a pixel straddles 0 Hz", () => {
     expect(RESAMPLE_WGSL).toContain("crosses_dc");
     expect(RESAMPLE_WGSL).toContain("s0 = 0.0;");

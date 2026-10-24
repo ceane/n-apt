@@ -397,13 +397,17 @@ export const shouldReprocessSpectrumFrame = ({
   currentFrame,
   hasNewData,
   shouldReprocessCurrentFrame,
+  workerPreview = false,
 }: {
   force: boolean;
   currentFrame: Pick<LiveFrameData, "iq_data"> | null;
   hasNewData: boolean;
   shouldReprocessCurrentFrame: boolean;
+  /** Preview spectra are already transformed in the worker and are paint-only. */
+  workerPreview?: boolean;
 }): boolean =>
   !!currentFrame?.iq_data &&
+  !workerPreview &&
   (hasNewData || shouldReprocessCurrentFrame || force);
 
 /**
@@ -2416,6 +2420,7 @@ const FFTCanvas = memo(
     const frameBufferRef = useRef<Float32Array[]>([]);
     const _maxFrameBufferSize = 1;
     const lastProcessedDataRef = useRef<any>(null);
+    const lastPaintedWorkerPreviewRef = useRef<Float32Array | null>(null);
     const invertedSpectrumBufferRef = useRef<Float32Array | null>(null);
     const hasPresentedSpectrumFrameRef = useRef(false);
     const lastPresentedSourceIdRef = useRef<string | null>(null);
@@ -3798,6 +3803,8 @@ const FFTCanvas = memo(
         });
         const workerCandidateFrame = currentFrame;
         let workerSpectrum: Float32Array | undefined;
+        let isWorkerPreview = false;
+        let workerPreviewNeedsPaint = false;
         let workerPending = false;
         let canPaintResidentWhileWorkerPending = false;
         if (currentFrame?.iq_data && currentFrame.iq_data.length >= 2) {
@@ -3806,10 +3813,12 @@ const FFTCanvas = memo(
           });
           // Keep the existing presentation while the worker produces the next
           // frame. Its result retains the exact source, tune axis and sequence.
-          workerPending = completed === null;
+          isWorkerPreview = completed?.isPreview ?? false;
+          workerPending = completed === null || isWorkerPreview;
           if (completed) {
             currentFrame = completed.frame;
             workerSpectrum = completed.spectrum;
+            canPaintResidentWhileWorkerPending = isWorkerPreview;
           } else if (workerPending) {
             const residentFrame = lastProcessedDataRef.current as
               | LiveFrameData
@@ -4029,6 +4038,27 @@ const FFTCanvas = memo(
           return;
         }
 
+        if (isWorkerPreview && currentFrame && workerSpectrum) {
+          // The coarse preview belongs to this frame's own acquisition axis.
+          // Paint it immediately but leave the processing signature, waterfall,
+          // temporal history, capture, and classifier on the full-result path.
+          workerPreviewNeedsPaint =
+            lastPaintedWorkerPreviewRef.current !== workerSpectrum ||
+            !renderWaveformRef.current ||
+            previousRemoveDcSpikeRef.current !== removeDcSpike;
+          if (workerPreviewNeedsPaint) {
+            const previewWaveform = removeDcSpike
+              ? removeDcSpikeFromSpectrum(workerSpectrum)
+              : workerSpectrum;
+            renderWaveformRef.current = previewWaveform;
+            waveformFloatRef.current = previewWaveform;
+            lastPaintedWorkerPreviewRef.current = workerSpectrum;
+          }
+          // This records which frame owns the visible bins while keeping the
+          // full-processing signature untouched until the complete FFT arrives.
+          lastProcessedDataRef.current = currentFrame;
+        }
+
         blockingPlaceholderClearKindRef.current = 0;
         if (workerPending && !canPaintResidentWhileWorkerPending) {
           browserPipelineMetrics.workerPendingPaintSkipped();
@@ -4052,6 +4082,7 @@ const FFTCanvas = memo(
           fullChannelRangeRef.current = null;
         }
         const hasNewData =
+          !isWorkerPreview &&
           !isExplicitStandbyPlaceholder &&
           currentFrame &&
           getLiveFrameSignature(currentFrame) !==
@@ -4065,12 +4096,14 @@ const FFTCanvas = memo(
           resumeRetentionRef.current = false;
         }
         const shouldReprocessCurrentFrame = !!(
+          !isWorkerPreview &&
           !isExplicitStandbyPlaceholder &&
           currentFrame &&
           (getLiveFrameSignature(currentFrame) ===
             lastProcessedFrameSignatureRef.current ||
             isPaused) &&
-          (powerScaleChanged || fftWindowChanged || removeDcSpikeChanged) &&
+          (pendingFftSizeChangeRef.current || powerScaleChanged ||
+            fftWindowChanged || removeDcSpikeChanged) &&
           (!!currentFrame.iq_data ||
             !!(currentFrame as any).waveform ||
             !!(currentFrame as any).data)
@@ -4080,6 +4113,7 @@ const FFTCanvas = memo(
           currentFrame,
           hasNewData: !!hasNewData,
           shouldReprocessCurrentFrame,
+          workerPreview: isWorkerPreview,
         });
         let processedCurrentFrame = false;
         const frameAcquisitionRange =
@@ -4347,12 +4381,14 @@ const FFTCanvas = memo(
             renderWaveformRef.current = temporalUpdate.renderWaveform;
           }
         } else if (
+          !isWorkerPreview &&
           currentFrame &&
           (currentFrame.iq_data ? isPaused : true) &&
           (currentFrame.iq_data ||
             (currentFrame as any).waveform ||
             (currentFrame as any).data) &&
           (currentFrame !== lastProcessedDataRef.current ||
+            pendingFftSizeChangeRef.current ||
             powerScaleChanged ||
             fftWindowChanged ||
             removeDcSpikeChanged)
@@ -4475,7 +4511,12 @@ const FFTCanvas = memo(
           isPaused,
         });
 
-        if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {
+        if (
+          !hasNewData &&
+          !shouldReprocessCurrentFrame &&
+          !isStandby &&
+          !workerPreviewNeedsPaint
+        ) {
           if (isPaused || resumeRetentionRef.current) {
             // A retained paused frame must keep painting. Overlay chrome that
             // is invalidated after the last pass — the grid, axes and labels
@@ -4718,7 +4759,7 @@ const FFTCanvas = memo(
               device: webgpuDeviceRef.current,
               format: webgpuFormatRef.current,
               waveform: displayWaveform,
-              waveformDirty: processedCurrentFrame,
+              waveformDirty: processedCurrentFrame || workerPreviewNeedsPaint,
               frequencyRange: displayVisualRange,
               sourceFrequencyRange: resampleOnGpu
                 ? // The paint contract may intentionally rebase a retained

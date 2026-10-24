@@ -38,3 +38,27 @@ export function computeIqToDbSpectrumScalar(
   return result;
 }
 
+export const SPECTRUM_PREVIEW_FFT_SIZE = 4096;
+
+/** Return a fast, lower-resolution spectrum from the newest IQ samples. */
+export function computeIqToDbSpectrumPreview(
+  input: Uint8Array,
+  options: { fftSize: number; offsetDb: number; windowType?: string },
+): Float32Array | null {
+  if (
+    options.fftSize <= SPECTRUM_PREVIEW_FFT_SIZE ||
+    input.length < SPECTRUM_PREVIEW_FFT_SIZE * 2
+  ) {
+    return null;
+  }
+
+  const newestSamples = input.subarray(
+    input.length - SPECTRUM_PREVIEW_FFT_SIZE * 2,
+  );
+  return computeIqToDbSpectrumScalar(newestSamples, {
+    fftSize: SPECTRUM_PREVIEW_FFT_SIZE,
+    offsetDb: options.offsetDb,
+    windowType: options.windowType,
+  });
+}
+

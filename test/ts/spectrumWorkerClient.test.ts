@@ -22,7 +22,7 @@ test("publishes each completion while keeping only the latest pending frame", ()
   expect(worker.postMessage).toHaveBeenCalledTimes(2);
   expect(onResult).toHaveBeenCalledTimes(1);
   expect(onResult).toHaveBeenLastCalledWith(expect.objectContaining({ frame: a }));
-  expect(client.read(c, config)).toEqual({ frame: a, spectrum: new Float32Array(8).fill(-50) });
+  expect(client.read(c, config)).toEqual({ frame: a, spectrum: new Float32Array(8).fill(-50), isPreview: false });
   worker.onmessage({ data: { id: worker.postMessage.mock.calls[1][0].id, spectrum: new Float32Array(8).fill(-42) } });
   expect(onResult).toHaveBeenCalledTimes(2);
   expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ frame: c }));
@@ -34,7 +34,7 @@ test("publishes each completion while keeping only the latest pending frame", ()
   expect(worker.terminate).toHaveBeenCalledTimes(1);
 });
 
-test("rejects completed FFT work from an older processing configuration", () => {
+test("rejects preview and completed FFT work from an older processing configuration", () => {
   const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
   const onResult = jest.fn();
   const staleResults = jest.spyOn(browserPipelineMetrics, "workerResultRejectedAsStale");
@@ -43,10 +43,15 @@ test("rejects completed FFT work from an older processing configuration", () => 
   client.submit(a, config);
   const next = { ...config, windowType: "blackman" };
   client.submit(a, next);
+  worker.onmessage({ data: { id: 1, stage: "preview", spectrum: new Float32Array(8) } });
+  expect(client.read(a, next)).toBeNull();
+  expect(onResult).not.toHaveBeenCalled();
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
   worker.onmessage({ data: { id: 1, spectrum: new Float32Array(8) } });
   expect(client.read(a, next)).toBeNull();
   expect(onResult).not.toHaveBeenCalled();
-  expect(staleResults).toHaveBeenCalledTimes(1);
+  expect(staleResults).toHaveBeenCalledTimes(2);
+  expect(worker.postMessage).toHaveBeenCalledTimes(2);
   client.dispose();
   staleResults.mockRestore();
 });
@@ -60,6 +65,46 @@ test("exposes the latest completed frame while newer work is pending", () => {
   worker.onmessage({ data: { id: 1, spectrum: new Float32Array(8).fill(-50) } });
   expect(client.read(b, config)?.frame).toBe(a);
   expect(client.read(frame(2, "rtl-1"), config)).toBeNull();
+  client.dispose();
+});
+
+test("publishes a same-frame preview before replacing it with the full FFT", () => {
+  const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
+  const onResult = jest.fn();
+  const client = new SpectrumWorkerClient(worker, onResult);
+  const input = frame(7);
+  const preview = new Float32Array(4096).fill(-70);
+  const full = new Float32Array(8192).fill(-50);
+
+  client.submit(input, { ...config, fftSize: 8192 });
+  const id = worker.postMessage.mock.calls[0][0].id;
+  worker.onmessage({ data: { id, stage: "preview", spectrum: preview } });
+
+  expect(client.read(input, { ...config, fftSize: 8192 })).toEqual({
+    frame: input,
+    spectrum: preview,
+    isPreview: true,
+  });
+  expect(onResult).toHaveBeenCalledTimes(1);
+  expect(onResult).toHaveBeenNthCalledWith(1, {
+    frame: input,
+    spectrum: preview,
+    isPreview: true,
+  });
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+
+  worker.onmessage({ data: { id, stage: "complete", spectrum: full } });
+  expect(client.read(input, { ...config, fftSize: 8192 })).toEqual({
+    frame: input,
+    spectrum: full,
+    isPreview: false,
+  });
+  expect(onResult).toHaveBeenCalledTimes(2);
+  expect(onResult).toHaveBeenNthCalledWith(2, {
+    frame: input,
+    spectrum: full,
+    isPreview: false,
+  });
   client.dispose();
 });
 

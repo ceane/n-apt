@@ -3,8 +3,14 @@ import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pi
 
 export type SpectrumWorkerConfig = { fftSize: number; offsetDb: number; windowType?: string };
 export type SpectrumWorkerRequest = SpectrumWorkerConfig & { id: number; iq: Uint8Array };
-export type SpectrumWorkerResponse = { id: number; spectrum?: Float32Array; computeDurationMs?: number; error?: string };
-export type SpectrumWorkerResult = { frame: LiveFrameData; spectrum: Float32Array };
+export type SpectrumWorkerResponse = {
+  id: number;
+  stage?: "preview" | "complete";
+  spectrum?: Float32Array;
+  computeDurationMs?: number;
+  error?: string;
+};
+export type SpectrumWorkerResult = { frame: LiveFrameData; spectrum: Float32Array; isPreview: boolean };
 type Job = {
   id: number;
   frame: LiveFrameData;
@@ -21,7 +27,7 @@ export class SpectrumWorkerClient {
   private sequence = 0;
   private inFlight: Job | null = null;
   private pending: Job | null = null;
-  private completed: (Job & { spectrum: Float32Array }) | null = null;
+  private completed: (Job & { spectrum: Float32Array; isPreview: boolean }) | null = null;
   private failed = false;
   private disposed = false;
 
@@ -37,25 +43,34 @@ export class SpectrumWorkerClient {
         browserPipelineMetrics.workerResultRejectedAsStale();
         return;
       }
-      this.inFlight = null;
-      browserPipelineMetrics.finishTiming("workerRoundTrip", job.startedAt);
       if (typeof data.computeDurationMs === "number") {
         browserPipelineMetrics.recordTiming("workerCompute", data.computeDurationMs);
       }
       if (data.error || !data.spectrum) { this.fail(); return; }
-      const completed = { ...job, spectrum: data.spectrum };
-      this.completed = completed;
+      const isPreview = data.stage === "preview";
+      if (!isPreview) {
+        this.inFlight = null;
+        browserPipelineMetrics.finishTiming("workerRoundTrip", job.startedAt);
+      }
+      const completed = { ...job, spectrum: data.spectrum, isPreview };
       const pending = this.pending;
-      this.pending = null;
       // Publish every frame that can still be displayed in the active scope.
       // A newer same-scope frame may be pending, but waiting for it freezes the
       // spectrum on slower workers. Different-scope results are already stale.
       if (pending && pending.scope !== completed.scope) {
         browserPipelineMetrics.workerResultRejectedAsStale();
       } else {
-        this.onResult?.({ frame: completed.frame, spectrum: completed.spectrum });
+        this.completed = completed;
+        this.onResult?.({
+          frame: completed.frame,
+          spectrum: completed.spectrum,
+          isPreview,
+        });
       }
-      if (pending) this.start(pending);
+      if (!isPreview) {
+        this.pending = null;
+        if (pending) this.start(pending);
+      }
     };
     worker.onerror = () => this.fail();
     worker.onmessageerror = () => this.fail();
@@ -114,7 +129,11 @@ export class SpectrumWorkerClient {
     // configuration while newer FFT work is pending. The result carries its
     // own frame so frequency axes remain aligned to the processed IQ data.
     return this.completed?.scope === scope
-      ? { frame: this.completed.frame, spectrum: this.completed.spectrum }
+      ? {
+          frame: this.completed.frame,
+          spectrum: this.completed.spectrum,
+          isPreview: this.completed.isPreview,
+        }
       : null;
   }
 

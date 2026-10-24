@@ -12,7 +12,10 @@ import {
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
 import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom";
-import { shouldRepaintCachedSpectrumForViewportChange } from "@n-apt/spectrum/FFTCanvas";
+import {
+  shouldRepaintCachedSpectrumForViewportChange,
+  shouldReprocessSpectrumFrame,
+} from "@n-apt/spectrum/FFTCanvas";
 
 function createState() {
   return {
@@ -107,6 +110,18 @@ describe("pending live spectrum presentation", () => {
     expect(canReuseResidentSpectrumWhileWorkerPending(frame(), frame())).toBe(true);
     expect(
       canReuseResidentSpectrumWhileWorkerPending(frame(), frame({ stream_epoch: 5 })),
+    ).toBe(false);
+  });
+
+  it("does not synchronously reprocess a worker preview, even on a forced redraw", () => {
+    expect(
+      shouldReprocessSpectrumFrame({
+        force: true,
+        currentFrame: { iq_data: new Uint8Array([128, 128]) },
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        workerPreview: true,
+      }),
     ).toBe(false);
   });
 });
@@ -527,6 +542,23 @@ describe("resolveLiveSpectrumPaintContract", () => {
 
     expect(contract.paintViewportRange).toEqual(sourceFrequencyRange);
     expect(contract.displayRange).toEqual(sourceFrequencyRange);
+  });
+
+  it("retains the resident plot for a transient zero-width viewport", () => {
+    const sourceFrequencyRange = { min: 8_400_000, max: 11_600_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: { min: 10_000_000, max: 10_000_000 },
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: false,
+      allowPendingLiveViewport: true,
+    });
+
+    expect(contract.paintViewportRange).toEqual(sourceFrequencyRange);
+    expect(contract.displayRange).toEqual(sourceFrequencyRange);
+    expect(contract.zoom).toBe(1);
+    expect(contract.panOffsetHz).toBe(0);
   });
 
   it("keeps a narrower retained frame on its own axis until a replacement arrives", () => {
