@@ -9,7 +9,7 @@ import {
 } from "@n-apt/math/frequency";
 import {
   formatDuration,
-  formatTimestampWithTimezone,
+  formatRelativeTimestamp,
 } from "@n-apt/math/formatters";
 import {
   GeolocationData,
@@ -17,6 +17,7 @@ import {
 } from "@n-apt/consts/schemas/websocket";
 import { useAppSelector } from "@n-apt/redux";
 import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
+import { useSessionTimestampDisplayMode } from "@n-apt/shared/time/sessionTimestampDisplayMode";
 
 export type NaptMetadata = {
   sample_rate?: number;
@@ -79,6 +80,31 @@ const MetadataItem = styled.div`
   width: 100%;
 `;
 
+const TimestampMetadataItem = styled.button`
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 4px;
+  padding: 8px;
+  background-color: ${(props) => props.theme.surface};
+  border-radius: 6px;
+  border: 1px solid ${(props) => props.theme.border};
+  box-sizing: border-box;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    border-color: ${(props) => props.theme.borderHover};
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${(props) => props.theme.primary};
+    outline-offset: 2px;
+  }
+`;
+
 const MetadataLabel = styled.span`
   font-size: 10px;
   color: ${(props) => props.theme.metadataLabel};
@@ -95,6 +121,12 @@ const MetadataValue = styled.span`
   word-break: break-word;
   line-height: 1.4;
   min-width: 0;
+`;
+
+const MetadataHint = styled.span`
+  font-size: 10px;
+  color: ${(props) => props.theme.textSecondary};
+  line-height: 1.4;
 `;
 
 const MetadataErrorBox = styled.div`
@@ -147,6 +179,21 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
   const activePlaybackMetadata = useAppSelector(
     (state) => state.waterfall.activePlaybackMetadata,
   );
+  const { mode: timestampDisplayMode, toggleTimestampDisplayMode } =
+    useSessionTimestampDisplayMode();
+  const [timestampNow, setTimestampNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    if (timestampDisplayMode !== "relative") return;
+
+    const updateTimestampNow = () => setTimestampNow(Date.now());
+    const timer = window.setInterval(updateTimestampNow, 60_000);
+    document.addEventListener("visibilitychange", updateTimestampNow);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", updateTimestampNow);
+    };
+  }, [timestampDisplayMode]);
 
   const isFileMode = useAppSelector(
     (state) => state.waterfall.sourceMode === "file",
@@ -189,6 +236,40 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
         </div>
       ) : naptMetadata ? (
         <MetadataGrid>
+          <TimestampMetadataItem
+            type="button"
+            onClick={toggleTimestampDisplayMode}
+            aria-label={
+              timestampDisplayMode === "relative"
+                ? "Show unformatted capture timestamp"
+                : "Show relative capture timestamp"
+            }
+            aria-pressed={timestampDisplayMode === "raw"}
+            title="Change timestamp display for this session"
+          >
+            <MetadataLabel>Timestamp</MetadataLabel>
+            <MetadataValue>
+              {naptMetadata.timestamp_utc
+                ? timestampDisplayMode === "relative"
+                  ? formatRelativeTimestamp(
+                      naptMetadata.timestamp_utc,
+                      timestampNow,
+                    )
+                  : naptMetadata.timestamp_utc
+                : "N/A"}
+            </MetadataValue>
+            <MetadataHint>
+              {timestampDisplayMode === "relative"
+                ? "Click to see the unformatted timestamp"
+                : "Click to see the relative timestamp"}
+            </MetadataHint>
+          </TimestampMetadataItem>
+          <MetadataItem>
+            <MetadataLabel>Source</MetadataLabel>
+            <MetadataValue>
+              {naptMetadata.source_device || naptMetadata.hardware || "N/A"}
+            </MetadataValue>
+          </MetadataItem>
           {activePlaybackMetadata &&
             (activePlaybackMetadata.channelCount ?? 0) > 1 && (
               <MetadataItem style={{ gridColumn: "1 / -1" }}>
@@ -266,12 +347,6 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
               {naptMetadata.acquisition_mode || "Normal"}
             </MetadataValue>
           </MetadataItem>
-          <MetadataItem>
-            <MetadataLabel>Source</MetadataLabel>
-            <MetadataValue>
-              {naptMetadata.source_device || naptMetadata.hardware || "N/A"}
-            </MetadataValue>
-          </MetadataItem>
           {!!naptMetadata.capture_labels?.length && (
             <MetadataItem style={{ gridColumn: "1 / -1" }}>
               <MetadataLabel>Capture Labels</MetadataLabel>
@@ -337,14 +412,6 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
             <MetadataLabel>Format</MetadataLabel>
             <MetadataValue>
               {naptMetadata.data_format || naptMetadata.format || "N/A"}
-            </MetadataValue>
-          </MetadataItem>
-          <MetadataItem>
-            <MetadataLabel>Timestamp</MetadataLabel>
-            <MetadataValue title={naptMetadata.timestamp_utc}>
-              {naptMetadata.timestamp_utc
-                ? formatTimestampWithTimezone(naptMetadata.timestamp_utc)
-                : "N/A"}
             </MetadataValue>
           </MetadataItem>
           {naptMetadata.geolocation && (
