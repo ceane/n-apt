@@ -59,6 +59,7 @@ jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
           {
             capture_sample_rate_hz: 3_200_000,
             fft_size: 65_536,
+            fft_window: "Hanning",
             source_device: "RTL-SDR",
             duration_s: 5,
           },
@@ -118,6 +119,25 @@ jest.mock("@n-apt/redux", () => ({
 }));
 
 describe("FFTPlaybackCanvas file mode", () => {
+  it("renders saved IQ with the recorded FFT size and window instead of canvas defaults", () => {
+    render(
+      <FFTPlaybackCanvas
+        selectedFiles={[{ id: "1", name: "capture.napt" }]}
+        stitchTrigger={0}
+        stitchSourceSettings={{ gain: 0, ppm: 0 }}
+        isPaused={false}
+        fftSize={2048}
+        displayMode="iq"
+      />,
+    );
+
+    const props = fftAndWaterfallMock.mock.calls[
+      fftAndWaterfallMock.mock.calls.length - 1
+    ]?.[0];
+    expect(props.fftSize).toBe(65_536);
+    expect(props.fftWindow).toBe("Hanning");
+  });
+
   beforeEach(() => {
     triggerSnapshotRenderMock.mockClear();
   });
