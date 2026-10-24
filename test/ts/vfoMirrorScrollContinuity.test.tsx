@@ -610,10 +610,16 @@ describe("mirror GPU resample continuity", () => {
 
   const resampleParamBytes = 48;
 
-  const resamplePaddingIsZero = (data: ArrayBuffer) => {
+  const resampleParametersHaveValidEdgeCoverage = (
+    data: ArrayBuffer,
+    displayRange: { min: number; max: number },
+  ) => {
     const view = new DataView(data);
     expect(view.getFloat32(36, true)).toBe(0);
-    expect(view.getFloat32(40, true)).toBe(0);
+    expect(view.getFloat32(40, true)).toBeCloseTo(
+      (displayRange.max - displayRange.min) / (1380 - 40) / 2,
+      4,
+    );
     expect(view.getFloat32(44, true)).toBe(0);
   };
 
@@ -651,9 +657,14 @@ describe("mirror GPU resample continuity", () => {
         (call[2] as ArrayBuffer)?.byteLength === resampleParamBytes,
     );
     expect(resampleUploads.length).toBeGreaterThanOrEqual(2);
-    for (const call of resampleUploads) {
-      resamplePaddingIsZero(call[2] as ArrayBuffer);
-    }
+    resampleParametersHaveValidEdgeCoverage(
+      resampleUploads[0][2] as ArrayBuffer,
+      { min: 0, max: 4_372_000 },
+    );
+    resampleParametersHaveValidEdgeCoverage(
+      resampleUploads[1][2] as ArrayBuffer,
+      { min: -4_372_000, max: 0 },
+    );
   });
 
   it("keeps ascending then descending GPU pans on the same uploaded frame", async () => {
