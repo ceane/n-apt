@@ -17,6 +17,20 @@ const exportedDir = path.join(rootDir, 'exported-archives');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// This process serves an authenticated JSON/download API, not application HTML.
+// Keep browser interpretation disabled and prevent the default Express banner.
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.set({
+    'Content-Security-Policy': "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+  });
+  next();
+});
+
 function byteLimit(name, fallback, ceiling) {
   const value = Number(process.env[name] ?? fallback);
   if (!Number.isSafeInteger(value) || value < 1 || value > ceiling) throw new Error(`Invalid ${name}`);
@@ -70,16 +84,34 @@ function toTwitterJs(globalName, data) {
 }
 
 function resolveArchivePath(root, name) {
-  if (typeof name !== 'string' || name.length === 0) {
-    throw new Error('Archive name is required');
+  if (typeof name !== 'string' || name.length === 0 ||
+      name === '.' || name === '..' ||
+      name.includes('/') || name.includes('\\') ||
+      /[\x00-\x1f\x7f]/.test(name)) {
+    throw new Error('Invalid archive name');
   }
-  const resolvedRoot = path.resolve(root);
+  const resolvedRoot = fs.realpathSync(path.resolve(root));
   const resolvedPath = path.resolve(resolvedRoot, name);
   const relative = path.relative(resolvedRoot, resolvedPath);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error('Invalid archive path');
   }
-  return resolvedPath;
+  let canonicalPath;
+  try {
+    if (fs.lstatSync(resolvedPath).isSymbolicLink()) {
+      throw new Error('Archive paths cannot be symbolic links');
+    }
+    canonicalPath = fs.realpathSync(resolvedPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    canonicalPath = path.join(fs.realpathSync(path.dirname(resolvedPath)), path.basename(resolvedPath));
+  }
+  const canonicalRelative = path.relative(resolvedRoot, canonicalPath);
+  if (canonicalRelative === '' || canonicalRelative === '..' ||
+      canonicalRelative.startsWith(`..${path.sep}`) || path.isAbsolute(canonicalRelative)) {
+    throw new Error('Invalid archive path');
+  }
+  return canonicalPath;
 }
 
 const uploadsDir = path.join(rootDir, '.archive-uploads');
