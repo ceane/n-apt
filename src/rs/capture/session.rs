@@ -23,6 +23,7 @@ pub struct CaptureStartRequest {
   pub duration_s: f64,
   pub file_type: String,
   pub acquisition_mode: String,
+  pub preserve_current_center: bool,
   pub encrypted: bool,
   pub fido_vault: bool,
   pub session_token: Option<crate::authentication::fido_vault::VaultSessionId>,
@@ -55,6 +56,50 @@ fn canonical_fft_window(name: &str) -> Option<&'static str> {
     "blackman" => Some("blackman"),
     "nuttall" => Some("nuttall"),
     _ => None,
+  }
+}
+
+fn capture_center_frequency_hz(
+  current_center_hz: u32,
+  sample_rate_hz: f64,
+  min_freq_hz: f64,
+  max_freq_hz: f64,
+) -> f64 {
+  let current_center_hz = current_center_hz as f64;
+  let half_sample_rate_hz = sample_rate_hz / 2.0;
+  if min_freq_hz >= current_center_hz - half_sample_rate_hz
+    && max_freq_hz <= current_center_hz + half_sample_rate_hz
+  {
+    current_center_hz
+  } else {
+    (min_freq_hz + max_freq_hz) / 2.0
+  }
+}
+
+#[cfg(test)]
+mod tuning_tests {
+  use super::capture_center_frequency_hz;
+
+  #[test]
+  fn preserves_the_current_tuner_only_when_the_requested_range_fits() {
+    assert_eq!(
+      capture_center_frequency_hz(
+        137_500_000,
+        3_200_000.0,
+        137_008_000.0,
+        138_008_000.0,
+      ),
+      137_500_000.0,
+    );
+    assert_eq!(
+      capture_center_frequency_hz(
+        137_500_000,
+        3_200_000.0,
+        141_000_000.0,
+        142_000_000.0,
+      ),
+      141_500_000.0,
+    );
   }
 }
 
@@ -98,6 +143,7 @@ impl CaptureWorker {
       duration_s,
       file_type,
       acquisition_mode,
+      preserve_current_center,
       encrypted,
       fido_vault,
       session_token,
@@ -360,9 +406,19 @@ impl CaptureWorker {
 
       let span = max_freq - min_freq;
       if mode_str == "whole_sample" || span <= usable_bw_hz {
-        // Small span or whole_sample mode: center the window on the requested range
-        // But ensure we use the full HW bandwidth for the device tuning.
-        let center = (min_freq + max_freq) / 2.0;
+        // Onscreen capture records the existing receive window. Its displayed
+        // bounds can differ slightly from the physical tuner window due to
+        // viewport rounding, so never retune to their midpoint.
+        let center = if preserve_current_center {
+          processor.get_center_frequency() as f64
+        } else {
+          capture_center_frequency_hz(
+            processor.get_center_frequency(),
+            hw_sample_rate,
+            min_freq,
+            max_freq,
+          )
+        };
         let hop_start = center - hw_bw_hz / 2.0;
         all_hops.push((hop_start, hop_start + hw_bw_hz));
         capture_channels.push(crate::sdr::processor::CaptureChannel {
@@ -382,7 +438,12 @@ impl CaptureWorker {
         // Number of hops is based on USABLE bandwidth increments
         let num_hops = (span / usable_bw_hz).ceil() as usize;
         if num_hops <= 1 {
-          let center = (min_freq + max_freq) / 2.0;
+          let center = capture_center_frequency_hz(
+            processor.get_center_frequency(),
+            hw_sample_rate,
+            min_freq,
+            max_freq,
+          );
           let hop_start = center - hw_bw_hz / 2.0;
           all_hops.push((hop_start, hop_start + hw_bw_hz));
           capture_channels.push(crate::sdr::processor::CaptureChannel {
@@ -433,26 +494,36 @@ impl CaptureWorker {
 
     processor.capture_fragments = all_hops.clone();
     processor.capture_channels = capture_channels;
-    processor.capture_overall_center_hz = overall_center_hz;
-    processor.capture_overall_span_hz = overall_span_hz;
+    processor.capture_overall_center_hz = if preserve_current_center {
+      processor.get_center_frequency() as f64
+    } else {
+      overall_center_hz
+    };
+    processor.capture_overall_span_hz = if preserve_current_center {
+      hw_sample_rate
+    } else {
+      overall_span_hz
+    };
     processor.capture_requested_range = Some((overall_min, overall_max));
 
     // Tune to the first hop if available
     if let Some(&(min_freq, max_freq)) = all_hops.first() {
       let center_freq = (min_freq + (hw_sample_rate / 2.0)) as u32;
-      if let Err(error) = processor.set_center_frequency(center_freq) {
-        processor.capture_job_id = None;
-        reject_capture_start(
-          &shared_state,
-          &broadcast_tx,
-          &job_id,
-          source_id.as_deref(),
-          "capture_first_tune_failed",
-          &format!("Failed to tune to first capture fragment: {error}"),
-        );
-        return;
+      if center_freq != processor.get_center_frequency() {
+        if let Err(error) = processor.set_center_frequency(center_freq) {
+          processor.capture_job_id = None;
+          reject_capture_start(
+            &shared_state,
+            &broadcast_tx,
+            &job_id,
+            source_id.as_deref(),
+            "capture_first_tune_failed",
+            &format!("Failed to tune to first capture fragment: {error}"),
+          );
+          return;
+        }
+        info!("Tuned to initial capture fragment: {} Hz - {} Hz (center {} Hz, bandwidth {} Hz)", min_freq, max_freq, center_freq, hw_bw_hz);
       }
-      info!("Tuned to initial capture fragment: {} Hz - {} Hz (center {} Hz, bandwidth {} Hz)", min_freq, max_freq, center_freq, hw_bw_hz);
     }
 
     // Auto-unpause for capture on the current active source.
@@ -811,6 +882,7 @@ mod tests {
       duration_s: 1.0,
       file_type: ".iq".to_string(),
       acquisition_mode: "whole_sample".to_string(),
+      preserve_current_center: false,
       encrypted: false,
       fido_vault: false,
       session_token: None,
@@ -839,6 +911,38 @@ mod tests {
       .expect("capture status timeout")
       .expect("capture status broadcast");
     serde_json::from_str(&raw).expect("capture status JSON")
+  }
+
+  #[tokio::test]
+  async fn capture_preserves_tuning_for_an_off_center_range_already_in_view() {
+    let mut radio = SdrProcessor::new_mock_apt().expect("mock processor");
+    radio.set_center_frequency(137_500_000).expect("initial tune");
+    let last_retune = radio.frame.last_retune_at;
+    let processor = Arc::new(Mutex::new(radio));
+    let (broadcast_tx, mut receiver) = broadcast::channel(8);
+    let worker = CaptureWorker::new(processor.clone(), test_shared_state(), broadcast_tx);
+    let mut request = test_request("hanning");
+    // The selected midpoint is 8 kHz above the tuner, and the display range
+    // extends 16 kHz beyond the current 3.2 MHz receive window.
+    request.fragments = vec![(135_900_000.0, 139_116_000.0)];
+    request.preserve_current_center = true;
+    worker.start(request).await;
+    let status = next_capture_status(&mut receiver).await;
+    assert_eq!(status["status"]["status"], "started");
+    let mut radio = processor.lock().await;
+    assert_eq!(radio.get_center_frequency(), 137_500_000);
+    assert_eq!(radio.frame.last_retune_at, last_retune);
+    assert_eq!(radio.capture_channels[0].center_freq_hz, 137_500_000.0);
+    assert_eq!(radio.capture_overall_center_hz, 137_500_000.0);
+    assert_eq!(radio.capture_overall_span_hz, 3_200_000.0);
+    assert_eq!(
+      radio.capture_requested_range,
+      Some((135_900_000.0, 139_116_000.0))
+    );
+    let result = radio.stop_capture().expect("stopped capture");
+    assert_eq!(radio.get_center_frequency(), 137_500_000);
+    assert_eq!(radio.frame.last_retune_at, last_retune);
+    assert_eq!(result.channels[0].center_freq_hz, 137_500_000.0);
   }
 
   #[tokio::test]

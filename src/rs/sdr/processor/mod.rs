@@ -1148,12 +1148,18 @@ impl SdrProcessor {
         let &(min_freq, _max_freq) = &self.capture_fragments[expected_segment];
 
         let new_center_freq = ((min_freq) + (sample_rate as f64 / 2.0)) as u32;
-        if let Err(e) = self.set_center_frequency(new_center_freq) {
-          warn!("Failed to hop capture frequency: {}", e);
+        let mut retuned = false;
+        if new_center_freq != self.get_center_frequency() {
+          match self.set_center_frequency(new_center_freq) {
+            Ok(()) => retuned = true,
+            Err(e) => warn!("Failed to hop capture frequency: {}", e),
+          }
         }
         self.capture_last_hop = Some(Instant::now());
-        self.frame.post_retune_discard_frames =
-          self.post_retune_discard_frame_count();
+        if retuned {
+          self.frame.post_retune_discard_frames =
+            self.post_retune_discard_frame_count();
+        }
       }
     }
 
@@ -2196,8 +2202,10 @@ impl SdrProcessor {
       .unwrap_or_else(|| "unknown".to_string());
 
     if let Some(pre_freq) = self.capture_pre_center_freq.take() {
-      if let Err(e) = self.set_center_frequency(pre_freq) {
-        warn!("Failed to restore pre-capture center frequency: {}", e);
+      if pre_freq != self.get_center_frequency() {
+        if let Err(e) = self.set_center_frequency(pre_freq) {
+          warn!("Failed to restore pre-capture center frequency: {}", e);
+        }
       }
     }
 

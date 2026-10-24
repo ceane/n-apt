@@ -6,6 +6,7 @@ import {
   resolveCaptureAcquisitionMode,
   resolveCanonicalDisplaySampleRateHz,
   resolveDisplaySampleRateHz,
+  resolveLiveOnscreenFrequencyRange,
   resolveMockTxMonitorSampleRateHz,
   resolveMockTxMonitorSampleRateOptions,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
@@ -122,6 +123,17 @@ describe("resolveDisplaySampleRateHz", () => {
 });
 
 describe("sdrSampleRateGuards", () => {
+  it("keeps the full accepted IQ window when channel coverage ends 13.7 kHz early", () => {
+    expect(
+      resolveLiveOnscreenFrequencyRange({
+        frequencyRange: { min: 0, max: 3_200_000 },
+        hardwareSampleRateHz: 3_200_000,
+        hardwareBounds: { min: 0, max: 30_000_000_000 },
+        zoom: 1,
+      }),
+    ).toEqual({ min: 0, max: 3_200_000 });
+  });
+
   it("keeps the Mock Tx waveform rate out of the monitor rate list", () => {
     const options = resolveMockTxMonitorSampleRateOptions({
       options: [2_400_000, 4_000_000, 20_000_000],
