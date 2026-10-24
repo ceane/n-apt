@@ -223,6 +223,9 @@ export function drawVfoAxis({
   if (!(bandwidth > 0)) return;
 
   const plotWidth = Math.max(1, bounds.right - bounds.left);
+  const responsiveScale = plotWidth < 420 ? 0.7 : 1;
+  const responsiveFontPx = Math.max(8, fontPx * responsiveScale);
+  const responsiveCenterFontPx = Math.max(8, centerFontPx * responsiveScale);
   const options = resolveVfoOptions({
     drawingType: "canvas",
     ...vfoOptions,
@@ -292,7 +295,7 @@ export function drawVfoAxis({
   ctx.save();
   ctx.setStroke(theme.tick, lineWidth);
   ctx.setFill(theme.label);
-  ctx.setFont(`${fontPx}px 'JetBrains Mono', monospace`);
+  ctx.setFont(`${responsiveFontPx}px 'JetBrains Mono', monospace`);
   ctx.setTextBaseline(textBaseline);
 
   if (showAxisLine) {
@@ -307,20 +310,20 @@ export function drawVfoAxis({
     ctx.setFill(edgeLabelColor);
     ctx.setTextAlign("left");
     ctx.fillText(startLabel, bounds.left, labelY);
+    occupy(bounds.left, startLabel, "left", edgeReservePx);
     ctx.setTextAlign("right");
     ctx.fillText(endLabel, bounds.right, labelY);
-    occupy(bounds.left, startLabel, "left", edgeReservePx);
     occupy(bounds.right, endLabel, "right", edgeReservePx);
   }
 
   if (centerLabel && showCenterLabel) {
     ctx.setFill(theme.center);
-    ctx.setFont(`bold ${centerFontPx}px 'JetBrains Mono', monospace`);
+    ctx.setFont(`bold ${responsiveCenterFontPx}px 'JetBrains Mono', monospace`);
     ctx.setTextAlign("center");
     ctx.fillText(centerLabel, centerX, labelY);
     occupy(centerX, centerLabel, "center", centerReservePx);
     ctx.setFill(theme.label);
-    ctx.setFont(`${fontPx}px 'JetBrains Mono', monospace`);
+    ctx.setFont(`${responsiveFontPx}px 'JetBrains Mono', monospace`);
   }
 
   if (showCenterLine) {

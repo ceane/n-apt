@@ -104,6 +104,7 @@ const getMarkersOverlaySignature = ({
         canvasStatusRow.ifftSizeLabel ?? "",
         canvasStatusRow.fftWindowLabel,
         canvasStatusRow.timingLabel,
+        canvasStatusRow.carouselPage ?? "",
       ].join(":")
     : "";
 
