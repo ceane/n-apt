@@ -99,7 +99,10 @@ import type { SpikeAnalysis } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal
 import type { PausedFrameSnapshot } from "@n-apt/spectrum/types/PausedFrameSnapshot";
 import {
   accumulateFullChannelWaveform,
+  isSpectrumViewportCoveredByAcquisition,
+  newestIqWindow,
   prepareSpectrumRenderData,
+  resolveLiveSpectrumCoordinateModel,
   resolveLiveSpectrumPaintContract,
   getSpectrumHistoryKey,
   resolveFrameTemporalWindow,
@@ -204,9 +207,9 @@ export const createVizPanScheduler = (
     publish,
     intervalMs: 50,
     idleFlushMs: 80,
-    // Visual pan is ref-driven during the gesture; publish the live Redux
-    // mirror at 20 Hz while the canvas remains responsive between updates.
-    leadingPublish: false,
+    // Publish the first pan tick immediately so scrolling starts with the
+    // gesture. Coalesce only the follow-up ticks at the 20 Hz Redux cadence.
+    leadingPublish: true,
   });
 
 export const resolveMirrorPanPropSync = ({
@@ -384,15 +387,16 @@ export const shouldReprocessSpectrumFrame = ({
   (hasNewData || shouldReprocessCurrentFrame || force);
 
 /**
- * A paused/one-shot presentation may redraw its cached FFT when the local
- * viewport changes. A live presentation must keep the last frame fixed until
- * the next radio frame arrives; reprojection against a newer request creates
- * a sparse/zero-filled frame when the acquisition axis has not caught up.
+ * Repaint a cached live FFT only when the new viewport is fully covered.
+ * Partial coverage makes the renderer floor-fill missing bins, recreating the
+ * blank/clipped plot while a replacement frame is in flight. Keep the last
+ * complete plot visible until the backend supplies a complete new frame.
  */
 export const shouldRepaintCachedSpectrumForViewportChange = ({
   hasNewData,
   shouldReprocessCurrentFrame,
   hasCachedWaveform,
+  hasFullAcquisitionCoverage = false,
   zoomChanged,
   panChanged,
   rangeChanged = false,
@@ -401,12 +405,14 @@ export const shouldRepaintCachedSpectrumForViewportChange = ({
   hasNewData: boolean;
   shouldReprocessCurrentFrame: boolean;
   hasCachedWaveform: boolean;
+  /** The requested live view is completely inside the cached frame's RF axis. */
+  hasFullAcquisitionCoverage?: boolean;
   zoomChanged: boolean;
   panChanged: boolean;
   rangeChanged?: boolean;
   isPaused?: boolean;
 }): boolean =>
-  isPaused &&
+  (isPaused || hasFullAcquisitionCoverage) &&
   !hasNewData &&
   !shouldReprocessCurrentFrame &&
   hasCachedWaveform &&
@@ -414,8 +420,7 @@ export const shouldRepaintCachedSpectrumForViewportChange = ({
 
 /**
  * Paused mirrored views can repaint from the resident FFT when only pan moved.
- * Live views deliberately wait for the next frame so a changing viewport
- * cannot slide an older acquisition row across the canvas.
+ * Live cached repaints use the separate full-coverage viewport gate.
  */
 export const shouldMirrorPanOnlyRedraw = ({
   allowNegativeFrequencies,
@@ -5019,34 +5024,49 @@ const FFTCanvas = memo(
 
         previousRemoveDcSpikeRef.current = removeDcSpike;
 
-        // Paused mirror views can change geometry without a fresh IQ frame;
-        // live views intentionally wait for the next acquisition frame.
+        // Paused views can redraw their retained FFT. A live view can also
+        // redraw immediately while the cached acquisition covers the complete
+        // viewport; otherwise keep the full resident plot until a new frame
+        // arrives so a retune never flashes a floor-filled edge.
+        const hasCachedWaveform = Boolean(
+          renderWaveformRef.current && renderWaveformRef.current.length > 0,
+        );
+        const hasFullAcquisitionCoverage = Boolean(
+          hasCachedWaveform &&
+            frameAcquisitionRange &&
+            isSpectrumViewportCoveredByAcquisition({
+              displayRange: resolveLiveSpectrumCoordinateModel({
+                viewportBaseRange: frequencyRangeRef.current,
+                sourceRange: frameAcquisitionRange,
+                zoom: vizZoomRef.current || 1,
+                panOffsetHz: vizPanOffsetRef.current,
+                mirrorEnabled: allowNegativeFrequencies,
+              }).displayRange,
+              sourceFrequencyRange: frameAcquisitionRange,
+              mirrorEnabled: allowNegativeFrequencies,
+            }),
+        );
         const mirrorPanOnlyRedraw = shouldMirrorPanOnlyRedraw({
           allowNegativeFrequencies,
           hasNewData: Boolean(hasNewData),
           shouldReprocessCurrentFrame,
-          hasCachedWaveform: Boolean(
-            renderWaveformRef.current && renderWaveformRef.current.length > 0,
-          ),
+          hasCachedWaveform,
           lastPaintedMirrorPan: lastPaintedMirrorPanRef.current,
           currentMirrorPan: vizPanOffsetRef.current,
           isPaused,
         });
-        const viewportOnlyRedraw =
-          !allowNegativeFrequencies &&
-          shouldRepaintCachedSpectrumForViewportChange({
-            hasNewData: Boolean(hasNewData),
-            shouldReprocessCurrentFrame,
-            hasCachedWaveform: Boolean(
-              renderWaveformRef.current && renderWaveformRef.current.length > 0,
-            ),
-            zoomChanged:
-              lastPaintedZoomRef.current !== (vizZoomRef.current || 1),
-            panChanged:
-              lastPaintedMirrorPanRef.current !== vizPanOffsetRef.current,
-            rangeChanged: !currentFrameMatchesRequestedRange,
-            isPaused,
-          });
+        const viewportOnlyRedraw = shouldRepaintCachedSpectrumForViewportChange({
+          hasNewData: Boolean(hasNewData),
+          shouldReprocessCurrentFrame,
+          hasCachedWaveform,
+          hasFullAcquisitionCoverage,
+          zoomChanged:
+            lastPaintedZoomRef.current !== (vizZoomRef.current || 1),
+          panChanged:
+            lastPaintedMirrorPanRef.current !== vizPanOffsetRef.current,
+          rangeChanged: !currentFrameMatchesRequestedRange,
+          isPaused,
+        });
 
         if (!hasNewData && !shouldReprocessCurrentFrame && !isStandby) {
           if (isPaused || resumeRetentionRef.current) {
@@ -5168,6 +5188,7 @@ const FFTCanvas = memo(
             requestedViewRange,
             sourceFrequencyRange,
             activeSampleRateHz: hardwareSampleRateHz,
+            allowCoveredLiveViewport: viewportOnlyRedraw && !isPaused,
             zoom: vizZoomRef.current || 1,
             panOffsetHz: vizPanOffsetRef.current,
             mirrorEnabled: allowNegativeFrequencies,
@@ -5274,7 +5295,9 @@ const FFTCanvas = memo(
           const markerOverlayOpacity =
             powerLineDbRef.current !== null ? 0.1 : 1;
           const skipSpikeAnalysis =
-            mirrorPanOnlyRedraw && !hasNewData && !shouldReprocessCurrentFrame;
+            (mirrorPanOnlyRedraw || viewportOnlyRedraw) &&
+            !hasNewData &&
+            !shouldReprocessCurrentFrame;
           // Spectrum render (using unified hook)
           if (spectrumGpuCanvas) {
             drawSpectrum({

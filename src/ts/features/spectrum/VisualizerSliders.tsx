@@ -240,7 +240,7 @@ export interface VisualizerSlidersProps {
 }
 
 // Module-level format functions — avoid inline lambdas that break React.memo
-const formatZoom = (v: number) => `${v.toFixed(1)}x`;
+const formatZoom = (v: number) => `${Number(v.toPrecision(4))}x`;
 const formatDbValue = (dbUnit: string) => (v: number) =>
   `${roundDbValue(v)}${dbUnit}`;
 

@@ -17,8 +17,16 @@ export type WholeChannelSnapshotSegment = {
   waveformHistory: Float32Array[];
 };
 
+export type WholeChannelCaptureOptions = {
+  captureVideoHistory?: boolean;
+  frameRate?: number;
+  durationMs?: number;
+};
+
 export async function* streamWholeChannelSegmentFrames(
-  captureWholeChannelSegments: () => Promise<WholeChannelSnapshotSegment[]>,
+  captureWholeChannelSegments: (
+    options?: WholeChannelCaptureOptions,
+  ) => Promise<WholeChannelSnapshotSegment[]>,
   frameRate: number,
   durationMs = 1000,
 ): AsyncGenerator<WholeChannelSnapshotSegment[], void, void> {
@@ -29,7 +37,11 @@ export async function* streamWholeChannelSegmentFrames(
     Math.round((durationMs / 1000) * safeFrameRate),
   );
 
-  const capturedSegments = await captureWholeChannelSegments();
+  const capturedSegments = await captureWholeChannelSegments({
+    captureVideoHistory: true,
+    frameRate: safeFrameRate,
+    durationMs,
+  });
   const totalSegments = capturedSegments.length;
 
   if (!totalSegments) {
@@ -103,9 +115,11 @@ export const useCaptureWholeChannelSegments = ({
 }: UseCaptureWholeChannelSegmentsOptions) => {
   const reduxDispatch = useAppDispatch();
 
-  return useCallback(async () => {
+  return useCallback(async (captureOptions: WholeChannelCaptureOptions = {}) => {
     const fullRange = frequencyRange;
-    const hardwareSpanHz = sampleRateHzEffective ? sampleRateHzEffective : null;
+    const hardwareSpanHz = sampleRateHzEffective
+      ? sampleRateHzEffective
+      : null;
 
     if (
       !fullRange ||
@@ -141,8 +155,19 @@ export const useCaptureWholeChannelSegments = ({
       1,
       Math.ceil(totalSpan / hardwareSpanHz),
     );
-    const captureFps = 60;
-    const framesToCapture = Math.round(captureFps * (settleMs / 1000));
+    const requestedCaptureFps = captureOptions.frameRate ?? 30;
+    const captureFps = Number.isFinite(requestedCaptureFps)
+      ? Math.max(1, Math.round(requestedCaptureFps))
+      : 30;
+    const framesToCapture = captureOptions.captureVideoHistory
+      ? Math.max(
+          1,
+          Math.round(
+            (captureOptions.durationMs ?? 1000) * (captureFps / 1000),
+          ),
+        )
+      : 0;
+    const frameIntervalMs = 1000 / captureFps;
 
     try {
       reduxDispatch(
@@ -194,6 +219,7 @@ export const useCaptureWholeChannelSegments = ({
         await sleep(settleMs);
 
         const waveformHistory: Float32Array[] = [];
+        let nextCaptureAt = performance.now();
         for (let frameI = 0; frameI < framesToCapture; frameI++) {
           await raf();
           const data = fftCanvasRef.current?.getSnapshotData();
@@ -201,7 +227,8 @@ export const useCaptureWholeChannelSegments = ({
             waveformHistory.push(new Float32Array(data.waveform));
           }
           if (frameI < framesToCapture - 1) {
-            await sleep(Math.floor(1000 / captureFps));
+            nextCaptureAt += frameIntervalMs;
+            await sleep(Math.max(0, nextCaptureAt - performance.now()));
           }
         }
         await raf();

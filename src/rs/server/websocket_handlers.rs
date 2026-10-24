@@ -2911,6 +2911,9 @@ fn handle_message_for_session(
           .acquisition_mode
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
+        preserve_current_center: message
+          .preserve_current_center
+          .unwrap_or(false),
         encrypted: message.encrypted.unwrap_or(true),
         fido_vault: message.fido_vault.unwrap_or(false),
         session_token: session_token
@@ -3415,6 +3418,7 @@ mod tests {
       "durationS": 1.0,
       "fileType": ".iq",
       "acquisitionMode": "whole_sample",
+      "preserveCurrentCenter": true,
       "encrypted": false,
       "sampleRateHz": 3_200_000.0,
       "fftSize": 65_536,
@@ -3434,6 +3438,7 @@ mod tests {
     assert!(debug.contains("sample_rate: Some(3200000)"), "{debug}");
     assert!(debug.contains("frame_rate: Some(48)"), "{debug}");
     assert!(debug.contains("fft_window: \"hanning\""), "{debug}");
+    assert!(debug.contains("preserve_current_center: true"), "{debug}");
   }
 
   #[test]

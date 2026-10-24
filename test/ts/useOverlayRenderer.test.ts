@@ -280,6 +280,28 @@ describe("useOverlayRenderer Hook", () => {
     expect(mockCtx.lineTo).not.toHaveBeenCalledWith(expect.any(Number), 572);
   });
 
+  it("draws the marker and frequency-axis overlay during viewport repaints", () => {
+    const { result } = renderHook(() => useOverlayRenderer());
+
+    expect(() =>
+      result.current.drawMarkersOnContext(
+        mockCtx,
+        300,
+        240,
+        { min: 0, max: 3_200_000 },
+        1_600_000,
+        true,
+        3_200_000,
+        { min: 0, max: 3_200_000 },
+        false,
+        [],
+        2048,
+        "Rectangular",
+        "lossless",
+      ),
+    ).not.toThrow();
+  });
+
   it("can suppress the live status row when another overlay owns the bottom band", () => {
     const { result } = renderHook(() => useOverlayRenderer());
 

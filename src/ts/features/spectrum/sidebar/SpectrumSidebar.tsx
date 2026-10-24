@@ -120,6 +120,7 @@ import {
   isRtlSdrDevice,
   isHackrfDevice,
   resolveCaptureAcquisitionMode,
+  resolveLiveOnscreenFrequencyRange,
   resolveMockTxMonitorSampleRateHz,
   resolveMockTxMonitorSampleRateOptions,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
@@ -2607,6 +2608,21 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   }, [sourceMode, selectedFiles, naptMetadata]);
 
   const visibleOnscreenRange = useMemo(() => {
+    if (
+      sourceMode === "live" &&
+      frequencyRange &&
+      typeof sampleRateHzGlobalFallback === "number"
+    ) {
+      return resolveLiveOnscreenFrequencyRange({
+        frequencyRange,
+        hardwareSampleRateHz: sampleRateHzGlobalFallback,
+        hardwareBounds: selectedSource?.capabilities?.frequency_range,
+        zoom: vizZoom,
+        panOffsetHz: vizPanOffset,
+        allowNegativeFrequencies,
+      });
+    }
+
     if (!frequencyRange) {
       if (
         typeof liveSdrSettingsToUse?.center_frequency === "number" &&
@@ -2679,6 +2695,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     };
   }, [
     frequencyRange,
+    sourceMode,
+    sampleRateHzGlobalFallback,
+    selectedSource?.capabilities?.frequency_range,
     allowNegativeFrequencies,
     liveSdrSettingsToUse,
     liveFramesToUse,
@@ -2812,6 +2831,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       durationS: Math.max(1, Math.round(captureDurationS)),
       fileType: captureFileTypeState,
       acquisitionMode: effectiveAcquisitionMode,
+      preserveCurrentCenter: onscreenIsActive,
       encrypted:
         (captureFidoVault && captureFileTypeState !== ".wav") ||
         captureFileTypeState === ".napt" ||
