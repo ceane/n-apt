@@ -20,6 +20,7 @@ export function useFFTAnimation({
   const lastFrameTimeRef = useRef(0);
   const onRenderFrameRef = useRef(onRenderFrame);
   const onBecomeVisibleRef = useRef(onBecomeVisible);
+  const pendingInteractionRenderRef = useRef<boolean | null>(null);
   onRenderFrameRef.current = onRenderFrame;
   onBecomeVisibleRef.current = onBecomeVisible;
 
@@ -49,7 +50,12 @@ export function useFFTAnimation({
     const elapsed = now - lastFrameTimeRef.current;
 
     // Use a small fudge factor (4ms) to account for rAF jitter on same-rate displays
-    if (force || elapsed >= frameRateLimiterRef.current - 4) {
+    const pendingInteractionRender = pendingInteractionRenderRef.current;
+    if (
+      force ||
+      pendingInteractionRender !== null ||
+      elapsed >= frameRateLimiterRef.current - 4
+    ) {
       // Adjust lastFrameTime by the interval to maintain cadence
       // but don't let it drift too far behind actual time
       if (force || elapsed > frameRateLimiterRef.current * 2) {
@@ -58,7 +64,11 @@ export function useFFTAnimation({
         lastFrameTimeRef.current += frameRateLimiterRef.current;
       }
       try {
-        onRenderFrameRef.current(runId, reprocessFrame);
+        const shouldReprocessFrame = force
+          ? reprocessFrame
+          : (pendingInteractionRender ?? reprocessFrame);
+        pendingInteractionRenderRef.current = null;
+        onRenderFrameRef.current(runId, shouldReprocessFrame);
         renderFrameFailedRef.current = false;
       } catch (error) {
         // A throw inside the frame render must not kill the rAF loop: the
@@ -168,10 +178,31 @@ export function useFFTAnimation({
     });
   }, [animate]);
 
+  // Interaction redraws join the already queued paint instead of cancelling
+  // the animation loop and issuing a second draw in the same display frame.
+  // Pending requests also bypass the paused-frame limiter, while keeping the
+  // cached FFT intact unless a caller explicitly asks to reprocess it.
+  const requestInteractionRender = useCallback(
+    (reprocessFrame = false) => {
+      pendingInteractionRenderRef.current =
+        pendingInteractionRenderRef.current === true || reprocessFrame;
+      if (!isVisibleRef.current || animationFrameRef.current !== null) return;
+
+      const runId = animationRunIdRef.current;
+      animationFrameRef.current = requestAnimationFrame(() => {
+        if (animationRunIdRef.current !== runId) return;
+        animationFrameRef.current = null;
+        animate(false);
+      });
+    },
+    [animate],
+  );
+
   return {
     animate,
     forceRender,
     requestRender,
+    requestInteractionRender,
     isVisibleRef,
     setTargetFPS: useCallback((fps: number) => {
       frameRateLimiterRef.current = 1000 / fps;
