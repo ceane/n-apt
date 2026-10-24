@@ -1,7 +1,10 @@
 import { useCallback } from "react";
 import { readCssColor } from "@n-apt/layout/rendering/cssColor";
 import { drawHardwareSampleRateBlocks } from "@n-apt/layout/rendering/hardwareSampleRateGrid";
-import { drawFrequencyGrid } from "@n-apt/layout/rendering/frequencyGrid";
+import {
+  drawFrequencyGrid,
+  getResponsiveFrequencyAxisLayout,
+} from "@n-apt/layout/rendering/frequencyGrid";
 import { getTxBandGeometry } from "@n-apt/layout/rendering/txBandGeometry";
 import {
   FFT_GRID_COLOR,
@@ -180,6 +183,7 @@ export function useOverlayRenderer() {
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
+      const axisLayout = getResponsiveFrequencyAxisLayout(width);
       const fftAreaMax = {
         x: width - 40,
         y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
@@ -276,7 +280,10 @@ export function useOverlayRenderer() {
       const visualCenterFreq = (minFreq + maxFreq) / 2;
 
       const isGHzRange = Math.max(Math.abs(minFreq), Math.abs(maxFreq)) >= 1e9;
-      const tickFontPx = isGHzRange ? 10 : 12;
+      const tickFontPx = Math.min(
+        axisLayout.fontPx,
+        isGHzRange ? 10 : axisLayout.fontPx,
+      );
 
       const centerFreqLabel =
         Number.isNaN(visualCenterFreq) || !Number.isFinite(visualCenterFreq)
@@ -313,6 +320,7 @@ export function useOverlayRenderer() {
         formatTickLabel,
         centerLabelText: `✋  ${centerFreqLabel}`,
         gridOpacity: overlayOpacity,
+        centerReservePx: axisLayout.centerReservePx,
       });
 
       // In mirror mode, make the baseband seam explicit without modifying the
@@ -420,6 +428,7 @@ export function useOverlayRenderer() {
     ) => {
       const dpr = window.devicePixelRatio || 1;
       const canvasTheme = getCanvasThemeColors();
+      const axisLayout = getResponsiveFrequencyAxisLayout(width);
       const fftAreaMax = {
         x: width - 40,
         y: height - VFO_AXIS_ROW_HEIGHT - reservedBottomPx,
@@ -467,8 +476,8 @@ export function useOverlayRenderer() {
           center: canvasTheme.centerLabelText,
           centerLine: centerLineColor,
         },
-        fontPx: 12,
-        centerFontPx: 12,
+        fontPx: axisLayout.fontPx,
+        centerFontPx: axisLayout.fontPx,
         textBaseline: "alphabetic",
         useHighResLabels: false,
         lineWidth: Math.max(0.5 / dpr, 1),

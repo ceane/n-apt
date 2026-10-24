@@ -52,6 +52,17 @@ export type FrequencyGridOptions = {
   collidePadPx?: number;
 };
 
+export function getResponsiveFrequencyAxisLayout(widthCssPx: number): {
+  fontPx: number;
+  centerReservePx: number;
+} {
+  if (!Number.isFinite(widthCssPx) || widthCssPx <= 0) {
+    return { fontPx: 12, centerReservePx: 15 };
+  }
+  if (widthCssPx <= 600) return { fontPx: 9, centerReservePx: 30 };
+  return { fontPx: 12, centerReservePx: 15 };
+}
+
 export function drawFrequencyGrid({
   ctx,
   minFreq,
@@ -93,19 +104,23 @@ export function drawFrequencyGrid({
 
   // Edge and center labels always reserve their span. A tick label that would
   // overlap any reserved span is dropped rather than drawn on top of it.
+  const centerX = canvasWidth / 2;
+  const centerRect = {
+    x1: centerX - ctx.measureText(centerLabelText).width / 2 - centerReservePx,
+    x2: centerX + ctx.measureText(centerLabelText).width / 2 + centerReservePx,
+  };
+  const startRect = {
+    x1: plotLeft - 5,
+    x2: plotLeft + ctx.measureText(startLabel).width + edgeReservePx,
+  };
+  const endRect = {
+    x1: plotRight - ctx.measureText(endLabel).width - edgeReservePx,
+    x2: plotRight + 5,
+  };
   const occupiedRects: { x1: number; x2: number }[] = [
-    {
-      x1: plotLeft - 5,
-      x2: plotLeft + ctx.measureText(startLabel).width + edgeReservePx,
-    },
-    {
-      x1: plotRight - ctx.measureText(endLabel).width - edgeReservePx,
-      x2: plotRight + 5,
-    },
-    {
-      x1: canvasWidth / 2 - ctx.measureText(centerLabelText).width / 2 - centerReservePx,
-      x2: canvasWidth / 2 + ctx.measureText(centerLabelText).width / 2 + centerReservePx,
-    },
+    startRect,
+    endRect,
+    centerRect,
   ];
 
   const isColliding = (x: number, text: string): boolean => {
@@ -120,20 +135,20 @@ export function drawFrequencyGrid({
 
   // Start edge line + label
   const startX = toDrawX(minFreq);
-  ctx.textAlign = "left";
   ctx.beginPath();
   ctx.moveTo(startX, top);
   ctx.lineTo(startX, bottom + tickLength);
   ctx.stroke();
+  ctx.textAlign = "left";
   ctx.fillText(startLabel, plotLeft, labelY);
 
   // End edge line + label
   const endX = toDrawX(maxFreq);
-  ctx.textAlign = "right";
   ctx.beginPath();
   ctx.moveTo(endX, top);
   ctx.lineTo(endX, bottom + tickLength);
   ctx.stroke();
+  ctx.textAlign = "right";
   ctx.fillText(endLabel, plotRight, labelY);
 
   // Interior grid lines, tick marks, and collision-avoided tick labels

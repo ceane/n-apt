@@ -7,6 +7,7 @@ import {
   createCanvasVfoAxisContext,
   drawVfoAxis,
 } from "@n-apt/layout/rendering/vfoAxis";
+import { getResponsiveFrequencyAxisLayout } from "@n-apt/layout/rendering/frequencyGrid";
 import {
   LINE_COLOR,
   SHADOW_COLOR,
@@ -30,6 +31,8 @@ export type LiveCanvasStatusRow = {
   ifftSizeLabel?: string;
   fftWindowLabel: string;
   timingLabel: string;
+  /** When set, show a compact pair of status fields on the requested page. */
+  carouselPage?: number;
 };
 
 export function formatLiveCanvasStatusRow({
@@ -118,7 +121,44 @@ export function drawLiveCanvasStatusRow(
   ctx.font = "11px 'JetBrains Mono', monospace";
   ctx.textBaseline = "middle";
 
-  const isTxStats = Boolean(status.txModeLabel && status.bandwidthLabel && status.ifftSizeLabel);
+  const isTxStats = Boolean(
+    status.txModeLabel && status.bandwidthLabel && status.ifftSizeLabel,
+  );
+  if (typeof status.carouselPage === "number") {
+    const pages: [string, string][] = isTxStats
+      ? [
+          [status.txModeLabel ?? "", status.bandwidthLabel ?? ""],
+          [status.timingLabel, status.ifftSizeLabel ?? ""],
+          [status.fftSizeLabel, status.sampleRateLabel],
+        ]
+      : [
+          [status.sampleRateLabel, status.fftSizeLabel],
+          [status.fftWindowLabel, status.timingLabel],
+        ];
+    const pageIndex =
+      ((status.carouselPage % pages.length) + pages.length) % pages.length;
+    const page = pages[pageIndex];
+    const labelCenterX = width / 2;
+    const compactLabel = (label: string) =>
+      label
+        .replace(/^Captured Sample Rate:/, "Sample rate:")
+        .replace(/^FFT Window:/, "Window:")
+        .replace(/^FFT Size:/, "FFT:")
+        .replace(/^IFFT Size:/, "IFFT:")
+        .replace(/^Timing:/, "Time:")
+        .replace(/^Bandwidth:/, "BW:");
+
+    ctx.textAlign = "center";
+    if (page[0]) {
+      ctx.fillText(compactLabel(page[0]), labelCenterX, rowTop + 18);
+    }
+    if (page[1]) {
+      ctx.fillText(compactLabel(page[1]), labelCenterX, rowTop + 40);
+    }
+    ctx.restore();
+    return status;
+  }
+
   ctx.textAlign = isTxStats ? "center" : "center";
   ctx.fillText(
     isTxStats
@@ -276,6 +316,7 @@ export function useDraw2DFFTSignal() {
       const fftAreaMax = { x: width - rightPad, y: height - bottomPad };
       const fftHeight = fftAreaMax.y - topPad;
       const plotWidth = fftAreaMax.x - leftPad;
+      const axisLayout = getResponsiveFrequencyAxisLayout(width);
 
       const startLine = Math.floor(fftMax / VERTICAL_RANGE) * VERTICAL_RANGE;
       const vertRange = fftMax - fftMin;
@@ -291,7 +332,7 @@ export function useDraw2DFFTSignal() {
 
       ctx.strokeStyle = canvasTheme.gridColor;
       ctx.fillStyle = textColor ?? canvasTheme.textColor;
-      ctx.font = "12px 'JetBrains Mono', monospace";
+      ctx.font = `${axisLayout.fontPx}px 'JetBrains Mono', monospace`;
       ctx.textAlign = "right";
       ctx.lineWidth = 1 / dpr;
 
@@ -348,6 +389,7 @@ export function useDraw2DFFTSignal() {
         formatTickLabel: formatFreq,
         centerLabelText: `✋  ${centerFreqLabel}`,
         roundX: true,
+        centerReservePx: axisLayout.centerReservePx,
       });
 
       ctx.strokeStyle = canvasTheme.textColor;

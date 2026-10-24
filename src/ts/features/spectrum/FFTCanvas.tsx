@@ -13,7 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import styled from "styled-components";
-import { Lock, Unlock, Zap } from "lucide-react";
+import { ChevronRight, Lock, Unlock, Zap } from "lucide-react";
 import { useFftRenderCoordinator } from "@n-apt/spectrum/hooks/useFftRenderCoordinator";
 import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/activeAcquisitionOperations";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
@@ -684,6 +684,34 @@ const CanvasWrapper = memo(styled.div`
   }
   &.cursor-crosshair {
     cursor: crosshair !important;
+  }
+`);
+
+const StatusCarouselButton = memo(styled.button`
+  position: absolute;
+  bottom: 4px;
+  right: 3px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: ${(props) => props.theme.colors.textSecondary};
+  opacity: 0.85;
+  cursor: pointer;
+
+  &:hover {
+    opacity: 1;
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${(props) => props.theme.primary};
+    outline-offset: 2px;
   }
 `);
 
@@ -1892,6 +1920,22 @@ const FFTCanvas = memo(
       currentY: number;
     } | null>(null);
 
+    const [statusCanvasWidth, setStatusCanvasWidth] = useState(0);
+    useEffect(() => {
+      const container = spectrumContainerRef.current;
+      if (!container) return;
+
+      const measureWidth = () => setStatusCanvasWidth(container.clientWidth);
+      measureWidth();
+      window.addEventListener("resize", measureWidth);
+      const observer = new ResizeObserver(measureWidth);
+      observer.observe(container);
+      return () => {
+        window.removeEventListener("resize", measureWidth);
+        observer.disconnect();
+      };
+    }, [nodePreview, spectrumContainerRef]);
+
     // Canvas node refs are synchronized by useCanvasNodes.
 
     const lastRenderedPowerScaleRef = useRef<"dB" | "dBm" | null>(null);
@@ -2476,6 +2520,57 @@ const FFTCanvas = memo(
       reduxTxSignal,
       txModeDeviceName,
     ]);
+    const [statusCarouselPage, setStatusCarouselPage] = useState(0);
+    const [statusCarouselStopped, setStatusCarouselStopped] = useState(false);
+    const hasStatusCarousel =
+      !compact && !nodePreview && effectiveCanvasStatusRow !== null;
+    const isStatusCarouselActive =
+      hasStatusCarousel &&
+      (statusCanvasWidth === 0 || statusCanvasWidth <= 600);
+    const statusCarouselPageCount = effectiveCanvasStatusRow?.txModeLabel
+      ? 3
+      : 2;
+    const activeStatusCarouselPage =
+      statusCarouselPage % statusCarouselPageCount;
+
+    useEffect(() => {
+      if (!isStatusCarouselActive || statusCarouselStopped) return;
+
+      const timer = window.setInterval(() => {
+        setStatusCarouselPage(
+          (page) =>
+            (page % statusCarouselPageCount + 1) % statusCarouselPageCount,
+        );
+      }, 3_000);
+      return () => window.clearInterval(timer);
+    }, [
+      isStatusCarouselActive,
+      statusCarouselPageCount,
+      statusCarouselStopped,
+    ]);
+
+    const advanceStatusCarousel = useCallback(() => {
+      setStatusCarouselStopped(true);
+      setStatusCarouselPage(
+        (page) =>
+          (page % statusCarouselPageCount + 1) % statusCarouselPageCount,
+      );
+    }, [statusCarouselPageCount]);
+
+    const canvasStatusRowForRender = useMemo(() => {
+      if (!effectiveCanvasStatusRow || !isStatusCarouselActive) {
+        return effectiveCanvasStatusRow;
+      }
+      return {
+        ...effectiveCanvasStatusRow,
+        carouselPage: activeStatusCarouselPage,
+      };
+    }, [
+      effectiveCanvasStatusRow,
+      isStatusCarouselActive,
+      activeStatusCarouselPage,
+    ]);
+
     const validatedDbRange = useMemo(
       () => ensureValidDbRange(baseDbMin, baseDbMax, effectivePowerScale),
       [baseDbMin, baseDbMax, effectivePowerScale],
@@ -3203,6 +3298,12 @@ const FFTCanvas = memo(
 
     const forceRenderRef = useRef<((reprocessFrame?: boolean) => void) | null>(null);
     const requestRenderRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => {
+      if (!isStatusCarouselActive) return;
+      overlayDirtyRef.current.markers = true;
+      forceRenderRef.current?.(false);
+    }, [canvasStatusRowForRender, isStatusCarouselActive]);
 
     // Pointer moves can arrive much faster than the FFT frame cadence. Keep
     // paused overlays responsive, but never synchronously force a full FFT
@@ -4620,7 +4721,7 @@ const FFTCanvas = memo(
                   : displaySelection,
               txSlider: compact ? null : displayTxSlider,
               overlayOpacity: markerOverlayOpacity,
-              canvasStatusRow: compact ? null : effectiveCanvasStatusRow,
+              canvasStatusRow: compact ? null : canvasStatusRowForRender,
               onSpikeCount: skipSpikeAnalysis
                 ? undefined
                 : (count) => {
@@ -4769,7 +4870,7 @@ const FFTCanvas = memo(
                   displayTemporalResolution,
                   !currentTxSlider?.visible,
                   bottomReservedPx,
-                  compact ? undefined : (effectiveCanvasStatusRow ?? undefined),
+                  compact ? undefined : (canvasStatusRowForRender ?? undefined),
                   1.0,
                   isStandby,
                 );
@@ -5205,7 +5306,7 @@ const FFTCanvas = memo(
         bandwidthAlignment,
         visualizerMachine,
         visualizerSessionKey,
-        effectiveCanvasStatusRow,
+        canvasStatusRowForRender,
         isStandby,
         gpuSpikeAnalysis,
         hoveredSpikeIndex,
@@ -6180,6 +6281,23 @@ const FFTCanvas = memo(
                         }
                       />
                     )}
+                    {isStatusCarouselActive ? (
+                      <StatusCarouselButton
+                        type="button"
+                        aria-label={
+                          `Show next FFT details after page ${activeStatusCarouselPage + 1} of ${statusCarouselPageCount}. Stop automatic rotation.`
+                        }
+                        title="Show the next detail page and stop automatic rotation"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          advanceStatusCarousel();
+                        }}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                      >
+                        <ChevronRight size={22} strokeWidth={2} aria-hidden="true" />
+                      </StatusCarouselButton>
+                    ) : null}
 
                     {selectionTooltipText &&
                       selectionMode === "range" &&
