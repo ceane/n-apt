@@ -42,4 +42,19 @@ describe("resident spectrum while a replacement FFT is pending", () => {
       canReuseResidentSpectrumWhileWorkerPending(frame(), legacy),
     ).toBe(false);
   });
+
+  test("does not reuse a standby or preview frame for active transmit", () => {
+    expect(
+      canReuseResidentSpectrumWhileWorkerPending(
+        frame({ frame_status: "transmitting" }),
+        frame({ frame_status: "standby", is_tx_preview: true }),
+      ),
+    ).toBe(false);
+    expect(
+      canReuseResidentSpectrumWhileWorkerPending(
+        frame({ is_tx_preview: true }),
+        frame({ is_mock_tx_preview: true }),
+      ),
+    ).toBe(false);
+  });
 });
