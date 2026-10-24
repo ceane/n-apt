@@ -29,6 +29,28 @@ function containedFile(root: string, relativePath: string): string | null {
   }
 }
 
+function copyTreeWithoutSymlinks(sourceDir: string, destinationDir: string): void {
+  const sourceStat = fs.lstatSync(sourceDir);
+  if (sourceStat.isSymbolicLink() || !sourceStat.isDirectory()) {
+    throw new Error(`Markdown source must be a real directory: ${sourceDir}`);
+  }
+  fs.mkdirSync(destinationDir, { recursive: true });
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const destinationPath = path.join(destinationDir, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Markdown source cannot contain symlinks: ${sourcePath}`);
+    }
+    if (entry.isDirectory()) {
+      copyTreeWithoutSymlinks(sourcePath, destinationPath);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(sourcePath, destinationPath);
+    } else {
+      throw new Error(`Markdown source contains an unsupported filesystem entry: ${sourcePath}`);
+    }
+  }
+}
+
 const pagesMiddleware: Plugin = {
   name: "pages-middleware",
   configureServer(server) {
@@ -129,18 +151,32 @@ const copyPagesPlugin: Plugin = {
   closeBundle() {
     const targetDir = path.resolve(dirname, "docs/pages");
     fs.rmSync(targetDir, { recursive: true, force: true });
-    fs.cpSync(pagesDir, targetDir, { recursive: true });
+    copyTreeWithoutSymlinks(pagesDir, targetDir);
 
     // In production build, we need to transform paths within the copied markdown files
     const productionBase = "/"; // The app helpers will prepend the base URL (e.g. /n-apt/) at runtime
     const devBase = "/article/";
 
+    const realTargetDir = fs.realpathSync(targetDir);
     const transformFile = (filePath: string) => {
-      if (fs.statSync(filePath).isDirectory()) {
+      const stat = fs.lstatSync(filePath);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`Markdown output cannot contain symlinks: ${filePath}`);
+      }
+      const realFilePath = fs.realpathSync(filePath);
+      const relativeFilePath = path.relative(realTargetDir, realFilePath);
+      if (
+        relativeFilePath === ".." ||
+        relativeFilePath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativeFilePath)
+      ) {
+        throw new Error(`Markdown output escapes its destination: ${filePath}`);
+      }
+      if (stat.isDirectory()) {
         fs.readdirSync(filePath).forEach(file => transformFile(path.join(filePath, file)));
         return;
       }
-      if (path.extname(filePath) === ".md") {
+      if (stat.isFile() && path.extname(filePath) === ".md") {
         let content = fs.readFileSync(filePath, "utf-8");
         // Replace dev base with production base
         content = content.split(devBase).join(productionBase);

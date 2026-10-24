@@ -206,6 +206,15 @@ pub async fn save_reference(
       )
     }
   };
+  let artifacts = match crate::capture::storage::recover_artifact_paths(&artifacts) {
+    Ok(artifacts) => artifacts,
+    Err(_) => {
+      return error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Capture copies are unavailable",
+      )
+    }
+  };
   let Some(artifact) = artifacts.iter().find(|artifact| {
     artifact.filename == reference.filename
       && artifact.checksum == reference.checksum

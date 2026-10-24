@@ -80,31 +80,43 @@ fn hardware_control_plan(
   }
 }
 
-/// Asynchronous callback for RTL-SDR block events
-extern "C" fn c_read_async_cb(
+/// Asynchronous callback for RTL-SDR block events.
+///
+/// # Safety
+/// The librtlsdr callback contract must be upheld: each non-null `buf` must
+/// point to `len` readable bytes, and each non-null `ctx` must point to a live
+/// `AsyncContext` for the duration of this call. The reader thread keeps that
+/// context alive until `rtlsdr_read_async` returns.
+unsafe extern "C" fn c_read_async_cb(
   buf: *mut u8,
   len: u32,
   ctx: *mut std::os::raw::c_void,
 ) {
-  if buf.is_null() || ctx.is_null() || len == 0 {
-    return;
-  }
+  // Never unwind through librtlsdr's C callback boundary.
+  let _ = std::panic::catch_unwind(|| {
+    if buf.is_null() || ctx.is_null() || len == 0 {
+      return;
+    }
 
-  let context = unsafe { &*(ctx as *const AsyncContext) };
-  let data_slice = unsafe { std::slice::from_raw_parts(buf, len as usize) };
+    // SAFETY: The callback contract requires the context pointer to remain
+    // valid for this callback; its Box is reclaimed only after the native read
+    // loop returns. The buffer contract guarantees `len` readable bytes.
+    let context = unsafe { &*(ctx as *const AsyncContext) };
+    let data_slice = unsafe { std::slice::from_raw_parts(buf, len as usize) };
 
-  // Copy out from C buffer immediately
-  let chunk = data_slice.to_vec();
+    // Copy out from C buffer immediately
+    let chunk = data_slice.to_vec();
 
-  // If the queue is full, we MUST drop the oldest frame, NOT the newest frame!
-  // Dropping the newest frame creates a phase discontinuity hole right in the
-  // middle of our constructed FFT window. By popping the oldest frame, we just
-  // slide the continuous time-window forward.
-  while let Err(crossbeam_channel::TrySendError::Full(_)) =
-    context.tx.try_send(chunk.clone())
-  {
-    let _ = context.rx.try_recv(); // Pop oldest
-  }
+    // If the queue is full, we MUST drop the oldest frame, NOT the newest frame!
+    // Dropping the newest frame creates a phase discontinuity hole right in the
+    // middle of our constructed FFT window. By popping the oldest frame, we just
+    // slide the continuous time-window forward.
+    while let Err(crossbeam_channel::TrySendError::Full(_)) =
+      context.tx.try_send(chunk.clone())
+    {
+      let _ = context.rx.try_recv(); // Pop oldest
+    }
+  });
 }
 
 // SAFETY: The RTL-SDR device handle is accessed behind a Mutex in the server,

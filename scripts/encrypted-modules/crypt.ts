@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { resolveContainedPath } from "./pathSafety";
 import {
   createBundleSnapshot,
   decryptBundleBytes,
@@ -17,6 +18,29 @@ import { ensureMlBundle, ML_REQUIRED_FILES } from "./mlRuntime";
 
 const ROOT = path.resolve(process.env.NAPT_ENCRYPTED_MODULE_ROOT || process.cwd());
 const BUNDLE_DIR = "src/encrypted-modules";
+
+function resolveProjectPath(relativePath: string): string {
+  const target = resolveContainedPath(ROOT, relativePath);
+  const realRoot = fs.realpathSync(ROOT);
+  let existingAncestor = target;
+  while (!fs.existsSync(existingAncestor)) {
+    const parent = path.dirname(existingAncestor);
+    if (parent === existingAncestor) {
+      throw new Error("Encrypted module path has no existing project ancestor");
+    }
+    existingAncestor = parent;
+  }
+  const realAncestor = fs.realpathSync(existingAncestor);
+  const relativeAncestor = path.relative(realRoot, realAncestor);
+  if (
+    relativeAncestor === ".." ||
+    relativeAncestor.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeAncestor)
+  ) {
+    throw new Error("Encrypted module path resolves outside the project root");
+  }
+  return target;
+}
 
 type ModuleTarget = {
   label: string;
@@ -86,7 +110,7 @@ function getCurrentBranch(): string | null {
 }
 
 function readSourceFiles(directory: string): BundleInputFile[] {
-  const root = path.resolve(ROOT, directory);
+  const root = resolveProjectPath(directory);
   if (!fs.existsSync(root) || !fs.lstatSync(root).isDirectory()) {
     throw new Error(`Encrypted module source directory is missing: ${directory}`);
   }
@@ -136,7 +160,7 @@ function validateMlSourcePath(filePath: string): void {
 }
 
 function writeFileAtomically(filePath: string, bytes: Uint8Array): void {
-  const target = path.resolve(ROOT, filePath);
+  const target = resolveProjectPath(filePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const temporary = `${target}.stage-${process.pid}-${Date.now()}`;
   try {
@@ -192,10 +216,10 @@ function decryptTarget(
   password: string,
   options: { reportReady: boolean },
 ): boolean {
-  const bundlePath = path.resolve(ROOT, target.bundle);
+  const bundlePath = resolveProjectPath(target.bundle);
   if (!fs.existsSync(bundlePath)) throw new Error(`${target.label} bundle is missing: ${target.bundle}`);
   const bundle = decodeBundle(fs.readFileSync(bundlePath), password, target);
-  const extractionPath = path.resolve(ROOT, target.source);
+  const extractionPath = resolveProjectPath(target.source);
   if (!isBundleExtracted(bundle, extractionPath)) {
     extractBundleAtomically(bundle, extractionPath);
   }

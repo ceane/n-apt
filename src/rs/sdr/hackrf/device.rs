@@ -347,17 +347,29 @@ pub struct HackRfDevice {
 
 unsafe impl Send for HackRfDevice {}
 
-extern "C" fn hackrf_rx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
+/// Receive samples from a native HackRF transfer.
+///
+/// # Safety
+/// The libhackrf callback contract must be upheld: `transfer` must point to a
+/// live, writable `HackRfTransfer`; its RX context must point to a live
+/// `RxContext`; and its buffer must point to `buffer_length` readable bytes.
+/// The device retains the RX context until RX streaming has stopped.
+unsafe extern "C" fn hackrf_rx_callback(
+  transfer: *mut ffi::HackRfTransfer,
+) -> c_int {
   let res = std::panic::catch_unwind(|| {
     if transfer.is_null() {
       return 0;
     }
 
+    // SAFETY: libhackrf supplies a live transfer structure for each callback.
     let transfer = unsafe { &mut *transfer };
     if transfer.rx_ctx.is_null() {
       return 0;
     }
 
+    // SAFETY: RX starts with a pointer derived from the device-owned Arc, which
+    // remains alive until the native stream is stopped.
     let ctx = unsafe { &*(transfer.rx_ctx as *const RxContext) };
     let sequence = ctx.next_sequence.fetch_add(1, Ordering::Relaxed);
     let Some(len) =
@@ -378,6 +390,8 @@ extern "C" fn hackrf_rx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
       return 0;
     }
     let generation = ctx.generation.load(Ordering::Acquire);
+    // SAFETY: `valid_rx_transfer_length` bounds `len` by the transfer's native
+    // buffer length, and libhackrf owns a readable buffer of that size here.
     let data = unsafe { std::slice::from_raw_parts(transfer.buffer, len) };
     let mut block = match ctx.free_buffers.try_recv() {
       Ok(buffer) if buffer.capacity() >= len => buffer,
@@ -431,11 +445,21 @@ extern "C" fn hackrf_rx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
   res.unwrap_or(0)
 }
 
-extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
+/// Fill a native HackRF transfer with the current transmit samples.
+///
+/// # Safety
+/// The libhackrf callback contract must be upheld: `transfer` must point to a
+/// live, writable `HackRfTransfer`; its TX context must point to a live
+/// `TxContext`; and its buffer must point to `buffer_length` writable bytes.
+/// The device retains the TX context until TX streaming has stopped.
+unsafe extern "C" fn hackrf_tx_callback(
+  transfer: *mut ffi::HackRfTransfer,
+) -> c_int {
   let res = std::panic::catch_unwind(|| {
     if transfer.is_null() {
       return -1;
     }
+    // SAFETY: libhackrf supplies a live transfer structure for each callback.
     let transfer = unsafe { &mut *transfer };
     if transfer.buffer.is_null()
       || transfer.buffer_length <= 0
@@ -443,11 +467,15 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
     {
       return -1;
     }
+    // SAFETY: TX starts with a pointer derived from the live Arc held by
+    // `transmit_iq`; the device retains that Arc until streaming has stopped.
     let ctx = unsafe { &*(transfer.tx_ctx as *const TxContext) };
     let iq = ctx.snapshot_iq();
     if iq.is_empty() {
       return -1;
     }
+    // SAFETY: libhackrf provides a writable buffer of `buffer_length` bytes for
+    // this callback, and the length was checked to be positive above.
     let output = unsafe {
       std::slice::from_raw_parts_mut(
         transfer.buffer,
