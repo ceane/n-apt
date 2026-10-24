@@ -173,11 +173,15 @@ type PendingSpectrumFrameIdentity = Pick<
   "source_id" | "stream_epoch" | "frame_status" | "is_tx_preview" | "is_mock_tx_preview"
 >;
 
-const isTxPresentationFrame = (frame: PendingSpectrumFrameIdentity): boolean =>
-  frame.frame_status === "standby" ||
-  frame.frame_status === "transmitting" ||
-  frame.is_tx_preview === true ||
-  frame.is_mock_tx_preview === true;
+const framePresentationKind = (
+  frame: PendingSpectrumFrameIdentity,
+): "receiving" | "standby" | "transmitting" | "tx-preview" | "mock-tx-preview" => {
+  if (frame.is_mock_tx_preview === true) return "mock-tx-preview";
+  if (frame.is_tx_preview === true) return "tx-preview";
+  if (frame.frame_status === "standby") return "standby";
+  if (frame.frame_status === "transmitting") return "transmitting";
+  return "receiving";
+};
 
 /**
  * A pending FFT may keep painting the resident spectrum only while both
@@ -196,7 +200,7 @@ export const canReuseResidentSpectrumWhileWorkerPending = (
   Number.isFinite(incoming.stream_epoch) &&
   Number.isFinite(resident.stream_epoch) &&
   incoming.stream_epoch === resident.stream_epoch &&
-  isTxPresentationFrame(incoming) === isTxPresentationFrame(resident);
+  framePresentationKind(incoming) === framePresentationKind(resident);
 
 export const shouldRunSpectrumSpikeAnalysis = ({
   enabled,

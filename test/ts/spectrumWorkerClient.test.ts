@@ -37,6 +37,7 @@ test("publishes each completion while keeping only the latest pending frame", ()
 test("rejects completed FFT work from an older processing configuration", () => {
   const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
   const onResult = jest.fn();
+  const staleResults = jest.spyOn(browserPipelineMetrics, "workerResultRejectedAsStale");
   const client = new SpectrumWorkerClient(worker, onResult);
   const a = frame(1);
   client.submit(a, config);
@@ -45,7 +46,9 @@ test("rejects completed FFT work from an older processing configuration", () => 
   worker.onmessage({ data: { id: 1, spectrum: new Float32Array(8) } });
   expect(client.read(a, next)).toBeNull();
   expect(onResult).not.toHaveBeenCalled();
+  expect(staleResults).toHaveBeenCalledTimes(1);
   client.dispose();
+  staleResults.mockRestore();
 });
 
 test("exposes the latest completed frame while newer work is pending", () => {

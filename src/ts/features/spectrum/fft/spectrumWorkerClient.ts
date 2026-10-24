@@ -50,7 +50,9 @@ export class SpectrumWorkerClient {
       // Publish every frame that can still be displayed in the active scope.
       // A newer same-scope frame may be pending, but waiting for it freezes the
       // spectrum on slower workers. Different-scope results are already stale.
-      if (!pending || pending.scope === completed.scope) {
+      if (pending && pending.scope !== completed.scope) {
+        browserPipelineMetrics.workerResultRejectedAsStale();
+      } else {
         this.onResult?.({ frame: completed.frame, spectrum: completed.spectrum });
       }
       if (pending) this.start(pending);
