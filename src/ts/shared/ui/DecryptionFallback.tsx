@@ -135,6 +135,7 @@ interface DecryptionFallbackProps {
   detailMessage?: string;
   onRetry?: () => void;
   retryLabel?: string;
+  reloadTo?: string;
 }
 
 export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
@@ -145,6 +146,7 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
   detailMessage,
   onRetry,
   retryLabel,
+  reloadTo,
 }) => {
   const getErrorInfo = () => {
     switch (errorType) {
@@ -270,20 +272,24 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
 
       <ButtonRow>
         {onRetry ? (
-          <ActionButton $variant="primary" onClick={onRetry}>
+          <ActionButton type="button" $variant="primary" onClick={onRetry}>
             <RefreshCcw size={10} />
             {retryLabel ?? `Retry ${moduleName}`}
           </ActionButton>
         ) : (
           <>
             <ActionButton
+              type="button"
               $variant="primary"
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                window.location.assign(reloadTo ?? window.location.href);
+              }}
             >
               <RefreshCcw size={10} />
               Reload
             </ActionButton>
             <ActionButton
+              type="button"
               $variant="secondary"
               onClick={() => {
                 window.location.href = "/logout";

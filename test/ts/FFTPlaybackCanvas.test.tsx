@@ -48,8 +48,8 @@ jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
   useOptionalSpectrumStore: () => null,
 }));
 
-jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
-  useStitchingLogic: ({
+jest.mock("@n-apt/spectrum/hooks/useFilePlayback", () => ({
+  useFilePlayback: ({
     onStitchStatus,
     stitchTrigger,
   }: {

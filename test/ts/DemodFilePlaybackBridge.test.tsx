@@ -19,8 +19,8 @@ jest.mock("@n-apt/redux", () => ({
   setActivePlaybackMetadata: () => ({ type: "metadata" }),
 }));
 
-jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
-  useStitchingLogic: () => ({
+jest.mock("@n-apt/spectrum/hooks/useFilePlayback", () => ({
+  useFilePlayback: () => ({
     hasStitchedData: true,
     channelCount: 1,
     activeChannel: 0,

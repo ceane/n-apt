@@ -1,6 +1,6 @@
 import * as React from "react";
 import { act, render } from "@testing-library/react";
-import { useStitchingLogic } from "@n-apt/spectrum/hooks/useStitchingLogic";
+import { useFilePlayback } from "@n-apt/spectrum/hooks/useFilePlayback";
 import {
   clearStitchSession,
   createStitchSessionKey,
@@ -46,7 +46,7 @@ const cachedSession: StitchSessionData = {
   stitchStatus: "Processed Successfully",
 };
 
-describe("useStitchingLogic cached restoration", () => {
+describe("useFilePlayback cached restoration", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setStitchSession(sessionKey, cachedSession);
@@ -59,7 +59,7 @@ describe("useStitchingLogic cached restoration", () => {
     const onProcessedDataChange = jest.fn();
     const pending = new Promise(() => {});
     function SuspendedStitcher(): React.ReactNode {
-      useStitchingLogic({ ...props, onChannelsChange, onProcessedDataChange });
+      useFilePlayback({ ...props, onChannelsChange, onProcessedDataChange });
       throw pending;
     }
     render(
@@ -76,9 +76,9 @@ describe("useStitchingLogic cached restoration", () => {
     const onChannelsChange = jest.fn();
     const onProcessedDataChange = jest.fn();
     const painted = jest.fn();
-    let latest: ReturnType<typeof useStitchingLogic>;
+    let latest: ReturnType<typeof useFilePlayback>;
     function Stitcher() {
-      latest = useStitchingLogic({ ...props, onChannelsChange, onProcessedDataChange });
+      latest = useFilePlayback({ ...props, onChannelsChange, onProcessedDataChange });
       React.useLayoutEffect(() => {
         painted({
           activeChannel: latest.activeChannel,
@@ -110,7 +110,7 @@ describe("useStitchingLogic cached restoration", () => {
   });
 });
 
-describe("useStitchingLogic automatic processing", () => {
+describe("useFilePlayback automatic processing", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -123,7 +123,7 @@ describe("useStitchingLogic automatic processing", () => {
       selectedFiles,
       stitchTrigger,
     }: typeof emptyProps) {
-      useStitchingLogic({
+      useFilePlayback({
         ...props,
         selectedFiles,
         stitchTrigger,
