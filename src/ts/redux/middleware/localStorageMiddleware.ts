@@ -74,6 +74,27 @@ const safeRemoveItem = (key: string): boolean => {
 const coldStartFrequencyRangeStorageKey = (sourceId: string): string =>
   `napt-cold-start-frequency-range-v1:${encodeURIComponent(sourceId)}`;
 
+const SPECTRUM_SETTINGS_PERSISTENCE_IDLE_MS = 500;
+const PERSISTED_SPECTRUM_SETTING_FIELDS = [
+  "vizZoom",
+  "maxVizZoom",
+  "fftMinDb",
+  "fftMaxDb",
+  "lastKnownRanges",
+  "displayTemporalResolution",
+  "txSampleRateHz",
+  "txIfftSize",
+  "txViewerSampleRateHz",
+  "txViewerFftSize",
+  "txViewerFftFrameRate",
+  "txViewerFftWindow",
+  "txViewerTemporalResolution",
+  "txViewerPowerScale",
+  "txCenterFrequencyHz",
+  "txPowerDbm",
+  "txVgaGain",
+] as const satisfies readonly (keyof SpectrumState)[];
+
 export const loadPersistedColdStartFrequencyRange = (
   sourceId?: string | null,
 ): { min: number; max: number } | null => {
@@ -166,8 +187,80 @@ export const normalizePersistedTxViewerSettings = (parsed: any) => {
 };
 
 // Create localStorage middleware
-const createLocalStorageMiddleware =
-  (): Middleware<{}, any> => (store) => (next) => (action: any) => {
+const createLocalStorageMiddleware = (): Middleware<{}, any> => {
+  let pendingSpectrumSettings: SpectrumState | null = null;
+  let pendingColdStartRanges = new Map<string, { min: number; max: number }>();
+  let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const persistSpectrumSettings = (spectrumState: SpectrumState) => {
+    const settingsData = {
+      // Device-scoped Rx options are owned by the live stream. Persisting
+      // them in this global browser cache lets a new subscriber replay a
+      // stale channel/range/settings bundle before WebSocket hydration.
+      // Keep only subscriber-local presentation state here.
+      // Subscriber-local mirror pan must not replay from a browser-global
+      // cache. A corrupt scroll session can persist -67 MHz offsets that
+      // flatline the spectrum on every reload until WebSocket hydration.
+      vizZoom: spectrumState.vizZoom,
+      maxVizZoom: spectrumState.maxVizZoom,
+      fftMinDb: spectrumState.fftMinDb,
+      fftMaxDb: spectrumState.fftMaxDb,
+      lastKnownRanges: spectrumState.lastKnownRanges,
+      displayTemporalResolution: spectrumState.displayTemporalResolution,
+      txSampleRateHz: spectrumState.txSampleRateHz,
+      txIfftSize: spectrumState.txIfftSize,
+      txViewerSampleRateHz: spectrumState.txViewerSampleRateHz,
+      txViewerFftSize: spectrumState.txViewerFftSize,
+      txViewerFftFrameRate: spectrumState.txViewerFftFrameRate,
+      txViewerFftWindow: spectrumState.txViewerFftWindow,
+      txViewerTemporalResolution: spectrumState.txViewerTemporalResolution,
+      txViewerPowerScale: spectrumState.txViewerPowerScale,
+      txCenterFrequencyHz: spectrumState.txCenterFrequencyHz,
+      txPowerDbm: spectrumState.txPowerDbm,
+      txVgaGain: spectrumState.txVgaGain,
+    };
+    safeSetItem(STORAGE_KEYS.SDR_SETTINGS, JSON.stringify(settingsData));
+  };
+
+  const flushPendingPersistence = () => {
+    if (persistenceTimer !== null) {
+      clearTimeout(persistenceTimer);
+      persistenceTimer = null;
+    }
+
+    if (pendingSpectrumSettings) {
+      persistSpectrumSettings(pendingSpectrumSettings);
+      pendingSpectrumSettings = null;
+    }
+    for (const [sourceId, range] of pendingColdStartRanges) {
+      safeSetItem(
+        coldStartFrequencyRangeStorageKey(sourceId),
+        JSON.stringify(range),
+      );
+    }
+    pendingColdStartRanges = new Map();
+  };
+
+  const schedulePendingPersistence = () => {
+    if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+    persistenceTimer = setTimeout(
+      flushPendingPersistence,
+      SPECTRUM_SETTINGS_PERSISTENCE_IDLE_MS,
+    );
+  };
+
+  const flushOnPageHide = () => {
+    flushPendingPersistence();
+  };
+
+  if (typeof window !== "undefined") {
+    // The selected source's last range is only needed when restoring the
+    // radio after a reload. Keep it in memory during interaction, then write
+    // after a quiet period or immediately as the document is leaving.
+    window.addEventListener("pagehide", flushOnPageHide);
+  }
+
+  return (store) => (next) => (action: any) => {
     const previousState = store.getState();
     const result = next(action);
     const state = store.getState();
@@ -186,10 +279,8 @@ const createLocalStorageMiddleware =
       (previousRange?.min !== frequencyRange.min ||
         previousRange?.max !== frequencyRange.max)
     ) {
-      safeSetItem(
-        coldStartFrequencyRangeStorageKey(selectedSourceId),
-        JSON.stringify(frequencyRange),
-      );
+      pendingColdStartRanges.set(selectedSourceId, frequencyRange);
+      schedulePendingPersistence();
     }
 
     // Handle theme persistence
@@ -205,35 +296,21 @@ const createLocalStorageMiddleware =
     }
 
     // Handle SDR settings persistence
-    if (action.type?.startsWith("spectrum/")) {
-      const spectrumState = state.spectrum;
-      const settingsData = {
-        // Device-scoped Rx options are owned by the live stream. Persisting
-        // them in this global browser cache lets a new subscriber replay a
-        // stale channel/range/settings bundle before WebSocket hydration.
-        // Keep only subscriber-local presentation state here.
-        // Subscriber-local mirror pan must not replay from a browser-global
-        // cache. A corrupt scroll session can persist -67 MHz offsets that
-        // flatline the spectrum on every reload until WebSocket hydration.
-        vizZoom: spectrumState.vizZoom,
-        maxVizZoom: spectrumState.maxVizZoom,
-        fftMinDb: spectrumState.fftMinDb,
-        fftMaxDb: spectrumState.fftMaxDb,
-        lastKnownRanges: spectrumState.lastKnownRanges,
-        displayTemporalResolution: spectrumState.displayTemporalResolution,
-        txSampleRateHz: spectrumState.txSampleRateHz,
-        txIfftSize: spectrumState.txIfftSize,
-        txViewerSampleRateHz: spectrumState.txViewerSampleRateHz,
-        txViewerFftSize: spectrumState.txViewerFftSize,
-        txViewerFftFrameRate: spectrumState.txViewerFftFrameRate,
-        txViewerFftWindow: spectrumState.txViewerFftWindow,
-        txViewerTemporalResolution: spectrumState.txViewerTemporalResolution,
-        txViewerPowerScale: spectrumState.txViewerPowerScale,
-        txCenterFrequencyHz: spectrumState.txCenterFrequencyHz,
-        txPowerDbm: spectrumState.txPowerDbm,
-        txVgaGain: spectrumState.txVgaGain,
-      };
-      safeSetItem(STORAGE_KEYS.SDR_SETTINGS, JSON.stringify(settingsData));
+    const spectrumState = state.spectrum as SpectrumState | undefined;
+    const previousSpectrumState = previousState.spectrum as
+      | SpectrumState
+      | undefined;
+    if (
+      action.type?.startsWith("spectrum/") &&
+      spectrumState &&
+      PERSISTED_SPECTRUM_SETTING_FIELDS.some(
+        (field) => previousSpectrumState?.[field] !== spectrumState[field],
+      )
+    ) {
+      // Wheel retunes update frequency and channel ranges many times per
+      // gesture. Let the graph paint first, then persist only the final state.
+      pendingSpectrumSettings = spectrumState;
+      schedulePendingPersistence();
     }
 
     // Handle waterfall settings persistence
@@ -316,6 +393,7 @@ const createLocalStorageMiddleware =
 
     return result;
   };
+};
 
 // Helper functions to load persisted data
 export const loadPersistedTheme = () => {

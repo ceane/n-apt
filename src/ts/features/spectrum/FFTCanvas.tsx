@@ -3298,6 +3298,9 @@ const FFTCanvas = memo(
 
     const forceRenderRef = useRef<((reprocessFrame?: boolean) => void) | null>(null);
     const requestRenderRef = useRef<(() => void) | null>(null);
+    const interactionRenderRef = useRef<
+      ((reprocessFrame?: boolean) => void) | null
+    >(null);
 
     useEffect(() => {
       if (!isStatusCarouselActive) return;
@@ -3305,25 +3308,15 @@ const FFTCanvas = memo(
       forceRenderRef.current?.(false);
     }, [canvasStatusRowForRender, isStatusCarouselActive]);
 
-    // Pointer moves can arrive much faster than the FFT frame cadence. Keep
-    // paused overlays responsive, but never synchronously force a full FFT
-    // render once per pointer event while the user is panning/retuning.
-    const dragRepaintFrameRef = useRef<number | null>(null);
-    useEffect(
-      () => () => {
-        if (dragRepaintFrameRef.current !== null) {
-          window.cancelAnimationFrame(dragRepaintFrameRef.current);
-          dragRepaintFrameRef.current = null;
-        }
-      },
-      [],
-    );
+    // Pointer/wheel updates repaint through the existing animation RAF. This
+    // keeps paused interactions immediate without cancelling the live loop
+    // and submitting a duplicate GPU frame during the same display tick.
     const scheduleInteractionRepaint = useCallback(() => {
-      if (dragRepaintFrameRef.current !== null) return;
-      dragRepaintFrameRef.current = window.requestAnimationFrame(() => {
-        dragRepaintFrameRef.current = null;
+      if (interactionRenderRef.current) {
+        interactionRenderRef.current(false);
+      } else {
         forceRenderRef.current?.(false);
-      });
+      }
     }, []);
 
     useEffect(() => {
@@ -5325,6 +5318,7 @@ const FFTCanvas = memo(
       targetFPS: fftFrameRate,
       forceRenderRef,
       requestRenderRef,
+      interactionRenderRef,
     });
 
     useFftCanvasInvalidation({

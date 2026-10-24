@@ -13,6 +13,7 @@ import localStorageMiddleware from "@n-apt/redux/middleware/localStorageMiddlewa
 import spectrumSlice, {
   setSdrSettingsBundle,
   setSignalAreaAndRange,
+  setVizPan,
 } from "@n-apt/redux/slices/spectrumSlice";
 import waterfallSlice, { setSnapshotGrid } from "@n-apt/redux/slices/waterfallSlice";
 import sourceSelectionSlice, {
@@ -90,6 +91,44 @@ describe("loadPersistedSdrSettings", () => {
   });
 
   it("does not write device-scoped channel state to the global cache", () => {
+    jest.useFakeTimers();
+    try {
+      const store = configureStore({
+        reducer: { spectrum: spectrumSlice },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            localStorageMiddleware,
+          ),
+      });
+
+      store.dispatch(
+        setSignalAreaAndRange({
+          area: "C",
+          range: { min: 24_100_000, max: 30_370_000 },
+        }),
+      );
+      store.dispatch(
+        setSdrSettingsBundle({
+          fftSize: 262_144,
+          gain: 42,
+        }),
+      );
+      jest.advanceTimersByTime(500);
+
+      const parsed = JSON.parse(
+        localStorage.getItem("napt-sdr-settings-v2") ?? "{}",
+      );
+      expect(parsed.activeSignalArea).toBeUndefined();
+      expect(parsed.frequencyRange).toBeUndefined();
+      expect(parsed.fftSize).toBeUndefined();
+      expect(parsed.gain).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not persist transient visual pan ticks", () => {
+    jest.useFakeTimers();
     const store = configureStore({
       reducer: { spectrum: spectrumSlice },
       middleware: (getDefaultMiddleware) =>
@@ -97,53 +136,103 @@ describe("loadPersistedSdrSettings", () => {
           localStorageMiddleware,
         ),
     });
+    const setItem = jest.spyOn(Storage.prototype, "setItem");
 
-    store.dispatch(
-      setSignalAreaAndRange({
-        area: "C",
-        range: { min: 24_100_000, max: 30_370_000 },
-      }),
-    );
-    store.dispatch(
-      setSdrSettingsBundle({
-        fftSize: 262_144,
-        gain: 42,
-      }),
-    );
+    try {
+      store.dispatch(setVizPan(120_000));
+      jest.advanceTimersByTime(500);
 
-    const parsed = JSON.parse(
-      localStorage.getItem("napt-sdr-settings-v2") ?? "{}",
-    );
-    expect(parsed.activeSignalArea).toBeUndefined();
-    expect(parsed.frequencyRange).toBeUndefined();
-    expect(parsed.fftSize).toBeUndefined();
-    expect(parsed.gain).toBeUndefined();
+      expect(setItem).not.toHaveBeenCalledWith(
+        "napt-sdr-settings-v2",
+        expect.any(String),
+      );
+    } finally {
+      setItem.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it("coalesces spectrum and radio range writes after retuning settles", () => {
+    jest.useFakeTimers();
+    try {
+      const store = configureStore({
+        reducer: {
+          spectrum: spectrumSlice,
+          sourceSelection: sourceSelectionSlice,
+          websocket: websocketSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            localStorageMiddleware,
+          ),
+      });
+      store.dispatch(setSelectedSourceId("rtl-sdr-0"));
+      store.dispatch(updateDeviceState({ activeSourceId: "rtl-sdr-0" }));
+      const setItem = jest.spyOn(Storage.prototype, "setItem");
+      const firstRange = { min: 7_000_000, max: 10_200_000 };
+      const finalRange = { min: 7_100_000, max: 10_300_000 };
+
+      store.dispatch({
+        type: "spectrum/setFrequencyRange",
+        payload: firstRange,
+      });
+      store.dispatch({
+        type: "spectrum/setFrequencyRange",
+        payload: finalRange,
+      });
+
+      expect(setItem).not.toHaveBeenCalled();
+      expect(loadPersistedColdStartFrequencyRange("rtl-sdr-0")).toBeNull();
+
+      jest.advanceTimersByTime(499);
+
+      expect(loadPersistedColdStartFrequencyRange("rtl-sdr-0")).toBeNull();
+      expect(setItem).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1);
+
+      expect(loadPersistedColdStartFrequencyRange("rtl-sdr-0")).toEqual(
+        finalRange,
+      );
+      expect(
+        JSON.parse(localStorage.getItem("napt-sdr-settings-v2") ?? "{}")
+          .lastKnownRanges.A,
+      ).toEqual(finalRange);
+      expect(setItem).toHaveBeenCalledTimes(2);
+      setItem.mockRestore();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("persists a changed tune for the active selected source for cold start", () => {
-    const store = configureStore({
-      reducer: {
-        spectrum: spectrumSlice,
-        sourceSelection: sourceSelectionSlice,
-        websocket: websocketSlice,
-      },
-      middleware: (getDefaultMiddleware) =>
-        getDefaultMiddleware({ serializableCheck: false }).concat(
-          localStorageMiddleware,
-        ),
-    });
-    store.dispatch(setSelectedSourceId("rtl-sdr-0"));
-    store.dispatch(updateDeviceState({ activeSourceId: "rtl-sdr-0" }));
+    jest.useFakeTimers();
+    try {
+      const store = configureStore({
+        reducer: {
+          spectrum: spectrumSlice,
+          sourceSelection: sourceSelectionSlice,
+          websocket: websocketSlice,
+        },
+        middleware: (getDefaultMiddleware) =>
+          getDefaultMiddleware({ serializableCheck: false }).concat(
+            localStorageMiddleware,
+          ),
+      });
+      store.dispatch(setSelectedSourceId("rtl-sdr-0"));
+      store.dispatch(updateDeviceState({ activeSourceId: "rtl-sdr-0" }));
 
-    const range = { min: 7_000_000, max: 10_200_000 };
-    store.dispatch({ type: "spectrum/setFrequencyRange", payload: range });
+      const range = { min: 7_000_000, max: 10_200_000 };
+      store.dispatch({ type: "spectrum/setFrequencyRange", payload: range });
+      expect(loadPersistedColdStartFrequencyRange("rtl-sdr-0")).toBeNull();
 
-    expect(
-      loadPersistedColdStartFrequencyRange("rtl-sdr-0"),
-    ).toEqual(range);
-    expect(
-      loadPersistedColdStartFrequencyRange("another-source"),
-    ).toBeNull();
+      window.dispatchEvent(new Event("pagehide"));
+
+      expect(loadPersistedColdStartFrequencyRange("rtl-sdr-0")).toEqual(range);
+      expect(loadPersistedColdStartFrequencyRange("another-source")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("does not pin a pending source's range before it becomes active", () => {
