@@ -9,6 +9,12 @@ export const PIPELINE_TIMING_STAGES = [
   "workerCompute",
   "workerRoundTrip",
   "renderSubmit",
+  "renderCallback",
+  "interactionToRenderCallback",
+  "overlayRaster",
+  "overlayUpload",
+  "browserStatePublish",
+  "gpuQueueCompletion",
   "renderLoopInterval",
 ] as const;
 
@@ -29,6 +35,10 @@ export type BrowserPipelineSnapshot = {
   framesDropped: number;
   sequenceGaps: number;
   bytesReceived: number;
+  interactionFrames: number;
+  workerPendingPaintSkips: number;
+  workerResultsRejectedAsStale: number;
+  latestFramesReplaced: number;
   renderLoop: {
     callbacks: number;
     lateIntervals: number;
@@ -44,6 +54,11 @@ export type BrowserPipelineSnapshot = {
 export type BrowserPipelineMetrics = {
   frameAccepted(sequence: number, bytes: number, streamId?: string): void;
   frameDropped(count?: number): void;
+  frameReplaced(count?: number): void;
+  workerPendingPaintSkipped(): void;
+  workerResultRejectedAsStale(): void;
+  interactionRequested(): void;
+  interactionRendered(): void;
   startTiming(): number | null;
   finishTiming(stage: PipelineTimingStage, startedAt: number | null): void;
   recordTiming(stage: PipelineTimingStage, durationMs: number): void;
@@ -90,6 +105,11 @@ export const createPipelinePerformanceMetrics = (
   let framesDropped = 0;
   let sequenceGaps = 0;
   let bytesReceived = 0;
+  let interactionFrames = 0;
+  let workerPendingPaintSkips = 0;
+  let workerResultsRejectedAsStale = 0;
+  let latestFramesReplaced = 0;
+  let pendingInteractionAt: number | null = null;
   let renderCallbacks = 0;
   let lateRenderIntervals = 0;
   const lastSequenceByStream = new Map<string, number>();
@@ -158,6 +178,31 @@ export const createPipelinePerformanceMetrics = (
     },
     frameDropped(count = 1) {
       framesDropped += Math.max(0, count);
+    },
+    frameReplaced(count = 1) {
+      if (detailedProfilingEnabled) {
+        latestFramesReplaced += Math.max(0, count);
+      }
+    },
+    workerPendingPaintSkipped() {
+      if (detailedProfilingEnabled) workerPendingPaintSkips += 1;
+    },
+    workerResultRejectedAsStale() {
+      if (detailedProfilingEnabled) workerResultsRejectedAsStale += 1;
+    },
+    interactionRequested() {
+      if (detailedProfilingEnabled && typeof performance !== "undefined") {
+        pendingInteractionAt = performance.now();
+      }
+    },
+    interactionRendered() {
+      if (!detailedProfilingEnabled || pendingInteractionAt === null) return;
+      interactionFrames += 1;
+      recordTiming(
+        "interactionToRenderCallback",
+        performance.now() - pendingInteractionAt,
+      );
+      pendingInteractionAt = null;
     },
     startTiming() {
       return detailedProfilingEnabled && typeof performance !== "undefined"
@@ -274,6 +319,10 @@ export const createPipelinePerformanceMetrics = (
         framesDropped,
         sequenceGaps,
         bytesReceived,
+        interactionFrames,
+        workerPendingPaintSkips,
+        workerResultsRejectedAsStale,
+        latestFramesReplaced,
         renderLoop: {
           callbacks: renderCallbacks,
           lateIntervals: lateRenderIntervals,

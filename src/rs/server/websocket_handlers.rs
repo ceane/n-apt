@@ -10,6 +10,7 @@ use serde_json;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -1185,7 +1186,11 @@ async fn handle_stream_connection(
               loop {
                 match subscription.recv().await {
                   Ok(event) => {
-                    if event_tx_for_task.send(QueuedStreamEvent { event, delivery_policy: subscription.delivery_policy() }).await.is_err() { break; }
+                    if event_tx_for_task.send(QueuedStreamEvent {
+                      event,
+                      delivery_policy: subscription.delivery_policy(),
+                      queued_at: Instant::now(),
+                    }).await.is_err() { break; }
                   }
                   Err(broadcast::error::RecvError::Lagged(count)) => {
                     if event_tx_for_task.send(StreamEvent::Error {
@@ -1488,6 +1493,7 @@ async fn cleanup_stream_subscriptions(
 struct QueuedStreamEvent {
   event: StreamEvent,
   delivery_policy: StreamDeliveryPolicy,
+  queued_at: Instant,
 }
 
 impl From<StreamEvent> for QueuedStreamEvent {
@@ -1495,6 +1501,7 @@ impl From<StreamEvent> for QueuedStreamEvent {
     Self {
       event,
       delivery_policy: StreamDeliveryPolicy::Latest,
+      queued_at: Instant::now(),
     }
   }
 }
@@ -1504,7 +1511,7 @@ impl From<StreamEvent> for QueuedStreamEvent {
 fn queue_writer_event(
   queue: &mut VecDeque<QueuedStreamEvent>,
   next: QueuedStreamEvent,
-) {
+) -> bool {
   if next.delivery_policy == StreamDeliveryPolicy::Latest {
     if let StreamEvent::Frame(frame) = &next.event {
       for queued in queue.iter_mut().rev() {
@@ -1516,7 +1523,7 @@ fn queue_writer_event(
               && previous.options_revision == frame.options_revision
             {
               *queued = next;
-              return;
+              return true;
             }
           }
           _ => break,
@@ -1525,6 +1532,7 @@ fn queue_writer_event(
     }
   }
   queue.push_back(next);
+  false
 }
 
 async fn run_stream_writer<S, F>(
@@ -1575,19 +1583,54 @@ async fn run_stream_writer<S, F>(
         // A bounded drain also prevents a busy producer starving control writes.
         for _ in 0..32usize.saturating_sub(pending.len()) {
           match event_rx.try_recv() {
-            Ok(next) => queue_writer_event(&mut pending, next),
+            Ok(next) => {
+              if queue_writer_event(&mut pending, next) {
+                crate::performance::pipeline_metrics().increment(
+                  crate::performance::CounterKind::FramesReplaced,
+                  1,
+                );
+              }
+            }
             Err(_) => break,
           }
         }
+        let metrics = crate::performance::pipeline_metrics();
+        if metrics.detailed_profiling_enabled() {
+          let channel_depth = event_rx
+            .max_capacity()
+            .saturating_sub(event_rx.capacity());
+          metrics.observe_queue(
+            crate::performance::Stage::ManagedStreamQueueAge,
+            u64::try_from(channel_depth)
+              .unwrap_or(u64::MAX)
+              .saturating_add(pending.len() as u64),
+          );
+        }
         let event = pending.pop_front().expect("queued event");
-        let Ok(payload) = stream_event_message(&event.event, &enc_key) else {
+        metrics.record_latency(
+          crate::performance::Stage::ManagedStreamQueueAge,
+          event.queued_at.elapsed(),
+        );
+        let encode_span = crate::performance::ProfilingSpan::start(
+          metrics,
+          crate::performance::Stage::ManagedStreamEncode,
+        );
+        let payload = stream_event_message(&event.event, &enc_key);
+        drop(encode_span);
+        let Ok(payload) = payload else {
           continue;
         };
-        if !send_writer_message_or_invalidation(
+        let send_span = crate::performance::ProfilingSpan::start(
+          metrics,
+          crate::performance::Stage::ManagedStreamSend,
+        );
+        let sent = send_writer_message_or_invalidation(
           &mut socket_sender,
           payload,
           &mut invalid_session,
-        ).await {
+        ).await;
+        drop(send_span);
+        if !sent {
           break;
         }
       }
@@ -3498,6 +3541,7 @@ mod tests {
         is_tx_preview: false,
       }),
       delivery_policy,
+      queued_at: std::time::Instant::now(),
     };
     let mut queue = std::collections::VecDeque::new();
     super::queue_writer_event(
@@ -3528,6 +3572,21 @@ mod tests {
       make(4, super::StreamDeliveryPolicy::Latest),
     );
     assert_eq!(queue.len(), 5);
+
+    let mut latest_queue = std::collections::VecDeque::new();
+    assert!(!super::queue_writer_event(
+      &mut latest_queue,
+      make(5, super::StreamDeliveryPolicy::Latest),
+    ));
+    assert!(super::queue_writer_event(
+      &mut latest_queue,
+      make(6, super::StreamDeliveryPolicy::Latest),
+    ));
+    assert_eq!(latest_queue.len(), 1);
+    assert!(matches!(
+      latest_queue.front().map(|queued| &queued.event),
+      Some(StreamEvent::Frame(frame)) if frame.sequence == 6
+    ));
   }
 
   #[test]

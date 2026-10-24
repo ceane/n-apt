@@ -9,6 +9,7 @@ import {
   resolvePanZoomForDisplayRange,
   sourceCoversMirroredDisplay,
 } from "@n-apt/math/basebandMirror";
+import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 
 export const FULL_CHANNEL_BINS = 4096;
 
@@ -167,6 +168,87 @@ export interface LiveSpectrumPaintContract {
   panOffsetHz: number;
 }
 
+type PendingSpectrumFrameIdentity = Pick<
+  LiveFrameData,
+  "source_id" | "stream_epoch" | "frame_status" | "is_tx_preview" | "is_mock_tx_preview"
+>;
+
+const isTxPresentationFrame = (frame: PendingSpectrumFrameIdentity): boolean =>
+  frame.frame_status === "standby" ||
+  frame.frame_status === "transmitting" ||
+  frame.is_tx_preview === true ||
+  frame.is_mock_tx_preview === true;
+
+/**
+ * A pending FFT may keep painting the resident spectrum only while both
+ * frames belong to the same explicitly identified stream epoch and RX/TX
+ * presentation. Legacy frames have no epoch ownership and are not reusable.
+ */
+export const canReuseResidentSpectrumWhileWorkerPending = (
+  incoming: PendingSpectrumFrameIdentity | null | undefined,
+  resident: PendingSpectrumFrameIdentity | null | undefined,
+): boolean =>
+  !!incoming &&
+  !!resident &&
+  typeof incoming.source_id === "string" &&
+  incoming.source_id.length > 0 &&
+  incoming.source_id === resident.source_id &&
+  Number.isFinite(incoming.stream_epoch) &&
+  Number.isFinite(resident.stream_epoch) &&
+  incoming.stream_epoch === resident.stream_epoch &&
+  isTxPresentationFrame(incoming) === isTxPresentationFrame(resident);
+
+export const shouldRunSpectrumSpikeAnalysis = ({
+  enabled,
+  hasNewData,
+  shouldReprocessCurrentFrame,
+  workerPending = false,
+}: {
+  enabled: boolean;
+  hasNewData: boolean;
+  shouldReprocessCurrentFrame: boolean;
+  /** A pending replacement must not cause the resident frame to be analyzed again. */
+  workerPending?: boolean;
+}): boolean =>
+  enabled &&
+  !workerPending &&
+  (hasNewData || shouldReprocessCurrentFrame);
+
+export const shouldAdvanceSpectrumSpikeHistory = ({
+  hasNewData,
+  isFresh,
+  workerPending = false,
+}: {
+  hasNewData: boolean;
+  isFresh: boolean;
+  /** The incoming frame has no spectrum yet while its worker job is pending. */
+  workerPending?: boolean;
+}): boolean => hasNewData && isFresh && !workerPending;
+
+export const shouldResetSpectrumSpikeHistory = ({
+  previousScope,
+  nextScope,
+  previousRange,
+  nextRange,
+}: {
+  previousScope: string | null;
+  nextScope: string;
+  previousRange: { min: number; max: number };
+  nextRange: { min: number; max: number };
+}): boolean =>
+  previousScope !== nextScope ||
+  !Number.isFinite(previousRange.min) ||
+  !Number.isFinite(previousRange.max) ||
+  previousRange.min !== nextRange.min ||
+  previousRange.max !== nextRange.max;
+
+export const shouldAcceptSpectrumSpikeAnalysisResult = (
+  resultScope: string,
+  currentScope: string,
+): boolean => resultScope === currentScope;
+
+
+
 /**
  * A cached FFT can be redrawn against a moving viewport only when its full
  * requested band is backed by acquired bins. In mirror mode, negative display
@@ -207,6 +289,7 @@ export const resolveLiveSpectrumPaintContract = ({
   sourceFrequencyRange,
   activeSampleRateHz,
   allowCoveredLiveViewport = false,
+  allowPendingLiveViewport = false,
   zoom,
   panOffsetHz,
   mirrorEnabled,
@@ -218,6 +301,8 @@ export const resolveLiveSpectrumPaintContract = ({
   activeSampleRateHz?: number | null;
   /** Let an interaction redraw only when the cached FFT covers the whole view. */
   allowCoveredLiveViewport?: boolean;
+  /** Keep the resident frame's true source axis while a replacement FFT is pending. */
+  allowPendingLiveViewport?: boolean;
   zoom: number;
   panOffsetHz: number;
   mirrorEnabled: boolean;
@@ -283,6 +368,18 @@ export const resolveLiveSpectrumPaintContract = ({
     panOffsetHz: safePan,
     mirrorEnabled,
   });
+  if (allowPendingLiveViewport && !isPaused) {
+    // The resident frame remains tied to its original acquisition axis. The
+    // shader floors only the portion outside that range while the replacement
+    // FFT is pending, so panning stays responsive without relabeling old bins.
+    return {
+      paintViewportRange: safeRequestedRange,
+      sourceFrequencyRange: safeSourceRange,
+      displayRange: requestedCoordinates.displayRange,
+      zoom: safeZoom,
+      panOffsetHz: requestedCoordinates.clampedPan,
+    };
+  }
   const requestedViewWithNegativeResidentFrame =
     safeRequestedRange.min >= 0 &&
     requestedBaseSpan > 0 &&

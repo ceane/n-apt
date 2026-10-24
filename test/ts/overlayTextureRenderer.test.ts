@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
 import { OverlayTextureRenderer } from "@n-apt/spectrum/hooks/useWebGPUInit";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 
 class FakeOffscreenCanvas {
   width = 1;
@@ -89,6 +90,21 @@ describe("OverlayTextureRenderer lifecycle", () => {
     const pass = createPass();
     second.renderInPass(asPass(pass));
     expect(pass.draw).not.toHaveBeenCalled();
+  });
+
+  it("measures overlay raster and upload as separate stages", () => {
+    const timing = jest.spyOn(browserPipelineMetrics, "finishTiming");
+    const startTiming = jest.spyOn(browserPipelineMetrics, "startTiming").mockReturnValue(10);
+    const { device } = createFakeDevice();
+    const renderer = new OverlayTextureRenderer(device, FORMAT);
+
+    renderer.beginDraw(100, 50, 1);
+    renderer.endDraw();
+
+    expect(timing).toHaveBeenCalledWith("overlayRaster", expect.anything());
+    expect(timing).toHaveBeenCalledWith("overlayUpload", expect.anything());
+    startTiming.mockRestore();
+    timing.mockRestore();
   });
 
   it("recreates its texture on the next upload after destroy", () => {

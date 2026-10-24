@@ -79,6 +79,9 @@ impl CeilingModel {
 pub enum Stage {
   DeviceCallback,
   Acquisition,
+  ProcessorLock,
+  DeviceRead,
+  Generation,
   CommandToRetune,
   HardwareRetune,
   RetuneToFirstFrame,
@@ -87,6 +90,9 @@ pub enum Stage {
   FftDsp,
   EncryptSerialize,
   WebSocketSend,
+  ManagedStreamQueueAge,
+  ManagedStreamEncode,
+  ManagedStreamSend,
   BrowserDecrypt,
   StatePublish,
   GpuUpload,
@@ -137,6 +143,7 @@ pub enum CounterKind {
   FramesProduced,
   FramesConsumed,
   FramesDropped,
+  FramesReplaced,
   FramesLate,
   Samples,
   Bytes,
@@ -168,6 +175,7 @@ pub struct CounterSnapshot {
   pub frames_produced: u64,
   pub frames_consumed: u64,
   pub frames_dropped: u64,
+  pub frames_replaced: u64,
   pub frames_late: u64,
   pub samples: u64,
   pub bytes: u64,
@@ -216,6 +224,7 @@ struct AtomicCounters {
   frames_produced: AtomicU64,
   frames_consumed: AtomicU64,
   frames_dropped: AtomicU64,
+  frames_replaced: AtomicU64,
   frames_late: AtomicU64,
   samples: AtomicU64,
   bytes: AtomicU64,
@@ -256,7 +265,7 @@ pub struct PipelineMetrics {
 pub struct ProfilingSpan<'a> {
   metrics: Option<&'a PipelineMetrics>,
   stage: Stage,
-  started_at: Instant,
+  started_at: Option<Instant>,
 }
 
 impl<'a> ProfilingSpan<'a> {
@@ -264,7 +273,7 @@ impl<'a> ProfilingSpan<'a> {
     Self {
       metrics: metrics.detailed.then_some(metrics),
       stage,
-      started_at: Instant::now(),
+      started_at: metrics.detailed.then(Instant::now),
     }
   }
 }
@@ -272,7 +281,9 @@ impl<'a> ProfilingSpan<'a> {
 impl Drop for ProfilingSpan<'_> {
   fn drop(&mut self) {
     if let Some(metrics) = self.metrics {
-      metrics.record_latency(self.stage, self.started_at.elapsed());
+      if let Some(started_at) = self.started_at {
+        metrics.record_latency(self.stage, started_at.elapsed());
+      }
     }
   }
 }
@@ -286,12 +297,17 @@ impl PipelineMetrics {
     }
   }
 
+  pub fn detailed_profiling_enabled(&self) -> bool {
+    self.detailed
+  }
+
   pub fn increment(&self, kind: CounterKind, amount: u64) {
     let counter = match kind {
       CounterKind::FramesRequested => &self.counters.frames_requested,
       CounterKind::FramesProduced => &self.counters.frames_produced,
       CounterKind::FramesConsumed => &self.counters.frames_consumed,
       CounterKind::FramesDropped => &self.counters.frames_dropped,
+      CounterKind::FramesReplaced => &self.counters.frames_replaced,
       CounterKind::FramesLate => &self.counters.frames_late,
       CounterKind::Samples => &self.counters.samples,
       CounterKind::Bytes => &self.counters.bytes,
@@ -339,6 +355,9 @@ impl PipelineMetrics {
   }
 
   pub fn observe_queue(&self, stage: Stage, depth: u64) {
+    if !self.detailed {
+      return;
+    }
     let mut stages = self.stages.lock().unwrap();
     let measurement = stages.entry(stage).or_default();
     measurement.queue_high_water = measurement.queue_high_water.max(depth);
@@ -351,6 +370,7 @@ impl PipelineMetrics {
       frames_produced: load(&self.counters.frames_produced),
       frames_consumed: load(&self.counters.frames_consumed),
       frames_dropped: load(&self.counters.frames_dropped),
+      frames_replaced: load(&self.counters.frames_replaced),
       frames_late: load(&self.counters.frames_late),
       samples: load(&self.counters.samples),
       bytes: load(&self.counters.bytes),

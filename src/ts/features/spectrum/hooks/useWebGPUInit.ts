@@ -3,6 +3,7 @@ import { useAsyncShaderCache } from "@n-apt/spectrum/hooks/useAsyncShaderCache";
 import { useSharedBufferManager } from "@n-apt/spectrum/hooks/useSharedBufferManager";
 import { resampleShader } from "@n-apt/shaders";
 import { acquireSharedWebGpuDevice } from "@n-apt/app/infrastructure/visualization/webgpuDevicePool";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 
 // Inlined OverlayTextureRenderer shader
 const overlayShader = `
@@ -46,6 +47,7 @@ export class OverlayTextureRenderer {
   private bindGroupLayout: GPUBindGroupLayout;
   private texture: GPUTexture | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private overlayRasterStartedAt: number | null = null;
   private offscreen: OffscreenCanvas;
   private offscreenCtx: OffscreenCanvasRenderingContext2D;
   private texWidth = 0;
@@ -115,6 +117,7 @@ export class OverlayTextureRenderer {
     height: number,
     dpr: number,
   ): OffscreenCanvasRenderingContext2D {
+    this.overlayRasterStartedAt = browserPipelineMetrics.startTiming();
     const pw = Math.max(1, Math.round(width * dpr));
     const ph = Math.max(1, Math.round(height * dpr));
 
@@ -131,6 +134,11 @@ export class OverlayTextureRenderer {
   }
 
   endDraw(): void {
+    browserPipelineMetrics.finishTiming(
+      "overlayRaster",
+      this.overlayRasterStartedAt,
+    );
+    this.overlayRasterStartedAt = null;
     const pw = this.offscreen.width;
     const ph = this.offscreen.height;
 
@@ -156,11 +164,13 @@ export class OverlayTextureRenderer {
       });
     }
 
+    const uploadStartedAt = browserPipelineMetrics.startTiming();
     this.device.queue.copyExternalImageToTexture(
       { source: this.offscreen },
       { texture: this.texture },
       [pw, ph],
     );
+    browserPipelineMetrics.finishTiming("overlayUpload", uploadStartedAt);
   }
 
   renderInPass(pass: GPURenderPassEncoder): void {

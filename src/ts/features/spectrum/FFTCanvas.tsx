@@ -86,6 +86,9 @@ import { presentSpikeAnalysis } from "@n-apt/spectrum/fft/spikeAnalysisPresentat
 import type { SpikeAnalysis } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal";
 import type { PausedFrameSnapshot } from "@n-apt/spectrum/types/PausedFrameSnapshot";
 import {
+  canReuseResidentSpectrumWhileWorkerPending,
+  shouldAdvanceSpectrumSpikeHistory,
+  shouldRunSpectrumSpikeAnalysis,
   accumulateFullChannelWaveform,
   isSpectrumViewportCoveredByAcquisition,
   newestIqWindow,
@@ -98,6 +101,7 @@ import {
   shouldClearSpectrumWaveformForRangeChange,
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 export { invertSpectrumVertically } from "@n-apt/spectrum/fft/frameProcessing";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
 import {
@@ -413,6 +417,7 @@ export const shouldRepaintCachedSpectrumForViewportChange = ({
   shouldReprocessCurrentFrame,
   hasCachedWaveform,
   hasFullAcquisitionCoverage = false,
+  allowPartialCoverageWhilePending = false,
   zoomChanged,
   panChanged,
   rangeChanged = false,
@@ -423,12 +428,14 @@ export const shouldRepaintCachedSpectrumForViewportChange = ({
   hasCachedWaveform: boolean;
   /** The requested live view is completely inside the cached frame's RF axis. */
   hasFullAcquisitionCoverage?: boolean;
+  /** Ownership has been validated and a replacement worker FFT is pending. */
+  allowPartialCoverageWhilePending?: boolean;
   zoomChanged: boolean;
   panChanged: boolean;
   rangeChanged?: boolean;
   isPaused?: boolean;
 }): boolean =>
-  (isPaused || hasFullAcquisitionCoverage) &&
+  (isPaused || hasFullAcquisitionCoverage || allowPartialCoverageWhilePending) &&
   !hasNewData &&
   !shouldReprocessCurrentFrame &&
   hasCachedWaveform &&
@@ -3789,8 +3796,10 @@ const FFTCanvas = memo(
           pauseSnapshotEnabled,
           cachedFrame: lastRenderableFrameRef.current,
         });
+        const workerCandidateFrame = currentFrame;
         let workerSpectrum: Float32Array | undefined;
         let workerPending = false;
+        let canPaintResidentWhileWorkerPending = false;
         if (currentFrame?.iq_data && currentFrame.iq_data.length >= 2) {
           const completed = readWorkerSpectrum(currentFrame, {
             fftSize: frontendFftSize, offsetDb: effectiveDbmOffsetDb, windowType: fftWindow,
@@ -3801,6 +3810,23 @@ const FFTCanvas = memo(
           if (completed) {
             currentFrame = completed.frame;
             workerSpectrum = completed.spectrum;
+          } else if (workerPending) {
+            const residentFrame = lastProcessedDataRef.current as
+              | LiveFrameData
+              | null;
+            canPaintResidentWhileWorkerPending = Boolean(
+              renderWaveformRef.current?.length &&
+                canReuseResidentSpectrumWhileWorkerPending(
+                  workerCandidateFrame,
+                  residentFrame,
+                ),
+            );
+            if (canPaintResidentWhileWorkerPending) {
+              // Paint the resident FFT against its own acquisition axis while
+              // the candidate frame remains queued in the worker. This keeps
+              // source/epoch ownership attached to every visible bin.
+              currentFrame = residentFrame;
+            }
           }
         }
         const isTxPreviewFrame =
@@ -4004,7 +4030,10 @@ const FFTCanvas = memo(
         }
 
         blockingPlaceholderClearKindRef.current = 0;
-        if (workerPending) return;
+        if (workerPending && !canPaintResidentWhileWorkerPending) {
+          browserPipelineMetrics.workerPendingPaintSkipped();
+          return;
+        }
 
         clearOverlayCanvas(waterfallOverlayCanvas);
 
@@ -4436,6 +4465,8 @@ const FFTCanvas = memo(
           shouldReprocessCurrentFrame,
           hasCachedWaveform,
           hasFullAcquisitionCoverage,
+          allowPartialCoverageWhilePending:
+            workerPending && canPaintResidentWhileWorkerPending,
           zoomChanged:
             lastPaintedZoomRef.current !== (vizZoomRef.current || 1),
           panChanged:
@@ -4561,6 +4592,8 @@ const FFTCanvas = memo(
             sourceFrequencyRange,
             activeSampleRateHz: hardwareSampleRateHz,
             allowCoveredLiveViewport: viewportOnlyRedraw && !isPaused,
+            allowPendingLiveViewport:
+              workerPending && canPaintResidentWhileWorkerPending,
             zoom: vizZoomRef.current || 1,
             panOffsetHz: vizPanOffsetRef.current,
             mirrorEnabled: allowNegativeFrequencies,
@@ -4655,10 +4688,27 @@ const FFTCanvas = memo(
               : TX_SLIDER_ROW_HEIGHT;
           const markerOverlayOpacity =
             powerLineDbRef.current !== null ? 0.1 : 1;
-          const skipSpikeAnalysis =
-            (mirrorPanOnlyRedraw || viewportOnlyRedraw) &&
-            !hasNewData &&
-            !shouldReprocessCurrentFrame;
+          const analyzeSpikeOverlay = shouldRunSpectrumSpikeAnalysis({
+            enabled: showSpikeOverlayRef.current,
+            hasNewData: Boolean(hasNewData),
+            shouldReprocessCurrentFrame,
+            workerPending,
+          });
+          const advanceSpikeHistory = shouldAdvanceSpectrumSpikeHistory({
+            hasNewData: Boolean(hasNewData),
+            isFresh: currentFrame?.is_fresh !== false,
+            workerPending,
+          });
+          const spikeAnalysisScope = JSON.stringify([
+            currentFrame?.source_id ?? expectedSourceId ?? frameSourceIdFallback ?? "",
+            currentFrame?.stream_epoch ?? null,
+            currentFrame?.options_revision ?? null,
+            frontendFftSize,
+            effectiveDbmOffsetDb,
+            fftWindow ?? "Rectangular",
+            powerScale,
+            removeDcSpike,
+          ]);
           // Spectrum render (using unified hook)
           if (spectrumGpuCanvas) {
             drawSpectrum({
@@ -4708,6 +4758,9 @@ const FFTCanvas = memo(
               isIqRecordingActive: compact ? false : isIqRecordingActive,
               limitMarkers: compact ? [] : displayLimitMarkers,
               showSpikeOverlay: showSpikeOverlayRef.current,
+              analyzeSpikeOverlay,
+              advanceSpikeHistory,
+              analysisScope: spikeAnalysisScope,
               // Node previews use the transparent 2D overlay canvas as the
               // single selection renderer. Painting the same band into the
               // spectrum backbuffer makes it flicker as frames swap.
@@ -4737,12 +4790,10 @@ const FFTCanvas = memo(
               txSlider: compact ? null : displayTxSlider,
               overlayOpacity: markerOverlayOpacity,
               canvasStatusRow: compact ? null : canvasStatusRowForRender,
-              onSpikeCount: skipSpikeAnalysis
-                ? undefined
-                : (count) => {
-                    dispatch(setGpuSpikeCount(count));
-                  },
-              onSpikeAnalysis: skipSpikeAnalysis
+              onSpikeCount: (count) => {
+                dispatch(setGpuSpikeCount(count));
+              },
+              onSpikeAnalysis: !analyzeSpikeOverlay
                 ? undefined
                 : (analysis) => {
                     const presented = presentSpikeAnalysis(
@@ -4753,8 +4804,8 @@ const FFTCanvas = memo(
                       currentFrame?.center_frequency_hz ?? null,
                       {
                         samples: displayWaveform,
-                        minFrequencyHz: displayVisualRange.min,
-                        maxFrequencyHz: displayVisualRange.max,
+                        minFrequencyHz: paintContract.sourceFrequencyRange.min,
+                        maxFrequencyHz: paintContract.sourceFrequencyRange.max,
                       },
                     );
                     if (!presented) return;

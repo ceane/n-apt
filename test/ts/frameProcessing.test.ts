@@ -3,6 +3,7 @@ import {
   prepareSpectrumRenderData,
   resolveLiveSpectrumCoordinateModel,
   resolveLiveSpectrumPaintContract,
+  canReuseResidentSpectrumWhileWorkerPending,
   shouldClearSpectrumWaveformForRangeChange,
   resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
@@ -11,6 +12,7 @@ import {
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
 import { createFFTZoomProcessor } from "@n-apt/spectrum/utils/rendering/fftZoom";
+import { shouldRepaintCachedSpectrumForViewportChange } from "@n-apt/spectrum/FFTCanvas";
 
 function createState() {
   return {
@@ -59,6 +61,53 @@ describe("updateTemporalWaveform", () => {
     expect(state.framePool[0]).toHaveLength(3);
     expect(result.activeCount).toBe(1);
     expect(Array.from(result.renderWaveform)).toEqual([5, 7, 9]);
+  });
+});
+
+describe("pending live spectrum presentation", () => {
+  const requestedViewRange = { min: 11_000_000, max: 14_200_000 };
+  const residentSourceRange = { min: 8_400_000, max: 11_600_000 };
+
+  it("repaints a resident spectrum during a pan while replacement FFT work is pending", () => {
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        hasFullAcquisitionCoverage: false,
+        allowPartialCoverageWhilePending: true,
+        zoomChanged: false,
+        panChanged: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the resident acquisition axis when painting the latest pending viewport", () => {
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange: residentSourceRange,
+      activeSampleRateHz: 3_200_000,
+      allowPendingLiveViewport: true,
+      zoom: 1,
+      panOffsetHz: 2_000_000,
+      mirrorEnabled: false,
+    });
+
+    expect(contract.sourceFrequencyRange).toEqual(residentSourceRange);
+    expect(contract.displayRange.min).not.toBe(residentSourceRange.min);
+  });
+
+  it("does not advance resident presentation across source, epoch, or TX/RX boundaries", () => {
+    const frame = (overrides: Record<string, unknown> = {}) => ({
+      source_id: "mock-apt",
+      stream_epoch: 4,
+      iq_data: new Uint8Array(32),
+      ...overrides,
+    });
+    expect(canReuseResidentSpectrumWhileWorkerPending(frame(), frame())).toBe(true);
+    expect(
+      canReuseResidentSpectrumWhileWorkerPending(frame(), frame({ stream_epoch: 5 })),
+    ).toBe(false);
   });
 });
 

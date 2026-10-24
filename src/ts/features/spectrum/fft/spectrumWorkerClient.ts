@@ -32,7 +32,11 @@ export class SpectrumWorkerClient {
   ) {
     worker.onmessage = ({ data }: MessageEvent<SpectrumWorkerResponse>) => {
       const job = this.inFlight;
-      if (this.disposed || !job || data.id !== job.id) return;
+      if (this.disposed) return;
+      if (!job || data.id !== job.id) {
+        browserPipelineMetrics.workerResultRejectedAsStale();
+        return;
+      }
       this.inFlight = null;
       browserPipelineMetrics.finishTiming("workerRoundTrip", job.startedAt);
       if (typeof data.computeDurationMs === "number") {
@@ -91,8 +95,12 @@ export class SpectrumWorkerClient {
       queuedAt: browserPipelineMetrics.startTiming(),
       startedAt: null,
     };
-    if (this.inFlight) this.pending = job;
-    else this.start(job);
+    if (this.inFlight) {
+      if (this.pending) browserPipelineMetrics.frameReplaced();
+      this.pending = job;
+    } else {
+      this.start(job);
+    }
   }
 
   /** undefined selects the caller's synchronous fallback after a worker failure. */

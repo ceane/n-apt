@@ -1,5 +1,6 @@
 import { SpectrumWorkerClient } from "@n-apt/spectrum/fft/spectrumWorkerClient";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 
 const frame = (sequence: number, source = "mock-apt") => ({
   type: "spectrum", data_type: "iq_raw", source_id: source, stream_epoch: 1,
@@ -57,4 +58,23 @@ test("exposes the latest completed frame while newer work is pending", () => {
   expect(client.read(b, config)?.frame).toBe(a);
   expect(client.read(frame(2, "rtl-1"), config)).toBeNull();
   client.dispose();
+});
+
+test("counts replaced pending frames and rejects unexpected worker responses", () => {
+  const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
+  const replaced = jest.spyOn(browserPipelineMetrics, "frameReplaced");
+  const rejected = jest.spyOn(browserPipelineMetrics, "workerResultRejectedAsStale");
+  const client = new SpectrumWorkerClient(worker);
+  client.submit(frame(1), config);
+  client.submit(frame(2), config);
+  client.submit(frame(3), config);
+
+  expect(replaced).toHaveBeenCalledTimes(1);
+  worker.onmessage({ data: { id: -1, spectrum: new Float32Array(8) } });
+  expect(rejected).toHaveBeenCalledTimes(1);
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+
+  client.dispose();
+  replaced.mockRestore();
+  rejected.mockRestore();
 });
