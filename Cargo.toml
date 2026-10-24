@@ -142,7 +142,7 @@ mock_apt_metal = ["dep:metal"]
 # Core dependencies (always included)
 rustfft = "6"
 num-complex = "0.4"
-rand = ">=0.10.1, <0.11"
+rand = "0.10.3"
 paste = { package = "pastey", version = "0.2.3" }
 rayon = "1.12"
 getrandom = { version = "0.4", features = ["wasm_js"] }
