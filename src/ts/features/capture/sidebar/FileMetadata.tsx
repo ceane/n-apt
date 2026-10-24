@@ -270,6 +270,12 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
               {naptMetadata.source_device || naptMetadata.hardware || "N/A"}
             </MetadataValue>
           </MetadataItem>
+          <MetadataItem>
+            <MetadataLabel>Duration</MetadataLabel>
+            <MetadataValue>
+              {formatDuration(naptMetadata.duration_s ?? 0)}
+            </MetadataValue>
+          </MetadataItem>
           {activePlaybackMetadata &&
             (activePlaybackMetadata.channelCount ?? 0) > 1 && (
               <MetadataItem style={{ gridColumn: "1 / -1" }}>
@@ -374,12 +380,6 @@ export const FileMetadata: React.FC<FileMetadataProps> = ({
               {typeof displayedFrameRate === "number"
                 ? displayedFrameRate.toFixed(1)
                 : "N/A"}
-            </MetadataValue>
-          </MetadataItem>
-          <MetadataItem>
-            <MetadataLabel>Duration</MetadataLabel>
-            <MetadataValue>
-              {formatDuration(naptMetadata.duration_s ?? 0)}
             </MetadataValue>
           </MetadataItem>
           <MetadataItem>
