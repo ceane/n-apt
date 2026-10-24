@@ -128,7 +128,10 @@ signals:
       hackrf_vga_gain: !dB 30.0dB
       # HackRF RF amplifier enable
       hackrf_amp_enable: false
-      # HackRF baseband filter bandwidth
+      # HackRF MAX2837 baseband filter width (not the digital sample rate).
+      # libhackrf accepts only discrete widths and normally selects a width
+      # <= 0.75 * sample rate when the rate changes; custom widths should be
+      # selected from libhackrf's supported values after setting the rate.
       tuner_bandwidth: 3200000
     
     # In observed runs, N-APT comb spikes appear with PPM set to 1.0 or higher
@@ -196,6 +199,10 @@ signals:
       hackrf_one:
         duplex_mode: "Half-duplex"
         baseband_filter: true
+        # HackRF supports 2-20 MS/s, but Great Scott Gadgets recommends >=8
+        # MS/s. Below 8 MS/s, the MAX2837 filter has a 1.75 MHz minimum width,
+        # reducing adjacent-channel rejection. The app still permits other
+        # rates for flexibility; low-rate results may have weaker filtering.
         sample_rate: !clamp
           value: !channel sample_rate
           min: !floor sample_rate
