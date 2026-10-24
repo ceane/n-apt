@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeResampleEdgeCoverageParams } from "@n-apt/spectrum/fft/resampleParams";
 
 const RESAMPLE_WGSL = readFileSync(
   join(process.cwd(), "src/ts/shaders/resample.wgsl"),
@@ -76,5 +77,27 @@ describe("resample.wgsl", () => {
     expect(RESAMPLE_WGSL).toContain(
       "s1 = max(abs(display0), abs(display1));",
     );
+  });
+});
+
+describe("resample uniform edge coverage", () => {
+  it("keeps edge coverage at byte offset 36 in the shader uniform", () => {
+    expect(RESAMPLE_WGSL).toMatch(
+      /struct ResampleParams \{\s*src_len: u32,\s*out_len: u32,\s*mirror_enabled: u32,\s*_pad0: u32,\s*source_min: f32,\s*source_max: f32,\s*display_min: f32,\s*display_max: f32,\s*floor_db: f32,\s*edge_coverage_hz: f32,/,
+    );
+  });
+
+  it("writes half a display pixel to the WGSL edge coverage field", () => {
+    const params = new DataView(new ArrayBuffer(48));
+
+    writeResampleEdgeCoverageParams(
+      params,
+      { min: 100, max: 300 },
+      20,
+    );
+
+    expect(params.getFloat32(36, true)).toBe(5);
+    expect(params.getFloat32(40, true)).toBe(0);
+    expect(params.getFloat32(44, true)).toBe(0);
   });
 });
