@@ -369,6 +369,21 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
      * live-view data path in the WebSocket runtime → dataRef.current.
      */
     const fftCanvasDataRef = fileFrameRuntime.ref;
+    const playbackFftOptions = useMemo(() => {
+      const channel =
+        allChannelsRef.current[activeChannel] ?? allChannelsRef.current[0];
+      const metadata = workerMetadataMap.current[0]?.[1];
+      return {
+        fftSize: channel?.bins_per_frame ?? metadata?.fft_size ?? fftSize,
+        fftWindow: channel?.fft_window ?? metadata?.fft_window ?? "Rectangular",
+      };
+    }, [
+      activeChannel,
+      channelDataVersion,
+      allChannelsRef,
+      workerMetadataMap,
+      fftSize,
+    ]);
     const seededPlaybackKeyRef = useRef<string | null>(null);
     const playbackSeedKey = useMemo(
       () =>
@@ -396,7 +411,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         displayMode,
         precomputedFrames: precomputedFrames.current,
         channelData,
-        fftSize,
+        fftSize: playbackFftOptions.fftSize,
       });
       seededPlaybackKeyRef.current = playbackSeedKey;
       if (forwardedRef && "current" in forwardedRef) {
@@ -407,7 +422,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       allChannelsRef,
       displayMode,
       fftCanvasDataRef,
-      fftSize,
+      playbackFftOptions,
       forwardedRef,
       hasStitchedData,
       playbackSeedKey,
@@ -427,7 +442,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       hasStitchedData,
       isPaused,
       activeChannel,
-      fftSize,
+      fftSize: playbackFftOptions.fftSize,
       allChannelsRef,
       precomputedFrames,
       fftCanvasDataRef,
@@ -792,6 +807,8 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
               activeSignalArea="Stitched"
               isPaused={isPaused}
               snapshotGridPreference={snapshotGridPreference ?? true}
+              fftSize={playbackFftOptions.fftSize}
+              fftWindow={playbackFftOptions.fftWindow}
               displayTemporalResolution={displayTemporalResolution}
               vizZoom={vizZoom}
               vizZoomFloor={vizZoomFloor}
