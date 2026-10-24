@@ -1131,6 +1131,10 @@ impl MockAptDevice {
   /// the current device state, applies noise and quantization, then returns the
   /// resulting bytes. No global capture buffer is replayed here.
   pub fn read_samples_sync(&mut self, fft_size: usize) -> Result<RawSamples> {
+    let _generation_span = crate::performance::ProfilingSpan::start(
+      crate::performance::pipeline_metrics(),
+      crate::performance::Stage::Generation,
+    );
     if fft_size == 0 {
       return Err(anyhow::anyhow!("FFT size cannot be 0"));
     }

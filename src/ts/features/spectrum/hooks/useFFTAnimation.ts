@@ -67,8 +67,19 @@ export function useFFTAnimation({
         const shouldReprocessFrame = force
           ? reprocessFrame
           : (pendingInteractionRender ?? reprocessFrame);
+        const renderedInteraction = pendingInteractionRender !== null;
         pendingInteractionRenderRef.current = null;
-        onRenderFrameRef.current(runId, shouldReprocessFrame);
+        const renderStartedAt = browserPipelineMetrics.startTiming();
+        let renderSucceeded = false;
+        try {
+          onRenderFrameRef.current(runId, shouldReprocessFrame);
+          renderSucceeded = true;
+        } finally {
+          browserPipelineMetrics.finishTiming("renderCallback", renderStartedAt);
+        }
+        if (renderSucceeded && renderedInteraction) {
+          browserPipelineMetrics.interactionRendered();
+        }
         renderFrameFailedRef.current = false;
       } catch (error) {
         // A throw inside the frame render must not kill the rAF loop: the
@@ -184,6 +195,7 @@ export function useFFTAnimation({
   // cached FFT intact unless a caller explicitly asks to reprocess it.
   const requestInteractionRender = useCallback(
     (reprocessFrame = false) => {
+      browserPipelineMetrics.interactionRequested();
       pendingInteractionRenderRef.current =
         pendingInteractionRenderRef.current === true || reprocessFrame;
       if (!isVisibleRef.current || animationFrameRef.current !== null) return;

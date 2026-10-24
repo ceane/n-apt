@@ -4,6 +4,7 @@ import {
 } from "@n-apt/app/infrastructure/streams/multiplexedStreamTransport";
 import type { StreamKey } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
 import { decryptPayloadBytes, decryptBinaryPayload } from "@n-apt/crypto/webcrypto";
+import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
 
 jest.mock("@n-apt/crypto/webcrypto", () => ({
   decryptPayloadBytes: jest.fn(),
@@ -478,6 +479,7 @@ describe("multiplexed stream transport", () => {
   });
 
   it("coalesces slow latest-frame decryption to the newest pending frame", async () => {
+    const replacements = jest.spyOn(browserPipelineMetrics, "frameReplaced");
     let releaseDecrypt: (() => void) | null = null;
     const decryptStarted = jest.fn();
     (decryptPayloadBytes as jest.Mock).mockImplementation(
@@ -577,7 +579,9 @@ describe("multiplexed stream transport", () => {
       "3",
     ]);
     expect(events.map((event) => event.sequence)).toEqual([1, 3]);
+    expect(replacements).toHaveBeenCalledTimes(1);
     transport.dispose();
+    replacements.mockRestore();
   });
 
   it("keeps every frame on the lossless delivery path", async () => {

@@ -226,7 +226,9 @@ const drainInbound = (
           ingressTiming?.wireBytes ?? 0,
           JSON.stringify([connection.key.sourceId, connection.key.mode, frame.streamEpoch]),
         );
+        const publishStartedAt = browserPipelineMetrics.startTiming();
         connection.onEvent(frame);
+        browserPipelineMetrics.finishTiming("browserStatePublish", publishStartedAt);
       }
     })
     .catch(() => {
@@ -307,6 +309,7 @@ const enqueueFrame = (
       lastItem.deliveryPolicy === "latest"
     ) {
       browserPipelineMetrics.frameDropped();
+      browserPipelineMetrics.frameReplaced();
       lastItem.message = message;
     } else {
       connection.inboundQueue.push({

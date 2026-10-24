@@ -1270,7 +1270,13 @@ impl SdrProcessor {
     } else {
       requested_iq_samples.unwrap_or(fft_size).max(fft_size)
     };
-    let mut samples = self.device.read_samples(read_size)?;
+    let mut samples = {
+      let _read_span = crate::performance::ProfilingSpan::start(
+        crate::performance::pipeline_metrics(),
+        crate::performance::Stage::DeviceRead,
+      );
+      self.device.read_samples(read_size)?
+    };
 
     if samples.data.is_empty() {
       return Ok(self.publish_held_live_spectrum(fft_size));
@@ -1279,7 +1285,13 @@ impl SdrProcessor {
     while self.frame.post_retune_discard_frames > 0 {
       self.frame.post_retune_discard_frames -= 1;
 
-      let next_samples = self.device.read_samples(read_size)?;
+      let next_samples = {
+        let _read_span = crate::performance::ProfilingSpan::start(
+          crate::performance::pipeline_metrics(),
+          crate::performance::Stage::DeviceRead,
+        );
+        self.device.read_samples(read_size)?
+      };
       if next_samples.data.is_empty() {
         return Ok(self.publish_held_live_spectrum(fft_size));
       }
@@ -1308,10 +1320,16 @@ impl SdrProcessor {
     }
 
     // Process the samples through FFT, keeping the hot live path allocation-free.
-    self.fft_processor.process_samples_power(
-      &display_samples,
-      &mut self.frame.spectrum_buffer,
-    )?;
+    {
+      let _fft_span = crate::performance::ProfilingSpan::start(
+        crate::performance::pipeline_metrics(),
+        crate::performance::Stage::FftDsp,
+      );
+      self.fft_processor.process_samples_power(
+        &display_samples,
+        &mut self.frame.spectrum_buffer,
+      )?;
+    }
     let capture_signature = self
       .capture_active
       .then(|| self.capture_options_snapshot());

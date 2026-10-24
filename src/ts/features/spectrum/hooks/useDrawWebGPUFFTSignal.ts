@@ -53,6 +53,10 @@ import {
   parseCssColorToRgba,
 } from "@n-apt/app/infrastructure/visualization/webgpu";
 import { browserPipelineMetrics } from "@n-apt/app/infrastructure/performance/pipelineMetrics";
+import {
+  shouldAcceptSpectrumSpikeAnalysisResult,
+  shouldResetSpectrumSpikeHistory,
+} from "@n-apt/spectrum/fft/frameProcessing";
 
 // Cached CSS color reads — avoids getComputedStyle per render frame.
 // Invalidated on theme changes via MutationObserver.
@@ -286,6 +290,7 @@ type FFTWebGPUState = {
   naptTemporalHistoryCount: number;
   naptTemporalFrequencyMin: number;
   naptTemporalFrequencyMax: number;
+  naptTemporalAnalysisScope: string | null;
   naptClassifierShaderFingerprint: string;
   // Persistent scratch buffers — allocated once, reused every frame
   scratchSpikeParamsAB: ArrayBuffer;
@@ -329,6 +334,12 @@ export interface WebGPUFFTSignalOptions {
   fillColor?: string;
   nodePreview?: boolean;
   showSpikeOverlay?: boolean;
+  /** Recompute classifier/spike results only when source data or settings change. */
+  analyzeSpikeOverlay?: boolean;
+  /** Append to temporal classifier history only for a new eligible frame. */
+  advanceSpikeHistory?: boolean;
+  /** Stable source and processing-settings identity for classifier history. */
+  analysisScope?: string;
   onSpikeCount?: (count: number) => void;
   onSpikeAnalysis?: (analysis: SpikeAnalysis) => void;
   reservedBottomPx?: number;
@@ -339,12 +350,6 @@ export interface WebGPUFFTSignalOptions {
 
 export function useDrawWebGPUFFTSignal() {
   const rendererRef = useRef<FFTWebGPUState | null>(null);
-  const onSpikeCountRef = useRef<((count: number) => void) | undefined>(
-    undefined,
-  );
-  const onSpikeAnalysisRef = useRef<
-    ((analysis: SpikeAnalysis) => void) | undefined
-  >(undefined);
   const retiredBuffersRef = useRef<GPUBuffer[]>([]);
   const initializationRef = useRef<{ device: GPUDevice; format: GPUTextureFormat; promise: Promise<FFTWebGPUState | null> } | null>(null);
   const rendererGenerationRef = useRef(0);
@@ -478,9 +483,9 @@ export function useDrawWebGPUFFTSignal() {
         }
       });
 
-      // Uniform buffer holds 16 floats: plot bounds (4), dB range (2), length (1),
-      // padding (1), line color RGBA (4), fill color RGBA (4)
-      const uniformValues = new Float32Array(16);
+      // Uniform buffer holds 24 floats: the original 16 plot/color values,
+      // acquisition and viewport ranges, mirror flag, and padding.
+      const uniformValues = new Float32Array(24);
       const uniformBuffer = createBuffer({
         size: uniformValues.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -1053,6 +1058,7 @@ export function useDrawWebGPUFFTSignal() {
         naptTemporalHistoryCount: 0,
         naptTemporalFrequencyMin: Number.NaN,
         naptTemporalFrequencyMax: Number.NaN,
+        naptTemporalAnalysisScope: null,
         naptClassifierShaderFingerprint: NAPT_CLASSIFIER_SHADER_FINGERPRINT,
         scratchSpikeParamsAB,
         scratchSpikeParamsU32,
@@ -1091,6 +1097,9 @@ export function useDrawWebGPUFFTSignal() {
         fillColor = SHADOW_COLOR,
         nodePreview = false,
         showSpikeOverlay = false,
+        analyzeSpikeOverlay = showSpikeOverlay,
+        advanceSpikeHistory = analyzeSpikeOverlay,
+        analysisScope,
         onSpikeCount,
         onSpikeAnalysis,
         reservedBottomPx = 0,
@@ -1098,9 +1107,6 @@ export function useDrawWebGPUFFTSignal() {
         isDotted = false,
         removeDcSpike = false,
       } = options;
-
-      onSpikeCountRef.current = onSpikeCount;
-      onSpikeAnalysisRef.current = onSpikeAnalysis;
 
       // Background color from CSS variable - not configurable per-call to ensure
       // snapshot consistency (snapshots capture waveform data, not background)
@@ -1203,6 +1209,7 @@ export function useDrawWebGPUFFTSignal() {
         const displayWidth = Math.max(1, Math.floor(parentWidth - marginPx));
 
         const srcLen = waveformData.length;
+        const sourceRange = sourceFrequencyRange ?? frequencyRange;
         let buffersChanged = false;
 
         if (state.removeDcSpike !== removeDcSpike) {
@@ -1213,10 +1220,15 @@ export function useDrawWebGPUFFTSignal() {
         // A retune changes the normalized capture span. Do not let history
         // from the previous span vote on the new one; the one-frame baseline
         // remains available immediately while the new temporal window warms.
-        if (
-          state.naptTemporalFrequencyMin !== frequencyRange.min ||
-          state.naptTemporalFrequencyMax !== frequencyRange.max
-        ) {
+        if (shouldResetSpectrumSpikeHistory({
+          previousScope: state.naptTemporalAnalysisScope,
+          nextScope: analysisScope ?? "",
+          previousRange: {
+            min: state.naptTemporalFrequencyMin,
+            max: state.naptTemporalFrequencyMax,
+          },
+          nextRange: sourceRange,
+        })) {
           state.naptTemporalHistoryIndex = 0;
           state.naptTemporalHistoryCount = 0;
           state.device.queue.writeBuffer(
@@ -1224,8 +1236,9 @@ export function useDrawWebGPUFFTSignal() {
             0,
             new Uint32Array(NAPT_TEMPORAL_HISTORY_LENGTH * 10),
           );
-          state.naptTemporalFrequencyMin = frequencyRange.min;
-          state.naptTemporalFrequencyMax = frequencyRange.max;
+          state.naptTemporalFrequencyMin = sourceRange.min;
+          state.naptTemporalFrequencyMax = sourceRange.max;
+          state.naptTemporalAnalysisScope = analysisScope ?? "";
         }
 
         // --- Resample input buffer: recreate when waveform length changes ---
@@ -1504,7 +1517,6 @@ export function useDrawWebGPUFFTSignal() {
           true,
         );
         state.scratchResampleParamsView.setUint32(12, 0, true);
-        const sourceRange = sourceFrequencyRange ?? frequencyRange;
         state.scratchResampleParamsView.setFloat32(16, sourceRange.min, true);
         state.scratchResampleParamsView.setFloat32(20, sourceRange.max, true);
         state.scratchResampleParamsView.setFloat32(
@@ -1526,7 +1538,7 @@ export function useDrawWebGPUFFTSignal() {
           0,
           state.scratchResampleParamsAB,
         );
-        if (state.spikeParamsBuffer) {
+        if (analyzeSpikeOverlay && state.spikeParamsBuffer) {
           state.device.queue.writeBuffer(
             state.spikeParamsBuffer,
             0,
@@ -1539,31 +1551,33 @@ export function useDrawWebGPUFFTSignal() {
             state.scratchSpikeParamsAB,
           );
         }
-        state.scratchNaptClassifyParamsView.setUint32(0, displayWidth, true);
-        state.scratchNaptClassifyParamsView.setUint32(4, srcLen, true);
-        state.scratchNaptClassifyParamsView.setFloat32(
-          8,
-          frequencyRange.min,
-          true,
-        );
-        state.scratchNaptClassifyParamsView.setFloat32(
-          12,
-          frequencyRange.max,
-          true,
-        );
-        state.device.queue.writeBuffer(
-          state.naptClassifyParamsBuffer,
-          0,
-          state.scratchNaptClassifyParamsAB,
-        );
-        if (state.spikeCountBuffer) {
+        if (analyzeSpikeOverlay) {
+          state.scratchNaptClassifyParamsView.setUint32(0, displayWidth, true);
+          state.scratchNaptClassifyParamsView.setUint32(4, srcLen, true);
+          state.scratchNaptClassifyParamsView.setFloat32(
+            8,
+            sourceRange.min,
+            true,
+          );
+          state.scratchNaptClassifyParamsView.setFloat32(
+            12,
+            sourceRange.max,
+            true,
+          );
+          state.device.queue.writeBuffer(
+            state.naptClassifyParamsBuffer,
+            0,
+            state.scratchNaptClassifyParamsAB,
+          );
+        }
+        if (analyzeSpikeOverlay && state.spikeCountBuffer) {
           state.device.queue.writeBuffer(
             state.spikeCountBuffer,
             0,
             state.scratchZeroCount,
           );
         }
-        if (showSpikeOverlay) {
+        if (advanceSpikeHistory) {
           state.scratchNaptTemporalParams[0] = NAPT_TEMPORAL_HISTORY_LENGTH;
           state.scratchNaptTemporalParams[1] = state.naptTemporalHistoryIndex;
           state.scratchNaptTemporalParams[2] = state.naptTemporalHistoryCount;
@@ -1579,16 +1593,21 @@ export function useDrawWebGPUFFTSignal() {
         const nowMs =
           typeof performance !== "undefined" ? performance.now() : Date.now();
         const shouldReadSpikeResults =
-          showSpikeOverlay &&
+          analyzeSpikeOverlay &&
           (onSpikeAnalysis || onSpikeCount) &&
           !state.spikeResultsReadbackInFlight &&
           nowMs - state.lastSpikeResultsReadbackMs >= 250;
         const shouldReadSpikeAnalysis = shouldReadSpikeResults && !!onSpikeAnalysis;
         const shouldReadSpikeCount = shouldReadSpikeResults && !!onSpikeCount;
+        // Keep results attached to the frame/view that encoded the readback.
+        // A later pan may replace the callback before mapAsync resolves.
+        const spikeAnalysisForReadback = onSpikeAnalysis;
+        const spikeCountForReadback = onSpikeCount;
+        const analysisScopeForReadback = analysisScope ?? "";
         const renderSubmitStartedAt = browserPipelineMetrics.startTiming();
         const encoder = state.device.createCommandEncoder();
 
-        if (showSpikeOverlay) {
+        if (analyzeSpikeOverlay) {
           encoder.clearBuffer(state.floorAvgResultBuffer);
           encoder.clearBuffer(state.naptClassifyResultBuffer);
         }
@@ -1604,7 +1623,7 @@ export function useDrawWebGPUFFTSignal() {
         computePass.dispatchWorkgroups(Math.ceil(displayWidth / 64));
 
         if (
-          showSpikeOverlay &&
+          analyzeSpikeOverlay &&
           state.floorAvgBindGroup &&
           state.spikeComputeBindGroup &&
           state.spikeRecoveryBindGroup &&
@@ -1637,16 +1656,18 @@ export function useDrawWebGPUFFTSignal() {
           computePass.setPipeline(state.naptDetectPipeline);
           computePass.setBindGroup(0, state.naptDetectBindGroup);
           computePass.dispatchWorkgroups(1);
-          computePass.setPipeline(state.naptTemporalPipeline);
-          computePass.setBindGroup(0, state.naptTemporalBindGroup);
-          computePass.dispatchWorkgroups(1);
+          if (advanceSpikeHistory) {
+            computePass.setPipeline(state.naptTemporalPipeline);
+            computePass.setBindGroup(0, state.naptTemporalBindGroup);
+            computePass.dispatchWorkgroups(1);
 
-          state.naptTemporalHistoryIndex =
-            (state.naptTemporalHistoryIndex + 1) % NAPT_TEMPORAL_HISTORY_LENGTH;
-          state.naptTemporalHistoryCount = Math.min(
-            NAPT_TEMPORAL_HISTORY_LENGTH,
-            state.naptTemporalHistoryCount + 1,
-          );
+            state.naptTemporalHistoryIndex =
+              (state.naptTemporalHistoryIndex + 1) % NAPT_TEMPORAL_HISTORY_LENGTH;
+            state.naptTemporalHistoryCount = Math.min(
+              NAPT_TEMPORAL_HISTORY_LENGTH,
+              state.naptTemporalHistoryCount + 1,
+            );
+          }
         }
         computePass.end();
 
@@ -1719,12 +1740,9 @@ export function useDrawWebGPUFFTSignal() {
         const [fillR, fillG, fillB, fillA] = cachedParseCssColor(fillColor);
 
         // Pack uniforms into Float32Array (layout must match shader)
-        // [0-3]: plot bounds (minX, minY, maxX, maxY)
-        // [4-5]: dB range (min, max)
-        // [6]:   display width (resampled waveform length for FFT shader)
-        // [7]:   source waveform length (raw bin count, for spike index→x mapping)
-        // [8-11]: line color RGBA
-        // [12-15]: fill color RGBA
+        // [0-15]: spectrum plot, dB, and color uniforms
+        // [16-19]: acquisition min/max and viewport min/max for spike projection
+        // [20]: mirror flag (the remaining components are padding)
         state.uniformValues[0] = plotMinX;
         state.uniformValues[1] = plotMinY;
         state.uniformValues[2] = plotMaxX;
@@ -1746,6 +1764,11 @@ export function useDrawWebGPUFFTSignal() {
         state.uniformValues[13] = fillG;
         state.uniformValues[14] = fillB;
         state.uniformValues[15] = fillA;
+        state.uniformValues[16] = sourceRange.min;
+        state.uniformValues[17] = sourceRange.max;
+        state.uniformValues[18] = frequencyRange.min;
+        state.uniformValues[19] = frequencyRange.max;
+        state.uniformValues[20] = mirrorEnabled ? 1 : 0;
 
         state.device.queue.writeBuffer(
           state.uniformBuffer,
@@ -1785,9 +1808,9 @@ export function useDrawWebGPUFFTSignal() {
         if (showSpikeOverlay && state.spikeRenderBindGroup) {
           pass.setBindGroup(0, state.spikeRenderBindGroup);
           pass.setPipeline(state.spikeRenderLinePipeline);
-          pass.draw(2, MAX_GPU_SPIKES);
+          pass.draw(2, MAX_GPU_SPIKES * 2);
           pass.setPipeline(state.spikeRenderCirclePipeline);
-          pass.draw(6, MAX_GPU_SPIKES);
+          pass.draw(6, MAX_GPU_SPIKES * 2);
         }
 
         // Overlays on top (frequency markers)
@@ -1799,8 +1822,18 @@ export function useDrawWebGPUFFTSignal() {
           spikesOverlayRenderer.renderInPass(pass);
         }
         pass.end();
+        const gpuQueueStartedAt =
+          renderSubmitStartedAt === null
+            ? null
+            : browserPipelineMetrics.startTiming();
         state.device.queue.submit([encoder.finish()]);
         browserPipelineMetrics.finishTiming("renderSubmit", renderSubmitStartedAt);
+        if (gpuQueueStartedAt !== null) {
+          void state.device.queue.onSubmittedWorkDone().then(
+            () => browserPipelineMetrics.finishTiming("gpuQueueCompletion", gpuQueueStartedAt),
+            () => browserPipelineMetrics.finishTiming("gpuQueueCompletion", gpuQueueStartedAt),
+          );
+        }
         // These buffers may still be referenced by submitted commands. Release
         // them once that work completes instead of retaining every resize.
         if (retiredBuffersRef.current.length > 0) {
@@ -1816,6 +1849,14 @@ export function useDrawWebGPUFFTSignal() {
             .then(() => {
               const mapped = readbackBuffer.getMappedRange();
               try {
+                if (
+                  !shouldAcceptSpectrumSpikeAnalysisResult(
+                    analysisScopeForReadback,
+                    state.naptTemporalAnalysisScope ?? "",
+                  )
+                ) {
+                  return;
+                }
                 if (shouldReadSpikeCount) {
                   const count = Math.min(
                     new DataView(mapped, SPIKE_COUNT_RESULT_OFFSET, 4).getUint32(0, true),
@@ -1823,7 +1864,7 @@ export function useDrawWebGPUFFTSignal() {
                   );
                   if (count !== state.lastReportedSpikeCount) {
                     state.lastReportedSpikeCount = count;
-                    onSpikeCountRef.current?.(count);
+                    spikeCountForReadback?.(count);
                   }
                 }
 
@@ -1876,20 +1917,48 @@ export function useDrawWebGPUFFTSignal() {
                     : null;
                   const baselineIsNapt = decision.getUint32(0, true) !== 0;
                   const baselineConfidence = decision.getFloat32(4, true);
-                  const temporalIsNapt = temporal.getUint32(4, true) !== 0;
-                  const temporalConfidence = temporal.getFloat32(12, true);
-                  const multiFramePersistence = temporal.getFloat32(16, true);
-                  const multiFrameBridgeScore = temporal.getFloat32(20, true);
-                  const multiFrameUDipScore = temporal.getFloat32(24, true);
-                  const multiFrameFrameCount = temporal.getUint32(28, true);
-                  const multiFrameUnimodalBridgeScore = temporal.getFloat32(32, true);
-                  const multiFramePartialBridgeScore = temporal.getFloat32(36, true);
-                  const multiFrameApexProminenceScore = temporal.getFloat32(40, true);
-                  const multiFrameShoulderSymmetryScore = temporal.getFloat32(44, true);
-                  const multiFrameSincPenaltyScore = temporal.getFloat32(48, true);
-                  const multiFrameCoalescingScore = temporal.getFloat32(52, true);
-                  const interferenceScore = temporal.getFloat32(56, true);
-                  const interferenceEvidenceFrames = temporal.getUint32(60, true);
+                  const temporalIsNapt = advanceSpikeHistory
+                    ? temporal.getUint32(4, true) !== 0
+                    : baselineIsNapt;
+                  const temporalConfidence = advanceSpikeHistory
+                    ? temporal.getFloat32(12, true)
+                    : baselineConfidence;
+                  const multiFramePersistence = advanceSpikeHistory
+                    ? temporal.getFloat32(16, true)
+                    : 0;
+                  const multiFrameBridgeScore = advanceSpikeHistory
+                    ? temporal.getFloat32(20, true)
+                    : 0;
+                  const multiFrameUDipScore = advanceSpikeHistory
+                    ? temporal.getFloat32(24, true)
+                    : 0;
+                  const multiFrameFrameCount = advanceSpikeHistory
+                    ? temporal.getUint32(28, true)
+                    : 0;
+                  const multiFrameUnimodalBridgeScore = advanceSpikeHistory
+                    ? temporal.getFloat32(32, true)
+                    : 0;
+                  const multiFramePartialBridgeScore = advanceSpikeHistory
+                    ? temporal.getFloat32(36, true)
+                    : 0;
+                  const multiFrameApexProminenceScore = advanceSpikeHistory
+                    ? temporal.getFloat32(40, true)
+                    : 0;
+                  const multiFrameShoulderSymmetryScore = advanceSpikeHistory
+                    ? temporal.getFloat32(44, true)
+                    : 0;
+                  const multiFrameSincPenaltyScore = advanceSpikeHistory
+                    ? temporal.getFloat32(48, true)
+                    : 0;
+                  const multiFrameCoalescingScore = advanceSpikeHistory
+                    ? temporal.getFloat32(52, true)
+                    : 0;
+                  const interferenceScore = advanceSpikeHistory
+                    ? temporal.getFloat32(56, true)
+                    : 0;
+                  const interferenceEvidenceFrames = advanceSpikeHistory
+                    ? temporal.getUint32(60, true)
+                    : 0;
                   const values = new DataView(
                     mapped,
                     SPIKE_METRICS_RESULT_OFFSET,
@@ -1903,7 +1972,7 @@ export function useDrawWebGPUFFTSignal() {
                       powerDbm: values.getFloat32(offset + 4, true),
                     };
                   }).sort((a, b) => a.index - b.index);
-                  onSpikeAnalysisRef.current?.({
+                  spikeAnalysisForReadback?.({
                     isNapt: temporalIsNapt,
                     confidence: temporalConfidence,
                     baselineIsNapt,
