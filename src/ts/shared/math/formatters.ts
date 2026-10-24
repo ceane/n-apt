@@ -51,3 +51,31 @@ export function formatTimestampWithTimezone(isoString: string): string {
     return isoString;
   }
 }
+
+/** Formats an ISO timestamp as a concise relative time such as "2 days ago". */
+export function formatRelativeTimestamp(
+  isoString: string,
+  now = Date.now(),
+): string {
+  const timestamp = Date.parse(isoString);
+  if (!Number.isFinite(timestamp)) return "Invalid date";
+
+  const elapsedSeconds = (timestamp - now) / 1000;
+  const elapsed = Math.abs(elapsedSeconds);
+  const units = [
+    { limit: 60, seconds: 1, unit: "second" },
+    { limit: 60 * 60, seconds: 60, unit: "minute" },
+    { limit: 24 * 60 * 60, seconds: 60 * 60, unit: "hour" },
+    { limit: 7 * 24 * 60 * 60, seconds: 24 * 60 * 60, unit: "day" },
+    { limit: 28 * 24 * 60 * 60, seconds: 7 * 24 * 60 * 60, unit: "week" },
+    { limit: 365 * 24 * 60 * 60, seconds: 30 * 24 * 60 * 60, unit: "month" },
+    { limit: Number.POSITIVE_INFINITY, seconds: 365 * 24 * 60 * 60, unit: "year" },
+  ] as const;
+  const { seconds, unit } = units.find(({ limit }) => elapsed < limit)!;
+  const value = Math.round(elapsedSeconds / seconds);
+
+  return new Intl.RelativeTimeFormat(undefined, { numeric: "always" }).format(
+    value,
+    unit,
+  );
+}
