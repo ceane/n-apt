@@ -14,7 +14,7 @@ struct ResampleParams {
   display_min: f32,
   display_max: f32,
   floor_db: f32,
-  _pad2: f32,
+  edge_coverage_hz: f32,
   _pad3: f32,
   _pad4: f32,
 };
@@ -128,6 +128,25 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   if (fills_dc_guard_gap) {
     src_lo = params.source_min;
     src_hi = params.source_min;
+  }
+
+  // Rasterization assigns each output value to a finite-width display pixel.
+  // Extend source endpoints by at most half that pixel so a subpixel boundary
+  // crossing cannot flash a floor-colored seam while the viewport moves. This
+  // does not cover wider regions that the acquisition has not sampled.
+  let edge_coverage_hz = max(params.edge_coverage_hz, 0.0);
+  if (
+    src_hi < params.source_min &&
+    params.source_min - src_hi <= edge_coverage_hz
+  ) {
+    src_lo = params.source_min;
+    src_hi = params.source_min;
+  } else if (
+    src_lo > params.source_max &&
+    src_lo - params.source_max <= edge_coverage_hz
+  ) {
+    src_lo = params.source_max;
+    src_hi = params.source_max;
   }
 
   // Frequencies beyond the acquired positive half are uncovered — paint the
