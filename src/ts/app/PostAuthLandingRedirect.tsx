@@ -32,6 +32,8 @@ export const PostAuthLandingRedirect: React.FC<PostAuthLandingRedirectProps> = (
 
   const isProtectedEntry =
     location.pathname === "/auth" || location.pathname === "/";
+  const filePlaybackDeepLink =
+    new URLSearchParams(location.search).get("source") === "fileSelection";
 
   // Auth check finished while still unauthenticated on a protected entry:
   // the login UI was shown to the user.
@@ -47,7 +49,9 @@ export const PostAuthLandingRedirect: React.FC<PostAuthLandingRedirectProps> = (
     isAuthenticated &&
     isProtectedEntry
   ) {
-    const landingPath = getPostAuthLandingPath();
+    const landingPath = filePlaybackDeepLink
+      ? location.pathname
+      : getPostAuthLandingPath();
     if (landingPath !== location.pathname) {
       setPendingRedirect(landingPath);
     }

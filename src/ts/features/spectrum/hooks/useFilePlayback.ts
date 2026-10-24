@@ -7,7 +7,7 @@ import {
   setStitchSession,
 } from "@n-apt/spectrum/utils/stitchSessionCache";
 
-interface UseStitchingLogicProps {
+interface UseFilePlaybackProps {
   selectedFiles: { id: string; name: string }[];
   stitchTrigger: number | null;
   stitchSourceSettings: { gain: number; ppm: number };
@@ -18,7 +18,7 @@ interface UseStitchingLogicProps {
   sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number };
 }
 
-interface StitchingResult {
+interface FilePlaybackResult {
   hasStitchedData: boolean;
   frequencyRange: { min: number; max: number };
   channelCount: number;
@@ -40,7 +40,7 @@ interface StitchingResult {
   playIntegrityFailedFile: () => Promise<void>;
 }
 
-export const useStitchingLogic = ({
+export const useFilePlayback = ({
   selectedFiles,
   stitchTrigger,
   stitchSourceSettings,
@@ -49,9 +49,10 @@ export const useStitchingLogic = ({
   onChannelsChange,
   onProcessedDataChange,
   sampleRateOptions,
-}: UseStitchingLogicProps): StitchingResult => {
+}: UseFilePlaybackProps): FilePlaybackResult => {
   const { aesKey, fidoVaultKey } = useAuthentication();
   const aesKeyRef = useRef(aesKey);
+  const previousAesKeyRef = useRef(aesKey);
   const fidoVaultKeyRef = useRef(fidoVaultKey);
   const previousFidoKeyAvailableRef = useRef(Boolean(fidoVaultKey));
   const onStitchStatusRef = useRef(onStitchStatus);
@@ -375,6 +376,14 @@ export const useStitchingLogic = ({
     () => stitchFiles(true),
     [stitchFiles],
   );
+
+  useEffect(() => {
+    const keyChanged = previousAesKeyRef.current !== aesKey;
+    previousAesKeyRef.current = aesKey;
+    if (keyChanged && aesKey && selectedFileIdentityKey) {
+      void stitchFiles();
+    }
+  }, [aesKey, selectedFileIdentityKey, stitchFiles]);
 
   // Trigger: respond to parent's stitch button click
   useEffect(() => {

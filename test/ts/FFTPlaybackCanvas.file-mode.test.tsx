@@ -32,8 +32,8 @@ jest.mock("@n-apt/spectrum", () => ({
   }),
 }));
 
-jest.mock("@n-apt/spectrum/hooks/useStitchingLogic", () => ({
-  useStitchingLogic: () => ({
+jest.mock("@n-apt/spectrum/hooks/useFilePlayback", () => ({
+  useFilePlayback: () => ({
     hasStitchedData: true,
     frequencyRange: { min: 137_000_000, max: 138_000_000 },
     channelCount: 1,

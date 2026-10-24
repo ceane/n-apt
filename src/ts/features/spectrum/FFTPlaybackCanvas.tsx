@@ -14,7 +14,7 @@ import { FFTAndWaterfall } from "@n-apt/spectrum";
 import type { FFTCanvasHandle } from "@n-apt/spectrum/FFTCanvas";
 import { Button } from "@n-apt/ui/Button";
 import { useSnapshot } from "@n-apt/capture/public/useSnapshot";
-import { useStitchingLogic } from "@n-apt/spectrum/hooks/useStitchingLogic";
+import { useFilePlayback } from "@n-apt/spectrum/hooks/useFilePlayback";
 import { usePlaybackAnimation } from "@n-apt/capture/public/usePlaybackAnimation";
 import { useChannelManagement } from "@n-apt/spectrum/hooks/useChannelManagement";
 import { useSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
@@ -295,7 +295,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
       setFrequencyRange,
       playIntegrityFailedFile,
       stitchFiles,
-    } = useStitchingLogic({
+    } = useFilePlayback({
       selectedFiles,
       stitchTrigger,
       stitchSourceSettings,
@@ -533,7 +533,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
 
     // ── Clear when file selection actually changes ──
     // Null-initialized so the first run after mount never clears state that
-    // useStitchingLogic has just populated.
+    // useFilePlayback has just populated.
     const prevFileNamesKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -864,6 +864,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
                 <DecryptionFallback
                   moduleName="File Processing"
                   errorType="vault"
+                  reloadTo="/?source=fileSelection"
                 />
               </div>
             ) : (

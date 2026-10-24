@@ -5,7 +5,7 @@ import {
   setStitchStatus,
   setActivePlaybackMetadata,
 } from "@n-apt/redux";
-import { useStitchingLogic } from "@n-apt/spectrum/public/useStitchingLogic";
+import { useFilePlayback } from "@n-apt/spectrum/public/useFilePlayback";
 import { usePlaybackAnimation } from "@n-apt/capture/hooks/usePlaybackAnimation";
 import { buildPlaybackSeedFrame } from "@n-apt/app/infrastructure/io/playbackSeedFrame";
 import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
@@ -45,7 +45,7 @@ export const DemodFilePlaybackBridge: React.FC<
     setChannelCount,
     setActiveChannel,
     setFrequencyRange,
-  } = useStitchingLogic({
+  } = useFilePlayback({
     selectedFiles,
     stitchTrigger,
     stitchSourceSettings,
