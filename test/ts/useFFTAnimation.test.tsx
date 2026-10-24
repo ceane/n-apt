@@ -147,6 +147,67 @@ describe("useFFTAnimation", () => {
     unmount();
   });
 
+  it("coalesces an interaction repaint into the already queued animation frame", () => {
+    const { raf, pendingFrames, fireNext } = installDrivableRaf();
+    const render = jest.fn();
+    const { result, unmount } = renderHook(() =>
+      useFFTAnimation({
+        isPaused: false,
+        onRenderFrame: render,
+        targetFPS: 60,
+      }),
+    );
+    render.mockClear();
+    const rafCallsBeforeRequest = raf.mock.calls.length;
+    const cancellationsBeforeRequest =
+      cancelAnimationFrameMock.mock.calls.length;
+    const requestInteractionRender = (
+      result.current as unknown as {
+        requestInteractionRender: (reprocessFrame?: boolean) => void;
+      }
+    ).requestInteractionRender;
+
+    expect(requestInteractionRender).toEqual(expect.any(Function));
+    act(() => requestInteractionRender(false));
+
+    expect(raf).toHaveBeenCalledTimes(rafCallsBeforeRequest);
+    expect(cancelAnimationFrameMock).toHaveBeenCalledTimes(
+      cancellationsBeforeRequest,
+    );
+    expect(pendingFrames.size).toBe(1);
+    expect(render).not.toHaveBeenCalled();
+
+    act(() => fireNext());
+
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenLastCalledWith(expect.any(Number), false);
+    expect(pendingFrames.size).toBe(1);
+    unmount();
+  });
+
+  it("paints an interaction on the next frame while the canvas is paused", () => {
+    const { pendingFrames, fireNext } = installDrivableRaf();
+    const render = jest.fn();
+    const { result, unmount } = renderHook(() =>
+      useFFTAnimation({ isPaused: true, onRenderFrame: render }),
+    );
+    render.mockClear();
+    const requestInteractionRender = (
+      result.current as unknown as {
+        requestInteractionRender: (reprocessFrame?: boolean) => void;
+      }
+    ).requestInteractionRender;
+
+    expect(requestInteractionRender).toEqual(expect.any(Function));
+    act(() => requestInteractionRender(false));
+    act(() => fireNext());
+
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenLastCalledWith(expect.any(Number), false);
+    expect(pendingFrames.size).toBe(1);
+    unmount();
+  });
+
   it("keeps the render loop active across visibility changes during receiver work", () => {
     const previousVisibilityState = Object.getOwnPropertyDescriptor(
       document,
