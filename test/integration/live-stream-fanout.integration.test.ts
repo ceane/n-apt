@@ -21,6 +21,7 @@ import {
 import {
   computeHmac,
 } from "@n-apt/crypto/webcrypto";
+import { resolveLiveFrameRenderableFrequencyRange } from "@n-apt/spectrum/FFTCanvas";
 
 const wsModule: any = require(
   resolve(process.cwd(), "node_modules/ws/index.js"),
@@ -74,7 +75,14 @@ const sleep = (ms: number) =>
 
 type ProbeClient = {
   send(data: unknown): void;
-  frames: Array<{ sequence: number; streamEpoch: number }>;
+  subscriptionId: string;
+  sourceId: string;
+  frames: Array<{
+    sequence: number;
+    streamEpoch: number;
+    centerFrequencyHz: number;
+    sampleRateHz: number;
+  }>;
   errors: Array<{ code?: string; message?: string }>;
   close(): void;
 };
@@ -130,6 +138,8 @@ const openProbe = (): Promise<ProbeClient> =>
     let resolved = false;
     const client: ProbeClient = {
       send: (data) => socket.send(JSON.stringify(data)),
+      subscriptionId,
+      sourceId: keySourceId,
       frames: [],
       errors: [],
       close: () => socket.close(),
@@ -168,6 +178,8 @@ const openProbe = (): Promise<ProbeClient> =>
         client.frames.push({
           sequence: message.sequence,
           streamEpoch: message.streamEpoch,
+          centerFrequencyHz: message.centerFrequencyHz,
+          sampleRateHz: message.sampleRateHz,
         });
         if (!resolved) {
           resolved = true;
@@ -203,6 +215,106 @@ describe("2.3 multi-client stream fan-out", () => {
     expect(snap.managed.rx.hasSubscription).toBe(true);
     expect(snap.redux.activeSourceId).toBe("rtl-sdr-00000001");
   });
+
+  it("fuzzes backend frame center/rate through frontend VFO rendering", async () => {
+    const probe = await openProbe();
+    const { source } = activeSourceProbeKey();
+    const settings = source.sdr.settings;
+    const sampleRates = source.sdr.sample_rate_options;
+    const cases = fc.sample(
+      fc.record({
+        centerHz: fc.integer({ min: 5_000_000, max: 15_000_000 }),
+        sampleRateHz: fc.constantFrom(...sampleRates),
+        stalePropsRateHz: fc.integer({ min: 500_000, max: 20_000_000 }),
+      }),
+      { numRuns: 8, seed: 0x4e415053 },
+    );
+
+    const updateOptions = (centerFrequencyHz: number, sampleRateHz: number) =>
+      probe.send({
+        type: "stream_update_options",
+        scope: "device",
+        subscriptionId: probe.subscriptionId,
+        stream: { sourceId: probe.sourceId, mode: "rx" },
+        options: {
+          mode: "rx",
+          centerFrequencyHz,
+          sampleRateHz,
+          fftSize: settings.fft_size,
+          fftWindow: settings.fft_window,
+          frameRate: settings.frame_rate,
+        },
+      });
+    const waitForProbeFrame = async (
+      afterSequence: number,
+      centerFrequencyHz: number,
+      sampleRateHz: number,
+    ) => {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const frame = probe.frames.find(
+          (candidate) =>
+            candidate.sequence > afterSequence &&
+            candidate.centerFrequencyHz === centerFrequencyHz &&
+            candidate.sampleRateHz === sampleRateHz,
+        );
+        if (frame) return frame;
+        await sleep(10);
+      }
+      throw new Error(
+        `backend did not return frame for ${centerFrequencyHz} Hz / ${sampleRateHz} Hz`,
+      );
+    };
+
+    try {
+      for (const { centerHz, sampleRateHz, stalePropsRateHz } of cases) {
+        const previousSequence = Math.max(
+          ...probe.frames.map((frame) => frame.sequence),
+        );
+        updateOptions(centerHz, sampleRateHz);
+        const backendFrame = await waitForProbeFrame(
+          previousSequence,
+          centerHz,
+          sampleRateHz,
+        );
+        const expectedWindow = {
+          min: centerHz - sampleRateHz / 2,
+          max: centerHz + sampleRateHz / 2,
+        };
+        expect(
+          resolveLiveFrameRenderableFrequencyRange({
+            currentFrame: {
+              center_frequency_hz: backendFrame.centerFrequencyHz,
+              sample_rate: backendFrame.sampleRateHz,
+            } as any,
+            requestedRange: {
+              min: centerHz - 10_000_000,
+              max: centerHz + 10_000_000,
+            },
+            propsCenterFrequencyHz: centerHz + 5_000_000,
+            propsHardwareSampleRateHz: stalePropsRateHz,
+            deviceKind: "hackrf_one",
+            backend: "hackrf_one",
+            deviceName: "HackRF One",
+          }),
+        ).toEqual(expectedWindow);
+      }
+    } finally {
+      const previousSequence = Math.max(
+        ...probe.frames.map((frame) => frame.sequence),
+      );
+      updateOptions(settings.center_frequency, settings.sample_rate);
+      try {
+        await waitForProbeFrame(
+          previousSequence,
+          settings.center_frequency,
+          settings.sample_rate,
+        );
+      } finally {
+        probe.close();
+      }
+    }
+  }, 60_000);
 
   it("probe client receives stream_frames matching the store client's epoch", async () => {
     const probe = await openProbe();

@@ -2369,8 +2369,12 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         const previousSourceId = committedViewSourceIdRef.current;
         const previousSource = websocketSources.find((source) => source.id === previousSourceId);
         const automaticFallback = previousSourceId !== null &&
-          previousSourceId !== selectedSourceId && selectedSource.kind === "mock_apt" &&
-          (!previousSource || ["disconnected", "stale", "error"].includes(previousSource.status ?? ""));
+          previousSourceId !== selectedSourceId && selectedSource.kind?.startsWith("mock_apt") &&
+          (!previousSource || ["disconnected", "stale", "error"].includes(previousSource.status ?? "") ||
+            // The active-source event may precede the disconnected inventory.
+            // An automatic selection has no user selection intent; recognize
+            // it now, before the source view is committed with stale Mock pan.
+            (selectionIntentSourceId === null && activeSourceId === selectedSourceId));
         if (automaticFallback && state.frequencyRange) {
           // A fallback replaces the producer, not the user's coordinate window.
           // Never hydrate an older Mock pan/zoom over the departing live view.
@@ -2414,6 +2418,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       selectedSourceId,
       selectedSourceViewKey,
       selectedSource,
+      selectionIntentSourceId,
       websocketSources,
       mirrorBelowZero,
       state.frequencyRange,

@@ -3292,6 +3292,7 @@ mod tests {
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
   };
   use crate::server::websocket_server::active_source_id;
+  use proptest::prelude::*;
   use serial_test::serial;
   use std::collections::HashMap;
   use std::sync::atomic::Ordering;
@@ -3569,6 +3570,58 @@ mod tests {
       &changed_header
     )
     .is_err());
+  }
+
+  proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    #[test]
+    fn binary_frame_header_keeps_vfo_center_and_accepted_rate(
+      center_frequency_hz in 1_000_000u64..6_000_000_000u64,
+      sample_rate_hz in 1u32..20_000_001u32,
+      sequence in any::<u64>(),
+      timestamp in any::<i64>(),
+    ) {
+      let key = [29; 32];
+      let event = StreamEvent::Frame(StreamFrame {
+        key: StreamKey::new("hackrf-property", StreamMode::Rx),
+        stream_epoch: 13,
+        options_revision: 7,
+        sequence,
+        timestamp,
+        center_frequency_hz: Some(center_frequency_hz),
+        sample_rate_hz,
+        iq_data: Arc::new(vec![128, 129, 130, 131]),
+        is_tx_preview: false,
+      });
+      let axum::extract::ws::Message::Binary(bytes) =
+        super::stream_event_message(&event, &key).unwrap()
+      else {
+        panic!("binary frame required")
+      };
+      prop_assert_eq!(&bytes[..4], b"NAPS");
+      let metadata_end =
+        8 + u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+      let metadata: serde_json::Value =
+        serde_json::from_slice(&bytes[8..metadata_end]).unwrap();
+      prop_assert_eq!(
+        metadata["centerFrequencyHz"].as_u64(),
+        Some(center_frequency_hz)
+      );
+      prop_assert_eq!(
+        metadata["sampleRateHz"].as_u64(),
+        Some(sample_rate_hz as u64)
+      );
+      prop_assert_eq!(metadata["streamEpoch"].as_u64(), Some(13));
+      prop_assert_eq!(metadata["optionsRevision"].as_u64(), Some(7));
+      let iq = crate::crypto::decrypt_payload_binary_aad(
+        &key,
+        &bytes[metadata_end..],
+        &bytes[..metadata_end],
+      )
+      .unwrap();
+      prop_assert_eq!(iq, vec![128, 129, 130, 131]);
+    }
   }
 
   #[tokio::test]

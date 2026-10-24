@@ -43,28 +43,44 @@ const select = (id: string) => {
 
 describe("SpectrumProvider commit boundaries", () => {
   it.each([
-    [true, 0, 0],
-    [false, 0, 0],
-    [true, -4_408_000, -4_408_000],
-    [false, -4_408_000, 0],
-  ])("preserves fallback positioning with mirror=%s and pan=%s", (mirror, pan, expectedPan) => {
+    [true, 0, 0, "mock_apt", false],
+    [false, 0, 0, "mock_apt", false],
+    [true, -4_408_000, -4_408_000, "mock_apt", false],
+    [false, -4_408_000, 0, "mock_apt", false],
+    [true, -4_408_000, -4_408_000, "mock_apt_metal", false],
+    [false, 0, 0, "mock_apt_metal", false],
+    [true, -4_408_000, -4_408_000, "mock_apt", true],
+    [false, 0, 0, "mock_apt", true],
+    [true, -4_408_000, -55_000, "mock_apt", true, true],
+  ])("restores positioning with mirror=%s, pan=%s, expected=%s, kind=%s, stale inventory=%s, explicit=%s", (mirror, pan, expectedPan, kind, staleInventory, explicit = false) => {
     const hardware = { ...apt, id: "hackrf-one", stream_key: "hardware-stream", kind: "hackrf_one", status: "connected" };
+    const fallback = { ...apt, kind };
     mockState = {
       ...mockState,
       settings: { ...mockState.settings, mirrorIqBasebandBelowZero: mirror as boolean },
-      spectrum: { ...mockState.spectrum, frequencyRange: { min: 18_000, max: 4_390_000 }, vizZoom: 1, vizPanOffset: pan as number },
+      spectrum: { ...mockState.spectrum, frequencyRange: { min: 18_000, max: 4_390_000 }, vizZoom: 1, vizPanOffset: pan as number, vizZoomFloor: 1, vizZoomFloorPan: pan as number },
       sourceSelection: { ...mockState.sourceSelection, selectedSourceId: hardware.id, selectionIntentSourceId: hardware.id },
       websocket: { ...mockState.websocket, activeSourceId: hardware.id, sources: [hardware, apt] as never },
     };
     const tree = () => <MemoryRouter initialEntries={["/settings"]}><SpectrumProvider>{null}</SpectrumProvider></MemoryRouter>;
     const view = render(tree());
-    localStorage.setItem(aptKey, JSON.stringify({ vizZoom: 2, vizPanOffset: -55_000 }));
+    localStorage.setItem(aptKey, JSON.stringify({ vizZoom: 2, vizPanOffset: -55_000, vizZoomFloor: 2, vizZoomFloorPan: -55_000 }));
     mockDispatch.mockClear();
     select(apt.id);
-    mockState = { ...mockState, websocket: { ...mockState.websocket, activeSourceId: apt.id, sources: [apt] as never } };
+    mockState = {
+      ...mockState,
+      sourceSelection: { ...mockState.sourceSelection, selectionIntentSourceId: explicit ? apt.id : null },
+      websocket: { ...mockState.websocket, activeSourceId: apt.id, sources: (staleInventory ? [hardware, fallback] : [fallback]) as never },
+    };
     view.rerender(tree());
     const restoration = mockDispatch.mock.calls.find(([action]) => action.type === "spectrum/setSdrSettingsBundle");
-    expect(restoration?.[0].payload).toMatchObject({ vizZoom: 1, vizPanOffset: expectedPan });
+    expect(restoration?.[0].payload).toMatchObject({
+      vizZoom: explicit ? 2 : 1,
+      vizPanOffset: expectedPan,
+      vizZoomFloor: explicit ? 2 : 1,
+      vizZoomFloorPan: expectedPan,
+    });
+    expect(restoration?.[0].payload.frequencyRange).toBeUndefined();
   });
 
   it.each(["mock_apt", "hackrf_one"])("does not clamp a new Whole Channel request to stale %s telemetry", (kind) => {

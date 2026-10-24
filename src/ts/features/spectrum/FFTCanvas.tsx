@@ -65,6 +65,7 @@ import type { FFTCanvasWaterfallBindings } from "@n-apt/types/canvas";
 import type { SdrLimitMarker } from "@n-apt/math/sdrLimitMarkers";
 import {
   isRtlSdrDevice,
+  isValidSampleRateHz,
   resolveRenderableFrequencyRange,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { subscribeFrameArrivals } from "@n-apt/app/infrastructure/visualization/frameRuntime";
@@ -552,12 +553,12 @@ export const resolveLiveFrameRenderableFrequencyRange = ({
   isRtlSdr,
 }: FrameRenderRangeInput): FrequencyRange => {
   const mockTxMonitor = isMockTxIdentity({ deviceKind, backend, deviceName });
-  const canonicalSampleRateHz =
-    typeof propsHardwareSampleRateHz === "number" &&
-    Number.isFinite(propsHardwareSampleRateHz) &&
-    propsHardwareSampleRateHz > 0
+  const canonicalSampleRateHz = mockTxMonitor &&
+    isValidSampleRateHz(propsHardwareSampleRateHz)
       ? propsHardwareSampleRateHz
-      : currentFrame.sample_rate;
+      : isValidSampleRateHz(currentFrame.sample_rate)
+        ? currentFrame.sample_rate
+        : propsHardwareSampleRateHz;
   return resolveRenderableFrequencyRange({
     requestedRange,
     centerFrequencyHz: mockTxMonitor

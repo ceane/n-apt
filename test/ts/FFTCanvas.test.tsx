@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import fs from "node:fs";
 import path from "node:path";
+import fc from "fast-check";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTCanvas from "@n-apt/spectrum/FFTCanvas";
@@ -1631,7 +1632,7 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
     });
   });
 
-  it("uses the canonical source rate instead of stale Mock APT frame metadata", () => {
+  it("uses HackRF frame rate instead of stale source props", () => {
     expect(
       resolveLiveFrameRenderableFrequencyRange({
         currentFrame: {
@@ -1641,15 +1642,80 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
         requestedRange: { min: 18_000, max: 4_390_000 },
         propsCenterFrequencyHz: 1_618_000,
         propsHardwareSampleRateHz: 3_200_000,
-        deviceKind: "mock_apt",
-        backend: "mock_apt",
-        deviceName: "Mock APT SDR",
-        isRtlSdr: true,
+        deviceKind: "hackrf_one",
+        backend: "hackrf_one",
+        deviceName: "HackRF One",
+        isRtlSdr: false,
       }),
     ).toEqual({
       min: 18_000,
-      max: 3_218_000,
+      max: 4_390_000,
     });
+  });
+
+  it("keeps the rendered VFO range aligned with fuzzed frame center and sample rate", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 10_000_000, max: 6_000_000_000 }),
+        fc.integer({ min: 500_000, max: 20_000_000 }),
+        fc.integer({ min: 100_000, max: 25_000_000 }),
+        (centerHz, frameRateHz, stalePropsRateHz) => {
+          const expected = {
+            min: centerHz - frameRateHz / 2,
+            max: centerHz + frameRateHz / 2,
+          };
+          expect(
+            resolveLiveFrameRenderableFrequencyRange({
+              currentFrame: {
+                center_frequency_hz: centerHz,
+                sample_rate: frameRateHz,
+              } as any,
+              requestedRange: expected,
+              propsCenterFrequencyHz: centerHz + 5_000_000,
+              propsHardwareSampleRateHz: stalePropsRateHz,
+              deviceKind: "hackrf_one",
+              backend: "hackrf_one",
+              deviceName: "HackRF One",
+              isRtlSdr: false,
+            }),
+          ).toEqual(expected);
+        },
+      ),
+    );
+  });
+
+  it("clamps fuzzed HackRF viewports to the frame's center and sample-rate window", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 10_000_000, max: 6_000_000_000 }),
+        fc.integer({ min: 500_000, max: 20_000_000 }),
+        fc.integer({ min: 1, max: 20_000_000 }),
+        fc.integer({ min: -2_000_000, max: 2_000_000 }),
+        (centerHz, frameRateHz, requestedSpan, offsetFactor) => {
+          const span = Math.min(frameRateHz, requestedSpan);
+          const offsetHz = offsetFactor * frameRateHz / 1_000_000;
+          const range = resolveLiveFrameRenderableFrequencyRange({
+            currentFrame: {
+              center_frequency_hz: centerHz,
+              sample_rate: frameRateHz,
+            } as any,
+            requestedRange: {
+              min: centerHz + offsetHz,
+              max: centerHz + offsetHz + span,
+            },
+            propsCenterFrequencyHz: centerHz - frameRateHz,
+            propsHardwareSampleRateHz: Math.max(100_000, frameRateHz / 2),
+            deviceKind: "hackrf_one",
+            backend: "hackrf_one",
+            deviceName: "HackRF One",
+            isRtlSdr: false,
+          });
+          expect(range.min).toBeGreaterThanOrEqual(centerHz - frameRateHz / 2 - 1e-6);
+          expect(range.max).toBeLessThanOrEqual(centerHz + frameRateHz / 2 + 1e-6);
+          expect(range.max - range.min).toBeCloseTo(span, 5);
+        },
+      ),
+    );
   });
 
   it("uses Mock Tx dBm calibration for Mock APT receive view while Tx is active", () => {

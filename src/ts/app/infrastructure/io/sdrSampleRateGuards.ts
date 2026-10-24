@@ -336,9 +336,12 @@ export const resolveCaptureAcquisitionMode = ({
 
 export const resolveRenderableFrequencyRange = ({
   requestedRange,
-  centerFrequencyHz: _centerFrequencyHz,
+  centerFrequencyHz,
   hardwareSampleRateHz,
   preferRequestedRange,
+  deviceKind,
+  backend,
+  deviceName,
 }: DeviceIdentity & {
   requestedRange: { min: number; max: number };
   centerFrequencyHz?: number | null;
@@ -367,6 +370,28 @@ export const resolveRenderableFrequencyRange = ({
     hardwareSampleRateHz > 0
       ? hardwareSampleRateHz
       : 3_200_000;
+  if (
+    isHackrfDevice({ deviceKind, backend, deviceName }) &&
+    isValidSampleRateHz(hardwareSampleRateHz) &&
+    typeof centerFrequencyHz === "number" &&
+    Number.isFinite(centerFrequencyHz)
+  ) {
+    const frameMin = centerFrequencyHz - sampleRate / 2;
+    const frameMax = centerFrequencyHz + sampleRate / 2;
+    if (
+      Number.isFinite(requestedSpan) &&
+      requestedSpan > 0 &&
+      requestedSpan <= sampleRate
+    ) {
+      const min = Math.max(
+        frameMin,
+        Math.min(frameMax - requestedSpan, positiveRequestedRange.min),
+      );
+      return { min, max: min + requestedSpan };
+    }
+    return { min: frameMin, max: frameMax };
+  }
+
   if (
     Number.isFinite(requestedSpan) &&
     requestedSpan > 0 &&
