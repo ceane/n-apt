@@ -57,6 +57,7 @@ import {
   shouldAcceptSpectrumSpikeAnalysisResult,
   shouldResetSpectrumSpikeHistory,
 } from "@n-apt/spectrum/fft/frameProcessing";
+import { writeResampleEdgeCoverageParams } from "@n-apt/spectrum/fft/resampleParams";
 
 // Cached CSS color reads — avoids getComputedStyle per render frame.
 // Invalidated on theme changes via MutationObserver.
@@ -1530,16 +1531,15 @@ export function useDrawWebGPUFFTSignal() {
           true,
         );
         state.scratchResampleParamsView.setFloat32(32, fftMin, true);
-        state.scratchResampleParamsView.setFloat32(36, 0, true);
         // A display pixel represents a frequency interval, not a point. Give
         // the edge pixel half its own bandwidth of support so Float32 rounding
         // cannot turn a moving acquisition boundary into a one-pixel floor
         // seam. Larger uncovered ranges still remain at the noise floor.
-        const edgeCoverageHz = Math.abs(
-          frequencyRange.max - frequencyRange.min,
-        ) / displayWidth / 2;
-        state.scratchResampleParamsView.setFloat32(40, edgeCoverageHz, true);
-        state.scratchResampleParamsView.setFloat32(44, 0, true);
+        writeResampleEdgeCoverageParams(
+          state.scratchResampleParamsView,
+          frequencyRange,
+          displayWidth,
+        );
         state.device.queue.writeBuffer(
           state.resampleParamsBuffer,
           0,

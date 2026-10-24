@@ -118,3 +118,15 @@ Report p50/p95/p99/max event→draw and render time, late RAF intervals, actual 
 Command: `./node_modules/.bin/jest --runInBand test/ts/spectrumWorkerClient.test.ts test/ts/useFFTAnimation.test.tsx test/ts/useSpectrumRenderer.test.ts test/ts/useSpectrumInteraction.test.tsx test/ts/multiplexedStreamTransport.test.ts`
 
 Result: 5 suites, 102 tests passed. No TypeScript/Rust implementation changes, build, hardware mutation, or measured speedup. Actual-browser profiling remains outstanding; this report does not claim that every potential cost is significant on the user's current setup.
+
+## Follow-up implementation and remaining acceptance — October 24, 2026
+
+The implementation follow-up now keeps a source-owned resident spectrum visible while replacement FFT work is pending, rejects stale worker output, and separates viewport-only redraws from new-frame classifier history. Opt-in pipeline timing covers the added browser/backend stages described by the implementation. Those changes preserve the source frame's acquisition range; they do not relabel old bins after a tune.
+
+The reported viewport-edge flash had a concrete uniform-packing defect. The TypeScript path put `edge_coverage_hz` at byte 40, while WGSL reads it at byte 36, leaving the half-display-pixel seam guard disabled. The writer now stores the tolerance at byte 36 and clears padding at 40 and 44. Regression tests lock both the shader field order and packed values. The focused shader suite passes (12 tests); the renderer and frame-processing suites pass (68 tests).
+
+The pan-time full-size grid and marker surfaces are still separate. Combining them into one texture would put the background grid above the trace in the current render-pass order, so that optimization was discarded rather than changing the display's layering. The planned GPU line/marker geometry and label caching remain open work.
+
+Safari Timelines captured pointer, paint, and composite activity, but the Frames view could not be inspected because the Mac locked. Safari's Event Timing entries in this session do not expose `presentationTime`; therefore the interaction-to-present p95/p99 target is not yet verified. The current trace and the earlier docked-inspector metrics are diagnostic only, not a warmed before/after benchmark. Resume that acceptance check after the Mac is unlocked and collect matched runs at the display's actual refresh rate.
+
+`npm run typecheck` still fails on missing/incorrect encrypted-ML module exports and the existing property-test `Array.at` target error; it reports no errors in the changed spectrum files. `cargo check --profile dev-incremental` passes. The Rust unit-test build is blocked by three existing calls to unsafe HackRF callbacks in `src/rs/sdr/hackrf/device.rs` (lines 1492, 1513, and 1539). The WGSL CLI invocation was blocked by permissions on the user's npm cache, and the repository-local CLI is not installed. Neither failed check is treated as a pass.
