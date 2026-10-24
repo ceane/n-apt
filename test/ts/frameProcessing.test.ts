@@ -432,10 +432,10 @@ describe("resolveLiveSpectrumPaintContract", () => {
     expect(contract.panOffsetHz).toBeCloseTo(0, 0);
   });
 
-  it("keeps a lagging live frame on its own axis instead of painting a gap", () => {
+  it("keeps a disjoint lagging live frame on its own axis", () => {
     const sourceFrequencyRange = { min: 26_000_000, max: 30_000_000 };
     const contract = resolveLiveSpectrumPaintContract({
-      requestedViewRange: { min: 24_000_000, max: 28_000_000 },
+      requestedViewRange: { min: 20_000_000, max: 24_000_000 },
       sourceFrequencyRange,
       zoom: 1,
       panOffsetHz: 0,
@@ -444,6 +444,40 @@ describe("resolveLiveSpectrumPaintContract", () => {
 
     expect(contract.displayRange).toEqual(sourceFrequencyRange);
     expect(contract.panOffsetHz).toBe(0);
+  });
+
+  it("reprojects a fully covered resident frame onto the requested live viewport", () => {
+    const requestedViewRange = { min: 160_000, max: 3_040_000 };
+    const sourceFrequencyRange = { min: 0, max: 3_200_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange,
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+      allowCoveredLiveViewport: true,
+    });
+
+    // Follow the requested view immediately because every displayed bin is
+    // already present in the cached acquisition.
+    expect(contract.paintViewportRange).toEqual(requestedViewRange);
+    expect(contract.sourceFrequencyRange).toEqual(sourceFrequencyRange);
+    expect(contract.displayRange).toEqual(requestedViewRange);
+  });
+
+  it("keeps a complete resident plot when the requested live view has a gap", () => {
+    const sourceFrequencyRange = { min: 0, max: 3_200_000 };
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: { min: 160_000, max: 3_360_000 },
+      sourceFrequencyRange,
+      zoom: 1,
+      panOffsetHz: 0,
+      mirrorEnabled: true,
+      allowCoveredLiveViewport: true,
+    });
+
+    expect(contract.paintViewportRange).toEqual(sourceFrequencyRange);
+    expect(contract.displayRange).toEqual(sourceFrequencyRange);
   });
 
   it("keeps a narrower retained frame on its own axis until a replacement arrives", () => {

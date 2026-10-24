@@ -13,9 +13,12 @@ import {
   shouldHydrateLiveSampleRate,
   shouldSendSignalDisplaySettings,
   resolveLiveAcquisitionBounds,
+  resolveInitialLiveFrequencyRange,
+  shouldRepairClippedLiveFrequencyRange,
   resolveLiveSampleRateSourceSnapshot,
 } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { buildLiveSampleRateRange } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
+import { resolveLiveOnscreenFrequencyRange } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 const DEVICE_OWNED_SOURCE_FIELDS = [
   "activeSignalArea",
@@ -173,6 +176,38 @@ describe("resolveInitialSourceHydrationSettings", () => {
     expect(restored).not.toHaveProperty("sampleRateHz");
     expect(restored).not.toHaveProperty("fftSize");
     expect(restored).not.toHaveProperty("gain");
+  });
+
+  it("repairs the persisted Mock APT viewport that clips DC and traps panning", () => {
+    const restored = resolveInitialSourceHydrationSettings(
+      {
+        vizZoom: 1.0043135509844212,
+        vizZoomFloor: 1,
+        vizPanOffset: -2_734_232.891344197,
+      },
+      { frequencyRange: { min: 0, max: 3_200_000 } },
+    );
+
+    expect(restored.vizZoom).toBe(1);
+    expect(restored.vizPanOffset).toBe(0);
+    expect(
+      resolveLiveOnscreenFrequencyRange({
+        frequencyRange: { min: 0, max: 3_200_000 },
+        hardwareSampleRateHz: 3_200_000,
+        hardwareBounds: { min: 0, max: 30_000_000_000 },
+        zoom: restored.vizZoom as number,
+        panOffsetHz: restored.vizPanOffset as number,
+      }),
+    ).toEqual({ min: 0, max: 3_200_000 });
+    expect(
+      resolveLiveOnscreenFrequencyRange({
+        frequencyRange: { min: 0, max: 3_200_000 },
+        hardwareSampleRateHz: 3_200_000,
+        hardwareBounds: { min: 0, max: 30_000_000_000 },
+        zoom: restored.vizZoom as number,
+        panOffsetHz: (restored.vizPanOffset as number) + 100_000,
+      }),
+    ).toEqual({ min: 100_000, max: 3_300_000 });
   });
 });
 
@@ -345,6 +380,57 @@ describe("buildPausedPreviewSignature", () => {
     expect(
       buildPausedPreviewSignature({ ...base, vizPanOffset: -2_100_000 }),
     ).not.toBe(buildPausedPreviewSignature(base));
+  });
+});
+
+describe("resolveInitialLiveFrequencyRange", () => {
+  it("keeps the 3.2 MHz acquisition centered at 1.6 MHz when channel bounds stop early", () => {
+    expect(
+      resolveInitialLiveFrequencyRange({
+        frameRange: { min: 18_000, max: 3_204_300 },
+        sampleRateHz: 3_200_000,
+        centerFrequencyHz: 1_600_000,
+        hardwareBounds: { min: 0, max: 30_000_000_000 },
+      }),
+    ).toEqual({
+      min: 0,
+      max: 3_200_000,
+    });
+  });
+
+  it("recognizes the persisted range produced by the old channel-edge clamp", () => {
+    const frameRange = { min: 18_000, max: 3_204_300 };
+    expect(
+      shouldRepairClippedLiveFrequencyRange({
+        currentRange: frameRange,
+        frameRange,
+        sampleRateHz: 3_200_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepairClippedLiveFrequencyRange({
+        currentRange: { min: 100_000, max: 3_300_000 },
+        frameRange,
+        sampleRateHz: 3_200_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("repairs a clipped stored range when the current frame has a later upper edge", () => {
+    expect(
+      shouldRepairClippedLiveFrequencyRange({
+        currentRange: { min: 18_000, max: 3_204_300 },
+        frameRange: { min: 18_000, max: 3_218_000 },
+        sampleRateHz: 3_200_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepairClippedLiveFrequencyRange({
+        currentRange: { min: 18_000, max: 3_000_000 },
+        frameRange: { min: 18_000, max: 3_218_000 },
+        sampleRateHz: 3_200_000,
+      }),
+    ).toBe(false);
   });
 });
 

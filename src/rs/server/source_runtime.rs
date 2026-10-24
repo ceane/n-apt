@@ -679,6 +679,14 @@ async fn run_runtime(
           &mut applied_options,
           &mut pending_retune_started_at,
         ).await;
+        if pending_retune_started_at.is_some() {
+          // A live retune is the user's request for a new view. Do not make
+          // the complete replacement FFT wait for the next display cadence;
+          // the frontend keeps the previous complete plot visible until this
+          // frame arrives, so an immediate read removes latency without
+          // exposing a partially covered or blank spectrum.
+          frame_tick.reset_immediately();
+        }
       }
       _ = frame_tick.tick() => {
         // The timer can win a fair select while the watch channel is also

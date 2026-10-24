@@ -168,15 +168,45 @@ export interface LiveSpectrumPaintContract {
 }
 
 /**
+ * A cached FFT can be redrawn against a moving viewport only when its full
+ * requested band is backed by acquired bins. In mirror mode, negative display
+ * frequencies are covered by the reflected acquisition interval.
+ */
+export const isSpectrumViewportCoveredByAcquisition = ({
+  displayRange,
+  sourceFrequencyRange,
+  mirrorEnabled,
+}: {
+  displayRange: { min: number; max: number };
+  sourceFrequencyRange: { min: number; max: number };
+  mirrorEnabled: boolean;
+}): boolean => {
+  if (mirrorEnabled) {
+    return sourceCoversMirroredDisplay(
+      sourceFrequencyRange,
+      displayRange,
+      mirrorPresentationCoverageSlackHz(sourceFrequencyRange),
+    );
+  }
+  return (
+    displayRange.min >= sourceFrequencyRange.min - 1 &&
+    displayRange.max <= sourceFrequencyRange.max + 1
+  );
+};
+
+/**
  * FFTCanvas wiring: Redux pan is measured against a start-anchored request
  * while IQ bins are labeled by the live frame. Re-base pan/zoom onto the
  * acquisition axis before prepareSpectrumRenderData or the GPU |f| fold paints
- * a channel-sized island with floor on both sides.
+ * a channel-sized island with floor on both sides. A gesture redraw may follow
+ * the requested viewport only when the cached frame fully covers it, so a
+ * retune never exposes a blank edge while replacement data is in flight.
  */
 export const resolveLiveSpectrumPaintContract = ({
   requestedViewRange,
   sourceFrequencyRange,
   activeSampleRateHz,
+  allowCoveredLiveViewport = false,
   zoom,
   panOffsetHz,
   mirrorEnabled,
@@ -186,6 +216,8 @@ export const resolveLiveSpectrumPaintContract = ({
   sourceFrequencyRange: { min: number; max: number };
   /** Global rate selected for the live source, if known. */
   activeSampleRateHz?: number | null;
+  /** Let an interaction redraw only when the cached FFT covers the whole view. */
+  allowCoveredLiveViewport?: boolean;
   zoom: number;
   panOffsetHz: number;
   mirrorEnabled: boolean;
@@ -231,6 +263,12 @@ export const resolveLiveSpectrumPaintContract = ({
     activeRate !== null &&
     sourceSpan > 0 &&
     Math.abs(sourceSpan - activeRate) <= Math.max(1_000, sourceSpan * 0.001);
+  const stalePositiveWholeView =
+    safeZoom <= 1.0001 &&
+    safeRequestedRange.min >= 0 &&
+    requestedBaseSpan > 0 &&
+    sourceSpan > requestedBaseSpan + 1 &&
+    acceptedFrameMatchesActiveRate;
   const requestedViewMatchesPendingRate =
     !mirrorEnabled &&
     !isPaused &&
@@ -250,7 +288,10 @@ export const resolveLiveSpectrumPaintContract = ({
     requestedBaseSpan > 0 &&
     (mirrorEnabled || requestedCoordinates.displayRange.min >= 0) &&
     safeSourceRange.min < 0;
-  if (requestedViewMatchesPendingRate || requestedViewWithNegativeResidentFrame) {
+  if (
+    requestedViewMatchesPendingRate ||
+    (requestedViewWithNegativeResidentFrame && !stalePositiveWholeView)
+  ) {
     // Keep the selected sample-rate window on the VFO during a retune. The
     // GPU still maps bins against their actual source axis, leaving uncovered
     // frequencies at the floor until the wider acquisition frame arrives.
@@ -265,12 +306,6 @@ export const resolveLiveSpectrumPaintContract = ({
       panOffsetHz: requestedCoordinates.clampedPan,
     };
   }
-  const stalePositiveWholeView =
-    safeZoom <= 1.0001 &&
-    safeRequestedRange.min >= 0 &&
-    requestedBaseSpan > 0 &&
-    sourceSpan > requestedBaseSpan + 1 &&
-    acceptedFrameMatchesActiveRate;
   const requestedViewportRange = stalePositiveWholeView
     ? safeSourceRange
     : safeRequestedRange;
@@ -326,25 +361,38 @@ export const resolveLiveSpectrumPaintContract = ({
     !mirrorEnabled &&
     gestureView.displayRange.min >= presentationSourceRange.min &&
     gestureView.displayRange.max <= presentationSourceRange.max;
+  // A live cache is only safe to repaint when the entire view is backed by
+  // acquired bins. Partial coverage would floor an edge until the next radio
+  // frame arrives, which looks like a blank/clipped plot during a retune.
+  const liveViewportCoveredBySource =
+    allowCoveredLiveViewport &&
+    !isPaused &&
+    isSpectrumViewportCoveredByAcquisition({
+      displayRange: gestureView.displayRange,
+      sourceFrequencyRange: presentationSourceRange,
+      mirrorEnabled,
+    });
   const displayRange = isPaused
     ? mirrorEnabled || pausedPositiveViewIsCovered
       ? gestureView.displayRange
       : safeSourceRange
-    : Number.isFinite(requestedDisplaySpan) &&
-        Number.isFinite(sourceSpan) &&
-        presentationSourceSpan > 0 &&
-        requestedDisplaySpan > presentationSourceSpan + 1
-      ? mirrorEnabled
-        ? residentMirrorRange
-        : safeSourceRange
-      : mirrorEnabled
-        ? mirrorGestureCovered
-          ? gestureView.displayRange
-          : residentMirrorRange
-        : gestureView.displayRange.min >= presentationSourceRange.min &&
-            gestureView.displayRange.max <= presentationSourceRange.max
-          ? gestureView.displayRange
-          : presentationSourceRange;
+    : liveViewportCoveredBySource
+      ? gestureView.displayRange
+      : Number.isFinite(requestedDisplaySpan) &&
+          Number.isFinite(sourceSpan) &&
+          presentationSourceSpan > 0 &&
+          requestedDisplaySpan > presentationSourceSpan + 1
+        ? mirrorEnabled
+          ? residentMirrorRange
+          : safeSourceRange
+        : mirrorEnabled
+          ? mirrorGestureCovered
+            ? gestureView.displayRange
+            : residentMirrorRange
+          : gestureView.displayRange.min >= presentationSourceRange.min &&
+              gestureView.displayRange.max <= presentationSourceRange.max
+            ? gestureView.displayRange
+            : presentationSourceRange;
   // Non-paused lagging frames may retain their complete resident axis. A
   // paused same-bandwidth retune has already adopted the universal requested
   // axis above, so this rebase cannot restore the pre-pause center.
@@ -359,11 +407,15 @@ export const resolveLiveSpectrumPaintContract = ({
       ? displayRange
       : { min: displayRange.max, max: displayRange.min };
   return {
-    paintViewportRange: presentationSourceRange,
+    paintViewportRange: liveViewportCoveredBySource
+      ? safeRequestedRange
+      : presentationSourceRange,
     sourceFrequencyRange: presentationSourceRange,
     displayRange: normalizedDisplayRange,
-    zoom: rebased.zoom,
-    panOffsetHz: rebased.panOffsetHz,
+    zoom: liveViewportCoveredBySource ? safeZoom : rebased.zoom,
+    panOffsetHz: liveViewportCoveredBySource
+      ? gestureView.clampedPan
+      : rebased.panOffsetHz,
   };
 };
 

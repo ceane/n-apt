@@ -1,8 +1,5 @@
 import { useCallback, useState, useMemo, useRef, useEffect } from "react";
-import {
-  FFT_AREA_MIN,
-  findBestFrequencyRange,
-} from "@n-apt/consts";
+import { FFT_AREA_MIN, findBestFrequencyRange } from "@n-apt/consts";
 import { THEME_TOKENS } from "@n-apt/consts";
 import {
   clearSnapshotProgress,
@@ -40,9 +37,7 @@ import {
   getAntiAliasingParams,
 } from "@n-apt/math/antiAliasing";
 import { formatTimestampWithTimezone } from "@n-apt/math/formatters";
-import {
-  formatFrequency,
-} from "@n-apt/math/frequency";
+import { formatFrequency } from "@n-apt/math/frequency";
 import {
   buildFrequencyAxisTheme,
   composeCanvasWithFrequencyAxis,
@@ -72,8 +67,7 @@ import { formatSnapshotLocationLine } from "@n-apt/capture/snapshotLocation";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type SnapshotAspectRatio =
-  "default" | "4:3" | "16:10" | "16:9" | "19.5:9";
+export type SnapshotAspectRatio = "default" | "4:3" | "16:10" | "16:9" | "19.5:9";
 
 export type SnapshotOptions = {
   whole: boolean;
@@ -95,19 +89,16 @@ export type SnapshotOptions = {
   fftSize?: number | string;
   modeLabel?: string;
   wholeChannelSegments?: WholeChannelSnapshotSegment[];
-  getWholeChannelSegmentFrames?: () => AsyncGenerator<
-    WholeChannelSnapshotSegment[],
-    void,
-    void
-  >;
+  getWholeChannelSegmentFrames?: (
+    frameRate?: number,
+  ) => AsyncGenerator<WholeChannelSnapshotSegment[], void, void>;
   videoFrameRate?: number;
   getVideoSourceCanvases?: () => {
     spectrum: HTMLCanvasElement | null;
     spectrumOverlay?: HTMLCanvasElement | null;
     waterfall?: HTMLCanvasElement | null;
   };
-  prepareVideoRecording?: () =>
-    void | Promise<void> | (() => void | Promise<void>);
+  prepareVideoRecording?: () => void | Promise<void> | (() => void | Promise<void>);
   aspectRatio?: SnapshotAspectRatio;
   fileTimestamp?: string;
   stitchOptions?: { jsAntiAliasing: boolean; jsNoiseFloorMatching: boolean };
@@ -263,11 +254,43 @@ async function recordSnapshotFramesToVideo(
   const ctx = recordingCanvas.getContext("2d");
   if (!ctx) throw new Error("Unable to initialize the video recording canvas.");
 
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(firstFrame, 0, 0);
-
   const safeFrameRate = normalizeSnapshotVideoFrameRate(frameRate);
-  const stream = recordingCanvas.captureStream(safeFrameRate);
+  ctx.imageSmoothingEnabled = false;
+  drawRecordingFrame(ctx, recordingCanvas, firstFrame);
+
+  const webCodecsWriter = await createSnapshotVideoWriter(
+    recordingCanvas,
+    preferredFormat,
+    safeFrameRate,
+  );
+  if (webCodecsWriter) {
+    const frameDurationSeconds = 1 / safeFrameRate;
+    const frameCount = Math.max(
+      1,
+      Math.round((durationMs / 1000) * safeFrameRate),
+    );
+    const recordingStartedAt = performance.now();
+
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+      if (frameIndex > 0) {
+        const targetTime =
+          recordingStartedAt + (frameIndex * 1000) / safeFrameRate;
+        await waitForRecordingFrame(targetTime - performance.now());
+        const frame = await renderFrame();
+        drawRecordingFrame(ctx, recordingCanvas, frame);
+      }
+      await webCodecsWriter.addFrame(
+        frameIndex * frameDurationSeconds,
+        frameDurationSeconds,
+      );
+    }
+
+    const blob = await webCodecsWriter.finish();
+    const extension = preferredFormat ?? "webm";
+    downloadBlob(blob, `${baseFilename}.${extension}`);
+    return;
+  }
+
   const supportedMimeTypes = preferredFormat
     ? SNAPSHOT_VIDEO_MIME_TYPES[preferredFormat]
     : [...SNAPSHOT_VIDEO_MIME_TYPES.mp4, ...SNAPSHOT_VIDEO_MIME_TYPES.webm];
@@ -282,6 +305,7 @@ async function recordSnapshotFramesToVideo(
     throw new Error("Your browser cannot record this canvas as a video.");
   }
 
+  const stream = recordingCanvas.captureStream(safeFrameRate);
   const recorder = new MediaRecorder(stream, {
     mimeType,
     videoBitsPerSecond: SNAPSHOT_VIDEO_BITRATE,
@@ -305,14 +329,7 @@ async function recordSnapshotFramesToVideo(
       const startedAt = performance.now();
       void renderFrame().then((frame) => {
         if (stopped) return;
-        if (recordingCanvas.width !== frame.width)
-          recordingCanvas.width = Math.max(1, frame.width);
-        if (recordingCanvas.height !== frame.height)
-          recordingCanvas.height = Math.max(1, frame.height);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.imageSmoothingEnabled = false;
-        ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
-        ctx.drawImage(frame, 0, 0);
+        drawRecordingFrame(ctx, recordingCanvas, frame);
         const spent = performance.now() - startedAt;
         timerId = window.setTimeout(tick, Math.max(0, frameIntervalMs - spent));
       });
@@ -332,6 +349,178 @@ async function recordSnapshotFramesToVideo(
 
   const extension = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
   downloadBlob(stop, `${baseFilename}.${extension}`);
+}
+
+type SnapshotVideoWriter = {
+  addFrame(timestampSeconds: number, durationSeconds: number): Promise<void>;
+  finish(): Promise<Blob>;
+};
+
+async function createSnapshotVideoWriter(
+  canvas: HTMLCanvasElement,
+  preferredFormat: SnapshotVideoFormat | null,
+  frameRate: number,
+): Promise<SnapshotVideoWriter | null> {
+  if (!preferredFormat || typeof VideoEncoder === "undefined") return null;
+
+  let output: import("mediabunny").Output | null = null;
+  try {
+    const {
+      BufferTarget,
+      CanvasSource,
+      Mp4OutputFormat,
+      Quality,
+      WebMOutputFormat,
+      canEncodeVideo,
+      Output,
+    } = await import("mediabunny");
+    const format =
+      preferredFormat === "mp4"
+        ? new Mp4OutputFormat()
+        : new WebMOutputFormat();
+    const target = new BufferTarget();
+    const bitrate = getRecordingBitrate({
+      width: canvas.width,
+      height: canvas.height,
+    });
+    const quality = new Quality({ bitrate, bitrateMode: "variable" });
+    const codecs =
+      preferredFormat === "mp4"
+        ? (["avc"] as const)
+        : (["vp9", "vp8"] as const);
+    let codec: (typeof codecs)[number] | undefined;
+
+    for (const candidate of codecs) {
+      if (
+        format.getSupportedCodecs().includes(candidate) &&
+        (await canEncodeVideo(candidate, {
+          width: canvas.width,
+          height: canvas.height,
+          frameRate,
+          quality,
+        }))
+      ) {
+        codec = candidate;
+        break;
+      }
+    }
+    if (!codec) return null;
+
+    const videoSource = new CanvasSource(canvas, { codec, quality });
+    output = new Output({ format, target });
+    output.addVideoTrack(videoSource, { frameRate });
+    await output.start();
+
+    return {
+      addFrame: (timestampSeconds, durationSeconds) =>
+        videoSource.add(timestampSeconds, durationSeconds),
+      finish: async () => {
+        await output!.finalize();
+        if (!target.buffer) {
+          throw new Error("The video encoder produced an empty file.");
+        }
+        return new Blob([target.buffer], { type: format.mimeType });
+      },
+    };
+  } catch {
+    if (output && output.state !== "finalized" && output.state !== "canceled") {
+      await output.cancel().catch(() => undefined);
+    }
+    return null;
+  }
+}
+
+function drawRecordingFrame(
+  ctx: CanvasRenderingContext2D,
+  recordingCanvas: HTMLCanvasElement,
+  frame: HTMLCanvasElement,
+): void {
+  if (recordingCanvas.width !== frame.width)
+    recordingCanvas.width = Math.max(1, frame.width);
+  if (recordingCanvas.height !== frame.height)
+    recordingCanvas.height = Math.max(1, frame.height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+  ctx.drawImage(frame, 0, 0);
+}
+
+function cloneRecordingFrame(frame: HTMLCanvasElement): HTMLCanvasElement {
+  const clone = document.createElement("canvas");
+  clone.width = frame.width;
+  clone.height = frame.height;
+  const context = clone.getContext("2d", { alpha: false });
+  if (!context) throw new Error("Unable to copy a video frame.");
+  context.drawImage(frame, 0, 0);
+  return clone;
+}
+
+function waitForRecordingFrame(delayMs: number): Promise<void> {
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs));
+}
+
+async function recordSnapshotFrameIteratorToVideo(
+  firstFrame: HTMLCanvasElement,
+  remainingFrames: AsyncIterator<HTMLCanvasElement>,
+  baseFilename: string,
+  preferredFormat: SnapshotVideoFormat,
+  frameRate: number,
+  onFrame?: (frameNumber: number) => void,
+): Promise<void> {
+  const safeFrameRate = normalizeSnapshotVideoFrameRate(frameRate);
+  const recordingCanvas = document.createElement("canvas");
+  recordingCanvas.width = Math.max(1, firstFrame.width);
+  recordingCanvas.height = Math.max(1, firstFrame.height);
+  const ctx = recordingCanvas.getContext("2d", { alpha: false });
+  if (!ctx) throw new Error("Unable to initialize the video recording canvas.");
+  ctx.imageSmoothingEnabled = false;
+  drawRecordingFrame(ctx, recordingCanvas, firstFrame);
+
+  const writer = await createSnapshotVideoWriter(
+    recordingCanvas,
+    preferredFormat,
+    safeFrameRate,
+  );
+  if (!writer) {
+    const frames = [cloneRecordingFrame(firstFrame)];
+    for (
+      let next = await remainingFrames.next();
+      !next.done;
+      next = await remainingFrames.next()
+    ) {
+      frames.push(cloneRecordingFrame(next.value));
+      onFrame?.(frames.length);
+    }
+    await recordCanvasFramesToVideo(
+      frames,
+      baseFilename,
+      preferredFormat,
+      safeFrameRate,
+    );
+    return;
+  }
+
+  const frameDurationSeconds = 1 / safeFrameRate;
+  let frameNumber = 1;
+  await writer.addFrame(0, frameDurationSeconds);
+  onFrame?.(frameNumber);
+  for (
+    let next = await remainingFrames.next();
+    !next.done;
+    next = await remainingFrames.next()
+  ) {
+    drawRecordingFrame(ctx, recordingCanvas, next.value);
+    await writer.addFrame(
+      frameNumber * frameDurationSeconds,
+      frameDurationSeconds,
+    );
+    frameNumber += 1;
+    onFrame?.(frameNumber);
+  }
+
+  const blob = await writer.finish();
+  downloadBlob(blob, `${baseFilename}.${preferredFormat}`);
 }
 
 async function recordCanvasFramesToVideo(
@@ -985,6 +1174,7 @@ function renderLayeredSpectrumFrame(
   args: SpectrumFrameArgs,
   pool: ScratchCanvasPool,
   layers: SpectrumLayerCache,
+  targetContext?: CanvasRenderingContext2D,
 ): HTMLCanvasElement {
   const {
     data,
@@ -1031,8 +1221,10 @@ function renderLayeredSpectrumFrame(
     layers.key = key;
   }
 
-  const canvas = pool.acquire("spectrumFrame", pixelWidth, pixelHeight);
-  const ctx = canvas.getContext("2d");
+  const canvas =
+    targetContext?.canvas ??
+    pool.acquire("spectrumFrame", pixelWidth, pixelHeight);
+  const ctx = targetContext ?? canvas.getContext("2d");
   if (!ctx) return canvas;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1413,15 +1605,19 @@ export function composeWholeChannelWaterfallCanvas(
   pixelWidth: number,
   pixelHeight: number,
   waterfallBg?: string,
+  pool?: ScratchCanvasPool | null,
 ): HTMLCanvasElement | null {
   if (!segments.length) return null;
 
   const totalSpan = fullRange.max - fullRange.min;
   if (!(totalSpan > 0)) return null;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = pixelWidth;
-  canvas.height = pixelHeight;
+  const canvas = acquireCanvas(
+    pool,
+    "wholeChannelWaterfall",
+    pixelWidth,
+    pixelHeight,
+  );
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
@@ -1454,7 +1650,7 @@ export function composeWholeChannelWaterfallCanvas(
       segment.data,
       targetWidth,
       plotPixelH,
-      { marginX: 0, marginY: 0, noBackground: true, waterfallBg },
+      { marginX: 0, marginY: 0, noBackground: true, waterfallBg, pool },
     );
     if (!segmentCanvas) continue;
 
@@ -1488,6 +1684,7 @@ export async function composeWholeChannelSpectrumCanvas(
   crispTrace: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
+  pool?: ScratchCanvasPool | null,
 ): Promise<HTMLCanvasElement | null> {
   if (!segments.length) return null;
 
@@ -1531,6 +1728,7 @@ export async function composeWholeChannelSpectrumCanvas(
     false,
     activeSignalAreaBounds,
     activeSignalAreaLabel,
+    pool,
   );
 }
 
@@ -1581,7 +1779,10 @@ async function recordSVGFramesToAnimatedSvg(
   await collectFrame();
 }
 
-export function sampleFramesEvenly(frames: string[], targetCount: number): string[] {
+export function sampleFramesEvenly(
+  frames: string[],
+  targetCount: number,
+): string[] {
   if (frames.length <= targetCount) return frames;
 
   // Sample frames evenly across the entire capture duration
@@ -2126,6 +2327,7 @@ function buildLiveSpectrumSnapshotCanvas(
   theme: SnapshotTheme,
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
+  pool?: ScratchCanvasPool | null,
 ): HTMLCanvasElement | null {
   const source = canvases?.spectrum;
   if (!source || source.width <= 0 || source.height <= 0) return null;
@@ -2145,6 +2347,7 @@ function buildLiveSpectrumSnapshotCanvas(
     false,
     activeSignalAreaBounds,
     activeSignalAreaLabel,
+    pool,
   );
 }
 
@@ -2938,11 +3141,7 @@ const FAST_RECORDING_MAX_MS = 30_000;
 const FAST_RECORDING_FRAME_RATE = 30;
 const FRAME_INTERVAL_MS = 1000 / FAST_RECORDING_FRAME_RATE;
 
-/**
- * On a HiDPI display the live canvas is often 3000+ device pixels wide. Both
- * the per-frame capture copy and the encoder scale with pixel count, so cap the
- * encoded size; the composite is still built at full resolution and downscaled.
- */
+/** Keep recorded composites at or below 1920 pixels wide, including rendering. */
 const FAST_RECORDING_MAX_ENCODE_WIDTH = 1920;
 /**
  * Ceiling on the fraction of wall-clock time the capture loop may spend on the
@@ -3472,6 +3671,9 @@ export function useSnapshot(
           }
         }
 
+        let videoScratch: FastFrameScratch | null = null;
+        let reusableVideoFrameCanvas: HTMLCanvasElement | null = null;
+
         const buildRenderState = (
           currentData: SnapshotData,
           wholeChannelSegments?: WholeChannelSnapshotSegment[],
@@ -3627,12 +3829,31 @@ export function useSnapshot(
             }
           }
 
+          // Render at the encoded width so trace, axis and waterfall work all
+          // scale with the output instead of building a full HiDPI frame first.
+          const encodeSize = getRecordingEncodeSize(targetFrameW, targetFrameH);
+          const outputScale = encodeSize.width / targetFrameW;
+          targetFrameW = encodeSize.width;
+          targetFrameH = encodeSize.height;
+          targetSpectrumH = Math.max(
+            1,
+            Math.round(targetSpectrumH * outputScale),
+          );
+          targetWaterfallH = options.showWaterfall
+            ? Math.max(1, targetFrameH - targetSpectrumH)
+            : 0;
+          if (!options.showWaterfall) targetSpectrumH = targetFrameH;
+
+          videoScratch ??= createFastFrameScratch();
+          const recordingPool = videoScratch.pool;
+
           const statsRow = options.showStats
-            ? renderStatsRowCanvas(
+            ? renderReusableStatsRow(
                 currentStatsLines,
                 targetFrameW,
                 theme,
                 options.aspectRatio,
+                videoScratch,
               )
             : null;
           if (statsRow) {
@@ -3655,6 +3876,7 @@ export function useSnapshot(
                   true,
                   options.activeSignalAreaBounds ?? null,
                   options.activeSignalArea,
+                  recordingPool,
                 )
               : null;
           const currentWholeWaterfallCanvas =
@@ -3665,61 +3887,60 @@ export function useSnapshot(
                   targetFrameW,
                   targetWaterfallH,
                   waterfallBg,
+                  recordingPool,
                 )
               : null;
 
-          const frameCanvas = document.createElement("canvas");
-          frameCanvas.width = targetFrameW;
-          frameCanvas.height = targetFrameH;
+          if (
+            !reusableVideoFrameCanvas ||
+            reusableVideoFrameCanvas.width !== targetFrameW ||
+            reusableVideoFrameCanvas.height !== targetFrameH
+          ) {
+            reusableVideoFrameCanvas = document.createElement("canvas");
+            reusableVideoFrameCanvas.width = targetFrameW;
+            reusableVideoFrameCanvas.height = targetFrameH;
+          }
+          const frameCanvas = reusableVideoFrameCanvas;
           const frameCtx = frameCanvas.getContext("2d");
           if (!frameCtx)
             throw new Error("Unable to initialize the snapshot frame canvas.");
+          frameCtx.setTransform(1, 0, 0, 1, 0, 0);
+          frameCtx.clearRect(0, 0, targetFrameW, targetFrameH);
           frameCtx.fillStyle = theme.bg;
           frameCtx.fillRect(0, 0, targetFrameW, targetFrameH);
           frameCtx.imageSmoothingEnabled = false;
 
-          // For whole channel, use the already-rendered canvases at target dimensions
-          let spectrumCanvas: HTMLCanvasElement;
+          // Cache the static spectrum chrome between live recording frames;
+          // only the trace path is redrawn while frequency geometry is stable.
           if (currentWholeSpectrumCanvas) {
-            spectrumCanvas = currentWholeSpectrumCanvas;
+            frameCtx.drawImage(
+              currentWholeSpectrumCanvas,
+              0,
+              0,
+              targetFrameW,
+              targetSpectrumH,
+            );
           } else {
-            spectrumCanvas =
-              buildLiveSpectrumSnapshotCanvas(
-                liveSpectrumSourceCanvases,
-                { ...currentData, waveform: currentWaveform },
-                currentRange,
-                options.showGrid,
-                currentCaptureRange,
-                currentStatsLines,
-                currentWaveform,
+            renderLayeredSpectrumFrame(
+              {
+                data: { ...currentData, waveform: currentWaveform },
+                frequencyRange: currentRange,
+                showGrid: options.showGrid,
+                pixelWidth: targetFrameW,
+                pixelHeight: targetSpectrumH,
+                fullCaptureRange: currentCaptureRange,
+                waveform: currentWaveform,
                 theme,
-                options.activeSignalAreaBounds ?? null,
-                options.activeSignalArea,
-              ) ??
-              renderSpectrumSnapshotCanvas(
-                { ...currentData, waveform: currentWaveform },
-                currentRange,
-                options.showGrid,
-                targetFrameW,
-                targetSpectrumH,
-                currentCaptureRange,
-                currentStatsLines,
-                currentWaveform,
-                theme,
-                undefined,
-                false,
-                false,
-                options.activeSignalAreaBounds ?? null,
-                options.activeSignalArea,
-              );
+                crispTrace: false,
+                forceTraceSteps: false,
+                activeSignalAreaBounds: options.activeSignalAreaBounds ?? null,
+                activeSignalAreaLabel: options.activeSignalArea,
+              },
+              recordingPool,
+              videoScratch!.spectrumLayers,
+              frameCtx,
+            );
           }
-          frameCtx.drawImage(
-            spectrumCanvas,
-            0,
-            0,
-            targetFrameW,
-            targetSpectrumH,
-          );
 
           if (options.showWaterfall) {
             let waterfallCanvas: HTMLCanvasElement | null = null;
@@ -3733,6 +3954,7 @@ export function useSnapshot(
                 {
                   waterfallBg,
                   marginY: 0,
+                  pool: recordingPool,
                 },
               );
             }
@@ -4215,35 +4437,39 @@ export function useSnapshot(
             );
 
             if (options.whole && options.getWholeChannelSegmentFrames) {
-              const recordedSegmentFrames: WholeChannelSnapshotSegment[][] = [];
-              const expectedFrames = normalizeSnapshotVideoFrameRate(
-                options.videoFrameRate,
-              );
-              const maxIterations = expectedFrames * 2;
-              let iterationCount = 0;
-
-              for await (const wholeChannelFrameSegments of options.getWholeChannelSegmentFrames()) {
-                iterationCount++;
-                if (iterationCount > maxIterations) {
-                  break;
-                }
-                if (!wholeChannelFrameSegments.length) {
-                  continue;
-                }
-                recordedSegmentFrames.push(wholeChannelFrameSegments);
-                if (recordedSegmentFrames.length >= expectedFrames) {
-                  break;
-                }
+              const expectedFrames = videoFrameRate;
+              let renderedFrames = 0;
+              const renderedFrameStream = (async function* () {
+                for await (const wholeChannelFrameSegments of options.getWholeChannelSegmentFrames!(
+                  videoFrameRate,
+                )) {
+                  if (!wholeChannelFrameSegments.length) continue;
+                  renderedFrames += 1;
+                  dispatch(
+                    setSnapshotProgress({
+                      stage: "encoding",
+                      message: `Rendering stitched frame ${renderedFrames} of ${expectedFrames}`,
+                      current: renderedFrames,
+                      total: expectedFrames,
+                    }),
+                  );
+                  yield await renderVideoFrameCanvas(
+                    wholeChannelFrameSegments[0].data,
+                    wholeChannelFrameSegments,
+                  );
               }
 
-              if (
-                !recordedSegmentFrames.length &&
-                options.wholeChannelSegments?.length
-              ) {
-                recordedSegmentFrames.push(options.wholeChannelSegments);
+              if (!renderedFrames && options.wholeChannelSegments?.length) {
+                renderedFrames = 1;
+                yield await renderVideoFrameCanvas(
+                  options.wholeChannelSegments[0].data,
+                  options.wholeChannelSegments,
+                );
               }
-
-              if (!recordedSegmentFrames.length) {
+              })();
+              const frameIterator = renderedFrameStream[Symbol.asyncIterator]();
+              const firstFrame = await frameIterator.next();
+              if (firstFrame.done) {
                 dispatch(
                   setSnapshotProgress({
                     stage: "error",
@@ -4257,38 +4483,22 @@ export function useSnapshot(
                 );
               }
 
-              const renderedFrames: HTMLCanvasElement[] = [];
-              for (const wholeChannelFrameSegments of recordedSegmentFrames) {
-                dispatch(
-                  setSnapshotProgress({
-                    stage: "encoding",
-                    message: `Rendering stitched frame ${renderedFrames.length + 1} of ${recordedSegmentFrames.length}`,
-                    current: renderedFrames.length + 1,
-                    total: recordedSegmentFrames.length,
-                  }),
-                );
-                renderedFrames.push(
-                  await renderVideoFrameCanvas(
-                    wholeChannelFrameSegments[0].data,
-                    wholeChannelFrameSegments,
-                  ),
-                );
-              }
-
-              dispatch(
-                setSnapshotProgress({
-                  stage: "encoding",
-                  message: `Encoding ${renderedFrames.length} frames`,
-                  current: renderedFrames.length,
-                  total: renderedFrames.length,
-                }),
-              );
-              await recordCanvasFramesToVideo(
-                renderedFrames,
+              await recordSnapshotFrameIteratorToVideo(
+                firstFrame.value,
+                frameIterator,
                 baseFilename,
                 options.format,
                 videoFrameRate,
-              );
+                (frameNumber) =>
+                  dispatch(
+                    setSnapshotProgress({
+                      stage: "encoding",
+                      message: `Encoding stitched frame ${frameNumber} of ${expectedFrames}`,
+                      current: frameNumber,
+                      total: expectedFrames,
+                    }),
+                  ),
+                );
               dispatch(
                 setSnapshotProgress({
                   stage: "done",
@@ -4339,6 +4549,11 @@ export function useSnapshot(
             window.setTimeout(() => dispatch(clearSnapshotProgress()), 1200);
             return;
           } finally {
+            if (videoScratch) {
+              disposeFastFrameScratch(videoScratch);
+              videoScratch = null;
+            }
+            reusableVideoFrameCanvas = null;
             if (restoreRecordingState) {
               await restoreRecordingState();
             }
@@ -4586,7 +4801,11 @@ export function useSnapshot(
       const pinnedOptions = pinFastRecordingOptions(options ?? {});
 
       const theme = buildSnapshotTheme(true);
-      const dimensions = getCanvasDimensions();
+      const sourceDimensions = getCanvasDimensions();
+      const dimensions = getRecordingEncodeSize(
+        sourceDimensions.width,
+        sourceDimensions.height,
+      );
       const initialCanvases = getCanvases();
       const scratch = createFastFrameScratch();
 

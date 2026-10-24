@@ -141,6 +141,10 @@ import {
   resolveSourceSampleRateHz,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import {
+  clampVizZoom,
+  getStableVizPanForZoomChange,
+} from "@n-apt/spectrum/utils/visualizationZoom";
+import {
   resolveSourceFrequencyRangeSync,
   shouldSkipDeviceFrequencyRangeEcho,
 } from "@n-apt/spectrum/utils/sourceFrequencySync";
@@ -1130,6 +1134,91 @@ export const resolveLiveAcquisitionBounds = ({
   return getAvailableSpectrumBounds(null);
 };
 
+export const resolveInitialLiveFrequencyRange = ({
+  frameRange,
+  sampleRateHz,
+  centerFrequencyHz,
+  hardwareBounds,
+}: {
+  frameRange: FrequencyRange;
+  sampleRateHz?: number | null;
+  centerFrequencyHz?: number | null;
+  hardwareBounds?: FrequencyRange | null;
+}): FrequencyRange => {
+  if (
+    typeof centerFrequencyHz !== "number" ||
+    !Number.isFinite(centerFrequencyHz) ||
+    typeof sampleRateHz !== "number" ||
+    !Number.isFinite(sampleRateHz) ||
+    sampleRateHz <= 0
+  ) {
+    return frameRange;
+  }
+
+  // Signal-area edges describe channel coverage, not the SDR's acquired IQ
+  // window. Initialize from the accepted tuner center and sample rate, then
+  // clamp only to device frequency capability. Clamping to the channel's
+  // max_hz shortens A's 3.2 MHz view to 3.1863 MHz and changes its center.
+  const bounds = getAvailableSpectrumBounds(hardwareBounds);
+  const span = Math.min(sampleRateHz, bounds.max - bounds.min);
+  const halfSpan = span / 2;
+  const boundedCenter = Math.max(
+    bounds.min + halfSpan,
+    Math.min(bounds.max - halfSpan, centerFrequencyHz),
+  );
+  return normalizeFrequencyRangeToHz({
+    min: boundedCenter - halfSpan,
+    max: boundedCenter + halfSpan,
+  });
+};
+
+export const shouldRepairClippedLiveFrequencyRange = ({
+  currentRange,
+  frameRange,
+  sampleRateHz,
+}: {
+  currentRange: FrequencyRange;
+  frameRange: FrequencyRange;
+  sampleRateHz?: number | null;
+}): boolean => {
+  if (
+    typeof sampleRateHz !== "number" ||
+    !Number.isFinite(sampleRateHz) ||
+    sampleRateHz <= 0 ||
+    !Number.isFinite(frameRange.min) ||
+    !Number.isFinite(frameRange.max) ||
+    frameRange.max <= frameRange.min ||
+    !Number.isFinite(currentRange.min) ||
+    !Number.isFinite(currentRange.max) ||
+    currentRange.max <= currentRange.min
+  ) {
+    return false;
+  }
+
+  // Match the exact legacy initializer: it anchored at the signal frame's
+  // lower edge, then clipped the requested sample-rate span to frame.max_hz.
+  const legacyMax = Math.max(
+    frameRange.min,
+    Math.min(frameRange.max, frameRange.min + sampleRateHz),
+  );
+  const currentSpan = currentRange.max - currentRange.min;
+  const nearFullSampleWindow = currentSpan >= sampleRateHz * 0.99;
+  if (!nearFullSampleWindow || legacyMax - frameRange.min >= sampleRateHz) {
+    // If current frame metadata has since grown, the persisted legacy maximum
+    // may sit below its new max_hz. Accept that same lower-edge-anchored,
+    // near-full window as the clipped predecessor.
+    return (
+      nearFullSampleWindow &&
+      Math.round(currentRange.min) === Math.round(frameRange.min) &&
+      currentRange.max < frameRange.max
+    );
+  }
+  return (
+    Math.round(currentRange.min) === Math.round(frameRange.min) &&
+    Math.round(currentRange.max) === Math.round(legacyMax)
+  );
+};
+
 // Persisted view fields are presentation-only; device-owned SDR options come
 // from the live stream or the Redux cold-start tune state.
 const INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS = PERSISTED_SOURCE_VIEW_FIELDS;
@@ -1149,6 +1238,10 @@ export const buildPersistedSourceViewState = (
 
 export const normalizePersistedSourceViewState = (
   persisted: Partial<SpectrumState> | null | undefined,
+  options: {
+    frequencyRange?: FrequencyRange | null;
+    allowNegativeFrequencies?: boolean;
+  } = {},
 ): Partial<SpectrumState> => {
   if (!persisted || typeof persisted !== "object") {
     return {};
@@ -1161,13 +1254,67 @@ export const normalizePersistedSourceViewState = (
       next[key] = value as never;
     }
   }
+
+  const frequencyRange = options.frequencyRange;
+  if (
+    frequencyRange &&
+    Number.isFinite(frequencyRange.min) &&
+    Number.isFinite(frequencyRange.max) &&
+    frequencyRange.max > frequencyRange.min
+  ) {
+    const rawZoomFloor = next.vizZoomFloor;
+    const safeZoomFloor = clampVizZoom(
+      typeof rawZoomFloor === "number" ? rawZoomFloor : 1,
+      1,
+    );
+    const normalizedZoomFloor = safeZoomFloor <= 1.01 ? 1 : safeZoomFloor;
+    const rawZoom = next.vizZoom;
+    const safeZoom = clampVizZoom(
+      typeof rawZoom === "number" ? rawZoom : 1,
+      normalizedZoomFloor,
+    );
+    // The UI reports zoom to one decimal place. Restore values within 1% of
+    // 1x as exactly 1x so tiny stale scale error cannot shorten a full-rate
+    // viewport (3.2 MHz / 1.0043 became 3.1863 MHz).
+    const normalizedZoom =
+      normalizedZoomFloor === 1 && safeZoom <= 1.01 ? 1 : safeZoom;
+    next.vizZoomFloor = normalizedZoomFloor;
+    next.vizZoom = normalizedZoom;
+
+    const normalizePan = (pan: unknown, zoom: number): number | undefined => {
+      if (typeof pan !== "number" || !Number.isFinite(pan)) return undefined;
+      return getStableVizPanForZoomChange({
+        currentZoom: zoom,
+        currentPan: pan,
+        nextZoom: zoom,
+        rangeMin: frequencyRange.min,
+        rangeMax: frequencyRange.max,
+        allowNegativeFrequencies: options.allowNegativeFrequencies,
+      });
+    };
+    const normalizedPan = normalizePan(next.vizPanOffset, normalizedZoom);
+    if (normalizedPan !== undefined) next.vizPanOffset = normalizedPan;
+    const normalizedFloorPan = normalizePan(
+      next.vizZoomFloorPan,
+      normalizedZoomFloor,
+    );
+    if (normalizedFloorPan !== undefined) {
+      next.vizZoomFloorPan = normalizedFloorPan;
+    }
+  }
+
   return next;
 };
 
 export const resolveInitialSourceHydrationSettings = (
   restored: Partial<SpectrumState> | null | undefined,
+  current: Partial<SpectrumState> = {},
+  allowNegativeFrequencies = false,
 ): Partial<SpectrumState> => {
-  const normalized = normalizePersistedSourceViewState(restored);
+  const normalized = normalizePersistedSourceViewState(restored, {
+    frequencyRange: current.frequencyRange,
+    allowNegativeFrequencies,
+  });
   const localSettings: Partial<SpectrumState> = {};
 
   for (const key of INITIAL_SOURCE_HYDRATION_LOCAL_FIELDS) {
@@ -1183,9 +1330,16 @@ export const resolveInitialSourceHydrationSettings = (
 export const resolveSourceSwitchDisplaySettings = (
   restored: Partial<SpectrumState> | null | undefined,
   current: Partial<SpectrumState>,
+  options: {
+    frequencyRange?: FrequencyRange | null;
+    allowNegativeFrequencies?: boolean;
+  } = {},
 ): Partial<SpectrumState> => ({
   ...current,
-  ...normalizePersistedSourceViewState(restored),
+  ...normalizePersistedSourceViewState(restored, {
+    frequencyRange: options.frequencyRange ?? current.frequencyRange,
+    allowNegativeFrequencies: options.allowNegativeFrequencies,
+  }),
 });
 
 export type SpectrumAction =
@@ -2364,8 +2518,19 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         );
         const restoredState =
           previousSourceViewKey === null
-            ? resolveInitialSourceHydrationSettings(persistedSourceView)
-            : resolveSourceSwitchDisplaySettings(persistedSourceView, {});
+            ? resolveInitialSourceHydrationSettings(
+                persistedSourceView,
+                state,
+                mirrorBelowZero,
+              )
+            : resolveSourceSwitchDisplaySettings(
+                persistedSourceView,
+                {},
+                {
+                  frequencyRange: state.frequencyRange,
+                  allowNegativeFrequencies: mirrorBelowZero,
+                },
+              );
         const previousSourceId = committedViewSourceIdRef.current;
         const previousSource = websocketSources.find((source) => source.id === previousSourceId);
         const automaticFallback = previousSourceId !== null &&
@@ -2386,6 +2551,13 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           restoredState.vizPanOffset = allowedPan(state.vizPanOffset, state.vizZoom);
           restoredState.vizZoomFloor = state.vizZoomFloor;
           restoredState.vizZoomFloorPan = allowedPan(state.vizZoomFloorPan, state.vizZoomFloor);
+          Object.assign(
+            restoredState,
+            normalizePersistedSourceViewState(restoredState, {
+              frequencyRange: state.frequencyRange,
+              allowNegativeFrequencies: mirrorBelowZero,
+            }),
+          );
         }
         skipNextSourceViewPersistRef.current = selectedSourceViewKey;
         if (Object.keys(restoredState).length > 0) {
@@ -3987,6 +4159,9 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     );
 
     const lastSentFrequencyRangeRef = useRef<FrequencyRange | null>(null);
+    const checkedClippedFrequencyRangeRepairSourceIdsRef = useRef<Set<string>>(
+      new Set(),
+    );
     const previousFrequencyRangeSyncSourceIdRef = useRef<string | null>(null);
     const lastHandledDeviceFrequencyRangeRevisionRef = useRef(0);
 
@@ -4039,17 +4214,22 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       wsConnection.sendFrequencyRange,
     ]);
 
-    // Initialize frequencyRange if either it is null or unset
-    // based on the first available frame (usually area 'A')
-    // and the current sample rate. This is placed after variable
-    // declarations to satisfy closure requirements.
+    // Initialize missing ranges and migrate the exact persisted range emitted
+    // by the old channel-edge clamp. Do this once per source so later user
+    // tuning to a channel boundary remains untouched.
     useEffect(() => {
-      if (mergedState.frequencyRange) return;
       if (!isConnected) return;
       if (
         !activeSourceId ||
         selectedSourceId !== activeSourceId ||
         isMockTxSource({ id: activeSourceId, kind: activeSource?.kind })
+      ) {
+        return;
+      }
+      if (
+        checkedClippedFrequencyRangeRepairSourceIdsRef.current.has(
+          activeSourceId,
+        )
       ) {
         return;
       }
@@ -4066,17 +4246,57 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         sourceChannels[0];
       if (!primaryFrame) return;
 
-      const min = primaryFrame.min_hz;
       const initialSampleRateHz = sampleRateHzEffective ?? sampleRateHz;
-      const max = initialSampleRateHz
-        ? Math.max(
-            min,
-            Math.min(primaryFrame.max_hz, min + initialSampleRateHz),
-          )
-        : primaryFrame.max_hz;
-      const nextRange = clampLiveFrequencyRange({ min, max });
+      const centerFrequencyHz =
+        selectedSourceDerived.sdrSettings?.center_frequency ??
+        selectedSource?.sdr.settings.center_frequency ??
+        activeSource?.sdr.settings.center_frequency;
+      if (
+        typeof initialSampleRateHz !== "number" ||
+        !Number.isFinite(initialSampleRateHz) ||
+        initialSampleRateHz <= 0 ||
+        typeof centerFrequencyHz !== "number" ||
+        !Number.isFinite(centerFrequencyHz)
+      ) {
+        return;
+      }
+
+      checkedClippedFrequencyRangeRepairSourceIdsRef.current.add(
+        activeSourceId,
+      );
+      const frameRange = {
+        min: primaryFrame.min_hz,
+        max: primaryFrame.max_hz,
+      };
+      const currentRange = mergedState.frequencyRange;
+      const isPersistedClippedRange =
+        currentRange !== null &&
+        shouldRepairClippedLiveFrequencyRange({
+          currentRange,
+          frameRange,
+          sampleRateHz: initialSampleRateHz,
+        });
+      if (currentRange && !isPersistedClippedRange) return;
+
+      const initialRange = resolveInitialLiveFrequencyRange({
+        frameRange,
+        sampleRateHz: initialSampleRateHz,
+        centerFrequencyHz,
+        hardwareBounds:
+          selectedSource?.capabilities?.frequency_range ??
+          activeSource?.capabilities?.frequency_range ??
+          hardwareSpectrumBounds,
+      });
+      const nextRange = clampLiveFrequencyRange(initialRange);
 
       const range = nextRange;
+      if (
+        currentRange &&
+        currentRange.min === range.min &&
+        currentRange.max === range.max
+      ) {
+        return;
+      }
       if (
         lastSentFrequencyRangeRef.current?.min === range.min &&
         lastSentFrequencyRangeRef.current?.max === range.max
@@ -4093,10 +4313,17 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       effectiveFrames,
       websocketChannels,
       isConnected,
+      deviceState,
       activeSourceId,
       activeSource?.kind,
+      activeSource?.sdr.settings.center_frequency,
+      activeSource?.capabilities?.frequency_range,
+      selectedSource?.sdr.settings.center_frequency,
+      selectedSource?.capabilities?.frequency_range,
+      selectedSourceDerived.sdrSettings?.center_frequency,
       selectedSourceId,
       deviceState,
+      hardwareSpectrumBounds,
       wsConnection.sendFrequencyRange,
       reduxDispatch,
       clampLiveFrequencyRange,

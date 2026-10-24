@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { SnapshotData } from "@n-apt/spectrum/public/FFTCanvas";
+import type { WholeChannelCaptureOptions } from "@n-apt/capture/hooks/useCaptureWholeChannelSegments";
 import type { SnapshotOptions } from "@n-apt/capture/hooks/useSnapshot";
 import { formatFrequency } from "@n-apt/math/frequency";
 import {
@@ -101,7 +102,9 @@ interface UseSnapshotListenerOptions {
   deviceName?: string;
   deviceProfile?: any;
   fftFrameRate: number;
-  captureWholeChannelSegments: () => Promise<WholeChannelSnapshotSegment[]>;
+  captureWholeChannelSegments: (
+    options?: WholeChannelCaptureOptions,
+  ) => Promise<WholeChannelSnapshotSegment[]>;
   getSnapshotData: () => SnapshotData | null | undefined;
   getVideoSourceCanvases?: () => {
     spectrum: HTMLCanvasElement | null;
@@ -200,8 +203,11 @@ export const useSnapshotListener = ({
         videoFrameRate: isVideo ? 30 : fftFrameRate,
         getWholeChannelSegmentFrames:
           wholeRequested && sourceMode === "live" && isVideo
-            ? () =>
-                streamWholeChannelSegmentFrames(captureWholeChannelSegments, 30)
+            ? (frameRate) =>
+                streamWholeChannelSegmentFrames(
+                  captureWholeChannelSegments,
+                  frameRate ?? 30,
+                )
             : undefined,
         getVideoSourceCanvases,
         refreshVideoFrame,

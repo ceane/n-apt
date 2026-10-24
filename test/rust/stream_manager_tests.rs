@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use n_apt_backend::sdr::processor::SdrProcessor;
+use n_apt_backend::server::source_runtime::SourceRuntimeManager;
 use n_apt_backend::server::stream_manager::{
   RxStreamOptions, SourceStreamCapabilities, StreamEvent, StreamKey,
   StreamMode, StreamOptions, StreamingSourceModeManager, TxStreamOptions,
@@ -55,6 +57,66 @@ async fn one_source_mode_fans_identical_frames_to_multiple_subscribers() {
   assert_eq!(first_event, second_event);
   assert_eq!(first_event, StreamEvent::Frame(published));
   assert_eq!(manager.metrics(&key).unwrap().subscriber_count, 2);
+}
+
+#[tokio::test]
+async fn live_retune_publishes_a_complete_frame_without_waiting_for_the_next_tick(
+) {
+  let manager = StreamingSourceModeManager::new(Duration::from_millis(20));
+  let runtimes = SourceRuntimeManager::new();
+  let key = StreamKey::new("mock-apt-retune-wake", StreamMode::Rx);
+  let capabilities = SourceStreamCapabilities {
+    can_receive: true,
+    can_transmit: false,
+    full_duplex: false,
+  };
+  let options = |center_frequency_hz| RxStreamOptions {
+    center_frequency_hz,
+    sample_rate_hz: 3_200_000,
+    fft_size: 1024,
+    fft_window: None,
+    // Make the ordinary frame cadence much longer than the response bound.
+    frame_rate: Some(2),
+    gain: None,
+  };
+  manager.register_source(key.source_id.clone(), capabilities);
+  let mut subscription = manager
+    .subscribe(key.clone(), StreamOptions::Rx(options(137_100_000)))
+    .unwrap();
+  runtimes
+    .start(
+      key.clone(),
+      capabilities,
+      SdrProcessor::new_mock_apt().unwrap(),
+      StreamOptions::Rx(options(137_100_000)),
+      manager.clone(),
+    )
+    .await
+    .unwrap();
+
+  loop {
+    if matches!(subscription.recv().await.unwrap(), StreamEvent::Frame(_)) {
+      break;
+    }
+  }
+  runtimes
+    .update_rx_options(&key, options(137_200_000))
+    .expect("runtime should accept a live retune");
+
+  let frame = tokio::time::timeout(Duration::from_millis(250), async {
+    loop {
+      if let StreamEvent::Frame(frame) = subscription.recv().await.unwrap() {
+        if frame.center_frequency_hz == Some(137_200_000) {
+          break frame;
+        }
+      }
+    }
+  })
+  .await
+  .expect("retune should publish a fresh complete frame promptly");
+
+  assert_eq!(frame.center_frequency_hz, Some(137_200_000));
+  runtimes.stop_all();
 }
 
 #[tokio::test]

@@ -2868,8 +2868,11 @@ export function useSpectrumInteraction({
 
         // Scroll sensitivity: roughly 1 pixel per unit of delta. Native wheel
         // positive movement travels toward lower displayed frequencies.
+        const visibleFrequencyCenter =
+          (frequencyRangeRef.current.min + frequencyRangeRef.current.max) / 2 +
+          (vizPanOffsetRef?.current || 0);
         const descendingNativeWheelAxis =
-          (hardwareSpectrumBounds?.max ?? 0) >= 1_000_000_000;
+          visibleFrequencyCenter >= 1_000_000_000;
         const freqChange =
           (descendingNativeWheelAxis ? -1 : 1) * (deltaPx / width) * visualRange;
         const currentPan = vizPanOffsetRef?.current || 0;

@@ -246,6 +246,7 @@ export type CaptureRequest = {
   durationS?: number;
   fileType: CaptureFileType;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
+  preserveCurrentCenter?: boolean;
   encrypted: boolean;
   fidoVault?: boolean;
   sampleRateHz?: number;

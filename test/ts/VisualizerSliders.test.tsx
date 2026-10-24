@@ -40,6 +40,16 @@ describe("VisualizerSliders", () => {
     expect(screen.getByText("-100dB")).toBeInTheDocument();
   });
 
+  test("shows small zoom offsets instead of rounding them to 1.0x", () => {
+    render(
+      <TestWrapper>
+        <VisualizerSliders {...defaultProps} zoom={1.0043135509844212} />
+      </TestWrapper>,
+    );
+
+    expect(screen.getByText("1.004x")).toBeInTheDocument();
+  });
+
   test("compact mode keeps the shared sliders without action buttons", () => {
     const { container } = render(
       <TestWrapper>

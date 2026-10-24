@@ -3482,6 +3482,7 @@ async fn handle_start_capture(
     duration_s,
     file_type: file_type.to_string(),
     acquisition_mode: acquisition_mode.to_string(),
+    preserve_current_center: false,
     encrypted,
     fido_vault: false,
     session_token: None,

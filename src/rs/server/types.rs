@@ -95,6 +95,7 @@ pub enum SdrCommand {
     duration_s: f64,
     file_type: String,
     acquisition_mode: String,
+    preserve_current_center: bool,
     encrypted: bool,
     fido_vault: bool,
     session_token: Option<crate::authentication::fido_vault::VaultSessionId>,
@@ -378,6 +379,12 @@ pub struct WebSocketMessage {
   pub encrypted: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fidoVault")]
   pub fido_vault: Option<bool>,
+  #[serde(
+    skip_serializing_if = "Option::is_none",
+    alias = "preserveCurrentCenter",
+    default
+  )]
+  pub preserve_current_center: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "screenWidth")]
   pub screen_width: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]

@@ -83,7 +83,7 @@ describe("FFTCanvas mirror pan redraw gate", () => {
     ).toBe(true);
   });
 
-  it("keeps a live frame fixed while pan waits for the next IQ frame", () => {
+  it("repaints a live frame immediately when the new viewport is fully covered", () => {
     expect(
       shouldMirrorPanOnlyRedraw({
         allowNegativeFrequencies: true,
@@ -103,8 +103,9 @@ describe("FFTCanvas mirror pan redraw gate", () => {
         zoomChanged: true,
         panChanged: true,
         isPaused: false,
+        hasFullAcquisitionCoverage: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("never allows a live cache repaint across arbitrary hot-reload viewport churn", () => {
@@ -234,7 +235,7 @@ describe("mirror scroll direction continuity", () => {
     jest.restoreAllMocks();
   });
 
-  it("keeps descending while scrolling into the mirror and ascending while scrolling back", () => {
+  it("keeps ascending while scrolling up the baseband and descending while returning", () => {
     renderHook(() =>
       useSpectrumInteraction(
         harness.buildOptions({
@@ -251,7 +252,7 @@ describe("mirror scroll direction continuity", () => {
     );
 
     for (let tick = 1; tick <= 120; tick += 1) {
-      // Positive deltaY moves toward lower displayed frequencies.
+      // In the baseband view, positive deltaY moves toward higher displayed frequencies.
       harness.wheel({ deltaY: 120, clientY: VFO_WHEEL_CLIENT_Y });
       const current = displayViewport(
         harness.frequencyRangeRef,
@@ -260,7 +261,7 @@ describe("mirror scroll direction continuity", () => {
       );
       assertMonotonicDisplayCenter({
         step: tick,
-        direction: "descending",
+        direction: "ascending",
         previousCenter: previous.center,
         currentCenter: current.center,
         pinnedAtEdge: current.center === previous.center,
@@ -282,7 +283,7 @@ describe("mirror scroll direction continuity", () => {
       );
       assertMonotonicDisplayCenter({
         step: 120 + tick,
-        direction: "ascending",
+        direction: "descending",
         previousCenter: previous.center,
         currentCenter: current.center,
         pinnedAtEdge: current.center === previous.center,
@@ -351,8 +352,8 @@ describe("mirror scroll direction continuity", () => {
       );
       const direction: "ascending" | "descending" =
         random() < 0.5 ? "ascending" : "descending";
-      // Wheel sign matches useSpectrumInteraction: +deltaY lowers displayed frequency.
-      const deltaSign = direction === "descending" ? 1 : -1;
+      // At baseband, positive deltaY increases the displayed frequency.
+      const deltaSign = direction === "ascending" ? 1 : -1;
 
       for (let step = 0; step < 180; step += 1) {
         const magnitude = 40 + random() * 120;
@@ -558,7 +559,13 @@ describe("mirror GPU resample continuity", () => {
     createRenderPipeline: jest.fn(() => ({
       getBindGroupLayout: jest.fn(() => ({})),
     })),
+    createRenderPipelineAsync: jest.fn(async () => ({
+      getBindGroupLayout: jest.fn(() => ({})),
+    })),
     createComputePipeline: jest.fn(() => ({
+      getBindGroupLayout: jest.fn(() => ({})),
+    })),
+    createComputePipelineAsync: jest.fn(async () => ({
       getBindGroupLayout: jest.fn(() => ({})),
     })),
     createPipelineLayout: jest.fn(() => ({})),

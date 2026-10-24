@@ -486,6 +486,7 @@ export const sendCaptureCommand = createAsyncThunk(
             durationS: req.durationS,
             fileType: req.fileType,
             acquisitionMode: req.acquisitionMode,
+            preserveCurrentCenter: req.preserveCurrentCenter,
             encrypted: req.encrypted,
             fidoVault: req.fidoVault,
             sampleRateHz: req.sampleRateHz,

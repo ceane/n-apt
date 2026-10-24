@@ -1376,6 +1376,31 @@ describe("useSpectrumInteraction Hook", () => {
     });
   });
 
+  it("pans upward from DC when the SDR tuning capability extends to GHz", () => {
+    renderHook(() =>
+      useSpectrumInteraction({
+        ...defaultOptions,
+        frequencyRangeRef: { current: { min: 0, max: 3_200_000 } },
+        signalAreaBounds: { TEST: { min: 0, max: 3_200_000 } },
+        hardwareSpectrumBounds: { min: 0, max: 30_000_000_000 },
+        vizZoomRef: { current: 1 },
+      }),
+    );
+
+    triggerWheel({
+      clientX: 500,
+      clientY: 300,
+      deltaY: 200,
+      ctrlKey: false,
+    } as any);
+    flushHardwareRetune();
+
+    expect(mockOnFrequencyRangeChange).toHaveBeenCalledWith({
+      min: 640_000,
+      max: 3_840_000,
+    });
+  });
+
   it("does not trap zoomed wheel panning inside the active channel without hardware bounds", () => {
     renderHook(() =>
       useSpectrumInteraction({

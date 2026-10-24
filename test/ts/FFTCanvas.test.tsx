@@ -49,12 +49,35 @@ it("keeps the mirrored pan publisher usable after lifecycle cleanup", () => {
     const scheduler = createVizPanScheduler(publish);
 
     scheduler.submit(-4, "gesture");
+    expect(publish).toHaveBeenLastCalledWith(-4);
     scheduler.cancel();
     scheduler.submit(-8, "gesture");
-    expect(publish).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(50);
 
     expect(publish).toHaveBeenLastCalledWith(-8);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it("publishes the first mirror-pan tick immediately and coalesces the rest", () => {
+  jest.useFakeTimers();
+  const publish = jest.fn();
+  try {
+    const scheduler = createVizPanScheduler(publish);
+
+    scheduler.submit(-4, "gesture");
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenLastCalledWith(-4);
+
+    scheduler.submit(-8, "gesture");
+    expect(publish).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(50);
+
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenLastCalledWith(-8);
+    scheduler.cancel();
   } finally {
     jest.useRealTimers();
   }
@@ -401,7 +424,7 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
     ).toBe(false);
   });
 
-  it("does not reproject a live cached frame before the replacement frame arrives", () => {
+  it("reprojects a live cached frame only while its acquisition fully covers the new view", () => {
     expect(
       shouldRepaintCachedSpectrumForViewportChange({
         hasNewData: false,
@@ -410,6 +433,19 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
         zoomChanged: true,
         panChanged: true,
         isPaused: false,
+        hasFullAcquisitionCoverage: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepaintCachedSpectrumForViewportChange({
+        hasNewData: false,
+        shouldReprocessCurrentFrame: false,
+        hasCachedWaveform: true,
+        zoomChanged: false,
+        panChanged: false,
+        rangeChanged: true,
+        isPaused: false,
+        hasFullAcquisitionCoverage: false,
       }),
     ).toBe(false);
   });
@@ -1650,6 +1686,27 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
     ).toEqual({
       min: 18_000,
       max: 4_390_000,
+    });
+  });
+
+  it("renders the full 3.2 MHz view from DC when the requested edge is short", () => {
+    expect(
+      resolveLiveFrameRenderableFrequencyRange({
+        currentFrame: {
+          center_frequency_hz: 1_600_000,
+          sample_rate: 3_200_000,
+        } as any,
+        requestedRange: { min: 0, max: 3_186_300 },
+        propsCenterFrequencyHz: 1_600_000,
+        propsHardwareSampleRateHz: 3_200_000,
+        deviceKind: "mock_apt",
+        backend: "mock_apt",
+        deviceName: "Mock APT SDR",
+        isRtlSdr: false,
+      }),
+    ).toEqual({
+      min: 0,
+      max: 3_200_000,
     });
   });
 

@@ -200,6 +200,7 @@
     "lucide-react": "1.45.0",
     "marked": "18.0.13",
     "marked-highlight": "^2.2.3",
+    "mediabunny": "1.61.6",
     "motion": "13.2.0",
     "n_apt_canvas": "file:./packages/n_apt_canvas",
     "next-themes": "0.4.6",

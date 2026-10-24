@@ -392,6 +392,29 @@ export const resolveRenderableFrequencyRange = ({
     return { min: frameMin, max: frameMax };
   }
 
+  // A range anchored at the acquisition window's lower edge must retain the
+  // whole accepted sample window. Channel/frame metadata can have a shorter
+  // upper edge than the sample rate; preserving that truncated request makes
+  // a nominal 3.2 MHz window render as 3.1863 MHz and drops the high edge.
+  if (
+    !preferRequestedRange &&
+    Number.isFinite(requestedSpan) &&
+    requestedSpan > 0 &&
+    requestedSpan < sampleRate &&
+    typeof centerFrequencyHz === "number" &&
+    Number.isFinite(centerFrequencyHz)
+  ) {
+    const frameMin = Math.round(centerFrequencyHz - sampleRate / 2);
+    const frameMax = Math.round(centerFrequencyHz + sampleRate / 2);
+    if (
+      frameMin >= 0 &&
+      positiveRequestedRange.min === frameMin &&
+      positiveRequestedRange.max < frameMax
+    ) {
+      return { min: frameMin, max: frameMax };
+    }
+  }
+
   if (
     Number.isFinite(requestedSpan) &&
     requestedSpan > 0 &&
@@ -403,6 +426,67 @@ export const resolveRenderableFrequencyRange = ({
   return {
     min: positiveRequestedRange.min,
     max: positiveRequestedRange.min + sampleRate,
+  };
+};
+
+/**
+ * Resolve the live Onscreen capture window from the active viewport and the
+ * SDR's accepted sample rate. Channel-frame edges describe detected signal
+ * coverage; they must not shorten the live IQ acquisition window.
+ */
+export const resolveLiveOnscreenFrequencyRange = ({
+  frequencyRange,
+  hardwareSampleRateHz,
+  hardwareBounds,
+  zoom = 1,
+  panOffsetHz = 0,
+  allowNegativeFrequencies = false,
+}: {
+  frequencyRange: { min: number; max: number };
+  hardwareSampleRateHz: number;
+  hardwareBounds?: { min: number; max: number } | null;
+  zoom?: number;
+  panOffsetHz?: number;
+  allowNegativeFrequencies?: boolean;
+}): { min: number; max: number } | null => {
+  if (
+    !Number.isFinite(frequencyRange.min) ||
+    !Number.isFinite(frequencyRange.max) ||
+    frequencyRange.max <= frequencyRange.min ||
+    !isValidSampleRateHz(hardwareSampleRateHz)
+  ) {
+    return null;
+  }
+
+  const bounds =
+    hardwareBounds &&
+    Number.isFinite(hardwareBounds.min) &&
+    Number.isFinite(hardwareBounds.max) &&
+    hardwareBounds.max > hardwareBounds.min
+      ? hardwareBounds
+      : { min: 0, max: Number.MAX_SAFE_INTEGER };
+  const acquisitionSpan = Math.min(
+    hardwareSampleRateHz,
+    bounds.max - bounds.min,
+  );
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const visibleSpan = Math.min(acquisitionSpan, acquisitionSpan / safeZoom);
+  const halfSpan = visibleSpan / 2;
+  const center =
+    (frequencyRange.min + frequencyRange.max) / 2 +
+    (Number.isFinite(panOffsetHz) ? panOffsetHz : 0);
+
+  if (allowNegativeFrequencies) {
+    return { min: center - halfSpan, max: center + halfSpan };
+  }
+
+  const boundedCenter = Math.max(
+    bounds.min + halfSpan,
+    Math.min(bounds.max - halfSpan, center),
+  );
+  return {
+    min: boundedCenter - halfSpan,
+    max: boundedCenter + halfSpan,
   };
 };
 
