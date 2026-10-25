@@ -377,15 +377,15 @@ export const resolveLiveSpectrumPaintContract = ({
     mirrorEnabled,
   });
   if (allowPendingLiveViewport && !isPaused) {
-    // The resident frame remains tied to its original acquisition axis. The
-    // shader floors only the portion outside that range while the replacement
-    // FFT is pending, so panning stays responsive without relabeling old bins.
+    // Keep the last complete plot and its VFO axis together until the
+    // replacement FFT is ready. Painting the requested viewport here exposes
+    // uncovered bins as a zero/floor region while the worker catches up.
     return {
-      paintViewportRange: safeRequestedRange,
+      paintViewportRange: safeSourceRange,
       sourceFrequencyRange: safeSourceRange,
-      displayRange: requestedCoordinates.displayRange,
-      zoom: safeZoom,
-      panOffsetHz: requestedCoordinates.clampedPan,
+      displayRange: safeSourceRange,
+      zoom: 1,
+      panOffsetHz: 0,
     };
   }
   const requestedViewWithNegativeResidentFrame =
