@@ -532,6 +532,7 @@ describe("fast snapshot canvases", () => {
     waterfallGpu.width = 320;
     waterfallGpu.height = 180;
     const scratch = createFastFrameScratch();
+    // A presented WebGPU canvas can be empty even though its dimensions remain valid.
 
     global.clearCanvasCalls?.();
     buildFastWaterfallCanvas(
