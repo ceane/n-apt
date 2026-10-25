@@ -28,6 +28,7 @@ export class SpectrumWorkerClient {
   private inFlight: Job | null = null;
   private pending: Job | null = null;
   private completed: (Job & { spectrum: Float32Array; isPreview: boolean }) | null = null;
+  private hasUnreadComplete = false;
   private failed = false;
   private disposed = false;
 
@@ -59,8 +60,12 @@ export class SpectrumWorkerClient {
       // spectrum on slower workers. Different-scope results are already stale.
       if (pending && pending.scope !== completed.scope) {
         browserPipelineMetrics.workerResultRejectedAsStale();
-      } else {
+      } else if (!(isPreview && this.hasUnreadComplete &&
+        this.completed?.scope === completed.scope)) {
+        // A following preview can arrive before RAF consumes the full FFT.
+        // Preserve that completion so waterfall/history ingestion cannot starve.
         this.completed = completed;
+        this.hasUnreadComplete = !isPreview;
         this.onResult?.({
           frame: completed.frame,
           spectrum: completed.spectrum,
@@ -128,6 +133,9 @@ export class SpectrumWorkerClient {
     // The canvas should show the newest completed result from this source and
     // configuration while newer FFT work is pending. The result carries its
     // own frame so frequency axes remain aligned to the processed IQ data.
+    if (this.completed?.scope === scope && !this.completed.isPreview) {
+      this.hasUnreadComplete = false;
+    }
     return this.completed?.scope === scope
       ? {
           frame: this.completed.frame,
