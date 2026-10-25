@@ -32,6 +32,7 @@ import {
   MapPin,
   PanelLeftDashed,
   Scan,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import {
@@ -39,6 +40,7 @@ import {
   Collapsible,
   ChannelsSelector,
 } from "@n-apt/ui";
+import { RowContainer } from "@n-apt/ui/Row";
 import { RadioTabs } from "@n-apt/ui/RadioTabs";
 import {
   CheckboxSwitch as ToggleSwitch,
@@ -286,6 +288,53 @@ const FidoVaultControls = styled.div`
   gap: 8px;
   min-width: 0;
   width: 100%;
+`;
+
+const EncryptionSettingsGroup = styled.div`
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid
+    ${(props) =>
+      props.theme.mode === "light"
+        ? props.theme.borderHover
+        : props.theme.border};
+  border-radius: 6px;
+  background: ${(props) =>
+    props.theme.mode === "light"
+      ? props.theme.primaryAnchor
+      : props.theme.surface};
+
+  ${RowContainer} {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 8px 0;
+
+    & + ${RowContainer} {
+      position: relative;
+      border-top: 1px solid ${(props) => props.theme.border};
+      background: color-mix(in srgb, ${(props) => props.theme.surface} 92%, black);
+
+      &::before {
+        position: absolute;
+        top: 8px;
+        bottom: 8px;
+        left: 10px;
+        width: 2px;
+        border-radius: 2px;
+        background: ${(props) => props.theme.textSecondary};
+        opacity: 0.35;
+        content: "";
+      }
+
+      > div:first-child {
+        padding-left: 22px;
+      }
+    }
+  }
 `;
 
 const FidoVaultUnlockButton = styled.button`
@@ -914,23 +963,13 @@ export const IQCaptureControlsSection: React.FC<
     if (fidoDialogMode === "enroll") {
       setFidoDialogPending(false);
       if (isAuthenticated) {
-        onCaptureEncryptedChange(true);
         onCaptureFidoVaultChange?.(true);
       }
-      dispatch(addNotification({
-        id: `fido-vault-enrolled-${Date.now()}`,
-        type: "success",
-        title: "FIDO security key enrolled",
-        message: isAuthenticated
-          ? "FIDO vault encryption is enabled for this capture."
-          : "Sign in and unlock the FIDO vault before capturing.",
-        duration: 6000,
-      }));
       setFidoEnrollmentPassword("");
       setFidoDialogMode(null);
       setFidoDialogError(null);
     }
-  }, [dispatch, fidoDialogMode, fidoVaultUnlocked, hasFidoSecurityKey, isAuthenticated, onCaptureEncryptedChange, onCaptureFidoVaultChange]);
+  }, [dispatch, fidoDialogMode, fidoVaultUnlocked, hasFidoSecurityKey, isAuthenticated, onCaptureFidoVaultChange]);
 
   const openFidoDialog = (mode: "enroll" | "unlock") => {
     setFidoDialogError(null);
@@ -950,7 +989,6 @@ export const IQCaptureControlsSection: React.FC<
       openFidoDialog("unlock");
       return;
     }
-    onCaptureEncryptedChange(true);
     onCaptureFidoVaultChange?.(true);
   };
 
@@ -969,15 +1007,7 @@ export const IQCaptureControlsSection: React.FC<
     const unlocked = await handleFidoKeyAuth();
     setFidoDialogPending(false);
     if (unlocked) {
-      onCaptureEncryptedChange(true);
       onCaptureFidoVaultChange?.(true);
-      dispatch(addNotification({
-        id: `fido-vault-unlocked-${Date.now()}`,
-        type: "success",
-        title: "FIDO vault unlocked",
-        message: "FIDO vault encryption is enabled for this capture.",
-        duration: 6000,
-      }));
       setFidoDialogMode(null);
       setFidoDialogError(null);
     } else {
@@ -1600,36 +1630,33 @@ export const IQCaptureControlsSection: React.FC<
         </SettingSelect>
       </Row>
 
-      <Row
-        label={<IconLabel icon={LockKeyhole} text="Encrypted (AES-256-GCM)" />}
-      >
-        <ToggleSwitch
-          $disabled={encryptionLocked}
+      <EncryptionSettingsGroup>
+        <Row
+          label={<IconLabel icon={LockKeyhole} text="Encrypted (AES-256-GCM)" />}
+          tooltipTitle="Default encryption"
+          tooltip="Encrypt the capture with the default AES-256-GCM key. Select FIDO vault encryption below to use the key unlocked by your security key instead."
         >
-          <ToggleSwitchInput
-            type="checkbox"
-            aria-label="Encrypt capture with AES-256-GCM"
-            checked={
-              captureUsesFidoVault ||
-              (!isMockSource &&
-                (captureFileType === ".napt" ||
-                  (captureFileType === ".iq" && captureEncrypted)))
-            }
-            disabled={encryptionLocked}
-            onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
-          />
-          <ToggleSwitchSlider
-            $disabled={encryptionLocked}
-          />
-        </ToggleSwitch>
-      </Row>
+          <ToggleSwitch $disabled={captureFileType === ".wav" || captureFileType === ".napt"}>
+            <ToggleSwitchInput
+              type="checkbox"
+              aria-label="Encrypt capture with AES-256-GCM"
+              checked={
+                captureFileType === ".napt" ||
+                (captureFileType === ".iq" && captureEncrypted)
+              }
+              disabled={captureFileType === ".wav" || captureFileType === ".napt"}
+              onChange={(e) => onCaptureEncryptedChange(e.target.checked)}
+            />
+            <ToggleSwitchSlider $disabled={captureFileType === ".wav" || captureFileType === ".napt"} />
+          </ToggleSwitch>
+        </Row>
 
-      <Row
-        label={<IconLabel icon={LockKeyhole} text="FIDO vault encryption" />}
-        tooltipTitle="FIDO-unlocked capture vault"
-        tooltip="Encrypt this .iq or .napt capture with the vault key unlocked by your FIDO security key or recovery password. Batch decryption uses the recovery wrapper. Redis Increased protection salts are not used."
-      >
-        <FidoVaultControls>
+        <Row
+          label={<IconLabel icon={KeyRound} text="with FIDO security key" />}
+          tooltipTitle="Encrypt with FIDO security key"
+          tooltip="Use your enrolled FIDO security key to encrypt this capture. Unlock the key before capturing. FIDO-encrypted captures can also be decrypted with your recovery password."
+        >
+          <FidoVaultControls>
           {!hasFidoSecurityKey && (
             <>
               <FidoVaultHint>
@@ -1648,9 +1675,6 @@ export const IQCaptureControlsSection: React.FC<
               FIDO security key enrolled. Vault locked. Plug in your key and tap it when the browser asks.
             </FidoVaultHint>
           )}
-          {hasFidoSecurityKey && isAuthenticated && fidoVaultUnlocked && (
-            <FidoVaultHint>FIDO security key enrolled. Vault unlocked and ready for capture.</FidoVaultHint>
-          )}
           {hasFidoSecurityKey && isAuthenticated && !fidoVaultUnlocked && (
             <FidoVaultUnlockButton type="button" onClick={() => openFidoDialog("unlock")}>
               {fidoVaultUnlocked ? "Verify key and enable FIDO encryption" : "Unlock with FIDO security key"}
@@ -1666,8 +1690,24 @@ export const IQCaptureControlsSection: React.FC<
             />
             <ToggleSwitchSlider $disabled={captureFileType === ".wav" || !isAuthenticated} />
           </ToggleSwitch>
-        </FidoVaultControls>
-      </Row>
+          </FidoVaultControls>
+        </Row>
+
+        {(captureDestination === "aspect" || captureDestination === "huggingface") && (
+          <Row
+            label={<IconLabel icon={ShieldCheck} text="Increased protection" />}
+            tooltipTitle="Per-capture protection"
+            tooltip={captureUsesFidoVault
+              ? "Disabled for FIDO vault captures. They use the FIDO vault key and do not use a Redis protection salt."
+              : "Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."}
+          >
+            <ToggleSwitch $disabled>
+              <ToggleSwitchInput type="checkbox" checked={!captureUsesFidoVault} disabled readOnly />
+              <ToggleSwitchSlider $disabled />
+            </ToggleSwitch>
+          </Row>
+        )}
+      </EncryptionSettingsGroup>
 
       <FidoVaultDialog
         ref={fidoDialogRef}
@@ -1756,21 +1796,6 @@ export const IQCaptureControlsSection: React.FC<
           </>
         )}
       </FidoVaultDialog>
-
-      {(captureDestination === "aspect" || captureDestination === "huggingface") && (
-        <Row
-          label={<IconLabel icon={LockKeyhole} text="Increased protection" />}
-          tooltipTitle="Per-capture protection"
-          tooltip={captureUsesFidoVault
-            ? "Disabled for FIDO vault captures. They use the FIDO vault key and do not use a Redis protection salt."
-            : "Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."}
-        >
-          <ToggleSwitch $disabled>
-            <ToggleSwitchInput type="checkbox" checked={!captureUsesFidoVault} disabled readOnly />
-            <ToggleSwitchSlider $disabled />
-          </ToggleSwitch>
-        </Row>
-      )}
 
       <Row
         label={<IconLabel icon={MapPin} text="Geolocation" />}
