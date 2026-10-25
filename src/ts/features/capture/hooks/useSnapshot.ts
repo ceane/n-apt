@@ -3092,9 +3092,8 @@ function renderFastWaterfallBase(
   const hasCapturedTexture = hasCapturedWaterfallData(snapshotData);
 
   if (liveGpu && !hasCapturedTexture) {
-    // WebGPU canvases can read back blank after presenting, so the renderer
-    // keeps the last presented frame alongside them. Prefer retained history
-    // when available because the presented canvas itself may be discarded.
+    // WebGPU canvases can read back blank after presenting. Prefer retained
+    // history when available; direct readback is only a fallback.
     const srcGpu =
       (liveGpu as HTMLCanvasElement & { _lastFrameCanvas?: HTMLCanvasElement })
         ._lastFrameCanvas ?? liveGpu;
@@ -3463,8 +3462,10 @@ export type FastRecordingSession = {
   scratch: FastFrameScratch;
 };
 
-/** Waveforms are consumed before this tick yields. Waterfall recordings also
- * need retained texture history because WebGPU may discard the presented canvas.
+/**
+ * Spectrum recording only needs the waveform. Waterfall recording also needs
+ * retained history: a WebGPU canvas may be discarded after presentation.
+ * Waveforms are consumed before this tick yields, so they need no copy.
  */
 const RECORDING_SNAPSHOT_DATA_OPTIONS = {
   includeWaterfall: false,
@@ -3923,10 +3924,20 @@ export function useSnapshot(
           const frameSegments = wholeChannelSegments?.length
             ? wholeChannelSegments
             : options.wholeChannelSegments;
+          const liveVideoSourceCanvases =
+            !options.whole
+              ? (options.getVideoSourceCanvases?.() ?? null)
+              : null;
+          const liveWaterfallCanvases = liveVideoSourceCanvases
+            ? {
+                waterfallGpu: liveVideoSourceCanvases.waterfall ?? null,
+                waterfallOverlay: null,
+              }
+            : null;
           const liveSpectrumSourceCanvases =
             !options.whole &&
             (!options.aspectRatio || options.aspectRatio === "default")
-              ? (options.getVideoSourceCanvases?.() ?? null)
+              ? liveVideoSourceCanvases
               : null;
           const liveSpectrumCanvas =
             liveSpectrumSourceCanvases?.spectrum ?? null;
@@ -4090,7 +4101,13 @@ export function useSnapshot(
             if (currentWholeWaterfallCanvas) {
               waterfallCanvas = currentWholeWaterfallCanvas;
             } else {
-              waterfallCanvas = renderWaterfallSnapshotCanvas(
+              waterfallCanvas = renderFastWaterfallBase(
+                currentData,
+                targetFrameW,
+                targetWaterfallH,
+                liveWaterfallCanvases,
+                recordingPool,
+              ) ?? renderWaterfallSnapshotCanvas(
                 currentData,
                 targetFrameW,
                 targetWaterfallH,
