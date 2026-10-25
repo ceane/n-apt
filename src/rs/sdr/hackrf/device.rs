@@ -722,6 +722,9 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn get_serial_number(&self) -> String {
+    // Captured from libhackrf's device list before opening the device. This is
+    // the hardware-reported HackRF serial; it is empty only if the library
+    // does not provide one.
     self.serial_number.clone()
   }
 

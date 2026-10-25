@@ -799,6 +799,9 @@ impl SdrDevice for RtlSdrDevice {
   }
 
   fn get_serial_number(&self) -> String {
+    // This is read from the RTL-SDR USB descriptor. It is genuine descriptor
+    // data, but many RTL-SDRs ship with the shared default `00000001`, so it
+    // must not be treated as a unique per-device identifier.
     self.usb_serial.clone()
   }
 
