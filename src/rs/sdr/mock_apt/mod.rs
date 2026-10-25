@@ -891,6 +891,8 @@ impl SdrDevice for MockAptDevice {
 
   fn get_serial_number(&self) -> String {
     if self.simulated_rtl_sdr {
+      // Simulator compatibility value, not a hardware serial. The frontend
+      // must not display this as device identity.
       "00000001".to_string()
     } else {
       String::new()
