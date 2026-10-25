@@ -116,6 +116,13 @@ export const CollapsibleTitleToggle = styled.span`
   font-weight: 600;
 `;
 
+const CollapsibleTitleEndAdornment = styled.span`
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 8px;
+`;
+
 export const CollapsibleBody = styled.div`
   display: grid;
   grid-column: 1 / -1;
@@ -135,6 +142,7 @@ export interface CollapsibleProps {
   sectionId?: string;
   onOpenChange?: (isOpen: boolean) => void;
   titlePulseToken?: number;
+  endAdornment?: React.ReactNode;
   hideHeader?: boolean;
 }
 
@@ -148,6 +156,7 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
   sectionId,
   onOpenChange,
   titlePulseToken,
+  endAdornment,
   hideHeader = false,
 }) => {
   const [isOpen, setIsOpen] = React.useState(defaultOpen);
@@ -196,6 +205,9 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
           </CollapsibleTitleContent>
         )}
         <CollapsibleTitleToggle>{isOpen ? "-" : "+"}</CollapsibleTitleToggle>
+        {endAdornment && (
+          <CollapsibleTitleEndAdornment>{endAdornment}</CollapsibleTitleEndAdornment>
+        )}
       </CollapsibleTitleContainer>
       {isOpen && <CollapsibleBody>{children}</CollapsibleBody>}
     </>
