@@ -26,6 +26,7 @@ export type PipelineTimingSummary = {
   minMs: number | null;
   p50Ms: number | null;
   p95Ms: number | null;
+  p99Ms: number | null;
   maxMs: number | null;
 };
 
@@ -79,6 +80,7 @@ const emptyTimingSummary = (): PipelineTimingSummary => ({
   minMs: null,
   p50Ms: null,
   p95Ms: null,
+  p99Ms: null,
   maxMs: null,
 });
 
@@ -93,6 +95,7 @@ const summarize = (samples: number[], observations: number): PipelineTimingSumma
     minMs: sorted[0],
     p50Ms: percentile(0.5),
     p95Ms: percentile(0.95),
+    p99Ms: percentile(0.99),
     maxMs: sorted[sorted.length - 1],
   };
 };
