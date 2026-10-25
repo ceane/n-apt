@@ -43,10 +43,12 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 - Do not log from device I/O paths. This includes RTL-SDR/HackRF callbacks,
   sample reads and writes, acquisition hot paths, reader startup/restart,
   cancellation, cleanup/drop, and Tx monitor or transmission callbacks.
-- Logger formatting and logger locks can delay USB/libusb work and make the
-  hardware unstable. Use comments to document these constraints, and use
-  returned errors, state, counters, or deferred control-plane diagnostics to
-  surface failures after the I/O operation completes.
+- Avoid Rust logging in hardware and performance-sensitive paths. Early in the
+  project, Rust logging was associated with crashes and unintended behavior;
+  the cause was not established, so do not attribute it to FFI, libusb, the
+  hardware, or a particular logger mechanism. Keep diagnostics out of the
+  operation and surface failures through returned errors, state, counters, or
+  deferred control-plane diagnostics after the operation completes.
 - Keep the global Tx log disabled; do not re-enable it or add logging around
   physical Tx operations without explicit authorization and device-safety
   evidence.
