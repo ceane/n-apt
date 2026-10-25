@@ -100,6 +100,7 @@ interface UseSnapshotListenerOptions {
   hackrfAmpEnabled?: boolean | null;
   hackrfBasebandBandwidth?: number | null;
   deviceName?: string;
+  deviceSerialNumber?: string | null;
   deviceProfile?: any;
   fftFrameRate: number;
   captureWholeChannelSegments: (
@@ -136,6 +137,7 @@ export const useSnapshotListener = ({
   hackrfAmpEnabled,
   hackrfBasebandBandwidth,
   deviceName,
+  deviceSerialNumber,
   deviceProfile,
   fftFrameRate,
   captureWholeChannelSegments,
@@ -195,6 +197,10 @@ export const useSnapshotListener = ({
             : null),
         activeSignalArea,
         sourceName: deviceName || backend || deviceInfo || undefined,
+        metadata: {
+          source_device: deviceName || backend || deviceInfo || "Unknown",
+          device_profile: { serial_number: deviceSerialNumber?.trim() || null },
+        },
         sdrSettingsLabel,
         ppm: ppm ?? options.ppm ?? undefined,
         aspectRatio: options.aspectRatio,
@@ -238,6 +244,7 @@ export const useSnapshotListener = ({
     fftFrameRate,
     captureWholeChannelSegments,
     deviceName,
+    deviceSerialNumber,
     getSnapshotData,
   ]);
 };
