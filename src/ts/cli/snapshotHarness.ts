@@ -241,21 +241,26 @@ async function renderNaptCliSnapshot(request: HarnessRequest): Promise<string> {
     getZoomedSlice(waveform, fullRange, zoom, panOffset).slicedWaveform;
   const stats = request.stats
     ? buildSnapshotStatsLines({
-        range: visibleRange,
-        timestampLabel: formatTimestampWithTimezone(
+        frequency_range: [visibleRange.min, visibleRange.max],
+        timestamp_label: formatTimestampWithTimezone(
           new Date(request.snapshotTimestamp).toISOString(),
         ),
-        deviceName: request.deviceName,
-        fftSize: request.fftSize,
-        fftWindow: "Rectangular",
+        source_device: request.deviceName,
+        fft_size: request.fftSize,
+        fft_window: "Rectangular",
         gain: request.gainDb,
         ppm: request.ppm,
-        hardwareSampleRateHz: request.sampleRateHz,
+        hardware_sample_rate_hz: request.sampleRateHz,
         whole: request.whole,
-        modeLabel: request.modeLabel,
-        showGeolocation: Boolean(request.geolocation),
-        geolocation: request.geolocation ?? null,
-        locationLabel: request.locationLabel ?? null,
+        mode_label: request.modeLabel,
+        show_geolocation: Boolean(request.geolocation),
+        geolocation: request.geolocation
+          ? {
+              latitude: Number(request.geolocation.lat),
+              longitude: Number(request.geolocation.lon),
+            }
+          : undefined,
+        location_label: request.locationLabel ?? null,
       })
     : [];
   const baseTheme = themes[request.theme];

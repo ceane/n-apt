@@ -1172,6 +1172,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         activeSignalAreaBounds,
         signalAreaBounds: snapshotChannelBounds,
         sourceName,
+        metadata: {
+          source_device: sourceName,
+          device_profile: {
+            serial_number: streamingSource?.serial_number?.trim() || null,
+          },
+        },
         sdrSettingsLabel,
         gain: state.gain ?? undefined,
         ppm: state.ppm ?? undefined,
@@ -1378,6 +1384,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     hackrfAmpEnabled: state.hackrfAmpEnabled,
     hackrfBasebandBandwidth: state.hackrfBasebandBandwidth ?? undefined,
     deviceName: selectedSourceDerived.deviceName ?? deviceName ?? undefined,
+    deviceSerialNumber: streamingSource?.serial_number ?? null,
     deviceProfile:
       selectedSourceDerived.deviceProfile ?? deviceProfile ?? undefined,
     fftFrameRate: state.fftFrameRate,

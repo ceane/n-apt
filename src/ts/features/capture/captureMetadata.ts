@@ -1,4 +1,5 @@
 import { decodeIqCaptureHeader } from "@n-apt/webusb/iqCaptureFormat";
+import type { CaptureMetadata } from "@n-apt/types/captureMetadata";
 
 const IQ_CAPTURE_EXTENSIONS = [".iq", ".napt", ".wav"] as const;
 
@@ -18,4 +19,4 @@ export const selectPrimaryMetadataCaptureFile = <T extends { name: string }>(
 /** IQ capture metadata is stored in the public header, outside the encrypted payload. */
 export const parseIqCaptureMetadata = (
   bytes: Uint8Array,
-): Record<string, unknown> => decodeIqCaptureHeader(bytes).metadata;
+): CaptureMetadata => decodeIqCaptureHeader(bytes).metadata;
