@@ -80,7 +80,10 @@ const FidoEnrollmentBadge = styled.span`
   color: ${(props) => props.theme.success || "#22c55e"};
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+  vertical-align: middle;
   white-space: nowrap;
 `;
 
@@ -530,13 +533,12 @@ const InfoCardTitle = styled.div`
 `;
 
 const CaptureAvailableDot = styled.span`
-  display: inline-block;
+  display: block;
   width: 12px;
   height: 12px;
-  margin-left: 7px;
+  flex: 0 0 12px;
   border-radius: 50%;
   background: ${(props) => props.theme.primary};
-  vertical-align: middle;
 `;
 
 const InfoRow = styled.div`
@@ -632,6 +634,12 @@ const DownloadsHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
+`;
+
+const DownloadsHeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
 `;
 
 const DestinationControls = styled.div`
@@ -1429,7 +1437,22 @@ export const IQCaptureControlsSection: React.FC<
   const clearPersistedDownloads = () => {
     setPersistedDownloads([]);
     persistCaptureDownloads([]);
-    onClearStatus();
+    setDestinationMessage("");
+    if (
+      captureStatus?.status !== "started" &&
+      captureStatus?.status !== "progress"
+    ) {
+      onClearStatus();
+    }
+  };
+
+  const downloadAllCaptures = () => {
+    for (const download of persistedDownloads) {
+      const url = buildSafeDownloadUrl(download.downloadUrl, sessionToken);
+      if (url) {
+        triggerBrowserDownload(url, safeDownloadFilename(download.filename));
+      }
+    }
   };
 
   // Calculate capture range span to determine appropriate mode
@@ -1957,12 +1980,22 @@ export const IQCaptureControlsSection: React.FC<
       <StatusDownloadsCard>
         <DownloadsHeader>
           <InfoCardTitle>Downloads</InfoCardTitle>
-          <ClearStatusButton
-            onClick={clearPersistedDownloads}
-            title="Clear capture status"
-          >
-            <Trash2 size={12} /> Clear
-          </ClearStatusButton>
+          <DownloadsHeaderActions>
+            {persistedDownloads.length > 0 && isAuthenticated && (
+              <ClearStatusButton
+                onClick={downloadAllCaptures}
+                title="Download all saved captures"
+              >
+                <Download size={12} /> Download All
+              </ClearStatusButton>
+            )}
+            <ClearStatusButton
+              onClick={clearPersistedDownloads}
+              title="Clear capture status"
+            >
+              <Trash2 size={12} /> Clear
+            </ClearStatusButton>
+          </DownloadsHeaderActions>
         </DownloadsHeader>
         {destinationMessage && (
           <DestinationHint role="status">{destinationMessage}</DestinationHint>
@@ -2045,13 +2078,15 @@ export const IQCaptureControlsSection: React.FC<
               {hasFidoSecurityKey && (
                 <FidoEnrollmentBadge title="FIDO security key already enrolled">
                   <BadgeCheck size={12} aria-hidden="true" />
-                  FIDO KEY ENROLLED
+                  FIDO enrolled
                 </FidoEnrollmentBadge>
               )}
-              {persistedDownloads.length > 0 && (
-                <CaptureAvailableDot title="Saved captures available" />
-              )}
             </>
+          }
+          endAdornment={
+            persistedDownloads.length > 0 ? (
+              <CaptureAvailableDot title="Saved captures available" />
+            ) : undefined
           }
           defaultOpen={savedCollapsibleOpen ?? defaultOpen}
           open={open ?? savedCollapsibleOpen}
