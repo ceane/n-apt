@@ -2943,9 +2943,6 @@ export function buildFastWaterfallCanvas(
     height,
     canvases,
     pool,
-    // Colourising the texture in JS costs bins × rows per frame; while
-    // recording, blit the waterfall the GPU has already drawn instead.
-    scratch != null,
   );
 
   const composed = composeFrequencyAxis(
@@ -3022,7 +3019,6 @@ function renderFastWaterfallBase(
     | null
     | undefined,
   pool: ScratchCanvasPool | null,
-  preferLiveCanvas: boolean,
 ): HTMLCanvasElement | null {
   const liveGpu = canvases?.waterfallGpu;
   const hasCapturedTexture =
@@ -3030,9 +3026,9 @@ function renderFastWaterfallBase(
     (snapshotData.waterfallTextureSnapshot != null ||
       snapshotData.waterfallBuffer != null);
 
-  if (liveGpu && (preferLiveCanvas || !hasCapturedTexture)) {
-    // WebGPU canvases can read back blank after presenting, so the renderer
-    // keeps the last presented frame alongside them.
+  if (liveGpu && !hasCapturedTexture) {
+    // Prefer a retained frame if the canvas provider supplies one. Direct
+    // WebGPU readback is only a fallback when no retained history is available.
     const srcGpu =
       (liveGpu as HTMLCanvasElement & { _lastFrameCanvas?: HTMLCanvasElement })
         ._lastFrameCanvas ?? liveGpu;
@@ -3332,9 +3328,9 @@ export type FastRecordingSession = {
 };
 
 /**
- * Recording only ever needs the waveform; the waterfall comes from the live GPU
- * canvas. Skipping the copies avoids several megabytes of allocation per frame,
- * and the returned buffers are consumed before this tick yields.
+ * Spectrum recording only needs the waveform. Waterfall recording also needs
+ * retained history: a WebGPU canvas may be discarded after presentation.
+ * Waveforms are consumed before this tick yields, so they need no copy.
  */
 const RECORDING_SNAPSHOT_DATA_OPTIONS = {
   includeWaterfall: false,
@@ -3780,10 +3776,20 @@ export function useSnapshot(
           const frameSegments = wholeChannelSegments?.length
             ? wholeChannelSegments
             : options.wholeChannelSegments;
+          const liveVideoSourceCanvases =
+            !options.whole
+              ? (options.getVideoSourceCanvases?.() ?? null)
+              : null;
+          const liveWaterfallCanvases = liveVideoSourceCanvases
+            ? {
+                waterfallGpu: liveVideoSourceCanvases.waterfall ?? null,
+                waterfallOverlay: null,
+              }
+            : null;
           const liveSpectrumSourceCanvases =
             !options.whole &&
             (!options.aspectRatio || options.aspectRatio === "default")
-              ? (options.getVideoSourceCanvases?.() ?? null)
+              ? liveVideoSourceCanvases
               : null;
           const liveSpectrumCanvas =
             liveSpectrumSourceCanvases?.spectrum ?? null;
@@ -3947,7 +3953,13 @@ export function useSnapshot(
             if (currentWholeWaterfallCanvas) {
               waterfallCanvas = currentWholeWaterfallCanvas;
             } else {
-              waterfallCanvas = renderWaterfallSnapshotCanvas(
+              waterfallCanvas = renderFastWaterfallBase(
+                currentData,
+                targetFrameW,
+                targetWaterfallH,
+                liveWaterfallCanvases,
+                recordingPool,
+              ) ?? renderWaterfallSnapshotCanvas(
                 currentData,
                 targetFrameW,
                 targetWaterfallH,
@@ -4796,7 +4808,11 @@ export function useSnapshot(
       const mimeType = getFastRecordingMimeType(supportedFastRecordingFormat);
       if (!mimeType) return;
 
-      const snapshotData = getSnapshotData(RECORDING_SNAPSHOT_DATA_OPTIONS);
+      const recordingDataOptions = {
+        ...RECORDING_SNAPSHOT_DATA_OPTIONS,
+        includeWaterfall: target === "waterfall",
+      };
+      const snapshotData = getSnapshotData(recordingDataOptions);
       if (!snapshotData) return;
       const pinnedOptions = pinFastRecordingOptions(options ?? {});
 
@@ -4935,7 +4951,7 @@ export function useSnapshot(
         }
 
         const currentSnapshotData = profiler.time("snapshot", () =>
-          getSnapshotData(RECORDING_SNAPSHOT_DATA_OPTIONS),
+          getSnapshotData(recordingDataOptions),
         );
         const currentCanvases = getCanvases();
         if (currentSnapshotData) {

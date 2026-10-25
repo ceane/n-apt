@@ -521,11 +521,12 @@ describe("fast snapshot canvases", () => {
     ).toBe(true);
   });
 
-  it("blits the live waterfall instead of recoloring the texture while recording", () => {
+  it("renders retained waterfall history when the presented GPU canvas is discarded while recording", () => {
     const waterfallGpu = document.createElement("canvas");
     waterfallGpu.width = 320;
     waterfallGpu.height = 180;
     const scratch = createFastFrameScratch();
+    // A presented WebGPU canvas can be empty even though its dimensions remain valid.
 
     global.clearCanvasCalls?.();
     buildFastWaterfallCanvas(
@@ -558,7 +559,7 @@ describe("fast snapshot canvases", () => {
       (global as any).__CANVAS_CALLS__.some(
         (call: any) => call.name === "putImageData",
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("reuses scratch canvases across recorded frames", () => {
