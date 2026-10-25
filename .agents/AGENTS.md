@@ -14,13 +14,18 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 - The user normally has the dev server running. Do not start or restart it for
   ordinary changes; Vite and Rust hot reload are enabled.
 - Keep changes scoped, avoid scratch files, and keep the workspace clean.
+- Add regression tests for bugs and run `npm run typecheck` after TypeScript
+  changes. Run `cargo check` after Rust changes.
+  - When code passess tests or a stopping point is reached, create detailed commits, use git hunks to make contained edits; when progressing a feature or edits commit messages should follow a prefix of WIP → Draft → v1
 - Keep changes as device/source agnostic as possible.
 - Do not add unrequested design changes or features.
+- Do not preserve backwards compatibility, except with the I/Q file reader.
 - Ensure to update checklists, tasks, etc., as you complete tasks.
 - Do not run `npm run build`; run `npm run build:article` only for markdown
   article changes.
-- Do not use browser automation for testing. If frontend testing is necessary,
+- Using browser automation for testing is strongly discouraged (looking at you Gemini) due to how tedious and slow it may become, as well as leaving behind artifacts in the cache, instead you should ask the user to take a look. Headless testing is preferred.
   use `http://localhost:5173`; `127.0.0.1` is blocked.
+- Be mindful of the Vite and Rust's Content Security Policy (CSP) and Connection-Allowlist when setting up new endpoints
 - Never pass passwords, tokens, or other secrets as shell or CLI arguments,
   including to `npm`, `npx`, or browser automation tools; launchers and wrappers
   can echo arguments into notices or logs. For local browser login, use a
@@ -29,13 +34,9 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
   source and never logs or serializes it. Keep secrets out of tool call text,
   process arguments, command output, screenshots, and saved browser state unless
   persistence was explicitly requested.
-- Do not preserve backwards compatibility.
 - Prefer inspecting code and focused tests over repeating broad verification.
-- Use the Act MCP tool for repository searches, except when it is sensitve to use such as during a security review.
-- Add regression tests for bugs and run `npm run typecheck` after TypeScript
-  changes. Run `cargo check` after Rust changes.
+- It is recommended to use the Act MCP tool for repository searches, except when it is sensitve to use such as during a security review.
 - This project and the author uses American English, not British English. color not colour. Other nuances breaking with camelCase and align with the industry case, such as ML and not Ml.
-- When code passess tests or a stopping point is reached, create detailed commits, use git hunks to make contained edits; when progressing a feature or edits commit messages should follow a prefix of WIP → Draft → v1
 
 ## Real-Time Device I/O
 

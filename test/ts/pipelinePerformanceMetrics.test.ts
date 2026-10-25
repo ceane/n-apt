@@ -33,6 +33,20 @@ describe("browser pipeline performance metrics", () => {
     });
   });
 
+  it("reports p99 using the nearest-rank percentile from retained samples", () => {
+    const metrics = PipelinePerformance.createPipelinePerformanceMetrics(true, 100);
+    for (let duration = 1; duration <= 100; duration += 1) {
+      metrics.recordTiming("workerCompute", duration);
+    }
+
+    expect(metrics.snapshot().timings.workerCompute).toMatchObject({
+      samples: 100,
+      p95Ms: 95,
+      p99Ms: 99,
+      maxMs: 100,
+    });
+  });
+
   it("labels render-loop cadence as a pre-paint proxy", () => {
     const metrics = PipelinePerformance.createPipelinePerformanceMetrics(true);
     metrics.renderLoopCallback(10, 16);
