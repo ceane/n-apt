@@ -512,7 +512,11 @@ export function useOverlayRenderer() {
             ctx as CanvasRenderingContext2D,
             width,
             height,
-            statusRowOptions,
+            {
+              ...statusRowOptions,
+              visibleBandwidthHz:
+                _zoom > 1 + 1e-6 ? maxFreq - minFreq : undefined,
+            },
           );
         }
       }
