@@ -64,6 +64,7 @@ import {
 import { useTheme } from "styled-components";
 import type { AppStyledTheme } from "@n-apt/ui/Theme";
 import { formatSnapshotLocationLine } from "@n-apt/capture/snapshotLocation";
+import type { SnapshotMetadata } from "@n-apt/types/captureMetadata";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ export type SnapshotOptions = {
   activeSignalArea?: string;
   activeSignalAreaBounds?: { min: number; max: number } | null;
   sourceName?: string;
+  metadata?: SnapshotMetadata;
   gain?: number;
   ppm?: number;
   sdrSettingsLabel?: string;
@@ -740,43 +742,31 @@ function drawTwoChannelSnapshotBoundaries(
   ctx.restore();
 }
 
-export function buildSnapshotStatsLines({
-  range,
-  timestampLabel,
-  deviceName,
-  channelName,
-  fftSize,
-  fftWindow,
-  gain,
-  ppm,
-  gainLabel,
-  modeLabel,
-  activeSignalAreaBounds,
-  signalAreaBounds,
-  hardwareSampleRateHz,
-  showGeolocation,
-  geolocation,
-  locationLabel,
-  whole,
-}: {
-  range: Range;
-  timestampLabel: string;
-  deviceName?: string;
-  channelName?: string;
-  fftSize?: number | string;
-  fftWindow?: string;
-  gain?: number;
-  ppm?: number;
-  gainLabel?: string;
-  modeLabel?: string;
-  activeSignalAreaBounds?: { min: number; max: number } | null;
-  signalAreaBounds?: SignalAreaBounds | null;
-  hardwareSampleRateHz?: number;
-  showGeolocation?: boolean;
-  geolocation?: { lat: string; lon: string } | null;
-  locationLabel?: string | null;
-  whole?: boolean;
-}): string[] {
+export function buildSnapshotStatsLines(metadata: SnapshotMetadata): string[] {
+  const [rangeMin = 0, rangeMax = 1] = metadata.frequency_range ?? [];
+  const range = { min: rangeMin, max: rangeMax };
+  const deviceName = metadata.source_device;
+  const channelName = metadata.channel_name;
+  const fftSize = metadata.fft_size;
+  const fftWindow = metadata.fft_window;
+  const gain = metadata.gain;
+  const ppm = metadata.ppm;
+  const gainLabel = metadata.gain_label;
+  const modeLabel = metadata.mode_label;
+  const activeSignalAreaBounds = metadata.active_signal_area_bounds;
+  const signalAreaBounds = metadata.signal_area_bounds as SignalAreaBounds | null | undefined;
+  const hardwareSampleRateHz = metadata.hardware_sample_rate_hz;
+  const showGeolocation = metadata.show_geolocation;
+  const locationLabel = metadata.location_label;
+  const latitude = metadata.geolocation?.latitude;
+  const longitude = metadata.geolocation?.longitude;
+  const geolocation =
+    Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? { lat: latitude!.toFixed(6), lon: longitude!.toFixed(6) }
+      : null;
+  const whole = metadata.whole;
+  const timestampLabel =
+    metadata.timestamp_label ?? metadata.timestamp_utc ?? fmtTimestamp();
   const renderedSpanHz = range.max - range.min;
   const activeChannelSpanHz =
     Number.isFinite(activeSignalAreaBounds?.max ?? Number.NaN) &&
@@ -808,6 +798,7 @@ export function buildSnapshotStatsLines({
         range.min);
 
   const channelLabel =
+    metadata.channel_label ??
     formatVisibleChannels(range, signalAreaBounds) ??
     (channelName && activeChannelVisible
       ? isWholeChannel
@@ -830,10 +821,12 @@ export function buildSnapshotStatsLines({
       precisionKHz: 2,
       trimTrailingZeros: true,
     });
+  const serialNumber = metadata.device_profile?.serial_number?.trim();
   const lines = [
     `${formatSnapshotRangeFrequency(range.min)} – ${formatSnapshotRangeFrequency(range.max)}`,
     timestampLabel,
     `Device Name: ${deviceName || "Unknown"}`,
+    ...(serialNumber ? [`Device Serial Number: ${serialNumber}`] : []),
     channelLabel,
     `FFT size (# of points): ${fftSize ?? "?"}${fftWindowLabel}`,
     gainLabel ?? derivedGainLabel ?? "Gain: Auto | PPM: 0",
@@ -2372,15 +2365,22 @@ export function renderStatsRowCanvas(
     /^(?:Location:\s*)?[-+]?\d+(?:\.\d+)?,\s*[-+]?\d+(?:\.\d+)?(?:\s+–\s+.*)?$/.test(
       lastLine,
     );
-  const columnLines = hasFullWidthLocation
-    ? statsLines.slice(0, -1)
+  const serialLine = statsLines.find((line) =>
+    line.startsWith("Device Serial Number:"),
+  );
+  const linesWithoutSerial = serialLine
+    ? statsLines.filter((line) => line !== serialLine)
     : statsLines;
+  const columnLines = hasFullWidthLocation
+    ? linesWithoutSerial.slice(0, -1)
+    : linesWithoutSerial;
   const locationLine = hasFullWidthLocation ? lastLine : null;
   const splitIndex = Math.ceil(columnLines.length / 2);
   const leftLines = columnLines.slice(0, splitIndex);
   const rightLines = columnLines.slice(splitIndex);
   const columnRowCount = Math.max(leftLines.length, rightLines.length);
-  const rowCount = columnRowCount + (locationLine ? 1 : 0);
+  const rowCount =
+    columnRowCount + (serialLine ? 1 : 0) + (locationLine ? 1 : 0);
   const locationTopGap = locationLine ? 6 : 0;
   const dividerH = 1;
   const boxH = rowCount * lh + padY * 2 + dividerH + locationTopGap;
@@ -2428,8 +2428,14 @@ export function renderStatsRowCanvas(
     if (rightLines[i]) drawLine(rightLines[i], rightColumnX, y);
   }
 
+  if (serialLine) {
+    const y = padY + (columnRowCount + 0.8) * lh;
+    drawLine(serialLine, leftColumnX, y);
+  }
+
   if (locationLine) {
-    const y = padY + (columnRowCount + 0.8) * lh + locationTopGap;
+    const serialRow = serialLine ? 1 : 0;
+    const y = padY + (columnRowCount + serialRow + 0.8) * lh + locationTopGap;
     drawLine(locationLine, leftColumnX, y);
   }
 
@@ -2533,6 +2539,7 @@ export function buildFastSpectrumCanvas(
     signalAreaBounds?: Record<string, { min: number; max: number }> | null;
     activeSignalAreaBounds?: { min: number; max: number } | null;
     sourceName?: string;
+    metadata?: SnapshotMetadata;
     sdrSettingsLabel?: string;
     gain?: number;
     ppm?: number;
@@ -2564,27 +2571,33 @@ export function buildFastSpectrumCanvas(
 
   const statsLines = options?.showStats
     ? buildSnapshotStatsLines({
-        range: visualRange,
-        timestampLabel: fmtTimestamp(),
-        deviceName:
-          options?.sourceName ||
+        ...options?.metadata,
+        frequency_range: [visualRange.min, visualRange.max],
+        timestamp_label: fmtTimestamp(),
+        source_device:
+          options?.metadata?.source_device || options?.sourceName ||
           (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
-        channelName: options?.activeSignalArea,
-        activeSignalAreaBounds: options?.activeSignalAreaBounds,
-        signalAreaBounds: options?.signalAreaBounds,
+        channel_name: options?.activeSignalArea,
+        active_signal_area_bounds: options?.activeSignalAreaBounds,
+        signal_area_bounds: options?.signalAreaBounds,
         whole: false,
-        hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
-        fftSize:
+        hardware_sample_rate_hz: snapshotData.hardwareSampleRateHz,
+        fft_size:
           options?.fftSize !== undefined
             ? options.fftSize
             : snapshotData.fftSize,
-        fftWindow: snapshotData.fftWindow,
+        fft_window: snapshotData.fftWindow,
         gain: options?.gain,
         ppm: options?.ppm,
-        gainLabel: options?.sdrSettingsLabel,
-        showGeolocation: options?.showGeolocation ?? false,
-        geolocation: options?.geolocation,
-        locationLabel: options?.locationLabel,
+        gain_label: options?.sdrSettingsLabel,
+        show_geolocation: options?.showGeolocation ?? false,
+        geolocation: options?.geolocation
+          ? {
+              latitude: Number(options.geolocation.lat),
+              longitude: Number(options.geolocation.lon),
+            }
+          : undefined,
+        location_label: options?.locationLabel,
       })
     : [];
 
@@ -2884,6 +2897,7 @@ export function buildFastWaterfallCanvas(
     signalAreaBounds?: Record<string, { min: number; max: number }> | null;
     activeSignalAreaBounds?: { min: number; max: number } | null;
     sourceName?: string;
+    metadata?: SnapshotMetadata;
     sdrSettingsLabel?: string;
     gain?: number;
     ppm?: number;
@@ -2914,27 +2928,36 @@ export function buildFastWaterfallCanvas(
   const statsLines =
     options?.showStats && snapshotData
       ? buildSnapshotStatsLines({
-          range: effectiveRange ?? { min: 0, max: 1 },
-          timestampLabel: fmtTimestamp(),
-          deviceName:
-            options?.sourceName ||
+          ...options?.metadata,
+          frequency_range: [
+            (effectiveRange ?? { min: 0, max: 1 }).min,
+            (effectiveRange ?? { min: 0, max: 1 }).max,
+          ],
+          timestamp_label: fmtTimestamp(),
+          source_device:
+            options?.metadata?.source_device || options?.sourceName ||
             (snapshotData.isDeviceConnected ? "SDR" : "Offline"),
-          channelName: options?.activeSignalArea,
-          activeSignalAreaBounds: options?.activeSignalAreaBounds,
-          signalAreaBounds: options?.signalAreaBounds,
+          channel_name: options?.activeSignalArea,
+          active_signal_area_bounds: options?.activeSignalAreaBounds,
+          signal_area_bounds: options?.signalAreaBounds,
           whole: false,
-          hardwareSampleRateHz: snapshotData.hardwareSampleRateHz,
-          fftSize:
+          hardware_sample_rate_hz: snapshotData.hardwareSampleRateHz,
+          fft_size:
             options?.fftSize !== undefined
               ? options.fftSize
               : snapshotData.fftSize,
-          fftWindow: snapshotData.fftWindow,
+          fft_window: snapshotData.fftWindow,
           gain: options?.gain,
           ppm: options?.ppm,
-          gainLabel: options?.sdrSettingsLabel,
-          showGeolocation: options?.showGeolocation ?? false,
-          geolocation: options?.geolocation,
-          locationLabel: options?.locationLabel,
+          gain_label: options?.sdrSettingsLabel,
+          show_geolocation: options?.showGeolocation ?? false,
+          geolocation: options?.geolocation
+            ? {
+                latitude: Number(options.geolocation.lat),
+                longitude: Number(options.geolocation.lon),
+              }
+            : undefined,
+          location_label: options?.locationLabel,
         })
       : [];
   const sourceCanvas = renderFastWaterfallBase(
@@ -3258,6 +3281,7 @@ type FastRecordingOptions = {
   getActiveSignalArea?: () => string;
   getActiveSignalAreaBounds?: () => { min: number; max: number } | null;
   sourceName?: string;
+  metadata?: SnapshotMetadata;
   sdrSettingsLabel?: string;
   gain?: number;
   ppm?: number;
@@ -3410,6 +3434,7 @@ export function useSnapshot(
         signalAreaBounds?: Record<string, { min: number; max: number }> | null;
         activeSignalAreaBounds?: { min: number; max: number } | null;
         sourceName?: string;
+        metadata?: SnapshotMetadata;
         sdrSettingsLabel?: string;
         gain?: number;
         ppm?: number;
@@ -3628,23 +3653,30 @@ export function useSnapshot(
           : fmtTimestamp();
         const statsLines = options.showStats
           ? buildSnapshotStatsLines({
-              range: rangeToRender,
-              timestampLabel,
-              deviceName: options.sourceName,
-              channelName: options.activeSignalArea,
-              activeSignalAreaBounds: options.activeSignalAreaBounds,
-              signalAreaBounds: options.signalAreaBounds,
+              ...options.metadata,
+              frequency_range: [rangeToRender.min, rangeToRender.max],
+              timestamp_label: timestampLabel,
+              source_device:
+                options.metadata?.source_device || options.sourceName,
+              channel_name: options.activeSignalArea,
+              active_signal_area_bounds: options.activeSignalAreaBounds,
+              signal_area_bounds: options.signalAreaBounds,
               whole: options.whole,
-              hardwareSampleRateHz: data.hardwareSampleRateHz,
-              fftSize: data.fftSize,
-              fftWindow: data.fftWindow,
+              hardware_sample_rate_hz: data.hardwareSampleRateHz,
+              fft_size: data.fftSize,
+              fft_window: data.fftWindow,
               gain: options.gain,
               ppm: options.ppm,
-              gainLabel: options.sdrSettingsLabel,
-              modeLabel: options.modeLabel,
-              showGeolocation: options.showGeolocation ?? false,
-              geolocation: options.geolocation,
-              locationLabel: options.locationLabel,
+              gain_label: options.sdrSettingsLabel,
+              mode_label: options.modeLabel,
+              show_geolocation: options.showGeolocation ?? false,
+              geolocation: options.geolocation
+                ? {
+                    latitude: Number(options.geolocation.lat),
+                    longitude: Number(options.geolocation.lon),
+                  }
+                : undefined,
+              location_label: options.locationLabel,
             })
           : [];
 
@@ -3726,22 +3758,24 @@ export function useSnapshot(
             : fmtTimestamp();
           const currentStatsLines = options.showStats
             ? buildSnapshotStatsLines({
-                range: currentRange,
-                timestampLabel: currentTimestampLabel,
-                deviceName: options.sourceName,
-                channelName: options.activeSignalArea,
-                activeSignalAreaBounds: options.activeSignalAreaBounds,
-                signalAreaBounds: options.signalAreaBounds,
+                ...options.metadata,
+                frequency_range: [currentRange.min, currentRange.max],
+                timestamp_label: currentTimestampLabel,
+                source_device:
+                  options.metadata?.source_device || options.sourceName,
+                channel_name: options.activeSignalArea,
+                active_signal_area_bounds: options.activeSignalAreaBounds,
+                signal_area_bounds: options.signalAreaBounds,
                 whole: options.whole,
-                hardwareSampleRateHz: currentData.hardwareSampleRateHz,
-                fftSize: currentData.fftSize,
-                fftWindow: currentData.fftWindow,
+                hardware_sample_rate_hz: currentData.hardwareSampleRateHz,
+                fft_size: currentData.fftSize,
+                fft_window: currentData.fftWindow,
                 gain: options.gain,
                 ppm: options.ppm,
-                gainLabel: options.sdrSettingsLabel,
-                modeLabel: options.modeLabel,
-                showGeolocation: false,
-                locationLabel: options.locationLabel,
+                gain_label: options.sdrSettingsLabel,
+                mode_label: options.modeLabel,
+                show_geolocation: false,
+                location_label: options.locationLabel,
               })
             : [];
 
@@ -5109,6 +5143,7 @@ export function useSnapshot(
         signalAreaBounds?: Record<string, { min: number; max: number }> | null;
         activeSignalAreaBounds?: { min: number; max: number } | null;
         sourceName?: string;
+        metadata?: SnapshotMetadata;
         sdrSettingsLabel?: string;
         gain?: number;
         ppm?: number;

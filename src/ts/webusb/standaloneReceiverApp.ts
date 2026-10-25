@@ -55,6 +55,7 @@ import {
 } from "./iqCapture";
 import { reverseGeocodeSnapshotLocation } from "@n-apt/capture/snapshotLocation";
 import signalsYaml from "../../../signals.yaml?raw";
+import type { CaptureMetadata } from "@n-apt/types/captureMetadata";
 
 const MOBILE_FIRST_VISIT_NOTICE_KEY =
   "n-apt.webusb-probe.mobile-notice-seen";
@@ -515,7 +516,7 @@ function getIqCaptureFilename(format: IqCaptureFormat): string {
 
 function getIqCaptureMetadata(
   connection: NonNullable<ReturnType<RtlSdrWebUsbSession["getConnection"]>>,
-): Record<string, unknown> {
+): CaptureMetadata {
   return {
     center_frequency_hz: connection.centerFrequencyHz,
     capture_sample_rate_hz: connection.sampleRateHz,

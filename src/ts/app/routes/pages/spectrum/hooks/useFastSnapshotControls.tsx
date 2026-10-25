@@ -35,6 +35,7 @@ export interface UseFastSnapshotControlsOptions {
   deviceProfileKind?: string | null;
   selectedSourceDeviceProfileKind?: string | null;
   selectedSourceDeviceName?: string | null;
+  deviceSerialNumber?: string | null;
   deviceName?: string | null;
   isConnected: boolean;
   activeSignalArea: string;
@@ -72,6 +73,7 @@ export const useFastSnapshotControls = (
     deviceProfileKind,
     selectedSourceDeviceProfileKind,
     selectedSourceDeviceName,
+    deviceSerialNumber,
     deviceName,
     isConnected,
     activeSignalArea,
@@ -236,6 +238,12 @@ export const useFastSnapshotControls = (
         activeSignalArea,
         activeSignalAreaBounds,
         sourceName,
+        metadata: {
+          source_device: sourceName,
+          device_profile: {
+            serial_number: deviceSerialNumber?.trim() || null,
+          },
+        },
         sdrSettingsLabel,
         gain: gain ?? undefined,
         ppm: ppm ?? undefined,
