@@ -1046,7 +1046,73 @@ describe("buildSnapshotStatsLines", () => {
   });
 });
 
+describe("snapshot device serial labels", () => {
+  it.each([
+    ["Mock APT SDR", undefined, false],
+    ["Test receiver", "mock_apt", false],
+    ["Test transmitter", "mock_tx", false],
+    ["RTL-SDR Blog V4", "rtlsdr", true],
+  ])("handles serial visibility for %s", (name, kind, visible) => {
+    const lines = buildSnapshotStatsLines({
+      source_device: name,
+      device_profile: { serial_number: "00000001", kind },
+    });
+    expect(lines.includes("Device Serial Number: 00000001")).toBe(visible);
+  });
+});
+
 describe("renderStatsRowCanvas", () => {
+  it("wraps colliding metadata and long serial numbers within the canvas", () => {
+    clearCanvasCalls();
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, "getContext");
+    contextSpy.mockImplementation(function (this: HTMLCanvasElement, ...args: any[]) {
+      const ctx = getContext.apply(this, args as any) as unknown as CanvasRenderingContext2D;
+      if (args[0] === "2d") {
+        ctx.measureText = jest.fn((text: string) => ({ width: text.length * 10 }) as TextMetrics);
+      }
+      return ctx;
+    } as any);
+    const canvas = renderStatsRowCanvas(
+      [
+        "352.91kHz – 356.23kHz",
+        "2026-10-25 10:39:46 America/Los_Angeles",
+        "Device Name: Mock APT SDR",
+        "Channel A, partial",
+        "FFT size (# of points): 32768",
+        "Gain: 46.9dB | PPM: 1",
+        `Device Serial Number: ${"A".repeat(120)}`,
+      ],
+      900,
+      { bg: "#fff", grid: "#ccc", text: "#333" } as any,
+    )!;
+    contextSpy.mockRestore();
+    const ctx = canvas.getContext("2d")!;
+    const calls = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "fillText" && call.args[0] !== "-",
+    );
+    for (const { args: [text, x, y] } of calls) {
+      expect(x + ctx.measureText(text).width).toBeLessThanOrEqual(860);
+      expect(y).toBeLessThan(canvas.height);
+    }
+    const timestamp = calls.find((call: any) => call.args[0].startsWith("2026-10-25"));
+    const timezone = calls.find((call: any) => call.args[0] === "America/Los_Angeles");
+    const fft = calls.find((call: any) => call.args[0].startsWith("FFT size"));
+    expect(timezone).toBeDefined();
+    expect(fft.args[1]).toBeGreaterThan(timestamp.args[1]);
+    expect(fft.args[2]).toBe(timestamp.args[2]);
+    expect(timezone.args[1]).toBe(timestamp.args[1]);
+    expect(timezone.args[2]).toBeGreaterThan(timestamp.args[2]);
+    const markers = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "fillText" && call.args[0] === "-",
+    );
+    // One marker per metadata item, never on its continuation lines.
+    expect(markers).toHaveLength(7);
+
+    expect(new Set(calls.map((call: any) => call.args[2])).size).toBeGreaterThan(4);
+    expect(calls.map((call: any) => call.args[0]).join(" ")).toContain("America/Los_Angeles");
+  });
+
   it("leaves six pixels of vertical breathing room between metadata rows", () => {
     clearCanvasCalls();
     renderStatsRowCanvas(

@@ -241,6 +241,11 @@ export const useFastSnapshotControls = (
         metadata: {
           source_device: sourceName,
           device_profile: {
+            kind:
+              selectedSourceDeviceProfileKind ??
+              deviceProfileKind ??
+              deviceKind ??
+              undefined,
             serial_number: deviceSerialNumber?.trim() || null,
           },
         },

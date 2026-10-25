@@ -821,7 +821,12 @@ export function buildSnapshotStatsLines(metadata: SnapshotMetadata): string[] {
       precisionKHz: 2,
       trimTrailingZeros: true,
     });
-  const serialNumber = metadata.device_profile?.serial_number?.trim();
+  const isMockDevice =
+    metadata.device_profile?.kind?.toLowerCase().includes("mock") === true ||
+    /\bmock\b/i.test(deviceName ?? "");
+  const serialNumber = isMockDevice
+    ? undefined
+    : metadata.device_profile?.serial_number?.trim();
   const lines = [
     `${formatSnapshotRangeFrequency(range.min)} – ${formatSnapshotRangeFrequency(range.max)}`,
     timestampLabel,
@@ -2355,7 +2360,6 @@ export function renderStatsRowCanvas(
 
   const plotLeft = 52;
   const plotRight = 40;
-  const _padX = 12;
   const padY = 12;
   const fontBoost = aspectRatio && aspectRatio !== "default" ? 5 : 0;
   const baseFontSize = 17 + fontBoost;
@@ -2378,16 +2382,65 @@ export function renderStatsRowCanvas(
   const splitIndex = Math.ceil(columnLines.length / 2);
   const leftLines = columnLines.slice(0, splitIndex);
   const rightLines = columnLines.slice(splitIndex);
-  const columnRowCount = Math.max(leftLines.length, rightLines.length);
-  const rowCount =
-    columnRowCount + (serialLine ? 1 : 0) + (locationLine ? 1 : 0);
-  const locationTopGap = locationLine ? 6 : 0;
-  const dividerH = 1;
-  const boxH = rowCount * lh + padY * 2 + dividerH + locationTopGap;
-
-  const canvas = acquireCanvas(pool, "statsRow", width, boxH);
+  const canvas = acquireCanvas(pool, "statsRow", width, 1);
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
+  const font = `${baseFontSize}px "JetBrains Mono", monospace`;
+  ctx.font = font;
+  const markerWidth = ctx.measureText("-").width + 4;
+  const availableWidth = Math.max(1, width - plotLeft - plotRight);
+  const centerGap = Math.max(32, Math.round(availableWidth * 0.08));
+  const columnWidth = Math.max(1, (availableWidth - centerGap) / 2);
+  const rightColumnX = plotLeft + columnWidth + centerGap;
+  const rows: { left: string; right?: string; gap?: number; continuation?: boolean }[] = [];
+
+  // Each column wraps independently; long tokens such as serials can split.
+  const wrapLine = (line: string, width: number): string[] => {
+    const textWidth = Math.max(1, width - markerWidth);
+    const lines: string[] = [];
+    let remaining = line;
+    while (remaining.length) {
+      let count = remaining.length;
+      if (ctx.measureText(remaining).width > textWidth) {
+        let low = 1;
+        let high = remaining.length;
+        while (low < high) {
+          const mid = Math.ceil((low + high) / 2);
+          if (ctx.measureText(remaining.slice(0, mid)).width <= textWidth) low = mid;
+          else high = mid - 1;
+        }
+        count = low;
+        const space = remaining.lastIndexOf(" ", count);
+        if (space > 0) count = space;
+      }
+      lines.push(remaining.slice(0, count));
+      remaining = remaining.slice(count).trimStart();
+    }
+    return lines;
+  };
+
+  for (let i = 0; i < Math.max(leftLines.length, rightLines.length); i++) {
+    const left = wrapLine(leftLines[i] ?? "", columnWidth);
+    const right = wrapLine(rightLines[i] ?? "", columnWidth);
+    for (let j = 0; j < Math.max(left.length, right.length); j++) {
+      rows.push({ left: left[j] ?? "", right: right[j], continuation: j > 0 });
+    }
+  }
+  if (serialLine) {
+    wrapLine(serialLine, availableWidth).forEach((left, i) => {
+      rows.push({ left, continuation: i > 0 });
+    });
+  }
+  if (locationLine) {
+    wrapLine(locationLine, availableWidth).forEach((left, i) => {
+      rows.push({ left, gap: i === 0 ? 6 : 0, continuation: i > 0 });
+    });
+  }
+  const dividerH = 1;
+  const boxH = rows.length * lh + padY * 2 + dividerH +
+    rows.reduce((total, row) => total + (row.gap ?? 0), 0);
+  // Resizing clears context state; set the font again before drawing.
+  canvas.height = boxH;
 
   const divider = theme.grid;
   const textColor = theme.text;
@@ -2409,34 +2462,22 @@ export function renderStatsRowCanvas(
   ctx.textBaseline = "alphabetic";
   ctx.font = `${baseFontSize}px "JetBrains Mono", monospace`;
 
-  const drawLine = (line: string, x: number, y: number) => {
-    ctx.fillStyle = markerMutedColor;
-    ctx.fillText("-", x, y);
+  const drawLine = (line: string, x: number, y: number, continuation = false) => {
+    if (!continuation) {
+      ctx.fillStyle = markerMutedColor;
+      ctx.fillText("-", x, y);
+    }
     const pointWidth = ctx.measureText("-").width;
     ctx.fillStyle = markerColor;
     ctx.fillText(line, x + pointWidth + 4, y);
   };
 
-  const availableWidth = Math.max(1, width - plotLeft - plotRight);
-  const centerGap = Math.max(32, Math.round(availableWidth * 0.08));
-  const leftColumnX = plotLeft;
-  const rightColumnX = plotLeft + Math.round((availableWidth - centerGap) / 2);
-
-  for (let i = 0; i < columnRowCount; i++) {
-    const y = padY + (i + 0.8) * lh;
-    if (leftLines[i]) drawLine(leftLines[i], leftColumnX, y);
-    if (rightLines[i]) drawLine(rightLines[i], rightColumnX, y);
-  }
-
-  if (serialLine) {
-    const y = padY + (columnRowCount + 0.8) * lh;
-    drawLine(serialLine, leftColumnX, y);
-  }
-
-  if (locationLine) {
-    const serialRow = serialLine ? 1 : 0;
-    const y = padY + (columnRowCount + serialRow + 0.8) * lh + locationTopGap;
-    drawLine(locationLine, leftColumnX, y);
+  let y = padY + 0.8 * lh;
+  for (const row of rows) {
+    y += row.gap ?? 0;
+    if (row.left) drawLine(row.left, plotLeft, y, row.continuation);
+    if (row.right) drawLine(row.right, rightColumnX, y, row.continuation);
+    y += lh;
   }
 
   return canvas;

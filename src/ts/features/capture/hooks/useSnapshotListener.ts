@@ -199,7 +199,10 @@ export const useSnapshotListener = ({
         sourceName: deviceName || backend || deviceInfo || undefined,
         metadata: {
           source_device: deviceName || backend || deviceInfo || "Unknown",
-          device_profile: { serial_number: deviceSerialNumber?.trim() || null },
+          device_profile: {
+            kind: deviceProfile?.kind,
+            serial_number: deviceSerialNumber?.trim() || null,
+          },
         },
         sdrSettingsLabel,
         ppm: ppm ?? options.ppm ?? undefined,
