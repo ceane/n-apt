@@ -1,3 +1,6 @@
+import type { CaptureMetadata } from "@n-apt/types/captureMetadata";
+export type { CaptureMetadata } from "@n-apt/types/captureMetadata";
+
 export interface IqCaptureChunk {
   /** Complex-sample offset within this channel (one I byte and one Q byte per sample). */
   sample_offset: number;
@@ -87,8 +90,6 @@ export interface NaptCaptureChannel {
   /** Byte length of this channel's contiguous IQ region in the NAPT payload. */
   iq_length?: number;
 }
-
-export type CaptureMetadata = Record<string, unknown>;
 
 const IQ_MAGIC = new TextEncoder().encode("NAPT-IQ3");
 const IQ_HEADER_SIZE = 40;

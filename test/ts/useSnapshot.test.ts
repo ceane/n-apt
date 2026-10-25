@@ -822,13 +822,13 @@ describe("useSnapshot", () => {
 describe("buildSnapshotStatsLines", () => {
   it("orders stats lines and truncates frequencies", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
-      deviceName: "Mock APT SDR",
-      channelName: "A",
+      frequency_range: [4_380_001, 4_389_999 ],
+      timestamp_label: "2026-05-18 09:05:26 (America/Los_Angeles)",
+      source_device: "Mock APT SDR",
+      channel_name: "A",
       whole: false,
-      fftSize: 2048,
-      fftWindow: "Rectangular",
+      fft_size: 2048,
+      fft_window: "Rectangular",
       gain: 49.6,
       ppm: 1,
     });
@@ -845,13 +845,13 @@ describe("buildSnapshotStatsLines", () => {
 
   it("uses trimmed MHz formatting for snapshot ranges", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 2_201_269, max: 2_206_731 },
-      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
-      deviceName: "Mock APT SDR",
-      channelName: "A",
+      frequency_range: [2_201_269, 2_206_731 ],
+      timestamp_label: "2026-05-18 09:05:26 (America/Los_Angeles)",
+      source_device: "Mock APT SDR",
+      channel_name: "A",
       whole: false,
-      fftSize: 2048,
-      fftWindow: "Rectangular",
+      fft_size: 2048,
+      fft_window: "Rectangular",
       gain: 49.6,
       ppm: 1,
     });
@@ -861,14 +861,14 @@ describe("buildSnapshotStatsLines", () => {
 
   it("uses whole-channel label when whole is true", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
-      deviceName: "Mock APT SDR",
-      channelName: "X",
+      frequency_range: [4_380_001, 4_389_999 ],
+      timestamp_label: "2026-05-18 09:05:26 (America/Los_Angeles)",
+      source_device: "Mock APT SDR",
+      channel_name: "X",
       whole: true,
-      modeLabel: "Whole Channel",
-      fftSize: 2048,
-      fftWindow: "Rectangular",
+      mode_label: "Whole Channel",
+      fft_size: 2048,
+      fft_window: "Rectangular",
       gain: 49.6,
       ppm: 1,
     });
@@ -878,14 +878,14 @@ describe("buildSnapshotStatsLines", () => {
 
   it("uses whole-channel label when modeLabel says Whole Channel", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
-      deviceName: "Mock APT SDR",
-      channelName: "X",
+      frequency_range: [4_380_001, 4_389_999 ],
+      timestamp_label: "2026-05-18 09:05:26 (America/Los_Angeles)",
+      source_device: "Mock APT SDR",
+      channel_name: "X",
       whole: false,
-      modeLabel: "Whole Channel",
-      fftSize: 2048,
-      fftWindow: "Rectangular",
+      mode_label: "Whole Channel",
+      fft_size: 2048,
+      fft_window: "Rectangular",
       gain: 49.6,
       ppm: 1,
     });
@@ -895,16 +895,16 @@ describe("buildSnapshotStatsLines", () => {
 
   it("uses whole-channel label when the rendered span covers the active channel", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 24_720_000, max: 29_880_000 },
-      timestampLabel: "2026-05-28 16:16:06 (America/Los_Angeles)",
-      deviceName: "HackRF One",
-      channelName: "B",
-      activeSignalAreaBounds: { min: 25_000_000, max: 29_800_000 },
-      hardwareSampleRateHz: 5_120_000,
+      frequency_range: [24_720_000, 29_880_000 ],
+      timestamp_label: "2026-05-28 16:16:06 (America/Los_Angeles)",
+      source_device: "HackRF One",
+      channel_name: "B",
+      active_signal_area_bounds: { min: 25_000_000, max: 29_800_000 },
+      hardware_sample_rate_hz: 5_120_000,
       whole: false,
-      fftSize: 262144,
-      fftWindow: "Rectangular",
-      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+      fft_size: 262144,
+      fft_window: "Rectangular",
+      gain_label: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
     });
 
     expect(lines[3]).toBe("Whole Channel B");
@@ -912,20 +912,20 @@ describe("buildSnapshotStatsLines", () => {
 
   it("lists each channel visible in the snapshot range", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 20_500_000, max: 30_000_000 },
-      timestampLabel: "2026-06-29 12:00:00 (America/Los_Angeles)",
-      deviceName: "HackRF One",
-      channelName: "C",
-      activeSignalAreaBounds: { min: 20_000_000, max: 25_000_000 },
-      signalAreaBounds: {
+      frequency_range: [20_500_000, 30_000_000 ],
+      timestamp_label: "2026-06-29 12:00:00 (America/Los_Angeles)",
+      source_device: "HackRF One",
+      channel_name: "C",
+      active_signal_area_bounds: { min: 20_000_000, max: 25_000_000 },
+      signal_area_bounds: {
         c: { min: 20_000_000, max: 25_000_000 },
         b: { min: 25_000_000, max: 30_000_000 },
         a: { min: 30_000_000, max: 35_000_000 },
       },
       whole: false,
-      fftSize: 262144,
-      fftWindow: "Rectangular",
-      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+      fft_size: 262144,
+      fft_window: "Rectangular",
+      gain_label: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
     });
 
     expect(lines[3]).toBe("Channels C (partial), B (whole)");
@@ -933,11 +933,11 @@ describe("buildSnapshotStatsLines", () => {
 
   it("names a single visible channel with its coverage after the name", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 24_184_300, max: 27_384_300 },
-      timestampLabel: "2026-10-08 14:20:30 (America/Los_Angeles)",
-      deviceName: "RTL-SDR v4",
-      channelName: "A",
-      signalAreaBounds: {
+      frequency_range: [24_184_300, 27_384_300 ],
+      timestamp_label: "2026-10-08 14:20:30 (America/Los_Angeles)",
+      source_device: "RTL-SDR v4",
+      channel_name: "A",
+      signal_area_bounds: {
         A: { min: 18_000, max: 4_390_000 },
         B: { min: 24_100_000, max: 30_370_000 },
         C: { min: 4_750_000, max: 23_000_000 },
@@ -949,18 +949,18 @@ describe("buildSnapshotStatsLines", () => {
 
   it("marks a straddled channel partial when only part of it is visible", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 22_000_000, max: 27_000_000 },
-      timestampLabel: "2026-06-29 12:00:00 (America/Los_Angeles)",
-      deviceName: "HackRF One",
-      channelName: "C",
-      signalAreaBounds: {
+      frequency_range: [22_000_000, 27_000_000 ],
+      timestamp_label: "2026-06-29 12:00:00 (America/Los_Angeles)",
+      source_device: "HackRF One",
+      channel_name: "C",
+      signal_area_bounds: {
         c: { min: 20_000_000, max: 25_000_000 },
         b: { min: 25_000_000, max: 30_000_000 },
       },
       whole: false,
-      fftSize: 262144,
-      fftWindow: "Rectangular",
-      gainLabel: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
+      fft_size: 262144,
+      fft_window: "Rectangular",
+      gain_label: "Gain: LNA 0dB | VGA 0dB | AMP off | PPM: 1",
     });
 
     expect(lines[3]).toBe("Channels C (partial), B (partial)");
@@ -968,16 +968,16 @@ describe("buildSnapshotStatsLines", () => {
 
   it("does not infer whole-channel just because an RTL-SDR snapshot spans the hardware sample rate", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 100_000_000, max: 103_200_000 },
-      timestampLabel: "2026-06-03 12:00:00 (America/Los_Angeles)",
-      deviceName: "RTL-SDR Blog V4",
-      channelName: "A",
-      activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
-      hardwareSampleRateHz: 3_200_000,
+      frequency_range: [100_000_000, 103_200_000 ],
+      timestamp_label: "2026-06-03 12:00:00 (America/Los_Angeles)",
+      source_device: "RTL-SDR Blog V4",
+      channel_name: "A",
+      active_signal_area_bounds: { min: 18_000, max: 4_390_000 },
+      hardware_sample_rate_hz: 3_200_000,
       whole: false,
-      modeLabel: "Onscreen",
-      fftSize: 262144,
-      fftWindow: "Rectangular",
+      mode_label: "Onscreen",
+      fft_size: 262144,
+      fft_window: "Rectangular",
       gain: 49.6,
       ppm: 1,
     });
@@ -987,14 +987,14 @@ describe("buildSnapshotStatsLines", () => {
 
   it("does not assign the active channel when the captured range is outside it", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 10_000_000, max: 12_000_000 },
-      timestampLabel: "2026-06-03 12:00:00 (America/Los_Angeles)",
-      deviceName: "RTL-SDR Blog V4",
-      channelName: "A",
-      activeSignalAreaBounds: { min: 18_000, max: 4_390_000 },
-      signalAreaBounds: { a: { min: 18_000, max: 4_390_000 } },
+      frequency_range: [10_000_000, 12_000_000 ],
+      timestamp_label: "2026-06-03 12:00:00 (America/Los_Angeles)",
+      source_device: "RTL-SDR Blog V4",
+      channel_name: "A",
+      active_signal_area_bounds: { min: 18_000, max: 4_390_000 },
+      signal_area_bounds: { a: { min: 18_000, max: 4_390_000 } },
       whole: false,
-      fftSize: 2048,
+      fft_size: 2048,
     });
 
     expect(lines[3]).toBe("Onscreen");
@@ -1002,12 +1002,12 @@ describe("buildSnapshotStatsLines", () => {
 
   it("falls back to Onscreen when no channel name is present", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
-      deviceName: "Mock APT SDR",
+      frequency_range: [4_380_001, 4_389_999 ],
+      timestamp_label: "2026-05-18 09:05:26 (America/Los_Angeles)",
+      source_device: "Mock APT SDR",
       whole: false,
-      fftSize: 2048,
-      fftWindow: "Rectangular",
+      fft_size: 2048,
+      fft_window: "Rectangular",
       gain: 49.6,
       ppm: 1,
     });
@@ -1017,13 +1017,13 @@ describe("buildSnapshotStatsLines", () => {
 
   it("shows non-rectangular FFT windows", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
-      deviceName: "Mock APT SDR",
-      channelName: "A",
+      frequency_range: [4_380_001, 4_389_999 ],
+      timestamp_label: "2026-05-18 09:05:26 (America/Los_Angeles)",
+      source_device: "Mock APT SDR",
+      channel_name: "A",
       whole: false,
-      fftSize: 2048,
-      fftWindow: "Hann",
+      fft_size: 2048,
+      fft_window: "Hann",
       gain: 49.6,
       ppm: 1,
     });
@@ -1033,12 +1033,12 @@ describe("buildSnapshotStatsLines", () => {
 
   it("falls back to the legacy gain label when numbers are unavailable", () => {
     const lines = buildSnapshotStatsLines({
-      range: { min: 4_380_001, max: 4_389_999 },
-      timestampLabel: "2026-05-18 09:05:26 (America/Los_Angeles)",
+      frequency_range: [4_380_001, 4_389_999 ],
+      timestamp_label: "2026-05-18 09:05:26 (America/Los_Angeles)",
       whole: false,
-      fftSize: 2048,
-      fftWindow: "Rectangular",
-      gainLabel: "Gain: Auto | PPM: 0",
+      fft_size: 2048,
+      fft_window: "Rectangular",
+      gain_label: "Gain: Auto | PPM: 0",
     });
 
     expect(lines[5]).toBe("Gain: Auto | PPM: 0");

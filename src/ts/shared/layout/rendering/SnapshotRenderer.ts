@@ -1000,6 +1000,7 @@ export class SnapshotRenderer {
         columnGap: number;
         leftWidth: number;
         rightWidth: number;
+        fullWidthLineIndex?: number;
       };
       score: number;
     };
@@ -1144,6 +1145,7 @@ export class SnapshotRenderer {
       columnGap: number;
       leftWidth: number;
       rightWidth: number;
+      fullWidthLineIndex?: number;
     },
   ): void {
     const pointColor = "rgba(238, 238, 238, 0.45)";
@@ -1162,8 +1164,14 @@ export class SnapshotRenderer {
       return;
     }
 
-    const leftLines = lines.slice(0, columns.splitIndex);
-    const rightLines = lines.slice(columns.splitIndex);
+    const fullWidthLineIndex = columns.fullWidthLineIndex;
+    const fullWidthLine =
+      fullWidthLineIndex === undefined ? null : lines[fullWidthLineIndex];
+    const columnLines = fullWidthLineIndex === undefined
+      ? lines
+      : lines.filter((_, index) => index !== fullWidthLineIndex);
+    const leftLines = columnLines.slice(0, columns.splitIndex);
+    const rightLines = columnLines.slice(columns.splitIndex);
     const leftX = pos.x + padX;
     const rightX = pos.x + padX + columns.leftWidth + columns.columnGap;
     const rowCount = Math.max(leftLines.length, rightLines.length);
@@ -1191,6 +1199,16 @@ export class SnapshotRenderer {
         dc.fillText(right.line, rightX + pointWidth + pointGap, y);
       }
     }
+
+    if (fullWidthLine) {
+      dc.setFont(`${fullWidthLine.fontSize}px monospace`);
+      const y = pos.y + padY + (rowCount + 0.8) * lh;
+      const pointWidth = dc.measureTextWidth("-");
+      dc.setFill(pointColor);
+      dc.fillText("-", leftX, y);
+      dc.setFill("#eee");
+      dc.fillText(fullWidthLine.line, leftX + pointWidth + pointGap, y);
+    }
   }
 
   private buildStatsLayouts(
@@ -1208,8 +1226,18 @@ export class SnapshotRenderer {
       columnGap: number;
       leftWidth: number;
       rightWidth: number;
+      fullWidthLineIndex?: number;
     };
   }[] {
+    const fullWidthLineIndex = lines.findIndex((item) =>
+      item.line.startsWith("Device Serial Number:"),
+    );
+    const columnLines =
+      fullWidthLineIndex >= 0
+        ? lines.filter((_, index) => index !== fullWidthLineIndex)
+        : lines;
+    const fullWidthLine =
+      fullWidthLineIndex >= 0 ? lines[fullWidthLineIndex] : null;
     const singleColumn = {
       kind: "single" as const,
       boxW: Math.max(...lines.map((l) => l.width)) + padX * 2,
@@ -1225,18 +1253,25 @@ export class SnapshotRenderer {
         columnGap: number;
         leftWidth: number;
         rightWidth: number;
+        fullWidthLineIndex?: number;
       };
     }[] = [singleColumn];
-    if (lines.length >= 5) {
-      const splitIndex = Math.ceil(lines.length / 2);
-      const leftLines = lines.slice(0, splitIndex);
-      const rightLines = lines.slice(splitIndex);
+    if (columnLines.length >= 5) {
+      const splitIndex = Math.ceil(columnLines.length / 2);
+      const leftLines = columnLines.slice(0, splitIndex);
+      const rightLines = columnLines.slice(splitIndex);
       const columnGap = Math.round(18 * Math.max(1, padX / 12));
       const leftWidth = Math.max(...leftLines.map((l) => l.width));
       const rightWidth = Math.max(...rightLines.map((l) => l.width));
-      const boxW = leftWidth + rightWidth + columnGap + padX * 2;
+      const boxW = Math.max(
+        leftWidth + rightWidth + columnGap + padX * 2,
+        (fullWidthLine?.width ?? 0) + padX * 2,
+      );
       const boxH =
-        Math.max(leftLines.length, rightLines.length) * lh + padY * 2;
+        (Math.max(leftLines.length, rightLines.length) +
+          (fullWidthLine ? 1 : 0)) *
+          lh +
+        padY * 2;
 
       if (boxH < singleColumn.boxH) {
         layouts.unshift({
@@ -1248,6 +1283,7 @@ export class SnapshotRenderer {
             columnGap,
             leftWidth,
             rightWidth,
+            fullWidthLineIndex: fullWidthLine ? fullWidthLineIndex : undefined,
           },
         });
       }
