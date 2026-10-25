@@ -84,6 +84,8 @@ export function drawLiveCanvasStatusRow(
     textColor?: string;
     backgroundColor?: string;
     rowHeight?: number;
+    /** Visible frequency span when the plot is zoomed in. */
+    visibleBandwidthHz?: number;
   },
 ) {
   const canvasTheme = getCanvasThemeColors();
@@ -96,6 +98,18 @@ export function drawLiveCanvasStatusRow(
           fftWindow: options.fftWindow,
           temporalResolution: options.temporalResolution,
         });
+
+  const visibleBandwidthHz = options.visibleBandwidthHz;
+  const sampleRateLabel =
+    typeof visibleBandwidthHz === "number" &&
+    Number.isFinite(visibleBandwidthHz) && visibleBandwidthHz > 0
+      ? `${formatFrequency(visibleBandwidthHz, {
+          trimTrailingZeros: true,
+          precisionMHz: 4,
+          precisionKHz: 2,
+          precisionGHz: 3,
+        })} width / ${status.sampleRateLabel}`
+      : status.sampleRateLabel;
 
   const dpr = window.devicePixelRatio || 1;
   const rowHeight = options.rowHeight ?? 56;
@@ -129,10 +143,10 @@ export function drawLiveCanvasStatusRow(
       ? [
           [status.txModeLabel ?? "", status.bandwidthLabel ?? ""],
           [status.timingLabel, status.ifftSizeLabel ?? ""],
-          [status.fftSizeLabel, status.sampleRateLabel],
+          [status.fftSizeLabel, sampleRateLabel],
         ]
       : [
-          [status.sampleRateLabel, status.fftSizeLabel],
+          [sampleRateLabel, status.fftSizeLabel],
           [status.fftWindowLabel, status.timingLabel],
         ];
     const pageIndex =
@@ -163,7 +177,7 @@ export function drawLiveCanvasStatusRow(
   ctx.fillText(
     isTxStats
       ? `⌞ ${status.bandwidthLabel} ⌟`
-      : `⌞ ${status.sampleRateLabel} ⌟`,
+      : `⌞ ${sampleRateLabel} ⌟`,
     centerX,
     rowTop + 18,
   );
@@ -183,7 +197,7 @@ export function drawLiveCanvasStatusRow(
     ctx.fillText(status.ifftSizeLabel ?? "", centerX, rowTop + 40);
     ctx.textAlign = "right";
     ctx.fillText(status.fftSizeLabel, rightX - 4, rowTop + 40);
-    ctx.fillText(status.sampleRateLabel, rightX - 4, rowTop + 18);
+    ctx.fillText(sampleRateLabel, rightX - 4, rowTop + 18);
   } else {
     ctx.textAlign = "left";
     ctx.fillText(status.fftSizeLabel, leftX + 4, rowTop + 40);
@@ -995,6 +1009,12 @@ export function useDraw2DFFTSignal() {
         ) {
           drawLiveCanvasStatusRow(ctx, cssWidth, cssHeight, {
             sampleRateHz: hardwareSampleRateHz,
+            visibleBandwidthHz:
+              fullCaptureRange &&
+              frequencyRange.max - frequencyRange.min <
+                (fullCaptureRange.max - fullCaptureRange.min) * (1 - 1e-6)
+                ? frequencyRange.max - frequencyRange.min
+                : undefined,
             fftSize,
             fftWindow,
             temporalResolution,

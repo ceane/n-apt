@@ -47,6 +47,24 @@ describe("formatLiveCanvasStatusRow", () => {
     ]);
   });
 
+  it("shows the visible width alongside the sample rate when zoomed", () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), clearRect: jest.fn(), fillRect: jest.fn(),
+      beginPath: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(),
+      fillText: jest.fn(),
+    } as any;
+    drawLiveCanvasStatusRow(ctx, 1000, 600, {
+      sampleRateHz: 3_200_000,
+      fftSize: 32768,
+      fftWindow: "Hamming",
+      temporalResolution: "lossless",
+      visibleBandwidthHz: 200_000,
+    });
+    expect(ctx.fillText).toHaveBeenCalledWith(
+      "⌞ 200kHz width / 3.2MHz sample rate ⌟", 500, 562,
+    );
+  });
+
   it("draws Tx stats with bandwidth centered and sample rate at the right", () => {
     const ctx = {
       save: jest.fn(), restore: jest.fn(), clearRect: jest.fn(), fillRect: jest.fn(),

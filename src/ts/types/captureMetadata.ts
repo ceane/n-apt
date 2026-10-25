@@ -90,7 +90,8 @@ export interface SnapshotMetadata {
   timestamp_utc?: string;
   timestamp_label?: string;
   source_device?: string;
-  device_profile?: Pick<CaptureDeviceProfileMetadata, "serial_number">;
+  device_profile?: Pick<CaptureDeviceProfileMetadata, "serial_number"> &
+    Partial<Pick<CaptureDeviceProfileMetadata, "kind">>;
   channel_name?: string;
   channel_label?: string;
   active_signal_area_bounds?: { min: number; max: number } | null;
