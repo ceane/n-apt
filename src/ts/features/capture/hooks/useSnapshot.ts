@@ -824,9 +824,13 @@ export function buildSnapshotStatsLines(metadata: SnapshotMetadata): string[] {
   const isMockDevice =
     metadata.device_profile?.kind?.toLowerCase().includes("mock") === true ||
     /\bmock\b/i.test(deviceName ?? "");
-  const serialNumber = isMockDevice
-    ? undefined
-    : metadata.device_profile?.serial_number?.trim();
+  const reportedSerialNumber = metadata.device_profile?.serial_number?.trim();
+  // RTL-SDRs often expose this shared default USB descriptor value. It may be
+  // genuine descriptor data, but it is not a useful per-device serial number.
+  const serialNumber =
+    isMockDevice || reportedSerialNumber === "00000001"
+      ? undefined
+      : reportedSerialNumber;
   const lines = [
     `${formatSnapshotRangeFrequency(range.min)} – ${formatSnapshotRangeFrequency(range.max)}`,
     timestampLabel,

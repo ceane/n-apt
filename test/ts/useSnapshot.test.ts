@@ -1048,16 +1048,19 @@ describe("buildSnapshotStatsLines", () => {
 
 describe("snapshot device serial labels", () => {
   it.each([
-    ["Mock APT SDR", undefined, false],
-    ["Test receiver", "mock_apt", false],
-    ["Test transmitter", "mock_tx", false],
-    ["RTL-SDR Blog V4", "rtlsdr", true],
-  ])("handles serial visibility for %s", (name, kind, visible) => {
+    ["Mock APT SDR", undefined, "00000001", false],
+    ["Test receiver", "mock_apt", "MOCK123", false],
+    ["Test transmitter", "mock_tx", "MOCK456", false],
+    ["RTL-SDR Blog V4", "rtlsdr", "00000001", false],
+    ["RTL-SDR Blog V4", "rtlsdr", "RTLSDR123456", true],
+  ])("handles serial visibility for %s", (name, kind, serialNumber, visible) => {
     const lines = buildSnapshotStatsLines({
       source_device: name,
-      device_profile: { serial_number: "00000001", kind },
+      device_profile: { serial_number: serialNumber, kind },
     });
-    expect(lines.includes("Device Serial Number: 00000001")).toBe(visible);
+    expect(lines.some((line) => line.startsWith("Device Serial Number:"))).toBe(
+      visible,
+    );
   });
 });
 

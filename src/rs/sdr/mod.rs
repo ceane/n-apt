@@ -191,7 +191,12 @@ pub trait SdrDevice: Send {
     false
   }
 
-  /// Get the device serial number (empty string if unavailable)
+  /// Return the driver's serial string, or empty when unavailable.
+  ///
+  /// This is not guaranteed to be a unique hardware identity: RTL-SDRs often
+  /// expose a shared default USB descriptor such as `00000001`, while virtual
+  /// devices may expose a fixed placeholder. Callers should not assume every
+  /// non-empty value is a per-unit serial number.
   fn get_serial_number(&self) -> String {
     String::new()
   }

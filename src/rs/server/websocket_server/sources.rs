@@ -839,6 +839,7 @@ fn build_mock_tx_source_payload(
     None,
     0,
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    // This virtual source has no hardware serial; this value is its source ID.
     "mock-tx".to_string(),
     "N-APT".to_string(),
     MOCK_TX_DISPLAY_NAME.to_string(),
@@ -862,6 +863,7 @@ fn build_mock_apt_source_payload(shared: &SharedState) -> serde_json::Value {
     None,
     0,
     crate::server::shared_state::MAX_RECOVERY_ATTEMPTS,
+    // This virtual source has no hardware serial; this value is its source ID.
     "mock-apt".to_string(),
     "N-APT".to_string(),
     "Mock APT SDR".to_string(),
