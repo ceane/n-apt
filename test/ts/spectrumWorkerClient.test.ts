@@ -9,6 +9,21 @@ const frame = (sequence: number, source = "mock-apt") => ({
 }) as LiveFrameData;
 const config = { fftSize: 8, offsetDb: 0, windowType: "hanning" };
 
+test("keeps an unread full FFT when the next frame preview arrives before paint", () => {
+  const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
+  const client = new SpectrumWorkerClient(worker);
+  const a = frame(1), b = frame(2);
+  const full = new Float32Array(8).fill(-50);
+  client.submit(a, config);
+  client.submit(b, config);
+  worker.onmessage({ data: { id: 1, stage: "complete", spectrum: full } });
+  worker.onmessage({ data: { id: 2, stage: "preview", spectrum: new Float32Array(4) } });
+  expect(client.read(b, config)).toEqual({ frame: a, spectrum: full, isPreview: false });
+  worker.onmessage({ data: { id: 2, stage: "complete", spectrum: new Float32Array(8) } });
+  expect(client.read(b, config)?.frame).toBe(b);
+  client.dispose();
+});
+
 test("publishes each completion while keeping only the latest pending frame", () => {
   const worker: any = { postMessage: jest.fn(), terminate: jest.fn() };
   const onResult = jest.fn();

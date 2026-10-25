@@ -377,15 +377,26 @@ export const resolveLiveSpectrumPaintContract = ({
     mirrorEnabled,
   });
   if (allowPendingLiveViewport && !isPaused) {
-    // Keep the last complete plot and its VFO axis together until the
-    // replacement FFT is ready. Painting the requested viewport here exposes
-    // uncovered bins as a zero/floor region while the worker catches up.
-    return {
-      paintViewportRange: safeSourceRange,
+    const pendingViewportIsCovered = isSpectrumViewportCoveredByAcquisition({
+      displayRange: requestedCoordinates.displayRange,
       sourceFrequencyRange: safeSourceRange,
-      displayRange: safeSourceRange,
-      zoom: 1,
-      panOffsetHz: 0,
+      mirrorEnabled,
+    });
+    // Honor zoom and pan while the resident frame covers the whole view. If
+    // it does not, keep its complete axis visible until the replacement FFT
+    // arrives instead of exposing uncovered bins at the floor.
+    return {
+      paintViewportRange: pendingViewportIsCovered
+        ? safeRequestedRange
+        : safeSourceRange,
+      sourceFrequencyRange: safeSourceRange,
+      displayRange: pendingViewportIsCovered
+        ? requestedCoordinates.displayRange
+        : safeSourceRange,
+      zoom: pendingViewportIsCovered ? safeZoom : 1,
+      panOffsetHz: pendingViewportIsCovered
+        ? requestedCoordinates.clampedPan
+        : 0,
     };
   }
   const requestedViewWithNegativeResidentFrame =

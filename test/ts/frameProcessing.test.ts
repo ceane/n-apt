@@ -85,7 +85,7 @@ describe("pending live spectrum presentation", () => {
     ).toBe(true);
   });
 
-  it("keeps the resident acquisition axis when painting the latest pending viewport", () => {
+  it("keeps the complete resident plot when the pending viewport is uncovered", () => {
     const contract = resolveLiveSpectrumPaintContract({
       requestedViewRange,
       sourceFrequencyRange: residentSourceRange,
@@ -97,7 +97,21 @@ describe("pending live spectrum presentation", () => {
     });
 
     expect(contract.sourceFrequencyRange).toEqual(residentSourceRange);
-    expect(contract.displayRange.min).not.toBe(residentSourceRange.min);
+    expect(contract.displayRange).toEqual(residentSourceRange);
+    expect(contract.zoom).toBe(1);
+  });
+
+  it("honors covered zoom while replacement FFT work is pending", () => {
+    const contract = resolveLiveSpectrumPaintContract({
+      requestedViewRange: residentSourceRange,
+      sourceFrequencyRange: residentSourceRange,
+      allowPendingLiveViewport: true,
+      zoom: 2,
+      panOffsetHz: 0,
+      mirrorEnabled: false,
+    });
+    expect(contract.zoom).toBe(2);
+    expect(contract.displayRange.max - contract.displayRange.min).toBe(1_600_000);
   });
 
   it("does not advance resident presentation across source, epoch, or TX/RX boundaries", () => {
