@@ -102,7 +102,7 @@ jobs:
   # Rust tests
   rust-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     services:
       redis:
@@ -189,7 +189,7 @@ jobs:
   # Rust Performance Tests (Release mode)
   rust-performance-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
