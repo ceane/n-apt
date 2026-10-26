@@ -258,6 +258,10 @@ pub struct SharedState {
   pub encryption_key: [u8; 32],
   /// Login-only key. Never export this key to authenticated clients.
   pub authentication_key: [u8; 32],
+  /// Session-scoped access leases for the stable FIDO vault key.
+  pub fido_vault_keys: Mutex<crate::authentication::fido_vault::VaultSessions>,
+  /// Password-wrapped vault-key recovery record copied into FIDO captures.
+  pub fido_vault_recovery_wrapper: Mutex<Option<serde_json::Value>>,
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// Device-scoped channel selected by the control plane. This is kept apart
@@ -413,6 +417,8 @@ impl SharedState {
       device_state: Mutex::new("disconnected".to_string()),
       encryption_key,
       authentication_key,
+      fido_vault_keys: Mutex::new(Default::default()),
+      fido_vault_recovery_wrapper: Mutex::new(None),
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),

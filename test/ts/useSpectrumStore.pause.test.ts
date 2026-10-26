@@ -80,5 +80,11 @@ describe("local source pause overrides", () => {
     expect(window.sessionStorage.getItem("napt-visualizer-manual-paused")).toBe(
       "true",
     );
+
+    persistManualVisualizerPaused(false);
+
+    expect(window.sessionStorage.getItem("napt-visualizer-manual-paused")).toBe(
+      null,
+    );
   });
 });

@@ -11,6 +11,7 @@ import {
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { readTrainingCapture } from "./io.mjs";
+import { decryptArchivedIqPayload, decryptFidoVaultNaptPayload } from "./crypto.mjs";
 import { verifyCaptureArtifact } from "../cli/artifact.ts";
 
 const LABEL_DRAFT_FORMAT = "n-apt-native-label-draft-v1";
@@ -671,7 +672,7 @@ export async function createCapturePackage({
   };
 }
 
-export async function readCapturePackage(packagePath) {
+export async function readCapturePackage(packagePath, { envFile = ".env.local", env = process.env } = {}) {
   if (!packagePath) {
     throw new Error("prepare requires --package DIRECTORY_OR_ZIP");
   }
@@ -776,6 +777,33 @@ export async function readCapturePackage(packagePath) {
     verified.format === "iq" || verified.format === "napt"
       ? metadataForV6(captureFile.bytes, verified.format)
       : null;
+  const archive = descriptor?.napt?.archive ?? null;
+  const isFidoVaultIq = verified.format === "iq" && (
+    metadata?.encryption === "AES-256-GCM-FIDO-VAULT-V1" ||
+    archive?.encryption === "AES-256-GCM-FIDO-VAULT-V1"
+  );
+  const decryptedIqPayload = isFidoVaultIq
+    ? await decryptArchivedIqPayload({
+      captureBytes: captureFile.bytes,
+      archive: {
+        ...archive,
+        vaultKeyRecovery: archive?.vaultKeyRecovery ?? metadata?.vault_key_recovery,
+      },
+      metadata,
+      envFile,
+      env,
+    })
+    : null;
+  const isFidoVaultNapt = verified.format === "napt" &&
+    metadata?.encryption === "AES-256-GCM-FIDO-VAULT-V1";
+  const decryptedNaptPayload = isFidoVaultNapt
+    ? await decryptFidoVaultNaptPayload({
+      captureBytes: captureFile.bytes,
+      metadata,
+      envFile,
+      env,
+    })
+    : null;
   const metadataTimestamp = Date.parse(metadata?.timestamp_utc ?? "");
   const captureTimestampMs = Number.isFinite(metadataTimestamp)
     ? metadataTimestamp
@@ -789,13 +817,14 @@ export async function readCapturePackage(packagePath) {
     captureIdentity: labelObject.captureIdentity,
     captureTimestampMs,
     labels: labelObject,
-    archive: descriptor?.napt?.archive ?? null,
+    archive,
     format: verified.format,
     archiveSource: zipEntries !== null,
     metadata,
     iqContainer:
       verified.format === "iq"
-        ? decodeV6IqContainer(captureFile.bytes, metadata)
+        ? decodeV6IqContainer(captureFile.bytes, metadata, decryptedIqPayload)
         : null,
+    decryptedNaptPayload,
   };
 }

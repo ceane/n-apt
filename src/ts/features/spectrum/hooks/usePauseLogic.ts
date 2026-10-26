@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { validateWaterfallDataComprehensive } from "@n-apt/validation";
-import { readPauseSnapshot, writePauseSnapshot, type PauseSnapshot } from "@n-apt/capture/public/pauseSnapshotStorage";
-export {
-  getPauseSnapshotStorageKeys,
-  SNAPSHOT_IQ_KEY,
-  SNAPSHOT_WATERFALL_DIMS_KEY,
-  SNAPSHOT_WATERFALL_KEY,
-  SNAPSHOT_WAVEFORM_KEY,
-} from "@n-apt/capture/public/pauseSnapshotStorage";
+import { clearPersistedPauseSnapshots } from "@n-apt/app/infrastructure/storage/clearPersistedPauseSnapshots";
+import type {
+  PausedFrameSnapshot,
+  PausedWaterfallTextureMeta,
+} from "@n-apt/spectrum/types/PausedFrameSnapshot";
+import type { PendingWaterfallRestore } from "@n-apt/spectrum/utils/waterfallRestore";
 
 export interface PauseLogicOptions {
   isPaused: boolean;
@@ -16,6 +14,11 @@ export interface PauseLogicOptions {
     width: number;
     height: number;
   } | null>;
+  /** CPU copy of the complete circular WebGPU waterfall history. */
+  waterfallTextureSnapshotRef?: React.MutableRefObject<Uint8Array | null>;
+  waterfallTextureMetaRef?: React.MutableRefObject<PausedWaterfallTextureMeta | null>;
+  pendingWaterfallRestoreRef?: React.MutableRefObject<PendingWaterfallRestore | null>;
+  restoredWaterfallRef?: React.MutableRefObject<boolean>;
   dataRef: React.MutableRefObject<{
     iq_data?: Uint8Array;
     data_type?: string;
@@ -25,17 +28,22 @@ export interface PauseLogicOptions {
   fftSize?: number;
   sampleRate?: number;
   centerFrequencyHz?: number;
+  /** Identity used to keep an in-memory pause frame with its source view. */
   snapshotScope?: string;
-  /** Disable persisted paused frames for source modes with their own frame store. */
+  /** Disable in-memory paused frame retention for source modes with their own frame store. */
   enabled?: boolean;
-  /** In-memory pause state for recovery; separate from the incoming live frame. */
-  pausedSnapshotRef?: React.MutableRefObject<PauseSnapshot | null>;
+  /** In-memory pause state for waveform recovery; never persisted. */
+  pausedSnapshotRef?: React.MutableRefObject<PausedFrameSnapshot | null>;
 }
 
 export function usePauseLogic({
   isPaused,
   waterfallBufferRef,
   waterfallDimsRef,
+  waterfallTextureSnapshotRef,
+  waterfallTextureMetaRef,
+  pendingWaterfallRestoreRef,
+  restoredWaterfallRef,
   dataRef,
   forceRender,
   fftSize,
@@ -45,12 +53,51 @@ export function usePauseLogic({
   enabled = true,
   pausedSnapshotRef,
 }: PauseLogicOptions) {
-  const hydratedSnapshotRef = useRef<PauseSnapshot | null>(null);
-  const hydratedScopeRef = useRef<string | null>(null);
-  const saveFrameData = useCallback(() => {
-    if (!enabled) return;
+  const snapshotScopeRef = useRef(snapshotScope);
+
+  const clearSnapshotOnScopeChange = useCallback(() => {
+    if (snapshotScopeRef.current === snapshotScope) return;
+    snapshotScopeRef.current = snapshotScope;
+    if (pausedSnapshotRef) pausedSnapshotRef.current = null;
+  }, [snapshotScope, pausedSnapshotRef]);
+
+  const capturePausedSnapshot = useCallback((): PausedFrameSnapshot => {
+    const data = dataRef.current;
+    const waterfall = waterfallBufferRef.current;
+    const dimensions = waterfallDimsRef.current;
+    const waterfallTexture = waterfallTextureSnapshotRef?.current;
+    const waterfallTextureMeta = waterfallTextureMetaRef?.current;
+    const hasCompleteTextureHistory = !!(
+      waterfallTexture &&
+      waterfallTextureMeta &&
+      waterfallTextureMeta.width > 0 &&
+      waterfallTextureMeta.height > 0 &&
+      waterfallTexture.length ===
+        waterfallTextureMeta.width * waterfallTextureMeta.height * 4
+    );
+    return {
+      iqData: data?.iq_data ? new Uint8Array(data.iq_data) : null,
+      waterfall: waterfall ? new Uint8ClampedArray(waterfall) : null,
+      waterfallDimensions: dimensions ? { ...dimensions } : null,
+      waterfallTextureSnapshot: hasCompleteTextureHistory
+        ? new Uint8Array(waterfallTexture)
+        : null,
+      waterfallTextureMeta: hasCompleteTextureHistory
+        ? { ...waterfallTextureMeta }
+        : null,
+    };
+  }, [
+    dataRef,
+    waterfallBufferRef,
+    waterfallDimsRef,
+    waterfallTextureSnapshotRef,
+    waterfallTextureMetaRef,
+  ]);
+
+  const retainPausedSnapshot = useCallback(() => {
+    if (!enabled || !isPaused) return null;
+    clearSnapshotOnScopeChange();
     try {
-      const data = dataRef.current;
       const wfBuf = waterfallBufferRef.current;
       const wfDims = waterfallDimsRef.current;
       if (wfBuf && wfDims) {
@@ -72,7 +119,7 @@ export function usePauseLogic({
               "Waterfall data validation failed on pause:",
               validationResult.errors,
             );
-            // Still save the data, but log the issues
+            // Keep the frame in memory even when its waterfall is imperfect.
           } else if (validationResult.warnings.length > 0) {
             console.warn(
               "Waterfall data validation warnings on pause:",
@@ -81,100 +128,100 @@ export function usePauseLogic({
           }
         }
       }
-      writePauseSnapshot(snapshotScope, {
-        iqData: data?.iq_data ?? null,
-        waterfall: wfBuf,
-        waterfallDimensions: wfDims,
-      });
-    } catch {
-      /* ignore */
-    }
-  }, [
-    centerFrequencyHz,
-    dataRef,
-    fftSize,
-    isPaused,
-    sampleRate,
-    waterfallBufferRef,
-    waterfallDimsRef,
-    enabled,
-    snapshotScope,
-  ]);
-
-  const hydratePauseSnapshot = useCallback(() => {
-    if (!enabled) return null;
-    try {
-      const snapshot =
-        hydratedScopeRef.current === snapshotScope
-          ? hydratedSnapshotRef.current
-          : readPauseSnapshot(snapshotScope);
-      if (!snapshot) return null;
-      hydratedSnapshotRef.current = snapshot;
-      hydratedScopeRef.current = snapshotScope;
-      if (pausedSnapshotRef) {
-        pausedSnapshotRef.current = snapshot;
-      }
-
-      if (snapshot.waterfall && snapshot.waterfallDimensions) {
-        waterfallBufferRef.current = snapshot.waterfall;
-        waterfallDimsRef.current = snapshot.waterfallDimensions;
-      }
+      const snapshot = capturePausedSnapshot();
+      if (pausedSnapshotRef) pausedSnapshotRef.current = snapshot;
       return snapshot;
     } catch {
       return null;
     }
   }, [
+    enabled,
+    isPaused,
+    clearSnapshotOnScopeChange,
     waterfallBufferRef,
     waterfallDimsRef,
-    enabled,
-    snapshotScope,
+    fftSize,
+    sampleRate,
+    centerFrequencyHz,
+    capturePausedSnapshot,
     pausedSnapshotRef,
   ]);
 
-  const restoreWaveformFromStorage = useCallback(() => {
-    hydratePauseSnapshot();
-  }, [hydratePauseSnapshot]);
+  const hydratePauseSnapshot = useCallback(() => {
+    if (!enabled || !isPaused) return null;
+    clearSnapshotOnScopeChange();
+    const snapshot = pausedSnapshotRef?.current ?? retainPausedSnapshot();
+    if (!snapshot) return null;
+    if (snapshot.waterfall && snapshot.waterfallDimensions) {
+      waterfallBufferRef.current = snapshot.waterfall;
+      waterfallDimsRef.current = snapshot.waterfallDimensions;
+    }
+    const texture = snapshot.waterfallTextureSnapshot;
+    const textureMeta = snapshot.waterfallTextureMeta;
+    if (texture && textureMeta) {
+      const restoredTexture = new Uint8Array(texture);
+      if (waterfallTextureSnapshotRef) {
+        waterfallTextureSnapshotRef.current = restoredTexture;
+      }
+      if (waterfallTextureMetaRef) {
+        waterfallTextureMetaRef.current = { ...textureMeta };
+      }
+      if (pendingWaterfallRestoreRef) {
+        pendingWaterfallRestoreRef.current = {
+          data: new Uint8Array(restoredTexture),
+          ...textureMeta,
+        };
+      }
+      if (restoredWaterfallRef) restoredWaterfallRef.current = false;
+    }
+    return snapshot;
+  }, [
+    waterfallBufferRef,
+    waterfallDimsRef,
+    waterfallTextureSnapshotRef,
+    waterfallTextureMetaRef,
+    pendingWaterfallRestoreRef,
+    restoredWaterfallRef,
+    enabled,
+    isPaused,
+    clearSnapshotOnScopeChange,
+    pausedSnapshotRef,
+    retainPausedSnapshot,
+  ]);
 
   useEffect(() => {
-    if (enabled && isPaused) return;
-    hydratedSnapshotRef.current = null;
-    hydratedScopeRef.current = null;
-    if (pausedSnapshotRef) {
-      pausedSnapshotRef.current = null;
+    if (enabled && isPaused) {
+      retainPausedSnapshot();
+      return;
     }
-  }, [enabled, isPaused, pausedSnapshotRef]);
+    if (pausedSnapshotRef) pausedSnapshotRef.current = null;
+    clearPersistedPauseSnapshots();
+  }, [enabled, isPaused, pausedSnapshotRef, retainPausedSnapshot]);
 
   const ensurePausedFrame = useCallback(() => {
     const data = dataRef.current;
-    return !!(data?.iq_data && data.iq_data.length > 0);
-  }, [dataRef]);
+    const snapshot = pausedSnapshotRef?.current;
+    return !!(
+      (data?.iq_data && data.iq_data.length > 0) ||
+      (snapshot?.iqData && snapshot.iqData.length > 0)
+    );
+  }, [dataRef, pausedSnapshotRef]);
 
   useEffect(() => {
     if (!enabled || !isPaused) return;
     hydratePauseSnapshot();
-    // Force a render after restoring from storage so the canvas isn't blank
-    const timeoutId = setTimeout(() => forceRender(), 50);
-    return () => clearTimeout(timeoutId);
+    forceRender();
   }, [enabled, isPaused, forceRender, hydratePauseSnapshot]);
 
   useEffect(() => {
-    if (!enabled) return;
     return () => {
-      saveFrameData();
+      if (pausedSnapshotRef) pausedSnapshotRef.current = null;
+      clearPersistedPauseSnapshots();
     };
-  }, [enabled, saveFrameData]);
-
-  useEffect(() => {
-    if (!enabled || !isPaused) return;
-    if (!ensurePausedFrame()) return;
-    saveFrameData();
-    forceRender();
-  }, [enabled, isPaused, ensurePausedFrame, saveFrameData, forceRender]);
+  }, [pausedSnapshotRef]);
 
   return {
-    saveFrameData,
     hydratePauseSnapshot,
-    restoreWaveformFromStorage,
     ensurePausedFrame,
   };
 }

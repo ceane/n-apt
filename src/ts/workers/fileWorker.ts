@@ -10,9 +10,14 @@
 import { parseFrequency } from "@n-apt/math/frequency";
 import { base64ToBytes } from "@n-apt/crypto/webcrypto";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
-import { verifyStampedIntegrity } from "@n-apt/webusb/iqIntegrity";
+import {
+  verifyStampedIntegrity,
+  captureAdditionalData,
+} from "@n-apt/webusb/iqIntegrity";
+import { parseNaptHeader as parseNaptHeaderBytes } from "@n-apt/capture/public/metadata";
 
 let currentFftSize = 8192;
+const LEGACY_NAPT_HEADER_SIZES = [4096, 2048, 8192, 1024];
 
 /** Strip non-printable/control characters and cap length for safe display. */
 function sanitizeFilename(name: string): string {
@@ -35,6 +40,7 @@ function loadC64File(fileData: ArrayBuffer, _fileName: string): Uint8Array {
 type FileMetadata = {
   format?: string;
   format_version?: number;
+  encryption?: string;
   originalVersion?: number;
   sections?: {
     binary?: {
@@ -80,7 +86,7 @@ type FileMetadata = {
   capture_sample_rate_hz?: number;
   hardware_sample_rate_hz?: number;
   sample_rate_hz?: number;
-  encrypted?: boolean;
+  encrypted?: boolean | string;
   timestamp_utc?: string;
   frame_rate?: number;
   fft_size?: number;
@@ -102,6 +108,7 @@ type FileMetadata = {
     offset_iq?: number;
     iq_length?: number;
     bins_per_frame?: number;
+    label?: string;
   }[];
 };
 
@@ -110,7 +117,7 @@ type IntegrityStatus = "verified" | "failed" | "unavailable";
 function rejectLocalProtectedCapture(fileName: string): void {
   if (fileName.toLowerCase().endsWith(".enc")) {
     throw new Error(
-      "This Increased protection .enc file keeps its salt in Redis and requires authenticated backend playback; local browser decryption is disabled.",
+      "Increased Protection .enc files cannot be played in this browser yet. Playback needs a server feature that is not available yet.",
     );
   }
 }
@@ -157,73 +164,24 @@ type WavLoadResult = {
   }[];
 };
 
-const LEGACY_NAPT_HEADER_SIZES = [4096, 2048, 8192, 1024];
+type NaptContainerHeader = FileMetadata & {
+  metadata?: FileMetadata;
+  channels?: NonNullable<FileMetadata["channels"]>;
+  offset_iq?: number;
+  iq_length?: number;
+};
 
-function scanNaptHeader(bytes: Uint8Array, previousEnd = -1) {
-  const newlineIdx = bytes.indexOf(10);
-  if (newlineIdx > 0) {
-    return {
-      jsonStr: new TextDecoder().decode(bytes.subarray(0, newlineIdx)),
-      jsonEndIdx: newlineIdx,
-    };
-  }
-  const headerText = new TextDecoder().decode(bytes);
-  let jsonEndIdx = previousEnd;
-  let braceDepth = 0;
-  let inString = false;
-  let escape = false;
-  let foundStart = false;
-  for (let ci = 0; ci < headerText.length; ci++) {
-    const c = headerText[ci];
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (c === "\\") {
-      escape = true;
-      continue;
-    }
-    if (c === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (c === "{") {
-      braceDepth++;
-      foundStart = true;
-    }
-    if (c === "}") {
-      braceDepth--;
-      if (foundStart && braceDepth === 0) {
-        jsonEndIdx = ci + 1;
-        break;
-      }
-    }
-  }
-  return { jsonStr: headerText.slice(0, jsonEndIdx), jsonEndIdx };
-}
-
-function parseNaptHeader(fileData: ArrayBuffer, fileName: string) {
-  let naptJsonStr = "";
-  let jsonEndIdx = -1;
-  for (const headerSize of LEGACY_NAPT_HEADER_SIZES) {
-    if (fileData.byteLength < headerSize) continue;
-    const scanned = scanNaptHeader(
-      new Uint8Array(fileData, 0, headerSize),
-      jsonEndIdx,
-    );
-    jsonEndIdx = scanned.jsonEndIdx;
-    if (jsonEndIdx <= 0) continue;
-    naptJsonStr = scanned.jsonStr;
-    try {
-      if (JSON.parse(naptJsonStr)) break;
-    } catch {
-      continue;
-    }
-  }
-  if (!naptJsonStr)
+function parseNaptHeader(
+  fileData: ArrayBuffer,
+  fileName: string,
+): NaptContainerHeader {
+  try {
+    return parseNaptHeaderBytes(
+      new Uint8Array(fileData),
+    ) as NaptContainerHeader;
+  } catch {
     throw new Error(`Could not parse NAPT header for ${fileName}`);
-  return JSON.parse(naptJsonStr);
+  }
 }
 
 function decodeIndexedTrailer(
@@ -304,6 +262,8 @@ async function decodeNaptContainer(
   };
 }
 
+const FIDO_VAULT_ENCRYPTION = "AES-256-GCM-FIDO-VAULT-V1";
+
 function wrappedNaptKey(metaObj: any): string | undefined {
   return (
     metaObj.wrapped_dek ||
@@ -322,6 +282,7 @@ function wrappedNaptKey(metaObj: any): string | undefined {
 async function loadIqFile(
   fileData: ArrayBuffer,
   aesKey: CryptoKey | null,
+  fidoVaultKey: CryptoKey | null,
 ): Promise<{ raw: Uint8Array; metadata: FileMetadata | null }> {
   const view = new DataView(fileData);
   const magic = new TextDecoder().decode(new Uint8Array(fileData, 0, 8));
@@ -364,10 +325,7 @@ async function loadIqFile(
       throw new Error("Invalid IQ v4 trailer bounds");
     }
     metadata.trailer = decodeIndexedTrailer(fileData, trailerSection, "IQ");
-    if (
-      trailerSection.version === 2 &&
-      (await verifyFileIntegrity(fileData, metadata)) === "failed"
-    ) {
+    if ((await verifyFileIntegrity(fileData, metadata)) === "failed") {
       throw new Error("INTEGRITY_FAILED: file appears corrupted or modified");
     }
   }
@@ -379,10 +337,31 @@ async function loadIqFile(
   metadata.frame_updates = frameUpdates;
   let payload = new Uint8Array(fileData, payloadStart, payloadLength).slice();
   if (encrypted) {
-    if (!aesKey) throw new Error("IQ v3 file is encrypted");
+    const decryptionKey =
+      (metadata as any).encryption === FIDO_VAULT_ENCRYPTION
+        ? fidoVaultKey
+        : aesKey;
+    if (!decryptionKey) {
+      throw new Error(
+        (metadata as any).encryption === FIDO_VAULT_ENCRYPTION
+          ? "FIDO vault key is not available for playback; unlock the FIDO vault again"
+          : "IQ v3 file is encrypted",
+      );
+    }
     const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: payload.slice(0, 12) },
-      aesKey,
+      {
+        name: "AES-GCM",
+        iv: payload.slice(0, 12),
+        additionalData:
+          (metadata as any).payload_authentication === "public-sections-v1"
+            ? await captureAdditionalData(
+                new Uint8Array(fileData),
+                payloadStart,
+                payloadLength,
+              )
+            : undefined,
+      },
+      decryptionKey,
       payload.slice(12),
     );
     payload = new Uint8Array(plain);
@@ -624,6 +603,7 @@ async function decryptNaptPayloadAtOffsets(
   fileName: string,
   offsets: number[],
   wrappedDekBase64?: string | null,
+  additionalData?: ArrayBuffer,
 ): Promise<ArrayBuffer> {
   let lastError: any = null;
 
@@ -658,7 +638,7 @@ async function decryptNaptPayloadAtOffsets(
         );
 
         return await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv: iv as any },
+          { name: "AES-GCM", iv: iv as any, additionalData },
           dek as CryptoKey,
           ciphertext as any,
         );
@@ -666,7 +646,7 @@ async function decryptNaptPayloadAtOffsets(
 
       // Default: direct decryption with vault key
       return await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: iv as any },
+        { name: "AES-GCM", iv: iv as any, additionalData },
         aesKey,
         ciphertext as any,
       );
@@ -886,10 +866,12 @@ self.onmessage = async function (e) {
           settings,
           fftSize,
           aesKey: rawAesKey,
+          fidoVaultKey: rawFidoVaultKey,
           sampleRateOptions,
           allowIntegrityFailure,
         } = data;
         let aesKey: CryptoKey | null = null;
+        let fidoVaultKey: CryptoKey | null = null;
 
         if (rawAesKey) {
           try {
@@ -902,6 +884,23 @@ self.onmessage = async function (e) {
             );
           } catch (e) {
             console.error("[fileWorker] Failed to import AES key:", e);
+          }
+        }
+
+        if (rawFidoVaultKey) {
+          try {
+            fidoVaultKey = await crypto.subtle.importKey(
+              "raw",
+              rawFidoVaultKey,
+              { name: "AES-GCM" },
+              false,
+              ["decrypt"],
+            );
+          } catch (error) {
+            console.error(
+              "[fileWorker] Failed to import FIDO vault key:",
+              error,
+            );
           }
         }
 
@@ -929,7 +928,7 @@ self.onmessage = async function (e) {
             let metadata: FileMetadata | null = null;
 
             if (lower.endsWith(".iq")) {
-              const res = await loadIqFile(fileData, aesKey);
+              const res = await loadIqFile(fileData, aesKey, fidoVaultKey);
               rawData = res.raw;
               metadata = res.metadata;
               (metadata as any).channels_data = [
@@ -958,7 +957,7 @@ self.onmessage = async function (e) {
                   maxSampleRateHz,
                 );
               }
-            } else if (lower.endsWith(".napt") && aesKey) {
+            } else if (lower.endsWith(".napt") && (aesKey || fidoVaultKey)) {
               const {
                 metaObj,
                 metadata: naptMetadata,
@@ -971,6 +970,17 @@ self.onmessage = async function (e) {
                 allowIntegrityFailure,
               );
               metadata = naptMetadata;
+
+              const isFidoVault =
+                metadata?.encryption === FIDO_VAULT_ENCRYPTION;
+              const captureDecryptionKey = isFidoVault ? fidoVaultKey : aesKey;
+              if (isEncrypted && !captureDecryptionKey) {
+                throw new Error(
+                  isFidoVault
+                    ? "FIDO vault key is not available for playback; unlock the FIDO vault again"
+                    : "Capture decryption key is not available",
+                );
+              }
 
               let channelsMetadata = metadata?.channels || metaObj.channels;
               if (!channelsMetadata && metaObj.offset_iq !== undefined) {
@@ -1001,10 +1011,18 @@ self.onmessage = async function (e) {
                 } else {
                   decryptedData = await decryptNaptPayloadAtOffsets(
                     naptBinaryFileData,
-                    aesKey as CryptoKey,
+                    captureDecryptionKey as CryptoKey,
                     fileName,
                     possibleHeaderSizes,
                     wrappedNaptKey(metaObj),
+                    (metadata as any).payload_authentication ===
+                      "public-sections-v1"
+                      ? await captureAdditionalData(
+                          new Uint8Array(fileData),
+                          metadata.sections!.binary!.offset_bytes,
+                          metadata.sections!.binary!.length_bytes,
+                        )
+                      : undefined,
                   );
                 }
 
@@ -1014,10 +1032,11 @@ self.onmessage = async function (e) {
                 const parsedChannels: any[] = [];
                 for (let j = 0; j < channelsMetadata.length; j++) {
                   const ch = channelsMetadata[j];
-                  const chOffsetIq = ch.offset_iq;
+                  const chOffsetIq = ch.offset_iq ?? 0;
                   const nextOffsetIq =
                     j + 1 < channelsMetadata.length
-                      ? channelsMetadata[j + 1].offset_iq
+                      ? (channelsMetadata[j + 1].offset_iq ??
+                        payloadArray.length)
                       : payloadArray.length;
                   const iqLength =
                     ch.iq_length ?? Math.max(0, nextOffsetIq - chOffsetIq);

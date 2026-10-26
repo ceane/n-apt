@@ -24,6 +24,7 @@ describe("Validation System", () => {
     test("should validate valid auth info", () => {
       const validAuthInfo = {
         has_passkeys: true,
+        has_fido_security_key: false,
       };
 
       expect(isValidAuthInfo(validAuthInfo)).toBe(true);

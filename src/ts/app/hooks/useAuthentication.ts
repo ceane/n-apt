@@ -1,6 +1,7 @@
 import React, {
   useMemo,
   useReducer,
+  useState,
   useEffect,
   useCallback,
   useRef,
@@ -22,16 +23,22 @@ import {
   fetchAuthInfo,
   fetchServerStatus,
   fetchVaultKey,
+  fetchFidoVaultUnlocked,
+  unlockFidoVaultWithRecovery,
   clearSession,
   logoutSession,
   type AuthInfo,
 } from "@n-apt/app/infrastructure/services/auth";
 import { importAesKey, base64ToBytes } from "@n-apt/crypto/webcrypto";
+import { clearPersistedPauseSnapshots } from "@n-apt/app/infrastructure/storage/clearPersistedPauseSnapshots";
 
 interface UseAuthenticationReturn extends AuthenticationState {
+  fidoVaultKey: Uint8Array | null;
   handlePasswordAuth: (password: string) => Promise<void>;
   handlePasskeyAuth: () => Promise<void>;
+  handleFidoKeyAuth: () => Promise<boolean>;
   handleRegisterPasskey: (password?: string) => Promise<void>;
+  handleRegisterFidoKey: (password?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -54,7 +61,9 @@ const initialState: AuthenticationState = {
   authError: null,
   sessionToken: null,
   aesKey: null,
+  fidoVaultUnlocked: false,
   hasPasskeys: getInitialHasPasskeys(),
+  hasFidoSecurityKey: false,
   isInitialAuthCheck: true,
 };
 
@@ -82,7 +91,10 @@ export const AuthProvider: React.FC<{
       auth.authError,
       auth.sessionToken,
       auth.aesKey,
+      auth.fidoVaultUnlocked,
+      auth.fidoVaultKey,
       auth.hasPasskeys,
+      auth.hasFidoSecurityKey,
       auth.isInitialAuthCheck,
     ],
   );
@@ -101,8 +113,37 @@ const useAuthenticationInternal = (
   skipBackendBootstrap = false,
 ): UseAuthenticationReturn => {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const [fidoVaultKey, setFidoVaultKeyState] = useState<Uint8Array | null>(null);
+  const fidoVaultKeyRef = useRef<Uint8Array | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatActiveRef = useRef(false);
+
+  const replaceFidoVaultKey = useCallback((key: Uint8Array | null) => {
+    fidoVaultKeyRef.current?.fill(0);
+    const next = key ? key.slice() : null;
+    fidoVaultKeyRef.current = next;
+    setFidoVaultKeyState(next);
+    key?.fill(0);
+  }, []);
+
+  useEffect(() => () => {
+    fidoVaultKeyRef.current?.fill(0);
+    fidoVaultKeyRef.current = null;
+  }, []);
+
+  // Backend unlock expires independently of the browser's playback key.
+  // Keep the file key available for decryption; refresh only capture readiness.
+  useEffect(() => {
+    if (!state.isAuthenticated || !state.sessionToken) return;
+    let cancelled = false;
+    const token = state.sessionToken;
+    const timer = setInterval(() => {
+      void fetchFidoVaultUnlocked(token).then((unlocked) => {
+        if (!cancelled) dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked });
+      });
+    }, 30_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [state.isAuthenticated, state.sessionToken]);
 
   const importBase64Key = useCallback(
     async (base64: string): Promise<CryptoKey> => {
@@ -201,6 +242,7 @@ const useAuthenticationInternal = (
               type: "READY",
               hasPasskeys: effectiveHasPasskeys,
             });
+            dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key });
             stopHeartbeat();
             return;
           }
@@ -258,6 +300,7 @@ const useAuthenticationInternal = (
               type: "SET_PASSKEYS",
               hasPasskeys: effectiveHasPasskeys,
             });
+            dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key });
           }
         } catch {
           if (!cancelled) {
@@ -283,6 +326,38 @@ const useAuthenticationInternal = (
                   sessionToken: storedToken,
                   aesKey: key,
                 });
+                const fidoUnlocked = await fetchFidoVaultUnlocked(storedToken);
+                dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: fidoUnlocked });
+                // A restored session can skip the unauthenticated bootstrap
+                // below, so refresh credential status on this path too. The
+                // capture panel uses this to distinguish an enrolled key from
+                // a key that still needs enrollment.
+                try {
+                  const info = await fetchAuthInfoWithTimeout();
+                  if (!cancelled) {
+                    const effectiveHasPasskeys =
+                      info.has_passkeys && isWebAuthnAvailable;
+                    try {
+                      localStorage.setItem(
+                        "n_apt_has_passkeys",
+                        effectiveHasPasskeys ? "true" : "false",
+                      );
+                    } catch {
+                      // Safari private mode - localStorage not available
+                    }
+                    dispatch({
+                      type: "SET_PASSKEYS",
+                      hasPasskeys: effectiveHasPasskeys,
+                    });
+                    dispatch({
+                      type: "FIDO_KEY_STATUS",
+                      hasFidoSecurityKey: info.has_fido_security_key,
+                    });
+                  }
+                } catch {
+                  // Keep a valid restored session if credential metadata is
+                  // temporarily unavailable; a later retry can refresh it.
+                }
                 return;
               }
               throw new Error("Could not fetch vault key for session");
@@ -310,6 +385,7 @@ const useAuthenticationInternal = (
             // Safari private mode - localStorage not available
           }
           dispatch({ type: "READY", hasPasskeys: effectiveHasPasskeys });
+          dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key });
         }
       } catch {
         if (!cancelled) {
@@ -331,6 +407,7 @@ const useAuthenticationInternal = (
   }, [isWebAuthnAvailable, skipBackendBootstrap]);
 
   const handlePasswordAuth = useCallback(async (password: string) => {
+    replaceFidoVaultKey(null);
     dispatch({ type: "AUTHENTICATING" });
     try {
       const result = await authenticateWithPassword(password);
@@ -347,6 +424,9 @@ const useAuthenticationInternal = (
         sessionToken: result.token,
         aesKey: key,
       });
+      const recoveryKey = await unlockFidoVaultWithRecovery(result.token, password);
+      replaceFidoVaultKey(recoveryKey);
+      dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: Boolean(recoveryKey) });
     } catch (e: any) {
       if (
         e?.message?.includes("Server disconnected") ||
@@ -361,12 +441,13 @@ const useAuthenticationInternal = (
         error: e.message || "Authentication failed",
       });
     }
-  }, []);
+  }, [replaceFidoVaultKey]);
 
-  const handlePasskeyAuth = useCallback(async () => {
+  const authenticateWithWebAuthn = useCallback(async (fidoSecurityKey: boolean): Promise<boolean> => {
+    replaceFidoVaultKey(null);
     dispatch({ type: "AUTHENTICATING" });
     try {
-      const result = await authenticateWithPasskey();
+      const result = await authenticateWithPasskey(fidoSecurityKey);
       const vaultKeyB64 = await fetchVaultKey(result.token);
       if (!vaultKeyB64) {
         throw new Error(
@@ -379,15 +460,19 @@ const useAuthenticationInternal = (
         sessionToken: result.token,
         aesKey: key,
       });
+      replaceFidoVaultKey(result.fido_vault_key ?? null);
+      dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: Boolean(result.fido_vault_unlocked) });
+      return true;
     } catch (e: any) {
-      const errorMessage = e.message || "Passkey authentication failed";
+      const errorMessage = e.message || (fidoSecurityKey ? "FIDO security-key authentication failed" : "Passkey authentication failed");
       if (
         errorMessage.includes("Server disconnected") ||
         errorMessage.includes("Failed to start passkey authentication") ||
+        errorMessage.includes("Failed to start FIDO security-key authentication") ||
         errorMessage.includes("The app isn't running")
       ) {
         dispatch({ type: "SERVER_DOWN" });
-        return;
+        return false;
       }
       if (
         errorMessage.includes("privacy-considerations-client") ||
@@ -401,10 +486,15 @@ const useAuthenticationInternal = (
       } else {
         dispatch({ type: "AUTH_FAILED", error: errorMessage });
       }
+      return false;
     }
-  }, []);
+  }, [replaceFidoVaultKey]);
+  const handlePasskeyAuth = useCallback(async () => {
+    await authenticateWithWebAuthn(false);
+  }, [authenticateWithWebAuthn]);
+  const handleFidoKeyAuth = useCallback(() => authenticateWithWebAuthn(true), [authenticateWithWebAuthn]);
 
-  const handleRegisterPasskey = useCallback(async (password?: string) => {
+  const registerWebAuthnCredential = useCallback(async (password: string | undefined, fidoSecurityKey: boolean) => {
     // Check if WebAuthn is available before attempting registration
     if (!isWebAuthnAvailable) {
       dispatch({
@@ -416,7 +506,9 @@ const useAuthenticationInternal = (
 
     try {
       dispatch({ type: "AUTHENTICATING" });
-      await registerPasskey(password);
+      replaceFidoVaultKey(null);
+      const enrolledVaultKey = await registerPasskey(password, fidoSecurityKey);
+      replaceFidoVaultKey(enrolledVaultKey);
       const info = await fetchAuthInfo();
       // Only show passkey option if both backend has passkeys AND browser supports WebAuthn
       const effectiveHasPasskeys = info.has_passkeys && isWebAuthnAvailable;
@@ -429,26 +521,35 @@ const useAuthenticationInternal = (
         // Safari private mode - localStorage not available
       }
       dispatch({ type: "REGISTER_SUCCESS", hasPasskeys: effectiveHasPasskeys });
+      dispatch({ type: "FIDO_KEY_STATUS", hasFidoSecurityKey: info.has_fido_security_key });
+      dispatch({ type: "FIDO_VAULT_UNLOCKED", unlocked: Boolean(enrolledVaultKey) });
     } catch (e: any) {
       dispatch({
         type: "AUTH_FAILED",
-        error: e.message || "Passkey registration failed",
+        error: e.message || (fidoSecurityKey ? "FIDO security-key enrollment failed" : "Passkey registration failed"),
       });
     }
-  }, [isWebAuthnAvailable]);
+  }, [isWebAuthnAvailable, replaceFidoVaultKey]);
+  const handleRegisterPasskey = useCallback((password?: string) => registerWebAuthnCredential(password, false), [registerWebAuthnCredential]);
+  const handleRegisterFidoKey = useCallback((password?: string) => registerWebAuthnCredential(password, true), [registerWebAuthnCredential]);
 
   const logout = useCallback(async () => {
+    replaceFidoVaultKey(null);
+    clearPersistedPauseSnapshots();
     if (state.sessionToken) await logoutSession(state.sessionToken);
     clearSession();
     // Reload to discard in-memory keys, workers, and authenticated connections.
     window.location.href = "/";
-  }, [state.sessionToken]);
+  }, [replaceFidoVaultKey, state.sessionToken]);
 
   return {
     ...state,
+    fidoVaultKey,
     handlePasswordAuth,
     handlePasskeyAuth,
+    handleFidoKeyAuth,
     handleRegisterPasskey,
+    handleRegisterFidoKey,
     logout,
   };
 };

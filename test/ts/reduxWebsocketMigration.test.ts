@@ -54,6 +54,7 @@ import {
   buildManagedTxOptions,
   shouldApplySourceStatusToPresentation,
   processWebSocketMessage,
+  __testIngestIncomingMessage,
   CLIENT_ORIGIN_ID,
   __testQueueLiveDataForMiddleware,
   resolveStaleSpectrumSourceId,
@@ -1870,6 +1871,33 @@ describe("Redux WebSocket Migration", () => {
   });
 
   let store: ReturnType<typeof configureStore>;
+
+  it("ignores the removed control-socket live spectrum protocol", () => {
+    jest.useFakeTimers();
+    try {
+      for (const message of [
+        {
+          type: "spectrum",
+          data_type: "iq_raw",
+          source_id: "mock-apt",
+          iq_data: new Uint8Array([128, 129, 127, 126]),
+        },
+        { type: "encrypted_spectrum", payload: "legacy-payload" },
+      ]) {
+        __testIngestIncomingMessage(
+          store.dispatch as any,
+          store.getState as any,
+          message,
+        );
+      }
+      jest.runOnlyPendingTimers();
+
+      expect(liveDataRef.current).toBeNull();
+      expect(demodFrameQueue.drain()).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 
   it("preserves the user frequency range when a source switch republishes channels", () => {
     const enteredRange = { min: 24_700_000, max: 29_900_000 };
@@ -5969,6 +5997,37 @@ describe("Redux WebSocket Migration", () => {
         },
       });
     });
+
+    it("preserves the FIDO vault flag in the capture websocket message", async () => {
+      const dispatch = jest.fn();
+      const getState = () => ({ websocket: { isConnected: true } }) as any;
+
+      await (sendCaptureCommand({
+        jobId: "fido-vault-job",
+        sourceId: "mock-apt",
+        fragments: [{ minFreq: 100, maxFreq: 102 }],
+        durationMode: "timed" as const,
+        durationS: 1,
+        fileType: ".iq",
+        acquisitionMode: "whole_sample",
+        encrypted: true,
+        fidoVault: true,
+        fftSize: 2048,
+        fftWindow: "hann",
+      }) as any)(dispatch, getState, undefined);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "websocket/sendMessage",
+        payload: {
+          type: "capture",
+          data: expect.objectContaining({
+            jobId: "fido-vault-job",
+            encrypted: true,
+            fidoVault: true,
+          }),
+        },
+      });
+    });
   });
 
   describe("Live data ref isolation", () => {
@@ -6765,10 +6824,13 @@ describe("Redux WebSocket Migration", () => {
               id: "mock-apt",
               name: "Mock APT SDR",
               capability: "mock",
-              status: "receiving",
+              status: "paused",
+              paused: true,
             } as any,
           ],
-          sourceStatuses: { "mock-apt": "receiving" },
+          sourceStatuses: { "mock-apt": "paused" },
+          isPaused: true,
+          serverPaused: true,
         }),
       );
 
@@ -6780,6 +6842,11 @@ describe("Redux WebSocket Migration", () => {
       expect(state.hasConnectedOnce).toBe(true);
       expect(state.activeSourceId).toBe("mock-apt");
       expect(state.sources).toHaveLength(1);
+      expect(state.sources[0].paused).toBe(false);
+      expect(state.sources[0].status).toBe("disconnected");
+      expect(state.sourceStatuses["mock-apt"]).toBe("disconnected");
+      expect(state.isPaused).toBe(false);
+      expect(state.serverPaused).toBe(false);
     });
 
     it("does not queue Tx or preview frame requests while disconnected", () => {
@@ -6833,6 +6900,10 @@ describe("Redux WebSocket Migration", () => {
           deviceState: "connected" as any,
         }),
       );
+      sessionStorage.setItem(
+        "n-apt-fft-iq-snapshot:mock-apt:rx",
+        "old-iq",
+      );
 
       middlewareStore.dispatch({ type: "websocket/disconnect" });
 
@@ -6843,6 +6914,9 @@ describe("Redux WebSocket Migration", () => {
       expect(state.websocket.deviceInfo).toBeNull();
       expect(state.websocket.deviceName).toBeNull();
       expect(state.websocket.deviceProfile).toBeNull();
+      expect(
+        sessionStorage.getItem("n-apt-fft-iq-snapshot:mock-apt:rx"),
+      ).toBeNull();
     });
   });
 });

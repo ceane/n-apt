@@ -9,11 +9,33 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use webauthn_rs::prelude::*;
 
+/// AES-GCM envelope that wraps the random vault master key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultKeyWrapper {
+  pub format: String,
+  pub salt: String,
+  pub nonce: String,
+  pub ciphertext: String,
+}
+
+/// The same VMK has one authenticator wrapper and one offline recovery wrapper.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FidoVaultWrappers {
+  pub fido: VaultKeyWrapper,
+  pub recovery: VaultKeyWrapper,
+}
+
 /// On-disk format for the credential store.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CredentialFile {
   /// Map of user ID → list of registered passkey credentials
   pub passkeys: HashMap<String, Vec<Passkey>>,
+  /// Credential ID enrolled explicitly through the cross-platform security-key flow.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fido_security_key_credential_id: Option<String>,
+  /// Wrapped FIDO vault key material. The unwrapped key is never written here.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fido_vault: Option<FidoVaultWrappers>,
 }
 
 /// Manages passkey credential persistence.
@@ -74,7 +96,9 @@ impl CredentialStore {
   }
 
   /// Blocking-core of [`Self::try_load`]; runs on the blocking pool only.
-  fn load_from_paths(paths: &CredentialPaths) -> Result<CredentialFile, String> {
+  fn load_from_paths(
+    paths: &CredentialPaths,
+  ) -> Result<CredentialFile, String> {
     // SECURITY: Explicitly re-validate path safety before reading.
     // This ensures that even if the struct was tampered with, we don't
     // read from an uncontrolled location.
@@ -143,7 +167,20 @@ impl CredentialStore {
 
     let json = serde_json::to_string_pretty(creds)
       .map_err(|e| format!("serialize: {e}"))?;
-    std::fs::write(&paths.path, json).map_err(|e| format!("write: {e}"))?;
+    // A failed write must leave the previous complete credential record intact.
+    use std::io::Write;
+    let mut temporary = tempfile::NamedTempFile::new_in(&paths.base_dir)
+      .map_err(|e| format!("create credential temporary file: {e}"))?;
+    temporary
+      .write_all(json.as_bytes())
+      .map_err(|e| format!("write: {e}"))?;
+    temporary
+      .as_file()
+      .sync_all()
+      .map_err(|e| format!("sync: {e}"))?;
+    temporary
+      .persist(&paths.path)
+      .map_err(|e| format!("replace: {e}"))?;
     Ok(())
   }
 
@@ -153,10 +190,54 @@ impl CredentialStore {
     creds.passkeys.values().any(|v| !v.is_empty())
   }
 
+  pub async fn has_ordinary_passkeys(&self) -> bool {
+    let credentials = self.load().await;
+    let fido_id = credentials.fido_security_key_credential_id;
+    credentials.passkeys.get("default").is_some_and(|keys| {
+      keys
+        .iter()
+        .any(|key| Some(credential_id_string(key)) != fido_id)
+    })
+  }
+
+  pub async fn has_fido_security_key(&self) -> bool {
+    self.try_load().await.is_ok_and(|credentials| {
+      credentials.fido_security_key_credential_id.is_some()
+    })
+  }
+
   /// Get all passkeys for the default user.
   pub async fn get_passkeys(&self) -> Vec<Passkey> {
     let creds = self.load().await;
     creds.passkeys.get("default").cloned().unwrap_or_default()
+  }
+
+  pub async fn get_ordinary_passkeys(&self) -> Vec<Passkey> {
+    let credentials = self.load().await;
+    let fido_id = credentials.fido_security_key_credential_id;
+    credentials
+      .passkeys
+      .get("default")
+      .cloned()
+      .unwrap_or_default()
+      .into_iter()
+      .filter(|key| Some(credential_id_string(key)) != fido_id)
+      .collect()
+  }
+
+  pub async fn get_fido_security_key_passkeys(&self) -> Vec<Passkey> {
+    let credentials = self.load().await;
+    let Some(fido_id) = credentials.fido_security_key_credential_id else {
+      return Vec::new();
+    };
+    credentials
+      .passkeys
+      .get("default")
+      .cloned()
+      .unwrap_or_default()
+      .into_iter()
+      .filter(|key| credential_id_string(key) == fido_id)
+      .collect()
   }
 
   /// Store a new passkey for the default user.
@@ -182,6 +263,66 @@ impl CredentialStore {
     .await
     .map_err(|e| format!("credential write task failed: {e}"))?
   }
+
+  /// Commit the credential, wrappers and identity together under one lock.
+  /// Recheck here: multiple registration ceremonies may have started together.
+  pub async fn enroll_fido_vault(
+    &self,
+    passkey: Passkey,
+    wrappers: FidoVaultWrappers,
+  ) -> Result<(), String> {
+    let write_lock = std::sync::Arc::clone(&self.write_lock);
+    let paths = self.resolve_paths()?;
+    tokio::task::spawn_blocking(move || {
+      let _guard = write_lock
+        .lock()
+        .map_err(|e| format!("credential lock: {e}"))?;
+      let mut credentials = Self::load_from_paths(&paths)?;
+      commit_fido_enrollment(&mut credentials, passkey, wrappers)?;
+      Self::save_to_paths(&paths, &credentials)
+    })
+    .await
+    .map_err(|e| format!("credential write task failed: {e}"))?
+  }
+
+  /// Return the stored wrapper pair for passkey login and offline recovery.
+  pub async fn get_fido_vault(
+    &self,
+  ) -> Result<Option<FidoVaultWrappers>, String> {
+    Ok(self.try_load().await?.fido_vault)
+  }
+}
+
+fn commit_fido_enrollment(
+  credentials: &mut CredentialFile,
+  passkey: Passkey,
+  wrappers: FidoVaultWrappers,
+) -> Result<(), String> {
+  if credentials.fido_security_key_credential_id.is_some() {
+    return Err("fido_security_key_already_configured".into());
+  }
+  // Preserve legacy vault recovery: enrollment must never replace its VMK.
+  if let Some(existing) = &credentials.fido_vault {
+    if serde_json::to_value(&existing.recovery).ok()
+      != serde_json::to_value(&wrappers.recovery).ok()
+    {
+      return Err("fido_vault_recovery_mismatch".into());
+    }
+  }
+  credentials.fido_security_key_credential_id =
+    Some(credential_id_string(&passkey));
+  credentials.fido_vault = Some(wrappers);
+  credentials
+    .passkeys
+    .entry("default".into())
+    .or_default()
+    .push(passkey);
+  Ok(())
+}
+
+pub fn credential_id_string(passkey: &Passkey) -> String {
+  use base64::Engine;
+  base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(passkey.cred_id().as_ref())
 }
 
 fn build_paths() -> Result<CredentialPaths, String> {
@@ -348,6 +489,7 @@ pub async fn require_session(
 }
 
 pub mod auth_handlers;
+pub mod fido_vault;
 
 #[cfg(test)]
 mod tests {
@@ -357,5 +499,69 @@ mod tests {
   fn deferred_credential_store_keeps_path_setup_lazy() {
     let store = CredentialStore::deferred();
     assert!(!store.paths_initialized());
+  }
+}
+
+#[cfg(test)]
+mod fido_enrollment_tests {
+  use super::*;
+
+  fn passkey(id: u8) -> Passkey {
+    // Persistence fixture only; no WebAuthn signature validation is bypassed.
+    serde_json::from_value(serde_json::json!({"cred": {
+      "cred_id": [id], "cred": {"type_":"ES256", "key":{"EC_EC2":{
+        "curve":"SECP256R1", "x": vec![0u8;32], "y": vec![0u8;32]
+      }}},
+      "counter":0, "transports":null, "user_verified":true,
+      "backup_eligible":false, "backup_state":false,
+      "registration_policy":"preferred",
+      "extensions":{"cred_protect":"NotRequested", "hmac_create_secret":"NotRequested"},
+      "attestation":{"data":"None", "metadata":"None"}, "attestation_format":"None"
+    }})).unwrap()
+  }
+
+  fn wrappers() -> FidoVaultWrappers {
+    let wrapper = VaultKeyWrapper {
+      format: "n-apt-vault-key-wrapper-v1".into(), salt: "salt".into(),
+      nonce: "nonce".into(), ciphertext: "ciphertext".into(),
+    };
+    FidoVaultWrappers { fido: wrapper.clone(), recovery: wrapper }
+  }
+
+  #[tokio::test]
+  async fn concurrent_enrollment_commits_exactly_one_complete_record() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = CredentialStore {
+      paths: OnceLock::from(Ok(CredentialPaths {
+        path: directory.path().join("credentials.json"),
+        base_dir: directory.path().to_path_buf(),
+      })),
+      write_lock: std::sync::Arc::new(std::sync::Mutex::new(())),
+    };
+    let (first, second) = tokio::join!(
+      store.enroll_fido_vault(passkey(1), wrappers()),
+      store.enroll_fido_vault(passkey(2), wrappers()),
+    );
+    assert_ne!(first.is_ok(), second.is_ok());
+    let record = store.try_load().await.unwrap();
+    let keys = record.passkeys.get("default").unwrap();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(record.fido_security_key_credential_id, Some(credential_id_string(&keys[0])));
+    assert!(record.fido_vault.is_some());
+    #[cfg(unix)] {
+      use std::os::unix::fs::PermissionsExt;
+      assert_eq!(std::fs::metadata(directory.path().join("credentials.json")).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+  }
+
+  #[test]
+  fn reenrollment_cannot_replace_legacy_recovery_or_partially_mutate_record() {
+    let mut record = CredentialFile::default();
+    record.fido_vault = Some(wrappers());
+    let before = serde_json::to_value(&record).unwrap();
+    let mut different = wrappers();
+    different.recovery.ciphertext = "different vault".into();
+    assert!(commit_fido_enrollment(&mut record, passkey(1), different).is_err());
+    assert_eq!(serde_json::to_value(&record).unwrap(), before);
   }
 }

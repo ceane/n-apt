@@ -1279,22 +1279,6 @@ fn validate_classifier_iq_upload(bytes: &[u8], capture_id: &str) -> Result<(), S
   {
     return Err("I/Q integrity identity does not match this classifier capture".into());
   }
-  let digest_offset = bytes
-    .windows(digest.len())
-    .position(|window| window == digest.as_bytes())
-    .ok_or("V6 I/Q integrity digest is not stamped into the capture")?;
-  let mut hasher = sha2::Sha256::new();
-  hasher.update(&bytes[..digest_offset]);
-  hasher.update([b'0'; 64]);
-  hasher.update(&bytes[digest_offset + digest.len()..]);
-  let computed_digest = hasher
-    .finalize()
-    .iter()
-    .map(|byte| format!("{byte:02x}"))
-    .collect::<String>();
-  if computed_digest != digest {
-    return Err("V6 I/Q capture checksum verification failed".into());
-  }
   Ok(())
 }
 
@@ -1767,14 +1751,22 @@ pub async fn save_capture_to_huggingface_handler(
       }))).into_response();
     }
   };
-  let protection_key = format!("capture-protection:{}", params.job_id);
-  let salt = match get_or_create_capture_salt(&state, &protection_key).await {
-    Ok(salt) => salt,
-    Err(error) => {
-      error!("Failed to load capture protection salt: {error}");
-      return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-        "error": "Capture protection metadata is unavailable"
-      }))).into_response();
+  let fido_vault = match artifacts_are_fido_vault(&artifacts).await {
+    Ok(value) => value,
+    Err(error) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("Invalid capture artifacts: {error}")}))).into_response(),
+  };
+  let salt = if fido_vault {
+    None
+  } else {
+    let protection_key = format!("capture-protection:{}", params.job_id);
+    match get_or_create_capture_salt(&state, &protection_key).await {
+      Ok(salt) => Some(salt),
+      Err(error) => {
+        error!("Failed to load capture protection salt: {error}");
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+          "error": "Capture protection metadata is unavailable"
+        }))).into_response();
+      }
     }
   };
   let mut saved = Vec::new();
@@ -1799,12 +1791,17 @@ pub async fn save_capture_to_huggingface_handler(
         "error": format!("Failed to create dataset folder: {error}")
       }))).into_response();
     }
-    match write_protected_capture_artifacts_to_directory(
-      std::slice::from_ref(artifact),
-      &directory,
-      &state.shared.encryption_key,
-      &salt,
-    ).await {
+    let write_result = if fido_vault {
+      copy_fido_vault_artifacts_to_directory(std::slice::from_ref(artifact), &directory).await
+    } else {
+      write_protected_capture_artifacts_to_directory(
+        std::slice::from_ref(artifact),
+        &directory,
+        &state.shared.encryption_key,
+        salt.as_ref().expect("standard capture salt"),
+      ).await
+    };
+    match write_result {
       Ok(paths) => saved.extend(paths.iter().map(|path| {
         path.strip_prefix(&repo_path).unwrap_or(path).to_string_lossy().to_string()
       })),
@@ -1844,14 +1841,24 @@ pub async fn save_capture_to_huggingface_handler(
         "error": format!("Failed to create dataset metadata folder: {error}")
       }))).into_response();
     }
-    let manifest = serde_json::json!({
-      "format": "n-apt-protected-capture-v1",
-      "jobId": params.job_id,
-      "section": section,
-      "files": saved,
-      "increasedProtection": true,
-      "saltKey": protection_key
-    });
+    let manifest = if fido_vault {
+      serde_json::json!({
+        "format": "n-apt-protected-capture-v1",
+        "jobId": params.job_id,
+        "section": section,
+        "files": saved,
+        "increasedProtection": false
+      })
+    } else {
+      serde_json::json!({
+        "format": "n-apt-protected-capture-v1",
+        "jobId": params.job_id,
+        "section": section,
+        "files": saved,
+        "increasedProtection": true,
+        "saltKey": format!("capture-protection:{}", params.job_id)
+      })
+    };
     let manifest_bytes = match serde_json::to_vec_pretty(&manifest) {
       Ok(bytes) => bytes,
       Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
@@ -1882,7 +1889,7 @@ pub async fn save_capture_to_huggingface_handler(
     "destination": "huggingface",
     "section": section,
     "split": params.split,
-    "increasedProtection": true,
+    "increasedProtection": !fido_vault,
     "files": saved
   })).into_response()
 }
@@ -2016,27 +2023,34 @@ pub async fn save_capture_to_aspect_handler(
       }))).into_response();
     }
   };
-  let protection_key = format!("capture-protection:{}", params.job_id);
-  let salt = match get_or_create_capture_salt(&state, &protection_key).await {
-    Ok(salt) => salt,
-    Err(error) => {
-      error!("Failed to load capture protection salt: {error}");
-      return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-        "error": "Capture protection metadata is unavailable"
-      }))).into_response();
-    }
+  let fido_vault = match artifacts_are_fido_vault(&artifacts).await {
+    Ok(value) => value,
+    Err(error) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("Invalid capture artifacts: {error}")}))).into_response(),
   };
-  match write_protected_capture_artifacts_to_directory(
-    &artifacts,
-    &aspect_path,
-    &state.shared.encryption_key,
-    &salt,
-  )
-  .await
-  {
+  let write_result = if fido_vault {
+    copy_fido_vault_artifacts_to_directory(&artifacts, &aspect_path).await
+  } else {
+    let protection_key = format!("capture-protection:{}", params.job_id);
+    let salt = match get_or_create_capture_salt(&state, &protection_key).await {
+      Ok(salt) => salt,
+      Err(error) => {
+        error!("Failed to load capture protection salt: {error}");
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+          "error": "Capture protection metadata is unavailable"
+        }))).into_response();
+      }
+    };
+    write_protected_capture_artifacts_to_directory(
+      &artifacts,
+      &aspect_path,
+      &state.shared.encryption_key,
+      &salt,
+    ).await
+  };
+  match write_result {
     Ok(saved) => Json(serde_json::json!({
       "destination": "aspect",
-      "increasedProtection": true,
+      "increasedProtection": !fido_vault,
       "files": saved.iter().filter_map(|path| path.file_name()).map(|name| name.to_string_lossy()).collect::<Vec<_>>()
     })).into_response(),
     Err(error) => {
@@ -2182,6 +2196,135 @@ async fn write_protected_capture_artifacts_to_directory(
         let _ = tokio::fs::remove_file(saved_path).await;
       }
       return Err(error);
+    }
+    saved.push(target);
+  }
+  Ok(saved)
+}
+
+async fn artifacts_are_fido_vault(
+  artifacts: &[crate::server::types::CaptureArtifact],
+) -> std::io::Result<bool> {
+  let mut found = None;
+  for artifact in artifacts {
+    let bytes = tokio::fs::read(&artifact.path).await?;
+    if !artifact.checksum.is_empty() {
+      let checksum = sha2::Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+      if checksum != artifact.checksum {
+        return Err(std::io::Error::new(
+          std::io::ErrorKind::InvalidData,
+          "capture checksum verification failed",
+        ));
+      }
+    }
+    // A job may include plaintext sidecars such as classifier annotations.
+    // Encryption mode is declared by each capture file, so do not compare JSON
+    // sidecars against the capture's mode.
+    let filename = artifact.filename.to_ascii_lowercase();
+    if !filename.ends_with(".iq") && !filename.ends_with(".napt") {
+      continue;
+    }
+    let invalid = |message: &str| {
+      std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+    };
+    let metadata: serde_json::Value = if filename.ends_with(".iq") {
+      if bytes.len() < 40 || &bytes[..8] != b"NAPT-IQ3" {
+        return Err(invalid("invalid IQ header"));
+      }
+      let length =
+        u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize;
+      let end = 40usize
+        .checked_add(length)
+        .ok_or_else(|| invalid("invalid IQ metadata length"))?;
+      serde_json::from_slice(
+        bytes
+          .get(40..end)
+          .ok_or_else(|| invalid("truncated IQ metadata"))?,
+      )
+      .map_err(|_| invalid("invalid IQ metadata"))?
+    } else {
+      let end = bytes
+        .iter()
+        .position(|b| *b == b'\n')
+        .ok_or_else(|| invalid("invalid NAPT header"))?;
+      let header: serde_json::Value = serde_json::from_slice(&bytes[..end])
+        .map_err(|_| invalid("invalid NAPT metadata"))?;
+      header.get("metadata").cloned().unwrap_or(header)
+    };
+    let is_fido = metadata["encryption"] == "AES-256-GCM-FIDO-VAULT-V1";
+    if is_fido {
+      let binary = &metadata["sections"]["binary"];
+      let offset = binary["offset_bytes"]
+        .as_u64()
+        .ok_or_else(|| invalid("missing binary offset"))?
+        as usize;
+      let length = binary["length_bytes"]
+        .as_u64()
+        .ok_or_else(|| invalid("missing binary length"))?
+        as usize;
+      let end = offset
+        .checked_add(length)
+        .filter(|end| *end <= bytes.len())
+        .ok_or_else(|| invalid("invalid binary range"))?;
+      if binary["encrypted"] != true
+        || metadata["encrypted"] != true
+        || length < 28
+        || (filename.ends_with(".iq") && bytes[32] != 1)
+        || metadata["vault_key_recovery"].is_null()
+        || (filename.ends_with(".napt") && !metadata["wrapped_dek"].is_string())
+      {
+        return Err(invalid("invalid FIDO encryption declaration"));
+      }
+      crate::crypto::verify_capture_integrity(&bytes, end)
+        .map_err(|e| invalid(&e))?;
+    }
+    if found.is_some_and(|previous| previous != is_fido) {
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "capture job mixes FIDO vault and standard encryption modes",
+      ));
+    }
+    found = Some(is_fido);
+  }
+  Ok(found.unwrap_or(false))
+}
+
+async fn copy_fido_vault_artifacts_to_directory(
+  artifacts: &[crate::server::types::CaptureArtifact],
+  destination: &Path,
+) -> std::io::Result<Vec<PathBuf>> {
+  if !tokio::fs::metadata(destination).await?.is_dir() {
+    return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "destination is not an available directory"));
+  }
+  let mut saved = Vec::with_capacity(artifacts.len());
+  for artifact in artifacts {
+    let filename = Path::new(&artifact.filename);
+    if artifact.filename.is_empty() || artifact.filename.contains(['/', '\\'])
+      || filename.components().count() != 1
+      || !matches!(filename.components().next(), Some(Component::Normal(_)))
+    {
+      return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "capture artifact contains an unsafe filename"));
+    }
+    let target = destination.join(filename);
+    let bytes = tokio::fs::read(&artifact.path).await?;
+    if !artifact.checksum.is_empty() {
+      let checksum = sha2::Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+      if checksum != artifact.checksum {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "capture checksum verification failed before copy"));
+      }
+    }
+    if tokio::fs::try_exists(&target).await? {
+      if tokio::fs::read(&target).await? != bytes {
+        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "FIDO capture destination contains different data"));
+      }
+    } else {
+      tokio::fs::write(&target, bytes).await?;
     }
     saved.push(target);
   }
@@ -3340,6 +3483,8 @@ async fn handle_start_capture(
     file_type: file_type.to_string(),
     acquisition_mode: acquisition_mode.to_string(),
     encrypted,
+    fido_vault: false,
+    session_token: None,
     sample_rate: None,
     fft_size,
     fft_window: fft_window.to_string(),
@@ -3856,5 +4001,45 @@ mod classifier_dataset_label_tests {
     assert!(csv.contains("capture_id,split,label,channel,features,tags,capture_file"));
     assert!(csv.contains("\"validation\",\"matching\",\"A\",\"bridge\",\"verified\""));
     assert_eq!(csv.lines().count(), 2);
+  }
+}
+
+#[cfg(test)]
+mod capture_export_integrity_tests {
+  use super::*;
+  #[tokio::test]
+  async fn labels_cannot_bypass_standard_export_protection() {
+    for encrypted in [false, true] {
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("capture.iq");
+      let mut metadata = crate::server::iq_format::IqMetadata::default();
+      metadata.fields.insert(
+        "capture_labels".into(),
+        serde_json::json!(["AES-256-GCM-FIDO-VAULT-V1"]),
+      );
+      let file = crate::server::iq_format::IqFile {
+        metadata,
+        private_metadata: None,
+        frames: vec![],
+        chunks: vec![],
+        trailer: None,
+      };
+      let bytes = crate::server::iq_format::encode(
+        &file,
+        if encrypted { Some(&[42; 32]) } else { None },
+      )
+      .unwrap();
+      tokio::fs::write(&path, &bytes).await.unwrap();
+      let artifact = crate::server::types::CaptureArtifact {
+        filename: "capture.iq".into(),
+        path,
+        file_size: bytes.len() as u64,
+        checksum: sha2::Sha256::digest(&bytes)
+          .iter()
+          .map(|b| format!("{b:02x}"))
+          .collect(),
+      };
+      assert!(!artifacts_are_fido_vault(&[artifact]).await.unwrap());
+    }
   }
 }

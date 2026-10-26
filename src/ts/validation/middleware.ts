@@ -148,12 +148,8 @@ export function validateWebSocketMessage(data: unknown): boolean {
       const messageData = data as { type: unknown };
       const messageType = messageData.type;
 
-      // Skip expensive validation for high-frequency messages and capture_status (temp fix)
-      if (
-        messageType === "spectrum" ||
-        messageType === "encrypted_spectrum" ||
-        messageType === "capture_status"
-      ) {
+      // Capture status remains a high-frequency control-plane update.
+      if (messageType === "capture_status") {
         return quickValidate(data, ["type"]);
       }
     }
@@ -185,7 +181,7 @@ export function validateCaptureStatus(data: unknown): boolean {
 // Authentication validation
 export function validateAuthInfo(
   data: unknown,
-): data is { has_passkeys: boolean } {
+): data is { has_passkeys: boolean; has_fido_security_key: boolean } {
   return measureValidationTime(() => {
     const result = AuthInfoSchema.safeParse(data);
 

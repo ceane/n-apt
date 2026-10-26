@@ -11,7 +11,8 @@ use crate::crypto;
 
 use crate::server::types::{
   AuthSessionRequest, AuthVerifyRequest, PasskeyAuthFinishRequest,
-  PasskeyRegisterFinishRequest,
+  PasskeyAuthStartRequest, PasskeyRegisterFinishRequest,
+  PasskeyRegisterStartRequest,
 };
 use uuid::Uuid;
 
@@ -74,8 +75,11 @@ pub async fn auth_info_handler(
   State(state): State<Arc<crate::server::AppState>>,
 ) -> impl IntoResponse {
   let has_passkeys = state.credential_store.has_passkeys().await;
+  let has_ordinary_passkeys = state.credential_store.has_ordinary_passkeys().await;
+  let has_fido_security_key = state.credential_store.has_fido_security_key().await;
   Json(serde_json::json!({
-    "has_passkeys": has_passkeys,
+    "has_passkeys": has_ordinary_passkeys || (!has_fido_security_key && has_passkeys),
+    "has_fido_security_key": has_fido_security_key,
   }))
 }
 
@@ -99,7 +103,131 @@ pub async fn auth_logout_handler(
     )
       .into_response();
   }
+  state.shared.fido_vault_keys.lock().unwrap().lock(&token);
   StatusCode::NO_CONTENT.into_response()
+}
+
+/// POST /auth/fido-vault/unlock — place an authenticated, client-unwrapped
+/// 256-bit vault key in backend memory for capture persistence.
+pub async fn fido_vault_unlock_handler(
+  State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
+  Json(body): Json<crate::server::types::FidoVaultUnlockRequest>,
+) -> impl IntoResponse {
+  let Some(token) = registration_session(&state, &headers).await else {
+    return (
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({"error":"authentication_required"})),
+    )
+      .into_response();
+  };
+  let Ok(bytes) = crypto::from_base64(&body.vault_key) else {
+    return StatusCode::BAD_REQUEST.into_response();
+  };
+  let key: [u8; 32] = match bytes.try_into() {
+    Ok(key) => key,
+    Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+  };
+  let key = zeroize::Zeroizing::new(key);
+  let wrappers = match state.credential_store.get_fido_vault().await {
+    Ok(Some(wrappers)) => wrappers,
+    _ => return StatusCode::CONFLICT.into_response(),
+  };
+  let password = zeroize::Zeroizing::new(
+    std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap_or_default(),
+  );
+  let expected = tokio::task::spawn_blocking(move || {
+    super::fido_vault::recover_key(&wrappers.recovery, &password)
+  })
+  .await;
+  let Ok(Ok(expected)) = expected else {
+    return (
+      StatusCode::CONFLICT,
+      Json(serde_json::json!({"error":"vault_recovery_unavailable"})),
+    )
+      .into_response();
+  };
+  let check =
+    crypto::compute_hmac(&expected, b"n-apt/vault-key-confirmation/v1");
+  if !crypto::verify_hmac(&key, b"n-apt/vault-key-confirmation/v1", &check) {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({"error":"vault_key_mismatch"})),
+    )
+      .into_response();
+  }
+  // PBKDF2 runs off the reactor; reject revocation that happened during it.
+  if !state.session_store.is_active(&token).await {
+    return StatusCode::UNAUTHORIZED.into_response();
+  }
+  let generation = state
+    .shared
+    .fido_vault_keys
+    .lock()
+    .unwrap()
+    .unlock(token.clone(), *key);
+  let shared = state.shared.clone();
+  let sessions = state.session_store.clone();
+  tokio::spawn(async move {
+    tokio::select! {
+      _ = sessions.wait_until_invalid(&token) => {},
+      _ = tokio::time::sleep(super::fido_vault::UNLOCK_TTL) => {},
+    }
+    shared
+      .fido_vault_keys
+      .lock()
+      .unwrap()
+      .lock_generation(&token, generation);
+  });
+  StatusCode::NO_CONTENT.into_response()
+}
+
+/// GET /auth/fido-vault/recovery-wrapper — return the password-wrapped VMK.
+pub async fn fido_vault_recovery_wrapper_handler(
+  State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
+) -> impl IntoResponse {
+  if registration_session(&state, &headers).await.is_none() {
+    return (
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({"error":"authentication_required"})),
+    )
+      .into_response();
+  }
+  match state.credential_store.get_fido_vault().await {
+    Ok(Some(wrappers)) => {
+      Json(serde_json::json!({"fido_vault_recovery": wrappers.recovery}))
+        .into_response()
+    }
+    Ok(None) => (
+      StatusCode::NOT_FOUND,
+      Json(serde_json::json!({"error":"fido_vault_not_configured"})),
+    )
+      .into_response(),
+    Err(error) => {
+      error!("Failed to load FIDO vault recovery wrapper: {error}");
+      StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+  }
+}
+
+/// GET /auth/fido-vault/status — report whether the local backend has an
+/// unwrapped vault key in memory for this authenticated session.
+pub async fn fido_vault_status_handler(
+  State(state): State<Arc<crate::server::AppState>>,
+  headers: HeaderMap,
+) -> impl IntoResponse {
+  let Some(token) = registration_session(&state, &headers).await else {
+    return StatusCode::UNAUTHORIZED.into_response();
+  };
+  let unlocked = state
+    .shared
+    .fido_vault_keys
+    .lock()
+    .unwrap()
+    .key(&token)
+    .is_some();
+  Json(serde_json::json!({"unlocked": unlocked})).into_response()
 }
 
 /// POST /auth/challenge — generate a nonce for password-based auth.
@@ -303,11 +431,26 @@ pub async fn auth_vault_key_handler(
 pub async fn passkey_register_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
   headers: HeaderMap,
+  Json(body): Json<PasskeyRegisterStartRequest>,
 ) -> impl IntoResponse {
   let Some(token) = registration_session(&state, &headers).await else {
-    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "authentication_required"})));
+    return (
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({"error": "authentication_required"})),
+    );
   };
   let user_unique_id = Uuid::new_v4();
+  if body.fido_security_key
+    && state.credential_store.has_fido_security_key().await
+  {
+    return (
+      StatusCode::CONFLICT,
+      Json(serde_json::json!({
+        "error": "fido_security_key_already_configured",
+        "message": "A FIDO security key is already enrolled",
+      })),
+    );
+  }
   let existing_keys = state.credential_store.get_passkeys().await;
   let exclude_credentials: Vec<CredentialID> =
     existing_keys.iter().map(|k| k.cred_id().clone()).collect();
@@ -326,13 +469,18 @@ pub async fn passkey_register_start_handler(
           .lock()
           .expect("passkey registration state poisoned"),
         challenge_id.clone(),
-        (token, reg_state),
+        (token, reg_state, body.fido_security_key),
       );
 
-      let ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
+      let mut ccr_json = serde_json::to_value(&ccr).unwrap_or_else(|e| {
         error!("Failed to serialize CCR: {}", e);
         serde_json::Value::Null
       });
+      if body.fido_security_key {
+        ccr_json["publicKey"]["authenticatorSelection"]["authenticatorAttachment"] =
+          serde_json::Value::String("cross-platform".to_string());
+        ccr_json["publicKey"]["hints"] = serde_json::json!(["security-key"]);
+      }
       info!(
         "Sending CCR to client: {}",
         serde_json::to_string_pretty(&ccr_json).unwrap_or_default()
@@ -366,19 +514,28 @@ pub async fn passkey_register_finish_handler(
   Json(body): Json<PasskeyRegisterFinishRequest>,
 ) -> impl IntoResponse {
   let Some(token) = registration_session(&state, &headers).await else {
-    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "authentication_required"})));
+    return (
+      StatusCode::UNAUTHORIZED,
+      Json(serde_json::json!({"error": "authentication_required"})),
+    );
   };
-  let reg_state: Option<PasskeyRegistration> = {
+  let reg_state: Option<(String, PasskeyRegistration, bool)> = {
     let mut pending = state
       .pending_passkey_registrations
       .lock()
       .expect("passkey registration state poisoned");
-    if pending.get(&body.challenge_id).is_some_and(|(_, (owner, _))| owner != &token) {
-      return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "registration_session_mismatch"})));
+    if pending
+      .get(&body.challenge_id)
+      .is_some_and(|(_, (owner, _, _))| owner != &token)
+    {
+      return (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({"error": "registration_session_mismatch"})),
+      );
     }
-    take_pending_passkey_state(&mut pending, &body.challenge_id).map(|(_, registration)| registration)
+    take_pending_passkey_state(&mut pending, &body.challenge_id)
   };
-  let Some(reg_state) = reg_state else {
+  let Some((_, reg_state, fido_security_key)) = reg_state else {
     return (
       StatusCode::BAD_REQUEST,
       Json(serde_json::json!({
@@ -387,18 +544,78 @@ pub async fn passkey_register_finish_handler(
     );
   };
 
+  if body.fido_security_key != fido_security_key
+    || body.fido_vault.is_some() != fido_security_key
+  {
+    return (
+      StatusCode::BAD_REQUEST,
+      Json(serde_json::json!({
+        "error": "registration_mode_mismatch",
+        "message": "FIDO security-key enrollment requires its own vault wrapper",
+      })),
+    );
+  }
+
   match state
     .webauthn
     .finish_passkey_registration(&body.credential, &reg_state)
   {
     Ok(passkey) => {
-      if let Err(e) = state.credential_store.add_passkey(passkey).await {
-        error!("Failed to store passkey: {}", e);
+      let result = if let Some(wrappers) = body.fido_vault {
+        if !super::fido_vault::validate_wrapper(&wrappers.fido)
+          || !super::fido_vault::validate_wrapper(&wrappers.recovery)
+        {
+          return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":"invalid_vault_wrapper"})),
+          );
+        }
+        let recovery = wrappers.recovery.clone();
+        let password = zeroize::Zeroizing::new(
+          std::env::var("UNSAFE_LOCAL_USER_PASSWORD").unwrap_or_default(),
+        );
+        if !matches!(
+          tokio::task::spawn_blocking(move || super::fido_vault::recover_key(
+            &recovery, &password
+          ))
+          .await,
+          Ok(Ok(_))
+        ) {
+          return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":"invalid_vault_recovery"})),
+          );
+        }
+        if !state.session_store.is_active(&token).await {
+          return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error":"authentication_required"})),
+          );
+        }
+        let recovery = serde_json::to_value(&wrappers.recovery).ok();
+        let result = state
+          .credential_store
+          .enroll_fido_vault(passkey, wrappers)
+          .await;
+        if result.is_ok() {
+          *state.shared.fido_vault_recovery_wrapper.lock().unwrap() = recovery;
+        }
+        result
+      } else {
+        state.credential_store.add_passkey(passkey).await
+      };
+      if let Err(error) = result {
+        let status = if error == "fido_security_key_already_configured"
+          || error == "fido_vault_recovery_mismatch"
+        {
+          StatusCode::CONFLICT
+        } else {
+          StatusCode::INTERNAL_SERVER_ERROR
+        };
+        error!("Failed to store credential: {error}");
         return (
-          StatusCode::INTERNAL_SERVER_ERROR,
-          Json(serde_json::json!({
-            "error": "storage_error",
-          })),
+          status,
+          Json(serde_json::json!({"error":"credential_enrollment_failed"})),
         );
       }
       info!("Passkey registered successfully");
@@ -422,8 +639,15 @@ pub async fn passkey_register_finish_handler(
   }
 }
 
-async fn registration_session(state: &crate::server::AppState, headers: &HeaderMap) -> Option<String> {
-  let token = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ")?;
+async fn registration_session(
+  state: &crate::server::AppState,
+  headers: &HeaderMap,
+) -> Option<String> {
+  let token = headers
+    .get(axum::http::header::AUTHORIZATION)?
+    .to_str()
+    .ok()?
+    .strip_prefix("Bearer ")?;
   state.session_store.validate(token).await?;
   Some(token.to_owned())
 }
@@ -431,8 +655,13 @@ async fn registration_session(state: &crate::server::AppState, headers: &HeaderM
 /// POST /auth/passkey/auth/start — begin passkey authentication.
 pub async fn passkey_auth_start_handler(
   State(state): State<Arc<crate::server::AppState>>,
+  Json(body): Json<PasskeyAuthStartRequest>,
 ) -> impl IntoResponse {
-  let existing_keys = state.credential_store.get_passkeys().await;
+  let existing_keys = if body.fido_security_key {
+    state.credential_store.get_fido_security_key_passkeys().await
+  } else {
+    state.credential_store.get_ordinary_passkeys().await
+  };
   if existing_keys.is_empty() {
     return (
       StatusCode::BAD_REQUEST,
@@ -452,14 +681,29 @@ pub async fn passkey_auth_start_handler(
           .lock()
           .expect("passkey auth state poisoned"),
         challenge_id.clone(),
-        auth_state,
+        (auth_state, body.fido_security_key),
       );
 
+      let fido_vault = match state.credential_store.get_fido_vault().await {
+        Ok(wrappers) if body.fido_security_key => {
+          wrappers.map(|wrappers| wrappers.fido)
+        }
+        Ok(_) => None,
+        Err(error) => {
+          error!("Failed to load FIDO vault wrapper: {error}");
+          None
+        }
+      };
+      let mut options = serde_json::to_value(&rcr).unwrap_or(serde_json::Value::Null);
+      if body.fido_security_key {
+        options["publicKey"]["hints"] = serde_json::json!(["security-key"]);
+      }
       (
         StatusCode::OK,
         Json(serde_json::json!({
           "challenge_id": challenge_id,
-          "options": rcr,
+          "options": options,
+          "fido_vault": fido_vault,
         })),
       )
     }
@@ -481,14 +725,14 @@ pub async fn passkey_auth_finish_handler(
   State(state): State<Arc<crate::server::AppState>>,
   Json(body): Json<PasskeyAuthFinishRequest>,
 ) -> impl IntoResponse {
-  let auth_state: Option<PasskeyAuthentication> = {
+  let auth_state: Option<(PasskeyAuthentication, bool)> = {
     let mut pending = state
       .pending_passkey_authentications
       .lock()
       .expect("passkey auth state poisoned");
     take_pending_passkey_state(&mut pending, &body.challenge_id)
   };
-  let Some(auth_state) = auth_state else {
+  let Some((auth_state, fido_security_key)) = auth_state else {
     return (
       StatusCode::BAD_REQUEST,
       Json(serde_json::json!({
@@ -501,7 +745,22 @@ pub async fn passkey_auth_finish_handler(
     .webauthn
     .finish_passkey_authentication(&body.credential, &auth_state)
   {
-    Ok(_auth_result) => {
+    Ok(auth_result) => {
+      if fido_security_key {
+        let fido_keys = state
+          .credential_store
+          .get_fido_security_key_passkeys()
+          .await;
+        if !fido_keys
+          .iter()
+          .any(|key| key.cred_id() == auth_result.cred_id())
+        {
+          return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error":"auth_failed"})),
+          );
+        }
+      }
       // Authentication successful — create session with a unique key
       let session_key = crate::crypto::generate_nonce();
       let token = match state.session_store.create_session(session_key).await {
@@ -519,11 +778,23 @@ pub async fn passkey_auth_finish_handler(
       };
       info!("Passkey authentication successful, session created");
 
+      let fido_vault = match state.credential_store.get_fido_vault().await {
+        Ok(wrappers) if fido_security_key => {
+          wrappers.map(|wrappers| wrappers.fido)
+        }
+        Ok(_) => None,
+        Err(error) => {
+          error!("Failed to load FIDO vault wrapper: {error}");
+          None
+        }
+      };
+
       (
         StatusCode::OK,
         Json(serde_json::json!({
           "token": token,
           "expires_in": crate::session::SESSION_TTL_SECS,
+          "fido_vault": fido_vault,
         })),
       )
     }

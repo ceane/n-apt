@@ -21,6 +21,9 @@ fn capture(file_type: &str, encrypted: bool, case: &str) -> CaptureResult {
     acquisition_mode: "whole_sample".to_string(),
     duration_mode: "timed".to_string(),
     encrypted,
+    fido_vault: false,
+    vault_key: None,
+    vault_key_recovery: None,
     fft_size: 4,
     duration_s: 1.0,
     actual_frame_count: 1,
@@ -54,6 +57,162 @@ fn capture(file_type: &str, encrypted: bool, case: &str) -> CaptureResult {
     }],
     device_profile: Some(serde_json::json!({ "kind": "Acceptance SDR" })),
   }
+}
+
+#[test]
+fn backend_fido_vault_capture_writes_cross_language_playback_fixtures() {
+  let vault_key = crypto::derive_key("fido-vault-cross-language-key");
+  let recovery_wrapper = serde_json::json!({
+    "format": "AES-256-GCM-RECOVERY-V1",
+    "salt": "c2FsdA==",
+    "nonce": "bm9uY2U=",
+    "ciphertext": "Y2lwaGVydGV4dA=="
+  });
+  let mut napt = capture(".napt", true, "fido_cross_language_napt");
+  napt.fido_vault = true;
+  napt.vault_key = Some(vault_key);
+  napt.vault_key_recovery = Some(recovery_wrapper.clone());
+  napt.fft_size = 2;
+  napt.channels[0].bins_per_frame = 2;
+  napt.channels[0].iq_data = vec![128; 600 * 4];
+  napt.actual_frame_count = 600;
+  napt.frame_updates = (0..600)
+    .map(|frame| iq_format::FrameUpdate {
+      sample_offset: frame * 4,
+      timestamp_us: (frame + 1) * 1_000,
+      channel: None,
+      kind: Some("Frame".to_string()),
+      frame_sequence: Some(frame),
+      source_id: None,
+      job_id: None,
+      patch: serde_json::json!({}),
+    })
+    .collect();
+
+  let mut iq = capture(".iq", true, "fido_cross_language_iq");
+  iq.fido_vault = true;
+  iq.vault_key = Some(vault_key);
+  iq.vault_key_recovery = Some(recovery_wrapper);
+  iq.fft_size = 2;
+  iq.channels[0].bins_per_frame = 2;
+  iq.channels[0].iq_data =
+    vec![128, 127, 129, 126, 130, 125, 131, 124, 132, 123, 133, 122];
+  iq.actual_frame_count = 3;
+  iq.frame_updates = (0..3)
+    .map(|frame| iq_format::FrameUpdate {
+      sample_offset: frame * 4,
+      timestamp_us: (frame + 1) * 1_000,
+      channel: None,
+      kind: Some("Frame".to_string()),
+      frame_sequence: Some(frame),
+      source_id: None,
+      job_id: None,
+      patch: serde_json::json!({}),
+    })
+    .collect();
+
+  let Some(napt_path) =
+    std::env::var_os("NAPT_FIDO_NAPT_CROSS_LANGUAGE_FIXTURE")
+  else {
+    panic!("NAPT_FIDO_NAPT_CROSS_LANGUAGE_FIXTURE must be set by the integration harness");
+  };
+  let Some(iq_path) = std::env::var_os("NAPT_FIDO_IQ_CROSS_LANGUAGE_FIXTURE")
+  else {
+    panic!("NAPT_FIDO_IQ_CROSS_LANGUAGE_FIXTURE must be set by the integration harness");
+  };
+
+  let napt_artifact =
+    save_capture_file_multi(&napt, &vault_key).expect("write FIDO NAPT");
+  let napt_bytes =
+    fs::read(&napt_artifact.path).expect("read backend FIDO NAPT");
+  let napt_header = napt_header(&napt_bytes);
+  assert_eq!(
+    napt_header["metadata"]["encryption"],
+    "AES-256-GCM-FIDO-VAULT-V1"
+  );
+  assert_eq!(
+    napt_header["metadata"]["center_frequency_hz"],
+    137_500_000.0
+  );
+  assert!(
+    napt_bytes.len() > 8192,
+    "FIDO frame metadata should enlarge the public header"
+  );
+  fs::write(napt_path, napt_bytes).expect("write cross-language NAPT fixture");
+  fs::remove_file(napt_artifact.path).expect("remove temporary NAPT artifact");
+
+  let iq_artifact =
+    save_capture_file_multi(&iq, &vault_key).expect("write FIDO IQ");
+  let iq_bytes = fs::read(&iq_artifact.path).expect("read backend FIDO IQ");
+  let decoded_iq = iq_format::decode(&iq_bytes, Some(&vault_key))
+    .expect("decrypt backend FIDO IQ");
+  assert_eq!(
+    decoded_iq.metadata.fields["encryption"],
+    "AES-256-GCM-FIDO-VAULT-V1"
+  );
+  assert_eq!(decoded_iq.chunks[0].data, iq.channels[0].iq_data);
+  fs::write(iq_path, iq_bytes).expect("write cross-language IQ fixture");
+  fs::remove_file(iq_artifact.path).expect("remove temporary IQ artifact");
+}
+
+#[test]
+fn backend_wav_capture_writes_cross_language_playback_fixture() {
+  let Some(wav_path) = std::env::var_os("NAPT_WAV_CROSS_LANGUAGE_FIXTURE")
+  else {
+    panic!(
+      "NAPT_WAV_CROSS_LANGUAGE_FIXTURE must be set by the integration harness"
+    );
+  };
+  let mut wav = capture(".wav", false, "wav_cross_language");
+  wav.channels[0].iq_data =
+    vec![128, 127, 129, 126, 130, 125, 131, 124, 132, 123, 133, 122];
+  wav.fft_size = 2;
+  wav.channels[0].bins_per_frame = 2;
+  wav.actual_frame_count = 3;
+  wav.frame_updates = (0..3)
+    .map(|frame| iq_format::FrameUpdate {
+      sample_offset: frame * 4,
+      timestamp_us: (frame + 1) * 1_000,
+      channel: None,
+      kind: Some("Frame".to_string()),
+      frame_sequence: Some(frame),
+      source_id: None,
+      job_id: None,
+      patch: serde_json::json!({}),
+    })
+    .collect();
+
+  let artifact =
+    save_capture_file_multi(&wav, &key()).expect("write backend WAV");
+  let bytes = fs::read(&artifact.path).expect("read backend WAV");
+  assert_eq!(&bytes[..4], b"RIFF");
+  assert_eq!(&bytes[8..12], b"WAVE");
+  let metadata_marker = bytes
+    .windows(4)
+    .position(|chunk| chunk == b"nAPT")
+    .expect("WAV metadata chunk");
+  let metadata_length = u32::from_le_bytes(
+    bytes[metadata_marker + 4..metadata_marker + 8]
+      .try_into()
+      .expect("WAV metadata size"),
+  ) as usize;
+  let metadata_bytes =
+    &bytes[metadata_marker + 8..metadata_marker + 8 + metadata_length];
+  let metadata_end = metadata_bytes
+    .iter()
+    .position(|byte| *byte == 0)
+    .unwrap_or(metadata_bytes.len());
+  let metadata: Value = serde_json::from_slice(&metadata_bytes[..metadata_end])
+    .expect("WAV metadata JSON");
+  assert_eq!(metadata["format"], "wav");
+  assert_eq!(metadata["encrypted"], false);
+  assert_eq!(metadata["center_frequency_hz"], 137_500_000.0);
+  assert_eq!(
+    metadata["frame_updates"],
+    serde_json::json!(wav.frame_updates)
+  );
+  fs::write(wav_path, bytes).expect("write cross-language WAV fixture");
+  fs::remove_file(artifact.path).expect("remove temporary WAV artifact");
 }
 
 fn key() -> [u8; 32] {
@@ -283,4 +442,49 @@ fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
       .expect("export backend V6 IQ for frontend test");
   }
   fs::remove_file(artifact.path).expect("remove backend writer artifact");
+}
+
+
+#[test]
+fn backend_fido_files_use_stable_vault_key_and_fail_closed() {
+  use n_apt_backend::authentication::fido_vault::VaultSessions;
+  let vault_key = [73u8; 32];
+  let unrelated_server_key = [91u8; 32];
+  let mut leases = VaultSessions::default();
+  leases.unlock("capture-session".into(), vault_key);
+  for extension in [".iq", ".napt"] {
+    let mut input = capture(extension, true, &format!("fido_stable_{}", &extension[1..]));
+    input.fido_vault = true;
+    input.vault_key = leases.key("capture-session");
+    input.vault_key_recovery = Some(serde_json::json!({"recovery":"retained envelope"}));
+    // A capture owns its snapshot; a lock must not interrupt persistence.
+    leases.lock("capture-session");
+    let artifact = save_capture_file_multi(&input, &unrelated_server_key).unwrap();
+    let bytes = fs::read(&artifact.path).unwrap();
+    if extension == ".iq" {
+      assert!(iq_format::decode(&bytes, Some(&unrelated_server_key)).is_err());
+      let decoded = iq_format::decode(&bytes, Some(&vault_key)).unwrap();
+      assert_eq!(decoded.chunks[0].data, input.channels[0].iq_data);
+    } else {
+      let header = napt_header(&bytes);
+      let metadata = &header["metadata"];
+      let wrapped = crypto::from_base64(metadata["wrapped_dek"].as_str().unwrap()).unwrap();
+      assert!(crypto::decrypt_payload_binary(&unrelated_server_key, &wrapped).is_err());
+      let dek = crypto::decrypt_payload_binary(&vault_key, &wrapped).unwrap();
+      let dek: [u8;32] = dek.try_into().unwrap();
+      let offset = metadata["sections"]["binary"]["offset_bytes"].as_u64().unwrap() as usize;
+      let length = metadata["sections"]["binary"]["length_bytes"].as_u64().unwrap() as usize;
+      assert_eq!(crypto::decrypt_payload_binary_aad(&dek, &bytes[offset..offset+length], &crypto::capture_aad(&bytes,offset,length).unwrap()).unwrap(), input.channels[0].iq_data);
+    }
+    fs::remove_file(artifact.path).unwrap();
+    input.vault_key = None;
+    assert!(save_capture_file_multi(&input, &unrelated_server_key).is_err());
+    input.vault_key = Some(vault_key);
+    input.encrypted = false;
+    assert!(save_capture_file_multi(&input, &unrelated_server_key).is_err());
+    input.encrypted = true;
+    input.vault_key_recovery = None;
+    assert!(save_capture_file_multi(&input, &unrelated_server_key).is_err());
+    leases.unlock("capture-session".into(), vault_key);
+  }
 }

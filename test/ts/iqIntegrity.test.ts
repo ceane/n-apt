@@ -4,50 +4,45 @@ import {
   verifyStampedIntegrity,
 } from "@n-apt/webusb/iqIntegrity";
 
-describe("NAPT V6 integrity stamping", () => {
-  it("stamps and verifies the complete placeholder-form file", async () => {
-    const bytes = new TextEncoder().encode(
-      `header trailer {"digest":"${integrityPlaceholder()}"}`,
-    );
-    const stamped = await stampIntegrity(bytes);
-    const digest = new TextDecoder().decode(stamped).match(/[0-9a-f]{64}/)?.[0];
-
-    expect(digest).toMatch(/^[0-9a-f]{64}$/);
-    await expect(verifyStampedIntegrity(stamped, digest!)).resolves.toBe(true);
-  });
-
-  it("rejects a file changed after stamping", async () => {
-    const stamped = await stampIntegrity(
-      new TextEncoder().encode(`x ${integrityPlaceholder()} y`),
-    );
-    const digest = new TextDecoder().decode(stamped).match(/[0-9a-f]{64}/)?.[0];
-    stamped[0] ^= 1;
-
-    await expect(verifyStampedIntegrity(stamped, digest!)).resolves.toBe(false);
-  });
-
-  it("does not mutate Buffer-backed capture bytes while verifying", async () => {
-    const stamped = await stampIntegrity(
-      new TextEncoder().encode(`x ${integrityPlaceholder()} y`),
-    );
-    const digest = new TextDecoder().decode(stamped).match(/[0-9a-f]{64}/)?.[0];
-    const buffered = Buffer.from(stamped);
-    const original = Buffer.from(buffered);
-
-    const isValid = await verifyStampedIntegrity(buffered, digest!);
-    expect(buffered).toEqual(original);
-    expect(isValid).toBe(true);
-  });
-
-  it("stamps Buffer-backed files without changing the input buffer", async () => {
-    const input = Buffer.from(`header ${integrityPlaceholder()} trailer`);
+const fixture = (): Uint8Array => {
+  const json = new TextEncoder().encode(
+    JSON.stringify({
+      integrity: {
+        algorithm: "SHA-256",
+        scope: "file-with-integrity-digest-placeholder",
+        digest: integrityPlaceholder(),
+      },
+    }),
+  );
+  const bytes = new Uint8Array(80 + 24 + json.length);
+  // A checksum-looking metadata value must never receive the stamp.
+  bytes.set(new TextEncoder().encode("0".repeat(64)));
+  bytes.set(new TextEncoder().encode("NAPTTRLR"), 80);
+  bytes[88] = 2;
+  new DataView(bytes.buffer).setBigUint64(96, BigInt(json.length), true);
+  bytes.set(json, 104);
+  return bytes;
+};
+const digestOf = (bytes: Uint8Array) =>
+  JSON.parse(new TextDecoder().decode(bytes.subarray(104))).integrity.digest;
+describe("capture integrity", () => {
+  it("stamps only the trailer and verifies without mutating Buffer inputs", async () => {
+    const input = Buffer.from(fixture());
     const original = Buffer.from(input);
-
     const stamped = await stampIntegrity(input);
-    const digest = new TextDecoder().decode(stamped).match(/[0-9a-f]{64}/)?.[0];
-
     expect(input).toEqual(original);
-    expect(digest).toMatch(/^[0-9a-f]{64}$/);
-    await expect(verifyStampedIntegrity(stamped, digest!)).resolves.toBe(true);
+    expect(stamped.slice(0, 64)).toEqual(new Uint8Array(64).fill(48));
+    const buffer = Buffer.from(stamped);
+    const copy = Buffer.from(buffer);
+    await expect(
+      verifyStampedIntegrity(buffer, digestOf(stamped)),
+    ).resolves.toBe(true);
+    expect(buffer).toEqual(copy);
+  });
+  it("rejects alterations anywhere in the file", async () => {
+    const stamped = await stampIntegrity(fixture());
+    const digest = digestOf(stamped);
+    stamped[0] ^= 1;
+    await expect(verifyStampedIntegrity(stamped, digest)).resolves.toBe(false);
   });
 });

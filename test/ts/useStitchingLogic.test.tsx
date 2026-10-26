@@ -109,3 +109,33 @@ describe("useStitchingLogic cached restoration", () => {
     expect(onChannelsChange).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useStitchingLogic automatic processing", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("coalesces file-selection and auto-process triggers for the same file", async () => {
+    const emptyProps: typeof props = { ...props, selectedFiles: [], stitchTrigger: 0 };
+    const nextProps = { ...props, stitchTrigger: 1 };
+
+    function Stitcher({
+      selectedFiles,
+      stitchTrigger,
+    }: typeof emptyProps) {
+      useStitchingLogic({
+        ...props,
+        selectedFiles,
+        stitchTrigger,
+      });
+      return null;
+    }
+
+    const { rerender } = render(<Stitcher {...emptyProps} />);
+    await act(async () => {
+      rerender(<Stitcher {...nextProps} />);
+    });
+
+    expect(fileWorkerManager.stitchFiles).toHaveBeenCalledTimes(1);
+  });
+});

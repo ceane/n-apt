@@ -106,10 +106,15 @@ signals:
       # Maximum logical spectrum update rate exposed to the frontend.
       max_frame_rate: 60
 
-    # Center frequency for SDR
-    center_frequency: !frequency 1.6MHz  # center of the sample rate
+    # Center frequency of the captured window; sample_rate sets its width.
+    center_frequency: !frequency 1.6MHz
     
-    # SDR gain settings
+    # AGC made signals visible in observed runs, but its changing gain can
+    # shift the displayed noise floor and make the same signal look different
+    # at an unchanged center frequency and sample rate. Manual gain is used for
+    # repeatable spectrum views. Some devices need near-maximum manual gain to
+    # show signals, including strong FM; high gain can also raise noise or
+    # overload the receiver.
     gain:
       # Tuner gain in dB
       tuner_gain: !dB 46.9dB
@@ -126,7 +131,9 @@ signals:
       # HackRF baseband filter bandwidth
       tuner_bandwidth: 3200000
     
-    # Frequency correction
+    # In observed runs, N-APT comb spikes appear with PPM set to 1.0 or higher
+    # and are absent when PPM correction is disabled. The correction shifts the
+    # tuned frequency; the reason it affects spike visibility is not yet clear.
     ppm: 1.0
     
     # Display settings
@@ -162,6 +169,15 @@ signals:
       mock_apt:
         duplex_mode: "Simplex"
         max_sample_rate: !frequency 20MHz
+        # The app enforces a 3.2 MHz minimum receive sample rate for N-APT,
+        # even though the hardware supports lower rates. Nyquist limits the
+        # signal bandwidth that can be captured: real baseband sampling needs
+        # a sample rate of at least 2 × signal_bandwidth. A narrower span can
+        # omit features such as N-APT comb spikes, and a wideband signal can fall
+        # entirely outside it. Signals beyond the Nyquist limit can alias into
+        # the sample window, appearing distorted or folded near its edges.
+        # Channel C spans 18.25 MHz (4.75–23 MHz), far wider than this floor,
+        # so 3.2 MHz cannot capture it all at once.
         sample_rate: !floor...!channel
         gain_limits:
           min: 0.0

@@ -25,6 +25,7 @@ mod failure_tests {
       file_type: ".napt".to_string(),
       acquisition_mode: "stepwise".to_string(),
       encrypted: false,
+      fido_vault: false,
       fft_size: 1024,
       fft_window: "Rectangular".to_string(),
       geolocation: None,

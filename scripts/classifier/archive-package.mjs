@@ -18,6 +18,7 @@ import {
   getOrCreateCaptureProtectionSalt,
   loadCaptureProtectionSalt,
   loadIqCaptureKey,
+  unwrapVaultRecoveryWrapper,
 } from "./crypto.mjs";
 import { createCapturePackage, readCapturePackage } from "./capturePackage.mjs";
 
@@ -230,7 +231,7 @@ export async function archiveCapturePackage({
   captureSaltProvider,
 } = {}) {
   if (!packagePath || !split) throw new Error("archive requires --package and --split");
-  const capture = await readCapturePackage(packagePath);
+  const capture = await readCapturePackage(packagePath, { envFile });
   if (!["iq", "napt"].includes(capture.format) || capture.metadata?.format_version !== 6) {
     throw new Error("Only verified V6 .iq or .napt Data Packages can be archived for classification");
   }
@@ -263,7 +264,7 @@ export async function archiveCapturePackage({
     if (archive.split !== split || archive.label !== label || archive.sessionId !== capture.labels.sessionId) {
       throw new Error("This source capture is already archived with a different split, session, or label; refusing to create a cross-split duplicate");
     }
-    const existingPackage = await readCapturePackage(existingArchive.packagePath);
+    const existingPackage = await readCapturePackage(existingArchive.packagePath, { envFile });
     if (archive.captureId !== existingPackage.captureId) {
       throw new Error("Archived Data Package checksum metadata does not match its capture");
     }
@@ -288,31 +289,58 @@ export async function archiveCapturePackage({
   let archivedBytes = capture.captureBytes;
   let archiveEncryption = encrypted ? "pre-encrypted" : "none";
   let saltKey;
+  const fidoVaultEncryption = "AES-256-GCM-FIDO-VAULT-V1";
+  const vaultKeyRecovery = capture.archive?.vaultKeyRecovery ??
+    capture.metadata?.vault_key_recovery;
+  const isFidoVaultCapture = capture.archive?.encryption === fidoVaultEncryption ||
+    capture.metadata?.encryption === fidoVaultEncryption ||
+    vaultKeyRecovery?.format === "n-apt-vault-key-wrapper-v1";
   if (capture.format === "iq") {
-    saltKey = `capture-protection:${sourceCaptureId}`;
-    const salt = captureSaltProvider
-      ? Buffer.from(await captureSaltProvider(sourceCaptureId))
-      : capture.archive?.encryption === "AES-256-GCM-REDIS-SALT-V1"
-        ? await loadCaptureProtectionSalt(sourceCaptureId, { envFile })
-        : await getOrCreateCaptureProtectionSalt(sourceCaptureId, { envFile });
-    if (salt.length !== 32) throw new Error("Capture salt provider must return exactly 32 bytes");
-    const vaultKey = await loadIqCaptureKey({ envFile });
-    const captureKey = deriveCaptureProtectionKey(vaultKey, salt);
-    try {
-      if (capture.archive?.encryption === "AES-256-GCM-REDIS-SALT-V1") {
-        const verified = decryptIqCapturePayload(capture.captureBytes, captureKey);
-        if (!verified.length) throw new Error("Encrypted archive has an empty IQ payload");
-      } else if (encrypted) {
-        archivedBytes = rewrapIqCapturePayload(capture.captureBytes, vaultKey, captureKey);
-      } else {
-        archivedBytes = encryptIqCaptureBytes(capture.captureBytes, captureKey);
+    if (isFidoVaultCapture) {
+      if (!encrypted || vaultKeyRecovery?.format !== "n-apt-vault-key-wrapper-v1") {
+        throw new Error("FIDO vault capture is missing valid encrypted recovery metadata");
       }
-    } finally {
-      vaultKey.fill(0);
-      captureKey.fill(0);
-      salt.fill(0);
+      const vaultKey = await unwrapVaultRecoveryWrapper(vaultKeyRecovery, { envFile });
+      try {
+        const verified = decryptIqCapturePayload(capture.captureBytes, vaultKey);
+        if (!verified.length) throw new Error("FIDO vault capture has an empty IQ payload");
+      } finally {
+        vaultKey.fill(0);
+      }
+      archiveEncryption = "AES-256-GCM-FIDO-VAULT-V1";
+    } else {
+      saltKey = `capture-protection:${sourceCaptureId}`;
+      const salt = captureSaltProvider
+        ? Buffer.from(await captureSaltProvider(sourceCaptureId))
+        : capture.archive?.encryption === "AES-256-GCM-REDIS-SALT-V1"
+          ? await loadCaptureProtectionSalt(sourceCaptureId, { envFile })
+          : await getOrCreateCaptureProtectionSalt(sourceCaptureId, { envFile });
+      if (salt.length !== 32) throw new Error("Capture salt provider must return exactly 32 bytes");
+      const vaultKey = await loadIqCaptureKey({ envFile });
+      const captureKey = deriveCaptureProtectionKey(vaultKey, salt);
+      try {
+        if (capture.archive?.encryption === "AES-256-GCM-REDIS-SALT-V1") {
+          const verified = decryptIqCapturePayload(capture.captureBytes, captureKey);
+          if (!verified.length) throw new Error("Encrypted archive has an empty IQ payload");
+        } else if (encrypted) {
+          archivedBytes = rewrapIqCapturePayload(capture.captureBytes, vaultKey, captureKey);
+        } else {
+          archivedBytes = encryptIqCaptureBytes(capture.captureBytes, captureKey);
+        }
+      } finally {
+        vaultKey.fill(0);
+        captureKey.fill(0);
+        salt.fill(0);
+      }
+      archiveEncryption = "AES-256-GCM-REDIS-SALT-V1";
     }
-    archiveEncryption = "AES-256-GCM-REDIS-SALT-V1";
+  } else if (capture.format === "napt" && isFidoVaultCapture) {
+    if (!encrypted || !capture.decryptedNaptPayload?.length) {
+      throw new Error("FIDO vault .napt capture is missing valid encrypted payload or recovery metadata");
+    }
+    // Keep the capture bytes unchanged and preserve the recovery wrapper in
+    // the package metadata; FIDO captures do not receive a Redis salt.
+    archiveEncryption = fidoVaultEncryption;
   }
   const captureId = capture.format !== "iq" ? sourceCaptureId : (() => {
     const metadataLength = Number(archivedBytes.readBigUInt64LE(8));
@@ -353,6 +381,7 @@ export async function archiveCapturePackage({
       sessionId: capture.labels.sessionId,
       encryption: archiveEncryption,
       ...(saltKey ? { saltKey } : {}),
+      ...(isFidoVaultCapture ? { vaultKeyRecovery } : {}),
     };
     await writeFile(descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`);
     await rename(stagingPackagePath, finalPackagePath);
@@ -361,7 +390,7 @@ export async function archiveCapturePackage({
     await rm(stagingRoot, { recursive: true, force: true });
   }
 
-  const archivedCapture = await readCapturePackage(finalPackagePath);
+  const archivedCapture = await readCapturePackage(finalPackagePath, { envFile });
   if (archivedCapture.captureId !== captureId) {
     throw new Error("Archived Data Package checksum does not match the encrypted capture");
   }

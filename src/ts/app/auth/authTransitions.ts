@@ -11,7 +11,9 @@ export interface AuthenticationState {
   authError: string | null;
   sessionToken: string | null;
   aesKey: CryptoKey | null;
+  fidoVaultUnlocked: boolean;
   hasPasskeys: boolean;
+  hasFidoSecurityKey: boolean;
   isInitialAuthCheck: boolean;
 }
 
@@ -21,7 +23,9 @@ export type AuthAction =
   | { type: "AUTH_FAILED"; error: string }
   | { type: "SERVER_DOWN" }
   | { type: "READY"; hasPasskeys?: boolean }
+  | { type: "FIDO_KEY_STATUS"; hasFidoSecurityKey: boolean }
   | { type: "SET_PASSKEYS"; hasPasskeys: boolean }
+  | { type: "FIDO_VAULT_UNLOCKED"; unlocked: boolean }
   | { type: "REGISTER_SUCCESS"; hasPasskeys: boolean };
 
 interface AuthTransitionPolicy {
@@ -45,7 +49,7 @@ export function getAuthTransition(
 ): Partial<AuthenticationState> {
   switch (action.type) {
     case "AUTHENTICATING":
-      return { authState: "authenticating", authError: null };
+      return { authState: "authenticating", authError: null, fidoVaultUnlocked: false };
     case "AUTH_SUCCESS":
       return {
         sessionToken: action.sessionToken,
@@ -81,6 +85,10 @@ export function getAuthTransition(
       };
     case "SET_PASSKEYS":
       return { hasPasskeys: action.hasPasskeys };
+    case "FIDO_KEY_STATUS":
+      return { hasFidoSecurityKey: action.hasFidoSecurityKey };
+    case "FIDO_VAULT_UNLOCKED":
+      return { fidoVaultUnlocked: action.unlocked };
     case "REGISTER_SUCCESS":
       return { hasPasskeys: action.hasPasskeys, authState: "ready" };
   }

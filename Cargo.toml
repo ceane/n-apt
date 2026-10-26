@@ -178,11 +178,12 @@ futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 # Encryption: AES-256-GCM for payload encryption, HMAC/PBKDF2 for auth
 aes-gcm = "0.11"
+zeroize = "1.8"
 hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
 base64 = "0.23"
-zip = { version = "8", default-features = false }
+zip = { version = "9", default-features = false }
 # HTTP client for CoreML service communication
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)

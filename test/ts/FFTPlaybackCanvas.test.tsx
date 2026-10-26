@@ -31,6 +31,10 @@ jest.mock("@n-apt/capture/public/useSnapshot", () => ({
   useSnapshot: () => ({ handleSnapshot: jest.fn() }),
 }));
 
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
+  useAuthentication: () => ({ fidoVaultKey: null }),
+}));
+
 jest.mock("@n-apt/capture/public/usePlaybackAnimation", () => ({
   usePlaybackAnimation: () => ({ animateFrame: jest.fn() }),
 }));
@@ -109,7 +113,7 @@ describe("FFTPlaybackCanvas", () => {
     expect(screen.getByText("No files selected")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Drop .napt, .iq, or .wav files here; protected .enc files need backend playback",
+        "Drop .napt, .iq, or .wav files here. Increased Protection .enc files cannot be played here yet.",
       ),
     ).toBeInTheDocument();
   });
@@ -140,7 +144,7 @@ describe("FFTPlaybackCanvas", () => {
     });
   });
 
-  it("accepts supported dropped files and dispatches the file actions", () => {
+  it("accepts supported dropped files and updates playback selection", () => {
     const container = render(<FFTPlaybackCanvas {...baseProps} />).container;
     const file = new File([new Uint8Array([1, 2])], "new.iq");
 
@@ -151,7 +155,7 @@ describe("FFTPlaybackCanvas", () => {
       },
     });
 
-    expect(dispatchMock).toHaveBeenCalledTimes(2);
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the component mountable across file selection changes", () => {

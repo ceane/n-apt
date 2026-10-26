@@ -1,9 +1,5 @@
 import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
 import type { StreamMode } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
-import {
-  writePauseSnapshot,
-  readPauseSnapshot,
-} from "@n-apt/capture/public/pauseSnapshotStorage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,9 +87,6 @@ export type PresentationListener = (snapshot: PresentationSnapshot) => void;
 const slotKeyString = ({ sourceId, mode }: SourceModeKey): string =>
   `${sourceId}\0${mode}`;
 
-const snapshotScopeForSlot = ({ sourceId, mode }: SourceModeKey): string =>
-  `${sourceId}:${mode}`;
-
 const createEmptySlot = (key: SourceModeKey): SourceModeSlot => ({
   key: { ...key },
   phase: "idle",
@@ -164,11 +157,6 @@ const FROZEN_PHASES = new Set<SourcePresentationPhase>(["paused", "standby"]);
 // Controller
 // ---------------------------------------------------------------------------
 
-export type SourcePresentationControllerOptions = {
-  /** Enable session storage persistence for frozen frames. Default: true. */
-  persistSnapshots?: boolean;
-};
-
 export interface SourcePresentationController {
   // --- Frame path ---
   /**
@@ -230,11 +218,7 @@ export interface SourcePresentationController {
   reset(): void;
 }
 
-export const createSourcePresentationController = (
-  options: SourcePresentationControllerOptions = {},
-): SourcePresentationController => {
-  const { persistSnapshots = true } = options;
-
+export const createSourcePresentationController = (): SourcePresentationController => {
   const slots = new Map<string, SourceModeSlot>();
   const listeners = new Set<PresentationListener>();
 
@@ -295,24 +279,16 @@ export const createSourcePresentationController = (
       if (currentFrame) {
         slot.frozenFrame = freezeFrame(currentFrame, slot);
         slot.metrics.frozen += 1;
-
-        // Persist to session storage
-        if (persistSnapshots) {
-          try {
-            writePauseSnapshot(snapshotScopeForSlot(slot.key), {
-              iqData: currentFrame.iq_data ?? null,
-              waterfall: null,
-              waterfallDimensions: null,
-            });
-          } catch {
-            // Ignore storage errors
-          }
-        }
       }
     }
 
     // Live Tx/Rx must not keep serving the standby/paused preview.
     if (wasFrozen && STREAMING_PHASES.has(phase)) {
+      slot.frozenFrame = null;
+    }
+
+    // A disconnected or failed source must not retain paused IQ in memory.
+    if (phase === "disconnected" || phase === "failed") {
       slot.frozenFrame = null;
     }
 
@@ -359,37 +335,6 @@ export const createSourcePresentationController = (
         return "failed";
       default:
         return currentPhase;
-    }
-  };
-
-  // Restore a frozen frame from session storage for a slot
-  const restoreFrozenFrame = (slot: SourceModeSlot): FrozenFrame | null => {
-    if (!persistSnapshots) return null;
-    // A snapshot written before this slot started a fresh stream epoch must
-    // not be replayed over the new device's warm-up. Only restore when the
-    // slot has not yet accepted a frame for the current epoch.
-    if (slot.streamEpoch !== null && slot.lastSequence !== null) return null;
-    try {
-      const snapshot = readPauseSnapshot(snapshotScopeForSlot(slot.key));
-      if (!snapshot.iqData) return null;
-      // Reconstruct a minimal IqRawFrame for the frozen presentation
-      const restoredFrame: IqRawFrame = {
-        type: "spectrum",
-        data_type: "iq_raw",
-        iq_data: snapshot.iqData,
-        source_id: slot.key.sourceId,
-      };
-      return {
-        frame: restoredFrame,
-        frozenAt: Date.now(),
-        sourceId: slot.key.sourceId,
-        streamEpoch: slot.streamEpoch,
-        sequence: slot.lastSequence,
-        centerFrequencyHz: null,
-        sampleRateHz: null,
-      };
-    } catch {
-      return null;
     }
   };
 
@@ -478,6 +423,10 @@ export const createSourcePresentationController = (
     // Always update the slot's own live ref (per-source tracking)
     slot.liveFrameRef.current = frame;
     slot.metrics.accepted += 1;
+    if (!FROZEN_PHASES.has(slot.phase)) {
+      // After resume, retain the paused frame only until fresh IQ arrives.
+      slot.frozenFrame = null;
+    }
 
     if (slot.phase === "standby" && isLiveTxFrame) {
       slot.frozenFrame = null;
@@ -488,18 +437,6 @@ export const createSourcePresentationController = (
     if (FROZEN_PHASES.has(slot.phase)) {
       slot.frozenFrame = freezeFrame(frame, slot);
       slot.metrics.frozen += 1;
-
-      if (persistSnapshots) {
-        try {
-          writePauseSnapshot(snapshotScopeForSlot(slot.key), {
-            iqData: frame.iq_data ?? null,
-            waterfall: null,
-            waterfallDimensions: null,
-          });
-        } catch {
-          // Ignore
-        }
-      }
       return true;
     }
 
@@ -564,11 +501,6 @@ export const createSourcePresentationController = (
 
     // Ensure a slot exists for the new target
     const targetSlot = ensureSlot({ sourceId, mode: effectiveMode });
-
-    // If the target has a frozen frame from a previous session, restore it
-    if (targetSlot.frozenFrame === null && persistSnapshots) {
-      targetSlot.frozenFrame = restoreFrozenFrame(targetSlot);
-    }
 
     if (targetSlot.phase === "paused" && resumePaused) {
       // A source switch is a presentation handoff, not a request to discard

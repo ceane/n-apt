@@ -1001,12 +1001,18 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                 if (sourceMode !== "file") {
                   onSourceModeChange("file");
                 }
+                if (selectedFilesCount === 0) {
+                  fileInputRef.current?.click();
+                }
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   if (sourceMode !== "file") {
                     onSourceModeChange("file");
+                  }
+                  if (selectedFilesCount === 0) {
+                    fileInputRef.current?.click();
                   }
                 }
               }}
@@ -1043,6 +1049,9 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                   event.stopPropagation();
                   if (sourceMode !== "file") {
                     onSourceModeChange("file");
+                    if (selectedFilesCount === 0) {
+                      fileInputRef.current?.click();
+                    }
                     return;
                   }
                   if (selectedFilesCount === 0) {

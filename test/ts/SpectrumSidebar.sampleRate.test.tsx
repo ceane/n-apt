@@ -16,6 +16,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { MemoryRouter, useNavigate } from "react-router";
 import {
   resolveSidebarSourcePausedState,
+  scrollToPlaybackSelectedFile,
   SpectrumSidebar,
 } from "@n-apt/spectrum/sidebar/SpectrumSidebar";
 import { buildAppTheme } from "@n-apt/ui/Theme";
@@ -460,7 +461,7 @@ describe("SpectrumSidebar sample rate behavior", () => {
     expect(screen.queryByRole("button", { name: /Hide Notes/ })).not.toBeInTheDocument();
   });
 
-  it("provides the N-APT Signal Classifier slot immediately after Sources", () => {
+  it("does not render the classifier in the sidebar", () => {
     render(
       <Provider store={createStore()}>
         <ThemeProvider theme={theme}>
@@ -471,10 +472,10 @@ describe("SpectrumSidebar sample rate behavior", () => {
       </Provider>,
     );
 
-    const sourceInput = screen.getByTestId("source-input");
-    const classifierSection = screen.getByRole("region", { name: "N-APT Signal Classifier" });
-    expect(sourceInput.compareDocumentPosition(classifierSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(classifierSection).toContainElement(screen.getByTestId("native-classifier-sidebar-slot"));
+    expect(
+      screen.queryByRole("region", { name: "N-APT Signal Classifier" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("native-classifier-sidebar-slot")).not.toBeInTheDocument();
   });
 
   it("renders the Settings navigation cards at the bottom in order", () => {
@@ -503,7 +504,32 @@ describe("SpectrumSidebar sample rate behavior", () => {
     const startCard = startPage.closest("article");
     expect(startCard).toHaveStyle({ width: "56%" });
     expect(startCard).toHaveStyle({ justifySelf: "start" });
-    expect(startCard?.parentElement).toHaveStyle({ marginTop: "180px" });
+    expect(startCard?.parentElement).toHaveStyle({ marginTop: "24px" });
+  });
+
+  it("scrolls playback to the selected file section", () => {
+    const stickyHeader = document.createElement("div");
+    stickyHeader.dataset.sidebarStickyHeader = "true";
+    stickyHeader.getBoundingClientRect = () =>
+      ({ bottom: 120 } as DOMRect);
+    const selectedFileSection = document.createElement("section");
+    selectedFileSection.dataset.sidebarSelectedFile = "true";
+    selectedFileSection.getBoundingClientRect = () =>
+      ({ top: 500 } as DOMRect);
+    const scrollBy = jest.spyOn(window, "scrollBy").mockImplementation(() => {});
+    document.body.append(stickyHeader, selectedFileSection);
+
+    try {
+      scrollToPlaybackSelectedFile();
+      expect(scrollBy).toHaveBeenCalledWith({
+        top: 372,
+        behavior: "smooth",
+      });
+    } finally {
+      scrollBy.mockRestore();
+      stickyHeader.remove();
+      selectedFileSection.remove();
+    }
   });
 
   it("does not render Tx settings for a TX-capable source while it is receiving", () => {

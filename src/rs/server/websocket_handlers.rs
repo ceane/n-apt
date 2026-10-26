@@ -2289,7 +2289,7 @@ pub async fn handle_ws_connection(
                     }
                   }
                 } else {
-                  handle_message(&cmd_tx, &shared, &broadcast_tx, message);
+                  handle_message_for_session(&cmd_tx, &shared, &broadcast_tx, message, Some(&session_token));
                 }
               }
               Err(e) => {
@@ -2332,6 +2332,16 @@ pub fn handle_message(
   shared: &Arc<SharedState>,
   broadcast_tx: &tokio::sync::broadcast::Sender<String>,
   message: WebSocketMessage,
+) {
+  handle_message_for_session(cmd_tx, shared, broadcast_tx, message, None);
+}
+
+fn handle_message_for_session(
+  cmd_tx: &std::sync::mpsc::Sender<super::types::SdrCommand>,
+  shared: &Arc<SharedState>,
+  broadcast_tx: &tokio::sync::broadcast::Sender<String>,
+  message: WebSocketMessage,
+  session_token: Option<&str>,
 ) {
   if is_device_scoped_control(&message)
     && message.scope == Some(StreamControlScope::Subscriber)
@@ -3104,6 +3114,8 @@ pub fn handle_message(
           .clone()
           .unwrap_or_else(|| "whole_sample".to_string()),
         encrypted: message.encrypted.unwrap_or(true),
+        fido_vault: message.fido_vault.unwrap_or(false),
+        session_token: session_token.map(crate::authentication::fido_vault::VaultSessionId::new),
         sample_rate: message.sample_rate.map(|rate| rate as u32),
         fft_size: message
           .fft_size

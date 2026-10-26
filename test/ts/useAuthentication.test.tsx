@@ -39,7 +39,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   localStorage.clear();
   service.getStoredSession.mockReturnValue(null);
-  service.fetchAuthInfo.mockResolvedValue({ has_passkeys: true });
+  service.fetchAuthInfo.mockResolvedValue({ has_passkeys: true, has_fido_security_key: false });
   service.fetchVaultKey.mockResolvedValue("test-vault-key");
   service.authenticateWithPassword.mockResolvedValue({ token: "password-session", expires_in: 3600 });
   service.authenticateWithPasskey.mockResolvedValue({ token: "passkey-session", expires_in: 3600 });
@@ -60,6 +60,7 @@ afterEach(() => {
 describe("Context auth compatibility", () => {
   test("logout retains authentication until server revocation succeeds", async () => {
     service.getStoredSession.mockReturnValue("stored-session");
+    sessionStorage.setItem("n-apt-fft-iq-snapshot:source-a:rx", "old-iq");
     const revocation = deferred<void>();
     service.logoutSession.mockReturnValue(revocation.promise);
     const {result} = mountAuth();
@@ -67,6 +68,7 @@ describe("Context auth compatibility", () => {
     let logout!: Promise<void>;
     act(() => { logout = result.current.logout(); });
     expect(service.logoutSession).toHaveBeenCalledWith("stored-session");
+    expect(sessionStorage.getItem("n-apt-fft-iq-snapshot:source-a:rx")).toBeNull();
     expect(service.clearSession).not.toHaveBeenCalled();
     expect(result.current.isAuthenticated).toBe(true);
     const failure = expect(logout).rejects.toThrow("Redis unavailable");
@@ -87,9 +89,20 @@ describe("Context auth compatibility", () => {
     expect(localStorage.getItem("n_apt_has_passkeys")).toBeNull();
   });
 
+  test("keeps the backend FIDO enrollment status when this browser lacks WebAuthn", async () => {
+    service.fetchAuthInfo.mockResolvedValue({ has_passkeys: false, has_fido_security_key: true });
+    Object.defineProperty(navigator, "credentials", { configurable: true, value: undefined });
+
+    const { result } = mountAuth();
+    await flush();
+
+    expect(result.current.hasFidoSecurityKey).toBe(true);
+  });
+
   test("restores a stored session only after importing the vault key", async () => {
     const key = deferred<CryptoKey>();
     service.getStoredSession.mockReturnValue("stored-session");
+    service.fetchAuthInfo.mockResolvedValue({ has_passkeys: true, has_fido_security_key: true });
     jest.mocked(importAesKey).mockReturnValue(key.promise);
     const { result } = mountAuth();
     await flush();
@@ -100,8 +113,9 @@ describe("Context auth compatibility", () => {
     expect(result.current).toMatchObject({
       authState: "ready", sessionToken: "stored-session", aesKey,
       isAuthenticated: true, isInitialAuthCheck: false,
+      hasPasskeys: true, hasFidoSecurityKey: true,
     });
-    expect(service.fetchAuthInfo).not.toHaveBeenCalled();
+    expect(service.fetchAuthInfo).toHaveBeenCalledTimes(1);
   });
 
   test.each(["missing", "fetch", "import"])(
@@ -113,7 +127,7 @@ describe("Context auth compatibility", () => {
       if (failure === "import") jest.mocked(importAesKey).mockRejectedValue(new Error("import failed"));
       service.fetchAuthInfo.mockImplementation(async () => {
         expect(service.clearSession).toHaveBeenCalledTimes(1);
-        return { has_passkeys: true };
+        return { has_passkeys: true, has_fido_security_key: false };
       });
       const { result } = mountAuth();
       await flush();
@@ -279,11 +293,38 @@ describe("passkey persistence", () => {
   });
 
   test("cancelled prompt fetch does not persist passkeys", async () => {
-    const info = deferred<{ has_passkeys: boolean }>();
+    const info = deferred<{ has_passkeys: boolean; has_fido_security_key: boolean }>();
     service.fetchAuthInfo.mockReturnValue(info.promise);
     const { unmount } = mountAuth();
     unmount();
-    await act(async () => info.resolve({ has_passkeys: true }));
+    await act(async () => info.resolve({ has_passkeys: true, has_fido_security_key: false }));
     expect(localStorage.getItem("n_apt_has_passkeys")).toBeNull();
+  });
+});
+
+describe("FIDO capture unlock expiry", () => {
+  test("updates capture readiness without erasing the stable playback key", async () => {
+    jest.useFakeTimers();
+    service.fetchFidoVaultUnlocked.mockResolvedValue(false);
+    service.authenticateWithPasskey.mockResolvedValue({
+      token: "fido-session", expires_in: 3600,
+      fido_vault_unlocked: true, fido_vault_key: new Uint8Array(32).fill(7),
+    });
+    const { result, unmount } = mountAuth(true);
+    try {
+      await act(async () => { await result.current.handleFidoKeyAuth(); });
+      expect(result.current.fidoVaultUnlocked).toBe(true);
+      const playbackKey = result.current.fidoVaultKey;
+      await act(async () => { jest.advanceTimersByTime(30_000); });
+      expect(service.fetchFidoVaultUnlocked).toHaveBeenCalledWith("fido-session");
+      expect(result.current.fidoVaultUnlocked).toBe(false);
+      expect(result.current.fidoVaultKey).toBe(playbackKey);
+      expect(result.current.fidoVaultKey).toEqual(new Uint8Array(32).fill(7));
+      unmount();
+      expect(playbackKey).toEqual(new Uint8Array(32));
+    } finally {
+      unmount();
+      jest.useRealTimers();
+    }
   });
 });

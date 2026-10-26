@@ -5,6 +5,8 @@ import {
   getIqFrameAtOffset,
   getIqFrameTimestampAtOffset,
 } from "@n-apt/capture/hooks/usePlaybackAnimation";
+import { stampIntegrity } from "@n-apt/webusb/iqIntegrity";
+import { parseNaptMetadata } from "@n-apt/capture/naptHeader";
 import "@n-apt/workers/fileWorker";
 
 const password = "compatibility-passphrase";
@@ -39,6 +41,7 @@ const workerResult = async (
   fileData: Uint8Array,
   fileName: string,
   rawKey: ArrayBuffer,
+  fidoVaultKey?: ArrayBuffer,
 ) => {
   const previousHandler = self.onmessage;
   const handler = self.onmessage as unknown as (
@@ -57,6 +60,7 @@ const workerResult = async (
           settings: {},
           fftSize: 2,
           aesKey: rawKey,
+          fidoVaultKey,
         },
       },
     } as MessageEvent);
@@ -67,6 +71,200 @@ const workerResult = async (
     postMessage.mockRestore();
     self.onmessage = previousHandler;
   }
+};
+
+const encryptGcm = async (rawKey: Uint8Array, iv: Uint8Array, plaintext: Uint8Array) => {
+  const keyBytes = Uint8Array.from(rawKey);
+  const ivBytes = Uint8Array.from(iv);
+  const plaintextBytes = Uint8Array.from(plaintext);
+  const key = await crypto.webcrypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"],
+  );
+  return new Uint8Array(
+    await crypto.webcrypto.subtle.encrypt({ name: "AES-GCM", iv: ivBytes }, key, plaintextBytes),
+  );
+};
+
+const makeFidoVaultNapt = async (
+  vaultKey: Uint8Array,
+  captureIqBytes: Uint8Array = iqBytes,
+) => {
+  const dek = Uint8Array.from({ length: 32 }, (_, index) => index + 31);
+  const wrappedDekIv = Uint8Array.from({ length: 12 }, (_, index) => index + 61);
+  const payloadIv = Uint8Array.from({ length: 12 }, (_, index) => index + 91);
+  const wrappedDek = new Uint8Array(12 + 32 + 16);
+  wrappedDek.set(wrappedDekIv);
+  wrappedDek.set(await encryptGcm(vaultKey, wrappedDekIv, dek), 12);
+  const encryptedPayload = new Uint8Array(12 + captureIqBytes.length + 16);
+  encryptedPayload.set(payloadIv);
+  encryptedPayload.set(await encryptGcm(dek, payloadIv, captureIqBytes), 12);
+  const frameUpdates = Array.from({ length: 600 }, (_, frame_sequence) => ({
+    sample_offset: frame_sequence * 4,
+    timestamp_us: (frame_sequence + 1) * 1000,
+    kind: "Frame",
+    frame_sequence,
+    patch: {},
+  }));
+  const captureMetadata: Record<string, any> = {
+    ...metadata,
+    format: "napt",
+    format_version: 6,
+    encrypted: true,
+    encryption: "AES-256-GCM-FIDO-VAULT-V1",
+    wrapped_dek: Buffer.from(wrappedDek).toString("base64"),
+    frame_updates: frameUpdates,
+    channels: [{
+      center_freq_hz: metadata.center_frequency_hz,
+      sample_rate_hz: metadata.capture_sample_rate_hz,
+      bins_per_frame: metadata.fft_size,
+      offset_iq: 0,
+      iq_length: captureIqBytes.length,
+    }],
+  };
+  const trailerJson = JSON.stringify({
+    processing: { operation: "capture" },
+    integrity: {
+      algorithm: "SHA-256",
+      scope: "file-with-integrity-digest-placeholder",
+      digest: "0".repeat(64),
+    },
+  });
+  let headerSize = 4096;
+  let headerJson = "";
+  for (;;) {
+    captureMetadata.sections = {
+      binary: {
+        offset_bytes: headerSize,
+        length_bytes: encryptedPayload.length,
+        encoding: "iq_u8_interleaved",
+        encrypted: true,
+      },
+      trailer: {
+        offset_bytes: headerSize + encryptedPayload.length,
+        length_bytes: 24 + new TextEncoder().encode(trailerJson).length,
+        encoding: "utf8_json",
+        version: 2,
+      },
+    };
+    headerJson = JSON.stringify({ metadata: captureMetadata });
+    const needed = Math.max(4096, Math.ceil((headerJson.length + 1) / 1024) * 1024);
+    if (needed <= headerSize) break;
+    headerSize = needed;
+  }
+  const header = new Uint8Array(headerSize);
+  header.set(new TextEncoder().encode(`${headerJson}\n`));
+  const trailerBytes = new Uint8Array(24 + new TextEncoder().encode(trailerJson).length);
+  trailerBytes.set(new TextEncoder().encode("NAPTTRLR"));
+  trailerBytes[8] = 2;
+  new DataView(trailerBytes.buffer).setBigUint64(
+    16,
+    BigInt(new TextEncoder().encode(trailerJson).length),
+    true,
+  );
+  trailerBytes.set(new TextEncoder().encode(trailerJson), 24);
+  const file = new Uint8Array(headerSize + encryptedPayload.length + trailerBytes.length);
+  file.set(header);
+  file.set(encryptedPayload, headerSize);
+  file.set(trailerBytes, headerSize + encryptedPayload.length);
+  return stampIntegrity(file);
+};
+
+const makeFidoVaultIq = async (vaultKey: Uint8Array) => {
+  const payloadIv = Uint8Array.from({ length: 12 }, (_, index) => index + 41);
+  const payload = new Uint8Array(20 + iqBytes.length);
+  new DataView(payload.buffer).setBigUint64(0, 0n, true);
+  new DataView(payload.buffer).setUint32(8, 0, true);
+  new DataView(payload.buffer).setBigUint64(12, BigInt(iqBytes.length), true);
+  payload.set(iqBytes, 20);
+  const ciphertext = await encryptGcm(vaultKey, payloadIv, payload);
+  const encryptedPayload = new Uint8Array(12 + ciphertext.length);
+  encryptedPayload.set(payloadIv);
+  encryptedPayload.set(ciphertext, 12);
+  const frameUpdates = [0, 1, 2].map((frame_sequence) => ({
+    sample_offset: frame_sequence * 4,
+    timestamp_us: (frame_sequence + 1) * 1000,
+    kind: "Frame",
+    frame_sequence,
+    patch: {},
+  }));
+  const iqMetadata: Record<string, any> = {
+    format: "iq",
+    format_version: 6,
+    interleaving: "IQ",
+    sample_encoding: {
+      element_type: "integer",
+      bits_per_element: 8,
+      signed: false,
+      byte_order: "little",
+      normalization: "(value - 128) / 127",
+    },
+    encryption: "AES-256-GCM-FIDO-VAULT-V1",
+    encrypted: true,
+    center_frequency_hz: metadata.center_frequency_hz,
+    capture_sample_rate_hz: metadata.capture_sample_rate_hz,
+    fft_size: metadata.fft_size,
+    frame_rate: metadata.frame_rate,
+  };
+  const framesJson = new TextEncoder().encode(JSON.stringify(frameUpdates));
+  const trailerJson = JSON.stringify({
+    integrity: {
+      algorithm: "SHA-256",
+      scope: "file-with-integrity-digest-placeholder",
+      digest: "0".repeat(64),
+    },
+  });
+  const trailerJsonBytes = new TextEncoder().encode(trailerJson);
+  let metadataJson = "";
+  let binaryOffset = 0;
+  let trailerOffset = 0;
+  for (;;) {
+    iqMetadata.sections = {
+      binary: {
+        offset_bytes: binaryOffset,
+        length_bytes: encryptedPayload.length,
+        encoding: "iq_u8_interleaved",
+        encrypted: true,
+      },
+      trailer: {
+        offset_bytes: trailerOffset,
+        length_bytes: 24 + trailerJsonBytes.length,
+        encoding: "utf8_json",
+        version: 2,
+      },
+    };
+    metadataJson = JSON.stringify(iqMetadata);
+    const nextBinaryOffset = 40 + new TextEncoder().encode(metadataJson).length + framesJson.length;
+    const nextTrailerOffset = nextBinaryOffset + encryptedPayload.length;
+    if (binaryOffset === nextBinaryOffset && trailerOffset === nextTrailerOffset) break;
+    binaryOffset = nextBinaryOffset;
+    trailerOffset = nextTrailerOffset;
+  }
+  const metadataBytes = new TextEncoder().encode(metadataJson);
+  const header = new Uint8Array(40);
+  header.set(new TextEncoder().encode("NAPT-IQ3"));
+  const headerView = new DataView(header.buffer);
+  headerView.setBigUint64(8, BigInt(metadataBytes.length), true);
+  headerView.setBigUint64(16, BigInt(framesJson.length), true);
+  headerView.setBigUint64(24, BigInt(encryptedPayload.length), true);
+  header[32] = 1;
+  const trailer = new Uint8Array(24 + trailerJsonBytes.length);
+  trailer.set(new TextEncoder().encode("NAPTTRLR"));
+  trailer[8] = 2;
+  new DataView(trailer.buffer).setBigUint64(16, BigInt(trailerJsonBytes.length), true);
+  trailer.set(trailerJsonBytes, 24);
+  const file = new Uint8Array(
+    header.length + metadataBytes.length + framesJson.length + encryptedPayload.length + trailer.length,
+  );
+  let offset = 0;
+  for (const part of [header, metadataBytes, framesJson, encryptedPayload, trailer]) {
+    file.set(part, offset);
+    offset += part.length;
+  }
+  return stampIntegrity(file);
 };
 
 const makeLegacyEncryptedNapt = async (rawKey: ArrayBuffer) => {
@@ -179,5 +377,53 @@ describe("encryption compatibility through the capture reader", () => {
       wrongKey,
     );
     expect(rejected?.type).toBe("error");
+  });
+
+  it("loads and plays FIDO vault NAPT captures whose public frame metadata grows the header past 8 KiB", async () => {
+    const fidoVaultKey = Uint8Array.from({ length: 32 }, (_, index) => 200 - index);
+    const captureIqBytes = new Uint8Array(600 * 4);
+    captureIqBytes.set(iqBytes);
+    const capture = await makeFidoVaultNapt(fidoVaultKey, captureIqBytes);
+    expect(parseNaptMetadata(capture).encryption).toBe("AES-256-GCM-FIDO-VAULT-V1");
+
+    const result = await workerResult(
+      capture,
+      "fido-vault-large-header.napt",
+      await deriveRawKey("ordinary-login-vault-key"),
+      fidoVaultKey.slice().buffer,
+    );
+
+    expect(result?.type).toBe("result");
+    expect(result.data.metadataMap[0][1].encryption).toBe("AES-256-GCM-FIDO-VAULT-V1");
+    expect(result.data.fileDataCache[0][1]).toEqual(captureIqBytes);
+    const playbackUpdates = result.data.metadataMap[0][1].frame_updates;
+    for (const [frameIndex, byteOffset] of [0, 4, 8].entries()) {
+      const frame = getIqFrameAtOffset(
+        result.data.fileDataCache[0][1],
+        byteOffset,
+        2,
+        playbackUpdates,
+      );
+      expect(frame?.data).toEqual(iqBytes.slice(byteOffset, byteOffset + 4));
+      expect(getIqFrameTimestampAtOffset(playbackUpdates, byteOffset)).toBe(
+        (frameIndex + 1) * 1,
+      );
+    }
+  });
+
+  it("decrypts and plays an FIDO vault NAPT-IQ3 capture with the unlocked vault key", async () => {
+    const fidoVaultKey = Uint8Array.from({ length: 32 }, (_, index) => index + 121);
+    const capture = await makeFidoVaultIq(fidoVaultKey);
+
+    const result = await workerResult(
+      capture,
+      "fido-vault.iq",
+      await deriveRawKey("ordinary-login-vault-key"),
+      fidoVaultKey.slice().buffer,
+    );
+
+    expect(result?.type).toBe("result");
+    expect(result.data.metadataMap[0][1].encryption).toBe("AES-256-GCM-FIDO-VAULT-V1");
+    expect(result.data.fileDataCache[0][1]).toEqual(iqBytes);
   });
 });

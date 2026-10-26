@@ -1438,6 +1438,9 @@ signals:
       acquisition_mode: "live".to_string(),
       duration_mode: "fixed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 32768,
       duration_s: 1.0,
       actual_frame_count: 100,
@@ -1854,6 +1857,17 @@ pub fn save_capture_file_multi(
   result: &crate::sdr::processor::CaptureResult,
   encryption_key: &[u8; 32],
 ) -> Result<CaptureArtifact, String> {
+  // Enforce the scheme at the persistence boundary too, even for callers
+  // other than CaptureWorker. Never substitute the ordinary server key.
+  let encryption_key = if result.fido_vault {
+    if !result.encrypted || !matches!(result.file_type.as_str(), ".iq" | ".napt") {
+      return Err("FIDO vault capture requires encrypted .iq or .napt output".into());
+    }
+    result.vault_key.as_ref()
+      .ok_or("FIDO vault capture is missing its unlocked vault key")?
+  } else {
+    encryption_key
+  };
   // SECURITY: Strict validation of job_id to prevent Path Traversal.
   // Only alphanumeric characters, underscores, and hyphens are allowed.
   if !RE_SAFE_ID.is_match(&result.job_id) {
@@ -1922,6 +1936,12 @@ pub fn save_capture_file_multi(
       "firmware_version": serde_json::Value::Null,
     },
   });
+  if result.fido_vault {
+    meta_obj["encryption"] = serde_json::json!("AES-256-GCM-FIDO-VAULT-V1");
+    let recovery = result.vault_key_recovery.as_ref()
+      .ok_or_else(|| "FIDO vault capture is missing its recovery wrapper".to_string())?;
+    meta_obj["vault_key_recovery"] = recovery.clone();
+  }
 
   if let Some(baseline) = &result.ref_based_demod_baseline {
     meta_obj["ref_based_demod_baseline"] = serde_json::json!(baseline);
@@ -2083,9 +2103,8 @@ pub fn save_capture_file_multi(
       }
     })
     .to_string();
-    let encrypted_data =
-      crate::crypto::encrypt_payload_binary(&dek, &payload_plaintext)
-        .map_err(|e| format!("Encryption failed: {}", e))?;
+    meta_obj["payload_authentication"] = serde_json::json!("public-sections-v1");
+    let encrypted_data = vec![0u8; payload_plaintext.len()+28];
 
     // Dynamic header size: large captures (many channels + geolocation +
     // baseline fields) outgrow the historical fixed 4096-byte header, which
@@ -2164,12 +2183,13 @@ pub fn save_capture_file_multi(
       .map_err(|e| format!("Failed to flush file: {}", e))?;
 
     let (mut encoded, _) = writer.finalize_with_inner();
-    let placeholder = b"0000000000000000000000000000000000000000000000000000000000000000";
-    let offset = encoded.windows(placeholder.len()).position(|window| window == placeholder)
-      .ok_or("Missing capture integrity placeholder")?;
+    let aad=crate::crypto::capture_aad(&encoded,header_size,encrypted_data.len())?;
+    let ciphertext=crate::crypto::encrypt_payload_binary_aad(&dek,&payload_plaintext,&aad).map_err(|e|e.to_string())?;
+    encoded[header_size..header_size+ciphertext.len()].copy_from_slice(&ciphertext);
+    let range=crate::crypto::capture_digest_range(&encoded,header_size+encrypted_data.len())?;
     let digest = sha2::Sha256::digest(&encoded);
     let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    encoded[offset..offset + placeholder.len()].copy_from_slice(digest.as_bytes());
+    encoded[range].copy_from_slice(digest.as_bytes());
     let checksum = sha2::Sha256::digest(&encoded)
       .iter()
       .map(|byte| format!("{byte:02x}"))
@@ -2361,6 +2381,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2442,6 +2465,9 @@ mod save_tests {
       acquisition_mode: "interleaved".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: true,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2520,6 +2546,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2561,6 +2590,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2620,6 +2652,9 @@ mod save_tests {
       acquisition_mode: "interleaved".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: true,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2718,6 +2753,9 @@ mod save_tests {
       acquisition_mode: "stepwise".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: false,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,
@@ -2847,6 +2885,9 @@ mod dynamic_header_tests {
       acquisition_mode: "interleaved".to_string(),
       duration_mode: "timed".to_string(),
       encrypted: true,
+      fido_vault: false,
+      vault_key: None,
+      vault_key_recovery: None,
       fft_size: 2048,
       duration_s: 1.0,
       actual_frame_count: 60,

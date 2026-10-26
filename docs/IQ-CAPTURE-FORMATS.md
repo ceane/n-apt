@@ -231,7 +231,7 @@ Run `node --import tsx --test test/classifier/capture-salt-backup.integration.te
 For a local Redis installation, keep `.env.local` and Redis persistence files such as `.redis_data/dump.rdb` and `.redis_data/appendonlydir/*` owner-only (`600` for files, `700` for directories). Apply the same permissions to exported backups. Store a protected copy outside the machine as well; local disk permissions do not protect against disk loss.
 
 > [!NOTE]
-> `NAPTENC2` is a backend storage/export wrapper, not an inner capture format. Browser-side file playback cannot decrypt it directly. The local file worker intentionally refuses to decrypt `.enc` files; authenticated Redis-backed playback still needs a backend playback endpoint.
+> `NAPTENC2` is a backend storage/export wrapper, not an inner capture format. Browser-side file playback cannot decrypt it directly. The local file worker refuses `.enc` files because the authenticated Redis-backed playback endpoint has not been implemented yet.
 
 ## Current limitations
 
@@ -240,7 +240,7 @@ For a local Redis installation, keep `.env.local` and Redis persistence files su
 - The formats do not define compression or sparse/zero-run encoding.
 - `.wav` is project-specific and is not a validated SDR interchange format.
 - The SHA-256 checksum is unkeyed. It detects changes but does not establish file origin.
-- Local browser playback of protected `.enc` files is not supported until an authenticated Redis-backed playback endpoint is available.
+- Increased Protection `.enc` files cannot be played in the browser yet. Playback needs an authenticated Redis-backed server endpoint, which is not implemented yet.
 
 ## Related implementation
 

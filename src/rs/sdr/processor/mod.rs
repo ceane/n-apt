@@ -253,6 +253,9 @@ pub struct CaptureResult {
   pub acquisition_mode: String,
   pub duration_mode: String,
   pub encrypted: bool,
+  pub fido_vault: bool,
+  pub vault_key: Option<[u8; 32]>,
+  pub vault_key_recovery: Option<serde_json::Value>,
   pub fft_size: u32,
   pub duration_s: f64,
   pub actual_frame_count: u32,
@@ -436,6 +439,10 @@ pub struct SdrProcessor {
   pub capture_last_hop: Option<Instant>,
   /// Whether capture should be encrypted
   pub capture_encrypted: bool,
+  /// FIDO vault capture mode; per-capture Redis protection is not applied.
+  pub capture_fido_vault: bool,
+  pub capture_vault_key: Option<[u8; 32]>,
+  pub capture_vault_recovery_wrapper: Option<serde_json::Value>,
   /// Whether to trigger playback after capture completion
   pub capture_playback: bool,
   /// Per-channel capture data
@@ -589,6 +596,9 @@ impl SdrProcessor {
       capture_current_fragment: 0,
       capture_last_hop: None,
       capture_encrypted: false,
+      capture_fido_vault: false,
+      capture_vault_key: None,
+      capture_vault_recovery_wrapper: None,
       capture_playback: false,
       capture_channels: Vec::new(),
       capture_actual_frames: 0,
@@ -2064,6 +2074,7 @@ impl SdrProcessor {
     self.capture_acquisition_mode = mode_str;
 
     self.capture_encrypted = request.encrypted;
+    self.capture_fido_vault = request.fido_vault;
     self.capture_fft_size = request.fft_size;
     self.capture_fft_window = request.fft_window;
     self.capture_geolocation = request.geolocation;
@@ -2231,6 +2242,9 @@ impl SdrProcessor {
       acquisition_mode: self.capture_acquisition_mode.clone(),
       duration_mode,
       encrypted: self.capture_encrypted,
+      fido_vault: self.capture_fido_vault,
+      vault_key: self.capture_vault_key.take(),
+      vault_key_recovery: self.capture_vault_recovery_wrapper.take(),
       fft_size: self.capture_fft_size as u32,
       duration_s: actual_duration_s,
       actual_frame_count: self.capture_actual_frames,
@@ -2353,6 +2367,7 @@ mod hackrf_settings_tests {
         file_type: ".iq".into(),
         acquisition_mode: "whole_sample".into(),
         encrypted: false,
+        fido_vault: false,
         fft_size: 2048,
         fft_window: "Hanning".into(),
         geolocation: None,
@@ -2417,6 +2432,7 @@ mod hackrf_settings_tests {
         file_type: ".iq".into(),
         acquisition_mode: "whole_sample".into(),
         encrypted: false,
+        fido_vault: false,
         fft_size: 2048,
         fft_window: "Rectangular".into(),
         geolocation: None,

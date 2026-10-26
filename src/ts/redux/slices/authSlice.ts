@@ -16,7 +16,9 @@ const initialState: AuthenticationState = {
   authError: null,
   sessionToken: null,
   aesKey: null,
+  fidoVaultUnlocked: false,
   hasPasskeys: false,
+  hasFidoSecurityKey: false,
   isInitialAuthCheck: true,
 };
 

@@ -247,6 +247,7 @@ export type CaptureRequest = {
   fileType: CaptureFileType;
   acquisitionMode: "stepwise" | "interleaved" | "whole_sample";
   encrypted: boolean;
+  fidoVault?: boolean;
   sampleRateHz?: number;
   fftSize: number;
   fftWindow: string;

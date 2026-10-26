@@ -1,13 +1,13 @@
 //! Cryptographic utilities for AES-256-GCM payload encryption and
 //! HMAC-based challenge–response authentication.
 
-use aes_gcm::aead::{Aead, KeyInit as AeadKeyInit};
+use aes_gcm::aead::{Aead, KeyInit as AeadKeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use hmac::{Hmac, KeyInit as MacKeyInit, Mac};
 use pbkdf2::pbkdf2_hmac;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
 /// PBKDF2 iteration count — must match the frontend WebCrypto derivation.
@@ -51,7 +51,12 @@ pub fn derive_auth_key(passkey: &str) -> [u8; 32] {
   let mut salt = b"n-apt/password-auth/v2\0".to_vec();
   salt.extend_from_slice(get_pbkdf2_salt());
   let mut key = [0u8; 32];
-  pbkdf2_hmac::<Sha256>(passkey.trim().as_bytes(), &salt, PBKDF2_ITERATIONS, &mut key);
+  pbkdf2_hmac::<Sha256>(
+    passkey.trim().as_bytes(),
+    &salt,
+    PBKDF2_ITERATIONS,
+    &mut key,
+  );
   key
 }
 
@@ -87,6 +92,14 @@ pub fn encrypt_payload_binary(
   key: &[u8; 32],
   plaintext: &[u8],
 ) -> Result<Vec<u8>> {
+  encrypt_payload_binary_aad(key, plaintext, &[])
+}
+
+pub fn encrypt_payload_binary_aad(
+  key: &[u8; 32],
+  plaintext: &[u8],
+  aad: &[u8],
+) -> Result<Vec<u8>> {
   let cipher: Aes256Gcm = AeadKeyInit::new_from_slice(key)
     .map_err(|e| anyhow!("cipher init: {e}"))?;
 
@@ -95,7 +108,13 @@ pub fn encrypt_payload_binary(
     Nonce::try_from(&iv_bytes[..]).map_err(|e| anyhow!("nonce init: {e}"))?;
 
   let ciphertext = cipher
-    .encrypt(&nonce, plaintext)
+    .encrypt(
+      &nonce,
+      Payload {
+        msg: plaintext,
+        aad,
+      },
+    )
     .map_err(|e| anyhow!("encrypt: {e}"))?;
 
   // Wire format: IV || ciphertext (which includes the GCM tag)
@@ -119,6 +138,14 @@ pub fn decrypt_payload_binary(
   key: &[u8; 32],
   payload: &[u8],
 ) -> Result<Vec<u8>> {
+  decrypt_payload_binary_aad(key, payload, &[])
+}
+
+pub fn decrypt_payload_binary_aad(
+  key: &[u8; 32],
+  payload: &[u8],
+  aad: &[u8],
+) -> Result<Vec<u8>> {
   if payload.len() < 12 {
     return Err(anyhow!("payload too short for IV"));
   }
@@ -131,7 +158,13 @@ pub fn decrypt_payload_binary(
     Nonce::try_from(iv_bytes).map_err(|e| anyhow!("nonce init: {e}"))?;
 
   let plaintext = cipher
-    .decrypt(&nonce, ciphertext)
+    .decrypt(
+      &nonce,
+      Payload {
+        msg: ciphertext,
+        aad,
+      },
+    )
     .map_err(|e| anyhow!("decrypt: {e}"))?;
 
   Ok(plaintext)
@@ -164,7 +197,8 @@ pub fn encrypt_capture_envelope(
   plaintext: &[u8],
 ) -> Result<(Vec<u8>, [u8; 32])> {
   let salt: [u8; CAPTURE_SALT_LEN] = ::rand::random();
-  let envelope = encrypt_capture_envelope_with_salt(vault_key, plaintext, &salt)?;
+  let envelope =
+    encrypt_capture_envelope_with_salt(vault_key, plaintext, &salt)?;
   Ok((envelope, salt))
 }
 
@@ -179,7 +213,8 @@ pub fn encrypt_capture_envelope_with_salt(
 ) -> Result<Vec<u8>> {
   let capture_key = derive_capture_key(vault_key, salt);
   let encrypted = encrypt_payload_binary(&capture_key, plaintext)?;
-  let mut envelope = Vec::with_capacity(CAPTURE_ENVELOPE_MAGIC_V2.len() + encrypted.len());
+  let mut envelope =
+    Vec::with_capacity(CAPTURE_ENVELOPE_MAGIC_V2.len() + encrypted.len());
   envelope.extend_from_slice(CAPTURE_ENVELOPE_MAGIC_V2);
   envelope.extend_from_slice(&encrypted);
   Ok(envelope)
@@ -195,20 +230,26 @@ pub fn decrypt_capture_envelope_with_salt(
   if envelope.len() < CAPTURE_ENVELOPE_MAGIC_V2.len() + 12 + 16 {
     return Err(anyhow!("invalid capture envelope length"));
   }
-  let (payload, envelope_salt) = if envelope.starts_with(CAPTURE_ENVELOPE_MAGIC_V2) {
-    (&envelope[CAPTURE_ENVELOPE_MAGIC_V2.len()..], None)
-  } else if envelope.starts_with(CAPTURE_ENVELOPE_MAGIC_V1) {
-    let salt_start = CAPTURE_ENVELOPE_MAGIC_V1.len();
-    let payload_start = salt_start + CAPTURE_SALT_LEN;
-    if envelope.len() < payload_start + 12 + 16 {
-      return Err(anyhow!("invalid legacy capture envelope length"));
-    }
-    (&envelope[payload_start..], Some(&envelope[salt_start..payload_start]))
-  } else {
-    return Err(anyhow!("invalid capture envelope header"));
-  };
+  let (payload, envelope_salt) =
+    if envelope.starts_with(CAPTURE_ENVELOPE_MAGIC_V2) {
+      (&envelope[CAPTURE_ENVELOPE_MAGIC_V2.len()..], None)
+    } else if envelope.starts_with(CAPTURE_ENVELOPE_MAGIC_V1) {
+      let salt_start = CAPTURE_ENVELOPE_MAGIC_V1.len();
+      let payload_start = salt_start + CAPTURE_SALT_LEN;
+      if envelope.len() < payload_start + 12 + 16 {
+        return Err(anyhow!("invalid legacy capture envelope length"));
+      }
+      (
+        &envelope[payload_start..],
+        Some(&envelope[salt_start..payload_start]),
+      )
+    } else {
+      return Err(anyhow!("invalid capture envelope header"));
+    };
   if envelope_salt.is_some_and(|embedded| embedded != salt) {
-    return Err(anyhow!("legacy capture salt does not match the server record"));
+    return Err(anyhow!(
+      "legacy capture salt does not match the server record"
+    ));
   }
   let capture_key = derive_capture_key(vault_key, salt);
   decrypt_payload_binary(&capture_key, payload)
@@ -271,8 +312,14 @@ mod tests {
   #[test]
   fn capture_key_derivation_matches_shared_js_vector() {
     let key = derive_capture_key(&[7u8; 32], &[8u8; 32]);
-    let encoded = key.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    assert_eq!(encoded, "41d3d7c41410e3a76d9ebdc2040a91d208225e57664faab773f8394cd91264a1");
+    let encoded = key
+      .iter()
+      .map(|byte| format!("{byte:02x}"))
+      .collect::<String>();
+    assert_eq!(
+      encoded,
+      "41d3d7c41410e3a76d9ebdc2040a91d208225e57664faab773f8394cd91264a1"
+    );
   }
 
   #[test]
@@ -355,27 +402,47 @@ mod tests {
   fn capture_envelopes_roundtrip_and_use_distinct_salts() {
     let vault_key = [7u8; 32];
     let plaintext = b"capture bytes";
-    let (first, first_salt) = encrypt_capture_envelope(&vault_key, plaintext).unwrap();
-    let (second, second_salt) = encrypt_capture_envelope(&vault_key, plaintext).unwrap();
+    let (first, first_salt) =
+      encrypt_capture_envelope(&vault_key, plaintext).unwrap();
+    let (second, second_salt) =
+      encrypt_capture_envelope(&vault_key, plaintext).unwrap();
 
     assert_ne!(first_salt, second_salt);
     assert_ne!(first, second);
     assert_eq!(&first[..8], b"NAPTENC2");
     assert_eq!(&second[..8], b"NAPTENC2");
-    assert!(!first.windows(first_salt.len()).any(|window| window == first_salt));
-    assert!(!second.windows(second_salt.len()).any(|window| window == second_salt));
-    assert_eq!(decrypt_capture_envelope_with_salt(&vault_key, &first, &first_salt).unwrap(), plaintext);
-    assert_eq!(decrypt_capture_envelope_with_salt(&vault_key, &second, &second_salt).unwrap(), plaintext);
+    assert!(!first
+      .windows(first_salt.len())
+      .any(|window| window == first_salt));
+    assert!(!second
+      .windows(second_salt.len())
+      .any(|window| window == second_salt));
+    assert_eq!(
+      decrypt_capture_envelope_with_salt(&vault_key, &first, &first_salt)
+        .unwrap(),
+      plaintext
+    );
+    assert_eq!(
+      decrypt_capture_envelope_with_salt(&vault_key, &second, &second_salt)
+        .unwrap(),
+      plaintext
+    );
   }
 
   #[test]
   fn capture_envelope_rejects_tampering_and_wrong_vault_key() {
     let salt = [8u8; 32];
-    let mut envelope = encrypt_capture_envelope_with_salt(&[3u8; 32], b"private capture", &salt).unwrap();
-    assert!(decrypt_capture_envelope_with_salt(&[4u8; 32], &envelope, &salt).is_err());
+    let mut envelope =
+      encrypt_capture_envelope_with_salt(&[3u8; 32], b"private capture", &salt)
+        .unwrap();
+    assert!(
+      decrypt_capture_envelope_with_salt(&[4u8; 32], &envelope, &salt).is_err()
+    );
     let last = envelope.len() - 1;
     envelope[last] ^= 1;
-    assert!(decrypt_capture_envelope_with_salt(&[3u8; 32], &envelope, &salt).is_err());
+    assert!(
+      decrypt_capture_envelope_with_salt(&[3u8; 32], &envelope, &salt).is_err()
+    );
   }
 
   #[test]
@@ -383,13 +450,22 @@ mod tests {
     let vault_key = [12u8; 32];
     let salt = [13u8; 32];
     let capture_key = derive_capture_key(&vault_key, &salt);
-    let encrypted = encrypt_payload_binary(&capture_key, b"legacy capture").unwrap();
+    let encrypted =
+      encrypt_payload_binary(&capture_key, b"legacy capture").unwrap();
     let mut legacy = Vec::from(&b"NAPTENC1"[..]);
     legacy.extend_from_slice(&salt);
     legacy.extend_from_slice(&encrypted);
 
-    assert_eq!(decrypt_capture_envelope_with_salt(&vault_key, &legacy, &salt).unwrap(), b"legacy capture");
-    assert!(decrypt_capture_envelope_with_salt(&vault_key, &legacy, &[14u8; 32]).is_err());
+    assert_eq!(
+      decrypt_capture_envelope_with_salt(&vault_key, &legacy, &salt).unwrap(),
+      b"legacy capture"
+    );
+    assert!(decrypt_capture_envelope_with_salt(
+      &vault_key,
+      &legacy,
+      &[14u8; 32]
+    )
+    .is_err());
   }
 
   #[test]
@@ -439,4 +515,79 @@ mod tests {
     let result = from_base64("not!valid!base64!!!");
     assert!(result.is_err());
   }
+}
+
+/// Locate only the integrity field in the indexed trailer, never a label or sample.
+pub fn capture_digest_range(
+  bytes: &[u8],
+  trailer_start: usize,
+) -> Result<std::ops::Range<usize>, String> {
+  let json = bytes
+    .get(trailer_start.checked_add(24).ok_or("invalid trailer")?..)
+    .ok_or("invalid trailer")?;
+  let text = std::str::from_utf8(json).map_err(|e| e.to_string())?;
+  let re = regex::Regex::new(r#""digest"\s*:\s*"([0-9a-f]{64})""#).unwrap();
+  let matches: Vec<_> = re.captures_iter(text).collect();
+  if matches.len() != 1 {
+    return Err("missing or ambiguous integrity digest".into());
+  }
+  let m = matches[0].get(1).unwrap();
+  Ok(trailer_start + 24 + m.start()..trailer_start + 24 + m.end())
+}
+
+pub fn verify_capture_integrity(
+  bytes: &[u8],
+  trailer_start: usize,
+) -> Result<(), String> {
+  let trailer: serde_json::Value = serde_json::from_slice(
+    bytes.get(trailer_start + 24..).ok_or("invalid trailer")?,
+  )
+  .map_err(|e| e.to_string())?;
+  if trailer["integrity"]["algorithm"] != "SHA-256"
+    || trailer["integrity"]["scope"] != "file-with-integrity-digest-placeholder"
+  {
+    return Err("invalid integrity declaration".into());
+  }
+  let range = capture_digest_range(bytes, trailer_start)?;
+  let expected = trailer["integrity"]["digest"]
+    .as_str()
+    .ok_or("missing integrity digest")?;
+  if &bytes[range.clone()] != expected.as_bytes() {
+    return Err("ambiguous integrity digest".into());
+  }
+  let mut hash = Sha256::new();
+  hash.update(&bytes[..range.start]);
+  hash.update([b'0'; 64]);
+  hash.update(&bytes[range.end..]);
+  let actual = hash
+    .finalize()
+    .iter()
+    .map(|b| format!("{b:02x}"))
+    .collect::<String>();
+  if actual != expected {
+    return Err("capture integrity verification failed".into());
+  }
+  Ok(())
+}
+
+/// SHA-256 commitment to all public bytes, with only the checksum normalized.
+/// Used as GCM associated data; public metadata stays readable.
+pub fn capture_aad(
+  bytes: &[u8],
+  binary_start: usize,
+  binary_len: usize,
+) -> Result<Vec<u8>, String> {
+  let end = binary_start
+    .checked_add(binary_len)
+    .ok_or("invalid binary range")?;
+  let range = capture_digest_range(bytes, end)?;
+  if range.start < end || end > bytes.len() {
+    return Err("invalid binary range".into());
+  }
+  let mut hash = Sha256::new();
+  hash.update(&bytes[..binary_start]);
+  hash.update(&bytes[end..range.start]);
+  hash.update([b'0'; 64]);
+  hash.update(&bytes[range.end..]);
+  Ok(hash.finalize().to_vec())
 }

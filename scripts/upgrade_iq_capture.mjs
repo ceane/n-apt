@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { captureAdditionalData, verifyContainerChecksum } from "./encrypt_iq_capture.mjs";
 // Upgrade a NAPT-IQ3 capture to the broadly compatible V5 container.
 // This preserves frame records and payload bytes; encryption is a separate step.
 
@@ -69,11 +70,12 @@ function parseLegacyHeader(bytes) {
   throw new Error("Could not find a complete legacy NAPT header");
 }
 
-function decryptGcmPayload(input, key) {
+function decryptGcmPayload(input, key, aad) {
   if (input.length < 28) throw new Error("Encrypted payload is too short");
   const nonce = input.subarray(0, 12);
   const tag = input.subarray(input.length - 16);
   const decipher = createDecipheriv("aes-256-gcm", key, nonce);
+  if(aad) decipher.setAAD(aad);
   decipher.setAuthTag(tag);
   return Buffer.concat([
     decipher.update(input.subarray(12, input.length - 16)),
@@ -82,6 +84,7 @@ function decryptGcmPayload(input, key) {
 }
 
 function decryptedLegacyPayload(bytes, root, metadata, vaultKey) {
+  verifyContainerChecksum(bytes,metadata);
   if (
     metadata.encrypted !== true &&
     metadata.encrypted !== "true" &&
@@ -117,7 +120,7 @@ function decryptedLegacyPayload(bytes, root, metadata, vaultKey) {
     const end = Number.isSafeInteger(length) ? offset + length : bytes.length;
     if (offset < 0 || end > bytes.length || end - offset < 28) continue;
     try {
-      return decryptGcmPayload(bytes.subarray(offset, end), dataKey);
+      return decryptGcmPayload(bytes.subarray(offset, end), dataKey, metadata.payload_authentication === "public-sections-v1" ? captureAdditionalData(bytes,offset,end-offset) : undefined);
     } catch (error) {
       lastError = error;
     }

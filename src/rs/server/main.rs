@@ -57,10 +57,10 @@ pub struct AppState {
   pub shared: Arc<shared_state::SharedState>,
   pub credential_store: CredentialStore,
   pub pending_passkey_registrations: std::sync::Mutex<
-    HashMap<String, (std::time::Instant, (String, PasskeyRegistration))>,
+    HashMap<String, (std::time::Instant, (String, PasskeyRegistration, bool))>,
   >,
   pub pending_passkey_authentications: std::sync::Mutex<
-    HashMap<String, (std::time::Instant, PasskeyAuthentication)>,
+    HashMap<String, (std::time::Instant, (PasskeyAuthentication, bool))>,
   >,
   pub session_store: SessionStore,
   pub webauthn: Webauthn,
@@ -294,6 +294,10 @@ impl websocket_server::WebSocketServer {
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"),
+      ))
+      .layer(SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("connection-allowlist"),
+        HeaderValue::from_static("(response-origin)"),
       ));
 
     // Protected control and diagnostic endpoints
@@ -406,6 +410,21 @@ impl websocket_server::WebSocketServer {
         get(crate::authentication::auth_handlers::auth_vault_key_handler),
       )
       .route(
+        "/auth/fido-vault/unlock",
+        post(crate::authentication::auth_handlers::fido_vault_unlock_handler)
+          .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::authentication::require_session)),
+      )
+      .route(
+        "/auth/fido-vault/recovery-wrapper",
+        get(crate::authentication::auth_handlers::fido_vault_recovery_wrapper_handler)
+          .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::authentication::require_session)),
+      )
+      .route(
+        "/auth/fido-vault/status",
+        get(crate::authentication::auth_handlers::fido_vault_status_handler)
+          .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::authentication::require_session)),
+      )
+      .route(
         "/auth/passkey/register/start",
         post(
           crate::authentication::auth_handlers::passkey_register_start_handler,
@@ -509,6 +528,10 @@ impl websocket_server::WebSocketServer {
       cmd_tx,
       sdr_processor: websocket_server.get_sdr_processor(),
     });
+    if let Ok(Some(wrappers)) = state.credential_store.get_fido_vault().await {
+      *state.shared.fido_vault_recovery_wrapper.lock().unwrap() =
+        serde_json::to_value(wrappers.recovery).ok();
+    }
 
     let app = Self::create_app(state);
 
