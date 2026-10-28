@@ -278,6 +278,9 @@ function checkPushedHistory(cwd, input) {
     const remoteSha = fields[3];
     if (!localSha || /^0+$/.test(localSha)) continue;
     if (!remoteSha) throw new Error(`Invalid pre-push ref line: ${line}`);
+    if (fields[0] === "refs/heads/encrypted-modules") {
+      throw new Error("The local encrypted-modules branch must never be pushed to a remote.");
+    }
     const commits = newCommits(cwd, localSha, remoteSha || zero);
     for (const commit of commits) {
       let parent = null;
@@ -288,6 +291,10 @@ function checkPushedHistory(cwd, input) {
         // The first commit in an unpushed history has no parent.
       }
       for (const entry of changedPathEntries(cwd, commit)) {
+        if (!entry.deleted && entry.path.startsWith("src/encrypted-modules/tmp/") &&
+            entry.path !== "src/encrypted-modules/tmp/.gitkeep") {
+          throw new Error(`Protected plaintext must not be pushed: ${entry.path} (commit ${commit.slice(0, 12)}).`);
+        }
         if (!isCapturePath(entry.path)) continue;
         const key = `${commit}:${entry.path}`;
         if (seen.has(key)) continue;
