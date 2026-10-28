@@ -81,11 +81,20 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 
 ## Encrypted Modules
 
-- For manual edits to an encrypted module's plaintext source, edit the
-  checked-in `src/encrypted-modules/tmp/` files in the `encrypted-modules`
-  worktree. In other branches, the matching `tmp/` files are ignored generated
-  extraction/build input and can be overwritten when a bundle is decrypted or
-  regenerated; do not make manual edits to those copies.
+- Keep all protected plaintext module work in `src/encrypted-modules/tmp/`
+  in the `encrypted-modules` worktree, including implementation, training
+  scripts, related tests, documentation, and other protected materials. The
+  `tmp` name is intentional and is part of the project's ignore boundary.
+- The local `encrypted-modules` branch may track and commit protected plaintext.
+  Never push that branch or its plaintext history to any remote. `.gitignore`
+  does not hide already tracked files; inspect staged paths and history so
+  consumer branches and remotes receive encrypted bundles, not plaintext. Do not
+  force-add protected files to a consumer branch.
+- In other branches, `tmp/` contains generated extraction/build input and can be
+  overwritten when a bundle is decrypted or regenerated; do not hand-edit it.
+  The ordinary decrypt command skips the protected branch, but direct
+  extraction helpers can bypass that guard: never target its source tree with
+  them or clean it as a generated cache.
 
 ## Temporary and Test Files
 
