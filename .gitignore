@@ -464,3 +464,6 @@ patch.diff
 
 # Local analysis artifacts
 .act/runs/
+
+# Protected encrypted-module plaintext and generated extraction copies.
+/src/encrypted-modules/tmp/
