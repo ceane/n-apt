@@ -142,3 +142,38 @@ test("pre-push scans new history even when a plaintext capture was later deleted
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("pre-push blocks the local encrypted-modules branch under any destination name", () => {
+  const root = makeRepo();
+  try {
+    writeFileSync(join(root, "ordinary.txt"), "safe fixture\n");
+    git(root, "add", "ordinary.txt");
+    git(root, "commit", "--quiet", "-m", "fixture");
+    const sha = git(root, "rev-parse", "HEAD");
+    const zero = "0".repeat(40);
+    const result = runChecker(root, "--pre-push", `refs/heads/encrypted-modules ${sha} refs/heads/other ${zero}\n`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /encrypted-modules.*(push|remote)/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pre-push blocks protected plaintext in outgoing history through another branch", () => {
+  const root = makeRepo();
+  try {
+    mkdirSync(join(root, "src/encrypted-modules/tmp/ml"), { recursive: true });
+    writeFileSync(join(root, "src/encrypted-modules/tmp/ml/private.py"), "synthetic fixture\n");
+    git(root, "add", "-f", "src/encrypted-modules/tmp/ml/private.py");
+    git(root, "commit", "--quiet", "-m", "fixture");
+    git(root, "rm", "--quiet", "src/encrypted-modules/tmp/ml/private.py");
+    git(root, "commit", "--quiet", "-m", "remove fixture");
+    const sha = git(root, "rev-parse", "HEAD");
+    const zero = "0".repeat(40);
+    const result = runChecker(root, "--pre-push", `refs/heads/alias ${sha} refs/heads/alias ${zero}\n`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /protected.*plaintext/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
