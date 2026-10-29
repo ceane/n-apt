@@ -37,10 +37,6 @@ import { CanvasHarness } from "@n-apt/app-article/components/canvas/CanvasHarnes
 import { ResponsiveKatex, desktopOnlyStyles, mobileOnlyStyles, DesktopOnly, MobileOnly } from "@n-apt/math/ResponsiveKatex";
 import { DEFAULT_MARKDOWN_SOURCE, loadMarkdown } from "@n-apt/app-article/utils/markdown-source";
 
-const DevAgentation = __DEV__
-  ? lazy(() => import("agentation").then(({ Agentation }) => ({ default: Agentation })))
-  : null;
-
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
 const DEFAULT_SOURCE = DEFAULT_MARKDOWN_SOURCE;
@@ -314,7 +310,6 @@ const App: React.FC = () => {
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>
-        {DevAgentation && <DevAgentation endpoint="http://localhost:4747" />}
       </Page>
     </ThemeProvider>
   );
