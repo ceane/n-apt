@@ -6,6 +6,7 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import glsl from "vite-plugin-glsl";
 import { reactRouter } from "@react-router/dev/vite";
+import { viteSriPlugin } from "./scripts/build/viteSriPlugin.mjs";
 
 // https://vite.dev/config/
 import { fileURLToPath } from 'node:url';
@@ -220,7 +221,11 @@ const scopedFrontendAliases = Object.entries(scopedFrontendRoots).flatMap(
 
 const fsAllow = Array.from(
   new Set(
-    [path.resolve(dirname, "src"), path.resolve(dirname, "node_modules")]
+    [
+      path.resolve(dirname, "src"),
+      path.resolve(dirname, "node_modules"),
+      path.resolve(dirname, "packages/n_apt_canvas"),
+    ]
       .map((value) => {
         const resolved = path.resolve(value);
         try {
@@ -284,8 +289,20 @@ const frontendContentSecurityPolicyPlugin = (browserEnv, reportOnly) => {
   backendConnectSources.add("https://cdn-lfs.huggingface.co");
   backendConnectSources.add("https://*.xethub.hf.co");
 
-  const applyPolicy = (middlewares, isDev) => {
+  const applyPolicy = (middlewares, isDev, outputDir) => {
     const scriptSrc = ["'self'", "'wasm-unsafe-eval'"];
+    if (!isDev && outputDir) {
+      const htmlPath = path.resolve(outputDir, "index.html");
+      try {
+        const html = fs.readFileSync(htmlPath, "utf8");
+        for (const match of html.matchAll(/<script\b(?=[^>]*\btype\s*=\s*["']importmap["'])[^>]*>([\s\S]*?)<\/script>/gi)) {
+          const hash = crypto.createHash("sha256").update(match[1]).digest("base64");
+          scriptSrc.push(`'sha256-${hash}'`);
+        }
+      } catch {
+        // Preview may start before a build exists; the response remains report-only.
+      }
+    }
     if (isDev) {
       // Vite's React Refresh runtime is injected as an inline module script.
       // The development policy allows it; production preview stays strict.
@@ -335,7 +352,7 @@ const frontendContentSecurityPolicyPlugin = (browserEnv, reportOnly) => {
       applyPolicy(server.middlewares, true);
     },
     configurePreviewServer(server) {
-      applyPolicy(server.middlewares, false);
+      applyPolicy(server.middlewares, false, server.config.build.outDir);
     },
   };
 };
@@ -510,6 +527,7 @@ export default defineConfig(({ mode }) => {
     __N_APT_ML_BUNDLE_READY__: JSON.stringify(hasDecryptedMlSource),
   },
   plugins: [
+    viteSriPlugin(),
     injectBrowserEnv(browserEnv),
     frontendContentSecurityPolicyPlugin(browserEnv, mode === "production"),
     connectionAllowlistPlugin(browserEnv),
