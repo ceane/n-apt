@@ -1,10 +1,10 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import fs from "node:fs";
 import react from "@vitejs/plugin-react";
+import { viteSriPlugin } from "./scripts/build/viteSriPlugin.mjs";
 
-const dirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+const dirname = import.meta.dirname;
 
 const pagesDir = path.resolve(dirname, "pages");
 
@@ -47,14 +47,13 @@ const pagesMiddleware: Plugin = {
       }
       if (url === "/article") {
         const indexPath = path.join(dirname, "src/app-article/index.html");
-        const html = await server.transformIndexHtml("/article/", fs.readFileSync(indexPath, "utf-8"));
-        // transformIndexHtml resolves the relative "./main.tsx" entry against
-        // "/article/", producing "/article/main.tsx", which does not exist under
-        // the app root. Point it at the root-relative entry Vite serves natively.
-        const devHtml = html.replace(
+        // The article is mounted at /article but its Vite root is src/app-article.
+        // Normalize the entry before transforms so dev SRI hashes the URL Vite serves.
+        const sourceHtml = fs.readFileSync(indexPath, "utf-8").replace(
           'src="./main.tsx"',
           'src="/main.tsx"',
         );
+        const devHtml = await server.transformIndexHtml("/article/", sourceHtml);
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.end(devHtml);
@@ -107,9 +106,15 @@ const pagesMiddleware: Plugin = {
       next();
     });
   },
-  handleHotUpdate({ file, server }) {
+  handleHotUpdate({ file, server, modules }) {
     if (!file.startsWith(pagesDir)) {
       return;
+    }
+
+    // Imported markdown (including ?raw) must flow through Vite's module
+    // invalidation and React Refresh so the embedded source updates too.
+    if (modules.length > 0) {
+      return modules;
     }
 
     const relative = path.relative(dirname, file).replace(/\\+/g, "/");
@@ -169,9 +174,8 @@ export default defineConfig(({ mode }) => {
       "__APP_BASE_URL__": JSON.stringify(isProd ? "/n-apt/" : "/article/"),
       "__DEV__": JSON.stringify(!isProd),
     },
-    esbuild: {
-      jsx: "automatic",
-      drop: isProd ? ["console", "debugger"] : [],
+    oxc: {
+      jsx: { runtime: "automatic" },
     },
     // Vite's dev server owns the root namespace; the article app exposes its
     // canonical browser route through the middleware above.
@@ -231,6 +235,29 @@ export default defineConfig(({ mode }) => {
     port: 4174,
   },
   plugins: [
+    {
+      name: "article-image-preloads",
+      transformIndexHtml() {
+        const markdown = fs.readFileSync(path.resolve(pagesDir, "how-do-they-do-it.md"), "utf8");
+        const images = new Map<string, boolean>();
+        for (const match of markdown.matchAll(/!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)|<img\b[^>]*>/g)) {
+          const source = match[1] ?? match[0].match(/\bsrc=["']([^"']+)["']/)?.[1];
+          if (!source || source.startsWith("data:")) continue;
+          const eager = /\bloading=["']eager["']/.test(match[0]);
+          const cleaned = source.replace(/^\/(?:md-preview|article)\//, "/");
+          const href = /^(?:https?:)?\/\//.test(cleaned)
+            ? cleaned
+            : `${isProd ? "/n-apt/" : "/article/"}${cleaned.replace(/^\//, "")}`;
+          images.set(href, eager || images.get(href) === true);
+        }
+        return [...images].map(([href, eager]) => ({
+          tag: "link",
+          attrs: { rel: "preload", as: "image", href, fetchpriority: eager ? "high" : "low" },
+          injectTo: "head" as const,
+        }));
+      },
+    },
+    viteSriPlugin(),
     react({
       jsxRuntime: "automatic",
     }),

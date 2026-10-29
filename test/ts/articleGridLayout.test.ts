@@ -23,7 +23,9 @@ describe("article grid layout", () => {
     expect(articleStyles).toContain(
       "> * {\n    grid-column: 2;\n    min-width: 0;\n  }",
     );
-    expect(articleStyles).toContain("&& > * + * {\n    margin-top: 0;\n  }");
+    expect(articleStyles).toContain("&& > * + :not(:is(h1, h2, h3, h4, h5, h6)) {\n    margin-top: 0;\n  }");
+    expect(articleStyles).toContain("margin-top: 2.5em;");
+    expect(articleStyles).toContain("margin-bottom: 0.5em;");
     expect(articleStyles).toContain("max-width: 800px;");
     expect(articleStyles).not.toContain("padding: var(--article-gutter);");
   });
