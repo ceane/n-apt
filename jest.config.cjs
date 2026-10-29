@@ -99,6 +99,7 @@ module.exports = {
     "^@n-apt/(.*)$": "<rootDir>/src/ts/$1",
     "\\.(gif|jpg|jpeg|png|svg|webp)$": "<rootDir>/test/ts/__mocks__/fileMock.cjs",
     "^.+\\.yaml\\?raw$": "<rootDir>/test/ts/__mocks__/signalsYaml.cjs",
+    "^.+\\.md\\?raw$": "<rootDir>/test/ts/__mocks__/articleMarkdown.cjs",
     "\\.css$": "<rootDir>/test/ts/__mocks__/styleMock.cjs",
   },
   testMatch: [

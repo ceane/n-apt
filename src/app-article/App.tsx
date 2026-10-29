@@ -210,8 +210,12 @@ const App: React.FC = () => {
   }, [markdown]);
 
   useEffect(() => {
-    setMarkdown(defaultMarkdown);
-  }, [defaultMarkdown]);
+    // The bundled source paints immediately; refresh it from the dev server
+    // in the background so the existing markdown endpoint remains authoritative.
+    if (__DEV__) {
+      void fetchMarkdown(activeSource);
+    }
+  }, [activeSource, fetchMarkdown]);
 
   useEffect(() => {
     const handleUpdate = (payload: { path?: string }) => {
