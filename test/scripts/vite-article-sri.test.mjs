@@ -48,8 +48,9 @@ test("article development HTML applies SRI to its entry and HMR client", async (
   for (const modulePath of ["/@fs" + path.resolve("pages/how-do-they-do-it.md") + "?import&t=1761760000000&raw", "/App.tsx?t=1761760000001"]) {
     const updateUrl = new URL(modulePath, origin).href;
     const hashResponse = await fetch(`${origin}/__napt_sri_hmr_hash?url=${encodeURIComponent(updateUrl)}`);
-    assert.equal(hashResponse.status, 200);
-    const { integrity } = await hashResponse.json();
+    const hashText = await hashResponse.text();
+    assert.equal(hashResponse.status, 200, `${modulePath}: ${hashText}`);
+    const { integrity } = JSON.parse(hashText);
     const response = await fetch(updateUrl);
     assert.equal(response.status, 200);
     assert.equal(integrity, integrityForSource(await response.text()));
