@@ -1,10 +1,66 @@
 use n_apt_backend::crypto;
 use n_apt_backend::sdr::processor::{CaptureChannel, CaptureResult};
 use n_apt_backend::server::utils::save_capture_file_multi;
+use std::ffi::OsString;
 use std::fs;
-use tempfile::tempdir;
+use std::sync::{Mutex, MutexGuard};
+use tempfile::{tempdir, TempDir};
 
 const ENCRYPTION_FIXTURE_PASSWORD: &str = "napt-test-fixture-password-v1";
+
+struct TestCaptureStorage {
+  _lock: MutexGuard<'static, ()>,
+  _root: TempDir,
+  previous: [(&'static str, Option<OsString>); 3],
+}
+
+impl TestCaptureStorage {
+  fn new() -> Self {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let lock = LOCK.lock().expect("test capture storage lock");
+    let root = tempdir().expect("isolated test capture storage");
+    let previous = [
+      (
+        "N_APT_CAPTURE_STORAGE_PATH",
+        std::env::var_os("N_APT_CAPTURE_STORAGE_PATH"),
+      ),
+      (
+        "N_APT_CAPTURE_DOWNLOADS_PATH",
+        std::env::var_os("N_APT_CAPTURE_DOWNLOADS_PATH"),
+      ),
+      (
+        "N_APT_CAPTURE_BACKUP_PATH",
+        std::env::var_os("N_APT_CAPTURE_BACKUP_PATH"),
+      ),
+    ];
+    std::env::set_var(
+      "N_APT_CAPTURE_STORAGE_PATH",
+      root.path().join("captures"),
+    );
+    std::env::set_var(
+      "N_APT_CAPTURE_DOWNLOADS_PATH",
+      root.path().join("downloads"),
+    );
+    std::env::set_var("N_APT_CAPTURE_BACKUP_PATH", root.path().join("backup"));
+    Self {
+      _lock: lock,
+      _root: root,
+      previous,
+    }
+  }
+}
+
+impl Drop for TestCaptureStorage {
+  fn drop(&mut self) {
+    for (name, value) in &self.previous {
+      if let Some(value) = value {
+        std::env::set_var(name, value);
+      } else {
+        std::env::remove_var(name);
+      }
+    }
+  }
+}
 
 fn binary_payload<'a>(
   file_bytes: &'a [u8],
@@ -22,6 +78,7 @@ fn test_vault_key() -> [u8; 32] {
 
 #[test]
 fn test_encryption_save_load_cycle() {
+  let _capture_storage = TestCaptureStorage::new();
   let _dir = tempdir().unwrap();
   let vault_key = test_vault_key();
 
@@ -174,6 +231,7 @@ fn password_auth_and_vault_keys_match_cross_language_golden_vectors() {
 
 #[test]
 fn test_checksum_integrity_and_corruption() {
+  let _capture_storage = TestCaptureStorage::new();
   let _dir = tempdir().unwrap();
   let vault_key = test_vault_key();
 
@@ -328,6 +386,7 @@ fn test_legacy_format_decryption() {
 
 #[test]
 fn generate_test_artifacts() {
+  let _capture_storage = TestCaptureStorage::new();
   let vault_key = test_vault_key();
 
   let original_iq = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
