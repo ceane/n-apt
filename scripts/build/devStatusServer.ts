@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
+import { createHash } from "node:crypto";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { rebuildStatusPath } from "./runtimePaths";
 
@@ -35,6 +36,8 @@ const PAGE_PALETTES_JSON = JSON.stringify({
   dark: statusPalette("dark"),
   light: statusPalette("light"),
 });
+const STATUS_CLIENT_JS = fs.readFileSync(new URL("./devStatusClient.js", import.meta.url));
+const STATUS_CLIENT_INTEGRITY = `sha384-${createHash("sha384").update(STATUS_CLIENT_JS).digest("base64")}`;
 
 const STATUS_PAGE_HTML = `<!doctype html>
 <html lang="en">
@@ -118,108 +121,24 @@ ${STATUS_MARKER}
   <div class="errors" id="errors"></div>
   <div class="logs" id="logs"></div>
 </div>
-<script>
-(() => {
-  const PALETTES = JSON.parse(document.getElementById('napt-palettes').textContent);
-
-  const resolveMode = () => {
-    try {
-      const raw = localStorage.getItem('napt-theme-storage');
-      if (raw) {
-        const appMode = (JSON.parse(raw) || {}).appMode;
-        if (appMode === 'dark' || appMode === 'light') return appMode;
-      }
-    } catch {}
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
-      ? 'light' : 'dark';
-  };
-
-  const applyTheme = () => {
-    document.documentElement.dataset.theme = resolveMode();
-  };
-  applyTheme();
-
-  const ICONS = { pending: '○', running: '◐', success: '✓', warning: '▲', error: '✗' };
-  const stepsEl = document.getElementById('steps');
-  const logsEl = document.getElementById('logs');
-  const errorsEl = document.getElementById('errors');
-  const elapsedEl = document.getElementById('elapsed');
-  let startedAt = null;
-
-  const fmtElapsed = () => {
-    if (!startedAt) return;
-    const s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-    elapsedEl.textContent = s >= 60 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : s + 's';
-  };
-  setInterval(fmtElapsed, 1000);
-
-  const render = (data) => {
-    if (Array.isArray(data.steps)) {
-      stepsEl.innerHTML = '';
-      for (const step of data.steps) {
-        const li = document.createElement('li');
-        li.className = step.status || 'pending';
-        const icon = document.createElement('span');
-        icon.className = 'icon';
-        icon.textContent = ICONS[step.status] || '○';
-        const label = document.createElement('span');
-        label.textContent = step.name + (step.message ? ' — ' + step.message : '');
-        li.append(icon, label);
-        stepsEl.append(li);
-      }
-    }
-    if (typeof data.buildStartedAt === 'number') {
-      startedAt = data.buildStartedAt;
-      fmtElapsed();
-    }
-    const lines = Array.isArray(data.recentLines) ? data.recentLines : [];
-    logsEl.innerHTML = '';
-    for (const line of lines.slice(-12)) {
-      const div = document.createElement('div');
-      div.textContent = line;
-      logsEl.append(div);
-    }
-    const errCount = typeof data.errorCount === 'number' ? data.errorCount : 0;
-    const warnCount = typeof data.warningCount === 'number' ? data.warningCount : 0;
-    errorsEl.innerHTML = '';
-    if (errCount > 0 || warnCount > 0) {
-      const div = document.createElement('div');
-      div.textContent = [errCount ? errCount + ' error(s)' : '', warnCount ? warnCount + ' warning(s)' : '']
-        .filter(Boolean).join(', ');
-      errorsEl.append(div);
-    }
-  };
-
-  let handoffDetected = false;
-
-  const probeApp = async () => {
-    try {
-      const res = await fetch('/', { cache: 'no-store' });
-      const body = await res.text();
-      if (!body.includes('${STATUS_MARKER}')) {
-        location.reload();
-        return;
-      }
-    } catch {}
-    setTimeout(probeApp, 400);
-  };
-
-  const pollStatus = async () => {
-    try {
-      const res = await fetch('/__build_status', { cache: 'no-store' });
-      render(await res.json());
-    } catch {
-      probeApp();
-      return;
-    }
-    setTimeout(pollStatus, 700);
-  };
-
-  pollStatus();
-})();
-</script>
+<script src="/__dev_status_client.js" integrity="${STATUS_CLIENT_INTEGRITY}" crossorigin="anonymous"></script>
 </body>
 </html>`;
+
+const inlineStatusStyles = STATUS_PAGE_HTML.match(/<style>([\s\S]*?)<\/style>/)?.[1];
+if (inlineStatusStyles === undefined) {
+  throw new Error("The development status page is missing its inline style block");
+}
+const STATUS_PAGE_CSP = [
+  "default-src 'none'",
+  "script-src 'self'",
+  `style-src 'sha256-${createHash("sha256").update(inlineStatusStyles).digest("base64")}'`,
+  "img-src 'self'",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
 
 const LOGO_SVG_PATH = "public/images/icon.svg";
 
@@ -227,6 +146,7 @@ const sendHtml = (res: http.ServerResponse): void => {
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
+    "Content-Security-Policy": STATUS_PAGE_CSP,
   });
   res.end(STATUS_PAGE_HTML);
 };
@@ -243,6 +163,14 @@ const sendLogo = (res: http.ServerResponse): void => {
     res.writeHead(404);
     res.end();
   }
+};
+
+const sendStatusClient = (res: http.ServerResponse): void => {
+  res.writeHead(200, {
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  res.end(STATUS_CLIENT_JS);
 };
 
 export function startDevStatusServer(
@@ -273,6 +201,10 @@ export function startDevStatusServer(
       }
       if (url === "/__dev_logo") {
         sendLogo(res);
+        return;
+      }
+      if (url === "/__dev_status_client.js") {
+        sendStatusClient(res);
         return;
       }
       sendHtml(res);

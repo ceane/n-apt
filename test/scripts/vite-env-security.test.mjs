@@ -90,6 +90,11 @@ for (const config of [
       new URL(`../../${config}`, import.meta.url),
       path.join(root, config),
     );
+    await fs.mkdir(path.join(root, "scripts/build"), { recursive: true });
+    await fs.copyFile(
+      new URL("../../scripts/build/viteSriPlugin.mjs", import.meta.url),
+      path.join(root, "scripts/build/viteSriPlugin.mjs"),
+    );
     await fs.symlink(
       path.resolve("node_modules"),
       path.join(root, "node_modules"),

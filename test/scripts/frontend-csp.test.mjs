@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -55,7 +56,11 @@ test("frontend responses use a CSP with scoped backend and HMR connections", asy
 test("production-mode preview reports CSP without enforcing it", async (t) => {
   const config = viteConfig({ mode: "production", command: "serve" });
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), "napt-csp-preview-"));
-  await fs.writeFile(path.join(outputDir, "index.html"), "<!doctype html><title>N-APT</title>");
+  const importMap = `{"integrity":{"/assets/main.js":"sha384-${"A".repeat(64)}"}}`;
+  await fs.writeFile(
+    path.join(outputDir, "index.html"),
+    `<!doctype html><html><head><script type="importmap">${importMap}</script></head><title>N-APT</title>`,
+  );
   const server = await preview({
     ...config,
     build: { ...config.build, outDir: outputDir },
@@ -72,6 +77,10 @@ test("production-mode preview reports CSP without enforcing it", async (t) => {
   const policy = response.headers.get("content-security-policy-report-only");
   assert.ok(policy);
   assert.match(policy, /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.ok(
+    policy.includes(`'sha256-${createHash("sha256").update(importMap).digest("base64")}'`),
+    "the import-map SRI metadata must be allowed by the preview policy",
+  );
   assert.doesNotMatch(policy, /script-src[^;]*'unsafe-inline'/);
   assert.equal(response.headers.get("content-security-policy"), null);
 });

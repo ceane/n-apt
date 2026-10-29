@@ -10,7 +10,7 @@ const buildOptions = {
   platform: "node",
   format: "cjs",
   external: ["react", "react-dom", "react/jsx-runtime", "styled-components"],
-  loader: { ".css": "empty", ".svg": "dataurl", ".png": "dataurl", ".jpg": "dataurl" },
+  loader: { ".css": "empty", ".svg": "dataurl", ".png": "dataurl", ".jpg": "dataurl", ".md": "text" },
   define: { __DEV__: "true", "import.meta.hot": "undefined" },
 };
 const bundle = execFileSync(process.execPath, ["--input-type=module", "-e", `import { buildSync } from 'esbuild'; process.stdout.write(buildSync(${JSON.stringify(buildOptions)}).outputFiles[0].text);`], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });

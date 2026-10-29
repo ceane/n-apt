@@ -1449,8 +1449,6 @@ Estimated costs *(for the event and one individual, not program as a whole)* **e
 ![The EFF's Headquarters in San Francisco](/md-preview/images/11_5_2025.jpeg)
 *I was ignored by the EFF. Instead of receiving legal aid, I pored over nearly every OIG report, unclassified release, and publicized policy for hours and hours.*
 
-
-
 ## ⠿ <a id="vocab"></a> Vocabulary[^vocab]
 
 I made a list of vocabulary around the technical and scientific terms based on my findings.

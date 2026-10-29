@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, lazy
 import styled, { createGlobalStyle, css, ThemeProvider } from "styled-components";
 import { theme } from "@n-apt/app-article/consts/theme";
 import ReactMarkdown from "react-markdown";
+import defaultMarkdown from "../../pages/how-do-they-do-it.md?raw";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
-import { rehypeSanitizeArticle, rehypeArticleAnchors } from "@n-apt/app-article/utils/markdown-sanitize";
+import { rehypeSanitizeArticle, rehypeArticleAnchors, rehypeArticleParagraphs } from "@n-apt/app-article/utils/markdown-sanitize";
 import katex from "katex";
 import { Bug, RadioTower } from "lucide-react"; // Explicit imports: only the icons used by the article's shortcodes ship in the bundle.
 import "katex/dist/katex.min.css";
@@ -35,10 +36,6 @@ import { registerMarkdownHotReload } from "@n-apt/app-article/utils/hmr";
 import { CanvasHarness } from "@n-apt/app-article/components/canvas/CanvasHarness";
 import { ResponsiveKatex, desktopOnlyStyles, mobileOnlyStyles, DesktopOnly, MobileOnly } from "@n-apt/math/ResponsiveKatex";
 import { DEFAULT_MARKDOWN_SOURCE, loadMarkdown } from "@n-apt/app-article/utils/markdown-source";
-
-const DevAgentation = __DEV__
-  ? lazy(() => import("agentation").then(({ Agentation }) => ({ default: Agentation })))
-  : null;
 
 const LEGACY_CANVAS_IMPORT_PATH = "@n-apt/ts/components/canvas";
 
@@ -91,7 +88,14 @@ const MarkdownImage: React.FC<MarkdownImageProps> = ({ src = "", alt = "", ...im
 
   return (
     <Figure $blendClass={blendClass} $hero={isHero} $fullBleed={isFullBleed}>
-      <img src={assetUrl(src)} alt={alt} loading="lazy" {...imgProps} />
+      <img
+        {...imgProps}
+        src={assetUrl(src)}
+        alt={alt}
+        loading={imgProps.loading ?? (isHero ? "eager" : "lazy")}
+        decoding="async"
+        fetchPriority={imgProps.loading === "eager" || isHero ? "high" : "low"}
+      />
     </Figure>
   );
 };
@@ -156,7 +160,7 @@ const LatexBlock: React.FC<LatexBlockProps> = ({ "data-expressions": serializedE
 
 const App: React.FC = () => {
   const [activeSource] = useState(DEFAULT_SOURCE);
-  const [markdown, setMarkdown] = useState<string>("");
+  const [markdown, setMarkdown] = useState<string>(defaultMarkdown);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchMarkdown = useCallback(async (path: string, bustCache = false) => {
@@ -206,7 +210,11 @@ const App: React.FC = () => {
   }, [markdown]);
 
   useEffect(() => {
-    void fetchMarkdown(activeSource);
+    // The bundled source paints immediately; refresh it from the dev server
+    // in the background so the existing markdown endpoint remains authoritative.
+    if (__DEV__) {
+      void fetchMarkdown(activeSource);
+    }
   }, [activeSource, fetchMarkdown]);
 
   useEffect(() => {
@@ -241,13 +249,19 @@ const App: React.FC = () => {
 
       return <MarkdownLink target="_blank" rel="noreferrer" {...props} />;
     },
-    p: ({ node: _node, ...props }) => {
+    p: ({ node, ...props }) => {
       const { children } = props;
       // If the paragraph contains block-level components (images, canvases, latex),
       // we 'plop them out' by returning only the children without the <p> wrapper.
       // This maintains valid HTML hierarchy.
-      const hasBlockElement = React.Children.toArray(children).some(
-        (child) => React.isValidElement(child) && typeof child.type !== "string"
+      const hasBlockElement = node?.children.some(
+        (child) => child.type === "element" && (
+          child.tagName === "img" ||
+          child.tagName === "latex-block" ||
+          child.tagName.endsWith("-canvas") ||
+          child.tagName === "desktop-only" ||
+          child.tagName === "mobile-only"
+        )
       );
       return hasBlockElement ? <>{children}</> : <p {...props} className="markdown-para" />;
     },
@@ -300,7 +314,6 @@ const App: React.FC = () => {
             <GiscusComments pageId={activeSource} />
           )}
         </ArticleContent>
-        {DevAgentation && <DevAgentation endpoint="http://localhost:4747" />}
       </Page>
     </ThemeProvider>
   );
@@ -334,7 +347,7 @@ const MemoizedMarkdown = React.memo(function MemoizedMarkdown({
         remarkTimeOfFlightBlocks,
         remarkSignalCanvasBlocks as any,
       ]}
-      rehypePlugins={[rehypeRaw, rehypeSanitizeArticle, rehypeArticleAnchors, rehypeKatex]}
+      rehypePlugins={[rehypeRaw, rehypeSanitizeArticle, rehypeArticleParagraphs, rehypeArticleAnchors, rehypeKatex]}
       components={components}
     >
       {loadError ? `# Could not load markdown\n\n${loadError}` : (markdown || "_Fetching markdown…_")}
@@ -423,7 +436,7 @@ const ArticleContent = styled.article`
     min-width: 0;
   }
 
-  && > * + * {
+  && > * + :not(:is(h1, h2, h3, h4, h5, h6)) {
     margin-top: 0;
   }
 
@@ -437,7 +450,7 @@ const ArticleContent = styled.article`
     font-weight: 700;
     line-height: 1.3;
     margin-top: 2.5em;
-    margin-bottom: 1.2em;
+    margin-bottom: 0.5em;
     color: #9eaeff;
 
     sup {

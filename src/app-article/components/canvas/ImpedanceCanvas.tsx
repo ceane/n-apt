@@ -1,6 +1,5 @@
 import { useEffect, useRef, useMemo, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import styled, { keyframes } from "styled-components";
 
@@ -274,6 +273,7 @@ const InnerContainer = styled.div`
 const Overlay = styled.div`
   position: absolute;
   inset: 0;
+  z-index: 1;
   pointer-events: none;
   display: flex;
   flex-direction: column;
@@ -381,6 +381,10 @@ const BottomMeta = styled.div`
 `;
 
 const TargetLabelContainer = styled.div`
+  position: absolute;
+  top: 24%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -650,12 +654,10 @@ const UpArrowLine = () => (
 );
 
 const TargetLabel = () => (
-  <Html position={[0, 1.7, 0]} transform center>
-    <TargetLabelContainer>
-      <TargetMain>Target</TargetMain>
-      <TargetSub>(with its own electrical activity)</TargetSub>
-    </TargetLabelContainer>
-  </Html>
+  <TargetLabelContainer>
+    <TargetMain>Target</TargetMain>
+    <TargetSub>(with its own electrical activity)</TargetSub>
+  </TargetLabelContainer>
 );
 
 // ── Scene ────────────────────────────────────────────────────────────────────
@@ -678,7 +680,6 @@ const SceneContents = () => {
       <GhostWave index={2} />
       <MovingWave />
       <ImpedanceObject />
-      <TargetLabel />
       {showUpArrow ? <UpArrowLine /> : null}
     </>
   );
@@ -726,6 +727,8 @@ const ImpedanceCanvas = () => {
             <LabelSub>(receive)</LabelSub>
           </LabelCell>
         </LabelRow>
+
+        <TargetLabel />
 
         {showImprint ? (
           <>

@@ -3,6 +3,30 @@ import rehypeSanitize from "rehype-sanitize";
 import type { Root, Element } from "hast";
 import type { Plugin } from "unified";
 
+// Raw HTML blocks can leave text and <br> directly under the document root.
+// Anonymous text grid items cannot receive the article's grid-column rule.
+export const rehypeArticleParagraphs: Plugin<[], Root> = () => (tree) => {
+  const inlineTags = new Set(["a", "br", "em", "strong", "span", "small", "code", "del", "sup", "sub", "icon-inline", "days-since"]);
+  const children: Root["children"] = [];
+  let pending: Element["children"] = [];
+  const flush = () => {
+    if (pending.some((node) => node.type !== "text" || node.value.trim())) {
+      children.push({ type: "element", tagName: "p", properties: {}, children: pending });
+    }
+    pending = [];
+  };
+  for (const node of tree.children) {
+    if (node.type === "text" || (node.type === "element" && inlineTags.has(node.tagName))) {
+      pending.push(node);
+    } else {
+      flush();
+      children.push(node);
+    }
+  }
+  flush();
+  tree.children = children;
+};
+
 const articleAnchorIds = new Set([
   "table-of-contents", "theory-1", "theory-2", "theory-3", "multipath",
   "hypothesis-post-sdr", "brainwaves", "channels", "freq-mod", "amp-mod",
