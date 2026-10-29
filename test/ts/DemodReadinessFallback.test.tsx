@@ -70,8 +70,10 @@ describe("encrypted demod readiness adapter", () => {
       await screen.findByRole("button", { name: "Retry Demod readiness" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("The encrypted ML feature bundle could not be loaded."),
-    ).toBeInTheDocument();
+      screen.getByRole("alert", { name: "Demod readiness unavailable" }),
+    ).toHaveTextContent(
+      "The encrypted ML feature bundle could not be loaded. Update the app and try again.",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Retry Demod readiness" }));
     await waitFor(() => expect(loadEncryptedMlModule).toHaveBeenCalledTimes(2));
