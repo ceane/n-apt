@@ -110,8 +110,11 @@ describe("DemodSidebarNodes", () => {
 
     expect(
       await screen.findByRole("alert", { name: "Stimulus Node unavailable" }),
+    ).toHaveTextContent("Stimulus Node Load Failed");
+    expect(
+      screen.getByRole("alert", { name: "Stimulus Node unavailable" }),
     ).toHaveTextContent(
-      "The stimulus node isn't decrypted, so it can't be added from the node library yet.",
+      "The encrypted ML feature bundle could not be loaded. Update the app and try again.",
     );
     expect(
       screen.queryByText(

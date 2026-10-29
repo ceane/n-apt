@@ -125,11 +125,14 @@ const ActionButton = styled(Button)`
 `;
 
 export type DecryptionErrorType = "vault" | "demod" | "latex" | "ml";
+export type ModuleFailureKind = "decryption" | "load";
 
 interface DecryptionFallbackProps {
   moduleName: string;
   errorType?: DecryptionErrorType;
+  failureKind?: ModuleFailureKind;
   messageOverride?: string;
+  detailMessage?: string;
   onRetry?: () => void;
   retryLabel?: string;
 }
@@ -137,7 +140,9 @@ interface DecryptionFallbackProps {
 export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
   moduleName,
   errorType = "vault",
+  failureKind = "decryption",
   messageOverride,
+  detailMessage,
   onRetry,
   retryLabel,
 }) => {
@@ -145,12 +150,10 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
     switch (errorType) {
       case "ml":
         return {
-          envVar: "UNSAFE_LOCAL_LATEX_PASSWORD",
+          envVar: "UNSAFE_LOCAL_DEMOD_PASSWORD",
           message: "The encrypted ML feature bundle could not be loaded.",
-          asideMessage:
-            "The bundle may be missing, outdated, or fail authentication or integrity validation.",
-          troubleshooting:
-            "Check that the current ML bundle and module password are available, then retry this feature.",
+          asideMessage: "This app version may not have a compatible ML bundle.",
+          troubleshooting: "Update the app, then try again.",
         };
       case "demod":
         return {
@@ -196,31 +199,73 @@ export const DecryptionFallback: React.FC<DecryptionFallbackProps> = ({
     >
       <Header>
         <ShieldAlert size={16} />
-        <Title>{moduleName} Decryption Failed</Title>
+        <Title>
+          {moduleName} {failureKind === "decryption" ? "Decryption" : "Load"} Failed
+        </Title>
       </Header>
 
       <Message>
-        {messageOverride ?? message}
+        {errorType === "ml"
+          ? failureKind === "decryption"
+            ? "The encrypted ML feature bundle could not be decrypted. Update the app and try again."
+            : "The encrypted ML feature bundle could not be loaded. Update the app and try again."
+          : messageOverride ??
+            (failureKind === "load"
+              ? `${moduleName} could not be loaded.`
+              : message)}
         <br />
-        <AsideText>{asideMessage}</AsideText>
+        <AsideText>
+          {errorType === "ml"
+            ? asideMessage
+            : detailMessage ||
+              (failureKind === "load"
+                ? "The module failed before React could render it."
+                : asideMessage)}
+        </AsideText>
       </Message>
 
       <Instructions>
-        <InstructionRow>
-          <Terminal size={12} />
-          <span>
-            Check your <CodeBlock>.env.local</CodeBlock> configuration:
-          </span>
-        </InstructionRow>
-        <InstructionContent>
-          Ensure <CodeBlock>{envVar}</CodeBlock> is set correctly.
-        </InstructionContent>
+        {errorType === "ml" ? (
+          <>
+            <InstructionRow>
+              <RefreshCcw size={12} />
+              <span>Recommended action:</span>
+            </InstructionRow>
+            <InstructionContent>Update the app to continue.</InstructionContent>
+          </>
+        ) : failureKind === "decryption" ? (
+          <>
+            <InstructionRow>
+              <Terminal size={12} />
+              <span>
+                Check your <CodeBlock>.env.local</CodeBlock> configuration:
+              </span>
+            </InstructionRow>
+            <InstructionContent>
+              Ensure <CodeBlock>{envVar}</CodeBlock> is set correctly.
+            </InstructionContent>
+          </>
+        ) : (
+          <>
+            <InstructionRow>
+              <Terminal size={12} />
+              <span>Module diagnostic:</span>
+            </InstructionRow>
+            <InstructionContent>
+              {detailMessage || "No additional error details were provided."}
+            </InstructionContent>
+          </>
+        )}
 
         <InstructionRow $marginTop={4}>
           <HelpCircle size={12} />
           <span>Troubleshooting:</span>
         </InstructionRow>
-        <InstructionContent>{troubleshooting}</InstructionContent>
+        <InstructionContent>
+          {failureKind === "load"
+            ? "Update the app and retry this feature."
+            : troubleshooting}
+        </InstructionContent>
       </Instructions>
 
       <ButtonRow>

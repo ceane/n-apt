@@ -520,10 +520,12 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
         }),
       ).toBeInTheDocument();
       expect(
-        within(classifierSlot).getByText(
-          "The encrypted ML feature bundle could not be loaded.",
-        ),
-      ).toBeInTheDocument();
+        within(classifierSlot).getByRole("alert", {
+          name: "Native classifier unavailable",
+        }),
+      ).toHaveTextContent(
+        "The encrypted ML feature bundle could not be loaded. Update the app and try again.",
+      );
     } finally {
       rendered.unmount();
       classifierSlot.remove();
