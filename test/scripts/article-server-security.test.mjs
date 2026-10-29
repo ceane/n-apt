@@ -27,6 +27,8 @@ test("article server confines Markdown and asset reads to their roots", async (t
     await fs.rm(root, { recursive: true, force: true });
   });
   await fs.copyFile(new URL("../../vite.markdown.config.ts", import.meta.url), path.join(root, "vite.markdown.config.ts"));
+  await fs.mkdir(path.join(root, "scripts/build"), { recursive: true });
+  await fs.copyFile(new URL("../../scripts/build/viteSriPlugin.mjs", import.meta.url), path.join(root, "scripts/build/viteSriPlugin.mjs"));
   await fs.symlink(path.resolve("node_modules"), path.join(root, "node_modules"));
   await fs.writeFile(path.join(root, "package.json"), '{"type":"module"}');
   await fs.mkdir(path.join(root, "src/app-article"), { recursive: true });
