@@ -19,7 +19,7 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 - Ensure to update checklists, tasks, etc., as you complete tasks.
 - Do not run `npm run build`; run `npm run build:article` only for markdown
   article changes.
-- Do not use browser automation for testing. If frontend testing is necessary,
+- Do not use browser automation for testing, except Playwright. If frontend testing is necessary,
   use `http://localhost:5173`; `127.0.0.1` is blocked.
 - Never pass passwords, tokens, or other secrets as shell or CLI arguments,
   including to `npm`, `npx`, or browser automation tools; launchers and wrappers
@@ -185,7 +185,7 @@ build merely to validate a local edit.
 
 - Never lower the hardware sample rate below 3.2 MHz (N-APT Nyquist needs that width); narrower modes such as FM use a bandwidth slice/window inside that sample rate.
 - Span bandwidth is a selected slice within the sample-rate window, not the same thing as sample rate.
-- The available spectrum display range is 0 Hz to 30 GHz; center/span padding and clamps must respect those bounds (including sample_rate/2 from center). With "Mirror I/Q baseband below 0 Hz" enabled, negative-frequency presentation is allowed without changing what the radio is tuned to.
+- The available spectrum display range is 0 Hz to 30 GHz, set within the signals.yaml; center/span padding and clamps must respect those bounds (including sample_rate/2 from center). With "Mirror I/Q baseband below 0 Hz" enabled, negative-frequency presentation is allowed without changing what the radio is tuned to.
 - Mirror I/Q below 0 Hz is presentation-only: reflect acquired positive baseband across DC via `basebandMirror.ts` and the WebGPU resample path; it must not retune hardware on every pan tick.
 - During VFO/slider retune, paint live IQ on each frame's acquisition axis (`center_frequency_hz ± sample_rate/2`) when the requested viewport and frame center diverge; mapping bins onto the scrolled Redux viewport causes channel-island flatlining.
 - Agent guidance and related docs live under `.agents/` (including `.agents/AGENTS.md`).

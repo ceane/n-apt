@@ -393,11 +393,6 @@ export const selectThemeObject = createSelector(
   },
 );
 
-// selectHighFrequencyData: live frame data now lives in the frame runtime,
-// not in Redux state. Consumers should use the runtime boundary directly.
-// This selector is kept as a no-op stub for backward compatibility only.
-export const selectHighFrequencyData = (_state: any) => null;
-
 // Selector for WebSocket connection readiness
 export const selectIsWebSocketReady = createSelector(
   [selectConnectionState, selectActiveSourceDerivedState],

@@ -480,7 +480,6 @@ export {
   selectSignalAreaBounds,
   selectIsVisualizerRouteActive,
   selectThemeObject,
-  selectHighFrequencyData,
   selectIsWebSocketReady,
   selectDeviceCapabilities,
   selectSourceDerivedState,
