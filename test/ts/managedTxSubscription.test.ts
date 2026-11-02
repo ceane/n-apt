@@ -162,8 +162,8 @@ describe("managed Tx subscription pause state", () => {
         viewCenterHz: 137_100_000,
         sampleRateHz: 4_372_000,
         bandwidthHz: 2_950_500,
-        txSignal: "wifi",
-        txIfftSize: 2048,
+        signal: "wifi",
+        ifftSize: 2048,
       },
     );
 

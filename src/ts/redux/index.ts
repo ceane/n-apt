@@ -430,7 +430,6 @@ export {
   disconnectWebSocket,
   sendFrequencyRange,
   sendCenterFrequency,
-  sendPauseCommand,
   sendSettings,
   sendRestartDevice,
   sendTrainingCommand,

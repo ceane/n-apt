@@ -1,4 +1,4 @@
-import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import type { IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 import type { StreamMode } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ export type SourceModeKey = {
 
 /** The frozen frame retained when a source enters paused or standby. */
 export type FrozenFrame = {
-  frame: IqRawFrame;
+  frame: IqRawFrameV2;
   frozenAt: number;
   /** Source that owned the frozen frame, for stale-freeze rejection. */
   sourceId: string;
@@ -42,7 +42,7 @@ export type SourceModeSlot = {
   key: SourceModeKey;
   phase: SourcePresentationPhase;
   /** The ref the canvas reads from during streaming. Single-frame deep. */
-  liveFrameRef: { current: IqRawFrame | null };
+  liveFrameRef: { current: IqRawFrameV2 | null };
   /** The frame frozen on canvas when paused/standby. */
   frozenFrame: FrozenFrame | null;
   /** Stream epoch for frame validation. */
@@ -98,20 +98,22 @@ const createEmptySlot = (key: SourceModeKey): SourceModeSlot => ({
   metrics: { accepted: 0, rejected: 0, stale: 0, frozen: 0 },
 });
 
-const extractFrameSourceId = (frame: IqRawFrame): string | null =>
+const extractFrameSourceId = (frame: IqRawFrameV2): string | null =>
   (typeof frame.source_id === "string" && frame.source_id.trim()) || null;
 
-const extractStreamEpoch = (frame: IqRawFrame): number | null =>
-  frame.protocol_version === 2 && typeof frame.stream_epoch === "number"
-    ? frame.stream_epoch
-    : null;
+const isValidLiveFrameIdentity = (frame: IqRawFrameV2): boolean =>
+  frame.protocol_version === 2 &&
+  !!extractFrameSourceId(frame) &&
+  Number.isSafeInteger(frame.stream_epoch) &&
+  frame.stream_epoch >= 0 &&
+  Number.isSafeInteger(frame.sequence) &&
+  frame.sequence >= 0;
 
-const extractSequence = (frame: IqRawFrame): number | null =>
-  frame.protocol_version === 2 && typeof frame.sequence === "number"
-    ? frame.sequence
-    : null;
+const extractStreamEpoch = (frame: IqRawFrameV2): number => frame.stream_epoch;
 
-const resolveModeFromFrame = (frame: IqRawFrame): StreamMode => {
+const extractSequence = (frame: IqRawFrameV2): number => frame.sequence;
+
+const resolveModeFromFrame = (frame: IqRawFrameV2): StreamMode => {
   const status = frame.frame_status;
   if (
     status === "standby" ||
@@ -130,7 +132,10 @@ const buildCanvasKey = (
   resetEpoch: number,
 ): string => `${sourceId ?? "no-source"}:${mode}:${resetEpoch}`;
 
-const freezeFrame = (frame: IqRawFrame, slot: SourceModeSlot): FrozenFrame => ({
+const freezeFrame = (
+  frame: IqRawFrameV2,
+  slot: SourceModeSlot,
+): FrozenFrame => ({
   frame,
   frozenAt: Date.now(),
   sourceId: extractFrameSourceId(frame) ?? slot.key.sourceId,
@@ -166,7 +171,7 @@ export interface SourcePresentationController {
    * accepts it and replaces the frozen frame instead of rejecting it.
    */
   acceptFrame(
-    frame: IqRawFrame,
+    frame: IqRawFrameV2,
     modeOverride?: StreamMode,
     oneShot?: boolean,
   ): boolean;
@@ -194,7 +199,7 @@ export interface SourcePresentationController {
 
   // --- Reads ---
   /** The ref the active canvas should read from. */
-  getPresentationRef(mode?: StreamMode): { current: IqRawFrame | null };
+  getPresentationRef(mode?: StreamMode): { current: IqRawFrameV2 | null };
   /** The frozen frame for a source/mode (if any). */
   getFrozenFrame(sourceId: string, mode: StreamMode): FrozenFrame | null;
   /** Get the slot for a source/mode. */
@@ -218,511 +223,520 @@ export interface SourcePresentationController {
   reset(): void;
 }
 
-export const createSourcePresentationController = (): SourcePresentationController => {
-  const slots = new Map<string, SourceModeSlot>();
-  const listeners = new Set<PresentationListener>();
+export const createSourcePresentationController =
+  (): SourcePresentationController => {
+    const slots = new Map<string, SourceModeSlot>();
+    const listeners = new Set<PresentationListener>();
 
-  let active: ActivePresentation = {
-    sourceId: "",
-    mode: "rx",
-    pendingSourceId: null,
-  };
+    let active: ActivePresentation = {
+      sourceId: "",
+      mode: "rx",
+      pendingSourceId: null,
+    };
 
-  // --- Internal helpers ---
+    // --- Internal helpers ---
 
-  const ensureSlot = (key: SourceModeKey): SourceModeSlot => {
-    const k = slotKeyString(key);
-    let slot = slots.get(k);
-    if (!slot) {
-      slot = createEmptySlot(key);
-      slots.set(k, slot);
-    }
-    return slot;
-  };
-
-  const getActiveSlot = (mode?: StreamMode): SourceModeSlot | null => {
-    const effectiveSourceId = active.sourceId;
-    if (!effectiveSourceId) return null;
-    const effectiveMode = mode ?? active.mode;
-    return (
-      slots.get(
-        slotKeyString({ sourceId: effectiveSourceId, mode: effectiveMode }),
-      ) ?? null
-    );
-  };
-
-  const notify = (): void => {
-    if (listeners.size === 0) return;
-    const snapshot = getSnapshot();
-    for (const listener of listeners) listener(snapshot);
-  };
-
-  const advanceResetEpoch = (slot: SourceModeSlot): void => {
-    slot.resetEpoch += 1;
-    slot.liveFrameRef.current = null;
-    slot.lastSequence = null;
-  };
-
-  const transitionPhase = (
-    slot: SourceModeSlot,
-    phase: SourcePresentationPhase,
-  ): void => {
-    if (slot.phase === phase) return;
-
-    const wasStreaming = STREAMING_PHASES.has(slot.phase);
-    const wasFrozen = FROZEN_PHASES.has(slot.phase);
-    const willFreeze = FROZEN_PHASES.has(phase);
-
-    // Freeze the current frame when entering a frozen phase
-    if (wasStreaming && willFreeze) {
-      const currentFrame = slot.liveFrameRef.current;
-      if (currentFrame) {
-        slot.frozenFrame = freezeFrame(currentFrame, slot);
-        slot.metrics.frozen += 1;
+    const ensureSlot = (key: SourceModeKey): SourceModeSlot => {
+      const k = slotKeyString(key);
+      let slot = slots.get(k);
+      if (!slot) {
+        slot = createEmptySlot(key);
+        slots.set(k, slot);
       }
-    }
+      return slot;
+    };
 
-    // Live Tx/Rx must not keep serving the standby/paused preview.
-    if (wasFrozen && STREAMING_PHASES.has(phase)) {
-      slot.frozenFrame = null;
-    }
+    const getActiveSlot = (mode?: StreamMode): SourceModeSlot | null => {
+      const effectiveSourceId = active.sourceId;
+      if (!effectiveSourceId) return null;
+      const effectiveMode = mode ?? active.mode;
+      return (
+        slots.get(
+          slotKeyString({ sourceId: effectiveSourceId, mode: effectiveMode }),
+        ) ?? null
+      );
+    };
 
-    // A disconnected or failed source must not retain paused IQ in memory.
-    if (phase === "disconnected" || phase === "failed") {
-      slot.frozenFrame = null;
-    }
+    const notify = (): void => {
+      if (listeners.size === 0) return;
+      const snapshot = getSnapshot();
+      for (const listener of listeners) listener(snapshot);
+    };
 
-    // Clear live frame when entering non-streaming phases that aren't frozen
-    if (!STREAMING_PHASES.has(phase) && !FROZEN_PHASES.has(phase)) {
+    const advanceResetEpoch = (slot: SourceModeSlot): void => {
+      slot.resetEpoch += 1;
       slot.liveFrameRef.current = null;
-    }
+      slot.lastSequence = null;
+    };
 
-    // Advance reset epoch on phase transitions that invalidate the canvas
-    if (
-      phase === "switching" ||
-      phase === "disconnected" ||
-      phase === "failed"
-    ) {
-      advanceResetEpoch(slot);
-    }
+    const transitionPhase = (
+      slot: SourceModeSlot,
+      phase: SourcePresentationPhase,
+    ): void => {
+      if (slot.phase === phase) return;
 
-    slot.phase = phase;
-    notify();
-  };
+      const wasStreaming = STREAMING_PHASES.has(slot.phase);
+      const wasFrozen = FROZEN_PHASES.has(slot.phase);
+      const willFreeze = FROZEN_PHASES.has(phase);
 
-  const resolvePhaseFromStatus = (
-    status: string,
-    currentPhase: SourcePresentationPhase,
-  ): SourcePresentationPhase => {
-    switch (status) {
-      case "receiving":
-      case "streaming":
-      case "connected":
-        return "streaming";
-      case "standby":
-        return "standby";
-      case "transmitting":
-        return "transmitting";
-      case "paused":
-        return "paused";
-      case "loading":
-      case "initializing":
-      case "stale":
-        return status === "stale" ? "stale" : "recovering";
-      case "disconnected":
-        return "disconnected";
-      case "error":
-        return "failed";
-      default:
-        return currentPhase;
-    }
-  };
+      // Freeze the current frame when entering a frozen phase
+      if (wasStreaming && willFreeze) {
+        const currentFrame = slot.liveFrameRef.current;
+        if (currentFrame) {
+          slot.frozenFrame = freezeFrame(currentFrame, slot);
+          slot.metrics.frozen += 1;
+        }
+      }
 
-  // --- Public API ---
+      // Live Tx/Rx must not keep serving the standby/paused preview.
+      if (wasFrozen && STREAMING_PHASES.has(phase)) {
+        slot.frozenFrame = null;
+      }
 
-  const acceptFrame: SourcePresentationController["acceptFrame"] = (
-    frame,
-    modeOverride,
-    oneShot = false,
-  ) => {
-    const sourceId = extractFrameSourceId(frame);
-    if (!sourceId) return false;
+      // A disconnected or failed source must not retain paused IQ in memory.
+      if (phase === "disconnected" || phase === "failed") {
+        slot.frozenFrame = null;
+      }
 
-    const mode = modeOverride ?? resolveModeFromFrame(frame);
-    const slot = ensureSlot({ sourceId, mode });
+      // Clear live frame when entering non-streaming phases that aren't frozen
+      if (!STREAMING_PHASES.has(phase) && !FROZEN_PHASES.has(phase)) {
+        slot.liveFrameRef.current = null;
+      }
 
-    const isTxStandbyPreviewFrame =
-      frame.frame_status === "standby" ||
-      frame.is_tx_preview === true ||
-      frame.is_mock_tx_preview === true;
+      // Advance reset epoch on phase transitions that invalidate the canvas
+      if (
+        phase === "switching" ||
+        phase === "disconnected" ||
+        phase === "failed"
+      ) {
+        advanceResetEpoch(slot);
+      }
 
-    const isLiveTxFrame = frame.frame_status === "transmitting";
+      slot.phase = phase;
+      notify();
+    };
 
-    // Paused = last Rx frame; do not replace it. Standby = Tx
-    // request_next_frame preview; those may land during switching too so
-    // cold Mock Tx handoff does not drop the first preview. A transmitting
-    // frame must leave standby so Start Tx is not stuck on the dotted preview.
-    // A paused one-shot (request_next_frame while paused) is the deliberate
-    // exception: it replaces the frozen frame with data from the new center.
-    if (slot.phase === "disconnected" || slot.phase === "failed") {
-      slot.metrics.rejected += 1;
-      return false;
-    }
-    if (slot.phase === "paused" && !oneShot) {
-      slot.metrics.rejected += 1;
-      return false;
-    }
-    if (
-      slot.phase === "switching" &&
-      !isTxStandbyPreviewFrame &&
-      !isLiveTxFrame
-    ) {
-      slot.metrics.rejected += 1;
-      return false;
-    }
-    if (
-      slot.phase === "standby" &&
-      !isTxStandbyPreviewFrame &&
-      !isLiveTxFrame
-    ) {
-      slot.metrics.rejected += 1;
-      return false;
-    }
+    const resolvePhaseFromStatus = (
+      status: string,
+      currentPhase: SourcePresentationPhase,
+    ): SourcePresentationPhase => {
+      switch (status) {
+        case "receiving":
+        case "streaming":
+        case "connected":
+          return "streaming";
+        case "standby":
+          return "standby";
+        case "transmitting":
+          return "transmitting";
+        case "paused":
+          return "paused";
+        case "loading":
+        case "initializing":
+        case "stale":
+          return status === "stale" ? "stale" : "recovering";
+        case "disconnected":
+          return "disconnected";
+        case "error":
+          return "failed";
+        default:
+          return currentPhase;
+      }
+    };
 
-    // Stream epoch validation (v2 only)
-    const frameEpoch = extractStreamEpoch(frame);
-    if (frameEpoch !== null) {
-      if (slot.streamEpoch !== null && frameEpoch < slot.streamEpoch) {
+    // --- Public API ---
+
+    const acceptFrame: SourcePresentationController["acceptFrame"] = (
+      frame,
+      modeOverride,
+      oneShot = false,
+    ) => {
+      if (!frame || !isValidLiveFrameIdentity(frame)) return false;
+      const sourceId = extractFrameSourceId(frame);
+      if (!sourceId) return false;
+      if (!sourceId) return false;
+
+      const mode = modeOverride ?? resolveModeFromFrame(frame);
+      const slot = ensureSlot({ sourceId, mode });
+
+      const isTxStandbyPreviewFrame =
+        frame.frame_status === "standby" ||
+        frame.is_tx_preview === true ||
+        frame.is_mock_tx_preview === true;
+
+      const isLiveTxFrame = frame.frame_status === "transmitting";
+
+      // Paused = last Rx frame; do not replace it. Standby = Tx
+      // request_next_frame preview; those may land during switching too so
+      // cold Mock Tx handoff does not drop the first preview. A transmitting
+      // frame must leave standby so Start Tx is not stuck on the dotted preview.
+      // A paused one-shot (request_next_frame while paused) is the deliberate
+      // exception: it replaces the frozen frame with data from the new center.
+      if (slot.phase === "disconnected" || slot.phase === "failed") {
+        slot.metrics.rejected += 1;
+        return false;
+      }
+      if (slot.phase === "paused" && !oneShot) {
+        slot.metrics.rejected += 1;
+        return false;
+      }
+      if (
+        slot.phase === "switching" &&
+        !isTxStandbyPreviewFrame &&
+        !isLiveTxFrame
+      ) {
+        slot.metrics.rejected += 1;
+        return false;
+      }
+      if (
+        slot.phase === "standby" &&
+        !isTxStandbyPreviewFrame &&
+        !isLiveTxFrame
+      ) {
+        slot.metrics.rejected += 1;
+        return false;
+      }
+
+      // Stream epoch validation (v2 only)
+      const frameEpoch = extractStreamEpoch(frame);
+      if (frameEpoch !== null) {
+        if (slot.streamEpoch !== null && frameEpoch < slot.streamEpoch) {
+          slot.metrics.stale += 1;
+          return false;
+        }
+        if (slot.streamEpoch === null || frameEpoch > slot.streamEpoch) {
+          slot.streamEpoch = frameEpoch;
+          slot.lastSequence = null;
+        }
+      }
+
+      // Sequence duplicate/reorder rejection (v2 only)
+      const frameSequence = extractSequence(frame);
+      if (
+        frameSequence !== null &&
+        slot.lastSequence !== null &&
+        frameSequence <= slot.lastSequence
+      ) {
         slot.metrics.stale += 1;
         return false;
       }
-      if (slot.streamEpoch === null || frameEpoch > slot.streamEpoch) {
-        slot.streamEpoch = frameEpoch;
-        slot.lastSequence = null;
+      if (frameSequence !== null) {
+        slot.lastSequence = frameSequence;
       }
-    }
 
-    // Sequence duplicate/reorder rejection (v2 only)
-    const frameSequence = extractSequence(frame);
-    if (
-      frameSequence !== null &&
-      slot.lastSequence !== null &&
-      frameSequence <= slot.lastSequence
-    ) {
-      slot.metrics.stale += 1;
-      return false;
-    }
-    if (frameSequence !== null) {
-      slot.lastSequence = frameSequence;
-    }
+      // For the active presentation source: update the live ref
+      const isActiveSource =
+        sourceId === active.sourceId || sourceId === active.pendingSourceId;
 
-    // For the active presentation source: update the live ref
-    const isActiveSource =
-      sourceId === active.sourceId || sourceId === active.pendingSourceId;
+      // Always update the slot's own live ref (per-source tracking)
+      slot.liveFrameRef.current = frame;
+      slot.metrics.accepted += 1;
+      if (!FROZEN_PHASES.has(slot.phase)) {
+        // After resume, retain the paused frame only until fresh IQ arrives.
+        slot.frozenFrame = null;
+      }
 
-    // Always update the slot's own live ref (per-source tracking)
-    slot.liveFrameRef.current = frame;
-    slot.metrics.accepted += 1;
-    if (!FROZEN_PHASES.has(slot.phase)) {
-      // After resume, retain the paused frame only until fresh IQ arrives.
-      slot.frozenFrame = null;
-    }
+      if (slot.phase === "standby" && isLiveTxFrame) {
+        slot.frozenFrame = null;
+        transitionPhase(slot, "transmitting");
+        return true;
+      }
 
-    if (slot.phase === "standby" && isLiveTxFrame) {
-      slot.frozenFrame = null;
-      transitionPhase(slot, "transmitting");
-      return true;
-    }
-
-    if (FROZEN_PHASES.has(slot.phase)) {
-      slot.frozenFrame = freezeFrame(frame, slot);
-      slot.metrics.frozen += 1;
-      return true;
-    }
-
-    // Auto-transition idle/warming/switching -> streaming on first accepted
-    // frame. Standby preview frames must freeze, not look like live transmission.
-    if (
-      isActiveSource &&
-      (slot.phase === "idle" ||
-        slot.phase === "warming" ||
-        slot.phase === "switching" ||
-        slot.phase === "recovering" ||
-        slot.phase === "stale")
-    ) {
-      if (isTxStandbyPreviewFrame) {
+      if (FROZEN_PHASES.has(slot.phase)) {
         slot.frozenFrame = freezeFrame(frame, slot);
         slot.metrics.frozen += 1;
-        slot.phase = "standby";
-      } else {
-        slot.phase = mode === "tx" ? "transmitting" : "streaming";
+        return true;
       }
-      notify();
-    }
 
-    return true;
-  };
-
-  const selectSource: SourcePresentationController["selectSource"] = (
-    sourceId,
-    mode,
-    resumePaused = false,
-  ) => {
-    const effectiveMode = mode ?? active.mode;
-
-    if (active.sourceId === sourceId && active.mode === effectiveMode) {
-      const currentSlot = slots.get(
-        slotKeyString({ sourceId, mode: effectiveMode }),
-      );
-      if (currentSlot?.phase === "paused" && resumePaused) {
-        transitionPhase(currentSlot, "switching");
+      // Auto-transition idle/warming/switching -> streaming on first accepted
+      // frame. Standby preview frames must freeze, not look like live transmission.
+      if (
+        isActiveSource &&
+        (slot.phase === "idle" ||
+          slot.phase === "warming" ||
+          slot.phase === "switching" ||
+          slot.phase === "recovering" ||
+          slot.phase === "stale")
+      ) {
+        if (isTxStandbyPreviewFrame) {
+          slot.frozenFrame = freezeFrame(frame, slot);
+          slot.metrics.frozen += 1;
+          slot.phase = "standby";
+        } else {
+          slot.phase = mode === "tx" ? "transmitting" : "streaming";
+        }
+        notify();
       }
-      return;
-    }
 
-    // If there's already an active source, mark its slot as paused. The
-    // leaving slot retains its frozen frame for when the user switches back,
-    // but getPresentationRef gates it by source identity so the active
-    // presentation never serves the previous device's frame during warm-up.
-    if (active.sourceId) {
-      const currentSlot = slots.get(
-        slotKeyString({ sourceId: active.sourceId, mode: active.mode }),
-      );
-      if (currentSlot && STREAMING_PHASES.has(currentSlot.phase)) {
-        transitionPhase(currentSlot, "paused");
-      }
-    }
-
-    active = {
-      sourceId,
-      mode: effectiveMode,
-      pendingSourceId: sourceId !== active.sourceId ? sourceId : null,
+      return true;
     };
 
-    // Ensure a slot exists for the new target
-    const targetSlot = ensureSlot({ sourceId, mode: effectiveMode });
+    const selectSource: SourcePresentationController["selectSource"] = (
+      sourceId,
+      mode,
+      resumePaused = false,
+    ) => {
+      const effectiveMode = mode ?? active.mode;
 
-    if (targetSlot.phase === "paused" && resumePaused) {
-      // A source switch is a presentation handoff, not a request to discard
-      // the target source's last frame. Keep it visible while the target
-      // subscription warms; the first fresh frame will replace the live ref.
-      transitionPhase(targetSlot, "switching");
-    } else if (targetSlot.phase === "idle") {
-      transitionPhase(targetSlot, "switching");
-    }
-
-    notify();
-  };
-
-  const commitActiveSource: SourcePresentationController["commitActiveSource"] =
-    (sourceId) => {
-      // Backend active-source broadcasts are process-wide. While this tab has
-      // a subscriber-local target pending, a broadcast naming the old source
-      // is stale for this presentation and must not steal the target slot.
-      if (active.pendingSourceId && active.pendingSourceId !== sourceId) {
+      if (active.sourceId === sourceId && active.mode === effectiveMode) {
+        const currentSlot = slots.get(
+          slotKeyString({ sourceId, mode: effectiveMode }),
+        );
+        if (currentSlot?.phase === "paused" && resumePaused) {
+          transitionPhase(currentSlot, "switching");
+        }
         return;
       }
-      if (active.pendingSourceId === sourceId) {
-        active = { ...active, sourceId, pendingSourceId: null };
-      } else if (active.sourceId !== sourceId) {
-        // A committed source with no pending local handoff is a session-local
-        // presentation target. A backend active-source broadcast describes
-        // physical control ownership and must not retarget this client.
-        if (active.sourceId && active.pendingSourceId === null) {
-          return;
+
+      // If there's already an active source, mark its slot as paused. The
+      // leaving slot retains its frozen frame for when the user switches back,
+      // but getPresentationRef gates it by source identity so the active
+      // presentation never serves the previous device's frame during warm-up.
+      if (active.sourceId) {
+        const currentSlot = slots.get(
+          slotKeyString({ sourceId: active.sourceId, mode: active.mode }),
+        );
+        if (currentSlot && STREAMING_PHASES.has(currentSlot.phase)) {
+          transitionPhase(currentSlot, "paused");
         }
-        active = { ...active, sourceId, pendingSourceId: null };
       }
 
-      // Transition the committed source's slot out of switching
-      const slot = slots.get(slotKeyString({ sourceId, mode: active.mode }));
-      if (slot?.phase === "switching") {
-        transitionPhase(slot, "warming");
+      active = {
+        sourceId,
+        mode: effectiveMode,
+        pendingSourceId: sourceId !== active.sourceId ? sourceId : null,
+      };
+
+      // Ensure a slot exists for the new target
+      const targetSlot = ensureSlot({ sourceId, mode: effectiveMode });
+
+      if (targetSlot.phase === "paused" && resumePaused) {
+        // A source switch is a presentation handoff, not a request to discard
+        // the target source's last frame. Keep it visible while the target
+        // subscription warms; the first fresh frame will replace the live ref.
+        transitionPhase(targetSlot, "switching");
+      } else if (targetSlot.phase === "idle") {
+        transitionPhase(targetSlot, "switching");
       }
 
       notify();
     };
 
-  const setTransportPhase: SourcePresentationController["setTransportPhase"] = (
-    sourceId,
-    phase,
-  ) => {
-    // Apply to all modes for this source
-    for (const slot of slots.values()) {
-      if (slot.key.sourceId !== sourceId) continue;
-
-      switch (phase) {
-        case "warming":
-          if (
-            slot.phase === "idle" ||
-            slot.phase === "switching" ||
-            slot.phase === "disconnected"
-          ) {
-            transitionPhase(slot, "warming");
+    const commitActiveSource: SourcePresentationController["commitActiveSource"] =
+      (sourceId) => {
+        // Backend active-source broadcasts are process-wide. While this tab has
+        // a subscriber-local target pending, a broadcast naming the old source
+        // is stale for this presentation and must not steal the target slot.
+        if (active.pendingSourceId && active.pendingSourceId !== sourceId) {
+          return;
+        }
+        if (active.pendingSourceId === sourceId) {
+          active = { ...active, sourceId, pendingSourceId: null };
+        } else if (active.sourceId !== sourceId) {
+          // A committed source with no pending local handoff is a session-local
+          // presentation target. A backend active-source broadcast describes
+          // physical control ownership and must not retarget this client.
+          if (active.sourceId && active.pendingSourceId === null) {
+            return;
           }
-          break;
-        case "ready":
-          if (slot.phase === "warming" || slot.phase === "switching") {
-            // Don't transition to streaming yet — wait for the first frame
-            transitionPhase(slot, "warming");
+          active = { ...active, sourceId, pendingSourceId: null };
+        }
+
+        // Transition the committed source's slot out of switching
+        const slot = slots.get(slotKeyString({ sourceId, mode: active.mode }));
+        if (slot?.phase === "switching") {
+          transitionPhase(slot, "warming");
+        }
+
+        notify();
+      };
+
+    const setTransportPhase: SourcePresentationController["setTransportPhase"] =
+      (sourceId, phase) => {
+        // Apply to all modes for this source
+        for (const slot of slots.values()) {
+          if (slot.key.sourceId !== sourceId) continue;
+
+          switch (phase) {
+            case "warming":
+              if (
+                slot.phase === "idle" ||
+                slot.phase === "switching" ||
+                slot.phase === "disconnected"
+              ) {
+                transitionPhase(slot, "warming");
+              }
+              break;
+            case "ready":
+              if (slot.phase === "warming" || slot.phase === "switching") {
+                // Don't transition to streaming yet — wait for the first frame
+                transitionPhase(slot, "warming");
+              }
+              break;
+            case "failed":
+              transitionPhase(slot, "failed");
+              break;
           }
-          break;
-        case "failed":
-          transitionPhase(slot, "failed");
-          break;
+        }
+      };
+
+    const setSourceStatus: SourcePresentationController["setSourceStatus"] = (
+      sourceId,
+      status,
+    ) => {
+      // Apply to the appropriate mode slot(s)
+      for (const slot of slots.values()) {
+        if (slot.key.sourceId !== sourceId) continue;
+        const newPhase = resolvePhaseFromStatus(status, slot.phase);
+        // A status-derived streaming phase must not unfreeze a slot the user
+        // explicitly paused. On cold start the backend can race an in-flight
+        // pause command (source activation clears the pause, then re-broadcasts
+        // receiving/streaming), which would otherwise revert the frozen frame
+        // while the UI still reports paused. Only an explicit setPaused(false)
+        // or a selectSource/resume transition may leave the paused phase.
+        if (slot.phase === "paused" && newPhase === "streaming") {
+          continue;
+        }
+        transitionPhase(slot, newPhase);
       }
-    }
-  };
+    };
 
-  const setSourceStatus: SourcePresentationController["setSourceStatus"] = (
-    sourceId,
-    status,
-  ) => {
-    // Apply to the appropriate mode slot(s)
-    for (const slot of slots.values()) {
-      if (slot.key.sourceId !== sourceId) continue;
-      const newPhase = resolvePhaseFromStatus(status, slot.phase);
-      // A status-derived streaming phase must not unfreeze a slot the user
-      // explicitly paused. On cold start the backend can race an in-flight
-      // pause command (source activation clears the pause, then re-broadcasts
-      // receiving/streaming), which would otherwise revert the frozen frame
-      // while the UI still reports paused. Only an explicit setPaused(false)
-      // or a selectSource/resume transition may leave the paused phase.
-      if (slot.phase === "paused" && newPhase === "streaming") {
-        continue;
+    const setPaused: SourcePresentationController["setPaused"] = (
+      sourceId,
+      mode,
+      paused,
+    ) => {
+      const slot = ensureSlot({ sourceId, mode });
+      if (paused) {
+        transitionPhase(slot, "paused");
+      } else if (slot.phase === "paused") {
+        // Resume: keep the frozen frame as the fallback while the live stream
+        // reopens. Clearing it here forces a Loading placeholder between the
+        // resume command and the first fresh frame — the switch-back churn.
+        // transitionPhase would drop the freeze when entering streaming, so
+        // restore it after; getPresentationRef prefers the live ref once a
+        // frame arrives.
+        const retainedFrozen = slot.frozenFrame;
+        transitionPhase(slot, "streaming");
+        slot.frozenFrame = retainedFrozen;
       }
-      transitionPhase(slot, newPhase);
-    }
-  };
+    };
 
-  const setPaused: SourcePresentationController["setPaused"] = (
-    sourceId,
-    mode,
-    paused,
-  ) => {
-    const slot = ensureSlot({ sourceId, mode });
-    if (paused) {
-      transitionPhase(slot, "paused");
-    } else if (slot.phase === "paused") {
-      // Resume: keep the frozen frame as the fallback while the live stream
-      // reopens. Clearing it here forces a Loading placeholder between the
-      // resume command and the first fresh frame — the switch-back churn.
-      // transitionPhase would drop the freeze when entering streaming, so
-      // restore it after; getPresentationRef prefers the live ref once a
-      // frame arrives.
-      const retainedFrozen = slot.frozenFrame;
-      transitionPhase(slot, "streaming");
-      slot.frozenFrame = retainedFrozen;
-    }
-  };
+    const getPresentationRef: SourcePresentationController["getPresentationRef"] =
+      (mode) => {
+        const slot = getActiveSlot(mode);
+        if (!slot) return { current: null };
 
-  const getPresentationRef: SourcePresentationController["getPresentationRef"] =
-    (mode) => {
+        // A frozen frame is only valid when it belongs to the active source.
+        // The same physical device can switch modes, but a different source's
+        // paused frame must never be served during warm-up (stale-frame flash).
+        const frozenFrameIsCurrent =
+          slot.frozenFrame !== null &&
+          slot.frozenFrame.sourceId === slot.key.sourceId &&
+          (slot.frozenFrame.streamEpoch === null ||
+            slot.streamEpoch === null ||
+            slot.frozenFrame.streamEpoch === slot.streamEpoch);
+
+        // Prefer a frozen preview whenever live is empty. Switching/warming must
+        // still show the last Mock Tx standby graph instead of a black canvas.
+        if (frozenFrameIsCurrent && !slot.liveFrameRef.current) {
+          return { current: slot.frozenFrame!.frame };
+        }
+
+        // In frozen phases, return the frozen frame even if a stale live ref lingers.
+        if (frozenFrameIsCurrent && FROZEN_PHASES.has(slot.phase)) {
+          return { current: slot.frozenFrame!.frame };
+        }
+
+        return slot.liveFrameRef;
+      };
+
+    const getFrozenFrame: SourcePresentationController["getFrozenFrame"] = (
+      sourceId,
+      mode,
+    ) => {
+      const k = slotKeyString({ sourceId, mode });
+      return slots.get(k)?.frozenFrame ?? null;
+    };
+
+    const getSlot: SourcePresentationController["getSlot"] = (
+      sourceId,
+      mode,
+    ) => {
+      const k = slotKeyString({ sourceId, mode });
+      return slots.get(k) ?? null;
+    };
+
+    const getActivePresentation: SourcePresentationController["getActivePresentation"] =
+      () => ({ ...active });
+
+    const getCanvasKey: SourcePresentationController["getCanvasKey"] = (
+      mode,
+    ) => {
       const slot = getActiveSlot(mode);
-      if (!slot) return { current: null };
-
-      // A frozen frame is only valid when it belongs to the active source.
-      // The same physical device can switch modes, but a different source's
-      // paused frame must never be served during warm-up (stale-frame flash).
-      const frozenFrameIsCurrent =
-        slot.frozenFrame !== null &&
-        slot.frozenFrame.sourceId === slot.key.sourceId &&
-        (slot.frozenFrame.streamEpoch === null ||
-          slot.streamEpoch === null ||
-          slot.frozenFrame.streamEpoch === slot.streamEpoch);
-
-      // Prefer a frozen preview whenever live is empty. Switching/warming must
-      // still show the last Mock Tx standby graph instead of a black canvas.
-      if (frozenFrameIsCurrent && !slot.liveFrameRef.current) {
-        return { current: slot.frozenFrame!.frame };
-      }
-
-      // In frozen phases, return the frozen frame even if a stale live ref lingers.
-      if (frozenFrameIsCurrent && FROZEN_PHASES.has(slot.phase)) {
-        return { current: slot.frozenFrame!.frame };
-      }
-
-      return slot.liveFrameRef;
+      if (!slot) return buildCanvasKey(null, mode ?? active.mode, 0);
+      return buildCanvasKey(slot.key.sourceId, slot.key.mode, slot.resetEpoch);
     };
 
-  const getFrozenFrame: SourcePresentationController["getFrozenFrame"] = (
-    sourceId,
-    mode,
-  ) => {
-    const k = slotKeyString({ sourceId, mode });
-    return slots.get(k)?.frozenFrame ?? null;
-  };
+    const getSnapshot: SourcePresentationController["getSnapshot"] = (mode) => {
+      const slot = getActiveSlot(mode);
+      return {
+        active: { ...active },
+        slot: slot ? { ...slot } : null,
+        canvasKey: getCanvasKey(mode),
+      };
+    };
 
-  const getSlot: SourcePresentationController["getSlot"] = (sourceId, mode) => {
-    const k = slotKeyString({ sourceId, mode });
-    return slots.get(k) ?? null;
-  };
+    const getAllSlots: SourcePresentationController["getAllSlots"] = () =>
+      slots as ReadonlyMap<string, Readonly<SourceModeSlot>>;
 
-  const getActivePresentation: SourcePresentationController["getActivePresentation"] =
-    () => ({ ...active });
+    const subscribe: SourcePresentationController["subscribe"] = (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
 
-  const getCanvasKey: SourcePresentationController["getCanvasKey"] = (mode) => {
-    const slot = getActiveSlot(mode);
-    if (!slot) return buildCanvasKey(null, mode ?? active.mode, 0);
-    return buildCanvasKey(slot.key.sourceId, slot.key.mode, slot.resetEpoch);
-  };
+    const resetSlot: SourcePresentationController["resetSlot"] = (
+      sourceId,
+      mode,
+    ) => {
+      const k = slotKeyString({ sourceId, mode });
+      const slot = slots.get(k);
+      if (!slot) return;
+      slot.phase = "idle";
+      slot.liveFrameRef.current = null;
+      slot.frozenFrame = null;
+      slot.streamEpoch = null;
+      slot.lastSequence = null;
+      slot.resetEpoch += 1;
+      slot.metrics = { accepted: 0, rejected: 0, stale: 0, frozen: 0 };
+      notify();
+    };
 
-  const getSnapshot: SourcePresentationController["getSnapshot"] = (mode) => {
-    const slot = getActiveSlot(mode);
+    const reset: SourcePresentationController["reset"] = () => {
+      slots.clear();
+      active = { sourceId: "", mode: "rx", pendingSourceId: null };
+      notify();
+    };
+
     return {
-      active: { ...active },
-      slot: slot ? { ...slot } : null,
-      canvasKey: getCanvasKey(mode),
+      acceptFrame,
+      selectSource,
+      commitActiveSource,
+      setTransportPhase,
+      setSourceStatus,
+      setPaused,
+      getPresentationRef,
+      getFrozenFrame,
+      getSlot,
+      getActivePresentation,
+      getCanvasKey,
+      getSnapshot,
+      getAllSlots,
+      subscribe,
+      resetSlot,
+      reset,
     };
   };
 
-  const getAllSlots: SourcePresentationController["getAllSlots"] = () =>
-    slots as ReadonlyMap<string, Readonly<SourceModeSlot>>;
-
-  const subscribe: SourcePresentationController["subscribe"] = (listener) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  };
-
-  const resetSlot: SourcePresentationController["resetSlot"] = (
-    sourceId,
-    mode,
-  ) => {
-    const k = slotKeyString({ sourceId, mode });
-    const slot = slots.get(k);
-    if (!slot) return;
-    slot.phase = "idle";
-    slot.liveFrameRef.current = null;
-    slot.frozenFrame = null;
-    slot.streamEpoch = null;
-    slot.lastSequence = null;
-    slot.resetEpoch += 1;
-    slot.metrics = { accepted: 0, rejected: 0, stale: 0, frozen: 0 };
-    notify();
-  };
-
-  const reset: SourcePresentationController["reset"] = () => {
-    slots.clear();
-    active = { sourceId: "", mode: "rx", pendingSourceId: null };
-    notify();
-  };
-
-  return {
-    acceptFrame,
-    selectSource,
-    commitActiveSource,
-    setTransportPhase,
-    setSourceStatus,
-    setPaused,
-    getPresentationRef,
-    getFrozenFrame,
-    getSlot,
-    getActivePresentation,
-    getCanvasKey,
-    getSnapshot,
-    getAllSlots,
-    subscribe,
-    resetSlot,
-    reset,
-  };
-};
+/** Shared owner for live frames and their source/mode presentation state. */
+export const presentationController = createSourcePresentationController();

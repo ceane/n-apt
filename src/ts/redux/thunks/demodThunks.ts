@@ -51,14 +51,7 @@ export const tuneDemod = createAsyncThunk(
         min: range.min_hz,
         max: range.max_hz,
       });
-      dispatch({
-        type: "websocket/sendMessage",
-        payload: {
-          type: "demod_tune",
-          min_freq: Math.round(hardwareRange.min),
-          max_freq: Math.round(hardwareRange.max),
-        },
-      });
+      dispatch(sendFrequencyRange(hardwareRange));
 
       // Also update local state for the span
       dispatch(setSpanRange({ min: range.min_hz, max: range.max_hz }));

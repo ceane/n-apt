@@ -3,9 +3,9 @@ import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import {
   fileFrameRuntime,
-  liveFrameRuntime,
   subscribeFrameRuntime,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { ChevronLeft, ChevronRight, Crosshair, Maximize } from "lucide-react";
@@ -431,6 +431,7 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
     (state) => state.websocket.activeSourceId,
   );
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activeLiveFrameRef = useActivePresentationFrameRef();
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const appFrameRate = useAppSelector((state) => state.spectrum.fftFrameRate);
   const activePlaybackMetadata = useAppSelector(
@@ -462,8 +463,8 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
     }
   }, [updateMode]);
 
-  // Frame updates come from two interchangeable sources. "frame" reads the
-  // shared frame slot once per animation frame, capped at the app frame rate;
+  // Frame updates come from file playback or the active source/mode slot.
+  // "frame" reads the selected slot once per animation frame, capped at the app frame rate;
   // "poll" falls back to the 250ms shared clock for a much lower CPU cost.
   // A rAF read (not frame-arrival notifications) is required because file
   // playback pushes into its ref without emitting arrivals.
@@ -474,12 +475,13 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
 
   useEffect(() => {
     const sourceRef =
-      sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref;
+      sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
 
     const readLatestIq = () => {
-      const current = Array.isArray(sourceRef.current)
-        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-        : sourceRef.current;
+      const current =
+        sourceMode === "file" && Array.isArray(sourceRef.current)
+          ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+          : sourceRef.current;
       const nextRef = current?.iq_data as Uint8Array | undefined;
 
       if (nextRef !== lastIqRefRef.current) {
@@ -511,17 +513,18 @@ export const SymbolsTable: React.FC<SymbolsTableProps> = ({
     return () => {
       if (frameHandle !== null) window.cancelAnimationFrame(frameHandle);
     };
-  }, [sourceMode, updateMode, frameIntervalMs]);
+  }, [activeLiveFrameRef, sourceMode, updateMode, frameIntervalMs]);
 
   useEffect(() => {
     const sourceRef =
-      sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref;
-    const current = Array.isArray(sourceRef.current)
-      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-      : sourceRef.current;
+      sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
+    const current =
+      sourceMode === "file" && Array.isArray(sourceRef.current)
+        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+        : sourceRef.current;
     lastIqRefRef.current = current?.iq_data;
     setFrameIqData(current?.iq_data as Uint8Array | undefined);
-  }, [activeSourceId, sourceMode]);
+  }, [activeLiveFrameRef, activeSourceId, sourceMode]);
 
   useEffect(() => {
     if (!gridRef.current) return;

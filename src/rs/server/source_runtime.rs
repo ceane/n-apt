@@ -519,7 +519,35 @@ pub(crate) fn rx_settings_delta(
     frame_rate: (current.frame_rate != next.frame_rate)
       .then_some(next.frame_rate)
       .flatten(),
+    max_frame_rate: (current.max_frame_rate != next.max_frame_rate)
+      .then_some(next.max_frame_rate)
+      .flatten(),
     gain: (current.gain != next.gain).then_some(next.gain).flatten(),
+    hackrf_lna_gain: (current.hackrf_lna_gain != next.hackrf_lna_gain)
+      .then_some(next.hackrf_lna_gain)
+      .flatten(),
+    hackrf_vga_gain: (current.hackrf_vga_gain != next.hackrf_vga_gain)
+      .then_some(next.hackrf_vga_gain)
+      .flatten(),
+    hackrf_amp_enable: (current.hackrf_amp_enable != next.hackrf_amp_enable)
+      .then_some(next.hackrf_amp_enable)
+      .flatten(),
+    ppm: (current.ppm != next.ppm).then_some(next.ppm).flatten(),
+    tuner_agc: (current.tuner_agc != next.tuner_agc)
+      .then_some(next.tuner_agc)
+      .flatten(),
+    rtl_agc: (current.rtl_agc != next.rtl_agc)
+      .then_some(next.rtl_agc)
+      .flatten(),
+    offset_tuning: (current.offset_tuning != next.offset_tuning)
+      .then_some(next.offset_tuning)
+      .flatten(),
+    direct_sampling: (current.direct_sampling != next.direct_sampling)
+      .then_some(next.direct_sampling)
+      .flatten(),
+    tuner_bandwidth: (current.tuner_bandwidth != next.tuner_bandwidth)
+      .then_some(next.tuner_bandwidth)
+      .flatten(),
     ..Default::default()
   }
 }
@@ -532,7 +560,17 @@ pub(crate) fn rx_processor_settings(
     fft_size: Some(options.fft_size),
     fft_window: options.fft_window.clone(),
     frame_rate: options.frame_rate,
+    max_frame_rate: options.max_frame_rate,
     gain: options.gain,
+    hackrf_lna_gain: options.hackrf_lna_gain,
+    hackrf_vga_gain: options.hackrf_vga_gain,
+    hackrf_amp_enable: options.hackrf_amp_enable,
+    ppm: options.ppm,
+    tuner_agc: options.tuner_agc,
+    rtl_agc: options.rtl_agc,
+    offset_tuning: options.offset_tuning,
+    direct_sampling: options.direct_sampling,
+    tuner_bandwidth: options.tuner_bandwidth,
     ..Default::default()
   }
 }
@@ -542,7 +580,17 @@ fn has_rx_settings_delta(settings: &SdrProcessorSettings) -> bool {
     || settings.fft_size.is_some()
     || settings.fft_window.is_some()
     || settings.frame_rate.is_some()
+    || settings.max_frame_rate.is_some()
     || settings.gain.is_some()
+    || settings.hackrf_lna_gain.is_some()
+    || settings.hackrf_vga_gain.is_some()
+    || settings.hackrf_amp_enable.is_some()
+    || settings.ppm.is_some()
+    || settings.tuner_agc.is_some()
+    || settings.rtl_agc.is_some()
+    || settings.offset_tuning.is_some()
+    || settings.direct_sampling.is_some()
+    || settings.tuner_bandwidth.is_some()
 }
 
 pub(crate) fn apply_rx_options_live(
@@ -896,6 +944,8 @@ mod tests {
         fft_window: None,
         frame_rate: Some(20),
         gain: None,
+
+        ..Default::default()
       })
     };
     let key_a = StreamKey::new("rtl-sdr-a", StreamMode::Rx);
@@ -958,6 +1008,8 @@ mod tests {
       fft_window: Some("Hanning".to_string()),
       frame_rate: Some(20),
       gain: Some(12.0),
+
+      ..Default::default()
     };
     let next = RxStreamOptions {
       center_frequency_hz: 137_200_000,
@@ -984,6 +1036,8 @@ mod tests {
       fft_window: None,
       frame_rate: None,
       gain: None,
+
+      ..Default::default()
     };
     let next = RxStreamOptions {
       center_frequency_hz: current.center_frequency_hz + 1_000,
@@ -1021,6 +1075,8 @@ mod tests {
       fft_window: None,
       frame_rate: None,
       gain: None,
+
+      ..Default::default()
     };
     let next = RxStreamOptions {
       sample_rate_hz: current.sample_rate_hz + 100_000,
@@ -1058,6 +1114,8 @@ mod tests {
       fft_window: None,
       frame_rate: Some(20),
       gain: Some(0.0),
+
+      ..Default::default()
     };
     stream_manager.register_source(key.source_id.clone(), capabilities);
     let mut subscription = stream_manager
@@ -1128,6 +1186,8 @@ mod tests {
       fft_window: None,
       frame_rate: Some(20),
       gain: None,
+
+      ..Default::default()
     });
     stream_manager.register_source(key.source_id.clone(), capabilities);
     let mut subscription = stream_manager
@@ -1187,6 +1247,8 @@ mod tests {
       fft_window: None,
       frame_rate: Some(20),
       gain: None,
+
+      ..Default::default()
     });
     stream_manager.register_source(key.source_id.clone(), capabilities);
     let _subscription = stream_manager

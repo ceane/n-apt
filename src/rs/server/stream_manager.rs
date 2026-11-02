@@ -31,15 +31,45 @@ impl StreamKey {
   }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RxStreamOptions {
   pub center_frequency_hz: u64,
   pub sample_rate_hz: u32,
+  #[serde(default)]
+  pub min_frequency_hz: Option<u64>,
+  #[serde(default)]
+  pub max_frequency_hz: Option<u64>,
+  #[serde(default)]
+  pub signal_area: Option<String>,
+  #[serde(default)]
+  pub origin_id: Option<String>,
   pub fft_size: usize,
   pub fft_window: Option<String>,
   pub frame_rate: Option<u32>,
+  #[serde(default)]
+  pub max_frame_rate: Option<u32>,
   pub gain: Option<f64>,
+  #[serde(default)]
+  pub hackrf_lna_gain: Option<f64>,
+  #[serde(default)]
+  pub hackrf_vga_gain: Option<f64>,
+  #[serde(default)]
+  pub hackrf_amp_enable: Option<bool>,
+  #[serde(default)]
+  pub ppm: Option<u32>,
+  #[serde(default)]
+  pub tuner_agc: Option<bool>,
+  #[serde(default)]
+  pub rtl_agc: Option<bool>,
+  #[serde(default)]
+  pub offset_tuning: Option<bool>,
+  #[serde(default)]
+  pub direct_sampling: Option<u8>,
+  #[serde(default)]
+  pub tuner_bandwidth: Option<u32>,
+  #[serde(default)]
+  pub mirror_spectrum_below_zero: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -645,7 +675,10 @@ impl StreamingSourceModeManager {
       .collect()
   }
 
-  pub fn capabilities(&self, source_id: &str) -> Option<SourceStreamCapabilities> {
+  pub fn capabilities(
+    &self,
+    source_id: &str,
+  ) -> Option<SourceStreamCapabilities> {
     self
       .inner
       .capabilities
@@ -822,7 +855,12 @@ impl StreamingSourceModeManager {
     Ok((epoch, revision, true))
   }
 
-  pub fn unsubscribe(&self, key: &StreamKey, subscription_id: u64, immediate: bool) {
+  pub fn unsubscribe(
+    &self,
+    key: &StreamKey,
+    subscription_id: u64,
+    immediate: bool,
+  ) {
     let mut streams = self.inner.streams.lock().unwrap();
     let Some(entry) = streams.get_mut(key) else {
       return;
@@ -884,8 +922,12 @@ impl StreamSubscription {
         match self.receiver.recv().await {
           Ok(event) => event,
           Err(broadcast::error::RecvError::Lagged(_))
-            if delivery_policy_from_u8(self.delivery_policy.load(Ordering::Acquire))
-              == StreamDeliveryPolicy::Latest => continue,
+            if delivery_policy_from_u8(
+              self.delivery_policy.load(Ordering::Acquire),
+            ) == StreamDeliveryPolicy::Latest =>
+          {
+            continue
+          }
           Err(error) => return Err(error),
         }
       };
@@ -963,8 +1005,11 @@ impl StreamSubscription {
       return;
     }
     if let Some(inner) = self.manager.upgrade() {
-      StreamingSourceModeManager { inner }
-        .unsubscribe(&self.key, self.subscription_id, false);
+      StreamingSourceModeManager { inner }.unsubscribe(
+        &self.key,
+        self.subscription_id,
+        false,
+      );
     }
   }
 
@@ -973,8 +1018,11 @@ impl StreamSubscription {
       return;
     }
     if let Some(inner) = self.manager.upgrade() {
-      StreamingSourceModeManager { inner }
-        .unsubscribe(&self.key, self.subscription_id, true);
+      StreamingSourceModeManager { inner }.unsubscribe(
+        &self.key,
+        self.subscription_id,
+        true,
+      );
     }
   }
 }
@@ -1000,6 +1048,8 @@ mod tests {
       fft_window: None,
       frame_rate: None,
       gain: None,
+
+      ..Default::default()
     })
   }
 
@@ -1081,12 +1131,13 @@ mod tests {
     let rx_key = StreamKey::new("hackrf_one-00000001", StreamMode::Rx);
     let tx_key = StreamKey::new("hackrf_one-00000001", StreamMode::Tx);
 
-    let rx_subscription = manager
-      .subscribe(rx_key.clone(), rx_options())
-      .unwrap();
+    let rx_subscription =
+      manager.subscribe(rx_key.clone(), rx_options()).unwrap();
     let error = match manager.subscribe(tx_key.clone(), tx_options()) {
       Err(error) => error,
-      Ok(_) => panic!("half-duplex Tx subscribe must be rejected while Rx is held"),
+      Ok(_) => {
+        panic!("half-duplex Tx subscribe must be rejected while Rx is held")
+      }
     };
     assert!(matches!(error, StreamError::Arbitration(_)));
 
@@ -1096,9 +1147,9 @@ mod tests {
     runtime.block_on(async {
       rx_subscription.unsubscribe();
       tokio::time::sleep(Duration::from_millis(30)).await;
-      manager
-        .subscribe(tx_key.clone(), tx_options())
-        .expect("releasing the half-duplex Rx stream must unblock the Tx subscribe");
+      manager.subscribe(tx_key.clone(), tx_options()).expect(
+        "releasing the half-duplex Rx stream must unblock the Tx subscribe",
+      );
     });
     assert!(manager.has_stream(&tx_key));
   }
@@ -1130,9 +1181,9 @@ mod tests {
     let tx_key = StreamKey::new("mock-tx", StreamMode::Tx);
 
     let _rx = manager.subscribe(rx_key, rx_options()).unwrap();
-    manager.subscribe(tx_key, tx_options()).expect(
-      "full-duplex sources may hold both streams simultaneously",
-    );
+    manager
+      .subscribe(tx_key, tx_options())
+      .expect("full-duplex sources may hold both streams simultaneously");
   }
 
   #[test]
@@ -1244,6 +1295,8 @@ mod tests {
       fft_window: None,
       frame_rate: None,
       gain: None,
+
+      ..Default::default()
     });
 
     let second = manager.subscribe(key.clone(), second_options).unwrap();
@@ -1268,7 +1321,12 @@ mod tests {
 
     for sequence in 1..=3 {
       manager
-        .publish_iq_frame(&key, sequence as i64, 2_400_000, Arc::new(vec![sequence as u8]))
+        .publish_iq_frame(
+          &key,
+          sequence as i64,
+          2_400_000,
+          Arc::new(vec![sequence as u8]),
+        )
         .unwrap();
     }
 
@@ -1276,23 +1334,33 @@ mod tests {
     assert!(matches!(latest, StreamEvent::Frame(frame) if frame.sequence == 3));
 
     manager
-      .update_options(&key, StreamOptions::Rx(RxStreamOptions {
-        center_frequency_hz: 101_000_000,
-        sample_rate_hz: 2_400_000,
-        fft_size: 1024,
-        fft_window: None,
-        frame_rate: None,
-        gain: None,
-      }))
+      .update_options(
+        &key,
+        StreamOptions::Rx(RxStreamOptions {
+          center_frequency_hz: 101_000_000,
+          sample_rate_hz: 2_400_000,
+          fft_size: 1024,
+          fft_window: None,
+          frame_rate: None,
+          gain: None,
+
+          ..Default::default()
+        }),
+      )
       .unwrap();
     manager
       .publish_iq_frame(&key, 4, 2_400_000, Arc::new(vec![4]))
       .unwrap();
 
     let frame_before_control = subscription.recv().await.unwrap();
-    assert!(matches!(frame_before_control, StreamEvent::OptionsApplied { .. }));
+    assert!(matches!(
+      frame_before_control,
+      StreamEvent::OptionsApplied { .. }
+    ));
     let frame_after_control = subscription.recv().await.unwrap();
-    assert!(matches!(frame_after_control, StreamEvent::Frame(frame) if frame.sequence == 1));
+    assert!(
+      matches!(frame_after_control, StreamEvent::Frame(frame) if frame.sequence == 1)
+    );
   }
 
   #[tokio::test]
@@ -1300,24 +1368,36 @@ mod tests {
     let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     let key = StreamKey::new("mock-apt", StreamMode::Rx);
     let mut subscription = manager
-      .subscribe_with_policy(key.clone(), rx_options(), StreamDeliveryPolicy::Latest)
+      .subscribe_with_policy(
+        key.clone(),
+        rx_options(),
+        StreamDeliveryPolicy::Latest,
+      )
       .unwrap();
 
     for sequence in 1..=64 {
       manager
-        .publish_iq_frame(&key, sequence, 2_400_000, Arc::new(vec![sequence as u8]))
+        .publish_iq_frame(
+          &key,
+          sequence,
+          2_400_000,
+          Arc::new(vec![sequence as u8]),
+        )
         .unwrap();
     }
 
     let latest = subscription.recv().await.unwrap();
-    assert!(matches!(latest, StreamEvent::Frame(frame) if frame.sequence == 64));
+    assert!(
+      matches!(latest, StreamEvent::Frame(frame) if frame.sequence == 64)
+    );
   }
 
   #[test]
   fn identical_device_options_are_not_republished() {
     let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
     let key = StreamKey::new("mock-apt", StreamMode::Rx);
-    let mut subscription = manager.subscribe(key.clone(), rx_options()).unwrap();
+    let mut subscription =
+      manager.subscribe(key.clone(), rx_options()).unwrap();
 
     let (_, revision, changed) = manager
       .update_options(&key, rx_options())

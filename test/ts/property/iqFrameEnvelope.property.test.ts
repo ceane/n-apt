@@ -50,11 +50,11 @@ const SAFE_SOURCE_ID = fc
 describe("IQ frame envelope decoder fuzz", () => {
   it("decoding arbitrary bytes never throws an unexpected error", () => {
     fc.assert(
-      fc.property(BYTE_ARRAY, fc.string(), (bytes, sourceId) => {
+      fc.property(BYTE_ARRAY, (bytes) => {
         const buf = new Uint8Array(bytes).buffer;
         const result: unknown = (() => {
           try {
-            return decodeIqFrameEnvelope(buf, sourceId);
+            return decodeIqFrameEnvelope(buf);
           } catch (e) {
             return e;
           }
@@ -74,14 +74,14 @@ describe("IQ frame envelope decoder fuzz", () => {
     );
   });
 
-  it("short buffers always throw the v1-short error, never a runtime crash", () => {
+  it("short buffers always throw the v2-short error, never a runtime crash", () => {
     fc.assert(
       fc.property(
         BYTE_ARRAY.map((b) => b.slice(0, 23)),
         (bytes) => {
           expect(() =>
-            decodeIqFrameEnvelope(new Uint8Array(bytes).buffer, "s"),
-          ).toThrow("Invalid I/Q frame: shorter than the v1 header");
+            decodeIqFrameEnvelope(new Uint8Array(bytes).buffer),
+          ).toThrow("Invalid I/Q frame: shorter than the v2 fixed header");
         },
       ),
     );
@@ -98,7 +98,7 @@ describe("IQ frame envelope decoder fuzz", () => {
           const buf = new Uint8Array(4 + tail.length);
           buf.set(V2_MAGIC, 0);
           buf.set(tail, 4);
-          expect(() => decodeIqFrameEnvelope(buf.buffer, "s")).toThrow(
+          expect(() => decodeIqFrameEnvelope(buf.buffer)).toThrow(
             /Invalid I\/Q frame/,
           );
         },
@@ -110,7 +110,7 @@ describe("IQ frame envelope decoder fuzz", () => {
     const buffer = buildValidV2Buffer("a", 1, 2, 8);
     new Uint8Array(buffer)[56] = 0xff;
 
-    expect(() => decodeIqFrameEnvelope(buffer, "fallback")).toThrow(
+    expect(() => decodeIqFrameEnvelope(buffer)).toThrow(
       "Invalid I/Q frame source ID: invalid UTF-8",
     );
   });
@@ -150,7 +150,7 @@ describe("IQ frame envelope decoder fuzz", () => {
               break;
           }
 
-          expect(() => decodeIqFrameEnvelope(buffer, "fallback")).toThrow(
+          expect(() => decodeIqFrameEnvelope(buffer)).toThrow(
             /^Invalid I\/Q frame/,
           );
         },
@@ -167,7 +167,7 @@ describe("IQ frame envelope decoder fuzz", () => {
         fc.integer({ min: 1, max: 2048 }),
         (sourceId, sequence, epoch, payloadLen) => {
           const buf = buildValidV2Buffer(sourceId, sequence, epoch, payloadLen);
-          const frame = decodeIqFrameEnvelope(buf, "fallback");
+          const frame = decodeIqFrameEnvelope(buf);
           expect(frame.metadata.protocol_version).toBe(2);
           expect(frame.metadata.source_id).toEqual(sourceId);
           expect(frame.metadata.sequence).toBeGreaterThanOrEqual(0);
@@ -187,11 +187,9 @@ describe("IQ frame envelope decoder fuzz", () => {
         fc.integer({ min: 0, max: 1 << 30 }),
         (seq, epoch) => {
           const buf = buildValidV2Buffer("a", seq, epoch, 100);
-          const frame = decodeIqFrameEnvelope(buf, "fallback");
+          const frame = decodeIqFrameEnvelope(buf);
           expect(frame.encryptedPayload).toEqual(
-            new Uint8Array(buf).subarray(
-              frame.metadata.protocol_version === 2 ? 57 : 24,
-            ),
+            new Uint8Array(buf).subarray(57),
           );
         },
       ),
@@ -202,33 +200,22 @@ describe("IQ frame envelope decoder fuzz", () => {
     const buffer = buildValidV2Buffer("rtl-1", 1, 2, 16);
     new DataView(buffer).setUint8(11, 1); // is_fresh = false
 
-    expect(decodeIqFrameEnvelope(buffer, "fallback").metadata).toMatchObject({
+    expect(decodeIqFrameEnvelope(buffer).metadata).toMatchObject({
       protocol_version: 2,
       is_fresh: false,
     });
   });
 
-  it("valid v1 (non-magic) buffers parse the legacy 24-byte header", () => {
-    fc.assert(
-      fc.property(
-        fc.integer({ min: 0, max: Number.MAX_SAFE_INTEGER }),
-        fc.integer({ min: 1, max: 100 }),
-        (timestamp, payloadLen) => {
-          const buf = new ArrayBuffer(24 + payloadLen);
-          const view = new DataView(buf);
-          view.setBigUint64(0, BigInt(timestamp), true);
-          view.setBigUint64(8, BigInt(100_000_000), true); // center
-          view.setUint32(16, 1, true); // dataType=1
-          view.setUint32(20, 2_400_000, true); // sampleRate
-          const bytes = new Uint8Array(buf);
-          for (let i = 24; i < 24 + payloadLen; i++) bytes[i] = i & 0xff;
-          const frame = decodeIqFrameEnvelope(buf, "src");
-          expect(frame.metadata.protocol_version).toBe(1);
-          expect(frame.metadata.source_id).toBe("src");
-          expect(frame.metadata.timestamp).toBe(timestamp);
-          expect(Number.isFinite(frame.metadata.timestamp)).toBe(true);
-        },
-      ),
+  it("rejects a complete legacy 24-byte envelope instead of inferring its source", () => {
+    const buffer = new ArrayBuffer(25);
+    const view = new DataView(buffer);
+    view.setBigUint64(0, 1n, true);
+    view.setBigUint64(8, 100_000_000n, true);
+    view.setUint32(16, 1, true);
+    view.setUint32(20, 2_400_000, true);
+
+    expect(() => decodeIqFrameEnvelope(buffer)).toThrow(
+      "Invalid I/Q frame: shorter than the v2 fixed header",
     );
   });
 });

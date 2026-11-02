@@ -3,10 +3,8 @@ import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
-import {
-  fileFrameRuntime,
-  liveFrameRuntime,
-} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import { formatFrequency } from "@n-apt/math/frequency";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
 import { ChevronLeft, ChevronRight, Maximize } from "lucide-react";
@@ -272,6 +270,7 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
     (state) => state.waterfall.activePlaybackMetadata,
   );
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activeLiveFrameRef = useActivePresentationFrameRef();
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
@@ -288,10 +287,11 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
   useEffect(() => {
     const id = setInterval(() => {
       const sourceRef =
-        sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref;
-      const current = Array.isArray(sourceRef.current)
-        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-        : sourceRef.current;
+        sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
+      const current =
+        sourceMode === "file" && Array.isArray(sourceRef.current)
+          ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+          : sourceRef.current;
       const nextRef = current?.iq_data as Uint8Array | undefined;
 
       if (nextRef !== lastIqRefRef.current) {
@@ -300,17 +300,18 @@ export const BitstreamViewer: React.FC<BitstreamViewerProps> = ({
       }
     }, 250); // 4fps — fast enough for readable table updates
     return () => clearInterval(id);
-  }, [sourceMode]);
+  }, [activeLiveFrameRef, sourceMode]);
 
   useEffect(() => {
     const sourceRef =
-      sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref;
-    const current = Array.isArray(sourceRef.current)
-      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-      : sourceRef.current;
+      sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
+    const current =
+      sourceMode === "file" && Array.isArray(sourceRef.current)
+        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+        : sourceRef.current;
     lastIqRefRef.current = current?.iq_data;
     setFrameIqData(current?.iq_data as Uint8Array | undefined);
-  }, [activeSourceId, sourceMode]);
+  }, [activeLiveFrameRef, activeSourceId, sourceMode]);
 
   useEffect(() => {
     if (!gridRef.current) return;

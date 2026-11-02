@@ -392,8 +392,12 @@ describe("SourceModeStreamManager", () => {
     );
 
     expect(pausedEvents).toHaveLength(1);
-    expect(pausedEvents[0]).toEqual(expect.objectContaining({ sequence: 9 }));
+    expect(pausedEvents[0]).toEqual(
+      expect.objectContaining({ sequence: 9, oneShot: true }),
+    );
     expect(activeEvents).toHaveLength(2);
+    expect(activeEvents[0]).toEqual(expect.objectContaining({ sequence: 9 }));
+    expect(activeEvents[0]).not.toHaveProperty("oneShot");
   });
 
   it("starts a subscriber paused when the user pauses during stream opening", async () => {
@@ -541,6 +545,49 @@ describe("SourceModeStreamManager", () => {
     });
     await updatePromise;
     expect(updateSettled).toBe(true);
+  });
+
+  it("keeps an identical option update pending until its backend acknowledgement", async () => {
+    const { factory, transports } = createTransportFactory();
+    const manager = createSourceModeStreamManager({ transportFactory: factory });
+    const key: StreamKey = { sourceId: "source-a", mode: "rx" };
+    const subscription = await manager.subscribe(key, rxOptions(), () => {
+      // no-op
+    });
+
+    transports[0].onEvent({
+      type: "stream_opened",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 1,
+      optionsRevision: 1,
+      state: "ready",
+    });
+
+    const nextOptions = rxOptions(101_000_000);
+    const updatePromise = subscription.updateOptions(nextOptions);
+    let identicalUpdateSettled = false;
+    const identicalUpdatePromise = subscription
+      .updateOptions(nextOptions)
+      .then(() => {
+        identicalUpdateSettled = true;
+      });
+
+    await Promise.resolve();
+    expect(identicalUpdateSettled).toBe(false);
+    transports[0].onEvent({
+      type: "stream_options_applied",
+      sourceId: key.sourceId,
+      mode: key.mode,
+      streamEpoch: 2,
+      optionsRevision: 2,
+      options: nextOptions,
+    });
+
+    await Promise.all([updatePromise, identicalUpdatePromise]);
+    expect(identicalUpdateSettled).toBe(true);
+    subscription.unsubscribe();
+    manager.dispose();
   });
 
   it("does not re-emit its own options acknowledgement when the backend revision has advanced", async () => {

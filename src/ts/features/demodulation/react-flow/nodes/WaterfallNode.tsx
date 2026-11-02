@@ -8,8 +8,10 @@ import React, {
 import styled from "styled-components";
 import {
   fileFrameRuntime,
-  liveSourceFrameRuntime,
+  getLiveFrameRefForSource,
+  subscribeFrameArrivals,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import {
   FIFOWaterfall,
   VisualizerSliders,
@@ -51,7 +53,6 @@ import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
 import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 import { isTxStandbyPreviewSource } from "@n-apt/spectrum/public/liveSourceLifecycle";
-import { sourceVisualizationRuntime as liveIqRuntime } from "@n-apt/redux/middleware/websocketMiddleware";
 import {
   DEFAULT_WATERFALL_BIN_SUBSET,
   type WaterfallBinSubset,
@@ -497,7 +498,7 @@ export const normalizeSpectrumToBrushLine = (
 
 const BrushOverlay = styled.svg<{ $active: boolean }>`
   position: absolute;
-    /* The analysis title consumes 32px and the VFO is a fixed 56px row. Anchor
+  /* The analysis title consumes 32px and the VFO is a fixed 56px row. Anchor
    * the brush to the remaining
    * waterfall viewport with both top and bottom edges instead of combining a
    * top inset with a calculated height; the latter can be distorted by the
@@ -516,8 +517,7 @@ const BrushOverlay = styled.svg<{ $active: boolean }>`
 const formatBinSubsetLabel = (parity: WaterfallBinSubset["parity"]) =>
   `${parity === "even" ? "Even" : "Odd"} Bins`;
 
-const formatDb = (value: number, unit = "dB") =>
-  `${value.toFixed(0)} ${unit}`;
+const formatDb = (value: number, unit = "dB") => `${value.toFixed(0)} ${unit}`;
 
 const getIqMutationMarker = (iq: Uint8Array | null | undefined): string => {
   if (!iq || iq.length === 0) return "";
@@ -533,6 +533,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   const sourceMode = useAppSelector(
     (state) => state.waterfall?.sourceMode ?? "live",
   );
+  const activeLiveFrameRef = useActivePresentationFrameRef();
   const fftMinDb = useAppSelector((state) => state.spectrum.fftMinDb);
   const fftMaxDb = useAppSelector((state) => state.spectrum.fftMaxDb);
   const powerScale = useAppSelector(
@@ -572,6 +573,16 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       )?.id ?? state.websocket.activeSourceId
     );
   });
+  const roleLiveFrameRef = useMemo(
+    () =>
+      data.sourceRole
+        ? getLiveFrameRefForSource(
+            roleSourceId,
+            data.sourceRole === "tx" ? "tx" : "rx",
+          )
+        : activeLiveFrameRef,
+    [activeLiveFrameRef, data.sourceRole, roleSourceId],
+  );
   const isTxStandbyPreview = useAppSelector((state) => {
     if (!roleSourceId) return false;
     const source = (state.websocket.sources ?? []).find(
@@ -635,13 +646,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   // Throttled data polling — waterfall scrolls visually so 8fps is smooth enough.
   const getCurrentFrame = useCallback(() => {
     const sourceRef =
-      sourceMode === "file"
-        ? fileFrameRuntime.ref
-        : liveSourceFrameRuntime.getRef(roleSourceId);
-    return Array.isArray(sourceRef.current)
+      sourceMode === "file" ? fileFrameRuntime.ref : roleLiveFrameRef;
+    return sourceMode === "file" && Array.isArray(sourceRef.current)
       ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
       : sourceRef.current;
-  }, [roleSourceId, sourceMode]);
+  }, [roleLiveFrameRef, sourceMode]);
   const initialFrame = getCurrentFrame();
   const [liveFrame, setLiveFrame] = useState(initialFrame);
   const [frameRevision, setFrameRevision] = useState(0);
@@ -747,14 +756,10 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       let cachedRevision = "";
       let cachedSpectrum: Float32Array | null = null;
       const readSpectrum = () => {
-        const sourceRef = liveIqRuntime.getSourceRef(roleSourceId);
-        const current = sourceRef.current;
-        const frame = Array.isArray(current)
-          ? (current[current.length - 1] ?? null)
-          : current;
-        const iq = (frame as any)?.iq_data;
-        if (!iq?.length) return null;
-        const revision = `${(frame as any)?.stream_epoch ?? ""}:${(frame as any)?.sequence ?? ""}:${(frame as any)?.timestamp ?? ""}:${getIqMutationMarker(iq)}`;
+        const frame = activeLiveFrameRef.current;
+        const iq = frame?.iq_data;
+        if (!frame || !iq?.length) return null;
+        const revision = `${frame.stream_epoch}:${frame.sequence}:${frame.timestamp ?? ""}:${getIqMutationMarker(iq)}`;
         if (
           frame === cachedFrame &&
           iq === cachedIq &&
@@ -763,7 +768,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
           return cachedSpectrum;
         }
         const spectrum = processIqToDbmSpectrum(iq, 0, waterfallFftSize);
-        cachedFrame = frame as LiveFrameData;
+        cachedFrame = frame;
         cachedIq = iq;
         cachedRevision = revision;
         cachedSpectrum = spectrum;
@@ -780,13 +785,8 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
               listener(spectrum);
             }
           };
-          const unsubscribe = liveIqRuntime.subscribe(roleSourceId, emitLatest);
-          // Source notifications are the fast path. The watchdog covers
-          // in-place/fallback frame slots that cannot emit, without routing
-          // rows through React or repeating FFT work for an unchanged frame.
-          const watchdog = window.setInterval(emitLatest, 33);
+          const unsubscribe = subscribeFrameArrivals(emitLatest);
           return () => {
-            window.clearInterval(watchdog);
             unsubscribe();
           };
         },
@@ -805,6 +805,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     };
   }, [
     data.sourceRole,
+    activeLiveFrameRef,
     getCurrentFrame,
     processIqToDbmSpectrum,
     roleSourceId,
@@ -1026,11 +1027,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         Math.max(-maxPanHz, Math.min(maxPanHz, panHz)),
       );
     },
-    [
-      vfoFrequencyRange.max,
-      vfoFrequencyRange.min,
-      allowNegativeFrequencies,
-    ],
+    [vfoFrequencyRange.max, vfoFrequencyRange.min, allowNegativeFrequencies],
   );
   const performScalarResampling = useCallback(
     (
@@ -1222,10 +1219,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         ),
     };
   }, [liveWaveformFeed, transformWaveform]);
-  const displayFrequencyRange = useMemo(
-    () => frequencyRange,
-    [frequencyRange],
-  );
+  const displayFrequencyRange = useMemo(() => frequencyRange, [frequencyRange]);
   const displayZoomedFrequencyRange = useMemo(
     () => zoomedFrequencyRange,
     [zoomedFrequencyRange],
@@ -1261,7 +1255,9 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                   drawingType="dom"
                   orientation="top"
                   frequencyRange={displayFrequencyRange}
-                  centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
+                  centerFrequencyHz={
+                    (frequencyRange.min + frequencyRange.max) / 2
+                  }
                   style={{ height: 56, flex: "0 0 56px" }}
                   data-testid="waterfall-node-mini-vfo"
                   data-position="top"
@@ -1463,16 +1459,18 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                 onClose={() => setShowVfoEditor(false)}
                 placement="top"
                 allowNegativeFrequencies={allowNegativeFrequencies}
-                windowSpanHz={
-                  frequencyRange.max - frequencyRange.min
-                }
+                windowSpanHz={frequencyRange.max - frequencyRange.min}
               />
             )}
           </AnalysisViewport>
           <AnalysisTools
             $analysis={data.analysisOptions}
             className="nodrag nopan"
-            data-testid={data.analysisOptions ? "waterfall-analysis-tools" : "waterfall-compact-controls"}
+            data-testid={
+              data.analysisOptions
+                ? "waterfall-analysis-tools"
+                : "waterfall-compact-controls"
+            }
             onMouseDown={stopNodeDrag}
             onPointerDown={stopNodeDrag}
           >
@@ -1486,7 +1484,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
               onDbMinChange={handleDbMinChange}
               onDbMaxChange={handleDbMaxChange}
             />
-          {data.analysisOptions && (
+            {data.analysisOptions && (
               <AnalysisIconGrid data-testid="waterfall-analysis-icon-grid">
                 <AnalysisToolButton
                   type="button"
@@ -1617,20 +1615,23 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                 </AnalysisBinSubsetControl>
               </AnalysisIconGrid>
             )}
-              {data.analysisOptions && (
-                <AnalysisResetButton
-                  type="button"
-                  onClick={resetAnalysisControls}
-                >
-                  Reset
-                </AnalysisResetButton>
-              )}
-              {!data.analysisOptions && (
-                <AnalysisResetButton type="button" onClick={resetAnalysisControls}>
-                  Reset
-                </AnalysisResetButton>
-              )}
-            </AnalysisTools>
+            {data.analysisOptions && (
+              <AnalysisResetButton
+                type="button"
+                onClick={resetAnalysisControls}
+              >
+                Reset
+              </AnalysisResetButton>
+            )}
+            {!data.analysisOptions && (
+              <AnalysisResetButton
+                type="button"
+                onClick={resetAnalysisControls}
+              >
+                Reset
+              </AnalysisResetButton>
+            )}
+          </AnalysisTools>
         </AnalysisLayout>
         {data.showMiniVfo && data.miniVfoPosition === "bottom" && (
           <Vfo

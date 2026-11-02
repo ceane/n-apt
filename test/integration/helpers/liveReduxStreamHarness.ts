@@ -1,6 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -106,8 +112,8 @@ export type LiveReduxStreamSnapshot = {
     | "activeSourceId"
     | "activeSourceMode"
     | "deviceState"
-    | "sourceTransport"
-    | "sourceFrameReadiness"
+    | "sourceTransportByMode"
+    | "sourceFrameReadinessByMode"
     | "sources"
     | "sourceStatuses"
     | "error"
@@ -125,9 +131,7 @@ export type LiveReduxStreamHarness = {
   selectSource(sourceId: string): Promise<void>;
   viewSource(sourceId: string): Promise<void>;
   setPaused(paused: boolean, sourceId?: string): Promise<void>;
-  requestNextStandbyFrame(
-    options?: RequestNextLiveFrameOptions,
-  ): Promise<void>;
+  requestNextStandbyFrame(options?: RequestNextLiveFrameOptions): Promise<void>;
   setTransmit(enabled: boolean, sourceId?: string): Promise<void>;
   simulateHardwarePresence(present: boolean): Promise<void>;
   setFftSize(fftSize: number, timeoutMs?: number): Promise<void>;
@@ -397,60 +401,67 @@ export const createLiveReduxStreamHarness = async (
 
   const spawnBackend = async (backendUrl: string) => {
     try {
-    const redisUrl = options.redisUrl ?? process.env.REDIS_URL;
-    let effectiveRedisUrl = redisUrl ?? `redis://127.0.0.1:${await findFreePort()}`;
-    if (!redisUrl) {
-      const redisPort = Number(new URL(effectiveRedisUrl).port);
-      temporaryRedisDirectory = mkdtempSync(join(tmpdir(), "napt-live-test-redis-"));
-      const dataDirectory = join(temporaryRedisDirectory, "data");
-      mkdirSync(dataDirectory, { mode: 0o700 });
-      const appPassword = randomBytes(32).toString("hex");
-      const operatorPassword = randomBytes(32).toString("hex");
-      const aclFile = join(temporaryRedisDirectory, "users.acl");
-      writeFileSync(aclFile, renderRedisAcl({
-        appUsername: "napt-app",
-        appPassword,
-        operatorPassword,
-      }), { mode: 0o600 });
-      effectiveRedisUrl = `redis://napt-app:${appPassword}@127.0.0.1:${redisPort}/0`;
-      redisProcess = spawn(
-        "redis-server",
-        [
-          "--port",
-          String(redisPort),
-          "--bind",
-          "127.0.0.1",
-          "--protected-mode",
-          "yes",
-          "--aclfile",
+      const redisUrl = options.redisUrl ?? process.env.REDIS_URL;
+      let effectiveRedisUrl =
+        redisUrl ?? `redis://127.0.0.1:${await findFreePort()}`;
+      if (!redisUrl) {
+        const redisPort = Number(new URL(effectiveRedisUrl).port);
+        temporaryRedisDirectory = mkdtempSync(
+          join(tmpdir(), "napt-live-test-redis-"),
+        );
+        const dataDirectory = join(temporaryRedisDirectory, "data");
+        mkdirSync(dataDirectory, { mode: 0o700 });
+        const appPassword = randomBytes(32).toString("hex");
+        const operatorPassword = randomBytes(32).toString("hex");
+        const aclFile = join(temporaryRedisDirectory, "users.acl");
+        writeFileSync(
           aclFile,
-          "--dir",
-          dataDirectory,
-          "--save",
-          "",
-          "--appendonly",
-          "no",
-          "--loglevel",
-          "warning",
-        ],
-        { stdio: "ignore" },
-      );
-      await waitForTcpPort(redisPort);
-    }
-    backendProcess = spawn(backendBinary, [], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        WEBSOCKETS_URL: backendUrl,
-        REDIS_URL: effectiveRedisUrl,
-        UNSAFE_LOCAL_USER_PASSWORD: password,
-        ...(options.hardwareSimulation
-          ? { N_APT_TEST_HARDWARE_SIMULATION: options.hardwareSimulation }
-          : {}),
-      },
-      stdio: "ignore",
-    });
-    await waitForHttp(backendUrl);
+          renderRedisAcl({
+            appUsername: "napt-app",
+            appPassword,
+            operatorPassword,
+          }),
+          { mode: 0o600 },
+        );
+        effectiveRedisUrl = `redis://napt-app:${appPassword}@127.0.0.1:${redisPort}/0`;
+        redisProcess = spawn(
+          "redis-server",
+          [
+            "--port",
+            String(redisPort),
+            "--bind",
+            "127.0.0.1",
+            "--protected-mode",
+            "yes",
+            "--aclfile",
+            aclFile,
+            "--dir",
+            dataDirectory,
+            "--save",
+            "",
+            "--appendonly",
+            "no",
+            "--loglevel",
+            "warning",
+          ],
+          { stdio: "ignore" },
+        );
+        await waitForTcpPort(redisPort);
+      }
+      backendProcess = spawn(backendBinary, [], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          WEBSOCKETS_URL: backendUrl,
+          REDIS_URL: effectiveRedisUrl,
+          UNSAFE_LOCAL_USER_PASSWORD: password,
+          ...(options.hardwareSimulation
+            ? { N_APT_TEST_HARDWARE_SIMULATION: options.hardwareSimulation }
+            : {}),
+        },
+        stdio: "ignore",
+      });
+      await waitForHttp(backendUrl);
     } catch (error) {
       backendProcess?.kill("SIGKILL");
       redisProcess?.kill("SIGKILL");
@@ -510,13 +521,14 @@ export const createLiveReduxStreamHarness = async (
       requestNextPausedFrame,
     },
     middleware,
+    { presentationController },
   ] = await Promise.all([
     import("@n-apt/redux/store"),
     import("@n-apt/redux/thunks/websocketThunks"),
     import("@n-apt/redux/middleware/websocketMiddleware"),
+    import("@n-apt/app/infrastructure/streams/sourcePresentationController"),
   ]);
-  const { getManagedStreamDebugSnapshot, liveDataRef, presentationController } =
-    middleware;
+  const { getManagedStreamDebugSnapshot } = middleware;
   const dispatch = store.dispatch as AppDispatch;
   let connected = false;
 
@@ -575,24 +587,21 @@ export const createLiveReduxStreamHarness = async (
             source?.id === "mock-tx" ||
             source?.kind === "mock_tx" ||
             source?.capability === "tx";
-          const modeTransport = state.sourceTransportByMode?.[
-            isTx ? "tx" : "rx"
-          ];
+          const modeTransport =
+            state.sourceTransportByMode?.[isTx ? "tx" : "rx"];
           return (
             state.activeSourceId === sourceId &&
             (state.sourceStatuses[sourceId] === "standby" ||
               state.sourceStatuses[sourceId] === "receiving" ||
               state.sourceStatuses[sourceId] === "transmitting" ||
-              modeTransport?.sourceId === sourceId ||
-              state.sourceTransport?.sourceId === sourceId)
+              modeTransport?.sourceId === sourceId)
           );
         },
       );
     },
 
     async viewSource(sourceId) {
-      if (!connected)
-        throw new Error("connect() must run before viewSource()");
+      if (!connected) throw new Error("connect() must run before viewSource()");
       dispatch(setSelectedSourceId(sourceId));
       await dispatch(sendViewSource(sourceId));
       await harness.waitFor(
@@ -842,7 +851,9 @@ export const createLiveReduxStreamHarness = async (
       );
       const presentationMode = presentation.sourceId
         ? presentation.mode
-        : resolvePausePresentationMode(presentationSource ?? globalActiveSource);
+        : resolvePausePresentationMode(
+            presentationSource ?? globalActiveSource,
+          );
       const activeSlot = presentationSourceId
         ? presentationController.getSlot(presentationSourceId, presentationMode)
         : null;
@@ -873,7 +884,8 @@ export const createLiveReduxStreamHarness = async (
       );
       const hasTargetFrozenFrame =
         !!presentationSourceId &&
-        (presentationController.getFrozenFrame(presentationSourceId, "rx") !== null ||
+        (presentationController.getFrozenFrame(presentationSourceId, "rx") !==
+          null ||
           presentationController.getFrozenFrame(presentationSourceId, "tx") !==
             null ||
           presentationController.getSlot(presentationSourceId, "rx")?.phase ===
@@ -886,7 +898,9 @@ export const createLiveReduxStreamHarness = async (
           null)
         : null;
       const liveFrameSnapshot = frameSnapshot(
-        activeSlot?.liveFrameRef.current ?? activeSlot?.frozenFrame?.frame ?? null,
+        activeSlot?.liveFrameRef.current ??
+          activeSlot?.frozenFrame?.frame ??
+          null,
       );
       const isPresentedTxStandby =
         presentationMode === "tx" &&
@@ -897,19 +911,17 @@ export const createLiveReduxStreamHarness = async (
       const sourceTransport = selectSourceTransportForMode(
         presentationMode,
         state.sourceTransportByMode,
-        state.sourceTransport,
       );
       const sourceReadiness = selectSourceFrameReadinessForMode(
         presentationMode,
         state.sourceFrameReadinessByMode,
-        state.sourceFrameReadiness,
       );
       const lifecycleResult = resolveLiveSourceLifecycle({
         selectedSourceId: presentationSourceId,
         activeSourceId: presentationSourceId,
-        transportSourceId: sourceTransport.sourceId ?? null,
-        transportPhase: sourceTransport.phase ?? "idle",
-        transportError: sourceTransport.error ?? null,
+        transportSourceId: sourceTransport?.sourceId ?? null,
+        transportPhase: sourceTransport?.phase ?? "idle",
+        transportError: sourceTransport?.error ?? null,
         hasValidFrame:
           hasTargetFrozenFrame ||
           isCurrentSourceFrameReady({
@@ -934,7 +946,7 @@ export const createLiveReduxStreamHarness = async (
         isConnected: state.isConnected,
         connectionStatus: state.connectionStatus,
         hasConnectedOnce: state.hasConnectedOnce,
-        transportPhase: sourceTransport.phase,
+        transportPhase: sourceTransport?.phase,
       });
 
       return {
@@ -968,8 +980,8 @@ export const createLiveReduxStreamHarness = async (
           activeSourceId: state.activeSourceId,
           activeSourceMode: state.activeSourceMode,
           deviceState: state.deviceState,
-          sourceTransport: state.sourceTransport,
-          sourceFrameReadiness: state.sourceFrameReadiness,
+          sourceTransportByMode: state.sourceTransportByMode,
+          sourceFrameReadinessByMode: state.sourceFrameReadinessByMode,
           sources: state.sources,
           sourceStatuses: state.sourceStatuses,
           error: state.error,
@@ -978,15 +990,11 @@ export const createLiveReduxStreamHarness = async (
           store.getState().sourceSelection.selectedSourceId || null,
         managed,
         liveFrame: liveFrameSnapshot,
-        rxPresentation: slotFrameSnapshot(
-          rxPresentationSourceId,
-          "rx",
-        ),
-        rxPresentationPhase:
-          rxPresentationSourceId
-            ? presentationController.getSlot(rxPresentationSourceId, "rx")
-                ?.phase ?? null
-            : null,
+        rxPresentation: slotFrameSnapshot(rxPresentationSourceId, "rx"),
+        rxPresentationPhase: rxPresentationSourceId
+          ? (presentationController.getSlot(rxPresentationSourceId, "rx")
+              ?.phase ?? null)
+          : null,
         txPresentation: slotFrameSnapshot(lastPresentedTxSourceId, "tx"),
       };
     },

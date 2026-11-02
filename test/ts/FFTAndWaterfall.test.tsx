@@ -1003,7 +1003,10 @@ describe("FFTAndWaterfall", () => {
         },
       ],
       sourceStatuses: { "mock-apt": "receiving" },
-      sourceTransport: { sourceId: "mock-apt", phase: "warming", error: null },
+      sourceTransportByMode: {
+        rx: { sourceId: "mock-apt", phase: "warming", error: null },
+        tx: { sourceId: null, phase: "idle", error: null },
+      },
     };
 
     render(

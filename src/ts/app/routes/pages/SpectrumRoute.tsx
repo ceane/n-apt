@@ -37,7 +37,7 @@ import {
   getVisualizerLifecycleKey,
   resolveWebGpuStreamTransition,
 } from "@n-apt/app/infrastructure/visualization/webgpuStreamReset";
-import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
+import { presentationController } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 import { createDeviceOptionScheduler } from "@n-apt/app/infrastructure/streams/deviceOptionScheduler";
 import { calculateCenterFrequency } from "@n-apt/math/centerFrequency";
 import {
@@ -159,11 +159,7 @@ export const resolvePausedFrameFrequencyRange = ({
   if (!isPaused || isTxMode) return null;
   const minHz = frame?.min_hz;
   const maxHz = frame?.max_hz;
-  if (
-    Number.isFinite(minHz) &&
-    Number.isFinite(maxHz) &&
-    maxHz > minHz
-  ) {
+  if (Number.isFinite(minHz) && Number.isFinite(maxHz) && maxHz > minHz) {
     return { min: minHz, max: maxHz };
   }
   if (
@@ -262,7 +258,11 @@ export const publishLiveFrequencyRange = (
   setFrequencyRange: (range: FrequencyRange) => void,
   sendFrequencyRange: (range: FrequencyRange) => void,
 ): void => {
-  publishFrequencyRangeImmediately(range, setFrequencyRange, sendFrequencyRange);
+  publishFrequencyRangeImmediately(
+    range,
+    setFrequencyRange,
+    sendFrequencyRange,
+  );
 };
 
 /**
@@ -276,9 +276,7 @@ export const publishSubscriberLocalVizPan = (
   setVizPanOffset(pan);
 };
 import { resolveCanonicalDisplaySampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
-import {
-  getLatestLiveFrame,
-} from "@n-apt/spectrum/public/liveSourceLifecycle";
+import { getLatestLiveFrame } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   isSourcePresentationConnected,
   resolveSourceModeManagement,
@@ -295,7 +293,6 @@ import {
 import {
   isCurrentSourceFrameReady,
   isSelectedSourceFrameReady,
-  resolveSelectedSourceFrameReadiness,
   isCommittedStandbyPresentation,
   isLiveSourceAwaitingFrame,
   isLiveSourceHandoffPending,
@@ -354,9 +351,7 @@ export const resolveSpectrumLimitMarkers = ({
   selectedSourceMarkers,
 }: {
   activeSourceMarkers?: SourceInfo["sdr"]["fft_display"]["markers"] | null;
-  selectedSourceMarkers?:
-    | SourceInfo["sdr"]["fft_display"]["markers"]
-    | null;
+  selectedSourceMarkers?: SourceInfo["sdr"]["fft_display"]["markers"] | null;
 }) => selectedSourceMarkers ?? activeSourceMarkers ?? [];
 export { getMockTxPreviewRequestKey } from "./spectrum/mockTxPreview";
 
@@ -564,13 +559,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     (state) => state.spectrum.showTxSlider ?? true,
   );
   const deviceKind = useAppSelector((state) => state.spectrum.deviceKind);
-  const {
-    sourceStatuses,
-    sourceTransport: legacySourceTransport,
-    sourceTransportByMode,
-    sourceFrameReadiness: legacySourceFrameReadiness,
-    sourceFrameReadinessByMode,
-  } = useAppSelector(selectSourceTransportSnapshot);
+  const { sourceStatuses, sourceTransportByMode, sourceFrameReadinessByMode } =
+    useAppSelector(selectSourceTransportSnapshot);
   const connectionStatus = useAppSelector(
     (state) => state.websocket.connectionStatus,
   );
@@ -651,9 +641,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const sendLiveFrequencyRangeRef = useRef<(range: FrequencyRange) => void>(
     () => {},
   );
-  const liveFrequencyRangePublisherRef = useRef<
-    ReturnType<typeof createLiveFrequencyRangePublisher> | null
-  >(null);
+  const liveFrequencyRangePublisherRef = useRef<ReturnType<
+    typeof createLiveFrequencyRangePublisher
+  > | null>(null);
   if (!liveFrequencyRangePublisherRef.current) {
     liveFrequencyRangePublisherRef.current = createLiveFrequencyRangePublisher(
       (range) => setLiveFrequencyRangeRef.current(range),
@@ -761,14 +751,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const sourceTransport = selectSourceTransportForMode(
     selectedStreamMode,
     sourceTransportByMode,
-    legacySourceTransport,
-  );
+  ) ?? { sourceId: null, phase: "idle" as const, error: null };
   const sourceFrameReadiness = selectSourceFrameReadinessForMode(
     selectedStreamMode,
     sourceFrameReadinessByMode,
-    legacySourceFrameReadiness,
   );
-  const expectedLegacyStreamEpoch =
+  const expectedStreamEpoch =
     sourceTransport?.phase === "ready"
       ? null
       : (streamingSource?.stream_epoch ?? null);
@@ -810,11 +798,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     );
 
     if (transition.clearLiveFrame) {
-      // The mutable frame ref bypasses Redux for performance, so clear it at
-      // the same source boundary as the GPU presentation cache. A source
-      // switch is an ownership boundary; retaining the previous paused frame
-      // here creates a one-paint flash before the target frame arrives.
-      dataRef.current = null;
+      // Source and mode ownership is handled by the presentation controller;
+      // the renderer resets its own transient GPU state at this boundary.
       if (transition.advanceResetEpoch) {
         fftVisualizerMachine?.discardNextPersist?.(
           getSourceViewStorageKeyForSource(streamingSource),
@@ -858,7 +843,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   // the Tx suite. A lingering standby snapshot after an Rx handoff is an Rx
   // presentation, and painting the Tx bar there would mask the paused banner.
   const isSelectedSourceTxStandby =
-    (selectedSourceStatus === "standby" || selectedSource?.status === "standby") &&
+    (selectedSourceStatus === "standby" ||
+      selectedSource?.status === "standby") &&
     (isSelectedMockTxSource || txSuiteSourceId === selectedSourceId);
   const isSelectedSourceTxStatus =
     isSelectedSourceTxStandby ||
@@ -900,7 +886,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     selectedSourceDerived.deviceName ??
     streamingSource?.name ??
     "device";
-  const presentedSourceId = getLatestLiveFrame(dataRef.current)?.source_id ?? null;
+  const presentedSourceId =
+    getLatestLiveFrame(dataRef.current)?.source_id ?? null;
   const presentedSource = presentedSourceId
     ? sources.find((source) => source.id === presentedSourceId)
     : null;
@@ -909,7 +896,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     activeSourceId: activeSourceId || null,
     mode: selectedStreamMode,
     subscriberLocalRxView: isSelectedSubscriberLocalRxView,
-    expectedStreamEpoch: expectedLegacyStreamEpoch,
+    expectedStreamEpoch,
     readiness: sourceFrameReadiness,
   });
   const standbySourceLabel =
@@ -936,7 +923,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       isCurrentSourceFrameReady({
         selectedSourceId: selectedSourceId || null,
         activeSourceId: activeSourceId || null,
-        expectedStreamEpoch: expectedLegacyStreamEpoch,
+        expectedStreamEpoch,
         readiness: sourceFrameReadiness,
       }) ||
       hasSelectedSourceFrameReady ||
@@ -1635,8 +1622,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           // older gesture cannot arrive after the explicit frequency.
           handleFrequencyRangeChange(mirrored.range, "typed");
         }
-        const finalCenter =
-          (finalRange.min + finalRange.max) / 2;
+        const finalCenter = (finalRange.min + finalRange.max) / 2;
         if (nextCenterFrequencyHz < 0) {
           // Below DC is display-only mirroring: keep the current zoom and
           // present the requested signed center from the (possibly retuned)
@@ -2092,7 +2078,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         : null) ??
       (Number.isFinite(txCenterFrequencyHz) ? txCenterFrequencyHz : null) ??
       centerFrequencyHz ??
-      (sharedFrequencyRange ?? state.frequencyRange
+      ((sharedFrequencyRange ?? state.frequencyRange)
         ? ((sharedFrequencyRange ?? state.frequencyRange)!.min +
             (sharedFrequencyRange ?? state.frequencyRange)!.max) /
           2
@@ -2134,8 +2120,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       : null,
     fallbackRange: sharedFrequencyRange ?? state.frequencyRange,
   });
-  const fftFrequencyRange =
-    mockTxMonitorFrequencyRange ??
+  const fftFrequencyRange = mockTxMonitorFrequencyRange ??
     pausedRxFrameFrequencyRange ??
     sharedFrequencyRange ??
     state.frequencyRange ?? { min: 0, max: 1 };
@@ -2241,7 +2226,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [
       activeSourceId,
       dataRef,
-      expectedLegacyStreamEpoch,
+      expectedStreamEpoch,
       expectedVisualizerSourceId,
       isSelectedSourceTxMode,
       isSelectedSubscriberLocalRxView,
@@ -2925,20 +2910,27 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
 
   const readLiveStateDiagnosticsRuntime = useCallback(() => {
     const latestFrame = getLatestLiveFrame(dataRef.current);
+    const latestFrameReadiness =
+      latestFrame &&
+      typeof latestFrame.source_id === "string" &&
+      Number.isSafeInteger(latestFrame.stream_epoch) &&
+      Number.isSafeInteger(latestFrame.sequence)
+        ? {
+            sourceId: latestFrame.source_id,
+            streamEpoch: latestFrame.stream_epoch as number,
+            sequence: latestFrame.sequence as number,
+          }
+        : null;
     return {
       renderer: {
-        routeAcceptsLatestFrame: latestFrame
-          ? resolveSelectedSourceFrameReadiness({
-              frame: latestFrame,
-              selectedSourceId: expectedVisualizerSourceId,
-              activeSourceId: activeSourceId || streamingSourceId || null,
-              mode: isSelectedSourceTxMode ? "tx" : "rx",
-              subscriberLocalRxView: isSelectedSubscriberLocalRxView,
-              expectedStreamEpoch: expectedLegacyStreamEpoch,
-              frameCounter: latestFrame.source_id ? 1 : 0,
-              handoffStartedFrameCounter: 0,
-            })
-          : false,
+        routeAcceptsLatestFrame: isSelectedSourceFrameReady({
+          selectedSourceId: expectedVisualizerSourceId,
+          activeSourceId: activeSourceId || streamingSourceId || null,
+          mode: isSelectedSourceTxMode ? "tx" : "rx",
+          subscriberLocalRxView: isSelectedSubscriberLocalRxView,
+          expectedStreamEpoch,
+          readiness: latestFrameReadiness,
+        }),
         latestFrame: latestFrame
           ? {
               sourceId: latestFrame.source_id ?? null,
@@ -2954,7 +2946,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   }, [
     activeSourceId,
     dataRef,
-    expectedLegacyStreamEpoch,
+    expectedStreamEpoch,
     expectedVisualizerSourceId,
     isSelectedSourceTxMode,
     isSelectedSubscriberLocalRxView,
@@ -2986,7 +2978,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
         hasRenderableCurrentFrame,
         hasPlayedAtLeastOnce,
         expectedSourceId: expectedVisualizerSourceId,
-        expectedStreamEpoch: expectedLegacyStreamEpoch,
+        expectedStreamEpoch,
         routeAcceptsLatestFrame: null,
         latestFrame: null,
       },
@@ -2997,7 +2989,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       sources,
       sourceStatuses,
       connectionStatus,
-      expectedLegacyStreamEpoch,
+      expectedStreamEpoch,
       expectedVisualizerSourceId,
       hasPlayedAtLeastOnce,
       hasRenderableCurrentFrame,
@@ -3287,11 +3279,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
           />
         )}
       </SpectrumContent>
-      {NOTES_UI_ENABLED && <NoteCards
-        onViewNoteCard={(card) => {
-          handleViewNoteCard(card.stats);
-        }}
-      />}
+      {NOTES_UI_ENABLED && (
+        <NoteCards
+          onViewNoteCard={(card) => {
+            handleViewNoteCard(card.stats);
+          }}
+        />
+      )}
     </SpectrumContainer>
   );
 };

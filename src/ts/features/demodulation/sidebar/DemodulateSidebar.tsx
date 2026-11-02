@@ -25,7 +25,6 @@ import { DemodSidebarNodes } from "@n-apt/demodulation/sidebar/DemodSidebarNodes
 import { usePrompt } from "@n-apt/ui/PromptProvider";
 import { DemodulationFlows } from "@n-apt/demodulation/sidebar/DemodulationFlows";
 import type { SourceMode } from "@n-apt/spectrum/public/useSpectrumStore";
-import { liveFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import {
   selectSelectedFiles,
@@ -627,14 +626,12 @@ export const DemodulateSidebar: React.FC<DemodulateSidebarProps> = ({
     if (sourceMode === "file") {
       wasLivePausedBeforeFileModeRef.current = liveIsPaused;
       dispatch(setStitchPaused(true));
-      liveFrameRuntime.clear();
       if (!manualVisualizerPaused) {
         toggleVisualizerPause();
       }
       return;
     }
 
-    liveFrameRuntime.clear();
     if (wasLivePausedBeforeFileModeRef.current) {
       toggleVisualizerPause();
     }

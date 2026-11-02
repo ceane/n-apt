@@ -36,14 +36,9 @@ export type SequenceGateStats = {
 /**
  * Whether a frame belongs to the given presentation lifecycle (ingress rule).
  *
- * Rules (harvested from the retired IQ frame pump's `sameLifecycle`):
- * - A frame whose source differs from the committed source never belongs.
- * - A frame without an epoch (v1 wire format / legacy untagged paths) belongs
- *   once the source matches — there is no epoch to invalidate it.
- * - An epoch-tagged frame belongs when its epoch is at least the committed
- *   epoch. A strictly newer same-source epoch is allowed so the data plane
- *   can lead control-plane metadata; consumers adopt the newer epoch via
- *   `onLifecycleChange`-style updates when they observe it.
+ * A live frame belongs only when it has source identity, epoch, and sequence.
+ * A strictly newer same-source epoch is allowed so the data plane can lead
+ * control-plane metadata; older epochs never re-enter the presentation.
  */
 export const acceptsMultiplexStreamFrame = (
   frame: MultiplexStreamFrameId,
@@ -52,13 +47,16 @@ export const acceptsMultiplexStreamFrame = (
   if (!lifecycle.sourceId || frame.sourceId !== lifecycle.sourceId) {
     return false;
   }
-  if (frame.streamEpoch === undefined || frame.streamEpoch === null) {
-    return true;
+  if (
+    !Number.isSafeInteger(frame.streamEpoch) ||
+    frame.streamEpoch! < 0 ||
+    !Number.isSafeInteger(frame.sequence) ||
+    frame.sequence! < 0
+  ) {
+    return false;
   }
-  if (lifecycle.streamEpoch === undefined || lifecycle.streamEpoch === null) {
-    return true;
-  }
-  return frame.streamEpoch >= lifecycle.streamEpoch;
+  if (lifecycle.streamEpoch === undefined || lifecycle.streamEpoch === null) return true;
+  return frame.streamEpoch! >= lifecycle.streamEpoch;
 };
 
 /** Convenience predicate over wire-format frames. */
@@ -71,7 +69,7 @@ export const acceptsMultiplexStreamWireFrame = (
 /**
  * Presentation-side admission (canvas rule, deliberately permissive):
  * without an expected source every frame is acceptable; with one, untagged
- * frames (legacy/file paths) still pass but a tagged foreign source is
+ * frames (file playback paths) still pass but a tagged foreign source is
  * rejected. Harvested verbatim from `shouldAcceptWebGpuStreamFrame`.
  */
 export const matchesMultiplexStreamSelection = ({
@@ -100,24 +98,31 @@ export const createMultiplexStreamSequenceGate = () => {
   return {
     /**
      * Returns false when the frame is a duplicate or reorder within its epoch
-     * (sequence <= last accepted). Epoch-less frames (v1) always pass.
+     * (sequence <= last accepted). Frames without usable ordering are rejected.
      */
     accept(frame: MultiplexStreamFrameId): boolean {
-      if (frame.streamEpoch === undefined || frame.streamEpoch === null) {
-        return true;
+      if (
+        !Number.isSafeInteger(frame.streamEpoch) ||
+        frame.streamEpoch! < 0 ||
+        !Number.isSafeInteger(frame.sequence) ||
+        frame.sequence! < 0
+      ) {
+        return false;
       }
-      if (frame.sequence === undefined || frame.sequence === null) {
-        return true;
-      }
-      if (lastSequence?.epoch === frame.streamEpoch) {
-        const step = evaluateSequenceStep(lastSequence.value, frame.sequence);
+      const epoch = frame.streamEpoch!;
+      const sequence = frame.sequence!;
+      if (lastSequence?.epoch === epoch) {
+        const step = evaluateSequenceStep(lastSequence.value, sequence);
         if (!step.accepted) {
           duplicatesRejected += 1;
           return false;
         }
         sequenceGaps += step.sequenceGaps;
+      } else if (lastSequence && epoch < lastSequence.epoch) {
+        duplicatesRejected += 1;
+        return false;
       }
-      lastSequence = { epoch: frame.streamEpoch, value: frame.sequence };
+      lastSequence = { epoch, value: sequence };
       return true;
     },
 

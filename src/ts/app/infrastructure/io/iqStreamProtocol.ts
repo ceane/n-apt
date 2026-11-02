@@ -1,15 +1,14 @@
 import type { IqFrameStatus } from "@n-apt/consts/schemas/websocket";
 
-const V1_HEADER_BYTES = 24;
 const V2_FIXED_HEADER_BYTES = 56;
 const V2_MAGIC = [0x4e, 0x41, 0x50, 0x54] as const;
 
 /** Metadata carried outside the encrypted I/Q sample payload. */
 export type IqFrameEnvelopeMetadata = {
-  protocol_version: 1 | 2;
+  protocol_version: 2;
   source_id: string;
-  stream_epoch?: number;
-  sequence?: number;
+  stream_epoch: number;
+  sequence: number;
   timestamp: number;
   center_frequency_hz: number;
   data_type: number;
@@ -19,7 +18,6 @@ export type IqFrameEnvelopeMetadata = {
   /** False when this frame carries a held, previously acquired I/Q buffer. */
   is_fresh?: boolean;
 };
-
 /** A validated wire envelope whose payload is still encrypted. */
 export type DecodedIqFrameEnvelope = {
   metadata: IqFrameEnvelopeMetadata;
@@ -62,44 +60,19 @@ const decodeFrameStatus = (value: number): IqFrameStatus => {
 };
 
 /**
- * Decode and validate either the legacy 24-byte envelope or the negotiated v2
- * source-scoped envelope. The returned payload is a zero-copy view.
+ * Decode and validate the source-scoped v2 envelope. The returned payload is
+ * a zero-copy view.
  */
 export const decodeIqFrameEnvelope = (
   buffer: ArrayBuffer,
-  fallbackSourceId: string,
 ): DecodedIqFrameEnvelope => {
   const bytes = new Uint8Array(buffer);
-  if (bytes.length < V1_HEADER_BYTES) {
-    throw new Error("Invalid I/Q frame: shorter than the v1 header");
+  if (bytes.length < V2_FIXED_HEADER_BYTES) {
+    throw new Error("Invalid I/Q frame: shorter than the v2 fixed header");
   }
   const view = new DataView(buffer);
-
   if (!isV2Envelope(bytes)) {
-    const encryptedPayload = new Uint8Array(buffer, V1_HEADER_BYTES);
-    if (encryptedPayload.length === 0) {
-      throw new Error("Invalid I/Q frame: empty encrypted payload");
-    }
-    const dataType = view.getUint32(16, true);
-    const sampleRate = view.getUint32(20, true);
-    validateIqMetadata(dataType, sampleRate);
-    return {
-      metadata: {
-        protocol_version: 1,
-        source_id: fallbackSourceId,
-        timestamp: readSafeU64(view, 0, "timestamp"),
-        center_frequency_hz: readSafeU64(view, 8, "center frequency"),
-        data_type: dataType,
-        sample_rate: sampleRate,
-        frame_status: "receiving",
-        is_fresh: true,
-      },
-      encryptedPayload,
-    };
-  }
-
-  if (bytes.length < V2_FIXED_HEADER_BYTES) {
-    throw new Error("Invalid I/Q frame: truncated v2 header");
+    throw new Error("Invalid I/Q frame: unsupported protocol magic");
   }
   const version = view.getUint8(4);
   const flags = view.getUint8(5);
@@ -157,6 +130,3 @@ export const decodeIqFrameEnvelope = (
     encryptedPayload,
   };
 };
-
-/** Additive capability value advertised by source metadata. */
-export const PREFERRED_IQ_STREAM_PROTOCOL = 2 as const;

@@ -142,39 +142,6 @@ describe("End-to-End Pipeline Integration", () => {
     }).not.toThrow();
   });
 
-  it("should handle frequency range updates", () => {
-    const frequencyMessage = {
-      type: "frequency_range",
-      minFreq: 100.0,
-      maxFreq: 103.2,
-    };
-
-    expect(typeof frequencyMessage.minFreq).toBe("number");
-    expect(typeof frequencyMessage.maxFreq).toBe("number");
-    expect(frequencyMessage.maxFreq).toBeGreaterThan(frequencyMessage.minFreq);
-  });
-
-  it("should handle settings updates", () => {
-    const settingsMessage = {
-      type: "settings",
-      fftSize: 1024,
-      fftWindow: "hann",
-      frameRate: 30,
-      gain: 49.6,
-      ppm: 1,
-      tunerAGC: false,
-      rtlAGC: false,
-    };
-
-    expect(typeof settingsMessage.fftSize).toBe("number");
-    expect(typeof settingsMessage.fftWindow).toBe("string");
-    expect(typeof settingsMessage.frameRate).toBe("number");
-    expect(typeof settingsMessage.gain).toBe("number");
-    expect(typeof settingsMessage.ppm).toBe("number");
-    expect(typeof settingsMessage.tunerAGC).toBe("boolean");
-    expect(typeof settingsMessage.rtlAGC).toBe("boolean");
-  });
-
   it("should validate FFT size is power of 2", () => {
     const validSizes = [256, 512, 1024, 2048, 4096];
     const invalidSizes = [100, 300, 1000, 2000];

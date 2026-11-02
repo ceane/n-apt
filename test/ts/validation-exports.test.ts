@@ -19,8 +19,7 @@ describe("Validation Exports", () => {
 
     // Test with a valid WebSocket message structure
     const validMessage = {
-      type: "pause",
-      paused: true,
+      type: "select_source",
       source_id: "mock-apt",
     };
     const result = validateWebSocketMessage(validMessage);

@@ -2,7 +2,7 @@ import {
   createSourcePresentationController,
   type SourcePresentationController,
 } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
-import type { IqRawFrame, IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
+import type { IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 
 // --- Test helpers ---
 
@@ -48,26 +48,6 @@ const makeTxFrame = (
   frame_status: opts.status ?? "standby",
   is_tx_preview: opts.status !== "transmitting",
 });
-
-const makeLegacyFrame = (sourceId: string): IqRawFrame => ({
-  type: "spectrum",
-  data_type: "iq_raw",
-  source_id: sourceId,
-  iq_data: new Uint8Array([9, 10, 11, 12]),
-});
-
-// The wire union pairs protocol_version 2 with source_id/stream_epoch/sequence
-// together and forbids ordering fields on legacy frames, but the controller's
-// extractors read each field independently. Build those shapes explicitly so
-// the defensive paths stay covered.
-const makeFrameWithOrdering = (
-  sourceId: string,
-  meta: { protocol_version?: 2; stream_epoch?: number; sequence?: number },
-): IqRawFrame =>
-  ({
-    ...makeLegacyFrame(sourceId),
-    ...meta,
-  }) as IqRawFrame;
 
 const createController = (): SourcePresentationController =>
   createSourcePresentationController();
@@ -241,48 +221,33 @@ describe("SourcePresentationController", () => {
       expect(ctrl.acceptFrame(makeRxFrame("hackrf-1"))).toBe(false);
     });
 
-    it("retains tagged ordering across legacy frames even when legacy fields are present", () => {
+    it.each([
+      ["v1 protocol", { protocol_version: 1 }],
+      ["source identity", { source_id: "" }],
+      ["stream epoch", { stream_epoch: undefined }],
+      ["sequence", { sequence: undefined }],
+      ["negative stream epoch", { stream_epoch: -1 }],
+      ["fractional sequence", { sequence: 1.5 }],
+    ])("rejects frames with invalid %s metadata", (_name, override) => {
       const ctrl = createController();
-      const tagged = makeRxFrame("s", { epoch: 3, sequence: 10 });
-      expect(ctrl.acceptFrame(tagged)).toBe(true);
-      expect(ctrl.acceptFrame(makeLegacyFrame("s"))).toBe(true);
-      const strayOrdering = makeFrameWithOrdering("s", {
-        stream_epoch: 9,
-        sequence: 99,
-      });
-      expect(ctrl.acceptFrame(strayOrdering)).toBe(true);
-      expect(ctrl.getSlot("s", "rx")).toMatchObject({
-        streamEpoch: 3,
-        lastSequence: 10,
-      });
-      expect(ctrl.acceptFrame(tagged)).toBe(false);
+      const frame = { ...makeRxFrame("s"), ...override } as any;
+
+      expect(ctrl.acceptFrame(frame)).toBe(false);
+      expect(ctrl.getSlot("s", "rx")).toBeNull();
     });
 
-    it("orders sequence-only frames but adopts epoch-only frames and resets their cursor", () => {
+    it("rejects stale epochs and duplicate or reordered sequences", () => {
       const ctrl = createController();
-      ctrl.acceptFrame(makeRxFrame("s", { epoch: 3, sequence: 10 }));
-      const sequenceOnly = makeFrameWithOrdering("s", {
-        protocol_version: 2,
-        sequence: 9,
-      });
-      expect(ctrl.acceptFrame(sequenceOnly)).toBe(false);
-      const nextSequence = makeFrameWithOrdering("s", {
-        protocol_version: 2,
-        sequence: 11,
-      });
-      expect(ctrl.acceptFrame(nextSequence)).toBe(true);
-      const epochOnly = makeFrameWithOrdering("s", {
-        protocol_version: 2,
-        stream_epoch: 4,
-      });
-      expect(ctrl.acceptFrame(epochOnly)).toBe(true);
+      expect(ctrl.acceptFrame(makeRxFrame("s", { epoch: 3, sequence: 10 }))).toBe(true);
+      expect(ctrl.acceptFrame(makeRxFrame("s", { epoch: 2, sequence: 11 }))).toBe(false);
+      expect(ctrl.acceptFrame(makeRxFrame("s", { epoch: 3, sequence: 10 }))).toBe(false);
+      expect(ctrl.acceptFrame(makeRxFrame("s", { epoch: 3, sequence: 9 }))).toBe(false);
+      expect(ctrl.acceptFrame(makeRxFrame("s", { epoch: 4, sequence: 1 }))).toBe(true);
       expect(ctrl.getSlot("s", "rx")).toMatchObject({
         streamEpoch: 4,
-        lastSequence: null,
+        lastSequence: 1,
+        metrics: { stale: 3 },
       });
-      expect(ctrl.acceptFrame(makeRxFrame("s", { epoch: 3, sequence: 99 }))).toBe(false);
-      expect(ctrl.acceptFrame(makeRxFrame("s", { epoch: 4, sequence: 1 }))).toBe(true);
-      expect(ctrl.getSlot("s", "rx")?.metrics.stale).toBe(2);
     });
 
     it("does not advance ordering for phase-rejected frames", () => {
@@ -310,17 +275,6 @@ describe("SourcePresentationController", () => {
       expect(second.acceptFrame(frame)).toBe(false);
     });
 
-    it("accepts legacy v1 frames without epoch/sequence", () => {
-      const ctrl = createController();
-      ctrl.selectSource("mock-apt");
-      ctrl.commitActiveSource("mock-apt");
-
-      const frame = makeLegacyFrame("mock-apt");
-      expect(ctrl.acceptFrame(frame)).toBe(true);
-
-      const slot = ctrl.getSlot("mock-apt", "rx");
-      expect(slot?.metrics.accepted).toBe(1);
-    });
   });
 
   describe("per-mode tracking", () => {

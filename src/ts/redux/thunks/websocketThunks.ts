@@ -12,10 +12,11 @@ import {
 import {
   normalizePositiveHardwareRange,
 } from "@n-apt/math/basebandMirror";
-import { buildSettingsWireData } from "@n-apt/redux/settingsWire";
 import { DEVICE_CONTROL_SCOPE } from "@n-apt/app/infrastructure/streams/streamContract";
+import type { TxStreamOptions } from "@n-apt/app/infrastructure/streams/sourceModeStreamManager";
 import { restartRequested } from "@n-apt/redux/slices/websocketSlice";
 import { CLIENT_ORIGIN_ID } from "@n-apt/redux/clientOrigin";
+import { clampFrameRateToProtocolLimit } from "@n-apt/math/signals";
 
 const getSampleRateHz = (state: RootState): number | null => {
   const sampleRateHz =
@@ -30,14 +31,15 @@ const optionalIntegerHz = (value: unknown): number | undefined => {
   return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
 };
 
-const buildTunedFrequencyPayload = (
+const buildManagedRxFrequencyOptions = (
   state: RootState,
   range: FrequencyRange,
 ): {
-  origin_id: string;
-  min_hz: number;
-  max_hz: number;
-  center_frequency: number;
+  originId: string;
+  minFrequencyHz: number;
+  maxFrequencyHz: number;
+  centerFrequencyHz: number;
+  signalArea?: string;
 } => {
   // Negative frequencies are a presentation-only mirrored baseband axis.
   // Convert them to the positive acquisition window before crossing the
@@ -45,12 +47,15 @@ const buildTunedFrequencyPayload = (
   const normalizedRange = normalizePositiveHardwareRange(
     normalizeFrequencyRangeToHz(range),
   );
-  const center_frequency = getFrequencyRangeCenterHz(normalizedRange);
+  const signalArea = state.spectrum?.activeSignalArea;
   return {
-    origin_id: CLIENT_ORIGIN_ID,
-    min_hz: normalizedRange.min,
-    max_hz: normalizedRange.max,
-    center_frequency,
+    originId: CLIENT_ORIGIN_ID,
+    minFrequencyHz: Math.round(normalizedRange.min),
+    maxFrequencyHz: Math.round(normalizedRange.max),
+    centerFrequencyHz: getFrequencyRangeCenterHz(normalizedRange),
+    ...(typeof signalArea === "string" && signalArea.trim()
+      ? { signalArea }
+      : {}),
   };
 };
 
@@ -73,16 +78,64 @@ const resolveFrequencyRangeSyncRequest = (
   return { range: request, displayRange: null };
 };
 
-export const buildFrequencyRangeMessageData = (
-  state: RootState,
-  request: FrequencyRangeSyncRequest,
+const buildManagedRxSettingsOptions = (
+  settings: SDRSettings,
 ): Record<string, unknown> => {
-  const { range } = resolveFrequencyRangeSyncRequest(request);
-  // Pan and zoom are subscriber-local presentation state. Only send the
-  // positive RF acquisition window across the device-scoped control socket;
-  // including a signed viewport here makes another browser inherit it when
-  // the backend echoes the authoritative range.
-  return buildTunedFrequencyPayload(state, range);
+  const options: Record<string, unknown> = {};
+  const number = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const setPositive = (
+    key: string,
+    value: unknown,
+    map: (value: number) => number = Math.round,
+  ) => {
+    const numeric = number(value);
+    if (numeric !== null && numeric > 0) options[key] = map(numeric);
+  };
+
+  setPositive("sampleRateHz", settings.sampleRate);
+  setPositive("fftSize", settings.fftSize, Math.floor);
+  if (typeof settings.fftWindow === "string" && settings.fftWindow.trim()) {
+    options.fftWindow = settings.fftWindow;
+  }
+  const frameRate = number(settings.frameRate);
+  if (frameRate !== null && frameRate > 0) {
+    options.frameRate = clampFrameRateToProtocolLimit(frameRate);
+  }
+  const maxFrameRate = number(settings.maxFrameRate);
+  if (maxFrameRate !== null && maxFrameRate > 0) {
+    options.maxFrameRate = clampFrameRateToProtocolLimit(maxFrameRate);
+  }
+  const gain = number(settings.gain);
+  if (gain !== null && gain >= 0 && gain <= 100) options.gain = gain;
+  const ppm = number(settings.ppm);
+  if (ppm !== null && ppm >= 0 && ppm <= 200) options.ppm = Math.round(ppm);
+  const lnaGain = number(settings.hackrfLnaGain);
+  if (lnaGain !== null && lnaGain >= 0 && lnaGain <= 49.6) {
+    options.hackrfLnaGain = lnaGain;
+  }
+  const vgaGain = number(settings.hackrfVgaGain);
+  if (vgaGain !== null && vgaGain >= 0 && vgaGain <= 62) {
+    options.hackrfVgaGain = vgaGain;
+  }
+  const tunerBandwidth = number(settings.tunerBandwidth);
+  if (tunerBandwidth !== null && tunerBandwidth > 0 && tunerBandwidth <= 20_000_000) {
+    options.tunerBandwidth = Math.round(tunerBandwidth);
+  }
+  for (const [key, value] of [
+    ["hackrfAmpEnable", settings.hackrfAmpEnabled],
+    ["tunerAgc", settings.tunerAGC],
+    ["rtlAgc", settings.rtlAGC],
+    ["offsetTuning", settings.offsetTuning],
+    ["mirrorSpectrumBelowZero", settings.mirrorSpectrumBelowZero],
+  ] as const) {
+    if (typeof value === "boolean") options[key] = value;
+  }
+  const directSampling = number(settings.directSampling);
+  if (directSampling !== null && Number.isInteger(directSampling) && directSampling >= 0) {
+    options.directSampling = directSampling;
+  }
+  return options;
 };
 
 // Connect to WebSocket
@@ -115,24 +168,12 @@ export const sendFrequencyRange = createAsyncThunk(
   async (request: FrequencyRangeSyncRequest, { dispatch, getState }) => {
     const state = getState() as RootState;
     const { range } = resolveFrequencyRangeSyncRequest(request);
-    const tunedRange = buildFrequencyRangeMessageData(state, request);
     if (state.websocket.isConnected) {
-      const activeSignalArea = state.spectrum?.activeSignalArea;
       dispatch({
-        type: "websocket/sendMessage",
+        type: "websocket/updateRxStreamOptions",
         payload: {
-          type: "frequency_range",
-          data: {
-            scope: DEVICE_CONTROL_SCOPE,
-            ...tunedRange,
-            bandwidth_center_frequency: optionalIntegerHz(
-              (state as any).demod?.bandwidthCenterFreqHz,
-            ),
-            ...(typeof activeSignalArea === "string" &&
-            activeSignalArea.trim().length > 0
-              ? { signal_area: activeSignalArea }
-              : {}),
-          },
+          options: buildManagedRxFrequencyOptions(state, range),
+          publishMode: "gesture",
         },
       });
     }
@@ -155,13 +196,10 @@ export interface RequestNextLiveFrameOptions {
   };
 }
 
-const buildRequestNextFrameData = (
+const buildManagedTxOptionOverrides = (
   options?: RequestNextLiveFrameOptions,
-): Record<string, unknown> => {
-  const data: Record<string, unknown> = {};
-  if (typeof options?.sourceId === "string" && options.sourceId.trim()) {
-    data.source_id = options.sourceId.trim();
-  }
+): Partial<Omit<TxStreamOptions, "mode">> => {
+  const data: Partial<Omit<TxStreamOptions, "mode">> = {};
   const txSettings = options?.txSettings;
   if (!txSettings) return data;
   if (
@@ -187,7 +225,7 @@ const buildRequestNextFrameData = (
     typeof txSettings.sampleRateHz === "number" &&
     Number.isFinite(txSettings.sampleRateHz)
   ) {
-    data.sample_rate = Math.round(txSettings.sampleRateHz);
+    data.sampleRateHz = Math.round(txSettings.sampleRateHz);
   }
   if (
     typeof txSettings.powerDbm === "number" &&
@@ -196,13 +234,13 @@ const buildRequestNextFrameData = (
     data.powerDbm = txSettings.powerDbm;
   }
   if (typeof txSettings.txSignal === "string" && txSettings.txSignal.trim()) {
-    data.txSignal = txSettings.txSignal;
+    data.signal = txSettings.txSignal;
   }
   if (
     typeof txSettings.txIfftSize === "number" &&
     Number.isFinite(txSettings.txIfftSize)
   ) {
-    data.txIfftSize = Math.round(txSettings.txIfftSize);
+    data.ifftSize = Math.round(txSettings.txIfftSize);
   }
   return data;
 };
@@ -219,7 +257,9 @@ export const requestNextLiveFrame = createAsyncThunk(
         type: "websocket/refreshStream",
         payload: {
           mode: options?.txSettings ? "tx" : "rx",
-          options: options ? buildRequestNextFrameData(options) : undefined,
+          options: options?.txSettings
+            ? buildManagedTxOptionOverrides(options)
+            : undefined,
         },
       });
     }
@@ -234,13 +274,26 @@ export const requestNextPausedFrame = createAsyncThunk(
   ) => {
     const state = getState() as RootState;
     if (state.websocket.isConnected) {
-      // Standby previews are one-shot. Do not open a continuous managed Tx
-      // stream; that would look like automatic transmission.
+      const mode = options?.txSettings ? "tx" : "rx";
+      const sourceId =
+        typeof options?.sourceId === "string" && options.sourceId.trim()
+          ? options.sourceId.trim()
+          : undefined;
+      const frequencyRange =
+        options?.frequencyRange ?? state.spectrum?.frequencyRange;
+      const rxOptions =
+        mode === "rx" && frequencyRange
+          ? buildManagedRxFrequencyOptions(state, frequencyRange)
+          : undefined;
       dispatch({
-        type: "websocket/sendMessage",
+        type: "websocket/requestManagedStreamFrame",
         payload: {
-          type: "request_next_frame",
-          data: buildRequestNextFrameData(options),
+          sourceId,
+          mode,
+          options:
+            mode === "tx"
+              ? buildManagedTxOptionOverrides(options)
+              : rxOptions,
         },
       });
     }
@@ -259,57 +312,16 @@ export const sendCenterFrequency = createAsyncThunk(
         }
       : { min: centerHz, max: centerHz };
     const hardwareRange = normalizePositiveHardwareRange(requestedRange);
-    const data = {
-      min_hz: Math.round(hardwareRange.min),
-      max_hz: Math.round(hardwareRange.max),
-      center_frequency: getFrequencyRangeCenterHz({
-        min: Math.round(hardwareRange.min),
-        max: Math.round(hardwareRange.max),
-      }),
-    };
     if (state.websocket.isConnected) {
-      const activeSignalArea = state.spectrum?.activeSignalArea;
       dispatch({
-        type: "websocket/sendMessage",
+        type: "websocket/updateRxStreamOptions",
         payload: {
-          type: "frequency_range",
-          data: {
-            ...data,
-            scope: DEVICE_CONTROL_SCOPE,
-            ...(typeof activeSignalArea === "string" &&
-            activeSignalArea.trim().length > 0
-              ? { signal_area: activeSignalArea }
-              : {}),
-          },
+          options: buildManagedRxFrequencyOptions(state, hardwareRange),
+          publishMode: "gesture",
         },
       });
     }
     return centerHz;
-  },
-);
-
-// Send pause/resume command
-export const sendPauseCommand = createAsyncThunk(
-  "websocket/sendPauseCommand",
-  async (
-    payload: { isPaused: boolean; sourceId: string },
-    { dispatch, getState },
-  ) => {
-    const state = getState() as RootState;
-    if (state.websocket.isConnected) {
-      dispatch({
-        type: "websocket/sendMessage",
-        payload: {
-          type: "pause",
-          data: {
-            scope: "subscriber",
-            paused: payload.isPaused,
-            source_id: payload.sourceId,
-          },
-        },
-      });
-    }
-    return payload.isPaused;
   },
 );
 
@@ -319,10 +331,9 @@ export const sendSettings = createAsyncThunk(
   async (settings: SDRSettings, { dispatch, getState }) => {
     const state = getState() as RootState;
 
-    // Validate and sanitize settings
-    const sanitized = buildSettingsWireData(settings);
+    const options = buildManagedRxSettingsOptions(settings);
 
-    if (Object.keys(sanitized).length === 0) {
+    if (Object.keys(options).length === 0) {
       console.warn(
         "[WebSocket Thunks] Ignoring settings update with no valid values",
         settings,
@@ -332,10 +343,10 @@ export const sendSettings = createAsyncThunk(
 
     if (state.websocket.isConnected) {
       dispatch({
-        type: "websocket/sendMessage",
+        type: "websocket/updateRxStreamOptions",
         payload: {
-          type: "settings",
-          data: { ...sanitized, scope: DEVICE_CONTROL_SCOPE },
+          options,
+          publishMode: "immediate",
         },
       });
     }

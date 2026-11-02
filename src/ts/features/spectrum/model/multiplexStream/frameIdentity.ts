@@ -34,14 +34,14 @@ export const multiplexStreamFrameIdFromWire = (
   sequence: frame.sequence,
 });
 
-/** `${sourceId}:${epoch}` lifecycle key; `v1` stands in for absent epochs. */
+/** `${sourceId}:${epoch}` lifecycle key; missing epochs stay explicit. */
 export const multiplexStreamLifecycleKey = (
   identity: MultiplexStreamFrameId,
-): string => `${identity.sourceId ?? ""}:${identity.streamEpoch ?? "v1"}`;
+): string => `${identity.sourceId ?? ""}:${identity.streamEpoch ?? "missing"}`;
 
 /**
  * Exact lifecycle equality with null-tolerant epochs: identities match when
- * sources match and epochs are equal or either side is untagged. Used by
+ * sources match and epochs are equal or either side has no epoch. Used by
  * presentation-slot validation (a frozen frame stays valid only for the
  * exact lifecycle that froze it), distinct from the >= freshness admission
  * in `acceptsMultiplexStreamFrame`.

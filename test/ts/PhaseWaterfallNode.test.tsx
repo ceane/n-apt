@@ -4,14 +4,16 @@ import { act, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import { Provider } from "react-redux";
 import { PhaseWaterfallNode } from "@n-apt/demodulation/react-flow/nodes/PhaseWaterfallNode";
-import {
-  fileFrameRuntime,
-  liveFrameRuntime,
-} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { createTestStore } from "./testUtils";
+import {
+  makeLiveFrame,
+  resetLiveFrames,
+  setLiveFrame,
+} from "./liveFrameTestUtils";
 
 const mockFifoProps: any[] = [];
 
@@ -109,7 +111,7 @@ describe("PhaseWaterfallNode", () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
-    liveFrameRuntime.ref.current = null;
+    act(() => resetLiveFrames());
     fileFrameRuntime.ref.current = null;
   });
 
@@ -156,20 +158,24 @@ describe("PhaseWaterfallNode", () => {
     renderNode({ frequencyRange: FREQUENCY_RANGE });
 
     const received: Float32Array[] = [];
-    const unsubscribe = latestProps().waveformFeed.subscribe(
-      (waveform: Float32Array) => received.push(waveform),
+    act(() => {
+      setLiveFrame(makeLiveFrame(buildFrame(128).iq_data, 1));
+    });
+
+    const feed = latestProps().waveformFeed;
+    const unsubscribe = feed.subscribe((waveform: Float32Array) =>
+      received.push(waveform),
     );
 
-    expect(latestProps().waveformFeed.getCurrent()).toBeNull();
+    expect(feed.getCurrent()).toBeNull();
 
-    liveFrameRuntime.ref.current = buildFrame(128) as any;
     act(() => {
       fireFrames();
     });
 
     expect(received).toHaveLength(1);
     expect(received[0]).toHaveLength(FFT_SIZE);
-    expect(latestProps().waveformFeed.getCurrent()).toBe(received[0]);
+    expect(feed.getCurrent()).toBe(received[0]);
 
     // Same frame reference again: the history must not advance.
     act(() => {
@@ -177,8 +183,8 @@ describe("PhaseWaterfallNode", () => {
     });
     expect(received).toHaveLength(1);
 
-    liveFrameRuntime.ref.current = buildFrame(0) as any;
     act(() => {
+      setLiveFrame(makeLiveFrame(buildFrame(0).iq_data, 2));
       fireFrames();
     });
     expect(received).toHaveLength(2);

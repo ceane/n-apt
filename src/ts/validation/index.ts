@@ -32,7 +32,6 @@ export {
   DeviceProfileSchema,
   SourceCapabilitySchema,
   DeviceActiveModeSchema,
-  DeviceDuplexModeSchema,
   SourceStatusSchema,
   SourceSdrSettingsSchema,
   SourceInfoSchema,

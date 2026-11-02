@@ -211,20 +211,9 @@ pub struct ChannelSpec {
 pub struct WebSocketMessage {
   #[serde(rename = "type")]
   pub message_type: String,
-  /// Ownership of the control. Missing scope is accepted for legacy clients;
-  /// new clients must send `subscriber` for local RX playback or `device` for
-  /// controls that mutate shared source/transmitter state.
+  /// Ownership of control messages that remain on the control socket.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub scope: Option<crate::server::stream_contract::StreamControlScope>,
-  /// Origin tag stamped by the tuning client. The backend remembers the last
-  /// tuner and echoes it in channels snapshots so clients can drop their own
-  /// echo instead of treating it as foreign authoritative state.
-  #[serde(
-    skip_serializing_if = "Option::is_none",
-    alias = "originId",
-    default
-  )]
-  pub origin_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(nested)]
   pub fragments: Option<Vec<FreqRange>>,
@@ -247,55 +236,14 @@ pub struct WebSocketMessage {
   pub acquisition_mode: Option<String>,
   #[serde(
     skip_serializing_if = "Option::is_none",
-    alias = "minFreq",
-    alias = "min_hz"
-  )]
-  #[validate(range(min = 0.0, max = 30000000000.0))]
-  pub min_freq: Option<f64>,
-  #[serde(
-    skip_serializing_if = "Option::is_none",
-    alias = "maxFreq",
-    alias = "max_hz"
-  )]
-  #[validate(range(min = 0.0, max = 30000000000.0))]
-  pub max_freq: Option<f64>,
-  #[serde(
-    skip_serializing_if = "Option::is_none",
     alias = "centerFrequency",
     alias = "center_frequency_hz",
     alias = "centerFrequencyHz"
   )]
   #[validate(range(min = 0.0, max = 30000000000.0))]
   pub center_frequency: Option<f64>,
-  /// Signed display coordinates for mirror-enabled subscribers. These are
-  /// presentation metadata only; min_freq/max_freq remain positive RF Hz.
-  #[serde(skip_serializing_if = "Option::is_none", alias = "displayMinHz")]
-  pub display_min_hz: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "displayMaxHz")]
-  pub display_max_hz: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "displayPanHz")]
-  pub display_pan_hz: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "displayZoom")]
-  pub display_zoom: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "displayCrossesDc")]
-  pub display_crosses_dc: Option<bool>,
-  #[serde(
-    skip_serializing_if = "Option::is_none",
-    alias = "displayDirectionNegative"
-  )]
-  pub display_direction_negative: Option<bool>,
-  #[serde(
-    skip_serializing_if = "Option::is_none",
-    alias = "mirrorSpectrumBelowZero"
-  )]
-  pub mirror_spectrum_below_zero: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "viewCenterHz")]
   pub view_center_hz: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub paused: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[validate(range(min = 0.0, max = 100.0))]
-  pub gain: Option<f64>,
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "hackrfLnaGain",
@@ -331,12 +279,6 @@ pub struct WebSocketMessage {
     alias = "rtlAgc"
   )]
   pub rtl_agc: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "offsetTuning")]
-  pub offset_tuning: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "directSampling")]
-  pub direct_sampling: Option<u8>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "tunerBandwidth")]
-  pub tuner_bandwidth: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "fftSize")]
   #[validate(range(min = 256, max = 8388608))]
   pub fft_size: Option<usize>,
@@ -345,9 +287,6 @@ pub struct WebSocketMessage {
   #[serde(skip_serializing_if = "Option::is_none", alias = "frameRate")]
   #[validate(range(min = 1, max = 100))]
   pub frame_rate: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "maxFrameRate")]
-  #[validate(range(min = 1, max = 100))]
-  pub max_frame_rate: Option<u32>,
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "sampleRate",
@@ -355,8 +294,6 @@ pub struct WebSocketMessage {
   )]
   #[validate(range(min = 1.0, max = 100000000.0))]
   pub sample_rate: Option<f64>,
-  #[serde(skip_serializing_if = "Option::is_none", alias = "liveRetune")]
-  pub live_retune: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[validate(length(max = 64))]
   pub label: Option<String>,
@@ -1132,8 +1069,6 @@ pub struct AuthSessionRequest {
 #[derive(Deserialize)]
 pub struct WsQueryParams {
   pub token: String,
-  #[serde(default)]
-  pub iq_protocol: Option<u8>,
 }
 
 #[derive(Deserialize)]
