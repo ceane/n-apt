@@ -359,7 +359,7 @@ pub fn test_redis_url() -> &'static str {
   URL.get_or_init(|| {
     std::env::var("REDIS_ADMIN_URL")
       .or_else(|_| std::env::var("REDIS_URL"))
-      .unwrap_or_else(|_| crate::infrastructure::redis::test_redis_url().to_string())
+      .unwrap_or_else(|_| "redis://127.0.0.1/".to_string())
   })
   .as_str()
 }

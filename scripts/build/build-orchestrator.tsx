@@ -481,6 +481,9 @@ const BuildOrchestrator = () => {
     if (!trimmed) return;
     setBuildState(prev => {
       const normalized = trimmed.startsWith('error:') ? trimmed : `error: ${trimmed}`;
+      // Hot reload can retry while files are still changing. Keep the error
+      // panel useful by recording the same compiler summary only once.
+      if (prev.errorDetails.includes(normalized)) return prev;
       const errorDetails = [...prev.errorDetails, normalized].slice(-6);
       return { ...prev, errorDetails, errorCount: errorDetails.length };
     });
@@ -504,8 +507,8 @@ const BuildOrchestrator = () => {
         .map(line => line.trim())
         .filter(line => /^warning:/i.test(line));
       const detailsToAdd = warningLines.length > 0 ? warningLines : [trimmed];
-      const warningDetails = [...prev.warningDetails, ...detailsToAdd].slice(-6);
-      return { ...prev, warningDetails, warningCount: prev.warningCount + detailsToAdd.length };
+      const warningDetails = [...new Set([...prev.warningDetails, ...detailsToAdd])].slice(-6);
+      return { ...prev, warningDetails, warningCount: warningDetails.length };
     });
   }, []);
 
@@ -651,6 +654,9 @@ const BuildOrchestrator = () => {
           }
 
           if (code === 0) {
+            if (description === 'Building Rust backend') {
+              clearErrorDetails('Building Rust backend:');
+            }
             if (stdout.trim()) {
               addLog(chalk.green(stdout.trim()));
             }
@@ -815,12 +821,13 @@ const BuildOrchestrator = () => {
           // If it's a compilation error, make it obvious
           let summary = errorMessage;
           if (errorMessage.toLowerCase().includes('error: could not compile') || errorMessage.toLowerCase().includes('error[')) {
-            summary = 'Rust compilation FAILED. Check the build output above for details.';
+            summary = summarizeRustBuildFailure(errorMessage)
+              || 'Rust compilation failed; see the build output above for details.';
           } else if (summary.length > 200) {
             summary = `${summary.slice(0, 197)}...`;
           }
           appendErrorDetail(`${description}: ${summary}`);
-          resolve({ success: false, output: stdout });
+          resolve({ success: false, output: errorMessage });
         });
 
         child.on('error', (error: any) => {
@@ -829,17 +836,17 @@ const BuildOrchestrator = () => {
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
           addLog(chalk.red(`Error in ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
-          resolve({ success: false, output: '' });
+          resolve({ success: false, output: error.message });
         });
 
       } catch (error: any) {
         setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
         addLog(chalk.red(`Error in ${description}: ${error.message}`));
         appendErrorDetail(`${description}: ${error.message}`);
-        resolve({ success: false, output: '' });
+        resolve({ success: false, output: error.message });
       }
     });
-  }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus, writeRebuildStatus]);
+  }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus, writeRebuildStatus, clearErrorDetails]);
 
   const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid' | 'proxyPid' | 'rustCandidatePid'): Promise<boolean> => {
     const displayCommand = describeBackgroundCommand(command);
@@ -936,6 +943,10 @@ const BuildOrchestrator = () => {
           }
 
           if (pidKey === 'rustCandidatePid') {
+            // Once promoted, the candidate's exit listener is still attached
+            // to the same child. Treat its later lifecycle events as the
+            // active backend, not as a failed replacement.
+            if (rustPidRef.current === child.pid) return;
             if (intentionalRustCandidateKillRef.current) {
               intentionalRustCandidateKillRef.current = false;
               return;
