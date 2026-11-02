@@ -82,8 +82,8 @@ function parseEnvValue(envPath: string, key: string): string | undefined {
 }
 
 function resolvePassword(root: string, configuredPassword?: string): string | undefined {
-  return configuredPassword || process.env.UNSAFE_LOCAL_LATEX_PASSWORD ||
-    parseEnvValue(path.join(root, ".env.local"), "UNSAFE_LOCAL_LATEX_PASSWORD");
+  return configuredPassword || process.env.UNSAFE_LOCAL_DEMOD_PASSWORD ||
+    parseEnvValue(path.join(root, ".env.local"), "UNSAFE_LOCAL_DEMOD_PASSWORD");
 }
 
 function processExists(pid: number): boolean {
@@ -143,7 +143,7 @@ export async function ensureMlBundle(
   }
   const password = resolvePassword(root, options.password);
   if (!password) {
-    throw new Error("UNSAFE_LOCAL_LATEX_PASSWORD is required to load encrypted ML modules");
+    throw new Error("UNSAFE_LOCAL_DEMOD_PASSWORD is required to load encrypted ML modules");
   }
 
   const encrypted = fs.readFileSync(bundlePath);

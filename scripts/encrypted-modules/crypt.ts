@@ -44,7 +44,7 @@ const MODULES: ModuleTarget[] = [
   },
   {
     label: "ML modules",
-    password: "latex",
+    password: "demod",
     bundle: `${BUNDLE_DIR}/ml.bundle.enc`,
     source: `${BUNDLE_DIR}/tmp/ml`,
     requiredFiles: [...ML_REQUIRED_FILES],
@@ -263,7 +263,7 @@ async function main(argv: string[]): Promise<number> {
     if (requireMl || mode === "decrypt") throw new Error(message);
     console.warn(`⚠ [unavailable] ${message}; development surfaces will use their retryable fallback.`);
   } else if (!mlPassword) {
-    const message = "UNSAFE_LOCAL_LATEX_PASSWORD is required to load encrypted ML modules";
+    const message = "UNSAFE_LOCAL_DEMOD_PASSWORD is required to load encrypted ML modules";
     if (requireMl || mode === "decrypt") throw new Error(message);
     console.warn(`⚠ [unavailable] ${message}; development surfaces will use their retryable fallback.`);
   } else {

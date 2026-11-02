@@ -37,6 +37,18 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 - This project and the author uses American English, not British English. color not colour. Other nuances breaking with camelCase and align with the industry case, such as ML and not Ml.
 - When code passess tests or a stopping point is reached, create detailed commits, use git hunks to make contained edits; when progressing a feature or edits commit messages should follow a prefix of WIP → Draft → v1
 
+## Encrypted Module Workflow
+
+- Do not edit protected encrypted-module source on a consumer or feature working
+  branch. Switch to the local `encrypted-modules` branch/worktree and edit the
+  authoritative plaintext under `src/encrypted-modules/tmp/`.
+- After editing, verify the protected source tree is complete and regenerate
+  the corresponding encrypted bundle on `encrypted-modules`. Sync only that
+  generated bundle back to the consumer working branch; preserve unrelated
+  bundle changes and local artifacts.
+- Never push the `encrypted-modules` branch or its plaintext history. Consumer
+  branches and remotes must receive encrypted bundles only.
+
 ## Real-Time Device I/O
 
 - Do not log from device I/O paths. This includes RTL-SDR/HackRF callbacks,
