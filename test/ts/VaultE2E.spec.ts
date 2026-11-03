@@ -8,16 +8,41 @@ test.describe("Vault E2E Lifecycle", () => {
     page,
   }) => {
     const sentStreamCommands: string[] = [];
+    const sentRxOptions: Record<string, unknown>[] = [];
     let receivedStreamFrames = 0;
+    let receivedChannelSnapshots = 0;
     page.on("websocket", (socket) => {
       const path = new URL(socket.url()).pathname;
+      if (path === "/ws") {
+        socket.on("framereceived", ({ payload }) => {
+          if (typeof payload !== "string") return;
+          try {
+            const message = JSON.parse(payload) as Record<string, unknown>;
+            if (message.type === "channels") {
+              receivedChannelSnapshots += 1;
+            }
+          } catch {
+            // Ignore non-JSON control frames.
+          }
+        });
+        return;
+      }
       if (!path.endsWith("/ws/streams")) return;
       socket.on("framesent", ({ payload }) => {
         if (typeof payload !== "string") return;
         try {
-          const message = JSON.parse(payload) as { type?: unknown };
+          const message = JSON.parse(payload) as Record<string, unknown>;
           if (typeof message.type === "string") {
             sentStreamCommands.push(message.type);
+          }
+          if (
+            (message.type === "stream_subscribe" ||
+              message.type === "stream_update_options") &&
+            typeof message.options === "object" &&
+            message.options !== null &&
+            (message.options as Record<string, unknown>).mode === "rx"
+          ) {
+            sentRxOptions.push(message.options as Record<string, unknown>);
           }
         } catch {
           // Ignore non-JSON transport frames.
@@ -96,7 +121,12 @@ test.describe("Vault E2E Lifecycle", () => {
 
     // A settled spectrum scroll while paused must ask the managed Rx
     // subscriber for a frame using the final viewport options.
+    await page.waitForTimeout(100);
     const requestsBeforeScroll = requestFrameCount();
+    const channelSnapshotsBeforeScroll = receivedChannelSnapshots;
+    const sentOptionsBeforeScroll = sentRxOptions.length;
+    const rxOptionsBeforeScroll =
+      sentRxOptions[sentRxOptions.length - 1];
     const sequenceBeforeScroll = await spectrumStream.getAttribute(
       "data-stream-frame-sequence",
     );
@@ -115,6 +145,21 @@ test.describe("Vault E2E Lifecycle", () => {
         spectrumStream.getAttribute("data-stream-frame-sequence"),
       )
       .not.toBe(sequenceBeforeScroll);
+    await expect
+      .poll(() => sentRxOptions.length, { timeout: 3000 })
+      .toBeGreaterThan(sentOptionsBeforeScroll);
+    await page.waitForTimeout(100);
+    const selectionMetadataChanged = sentRxOptions
+      .slice(sentOptionsBeforeScroll)
+      .some(
+        (options) =>
+          options.signalArea !== rxOptionsBeforeScroll?.signalArea ||
+          options.mirrorSpectrumBelowZero !==
+            rxOptionsBeforeScroll?.mirrorSpectrumBelowZero,
+      );
+    if (!selectionMetadataChanged) {
+      expect(receivedChannelSnapshots).toBe(channelSnapshotsBeforeScroll);
+    }
 
     // Select Tx standby to verify previews do not start transmission.
     const txSourceButton = page.getByRole("button", {

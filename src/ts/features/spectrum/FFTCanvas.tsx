@@ -47,6 +47,7 @@ import {
   setTxSampleRateHz,
 } from "@n-apt/redux/slices/spectrumSlice";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
+import { THEME_TOKENS } from "@n-apt/consts/theme";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
 } from "@n-apt/ui/CanvasPlaceholder";
@@ -1677,6 +1678,8 @@ const FFTCanvas = memo(
       (reduxState) => reduxState.theme.appMode,
     );
     const resolvedThemeMode = useResolvedThemeMode(themeAppMode);
+    const waterfallBackgroundColor =
+      THEME_TOKENS.colors[resolvedThemeMode].waterfallBackground;
     const reduxShowTxSlider = useAppSelector(
       (reduxState) => reduxState.spectrum.showTxSlider ?? true,
     );
@@ -3482,6 +3485,7 @@ const FFTCanvas = memo(
     const fillColorRef = useRef(fillColor);
     const colormapRef = useRef(colormap);
     const waterfallThemeRef = useRef(waterfallTheme);
+    const waterfallBackgroundColorRef = useRef(waterfallBackgroundColor);
     const wfSmoothEnabledRef = useRef(wfSmoothEnabled);
     const effectivePowerScaleRef = useRef(effectivePowerScale);
     const activeScaleDbMinRef = useRef(activeScaleDbMin);
@@ -3548,6 +3552,7 @@ const FFTCanvas = memo(
       fillColorRef.current = fillColor;
       colormapRef.current = colormap;
       waterfallThemeRef.current = waterfallTheme;
+      waterfallBackgroundColorRef.current = waterfallBackgroundColor;
       wfSmoothEnabledRef.current = wfSmoothEnabled;
       effectivePowerScaleRef.current = effectivePowerScale;
       activeScaleDbMinRef.current = activeScaleDbMin;
@@ -3562,6 +3567,7 @@ const FFTCanvas = memo(
       fillColor,
       colormap,
       waterfallTheme,
+      waterfallBackgroundColor,
       wfSmoothEnabled,
       effectivePowerScale,
       activeScaleDbMin,
@@ -4866,6 +4872,7 @@ const FFTCanvas = memo(
               freeze: !isExplicitStandbyPlaceholder,
               colormap: colormapRef.current,
               colormapName: waterfallThemeRef.current,
+              backgroundColor: waterfallBackgroundColorRef.current,
             });
           }
         } else {
@@ -5563,6 +5570,7 @@ const FFTCanvas = memo(
                 wfSmooth: wfSmoothEnabledRef.current,
                 colormap: colormapRef.current,
                 colormapName: waterfallThemeRef.current,
+                backgroundColor: waterfallBackgroundColorRef.current,
               });
               if (restoreTexture) {
                 restoredWaterfallRef.current = true;
@@ -5605,6 +5613,7 @@ const FFTCanvas = memo(
                   restoreTexture: restore,
                   colormap: colormapRef.current,
                   colormapName: waterfallThemeRef.current,
+                  backgroundColor: waterfallBackgroundColorRef.current,
                 });
               }
             }

@@ -1,5 +1,5 @@
 import { memo, useRef, useEffect, useState, useMemo, useCallback } from "react";
-import styled from "styled-components";
+import styled, { useTheme } from "styled-components";
 import { WATERFALL_CANVAS_BG, FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
@@ -227,6 +227,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     colormapName = "fifo-default",
     binSubset,
   }) => {
+    const theme = useTheme();
+    const waterfallBackground =
+      theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG;
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
     const localBufferRef = useRef<Uint8ClampedArray | null>(null);
@@ -469,7 +472,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
           const ctx = getCanvas2DContext(canvas);
           if (ctx) {
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
+            ctx.fillStyle = waterfallBackground;
             ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
         }
@@ -506,8 +509,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             colormap: colormap ?? gradientStops,
             colormapName,
             plotMargin: ZERO_PLOT_MARGIN,
-            backgroundColor:
-              canvas.style.backgroundColor || WATERFALL_CANVAS_BG,
+            backgroundColor: waterfallBackground,
             historyZoom: waterfallHistoryFill === "immutable" ? historyZoom : 1,
             historyPan: waterfallHistoryFill === "immutable" ? historyPan : 0,
             binSubset,
@@ -622,6 +624,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       colormapName,
       binSubset,
       colormapLut,
+      waterfallBackground,
       getCanvas2DContext,
       onWaterfallBufferChange,
       awaitingDeviceData,

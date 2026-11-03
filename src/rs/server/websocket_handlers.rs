@@ -24,8 +24,9 @@ use super::stream_contract::{
   StreamDeliveryPolicy,
 };
 use super::stream_manager::{
-  SourceStreamCapabilities, StreamEvent, StreamKey, StreamMode, StreamOptions,
-  StreamState, StreamingSourceModeManager, TxStreamOptions,
+  RxStreamOptions, SourceStreamCapabilities, StreamEvent, StreamKey,
+  StreamMode, StreamOptions, StreamState, StreamingSourceModeManager,
+  TxStreamOptions,
 };
 use super::tx_log::{write_global, TxLogEntry};
 use super::types::{PowerScale, SpectrumData};
@@ -781,6 +782,19 @@ fn request_active_rx_stream_options(
   }
 }
 
+/// Range and center changes are already carried by managed stream option
+/// events. The control-plane channel snapshot is only needed when the selected
+/// channel metadata changes, avoiding duplicate Redux updates on every retune.
+fn should_broadcast_channels_for_rx_options_update(
+  previous: Option<&RxStreamOptions>,
+  next: &RxStreamOptions,
+) -> bool {
+  previous.map_or(true, |previous| {
+    previous.signal_area != next.signal_area
+      || previous.mirror_spectrum_below_zero != next.mirror_spectrum_below_zero
+  })
+}
+
 fn default_subscriber_scope() -> StreamControlScope {
   StreamControlScope::Subscriber
 }
@@ -1398,9 +1412,13 @@ async fn handle_stream_connection(
                       rx_options.clone(),
                       previous_rx_options.clone(),
                     );
-                    if rx_options.min_frequency_hz.is_some()
+                    if (rx_options.min_frequency_hz.is_some()
                       || rx_options.max_frequency_hz.is_some()
-                      || rx_options.mirror_spectrum_below_zero.is_some()
+                      || rx_options.mirror_spectrum_below_zero.is_some())
+                      && should_broadcast_channels_for_rx_options_update(
+                        previous_rx_options.as_ref(),
+                        rx_options,
+                      )
                     {
                       broadcast_channels(&shared, &broadcast_tx);
                     }
@@ -2885,6 +2903,7 @@ mod tests {
     is_frame_after_paused_request, is_tx_preview_source,
     live_tune_is_out_of_bounds, request_active_rx_stream_options,
     resolve_authoritative_subscribe_options, run_stream_writer,
+    should_broadcast_channels_for_rx_options_update,
     should_send_source_iq_frame, source_iq_subscription_matches_active_source,
     source_iq_v2_frame_matches_source, stream_event_json,
     stream_rx_processor_settings, take_source_owned_paused_frame_request,
@@ -3389,6 +3408,58 @@ mod tests {
     assert_eq!(settings.fft_window.as_deref(), Some("Rectangular"));
     assert_eq!(settings.frame_rate, Some(60));
     assert_eq!(settings.gain, Some(46.9));
+  }
+
+  #[test]
+  fn managed_range_tuning_does_not_require_a_channel_snapshot() {
+    let baseline = RxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      min_frequency_hz: Some(137_000_000),
+      max_frequency_hz: Some(137_200_000),
+      signal_area: Some("A".to_string()),
+      mirror_spectrum_below_zero: Some(false),
+      ..Default::default()
+    };
+    let retuned = RxStreamOptions {
+      center_frequency_hz: baseline.center_frequency_hz + 1_000,
+      min_frequency_hz: Some(137_001_000),
+      max_frequency_hz: Some(137_201_000),
+      ..baseline.clone()
+    };
+
+    assert!(!should_broadcast_channels_for_rx_options_update(
+      Some(&baseline),
+      &retuned,
+    ));
+  }
+
+  #[test]
+  fn managed_selection_metadata_changes_require_a_channel_snapshot() {
+    let baseline = RxStreamOptions {
+      signal_area: Some("A".to_string()),
+      mirror_spectrum_below_zero: Some(false),
+      ..Default::default()
+    };
+    let changed_area = RxStreamOptions {
+      signal_area: Some("manual".to_string()),
+      ..baseline.clone()
+    };
+    let changed_mirror = RxStreamOptions {
+      mirror_spectrum_below_zero: Some(true),
+      ..baseline.clone()
+    };
+
+    assert!(should_broadcast_channels_for_rx_options_update(
+      Some(&baseline),
+      &changed_area,
+    ));
+    assert!(should_broadcast_channels_for_rx_options_update(
+      Some(&baseline),
+      &changed_mirror,
+    ));
+    assert!(should_broadcast_channels_for_rx_options_update(
+      None, &baseline,
+    ));
   }
 
   #[test]

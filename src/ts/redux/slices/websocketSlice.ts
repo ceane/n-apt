@@ -212,8 +212,11 @@ const websocketSlice = createSlice({
           "disconnected",
         ]),
       );
+      state.sourceTransportByMode = createSourceTransportByMode();
+      state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
       state.appliedStreamOptionsBySource = {};
-      // Keep hasConnectedOnce, sources, activeSourceId, transport metadata.
+      // Keep source identity for the Server Down placeholder, but discard the
+      // transport state: the middleware has already disposed these sockets.
       // Hard reset remains available via setDisconnected/reset.
     },
 

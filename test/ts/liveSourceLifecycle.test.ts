@@ -18,6 +18,11 @@ import {
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import type { SourceTransportLifecycle } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { resolveLiveDevicePlaceholderState } from "@n-apt/spectrum/public/liveSourceLifecycle";
+import websocketReducer, {
+  setConnected,
+  softDisconnect,
+  updateDeviceState,
+} from "@n-apt/redux/slices/websocketSlice";
 
 const handoffPlaceholder = {
   kind: "loading" as const,
@@ -746,6 +751,40 @@ describe("resolveLiveSourceLifecycle", () => {
         handoffPlaceholder,
       }).phase,
     ).toBe("failed");
+  });
+
+  test("shows Server Down after a socket close invalidates its ready stream", () => {
+    const connected = websocketReducer(undefined, setConnected());
+    const withReadyStream = websocketReducer(
+      connected,
+      updateDeviceState({
+        sourceTransportByMode: {
+          rx: { sourceId: "mock-apt", phase: "ready", error: null },
+          tx: { sourceId: null, phase: "idle", error: null },
+        },
+        sourceFrameReadinessByMode: {
+          rx: { sourceId: "mock-apt", streamEpoch: 8, sequence: 120 },
+          tx: null,
+        },
+      }),
+    );
+    const disconnected = websocketReducer(withReadyStream, softDisconnect());
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "mock-apt",
+      activeSourceId: "mock-apt",
+      transportSourceId: disconnected.sourceTransportByMode.rx.sourceId,
+      transportPhase: disconnected.sourceTransportByMode.rx.phase,
+      hasValidFrame: false,
+      deviceStatus: "disconnected",
+      isConnected: disconnected.isConnected,
+      connectionStatus: disconnected.connectionStatus,
+      hasConnectedOnce: disconnected.hasConnectedOnce,
+    });
+
+    expect(lifecycle).toMatchObject({
+      phase: "failed",
+      placeholder: { kind: "error", reason: "Server down" },
+    });
   });
 
   test("shows Server Down only after a live control session is lost", () => {

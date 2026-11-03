@@ -408,6 +408,7 @@ describe("FIFOWaterfall", () => {
     expect(drawWebGPU.mock.calls[0][0].plotMargin).toEqual({ x: 0, y: 0 });
     expect(drawWebGPU.mock.calls[0][0].fftData).toBe(waveform);
     expect(drawWebGPU.mock.calls[0][0].historyPan).toBe(0.25);
+    expect(drawWebGPU.mock.calls[0][0].backgroundColor).toBe("#0a0a0a");
     await waitFor(() => expect(getContextSpy).toHaveBeenCalledWith("2d"));
     expect(view.container.querySelector("canvas")).toHaveAttribute(
       "data-renderer-error",
