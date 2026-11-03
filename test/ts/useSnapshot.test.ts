@@ -9,6 +9,7 @@ import {
   createFastFrameScratch,
   pinFastRecordingOptions,
   renderSpectrumSnapshotCanvas,
+  renderSpectrumSnapshotSvg,
   renderWaterfallSnapshotCanvas,
   renderStatsRowCanvas,
   useSnapshot,
@@ -443,8 +444,13 @@ describe("fast snapshot canvases", () => {
       .map((call) => call.args[0]);
     expect(labels).toContain("Channel C");
     expect(labels).toContain("Channel B");
-    expect(calls.some((call) => call.name === "setLineDash" &&
-      JSON.stringify(call.args[0]) === JSON.stringify([3, 4]))).toBe(true);
+    expect(
+      calls.some(
+        (call) =>
+          call.name === "setLineDash" &&
+          JSON.stringify(call.args[0]) === JSON.stringify([3, 4]),
+      ),
+    ).toBe(true);
   });
 
   it("trims the live waterfall render inset before adding the fast VFO axis", () => {
@@ -670,6 +676,83 @@ describe("fast snapshot canvases", () => {
         (call: any) => call.name === "fillRect" && call.args[2] > 0,
       ),
     ).toBe(true);
+  });
+});
+
+describe("non-hardware pattern snapshots", () => {
+  it("stripes exported FFT and waterfall images when the source requests the pattern", () => {
+    const frequencyRange = { min: 18_000, max: 3_218_000 };
+    const theme = {
+      bg: "#000000",
+      grid: "#333333",
+      line: "#ffffff",
+      shadow: "#111111",
+      text: "#777777",
+      hwLine: "#999999",
+      hwText: "#aaaaaa",
+      cfText: "#fefefe",
+    };
+    const snapshotData = {
+      waveform: new Float32Array([-100, -90, -75, -85, -70]),
+      frequencyRange,
+      vizZoom: 1,
+      vizPanOffset: 0,
+      dbMin: -120,
+      dbMax: 0,
+      centerFrequencyHz: 1_618_000,
+      isDeviceConnected: true,
+      hardwareSampleRateHz: 3_200_000,
+      waterfallTextureSnapshot: null,
+      waterfallTextureMeta: null,
+      waterfallBuffer: new Uint8ClampedArray([20, 30, 40, 255]),
+      waterfallDims: { width: 1, height: 1 },
+      colormap: [],
+      nonHardwarePattern: true,
+    } as any;
+
+    const fftSvg = renderSpectrumSnapshotSvg(
+      snapshotData,
+      frequencyRange,
+      true,
+      320,
+      180,
+      frequencyRange,
+      undefined,
+      snapshotData.waveform,
+      theme,
+    );
+    expect(fftSvg).toContain('stroke="#c25100"');
+    expect(fftSvg).toContain('stroke-width="8"');
+    expect(fftSvg).toContain('opacity="0.266"');
+    expect(fftSvg).toContain('style="mix-blend-mode:difference"');
+    expect(fftSvg).toContain(
+      '<clipPath id="snapshot-pattern-clip-0"><polygon points="52,20 280,20 280,140 52,140"/></clipPath>',
+    );
+    expect(fftSvg).toContain('<g clip-path="url(#snapshot-pattern-clip-0)">');
+    expect(fftSvg).toContain('clip-path="url(#snapshot-pattern-clip-1)"');
+    const patternPath = fftSvg
+      .split("\n")
+      .find((line) => line.includes('stroke="#c25100"'));
+    const patternPathData = patternPath?.match(/d="([^"]+)"/)?.[1] ?? "";
+    const patternPoints = Array.from(
+      patternPathData.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g),
+      (match) => ({ x: Number(match[1]), y: Number(match[2]) }),
+    );
+    expect(Math.min(...patternPoints.map(({ x }) => x))).toBeLessThan(52);
+    expect(Math.max(...patternPoints.map(({ x }) => x))).toBeGreaterThan(280);
+    expect(Math.min(...patternPoints.map(({ y }) => y))).toBeLessThan(20);
+    expect(Math.max(...patternPoints.map(({ y }) => y))).toBeGreaterThan(140);
+
+    global.clearCanvasCalls?.();
+    renderWaterfallSnapshotCanvas(snapshotData, 80, 40, {
+      marginX: 0,
+      marginY: 0,
+      noBackground: true,
+    });
+    const stripeSegments = (global as any).__CANVAS_CALLS__.filter(
+      (call: any) => call.name === "lineTo",
+    );
+    expect(stripeSegments.length).toBeGreaterThan(0);
   });
 });
 
@@ -1066,7 +1149,9 @@ describe("renderStatsRowCanvas", () => {
     const textYPositions: number[] = Array.from(
       new Set<number>(
         (global as any).__CANVAS_CALLS__
-          .filter((call: any) => call.name === "fillText" && call.args[0] !== "-")
+          .filter(
+            (call: any) => call.name === "fillText" && call.args[0] !== "-",
+          )
           .map((call: any) => call.args[2] as number),
       ),
     );
@@ -1102,7 +1187,9 @@ describe("renderStatsRowCanvas", () => {
     const textYPositions: number[] = Array.from(
       new Set<number>(
         (global as any).__CANVAS_CALLS__
-          .filter((call: any) => call.name === "fillText" && call.args[0] !== "-")
+          .filter(
+            (call: any) => call.name === "fillText" && call.args[0] !== "-",
+          )
           .map((call: any) => call.args[2] as number),
       ),
     );

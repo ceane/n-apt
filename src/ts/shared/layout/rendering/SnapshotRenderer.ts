@@ -11,6 +11,7 @@ import {
   drawVfoAxis,
   type VfoAxisContext,
 } from "@n-apt/layout/rendering/vfoAxis";
+import type { PatternStrokeStyle } from "@n-apt/layout/rendering/nonHardwarePattern";
 
 /**
  * Trace drawing runs every frame while a snapshot video records, so the
@@ -32,7 +33,11 @@ function borrowScratch(key: string, size: number): Float32Array {
 }
 
 export interface DrawingContext {
-  setStroke(color: string, width: number, dash?: number[]): void;
+  setStroke(
+    color: string,
+    width: number,
+    dashOrStyle?: number[] | PatternStrokeStyle,
+  ): void;
   setFill(color: string): void;
   setFont(font: string): void;
   setScaledFont(baseFontSize: number, scale: number): void;
@@ -52,16 +57,27 @@ export interface DrawingContext {
   save(): void;
   restore(): void;
   clipRect(x: number, y: number, w: number, h: number): void;
+  clipPolygon(points: Array<{ x: number; y: number }>): void;
 }
 
 export class CanvasDrawingContext implements DrawingContext {
   constructor(private ctx: CanvasRenderingContext2D) {}
 
-  setStroke(color: string, width: number, dash?: number[]): void {
+  setStroke(
+    color: string,
+    width: number,
+    dashOrStyle?: number[] | PatternStrokeStyle,
+  ): void {
     this.ctx.strokeStyle = color;
     this.ctx.lineWidth = width;
-    if (dash) this.ctx.setLineDash(dash);
-    else this.ctx.setLineDash([]);
+    this.ctx.setLineDash(Array.isArray(dashOrStyle) ? dashOrStyle : []);
+    if (Array.isArray(dashOrStyle)) {
+      this.ctx.globalCompositeOperation = "source-over";
+      this.ctx.globalAlpha = 1;
+    } else {
+      this.ctx.globalCompositeOperation = dashOrStyle?.blendMode ?? "source-over";
+      this.ctx.globalAlpha = dashOrStyle?.opacity ?? 1;
+    }
   }
 
   setFill(color: string): void {
@@ -148,6 +164,17 @@ export class CanvasDrawingContext implements DrawingContext {
     this.ctx.rect(x, y, w, h);
     this.ctx.clip();
   }
+
+  clipPolygon(points: Array<{ x: number; y: number }>): void {
+    if (points.length < 3) return;
+    this.ctx.beginPath();
+    this.ctx.moveTo(points[0].x, points[0].y);
+    for (const point of points.slice(1)) {
+      this.ctx.lineTo(point.x, point.y);
+    }
+    this.ctx.closePath();
+    this.ctx.clip();
+  }
 }
 
 export class SVGDrawingContext implements DrawingContext {
@@ -155,22 +182,44 @@ export class SVGDrawingContext implements DrawingContext {
   private currentStroke: string = "none";
   private currentStrokeWidth: number = 1;
   private currentStrokeDash: string = "none";
+  private currentStrokeOpacity = 1;
+  private currentStrokeBlendMode = "normal";
   private currentFill: string = "none";
   private currentFont: string = "12px sans-serif";
   private textAlign: string = "start";
   private textBaseline: string = "alphabetic";
   private lineJoin: string = "miter";
   private path: string = "";
+  private clipPathSequence = 0;
+  private activeClipPathId: string | null = null;
+  private drawingStateStack: Array<{
+    clipPathId: string | null;
+    strokeOpacity: number;
+    strokeBlendMode: string;
+  }> = [];
 
   constructor(
     private width: number,
     private height: number,
   ) {}
 
-  setStroke(color: string, width: number, dash?: number[]): void {
+  setStroke(
+    color: string,
+    width: number,
+    dashOrStyle?: number[] | PatternStrokeStyle,
+  ): void {
     this.currentStroke = color;
     this.currentStrokeWidth = width;
-    this.currentStrokeDash = dash ? dash.join(",") : "none";
+    if (Array.isArray(dashOrStyle)) {
+      this.currentStrokeDash = dashOrStyle.join(",");
+      this.currentStrokeOpacity = 1;
+      this.currentStrokeBlendMode = "normal";
+    } else {
+      this.currentStrokeDash = "none";
+      this.currentStrokeOpacity = dashOrStyle?.opacity ?? 1;
+      this.currentStrokeBlendMode =
+        dashOrStyle?.blendMode === "difference" ? "difference" : "normal";
+    }
   }
 
   setFill(color: string): void {
@@ -221,7 +270,7 @@ export class SVGDrawingContext implements DrawingContext {
         this.currentStrokeDash !== "none"
           ? `stroke-dasharray="${escapeAttr(this.currentStrokeDash)}"`
           : ""
-      }/>`,
+      }${this.currentStrokeOpacity < 1 ? ` opacity="${escapeAttr(this.currentStrokeOpacity)}"` : ""}${this.currentStrokeBlendMode !== "normal" ? ` style="mix-blend-mode:${escapeAttr(this.currentStrokeBlendMode)}"` : ""}${this.activeClipPathId ? ` clip-path="url(#${escapeAttr(this.activeClipPathId)})"` : ""}/>`,
     );
   }
 
@@ -279,9 +328,38 @@ export class SVGDrawingContext implements DrawingContext {
     return text.length * fontSize * 0.6;
   }
 
-  save(): void {}
-  restore(): void {}
-  clipRect(_x: number, _y: number, _w: number, _h: number): void {}
+  save(): void {
+    this.drawingStateStack.push({
+      clipPathId: this.activeClipPathId,
+      strokeOpacity: this.currentStrokeOpacity,
+      strokeBlendMode: this.currentStrokeBlendMode,
+    });
+  }
+
+  restore(): void {
+    const state = this.drawingStateStack.pop();
+    this.activeClipPathId = state?.clipPathId ?? null;
+    this.currentStrokeOpacity = state?.strokeOpacity ?? 1;
+    this.currentStrokeBlendMode = state?.strokeBlendMode ?? "normal";
+  }
+  clipRect(_x: number, _y: number, _width: number, _height: number): void {}
+
+  clipPolygon(points: Array<{ x: number; y: number }>): void {
+    if (points.length < 3) return;
+    const polygonPoints = points
+      .map((point) => `${escapeAttr(point.x)},${escapeAttr(point.y)}`)
+      .join(" ");
+    this.pushClipPath(`<polygon points="${polygonPoints}"/>`);
+  }
+
+  private pushClipPath(shape: string): void {
+    const id = `snapshot-pattern-clip-${this.clipPathSequence++}`;
+    const clippedShape = this.activeClipPathId
+      ? `<g clip-path="url(#${escapeAttr(this.activeClipPathId)})">${shape}</g>`
+      : shape;
+    this.parts.push(`<defs><clipPath id="${id}">${clippedShape}</clipPath></defs>`);
+    this.activeClipPathId = id;
+  }
 
   getSVG(): string {
     const sw = escapeAttr(this.width);

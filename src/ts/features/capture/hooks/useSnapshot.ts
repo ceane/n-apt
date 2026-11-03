@@ -21,8 +21,14 @@ import type { DemodFocusOverlay } from "@n-apt/spectrum/public/useOverlayRendere
 import { calculateCenterFrequency } from "@n-apt/math/centerFrequency";
 import {
   CoordinateMapper,
+  type Rect,
   Range,
 } from "@n-apt/layout/rendering/CoordinateMapper";
+import {
+  drawDiagonalStripePattern,
+  drawDiagonalStripePatternOnCanvas,
+  getSpectrumFillPolygon,
+} from "@n-apt/layout/rendering/nonHardwarePattern";
 import {
   CanvasDrawingContext,
   SnapshotRenderer,
@@ -50,6 +56,7 @@ import {
   renderFrequencyAxisLayer,
   type FrequencyAxisTheme,
 } from "@n-apt/layout/rendering/frequencyAxis";
+import { composeWaterfallCanvasWithDbAxis } from "@n-apt/layout/rendering/waterfallDbAxis";
 import {
   createCanvasVfoAxisContext,
   drawVfoAxis,
@@ -755,6 +762,7 @@ function renderSpectrumSnapshot(
       forceTraceSteps,
       activeSignalAreaBounds,
       activeSignalAreaLabel,
+      mapper.getPlotArea(),
     );
     return dc.getSVG();
   } else {
@@ -778,6 +786,7 @@ function renderSpectrumSnapshot(
       forceTraceSteps,
       activeSignalAreaBounds,
       activeSignalAreaLabel,
+      mapper.getPlotArea(),
     );
     return canvas;
   }
@@ -891,6 +900,7 @@ function renderToDC(
   forceTraceSteps: boolean = false,
   activeSignalAreaBounds?: { min: number; max: number } | null,
   activeSignalAreaLabel?: string,
+  plotArea?: Rect,
 ): void {
   drawSnapshotUnderlay(dc, renderer, data, showGrid, fontScale);
   drawSnapshotTrace(
@@ -900,6 +910,18 @@ function renderToDC(
     crispTrace,
     forceTraceSteps,
   );
+  if (data.nonHardwarePattern && plotArea) {
+    drawDiagonalStripePattern(
+      dc,
+      plotArea,
+      getSpectrumFillPolygon({
+        bounds: plotArea,
+        waveform: waveform ?? data.waveform,
+        dbMin: data.dbMin,
+        dbMax: data.dbMax,
+      }),
+    );
+  }
   drawSnapshotOverlay(
     dc,
     renderer,
@@ -1015,7 +1037,7 @@ function renderLayeredSpectrumFrame(
     layers.underlay = renderDetachedLayer(pixelWidth, pixelHeight, dpr, (dc) =>
       drawSnapshotUnderlay(dc, renderer, data, showGrid, fontScale),
     );
-    layers.overlay = renderDetachedLayer(pixelWidth, pixelHeight, dpr, (dc) =>
+    layers.overlay = renderDetachedLayer(pixelWidth, pixelHeight, dpr, (dc) => {
       drawSnapshotOverlay(
         dc,
         renderer,
@@ -1026,8 +1048,8 @@ function renderLayeredSpectrumFrame(
         zoom,
         activeSignalAreaBounds,
         activeSignalAreaLabel,
-      ),
-    );
+      );
+    });
     layers.key = key;
   }
 
@@ -1047,6 +1069,20 @@ function renderLayeredSpectrumFrame(
     crispTrace,
     forceTraceSteps,
   );
+
+  if (data.nonHardwarePattern) {
+    const plotArea = mapper.getPlotArea();
+    drawDiagonalStripePatternOnCanvas(
+      ctx,
+      plotArea,
+      getSpectrumFillPolygon({
+        bounds: plotArea,
+        waveform,
+        dbMin: data.dbMin,
+        dbMax: data.dbMax,
+      }),
+    );
+  }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (layers.overlay) ctx.drawImage(layers.overlay, 0, 0);
@@ -1306,6 +1342,7 @@ export function renderWaterfallSnapshotCanvas(
     }
   }
 
+  let hasWaterfall = false;
   if (data.waterfallTextureSnapshot && data.waterfallTextureMeta) {
     drawWaterfallToCanvas(
       canvas,
@@ -1316,20 +1353,41 @@ export function renderWaterfallSnapshotCanvas(
       data.colormap?.length ? data.colormap : WATERFALL_COLORMAPS.classic,
       options,
     );
-    return canvas;
+    hasWaterfall = true;
   }
 
-  if (data.waterfallBuffer && data.waterfallDims) {
+  if (!hasWaterfall && data.waterfallBuffer && data.waterfallDims) {
     drawWaterfallFrom2DBuffer(
       canvas,
       data.waterfallBuffer,
       data.waterfallDims,
       options,
     );
-    return canvas;
+    hasWaterfall = true;
   }
 
-  return null;
+  if (!hasWaterfall) return null;
+
+  if (data.nonHardwarePattern) {
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      const logicalWidth = canvas.width / dpr;
+      const logicalHeight = canvas.height / dpr;
+      const marginStart = options?.marginX ?? FFT_AREA_MIN.x;
+      const marginEnd = options?.marginX ?? 40;
+      const marginY = options?.marginY ?? 8;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawDiagonalStripePatternOnCanvas(ctx, {
+        x: marginStart,
+        y: marginY,
+        width: Math.max(0, logicalWidth - marginStart - marginEnd),
+        height: Math.max(0, logicalHeight - marginY * 2),
+      });
+    }
+  }
+
+  return canvas;
 }
 
 export function renderSpectrumSnapshotCanvas(
@@ -2844,7 +2902,10 @@ function renderFastWaterfallBase(
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(srcGpu, 0, 0);
       if (canvases?.waterfallOverlay) {
+        ctx.save();
+        ctx.globalCompositeOperation = "difference";
         ctx.drawImage(canvases.waterfallOverlay, 0, 0);
+        ctx.restore();
       }
       return cropCanvasVerticalInset(
         liveCanvas,
@@ -4898,25 +4959,96 @@ export function useSnapshot(
 
       const getCanvas = () => {
         const canvases = getCanvases();
-        return target === "spectrum"
-          ? buildFastSpectrumCanvas(
-              snapshotData,
-              width,
-              height,
-              theme,
-              canvases,
-              options,
+        if (target === "spectrum") {
+          return buildFastSpectrumCanvas(
+            snapshotData,
+            width,
+            height,
+            theme,
+            canvases,
+            options,
+          );
+        }
+
+        const waterfallCanvas = buildFastWaterfallCanvas(
+          snapshotData,
+          width,
+          height,
+          waterfallFrequencyRange,
+          canvases,
+          waterfallAxisTheme,
+          options,
+          theme,
+        );
+        if (!waterfallCanvas || !snapshotData) return waterfallCanvas;
+
+        const dpr = window.devicePixelRatio || 1;
+        const hasCapturedWaterfall =
+          snapshotData.waterfallTextureSnapshot != null ||
+          snapshotData.waterfallBuffer != null;
+        const liveWaterfallCanvas = canvases?.waterfallGpu as
+          | (HTMLCanvasElement & {
+              _lastFrameCanvas?: HTMLCanvasElement;
+            })
+          | null
+          | undefined;
+        const liveWaterfallSource =
+          liveWaterfallCanvas?._lastFrameCanvas ?? liveWaterfallCanvas;
+        const liveInset = liveWaterfallSource
+          ? Math.max(
+              0,
+              Math.min(
+                Math.round(8 * dpr),
+                Math.floor(liveWaterfallSource.height / 2),
+              ),
             )
-          : buildFastWaterfallCanvas(
-              snapshotData,
-              width,
-              height,
-              waterfallFrequencyRange,
-              canvases,
-              waterfallAxisTheme,
-              options,
-              theme,
-            );
+          : 0;
+        const baseHeightBeforeCrop = liveWaterfallSource?.height ?? height;
+        const baseWaterfallHeight =
+          liveWaterfallSource &&
+          !hasCapturedWaterfall &&
+          baseHeightBeforeCrop > liveInset * 2
+            ? baseHeightBeforeCrop - liveInset * 2
+            : baseHeightBeforeCrop;
+        const waterfallAxisHeight = getFrequencyAxisHeight("dense");
+        const statsRowHeight = Math.max(
+          0,
+          waterfallCanvas.height - baseWaterfallHeight - waterfallAxisHeight,
+        );
+        const spectrumCanvas = canvases?.spectrumGpu;
+        const spectrumPlotLeft = Math.max(FFT_AREA_MIN.x, 52);
+        const referencePlotWidth = spectrumCanvas
+          ? Math.round(
+              spectrumCanvas.width -
+                (spectrumPlotLeft + 40) * dpr,
+            )
+          : undefined;
+        const referencePlotHeight = spectrumCanvas
+          ? Math.round(
+              spectrumCanvas.height -
+                (FFT_AREA_MIN.y + 40) * dpr,
+            )
+          : undefined;
+
+        return composeWaterfallCanvasWithDbAxis({
+          waterfallCanvas,
+          dbMin: snapshotData.dbMin,
+          dbMax: snapshotData.dbMax,
+          unit: snapshotData.powerScale ?? "dB",
+          devicePixelRatio: dpr,
+          plotInsets: {
+            left: Math.round(40 * dpr),
+            right: Math.round(40 * dpr),
+            top: statsRowHeight + waterfallAxisHeight,
+          },
+          referencePlotWidth,
+          referencePlotHeight,
+          theme: {
+            background: staticThemeColors.waterfallBackground,
+            grid: staticThemeColors.waterfallGrid,
+            text: staticThemeColors.waterfallText,
+          },
+        });
       };
 
       const filenamePrefix =

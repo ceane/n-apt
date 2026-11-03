@@ -235,7 +235,10 @@ export function composeWaterfallSnapshotCanvas({
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(srcCanvas, 0, 0);
   if (waterfallOverlayCanvas) {
+    ctx.save();
+    ctx.globalCompositeOperation = "difference";
     ctx.drawImage(waterfallOverlayCanvas, 0, 0);
+    ctx.restore();
   }
 
   if (!frequencyRange) {
