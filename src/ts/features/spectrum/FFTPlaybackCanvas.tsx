@@ -6,10 +6,11 @@ import React, {
   forwardRef,
   useCallback,
   useState,
+  useContext,
   memo,
   type ReactNode,
 } from "react";
-import styled from "styled-components";
+import styled, { ThemeContext } from "styled-components";
 import { FFTAndWaterfall } from "@n-apt/spectrum";
 import type { FFTCanvasHandle } from "@n-apt/spectrum/FFTCanvas";
 import { Button } from "@n-apt/ui/Button";
@@ -39,6 +40,8 @@ import { shouldRestorePausedFrameSnapshot } from "@n-apt/spectrum/public/liveSou
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
+import type { AppStyledTheme } from "@n-apt/ui/Theme";
+import { composeWaterfallCanvasWithDbAxis } from "@n-apt/layout/rendering/waterfallDbAxis";
 
 interface FFTPlaybackCanvasProps {
   selectedFiles: { id: string; name: string; downloadUrl?: string }[];
@@ -220,6 +223,11 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     forwardedRef,
   ) => {
     const dispatch = useAppDispatch();
+    const styledTheme = useContext(ThemeContext) as
+      | (Partial<AppStyledTheme> & {
+          colors?: Partial<AppStyledTheme["colors"]>;
+        })
+      | undefined;
     const { fidoVaultKey, handleFidoKeyAuth } = useAuthentication();
     const [fidoUnlockPending, setFidoUnlockPending] = useState(false);
     const [fidoUnlockError, setFidoUnlockError] = useState<string | null>(null);
@@ -366,7 +374,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         `${selectedFiles
           .map((file) => file.id || file.name)
           .sort()
-          .join("|")}:${stitchTrigger ?? "none"}:${displayMode}:${activeChannel}`,
+          .join(
+            "|",
+          )}:${stitchTrigger ?? "none"}:${displayMode}:${activeChannel}`,
       [selectedFiles, stitchTrigger, displayMode, activeChannel],
     );
 
@@ -451,9 +461,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
 
       const activeRange =
         Array.isArray(ch.frequency_range) &&
-          ch.frequency_range.length === 2 &&
-          Number.isFinite(ch.frequency_range[0]) &&
-          Number.isFinite(ch.frequency_range[1])
+        ch.frequency_range.length === 2 &&
+        Number.isFinite(ch.frequency_range[0]) &&
+        Number.isFinite(ch.frequency_range[1])
           ? ch.frequency_range
           : undefined;
 
@@ -603,17 +613,43 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     const getSpectrumCanvas = useCallback(
       () =>
         forwardedRef && "current" in forwardedRef
-          ? (forwardedRef.current?.getSpectrumCanvas() ?? null)
+          ? (forwardedRef.current?.getFastSnapshotCanvas("spectrum") ??
+            forwardedRef.current?.getSpectrumCanvas() ??
+            null)
           : null,
       [forwardedRef],
     );
-    const getWaterfallCanvas = useCallback(
-      () =>
+    const getWaterfallCanvas = useCallback(() => {
+      const waterfallCanvas =
         forwardedRef && "current" in forwardedRef
-          ? (forwardedRef.current?.getWaterfallCanvas() ?? null)
-          : null,
-      [forwardedRef],
-    );
+          ? (forwardedRef.current?.getFastSnapshotCanvas("waterfall") ??
+            forwardedRef.current?.getWaterfallCanvas() ??
+            null)
+          : null;
+      if (!waterfallCanvas) return null;
+
+      const snapshotData =
+        forwardedRef && "current" in forwardedRef
+          ? forwardedRef.current?.getSnapshotData({
+              includeWaterfall: false,
+              copyWaveforms: false,
+            })
+          : null;
+
+      return composeWaterfallCanvasWithDbAxis({
+        waterfallCanvas,
+        dbMin: snapshotData?.dbMin ?? fftMin ?? -120,
+        dbMax: snapshotData?.dbMax ?? fftMax ?? 0,
+        unit: snapshotData?.powerScale ?? powerScale ?? "dB",
+        devicePixelRatio: window.devicePixelRatio || 1,
+        plotInsets: { left: 0, right: 0, top: 0, bottom: 0 },
+        theme: {
+          background: styledTheme?.colors?.waterfallBackground ?? "#0a0a0a",
+          grid: styledTheme?.colors?.waterfallGrid ?? "#323232",
+          text: styledTheme?.colors?.waterfallText ?? "#666666",
+        },
+      });
+    }, [forwardedRef, fftMin, fftMax, powerScale, styledTheme]);
 
     const fastSpectrumSnapshotAction = useMemo<ReactNode>(
       () =>
@@ -668,7 +704,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         firstMetadata?.source_device ?? firstMetadata?.hardware ?? "File";
       const durationLabel =
         typeof firstMetadata?.duration_s === "number" &&
-          Number.isFinite(firstMetadata.duration_s)
+        Number.isFinite(firstMetadata.duration_s)
           ? formatDuration(firstMetadata.duration_s)
           : "N/A";
 
@@ -705,13 +741,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
     useEffect(() => {
       if (!hasStitchedData || !isPaused) return;
       animateFrame(performance.now(), true);
-    }, [
-      activeChannel,
-      displayMode,
-      hasStitchedData,
-      isPaused,
-      animateFrame,
-    ]);
+    }, [activeChannel, displayMode, hasStitchedData, isPaused, animateFrame]);
 
     // Global keyboard event listener for spacebar to toggle play/pause
     useEffect(() => {
@@ -754,6 +784,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
           <VisualizationContainer>
             <FFTAndWaterfall
               ref={forwardedRef}
+              isNonHardwareSource
               dataRef={fftCanvasDataRef}
               frequencyRange={frequencyRange}
               centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
@@ -829,7 +860,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
                   onClick={() => void unlockFidoAndRetry()}
                   disabled={fidoUnlockPending}
                 >
-                  {fidoUnlockPending ? "Waiting for security key…" : "Unlock with FIDO key"}
+                  {fidoUnlockPending
+                    ? "Waiting for security key…"
+                    : "Unlock with FIDO key"}
                 </Button>
               </div>
             ) : stitchStatus.toLowerCase().includes("integrity failed") ? (

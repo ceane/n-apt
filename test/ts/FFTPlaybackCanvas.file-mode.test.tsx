@@ -1,14 +1,22 @@
 import * as React from "react";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import FFTPlaybackCanvas from "@n-apt/spectrum/FFTPlaybackCanvas";
 import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
+import { composeWaterfallCanvasWithDbAxis } from "@n-apt/layout/rendering/waterfallDbAxis";
 
 const fftAndWaterfallMock = jest.fn((_props: any) => (
-  <div data-testid="fft-and-waterfall" />
+  <div data-testid="fft-and-waterfall">
+    {_props.waterfallHeaderActionContent}
+  </div>
 ));
 const observedInitialFrames: unknown[] = [];
 const triggerSnapshotRenderMock = jest.fn();
+let mockWaterfallCanvas: HTMLCanvasElement | null = null;
+let mockFastSnapshotCanvas: HTMLCanvasElement | null = null;
+let mockSnapshotData: unknown = null;
+const mockHandleSnapshot = jest.fn();
+const mockGetFastSnapshotCanvas = jest.fn(() => mockFastSnapshotCanvas);
 let suspendVisualizer = false;
 const pendingVisualizer = new Promise(() => {});
 
@@ -21,14 +29,19 @@ jest.mock("@n-apt/spectrum", () => ({
     }, []);
     React.useImperativeHandle(ref, () => ({
       getSpectrumCanvas: () => null,
-      getWaterfallCanvas: () => null,
+      getWaterfallCanvas: () => mockWaterfallCanvas,
+      getFastSnapshotCanvas: mockGetFastSnapshotCanvas,
       getSpectrumOverlayCanvas: () => null,
       getWaterfallOverlayCanvas: () => null,
       triggerSnapshotRender: triggerSnapshotRenderMock,
-      getSnapshotData: () => null,
+      getSnapshotData: () => mockSnapshotData,
       getCompositeSnapshot: () => null,
     }));
-    return <div data-testid="fft-and-waterfall" />;
+    return (
+      <div data-testid="fft-and-waterfall">
+        {props.waterfallHeaderActionContent}
+      </div>
+    );
   }),
 }));
 
@@ -92,8 +105,15 @@ jest.mock("@n-apt/spectrum/hooks/useChannelManagement", () => ({
 
 jest.mock("@n-apt/capture/public/useSnapshot", () => ({
   useSnapshot: () => ({
-    handleSnapshot: jest.fn(),
+    handleSnapshot: mockHandleSnapshot,
   }),
+}));
+
+jest.mock("@n-apt/layout/rendering/waterfallDbAxis", () => ({
+  composeWaterfallCanvasWithDbAxis: jest.fn(
+    ({ waterfallCanvas }: { waterfallCanvas: HTMLCanvasElement }) =>
+      waterfallCanvas,
+  ),
 }));
 
 jest.mock("@n-apt/spectrum/hooks/useSpectrumStore", () => ({
@@ -123,8 +143,14 @@ describe("FFTPlaybackCanvas file mode", () => {
   });
   beforeEach(() => {
     fftAndWaterfallMock.mockClear();
+    mockHandleSnapshot.mockClear();
+    jest.mocked(composeWaterfallCanvasWithDbAxis).mockClear();
     observedInitialFrames.length = 0;
     filePlaybackDataRef.current = null;
+    mockWaterfallCanvas = null;
+    mockFastSnapshotCanvas = null;
+    mockSnapshotData = null;
+    mockGetFastSnapshotCanvas.mockClear();
   });
 
   afterEach(() => {
@@ -181,6 +207,65 @@ describe("FFTPlaybackCanvas file mode", () => {
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
     expect(playbackProps?.awaitingDeviceData).toBe(false);
+  });
+
+  it("marks file playback as a non-hardware source for the pattern overlay", async () => {
+    render(
+      <FFTPlaybackCanvas
+        selectedFiles={[{ id: "1", name: "capture.napt" }]}
+        stitchTrigger={0}
+        stitchSourceSettings={{ gain: 0, ppm: 0 }}
+        isPaused={false}
+        fftSize={2048}
+        displayMode="fft"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fftAndWaterfallMock).toHaveBeenCalled();
+    });
+
+    const playbackProps =
+      fftAndWaterfallMock.mock.calls[
+        fftAndWaterfallMock.mock.calls.length - 1
+      ]?.[0];
+    expect(playbackProps?.isNonHardwareSource).toBe(true);
+  });
+
+  it("uses overlay-composited canvases for file playback fast snapshots", async () => {
+    const rawWaterfallCanvas = document.createElement("canvas");
+    const fastWaterfallCanvas = document.createElement("canvas");
+    rawWaterfallCanvas.width = 640;
+    rawWaterfallCanvas.height = 360;
+    fastWaterfallCanvas.width = 640;
+    fastWaterfallCanvas.height = 360;
+    mockWaterfallCanvas = rawWaterfallCanvas;
+    mockFastSnapshotCanvas = fastWaterfallCanvas;
+    const canvasRef = React.createRef<any>();
+
+    render(
+      <FFTPlaybackCanvas
+        ref={canvasRef}
+        selectedFiles={[{ id: "1", name: "capture.napt" }]}
+        stitchTrigger={0}
+        stitchSourceSettings={{ gain: 0, ppm: 0 }}
+        isPaused={false}
+        fftSize={2048}
+        displayMode="fft"
+      />,
+    );
+
+    expect(canvasRef.current?.getFastSnapshotCanvas).toBe(
+      mockGetFastSnapshotCanvas,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Fast Snapshot" }));
+
+    await waitFor(() => expect(mockHandleSnapshot).toHaveBeenCalled());
+
+    const options = mockHandleSnapshot.mock.calls[0]?.[0];
+    expect(options.canvasOnly.getCanvas()).toBe(fastWaterfallCanvas);
+    expect(mockGetFastSnapshotCanvas).toHaveBeenCalledWith("waterfall");
   });
 
   it("does not restore a live paused snapshot into the processed file frame", async () => {
@@ -281,5 +366,51 @@ describe("FFTPlaybackCanvas file mode", () => {
       fftWindowLabel: "Device: RTL-SDR",
       timingLabel: "Duration: 5s",
     });
+  });
+
+  it("adds dB scale to the file-playback waterfall fast snapshot", async () => {
+    mockWaterfallCanvas = document.createElement("canvas");
+    mockSnapshotData = {
+      dbMin: -75,
+      dbMax: -15,
+      powerScale: "dBm",
+    };
+    const canvasRef = React.createRef<any>();
+
+    render(
+      <FFTPlaybackCanvas
+        ref={canvasRef}
+        selectedFiles={[{ id: "1", name: "capture.napt" }]}
+        stitchTrigger={0}
+        stitchSourceSettings={{ gain: 0, ppm: 0 }}
+        isPaused={false}
+        fftSize={2048}
+        displayMode="fft"
+        fftMin={-90}
+        fftMax={0}
+        powerScale="dB"
+      />,
+    );
+
+    const waterfallButton = await screen.findByRole("button", {
+      name: "Fast Snapshot",
+    });
+    fireEvent.click(waterfallButton);
+
+    const snapshotOptions = mockHandleSnapshot.mock.calls[0]?.[0];
+    expect(snapshotOptions?.canvasOnly?.filenamePrefix).toBe(
+      "fast-waterfall-snapshot",
+    );
+    snapshotOptions?.canvasOnly?.getCanvas();
+
+    expect(composeWaterfallCanvasWithDbAxis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        waterfallCanvas: mockWaterfallCanvas,
+        dbMin: -75,
+        dbMax: -15,
+        unit: "dBm",
+        plotInsets: { left: 0, right: 0, top: 0, bottom: 0 },
+      }),
+    );
   });
 });

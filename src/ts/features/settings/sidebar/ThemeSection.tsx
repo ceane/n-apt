@@ -16,7 +16,7 @@ import {
   resetTheme as resetThemeAction,
 } from "@n-apt/redux";
 import { WATERFALL_COLORMAPS } from "@n-apt/consts/colormaps";
-import { Row, Button } from "@n-apt/ui";
+import { Row, Button, Toggle } from "@n-apt/ui";
 import { Collapsible } from "@n-apt/ui/Collapsible";
 import {
   SectionGrid as Section,
@@ -85,6 +85,22 @@ const SettingSelect = styled(CompactSelect)`
   }
 `;
 
+const PatternSwatch = styled.span`
+  display: inline-block;
+  width: 42px;
+  height: 20px;
+  border: 1px solid ${(props) => props.theme.borderHover};
+  border-radius: 4px;
+  background-color: #05070d;
+  background-image: repeating-linear-gradient(
+    45deg,
+    #c25100 0,
+    #c25100 8px,
+    transparent 8px,
+    transparent 16px
+  );
+`;
+
 export const ThemeSection: React.FC<{
   hideHeader?: boolean;
   className?: string;
@@ -93,6 +109,9 @@ export const ThemeSection: React.FC<{
   const accentColor = useAppSelector((s) => s.theme.accentColor);
   const fftColor = useAppSelector((s) => s.theme.fftColor);
   const waterfallTheme = useAppSelector((s) => s.theme.waterfallTheme);
+  const patternOverNonHardwareSources = useAppSelector(
+    (s) => s.theme.patternOverNonHardwareSources,
+  );
   const dispatch = useAppDispatch();
   const [isOpen] = useState(true);
 
@@ -179,6 +198,24 @@ export const ThemeSection: React.FC<{
               </option>
             ))}
           </SettingSelect>
+        </Row>
+
+        <Row
+          label={
+            <Toggle
+              $active={patternOverNonHardwareSources}
+              disabled
+              aria-label="Pattern over non-hardware sources"
+            >
+              Pattern over non-hardware sources
+            </Toggle>
+          }
+        >
+          <PatternSwatch
+            aria-label="45-degree diagonal stripe pattern"
+            data-testid="non-hardware-pattern-swatch"
+            title="Default pattern: 45-degree orange stripes"
+          />
         </Row>
 
         <ResetWrapper>

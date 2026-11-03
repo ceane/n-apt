@@ -8,6 +8,7 @@ export interface ThemeState {
   accentColor: string;
   fftColor: string;
   waterfallTheme: string; // ID from WATERFALL_COLORMAPS
+  patternOverNonHardwareSources: boolean;
   shouldPageLoadAnimationRun: boolean;
 }
 
@@ -16,6 +17,7 @@ const DEFAULTS = {
   accentColor: THEME_TOKENS.colors.dark.primary,
   fftColor: THEME_TOKENS.colors.dark.fftLine,
   waterfallTheme: "classic",
+  patternOverNonHardwareSources: true,
   shouldPageLoadAnimationRun: true,
 };
 
@@ -39,6 +41,13 @@ const themeSlice = createSlice({
 
     setWaterfallTheme: (state, action: PayloadAction<string>) => {
       state.waterfallTheme = action.payload;
+    },
+
+    setPatternOverNonHardwareSources: (
+      state,
+      action: PayloadAction<boolean>,
+    ) => {
+      state.patternOverNonHardwareSources = action.payload;
     },
 
     setShouldPageLoadAnimationRun: (state, action: PayloadAction<boolean>) => {
@@ -68,6 +77,7 @@ export const {
   setAccentColor,
   setFftColor,
   setWaterfallTheme,
+  setPatternOverNonHardwareSources,
   setShouldPageLoadAnimationRun,
   markPageLoadAnimationComplete,
   resetTheme,

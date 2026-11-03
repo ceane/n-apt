@@ -345,6 +345,7 @@ export {
   setAccentColor,
   setFftColor,
   setWaterfallTheme,
+  setPatternOverNonHardwareSources,
   resetTheme,
 } from "./slices/themeSlice";
 
@@ -360,6 +361,7 @@ import {
   setAccentColor,
   setFftColor,
   setWaterfallTheme,
+  setPatternOverNonHardwareSources,
   resetTheme,
   updateThemeSettings,
 } from "./slices/themeSlice";
@@ -370,6 +372,7 @@ export const themeActions = {
   setAccentColor,
   setFftColor,
   setWaterfallTheme,
+  setPatternOverNonHardwareSources,
   resetTheme,
   updateThemeSettings,
 };

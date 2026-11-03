@@ -98,6 +98,10 @@ import {
   shouldClearSpectrumWaveformForRangeChange,
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
+import {
+  drawDiagonalStripePatternOnCanvas,
+  getSpectrumFillPolygon,
+} from "@n-apt/layout/rendering/nonHardwarePattern";
 export { invertSpectrumVertically } from "@n-apt/spectrum/fft/frameProcessing";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
 import {
@@ -326,6 +330,24 @@ const isMockAptIdentity = ({
     normalizedName.includes("mock apt")
   );
 };
+
+export const shouldApplyNonHardwareSourcePattern = ({
+  enabled = true,
+  deviceKind,
+  backend,
+  deviceName,
+  isNonHardwareSource = false,
+}: {
+  enabled?: boolean;
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+  isNonHardwareSource?: boolean;
+}): boolean =>
+  enabled &&
+  (isNonHardwareSource ||
+    isMockAptIdentity({ deviceKind, backend, deviceName }) ||
+    isMockTxIdentity({ deviceKind, backend, deviceName }));
 
 /**
  * Full-channel accumulation is only needed for hardware that delivers a
@@ -677,6 +699,7 @@ const CanvasWrapper = memo(styled.div`
   border-radius: 8px;
   overflow: hidden;
   background-color: ${(props) => props.theme.background};
+  isolation: isolate;
 
   &.cursor-grab {
     cursor: grab !important;
@@ -764,6 +787,11 @@ const CanvasLayer = memo(styled.canvas`
   height: 100%;
   pointer-events: none;
   will-change: width, height;
+`);
+
+const SpectrumPatternCanvasLayer = memo(styled(CanvasLayer)`
+  z-index: 2;
+  mix-blend-mode: difference;
 `);
 
 const FloorLineOverlay = styled.div`
@@ -1349,6 +1377,8 @@ export interface FFTCanvasProps {
   deviceProfile?: DeviceProfile | null;
   deviceBackend?: string | null;
   deviceName?: string | null;
+  /** Playback source with no attached physical device. */
+  isNonHardwareSource?: boolean;
   tunerGainDb?: number;
   /** Whether I/Q recording is active */
   isIqRecordingActive?: boolean;
@@ -1525,6 +1555,7 @@ export type SnapshotData = {
   isIqRecordingActive?: boolean;
   demodFocusOverlay?: DemodFocusOverlay | null;
   activeSignalArea?: string;
+  nonHardwarePattern?: boolean;
 
   colormap: number[][];
 };
@@ -1547,6 +1578,9 @@ export type SnapshotDataOptions = {
 export type FFTCanvasHandle = {
   getSpectrumCanvas: () => HTMLCanvasElement | null;
   getWaterfallCanvas: () => HTMLCanvasElement | null;
+  getFastSnapshotCanvas: (
+    target: "spectrum" | "waterfall",
+  ) => HTMLCanvasElement | null;
   getSpectrumOverlayCanvas: () => HTMLCanvasElement | null;
   getWaterfallOverlayCanvas: () => HTMLCanvasElement | null;
   triggerSnapshotRender: () => void;
@@ -1617,6 +1651,7 @@ const FFTCanvas = memo(
       deviceProfile,
       deviceBackend,
       deviceName,
+      isNonHardwareSource = false,
       tunerGainDb,
       isIqRecordingActive = false,
       limitMarkers: limitMarkersProp,
@@ -1887,6 +1922,16 @@ const FFTCanvas = memo(
     const waterfallTheme = useAppSelector(
       (reduxState) => reduxState.theme.waterfallTheme,
     );
+    const patternOverNonHardwareSources = useAppSelector(
+      (reduxState) => reduxState.theme.patternOverNonHardwareSources,
+    );
+    const shouldPatternNonHardwareSource = shouldApplyNonHardwareSourcePattern({
+      enabled: patternOverNonHardwareSources,
+      deviceKind: deviceProfile?.kind,
+      backend: deviceBackend,
+      deviceName,
+      isNonHardwareSource,
+    });
     // dataFrameCounter subscription removed — live rendering is driven by
     // useFFTAnimation's rAF loop, and paused-frame tracking uses a polling interval.
     const fillColor = useMemo(() => {
@@ -1903,6 +1948,7 @@ const FFTCanvas = memo(
 
     // Use new hooks for state management
     const canvasState = useCanvasNodes(waterfallCanvasBindings);
+    const spectrumPatternCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const {
       spectrumGpuCanvasNode,
       setSpectrumGpuCanvasNode,
@@ -3391,6 +3437,7 @@ const FFTCanvas = memo(
         });
       }
       clearOverlayCanvas(spectrumOverlayCanvasRef.current);
+      clearOverlayCanvas(spectrumPatternCanvasRef.current);
       clearOverlayCanvas(waterfallOverlayCanvasRef.current);
     }, [
       spectrumGpuCanvasRef,
@@ -4040,6 +4087,7 @@ const FFTCanvas = memo(
         const spectrumGpuCanvas = spectrumGpuCanvasRef.current;
         const waterfallGpuCanvas = waterfallGpuCanvasRef.current;
         const spectrumOverlayCanvas = spectrumOverlayCanvasRef.current;
+        const spectrumPatternCanvas = spectrumPatternCanvasRef.current;
         const waterfallOverlayCanvas = waterfallOverlayCanvasRef.current;
 
         const currentData = dataRef.current;
@@ -4210,6 +4258,7 @@ const FFTCanvas = memo(
           centerFreqRef.current = centerFrequencyHz;
           clearSpectrumBackbuffer();
           clearOverlayCanvas(spectrumOverlayCanvas);
+          clearOverlayCanvas(spectrumPatternCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
           return;
         }
@@ -4233,6 +4282,7 @@ const FFTCanvas = memo(
           blockingPlaceholderClearKindRef.current = blockingPlaceholderKind;
           clearSpectrumBackbuffer();
           clearOverlayCanvas(spectrumOverlayCanvas);
+          clearOverlayCanvas(spectrumPatternCanvas);
           clearOverlayCanvas(waterfallOverlayCanvas);
 
           if (spectrumOverlayCanvas) {
@@ -4266,6 +4316,23 @@ const FFTCanvas = memo(
         blockingPlaceholderClearKindRef.current = 0;
 
         clearOverlayCanvas(waterfallOverlayCanvas);
+        if (shouldPatternNonHardwareSource && waterfallOverlayCanvas) {
+          const ctx = getCached2DContext(waterfallOverlayCanvas);
+          if (ctx) {
+            const dpr = getCanvasPixelRatio(
+              window.devicePixelRatio || 1,
+              canvasResolutionScale,
+            );
+            const logicalW = waterfallOverlayCanvas.width / dpr;
+            const logicalH = waterfallOverlayCanvas.height / dpr;
+            drawDiagonalStripePatternOnCanvas(ctx, {
+              x: 40,
+              y: 8,
+              width: Math.max(0, logicalW - 80),
+              height: Math.max(0, logicalH - 16),
+            });
+          }
+        }
 
         const powerScale = effectivePowerScaleRef.current;
         const powerScaleChanged =
@@ -4955,6 +5022,17 @@ const FFTCanvas = memo(
             allowNegativeFrequencies: allowNegativeFrequencies && mirrorOnGpu,
             mirrorOnGpu,
             resampleOnGpu,
+            preparePatternWaveform: shouldPatternNonHardwareSource,
+            patternOutputWidth: shouldPatternNonHardwareSource
+              ? Math.max(
+                  1,
+                  Math.floor(
+                    (spectrumGpuCanvas?.parentElement?.offsetWidth ??
+                      spectrumGpuCanvas?.offsetWidth ??
+                      1) - (nodePreview ? 0 : 40),
+                  ),
+                )
+              : undefined,
             getZoomedData,
           });
 
@@ -5138,6 +5216,52 @@ const FFTCanvas = memo(
           // Render overlays to 2D HTML canvas instead of WebGPU texture
           if (hasBlockingVisualPlaceholder) {
             clearOverlayCanvas(spectrumOverlayCanvas);
+          }
+
+          if (spectrumPatternCanvas) {
+            const ctx = getCached2DContext(spectrumPatternCanvas);
+            if (ctx) {
+              const dpr = getCanvasPixelRatio(
+                window.devicePixelRatio || 1,
+                canvasResolutionScale,
+              );
+              const logicalW = spectrumPatternCanvas.width / dpr;
+              const logicalH = spectrumPatternCanvas.height / dpr;
+              ctx.clearRect(0, 0, logicalW, logicalH);
+
+              if (
+                shouldPatternNonHardwareSource &&
+                !hasBlockingVisualPlaceholder
+              ) {
+                const plotLeft = nodePreview ? 0 : FFT_AREA_MIN.x;
+                const plotTop = nodePreview ? 0 : FFT_AREA_MIN.y;
+                const patternBounds = {
+                  x: plotLeft,
+                  y: plotTop,
+                  width: Math.max(
+                    0,
+                    logicalW - (nodePreview ? 0 : 40) - plotLeft,
+                  ),
+                  height: Math.max(
+                    0,
+                    logicalH -
+                      (nodePreview ? 0 : 40 + bottomReservedPx) -
+                      plotTop,
+                  ),
+                };
+                drawDiagonalStripePatternOnCanvas(
+                  ctx,
+                  patternBounds,
+                  getSpectrumFillPolygon({
+                    bounds: patternBounds,
+                    waveform:
+                      preparedSpectrum.patternWaveform ?? displayWaveform,
+                    dbMin: activeScaleDbMinRef.current,
+                    dbMax: activeScaleDbMaxRef.current,
+                  }),
+                );
+              }
+            }
           }
 
           if (spectrumOverlayCanvas && !hasBlockingVisualPlaceholder) {
@@ -5639,6 +5763,7 @@ const FFTCanvas = memo(
         waterfallGpuCanvasNode,
         drawLoadingPlaceholder,
         clearOverlayCanvas,
+        shouldPatternNonHardwareSource,
         clearSpectrumBackbuffer,
         commitPendingSourcePresentationReset,
         presentationPolicy,
@@ -5886,6 +6011,7 @@ const FFTCanvas = memo(
       fullChannelRangeRef.current = null;
       frameBufferRef.current = [];
       resetTemporalAveragingState();
+      clearOverlayCanvas(spectrumPatternCanvasRef.current);
       clearOverlayCanvas(waterfallOverlayCanvasNode);
     }, [
       cleanupWebGPUFIFOWaterfall,
@@ -6146,6 +6272,17 @@ const FFTCanvas = memo(
           }
         }
 
+        if (spectrumRect && spectrumPatternCanvasRef.current) {
+          const canvas = spectrumPatternCanvasRef.current;
+          const targetW = spectrumRect.width * dpr;
+          const targetH = spectrumRect.height * dpr;
+          if (resizeCanvasBackingStore(canvas, targetW, targetH)) {
+            canvas.style.width = `${spectrumRect.width}px`;
+            canvas.style.height = `${spectrumRect.height}px`;
+            getCached2DContext(canvas)?.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+        }
+
         if (spectrumRect && spectrumWebgpuEnabled && gpuCanvas) {
           const targetW = Math.max(1, Math.round(spectrumRect.width * dpr));
           const targetH = Math.max(1, Math.round(spectrumRect.height * dpr));
@@ -6233,6 +6370,7 @@ const FFTCanvas = memo(
       ensurePausedFrame,
       spectrumGpuCanvasNode,
       spectrumOverlayCanvasNode,
+      spectrumPatternCanvasRef,
       waterfallGpuCanvasNode,
       waterfallOverlayCanvasNode,
       canvasResolutionScale,
@@ -6412,6 +6550,7 @@ const FFTCanvas = memo(
           colormap: colormap || [],
           demodFocusOverlay: demodFocusOverlayRef.current,
           activeSignalArea: _activeSignalArea,
+          nonHardwarePattern: shouldPatternNonHardwareSource,
         };
       },
       [
@@ -6423,6 +6562,11 @@ const FFTCanvas = memo(
         isIqRecordingActive,
         isRtlSdr,
         webgpuEnabled,
+        deviceBackend,
+        deviceName,
+        deviceProfile?.kind,
+        deviceProfile?.is_rtl_sdr,
+        shouldPatternNonHardwareSource,
         _activeSignalArea,
       ],
     );
@@ -6449,10 +6593,26 @@ const FFTCanvas = memo(
       const srcSpectrum =
         (spectrumCanvas as any)._lastFrameCanvas || spectrumCanvas;
       ctx.drawImage(srcSpectrum, 0, 0);
+      if (spectrumPatternCanvasRef.current) {
+        ctx.save();
+        ctx.globalCompositeOperation = "difference";
+        ctx.drawImage(spectrumPatternCanvasRef.current, 0, 0);
+        ctx.restore();
+      }
       if (waterfallCanvas) {
         const srcWaterfall =
           (waterfallCanvas as any)._lastFrameCanvas || waterfallCanvas;
         ctx.drawImage(srcWaterfall, 0, spectrumCanvas.height);
+        if (waterfallOverlayCanvasRef.current) {
+          ctx.save();
+          ctx.globalCompositeOperation = "difference";
+          ctx.drawImage(
+            waterfallOverlayCanvasRef.current,
+            0,
+            spectrumCanvas.height,
+          );
+          ctx.restore();
+        }
       }
 
       return {
@@ -6462,11 +6622,43 @@ const FFTCanvas = memo(
       };
     }, [spectrumWebgpuEnabled, webgpuEnabled]);
 
+    const getFastSnapshotCanvas = useCallback(
+      (target: "spectrum" | "waterfall") => {
+        const sourceCanvas =
+          target === "spectrum"
+            ? spectrumGpuCanvasRef.current
+            : waterfallGpuCanvasRef.current;
+        if (!sourceCanvas) return null;
+
+        const source = (sourceCanvas as any)._lastFrameCanvas || sourceCanvas;
+        const overlayCanvas =
+          target === "spectrum"
+            ? spectrumPatternCanvasRef.current
+            : waterfallOverlayCanvasRef.current;
+        if (!overlayCanvas) return source;
+
+        const compositeCanvas = document.createElement("canvas");
+        compositeCanvas.width = source.width;
+        compositeCanvas.height = source.height;
+        const context = getCached2DContext(compositeCanvas);
+        if (!context) return source;
+
+        context.drawImage(source, 0, 0);
+        context.save();
+        context.globalCompositeOperation = "difference";
+        context.drawImage(overlayCanvas, 0, 0);
+        context.restore();
+        return compositeCanvas;
+      },
+      [getCached2DContext],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
         getSpectrumCanvas: () => spectrumGpuCanvasRef.current,
         getWaterfallCanvas: () => waterfallGpuCanvasRef.current,
+        getFastSnapshotCanvas,
         getSpectrumOverlayCanvas: () => spectrumOverlayCanvasRef.current,
         getWaterfallOverlayCanvas: () => waterfallOverlayCanvasRef.current,
         triggerSnapshotRender: () => {
@@ -6480,6 +6672,7 @@ const FFTCanvas = memo(
         webgpuEnabled,
         buildSnapshotData,
         getCompositeSnapshot,
+        getFastSnapshotCanvas,
       ],
     );
 
@@ -6498,11 +6691,19 @@ const FFTCanvas = memo(
                 <CanvasLayer
                   ref={setSpectrumGpuCanvasNode}
                   id="fft-spectrum-canvas-webgpu"
+                  data-testid="fft-spectrum-gpu-canvas"
                 />
               )}
+              <SpectrumPatternCanvasLayer
+                ref={spectrumPatternCanvasRef}
+                id="fft-spectrum-canvas-pattern"
+                data-testid="fft-spectrum-pattern-overlay"
+              />
               <CanvasLayer
                 ref={_setSpectrumOverlayCanvasNode}
                 id="fft-spectrum-canvas-overlay"
+                data-testid="fft-spectrum-marker-overlay"
+                style={{ zIndex: 3 }}
               />
               {floorLinePercent !== null && (
                 <FloorLineOverlay
@@ -6672,11 +6873,19 @@ const FFTCanvas = memo(
                       <CanvasLayer
                         ref={setSpectrumGpuCanvasNode}
                         id="fft-spectrum-canvas-webgpu"
+                        data-testid="fft-spectrum-gpu-canvas"
                       />
                     )}
+                    <SpectrumPatternCanvasLayer
+                      ref={spectrumPatternCanvasRef}
+                      id="fft-spectrum-canvas-pattern"
+                      data-testid="fft-spectrum-pattern-overlay"
+                    />
                     <CanvasLayer
                       ref={_setSpectrumOverlayCanvasNode}
                       id="fft-spectrum-canvas-overlay"
+                      data-testid="fft-spectrum-marker-overlay"
+                      style={{ zIndex: 3 }}
                     />
                     {floorLinePercent !== null && (
                       <FloorLineOverlay

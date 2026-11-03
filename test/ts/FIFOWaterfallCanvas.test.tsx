@@ -20,6 +20,22 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfallCanvas", () => {
+  it("blends the non-hardware pattern over the waterfall signal", () => {
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfallCanvas
+          isPaused={false}
+          setWaterfallGpuCanvasNode={jest.fn()}
+          setWaterfallOverlayCanvasNode={jest.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("fft-waterfall-pattern-overlay")).toHaveStyle({
+      mixBlendMode: "difference",
+    });
+  });
+
   it("does not add standby text to the waterfall header", () => {
     render(
       <ThemeProvider theme={mockTheme}>
@@ -33,7 +49,9 @@ describe("FIFOWaterfallCanvas", () => {
     );
 
     expect(screen.getByText("Waterfall Display")).toBeInTheDocument();
-    expect(screen.queryByText("Waterfall Display (Standby)")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Waterfall Display (Standby)"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the paused bar without inline paused text", () => {
@@ -94,6 +112,58 @@ describe("FIFOWaterfallCanvas", () => {
     ).toBeInTheDocument();
   });
 
+  it("clears the overlay without resetting its 2D canvas transform", () => {
+    const clearRect = jest.fn();
+    const dimensionSetters: jest.SpyInstance[] = [];
+    const getContext = jest
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation(function (
+        this: HTMLCanvasElement,
+        contextId: string,
+      ) {
+        if (this.id === "fft-waterfall-canvas-overlay" && contextId === "2d") {
+          return { clearRect } as unknown as CanvasRenderingContext2D;
+        }
+        return null;
+      } as never);
+
+    try {
+      render(
+        <ThemeProvider theme={mockTheme}>
+          <FIFOWaterfallCanvas
+            isPaused={false}
+            setWaterfallGpuCanvasNode={jest.fn()}
+            setWaterfallOverlayCanvasNode={(canvas) => {
+              if (canvas) {
+                dimensionSetters.push(
+                  jest.spyOn(canvas, "width", "set"),
+                  jest.spyOn(canvas, "height", "set"),
+                );
+              }
+            }}
+            placeholderState={{ kind: "error", reason: "Server down" }}
+          />
+        </ThemeProvider>,
+      );
+
+      const overlay = screen.getByTestId(
+        "fft-waterfall-pattern-overlay",
+      ) as HTMLCanvasElement;
+      expect(clearRect).toHaveBeenCalledWith(
+        0,
+        0,
+        overlay.width,
+        overlay.height,
+      );
+      expect(dimensionSetters).toHaveLength(2);
+      expect(dimensionSetters[0]).not.toHaveBeenCalled();
+      expect(dimensionSetters[1]).not.toHaveBeenCalled();
+    } finally {
+      dimensionSetters.forEach((setter) => setter.mockRestore());
+      getContext.mockRestore();
+    }
+  });
+
   it("cleans up ref callbacks on unmount", () => {
     const setWaterfallGpuCanvasNode = jest.fn();
     const setWaterfallOverlayCanvasNode = jest.fn();
@@ -149,6 +219,8 @@ describe("FIFOWaterfallCanvas", () => {
     );
 
     expect(setWaterfallGpuCanvasNode.mock.calls.length).toBe(initialGpuCalls);
-    expect(setWaterfallOverlayCanvasNode.mock.calls.length).toBe(initialGpuCalls);
+    expect(setWaterfallOverlayCanvasNode.mock.calls.length).toBe(
+      initialGpuCalls,
+    );
   });
 });

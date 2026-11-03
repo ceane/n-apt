@@ -248,6 +248,18 @@ describe("persisted settings fuzz", () => {
     );
   });
 
+  it("defaults the non-hardware pattern on for existing saved themes", () => {
+    window.localStorage.setItem(
+      "napt-theme-storage",
+      JSON.stringify({ appMode: "dark", waterfallTheme: "classic" }),
+    );
+
+    expect(loadPersistedTheme()).toMatchObject({
+      appMode: "dark",
+      patternOverNonHardwareSources: true,
+    });
+  });
+
   it("loadPersistedSignalsDefaults only returns values that pass the signals schema", () => {
     fc.assert(
       fc.property(fc.jsonValue({ maxDepth: 4 }), (value) => {

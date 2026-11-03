@@ -41,6 +41,20 @@ describe("ThemeSection Component", () => {
     expect(screen.getByText("App Theme")).toBeInTheDocument();
     expect(screen.getByText("Accent Color")).toBeInTheDocument();
     expect(screen.getByText("Waterfall")).toBeInTheDocument();
+    const patternToggle = screen.getByRole("switch", {
+      name: "Pattern over non-hardware sources",
+    });
+    expect(patternToggle).toHaveAttribute("aria-checked", "true");
+    expect(patternToggle).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(patternToggle);
+    expect(patternToggle).toHaveAttribute("aria-checked", "true");
+    const swatchBackground = getComputedStyle(
+      screen.getByTestId("non-hardware-pattern-swatch"),
+    ).backgroundImage;
+    expect(swatchBackground).toContain("45deg");
+    expect(swatchBackground).toContain("#c25100");
+    expect(swatchBackground).toContain("8px");
+    expect(swatchBackground).toContain("16px");
   });
 
   it("should handle theme mode change", () => {
