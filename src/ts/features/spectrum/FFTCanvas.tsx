@@ -101,7 +101,11 @@ import {
 import {
   drawDiagonalStripePatternOnCanvas,
   getSpectrumFillPolygon,
+  isMockAptIdentity,
+  isMockTxIdentity,
+  shouldApplyNonHardwareSourcePattern,
 } from "@n-apt/layout/rendering/nonHardwarePattern";
+export { shouldApplyNonHardwareSourcePattern } from "@n-apt/layout/rendering/nonHardwarePattern";
 export { invertSpectrumVertically } from "@n-apt/spectrum/fft/frameProcessing";
 // spectrumToAmplitude removed — dB normalisation now handled in the waterfall WGSL shader
 import {
@@ -278,25 +282,6 @@ type FrameRenderRangeInput = {
 const _EMPTY_FLOAT32_ARRAY = new Float32Array(0);
 const WATERFALL_BIN_COUNT = 4096;
 
-const isMockTxIdentity = ({
-  deviceKind,
-  backend,
-  deviceName,
-}: {
-  deviceKind?: string | null;
-  backend?: string | null;
-  deviceName?: string | null;
-}) => {
-  const normalizedKind = deviceKind?.toLowerCase?.().replace(/_/g, "-") ?? "";
-  const normalizedBackend = backend?.toLowerCase?.().replace(/_/g, "-") ?? "";
-  const normalizedName = deviceName?.toLowerCase?.() ?? "";
-  return (
-    normalizedKind === "mock-tx" ||
-    normalizedBackend === "mock-tx" ||
-    normalizedName.includes("mock tx")
-  );
-};
-
 const resolveTxSignalDisplayLabel = (signal: string) => {
   switch (signal) {
     case "d":
@@ -311,43 +296,6 @@ const resolveTxSignalDisplayLabel = (signal: string) => {
       return signal.toUpperCase();
   }
 };
-
-const isMockAptIdentity = ({
-  deviceKind,
-  backend,
-  deviceName,
-}: {
-  deviceKind?: string | null;
-  backend?: string | null;
-  deviceName?: string | null;
-}) => {
-  const normalizedKind = deviceKind?.toLowerCase?.().replace(/_/g, "-") ?? "";
-  const normalizedBackend = backend?.toLowerCase?.().replace(/_/g, "-") ?? "";
-  const normalizedName = deviceName?.toLowerCase?.() ?? "";
-  return (
-    normalizedKind === "mock-apt" ||
-    normalizedBackend === "mock-apt" ||
-    normalizedName.includes("mock apt")
-  );
-};
-
-export const shouldApplyNonHardwareSourcePattern = ({
-  enabled = true,
-  deviceKind,
-  backend,
-  deviceName,
-  isNonHardwareSource = false,
-}: {
-  enabled?: boolean;
-  deviceKind?: string | null;
-  backend?: string | null;
-  deviceName?: string | null;
-  isNonHardwareSource?: boolean;
-}): boolean =>
-  enabled &&
-  (isNonHardwareSource ||
-    isMockAptIdentity({ deviceKind, backend, deviceName }) ||
-    isMockTxIdentity({ deviceKind, backend, deviceName }));
 
 /**
  * Full-channel accumulation is only needed for hardware that delivers a

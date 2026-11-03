@@ -36,7 +36,13 @@ const theme = buildAppTheme({
 });
 
 const mockReduxState = {
-  websocket: { activeSourceId: "test-source", dataFrameCounter: 1 },
+  websocket: {
+    activeSourceId: "test-source",
+    dataFrameCounter: 1,
+    sources: [] as any[],
+  },
+  waterfall: { sourceMode: "live" },
+  theme: { patternOverNonHardwareSources: true },
   spectrum: { fftMinDb: -120, fftMaxDb: 0 },
   settings: { mirrorIqBasebandBelowZero: false },
 };
@@ -115,6 +121,7 @@ jest.mock("@n-apt/spectrum/FIFOWaterfall", () => ({
   FIFOWaterfall: (props: {
     fftMin: number;
     fftMax: number;
+    nonHardwareSourcePattern?: boolean;
     historyZoom?: number;
     historyPan?: number;
     waterfallHistoryFill?: "accretive" | "immutable";
@@ -133,6 +140,7 @@ jest.mock("@n-apt/spectrum/FIFOWaterfall", () => ({
         data-testid="waterfall-canvas"
         data-fft-min={props.fftMin}
         data-fft-max={props.fftMax}
+        data-pattern={props.nonHardwareSourcePattern ? "enabled" : "disabled"}
         data-history-zoom={props.historyZoom}
         data-history-pan={props.historyPan}
         data-history-fill={props.waterfallHistoryFill}
@@ -171,6 +179,51 @@ jest.mock("@n-apt/spectrum/VisualizerSliders", () => ({
 }));
 
 describe("WaterfallNode", () => {
+  beforeEach(() => {
+    mockReduxState.websocket.sources = [];
+    mockReduxState.waterfall.sourceMode = "live";
+    mockReduxState.theme.patternOverNonHardwareSources = true;
+  });
+
+  it("patterns the demod waterfall for a mock source", () => {
+    mockReduxState.websocket.sources = [
+      {
+        id: "test-source",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "rx",
+        status: "connected",
+        sdr: {
+          max_sample_rate: 3_200_000,
+          sample_rate_options: [],
+          settings: { sample_rate: 3_200_000 },
+        },
+        capabilities: { fft: { sizes: [] } },
+      } as any,
+    ];
+
+    render(
+      <ThemeProvider theme={theme}>
+        <WaterfallNode
+          id="waterfall"
+          type="waterfall"
+          selected={false}
+          dragging={false}
+          zIndex={0}
+          isConnectable
+          positionAbsoluteX={0}
+          positionAbsoluteY={0}
+          data={{ label: "Waterfall", waterfallOptions: true }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("waterfall-canvas")).toHaveAttribute(
+      "data-pattern",
+      "enabled",
+    );
+  });
+
   it("keeps React Flow from consuming wheel panning over the analysis viewport", () => {
     render(
       <ThemeProvider theme={theme}>

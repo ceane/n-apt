@@ -21,6 +21,48 @@ export const NON_HARDWARE_PATTERN_BORDER_PADDING =
   NON_HARDWARE_PATTERN_LINE_WIDTH / 2;
 export const NON_HARDWARE_PATTERN_SPACING = 22;
 
+export type PatternSourceIdentity = {
+  deviceKind?: string | null;
+  backend?: string | null;
+  deviceName?: string | null;
+};
+
+const normalizeSourceIdentity = (value?: string | null) =>
+  value?.toLowerCase().replace(/_/g, "-") ?? "";
+
+export const isMockTxIdentity = ({
+  deviceKind,
+  backend,
+  deviceName,
+}: PatternSourceIdentity): boolean =>
+  normalizeSourceIdentity(deviceKind) === "mock-tx" ||
+  normalizeSourceIdentity(backend) === "mock-tx" ||
+  deviceName?.toLowerCase().includes("mock tx") === true;
+
+export const isMockAptIdentity = ({
+  deviceKind,
+  backend,
+  deviceName,
+}: PatternSourceIdentity): boolean =>
+  normalizeSourceIdentity(deviceKind) === "mock-apt" ||
+  normalizeSourceIdentity(backend) === "mock-apt" ||
+  deviceName?.toLowerCase().includes("mock apt") === true;
+
+export const shouldApplyNonHardwareSourcePattern = ({
+  enabled = true,
+  deviceKind,
+  backend,
+  deviceName,
+  isNonHardwareSource = false,
+}: PatternSourceIdentity & {
+  enabled?: boolean;
+  isNonHardwareSource?: boolean;
+}): boolean =>
+  enabled &&
+  (isNonHardwareSource ||
+    isMockAptIdentity({ deviceKind, backend, deviceName }) ||
+    isMockTxIdentity({ deviceKind, backend, deviceName }));
+
 export type PatternStrokeStyle = {
   blendMode?: GlobalCompositeOperation;
   opacity?: number;

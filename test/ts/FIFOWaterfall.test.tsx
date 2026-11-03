@@ -32,6 +32,29 @@ const mockTheme = {
 };
 
 describe("FIFOWaterfall", () => {
+  it("renders a non-hardware source pattern overlay when requested", () => {
+    render(
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall
+          width={320}
+          height={180}
+          waveform={new Float32Array([-60])}
+          frequencyRange={{ min: 0, max: 1 }}
+          retuneSmear={0}
+          isPaused={false}
+          isVisible
+          performScalarResampling={(data) => data}
+          forceCanvas2D
+          nonHardwareSourcePattern
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("fifo-waterfall-pattern-overlay")).toHaveStyle({
+      mixBlendMode: "difference",
+    });
+  });
+
   it.each(["immutable", "accretive"] as const)(
     "advances %s history for a new live frame even when the source reuses its row buffer",
     async (waterfallHistoryFill) => {
@@ -90,18 +113,17 @@ describe("FIFOWaterfall", () => {
       });
 
       await waitFor(() =>
-        expect(resampler.mock.calls.length).toBeGreaterThan(firstFrameCallCount),
+        expect(resampler.mock.calls.length).toBeGreaterThan(
+          firstFrameCallCount,
+        ),
       );
     },
   );
 
   it("does not append the current row again for immutable zoom-only redraws", async () => {
     const resampler = jest.fn(
-      (
-        _data: ArrayLike<number>,
-        targetLength: number,
-        output?: Float32Array,
-      ) => output ?? new Float32Array(targetLength),
+      (_data: ArrayLike<number>, targetLength: number, output?: Float32Array) =>
+        output ?? new Float32Array(targetLength),
     );
     const waveform = new Float32Array([-90, -70]);
     const view = render(
@@ -152,11 +174,8 @@ describe("FIFOWaterfall", () => {
 
   it("advances immutable prop-driven history when a reused row buffer changes", async () => {
     const resampler = jest.fn(
-      (
-        _data: ArrayLike<number>,
-        targetLength: number,
-        output?: Float32Array,
-      ) => output ?? new Float32Array(targetLength),
+      (_data: ArrayLike<number>, targetLength: number, output?: Float32Array) =>
+        output ?? new Float32Array(targetLength),
     );
     const waveform = new Float32Array([-90, -70]);
     const view = render(

@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
+import { shouldApplyNonHardwareSourcePattern } from "@n-apt/layout/rendering/nonHardwarePattern";
 import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import {
@@ -219,6 +220,16 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
   const activeLiveFrameRef = useActivePresentationFrameRef();
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const patternOverNonHardwareSources = useAppSelector(
+    (state) => state.theme.patternOverNonHardwareSources,
+  );
+  const nonHardwareSourcePattern = shouldApplyNonHardwareSourcePattern({
+    enabled: patternOverNonHardwareSources,
+    deviceKind: activeSourceDerived.deviceProfile?.kind,
+    backend: activeSourceDerived.backend,
+    deviceName: activeSourceDerived.deviceName,
+    isNonHardwareSource: sourceMode === "file",
+  });
   const deviceName = activeSourceDerived.deviceName || "SDR Device";
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
@@ -386,6 +397,7 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
             performScalarResampling={performScalarResampling}
             colormap={PHASE_COLORMAP}
             colormapName={PHASE_COLORMAP_NAME}
+            nonHardwareSourcePattern={nonHardwareSourcePattern}
             placeholderSourceLabel={
               typeof data?.label === "string" ? data.label : "Phase"
             }

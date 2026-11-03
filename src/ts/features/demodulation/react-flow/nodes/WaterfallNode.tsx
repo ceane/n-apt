@@ -24,6 +24,7 @@ import {
   useAppDispatch,
   useAppSelector,
 } from "@n-apt/redux";
+import { selectSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
 import { setWaterfallTheme } from "@n-apt/redux/slices/themeSlice";
 import {
   Brush,
@@ -67,6 +68,7 @@ import {
   getWaterfallZoomBoxView,
 } from "@n-apt/demodulation/react-flow/nodes/waterfallView";
 import { useVfoTuner } from "@n-apt/demodulation/react-flow/nodes/useVfoTuner";
+import { shouldApplyNonHardwareSourcePattern } from "@n-apt/layout/rendering/nonHardwarePattern";
 
 interface WaterfallNodeProps {
   data: {
@@ -583,6 +585,19 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         : activeLiveFrameRef,
     [activeLiveFrameRef, data.sourceRole, roleSourceId],
   );
+  const roleSourceDerived = useAppSelector((state) =>
+    selectSourceDerivedState(state, roleSourceId),
+  );
+  const patternOverNonHardwareSources = useAppSelector(
+    (state) => state.theme.patternOverNonHardwareSources,
+  );
+  const nonHardwareSourcePattern = shouldApplyNonHardwareSourcePattern({
+    enabled: patternOverNonHardwareSources,
+    deviceKind: roleSourceDerived.deviceProfile?.kind,
+    backend: roleSourceDerived.backend,
+    deviceName: roleSourceDerived.deviceName,
+    isNonHardwareSource: sourceMode === "file",
+  });
   const isTxStandbyPreview = useAppSelector((state) => {
     if (!roleSourceId) return false;
     const source = (state.websocket.sources ?? []).find(
@@ -1320,6 +1335,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
               colormap={waterfallColormap}
               colormapName={waterfallTheme}
               binSubset={binSubset}
+              nonHardwareSourcePattern={nonHardwareSourcePattern}
             />
             {data.analysisOptions && (
               <BrushOverlay
