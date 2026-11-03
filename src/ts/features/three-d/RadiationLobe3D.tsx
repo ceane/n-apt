@@ -55,6 +55,12 @@ const LobeLabel = styled.div`
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+const formatRadiationDistance = (distanceMeters: number) => {
+  if (distanceMeters >= 1000) return `${(distanceMeters / 1000).toFixed(2)}km`;
+  if (distanceMeters >= 1) return `${distanceMeters.toFixed(3)}m`;
+  if (distanceMeters >= 0.01) return `${(distanceMeters * 100).toFixed(1)}cm`;
+  return `${(distanceMeters * 1000).toFixed(2)}mm`;
+};
 const finiteNumberOr = (value: unknown, fallback: number) => {
   const parsed =
     typeof value === "number" ? value : Number.parseFloat(String(value));
@@ -879,7 +885,7 @@ export const RadiationLobe3D: React.FC<RadiationLobe3DProps> = ({
                         <LobeLabel
                           style={{ borderColor: "#aaa", color: "#aaa" }}
                         >
-                          Far-Field Boundary ({farFieldDistance.toFixed(3)}m)
+                          {`Far-Field Boundary (${formatRadiationDistance(farFieldDistance)})`}
                         </LobeLabel>
                       </Html>
                     )}

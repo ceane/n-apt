@@ -191,23 +191,23 @@ const PolarCard = styled.div`
   background: ${(props) => props.theme.surfaceHover}66;
   border: 1px solid ${(props) => props.theme.border};
   border-radius: 12px;
-  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
   width: 100%;
-  min-height: 400px;
+  min-height: 440px;
   height: 100%;
   box-sizing: border-box;
+  overflow: hidden;
 `;
 
 const PolarComposite = styled.div`
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
   gap: 0;
+  flex: 1;
   width: 100%;
   min-height: 400px;
-  height: 100%;
+  height: auto;
   border-radius: 12px;
   overflow: hidden;
   background: ${(props) => props.theme.surface};
@@ -216,8 +216,8 @@ const PolarComposite = styled.div`
 const PolarPane = styled.div`
   position: relative;
   min-width: 0;
-  min-height: 400px;
-  height: 100%;
+  min-height: 500px;
+  height: auto;
 
   &:first-child {
     border-right: 1px solid ${(props) => props.theme.border};
@@ -225,10 +225,13 @@ const PolarPane = styled.div`
 `;
 
 const CardTitle = styled.div`
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border-bottom: 1px solid ${(props) => props.theme.border};
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: ${(props) => props.theme.textMuted};
+  color: ${(props) => props.theme.textSecondary};
   font-weight: 600;
   font-family: "JetBrains Mono", monospace;
 `;
@@ -260,6 +263,8 @@ export const DrawSignalRoute: React.FC = () => {
   const { drawParams, activeClumpIndex, globalNoiseFloor } = useAppSelector(
     selectDrawSignalState,
   );
+  const activeFrequencyMHz =
+    (drawParams[activeClumpIndex]?.centerOffset ?? 1_500_000) / 1_000_000;
   const { generateMockNAPTData, mathLoaded } = useDrawMockNAPTSignal();
   const { drawSpectrum, cleanup } = useSpectrumRenderer();
   const { pageIndex, setPageIndex, pageCount } = useDrawSignalPagination();
@@ -510,15 +515,8 @@ export const DrawSignalRoute: React.FC = () => {
           <PolarSectionContainer>
             <PolarPageWrap>
               <PolarCanvasWrap>
-                <PolarCard style={{ padding: 0 }}>
-                  <CardTitle
-                    style={{
-                      position: "absolute",
-                      top: "16px",
-                      left: "16px",
-                      zIndex: 10,
-                    }}
-                  >
+                <PolarCard>
+                  <CardTitle>
                     High-Fidelity 3D Propagation & Radiation HUD
                   </CardTitle>
 
@@ -535,10 +533,9 @@ export const DrawSignalRoute: React.FC = () => {
                         <ambientLight intensity={0.5} />
                         <pointLight position={[20, 20, 20]} />
                         <RadiationLobe3D
-                          frequency={
-                            drawParams[activeClumpIndex]?.centerOffset || 1.5
-                          }
+                          frequency={activeFrequencyMHz}
                           aperture={0.04}
+                          useLevaControls={false}
                           height={5}
                           n={6}
                           m={20}
@@ -555,9 +552,8 @@ export const DrawSignalRoute: React.FC = () => {
                           200
                         }
                         rotation={0}
-                        frequency={
-                          drawParams[activeClumpIndex]?.centerOffset ?? 1.5
-                        }
+                        frequency={activeFrequencyMHz}
+                        useLevaControls={false}
                       />
                     </PolarPane>
                   </PolarComposite>
