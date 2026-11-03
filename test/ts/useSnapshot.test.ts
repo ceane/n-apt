@@ -723,7 +723,7 @@ describe("non-hardware pattern snapshots", () => {
     );
     expect(fftSvg).toContain('stroke="#c25100"');
     expect(fftSvg).toContain('stroke-width="8"');
-    expect(fftSvg).toContain('opacity="0.266"');
+    expect(fftSvg).toContain('opacity="0.1862"');
     expect(fftSvg).toContain('style="mix-blend-mode:difference"');
     expect(fftSvg).toContain(
       '<clipPath id="snapshot-pattern-clip-0"><polygon points="52,20 280,20 280,140 52,140"/></clipPath>',

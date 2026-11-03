@@ -16,7 +16,7 @@ export type PatternPoint = { x: number; y: number };
 
 export const NON_HARDWARE_PATTERN_STROKE = "#c25100";
 export const NON_HARDWARE_PATTERN_LINE_WIDTH = 8;
-export const NON_HARDWARE_PATTERN_OPACITY = 0.266;
+export const NON_HARDWARE_PATTERN_OPACITY = 0.1862;
 export const NON_HARDWARE_PATTERN_BORDER_PADDING =
   NON_HARDWARE_PATTERN_LINE_WIDTH / 2;
 export const NON_HARDWARE_PATTERN_SPACING = 22;

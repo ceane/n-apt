@@ -117,7 +117,7 @@ describe("non-hardware device pattern", () => {
       color: NON_HARDWARE_PATTERN_STROKE,
       width: 8,
       blend: "difference",
-      alpha: 0.266,
+      alpha: 0.1862,
     });
     expect(context.restore).toHaveBeenCalledTimes(1);
   });
