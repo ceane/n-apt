@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { renderHook } from "@testing-library/react";
-import { useFrequencyScanner } from "@n-apt/spectrum/hooks/useFrequencyScanner";
+import { useFrequencyScanner } from "@n-apt/spectrum/public/useFrequencyScanner";
 import { useAudioExtraction } from "@n-apt/demodulation/hooks/useAudioExtraction";
 
 describe("demod runtime handle stability", () => {
