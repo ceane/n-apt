@@ -3,7 +3,7 @@
 The Vite development and preview servers attach a `Connection-Allowlist`
 response header to served resources. The policy allows the response origin,
 the configured browser backend and its matching WebSocket origin, Google Fonts,
-Nominatim, CARTO basemap tiles, and Hugging Face model downloads. The Rust
+Nominatim, OpenFreeMap tiles, and Hugging Face model downloads. The Rust
 backend also attaches `Connection-Allowlist: (response-origin)` to its HTTP
 responses. Keep these policies aligned with intentional browser-initiated
 network requests when adding integrations.

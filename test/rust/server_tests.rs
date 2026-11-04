@@ -242,7 +242,7 @@ async fn test_server_status_endpoint() {
       .headers()
       .get("connection-allowlist")
       .and_then(|value| value.to_str().ok()),
-    Some("(response-origin)"),
+    Some("(response-origin \"https://tiles.openfreemap.org/*\")"),
   );
 
   let json = response.json::<serde_json::Value>();
