@@ -1313,12 +1313,42 @@ export const buildManagedRxOptions = (
     selectedRange.max > selectedRange.min
       ? (selectedRange.min + selectedRange.max) / 2
       : undefined;
-  // Seed a new RX stream from the visible acquisition window. Backend
-  // settings may still describe a prior device's center (or report zero
-  // during load), which can leave Channel A starting at the wrong edge.
+  const mirrorEnabled =
+    overrides.mirrorSpectrumBelowZero ??
+    state.settings?.mirrorIqBasebandBelowZero === true;
+  const visualZoom = Number(state.spectrum?.vizZoom ?? 1);
+  const safeVisualZoom =
+    Number.isFinite(visualZoom) && visualZoom > 0
+      ? Math.max(1, visualZoom)
+      : 1;
+  const rawPanOffset = Number(state.spectrum?.vizPanOffset ?? 0);
+  let visualPanOffset = Number.isFinite(rawPanOffset) ? rawPanOffset : 0;
+  if (selectedRangeCenter !== undefined && selectedRange && !mirrorEnabled) {
+    // Match the mirror-off viewport renderer: a stale negative pan must not
+    // tune the receiver below the displayed positive acquisition window.
+    const halfVisibleSpan =
+      (selectedRange.max - selectedRange.min) / (2 * safeVisualZoom);
+    const minPan = selectedRange.min + halfVisibleSpan - selectedRangeCenter;
+    const maxPan = selectedRange.max - halfVisibleSpan - selectedRangeCenter;
+    visualPanOffset = Math.max(minPan, Math.min(maxPan, visualPanOffset));
+  }
+  const displayedCenter =
+    selectedRangeCenter === undefined
+      ? undefined
+      : selectedRangeCenter + visualPanOffset;
+  const selectedViewCenter =
+    displayedCenter === undefined
+      ? undefined
+      : mirrorEnabled
+        ? Math.max(1, Math.abs(displayedCenter))
+        : displayedCenter;
+  // Seed a new RX stream from the currently displayed acquisition position.
+  // Backend settings may still describe a prior device's center (or report
+  // zero during load), which can leave Channel A starting at the wrong edge.
+  // A mirrored negative display position maps to the positive RF center.
   const centerFrequencyHz = [
     overrides.centerFrequencyHz,
-    selectedRangeCenter,
+    selectedViewCenter,
     settings.center_frequency,
     state.spectrum?.frequency,
   ]

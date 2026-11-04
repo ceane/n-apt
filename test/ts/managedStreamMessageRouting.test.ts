@@ -135,7 +135,7 @@ describe("managed stream message routing", () => {
     return streamSocket;
   };
 
-  it("builds initial RTL-SDR options at Channel A's selected center", () => {
+  it("builds initial RTL-SDR options at Channel A's displayed center", () => {
     const rtlSource = {
       id: "rtl-sdr-0",
       name: "RTL-SDR",
@@ -168,6 +168,8 @@ describe("managed stream message routing", () => {
         fftSize: 1024,
         fftFrameRate: 30,
         activeSignalArea: "A",
+        vizZoom: 1,
+        vizPanOffset: 0,
       },
       settings: { mirrorIqBasebandBelowZero: false },
     };
@@ -192,6 +194,34 @@ describe("managed stream message routing", () => {
         }),
       );
     }
+
+    const scrolledOptions = buildManagedRxOptions(
+      {
+        ...state,
+        spectrum: { ...state.spectrum, vizZoom: 4, vizPanOffset: 400_000 },
+      },
+      rtlSource as any,
+    );
+    expect(scrolledOptions.centerFrequencyHz).toBe(2_018_000);
+
+    const mirrorOffClampedOptions = buildManagedRxOptions(
+      {
+        ...state,
+        spectrum: { ...state.spectrum, vizZoom: 4, vizPanOffset: -2_000_000 },
+      },
+      rtlSource as any,
+    );
+    expect(mirrorOffClampedOptions.centerFrequencyHz).toBe(418_000);
+
+    const mirroredNegativeOptions = buildManagedRxOptions(
+      {
+        ...state,
+        spectrum: { ...state.spectrum, vizZoom: 4, vizPanOffset: -2_000_000 },
+        settings: { mirrorIqBasebandBelowZero: true },
+      },
+      rtlSource as any,
+    );
+    expect(mirroredNegativeOptions.centerFrequencyHz).toBe(382_000);
   });
 
   it("sends RX option changes on the managed stream socket", async () => {
