@@ -1299,19 +1299,34 @@ const sourceCenterFrequencyHz = (state: any): number => {
   return Number(state.spectrum?.frequency ?? 0);
 };
 
-const buildManagedRxOptions = (
+export const buildManagedRxOptions = (
   state: any,
   source: SourceInfo,
   overrides: Partial<Omit<RxDeviceOptions, "mode">> = {},
 ): StreamOptions => {
   const settings = source.sdr?.settings ?? {};
+  const selectedRange = state.spectrum?.frequencyRange;
+  const selectedRangeCenter =
+    selectedRange &&
+    Number.isFinite(selectedRange.min) &&
+    Number.isFinite(selectedRange.max) &&
+    selectedRange.max > selectedRange.min
+      ? (selectedRange.min + selectedRange.max) / 2
+      : undefined;
+  // Seed a new RX stream from the visible acquisition window. Backend
+  // settings may still describe a prior device's center (or report zero
+  // during load), which can leave Channel A starting at the wrong edge.
+  const centerFrequencyHz = [
+    overrides.centerFrequencyHz,
+    selectedRangeCenter,
+    settings.center_frequency,
+    state.spectrum?.frequency,
+  ]
+    .map(Number)
+    .find((frequency) => Number.isFinite(frequency) && frequency > 0) ?? 0;
   return {
     mode: "rx",
-    centerFrequencyHz: Number(
-      overrides.centerFrequencyHz ??
-        settings.center_frequency ??
-        sourceCenterFrequencyHz(state),
-    ),
+    centerFrequencyHz,
     sampleRateHz: Number(
       overrides.sampleRateHz ??
         settings.sample_rate ??

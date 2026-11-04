@@ -2,6 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import websocketSlice, { updateDeviceState } from "@n-apt/redux/slices/websocketSlice";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import websocketMiddleware, {
+  buildManagedRxOptions,
   getManagedStreamDebugSnapshot,
   resetWebSocketMiddlewareState,
 } from "@n-apt/redux/middleware/websocketMiddleware";
@@ -133,6 +134,65 @@ describe("managed stream message routing", () => {
     sockets[0].send.mockClear();
     return streamSocket;
   };
+
+  it("builds initial RTL-SDR options at Channel A's selected center", () => {
+    const rtlSource = {
+      id: "rtl-sdr-0",
+      name: "RTL-SDR",
+      kind: "rtl_sdr",
+      capability: "rx",
+      status: "receiving",
+      iq_format: {
+        element_type: "u8",
+        layout: "interleaved_iq",
+        typed_array: "Uint8Array",
+      },
+      sdr: {
+        max_sample_rate: 3_200_000,
+        sample_rate_options: [3_200_000],
+        fft_display: { markers: [] },
+        settings: {
+          center_frequency: 1_600_000,
+          sample_rate: 3_200_000,
+          fft_size: 1024,
+          fft_window: "Rectangular",
+          frame_rate: 30,
+          gain: 46.9,
+        },
+      },
+    };
+    const state = {
+      spectrum: {
+        frequencyRange: { min: 18_000, max: 3_218_000 },
+        sampleRateHz: 3_200_000,
+        fftSize: 1024,
+        fftFrameRate: 30,
+        activeSignalArea: "A",
+      },
+      settings: { mirrorIqBasebandBelowZero: false },
+    };
+    const options = buildManagedRxOptions(state, rtlSource as any);
+    const zeroCenterOptions = buildManagedRxOptions(
+      state,
+      {
+        ...rtlSource,
+        sdr: {
+          ...rtlSource.sdr,
+          settings: { ...rtlSource.sdr.settings, center_frequency: 0 },
+        },
+      } as any,
+    );
+
+    for (const initialOptions of [options, zeroCenterOptions]) {
+      expect(initialOptions).toEqual(
+        expect.objectContaining({
+          centerFrequencyHz: 1_618_000,
+          sampleRateHz: 3_200_000,
+          fftSize: 1024,
+        }),
+      );
+    }
+  });
 
   it("sends RX option changes on the managed stream socket", async () => {
     const streamSocket = await openManagedRxStream();

@@ -999,6 +999,55 @@ mod tests {
     runtime_manager.stop_all();
   }
 
+  #[tokio::test]
+  async fn applies_the_initial_rx_center_and_sample_rate_before_publishing() {
+    let stream_manager =
+      StreamingSourceModeManager::new(Duration::from_millis(20));
+    let runtime_manager = SourceRuntimeManager::new();
+    let capabilities = SourceStreamCapabilities {
+      can_receive: true,
+      can_transmit: false,
+      full_duplex: false,
+    };
+    let key = StreamKey::new("rtl-sdr-channel-a", StreamMode::Rx);
+    let center_frequency_hz = 1_618_000;
+    let options = StreamOptions::Rx(RxStreamOptions {
+      center_frequency_hz,
+      sample_rate_hz: 3_200_000,
+      fft_size: 1024,
+      fft_window: Some("Rectangular".to_string()),
+      frame_rate: Some(30),
+      gain: Some(46.9),
+      ..Default::default()
+    });
+    stream_manager.register_source(key.source_id.clone(), capabilities);
+    let mut subscription = stream_manager
+      .subscribe(key.clone(), options.clone())
+      .expect("RTL-SDR RX subscription should open");
+
+    runtime_manager
+      .start(
+        key,
+        capabilities,
+        SdrProcessor::new_mock_apt().expect("mock processor for RTL startup"),
+        options,
+        stream_manager,
+      )
+      .await
+      .expect("RX runtime should apply its initial tuning options");
+
+    let frame = tokio::time::timeout(
+      Duration::from_secs(2),
+      receive_frame(&mut subscription),
+    )
+    .await
+    .expect("runtime should publish a frame after applying options");
+    assert_eq!(frame.center_frequency_hz, Some(center_frequency_hz));
+    assert_eq!(frame.sample_rate_hz, 3_200_000);
+
+    runtime_manager.stop_all();
+  }
+
   #[test]
   fn center_frequency_only_change_produces_no_unrelated_settings() {
     let current = RxStreamOptions {
