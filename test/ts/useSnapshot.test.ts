@@ -527,7 +527,7 @@ describe("fast snapshot canvases", () => {
     ).toBe(true);
   });
 
-  it("blits the live waterfall instead of recoloring the texture while recording", () => {
+  it("uses retained waterfall history when the presented GPU canvas is blank", () => {
     const waterfallGpu = document.createElement("canvas");
     waterfallGpu.width = 320;
     waterfallGpu.height = 180;
@@ -564,7 +564,7 @@ describe("fast snapshot canvases", () => {
       (global as any).__CANVAS_CALLS__.some(
         (call: any) => call.name === "putImageData",
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("reuses scratch canvases across recorded frames", () => {

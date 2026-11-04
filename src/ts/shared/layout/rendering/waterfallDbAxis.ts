@@ -19,6 +19,8 @@ export type WaterfallDbAxisOptions = {
    * vertical insets bound the dB scale.
    */
   plotInsets?: { left?: number; right?: number; top?: number; bottom?: number };
+  /** Keep a top stats/header row at full width instead of applying plot cropping. */
+  uncroppedHeaderHeight?: number;
 };
 
 const AXIS_GUTTER_WIDTH_PX = 52;
@@ -57,6 +59,7 @@ export function composeWaterfallCanvasWithDbAxis({
   devicePixelRatio =
     typeof window === "undefined" ? 1 : window.devicePixelRatio || 1,
   plotInsets,
+  uncroppedHeaderHeight = 0,
   referencePlotWidth,
   referencePlotHeight,
 }: WaterfallDbAxisOptions): HTMLCanvasElement {
@@ -145,6 +148,21 @@ export function composeWaterfallCanvasWithDbAxis({
     targetPlotWidth,
     visibleContentHeight,
   );
+
+  const headerHeight = clampInset(uncroppedHeaderHeight, visibleContentHeight);
+  if (headerHeight > 0) {
+    context.drawImage(
+      waterfallCanvas,
+      0,
+      0,
+      waterfallCanvas.width,
+      headerHeight,
+      0,
+      0,
+      outputCanvas.width,
+      headerHeight,
+    );
+  }
 
   const fontSize = LABEL_FONT_SIZE_PX * dpr;
   const markerInset = LABEL_INSET_PX * dpr;
