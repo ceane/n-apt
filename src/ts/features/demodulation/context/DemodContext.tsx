@@ -884,7 +884,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       centerFrequencyHz: liveNeuralCenterFrequencyHz,
       bandwidthHz: liveNeuralBandwidthHz,
     })
-      .then((demodulator) => {
+      .then((demodulator: AudioSurveyOnnxNeuralDemodulator) => {
         if (cancelled) {
           void demodulator.dispose();
           return;
@@ -898,7 +898,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           demodulator,
         });
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (cancelled) return;
         setAudioSurveyError(
           error instanceof Error ? error.message : String(error),
@@ -924,6 +924,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     liveNeuralCenterFrequencyHz,
   ]);
 
+  const currentOnnxDemodState = audioSurveyOnnxDemodState;
   const liveOnnxNeuralDemodulator =
     currentOnnxDemodState !== null &&
     currentOnnxDemodState.model === audioSurveyModel &&
@@ -1037,10 +1038,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             : null,
       },
       onJobUpdated: handleAudioSurveyJobUpdated,
-      onCandidateUpdated: (candidate) => {
+      onCandidateUpdated: (candidate: CandidateRecord) => {
         const preference = audioSurveyModelPreferenceRef.current;
         const nextCandidate =
-          preference?.jobId === candidate.jobId
+          preference && preference.jobId === candidate.jobId
             ? {
                 ...candidate,
                 demodulationModelPreferred: preference.preferred,
@@ -1359,7 +1360,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           (audioSurveyJob
             ? (
                 await audioSurveyRepository.listCandidates(audioSurveyJob.id)
-              ).find((item: any) => item.id === candidateId)
+              ).find((item: CandidateRecord) => item.id === candidateId)
             : undefined);
         if (!candidate)
           throw new Error(
@@ -1369,12 +1370,15 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           await audioSurveyRepository.listArtifacts(candidate.jobId)
         )
           .filter(
-            (artifact) =>
+            (artifact: AudioSurveyArtifact) =>
               artifact.candidateId === candidate.id &&
               artifact.kind === "event-clip",
           )
-          .sort((left: any, right: any) => right.createdAt - left.createdAt);
-        const clip = artifacts.find((artifact: any) => {
+          .sort(
+            (left: AudioSurveyArtifact, right: AudioSurveyArtifact) =>
+              right.createdAt - left.createdAt,
+          );
+        const clip = artifacts.find((artifact: AudioSurveyArtifact) => {
           const payload = artifact.payload as {
             iqData?: unknown;
             pcmData?: unknown;
@@ -1806,10 +1810,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               frameCenterFrequencyHz,
             );
             void inference
-              ?.then((audioData) => {
+              ?.then((audioData: Float32Array) => {
                 if (active && audioData.length > 0) playFmAudio(audioData);
               })
-              .catch((error) => {
+              .catch((error: unknown) => {
                 if (!active || onnxErrorReported) return;
                 onnxErrorReported = true;
                 setAudioSurveyError(
@@ -1962,16 +1966,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       activeSourceId,
     );
   }, [activeSourceId, analysisSession.state, isPaused, state.sourceMode]);
-
-  useEffect(() => {
-    if (!scanner.isScanning || state.sourceMode !== "live" || isPaused) {
-      return;
-    }
-    return registerActiveAcquisitionOperation(
-      "live-frequency-scan",
-      activeSourceId,
-    );
-  }, [activeSourceId, isPaused, scanner.isScanning, state.sourceMode]);
 
   const audioPlayback = useAudioExtraction({
     _targetSampleRate: 48000,
