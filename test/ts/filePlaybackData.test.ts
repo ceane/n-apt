@@ -1,5 +1,10 @@
 import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
-import { liveDataRef } from "@n-apt/redux/middleware/websocketMiddleware";
+import { getLiveFrameRefForSource } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import {
+  makeLiveFrame,
+  resetLiveFrames,
+  setLiveFrame,
+} from "./liveFrameTestUtils";
 
 describe("filePlaybackDataRef", () => {
   it("stores the processed first frame for file-mode consumers", () => {
@@ -13,15 +18,17 @@ describe("filePlaybackDataRef", () => {
   });
 
   it("does not share the file seed with the live transport queue", () => {
-    const liveFrame = { iq_data: new Uint8Array([9, 9]) };
+    const liveFrame = makeLiveFrame(new Uint8Array([9, 9]), 1);
     const fileFrame = { iq_data: new Uint8Array([1, 2]) };
-    liveDataRef.current = liveFrame as any;
+    setLiveFrame(liveFrame);
     filePlaybackDataRef.current = fileFrame;
 
-    expect(liveDataRef.current).toBe(liveFrame);
+    expect(getLiveFrameRefForSource("test-source", "rx").current).toBe(
+      liveFrame,
+    );
     expect(filePlaybackDataRef.current).toBe(fileFrame);
 
-    liveDataRef.current = null;
+    resetLiveFrames();
     filePlaybackDataRef.current = null;
   });
 });

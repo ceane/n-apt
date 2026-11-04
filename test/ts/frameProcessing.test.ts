@@ -141,6 +141,26 @@ describe("prepareSpectrumRenderData", () => {
     expect(result.clampedPan).toBe(20);
   });
 
+  it("prepares a viewport-matched waveform for the FFT pattern mask", () => {
+    const waveform = new Float32Array([0, 80, 0, 0, 0, 30, 0, 0]);
+    const result = prepareSpectrumRenderData({
+      waveform,
+      frequencyRange: { min: 0, max: 8 },
+      zoom: 2,
+      panOffset: 0,
+      invert: false,
+      dbMin: -120,
+      dbMax: 0,
+      resampleOnGpu: true,
+      getZoomedData: createFFTZoomProcessor(-120).process,
+      preparePatternWaveform: true,
+      patternOutputWidth: 4,
+    });
+
+    expect(result.spectrumWaveform).toBe(waveform);
+    expect(Array.from(result.patternWaveform ?? [])).toEqual([80, 0, 0, 30]);
+  });
+
   it("keeps mirror-enabled positive viewport resampling on the GPU", () => {
     const waveform = new Float32Array([1, 2, 3, 4]);
     const getZoomedData = jest.fn(() => {

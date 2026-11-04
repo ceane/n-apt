@@ -123,6 +123,8 @@ export interface SpectrumRenderPreparation {
   visualRange: { min: number; max: number };
   clampedPan: number;
   spectrumWaveform: Float32Array;
+  /** GPU-matched viewport resampling used by overlays that follow the FFT. */
+  patternWaveform?: Float32Array;
   /**
    * False when the mirror is on and the current acquisition cannot fill the
    * viewport. The live renderer still paints immediately; the GPU resampler
@@ -389,6 +391,132 @@ const resolveGpuView = ({
   };
 };
 
+/**
+ * Mirrors resample.wgsl for the small non-hardware pattern layer. The FFT
+ * trace is reduced to one max value per display pixel; slicing bins and
+ * stretching that slice over the plot gives the mask a different contour,
+ * especially while zoomed.
+ */
+const resamplePatternForGpuViewport = ({
+  waveform,
+  sourceRange,
+  displayRange,
+  outputLength,
+  floorDb,
+  mirrorEnabled,
+}: {
+  waveform: Float32Array;
+  sourceRange: { min: number; max: number };
+  displayRange: { min: number; max: number };
+  outputLength: number;
+  floorDb: number;
+  mirrorEnabled: boolean;
+}): Float32Array => {
+  const output = new Float32Array(outputLength);
+  if (!waveform.length || outputLength <= 0) return output;
+
+  // WGSL uniform values and each arithmetic operation are f32. Using fround
+  // here keeps bin selection at zoom boundaries consistent with the GPU.
+  const f32 = Math.fround;
+  const sourceMin = f32(sourceRange.min);
+  const sourceMax = f32(sourceRange.max);
+  const sourceSpan = f32(sourceMax - sourceMin);
+  const displayMin = f32(displayRange.min);
+  const displayMax = f32(displayRange.max);
+  const displaySpan = f32(displayMax - displayMin);
+  const safeFloorDb = f32(floorDb);
+
+  const peakInRange = (start: number, endExclusive: number): number => {
+    let peak = Number.NEGATIVE_INFINITY;
+    for (
+      let index = start;
+      index < endExclusive && index < waveform.length;
+      index += 1
+    ) {
+      const value = waveform[index];
+      if (Number.isFinite(value) && value > peak) peak = value;
+    }
+    return peak;
+  };
+
+  const isIdentityRange =
+    Math.abs(displayMin - sourceMin) < 0.5 &&
+    Math.abs(displayMax - sourceMax) < 0.5;
+  if (isIdentityRange) {
+    const binScale = f32(waveform.length) / f32(outputLength);
+    for (let x = 0; x < outputLength; x += 1) {
+      const start = Math.floor(f32(f32(x) * binScale));
+      const end = Math.max(
+        start + 1,
+        Math.ceil(f32(f32(x + 1) * binScale)),
+      );
+      const peak = peakInRange(start, end);
+      output[x] = Number.isFinite(peak) ? peak : safeFloorDb;
+    }
+    return output;
+  }
+
+  if (sourceSpan <= 0 || displaySpan <= 0) {
+    output.fill(safeFloorDb);
+    return output;
+  }
+
+  const frequencyToBin = (frequency: number): number =>
+    f32(
+      f32(f32(frequency - sourceMin) / sourceSpan) *
+        f32(waveform.length - 1),
+    );
+
+  for (let x = 0; x < outputLength; x += 1) {
+    const t0 = f32(f32(x) / f32(outputLength));
+    const t1 = f32(f32(x + 1) / f32(outputLength));
+    const display0 = f32(displayMin + f32(t0 * displaySpan));
+    const display1 = f32(displayMin + f32(t1 * displaySpan));
+    const crossesDc =
+      mirrorEnabled && (display0 < 0) !== (display1 < 0);
+    const source0 = mirrorEnabled ? Math.abs(display0) : display0;
+    const source1 = mirrorEnabled ? Math.abs(display1) : display1;
+    let sourceLow = crossesDc ? 0 : Math.min(source0, source1);
+    let sourceHigh = crossesDc
+      ? Math.max(Math.abs(display0), Math.abs(display1))
+      : Math.max(source0, source1);
+
+    const fillsDcGuardGap =
+      mirrorEnabled &&
+      sourceMin >= 0 &&
+      sourceLow >= 0 &&
+      sourceHigh < sourceMin;
+    if (fillsDcGuardGap) {
+      sourceLow = sourceMin;
+      sourceHigh = sourceMin;
+    }
+
+    if (sourceHigh < sourceMin || sourceLow > sourceMax) {
+      output[x] = safeFloorDb;
+      continue;
+    }
+
+    const clippedLow = Math.max(sourceLow, sourceMin);
+    const clippedHigh = Math.min(sourceHigh, sourceMax);
+    const start = Math.floor(
+      Math.min(
+        waveform.length - 1,
+        Math.max(0, frequencyToBin(clippedLow)),
+      ),
+    );
+    const end = Math.floor(
+      Math.min(
+        waveform.length,
+        Math.max(0, f32(frequencyToBin(clippedHigh) + 1)),
+      ),
+    );
+    const peak = peakInRange(start, Math.max(end, start + 1));
+    output[x] = Number.isFinite(peak) ? peak : safeFloorDb;
+  }
+
+  return output;
+};
+
 /** Applies view-window selection and vertical inversion before renderer submission. */
 export function prepareSpectrumRenderData({
   waveform,
@@ -404,6 +532,8 @@ export function prepareSpectrumRenderData({
   allowNegativeFrequencies = false,
   mirrorOnGpu = false,
   resampleOnGpu = false,
+  preparePatternWaveform = false,
+  patternOutputWidth,
   getZoomedData,
 }: {
   waveform: Float32Array;
@@ -421,6 +551,10 @@ export function prepareSpectrumRenderData({
   mirrorOnGpu?: boolean;
   /** When true, resample.wgsl owns ordinary live pan/zoom slicing too. */
   resampleOnGpu?: boolean;
+  /** Prepare a viewport-matched waveform for the non-hardware hatch mask. */
+  preparePatternWaveform?: boolean;
+  /** Output sample count used by the GPU FFT resampler. */
+  patternOutputWidth?: number;
   getZoomedData: (
     waveform: Float32Array,
     frequencyRange: { min: number; max: number },
@@ -490,11 +624,38 @@ export function prepareSpectrumRenderData({
     });
   }
 
+  let patternWaveform: Float32Array | undefined;
+  if (preparePatternWaveform) {
+    if (!useGpuViewport) {
+      patternWaveform = displayWaveform;
+    } else if (patternOutputWidth && patternOutputWidth > 0) {
+      patternWaveform = resamplePatternForGpuViewport({
+        waveform,
+        sourceRange,
+        displayRange: visualRange,
+        outputLength: patternOutputWidth,
+        floorDb: dbMin,
+        mirrorEnabled: freePan,
+      });
+    } else {
+      // Keep callers without a GPU width usable; the live FFTCanvas always
+      // supplies the exact width used by its renderer.
+      patternWaveform = getZoomedData(
+        waveform,
+        frequencyRange,
+        zoom,
+        panOffset,
+        freePan,
+      ).slicedWaveform;
+    }
+  }
+
   return {
     slicedWaveform: displayWaveform,
     visualRange,
     clampedPan,
     coversDisplay,
+    patternWaveform,
     spectrumWaveform:
       invert && !useGpuViewport
         ? invertSpectrumVertically(

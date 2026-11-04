@@ -28,11 +28,7 @@ impl LiveStreamTester {
   pub async fn start(&mut self) -> Result<()> {
     println!("🚀 Starting Live Stream Tester...");
 
-    // Connect to WebSocket
-    self.client.connect().await?;
-    println!("✅ Connected to WebSocket");
-
-    // Start receiving data
+    // Authenticate, choose a source, and receive managed RX frames.
     self.client.start_streaming().await?;
 
     Ok(())

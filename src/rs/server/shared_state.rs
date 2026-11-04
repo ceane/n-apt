@@ -894,11 +894,15 @@ impl SharedState {
       // Hardware sources are gone; their pause records would otherwise
       // accumulate a stale entry per ever-seen serial for the process
       // lifetime. Mock source ids are unaffected.
-      self.source_pause_states.lock().unwrap().retain(|source_id, _| {
-        !(source_id.starts_with("hackrf_one-")
-          || source_id.starts_with("rtl-sdr")
-          || source_id.starts_with("rtl_sdr"))
-      });
+      self
+        .source_pause_states
+        .lock()
+        .unwrap()
+        .retain(|source_id, _| {
+          !(source_id.starts_with("hackrf_one-")
+            || source_id.starts_with("rtl-sdr")
+            || source_id.starts_with("rtl_sdr"))
+        });
     }
   }
 
@@ -937,10 +941,7 @@ impl SharedState {
     connection_id: u64,
   ) -> Option<String> {
     let mut owner = self.capture_owner_connection.lock().unwrap();
-    if owner
-      .as_ref()
-      .is_some_and(|(_, id)| *id == connection_id)
-    {
+    if owner.as_ref().is_some_and(|(_, id)| *id == connection_id) {
       owner.take().map(|(job_id, _)| job_id)
     } else {
       None
@@ -1035,6 +1036,7 @@ mod tests {
       fft_window: Some("Hanning".to_string()),
       frame_rate: Some(20),
       gain: Some(12.0),
+      ..Default::default()
     }
   }
 
@@ -1107,7 +1109,8 @@ mod tests {
   #[serial]
   fn clearing_one_hardware_inventory_does_not_remove_the_other_device() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_rtl_sdr_inventory(vec![RtlSdrInventoryDevice {
       index: 0,
       serial_number: "rtl-1".to_string(),
@@ -1115,12 +1118,14 @@ mod tests {
       product: "RTL-SDR".to_string(),
       device_name: "RTL-SDR".to_string(),
     }]);
-    shared.hackrf_inventory.lock().unwrap().push(
-      HackRfInventoryDevice {
+    shared
+      .hackrf_inventory
+      .lock()
+      .unwrap()
+      .push(HackRfInventoryDevice {
         serial_number: "hackrf-1".to_string(),
         index: 0,
-      },
-    );
+      });
 
     shared.clear_hardware_inventory_for_device_type("hackrf_one");
 
@@ -1132,7 +1137,8 @@ mod tests {
   #[serial]
   fn entering_loading_starts_one_new_stream_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     let initial_epoch = shared.current_stream_epoch();
     shared.stream_sequence.store(9, Ordering::Release);
 
@@ -1149,7 +1155,8 @@ mod tests {
   #[serial]
   fn frame_identity_is_monotonic_and_resets_with_the_epoch() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     let (epoch, first) = shared.next_stream_frame_identity();
     let (same_epoch, second) = shared.next_stream_frame_identity();
     assert_eq!(same_epoch, epoch);
@@ -1163,7 +1170,8 @@ mod tests {
   #[serial]
   fn new_stream_epoch_requires_a_fresh_successful_read() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.record_successful_read();
     assert!(shared.last_successful_read.lock().unwrap().is_some());
 
@@ -1176,7 +1184,8 @@ mod tests {
   #[serial]
   fn syncing_same_source_clears_a_stale_global_pause_gate() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.is_paused.store(true, Ordering::SeqCst);
 
     // The source-scoped state says RTL is resumable even though the legacy
@@ -1190,7 +1199,8 @@ mod tests {
   #[serial]
   fn coalesces_pending_device_settings_by_field() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     shared.enqueue_pending_fast_settings(SdrProcessorSettings {
       sample_rate: Some(2_400_000),
@@ -1229,7 +1239,10 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "your_password");
     let result = std::panic::catch_unwind(unsafe_local_user_password);
     std::env::remove_var("UNSAFE_LOCAL_USER_PASSWORD");
-    assert!(result.is_err(), "public setup placeholder must not enable login");
+    assert!(
+      result.is_err(),
+      "public setup placeholder must not enable login"
+    );
   }
 
   #[test]
@@ -1252,7 +1265,8 @@ mod tests {
   #[serial]
   fn encryption_key_is_pbkdf2_of_configured_password() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "vault-contract-test");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     let expected = crate::crypto::derive_key("vault-contract-test");
     assert_eq!(shared.encryption_key, expected);

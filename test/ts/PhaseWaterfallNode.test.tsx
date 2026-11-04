@@ -4,14 +4,17 @@ import { act, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "styled-components";
 import { Provider } from "react-redux";
 import { PhaseWaterfallNode } from "@n-apt/demodulation/react-flow/nodes/PhaseWaterfallNode";
-import {
-  fileFrameRuntime,
-  liveFrameRuntime,
-} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
+import websocketSlice from "@n-apt/redux/slices/websocketSlice";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { createTestStore } from "./testUtils";
+import {
+  makeLiveFrame,
+  resetLiveFrames,
+  setLiveFrame,
+} from "./liveFrameTestUtils";
 
 const mockFifoProps: any[] = [];
 
@@ -83,11 +86,18 @@ const renderNode = (
   } = {},
   spectrumOverrides: Record<string, unknown> = {},
   waterfallOverrides: Record<string, unknown> = {},
+  websocketOverrides: Record<string, unknown> = {},
 ) => {
   const spectrumState = spectrumSlice(undefined, { type: "@@INIT" } as any);
+  const websocketState = websocketSlice(undefined, { type: "@@INIT" } as any);
   const store = createTestStore({
     spectrum: { ...spectrumState, fftSize: FFT_SIZE, ...spectrumOverrides },
     waterfall: { sourceMode: "live", ...waterfallOverrides },
+    websocket: {
+      ...websocketState,
+      activeSourceId: "test-source",
+      ...websocketOverrides,
+    },
   });
 
   return render(
@@ -109,7 +119,7 @@ describe("PhaseWaterfallNode", () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
-    liveFrameRuntime.ref.current = null;
+    act(() => resetLiveFrames());
     fileFrameRuntime.ref.current = null;
   });
 
@@ -141,6 +151,34 @@ describe("PhaseWaterfallNode", () => {
     expect(typeof props.waveformFeed.getCurrent).toBe("function");
   });
 
+  it("patterns the phase waterfall for a mock source", () => {
+    renderNode(
+      { frequencyRange: FREQUENCY_RANGE },
+      {},
+      {},
+      {
+        activeSourceId: "mock-apt",
+        sources: [
+          {
+            id: "mock-apt",
+            name: "Mock APT SDR",
+            kind: "mock_apt",
+            capability: "rx",
+            status: "connected",
+            sdr: {
+              max_sample_rate: 3_200_000,
+              sample_rate_options: [],
+              settings: { sample_rate: 3_200_000 },
+            },
+            capabilities: { fft: { sizes: [] } },
+          },
+        ],
+      },
+    );
+
+    expect(latestProps().nonHardwareSourcePattern).toBe(true);
+  });
+
   it("uses a cycling hue wheel so both phase poles share a color", () => {
     renderNode({ frequencyRange: FREQUENCY_RANGE });
 
@@ -156,20 +194,24 @@ describe("PhaseWaterfallNode", () => {
     renderNode({ frequencyRange: FREQUENCY_RANGE });
 
     const received: Float32Array[] = [];
-    const unsubscribe = latestProps().waveformFeed.subscribe(
-      (waveform: Float32Array) => received.push(waveform),
+    act(() => {
+      setLiveFrame(makeLiveFrame(buildFrame(128).iq_data, 1));
+    });
+
+    const feed = latestProps().waveformFeed;
+    const unsubscribe = feed.subscribe((waveform: Float32Array) =>
+      received.push(waveform),
     );
 
-    expect(latestProps().waveformFeed.getCurrent()).toBeNull();
+    expect(feed.getCurrent()).toBeNull();
 
-    liveFrameRuntime.ref.current = buildFrame(128) as any;
     act(() => {
       fireFrames();
     });
 
     expect(received).toHaveLength(1);
     expect(received[0]).toHaveLength(FFT_SIZE);
-    expect(latestProps().waveformFeed.getCurrent()).toBe(received[0]);
+    expect(feed.getCurrent()).toBe(received[0]);
 
     // Same frame reference again: the history must not advance.
     act(() => {
@@ -177,8 +219,8 @@ describe("PhaseWaterfallNode", () => {
     });
     expect(received).toHaveLength(1);
 
-    liveFrameRuntime.ref.current = buildFrame(0) as any;
     act(() => {
+      setLiveFrame(makeLiveFrame(buildFrame(0).iq_data, 2));
       fireFrames();
     });
     expect(received).toHaveLength(2);
@@ -211,6 +253,7 @@ describe("PhaseWaterfallNode", () => {
     expect(props.fftMin).toBe(-180);
     expect(props.fftMax).toBe(180);
     expect(props.waterfallHistoryFill).toBe("immutable");
+    expect(props.nonHardwareSourcePattern).toBe(true);
 
     unsubscribe();
   });

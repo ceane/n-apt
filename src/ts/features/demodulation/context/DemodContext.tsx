@@ -5,17 +5,15 @@ import React, {
   useState,
   useEffect,
   useMemo,
+  useRef,
   Dispatch,
   SetStateAction,
 } from "react";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { setAlgorithm } from "@n-apt/redux/slices/demodSlice";
+import { setSignalAreaAndRange } from "@n-apt/redux/slices/spectrumSlice";
 import { useSpectrumStore } from "@n-apt/spectrum/public/useSpectrumStore";
 import { registerActiveAcquisitionOperation } from "@n-apt/spectrum/public/activeAcquisitionOperations";
-import {
-  useFrequencyScanner,
-  FrequencyScannerHandle,
-} from "@n-apt/spectrum/public/useFrequencyScanner";
 import {
   useAudioExtraction,
   AudioPlaybackHandle,
@@ -42,16 +40,12 @@ import {
   type AudioSurveyArtifact,
   type AudioSurveyStorageUsage,
 } from "@n-apt/demodulation/survey/audioSurveyStorage";
-import {
-  AudioSurveyRunner,
-} from "@n-apt/demodulation/survey/audioSurveyRunner";
+import { AudioSurveyRunner } from "@n-apt/demodulation/survey/audioSurveyRunner";
 import {
   createLiveAudioSurveySource,
   createReplayAudioSurveySource,
 } from "@n-apt/demodulation/survey/audioSurveyFrameSources";
-import {
-  captureAudioSurveyStimulusPair,
-} from "@n-apt/demodulation/survey/audioSurveyStimulusCapture";
+import { captureAudioSurveyStimulusPair } from "@n-apt/demodulation/survey/audioSurveyStimulusCapture";
 import {
   AudioSurveyTrainer,
   type AudioSurveyTrainingState,
@@ -77,18 +71,22 @@ import {
   TimeDomainOnnxDemodStream,
   createAudioSurveyOnnxRuntime,
 } from "@n-apt/demodulation/survey/audioSurveyOnnxRuntime";
-import { setSourceMode, setStitchPaused, triggerStitch } from "@n-apt/redux/slices/waterfallSlice";
+import {
+  setSourceMode,
+  setStitchPaused,
+  triggerStitch,
+} from "@n-apt/redux/slices/waterfallSlice";
 import {
   demodFrameRuntime,
-  liveFrameRuntime,
   subscribeFrameRuntime,
+  getLiveFrameRefForSource,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { acquireStreamDeliveryDemand } from "@n-apt/app/infrastructure/streams/streamDeliveryDemand";
 import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
 } from "@n-apt/redux/thunks/demodThunks";
-import { scannerWorkerManager } from "@n-apt/workers/scannerWorkerManager";
+import { resolveDemodChannelSelectionAndRange } from "@n-apt/demodulation/channelPrerequisites";
 import {
   Node,
   Edge,
@@ -103,10 +101,7 @@ import {
   resolveDemodCaptureRange,
   serializeDemodFlow,
 } from "@n-apt/demodulation/react-flow/flows";
-import {
-  AnalysisSession,
-  AnalysisType,
-} from "@n-apt/consts/types";
+import { AnalysisSession, AnalysisType } from "@n-apt/consts/types";
 import type { CaptureQualityAssessment } from "@n-apt/features/capture/quality";
 import type { VisionPreset } from "@n-apt/demodulation/vision/visionModel";
 import { NaptSpikeDetectionResult } from "@n-apt/demodulation/utils/naptSpikeDetection";
@@ -132,36 +127,87 @@ const addReadinessNodeToStoredFlow = (
   stored: { nodes: Node[]; edges: Edge[] },
   fallback: { nodes: Node[]; edges: Edge[] },
 ) => {
-  if (stored.nodes.some((node) => node.id === "demod-readiness")) {
-    return stored;
+  const fallbackChannel = fallback.nodes.find((node) => node.id === "channel");
+  const hasLiveReferenceCaptureFlow =
+    Boolean(fallbackChannel) &&
+    stored.nodes.some((node) => node.id === "signal-config") &&
+    stored.nodes.some((node) => node.id === "stimulus");
+  let nodes = stored.nodes;
+  let edges = stored.edges;
+
+  // Older saved graphs can retain channel edges after the node was removed.
+  // Restore the standard Channels node so the route can show its real tuned range.
+  if (
+    hasLiveReferenceCaptureFlow &&
+    fallbackChannel &&
+    !nodes.some((node) => node.id === "channel")
+  ) {
+    nodes = [...nodes, { ...fallbackChannel, data: { ...fallbackChannel.data } }];
+  }
+  if (hasLiveReferenceCaptureFlow) {
+    nodes = nodes.map((node) =>
+      node.id === "channel"
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              channelNode: true,
+              channelLabels: ["A", "B", "C"],
+            },
+          }
+        : node,
+    );
+    const requiredChannelEdges = [
+      { id: "e-source-channel", source: "source", target: "channel", animated: true },
+      { id: "e-channel-readiness", source: "channel", target: "demod-readiness", animated: true },
+    ];
+    for (const requiredEdge of requiredChannelEdges) {
+      if (
+        nodes.some((node) => node.id === requiredEdge.source) &&
+        !edges.some(
+          (edge) =>
+            edge.source === requiredEdge.source &&
+            edge.target === requiredEdge.target,
+        )
+      ) {
+        edges = [...edges, requiredEdge];
+      }
+    }
+  }
+
+  if (nodes.some((node) => node.id === "demod-readiness")) {
+    return nodes === stored.nodes && edges === stored.edges
+      ? stored
+      : { nodes, edges };
   }
 
   const readinessTemplate = fallback.nodes.find(
     (node) => node.id === "demod-readiness",
   );
-  const signalConfig = stored.nodes.find((node) => node.id === "signal-config");
-  const stimulus = stored.nodes.find((node) => node.id === "stimulus");
-  if (!readinessTemplate || !signalConfig || !stimulus) return stored;
+  const signalConfig = nodes.find((node) => node.id === "signal-config");
+  const stimulus = nodes.find((node) => node.id === "stimulus");
+  if (!readinessTemplate || !signalConfig || !stimulus) return { nodes, edges };
 
   const eligibleInputs = new Set(["signal-config", "channel", "metadata"]);
-  const incomingEdges = stored.edges.filter(
-    (edge) =>
-      edge.target === "stimulus" && eligibleInputs.has(edge.source),
+  const incomingEdges = edges.filter(
+    (edge) => edge.target === "stimulus" && eligibleInputs.has(edge.source),
   );
-  if (incomingEdges.length === 0) return stored;
+  if (incomingEdges.length === 0) return { nodes, edges };
 
-  const channelOrMetadata = stored.nodes.find(
+  const channelOrMetadata = nodes.find(
     (node) => node.id === "channel" || node.id === "metadata",
   );
   const readinessY =
-    Math.max(signalConfig.position.y, channelOrMetadata?.position.y ?? -Infinity) +
-    500;
+    Math.max(
+      signalConfig.position.y,
+      channelOrMetadata?.position.y ?? -Infinity,
+    ) + 500;
   const stimulusY = Math.max(stimulus.position.y, readinessY + 500);
   const downstreamIds = new Set(["stimulus"]);
   let grew = true;
   while (grew) {
     grew = false;
-    for (const edge of stored.edges) {
+    for (const edge of edges) {
       if (downstreamIds.has(edge.source) && !downstreamIds.has(edge.target)) {
         downstreamIds.add(edge.target);
         grew = true;
@@ -169,7 +215,7 @@ const addReadinessNodeToStoredFlow = (
     }
   }
   const downstreamShift = stimulusY - stimulus.position.y;
-  const nodes = stored.nodes.map((node) =>
+  nodes = nodes.map((node) =>
     downstreamShift !== 0 && downstreamIds.has(node.id)
       ? {
           ...node,
@@ -181,14 +227,13 @@ const addReadinessNodeToStoredFlow = (
     ...readinessTemplate,
     position: { x: stimulus.position.x, y: readinessY },
   };
-  const edges = stored.edges.map((edge) =>
+  edges = edges.map((edge) =>
     edge.target === "stimulus" && eligibleInputs.has(edge.source)
       ? { ...edge, target: "demod-readiness" }
       : edge,
   );
   const readinessEdgeTemplate = fallback.edges.find(
-    (edge) =>
-      edge.source === "demod-readiness" && edge.target === "stimulus",
+    (edge) => edge.source === "demod-readiness" && edge.target === "stimulus",
   );
   const readinessEdge = readinessEdgeTemplate
     ? { ...readinessEdgeTemplate }
@@ -232,21 +277,7 @@ const readSessionFlow = (
 };
 
 interface DemodContextValue {
-  windowSizeHz: number;
-  setWindowSizeHz: (size: number) => void;
-  stepSizeHz: number;
-  setStepSizeHz: (size: number) => void;
-  audioThreshold: number;
-  setAudioThreshold: (threshold: number) => void;
-
-  scanner: FrequencyScannerHandle;
   audioPlayback: AudioPlaybackHandle;
-
-  currentIQData: Uint8Array | null;
-  setCurrentIQData: (data: Uint8Array | null) => void;
-
-  currentFreq: number | undefined;
-  scanRange: { min: number; max: number } | undefined;
 
   analysisSession: AnalysisSession;
   demodQualityStatus: Pick<CaptureQualityAssessment, "fit" | "reasons"> | null;
@@ -301,13 +332,14 @@ interface DemodContextValue {
     pcmData: Float32Array;
     pcmSampleRateHz: number;
     startedAtMs?: number;
+    liveCapture?: Promise<{
+      pcmData: Float32Array;
+      pcmSampleRateHz: number;
+    }>;
     startPlayback?: () => Promise<number> | number;
     audioSignalLabel?: AudioSurveyReferenceLabel;
     labels?: string[];
   }) => Promise<AudioSurveyArtifact | null>;
-
-  startScan: () => Promise<void>;
-  stopScan: () => void;
 
   // FM demodulation state
   selectedAlgorithm: DemodAlgorithm;
@@ -345,28 +377,26 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const reduxDispatch = useAppDispatch();
-  const [windowSizeHz, setWindowSizeHz] = useState(25000);
-  const [stepSizeHz, setStepSizeHz] = useState(10000);
-  const [audioThreshold, setAudioThreshold] = useState(0.3);
-  const [currentIQData, setCurrentIQData] = useState<Uint8Array | null>(null);
-  const [scanRange, setScanRange] = useState<
-    { min: number; max: number } | undefined
-  >();
   const [analysisSession, setAnalysisSession] = useState<AnalysisSession>({
     state: "idle",
   });
-  const [demodQualityStatus, setDemodQualityStatus] = useState<
-    Pick<CaptureQualityAssessment, "fit" | "reasons"> | null
-  >(null);
+  const [demodQualityStatus, setDemodQualityStatus] = useState<Pick<
+    CaptureQualityAssessment,
+    "fit" | "reasons"
+  > | null>(null);
   const [selectedBaseline, setSelectedBaseline] =
     useState<AnalysisType>("audio");
   const [visionPreset, setVisionPreset] = useState<VisionPreset>("Red");
   const [selectedAlgorithm, setSelectedAlgorithm] =
     useState<DemodAlgorithm>("fm");
+  const initialDemodTuneAppliedRef = useRef(false);
+  const initialDemodTuneTargetRef = useRef<{
+    channelLabel: string;
+    range: { min: number; max: number };
+  } | null>(null);
   const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
     useSpectrumStore();
-  const { sendCaptureCommand, sendScanCommand, sendDemodulateCommand } =
-    wsConnection;
+  const { sendCaptureCommand } = wsConnection;
 
   const demodState = useAppSelector((state) => state.demod) ?? {
     isListening: false,
@@ -376,15 +406,43 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
+  const isConnected = useAppSelector((state) => state.websocket.isConnected);
+  const activeSignalArea = useAppSelector(
+    (state) => state.spectrum.activeSignalArea,
+  );
+  const reduxFrequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+  const websocketChannels = useAppSelector(
+    (state) => state.websocket.channels,
+  );
   const selectedReplayFiles = useAppSelector(
     (state) => state.waterfall?.selectedFiles ?? EMPTY_SELECTED_REPLAY_FILES,
   );
+  const demodRouteChannels = useMemo(() => {
+    const seen = new Set<string>();
+    const sourceChannels =
+      Array.isArray(effectiveFrames) && effectiveFrames.length > 0
+        ? effectiveFrames
+        : Array.isArray(websocketChannels)
+          ? websocketChannels
+          : [];
+    return sourceChannels
+      .filter((frame) => {
+        const label = frame.label?.trim().toUpperCase();
+        return label === "A" || label === "B" || label === "C";
+      })
+      .filter((frame) => {
+        if (seen.has(frame.id)) return false;
+        seen.add(frame.id);
+        return true;
+      });
+  }, [effectiveFrames, websocketChannels]);
   const surveyChannels = useMemo<SurveyChannelRange[]>(() => {
     const seen = new Set<string>();
     return (Array.isArray(effectiveFrames) ? effectiveFrames : [])
       .filter(
-        (frame) =>
-          frame.prerequisite_for?.["demod.audio_survey"] !== undefined,
+        (frame) => frame.prerequisite_for?.["demod.audio_survey"] !== undefined,
       )
       .map((frame) => ({
         id: frame.id,
@@ -399,8 +457,93 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         return true;
       });
   }, [effectiveFrames]);
-  const [audioSurveyJob, setAudioSurveyJob] = useState<SurveyJobState | null>(null);
-  const [audioSurveyCandidates, setAudioSurveyCandidates] = useState<CandidateRecord[]>([]);
+
+  // The reference-capture route starts at Channel A's lower edge. Keep the
+  // displayed range and the receiver's acquisition window in sync; a persisted
+  // channel highlight can otherwise survive while the hardware remains at 0 Hz.
+  useEffect(() => {
+    if (
+      !isConnected ||
+      !activeSourceId ||
+      state.sourceMode !== "live" ||
+      demodRouteChannels.length === 0
+    ) {
+      return;
+    }
+    const sampleRateHz = Math.min(
+      AUDIO_SURVEY_SAMPLE_RATE_HZ,
+      Number.isFinite(state.sampleRateHz) && state.sampleRateHz > 0
+        ? state.sampleRateHz
+        : AUDIO_SURVEY_SAMPLE_RATE_HZ,
+    );
+    let resolved = initialDemodTuneTargetRef.current;
+    if (!initialDemodTuneAppliedRef.current && !resolved) {
+      resolved = resolveDemodChannelSelectionAndRange(
+        "A",
+        null,
+        demodRouteChannels,
+        sampleRateHz,
+      );
+      if (!resolved) return;
+      initialDemodTuneTargetRef.current = resolved;
+    }
+    if (!resolved) {
+      resolved = resolveDemodChannelSelectionAndRange(
+        activeSignalArea,
+        reduxFrequencyRange,
+        demodRouteChannels,
+        sampleRateHz,
+      );
+    }
+    if (!resolved) return;
+    const routeIsAtResolvedRange =
+      activeSignalArea?.trim().toUpperCase() === resolved.channelLabel &&
+      resolved.range.min === reduxFrequencyRange?.min &&
+      resolved.range.max === reduxFrequencyRange?.max;
+    if (initialDemodTuneTargetRef.current && !initialDemodTuneAppliedRef.current) {
+      if (!routeIsAtResolvedRange) {
+        reduxDispatch(
+          setSignalAreaAndRange({
+            area: resolved.channelLabel,
+            range: resolved.range,
+          }),
+        );
+        wsConnection.sendFrequencyRange(resolved.range);
+        return;
+      }
+      initialDemodTuneAppliedRef.current = true;
+      initialDemodTuneTargetRef.current = null;
+      return;
+    }
+    if (
+      routeIsAtResolvedRange
+    ) {
+      return;
+    }
+    reduxDispatch(
+      setSignalAreaAndRange({
+        area: resolved.channelLabel,
+        range: resolved.range,
+      }),
+    );
+    wsConnection.sendFrequencyRange(resolved.range);
+  }, [
+    activeSignalArea,
+    activeSourceId,
+    isConnected,
+    reduxDispatch,
+    reduxFrequencyRange,
+    state.sampleRateHz,
+    state.sourceMode,
+    demodRouteChannels,
+    wsConnection.sendFrequencyRange,
+  ]);
+  const [audioSurveyJob, setAudioSurveyJob] = useState<SurveyJobState | null>(
+    null,
+  );
+  const [audioSurveyCandidates, setAudioSurveyCandidates] = useState<
+    CandidateRecord[]
+  >([]);
   const [audioSurveyStorageUsage, setAudioSurveyStorageUsage] =
     useState<AudioSurveyStorageUsage>({
       usedBytes: 0,
@@ -431,8 +574,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     audioSurveyModel,
     audioSurveyTraining,
     {
-      inputSampleRateHz:
-        demodState.sampleRateHz ?? AUDIO_SURVEY_SAMPLE_RATE_HZ,
+      inputSampleRateHz: demodState.sampleRateHz ?? AUDIO_SURVEY_SAMPLE_RATE_HZ,
       channelBandwidthHz: liveNeuralBandwidthHz,
     },
   );
@@ -543,12 +685,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
+    const liveFrameRef = getLiveFrameRefForSource(activeSourceId, "rx");
     return subscribeFrameRuntime(() => {
-      const liveFrame = Array.isArray(liveFrameRuntime.ref.current)
-        ? (liveFrameRuntime.ref.current[
-            liveFrameRuntime.ref.current.length - 1
-          ] ?? null)
-        : liveFrameRuntime.ref.current;
+      const liveFrame = liveFrameRef.current;
 
       const next =
         liveFrame?.center_frequency_hz && liveFrame?.sample_rate
@@ -568,7 +707,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         return next;
       });
     }, 50);
-  }, [state.sourceMode]);
+  }, [activeSourceId, state.sourceMode]);
 
   const activeLiveFrameRange = useMemo(() => {
     if (!Array.isArray(effectiveFrames) || effectiveFrames.length === 0) {
@@ -745,7 +884,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       centerFrequencyHz: liveNeuralCenterFrequencyHz,
       bandwidthHz: liveNeuralBandwidthHz,
     })
-      .then((demodulator: any) => {
+      .then((demodulator: AudioSurveyOnnxNeuralDemodulator) => {
         if (cancelled) {
           void demodulator.dispose();
           return;
@@ -790,8 +929,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     currentOnnxDemodState !== null &&
     currentOnnxDemodState.model === audioSurveyModel &&
     currentOnnxDemodState.modelData === audioSurveyOnnxModelData &&
-    currentOnnxDemodState.centerFrequencyHz ===
-      liveNeuralCenterFrequencyHz &&
+    currentOnnxDemodState.centerFrequencyHz === liveNeuralCenterFrequencyHz &&
     currentOnnxDemodState.bandwidthHz === liveNeuralBandwidthHz
       ? currentOnnxDemodState.demodulator
       : null;
@@ -844,7 +982,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     async (jobId?: string, capBytes = AUDIO_SURVEY_STORAGE_CAP_BYTES) => {
       try {
         const [candidates, usage] = await Promise.all([
-          jobId ? audioSurveyRepository.listCandidates(jobId) : Promise.resolve([]),
+          jobId
+            ? audioSurveyRepository.listCandidates(jobId)
+            : Promise.resolve([]),
           audioSurveyRepository.getStorageUsage(capBytes),
         ]);
         if (jobId) setAudioSurveyCandidates(candidates);
@@ -875,11 +1015,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         reduxDispatch(setSourceMode("live"));
       }
     },
-    [
-      refreshAudioSurveySnapshot,
-      reduxDispatch,
-      selectedReplayFiles.length,
-    ],
+    [refreshAudioSurveySnapshot, reduxDispatch, selectedReplayFiles.length],
   );
 
   const createAudioSurveyRunner = useCallback(() => {
@@ -893,7 +1029,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       sources: {
         live: createLiveAudioSurveySource({
           getSourceId: () => activeSourceId,
-          sendFrequencyRange: (range: any) => wsConnection.sendFrequencyRange(range),
+          sendFrequencyRange: (range: any) =>
+            wsConnection.sendFrequencyRange(range),
         }),
         replay:
           selectedReplayFiles.length > 0
@@ -901,7 +1038,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             : null,
       },
       onJobUpdated: handleAudioSurveyJobUpdated,
-      onCandidateUpdated: (candidate: any) => {
+      onCandidateUpdated: (candidate: CandidateRecord) => {
         const preference = audioSurveyModelPreferenceRef.current;
         const nextCandidate =
           preference && preference.jobId === candidate.jobId
@@ -917,7 +1054,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           void audioSurveyRepository.saveCandidate(nextCandidate);
         }
         setAudioSurveyCandidates((current) => {
-          const index = current.findIndex((item) => item.id === nextCandidate.id);
+          const index = current.findIndex(
+            (item) => item.id === nextCandidate.id,
+          );
           const next = current.slice();
           if (index >= 0) next[index] = nextCandidate;
           else next.push(nextCandidate);
@@ -991,11 +1130,15 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           .start(job.id)
           .finally(() => releaseActiveRun?.())
           .catch((error: unknown) => {
-            setAudioSurveyError(error instanceof Error ? error.message : String(error));
+            setAudioSurveyError(
+              error instanceof Error ? error.message : String(error),
+            );
           });
       } catch (error) {
         releaseActiveRun?.();
-        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        setAudioSurveyError(
+          error instanceof Error ? error.message : String(error),
+        );
       }
     },
     [activeSourceId, createAudioSurveyRunner],
@@ -1006,21 +1149,28 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       setAudioSurveyError(null);
       let job = audioSurveyJob;
       if (!job) {
-        job = (await audioSurveyRepository.listJobs()).find(
-          (candidate: any) => candidate.status === "paused" || candidate.status === "ready",
-        ) ?? null;
+        job =
+          (await audioSurveyRepository.listJobs()).find(
+            (candidate: any) =>
+              candidate.status === "paused" || candidate.status === "ready",
+          ) ?? null;
       }
-      if (!job) throw new Error("There is no paused audio survey job to resume");
+      if (!job)
+        throw new Error("There is no paused audio survey job to resume");
       const runner = createAudioSurveyRunner();
       audioSurveyRunnerRef.current = runner;
       audioSurveyPhaseRef.current = null;
       void trackAudioSurveyRun(runner, job.id, job.config.sourceMode)
         .then(setAudioSurveyJob)
         .catch((error: unknown) => {
-          setAudioSurveyError(error instanceof Error ? error.message : String(error));
+          setAudioSurveyError(
+            error instanceof Error ? error.message : String(error),
+          );
         });
     } catch (error) {
-      setAudioSurveyError(error instanceof Error ? error.message : String(error));
+      setAudioSurveyError(
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }, [audioSurveyJob, createAudioSurveyRunner, trackAudioSurveyRun]);
 
@@ -1039,12 +1189,18 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             ? await audioSurveyRepository.getJob(jobId)
             : undefined;
         if (job) {
-          const stopped = { ...job, status: "stopped" as const, updatedAt: Date.now() };
+          const stopped = {
+            ...job,
+            status: "stopped" as const,
+            updatedAt: Date.now(),
+          };
           await audioSurveyRepository.saveJob(stopped);
           setAudioSurveyJob(stopped);
         }
       } catch (error) {
-        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        setAudioSurveyError(
+          error instanceof Error ? error.message : String(error),
+        );
       }
     };
     void stop();
@@ -1053,7 +1209,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const trainAudioSurveyModel = useCallback(async () => {
     const job = audioSurveyJob;
     if (!job) {
-      setAudioSurveyError("Run or resume a survey before starting local training");
+      setAudioSurveyError(
+        "Run or resume a survey before starting local training",
+      );
       return;
     }
     setAudioSurveyError(null);
@@ -1065,7 +1223,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     audioSurveyTrainerRef.current = trainer;
     const state = await trainer.start(job.id);
     setAudioSurveyTraining(state);
-    if (state.status === "failed" && state.error) setAudioSurveyError(state.error);
+    if (state.status === "failed" && state.error)
+      setAudioSurveyError(state.error);
     if (state.status === "completed") {
       const trainedArtifact = await audioSurveyRepository.getArtifact(
         `${job.id}:audio-demod-training`,
@@ -1091,7 +1250,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       );
       const candidates = await audioSurveyRepository.listCandidates(job.id);
       const relativeScore =
-        state.modelRmse !== undefined && state.dspRmse !== undefined && state.dspRmse > 0
+        state.modelRmse !== undefined &&
+        state.dspRmse !== undefined &&
+        state.dspRmse > 0
           ? Math.max(0, 1 - state.modelRmse / state.dspRmse)
           : undefined;
       audioSurveyModelPreferenceRef.current = {
@@ -1116,7 +1277,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     async (files: AudioSurveyPythonArtifactFiles) => {
       const job = audioSurveyJob;
       if (!job) {
-        throw new Error("Start or restore an audio survey before loading a Python model");
+        throw new Error(
+          "Start or restore an audio survey before loading a Python model",
+        );
       }
       setAudioSurveyError(null);
       try {
@@ -1181,7 +1344,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         playFmAudio(payload.pcmData);
       } catch (error) {
-        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        setAudioSurveyError(
+          error instanceof Error ? error.message : String(error),
+        );
       }
     },
     [playFmAudio],
@@ -1190,25 +1355,41 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const playAudioSurveyCandidate = useCallback(
     async (candidateId: string) => {
       try {
-        const candidate = audioSurveyCandidates.find((item) => item.id === candidateId) ??
+        const candidate =
+          audioSurveyCandidates.find((item) => item.id === candidateId) ??
           (audioSurveyJob
-            ? (await audioSurveyRepository.listCandidates(audioSurveyJob.id)).find(
-                (item: any) => item.id === candidateId,
-              )
+            ? (
+                await audioSurveyRepository.listCandidates(audioSurveyJob.id)
+              ).find((item: CandidateRecord) => item.id === candidateId)
             : undefined);
-        if (!candidate) throw new Error("Audio candidate was removed or is no longer available");
-        const artifacts = (await audioSurveyRepository.listArtifacts(candidate.jobId))
+        if (!candidate)
+          throw new Error(
+            "Audio candidate was removed or is no longer available",
+          );
+        const artifacts = (
+          await audioSurveyRepository.listArtifacts(candidate.jobId)
+        )
           .filter(
-            (artifact: any) =>
+            (artifact: AudioSurveyArtifact) =>
               artifact.candidateId === candidate.id &&
               artifact.kind === "event-clip",
           )
-          .sort((left: any, right: any) => right.createdAt - left.createdAt);
-        const clip = artifacts.find((artifact: any) => {
-          const payload = artifact.payload as { iqData?: unknown; pcmData?: unknown };
-          return payload.iqData instanceof Uint8Array && payload.pcmData instanceof Float32Array;
+          .sort(
+            (left: AudioSurveyArtifact, right: AudioSurveyArtifact) =>
+              right.createdAt - left.createdAt,
+          );
+        const clip = artifacts.find((artifact: AudioSurveyArtifact) => {
+          const payload = artifact.payload as {
+            iqData?: unknown;
+            pcmData?: unknown;
+          };
+          return (
+            payload.iqData instanceof Uint8Array &&
+            payload.pcmData instanceof Float32Array
+          );
         });
-        if (!clip) throw new Error("No retained candidate clip is available to play");
+        if (!clip)
+          throw new Error("No retained candidate clip is available to play");
         const payload = clip.payload as {
           iqData: Uint8Array;
           iqSampleRateHz: number;
@@ -1220,11 +1401,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           const trainedArtifact = await audioSurveyRepository.getArtifact(
             `${candidate.jobId}:audio-demod-training`,
           );
-          const trainedPayload = trainedArtifact?.payload as {
-            artifactType?: string;
-            model?: any;
-            onnxModelData?: unknown;
-          } | undefined;
+          const trainedPayload = trainedArtifact?.payload as
+            | {
+                artifactType?: string;
+                model?: any;
+                onnxModelData?: unknown;
+              }
+            | undefined;
           if (
             trainedPayload?.artifactType === "audio-survey-trained-model" &&
             trainedPayload.model
@@ -1259,10 +1442,17 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         playFmAudio(output);
       } catch (error) {
-        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        setAudioSurveyError(
+          error instanceof Error ? error.message : String(error),
+        );
       }
     },
-    [audioSurveyCandidates, audioSurveyJob, audioSurveyNeuralBackend, playFmAudio],
+    [
+      audioSurveyCandidates,
+      audioSurveyJob,
+      audioSurveyNeuralBackend,
+      playFmAudio,
+    ],
   );
 
   const recordAudioSurveyStimulusReference = useCallback(
@@ -1271,8 +1461,14 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       pcmData: Float32Array;
       pcmSampleRateHz: number;
       startedAtMs?: number;
+      liveCapture?: Promise<{
+        pcmData: Float32Array;
+        pcmSampleRateHz: number;
+      }>;
       startPlayback?: () => Promise<number> | number;
       audioSignalLabel?: AudioSurveyReferenceLabel;
+      referenceTrackId?: string;
+      referenceTrackName?: string;
       labels?: string[];
     }) => {
       const resumeRunner =
@@ -1282,6 +1478,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       const releaseActiveAcquisition = registerActiveAcquisitionOperation(
         "audio-reference-capture",
         activeSourceId,
+        { streamDeliveryPolicy: "lossless" },
       );
       let resumeAfterCapture = false;
       try {
@@ -1299,7 +1496,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         const centerFrequencyHz =
           demodState.bandwidthCenterFreqHz ??
           demodState.centerFreqHz ??
-          ((demodLiveFrequencyRange?.min ?? 0) + (demodLiveFrequencyRange?.max ?? 0)) / 2;
+          ((demodLiveFrequencyRange?.min ?? 0) +
+            (demodLiveFrequencyRange?.max ?? 0)) /
+            2;
         const channel = surveyChannels.find(
           (candidate) =>
             centerFrequencyHz >= candidate.minHz &&
@@ -1336,7 +1535,8 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         const source = createLiveAudioSurveySource({
           getSourceId: () => activeSourceId,
-          sendFrequencyRange: (range: any) => wsConnection.sendFrequencyRange(range),
+          sendFrequencyRange: (range: any) =>
+            wsConnection.sendFrequencyRange(range),
         });
         let artifact: AudioSurveyArtifact | null;
         try {
@@ -1354,6 +1554,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               source,
               channels: surveyChannels,
               repository: audioSurveyRepository,
+              ...(input.liveCapture ? { liveCapture: input.liveCapture } : {}),
               ...(input.startPlayback
                 ? { startPlayback: input.startPlayback }
                 : {}),
@@ -1363,12 +1564,16 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           source.endView?.();
         }
         if (!artifact) {
-          throw new Error("Could not collect enough timestamp-overlapping I/Q for this stimulus");
+          throw new Error(
+            "Could not collect enough timestamp-overlapping I/Q for this stimulus",
+          );
         }
         await refreshAudioSurveySnapshot(job.id, job.config.storageCapBytes);
         return artifact;
       } catch (error) {
-        setAudioSurveyError(error instanceof Error ? error.message : String(error));
+        setAudioSurveyError(
+          error instanceof Error ? error.message : String(error),
+        );
         return null;
       } finally {
         releaseActiveAcquisition();
@@ -1380,7 +1585,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           )
             .then(setAudioSurveyJob)
             .catch((error: unknown) => {
-              setAudioSurveyError(error instanceof Error ? error.message : String(error));
+              setAudioSurveyError(
+                error instanceof Error ? error.message : String(error),
+              );
             });
         }
       }
@@ -1413,9 +1620,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         setAudioSurveyStorageUsage(usage);
         const latest = jobs[0];
         if (!latest) return;
-        const restored = latest.status === "running"
-          ? { ...latest, status: "paused" as const, updatedAt: Date.now() }
-          : latest;
+        const restored =
+          latest.status === "running"
+            ? { ...latest, status: "paused" as const, updatedAt: Date.now() }
+            : latest;
         if (restored !== latest) await audioSurveyRepository.saveJob(restored);
         usage = await audioSurveyRepository.getStorageUsage(
           restored.config.storageCapBytes,
@@ -1425,7 +1633,9 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         setAudioSurveyJob(restored);
         const [candidates, trainingArtifact] = await Promise.all([
           audioSurveyRepository.listCandidates(restored.id),
-          audioSurveyRepository.getArtifact(`${restored.id}:audio-demod-training`),
+          audioSurveyRepository.getArtifact(
+            `${restored.id}:audio-demod-training`,
+          ),
         ]);
         if (cancelled) return;
         setAudioSurveyCandidates(candidates);
@@ -1600,7 +1810,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               frameCenterFrequencyHz,
             );
             void inference
-              ?.then((audioData: any) => {
+              ?.then((audioData: Float32Array) => {
                 if (active && audioData.length > 0) playFmAudio(audioData);
               })
               .catch((error: unknown) => {
@@ -1680,26 +1890,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     stopFmAudio,
   ]);
 
-  // Initialize the scanner manager with the WS sender functions
-  React.useEffect(() => {
-    scannerWorkerManager.setWSCommandSender((msg: any) => {
-      if (msg.type === "scan") {
-        sendScanCommand(msg.job_id, msg.min_freq, msg.max_freq, msg.options);
-      } else if (msg.type === "demodulate") {
-        sendDemodulateCommand(msg.job_id, msg.region);
-      }
-    });
-  }, [sendScanCommand, sendDemodulateCommand]);
-
-  // Handle incoming WS messages for the scanner
-  React.useEffect(() => {
-    // In this app, the WebSocket message handling is centralized in the middleware/store.
-    // We should ideally subscribe to the store's message stream or update scannerWorkerManager
-    // to handle results dispatched to the store.
-    // For now, if we cannot directly observe messages here, we might need to update the useSpectrumStore
-    // or adding an observer pattern.
-  }, []);
-
   // Listen for capture status changes from Redux
   const captureStatus = useAppSelector(
     (state) => state.websocket.captureStatus,
@@ -1763,100 +1953,25 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [captureStatus, analysisSession.state]);
 
-  const scanner = useFrequencyScanner({
-    windowSizeHz,
-    stepSizeHz,
-    audioThreshold,
-    sampleRate: 3200000,
-    _fftSize: 32768,
-  });
-
   useEffect(() => {
     const captureOrAnalysisActive =
       analysisSession.state === "starting" ||
       analysisSession.state === "capturing" ||
       analysisSession.state === "analyzing";
-    if (
-      !captureOrAnalysisActive ||
-      state.sourceMode !== "live" ||
-      isPaused
-    ) {
+    if (!captureOrAnalysisActive || state.sourceMode !== "live" || isPaused) {
       return;
     }
     return registerActiveAcquisitionOperation(
       "live-reference-capture",
       activeSourceId,
     );
-  }, [
-    activeSourceId,
-    analysisSession.state,
-    isPaused,
-    state.sourceMode,
-  ]);
-
-  useEffect(() => {
-    if (!scanner.isScanning || state.sourceMode !== "live" || isPaused) {
-      return;
-    }
-    return registerActiveAcquisitionOperation(
-      "live-frequency-scan",
-      activeSourceId,
-    );
-  }, [
-    activeSourceId,
-    isPaused,
-    scanner.isScanning,
-    state.sourceMode,
-  ]);
+  }, [activeSourceId, analysisSession.state, isPaused, state.sourceMode]);
 
   const audioPlayback = useAudioExtraction({
     _targetSampleRate: 48000,
     _bufferSize: 4096,
     enableFiltering: true,
   });
-
-  const channelRanges = useMemo(
-    () => ({
-      A: { min: 18_000, max: 4_370_000 },
-      B: { min: 24_720_000, max: 29_880_000 },
-    }),
-    [],
-  );
-
-  const startScan = useCallback(async () => {
-    if (!currentIQData) return;
-
-    const activeChannel = state.activeSignalArea || "A";
-    const channelRange =
-      channelRanges[activeChannel as keyof typeof channelRanges];
-    if (!channelRange) return;
-
-    const range = {
-      min: channelRange.min,
-      max: channelRange.max,
-    };
-
-    setScanRange(range);
-
-    try {
-      await scanner.scanForAudio(currentIQData, range);
-    } catch (error) {
-      console.error("Scan failed:", error);
-    } finally {
-      setScanRange(undefined);
-    }
-  }, [
-    currentIQData,
-    state.activeSignalArea,
-    channelRanges,
-    stepSizeHz,
-    scanner,
-  ]);
-
-  const stopScan = useCallback(() => {
-    scanner.stopScan();
-    setScanRange(undefined);
-  }, [scanner]);
 
   const [liveMode, setLiveMode] = useState(false);
 
@@ -1937,7 +2052,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
         sourceId: activeSourceId ?? undefined,
         fragments, // current range
         durationMode: durationS ? "timed" : "manual",
-        durationS: durationS,
+        durationS: durationS || undefined,
         fileType: ".napt",
         acquisitionMode: "whole_sample",
         encrypted: true,
@@ -1954,16 +2069,17 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           .slice(0, 32),
       });
 
-      // Transition to analyzing after the requested capture duration
-      progressTimerRef.current = setTimeout(
-        () => {
-          setAnalysisSession((prev) => ({
-            ...prev,
-            state: "analyzing",
-          }));
-        },
-        durationS * 1000 + 500,
-      ); // Dynamic capture duration + 0.5s margin
+      if (durationS > 0) {
+        progressTimerRef.current = setTimeout(
+          () => {
+            setAnalysisSession((prev) => ({
+              ...prev,
+              state: "analyzing",
+            }));
+          },
+          durationS * 1000 + 500,
+        ); // Dynamic capture duration + 0.5s margin
+      }
       return jobId;
     },
     [
@@ -1979,18 +2095,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const value = useMemo(
     () => ({
-      windowSizeHz,
-      setWindowSizeHz,
-      stepSizeHz,
-      setStepSizeHz,
-      audioThreshold,
-      setAudioThreshold,
-      scanner,
       audioPlayback,
-      currentIQData,
-      setCurrentIQData,
-      currentFreq: scanner.currentFreq,
-      scanRange,
       analysisSession,
       demodQualityStatus,
       setDemodQualityStatus,
@@ -2022,8 +2127,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       playAudioSurveyArtifact,
       playAudioSurveyCandidate,
       recordAudioSurveyStimulusReference,
-      startScan,
-      stopScan,
       selectedAlgorithm,
       setSelectedAlgorithm,
       nodes,
@@ -2040,13 +2143,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       detectNaptSpikes: aptAudioDemod.detectSpikes,
     }),
     [
-      windowSizeHz,
-      stepSizeHz,
-      audioThreshold,
-      scanner,
       audioPlayback,
-      currentIQData,
-      scanRange,
       analysisSession,
       demodQualityStatus,
       selectedBaseline,
@@ -2073,8 +2170,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       playAudioSurveyArtifact,
       playAudioSurveyCandidate,
       recordAudioSurveyStimulusReference,
-      startScan,
-      stopScan,
       selectedAlgorithm,
       nodes,
       edges,

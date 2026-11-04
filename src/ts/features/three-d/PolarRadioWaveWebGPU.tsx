@@ -12,8 +12,9 @@ interface PolarRadioWaveWebGPUProps {
   beamWidth?: number;
   rotation?: number;
   gain?: number;
-  frequency?: number;
+  frequency?: number; // MHz
   active?: boolean;
+  useLevaControls?: boolean;
 }
 
 const Container = styled.div`
@@ -241,11 +242,12 @@ const PolarGrid3D: React.FC<{ aperture: number }> = ({ aperture }) => {
 const MetricsOverlay = styled.div`
   position: absolute;
   top: 50%;
-  right: 40px;
+  left: 12px;
+  right: 12px;
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   pointer-events: none;
   text-align: right;
   align-items: flex-end;
@@ -254,30 +256,50 @@ const MetricsOverlay = styled.div`
 
 const MetricItem = styled.div`
   font-family: "JetBrains Mono", monospace;
-  font-size: 16px;
-  color: #888;
+  font-size: clamp(11px, 1.15vw, 14px);
+  color: #c5c7cf;
   display: flex;
-  gap: 10px;
+  gap: 6px;
   align-items: center;
+  white-space: nowrap;
 `;
 
 const MetricValue = styled.span`
-  color: #ac77ff;
+  color: #d7b5ff;
   font-weight: 500;
 `;
 
 const MathText = styled.span`
   font-family: serif;
   font-style: italic;
-  font-size: 18px;
-  margin-right: 2px;
+  font-size: 16px;
 `;
 
 const formatDistance = (mm: number) => {
   if (mm >= 1000000) return `${(mm / 1000000).toFixed(2)} km`;
   if (mm >= 1000) return `${(mm / 1000).toFixed(2)} m`;
+  if (mm < 0.01) return `${(mm * 1000).toFixed(2)} µm`;
+  if (mm < 1) return `${mm.toFixed(2)} mm`;
+  if (mm < 10) return `${mm.toFixed(1)} mm`;
   return `${mm.toFixed(0)} mm`;
 };
+
+const EmissionHudLabel = styled.div`
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 11;
+  padding: 5px 8px;
+  border: 1px solid rgba(215, 181, 255, 0.22);
+  border-radius: 4px;
+  background: rgba(10, 10, 12, 0.82);
+  color: #d8c3ef;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  white-space: nowrap;
+`;
 
 export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
   aperture: propAperture = 40,
@@ -286,14 +308,9 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
   frequency: propFrequency = 1.5,
   gain: propGain = 43,
   active = true,
+  useLevaControls = true,
 }) => {
-  const {
-    frequency: frequencyHz,
-    aperture,
-    power,
-    beamWidth,
-    rotation,
-  } = useControls("Polar Radiation Setup", {
+  const levaValues = useControls("Polar Radiation Setup", {
     frequency: levaFrequency(propFrequency ? propFrequency * 1e6 : 1_500_000),
     aperture: { value: propAperture, min: 1, max: 200, step: 1, suffix: "m" },
     power: { value: propGain, min: -20, max: 60, step: 1, suffix: "dBm" },
@@ -301,11 +318,19 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
     rotation: { value: propRotation, min: 0, max: 360, step: 1 },
   });
 
-  const frequency = (frequencyHz as any) / 1e6;
-  const numAperture = parseFloat(aperture as any) || 40;
-  const numPower = parseFloat(power as any) || 43;
+  const frequencyHz = useLevaControls
+    ? Number(levaValues.frequency)
+    : propFrequency * 1e6;
+  const frequencyMHz = frequencyHz / 1e6;
+  const aperture = useLevaControls ? levaValues.aperture : propAperture;
+  const power = useLevaControls ? levaValues.power : propGain;
+  const beamWidth = useLevaControls ? levaValues.beamWidth : propBeamWidth;
+  const rotation = useLevaControls ? levaValues.rotation : propRotation;
+  const numAperture = Number.parseFloat(String(aperture)) || propAperture;
+  const numPower = Number.parseFloat(String(power)) || propGain;
 
-  const wavelengthMm = 300000 / (frequency || 1.5);
+  const wavelengthMm =
+    frequencyHz > 0 ? (299_792_458 / frequencyHz) * 1000 : 0;
 
   return (
     <Container>
@@ -329,7 +354,7 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
             aperture={numAperture}
             beamWidth={beamWidth}
             rotation={rotation}
-            frequency={frequency}
+            frequency={frequencyMHz}
             power={numPower}
             active={active}
           />
@@ -339,7 +364,7 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
           <MetricItem>
             <MathText>ƒ</MathText> (Frequency):{" "}
             <MetricValue>
-              {formatFrequency(frequency * 1_000_000, { precisionMHz: 3 })}
+              {formatFrequency(frequencyHz, { precisionMHz: 3 })}
             </MetricValue>
           </MetricItem>
           <MetricItem>
@@ -360,20 +385,7 @@ export const PolarRadioWaveWebGPU: React.FC<PolarRadioWaveWebGPUProps> = ({
           </MetricItem>
         </MetricsOverlay>
 
-        <div
-          style={{
-            position: "absolute",
-            top: "12px",
-            left: "15px",
-            fontSize: "10px",
-            color: "#aaa",
-            fontFamily: "JetBrains Mono, monospace",
-            letterSpacing: "1px",
-            opacity: 0.6,
-          }}
-        >
-          REAL-TIME EMISSION HUD
-        </div>
+        <EmissionHudLabel>REAL-TIME EMISSION HUD</EmissionHudLabel>
       </ContentWrapper>
     </Container>
   );

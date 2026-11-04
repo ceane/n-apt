@@ -70,6 +70,7 @@ const CanvasWrapper = styled.div`
   border-radius: 8px;
   overflow: hidden;
   background-color: ${(props) => props.theme.background};
+  isolation: isolate;
 `;
 
 const CanvasLayer = styled.canvas`
@@ -161,7 +162,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
   ]);
   const waterfallGpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const waterfallOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const clearCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+  const clearGpuCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     if (!canvas) return;
     const width = canvas.width;
     const height = canvas.height;
@@ -173,10 +174,15 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     const ctx = canvas.getContext("2d");
     ctx?.clearRect(0, 0, canvas.width, canvas.height);
   }, []);
+  const clearOverlayCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx?.clearRect(0, 0, canvas.width, canvas.height);
+  }, []);
   const clearWaterfallCanvases = useCallback(() => {
-    clearCanvas(waterfallGpuCanvasRef.current);
-    clearCanvas(waterfallOverlayCanvasRef.current);
-  }, [clearCanvas]);
+    clearGpuCanvas(waterfallGpuCanvasRef.current);
+    clearOverlayCanvas(waterfallOverlayCanvasRef.current);
+  }, [clearGpuCanvas, clearOverlayCanvas]);
   const handleWaterfallGpuCanvasNode = useCallback(
     (node: HTMLCanvasElement | null) => {
       waterfallGpuCanvasRef.current = node;
@@ -207,9 +213,7 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
     <Suspense fallback={<div>Loading waterfall…</div>}>
       <WaterfallSection>
         <SectionTitleRow>
-          <SectionTitle>
-            Waterfall Display
-          </SectionTitle>
+          <SectionTitle>Waterfall Display</SectionTitle>
           {headerActionContent && (
             <SectionTitleActions data-disabled={!!placeholderState}>
               {headerActionContent}
@@ -221,10 +225,13 @@ const FIFOWaterfallCanvas: FC<FIFOWaterfallCanvasProps> = ({
           <CanvasLayer
             ref={handleWaterfallGpuCanvasNode}
             id="fft-waterfall-canvas-webgpu"
+            style={{ zIndex: 1 }}
           />
           <CanvasLayer
             ref={handleWaterfallOverlayCanvasNode}
             id="fft-waterfall-canvas-overlay"
+            data-testid="fft-waterfall-pattern-overlay"
+            style={{ mixBlendMode: "difference", zIndex: 2 }}
           />
         </CanvasWrapper>
       </WaterfallSection>

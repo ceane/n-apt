@@ -106,9 +106,7 @@ describe("spectrum selector migration boundary", () => {
 
     expect(selectSourceTransportSnapshot(state)).toEqual({
       sourceStatuses: state.websocket.sourceStatuses,
-      sourceTransport: state.websocket.sourceTransport,
       sourceTransportByMode: state.websocket.sourceTransportByMode,
-      sourceFrameReadiness: state.websocket.sourceFrameReadiness,
       sourceFrameReadinessByMode: state.websocket.sourceFrameReadinessByMode,
     });
   });

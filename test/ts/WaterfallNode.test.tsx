@@ -36,7 +36,13 @@ const theme = buildAppTheme({
 });
 
 const mockReduxState = {
-  websocket: { activeSourceId: "test-source", dataFrameCounter: 1 },
+  websocket: {
+    activeSourceId: "test-source",
+    dataFrameCounter: 1,
+    sources: [] as any[],
+  },
+  waterfall: { sourceMode: "live" },
+  theme: { patternOverNonHardwareSources: true },
   spectrum: { fftMinDb: -120, fftMaxDb: 0 },
   settings: { mirrorIqBasebandBelowZero: false },
 };
@@ -59,27 +65,45 @@ jest.mock("@n-apt/redux", () => ({
   }),
 }));
 
-jest.mock("@n-apt/redux/middleware/websocketMiddleware", () => {
-  const sourceListeners = new Set<() => void>();
-  const liveDataRef = {
-    current: {
+jest.mock(
+  "@n-apt/app/infrastructure/streams/sourcePresentationController",
+  () => {
+    const actual = jest.requireActual(
+      "@n-apt/app/infrastructure/streams/sourcePresentationController",
+    );
+    const presentationController = actual.createSourcePresentationController();
+    const liveFrame = {
+      source_id: "test-source",
+      protocol_version: 2,
+      stream_epoch: 1,
+      sequence: 1,
+      frame_status: "receiving",
       center_frequency_hz: 2_204_000,
       sample_rate: 4_372_000,
       iq_data: new Uint8Array([128, 128, 129, 127]),
-    },
-  };
+    };
+    presentationController.selectSource("test-source", "rx");
+    presentationController.commitActiveSource("test-source");
+    presentationController.acceptFrame(liveFrame, "rx");
+    return { ...actual, presentationController };
+  },
+);
+
+jest.mock("@n-apt/redux/middleware/websocketMiddleware", () => {
+  const { presentationController } = jest.requireMock(
+    "@n-apt/app/infrastructure/streams/sourcePresentationController",
+  );
+  const liveFrame = presentationController.getSlot("test-source", "rx")
+    .liveFrameRef.current;
   return {
-    liveDataRef,
-    sourceVisualizationRuntime: {
-      getSourceRef: jest.fn(() => liveDataRef),
-      subscribe: jest.fn((_sourceId: string, listener: () => void) => {
-        sourceListeners.add(listener);
-        return () => sourceListeners.delete(listener);
-      }),
-    },
-    __emitSourceFrame: () => {
-      for (const listener of sourceListeners) listener();
-    },
+    presentationController,
+    __testLiveFrame: liveFrame,
+    __emitSourceFrame: () =>
+      jest
+        .requireActual(
+          "@n-apt/app/infrastructure/visualization/frameArrivalRuntime",
+        )
+        .notifyFrameArrival(),
   };
 });
 
@@ -97,6 +121,7 @@ jest.mock("@n-apt/spectrum/FIFOWaterfall", () => ({
   FIFOWaterfall: (props: {
     fftMin: number;
     fftMax: number;
+    nonHardwareSourcePattern?: boolean;
     historyZoom?: number;
     historyPan?: number;
     waterfallHistoryFill?: "accretive" | "immutable";
@@ -115,6 +140,7 @@ jest.mock("@n-apt/spectrum/FIFOWaterfall", () => ({
         data-testid="waterfall-canvas"
         data-fft-min={props.fftMin}
         data-fft-max={props.fftMax}
+        data-pattern={props.nonHardwareSourcePattern ? "enabled" : "disabled"}
         data-history-zoom={props.historyZoom}
         data-history-pan={props.historyPan}
         data-history-fill={props.waterfallHistoryFill}
@@ -153,6 +179,51 @@ jest.mock("@n-apt/spectrum/VisualizerSliders", () => ({
 }));
 
 describe("WaterfallNode", () => {
+  beforeEach(() => {
+    mockReduxState.websocket.sources = [];
+    mockReduxState.waterfall.sourceMode = "live";
+    mockReduxState.theme.patternOverNonHardwareSources = true;
+  });
+
+  it("patterns the demod waterfall for a mock source", () => {
+    mockReduxState.websocket.sources = [
+      {
+        id: "test-source",
+        name: "Mock APT SDR",
+        kind: "mock_apt",
+        capability: "rx",
+        status: "connected",
+        sdr: {
+          max_sample_rate: 3_200_000,
+          sample_rate_options: [],
+          settings: { sample_rate: 3_200_000 },
+        },
+        capabilities: { fft: { sizes: [] } },
+      } as any,
+    ];
+
+    render(
+      <ThemeProvider theme={theme}>
+        <WaterfallNode
+          id="waterfall"
+          type="waterfall"
+          selected={false}
+          dragging={false}
+          zIndex={0}
+          isConnectable
+          positionAbsoluteX={0}
+          positionAbsoluteY={0}
+          data={{ label: "Waterfall", waterfallOptions: true }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("waterfall-canvas")).toHaveAttribute(
+      "data-pattern",
+      "enabled",
+    );
+  });
+
   it("keeps React Flow from consuming wheel panning over the analysis viewport", () => {
     render(
       <ThemeProvider theme={theme}>
@@ -529,10 +600,16 @@ describe("WaterfallNode", () => {
   });
 
   it("uses compact right-side sliders instead of bottom dB knobs", () => {
-    render(<WaterfallNode data={{ label: "Waterfall", waterfallOptions: true }} />);
+    render(
+      <WaterfallNode data={{ label: "Waterfall", waterfallOptions: true }} />,
+    );
 
-    expect(screen.getByTestId("waterfall-compact-controls")).toBeInTheDocument();
-    expect(screen.queryByTestId("waterfall-db-controls")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("waterfall-compact-controls"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("waterfall-db-controls"),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
   });
 
@@ -755,15 +832,13 @@ describe("WaterfallNode", () => {
   });
 
   it("processes a new row when a reused live frame receives new IQ data", () => {
-    const { liveDataRef } = jest.requireMock(
+    const { __testLiveFrame: liveFrame } = jest.requireMock(
       "@n-apt/redux/middleware/websocketMiddleware",
     ) as {
-      liveDataRef: {
-        current: {
-          center_frequency_hz: number;
-          sample_rate: number;
-          iq_data: Uint8Array;
-        };
+      __testLiveFrame: {
+        center_frequency_hz: number;
+        sample_rate: number;
+        iq_data: Uint8Array;
       };
     };
     const { __mockProcessIqToDbmSpectrum: processSpectrum } = jest.requireMock(
@@ -778,12 +853,12 @@ describe("WaterfallNode", () => {
     );
     expect(processSpectrum).toHaveBeenCalledTimes(1);
     expect(processSpectrum).toHaveBeenLastCalledWith(
-      liveDataRef.current.iq_data,
+      liveFrame.iq_data,
       0,
       4096,
     );
 
-    liveDataRef.current.iq_data = new Uint8Array([140, 120, 141, 119]);
+    liveFrame.iq_data = new Uint8Array([140, 120, 141, 119]);
     const { __emitSourceFrame: emitSourceFrame } = jest.requireMock(
       "@n-apt/redux/middleware/websocketMiddleware",
     ) as { __emitSourceFrame: () => void };
@@ -793,15 +868,13 @@ describe("WaterfallNode", () => {
   });
 
   it("processes a new row when the stream mutates a reused IQ buffer", () => {
-    const { liveDataRef } = jest.requireMock(
+    const { __testLiveFrame: liveFrame } = jest.requireMock(
       "@n-apt/redux/middleware/websocketMiddleware",
     ) as {
-      liveDataRef: {
-        current: {
-          center_frequency_hz: number;
-          sample_rate: number;
-          iq_data: Uint8Array;
-        };
+      __testLiveFrame: {
+        center_frequency_hz: number;
+        sample_rate: number;
+        iq_data: Uint8Array;
       };
     };
     const { __mockProcessIqToDbmSpectrum: processSpectrum } = jest.requireMock(
@@ -816,7 +889,7 @@ describe("WaterfallNode", () => {
     );
     expect(processSpectrum).toHaveBeenCalledTimes(1);
 
-    liveDataRef.current.iq_data[0] = 150;
+    liveFrame.iq_data[0] = 150;
     const { __emitSourceFrame: emitSourceFrame } = jest.requireMock(
       "@n-apt/redux/middleware/websocketMiddleware",
     ) as { __emitSourceFrame: () => void };
@@ -835,9 +908,11 @@ describe("WaterfallNode", () => {
     const controls = screen.getByTestId("waterfall-compact-controls");
     const waterfall = screen.getByTestId("waterfall-canvas");
     expect(controls).toHaveClass("nodrag", "nopan");
-    expect(waterfall.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      waterfall.compareDocumentPosition(controls) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByText("Min dB")).toBeInTheDocument();
     expect(screen.getByText("Max dB")).toBeInTheDocument();
-
   });
 });

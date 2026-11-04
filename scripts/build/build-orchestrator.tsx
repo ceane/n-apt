@@ -190,6 +190,7 @@ interface BuildState {
   rustPid?: number;
   redisPid?: number;
   proxyPid?: number;
+  encryptedModulesPid?: number;
   rustCandidatePid?: number;
   warningCount: number;
   errorDetails: string[];
@@ -440,12 +441,14 @@ const BuildOrchestrator = () => {
       { name: 'Building N-APT Encrypted Modules', status: 'pending' },
       { name: 'Building and starting Rust backend', status: 'pending' },
       { name: 'Starting frontend server', status: 'pending' },
+      { name: 'Watching encrypted module source', status: 'pending' },
     ],
     currentStep: 0,
     isBuilding: false,
     errorCount: 0,
     startTime: 0,
     vitePid: undefined,
+    encryptedModulesPid: undefined,
     rustPid: undefined,
     redisPid: undefined,
     warningCount: 0,
@@ -481,6 +484,9 @@ const BuildOrchestrator = () => {
     if (!trimmed) return;
     setBuildState(prev => {
       const normalized = trimmed.startsWith('error:') ? trimmed : `error: ${trimmed}`;
+      // Hot reload can retry while files are still changing. Keep the error
+      // panel useful by recording the same compiler summary only once.
+      if (prev.errorDetails.includes(normalized)) return prev;
       const errorDetails = [...prev.errorDetails, normalized].slice(-6);
       return { ...prev, errorDetails, errorCount: errorDetails.length };
     });
@@ -504,8 +510,8 @@ const BuildOrchestrator = () => {
         .map(line => line.trim())
         .filter(line => /^warning:/i.test(line));
       const detailsToAdd = warningLines.length > 0 ? warningLines : [trimmed];
-      const warningDetails = [...prev.warningDetails, ...detailsToAdd].slice(-6);
-      return { ...prev, warningDetails, warningCount: prev.warningCount + detailsToAdd.length };
+      const warningDetails = [...new Set([...prev.warningDetails, ...detailsToAdd])].slice(-6);
+      return { ...prev, warningDetails, warningCount: warningDetails.length };
     });
   }, []);
 
@@ -651,6 +657,9 @@ const BuildOrchestrator = () => {
           }
 
           if (code === 0) {
+            if (description === 'Building Rust backend') {
+              clearErrorDetails('Building Rust backend:');
+            }
             if (stdout.trim()) {
               addLog(chalk.green(stdout.trim()));
             }
@@ -815,12 +824,13 @@ const BuildOrchestrator = () => {
           // If it's a compilation error, make it obvious
           let summary = errorMessage;
           if (errorMessage.toLowerCase().includes('error: could not compile') || errorMessage.toLowerCase().includes('error[')) {
-            summary = 'Rust compilation FAILED. Check the build output above for details.';
+            summary = summarizeRustBuildFailure(errorMessage)
+              || 'Rust compilation failed; see the build output above for details.';
           } else if (summary.length > 200) {
             summary = `${summary.slice(0, 197)}...`;
           }
           appendErrorDetail(`${description}: ${summary}`);
-          resolve({ success: false, output: stdout });
+          resolve({ success: false, output: errorMessage });
         });
 
         child.on('error', (error: any) => {
@@ -829,19 +839,19 @@ const BuildOrchestrator = () => {
           setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
           addLog(chalk.red(`Error in ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
-          resolve({ success: false, output: '' });
+          resolve({ success: false, output: error.message });
         });
 
       } catch (error: any) {
         setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
         addLog(chalk.red(`Error in ${description}: ${error.message}`));
         appendErrorDetail(`${description}: ${error.message}`);
-        resolve({ success: false, output: '' });
+        resolve({ success: false, output: error.message });
       }
     });
-  }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus, writeRebuildStatus]);
+  }, [addLog, appendErrorDetail, appendBuildOutput, updateProcessStatus, writeRebuildStatus, clearErrorDetails]);
 
-  const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid' | 'proxyPid' | 'rustCandidatePid'): Promise<boolean> => {
+  const startBackgroundProcess = useCallback((command: BackgroundCommand, description: string, pidKey: 'vitePid' | 'rustPid' | 'redisPid' | 'proxyPid' | 'rustCandidatePid' | 'encryptedModulesPid'): Promise<boolean> => {
     const displayCommand = describeBackgroundCommand(command);
     const isRustBackendBinary =
       pidKey === 'rustPid' &&
@@ -936,6 +946,10 @@ const BuildOrchestrator = () => {
           }
 
           if (pidKey === 'rustCandidatePid') {
+            // Once promoted, the candidate's exit listener is still attached
+            // to the same child. Treat its later lifecycle events as the
+            // active backend, not as a failed replacement.
+            if (rustPidRef.current === child.pid) return;
             if (intentionalRustCandidateKillRef.current) {
               intentionalRustCandidateKillRef.current = false;
               return;
@@ -1408,6 +1422,7 @@ exit 0
         index: 6,
         command: isNativeWindows ? 'echo Encrypted module decrypt step is not supported in this Windows shell path.' : `
 set -euo pipefail
+node scripts/build/encryptedModulesSync.mjs
 npm run decrypt-modules-if-needed
 echo "${encryptedModulesStatus.success}"
 `,
@@ -1434,6 +1449,15 @@ echo "${encryptedModulesStatus.success}"
         isBackground: true,
         pidKey: 'vitePid' as const,
         showOutput: false,
+      },
+      {
+        index: 9,
+        command: isNativeWindows
+          ? 'echo Encrypted module source watcher is not supported in this Windows shell path.'
+          : { executable: process.execPath, args: [path.resolve('scripts/build/encryptedModulesSync.mjs'), '--watch'] },
+        description: 'Watching encrypted module source',
+        isBackground: true,
+        pidKey: 'encryptedModulesPid' as const,
       },
     ];
 
@@ -1493,6 +1517,8 @@ echo "${encryptedModulesStatus.success}"
             metalBackendStatusRef.current ?? undefined,
             getCompletedStepLabel(step.description),
           );
+        } else if (step.index === 9) {
+          updateProcessStatus(step.index, 'success', undefined, 'Watching encrypted module source.');
         } else if (step.index === 6 && commandOutput.includes(encryptedModulesStatus.warning)) {
           updateProcessStatus(step.index, 'warning', encryptedModulesStatus.warning, stepLabel);
           appendWarningDetail('N-APT Encrypted Modules not available');
@@ -2557,7 +2583,9 @@ node scripts/redis/promote_tower_staging.cjs`,
       index: 6,
       description: 'Building N-APT Encrypted Modules',
       run: () => executeCommandNonTty(
-        isNativeWindows ? 'echo Encrypted modules skipped' : 'npm run decrypt-modules-if-needed',
+        isNativeWindows
+          ? 'echo Encrypted modules skipped'
+          : 'node scripts/build/encryptedModulesSync.mjs && npm run decrypt-modules-if-needed',
         'Building N-APT Encrypted Modules'
       )
     },
@@ -2612,7 +2640,17 @@ node scripts/redis/promote_tower_staging.cjs`,
           'Starting frontend server'
         );
       }
-    }
+    },
+    {
+      index: 9,
+      description: 'Watching encrypted module source',
+      run: () => startBackgroundProcessNonTty(
+        isNativeWindows
+          ? 'echo Encrypted module source watcher is not supported in this Windows shell path.'
+          : { executable: process.execPath, args: [path.resolve('scripts/build/encryptedModulesSync.mjs'), '--watch'] },
+        'Watching encrypted module source'
+      )
+    },
   ];
 
   let failedComponents: string[] = [];

@@ -1,4 +1,4 @@
-import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import type { IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 import { evaluateSequenceStep } from "@n-apt/math/sequenceStep";
 import {
   STREAM_CONTROL_CONTRACT,
@@ -18,10 +18,26 @@ export type RxStreamOptions = {
   mode: "rx";
   centerFrequencyHz: number;
   sampleRateHz: number;
+  /** Device acquisition window selected by the tuning client, when explicit. */
+  minFrequencyHz?: number;
+  maxFrequencyHz?: number;
+  signalArea?: string;
+  originId?: string;
   fftSize: number;
   fftWindow?: string;
   frameRate?: number;
+  maxFrameRate?: number;
   gain?: number;
+  hackrfLnaGain?: number;
+  hackrfVgaGain?: number;
+  hackrfAmpEnable?: boolean;
+  ppm?: number;
+  tunerAgc?: boolean;
+  rtlAgc?: boolean;
+  offsetTuning?: boolean;
+  directSampling?: number;
+  tunerBandwidth?: number;
+  mirrorSpectrumBelowZero?: boolean;
 };
 
 export type TxStreamOptions = {
@@ -50,7 +66,9 @@ export type StreamFrame = {
   centerFrequencyHz?: number;
   sampleRateHz: number;
   iqData: Uint8Array;
-  frame: IqRawFrame;
+  /** Set only for the subscriber that armed a one-shot frame request. */
+  oneShot?: boolean;
+  frame: IqRawFrameV2;
 };
 
 export type StreamStateEvent = {
@@ -252,12 +270,16 @@ export const createSourceModeStreamManager = ({
 
   const notify = (entry: StreamEntry, event: StreamEvent): void => {
     for (const subscriber of entry.subscribers.values()) {
+      let subscriberEvent = event;
       if (event.type === "stream_frame") {
         const requestedWhilePaused = subscriber.pendingFrameRequest;
         subscriber.pendingFrameRequest = false;
         if (subscriber.paused && !requestedWhilePaused) continue;
+        if (requestedWhilePaused) {
+          subscriberEvent = { ...event, oneShot: true };
+        }
       }
-      subscriber.handler(event);
+      subscriber.handler(subscriberEvent);
     }
   };
 

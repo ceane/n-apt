@@ -16,6 +16,7 @@ import {
 import { ensureMlBundle, ML_REQUIRED_FILES } from "./mlRuntime";
 
 const ROOT = path.resolve(process.env.NAPT_ENCRYPTED_MODULE_ROOT || process.cwd());
+const SCRIPT_ROOT = path.resolve(process.env.NAPT_ENCRYPTED_MODULE_BRANCH_ROOT || process.cwd());
 const BUNDLE_DIR = "src/encrypted-modules";
 
 type ModuleTarget = {
@@ -43,7 +44,7 @@ const MODULES: ModuleTarget[] = [
   },
   {
     label: "ML modules",
-    password: "latex",
+    password: "demod",
     bundle: `${BUNDLE_DIR}/ml.bundle.enc`,
     source: `${BUNDLE_DIR}/tmp/ml`,
     requiredFiles: [...ML_REQUIRED_FILES],
@@ -79,7 +80,7 @@ function getPasswords(): { latex?: string; demod?: string } {
 
 function getCurrentBranch(): string | null {
   try {
-    return execSync("git branch --show-current", { cwd: ROOT, encoding: "utf8" }).trim();
+    return execSync("git branch --show-current", { cwd: SCRIPT_ROOT, encoding: "utf8" }).trim();
   } catch {
     return null;
   }
@@ -262,7 +263,7 @@ async function main(argv: string[]): Promise<number> {
     if (requireMl || mode === "decrypt") throw new Error(message);
     console.warn(`⚠ [unavailable] ${message}; development surfaces will use their retryable fallback.`);
   } else if (!mlPassword) {
-    const message = "UNSAFE_LOCAL_LATEX_PASSWORD is required to load encrypted ML modules";
+    const message = "UNSAFE_LOCAL_DEMOD_PASSWORD is required to load encrypted ML modules";
     if (requireMl || mode === "decrypt") throw new Error(message);
     console.warn(`⚠ [unavailable] ${message}; development surfaces will use their retryable fallback.`);
   } else {

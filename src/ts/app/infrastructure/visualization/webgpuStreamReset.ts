@@ -1,4 +1,4 @@
-import { presentationController } from "@n-apt/redux/middleware/websocketMiddleware";
+import { presentationController } from "@n-apt/app/infrastructure/streams/sourcePresentationController";
 
 export type WebGpuStreamIdentity = {
   sourceId: string | null;
@@ -43,8 +43,7 @@ export const shouldAcceptWebGpuStreamFrame = ({
  */
 export const shouldClearWebGpuForPlaceholder = (
   kind: string | null | undefined,
-): boolean =>
-  kind === "error" || kind === "disconnected";
+): boolean => kind === "error" || kind === "disconnected";
 
 /**
  * Resolves when a deferred source-boundary GPU reset may be committed.
@@ -215,8 +214,11 @@ export const getWebGpuStreamResetKey = ({
  * boundaries. Only the reset epoch drives the key: selection and same-source
  * reconnect boundaries advance the epoch, so the epoch alone is sufficient.
  */
-export const getVisualizerLifecycleKey = ({ epoch }: { epoch: number }): string =>
-  `live:${epoch}`;
+export const getVisualizerLifecycleKey = ({
+  epoch,
+}: {
+  epoch: number;
+}): string => `live:${epoch}`;
 
 const RESET_STATUSES = new Set(["loading", "stale", "disconnected"]);
 

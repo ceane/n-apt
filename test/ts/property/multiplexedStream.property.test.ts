@@ -35,11 +35,11 @@ describe("multiplexed stream makeFrame fuzz", () => {
   });
   afterEach(() => jest.clearAllMocks());
 
-  it("makeFrame never rejects on garbage numeric fields and never produces NaN/Infinity", async () => {
+  it("makeFrame normalizes garbage optional numeric fields without producing NaN/Infinity", async () => {
     await fc.assert(
       fc.asyncProperty(
-        ANY_NUMBERISH,
-        ANY_NUMBERISH,
+        fc.integer({ min: 0, max: 1_000_000 }),
+        fc.integer({ min: 0, max: 1_000_000 }),
         ANY_NUMBERISH,
         ANY_NUMBERISH,
         fc.string({ maxLength: 40 }),
@@ -80,6 +80,8 @@ describe("multiplexed stream makeFrame fuzz", () => {
           const msg: Record<string, unknown> = {
             sourceId: "src",
             mode: "tx",
+            sequence: 0,
+            streamEpoch: 0,
             centerFrequencyHz: cf,
             sampleRateHz: sr,
           };

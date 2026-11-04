@@ -194,7 +194,6 @@ export const SourceStatusSchema = z.enum([
   "streaming",
 ]);
 
-export const DeviceDuplexModeSchema = z.enum(["half_duplex"]);
 
 export const SourceSdrSettingsSchema = z.object({
   fft_size: z.number().optional(),
@@ -254,9 +253,6 @@ export const SourceInfoSchema = z.object({
   capabilities: SourceCapabilitiesSchema.optional(),
   stream_key: z.string().optional(),
   stream_key_kind: z.enum(["serial", "source_id"]).optional(),
-  iq_stream_protocols: z
-    .array(z.union([z.literal(1), z.literal(2)]))
-    .optional(),
   stream_epoch: z.number().int().nonnegative().optional(),
   sdr: z.object({
     max_sample_rate: z.number(),
@@ -524,45 +520,6 @@ export const EnhancedCaptureRequestSchema = CaptureRequestSchema.extend({
 export const WebSocketMessageSchema = z.union([
   TxSafetyResultSchema,
   z.object({
-    type: z.literal("frequency_range"),
-    scope: z.literal("device").optional(),
-    min_hz: z.number().int(),
-    max_hz: z.number().int(),
-    center_frequency: z.number().int().optional(),
-    bandwidth_center_frequency: z.number().int().optional(),
-    signal_area: z.string().optional(),
-    display_min_hz: z.number().int().optional(),
-    display_max_hz: z.number().int().optional(),
-    display_pan_hz: z.number().int().optional(),
-    display_zoom: z.number().positive().optional(),
-    display_crosses_dc: z.boolean().optional(),
-    display_direction_negative: z.boolean().optional(),
-    mirror_spectrum_below_zero: z.boolean().optional(),
-  }),
-  z.object({
-    type: z.literal("set_frequency_range"),
-    scope: z.literal("device").optional(),
-    min_hz: z.number().int(),
-    max_hz: z.number().int(),
-    center_frequency: z.number().int().optional(),
-    bandwidth_center_frequency: z.number().int().optional(),
-    signal_area: z.string().optional(),
-    display_min_hz: z.number().int().optional(),
-    display_max_hz: z.number().int().optional(),
-    display_pan_hz: z.number().int().optional(),
-    display_zoom: z.number().positive().optional(),
-    display_crosses_dc: z.boolean().optional(),
-    display_direction_negative: z.boolean().optional(),
-    mirror_spectrum_below_zero: z.boolean().optional(),
-  }),
-  z.object({
-    type: z.literal("pause"),
-    scope: z.literal("subscriber").optional(),
-    paused: z.boolean(),
-    source_id: z.string(),
-    duplex_mode: DeviceDuplexModeSchema.optional(),
-  }),
-  z.object({
     type: z.literal("status"),
     scope: z.literal("device").optional(),
     status: z.enum(["standby", "transmitting"]),
@@ -590,16 +547,6 @@ export const WebSocketMessageSchema = z.union([
     txHopRateHz: z.number().optional(),
   }),
   z.object({
-    type: z.literal("gain"),
-    scope: z.literal("device").optional(),
-    gain: z.number(),
-  }),
-  z.object({
-    type: z.literal("ppm"),
-    scope: z.literal("device").optional(),
-    ppm: z.number().int().nonnegative(),
-  }),
-  z.object({
     type: z.literal("signal_display_settings"),
     source_id: z.string(),
     fft_size: z.number(),
@@ -613,23 +560,6 @@ export const WebSocketMessageSchema = z.union([
     ppm: z.number().nullable().optional(),
     tuner_agc: z.boolean().nullable().optional(),
     rtl_agc: z.boolean().nullable().optional(),
-  }),
-  z.object({
-    type: z.literal("settings"),
-    scope: z.literal("device").optional(),
-    fftSize: z.number().optional(),
-    fftWindow: z.string().optional(),
-    frameRate: z.number().optional(),
-    maxFrameRate: z.number().positive().optional(),
-    gain: z.number().optional(),
-    hackrfLnaGain: z.number().min(0).max(49.6).optional(),
-    hackrfVgaGain: z.number().min(0).max(62).optional(),
-    hackrfAmpEnabled: z.boolean().optional(),
-    tunerBandwidth: z.number().min(0).max(20_000_000).optional(),
-    ppm: z.number().int().nonnegative().optional(),
-    tunerAGC: z.boolean().optional(),
-    rtlAGC: z.boolean().optional(),
-    mirrorSpectrumBelowZero: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("restart_device"),

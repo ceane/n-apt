@@ -49,12 +49,14 @@ static RE_DB: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
   Regex::new(r"!(dB|decibels|dBm|decibel_milliwatts)\s+(-?[\d.]+)\s*(dB|dBm)\b")
     .unwrap()
 });
-static RE_DB_RANGE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-  Regex::new(
+static RE_DB_RANGE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(
+  || {
+    Regex::new(
     r"(\w+):\s*!dB_range\s+(-?[\d.]+)\s*(?:dB|dBm)?\s*\.\.\s*(-?[\d.]+)\s*(?:dB|dBm)?",
   )
   .unwrap()
-});
+  },
+);
 
 pub fn preprocess_frequency_tags(content: &str) -> String {
   let content = RE_FREQUENCY_SINGLE
@@ -115,9 +117,8 @@ static RE_SAMPLE_RATE_MAX: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"sample_rate:\s*!max\b").unwrap());
 static RE_SAMPLE_RATE_FLOOR: std::sync::LazyLock<Regex> =
   std::sync::LazyLock::new(|| Regex::new(r"sample_rate:\s*!floor\b").unwrap());
-static RE_POW2: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-  Regex::new(r"(?:!pow2\s+|2\^)(\d+)\b").unwrap()
-});
+static RE_POW2: std::sync::LazyLock<Regex> =
+  std::sync::LazyLock::new(|| Regex::new(r"(?:!pow2\s+|2\^)(\d+)\b").unwrap());
 
 pub fn preprocess_sdr_sample_rate_tags(content: &str) -> String {
   let content = RE_SAMPLE_RATE_SEQ
@@ -227,10 +228,7 @@ fn config_modified_time(filename: &str) -> Option<std::time::SystemTime> {
   }
   let manifest_path =
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(filename);
-  manifest_path
-    .metadata()
-    .and_then(|m| m.modified())
-    .ok()
+  manifest_path.metadata().and_then(|m| m.modified()).ok()
 }
 
 static SIGNALS_CONFIG: RwLock<Option<CachedSignalsConfig>> = RwLock::new(None);
@@ -376,11 +374,17 @@ pub fn signals_config() -> Arc<super::types::SignalsConfig> {
     // shipped accidentally). Reuse the built-in defaults so the app always has
     // a usable config rather than panicking at boot.
     .or_else(|| {
-      parse_signals_config(&builtin_signals_yaml(), "builtin-signals.yaml".to_string(), None)
-        .map(|cached| cached.config)
+      parse_signals_config(
+        &builtin_signals_yaml(),
+        "builtin-signals.yaml".to_string(),
+        None,
+      )
+      .map(|cached| cached.config)
     })
     .unwrap_or_else(|| {
-      panic!("Failed to load signals.yaml or the built-in fallback configuration");
+      panic!(
+        "Failed to load signals.yaml or the built-in fallback configuration"
+      );
     })
 }
 
@@ -657,7 +661,6 @@ pub fn signals_config_modified_at() -> Option<std::time::SystemTime> {
     .as_ref()
     .map(|cached| cached.modified)
 }
-
 
 /// Reconcile `device_connected` flag with `device_state` string.
 ///
@@ -1098,7 +1101,8 @@ mod tests {
   }
 
   #[test]
-  fn resolves_mock_tx_monitor_sample_rate_options_without_exposing_tx_waveform_rate() {
+  fn resolves_mock_tx_monitor_sample_rate_options_without_exposing_tx_waveform_rate(
+  ) {
     let _guard = cwd_lock().lock().expect("cwd lock");
     clear_signals_config_cache();
 
@@ -1841,7 +1845,8 @@ fn flatten_capture_frame_updates(
     .map(|mut update| {
       if let Some(channel_index) = update.channel.map(|index| index as usize) {
         if let Some(channel_offset) = channel_byte_offsets.get(channel_index) {
-          update.sample_offset = channel_offset.saturating_add(update.sample_offset);
+          update.sample_offset =
+            channel_offset.saturating_add(update.sample_offset);
         }
       }
       update
@@ -1849,6 +1854,54 @@ fn flatten_capture_frame_updates(
     .collect::<Vec<_>>();
   flattened.sort_by_key(|update| (update.sample_offset, update.timestamp_us));
   flattened
+}
+
+fn capture_label_value<'a>(
+  labels: Option<&'a [String]>,
+  prefix: &str,
+) -> Option<&'a str> {
+  labels?
+    .iter()
+    .find_map(|label| label.strip_prefix(prefix))
+    .filter(|value| !value.trim().is_empty())
+}
+
+fn capture_filename_slug(value: &str, max_len: usize) -> String {
+  let mut slug = String::new();
+  let mut needs_separator = false;
+  for character in value.chars() {
+    if character.is_ascii_alphanumeric() {
+      if needs_separator && !slug.is_empty() && slug.len() < max_len {
+        slug.push('_');
+      }
+      needs_separator = false;
+      if slug.len() < max_len {
+        slug.push(character.to_ascii_lowercase());
+      }
+    } else if !slug.is_empty() {
+      needs_separator = true;
+    }
+    if slug.len() >= max_len {
+      break;
+    }
+  }
+  slug.trim_end_matches('_').to_string()
+}
+
+fn reference_track_filename_segment(labels: Option<&[String]>) -> Option<String> {
+  let track_id = capture_label_value(labels, "reference-track-id:")
+    .map(|value| capture_filename_slug(value, 32))
+    .filter(|value| !value.is_empty());
+  let track_name = capture_label_value(labels, "reference-track-name:")
+    .map(|value| capture_filename_slug(value, 48))
+    .filter(|value| !value.is_empty());
+
+  match (track_id, track_name) {
+    (Some(id), Some(name)) => Some(format!("{}_{}", id, name)),
+    (Some(id), None) => Some(id),
+    (None, Some(name)) => Some(name),
+    (None, None) => None,
+  }
 }
 
 /// Save capture IQ data to a file (.wav with metadata, or encrypted .napt).
@@ -1860,10 +1913,16 @@ pub fn save_capture_file_multi(
   // Enforce the scheme at the persistence boundary too, even for callers
   // other than CaptureWorker. Never substitute the ordinary server key.
   let encryption_key = if result.fido_vault {
-    if !result.encrypted || !matches!(result.file_type.as_str(), ".iq" | ".napt") {
-      return Err("FIDO vault capture requires encrypted .iq or .napt output".into());
+    if !result.encrypted
+      || !matches!(result.file_type.as_str(), ".iq" | ".napt")
+    {
+      return Err(
+        "FIDO vault capture requires encrypted .iq or .napt output".into(),
+      );
     }
-    result.vault_key.as_ref()
+    result
+      .vault_key
+      .as_ref()
       .ok_or("FIDO vault capture is missing its unlocked vault key")?
   } else {
     encryption_key
@@ -1893,17 +1952,31 @@ pub fn save_capture_file_multi(
 
   // Capture bytes must survive process restarts and OS temp cleanup.
   let temp_dir = crate::capture::storage::capture_storage_dir();
-  std::fs::create_dir_all(&temp_dir)
-    .map_err(|e| format!("Failed to create durable capture directory: {}", e))?;
+  std::fs::create_dir_all(&temp_dir).map_err(|e| {
+    format!("Failed to create durable capture directory: {}", e)
+  })?;
 
   let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+  let track_filename_segment =
+    reference_track_filename_segment(result.capture_labels.as_deref())
+      .map(|segment| format!("_{segment}"))
+      .unwrap_or_default();
   let filename = if result.file_type == ".iq" {
-    format!("capture_{}_{}.iq", result.job_id, timestamp)
+    format!(
+      "capture_{}{}_{}.iq",
+      result.job_id, track_filename_segment, timestamp
+    )
   } else if result.file_type == ".napt" {
-    format!("capture_{}_{}.napt", result.job_id, timestamp)
+    format!(
+      "capture_{}{}_{}.napt",
+      result.job_id, track_filename_segment, timestamp
+    )
   } else {
     // default to wav for non-encrypted capture
-    format!("capture_{}_{}.wav", result.job_id, timestamp)
+    format!(
+      "capture_{}{}_{}.wav",
+      result.job_id, track_filename_segment, timestamp
+    )
   };
 
   let path = temp_dir.join(&filename);
@@ -1938,8 +2011,9 @@ pub fn save_capture_file_multi(
   });
   if result.fido_vault {
     meta_obj["encryption"] = serde_json::json!("AES-256-GCM-FIDO-VAULT-V1");
-    let recovery = result.vault_key_recovery.as_ref()
-      .ok_or_else(|| "FIDO vault capture is missing its recovery wrapper".to_string())?;
+    let recovery = result.vault_key_recovery.as_ref().ok_or_else(|| {
+      "FIDO vault capture is missing its recovery wrapper".to_string()
+    })?;
     meta_obj["vault_key_recovery"] = recovery.clone();
   }
 
@@ -1951,6 +2025,18 @@ pub fn save_capture_file_multi(
     if !labels.is_empty() {
       meta_obj["capture_labels"] = serde_json::json!(labels);
     }
+  }
+  if let Some(track_id) = capture_label_value(
+    result.capture_labels.as_deref(),
+    "reference-track-id:",
+  ) {
+    meta_obj["reference_track_id"] = serde_json::json!(track_id);
+  }
+  if let Some(track_name) = capture_label_value(
+    result.capture_labels.as_deref(),
+    "reference-track-name:",
+  ) {
+    meta_obj["reference_track_name"] = serde_json::json!(track_name);
   }
 
   if let Some((min_hz, max_hz)) = result.frequency_range {
@@ -2044,7 +2130,8 @@ pub fn save_capture_file_multi(
       .collect::<String>();
     std::fs::write(&path, &encoded)
       .map_err(|e| format!("Failed to write IQ: {e}"))?;
-    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
+    let durable_path =
+      crate::capture::storage::replicate_capture_file(&path, &filename)?;
     return Ok(CaptureArtifact {
       filename,
       path: durable_path,
@@ -2103,8 +2190,9 @@ pub fn save_capture_file_multi(
       }
     })
     .to_string();
-    meta_obj["payload_authentication"] = serde_json::json!("public-sections-v1");
-    let encrypted_data = vec![0u8; payload_plaintext.len()+28];
+    meta_obj["payload_authentication"] =
+      serde_json::json!("public-sections-v1");
+    let encrypted_data = vec![0u8; payload_plaintext.len() + 28];
 
     // Dynamic header size: large captures (many channels + geolocation +
     // baseline fields) outgrow the historical fixed 4096-byte header, which
@@ -2183,12 +2271,22 @@ pub fn save_capture_file_multi(
       .map_err(|e| format!("Failed to flush file: {}", e))?;
 
     let (mut encoded, _) = writer.finalize_with_inner();
-    let aad=crate::crypto::capture_aad(&encoded,header_size,encrypted_data.len())?;
-    let ciphertext=crate::crypto::encrypt_payload_binary_aad(&dek,&payload_plaintext,&aad).map_err(|e|e.to_string())?;
-    encoded[header_size..header_size+ciphertext.len()].copy_from_slice(&ciphertext);
-    let range=crate::crypto::capture_digest_range(&encoded,header_size+encrypted_data.len())?;
+    let aad =
+      crate::crypto::capture_aad(&encoded, header_size, encrypted_data.len())?;
+    let ciphertext =
+      crate::crypto::encrypt_payload_binary_aad(&dek, &payload_plaintext, &aad)
+        .map_err(|e| e.to_string())?;
+    encoded[header_size..header_size + ciphertext.len()]
+      .copy_from_slice(&ciphertext);
+    let range = crate::crypto::capture_digest_range(
+      &encoded,
+      header_size + encrypted_data.len(),
+    )?;
     let digest = sha2::Sha256::digest(&encoded);
-    let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let digest = digest
+      .iter()
+      .map(|byte| format!("{byte:02x}"))
+      .collect::<String>();
     encoded[range].copy_from_slice(digest.as_bytes());
     let checksum = sha2::Sha256::digest(&encoded)
       .iter()
@@ -2197,7 +2295,8 @@ pub fn save_capture_file_multi(
     let file_size = encoded.len() as u64;
     std::fs::write(&path, &encoded)
       .map_err(|e| format!("Failed to write encrypted capture: {}", e))?;
-    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
+    let durable_path =
+      crate::capture::storage::replicate_capture_file(&path, &filename)?;
 
     info!(
       "Saved encrypted capture: {} ({} bytes, sha256:{})",
@@ -2241,7 +2340,8 @@ pub fn save_capture_file_multi(
       }));
     }
     meta_with_channels["channels"] = serde_json::Value::Array(chan_list);
-    meta_with_channels["frame_updates"] = serde_json::json!(result.frame_updates);
+    meta_with_channels["frame_updates"] =
+      serde_json::json!(result.frame_updates);
     let meta_json = meta_with_channels.to_string();
     let meta_bytes = meta_json.as_bytes();
     let meta_padding = if (meta_bytes.len() + 1).is_multiple_of(2) {
@@ -2333,7 +2433,8 @@ pub fn save_capture_file_multi(
 
     writer.flush().map_err(|e| e.to_string())?;
     let (checksum, file_size) = writer.finalize();
-    let durable_path = crate::capture::storage::replicate_capture_file(&path, &filename)?;
+    let durable_path =
+      crate::capture::storage::replicate_capture_file(&path, &filename)?;
 
     info!(
       "Saved WAV capture: {} ({} bytes, sha256:{})",
@@ -2874,7 +2975,9 @@ mod dynamic_header_tests {
         iq_data: vec![0u8; 64],
         spectrum_data: Vec::new(),
         bins_per_frame: 10,
-        label: Some(format!("CHANNEL-WITH-A-VERY-LONG-DESCRIPTIVE-LABEL-{i:02}")),
+        label: Some(format!(
+          "CHANNEL-WITH-A-VERY-LONG-DESCRIPTIVE-LABEL-{i:02}"
+        )),
       })
       .collect();
 
@@ -2916,9 +3019,11 @@ mod dynamic_header_tests {
 
   #[test]
   fn oversized_metadata_saves_with_dynamic_header() {
-    let artifact =
-      save_capture_file_multi(&oversized_result("dyn_header"), &test_encryption_key())
-        .expect("oversized metadata must not abort the capture");
+    let artifact = save_capture_file_multi(
+      &oversized_result("dyn_header"),
+      &test_encryption_key(),
+    )
+    .expect("oversized metadata must not abort the capture");
 
     let file = std::fs::read(&artifact.path).expect("read capture");
     assert!(file.len() > 8192, "expected an enlarged header");
@@ -2948,7 +3053,8 @@ mod dynamic_header_tests {
     let binary_len = header["metadata"]["sections"]["binary"]["length_bytes"]
       .as_u64()
       .expect("binary length") as usize;
-    let trailer_offset = header["metadata"]["sections"]["trailer"]["offset_bytes"]
+    let trailer_offset = header["metadata"]["sections"]["trailer"]
+      ["offset_bytes"]
       .as_u64()
       .expect("trailer offset") as usize;
     let trailer_len = header["metadata"]["sections"]["trailer"]["length_bytes"]
@@ -2966,9 +3072,8 @@ mod dynamic_header_tests {
     result.channels.truncate(1);
     result.channels[0].label = None;
 
-    let artifact =
-      save_capture_file_multi(&result, &test_encryption_key())
-        .expect("save small capture");
+    let artifact = save_capture_file_multi(&result, &test_encryption_key())
+      .expect("save small capture");
 
     let file = std::fs::read(&artifact.path).expect("read capture");
     let newline = file.iter().position(|&b| b == b'\n').expect("newline");

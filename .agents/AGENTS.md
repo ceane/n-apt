@@ -19,7 +19,7 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 - Ensure to update checklists, tasks, etc., as you complete tasks.
 - Do not run `npm run build`; run `npm run build:article` only for markdown
   article changes.
-- Do not use browser automation for testing. If frontend testing is necessary,
+- Do not use browser automation for testing, except Playwright. If frontend testing is necessary,
   use `http://localhost:5173`; `127.0.0.1` is blocked.
 - Never pass passwords, tokens, or other secrets as shell or CLI arguments,
   including to `npm`, `npx`, or browser automation tools; launchers and wrappers
@@ -36,6 +36,18 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
   changes. Run `cargo check` after Rust changes.
 - This project and the author uses American English, not British English. color not colour. Other nuances breaking with camelCase and align with the industry case, such as ML and not Ml.
 - When code passess tests or a stopping point is reached, create detailed commits, use git hunks to make contained edits; when progressing a feature or edits commit messages should follow a prefix of WIP → Draft → v1
+
+## Encrypted Module Workflow
+
+- Do not edit protected encrypted-module source on a consumer or feature working
+  branch. Switch to the local `encrypted-modules` branch/worktree and edit the
+  authoritative plaintext under `src/encrypted-modules/tmp/`.
+- After editing, verify the protected source tree is complete and regenerate
+  the corresponding encrypted bundle on `encrypted-modules`. Sync only that
+  generated bundle back to the consumer working branch; preserve unrelated
+  bundle changes and local artifacts.
+- Never push the `encrypted-modules` branch or its plaintext history. Consumer
+  branches and remotes must receive encrypted bundles only.
 
 ## Real-Time Device I/O
 
@@ -78,6 +90,23 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 - Treat N-APT captures as the greatest privacy risk in this project. Minimize
   copying and exposure. Do not share, upload, or commit captures outside the
   authorized Hugging Face / Download / Training flow.
+
+## Encrypted Modules
+
+- Keep all protected plaintext module work in `src/encrypted-modules/tmp/`
+  in the `encrypted-modules` worktree, including implementation, training
+  scripts, related tests, documentation, and other protected materials. The
+  `tmp` name is intentional and is part of the project's ignore boundary.
+- The local `encrypted-modules` branch may track and commit protected plaintext.
+  Never push that branch or its plaintext history to any remote. `.gitignore`
+  does not hide already tracked files; inspect staged paths and history so
+  consumer branches and remotes receive encrypted bundles, not plaintext. Do not
+  force-add protected files to a consumer branch.
+- In other branches, `tmp/` contains generated extraction/build input and can be
+  overwritten when a bundle is decrypted or regenerated; do not hand-edit it.
+  The ordinary decrypt command skips the protected branch, but direct
+  extraction helpers can bypass that guard: never target its source tree with
+  them or clean it as a generated cache.
 
 ## Temporary and Test Files
 
@@ -185,7 +214,7 @@ build merely to validate a local edit.
 
 - Never lower the hardware sample rate below 3.2 MHz (N-APT Nyquist needs that width); narrower modes such as FM use a bandwidth slice/window inside that sample rate.
 - Span bandwidth is a selected slice within the sample-rate window, not the same thing as sample rate.
-- The available spectrum display range is 0 Hz to 30 GHz; center/span padding and clamps must respect those bounds (including sample_rate/2 from center). With "Mirror I/Q baseband below 0 Hz" enabled, negative-frequency presentation is allowed without changing what the radio is tuned to.
+- The available spectrum display range is 0 Hz to 30 GHz, set within the signals.yaml; center/span padding and clamps must respect those bounds (including sample_rate/2 from center). With "Mirror I/Q baseband below 0 Hz" enabled, negative-frequency presentation is allowed without changing what the radio is tuned to.
 - Mirror I/Q below 0 Hz is presentation-only: reflect acquired positive baseband across DC via `basebandMirror.ts` and the WebGPU resample path; it must not retune hardware on every pan tick.
 - During VFO/slider retune, paint live IQ on each frame's acquisition axis (`center_frequency_hz ± sample_rate/2`) when the requested viewport and frame center diverge; mapping bins onto the scrolled Redux viewport causes channel-island flatlining.
 - Agent guidance and related docs live under `.agents/` (including `.agents/AGENTS.md`).

@@ -44,6 +44,8 @@ export type SDRSettings = {
   tunerAGC?: boolean;
   rtlAGC?: boolean;
   mirrorSpectrumBelowZero?: boolean;
+  offsetTuning?: boolean;
+  directSampling?: number;
 };
 
 export type SdrSettingsConfig = {
@@ -180,7 +182,7 @@ export type IqFrameStatus =
   | "transmitting"
   | "paused";
 
-type IqRawFramePayload = {
+export type IqRawFramePayload = {
   type: "spectrum";
   is_mock_apt?: boolean;
   frame_status?: IqFrameStatus;
@@ -196,16 +198,7 @@ type IqRawFramePayload = {
   iq_data: Uint8Array;
 };
 
-/** Legacy in-memory or 24-byte v1 frame with client-scoped ownership. */
-export type IqRawFrameV1 = IqRawFramePayload & {
-  protocol_version?: 1;
-  source_id?: string;
-  stream_epoch?: undefined;
-  sequence?: undefined;
-  options_revision?: number;
-};
-
-/** Negotiated v2 frame with explicit source and lifecycle ordering metadata. */
+/** Live I/Q frame with source identity and lifecycle ordering metadata. */
 export type IqRawFrameV2 = IqRawFramePayload & {
   protocol_version: 2;
   source_id: string;
@@ -218,9 +211,16 @@ export type IqAppliedStreamOptions =
   | { mode: "rx"; centerFrequencyHz: number; sampleRateHz: number; fftSize: number; fftWindow?: string; frameRate?: number; gain?: number }
   | { mode: "tx"; centerFrequencyHz: number; sampleRateHz: number; bandwidthHz: number; viewCenterHz?: number; viewSampleRateHz?: number; signal: string; powerDbm: number; ifftSize: number };
 
-/** Compatible raw I/Q publication shape discriminated by wire protocol. */
-export type IqRawFrame = IqRawFrameV1 | IqRawFrameV2;
+/** General I/Q payload used by file playback and local analysis previews. */
+export type IqRawFrame = IqRawFramePayload & {
+  protocol_version?: 2;
+  source_id?: string;
+  stream_epoch?: number;
+  sequence?: number;
+  options_revision?: number;
+};
 
+/** Shared renderer input also carries file frames without live stream metadata. */
 export type LiveFrameData = IqRawFrame;
 
 export type IqElementType = "u8";
@@ -362,8 +362,6 @@ export type SourceCapabilities = {
 };
 
 export type DeviceActiveMode = "rx" | "tx" | "rx_tx";
-export type DeviceDuplexMode = "half_duplex";
-
 export type SourceStatus =
   | "connected"
   | "initializing"
@@ -382,6 +380,7 @@ export type SourceSdrSettings = {
   fft_size?: number;
   fft_window?: string;
   frame_rate?: number;
+  max_frame_rate?: number;
   sample_rate?: number;
   min_receive_sample_rate?: number;
   center_frequency?: number;
@@ -415,13 +414,11 @@ export interface SourceInfo {
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
   iq_format?: IqFormat;
-  /** Generic capability envelope. Legacy top-level fields remain during migration. */
+  /** Generic source capability envelope. */
   capabilities?: SourceCapabilities;
   stream_key?: string;
   stream_key_kind?: "serial" | "source_id";
-  /** Additive raw-I/Q wire versions supported by this source. */
-  iq_stream_protocols?: Array<1 | 2>;
-  /** Current source lifecycle generation for v2 frame validation. */
+  /** Current source lifecycle generation for live frame validation. */
   stream_epoch?: number;
   serial_number?: string;
   manufacturer?: string;
@@ -499,30 +496,7 @@ export interface SignalDisplaySettingsMessage {
 
 export type WebSocketMessage =
   | TxSafetyResult
-  | {
-      type: "frequency_range" | "set_frequency_range";
-      scope?: "device";
-      min_hz: number;
-      max_hz: number;
-      center_frequency?: number;
-      bandwidth_center_frequency?: number;
-      signal_area?: string;
-      display_min_hz?: number;
-      display_max_hz?: number;
-      display_pan_hz?: number;
-      display_zoom?: number;
-      display_crosses_dc?: boolean;
-      display_direction_negative?: boolean;
-      mirror_spectrum_below_zero?: boolean;
-    }
   | ChannelsMessage
-  | {
-      type: "pause";
-      scope?: "subscriber";
-      paused: boolean;
-      source_id: string;
-      duplex_mode?: DeviceDuplexMode;
-    }
   | {
       type: "status";
       scope?: "device";
@@ -550,9 +524,6 @@ export type WebSocketMessage =
       txHopChannels?: string[];
       txHopRateHz?: number;
     }
-  | { type: "gain"; scope?: "device"; gain: number }
-  | { type: "ppm"; scope?: "device"; ppm: number }
-  | ({ type: "settings"; scope?: "device" } & SDRSettings)
   | SignalDisplaySettingsMessage
   | SignalsDefaultsMessage
   | {

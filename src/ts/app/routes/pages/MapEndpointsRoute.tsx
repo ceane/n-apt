@@ -6,17 +6,18 @@ import React, {
   useRef,
 } from "react";
 import "leaflet/dist/leaflet.css";
+import "maplibre-gl/dist/maplibre-gl.css";
 import styled from "styled-components";
 import {
   MapContainer,
   Marker,
   Popup,
   Polyline,
-  TileLayer,
   useMap,
   useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
+import { OpenFreeMapLayer } from "@n-apt/maps/OpenFreeMapLayer";
 import { useMapLocations } from "@n-apt/maps/hooks/useMapLocations";
 import {
   useMapRoutePaths,
@@ -215,42 +216,6 @@ const MapController: React.FC<{
   }, [map, onMapLoad]);
 
   return null;
-};
-
-// Helper component for theme-aware tiles
-const ThemedTileLayer: React.FC = () => {
-  const [isDark, setIsDark] = React.useState(false);
-
-  React.useEffect(() => {
-    // Check if we're in dark mode
-    const checkTheme = () => {
-      const isDarkMode = window.matchMedia(
-        "(prefers-color-scheme: dark)",
-      ).matches;
-      setIsDark(isDarkMode);
-    };
-
-    checkTheme();
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    mediaQuery.addEventListener("change", checkTheme);
-
-    return () => mediaQuery.removeEventListener("change", checkTheme);
-  }, []);
-
-  return (
-    <TileLayer
-      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-      url={
-        isDark
-          ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-      }
-      keepBuffer={6}
-      updateWhenIdle
-      updateWhenZooming={false}
-    />
-  );
 };
 
 export const MapEndpointsRoute: React.FC = () => {
@@ -593,12 +558,13 @@ export const MapEndpointsRoute: React.FC = () => {
           <MapContainer
             center={[center.lat, center.lng]}
             zoom={zoom}
+            minZoom={1}
             style={mapContainerStyle}
             zoomAnimation={false}
             fadeAnimation={false}
             markerZoomAnimation={false}
           >
-            <ThemedTileLayer />
+            <OpenFreeMapLayer />
 
             <MapEventHandler
               onMapIdle={onMapIdle}

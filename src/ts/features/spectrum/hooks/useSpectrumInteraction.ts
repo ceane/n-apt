@@ -186,6 +186,14 @@ export function useSpectrumInteraction({
   txSliderEnabled = false,
   txSliderLocked = false,
 }: SpectrumInteractionOptions) {
+  const mirrorSettingRef = useRef(allowNegativeFrequencies);
+  const mirrorOffPanReanchorPendingRef = useRef(false);
+  useLayoutEffect(() => {
+    mirrorOffPanReanchorPendingRef.current =
+      mirrorSettingRef.current && !allowNegativeFrequencies;
+    mirrorSettingRef.current = allowNegativeFrequencies;
+  }, [allowNegativeFrequencies]);
+
   const isDraggingRef = useRef(false);
   const isVfoDraggingRef = useRef(false);
   const isBoxDraggingRef = useRef(false);
@@ -2872,7 +2880,40 @@ export function useSpectrumInteraction({
           (hardwareSpectrumBounds?.max ?? 0) >= 1_000_000_000;
         const freqChange =
           (descendingNativeWheelAxis ? -1 : 1) * (deltaPx / width) * visualRange;
-        const currentPan = vizPanOffsetRef?.current || 0;
+        const storedPan = vizPanOffsetRef?.current || 0;
+        let currentPan = storedPan;
+        if (
+          !allowNegativeFrequencies &&
+          mirrorOffPanReanchorPendingRef.current &&
+          fullRange > 0
+        ) {
+          mirrorOffPanReanchorPendingRef.current = false;
+          // Mirror-off rendering clamps the pan to the positive acquisition
+          // window. Reconcile the interaction ref with that displayed value
+          // before calculating wheel movement; otherwise the first scroll
+          // after toggling mirror off applies a stale negative offset to the
+          // hardware range and can snap the viewport to 0 Hz.
+          const center =
+            (frequencyRangeRef.current.min + frequencyRangeRef.current.max) /
+            2;
+          const halfVisualRange = visualRange / 2;
+          const minVisiblePan =
+            frequencyRangeRef.current.min + halfVisualRange - center;
+          const maxVisiblePan =
+            frequencyRangeRef.current.max - halfVisualRange - center;
+          currentPan = Math.max(
+            minVisiblePan,
+            Math.min(maxVisiblePan, storedPan),
+          );
+          if (currentPan !== storedPan && vizPanOffsetRef) {
+            if (onVizPanReanchor) {
+              onVizPanReanchor(currentPan);
+            } else {
+              onVizPanChange?.(currentPan);
+            }
+            vizPanOffsetRef.current = currentPan;
+          }
+        }
         const proposedPan = currentPan + freqChange;
         const isReturningFromMirroredPan =
           allowNegativeFrequencies && currentPan < 0 && proposedPan >= 0;

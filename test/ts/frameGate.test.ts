@@ -7,14 +7,14 @@ describe("acceptsMultiplexStreamFrame", () => {
   it("rejects frames from a different source", () => {
     expect(
       acceptsMultiplexStreamFrame(
-        { sourceId: "mock-apt", streamEpoch: 11 },
+        { sourceId: "mock-apt", streamEpoch: 11, sequence: 1 },
         { sourceId: "mock-tx", streamEpoch: 12 },
       ),
     ).toBe(false);
     // No committed source yet — nothing can be validated against it.
     expect(
       acceptsMultiplexStreamFrame(
-        { sourceId: "mock-apt", streamEpoch: 11 },
+        { sourceId: "mock-apt", streamEpoch: 11, sequence: 1 },
         { sourceId: null, streamEpoch: null },
       ),
     ).toBe(false);
@@ -24,31 +24,44 @@ describe("acceptsMultiplexStreamFrame", () => {
     const lifecycle = { sourceId: "rtl-sdr-v4", streamEpoch: 3 };
     expect(
       acceptsMultiplexStreamFrame(
-        { sourceId: "rtl-sdr-v4", streamEpoch: 3 },
+        { sourceId: "rtl-sdr-v4", streamEpoch: 3, sequence: 1 },
         lifecycle,
       ),
     ).toBe(true);
     expect(
       acceptsMultiplexStreamFrame(
-        { sourceId: "rtl-sdr-v4", streamEpoch: 4 },
+        { sourceId: "rtl-sdr-v4", streamEpoch: 4, sequence: 1 },
         lifecycle,
       ),
     ).toBe(true);
     expect(
       acceptsMultiplexStreamFrame(
-        { sourceId: "rtl-sdr-v4", streamEpoch: 2 },
+        { sourceId: "rtl-sdr-v4", streamEpoch: 2, sequence: 1 },
         lifecycle,
       ),
     ).toBe(false);
   });
 
-  it("treats epoch-less frames as legacy and accepts them on source match", () => {
+  it("rejects frames without complete source and ordering metadata", () => {
     const lifecycle = { sourceId: "rtl-sdr-v4", streamEpoch: 3 };
-    expect(acceptsMultiplexStreamFrame({ sourceId: "rtl-sdr-v4" }, lifecycle)).toBe(
-      true,
-    );
     expect(
-      acceptsMultiplexStreamFrame({ sourceId: "hackrf-one" }, lifecycle),
+      acceptsMultiplexStreamFrame(
+        { sourceId: "rtl-sdr-v4", streamEpoch: 3, sequence: 1 },
+        lifecycle,
+      ),
+    ).toBe(true);
+    expect(acceptsMultiplexStreamFrame({ sourceId: "rtl-sdr-v4" }, lifecycle)).toBe(false);
+    expect(
+      acceptsMultiplexStreamFrame(
+        { sourceId: "rtl-sdr-v4", streamEpoch: 3 },
+        lifecycle,
+      ),
+    ).toBe(false);
+    expect(
+      acceptsMultiplexStreamFrame(
+        { sourceId: "hackrf-one", streamEpoch: 3, sequence: 1 },
+        lifecycle,
+      ),
     ).toBe(false);
   });
 
@@ -56,7 +69,7 @@ describe("acceptsMultiplexStreamFrame", () => {
     const lifecycle = { sourceId: "rtl-sdr-v4", streamEpoch: null };
     expect(
       acceptsMultiplexStreamFrame(
-        { sourceId: "rtl-sdr-v4", streamEpoch: 9 },
+        { sourceId: "rtl-sdr-v4", streamEpoch: 9, sequence: 1 },
         lifecycle,
       ),
     ).toBe(true);
@@ -90,6 +103,14 @@ describe("createMultiplexStreamSequenceGate", () => {
     expect(gate.stats().duplicatesRejected).toBe(2);
   });
 
+  it("rejects frames without a usable epoch or sequence", () => {
+    const gate = createMultiplexStreamSequenceGate();
+    expect(gate.accept({ sourceId: "s" })).toBe(false);
+    expect(gate.accept({ sourceId: "s", streamEpoch: 1 })).toBe(false);
+    expect(gate.accept({ sourceId: "s", streamEpoch: -1, sequence: 1 })).toBe(false);
+    expect(gate.accept({ sourceId: "s", streamEpoch: 1, sequence: 1.5 })).toBe(false);
+  });
+
   it("starts ordering fresh after an epoch change", () => {
     const gate = createMultiplexStreamSequenceGate();
     gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 7 });
@@ -98,13 +119,7 @@ describe("createMultiplexStreamSequenceGate", () => {
     );
   });
 
-  it("passes epoch-less v1 frames through unordered", () => {
-    const gate = createMultiplexStreamSequenceGate();
-    expect(gate.accept({ sourceId: "s" })).toBe(true);
-    expect(gate.accept({ sourceId: "s" })).toBe(true);
-  });
-
-  it("leaves the cursor unchanged when either metadata field is missing", () => {
+  it("leaves the cursor unchanged when required metadata is missing", () => {
     const gate = createMultiplexStreamSequenceGate();
     const tagged = { sourceId: "s", streamEpoch: 3, sequence: 10 };
     gate.accept(tagged);
@@ -115,21 +130,21 @@ describe("createMultiplexStreamSequenceGate", () => {
       { sourceId: "s", streamEpoch: 4 },
       { sourceId: "s", streamEpoch: 4, sequence: null },
     ]) {
-      expect(gate.accept(frame)).toBe(true);
+      expect(gate.accept(frame)).toBe(false);
     }
     expect(gate.accept(tagged)).toBe(false);
     expect(gate.accept({ ...tagged, sequence: 12 })).toBe(true);
     expect(gate.stats()).toEqual({ duplicatesRejected: 1, sequenceGaps: 1 });
   });
 
-  it("leaves old epoch rejection to ingress and restarts ordering on any epoch change", () => {
+  it("rejects older epochs and restarts ordering on newer epochs", () => {
     const gate = createMultiplexStreamSequenceGate();
     const old = { sourceId: "s", streamEpoch: 2, sequence: 1 };
     gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 10 });
     expect(acceptsMultiplexStreamFrame(old, { sourceId: "s", streamEpoch: 3 })).toBe(false);
-    expect(gate.accept(old)).toBe(true);
-    expect(gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 1 })).toBe(true);
-    expect(gate.stats()).toEqual({ duplicatesRejected: 0, sequenceGaps: 0 });
+    expect(gate.accept(old)).toBe(false);
+    expect(gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 1 })).toBe(false);
+    expect(gate.stats()).toEqual({ duplicatesRejected: 2, sequenceGaps: 0 });
   });
 
   it("resets only its own cursor and boundary while retaining accumulated statistics", () => {
@@ -150,29 +165,29 @@ describe("createMultiplexStreamSequenceGate", () => {
 
   it("fires the first-frame boundary once per source:epoch transition", () => {
     const gate = createMultiplexStreamSequenceGate();
-    const frame = (epoch: number) => ({ sourceId: "mock-apt", streamEpoch: epoch });
+    const frame = (epoch: number) => ({ sourceId: "mock-apt", streamEpoch: epoch, sequence: 1 });
     expect(gate.consumeFirstFrameBoundary(frame(3))).toBe("mock-apt:3");
     expect(gate.consumeFirstFrameBoundary(frame(3))).toBeNull();
     expect(gate.consumeFirstFrameBoundary(frame(4))).toBe("mock-apt:4");
   });
 
-  it("uses the v1 sentinel key for epoch-less frames", () => {
+  it("keeps missing epoch explicit in boundary keys", () => {
     const gate = createMultiplexStreamSequenceGate();
-    expect(gate.consumeFirstFrameBoundary({ sourceId: "s" })).toBe("s:v1");
+    expect(gate.consumeFirstFrameBoundary({ sourceId: "s" })).toBe("s:missing");
     expect(gate.consumeFirstFrameBoundary({ sourceId: "s" })).toBeNull();
   });
 
   it("reset clears sequence, boundary, and gap state", () => {
     const gate = createMultiplexStreamSequenceGate();
     gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 7 });
-    gate.consumeFirstFrameBoundary({ sourceId: "s", streamEpoch: 3 });
+    gate.consumeFirstFrameBoundary({ sourceId: "s", streamEpoch: 3, sequence: 7 });
     gate.reset();
     expect(gate.stats()).toEqual({ duplicatesRejected: 0, sequenceGaps: 0 });
     // Same sequence is accepted again after reset (new lifecycle generation).
     expect(gate.accept({ sourceId: "s", streamEpoch: 3, sequence: 7 })).toBe(
       true,
     );
-    expect(gate.consumeFirstFrameBoundary({ sourceId: "s", streamEpoch: 3 })).toBe(
+    expect(gate.consumeFirstFrameBoundary({ sourceId: "s", streamEpoch: 3, sequence: 7 })).toBe(
       "s:3",
     );
   });

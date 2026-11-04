@@ -5,10 +5,14 @@ import { ThemeProvider } from "styled-components";
 import { Provider } from "react-redux";
 import { SymbolsTable } from "@n-apt/demodulation/react-flow/nodes/SymbolsTable";
 import { resolveClosestSampleIndex } from "@n-apt/demodulation/react-flow/nodes/tableLayout";
-import { liveFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import { createTestStore } from "./testUtils";
+import {
+  makeLiveFrame,
+  resetLiveFrames,
+  setLiveFrame,
+} from "./liveFrameTestUtils";
 
 const theme = buildAppTheme({
   accentColor: THEME_TOKENS.colors.dark.primary,
@@ -149,7 +153,7 @@ describe("SymbolsTable go-to-frequency", () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
-    liveFrameRuntime.ref.current = null;
+    act(() => resetLiveFrames());
   });
 
   it("opens the editor, jumps to the exact sample, and reports it", () => {
@@ -214,15 +218,13 @@ describe("SymbolsTable frame updates", () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
-    liveFrameRuntime.ref.current = null;
     reportHeight = 0;
+    act(() => resetLiveFrames());
   });
 
   it("renders rows and re-renders them when a new frame lands", () => {
     reportHeight = 400;
-    liveFrameRuntime.ref.current = {
-      iq_data: new Uint8Array(2048 * 2).fill(0),
-    } as any;
+    setLiveFrame(makeLiveFrame(new Uint8Array(2048 * 2).fill(0), 1));
 
     renderTable();
     act(() => {
@@ -231,10 +233,8 @@ describe("SymbolsTable frame updates", () => {
 
     expect(screen.getAllByText("(-, -)").length).toBeGreaterThan(0);
 
-    liveFrameRuntime.ref.current = {
-      iq_data: new Uint8Array(2048 * 2).fill(255),
-    } as any;
     act(() => {
+      setLiveFrame(makeLiveFrame(new Uint8Array(2048 * 2).fill(255), 2));
       fireAllFrames();
     });
 
@@ -244,8 +244,8 @@ describe("SymbolsTable frame updates", () => {
 
   it("does not re-render when the frame slot is unchanged", () => {
     reportHeight = 400;
-    const frame = { iq_data: new Uint8Array(2048 * 2).fill(0) };
-    liveFrameRuntime.ref.current = frame as any;
+    const frame = makeLiveFrame(new Uint8Array(2048 * 2).fill(0), 1);
+    setLiveFrame(frame);
 
     const { container } = renderTable();
     act(() => {
@@ -274,7 +274,7 @@ describe("SymbolsTable update-rate toggle", () => {
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
-    liveFrameRuntime.ref.current = null;
+    act(() => resetLiveFrames());
   });
 
   it("shows the app frame rate by default and flips to 250ms polling", () => {
@@ -311,9 +311,7 @@ describe("SymbolsTable update-rate toggle", () => {
   it("keeps updating from the shared clock while polling", () => {
     jest.useFakeTimers();
     reportHeight = 400;
-    liveFrameRuntime.ref.current = {
-      iq_data: new Uint8Array(2048 * 2).fill(0),
-    } as any;
+    setLiveFrame(makeLiveFrame(new Uint8Array(2048 * 2).fill(0), 1));
 
     renderTable();
     fireEvent.click(screen.getByRole("button", { name: "Update rate" }));
@@ -323,11 +321,8 @@ describe("SymbolsTable update-rate toggle", () => {
     });
     expect(screen.getAllByText("(-, -)").length).toBeGreaterThan(0);
 
-    liveFrameRuntime.ref.current = {
-      iq_data: new Uint8Array(2048 * 2).fill(255),
-    } as any;
-
     act(() => {
+      setLiveFrame(makeLiveFrame(new Uint8Array(2048 * 2).fill(255), 2));
       jest.advanceTimersByTime(400);
     });
     expect(screen.getAllByText("(+, +)").length).toBeGreaterThan(0);

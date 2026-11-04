@@ -61,10 +61,8 @@ describe("WebSocket Validation System", () => {
 
     test("should validate valid WebSocket messages", () => {
       const validMessage = {
-        type: "pause",
-        paused: false,
+        type: "select_source",
         source_id: "mock-apt",
-        duplex_mode: "half_duplex",
       };
 
       expect(validateWebSocketMessage(validMessage)).toBe(true);
@@ -113,30 +111,18 @@ describe("WebSocket Validation System", () => {
       });
     });
 
-    test("should validate PPM only if it is a positive whole number", () => {
-      // Valid PPM (positive whole number/integer)
-      expect(validateWebSocketMessage({ type: "ppm", ppm: 10 })).toBe(true);
-      expect(validateWebSocketMessage({ type: "ppm", ppm: 0 })).toBe(true);
-
-      // Invalid PPM (negative, float)
-      expect(validateWebSocketMessage({ type: "ppm", ppm: -5 })).toBe(false);
-      expect(validateWebSocketMessage({ type: "ppm", ppm: 3.5 })).toBe(false);
-
-      // Valid settings with ppm
-      expect(
-        validateWebSocketMessage({
-          type: "settings",
-          ppm: 12,
-        }),
-      ).toBe(true);
-
-      // Invalid settings with ppm (negative)
-      expect(
-        validateWebSocketMessage({
-          type: "settings",
-          ppm: -1,
-        }),
-      ).toBe(false);
+    test("rejects retired control-socket stream messages", () => {
+      const retiredMessages = [
+        { type: "frequency_range", min_hz: 136_000_000, max_hz: 139_000_000 },
+        { type: "set_frequency_range", min_hz: 136_000_000, max_hz: 139_000_000 },
+        { type: "pause", source_id: "mock-apt", paused: true },
+        { type: "gain", gain: 12 },
+        { type: "ppm", ppm: 10 },
+        { type: "settings", fftSize: 4096 },
+      ];
+      for (const message of retiredMessages) {
+        expect(validateWebSocketMessage(message)).toBe(false);
+      }
     });
 
     test("should handle ArrayBuffer data (binary)", () => {
@@ -162,8 +148,7 @@ describe("WebSocket Validation System", () => {
 
       expect(
         devValidateWebSocketMessage({
-          type: "pause",
-          paused: false,
+          type: "select_source",
           source_id: "mock-apt",
         }),
       ).toBe(true);
@@ -192,8 +177,7 @@ describe("WebSocket Validation System", () => {
 
       expect(
         devValidateWebSocketMessage({
-          type: "pause",
-          paused: false,
+          type: "select_source",
           source_id: "mock-apt",
         }),
       ).toBe(true);
@@ -491,8 +475,7 @@ describe("WebSocket Validation System", () => {
       }));
 
       const validMessage = {
-        type: "pause",
-        paused: false,
+        type: "select_source",
         source_id: "mock-apt",
       };
 
@@ -582,13 +565,11 @@ describe("WebSocket Validation System", () => {
 
       // Perform validations with known outcomes
       validateWebSocketMessage({
-        type: "pause",
-        paused: true,
+        type: "select_source",
         source_id: "mock-apt",
       }); // valid
       validateWebSocketMessage({
-        type: "pause",
-        paused: false,
+        type: "select_source",
         source_id: "mock-apt",
       }); // valid
       validateWebSocketMessage({ type: "invalid_type" }); // invalid
@@ -606,9 +587,8 @@ describe("WebSocket Validation System", () => {
       // Validate 1000 messages
       for (let i = 0; i < 1000; i++) {
         validateWebSocketMessage({
-          type: "pause",
-          paused: i % 2 === 0,
-          source_id: "mock-apt",
+          type: "select_source",
+          source_id: `mock-apt-${i}`,
         });
       }
 
@@ -669,20 +649,18 @@ describe("WebSocket Validation System", () => {
   describe("Edge Cases", () => {
     test("should handle circular references in objects", () => {
       const circularMessage: any = {
-        type: "pause",
-        paused: false,
+        type: "select_source",
         source_id: "mock-apt",
       };
       circularMessage.self = circularMessage; // Create circular reference
 
-      // Should not throw an error
       expect(() => validateWebSocketMessage(circularMessage)).not.toThrow();
+      expect(validateWebSocketMessage(circularMessage)).toBe(true);
     });
 
     test("should handle very long strings", () => {
       const longStringMessage = {
-        type: "pause",
-        paused: false,
+        type: "select_source",
         source_id: "mock-apt",
       };
       // Create a circular reference with long string to test handling

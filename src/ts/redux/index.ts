@@ -345,6 +345,7 @@ export {
   setAccentColor,
   setFftColor,
   setWaterfallTheme,
+  setPatternOverNonHardwareSources,
   resetTheme,
 } from "./slices/themeSlice";
 
@@ -360,6 +361,7 @@ import {
   setAccentColor,
   setFftColor,
   setWaterfallTheme,
+  setPatternOverNonHardwareSources,
   resetTheme,
   updateThemeSettings,
 } from "./slices/themeSlice";
@@ -370,6 +372,7 @@ export const themeActions = {
   setAccentColor,
   setFftColor,
   setWaterfallTheme,
+  setPatternOverNonHardwareSources,
   resetTheme,
   updateThemeSettings,
 };
@@ -430,7 +433,6 @@ export {
   disconnectWebSocket,
   sendFrequencyRange,
   sendCenterFrequency,
-  sendPauseCommand,
   sendSettings,
   sendRestartDevice,
   sendTrainingCommand,
@@ -480,7 +482,6 @@ export {
   selectSignalAreaBounds,
   selectIsVisualizerRouteActive,
   selectThemeObject,
-  selectHighFrequencyData,
   selectIsWebSocketReady,
   selectDeviceCapabilities,
   selectSourceDerivedState,

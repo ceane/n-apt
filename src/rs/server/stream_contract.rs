@@ -15,7 +15,9 @@ pub enum StreamControlScope {
   Device,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(
+  Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum StreamDeliveryPolicy {
   Latest,
@@ -45,9 +47,7 @@ pub fn stream_control_scope(
     | (StreamMode::Tx, StreamControlAction::Pause)
     | (StreamMode::Tx, StreamControlAction::Stop)
     | (StreamMode::Tx, StreamControlAction::Settings)
-    | (StreamMode::Tx, StreamControlAction::Tune) => {
-      StreamControlScope::Device
-    }
+    | (StreamMode::Tx, StreamControlAction::Tune) => StreamControlScope::Device,
   }
 }
 

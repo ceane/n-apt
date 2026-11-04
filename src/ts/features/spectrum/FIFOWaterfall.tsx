@@ -1,5 +1,5 @@
 import { memo, useRef, useEffect, useState, useMemo, useCallback } from "react";
-import styled from "styled-components";
+import styled, { useTheme } from "styled-components";
 import { WATERFALL_CANVAS_BG, FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
@@ -16,6 +16,7 @@ import {
   selectWaterfallBinSubset,
   type WaterfallBinSubset,
 } from "@n-apt/spectrum/public/waterfallBinSubset";
+import { drawDiagonalStripePatternOnCanvas } from "@n-apt/layout/rendering/nonHardwarePattern";
 
 interface FrequencyRange {
   min: number;
@@ -66,6 +67,8 @@ interface FIFOWaterfallProps {
   colormap?: ColormapData;
   colormapName?: string;
   binSubset?: WaterfallBinSubset;
+  /** Draw the non-hardware source stripe overlay above the waterfall plot. */
+  nonHardwareSourcePattern?: boolean;
 }
 
 const WaterfallViewport = styled.div`
@@ -90,6 +93,16 @@ const WaterfallCanvas = styled.canvas`
   min-height: 0;
   background-color: ${({ theme }) =>
     theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG};
+`;
+
+const WaterfallPatternOverlay = styled.canvas`
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: difference;
 `;
 
 const isWebGPUSupported = () =>
@@ -226,8 +239,13 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     colormap,
     colormapName = "fifo-default",
     binSubset,
+    nonHardwareSourcePattern = false,
   }) => {
+    const theme = useTheme();
+    const waterfallBackground =
+      theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG;
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const patternOverlayRef = useRef<HTMLCanvasElement>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
     const localBufferRef = useRef<Uint8ClampedArray | null>(null);
     const bufferDimsRef = useRef<{ width: number; height: number } | null>(
@@ -354,6 +372,38 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       hasFeedFrame,
     ]);
 
+    useEffect(() => {
+      const canvas = patternOverlayRef.current;
+      if (!canvas) return;
+
+      const dpr =
+        typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+      const { width: cssWidth, height: cssHeight } = viewportSize;
+      const renderWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const renderHeight = Math.max(1, Math.round(cssHeight * dpr));
+      if (canvas.width !== renderWidth) canvas.width = renderWidth;
+      if (canvas.height !== renderHeight) canvas.height = renderHeight;
+
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      context.clearRect(0, 0, cssWidth, cssHeight);
+
+      if (nonHardwareSourcePattern && !placeholderState) {
+        drawDiagonalStripePatternOnCanvas(context, {
+          x: 0,
+          y: 0,
+          width: cssWidth,
+          height: cssHeight,
+        });
+      }
+    }, [
+      nonHardwareSourcePattern,
+      placeholderState,
+      viewportSize.width,
+      viewportSize.height,
+    ]);
+
     const resolveCssSize = () => viewportSize;
 
     // Initialize buffer if needed
@@ -469,7 +519,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
           const ctx = getCanvas2DContext(canvas);
           if (ctx) {
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.fillStyle = canvas.style.backgroundColor || WATERFALL_CANVAS_BG;
+            ctx.fillStyle = waterfallBackground;
             ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
         }
@@ -483,10 +533,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const buffer = localBufferRef.current;
       if (!buffer) return;
 
-      const drawFrame = (
-        renderWaveform: Float32Array,
-        appendRow = true,
-      ) => {
+      const drawFrame = (renderWaveform: Float32Array, appendRow = true) => {
         const freezeAfterPreview = isPaused && hasDrawnWaveformRef.current;
         // Prop/effect redraws can be caused by zoom, pan, theme, or layout.
         // Feed notifications explicitly opt into a new history row, including
@@ -506,8 +553,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             colormap: colormap ?? gradientStops,
             colormapName,
             plotMargin: ZERO_PLOT_MARGIN,
-            backgroundColor:
-              canvas.style.backgroundColor || WATERFALL_CANVAS_BG,
+            backgroundColor: waterfallBackground,
             historyZoom: waterfallHistoryFill === "immutable" ? historyZoom : 1,
             historyPan: waterfallHistoryFill === "immutable" ? historyPan : 0,
             binSubset,
@@ -598,8 +644,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
           lastSnapshot.every((value, index) =>
             Object.is(value, renderWaveform[index]),
           );
-        const appendRow =
-          !waveformFeed && !sameWaveformContents;
+        const appendRow = !waveformFeed && !sameWaveformContents;
         drawFrame(renderWaveform, appendRow);
       }
 
@@ -622,6 +667,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       colormapName,
       binSubset,
       colormapLut,
+      waterfallBackground,
       getCanvas2DContext,
       onWaterfallBufferChange,
       awaitingDeviceData,
@@ -671,6 +717,12 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             waveform?.length ?? waveformFeed?.getCurrent()?.length ?? 0
           }
         />
+        {nonHardwareSourcePattern && !placeholderState && (
+          <WaterfallPatternOverlay
+            ref={patternOverlayRef}
+            data-testid="fifo-waterfall-pattern-overlay"
+          />
+        )}
         {placeholderState && <CanvasPlaceholder state={placeholderState} />}
       </WaterfallViewport>
     );

@@ -200,6 +200,8 @@ const createLocalStorageMiddleware =
         accentColor: themeState.accentColor,
         fftColor: themeState.fftColor,
         waterfallTheme: themeState.waterfallTheme,
+        patternOverNonHardwareSources:
+          themeState.patternOverNonHardwareSources,
       };
       safeSetItem(STORAGE_KEYS.THEME, JSON.stringify(themeData));
     }
@@ -330,6 +332,10 @@ export const loadPersistedTheme = () => {
     }
     if (parsed && typeof parsed === "object") {
       parsed.shouldPageLoadAnimationRun = true;
+      if (typeof parsed.patternOverNonHardwareSources !== "boolean") {
+        parsed.patternOverNonHardwareSources = true;
+      }
+      delete parsed.patternOverNonHardwareDevices;
       delete parsed.hasPlayedStandbySlam;
     }
     return parsed;

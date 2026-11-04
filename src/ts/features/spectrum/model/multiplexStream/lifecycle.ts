@@ -1,5 +1,5 @@
 import type { CanvasPlaceholderState } from "@n-apt/ui/CanvasPlaceholder";
-import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import type { IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 import { useMemo } from "react";
 
 /** Transport milestones emitted only when a source socket changes lifecycle. */
@@ -18,13 +18,10 @@ export type LiveSourceLifecyclePhase =
   | "disconnected"
   | "failed";
 
-/** Payload shapes accepted by live canvases during protocol migration. */
-export type RenderableLiveFrame = Partial<IqRawFrame> & {
+/** Live stream frames accepted by source scoped presentation. */
+export type RenderableLiveFrame = Partial<IqRawFrameV2> & {
   data?: ArrayLike<number> | null;
   waveform?: ArrayLike<number> | null;
-  protocol_version?: 1 | 2;
-  stream_epoch?: number;
-  sequence?: number;
 };
 
 export type LivePresentationPhase =
@@ -83,20 +80,6 @@ export const getLatestLiveFrame = (
       : null
     : (value ?? null);
 
-export const filterLiveFramesForSource = <T extends { source_id?: string }>(
-  frames: T[],
-  sourceId: string | null | undefined,
-  allowUntagged = false,
-): T[] => {
-  const normalizedSourceId = normalizeSourceIdentity(sourceId);
-  if (!normalizedSourceId) return frames;
-  return frames.filter(
-    (frame) =>
-      normalizeSourceIdentity(frame.source_id) === normalizedSourceId ||
-      (allowUntagged && !normalizeSourceIdentity(frame.source_id)),
-  );
-};
-
 export const hasRenderableFramePayload = (
   frame: RenderableLiveFrame | null | undefined,
 ): boolean =>
@@ -130,40 +113,6 @@ export const isStreamEpochCurrent = ({
   if (typeof expectedEpoch !== "number") return true;
   if (typeof frameEpoch !== "number") return true;
   return frameEpoch >= expectedEpoch;
-};
-
-export const resolveFrameReadiness = ({
-  frame,
-  selectedSourceId,
-  activeSourceId,
-  expectedStreamEpoch,
-  frameCounter,
-  handoffStartedFrameCounter,
-}: {
-  frame: RenderableLiveFrame | null | undefined;
-  selectedSourceId: string | null | undefined;
-  activeSourceId: string | null | undefined;
-  expectedStreamEpoch?: number | null;
-  frameCounter: number;
-  handoffStartedFrameCounter: number;
-}): boolean => {
-  if (!hasRenderableFramePayload(frame)) return false;
-  const selected = normalizeSourceIdentity(selectedSourceId);
-  const active = normalizeSourceIdentity(activeSourceId);
-  const owner = normalizeSourceIdentity(frame?.source_id);
-  if (!selected || !active || selected !== active) return false;
-  if (owner && owner !== selected) return false;
-  if (frame?.protocol_version === 2) {
-    return (
-      owner === selected &&
-      isStreamEpochCurrent({
-        frameEpoch: frame.stream_epoch,
-        expectedEpoch: expectedStreamEpoch,
-      })
-    );
-  }
-  if (owner === selected) return true;
-  return frameCounter > handoffStartedFrameCounter;
 };
 
 export const resolveLiveDevicePlaceholderState = ({
@@ -280,7 +229,7 @@ export const shouldPreserveRenderableFrameDuringTransportGap = ({
 /** Low-frequency readiness boundary emitted by the frame pump. */
 export type SourceFrameReadiness = {
   sourceId: string;
-  streamEpoch: number | null;
+  streamEpoch: number;
   sequence: number;
 };
 
@@ -307,11 +256,7 @@ export const selectSourceTransportForMode = <
 >(
   mode: SourceStreamMode,
   byMode: Partial<Record<SourceStreamMode, T>> | null | undefined,
-  fallback: T,
-): T =>
-  byMode && Object.prototype.hasOwnProperty.call(byMode, mode)
-    ? (byMode[mode] as T)
-    : fallback;
+): T | null => byMode?.[mode] ?? null;
 
 /** Selects painted readiness without allowing another mode to satisfy it. */
 export const selectSourceFrameReadinessForMode = <
@@ -319,11 +264,8 @@ export const selectSourceFrameReadinessForMode = <
 >(
   mode: SourceStreamMode,
   byMode: Partial<Record<SourceStreamMode, T | null>> | null | undefined,
-  fallback: T | null,
 ): T | null =>
-  byMode && Object.prototype.hasOwnProperty.call(byMode, mode)
-    ? (byMode[mode] ?? null)
-    : fallback;
+  byMode?.[mode] ?? null;
 
 /**
  * Rendering policy owned by the live-source lifecycle.
@@ -580,9 +522,8 @@ export const shouldRecoverPausedFrame = ({
   (!activeSourceId || selectedSourceId === activeSourceId);
 
 /**
- * Confirms that the frame pump has accepted data for the selected lifecycle.
- * V2 requires the current epoch; v1 remains valid once source ownership is
- * aligned because it has no epoch field.
+ * Confirms that the frame pump has accepted a source owned, ordered v2 frame
+ * for the selected lifecycle.
  */
 export const isCurrentSourceFrameReady = ({
   selectedSourceId,
@@ -603,10 +544,16 @@ export const isCurrentSourceFrameReady = ({
   ) {
     return false;
   }
-  return isStreamEpochCurrent({
-    frameEpoch: readiness.streamEpoch,
-    expectedEpoch: expectedStreamEpoch,
-  });
+  return (
+    Number.isSafeInteger(readiness.streamEpoch) &&
+    readiness.streamEpoch >= 0 &&
+    Number.isSafeInteger(readiness.sequence) &&
+    readiness.sequence >= 0 &&
+    isStreamEpochCurrent({
+      frameEpoch: readiness.streamEpoch,
+      expectedEpoch: expectedStreamEpoch,
+    })
+  );
 };
 
 /**
@@ -645,39 +592,6 @@ export const isSelectedSourceFrameReady = ({
     expectedEpoch: expectedStreamEpoch,
   });
 };
-
-/** Same readiness boundary for the frame callback that gates canvas painting. */
-export const resolveSelectedSourceFrameReadiness = ({
-  frame,
-  selectedSourceId,
-  activeSourceId,
-  mode,
-  subscriberLocalRxView = false,
-  expectedStreamEpoch,
-  frameCounter,
-  handoffStartedFrameCounter,
-}: {
-  frame: RenderableLiveFrame | null | undefined;
-  selectedSourceId: string | null | undefined;
-  activeSourceId: string | null | undefined;
-  mode: SourceStreamMode;
-  /** RX can be locally presented while a different source owns global TX. */
-  subscriberLocalRxView?: boolean;
-  expectedStreamEpoch?: number | null;
-  frameCounter: number;
-  handoffStartedFrameCounter: number;
-}): boolean =>
-  resolveFrameReadiness({
-    frame,
-    selectedSourceId,
-    activeSourceId:
-      mode === "tx" || subscriberLocalRxView
-        ? selectedSourceId
-        : activeSourceId,
-    expectedStreamEpoch,
-    frameCounter,
-    handoffStartedFrameCounter,
-  });
 
 /** One source-scoped decision consumed by both canvases and route layout. */
 export type LiveSourceLifecycle = {

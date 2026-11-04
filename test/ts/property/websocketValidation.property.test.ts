@@ -8,15 +8,8 @@ const ANY_JSON = fc.jsonValue({ maxDepth: 5 });
 
 const MESSAGE_TYPES = [
   "tx_safety",
-  "frequency_range",
-  "set_frequency_range",
-  "demod_tune",
   "channels",
-  "pause",
   "status",
-  "gain",
-  "ppm",
-  "settings",
   "signal_display_settings",
   "signals_defaults",
   "restart_device",

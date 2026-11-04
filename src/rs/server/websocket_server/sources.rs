@@ -639,7 +639,6 @@ fn build_source_payload(
       },
       "display": sdr_settings.display,
     },
-    "iq_stream_protocols": [1, 2],
     "stream_epoch": shared.current_stream_epoch(),
     "serial_number": serial_number,
     "manufacturer": manufacturer,
@@ -1060,7 +1059,8 @@ mod stable_source_order_tests {
   #[test]
   fn inventory_source_ids_include_mocks_and_every_cached_peer() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_rtl_sdr_inventory(vec![
       crate::server::shared_state::RtlSdrInventoryDevice {
         index: 0,
@@ -1088,9 +1088,10 @@ mod stable_source_order_tests {
   }
 
   #[test]
-  fn source_inventory_advertises_versioned_iq_lifecycle_metadata() {
+  fn source_inventory_advertises_stream_lifecycle_metadata() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     let snapshot = build_source_info_snapshot(&shared);
     let active_id = snapshot["active_source"].as_str().unwrap();
     let active = snapshot["sources"]
@@ -1100,7 +1101,7 @@ mod stable_source_order_tests {
       .find(|source| source["id"].as_str() == Some(active_id))
       .unwrap();
 
-    assert_eq!(active["iq_stream_protocols"], serde_json::json!([1, 2]));
+    assert!(active.get("iq_stream_protocols").is_none());
     assert!(active["stream_epoch"]
       .as_u64()
       .is_some_and(|epoch| epoch > 0));
@@ -1121,9 +1122,7 @@ mod stable_source_order_tests {
   #[test]
   #[serial]
   fn source_inventory_retains_mock_tx_after_switching_away_from_it() {
-    let _guard = crate::server::utils::cwd_lock()
-      .lock()
-      .expect("cwd lock");
+    let _guard = crate::server::utils::cwd_lock().lock().expect("cwd lock");
     crate::server::utils::clear_signals_config_cache();
     let original_dir = std::env::current_dir().expect("current dir");
     let unique = std::time::SystemTime::now()
@@ -1145,7 +1144,8 @@ mod stable_source_order_tests {
       .expect("write temp signals.yaml");
     std::env::set_current_dir(&temp_dir).expect("set temp dir");
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
 
     shared.update_device_status(
       true,
@@ -1225,7 +1225,8 @@ mod stable_source_order_tests {
   #[test]
   fn rtl_inventory_snapshot_uses_sdr_owned_cache() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared
       .supported_usb_device_count
       .store(1, Ordering::Relaxed);

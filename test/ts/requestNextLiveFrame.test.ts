@@ -78,8 +78,8 @@ describe("requestNextLiveFrame thunk", () => {
       centerFrequencyHz: 137_100_000,
       bandwidthHz: 2_400_000,
       powerDbm: -18,
-      txSignal: "wifi",
-      txIfftSize: 8192,
+      signal: "wifi",
+      ifftSize: 8192,
     });
     expect(data).not.toHaveProperty("sampleRateHz");
   });

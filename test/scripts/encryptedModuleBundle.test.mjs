@@ -281,7 +281,7 @@ test('ML command entrypoint forwards arguments unchanged when the encrypted bund
   ], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, UNSAFE_LOCAL_LATEX_PASSWORD: 'fixture-password' },
+    env: { ...process.env, UNSAFE_LOCAL_DEMOD_PASSWORD: 'fixture-password' },
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -313,7 +313,7 @@ test('local ML encryption excludes extraction state and refuses non-local runs',
     ...process.env,
     CI: '',
     NAPT_ENCRYPTED_MODULE_ROOT: root,
-    UNSAFE_LOCAL_LATEX_PASSWORD: 'fixture-password',
+    UNSAFE_LOCAL_DEMOD_PASSWORD: 'fixture-password',
   };
   const encrypted = spawnSync(process.execPath, [
     '--import', 'tsx', runner, 'encrypt', '--only-ml',

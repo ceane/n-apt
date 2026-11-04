@@ -2,10 +2,9 @@ import React, { useMemo } from "react";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
-import {
-  fileFrameRuntime,
-  liveFrameRuntime,
-} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { shouldApplyNonHardwareSourcePattern } from "@n-apt/layout/rendering/nonHardwarePattern";
+import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import {
   FIFOWaterfall,
   newestIqWindow,
@@ -218,8 +217,19 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
   frequencyRange,
 }) => {
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activeLiveFrameRef = useActivePresentationFrameRef();
   const fftSize = useAppSelector((state) => state.spectrum.fftSize);
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const patternOverNonHardwareSources = useAppSelector(
+    (state) => state.theme.patternOverNonHardwareSources,
+  );
+  const nonHardwareSourcePattern = shouldApplyNonHardwareSourcePattern({
+    enabled: patternOverNonHardwareSources,
+    deviceKind: activeSourceDerived.deviceProfile?.kind,
+    backend: activeSourceDerived.backend,
+    deviceName: activeSourceDerived.deviceName,
+    isNonHardwareSource: sourceMode === "file",
+  });
   const deviceName = activeSourceDerived.deviceName || "SDR Device";
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
@@ -263,16 +273,17 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
 
   const phaseFeed = useMemo(() => {
     const sourceRef =
-      sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref;
+      sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
     let lastFrame: unknown = null;
     let lastPhase: Float32Array | null = null;
 
     // Returns a row only when a new frame landed; the buffer is reused, which
     // the feed contract explicitly supports.
     const computeLatestPhase = (): Float32Array | null => {
-      const current = Array.isArray(sourceRef.current)
-        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-        : sourceRef.current;
+      const current =
+        sourceMode === "file" && Array.isArray(sourceRef.current)
+          ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+          : sourceRef.current;
       if (!current || current === lastFrame) return null;
 
       const iq = (current as { iq_data?: Uint8Array })?.iq_data;
@@ -308,7 +319,7 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
         };
       },
     };
-  }, [sourceMode, fftSize]);
+  }, [activeLiveFrameRef, sourceMode, fftSize]);
 
   const performScalarResampling = useMemo(
     () =>
@@ -386,6 +397,7 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
             performScalarResampling={performScalarResampling}
             colormap={PHASE_COLORMAP}
             colormapName={PHASE_COLORMAP_NAME}
+            nonHardwareSourcePattern={nonHardwareSourcePattern}
             placeholderSourceLabel={
               typeof data?.label === "string" ? data.label : "Phase"
             }

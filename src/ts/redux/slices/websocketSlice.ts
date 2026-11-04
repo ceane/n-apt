@@ -35,7 +35,7 @@ export type SourceTransportState = {
 
 export type SourceFrameReadinessState = {
   sourceId: string;
-  streamEpoch: number | null;
+  streamEpoch: number;
   sequence: number;
 };
 
@@ -86,12 +86,9 @@ export interface WebSocketState {
    * when its status reports out of stale/loading, or on disconnect.
    */
   restartPendingSourceIds: string[];
-  /** Low-frequency lifecycle of the raw-I/Q transport selected by the UI. */
-  sourceTransport: SourceTransportState;
   /** Per-mode lifecycle; RX and TX events must never share a transport slot. */
   sourceTransportByMode: Record<StreamControlMode, SourceTransportState>;
-  sourceFrameReadiness: SourceFrameReadinessState | null;
-  /** Painted-frame readiness mirrors the mode selected by the visualizer. */
+  /** Painted-frame readiness is tracked independently for RX and TX. */
   sourceFrameReadinessByMode: Record<
     StreamControlMode,
     SourceFrameReadinessState | null
@@ -151,9 +148,7 @@ const initialState: WebSocketState = {
   sources: [],
   sourceStatuses: {},
   restartPendingSourceIds: [],
-  sourceTransport: { sourceId: null, phase: "idle", error: null },
   sourceTransportByMode: createSourceTransportByMode(),
-  sourceFrameReadiness: null,
   sourceFrameReadinessByMode: createSourceFrameReadinessByMode(),
   appliedStreamOptionsBySource: {},
   channels: [],
@@ -188,7 +183,6 @@ const websocketSlice = createSlice({
     setConnecting: (state) => {
       state.connectionStatus = "connecting";
       state.error = null;
-      state.sourceFrameReadiness = null;
       state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
       state.appliedStreamOptionsBySource = {};
     },
@@ -218,8 +212,11 @@ const websocketSlice = createSlice({
           "disconnected",
         ]),
       );
+      state.sourceTransportByMode = createSourceTransportByMode();
+      state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
       state.appliedStreamOptionsBySource = {};
-      // Keep hasConnectedOnce, sources, activeSourceId, transport metadata.
+      // Keep source identity for the Server Down placeholder, but discard the
+      // transport state: the middleware has already disposed these sockets.
       // Hard reset remains available via setDisconnected/reset.
     },
 
@@ -237,9 +234,7 @@ const websocketSlice = createSlice({
       state.sources = [];
       state.sourceStatuses = {};
       state.restartPendingSourceIds = [];
-      state.sourceTransport = { sourceId: null, phase: "idle", error: null };
       state.sourceTransportByMode = createSourceTransportByMode();
-      state.sourceFrameReadiness = null;
       state.sourceFrameReadinessByMode = createSourceFrameReadinessByMode();
       state.appliedStreamOptionsBySource = {};
       state.channels = [];

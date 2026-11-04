@@ -25,6 +25,30 @@ describe("multiplexed stream transport", () => {
     expect(event.frame).toMatchObject({ options_revision: 7, stream_epoch: 9, sequence: 0 });
   });
 
+  it.each([
+    ["source identity", { sourceId: "" }],
+    ["stream epoch", { streamEpoch: undefined }],
+    ["sequence", { sequence: undefined }],
+    ["safe stream epoch", { streamEpoch: -1 }],
+    ["safe sequence", { sequence: 1.5 }],
+  ])("rejects a live frame without valid %s metadata", async (_name, override) => {
+    const message = {
+      sourceId: "rtl-1",
+      mode: "rx",
+      streamEpoch: 9,
+      sequence: 1,
+      optionsRevision: 1,
+      timestamp: 1,
+      iqData: "encoded",
+      ...override,
+    };
+
+    await expect(makeFrame(message, {} as CryptoKey)).rejects.toThrow(
+      /source identity|stream epoch|sequence/i,
+    );
+    expect(decryptPayloadBytes).not.toHaveBeenCalled();
+  });
+
   it("carries held acquisition freshness through the multiplexed frame", async () => {
     (decryptPayloadBytes as jest.Mock).mockResolvedValueOnce(Uint8Array.from([1, 2]));
     const event = await makeFrame({ sourceId: "rtl-1", mode: "rx", streamEpoch: 9, optionsRevision: 7, sequence: 1,

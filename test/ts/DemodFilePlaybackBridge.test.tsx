@@ -5,24 +5,12 @@ import "@testing-library/jest-dom";
 import DemodFilePlaybackBridge from "@n-apt/capture/DemodFilePlaybackBridge";
 import { filePlaybackDataRef } from "@n-apt/app/infrastructure/io/filePlaybackData";
 
-var mockLiveDataRef = { current: null as any };
 const mockUsePlaybackAnimation = jest.fn((..._args: any[]) => ({}));
 const mockChannelData = {
   iq_data: new Uint8Array([1, 2, 3, 4]),
   bins_per_frame: 2,
   frame_updates: [] as any[],
 };
-
-jest.mock("@n-apt/redux/middleware/websocketMiddleware", () => ({
-  liveDataRef: {
-    get current() {
-      return mockLiveDataRef?.current ?? null;
-    },
-    set current(value: any) {
-      if (mockLiveDataRef) mockLiveDataRef.current = value;
-    },
-  },
-}));
 
 jest.mock("@n-apt/redux", () => ({
   useAppDispatch: () => jest.fn(),
@@ -65,7 +53,6 @@ jest.mock("@n-apt/capture/hooks/usePlaybackAnimation", () => ({
 
 describe("DemodFilePlaybackBridge", () => {
   afterEach(() => {
-    mockLiveDataRef.current = null;
     filePlaybackDataRef.current = null;
     mockChannelData.frame_updates = [];
     mockUsePlaybackAnimation.mockClear();

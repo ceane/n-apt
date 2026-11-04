@@ -293,11 +293,11 @@ impl websocket_server::WebSocketServer {
       ))
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"),
+        HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org ws: wss:;"),
       ))
       .layer(SetResponseHeaderLayer::overriding(
         HeaderName::from_static("connection-allowlist"),
-        HeaderValue::from_static("(response-origin)"),
+        HeaderValue::from_static("(response-origin \"https://tiles.openfreemap.org/*\")"),
       ));
 
     // Protected control and diagnostic endpoints

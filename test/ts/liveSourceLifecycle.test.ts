@@ -2,7 +2,6 @@ import {
   isControlPlaneUnavailable,
   isCurrentSourceFrameReady,
   isSelectedSourceFrameReady,
-  resolveSelectedSourceFrameReadiness,
   resolveLiveSourceLifecycleErrorReason,
   resolveLiveSourcePresentationPolicy,
   resolveLiveSourceLifecycle,
@@ -18,10 +17,12 @@ import {
   shouldRecoverPausedFrame,
 } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import type { SourceTransportLifecycle } from "@n-apt/spectrum/public/liveSourceLifecycle";
-import {
-  resolveFrameReadiness,
-  resolveLiveDevicePlaceholderState,
-} from "@n-apt/spectrum/public/liveSourceLifecycle";
+import { resolveLiveDevicePlaceholderState } from "@n-apt/spectrum/public/liveSourceLifecycle";
+import websocketReducer, {
+  setConnected,
+  softDisconnect,
+  updateDeviceState,
+} from "@n-apt/redux/slices/websocketSlice";
 
 const handoffPlaceholder = {
   kind: "loading" as const,
@@ -106,28 +107,24 @@ describe("resolveLiveSourceLifecycle", () => {
       selectSourceTransportForMode(
         "rx",
         { rx: rxTransport, tx: txTransport },
-        txTransport,
       ),
     ).toBe(rxTransport);
     expect(
       selectSourceTransportForMode(
         "tx",
         { rx: rxTransport, tx: txTransport },
-        rxTransport,
       ),
     ).toBe(txTransport);
     expect(
       selectSourceFrameReadinessForMode(
         "tx",
         { rx: rxReadiness, tx: txReadiness },
-        rxReadiness,
       ),
     ).toBe(txReadiness);
     expect(
       selectSourceFrameReadinessForMode(
         "tx",
         { rx: rxReadiness, tx: null },
-        rxReadiness,
       ),
     ).toBeNull();
   });
@@ -406,28 +403,13 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(false);
   });
 
-  test("accepts manager-owned readiness when no legacy source epoch is supplied", () => {
+  test("accepts manager-owned readiness before control-plane epoch hydration", () => {
     expect(
       isCurrentSourceFrameReady({
         selectedSourceId: "mock-apt",
         activeSourceId: "mock-apt",
         expectedStreamEpoch: null,
         readiness: { sourceId: "mock-apt", streamEpoch: 29, sequence: 8132 },
-      }),
-    ).toBe(true);
-    expect(
-      resolveFrameReadiness({
-        frame: {
-          source_id: "mock-apt",
-          protocol_version: 2,
-          stream_epoch: 29,
-          iq_data: new Uint8Array([128, 129]),
-        },
-        selectedSourceId: "mock-apt",
-        activeSourceId: "mock-apt",
-        expectedStreamEpoch: null,
-        frameCounter: 1,
-        handoffStartedFrameCounter: 0,
       }),
     ).toBe(true);
   });
@@ -454,21 +436,6 @@ describe("resolveLiveSourceLifecycle", () => {
         readiness: { sourceId: "mock-apt", streamEpoch: 9, sequence: 2 },
       }),
     ).toBe(true);
-    expect(
-      resolveFrameReadiness({
-        frame: {
-          source_id: "mock-apt",
-          protocol_version: 2,
-          stream_epoch: 11,
-          iq_data: new Uint8Array([128, 129]),
-        },
-        selectedSourceId: "mock-apt",
-        activeSourceId: "mock-apt",
-        expectedStreamEpoch: 4,
-        frameCounter: 1,
-        handoffStartedFrameCounter: 0,
-      }),
-    ).toBe(true);
   });
 
   test("still rejects an older epoch and a foreign source's newer epoch", () => {
@@ -478,21 +445,6 @@ describe("resolveLiveSourceLifecycle", () => {
         activeSourceId: "mock-apt",
         expectedStreamEpoch: 6,
         readiness: { sourceId: "mock-apt", streamEpoch: 5, sequence: 9 },
-      }),
-    ).toBe(false);
-    expect(
-      resolveFrameReadiness({
-        frame: {
-          source_id: "rtl-sdr-1",
-          protocol_version: 2,
-          stream_epoch: 99,
-          iq_data: new Uint8Array([128, 129]),
-        },
-        selectedSourceId: "mock-apt",
-        activeSourceId: "mock-apt",
-        expectedStreamEpoch: 4,
-        frameCounter: 1,
-        handoffStartedFrameCounter: 0,
       }),
     ).toBe(false);
   });
@@ -516,22 +468,6 @@ describe("resolveLiveSourceLifecycle", () => {
         readiness: { sourceId: "mock-tx", streamEpoch: 7, sequence: 12 },
       }),
     ).toBe(false);
-    expect(
-      resolveSelectedSourceFrameReadiness({
-        frame: {
-          source_id: "mock-tx",
-          protocol_version: 2,
-          stream_epoch: 7,
-          iq_data: new Uint8Array([128, 129]),
-        },
-        selectedSourceId: "mock-tx",
-        activeSourceId: "mock-apt",
-        mode: "tx",
-        expectedStreamEpoch: 7,
-        frameCounter: 1,
-        handoffStartedFrameCounter: 0,
-      }),
-    ).toBe(true);
   });
 
   test("accepts subscriber-local RX readiness while another source owns TX", () => {
@@ -543,23 +479,6 @@ describe("resolveLiveSourceLifecycle", () => {
         subscriberLocalRxView: true,
         expectedStreamEpoch: 8,
         readiness: { sourceId: "mock-apt", streamEpoch: 8, sequence: 14 },
-      }),
-    ).toBe(true);
-    expect(
-      resolveSelectedSourceFrameReadiness({
-        frame: {
-          source_id: "mock-apt",
-          protocol_version: 2,
-          stream_epoch: 8,
-          iq_data: new Uint8Array([128, 129]),
-        },
-        selectedSourceId: "mock-apt",
-        activeSourceId: "mock-tx",
-        mode: "rx",
-        subscriberLocalRxView: true,
-        expectedStreamEpoch: 8,
-        frameCounter: 1,
-        handoffStartedFrameCounter: 0,
       }),
     ).toBe(true);
   });
@@ -832,6 +751,40 @@ describe("resolveLiveSourceLifecycle", () => {
         handoffPlaceholder,
       }).phase,
     ).toBe("failed");
+  });
+
+  test("shows Server Down after a socket close invalidates its ready stream", () => {
+    const connected = websocketReducer(undefined, setConnected());
+    const withReadyStream = websocketReducer(
+      connected,
+      updateDeviceState({
+        sourceTransportByMode: {
+          rx: { sourceId: "mock-apt", phase: "ready", error: null },
+          tx: { sourceId: null, phase: "idle", error: null },
+        },
+        sourceFrameReadinessByMode: {
+          rx: { sourceId: "mock-apt", streamEpoch: 8, sequence: 120 },
+          tx: null,
+        },
+      }),
+    );
+    const disconnected = websocketReducer(withReadyStream, softDisconnect());
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "mock-apt",
+      activeSourceId: "mock-apt",
+      transportSourceId: disconnected.sourceTransportByMode.rx.sourceId,
+      transportPhase: disconnected.sourceTransportByMode.rx.phase,
+      hasValidFrame: false,
+      deviceStatus: "disconnected",
+      isConnected: disconnected.isConnected,
+      connectionStatus: disconnected.connectionStatus,
+      hasConnectedOnce: disconnected.hasConnectedOnce,
+    });
+
+    expect(lifecycle).toMatchObject({
+      phase: "failed",
+      placeholder: { kind: "error", reason: "Server down" },
+    });
   });
 
   test("shows Server Down only after a live control session is lost", () => {

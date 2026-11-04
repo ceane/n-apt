@@ -11,10 +11,10 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use super::shared_state::SharedState;
+use super::source_runtime::SourceRuntimeManager;
 use super::stream_manager::{
   StreamKey, StreamMode, StreamingSourceModeManager,
 };
-use super::source_runtime::SourceRuntimeManager;
 #[cfg(test)]
 use super::stream_manager::{StreamOptions, TxStreamOptions};
 use super::types::SpectrumData;
@@ -56,8 +56,8 @@ pub use source_lifecycle::SourceLifecyclePhase;
 pub use sources::{
   active_source_id, apply_stream_keys, build_device_profile,
   build_signals_defaults_snapshot, build_source_info_snapshot,
-  open_device_for_source_id,
-  resolve_source_selection, resolve_stream_key_source_id,
+  open_device_for_source_id, resolve_source_selection,
+  resolve_stream_key_source_id,
 };
 
 pub(crate) const MOCK_TX_SOURCE_ID: &str = "mock-tx";
@@ -421,8 +421,14 @@ mod tests {
 
   #[test]
   fn same_source_selection_does_not_interrupt_capture() {
-    assert!(!should_stop_capture_for_source_switch("rtl-sdr-0", "rtl-sdr-0"));
-    assert!(should_stop_capture_for_source_switch("rtl-sdr-0", "mock-apt"));
+    assert!(!should_stop_capture_for_source_switch(
+      "rtl-sdr-0",
+      "rtl-sdr-0"
+    ));
+    assert!(should_stop_capture_for_source_switch(
+      "rtl-sdr-0",
+      "mock-apt"
+    ));
   }
 
   #[test]
@@ -527,7 +533,8 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("hackrf_one");
     *shared.device_serial.lock().unwrap() = "test".to_string();
     let tx_iq = vec![128, 129, 127, 130, 126, 131];
@@ -549,12 +556,7 @@ mod tests {
         }),
       )
       .expect("active HackRF Tx subscription should open");
-    stream_manager.set_tx_payload(
-      tx_key,
-      2_400_000,
-      2_000_000,
-      tx_iq.clone(),
-    );
+    stream_manager.set_tx_payload(tx_key, 2_400_000, 2_000_000, tx_iq.clone());
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
 
     let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
@@ -572,7 +574,8 @@ mod tests {
     let crate::server::stream_manager::StreamEvent::Frame(first) = first else {
       panic!("expected first managed HackRF Tx monitor frame");
     };
-    let crate::server::stream_manager::StreamEvent::Frame(second) = second else {
+    let crate::server::stream_manager::StreamEvent::Frame(second) = second
+    else {
       panic!("expected second managed HackRF Tx monitor frame");
     };
     assert_eq!(first.key.source_id, "hackrf_one-test");
@@ -598,7 +601,8 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
@@ -635,7 +639,8 @@ mod tests {
     let crate::server::stream_manager::StreamEvent::Frame(first) = first else {
       panic!("expected first managed Mock Tx monitor frame");
     };
-    let crate::server::stream_manager::StreamEvent::Frame(second) = second else {
+    let crate::server::stream_manager::StreamEvent::Frame(second) = second
+    else {
       panic!("expected second managed Mock Tx monitor frame");
     };
     assert_eq!(first.key.source_id, MOCK_TX_SOURCE_ID);
@@ -659,7 +664,8 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_apt");
     let stream_manager =
       StreamingSourceModeManager::new(Duration::from_millis(250));
@@ -682,19 +688,28 @@ mod tests {
     shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
 
     let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
-    let first = tokio::time::timeout(Duration::from_secs(2), subscription.recv())
-      .await
-      .expect("bound Mock Tx monitor frame should reach its managed subscriber")
-      .expect("bound Mock Tx subscription should remain open");
-    let second = tokio::time::timeout(Duration::from_secs(2), subscription.recv())
-      .await
-      .expect("second bound Mock Tx monitor frame should reach its managed subscriber")
-      .expect("bound Mock Tx subscription should remain open");
+    let first =
+      tokio::time::timeout(Duration::from_secs(2), subscription.recv())
+        .await
+        .expect(
+          "bound Mock Tx monitor frame should reach its managed subscriber",
+        )
+        .expect("bound Mock Tx subscription should remain open");
+    let second = tokio::time::timeout(
+      Duration::from_secs(2),
+      subscription.recv(),
+    )
+    .await
+    .expect(
+      "second bound Mock Tx monitor frame should reach its managed subscriber",
+    )
+    .expect("bound Mock Tx subscription should remain open");
 
     let crate::server::stream_manager::StreamEvent::Frame(first) = first else {
       panic!("expected first managed Mock Tx monitor frame");
     };
-    let crate::server::stream_manager::StreamEvent::Frame(second) = second else {
+    let crate::server::stream_manager::StreamEvent::Frame(second) = second
+    else {
       panic!("expected second managed Mock Tx monitor frame");
     };
     assert_eq!(first.key.source_id, MOCK_TX_SOURCE_ID);
@@ -718,7 +733,8 @@ mod tests {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("mock_tx");
     shared.mock_tx_transmitting.store(false, Ordering::Relaxed);
     crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
@@ -778,7 +794,8 @@ mod tests {
   #[test]
   fn shutdown_flag_stops_streaming() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     assert!(!should_stop_streaming(&shared));
     shared.shutdown.store(true, Ordering::Relaxed);
     assert!(should_stop_streaming(&shared));
@@ -787,7 +804,8 @@ mod tests {
   #[test]
   fn selecting_a_source_opens_its_rx_gate_until_the_first_frame() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     shared.set_active_source_pause_state("hackrf-one", true);
 
     prepare_selected_source_for_rx(
@@ -804,7 +822,8 @@ mod tests {
   #[test]
   fn mock_fallback_releases_pending_source_switch_fence() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "n-apt-dev-key");
-    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    let shared =
+      SharedState::new(crate::infrastructure::redis::test_redis_url());
     *shared.device_profile.lock().unwrap() = build_device_profile("rtl_sdr");
     let failed_source_id = active_source_id(&shared);
     shared.request_source_switch(&failed_source_id);
@@ -1284,7 +1303,8 @@ impl WebSocketServer {
             // ownership of the legacy control processor. Its managed stream
             // remains subscribed, so the active acquisition loop can keep
             // publishing into that same stream after the handoff.
-            self.source_runtime_manager
+            self
+              .source_runtime_manager
               .stop(&StreamKey::new(source_id.clone(), StreamMode::Rx));
             {
               let mut processor = sdr_processor.lock().await;
@@ -1522,8 +1542,8 @@ impl WebSocketServer {
         StreamKey::new(active_source_for_pause.clone(), StreamMode::Rx);
       let has_managed_rx_subscribers =
         stream_manager.has_subscribers(&managed_rx_key);
-      let all_managed_subscribers_paused = stream_manager
-        .all_subscribers_paused(&managed_rx_key);
+      let all_managed_subscribers_paused =
+        stream_manager.all_subscribers_paused(&managed_rx_key);
       let tx_is_active_for_gate =
         crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
       if should_delegate_tx_monitor(

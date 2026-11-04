@@ -350,6 +350,39 @@ describe("negative-direction scroll panning regression", () => {
     expect(displayCenter).toBeLessThan(1_600_000);
   });
 
+  it("does not reuse a stale mirrored pan when scrolling after mirror is turned off", () => {
+    // The renderer clamps a negative mirror pan to the positive acquisition
+    // window when mirror mode is disabled. The wheel handler must use that
+    // displayed pan too; using the old negative ref makes the first scroll
+    // retune all the way to 0 Hz.
+    frequencyRangeRef.current = { min: 18_000, max: 3_218_000 };
+    vizZoomRef.current = 1;
+    vizPanOffsetRef.current = -1_500_000;
+
+    const { rerender } = renderHook(
+      ({ mirrorEnabled }) =>
+        useSpectrumInteraction(
+          buildOptions({
+            allowNegativeFrequencies: mirrorEnabled,
+            hardwareSpectrumBounds: { min: 0, max: SPECTRUM_MAX_HZ },
+          }),
+        ),
+      { initialProps: { mirrorEnabled: true } },
+    );
+
+    rerender({ mirrorEnabled: false });
+    wheelTick(-120);
+
+    const nextRange =
+      mockOnFrequencyRangeChange.mock.calls[
+        mockOnFrequencyRangeChange.mock.calls.length - 1
+      ]?.[0];
+    expect(nextRange).toBeDefined();
+    expect(nextRange.min).toBeGreaterThan(18_000);
+    expect(nextRange.min).toBeCloseTo(402_000, -3);
+    expect(vizPanOffsetRef.current).toBe(0);
+  });
+
   it("does not republish a pinned window on every tick at the acquisition edge", () => {
     // Mirror off, zoomed 4x into [0, 3.2 MHz] (pan bounds +/-1.2 MHz),
     // panning left into the pinned 0 Hz edge. The tuning bounds leave the

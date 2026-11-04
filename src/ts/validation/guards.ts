@@ -147,9 +147,6 @@ export const validateWaterfallData = (
   return true;
 };
 
-// Alias for backward compatibility
-export const isValidWaterfallData = validateWaterfallData;
-
 export const validateSpectrumData = (
   value: unknown,
   expectedLength?: number,
@@ -170,9 +167,6 @@ export const validateSpectrumData = (
 
   return true;
 };
-
-// Alias for backward compatibility
-export const isValidSpectrumData = validateSpectrumData;
 
 // Comprehensive validation interface for waterfall data
 interface WaterfallValidationOptions {

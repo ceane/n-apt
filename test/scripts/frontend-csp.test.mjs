@@ -38,12 +38,13 @@ test("frontend responses use a CSP with scoped backend and HMR connections", asy
   );
   assert.match(policy, /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/);
   assert.match(policy, /font-src 'self' data: https:\/\/fonts\.gstatic\.com/);
-  assert.match(policy, /img-src 'self' data: blob: https:\/\/\*\.basemaps\.cartocdn\.com/);
+  assert.match(policy, /img-src 'self' data: blob: https:\/\/tiles\.openfreemap\.org/);
   assert.match(policy, /worker-src 'self' blob:/);
   assert.match(policy, /media-src 'self' blob:/);
   assert.match(policy, /connect-src[^;]*http:\/\/127\.0\.0\.1:8765/);
   assert.match(policy, /connect-src[^;]*ws:\/\/127\.0\.0\.1:8765/);
   assert.match(policy, /connect-src[^;]*https:\/\/nominatim\.openstreetmap\.org/);
+  assert.match(policy, /connect-src[^;]*https:\/\/tiles\.openfreemap\.org/);
   assert.match(policy, /connect-src[^;]*https:\/\/huggingface\.co/);
   assert.match(
     policy,

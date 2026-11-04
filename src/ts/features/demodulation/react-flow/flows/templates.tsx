@@ -214,6 +214,7 @@ const flowTemplatesDefinition: FlowTemplate[] = [
           label: "Channel",
           description: "Channel configuration",
           channelNode: true,
+          channelLabels: ["A", "B", "C"],
         },
       },
       {

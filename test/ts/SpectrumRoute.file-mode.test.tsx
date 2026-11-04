@@ -444,7 +444,7 @@ describe("SpectrumRoute file mode", () => {
     expect(mockValue.wsConnection.sendTransmitStatus).not.toHaveBeenCalled();
   });
 
-  it("clears the stale mock apt frame at the Mock Tx selection boundary", async () => {
+  it("switches to the Mock Tx frame ref at the source selection boundary", async () => {
     const requestNextPausedFrameMock = jest.mocked(requestNextPausedFrame);
     requestNextPausedFrameMock.mockClear();
 
@@ -456,6 +456,7 @@ describe("SpectrumRoute file mode", () => {
       iq_data: new Uint8Array([128, 129, 127, 126]),
     };
     const dataRef = { current: liveFrame as any };
+    const mockTxDataRef = { current: null as any };
 
     const mockValue = {
       state: {
@@ -605,6 +606,10 @@ describe("SpectrumRoute file mode", () => {
         deviceName: "Mock Tx SDR",
         backend: "mock_tx",
       },
+      wsConnection: {
+        ...mockValue.wsConnection,
+        dataRef: mockTxDataRef,
+      },
       sources: [
         ...mockValue.sources,
         {
@@ -631,10 +636,11 @@ describe("SpectrumRoute file mode", () => {
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1
       ]?.[0];
-    expect(handoffProps.dataRef).toBe(dataRef);
-    // Source selection is an ownership boundary; the previous source frame is
-    // cleared until the target source provides its first frame.
-    expect(dataRef.current).toBeNull();
+    expect(handoffProps.dataRef).toBe(mockTxDataRef);
+    // Source selection is an ownership boundary: the target reads its own
+    // frame ref while the previous source retains its separately owned frame.
+    expect(mockTxDataRef.current).toBeNull();
+    expect(dataRef.current).toBe(liveFrame);
     expect(handoffProps.expectedSourceId).toBe("mock-tx");
     expect(handoffProps.loadingPlaceholderDelayMs).toBe(1_000);
 
@@ -658,7 +664,7 @@ describe("SpectrumRoute file mode", () => {
         activeSourceId: "mock-tx",
         deviceName: "Mock Tx SDR",
         backend: "mock_tx",
-        dataRef,
+        dataRef: mockTxDataRef,
       },
       sources: [
         {
@@ -684,8 +690,10 @@ describe("SpectrumRoute file mode", () => {
     await waitFor(() => {
       expect(requestNextPausedFrameMock).toHaveBeenCalled();
     });
-    // The source boundary clears the previous frame until the preview lands.
-    expect(dataRef.current).toBeNull();
+    // The target ref stays empty until its preview lands; the prior source's
+    // frame remains isolated in its own source-owned ref.
+    expect(mockTxDataRef.current).toBeNull();
+    expect(dataRef.current).toBe(liveFrame);
     const visualizerProps =
       fftAndWaterfallMock.mock.calls[
         fftAndWaterfallMock.mock.calls.length - 1

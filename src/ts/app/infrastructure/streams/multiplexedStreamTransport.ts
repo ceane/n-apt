@@ -1,5 +1,5 @@
 import { decryptPayloadBytes } from "@n-apt/crypto/webcrypto";
-import type { IqRawFrame } from "@n-apt/consts/schemas/websocket";
+import type { IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 import {
   type StreamEvent,
   type StreamKey,
@@ -78,17 +78,38 @@ const nsToFinite = (value: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const requiredNonnegativeSafeInteger = (
+  value: unknown,
+  field: "stream epoch" | "sequence",
+): number => {
+  const normalized =
+    typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  if (
+    typeof normalized !== "number" ||
+    !Number.isSafeInteger(normalized) ||
+    normalized < 0
+  ) {
+    throw new Error(`Invalid live stream ${field}`);
+  }
+  return normalized;
+};
+
 /** Test seam: exposed so property tests can fuzz frame assembly directly. */
 export const makeFrame = async (
   message: Record<string, unknown>,
   aesKey: CryptoKey,
 ): Promise<StreamEvent> => {
-  const sourceId = String(message.sourceId ?? "");
+  const sourceId =
+    typeof message.sourceId === "string" ? message.sourceId.trim() : "";
+  if (!sourceId) throw new Error("Invalid live stream source identity");
   const mode = message.mode === "tx" ? "tx" : "rx";
   // Garbage numeric fields must never flow NaN/Infinity into the frame — the
   // stream manager's epoch/revision/sequence gating relies on finite numbers.
-  const sequence = nsToFinite(message.sequence ?? 0);
-  const streamEpoch = nsToFinite(message.streamEpoch ?? 0);
+  const sequence = requiredNonnegativeSafeInteger(message.sequence, "sequence");
+  const streamEpoch = requiredNonnegativeSafeInteger(
+    message.streamEpoch,
+    "stream epoch",
+  );
   const optionsRevision = nsToFinite(message.optionsRevision ?? 0);
   const timestamp = nsToFinite(message.timestamp ?? 0);
   const iqData = await decryptPayloadBytes(
@@ -105,7 +126,7 @@ export const makeFrame = async (
     Number.isFinite(message.sampleRateHz)
       ? message.sampleRateHz
       : undefined;
-  const frame: IqRawFrame = {
+  const frame: IqRawFrameV2 = {
     type: "spectrum",
     data_type: "iq_raw",
     source_id: sourceId,

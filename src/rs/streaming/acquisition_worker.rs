@@ -125,7 +125,17 @@ impl AcquisitionWorker {
           || settings.fft_size.is_some()
           || settings.fft_window.is_some()
           || settings.frame_rate.is_some()
-          || settings.gain.is_some();
+          || settings.max_frame_rate.is_some()
+          || settings.gain.is_some()
+          || settings.hackrf_lna_gain.is_some()
+          || settings.hackrf_vga_gain.is_some()
+          || settings.hackrf_amp_enable.is_some()
+          || settings.ppm.is_some()
+          || settings.tuner_agc.is_some()
+          || settings.rtl_agc.is_some()
+          || settings.offset_tuning.is_some()
+          || settings.direct_sampling.is_some()
+          || settings.tuner_bandwidth.is_some();
         let center_frequency = u32::try_from(update.options.center_frequency_hz)
           .map_err(|_| anyhow::anyhow!("center frequency exceeds u32"))?;
         let mut succeeded = true;

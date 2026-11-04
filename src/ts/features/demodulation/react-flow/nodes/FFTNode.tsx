@@ -13,14 +13,18 @@ import {
 } from "@n-apt/redux/slices/spectrumSlice";
 import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
 import { useNodeConnections, useStore } from "@xyflow/react";
-import { FFTCanvas, type FFTCanvasHandle } from "@n-apt/spectrum/public/FFTCanvas";
+import {
+  FFTCanvas,
+  type FFTCanvasHandle,
+} from "@n-apt/spectrum/public/FFTCanvas";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import { FrequencyRange } from "@n-apt/consts/types";
 import {
   fileFrameRuntime,
-  liveSourceFrameRuntime,
+  getLiveFrameRefForSource,
   subscribeFrameRuntime,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import { getFilePlaceholderState } from "@n-apt/app/infrastructure/io/filePlaceholderState";
 import {
   isFilePlaybackPaused,
@@ -232,6 +236,17 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     );
   });
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activeLiveFrameRef = useActivePresentationFrameRef();
+  const roleLiveFrameRef = useMemo(
+    () =>
+      data.sourceRole
+        ? getLiveFrameRefForSource(
+            roleSourceId,
+            data.sourceRole === "tx" ? "tx" : "rx",
+          )
+        : activeLiveFrameRef,
+    [activeLiveFrameRef, data.sourceRole, roleSourceId],
+  );
   const selectedFiles = useAppSelector(
     (state) => state.waterfall.selectedFiles,
   );
@@ -257,12 +272,11 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     return roleSource?.kind ?? state.websocket.backend;
   });
   const initialSourceRef =
-    sourceMode === "file"
-      ? fileFrameRuntime.ref
-      : liveSourceFrameRuntime.getRef(roleSourceId);
-  const initialFrame = Array.isArray(initialSourceRef.current)
-    ? (initialSourceRef.current[initialSourceRef.current.length - 1] ?? null)
-    : initialSourceRef.current;
+    sourceMode === "file" ? fileFrameRuntime.ref : roleLiveFrameRef;
+  const initialFrame =
+    sourceMode === "file" && Array.isArray(initialSourceRef.current)
+      ? (initialSourceRef.current[initialSourceRef.current.length - 1] ?? null)
+      : initialSourceRef.current;
   const dataRef = useRef<LiveFrameData | null>(initialFrame);
 
   const connections = useNodeConnections({
@@ -335,14 +349,13 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
 
   useEffect(() => {
     const sourceRef =
-      sourceMode === "file"
-        ? fileFrameRuntime.ref
-        : liveSourceFrameRuntime.getRef(roleSourceId);
-    const liveFrame = Array.isArray(sourceRef.current)
-      ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-      : sourceRef.current;
+      sourceMode === "file" ? fileFrameRuntime.ref : roleLiveFrameRef;
+    const liveFrame =
+      sourceMode === "file" && Array.isArray(sourceRef.current)
+        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+        : sourceRef.current;
     dataRef.current = liveFrame;
-  }, [activeSourceId, roleSourceId, sourceMode]);
+  }, [activeSourceId, roleLiveFrameRef, roleSourceId, sourceMode]);
   const demodCenterFreqHz = useAppSelector(
     (state) => state.demod?.centerFreqHz ?? null,
   );
@@ -401,12 +414,11 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
   useEffect(() => {
     return subscribeFrameRuntime(() => {
       const sourceRef =
-        sourceMode === "file"
-          ? fileFrameRuntime.ref
-          : liveSourceFrameRuntime.getRef(roleSourceId);
-      const liveFrame = Array.isArray(sourceRef.current)
-        ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-        : sourceRef.current;
+        sourceMode === "file" ? fileFrameRuntime.ref : roleLiveFrameRef;
+      const liveFrame =
+        sourceMode === "file" && Array.isArray(sourceRef.current)
+          ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
+          : sourceRef.current;
       dataRef.current = liveFrame;
       // Live FFT rendering reads the source ref from its own rAF loop. A
       // React update here only adds node-tree work; file playback still needs
@@ -469,6 +481,7 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     centerFrequencyHz,
     data.sourceRole,
     demodCenterFreqHz,
+    roleLiveFrameRef,
     roleSourceId,
     roleFallbackRange,
     sourceFrequencyRange,
@@ -477,9 +490,7 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
   ]); // Keep frame range aligned with the current source metadata
 
   const renderDataRef =
-    sourceMode === "file"
-      ? fileFrameRuntime.ref
-      : liveSourceFrameRuntime.getRef(roleSourceId);
+    sourceMode === "file" ? fileFrameRuntime.ref : roleLiveFrameRef;
   const isPaused =
     isTxStandbyPreview || isFilePlaybackPaused({ sourceMode, isStitchPaused });
   const canvasSessionKey = getSourcePresentationSessionKey({
@@ -496,9 +507,10 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     // canvas receives the new session key imperatively and can reject stale
     // frames by source/epoch without destroying its renderer and flashing
     // blank between sessions.
-    const currentFrame = Array.isArray(renderDataRef.current)
-      ? (renderDataRef.current[renderDataRef.current.length - 1] ?? null)
-      : renderDataRef.current;
+    const currentFrame =
+      sourceMode === "file" && Array.isArray(renderDataRef.current)
+        ? (renderDataRef.current[renderDataRef.current.length - 1] ?? null)
+        : renderDataRef.current;
     setHasRenderableFrame(hasRenderableFramePayload(currentFrame));
   }, [canvasSessionKey, roleSourceId]);
   const handleRenderableFrameChange = useCallback((ready: boolean) => {

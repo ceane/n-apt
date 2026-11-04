@@ -192,33 +192,17 @@ describe("Validation System", () => {
       ).toBe(true);
     });
 
-    test("should validate valid frequency range message", () => {
-      const validMessage = {
-        type: "frequency_range",
-        min_hz: 100_500_000,
-        max_hz: 200_500_000,
-      };
-
-      expect(isValidWebSocketMessage(validMessage)).toBe(true);
-    });
-
-    test("should validate valid pause message", () => {
-      const validMessage = {
-        type: "pause",
-        paused: true,
-        source_id: "mock-apt",
-      };
-
-      expect(isValidWebSocketMessage(validMessage)).toBe(true);
-    });
-
-    test("should reject pause messages without source_id", () => {
-      expect(
-        isValidWebSocketMessage({
-          type: "pause",
-          paused: true,
-        }),
-      ).toBe(false);
+    test("should reject retired control-socket stream messages", () => {
+      for (const message of [
+        { type: "frequency_range", min_hz: 100_500_000, max_hz: 200_500_000 },
+        { type: "set_frequency_range", min_hz: 100_500_000, max_hz: 200_500_000 },
+        { type: "pause", paused: true, source_id: "mock-apt" },
+        { type: "gain", gain: 12 },
+        { type: "ppm", ppm: 10 },
+        { type: "settings", fftSize: 4096 },
+      ]) {
+        expect(isValidWebSocketMessage(message)).toBe(false);
+      }
     });
 
     test("should validate select source message", () => {

@@ -285,6 +285,7 @@ const frontendContentSecurityPolicyPlugin = (browserEnv, reportOnly) => {
   addBackendSource(browserEnv.VITE_BACKEND_URL ?? "http://127.0.0.1:8765", true);
   addBackendSource(browserEnv.VITE_WS_URL);
   backendConnectSources.add("https://nominatim.openstreetmap.org");
+  backendConnectSources.add("https://tiles.openfreemap.org");
   backendConnectSources.add("https://huggingface.co");
   backendConnectSources.add("https://cdn-lfs.huggingface.co");
   backendConnectSources.add("https://*.xethub.hf.co");
@@ -336,7 +337,7 @@ const frontendContentSecurityPolicyPlugin = (browserEnv, reportOnly) => {
           `script-src ${scriptSrc.join(" ")}`,
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' data: https://fonts.gstatic.com",
-          "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
+          "img-src 'self' data: blob: https://tiles.openfreemap.org",
           "media-src 'self' blob:",
           `connect-src ${[...connectSources].join(" ")}`,
           "worker-src 'self' blob:",
@@ -396,7 +397,7 @@ const connectionAllowlistPlugin = (browserEnv) => {
     "https://fonts.googleapis.com/*",
     "https://fonts.gstatic.com/*",
     "https://nominatim.openstreetmap.org/*",
-    "https://*.basemaps.cartocdn.com/*",
+    "https://tiles.openfreemap.org/*",
     "https://huggingface.co/*",
     "https://*.hf.co/*",
   ];

@@ -177,7 +177,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     const sourceTransport =
       wsState.sourceTransportByMode?.[
         sourceModeManagement.isTxMode ? "tx" : "rx"
-      ] ?? wsState.sourceTransport;
+      ] ?? null;
     const sourceMode = useAppSelector(
       (reduxState) => reduxState.waterfall.sourceMode,
     );
@@ -219,9 +219,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
     );
     const awaitingFreshFrameRef = useRef(false);
     const loadingPlaceholderTimeoutRef = useRef<number | null>(null);
-    const currentFrame = Array.isArray(props.dataRef.current)
-      ? (props.dataRef.current[props.dataRef.current.length - 1] ?? null)
-      : props.dataRef.current;
+    const currentFrame = props.dataRef.current;
     const hasIncomingData = !!(
       currentFrame &&
       ((currentFrame.iq_data?.length ?? 0) > 0 ||

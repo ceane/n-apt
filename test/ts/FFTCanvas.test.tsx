@@ -20,6 +20,7 @@ import {
   getCanvasPixelRatio,
   shouldClearBlockingPlaceholder,
   shouldAccumulateFullChannelWaveform,
+  shouldApplyNonHardwareSourcePattern,
   shouldPublishProcessedSpectrumFrame,
   shouldRepaintCachedSpectrumForViewportChange,
   createVizPanScheduler,
@@ -286,6 +287,57 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
     snapshotGridPreference: true,
   };
 
+  it("renders pattern blending below the normal spectrum markers", async () => {
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas {...defaultProps} />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    const pattern = await screen.findByTestId("fft-spectrum-pattern-overlay");
+    const gpu = screen.getByTestId("fft-spectrum-gpu-canvas");
+    const markers = screen.getByTestId("fft-spectrum-marker-overlay");
+
+    expect(pattern).toHaveStyle({ mixBlendMode: "difference" });
+    expect(gpu.compareDocumentPosition(pattern) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pattern.compareDocumentPosition(markers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("includes the spectrum pattern in composite snapshots", async () => {
+    global.clearCanvasCalls?.();
+    const fftCanvasRef = createRef<FFTCanvasHandle>();
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas {...defaultProps} ref={fftCanvasRef} />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    const pattern = await screen.findByTestId("fft-spectrum-pattern-overlay");
+    await waitFor(() => expect(fftCanvasRef.current).not.toBeNull());
+    act(() => {
+      fftCanvasRef.current?.getCompositeSnapshot();
+    });
+
+    expect(
+      (global as any).__CANVAS_CALLS__.some(
+        (call: any) =>
+          call.name === "drawImage" && call.args[0] === pattern,
+      ),
+    ).toBe(true);
+  });
+
   it("clears an unchanged blocking placeholder only once", () => {
     expect(shouldClearBlockingPlaceholder(0, 2)).toBe(true);
     expect(shouldClearBlockingPlaceholder(2, 2)).toBe(false);
@@ -432,6 +484,27 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
         deviceKind: "mock_tx",
       }),
     ).toBe(false);
+  });
+
+  it("applies the disabled non-hardware pattern preference to mock and file sources", () => {
+    expect(
+      shouldApplyNonHardwareSourcePattern({ deviceKind: "mock_apt" }),
+    ).toBe(true);
+    expect(
+      shouldApplyNonHardwareSourcePattern({ backend: "mock_tx" }),
+    ).toBe(true);
+    expect(
+      shouldApplyNonHardwareSourcePattern({ deviceName: "RTL-SDR Blog V4" }),
+    ).toBe(false);
+    expect(
+      shouldApplyNonHardwareSourcePattern({
+        deviceName: "Mock APT SDR",
+        enabled: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldApplyNonHardwareSourcePattern({ isNonHardwareSource: true }),
+    ).toBe(true);
   });
 
   it("does not draw VFO zoom markers in an FFT node preview", () => {
