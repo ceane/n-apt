@@ -186,7 +186,7 @@ describe("live Redux/source-mode stream harness", () => {
     );
 
     await harness.setTransmit(false, MOCK_TX_SOURCE_ID);
-    await harness.requestNextStandbyFrame({ sourceId: MOCK_TX_SOURCE_ID });
+    await harness.requestNextStandbyFrame();
     const stopped = await harness.waitFor(
       () => harness.snapshot(),
       (value) =>
@@ -385,9 +385,7 @@ describe("live Redux/source-mode stream harness", () => {
               // after the view handoff has settled before asserting that the
               // selected presentation is not blank.
               await harness.quiesce();
-              await harness.requestNextStandbyFrame({
-                sourceId: MOCK_TX_SOURCE_ID,
-              });
+              await harness.requestNextStandbyFrame();
             }
             await harness.waitFor(
               () => harness.snapshot(),

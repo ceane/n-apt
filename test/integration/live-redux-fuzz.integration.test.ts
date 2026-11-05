@@ -197,6 +197,15 @@ describe("2.2 live lifecycle fuzz", () => {
       assertHealthy();
 
       // 3. Pause (subscriber-local) -> frames freeze -> resume -> frames advance.
+      // Capture a real baseline frame before pausing. If the source is still
+      // warming, its first frame can arrive during the pause assertion and
+      // look like the paused stream advanced.
+      await harness.waitFor(
+        () => harness.snapshot().rxPresentation,
+        (presentation) =>
+          presentation.hasFrame && presentation.sequence !== null,
+        10_000,
+      );
       await harness.setPaused(true);
       const before = harness.snapshot().rxPresentation.sequence ?? 0;
       await new Promise((resolve) => setTimeout(resolve, 150));
