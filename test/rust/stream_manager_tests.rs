@@ -14,6 +14,7 @@ fn rx_options(center_frequency_hz: u64) -> StreamOptions {
     fft_window: Some("hann".to_string()),
     frame_rate: Some(60),
     gain: Some(20.0),
+    ..Default::default()
   })
 }
 
