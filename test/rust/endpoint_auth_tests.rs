@@ -270,7 +270,7 @@ async fn test_vault_key_matches_shared_password_key() {
 
 #[tokio::test]
 #[serial]
-async fn test_live_stream_uses_shared_password_key_not_session_key() {
+async fn test_live_iq_frames_are_encrypted_with_vault_key() {
   let (_guard, server, state, _url) = setup_test_server().await;
 
   let session_key = [7u8; 32];
@@ -345,14 +345,17 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
   assert_eq!(&frame_bytes[52..56], &2_400_000u32.to_le_bytes(), "sample rate");
   assert_eq!(&frame_bytes[56..header_len], b"mock-apt", "source ID");
 
+  // The session token authorizes this socket. The frame payload itself
+  // uses the shared vault key so it remains compatible with vault-encrypted
+  // capture data; the per-session key is not the stream payload key.
   let encrypted_iq = &frame_bytes[header_len..];
   let decrypted_iq =
     crypto::decrypt_payload_binary(&state.shared.encryption_key, encrypted_iq)
-      .expect("live I/Q frame must decrypt with password-derived vault key");
+      .expect("live I/Q frame must decrypt with the shared vault key");
   assert_eq!(decrypted_iq, original_iq);
   assert!(
     crypto::decrypt_payload_binary(&session_key, encrypted_iq).is_err(),
-    "live I/Q frame must not be encrypted with the random session key"
+    "per-session key must not decrypt the live I/Q payload"
   );
 }
 
