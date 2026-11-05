@@ -329,12 +329,23 @@ async fn test_live_stream_uses_shared_password_key_not_session_key() {
     .await
     .expect("timed out waiting for encrypted live frame");
 
-  assert_eq!(&frame_bytes[0..8], &123u64.to_le_bytes());
-  assert_eq!(&frame_bytes[8..16], &137_500_000u64.to_le_bytes());
-  assert_eq!(&frame_bytes[16..20], &1u32.to_le_bytes());
-  assert_eq!(&frame_bytes[20..24], &2_400_000u32.to_le_bytes());
+  // The source-scoped v2 envelope starts with a fixed 56-byte header,
+  // followed by the UTF-8 source ID and the encrypted I/Q payload.
+  assert_eq!(&frame_bytes[0..4], b"NAPT");
+  assert_eq!(frame_bytes[4], 2, "live I/Q frame uses envelope version 2");
+  let header_len = u16::from_le_bytes(frame_bytes[6..8].try_into().unwrap()) as usize;
+  let source_len = u16::from_le_bytes(frame_bytes[8..10].try_into().unwrap()) as usize;
+  assert_eq!(header_len, 56 + source_len);
+  assert_eq!(frame_bytes[10], 0, "active receive frame status");
+  assert_eq!(&frame_bytes[16..24], &1u64.to_le_bytes(), "stream epoch");
+  assert_eq!(&frame_bytes[24..32], &1u64.to_le_bytes(), "sequence");
+  assert_eq!(&frame_bytes[32..40], &123u64.to_le_bytes(), "timestamp");
+  assert_eq!(&frame_bytes[40..48], &137_500_000u64.to_le_bytes(), "center frequency");
+  assert_eq!(&frame_bytes[48..52], &1u32.to_le_bytes(), "raw I/Q data type");
+  assert_eq!(&frame_bytes[52..56], &2_400_000u32.to_le_bytes(), "sample rate");
+  assert_eq!(&frame_bytes[56..header_len], b"mock-apt", "source ID");
 
-  let encrypted_iq = &frame_bytes[24..];
+  let encrypted_iq = &frame_bytes[header_len..];
   let decrypted_iq =
     crypto::decrypt_payload_binary(&state.shared.encryption_key, encrypted_iq)
       .expect("live I/Q frame must decrypt with password-derived vault key");
