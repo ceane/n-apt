@@ -31,6 +31,7 @@ function containedFile(root: string, relativePath: string): string | null {
 
 const pagesMiddleware: Plugin = {
   name: "pages-middleware",
+  apply: "serve",
   configureServer(server) {
     server.watcher.add(pagesDir);
 
@@ -106,17 +107,14 @@ const pagesMiddleware: Plugin = {
       next();
     });
   },
-  handleHotUpdate({ file, server, modules }) {
-    if (!file.startsWith(pagesDir)) {
+  handleHotUpdate({ file, server }) {
+    if (!file.startsWith(pagesDir) || path.extname(file).toLowerCase() !== ".md") {
       return;
     }
 
-    // Imported markdown (including ?raw) must flow through Vite's module
-    // invalidation and React Refresh so the embedded source updates too.
-    if (modules.length > 0) {
-      return modules;
-    }
-
+    // The article holds ?raw markdown in React state, so refreshing that
+    // module alone leaves the rendered text stale. Keep markdown edits on the
+    // development-only fetch path instead of refreshing the React module.
     const relative = path.relative(dirname, file).replace(/\\+/g, "/");
     server.ws.send({
       type: "custom",
@@ -228,7 +226,11 @@ export default defineConfig(({ mode }) => {
     port: 5174,
     strictPort: false,
     fs: {
-      allow: [path.resolve(dirname, "src"), path.resolve(dirname, "node_modules")],
+      allow: [
+        path.resolve(dirname, "src"),
+        pagesDir,
+        path.resolve(dirname, "node_modules"),
+      ],
     },
   },
   preview: {
