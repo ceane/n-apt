@@ -95,6 +95,15 @@ for (const config of [
       new URL("../../scripts/build/viteSriPlugin.mjs", import.meta.url),
       path.join(root, "scripts/build/viteSriPlugin.mjs"),
     );
+    if (config === "vite.config.js") {
+      await fs.copyFile(
+        new URL(
+          "../../scripts/build/viteMlBranchRefreshPlugin.mjs",
+          import.meta.url,
+        ),
+        path.join(root, "scripts/build/viteMlBranchRefreshPlugin.mjs"),
+      );
+    }
     await fs.symlink(
       path.resolve("node_modules"),
       path.join(root, "node_modules"),

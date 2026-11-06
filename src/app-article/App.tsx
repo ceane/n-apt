@@ -913,6 +913,10 @@ const Figure = styled.figure<{ $blendClass?: string | null; $hero?: boolean; $fu
   width: 100%;
   display: block;
 
+  & + em {
+    margin-bottom: 1lh;
+  }
+
   ${({ $fullBleed }) => $fullBleed && css`
     @media (max-width: 768px) {
       width: 100vw;

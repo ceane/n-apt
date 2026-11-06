@@ -7,6 +7,7 @@ import react from "@vitejs/plugin-react";
 import glsl from "vite-plugin-glsl";
 import { reactRouter } from "@react-router/dev/vite";
 import { viteSriPlugin } from "./scripts/build/viteSriPlugin.mjs";
+import { viteMlBranchRefreshPlugin } from "./scripts/build/viteMlBranchRefreshPlugin.mjs";
 
 // https://vite.dev/config/
 import { fileURLToPath } from 'node:url';
@@ -529,6 +530,7 @@ export default defineConfig(({ mode }) => {
   },
   plugins: [
     viteSriPlugin(),
+    viteMlBranchRefreshPlugin({ repositoryRoot: dirname }),
     injectBrowserEnv(browserEnv),
     frontendContentSecurityPolicyPlugin(browserEnv, mode === "production"),
     connectionAllowlistPlugin(browserEnv),

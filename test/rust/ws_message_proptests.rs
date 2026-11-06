@@ -21,9 +21,20 @@ fn any_json() -> impl Strategy<Value = serde_json::Value> {
   leaf.prop_recursive(4, 24, 6, |inner| {
     let key = prop_oneof![
       Just("type".to_string()),
+      Just("centerFrequencyHz".to_string()),
       Just("frameRate".to_string()),
       Just("fftSize".to_string()),
-      Just("minFreq".to_string()),
+      Just("sampleRateHz".to_string()),
+      Just("hackrfLnaGain".to_string()),
+      Just("hackrfVgaGain".to_string()),
+      Just("ppm".to_string()),
+      Just("durationS".to_string()),
+      Just("txIfftSize".to_string()),
+      Just("label".to_string()),
+      Just("fragments".to_string()),
+      Just("geolocation".to_string()),
+      Just("captureLabels".to_string()),
+      Just("jobId".to_string()),
       Just("source_id".to_string()),
       Just("not-a-real-key".to_string()),
     ];
@@ -78,26 +89,49 @@ proptest! {
       if let Some(frame_rate) = message.frame_rate {
         assert!((1..=100).contains(&frame_rate), "frame_rate {frame_rate} out of range");
       }
-      if let Some(max_frame_rate) = message.max_frame_rate {
-        assert!((1..=100).contains(&max_frame_rate), "max_frame_rate {max_frame_rate} out of range");
-      }
       if let Some(ppm) = message.ppm {
         assert!((0..=1000).contains(&ppm), "ppm {ppm} out of range");
       }
       if let Some(center) = message.center_frequency {
         assert!((0.0..=30_000_000_000.0).contains(&center), "center frequency out of range");
       }
-      if let Some(freq) = message.min_freq {
-        assert!((0.0..=30_000_000_000.0).contains(&freq), "min freq out of range");
+      if let Some(gain) = message.hackrf_lna_gain {
+        assert!((0.0..=49.6).contains(&gain), "HackRF LNA gain {gain} out of range");
       }
-      if let Some(freq) = message.max_freq {
-        assert!((0.0..=30_000_000_000.0).contains(&freq), "max freq out of range");
+      if let Some(gain) = message.hackrf_vga_gain {
+        assert!((0.0..=62.0).contains(&gain), "HackRF VGA gain {gain} out of range");
       }
-      if let Some(gain) = message.gain {
-        assert!((0.0..=100.0).contains(&gain), "gain {gain} out of range");
+      if let Some(duration) = message.duration_s {
+        assert!((0.1..=3600.0).contains(&duration), "duration {duration} out of range");
       }
       if let Some(rate) = message.sample_rate {
         assert!((1.0..=100_000_000.0).contains(&rate), "sample rate {rate} out of range");
+      }
+      if let Some(ifft_size) = message.tx_ifft_size {
+        assert!((256..=8_388_608).contains(&ifft_size), "Tx IFFT size {ifft_size} out of range");
+      }
+      if let Some(label) = message.label.as_ref() {
+        assert!(label.chars().count() <= 64, "label exceeds 64 characters");
+      }
+      if let Some(labels) = message.capture_labels.as_ref() {
+        assert!(labels.len() <= 32, "capture labels exceed 32 entries");
+      }
+      if let Some(fragments) = message.fragments.as_ref() {
+        for fragment in fragments {
+          assert!((0.0..=30_000_000_000.0).contains(&fragment.min_freq), "min freq out of range");
+          assert!((0.0..=30_000_000_000.0).contains(&fragment.max_freq), "max freq out of range");
+        }
+      }
+      if let Some(geolocation) = message.geolocation.as_ref() {
+        assert!((-90.0..=90.0).contains(&geolocation.latitude), "latitude out of range");
+        assert!((-180.0..=180.0).contains(&geolocation.longitude), "longitude out of range");
+        assert!(geolocation.accuracy >= 0.0, "accuracy must be nonnegative");
+      }
+      if let Some(source_id) = message.source_id.as_ref() {
+        assert!(RE_SAFE_ID.is_match(source_id), "source id must match the safe ID pattern");
+      }
+      if let Some(job_id) = message.job_id.as_ref() {
+        assert!(RE_SAFE_ID.is_match(job_id), "job id must match the safe ID pattern");
       }
     });
   }

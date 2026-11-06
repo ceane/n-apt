@@ -20,6 +20,7 @@ fn rx_options(center: u64) -> StreamOptions {
     fft_window: None,
     frame_rate: None,
     gain: None,
+    ..Default::default()
   })
 }
 

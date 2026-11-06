@@ -837,33 +837,45 @@ I have never seen the power change at all, which is how I most certainly know it
 ![San Francisquito Creek](/md-preview/images/12_23_25_4_35PM.jpg)
 *I walked down around the El Palo Alto into San Francisqutio Creek and connected my RTL-SDR, opened the signals, I hoped for a contradictory result (a weakspot) counter to the experience gripping and mangling my brain for years and was disappointed. It works flawlessly even in a wooded ravine!*
 
-Unfortunately, later on, when I added power scale to my app later on and did more work to be within the parameters of absolute power from RTL-SDR (off by `3dBm-5dBm`, according to ChatGPT), I was shocked to see that the power was significantly different when drawn than with `rtl_power`. I worked with GPT-5.4 and Opus 4.x to refine an approximate absolute power algorithm from my RTL-SDR, which I believe represented real world power of the signals far more accurately than `rtl_power`.
 
-The even bigger mystery and mind-boggling discovery here is that the energy is astoundingly low in the valleys, sometimes reaching -50dBm to -70dBm (Yes! 10 nanowatts to 100 picowatts–matching power levels of strong WiFi or 5G but very unexpected for these bioelectrical signals which are VERY POWERFUL). 
+Unfortunately, later on, when I added power scale to my app later on and did more work to be within the parameters of absolute power from RTL-SDR (only accurate to a `3dBm-5dBm` range, according to GPT 5.4), I was shocked to see that the power was significantly different when drawn than with `rtl_power`. I worked with GPT-5.4 and Opus 4.x to refine an approximate absolute power algorithm from my RTL-SDR, which I believe represented real world power of the signals far more accurately than `rtl_power`.
 
-What is even more suprising is that some scant parts of the signal are even lower in energy! These also were inherently readings of the signal pre-entry of the body (since they are far stronger than exit, the stronger signal that I will surface).
+With the correction, an even bigger mystery and mind-boggling discovery was uncovered. The energy is astoundingly low in the valleys, sometimes reaching -50dBm to -70dBm (Yes! 10 nanowatts to 100 picowatts–**matching power levels of strong WiFi or 5G** but very unexpected for these bioelectrical signals which are ABSOLUTELY POWERFUL).
+
+What is even more suprising is that some scant parts of the signal are even lower in energy! These also (by the nature of write→read mechanism as entry will always be stronger than exit, as that is what is what the SDRs pick up) were inherently readings of the signal pre-entry of the body (since they are far stronger than exit, the stronger signal that I will surface).
+
+Further below, you can take a look at the [signal power snapshots](#signal-power-snapshots) yourself!
 
 
 ## Center frequency <a id="center-frequency"></a>
 
-For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain and nervous system are apparently responsive to a unique frequency, which I believed was the beat frequencies + physics of x y z (impossible for a radio wave to target specific neurons with physics and compute; ALSO the stream is too fast and real-time to support conclusions of ***billions of additional complex operations*** in regular old infra). So, I accept now that in some way to draw stronger assumptions on a center frequency, some kind of handshake the signals can trick a specific brain into, as advised.
+For a long time, I struggled with defeating my own intuition, particularly how the NSA was doing x, y, z, "just you" and bare up against other people, in crowds, and so forth. This is one of the hints the NSA dropped, that the brain and nervous system are apparently responsive to a unique frequency, which I believed was the beat frequencies + physics of x y z (impossible for a radio wave to target specific neurons with physics and compute; ALSO the stream is too fast and real-time to support conclusions of ***billions of additional complex operations*** in regular old infra).
+
+So, as far as direct targeting, I accept now that in some way that it is a strong possibility that the agency must use a specific center frequency of a person, beats and/or the carrier as some kind of handshake the signals can trick a specific brain into.
 
 ### ...or timing
 
-TODO: Add copy explaining the timing relationships here and the measurements or observations that support them.
+...in addition, in retrospect, center frequency is only one of the conclusions how I figured "just me" (as well as precisely visibly targeting thousands of other people directly in view or personal space throughout the experience).
+
+Timing, by precise triangulation, whether millisecond or sub-ms timing of radio waves bouncing off of my person also accomodates for how the NSA is able to directly target my person. However, I lean towards center frequency and timing as secondary since I was above, scrunched together, and yes risque with people with the interactive still affecting my person.
 
 ### Impedance <a id="impedance"></a>
 
 ```Canvas::Impedance
 ```
-In order to intercept data from the brain and nervous system, the NSA's technique is underpinned, once again by nature and physics. Before, I tried to work out how by nature of quantum physics, that they were somehow copying with quantum entanglement, however that was too expensive and too fragile for today's hardware that they were using to flawlessly pull off a prison of mind.
 
-The method worked instantaneously, so I thought, what if they were capturing something like an imprint? Like some sort of pressure that could not only write but tell the difference? Here comes impedance. It works in a similar manner where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
+In order to **intercept data from the brain and nervous system**, the NSA's technique is underpinned, once again by nature and physics. Before, I tried to work out how by nature of quantum physics, that they were somehow copying neuronal data with quantum entanglement. That proved too expensive and too fragile for today's hardware available everywhere that they were using to flawlessly pull off a prison of mind.
+
+The method worked instantaneously, so I thought, what if they were capturing something like an imprint? Like some sort of pressure that could not only write but tell the difference?
+
+Here comes impedance.
+
+It works in a similar manner where it is employed on touchscreens, where force applied where one electrical current (fingers) operates against an opposing charge (capacitive onscreen sensors).
 
 
 This kind of impedance is different. In order to use impedance to detect electrical charges, the NSA's technique operates like **TEMPEST** (method of intercepting electrical charges from radio waves) but more advanced. By simply delivering the next frame of data and the difference between the previous frame after exit from the skull/body from a series of baselines according to the electrical activity.
 
-Below is the equation that I had worked out, however the NSA's mathematics are certainly different, accommodating for depth, particular charge they are looking for, beats, etc.
+Below is the equation that I had worked out, however the NSA's mathematics are certainly different, accommodating for depth of tissue (or neuronal ensemble block). I assume there is a formula of  particular charges to deliver in addition to beats they have discovered.
 
 <desktop-only>
 
@@ -921,34 +933,49 @@ n: \text{Cycle index}
 ```Canvas::BodyAttenuation
 ```
 
-The first problem had to do with the overall physics of how to get a signal through the body without it scattering or halfway penetrating and fizzing out while delivering precise charges to trigger neurons in some way. Microwaves (300MHz to 30GHz) are king and key, oscillating hundreds of millions to billions of times a second and that translate to the ability to impact hundreds of millions to billions of neurons a second. However with increasing frequency, the pitfall is that the wavelengths become shorter and carry far less effacy penetrating and exiting tissue.
+The first problem had to do with the overall physics of how to get a signal through the body without it scattering or halfway penetrating and fizzing out while delivering precise charges to trigger neurons in some way.
 
-Attenuation is the primary property of radio waves (in this light of bioelectrical physics) that decide which wavelength or frequency and therefore amount of data is possible. Unfortunately, there have been tons of studies with microwave interaction with human tissue and they've all proved untenable. In addition, taking raw math and calculating power on entry/exit through tissue leaves very little power that can persist back to an endpoint as 99% of energy would be lost on exit and can barely make it back without being a blur. While doing ChatGPT math, I opted to remain within a bandwidth budget realistic enough to pin down the agency's technique, while trapped but without the tools to observe. 
+Microwaves (300MHz to 30GHz) are king, oscillating hundreds of millions to billions of times a second and that intuitively translate to the ability to impact hundreds of millions to billions of neurons a second. However with increasing frequency, the pitfall is that the wavelengths become shorter and carry far less effacy penetrating and exiting tissue.
 
-What I theoretically settled on remained around FM radio, about 100MHz or so, since the wavelengths (3m) are long but not too long. My intuition in this sense was incorrect while theorizing but I had the right foundations of the signal before proceeding forward and I'd recommend this route, do the math and theoretical physics before seeing. Frequency didn't work like "higher frequency, more bandwidth" in a general sense, it worked like shift up spectrum and there was more room per se.
+Attenuation is the primary property of radio waves (in this light of bioelectrical physics) that decide which wavelength or frequency and therefore the amount of data is possible.
 
-Of course, as far as body attenuation, it's feasible that low end microwaves (300MHz or so) are feasible to reproduce the signals from where I had discovered it. However I don't question the current operation of the signals or their efficacy. 
+Unfortunately, there have been tons of studies with microwave interaction with human tissue and they've all proved untenable for power delivery the experience demands. Taking raw math and calculating power on entry/exit through tissue leaves very little power that can persist back to an endpoint as 99% of energy would be lost on exit and can barely make it back to an endpoint without being a blur.
+
+While doing ChatGPT math, I opted to remain within a bandwidth budget realistic enough to pin down the agency's technique, while trapped but without the tools to observe.
+
+What I theoretically settled on remained around FM radio, about 100MHz or so (100 million bits over billions of neurons), since the wavelengths (3m) are long but not too long. My intuition in this sense was incorrect while theorizing but I had the right foundations of the signal before proceeding forward and I'd recommend this route, do the math and theoretical physics before seeing.
+
+Frequency didn't work like "higher frequency, more bandwidth" in a general sense because the method affected whole blocks, as you'll read in the next section. This meant that the head scratching mind-bending ChatGPT math of "The way the NSA is doing this, I need 100 million neurons!" actually translates to a far less.
+
+Of course, as far as body attenuation, it's feasible that low end microwaves (300MHz or so) are feasible to reproduce the signals from where I had discovered it (low kHz to 30MHz). However I don't question the current operation of the signals or their efficacy, I move fast with clearer evidence and invalidate older and outdated assumptions, especially after seeing it.
 
 ### Neuronal ensembles
 
-This is where intuition is defeated. Radio waves are like walls of energy, they are mostly 2D. I did not know this and at first I expected the signals to x, y, z and target the voxel by voxel (group of neurons) in blocks like 3 x 3, however the NSA's signals don't do that and it's near impossible td do! The experience is extremely robust, so robust that it is quite simple.
+This is where **intuition is defeated and something I did not learn until my jaw dropped where I saw the signals**. Radio waves are like walls of energy, they are mostly 2D.
 
-Essentially the brain and nervous system is very noisy, whatever those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves. It doesn't function in a spatial manner, like a CRT monitor, projector or LED in the sense that it's drawing individual pixels, instead it operates on precise energy and center frequency with spikes and valleys correpsonding to ensemble by ensemeble of the brain and nervous system.
+
+I did not know this and at first I expected the signals to **x, y, z** and target the **voxel by voxel** (group of neurons) in blocks like 3 x 3, however the NSA's signals don't do that and it's absolutely impossible to do! The experience is extremely robust, so robust that it is quite simple.
+
+Essentially the brain and nervous system is flat in a sense, whatever those spikes do, it is assumed to a certainty that they target an ensemble of neurons that read and write brainwaves.
+
+After I saw it, there was clearly no need to target each neuron individually with x, y, z. I would have been stuck FOREVER if I did not see the signal. This is what defeats intution is that the experience that is full featured and 3D actually comes from a crafty 2D signal.
+
+It doesn't function in a spatial manner (except triangluation) like a CRT monitor, projector or LED in the sense that it's drawing individual pixels, instead it operates on precise energy, beats and center frequency with spikes and valleys correpsonding to ensemble by ensemeble of the brain and nervous system.
 
 
 ### Hacked telecommunications infrastructure & equipment (obviously)
 
 The who or technical part of it wasn't even a thought for years enduring this because it was such a shocking, SOTA experience filled with a lot of rich, horrific features and unthinkable AR/spatial, perceptual, psychological, and physiological experiences! 
 
-Of course, later I resolved this was all driven by exploited, ground or vehicle based infra (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which I assume less likely due to its continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
+Of course, later I resolved this was all driven by **exploited telecommunications infrastructure**, ground or vehicle based, (telecom infra, as I call it). It functions in dense urban environments, remote areas, indoors (thick concrete buildings), underground, in caves, in buses and trains and it even worked on planes (either the plane communication system or a satellite which the latter I assume less likely due to the experience's continued low latency on the flights) and at my destination on the opposite side of the country (SF ✈️ MIA) while I tried to escape the NSA! The chain I researched assumes it goes like the image below:
 
 ![Hardware Exploit Chain](/md-preview/images/hardware-exploit-chain.png)
 
-The NSA's exploits depended on thousands of totally incompetent, grossly ignorant professionals spanning across supply chains, manufacturers, telecommunications companies, in addition to many federal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, aggressively mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
+The NSA's exploits depended on **thousands of totally incompetent, grossly negligent professionals spanning across supply chains, manufacturers, telecommunications companies**, in addition to many federal agencies such as the FCC, CISA, and namely the FBI (who mysteriously let the NSA build a concealed, aggressively mass-networked cyber weapon and domestic surveillance apparatus). I almost felt bad for even acknowledging the staggering level of idiocy and cowardice within federal government and industry.
 
-On the software front, social media companies were also idiotic, especially companies like X. I was constantly tripping the quality control system and yet no one would review my tweets by hand. I was clearly trapped and transcribing what was going on and notwithstanding what the software was pushing in my head, absolutely no one noticed a growing volume of public posts tagging federal authorities.
+On the software front, social media companies were also idiotic, especially companies like X. I was constantly tripping the quality control system and yet no one would review my tweets by hand. I was clearly trapped and transcribing what was going on and notwithstanding what the software was pushing in my head and body, absolutely no one noticed a growing volume of public posts tagging federal authorities.
 
-I was truly trapped and a lot of people believed they were intelligent.
+I was truly trapped and a lot of people believed they were intelligent, however it seems that even logic or urgency does not defeat a very capable bad federal actor.
 
 ## Feature rich <a id="features"></a>
 
@@ -1137,7 +1164,7 @@ As for the features that were present, I could only guess. Initially, I was sure
 
 </details>
 
-#### Channel A's power...
+#### Channel A's power... <a id="signal-power-snapshots"></a>
 
 ![Channel A, partial (at the hardware limit)––in dBm, the approximate actual power](/md-preview/images/snapshot-channel-a-power.png)
 

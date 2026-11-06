@@ -178,6 +178,7 @@ proptest! {
       fft_window: None,
       frame_rate: None,
       gain: None,
+      ..Default::default()
     });
     let valid = stream_options_valid(&options);
     let out_of_range =
