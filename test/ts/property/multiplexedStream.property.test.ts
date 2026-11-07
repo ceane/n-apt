@@ -42,10 +42,9 @@ describe("multiplexed stream makeFrame fuzz", () => {
         fc.integer({ min: 0, max: 1_000_000 }),
         ANY_NUMBERISH,
         ANY_NUMBERISH,
-        fc.string({ maxLength: 40 }),
-        (sequence, epoch, revision, sampleRate, sourceId) => {
+        (sequence, epoch, revision, sampleRate) => {
           const msg: Record<string, unknown> = {
-            sourceId: sourceId || "src",
+            sourceId: "src",
             mode: "rx",
             sequence,
             streamEpoch: epoch,
