@@ -8,9 +8,8 @@ version: 2
 #   expected to arrive as explicit bumps rather than range widenings.
 # * `mock_apt_metal` and the WASM crate train move in lockstep, so related
 #   packages are grouped to avoid half-applied upgrades.
-# * Note: `Cargo.lock` is currently gitignored (see .gitignore). Dependabot's
-#   cargo support expects a lockfile it can reason about, so that entry may not
-#   produce useful PRs until Cargo.lock is committed.
+# * Cargo.lock is tracked because this package builds application binaries, so
+#   Rust builds stay reproducible and Cargo updates can include lockfile changes.
 updates:
   - package-ecosystem: npm
     directory: /
