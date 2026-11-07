@@ -151,27 +151,27 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bytemuck = "1.25.0"
 url = "2"
-log = "0.4"
+log = "0.4.35"
 clap = { version = "4.6", features = ["derive"] }
 env_logger = "0.11"
 dotenvy = "0.15"
-wasm-bindgen = "0.2.128"
+wasm-bindgen = "0.2.130"
 serde-wasm-bindgen = "0.6"
 
 # WASM dependencies (only when targeting WASM)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.105"
-web-sys = { version = "0.3.105", features = ["console"] }
+js-sys = "0.3.107"
+web-sys = { version = "0.3.107", features = ["console"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = { version = "0.33", optional = true }
 
 # Server dependencies (only when not targeting WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.52", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.30"
-redis = { version = "1.7", features = ["aio", "tokio-comp"] }
+redis = { version = "1.8.1", features = ["aio", "tokio-comp"] }
 env_logger = "0.11"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
@@ -182,7 +182,7 @@ hmac = "0.13"
 sha2 = "0.11"
 pbkdf2 = { version = "0.13", features = ["password-hash"] }
 base64 = "0.23"
-zip = { version = "9", default-features = false }
+zip = { version = "9.4.1", default-features = false }
 # HTTP client for CoreML service communication
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 # HTTP + WebSocket server (axum replaces raw TcpListener + tokio-tungstenite)
@@ -193,9 +193,9 @@ tower-http = { version = "0.7", features = ["cors", "set-header", "compression-g
 webauthn-rs = { version = "0.5", default-features = false }
 webauthn-rs-proto = "0.5"
 # Session management
-uuid = { version = "1.25", features = ["v4"] }
+uuid = { version = "1.29.1", features = ["v4"] }
 # Hot reloading and configuration
-notify = "8.2"
+notify = "8.2.1"
 serde_yaml = "0.9"
 regex = "1"
 # Input validation and sanitization
@@ -218,7 +218,7 @@ axum-test = { version = "21", features = ["ws"] }
 tower = "0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.70"
+wasm-bindgen-test = "0.3.80"
 [build-dependencies]
 pkg-config = "0.3"
 
