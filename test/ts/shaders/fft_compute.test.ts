@@ -18,4 +18,13 @@ describe("fft_compute.wgsl", () => {
       "window_function(idx, params.input_size, WINDOW_HANNING)",
     );
   });
+
+  it("uses the shared per-device gain correction for dBm conversion", () => {
+    expect(FFT_COMPUTE_SHADER).toContain(
+      "params.gain_correction_db_per_db * params.tuner_gain_db",
+    );
+    expect(FFT_COMPUTE_SHADER).not.toContain(
+      "interpolate_rtl_sdr_gain_offset",
+    );
+  });
 });

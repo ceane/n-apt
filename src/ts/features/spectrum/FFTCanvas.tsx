@@ -52,7 +52,10 @@ import CanvasPlaceholder, {
   type CanvasPlaceholderState,
 } from "@n-apt/ui/CanvasPlaceholder";
 import { RetryableMlFeature } from "@n-apt/shared/ui/RetryableMlFeature";
-import type { DeviceProfile } from "@n-apt/consts/schemas/websocket";
+import type {
+  DevicePowerCalibration,
+  DeviceProfile,
+} from "@n-apt/consts/schemas/websocket";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import * as NativeClassifier from "@n-apt/classification";
 import {
@@ -150,7 +153,7 @@ import { findBestFrequencyRange } from "@n-apt/consts";
 import { resizeCanvasBackingStore } from "@n-apt/layout/rendering/canvasSize";
 import { Vfo } from "@n-apt/layout/vfo/Vfo";
 import { getFrontendFftSize } from "@n-apt/spectrum/utils/frontendFftSize";
-import { computeHackrfApproxDbmOffsetDb } from "@n-apt/spectrum/utils/hackrfCalibration";
+import { computeApproximatePowerOffsetDb } from "@n-apt/spectrum/power/calibration";
 import {
   TX_SLIDER_ROW_HEIGHT,
   useOverlayRenderer,
@@ -454,6 +457,7 @@ export const resolveEffectiveDbmOffsetDb = ({
   deviceName,
   isTransmitting,
   tunerGainDb,
+  powerCalibration,
 }: {
   powerScale: "dB" | "dBm";
   deviceKind?: string | null;
@@ -461,6 +465,7 @@ export const resolveEffectiveDbmOffsetDb = ({
   deviceName?: string | null;
   isTransmitting?: boolean;
   tunerGainDb?: number | null;
+  powerCalibration?: DevicePowerCalibration | null;
 }): number => {
   if (powerScale !== "dBm") return 0.0;
 
@@ -471,13 +476,35 @@ export const resolveEffectiveDbmOffsetDb = ({
     deviceName,
   });
   if (isMockTxDevice || (isMockAptDevice && isTransmitting)) {
-    return 15.0;
+    return powerCalibration?.tx
+      ? computeApproximatePowerOffsetDb(powerCalibration, "tx")
+      : 15.0;
   }
 
-  if (deviceKind === "hackrf_one") {
-    return computeHackrfApproxDbmOffsetDb({
-      totalGainDb: tunerGainDb ?? 0,
+  if (isTransmitting && powerCalibration?.tx) {
+    return computeApproximatePowerOffsetDb(powerCalibration, "tx", {
+      gainDb: tunerGainDb ?? 0,
     });
+  }
+
+  const normalizedDeviceIdentity = [deviceKind, backend, deviceName]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const isHackrfDevice = normalizedDeviceIdentity.includes("hackrf");
+  const isRtlSdrDevice =
+    normalizedDeviceIdentity.includes("rtlsdr") ||
+    normalizedDeviceIdentity.includes("rtl2832");
+
+  if (!isTransmitting && (isHackrfDevice || isRtlSdrDevice)) {
+    const configuredOffset = computeApproximatePowerOffsetDb(
+      powerCalibration,
+      "rx",
+      { gainDb: tunerGainDb ?? 0 },
+    );
+    if (powerCalibration?.rx) return configuredOffset;
+    return 30.0 - (tunerGainDb ?? 0);
   }
 
   return 30.0;
@@ -2794,6 +2821,7 @@ const FFTCanvas = memo(
       deviceName,
       isTransmitting: isTransmittingGlobal,
       tunerGainDb,
+      powerCalibration: deviceProfile?.power_calibration,
     });
     const baseDbMin = Number.isFinite(fftMin) ? (fftMin as number) : FFT_MIN_DB;
     const baseDbMax = Number.isFinite(fftMax) ? (fftMax as number) : FFT_MAX_DB;

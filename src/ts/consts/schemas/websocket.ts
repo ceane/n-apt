@@ -105,6 +105,7 @@ export type SignalsSdrDefaults = SdrSettingsConfig & {
     }> | null;
     _tx_power_mapping?: Record<string, unknown> | null;
     _tx_iq_power_model?: Record<string, unknown> | null;
+    _power_calibration?: DevicePowerCalibration | null;
   }>;
   fft_sizes?: Array<{
     base: string;
@@ -310,6 +311,22 @@ export interface DeviceProfile {
   is_rtl_sdr: boolean;
   supports_approx_dbm: boolean;
   iq_format?: IqFormat;
+  power_calibration?: DevicePowerCalibration | null;
+}
+
+export interface PowerCalibrationPath {
+  /** Approximate dBFS-to-dBm offset before per-device corrections. */
+  base_calibration_db: number;
+  /** Signed loss/correction added to the base offset. */
+  chain_loss_db?: number;
+  /** Offset change per dB of tuner gain. */
+  gain_correction_db_per_db?: number;
+}
+
+/** Separate approximate receive and transmit I/Q power offsets. */
+export interface DevicePowerCalibration {
+  rx?: PowerCalibrationPath | null;
+  tx?: PowerCalibrationPath | null;
 }
 
 export type SourceCapability = "rx" | "tx" | "tx_rx" | "mock";
@@ -324,6 +341,7 @@ export type SourceCapabilities = {
   active_duplex_mode?: DeviceActiveMode | null;
   active_duplex_modes?: DeviceActiveMode[] | null;
   supports_approx_dbm: boolean;
+  power_calibration?: DevicePowerCalibration | null;
   iq_format?: IqFormat;
   supported_controls: string[];
   sample_rates: number[];

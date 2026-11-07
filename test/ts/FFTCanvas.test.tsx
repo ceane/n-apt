@@ -1740,6 +1740,37 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
     ).toBeCloseTo(15.0, 6);
   });
 
+  it("uses the source-provided receive calibration for both hardware SDRs", () => {
+    const powerCalibration = {
+      rx: {
+        base_calibration_db: 30,
+        chain_loss_db: 2,
+        gain_correction_db_per_db: -1,
+      },
+    };
+    for (const deviceKind of ["rtl_sdr", "hackrf_one"]) {
+      expect(
+        resolveEffectiveDbmOffsetDb({
+          powerScale: "dBm",
+          deviceKind,
+          tunerGainDb: 20,
+          powerCalibration,
+        }),
+      ).toBe(12);
+    }
+  });
+
+  it("keeps Mock Tx's digital transmit calibration independent from gain", () => {
+    expect(
+      resolveEffectiveDbmOffsetDb({
+        powerScale: "dBm",
+        deviceKind: "mock_tx",
+        tunerGainDb: 40,
+        powerCalibration: { tx: { base_calibration_db: 11 } },
+      }),
+    ).toBe(11);
+  });
+
   it("processes non-empty live mock tx IQ instead of rendering an empty flatline", async () => {
     processIqToDbmSpectrumMock.mockClear();
     const iqData = new Uint8Array(2048);

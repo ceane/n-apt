@@ -719,6 +719,12 @@ pub struct SdrDeviceConfig {
   #[serde(default)]
   pub baseband_filter: Option<bool>,
   #[serde(
+    rename = "_power_calibration",
+    default,
+    skip_serializing_if = "Option::is_none"
+  )]
+  pub power_calibration: Option<DevicePowerCalibration>,
+  #[serde(
     rename = "_tx_power_mapping",
     default,
     skip_serializing_if = "Option::is_none"
@@ -730,6 +736,23 @@ pub struct SdrDeviceConfig {
     skip_serializing_if = "Option::is_none"
   )]
   pub tx_iq_power_model: Option<TxIqPowerModel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevicePowerCalibration {
+  #[serde(default)]
+  pub rx: Option<PowerCalibrationPath>,
+  #[serde(default)]
+  pub tx: Option<PowerCalibrationPath>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerCalibrationPath {
+  pub base_calibration_db: f64,
+  #[serde(default)]
+  pub chain_loss_db: f64,
+  #[serde(default)]
+  pub gain_correction_db_per_db: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

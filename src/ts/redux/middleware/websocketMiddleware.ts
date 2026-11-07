@@ -148,6 +148,7 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
       is_rtl_sdr: false,
       supports_approx_dbm: source.supports_approx_dbm,
       iq_format: source.iq_format,
+      power_calibration: source.capabilities?.power_calibration,
     },
     maxSampleRateHz: source.sdr.max_sample_rate,
     sampleRateOptions: source.sdr.sample_rate_options,

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { resolvePlaywrightPassword } from "../support/authCredentials";
 
@@ -9,11 +9,28 @@ test.use({
   },
 });
 
-const FFT_COMPUTE_WGSL = readFileSync(
+const FFT_COMPUTE_WGSL = readWgslWithIncludes(
   join(process.cwd(), "src/ts/shaders/fft_compute.wgsl"),
-  "utf8",
 );
 const DEV_PASSWORD = resolvePlaywrightPassword();
+
+function readWgslWithIncludes(path: string, stack: string[] = []): string {
+  const absolutePath = resolve(path);
+  if (stack.includes(absolutePath)) {
+    throw new Error(
+      `Recursive WGSL include: ${[...stack, absolutePath].join(" -> ")}`,
+    );
+  }
+
+  return readFileSync(absolutePath, "utf8").replace(
+    /^\s*#include\s+([^;\s]+)\s*;?\s*$/gm,
+    (_match, includeName: string) =>
+      readWgslWithIncludes(
+        resolve(dirname(absolutePath), includeName),
+        [...stack, absolutePath],
+      ),
+  );
+}
 
 type PowerCase = {
   fftSize: number;
