@@ -92,6 +92,7 @@ import {
   newestIqWindow,
   prepareSpectrumRenderData,
   resolveLiveSpectrumPaintContract,
+  getSpectrumHistoryKey,
   resolveFrameTemporalWindow,
   resolveSpectrumWaveform,
   shouldAdoptLiveFrameRange,
@@ -3397,6 +3398,7 @@ const FFTCanvas = memo(
     ]);
 
     // Temporal frames ring buffer refs
+    const spectrumHistoryKeyRef = useRef<string | null>(null);
     const temporalFramePoolRef = useRef<Float32Array[]>([]);
     const temporalWriteIndexRef = useRef(0);
     const temporalActiveCountRef = useRef(0);
@@ -4279,6 +4281,16 @@ const FFTCanvas = memo(
               width: Math.max(0, logicalW - 80),
               height: Math.max(0, logicalH - 16),
             });
+          }
+        }
+
+        if (currentFrame) {
+          const historyKey = getSpectrumHistoryKey(currentFrame);
+          if (spectrumHistoryKeyRef.current !== historyKey) {
+            resetTemporalAveragingState();
+            fullChannelWaveformRef.current = null;
+            fullChannelRangeRef.current = null;
+            spectrumHistoryKeyRef.current = historyKey;
           }
         }
 
