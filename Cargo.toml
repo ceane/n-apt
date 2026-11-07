@@ -190,7 +190,7 @@ axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "set-header", "compression-gzip"] }
 # WebAuthn passkey authentication
-webauthn-rs = { version = "0.5", default-features = false }
+webauthn-rs = { version = "0.6", default-features = false }
 webauthn-rs-proto = "0.5"
 # Session management
 uuid = { version = "1.29.1", features = ["v4"] }
