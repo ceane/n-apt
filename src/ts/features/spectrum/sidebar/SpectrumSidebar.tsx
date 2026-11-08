@@ -46,6 +46,8 @@ import {
   setRemoveDcSpike,
   setFrequencyRange,
   setSourceViewFrequencyRange,
+  setVizZoom,
+  setVizPan,
   setActiveSignalArea,
   setSourceBinding,
 } from "@n-apt/redux";
@@ -121,6 +123,7 @@ import {
   resolveMockTxMonitorSampleRateOptions,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { resolveWholeChannelViewport } from "@n-apt/spectrum/utils/wholeChannelPresentation";
+import { resolveTxFocusGeometry } from "@n-apt/spectrum/utils/txFocus";
 import {
   supportsApproxDbm,
   isMockLiveSource as checkIsMockLiveSource,
@@ -971,10 +974,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     (selectedSourceSampleRateOptions.length > 0
       ? Math.max(...selectedSourceSampleRateOptions)
       : maxSampleRateHz);
-  const sampleRateControlMaximumHz = isMockTxLiveSource
-    ? Math.max(mockSourceMaximumHz ?? 0, activeChannelSampleRate ?? 0)
-    : maxSampleRateHz;
-
   const mockTxDeviceProfile = useMemo<DeviceProfile | null>(() => {
     return getMockDeviceProfile(deviceIdentity);
   }, [deviceIdentity]);
@@ -986,6 +985,11 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     deviceName: liveDeviceNameToUse,
     sourceId: selectedSource?.id ?? selectedSourceId,
   });
+  const sampleRateControlMaximumHz = isMockTxLiveSource
+    ? Math.max(mockSourceMaximumHz ?? 0, activeChannelSampleRate ?? 0)
+    : isHackrfOne
+      ? Math.max(maxSampleRateHz ?? 0, 20_000_000)
+      : maxSampleRateHz;
   const isRtlSdr = isRtlSdrDevice({
     deviceKind: liveDeviceProfileForDisplay?.kind,
     backend: liveBackend,
@@ -1618,6 +1622,46 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       txPreviewSourceId,
     }).isTxMode;
   }, [selectedSource, txPreviewSourceId, txSuiteSourceId]);
+
+  const handleFocusActiveTxArea = useCallback(() => {
+    const focusGeometry = resolveTxFocusGeometry({
+      centerFrequencyHz: txCenterFrequencyHz,
+      txBandwidthHz: txSampleRateHz,
+      maxSampleRateHz: isHackrfOne
+        ? Math.max(sampleRateControlMaximumHz ?? 0, 20_000_000)
+        : sampleRateControlMaximumHz ?? maxSampleRateHz,
+    });
+    if (focusGeometry === null) return;
+    if (isTxModeGlobal) {
+      if (selectedSourceId) {
+        dispatch(
+          setSourceViewFrequencyRange({
+            sourceId: selectedSourceId,
+            range: focusGeometry.frequencyRange,
+          }),
+        );
+      }
+      dispatch(setTxViewerSampleRateHz(focusGeometry.sampleRateHz));
+    } else {
+      handleSignalDisplaySampleRateChange(
+        focusGeometry.sampleRateHz,
+        "manual",
+        focusGeometry.frequencyRange,
+      );
+    }
+    dispatch(setVizZoom(1));
+    dispatch(setVizPan(0));
+  }, [
+    dispatch,
+    handleSignalDisplaySampleRateChange,
+    isHackrfOne,
+    isTxModeGlobal,
+    maxSampleRateHz,
+    sampleRateControlMaximumHz,
+    selectedSourceId,
+    txCenterFrequencyHz,
+    txSampleRateHz,
+  ]);
 
   const selectedBackendKind =
     liveDeviceProfileForDisplay?.kind?.toLowerCase?.() ??
@@ -3123,6 +3167,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             fileMode={false}
             limitMarkers={limitMarkers}
             rangeSlidersDisabled={visualizerLoading}
+            showFocusActiveTxArea={isTxModeGlobal}
+            onFocusActiveTxArea={handleFocusActiveTxArea}
             onSampleRateChange={handleSignalDisplaySampleRateChange}
             activeSampleRateHz={
               sampleRateHzEffective ??

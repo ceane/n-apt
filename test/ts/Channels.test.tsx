@@ -207,6 +207,96 @@ describe("Channels", () => {
     expect(store.getState().spectrum.vizPanOffset).toBe(0);
   });
 
+  it("shows the Tx focus action only when enabled and resets zoom when used", () => {
+    const store = createTestStore();
+    store.dispatch(setVizZoom(2.5));
+    store.dispatch(setVizPan(1_000_000));
+    const onFocusActiveTxArea = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "C",
+                  frequencyRange: { min: 4_750_000, max: 23_000_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [
+                  {
+                    id: "c",
+                    label: "C",
+                    min_hz: 4_750_000,
+                    max_hz: 23_000_000,
+                  },
+                ],
+                sampleRateHzEffective: 18_250_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels
+              variant="spectrum"
+              showFocusActiveTxArea
+              onFocusActiveTxArea={onFocusActiveTxArea}
+            />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    const focusButton = screen.getByRole("button", {
+      name: "Focus on Active Tx Area",
+    });
+    fireEvent.click(focusButton);
+
+    expect(onFocusActiveTxArea).toHaveBeenCalledTimes(1);
+    expect(store.getState().spectrum.vizZoom).toBe(1);
+    expect(store.getState().spectrum.vizPanOffset).toBe(0);
+  });
+
+  it("does not render the Tx focus action when not in Tx mode", () => {
+    const store = createTestStore();
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <SpectrumProvider
+            mockValue={
+              {
+                state: {
+                  activeSignalArea: "C",
+                  frequencyRange: { min: 4_750_000, max: 23_000_000 },
+                  lastKnownRanges: {},
+                },
+                dispatch: jest.fn(),
+                effectiveFrames: [
+                  {
+                    id: "c",
+                    label: "C",
+                    min_hz: 4_750_000,
+                    max_hz: 23_000_000,
+                  },
+                ],
+                sampleRateHzEffective: 18_250_000,
+                wsConnection: { sendFrequencyRange: jest.fn() },
+              } as any
+            }
+          >
+            <Channels variant="spectrum" />
+          </SpectrumProvider>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Focus on Active Tx Area" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("uses the selected channel bounds when switching to a whole-channel demod range", () => {
     const store = createTestStore();
     const sendFrequencyRange = jest.fn();
