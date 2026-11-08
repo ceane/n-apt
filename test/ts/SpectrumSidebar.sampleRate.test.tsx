@@ -23,6 +23,7 @@ import { buildAppTheme } from "@n-apt/ui/Theme";
 import { THEME_TOKENS } from "@n-apt/consts";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import {
+  setFrequencyRange,
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
 } from "@n-apt/redux/slices/spectrumSlice";
@@ -845,6 +846,74 @@ describe("SpectrumSidebar sample rate behavior", () => {
     expect(store.getState().spectrum.sampleRateHz).toBe(4_000_000);
     expect(mockWsConnection.sendSettings).not.toHaveBeenCalledWith(
       expect.objectContaining({ sampleRate: 5_500_000 }),
+    );
+  });
+
+  it("recenters the shared plot range for a Tx source without a separate monitor", async () => {
+    const hackrfTxSource = {
+      id: "hackrf-tx-no-monitor",
+      name: "HackRF One",
+      kind: "hackrf_one",
+      capability: "tx_rx",
+      status: "standby",
+      sdr: {
+        max_sample_rate: 20_000_000,
+        sample_rate_options: [3_200_000, 5_500_000, 20_000_000],
+        settings: {
+          center_frequency: 100_000_000,
+          sample_rate: 4_000_000,
+        },
+      },
+    };
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: hackrfTxSource.id,
+      selectedSource: hackrfTxSource,
+      sources: [hackrfTxSource],
+      frequencyRange: { min: 98_000_000, max: 102_000_000 },
+      sampleRateHz: 4_000_000,
+      txCenterFrequencyHz: 100_000_000,
+      txSampleRateHz: 5_000_000,
+    };
+    mockWsConnection = {
+      ...mockWsConnection,
+      sources: [hackrfTxSource],
+    };
+
+    const store = createStore();
+    store.dispatch(
+      setFrequencyRange({ min: 98_000_000, max: 102_000_000 }),
+    );
+    store.dispatch(setTxCenterFrequencyHz(100_000_000));
+    store.dispatch(setTxSampleRateHz(5_000_000));
+    const initialTxViewerSampleRateHz =
+      store.getState().spectrum.txViewerSampleRateHz;
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Focus on Active Tx Area" }),
+    );
+
+    expect(store.getState().spectrum.frequencyRange).toEqual({
+      min: 97_250_000,
+      max: 102_750_000,
+    });
+    expect(
+      store.getState().spectrum.sourceViewFrequencyRanges[
+        hackrfTxSource.id
+      ],
+    ).toEqual({ min: 97_250_000, max: 102_750_000 });
+    expect(store.getState().spectrum.txViewerSampleRateHz).toBe(
+      initialTxViewerSampleRateHz,
     );
   });
 

@@ -1632,6 +1632,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         : sampleRateControlMaximumHz ?? maxSampleRateHz,
     });
     if (focusGeometry === null) return;
+    const hasTxMonitorSupport =
+      selectedSource?.capabilities?.supports_tx_monitor === true ||
+      isMockTxLiveSource;
     if (isTxModeGlobal) {
       if (selectedSourceId) {
         dispatch(
@@ -1641,7 +1644,15 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           }),
         );
       }
-      dispatch(setTxViewerSampleRateHz(focusGeometry.sampleRateHz));
+      if (hasTxMonitorSupport) {
+        dispatch(setTxViewerSampleRateHz(focusGeometry.sampleRateHz));
+      }
+      if (!liveIsConnected || !hasTxMonitorSupport) {
+        // Without an active Tx monitor path the plot reads the shared range.
+        // Keep that viewport centered too, including while a capable device is
+        // temporarily disconnected, so the next render does not jump back.
+        dispatch(setFrequencyRange(focusGeometry.frequencyRange));
+      }
     } else {
       handleSignalDisplaySampleRateChange(
         focusGeometry.sampleRateHz,
@@ -1655,9 +1666,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     dispatch,
     handleSignalDisplaySampleRateChange,
     isHackrfOne,
+    isMockTxLiveSource,
     isTxModeGlobal,
+    liveIsConnected,
     maxSampleRateHz,
     sampleRateControlMaximumHz,
+    selectedSource?.capabilities?.supports_tx_monitor,
     selectedSourceId,
     txCenterFrequencyHz,
     txSampleRateHz,
