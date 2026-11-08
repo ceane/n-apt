@@ -1319,9 +1319,20 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       sendLiveSettings(settings);
     },
   });
-  const signalDisplaySampleRateOptions = isMockLiveSource
-    ? liveManualSampleRateOptions
-    : sampleRateOptions;
+  const signalDisplaySampleRateOptions = isMockTxLiveSource
+    ? Array.from(
+        new Set([
+          ...liveManualSampleRateOptions,
+          ...(typeof signalDisplaySampleRate === "number" &&
+          Number.isFinite(signalDisplaySampleRate) &&
+          signalDisplaySampleRate > 0
+            ? [signalDisplaySampleRate]
+            : []),
+        ]),
+      ).sort((a, b) => a - b)
+    : isMockLiveSource
+      ? liveManualSampleRateOptions
+      : sampleRateOptions;
 
   const setFftFrameRateForVisualizer = useCallback(
     (rate: number) => {
@@ -1628,6 +1639,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       maxSampleRateHz: isHackrfOne
         ? Math.max(sampleRateControlMaximumHz ?? 0, 20_000_000)
         : sampleRateControlMaximumHz ?? maxSampleRateHz,
+      allowNegativeFrequencies,
     });
     if (focusGeometry === null) return;
     const hasTxMonitorSupport =
@@ -1642,7 +1654,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       const centeredFocusRange = buildCenteredFrequencyRange(
         txCenterFrequencyHz,
         monitorSampleRateHz,
-        Number.NEGATIVE_INFINITY,
+        allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
       );
       // Use the explicit manual control path so Whole Channel reconciliation
       // keeps the source-local viewport's center and cannot restore an older
@@ -1680,6 +1692,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     dispatch(setVizZoom(1));
     dispatch(setVizPan(0));
   }, [
+    allowNegativeFrequencies,
     dispatch,
     handleSignalDisplaySampleRateChange,
     isHackrfOne,

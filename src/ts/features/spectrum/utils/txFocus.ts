@@ -8,6 +8,7 @@ type ResolveTxFocusSampleRateArgs = {
 
 type ResolveTxFocusGeometryArgs = ResolveTxFocusSampleRateArgs & {
   centerFrequencyHz: number | null | undefined;
+  allowNegativeFrequencies?: boolean;
 };
 
 /** Returns a monitor rate with roughly ten percent of headroom above Tx. */
@@ -39,6 +40,7 @@ export const resolveTxFocusGeometry = ({
   centerFrequencyHz,
   txBandwidthHz,
   maxSampleRateHz,
+  allowNegativeFrequencies = false,
 }: ResolveTxFocusGeometryArgs): {
   sampleRateHz: number;
   frequencyRange: FrequencyRange;
@@ -50,18 +52,25 @@ export const resolveTxFocusGeometry = ({
     return null;
   }
 
-  const sampleRateHz = resolveTxFocusSampleRateHz({
+  const requestedSampleRateHz = resolveTxFocusSampleRateHz({
     txBandwidthHz,
     maxSampleRateHz,
   });
-  if (sampleRateHz === null) return null;
+  if (requestedSampleRateHz === null) return null;
+
+  // A centered window cannot be wider than twice its center frequency
+  // without crossing 0 Hz when mirrored frequencies are disabled.
+  const sampleRateHz = allowNegativeFrequencies
+    ? requestedSampleRateHz
+    : Math.min(requestedSampleRateHz, centerFrequencyHz * 2);
+  if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) return null;
 
   return {
     sampleRateHz,
     frequencyRange: buildCenteredFrequencyRange(
       centerFrequencyHz,
       sampleRateHz,
-      Number.NEGATIVE_INFINITY,
+      allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
     ),
   };
 };

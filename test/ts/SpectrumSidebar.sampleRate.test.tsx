@@ -950,16 +950,16 @@ describe("SpectrumSidebar sample rate behavior", () => {
     );
 
     await waitFor(() => {
-      expect(store.getState().spectrum.txViewerSampleRateHz).toBe(5_000_000);
+      expect(store.getState().spectrum.txViewerSampleRateHz).toBe(4_408_000);
       expect(
         store.getState().spectrum.sourceViewFrequencyRanges[mockTxSource.id],
-      ).toEqual({ min: -296_000, max: 4_704_000 });
+      ).toEqual({ min: 0, max: 4_408_000 });
     });
     const sampleRateLabel = (await screen.findAllByText("Sample Rate"))[0];
     const sampleRateSelect = within(
       sampleRateLabel.closest("div")?.parentElement as HTMLElement,
     ).getByRole("combobox");
-    expect(sampleRateSelect).toHaveValue("5000000");
+    expect(sampleRateSelect).toHaveValue("4408000");
   });
 
   it("recenters the shared plot range for a Tx source without a separate monitor", async () => {

@@ -162,10 +162,15 @@ export const resolveMockTxMonitorSampleRateHz = ({
     return requested;
   }
   if (requested !== null) {
-    const coveringOption = supportedOptions.find((rate) => rate >= requested);
-    if (coveringOption !== undefined) return coveringOption;
+    const minimumOption = supportedOptions[0];
     const maximumOption = supportedOptions[supportedOptions.length - 1];
-    if (maximumOption !== undefined) return maximumOption;
+    if (minimumOption !== undefined && requested < minimumOption) {
+      return minimumOption;
+    }
+    if (maximumOption !== undefined && requested > maximumOption) {
+      return maximumOption;
+    }
+    if (minimumOption !== undefined) return requested;
   }
   return supportedOptions[0] ?? MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ;
 };

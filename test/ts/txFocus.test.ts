@@ -52,10 +52,25 @@ describe("resolveTxFocusGeometry", () => {
         centerFrequencyHz: 2_204_000,
         txBandwidthHz: 4_372_000,
         maxSampleRateHz: 20_000_000,
+        allowNegativeFrequencies: true,
       }),
     ).toEqual({
       sampleRateHz: 4_809_200,
       frequencyRange: { min: -200_600, max: 4_608_600 },
+    });
+  });
+
+  it("keeps focus at or above zero when negative frequencies are disabled", () => {
+    expect(
+      resolveTxFocusGeometry({
+        centerFrequencyHz: 2_204_000,
+        txBandwidthHz: 4_372_000,
+        maxSampleRateHz: 20_000_000,
+        allowNegativeFrequencies: false,
+      }),
+    ).toEqual({
+      sampleRateHz: 4_408_000,
+      frequencyRange: { min: 0, max: 4_408_000 },
     });
   });
 });
