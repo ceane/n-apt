@@ -45,4 +45,17 @@ describe("resolveTxFocusGeometry", () => {
       frequencyRange: { min: 97_250_000, max: 102_750_000 },
     });
   });
+
+  it("keeps the Tx center aligned when focus headroom crosses zero", () => {
+    expect(
+      resolveTxFocusGeometry({
+        centerFrequencyHz: 2_204_000,
+        txBandwidthHz: 4_372_000,
+        maxSampleRateHz: 20_000_000,
+      }),
+    ).toEqual({
+      sampleRateHz: 4_809_200,
+      frequencyRange: { min: -200_600, max: 4_608_600 },
+    });
+  });
 });

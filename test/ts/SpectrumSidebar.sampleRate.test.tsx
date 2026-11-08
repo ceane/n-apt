@@ -24,8 +24,10 @@ import { THEME_TOKENS } from "@n-apt/consts";
 import spectrumSlice from "@n-apt/redux/slices/spectrumSlice";
 import {
   setFrequencyRange,
+  setSourceViewFrequencyRange,
   setTxCenterFrequencyHz,
   setTxSampleRateHz,
+  setTxViewerSampleRateHz,
 } from "@n-apt/redux/slices/spectrumSlice";
 import websocketSlice, {
   setConnected,
@@ -847,6 +849,117 @@ describe("SpectrumSidebar sample rate behavior", () => {
     expect(mockWsConnection.sendSettings).not.toHaveBeenCalledWith(
       expect.objectContaining({ sampleRate: 5_500_000 }),
     );
+  });
+
+  it("keeps Mock Tx focus centered and manual when Whole Channel is available", async () => {
+    const mockTxSource = {
+      id: "mock-tx",
+      name: "Mock Tx SDR",
+      kind: "mock_tx",
+      capability: "tx",
+      status: "standby",
+      sdr: {
+        max_sample_rate: 20_000_000,
+        sample_rate_options: [3_200_000, 4_372_000, 5_000_000, 20_000_000],
+        settings: {
+          center_frequency: 2_204_000,
+          sample_rate: 3_200_000,
+          min_receive_sample_rate: 3_200_000,
+        },
+      },
+    };
+    const staleWholeChannelRange = { min: 218_600, max: 4_590_600 };
+    mockLiveState = {
+      ...mockLiveState,
+      selectedSourceId: mockTxSource.id,
+      selectedSource: mockTxSource,
+      sources: [mockTxSource],
+      selectedSourceDerived: {
+        deviceState: "standby",
+        deviceName: "Mock Tx SDR",
+        deviceProfile: { kind: "mock_tx" },
+        backend: "mock_tx",
+        maxSampleRateHz: 20_000_000,
+        sampleRateOptions: mockTxSource.sdr.sample_rate_options,
+        sampleRateHz: 3_200_000,
+        sdrSettings: mockTxSource.sdr.settings,
+      },
+      activeSignalArea: "A",
+      frequencyRange: staleWholeChannelRange,
+      sampleRateHz: 3_200_000,
+      txCenterFrequencyHz: 2_204_000,
+      txSampleRateHz: 4_372_000,
+      txViewerSampleRateHz: 4_372_000,
+    };
+    mockSignalAreaBounds = {
+      A: { min: 18_000, max: 4_390_000 },
+      a: { min: 18_000, max: 4_390_000 },
+    };
+    mockEffectiveFrames = [
+      {
+        id: "a",
+        label: "A",
+        min_hz: 18_000,
+        max_hz: 4_390_000,
+        description: "Mock Tx test channel",
+      },
+    ];
+    mockWsConnection = {
+      ...mockWsConnection,
+      backend: "mock_tx",
+      deviceState: "standby",
+      deviceName: "Mock Tx SDR",
+      deviceProfile: { kind: "mock_tx" },
+      sources: [mockTxSource],
+      sampleRateOptions: mockTxSource.sdr.sample_rate_options,
+      sampleRateHz: 3_200_000,
+    };
+
+    const store = createStore();
+    store.dispatch(setConnected());
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: mockTxSource.id,
+        activeSourceMode: "live",
+        sources: [mockTxSource],
+        channels: [],
+      } as any),
+    );
+    store.dispatch(setTxCenterFrequencyHz(2_204_000));
+    store.dispatch(setTxSampleRateHz(4_372_000));
+    store.dispatch(setTxViewerSampleRateHz(4_372_000));
+    store.dispatch(
+      setSourceViewFrequencyRange({
+        sourceId: mockTxSource.id,
+        range: staleWholeChannelRange,
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Focus on Active Tx Area" }),
+    );
+
+    await waitFor(() => {
+      expect(store.getState().spectrum.txViewerSampleRateHz).toBe(5_000_000);
+      expect(
+        store.getState().spectrum.sourceViewFrequencyRanges[mockTxSource.id],
+      ).toEqual({ min: -296_000, max: 4_704_000 });
+    });
+    const sampleRateLabel = (await screen.findAllByText("Sample Rate"))[0];
+    const sampleRateSelect = within(
+      sampleRateLabel.closest("div")?.parentElement as HTMLElement,
+    ).getByRole("combobox");
+    expect(sampleRateSelect).toHaveValue("5000000");
   });
 
   it("recenters the shared plot range for a Tx source without a separate monitor", async () => {

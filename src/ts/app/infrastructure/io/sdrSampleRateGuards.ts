@@ -152,11 +152,22 @@ export const resolveMockTxMonitorSampleRateHz = ({
     wholeChannelSampleRateHz >= 3_200_000
       ? Math.round(wholeChannelSampleRateHz)
       : null;
+  const supportedOptions = options
+    .filter((rate) => Number.isFinite(rate) && rate > 0)
+    .sort((a, b) => a - b);
   if (requested !== null && requested === wholeChannelRate) {
     return requested;
   }
-  if (requested !== null && options.includes(requested)) return requested;
-  return options[0] ?? MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ;
+  if (requested !== null && supportedOptions.includes(requested)) {
+    return requested;
+  }
+  if (requested !== null) {
+    const coveringOption = supportedOptions.find((rate) => rate >= requested);
+    if (coveringOption !== undefined) return coveringOption;
+    const maximumOption = supportedOptions[supportedOptions.length - 1];
+    if (maximumOption !== undefined) return maximumOption;
+  }
+  return supportedOptions[0] ?? MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ;
 };
 
 type DisplaySampleRateInput = DeviceIdentity & {

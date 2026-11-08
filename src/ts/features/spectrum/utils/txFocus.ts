@@ -61,7 +61,7 @@ export const resolveTxFocusGeometry = ({
     frequencyRange: buildCenteredFrequencyRange(
       centerFrequencyHz,
       sampleRateHz,
-      0,
+      Number.NEGATIVE_INFINITY,
     ),
   };
 };
