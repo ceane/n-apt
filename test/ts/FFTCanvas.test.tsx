@@ -1881,6 +1881,68 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
     expect(lastCall?.[3]).toBe("Nuttall");
   });
 
+  it("reprocesses a paused IQ frame when its power calibration changes", async () => {
+    processIqToDbmSpectrumMock.mockClear();
+    const frame = {
+      iq_data: new Uint8Array(2048).fill(128),
+      sample_rate: 2_000_000,
+      center_frequency_hz: 100_000_000,
+    };
+    const dataRef = { current: frame };
+    const renderCanvas = (baseCalibrationDb: number) => (
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={dataRef}
+                isPaused={true}
+                powerScale="dBm"
+                deviceProfile={{
+                  kind: "hackrf_one",
+                  is_rtl_sdr: false,
+                  supports_approx_dbm: true,
+                  power_calibration: {
+                    rx: {
+                      base_calibration_db: baseCalibrationDb,
+                      gain_correction_db_per_db: -1,
+                    },
+                  },
+                }}
+                deviceBackend="hackrf_one"
+                deviceName="HackRF One"
+                tunerGainDb={10}
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>
+    );
+
+    const { rerender } = render(renderCanvas(30));
+    await waitFor(() => {
+      expect(processIqToDbmSpectrumMock).toHaveBeenCalled();
+    });
+
+    const firstCallCount = processIqToDbmSpectrumMock.mock.calls.length;
+    expect(
+      (processIqToDbmSpectrumMock.mock.calls[0] as unknown[] | undefined)?.[1],
+    ).toBe(20);
+
+    rerender(renderCanvas(40));
+
+    await waitFor(() => {
+      expect(processIqToDbmSpectrumMock.mock.calls.length).toBeGreaterThan(
+        firstCallCount,
+      );
+    });
+    const lastCall = processIqToDbmSpectrumMock.mock.calls[
+      processIqToDbmSpectrumMock.mock.calls.length - 1
+    ] as unknown[] | undefined;
+    expect(lastCall?.[1]).toBe(30);
+  });
+
   it("does not clear the waterfall or persist premature snapshot on state rerender (e.g. pause/unpause)", async () => {
     const machine = createFFTVisualizerMachine();
     const seededSnapshot = {
