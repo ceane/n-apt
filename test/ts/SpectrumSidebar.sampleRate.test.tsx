@@ -960,6 +960,22 @@ describe("SpectrumSidebar sample rate behavior", () => {
       sampleRateLabel.closest("div")?.parentElement as HTMLElement,
     ).getByRole("combobox");
     expect(sampleRateSelect).toHaveValue("4408000");
+    expect(
+      screen.queryByRole("button", { name: "Focus on Active Tx Area" }),
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      store.dispatch(
+        setSourceViewFrequencyRange({
+          sourceId: mockTxSource.id,
+          range: staleWholeChannelRange,
+        }),
+      );
+      store.dispatch(setTxViewerSampleRateHz(4_372_000));
+    });
+    expect(
+      await screen.findByRole("button", { name: "Focus on Active Tx Area" }),
+    ).toBeInTheDocument();
   });
 
   it("recenters the shared plot range for a Tx source without a separate monitor", async () => {

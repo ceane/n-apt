@@ -732,6 +732,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   const sourceViewFrequencyRanges = useAppSelector(
     (state) => state.spectrum.sourceViewFrequencyRanges,
   );
+  const reduxFrequencyRange = useAppSelector(
+    (state) => state.spectrum.frequencyRange,
+  );
+  const reduxVizZoom = useAppSelector((state) => state.spectrum.vizZoom);
+  const reduxVizPanOffset = useAppSelector(
+    (state) => state.spectrum.vizPanOffset,
+  );
   const txViewerFftSize = useAppSelector(
     (state) => state.spectrum.txViewerFftSize,
   );
@@ -1632,8 +1639,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     }).isTxMode;
   }, [selectedSource, txPreviewSourceId, txSuiteSourceId]);
 
-  const handleFocusActiveTxArea = useCallback(() => {
-    const focusGeometry = resolveTxFocusGeometry({
+  const activeTxFocusGeometry = useMemo(() => {
+    const geometry = resolveTxFocusGeometry({
       centerFrequencyHz: txCenterFrequencyHz,
       txBandwidthHz: txSampleRateHz,
       maxSampleRateHz: isHackrfOne
@@ -1641,28 +1648,67 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         : sampleRateControlMaximumHz ?? maxSampleRateHz,
       allowNegativeFrequencies,
     });
+    if (geometry === null || !isTxModeGlobal || !isMockTxLiveSource) {
+      return geometry;
+    }
+
+    const monitorSampleRateHz = resolveMockTxMonitorSampleRateHz({
+      requestedSampleRateHz: geometry.sampleRateHz,
+      options: mockTxMonitorSampleRateOptions,
+      wholeChannelSampleRateHz: liveWholeChannelSampleRate,
+    });
+    return {
+      sampleRateHz: monitorSampleRateHz,
+      frequencyRange: buildCenteredFrequencyRange(
+        txCenterFrequencyHz,
+        monitorSampleRateHz,
+        allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
+      ),
+    };
+  }, [
+    allowNegativeFrequencies,
+    isHackrfOne,
+    isMockTxLiveSource,
+    isTxModeGlobal,
+    liveWholeChannelSampleRate,
+    maxSampleRateHz,
+    mockTxMonitorSampleRateOptions,
+    sampleRateControlMaximumHz,
+    txCenterFrequencyHz,
+    txSampleRateHz,
+  ]);
+
+  const currentTxViewportRange = selectedSourceId
+    ? (sourceViewFrequencyRanges?.[selectedSourceId] ?? reduxFrequencyRange)
+    : reduxFrequencyRange;
+  const isActiveTxAreaFocused = Boolean(
+    isTxModeGlobal &&
+      activeTxFocusGeometry !== null &&
+      currentTxViewportRange &&
+      reduxVizZoom === 1 &&
+      reduxVizPanOffset === 0 &&
+      Math.abs(
+        currentTxViewportRange.min - activeTxFocusGeometry.frequencyRange.min,
+      ) <= 1 &&
+      Math.abs(
+        currentTxViewportRange.max - activeTxFocusGeometry.frequencyRange.max,
+      ) <= 1,
+  );
+
+  const handleFocusActiveTxArea = useCallback(() => {
+    const focusGeometry = activeTxFocusGeometry;
     if (focusGeometry === null) return;
     const hasTxMonitorSupport =
       selectedSource?.capabilities?.supports_tx_monitor === true ||
       isMockTxLiveSource;
     if (isTxModeGlobal && isMockTxLiveSource) {
-      const monitorSampleRateHz = resolveMockTxMonitorSampleRateHz({
-        requestedSampleRateHz: focusGeometry.sampleRateHz,
-        options: mockTxMonitorSampleRateOptions,
-        wholeChannelSampleRateHz: liveWholeChannelSampleRate,
-      });
-      const centeredFocusRange = buildCenteredFrequencyRange(
-        txCenterFrequencyHz,
-        monitorSampleRateHz,
-        allowNegativeFrequencies ? Number.NEGATIVE_INFINITY : 0,
-      );
       // Use the explicit manual control path so Whole Channel reconciliation
       // keeps the source-local viewport's center and cannot restore an older
       // shared-channel center after focus.
       handleSignalDisplaySampleRateChange(
-        monitorSampleRateHz,
+        focusGeometry.sampleRateHz,
         "manual",
-        centeredFocusRange,
+        focusGeometry.frequencyRange,
       );
     } else if (isTxModeGlobal) {
       if (selectedSourceId) {
@@ -1692,21 +1738,14 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     dispatch(setVizZoom(1));
     dispatch(setVizPan(0));
   }, [
-    allowNegativeFrequencies,
+    activeTxFocusGeometry,
     dispatch,
     handleSignalDisplaySampleRateChange,
-    isHackrfOne,
     isMockTxLiveSource,
     isTxModeGlobal,
-    liveWholeChannelSampleRate,
     liveIsConnected,
-    maxSampleRateHz,
-    mockTxMonitorSampleRateOptions,
-    sampleRateControlMaximumHz,
     selectedSource?.capabilities?.supports_tx_monitor,
     selectedSourceId,
-    txCenterFrequencyHz,
-    txSampleRateHz,
   ]);
 
   const selectedBackendKind =
@@ -3213,7 +3252,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             fileMode={false}
             limitMarkers={limitMarkers}
             rangeSlidersDisabled={visualizerLoading}
-            showFocusActiveTxArea={isTxModeGlobal}
+            showFocusActiveTxArea={
+              isTxModeGlobal && !isActiveTxAreaFocused
+            }
             onFocusActiveTxArea={handleFocusActiveTxArea}
             onSampleRateChange={handleSignalDisplaySampleRateChange}
             activeSampleRateHz={
