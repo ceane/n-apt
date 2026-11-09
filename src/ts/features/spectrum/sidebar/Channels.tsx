@@ -266,6 +266,17 @@ const ChannelZoomResetButton = styled.button`
   }
 `;
 
+const ChannelHeaderActions = styled.div`
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+`;
+
 const ModeToggle = styled.div`
   display: flex;
   background: ${(props) => props.theme.background};
@@ -346,6 +357,10 @@ interface ChannelsProps {
   channelPickerOnly?: boolean;
   /** Disable tune buttons while the consuming workflow is busy. */
   channelPickerDisabled?: boolean;
+  /** Show the spectrum-only action when the selected source is in Tx mode. */
+  showFocusActiveTxArea?: boolean;
+  /** Focus the active Tx signal; Channels resets zoom and pan after invoking it. */
+  onFocusActiveTxArea?: () => void;
 }
 
 const IQExplainerTooltip = () => (
@@ -373,6 +388,8 @@ export const Channels: React.FC<ChannelsProps> = ({
   channelLabels,
   channelPickerOnly = false,
   channelPickerDisabled = false,
+  showFocusActiveTxArea = false,
+  onFocusActiveTxArea,
 }) => {
   const reduxDispatch = useAppDispatch();
   const spectrumFrames = useAppSelector((s) => s.websocket.spectrumFrames);
@@ -706,13 +723,29 @@ export const Channels: React.FC<ChannelsProps> = ({
           <ChannelsSectionTitle $fileMode={fileMode}>
             <ChevronsLeftRightEllipsis size={14} />
             <SectionText>Channels</SectionText>
-            {isChannelZoomed && (
-              <ChannelZoomResetButton
-                type="button"
-                onClick={resetZoomToWholeChannel}
-              >
-                Reset Zoom to see Whole Channel
-              </ChannelZoomResetButton>
+            {(isChannelZoomed ||
+              (showFocusActiveTxArea && onFocusActiveTxArea)) && (
+              <ChannelHeaderActions>
+                {showFocusActiveTxArea && onFocusActiveTxArea && (
+                  <ChannelZoomResetButton
+                    type="button"
+                    onClick={() => {
+                      onFocusActiveTxArea();
+                      resetZoomToWholeChannel();
+                    }}
+                  >
+                    Focus on Active Tx Area
+                  </ChannelZoomResetButton>
+                )}
+                {isChannelZoomed && (
+                  <ChannelZoomResetButton
+                    type="button"
+                    onClick={resetZoomToWholeChannel}
+                  >
+                    Reset Zoom to see Whole Channel
+                  </ChannelZoomResetButton>
+                )}
+              </ChannelHeaderActions>
             )}
           </ChannelsSectionTitle>
         )}

@@ -312,7 +312,9 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput, hotReloadL
   hotReloadLabel?: string;
   showLiveOutput?: boolean;
 }) => {
-  const isHotReloading = Boolean(hotReloadLabel);
+  const isHotReloading = Boolean(
+    hotReloadLabel && hotReloadLabel !== "[HOT-RELOAD] Rust backend reloaded",
+  );
   const spinner = useSpinnerFrame(isHotReloading || isProcessSpinnerActive(process.status));
   const shouldShowOutput = Boolean(
     showLiveOutput
@@ -321,6 +323,7 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput, hotReloadL
   );
 
   const getStatusIcon = () => {
+    if (hotReloadLabel === "[HOT-RELOAD] Rust backend reloaded") return "✓";
     if (isHotReloading) return spinner;
     switch (process.status) {
       case 'pending': return '○';
@@ -345,6 +348,7 @@ const ProcessStep = ({ process, isActive, showOutput, onToggleOutput, hotReloadL
   };
 
   const getStatusColor = () => {
+    if (hotReloadLabel === "[HOT-RELOAD] Rust backend reloaded") return 'green';
     if (isHotReloading) return 'blue';
     switch (process.status) {
       case 'pending': return 'gray';
@@ -2226,12 +2230,14 @@ echo "${encryptedModulesStatus.success}"
               || (index === 7
                 && (rustHotReloadPhase === 'waiting'
                   || rustHotReloadPhase === 'rebuilding'
-                  || rustHotReloadPhase === 'restarting'))
+                  || rustHotReloadPhase === 'restarting'
+                  || rustHotReloadPhase === 'ready'))
             }
             hotReloadLabel={index === 7
               && (rustHotReloadPhase === 'waiting'
                 || rustHotReloadPhase === 'rebuilding'
-                || rustHotReloadPhase === 'restarting')
+                || rustHotReloadPhase === 'restarting'
+                || rustHotReloadPhase === 'ready')
               ? getRustHotReloadStepLabel(rustHotReloadPhase)
               : undefined}
           />

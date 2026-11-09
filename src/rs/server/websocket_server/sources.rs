@@ -542,6 +542,21 @@ fn build_source_payload(
   let can_transmit = matches!(source_capability, "tx" | "tx_rx");
   let device_config =
     sdr_settings.devices.get(device_config_key(&device_profile));
+  // Mock Tx uses HackRF's synthetic I/Q model. That model calibrates the
+  // displayed Mock Tx spectrum; it does not replace HackRF's physical output
+  // power mapping.
+  let tx_iq_power_model = if device_profile.kind == "mock_tx" {
+    device_config
+      .and_then(|device_cfg| device_cfg.tx_iq_power_model.as_ref())
+      .or_else(|| {
+        sdr_settings
+          .devices
+          .get("hackrf_one")
+          .and_then(|device_cfg| device_cfg.tx_iq_power_model.as_ref())
+      })
+  } else {
+    None
+  };
   let supports_baseband_filter = device_config
     .and_then(|device_cfg| device_cfg.baseband_filter)
     .unwrap_or(false);
@@ -560,6 +575,28 @@ fn build_source_payload(
     .devices
     .get(device_config_key(&device_profile))
     .and_then(|device_cfg| device_cfg.gain_limits.clone());
+  let power_calibration = device_config.map(|device_cfg| {
+    let rx = device_cfg
+      .power_calibration
+      .as_ref()
+      .and_then(|profile| profile.rx.as_ref())
+      .map(|path| serde_json::json!(path));
+    let tx = device_cfg
+      .power_calibration
+      .as_ref()
+      .and_then(|profile| profile.tx.as_ref())
+      .map(|path| serde_json::json!(path))
+      .or_else(|| {
+        tx_iq_power_model.map(|model| {
+          serde_json::json!({
+            "base_calibration_db": model.calibration_db,
+            "chain_loss_db": 0.0,
+            "gain_correction_db_per_db": 0.0,
+          })
+        })
+      });
+    serde_json::json!({ "rx": rx, "tx": tx })
+  });
   let tx_power_dbm = sdr_settings
     .devices
     .get(device_config_key(&device_profile))
@@ -621,6 +658,7 @@ fn build_source_payload(
       "supports_tx_monitor": kind == "mock_tx" || kind == "mock-tx",
       "duplex_mode": duplex_mode,
       "supports_approx_dbm": device_profile.supports_approx_dbm,
+      "power_calibration": power_calibration,
       "iq_format": device_profile.iq_format,
       "supported_controls": supported_controls,
       "sample_rates": sample_rate_options,
@@ -1153,11 +1191,18 @@ mod stable_source_order_tests {
       build_device_profile("mock_tx"),
     );
     let active_snapshot = build_source_info_snapshot(&shared);
-    assert!(active_snapshot["sources"]
+    let active_sources = active_snapshot["sources"]
       .as_array()
-      .expect("active sources array")
+      .expect("active sources array");
+    let mock_tx_source = active_sources
       .iter()
-      .any(|source| source["id"].as_str() == Some("mock-tx")));
+      .find(|source| source["id"].as_str() == Some("mock-tx"))
+      .expect("Mock Tx source should remain in the inventory");
+    assert_eq!(
+      mock_tx_source["capabilities"]["power_calibration"]["tx"]
+        ["base_calibration_db"],
+      15.0
+    );
 
     shared.update_device_status(
       false,

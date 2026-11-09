@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 
 const ROOT = process.cwd();
 // Fixtures are generated directly from the canonical WGSL sources that ship
@@ -31,12 +31,30 @@ const SOURCE_FILES = [
 for (const spec of SOURCE_FILES) {
   const sourcePath = join(ROOT, spec.input);
   const outputPath = join(ROOT, spec.output);
-  const extracted = readFileSync(sourcePath, "utf8");
+  const extracted = expandIncludes(sourcePath);
   const formatted = formatWgsl(extracted);
 
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${formatted}\n`, "utf8");
   console.log(`wrote ${spec.output}`);
+}
+
+function expandIncludes(sourcePath, stack = []) {
+  const absolutePath = resolve(sourcePath);
+  if (stack.includes(absolutePath)) {
+    throw new Error(`Recursive WGSL include: ${[...stack, absolutePath].join(" -> ")}`);
+  }
+  const source = readFileSync(absolutePath, "utf8");
+  return source.replace(
+    /^\s*#include\s+([^;\s]+)\s*;?\s*$/gm,
+    (_match, includeName) => {
+      const includePath = resolve(dirname(absolutePath), includeName);
+      const resolvedIncludePath = extname(includePath)
+        ? includePath
+        : `${includePath}.wgsl`;
+      return expandIncludes(resolvedIncludePath, [...stack, absolutePath]);
+    },
+  );
 }
 
 function formatWgsl(input) {

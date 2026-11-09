@@ -1751,6 +1751,38 @@ signals:
   }
 
   #[test]
+  fn device_power_calibration_profiles_parse_from_signals_yaml() {
+    let _guard = cwd_lock().lock().expect("cwd lock");
+    clear_signals_config_cache();
+    let sdr_settings = load_sdr_settings();
+
+    let rtl_rx = sdr_settings
+      .devices
+      .get("rtl_sdr")
+      .and_then(|config| config.power_calibration.as_ref())
+      .and_then(|profile| profile.rx.as_ref())
+      .expect("RTL-SDR receive calibration should exist");
+    assert_eq!(rtl_rx.base_calibration_db, 30.0);
+    assert_eq!(rtl_rx.gain_correction_db_per_db, -1.0);
+
+    let hackrf_rx = sdr_settings
+      .devices
+      .get("hackrf_one")
+      .and_then(|config| config.power_calibration.as_ref())
+      .and_then(|profile| profile.rx.as_ref())
+      .expect("HackRF receive calibration should exist");
+    assert_eq!(hackrf_rx.base_calibration_db, 30.0);
+    assert_eq!(hackrf_rx.gain_correction_db_per_db, -1.0);
+
+    let hackrf_tx_model = sdr_settings
+      .devices
+      .get("hackrf_one")
+      .and_then(|config| config.tx_iq_power_model.as_ref())
+      .expect("HackRF I/Q power model should exist");
+    assert_eq!(hackrf_tx_model.calibration_db, 15.0);
+  }
+
+  #[test]
   fn test_hackrf_one_tx_iq_power_model_parses() {
     let _guard = cwd_lock().lock().expect("cwd lock");
     clear_signals_config_cache();

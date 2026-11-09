@@ -144,13 +144,20 @@ signals:
       # Visualizer padding
       padding: 20
 
-    # Device-specific SDR settings.
+    # Device-specific SDR settings. The approximate I/Q power offset is
+    # base_calibration_db + chain_loss_db + gain_correction_db_per_db * gain_db.
+    # These profiles are estimates and do not replace a measured RF calibration.
     # The backend resolves !floor from the lowest concrete sample_rate in this block,
     # and !max from the device's supported ceiling.
     devices:
       rtl_sdr:
         duplex_mode: "Simplex"
         sample_rate: !frequency 3.2MHz
+        _power_calibration:
+          rx:
+            base_calibration_db: 30.0
+            chain_loss_db: 0.0
+            gain_correction_db_per_db: -1.0
         gain_limits:
           min: 0.0
           max: 46.9
@@ -214,6 +221,11 @@ signals:
           vga_min: 0.0
           vga_max: 62.0
           vga_step: 2.0
+        _power_calibration:
+          rx:
+            base_calibration_db: 30.0
+            chain_loss_db: 0.0
+            gain_correction_db_per_db: -1.0
         fft_display:
           markers:
             - kind: min_hardware_frequency

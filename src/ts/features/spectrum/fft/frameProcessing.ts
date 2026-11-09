@@ -10,6 +10,16 @@ import {
   sourceCoversMirroredDisplay,
 } from "@n-apt/math/basebandMirror";
 
+// History belongs to the settings that produced a frame, not the current UI
+// intent: an in-flight old frame can arrive after the UI clears its caches.
+export function getSpectrumHistoryKey(frame: {
+  source_id?: string;
+  stream_epoch?: number;
+  options_revision?: number;
+}): string {
+  return JSON.stringify([frame.source_id, frame.stream_epoch, frame.options_revision]);
+}
+
 export const FULL_CHANNEL_BINS = 4096;
 
 export function resolveFrameTemporalWindow({

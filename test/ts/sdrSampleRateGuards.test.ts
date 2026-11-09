@@ -148,6 +148,16 @@ describe("sdrSampleRateGuards", () => {
     ).toBe(4_372_000);
   });
 
+  it("preserves an in-range custom focus rate", () => {
+    expect(
+      resolveMockTxMonitorSampleRateHz({
+        requestedSampleRateHz: 4_809_200,
+        options: [3_200_000, 4_372_000, 5_000_000, 20_000_000],
+        wholeChannelSampleRateHz: 4_372_000,
+      }),
+    ).toBe(4_809_200);
+  });
+
   it("allows whole-channel snapshots as a source-independent acquisition intent", () => {
     expect(
       canUseWholeChannelSnapshot({

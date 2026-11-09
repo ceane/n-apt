@@ -1,4 +1,5 @@
 import {
+  getSpectrumHistoryKey,
   accumulateFullChannelWaveform,
   prepareSpectrumRenderData,
   resolveLiveSpectrumCoordinateModel,
@@ -1035,4 +1036,24 @@ describe("shouldAdoptLiveFrameRange", () => {
       }),
     ).toBe(true);
   });
+});
+
+describe("spectrum history stream boundary", () => {
+  it("changes history when streaming options change, without changing the acquisition axis", () => {
+    const wide = { source_id: "mock-tx", stream_epoch: 1, options_revision: 4 };
+    expect(getSpectrumHistoryKey(wide)).not.toBe(getSpectrumHistoryKey({ ...wide, options_revision: 5 }));
+    expect(getSpectrumHistoryKey({ ...wide })).toBe(getSpectrumHistoryKey(wide));
+    expect(getSpectrumHistoryKey({ ...wide, stream_epoch: 2 })).not.toBe(getSpectrumHistoryKey(wide));
+  });
+});
+
+it("drops wide streaming history on the first narrow revision", () => {
+  let state = createState();
+  const wide = new Float32Array([0, 0, 0]);
+  for (let i = 0; i < 4; i++) state = { ...state, ...updateTemporalWaveform(wide, 4, state) };
+  const before = getSpectrumHistoryKey({ source_id: "mock-tx", stream_epoch: 1, options_revision: 1 });
+  const after = getSpectrumHistoryKey({ source_id: "mock-tx", stream_epoch: 1, options_revision: 2 });
+  if (before !== after) state = createState();
+  const result = updateTemporalWaveform(new Float32Array([-100, 0, -100]), 4, state);
+  expect(Array.from(result.renderWaveform!)).toEqual([-100, 0, -100]);
 });

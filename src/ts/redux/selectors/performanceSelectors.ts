@@ -278,6 +278,7 @@ export const deriveSourceDerivedState = (source: SourceInfo | null) => {
       is_rtl_sdr: source.capability === "rx",
       supports_approx_dbm: source.supports_approx_dbm,
       iq_format: source.iq_format,
+      power_calibration: source.capabilities?.power_calibration,
     },
     deviceInfo: source.name,
     backend: source.kind,

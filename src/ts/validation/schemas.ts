@@ -106,6 +106,27 @@ export const DeviceProfileSchema = z.object({
   kind: z.string(),
   is_rtl_sdr: z.boolean(),
   supports_approx_dbm: z.boolean(),
+  power_calibration: z
+    .object({
+      rx: z
+        .object({
+          base_calibration_db: z.number(),
+          chain_loss_db: z.number().optional(),
+          gain_correction_db_per_db: z.number().optional(),
+        })
+        .nullable()
+        .optional(),
+      tx: z
+        .object({
+          base_calibration_db: z.number(),
+          chain_loss_db: z.number().optional(),
+          gain_correction_db_per_db: z.number().optional(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
   iq_format: z
     .object({
       element_type: z.literal("u8"),
@@ -128,6 +149,7 @@ export const SourceCapabilitiesSchema = z.object({
   active_duplex_mode: DeviceActiveModeSchema.nullable().optional(),
   active_duplex_modes: z.array(DeviceActiveModeSchema).nullable().optional(),
   supports_approx_dbm: z.boolean(),
+  power_calibration: DeviceProfileSchema.shape.power_calibration,
   iq_format: z
     .object({
       element_type: z.literal("u8"),
@@ -386,6 +408,7 @@ const SignalsSdrDefaultsSchema = z.object({
         .record(z.string(), z.unknown())
         .nullable()
         .optional(),
+      _power_calibration: DeviceProfileSchema.shape.power_calibration,
     }),
   ),
   fft_sizes: z

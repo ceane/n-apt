@@ -367,7 +367,7 @@ export const useLiveSampleRateControl = ({
           wholeChannelSampleRate !== null &&
           Math.round(resolvedSampleRate) === Math.round(wholeChannelSampleRate);
         nextRange =
-          requestedMode === "whole" && frequencyRangeOverride
+          requestedMode && frequencyRangeOverride
             ? normalizeFrequencyRangeToHz(frequencyRangeOverride)
             : buildLiveSampleRateRange({
                 currentRange: rangeForSampleRate,
