@@ -3,6 +3,7 @@ import { useAppDispatch } from "@n-apt/redux";
 import {
   clearActivePlaybackMetadata,
   setStitchStatus,
+  setStitchState,
   setActivePlaybackMetadata,
 } from "@n-apt/redux";
 import { useStitchingLogic } from "@n-apt/spectrum/public/useStitchingLogic";
@@ -50,8 +51,9 @@ export const DemodFilePlaybackBridge: React.FC<
     stitchTrigger,
     stitchSourceSettings,
     fftSize,
-    onStitchStatus: (status) => {
+    onStitchStatus: (status, state) => {
       dispatch(setStitchStatus(status));
+      dispatch(setStitchState(state));
       onStitchStatus?.(status);
     },
   });

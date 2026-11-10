@@ -1,19 +1,19 @@
+import type { StitchState } from "@n-apt/redux/slices/waterfallSlice";
 import type { CanvasPlaceholderState } from "@n-apt/ui/CanvasPlaceholder";
 
 type FilePlaceholderInput = {
   sourceMode: "live" | "file";
   selectedFilesCount: number;
   stitchStatus?: string | null;
+  stitchState: StitchState;
   hasRenderableFrame: boolean;
 };
-
-const isProcessingStatus = (status: string) =>
-  /loading|processing|stitch/i.test(status);
 
 export const getFilePlaceholderState = ({
   sourceMode,
   selectedFilesCount,
   stitchStatus,
+  stitchState,
   hasRenderableFrame,
 }: FilePlaceholderInput): CanvasPlaceholderState | null => {
   if (sourceMode !== "file") return null;
@@ -22,19 +22,8 @@ export const getFilePlaceholderState = ({
     return { kind: "idle", title: "Upload a file" };
   }
 
-  // A successful processing status can arrive before the playback loop emits
-  // its seed frame. Keep the processing placeholder until that frame exists.
-  if (hasRenderableFrame) {
-    return null;
-  }
-
   const normalizedStatus = stitchStatus?.trim() ?? "";
-  if (
-    normalizedStatus.length > 0 &&
-    !isProcessingStatus(normalizedStatus) &&
-    !/success|processed|stitched/i.test(normalizedStatus) &&
-    !/no files selected/i.test(normalizedStatus)
-  ) {
+  if (stitchState === "error") {
     if (/integrity|corrupt|modified/i.test(normalizedStatus)) {
       return {
         kind: "error",
@@ -43,10 +32,31 @@ export const getFilePlaceholderState = ({
         message: "Its contents do not match the integrity record.",
       };
     }
+    if (/fido vault/i.test(normalizedStatus)) {
+      return {
+        kind: "error",
+        reason: "File decryption unavailable",
+        title: "Unlock the FIDO vault to process this file",
+        message: normalizedStatus,
+      };
+    }
     return {
       kind: "error",
       reason: "File processing error",
-      title: "File processing error",
+      title: "File processing failed",
+      message: normalizedStatus || undefined,
+    };
+  }
+
+  // A successful processing state can arrive before the playback loop emits
+  // its seed frame. Keep the processing placeholder until that frame exists.
+  if (hasRenderableFrame) return null;
+
+  if (stitchState === "idle") {
+    return {
+      kind: "idle",
+      title: "File selected",
+      message: "Click Stitch/Process to visualize.",
     };
   }
 

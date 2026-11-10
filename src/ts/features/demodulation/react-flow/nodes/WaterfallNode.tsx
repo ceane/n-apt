@@ -624,6 +624,9 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   const stitchStatus = useAppSelector(
     (state) => state.waterfall?.stitchStatus ?? "",
   );
+  const stitchState = useAppSelector(
+    (state) => state.waterfall?.stitchState ?? "idle",
+  );
   const stitchTrigger = useAppSelector(
     (state) => state.waterfall?.stitchTrigger ?? 0,
   );
@@ -832,6 +835,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     sourceMode,
     selectedFilesCount: selectedFiles.length,
     stitchStatus,
+    stitchState,
     hasRenderableFrame: Boolean(waveform?.length),
   });
   const isPaused =
