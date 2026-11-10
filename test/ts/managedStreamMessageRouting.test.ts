@@ -5,8 +5,10 @@ import websocketMiddleware, {
   buildManagedRxOptions,
   getManagedStreamDebugSnapshot,
   resetWebSocketMiddlewareState,
+  shouldResetManagedRxStartupFrameRequest,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { waitFor } from "@testing-library/react";
+import { CenterFrequencyHzSchema, RxCenterFrequencyHzSchema } from "@n-apt/validation/schemas";
 
 type TestSocket = {
   readyState: number;
@@ -29,6 +31,25 @@ const makeSocket = (): TestSocket => ({
 });
 
 describe("managed stream message routing", () => {
+  it("validates center frequency as a safe, nonnegative whole number of hertz", () => {
+    expect(CenterFrequencyHzSchema.safeParse(1_618_001).success).toBe(true);
+    expect(CenterFrequencyHzSchema.safeParse(1_618_000.5).success).toBe(false);
+    expect(CenterFrequencyHzSchema.safeParse(-1).success).toBe(false);
+    expect(CenterFrequencyHzSchema.safeParse(Number.MAX_SAFE_INTEGER + 1).success).toBe(false);
+    expect(RxCenterFrequencyHzSchema.safeParse(4_294_967_295).success).toBe(true);
+    expect(RxCenterFrequencyHzSchema.safeParse(4_294_967_296).success).toBe(false);
+    expect(RxCenterFrequencyHzSchema.safeParse(0).success).toBe(false);
+  });
+  it("rearms the RX startup frame request when its source becomes stale", () => {
+    expect(
+      shouldResetManagedRxStartupFrameRequest({
+        sourceId: "rtl-sdr-1",
+        status: "stale",
+        startupFrameRequestSourceId: "rtl-sdr-1",
+      }),
+    ).toBe(true);
+  });
+
   let sockets: TestSocket[];
   let store: ReturnType<typeof configureStore>;
 
@@ -135,6 +156,7 @@ describe("managed stream message routing", () => {
     return streamSocket;
   };
 
+
   it("builds initial RTL-SDR options at Channel A's displayed center", () => {
     const rtlSource = {
       id: "rtl-sdr-0",
@@ -222,6 +244,20 @@ describe("managed stream message routing", () => {
       rtlSource as any,
     );
     expect(mirroredNegativeOptions.centerFrequencyHz).toBe(382_000);
+  });
+
+  it("sends whole hertz when the displayed center is fractional", () => {
+    const source = {
+      id: "rtl-sdr-1",
+      kind: "rtl_sdr",
+      capability: "rx",
+      sdr: { settings: { sample_rate: 3_200_000, fft_size: 2048 } },
+    } as any;
+    const options = buildManagedRxOptions({
+      spectrum: { frequencyRange: { min: 18_000, max: 3_218_001 }, vizZoom: 1 },
+      settings: {},
+    }, source);
+    expect(options.centerFrequencyHz).toBe(1_618_001);
   });
 
   it("sends RX option changes on the managed stream socket", async () => {

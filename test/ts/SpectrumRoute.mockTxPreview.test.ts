@@ -224,17 +224,20 @@ describe("resolveMockTxMonitorViewSampleRateHz", () => {
 
 describe("resolveLiveDevicePlaceholderState", () => {
   it("dismisses a stale placeholder when current-source I/Q is already renderable", () => {
-    // `stale` with a genuinely valid current-source frame is a live stream:
-    // the placeholder is dismissed.
-    expect(
-      resolveLiveDevicePlaceholderState({
-        deviceState: "stale",
-        sourceLabel: "RTL-SDR v4",
-        hasRenderableCurrentFrame: true,
-      } as Parameters<typeof resolveLiveDevicePlaceholderState>[0] & {
-        hasRenderableCurrentFrame: boolean;
-      }),
-    ).toBeNull();
+    const placeholder = resolveLiveDevicePlaceholderState({
+      deviceState: "stale",
+      sourceLabel: "RTL-SDR v4",
+      hasRenderableCurrentFrame: true,
+    } as Parameters<typeof resolveLiveDevicePlaceholderState>[0] & {
+      hasRenderableCurrentFrame: boolean;
+    });
+
+    expect(placeholder).toMatchObject({
+      kind: "loading",
+      title: "Device Stale — Reconnecting",
+      message:
+        "The USB plug can be sensitive to movement and may have briefly disconnected. Reconnecting usually takes a few seconds.",
+    });
   });
 
   it("keeps a loading placeholder even when a renderable frame exists", () => {
@@ -250,6 +253,20 @@ describe("resolveLiveDevicePlaceholderState", () => {
         hasRenderableCurrentFrame: boolean;
       }),
     ).toMatchObject({ kind: "loading" });
+  });
+
+  it("uses a device reconnect title instead of a pane-specific loading title", () => {
+    expect(
+      resolveLiveDevicePlaceholderState({
+        deviceState: "loading",
+        sourceLabel: "RTL-SDR v4",
+      }),
+    ).toMatchObject({
+      kind: "loading",
+      title: "Device Reconnecting",
+      message:
+        "The device is reconnecting; this usually takes a few seconds. Check the USB connection if it does not recover.",
+    });
   });
 
   it("keeps an explicit disconnect blocking even when a frame is buffered", () => {
@@ -286,7 +303,25 @@ describe("resolveLiveDevicePlaceholderState", () => {
       kind: "loading",
       sourceLabel: "RTL-SDR v4",
       paneLabel: "device",
-      message: "Attempting to restart the device... (1/2)",
+      title: "Device Reconnecting",
+      message:
+        "Attempting to reconnect the device... (1/2). The USB connection usually recovers within a few seconds.",
+    });
+  });
+
+  it("keeps the stale-device explanation visible during automatic restart", () => {
+    expect(
+      resolveLiveDevicePlaceholderState({
+        deviceState: "stale",
+        sourceLabel: "RTL-SDR v4",
+        loadingAttempt: 1,
+        loadingAttemptMax: 2,
+      }),
+    ).toMatchObject({
+      kind: "loading",
+      title: "Device Stale — Reconnecting",
+      message:
+        "The USB plug can be sensitive to movement and may have briefly disconnected. Reconnecting usually takes a few seconds.",
     });
   });
 

@@ -6,13 +6,14 @@ import {
   getStitchSession,
   setStitchSession,
 } from "@n-apt/spectrum/utils/stitchSessionCache";
+import type { StitchState } from "@n-apt/redux/slices/waterfallSlice";
 
 interface UseStitchingLogicProps {
   selectedFiles: { id: string; name: string }[];
   stitchTrigger: number | null;
   stitchSourceSettings: { gain: number; ppm: number };
   fftSize: number;
-  onStitchStatus?: (status: string) => void;
+  onStitchStatus?: (status: string, state: StitchState) => void;
   onChannelsChange?: (channels: any[]) => void;
   onProcessedDataChange?: (hasData: boolean) => void;
   sampleRateOptions?: { maxSampleRateHz: number; currentSampleRateHz: number };
@@ -145,8 +146,8 @@ export const useStitchingLogic = ({
   }, [frequencyRange]);
 
 
-  const setStitchStatus = useCallback((status: string) => {
-    onStitchStatusRef.current?.(status);
+  const setStitchStatus = useCallback((status: string, state: StitchState) => {
+    onStitchStatusRef.current?.(status, state);
   }, []);
 
   // Reset stitched state when file selection changes
@@ -156,7 +157,7 @@ export const useStitchingLogic = ({
     const lastFileNames = lastProcessedFilesRef.current;
     if (JSON.stringify(currentFileNames) !== JSON.stringify(lastFileNames)) {
       setHasStitchedData(false);
-      onStitchStatusRef.current?.("");
+      onStitchStatusRef.current?.("", "idle");
       // Update this so we don't keep resetting until the next process
       lastProcessedFilesRef.current = currentFileNames;
     }
@@ -194,7 +195,7 @@ export const useStitchingLogic = ({
   const stitchFiles = useCallback(async (allowIntegrityFailure = false) => {
     const currentFiles = selectedFilesRef.current;
     if (currentFiles.length === 0) {
-      setStitchStatus("No files selected for stitching");
+      setStitchStatus("No files selected for stitching", "idle");
       return;
     }
 
@@ -206,7 +207,7 @@ export const useStitchingLogic = ({
     if (inFlightStitchKeysRef.current.has(inFlightKey)) return;
     inFlightStitchKeysRef.current.add(inFlightKey);
 
-    setStitchStatus(`Loading ${currentFiles.length} files...`);
+    setStitchStatus(`Loading ${currentFiles.length} files...`, "loading");
 
     // Check if files have changed to force reset
     const currentFileNames = currentFiles.map((f) => f.name).sort();
@@ -236,6 +237,7 @@ export const useStitchingLogic = ({
           setStitchStatus(
             progress.status ||
               `Loading ${progress.current}/${progress.total} files...`,
+            "loading",
           );
         },
         aesKeyRef.current,
@@ -317,7 +319,7 @@ export const useStitchingLogic = ({
         currentFiles.length > 1
           ? "Stitched Successfully"
           : "Processed Successfully";
-      onStitchStatus?.(nextStitchStatus);
+      setStitchStatus(nextStitchStatus, "ready");
       onChannelsChange?.(channels);
       onProcessedDataChange?.(true);
       setStitchSession(stitchSessionKey, {
@@ -341,17 +343,21 @@ export const useStitchingLogic = ({
       const msg = error.message || String(error);
       const normalizedMessage = msg.toLowerCase();
       if (normalizedMessage.includes("integrity_failed")) {
-        setStitchStatus("File integrity failed: file appears corrupted or modified");
+        setStitchStatus(
+          "File integrity failed: file appears corrupted or modified",
+          "error",
+        );
       } else if (
         normalizedMessage.includes("fido vault key is not available")
       ) {
         setStitchStatus(
           "FIDO vault decryption requires unlocking your security key",
+          "error",
         );
       } else if (normalizedMessage.includes("decryption")) {
-        setStitchStatus("File decryption failed, wrong key");
+        setStitchStatus("File decryption failed, wrong key", "error");
       } else {
-        setStitchStatus(msg);
+        setStitchStatus(msg, "error");
       }
     } finally {
       inFlightStitchKeysRef.current.delete(inFlightKey);

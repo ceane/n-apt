@@ -49,6 +49,7 @@ import { useCaptureWholeChannelSegments } from "@n-apt/capture/hooks/useCaptureW
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocation } from "@n-apt/capture/snapshotLocation";
 import type { NoteCardStatsSnapshot } from "@n-apt/redux/slices/noteCardsSlice";
+import type { StitchState } from "@n-apt/redux/slices/waterfallSlice";
 import {
   useAppSelector,
   useAppDispatch,
@@ -63,6 +64,7 @@ import {
   setFrequencyRange,
   setSourceViewFrequencyRange,
   setStitchStatus,
+  setStitchState,
   resetWaterfallCleared,
   setVizZoom as setVizZoomAction,
   setVizZoomFloor as setVizZoomFloorAction,
@@ -567,6 +569,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const hasConnectedOnce = useAppSelector(
     (state) => state.websocket.hasConnectedOnce,
   );
+  const reconnectAttempts = useAppSelector(
+    (state) => state.websocket.reconnectAttempts,
+  );
+  const maxReconnectAttempts = useAppSelector(
+    (state) => state.websocket.maxReconnectAttempts,
+  );
   const txViewerSampleRateHz = useAppSelector(
     (state) => state.spectrum.txViewerSampleRateHz,
   );
@@ -906,6 +914,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     isConnected,
     connectionStatus,
     hasConnectedOnce,
+    reconnectAttempts,
+    maxReconnectAttempts,
+    isDevelopment: import.meta.env.DEV,
     sourceHandoffPending: liveSourceHandoffPending,
     selectedSourceId: selectedSourceId || null,
     activeSourceId: activeSourceId || null,
@@ -1032,7 +1043,10 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     [],
   );
   const handleStitchStatusChange = useCallback(
-    (status: string) => reduxDispatch(setStitchStatus(status)),
+    (status: string, stitchState: StitchState) => {
+      reduxDispatch(setStitchStatus(status));
+      reduxDispatch(setStitchState(stitchState));
+    },
     [reduxDispatch],
   );
   const handleNoopSnapshot = useCallback(() => {}, []);

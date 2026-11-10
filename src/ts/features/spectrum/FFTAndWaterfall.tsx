@@ -339,6 +339,12 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
       props.isStandby,
       sharedAwaitingDeviceData,
     ]);
+    const shouldRenderExplicitRecoveryPlaceholder =
+      sharedPlaceholderState?.kind === "loading" &&
+      typeof sharedPlaceholderState.title === "string" &&
+      sharedPlaceholderState.title.trim().length > 0;
+    const shouldRenderPlaceholderNow =
+      shouldShowLoadingPlaceholder || shouldRenderExplicitRecoveryPlaceholder;
 
     const visualizerConnectionState = resolveVisualizerConnectionState({
       sourceMode,
@@ -552,7 +558,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
               placeholderErrorReason={placeholderErrorReason}
               placeholderState={
                 sharedPlaceholderState?.kind === "loading" &&
-                !shouldShowLoadingPlaceholder
+                !shouldRenderPlaceholderNow
                   ? undefined
                   : sharedPlaceholderState?.kind === "loading"
                     ? { ...sharedPlaceholderState, paneLabel: "FFT" }
@@ -583,7 +589,7 @@ const FFTAndWaterfall = forwardRef<FFTCanvasHandle, FFTAndWaterfallProps>(
                     sourceLabel: props.placeholderSourceLabel,
                   }
                 : sharedPlaceholderState?.kind === "loading" &&
-                    !shouldShowLoadingPlaceholder
+                    !shouldRenderPlaceholderNow
                   ? undefined
                   : sharedPlaceholderState?.kind === "loading"
                     ? { ...sharedPlaceholderState, paneLabel: "Waterfall" }

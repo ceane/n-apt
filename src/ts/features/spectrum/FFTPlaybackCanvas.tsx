@@ -38,6 +38,7 @@ import { formatDuration } from "@n-apt/math/formatters";
 import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { shouldRestorePausedFrameSnapshot } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
+import type { StitchState } from "@n-apt/redux/slices/waterfallSlice";
 import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
 import type { AppStyledTheme } from "@n-apt/ui/Theme";
@@ -48,7 +49,7 @@ interface FFTPlaybackCanvasProps {
   stitchTrigger: number | null;
   stitchSourceSettings: { gain: number; ppm: number };
   isPaused: boolean;
-  onStitchStatus?: (status: string) => void;
+  onStitchStatus?: (status: string, state: StitchState) => void;
   onFrequencyRangeChange?: (range: { min: number; max: number }) => void;
   snapshotGridPreference?: boolean;
   fftSize: number;

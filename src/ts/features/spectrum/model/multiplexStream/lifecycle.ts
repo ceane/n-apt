@@ -143,7 +143,8 @@ export const resolveLiveDevicePlaceholderState = ({
     (hasRenderableCurrentFrame || hasPlayedAtLeastOnce) &&
     deviceState !== "disconnected" &&
     deviceState !== "error" &&
-    deviceState !== "loading"
+    deviceState !== "loading" &&
+    deviceState !== "stale"
   ) {
     return null;
   }
@@ -162,6 +163,7 @@ export const resolveLiveDevicePlaceholderState = ({
       message: "Resolve the device error before live I/Q can resume.",
     };
   }
+  const isStale = deviceState === "stale";
   const attempt =
     typeof loadingAttempt === "number" && Number.isFinite(loadingAttempt)
       ? Math.max(0, Math.floor(loadingAttempt))
@@ -176,12 +178,12 @@ export const resolveLiveDevicePlaceholderState = ({
     kind: "loading",
     paneLabel: "device",
     sourceLabel,
-    message:
-      deviceState === "stale"
-        ? "The device is still visible but has not produced a fresh frame yet."
-        : attempt > 0
-          ? `Attempting to restart the device... (${attempt}/${attemptMax || "?"})`
-          : "The device is restarting; this can take 20-30 seconds for HackRF One.",
+    title: isStale ? "Device Stale — Reconnecting" : "Device Reconnecting",
+    message: isStale
+      ? "The USB plug can be sensitive to movement and may have briefly disconnected. Reconnecting usually takes a few seconds."
+      : attempt > 0
+        ? `Attempting to reconnect the device... (${attempt}/${attemptMax || "?"}). The USB connection usually recovers within a few seconds.`
+        : "The device is reconnecting; this usually takes a few seconds. Check the USB connection if it does not recover.",
   };
 };
 
@@ -622,12 +624,16 @@ export const isControlPlaneUnavailable = ({
   hasConnectedOnce = false,
   sourceHandoffPending: _sourceHandoffPending = false,
   transportPhase = null,
+  reconnectAttempts = 0,
+  maxReconnectAttempts = 0,
 }: {
   isConnected: boolean;
   connectionStatus?: string | null;
   hasConnectedOnce?: boolean;
   sourceHandoffPending?: boolean;
   transportPhase?: string | null;
+  reconnectAttempts?: number;
+  maxReconnectAttempts?: number;
 }): boolean => {
   // An open control socket is never "Server Down". Stream/source failures can
   // leave connectionStatus sticky at "error" without closing the socket
@@ -639,9 +645,16 @@ export const isControlPlaneUnavailable = ({
   // that the stream is still open.
   if (transportPhase === "ready") return false;
   if (connectionStatus === "error") return true;
-  // After a live session, softDisconnect / reconnect polling is Server Down.
-  // First-boot disconnected/connecting keep Loading instead.
-  if (hasConnectedOnce === true) return true;
+  // After a live session, allow the middleware's bounded reconnect loop to
+  // recover a brief server restart. Exhausting attempts means the backend is
+  // unavailable, while first-boot disconnected/connecting keeps warming.
+  if (
+    hasConnectedOnce === true &&
+    reconnectAttempts >= maxReconnectAttempts &&
+    connectionStatus !== "connected"
+  ) {
+    return true;
+  }
   return false;
 };
 
@@ -673,6 +686,9 @@ export const resolveLiveSourceLifecycle = ({
   isConnected = true,
   connectionStatus = null,
   hasConnectedOnce = false,
+  reconnectAttempts = 0,
+  maxReconnectAttempts = 5,
+  isDevelopment = false,
   sourceHandoffPending,
   isStandby = false,
   readinessSequence = null,
@@ -700,6 +716,9 @@ export const resolveLiveSourceLifecycle = ({
   isConnected?: boolean;
   connectionStatus?: string | null;
   hasConnectedOnce?: boolean;
+  reconnectAttempts?: number;
+  maxReconnectAttempts?: number;
+  isDevelopment?: boolean;
   sourceHandoffPending?: boolean;
   isStandby?: boolean;
   readinessSequence?: number | null;
@@ -758,12 +777,36 @@ export const resolveLiveSourceLifecycle = ({
 
   if (!isLive) return result("idle", null);
   if (
+    isConnected === false &&
+    transportPhase !== "ready" &&
+    hasConnectedOnce &&
+    connectionStatus !== "connected" &&
+    reconnectAttempts < maxReconnectAttempts &&
+    selectedSourceId
+  ) {
+    const retryMessage =
+      reconnectAttempts > 0
+        ? `${isDevelopment ? "Hot reload reconnecting" : "Server reconnecting"}… (attempt ${reconnectAttempts}/${maxReconnectAttempts}). Waiting for the device stream.`
+        : isDevelopment
+          ? "Hot reload in progress… reconnecting to the device stream."
+          : "Server reconnecting… restoring the device stream.";
+    return result("recovering", {
+      kind: "loading",
+      sourceLabel: resolvedSourceLabel,
+      paneLabel: "server",
+      title: isDevelopment ? "Hot Reload — Reconnecting" : "Server Reconnecting",
+      message: retryMessage,
+    });
+  }
+  if (
     isControlPlaneUnavailable({
       isConnected,
       connectionStatus,
       hasConnectedOnce,
       sourceHandoffPending: handoffPending,
       transportPhase,
+      reconnectAttempts,
+      maxReconnectAttempts,
     })
   ) {
     return result("failed", {
@@ -800,6 +843,12 @@ export const resolveLiveSourceLifecycle = ({
     return result("failed", resolvedDevicePlaceholder);
   }
   if (!selectedSourceId) return result("idle", null);
+
+  // A stale selected device is authoritative even when a handoff or old
+  // readiness metadata remains from its previous stream.
+  if (deviceStatus === "stale") {
+    return result("recovering", resolvedDevicePlaceholder);
+  }
 
   // A source-tagged frame is proof that the selected stream is already
   // usable, even if the control-plane source commit is still catching up.
@@ -902,6 +951,9 @@ export const useLiveSourceLifecycle = (
       input.connectionStatus,
       input.deviceStatus,
       input.hasConnectedOnce,
+      input.reconnectAttempts,
+      input.maxReconnectAttempts,
+      input.isDevelopment,
       input.sourceHandoffPending,
       input.hasValidFrame,
       input.isConnected,

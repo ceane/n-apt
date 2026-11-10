@@ -322,6 +322,7 @@ export {
   setDrawSignal3D,
   setStitchPaused,
   setStitchStatus,
+  setStitchState,
   setStitchSourceSettings,
   setActivePlaybackMetadata,
   setPlaybackChannels,

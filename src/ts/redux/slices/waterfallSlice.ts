@@ -2,6 +2,7 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { NaptMetadata } from "@n-apt/consts/types";
 
 export type SourceMode = "live" | "file";
+export type StitchState = "idle" | "loading" | "ready" | "error";
 export type SelectedFile = { id: string; name: string; downloadUrl?: string };
 export type TrainingLabel = "target" | "noise";
 export type ActivePlaybackMetadata = {
@@ -47,6 +48,7 @@ export interface WaterfallState {
 
   // Stitching and processing
   stitchStatus: string;
+  stitchState: StitchState;
   stitchTrigger: number;
   stitchSourceSettings: { gain: number; ppm: number };
   isStitchPaused: boolean;
@@ -92,6 +94,7 @@ const initialState: WaterfallState = {
   globalNoiseFloor: -100, // Default changed to -100dB
 
   stitchStatus: "",
+  stitchState: "idle",
   stitchTrigger: 0,
   stitchSourceSettings: { gain: 46.9, ppm: 1 },
   isStitchPaused: false,
@@ -119,6 +122,7 @@ const waterfallSlice = createSlice({
       if (state.sourceMode === "file" && action.payload !== "file") {
         state.sourceMode = action.payload;
         state.stitchStatus = "";
+        state.stitchState = "idle";
         state.isStitchPaused = true;
         state.activePlaybackMetadata = null;
         state.loadedFileMetadata = null;
@@ -136,6 +140,8 @@ const waterfallSlice = createSlice({
 
     setSelectedFiles: (state, action: PayloadAction<SelectedFile[]>) => {
       state.selectedFiles = action.payload;
+      state.stitchStatus = "";
+      state.stitchState = "idle";
       state.activePlaybackMetadata = null;
       state.loadedFileMetadata = null;
       state.playbackFrameCounter = 0;
@@ -175,10 +181,14 @@ const waterfallSlice = createSlice({
     setStitchStatus: (state, action: PayloadAction<string>) => {
       state.stitchStatus = action.payload;
     },
+    setStitchState: (state, action: PayloadAction<StitchState>) => {
+      state.stitchState = action.payload;
+    },
 
     triggerStitch: (state) => {
       state.isStitchPaused = true;
       state.stitchStatus = "";
+      state.stitchState = "loading";
       state.stitchTrigger += 1;
       state.playbackFrameCounter = 0;
     },
@@ -269,6 +279,7 @@ export const {
   setActiveClumpIndex,
   setGlobalNoiseFloor,
   setStitchStatus,
+  setStitchState,
   triggerStitch,
   toggleStitchPause,
   setStitchSourceSettings,

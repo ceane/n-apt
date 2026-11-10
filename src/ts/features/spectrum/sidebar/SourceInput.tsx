@@ -491,13 +491,14 @@ export const SourceInput: React.FC<SourceInputProps> = ({
     return !["disconnected", "offline", "stale", "error"].includes(label);
   };
   const hasConnectedHardwareSource = sourceDevicesRaw.some(
-    (device) => !isMockDeviceLocal(device) && isDeviceConnected(device),
+    (device) =>
+      !isMockDeviceLocal(device) &&
+      (isDeviceConnected(device) ||
+        device.status?.label?.toLowerCase?.() === "stale"),
   );
-  // The mock fallback must stay visible while it is the actual active stream
-  // (the backend fell back to it after a hardware unplug) so the pill list
-  // matches what is really on screen. It is dropped whenever a real hardware
-  // source is present and streaming/transmitting — the mock is then not the
-  // active fallback, and the "hardware replaces mock" rule applies.
+  // A streaming mock fallback remains visible only after hardware has actually
+  // disconnected. A stale hardware source is still recovering, so keep its
+  // card visible and don't offer mock sources as a substitute.
   const activeHardwareStreaming = sourceDevicesRaw.some(
     (device) =>
       !isMockDeviceLocal(device) &&
@@ -506,7 +507,9 @@ export const SourceInput: React.FC<SourceInputProps> = ({
         device.status?.label?.toLowerCase?.() === "transmitting"),
   );
   const activeMockFallbackDevice =
-    sourceMode === "live" && !activeHardwareStreaming
+    sourceMode === "live" &&
+    !hasConnectedHardwareSource &&
+    !activeHardwareStreaming
       ? (sourceDevicesRaw.find(
           (device) =>
             isMockDeviceLocal(device) &&

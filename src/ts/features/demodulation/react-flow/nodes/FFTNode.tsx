@@ -251,6 +251,9 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     (state) => state.waterfall.selectedFiles,
   );
   const stitchStatus = useAppSelector((state) => state.waterfall.stitchStatus);
+  const stitchState = useAppSelector(
+    (state) => state.waterfall?.stitchState ?? "idle",
+  );
   const stitchTrigger = useAppSelector(
     (state) => state.waterfall.stitchTrigger,
   );
@@ -521,6 +524,7 @@ const FFTNodeComponent: React.FC<FFTNodeProps> = ({ id, data }) => {
     sourceMode,
     selectedFilesCount: selectedFiles.length,
     stitchStatus,
+    stitchState,
     hasRenderableFrame: Boolean(
       (frame as any)?.waveform?.length ||
       (frame as any)?.iq_data?.length ||

@@ -6,6 +6,14 @@
 import { z } from "zod";
 import type { TrustLevel, ExpectedLatency } from "./types";
 
+// Rust stream and status messages represent center frequency as u64 hertz.
+// JavaScript can represent only safe integers exactly.
+export const CenterFrequencyHzSchema = z.number().int().nonnegative();
+// RX stream options are narrowed to u32 by stream_rx_processor_settings.
+export const RxCenterFrequencyHzSchema = CenterFrequencyHzSchema.min(1).max(
+  4_294_967_295,
+);
+
 // Preprocesses null values to undefined so they map properly to optional types rather than null
 const _nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((val) => (val === null ? undefined : val), schema.optional());
@@ -548,7 +556,7 @@ export const WebSocketMessageSchema = z.union([
     status: z.enum(["standby", "transmitting"]),
     txDevice: z.string().optional(),
     serialNumber: z.string().optional(),
-    centerFrequencyHz: z.number().optional(),
+    centerFrequencyHz: CenterFrequencyHzSchema.optional(),
     bandwidthHz: z.number().optional(),
     sampleRateHz: z.number().optional(),
     ifftSize: z.number().int().optional(),

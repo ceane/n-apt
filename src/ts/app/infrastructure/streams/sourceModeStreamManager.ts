@@ -1,6 +1,10 @@
 import type { IqRawFrameV2 } from "@n-apt/consts/schemas/websocket";
 import { evaluateSequenceStep } from "@n-apt/math/sequenceStep";
 import {
+  CenterFrequencyHzSchema,
+  RxCenterFrequencyHzSchema,
+} from "@n-apt/validation/schemas";
+import {
   STREAM_CONTROL_CONTRACT,
   type StreamSubscriberContract,
   type StreamControlScopes,
@@ -248,7 +252,15 @@ type SourceModeStreamManagerOptions = {
 
 const keyFor = ({ sourceId, mode }: StreamKey): string => `${sourceId}\u0000${mode}`;
 
-const cloneOptions = (options: StreamOptions): StreamOptions => ({ ...options });
+const cloneOptions = (options: StreamOptions): StreamOptions => ({
+  ...options,
+  centerFrequencyHz: (options.mode === "rx"
+    ? RxCenterFrequencyHzSchema
+    : CenterFrequencyHzSchema
+  ).parse(
+    Math.round(options.centerFrequencyHz),
+  ),
+});
 
 const optionsEqual = (left: StreamOptions, right: StreamOptions): boolean => {
   const leftEntries = Object.entries(left);
