@@ -1357,7 +1357,7 @@ export const buildManagedRxOptions = (
     .find((frequency) => Number.isFinite(frequency) && frequency > 0) ?? 0;
   return {
     mode: "rx",
-    centerFrequencyHz,
+    centerFrequencyHz: Math.round(centerFrequencyHz),
     sampleRateHz: Number(
       overrides.sampleRateHz ??
         settings.sample_rate ??
@@ -1950,6 +1950,21 @@ export const shouldRequestManagedRxStartupFrame = ({
   !hasFrame &&
   !alreadyRequested;
 
+export const shouldResetManagedRxStartupFrameRequest = ({
+  sourceId,
+  status,
+  startupFrameRequestSourceId,
+}: {
+  sourceId: string;
+  status: unknown;
+  startupFrameRequestSourceId: string | null;
+}): boolean =>
+  sourceId === startupFrameRequestSourceId &&
+  (status === "stale" ||
+    status === "disconnected" ||
+    status === "loading" ||
+    status === "initializing");
+
 /**
  * A paused subscriber that (re)opens its transport has nothing to show: the
  * pause gate suppressed the stream, and the presentation slot went with the
@@ -2395,12 +2410,13 @@ const syncManagedStreamSubscriptions = (
   if (managedRxSubscription && rxSourceId) {
     const latestState = getState().websocket;
     const latestReadiness = latestState.sourceFrameReadinessByMode?.rx ?? null;
+    const rxStatus =
+      latestState.sourceStatuses?.[rxSourceId] ?? desiredRxSource.status;
     if (
       shouldRequestManagedRxStartupFrame({
         activeSourceId: latestState.activeSourceId,
         rxSourceId,
-        sourceStatus:
-          latestState.sourceStatuses?.[rxSourceId] ?? desiredRxSource.status,
+        sourceStatus: rxStatus,
         hasFrame: latestReadiness?.sourceId === rxSourceId,
         alreadyRequested: managedRxStartupFrameRequestSourceId === rxSourceId,
       })
@@ -3513,6 +3529,26 @@ export const processWebSocketMessage = (
         sources: nextSources,
         ...derived,
       };
+      if (
+        shouldResetManagedRxStartupFrameRequest({
+          sourceId: parsedData.source_id,
+          status: sourceStatuses[parsedData.source_id],
+          startupFrameRequestSourceId: managedRxStartupFrameRequestSourceId,
+        })
+      ) {
+        managedRxStartupFrameRequestSourceId = null;
+        const readiness =
+          getState().websocket.sourceFrameReadinessByMode?.rx ?? null;
+        if (readiness?.sourceId === parsedData.source_id) {
+          updates.sourceFrameReadinessByMode = {
+            ...(getState().websocket.sourceFrameReadinessByMode ?? {
+              rx: null,
+              tx: null,
+            }),
+            rx: null,
+          };
+        }
+      }
       if (parsedData.source_id === getState().websocket.activeSourceId) {
         updates.deviceState = mapSourceStatusToDeviceState(parsedData.status);
         updates.deviceLoadingReason =

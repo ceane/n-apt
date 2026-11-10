@@ -204,6 +204,13 @@ mod tx_suite_tests {
   use std::sync::atomic::Ordering;
 
   #[test]
+  fn hardware_frame_liveness_expires_after_one_second() {
+    use std::time::Duration;
+    assert!(super::is_recent_hardware_frame(Duration::from_millis(999)));
+    assert!(!super::is_recent_hardware_frame(Duration::from_millis(1000)));
+  }
+
+  #[test]
   fn prefers_dedicated_rx_and_half_duplex_tx_pair() {
     let pair = resolve_tx_suite_pair(&[
       DeviceCapability::new("rx", true, false, false),
@@ -396,6 +403,11 @@ fn is_tx_capable_source_kind(kind: &str) -> bool {
   matches!(kind, "hackrf_one" | "mock_tx")
 }
 
+// A recent successful read indicates active hardware reception.
+fn is_recent_hardware_frame(age: std::time::Duration) -> bool {
+  age < std::time::Duration::from_secs(1)
+}
+
 fn source_status_for_entry(
   is_active_source: bool,
   is_paused: bool,
@@ -532,7 +544,7 @@ fn build_source_payload(
     .map(|timestamp| {
       (
         true,
-        timestamp.elapsed() <= std::time::Duration::from_secs(2),
+        is_recent_hardware_frame(timestamp.elapsed()),
       )
     })
     .unwrap_or((false, false));

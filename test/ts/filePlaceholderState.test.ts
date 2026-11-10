@@ -61,7 +61,8 @@ describe("getFilePlaceholderState", () => {
     ).toEqual({
       kind: "error",
       reason: "File processing error",
-      title: "File processing error",
+      title: "File processing failed",
+      message: "invalid file header",
     });
   });
 });

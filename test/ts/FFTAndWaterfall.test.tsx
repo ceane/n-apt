@@ -818,6 +818,69 @@ describe("FFTAndWaterfall", () => {
     jest.useRealTimers();
   });
 
+  it("shows explicit stale-device recovery copy immediately during the handoff grace", () => {
+    jest.useFakeTimers();
+    const dataRef: {
+      current: { source_id: string; iq_data: Uint8Array } | null;
+    } = {
+      current: {
+        source_id: "rtl-sdr-1",
+        iq_data: new Uint8Array([128, 129]),
+      },
+    };
+    const props = {
+      dataRef,
+      frequencyRange: { min: 100, max: 101 },
+      centerFrequencyHz: 100_500_000,
+      activeSignalArea: "A",
+      isPaused: false,
+      snapshotGridPreference: true,
+      loadingPlaceholderDelayMs: 1_000,
+    };
+    const { rerender } = render(<FFTAndWaterfall {...props} />);
+    act(() => {
+      const initialProps =
+        fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+      initialProps?.onRenderableFrameChange?.(true);
+      initialProps?.onCanvasLoadingChange?.(false);
+    });
+
+    dataRef.current = null;
+    const reconnectingPlaceholder = {
+      kind: "loading" as const,
+      sourceLabel: "RTL-SDR v4",
+      paneLabel: "device",
+      title: "Device Stale — Reconnecting",
+      message: "The USB plug may have briefly disconnected.",
+    };
+    rerender(
+      <FFTAndWaterfall
+        {...props}
+        presentationPolicy={{
+          suppressStaleFrames: true,
+          clearStalePresentation: true,
+          preserveMatchingPresentation: false,
+        }}
+        placeholderState={reconnectingPlaceholder}
+      />,
+    );
+
+    const fftProps =
+      fftCanvasMock.mock.calls[fftCanvasMock.mock.calls.length - 1]?.[0];
+    const waterfallProps =
+      waterfallCanvasMock.mock.calls[
+        waterfallCanvasMock.mock.calls.length - 1
+      ]?.[0];
+    expect(fftProps?.placeholderState).toMatchObject({
+      ...reconnectingPlaceholder,
+      paneLabel: "FFT",
+    });
+    expect(waterfallProps?.placeholderState).toMatchObject(
+      { ...reconnectingPlaceholder, paneLabel: "Waterfall" },
+    );
+    jest.useRealTimers();
+  });
+
   it("passes Tx slider props on the first render when Redux says Tx is visible", () => {
     mockedSpectrumState = {
       showTxSlider: true,

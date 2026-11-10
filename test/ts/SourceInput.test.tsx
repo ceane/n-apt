@@ -1215,7 +1215,7 @@ describe("SourceInput", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the mock fallback pill visible while it is the streaming active source", () => {
+  it("hides mock fallback devices while stale hardware is recovering", () => {
     render(
       <TestWrapper>
         <SourceInput
@@ -1243,7 +1243,8 @@ describe("SourceInput", () => {
       </TestWrapper>,
     );
 
-    expect(screen.getByText("Mock APT SDR")).toBeInTheDocument();
+    expect(screen.getByText("RTL-SDR v4")).toBeInTheDocument();
+    expect(screen.queryByText("Mock APT SDR")).not.toBeInTheDocument();
   });
 
   it("switches half-duplex devices into Tx standby with one click", () => {

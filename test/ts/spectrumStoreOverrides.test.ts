@@ -13,6 +13,7 @@ describe("applyWaterfallStateOverrides", () => {
       selectedFiles: [{ id: "file-1", name: "capture.napt" }],
       snapshotGridPreference: false,
       stitchStatus: "processing",
+      stitchState: "loading",
       stitchTrigger: 4,
       stitchSourceSettings: { gain: 22, ppm: 3 },
       isStitchPaused: true,

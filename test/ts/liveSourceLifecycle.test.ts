@@ -32,6 +32,23 @@ const handoffPlaceholder = {
 };
 
 describe("resolveLiveSourceLifecycle", () => {
+  test("shows stale device recovery over handoff and old frame readiness", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "rtl-sdr-1",
+      activeSourceId: "mock-apt",
+      transportSourceId: "rtl-sdr-1",
+      transportPhase: "warming",
+      hasValidFrame: true,
+      deviceStatus: "stale",
+      sourceLabel: "RTL-SDR v4",
+      sourceHandoffPending: true,
+      hasPlayedAtLeastOnce: true,
+    });
+    expect(lifecycle).toMatchObject({
+      phase: "recovering",
+      placeholder: { kind: "loading", title: "Device Stale — Reconnecting" },
+    });
+  });
   test("invalidates old renderability while the selected transport is warming", () => {
     expect(
       shouldInvalidateLiveFrameStateForTransport({
@@ -689,7 +706,7 @@ describe("resolveLiveSourceLifecycle", () => {
     ).toBe(true);
   });
 
-  test("keeps Server Down when disconnected even if stale warming metadata remains", () => {
+  test("shows recovery while reconnect attempts remain despite stale warming metadata", () => {
     expect(
       isControlPlaneUnavailable({
         isConnected: false,
@@ -697,11 +714,13 @@ describe("resolveLiveSourceLifecycle", () => {
         hasConnectedOnce: true,
         sourceHandoffPending: true,
         transportPhase: "warming",
+        reconnectAttempts: 0,
+        maxReconnectAttempts: 5,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  test("still reports Server Down after a live session is lost with no handoff", () => {
+  test("reports Server Down after reconnect attempts are exhausted", () => {
     expect(
       isControlPlaneUnavailable({
         isConnected: false,
@@ -709,14 +728,13 @@ describe("resolveLiveSourceLifecycle", () => {
         hasConnectedOnce: true,
         sourceHandoffPending: false,
         transportPhase: "idle",
+        reconnectAttempts: 5,
+        maxReconnectAttempts: 5,
       }),
     ).toBe(true);
   });
 
-  test("keeps Server Down during reconnect polling after a live session", () => {
-    // Middleware softDisconnect → Server Down, then backoff setReconnecting /
-    // setConnecting. Those attempts must not flash Loading while the backend
-    // is still dead.
+  test("keeps recovery visible during reconnect polling while attempts remain", () => {
     expect(
       isControlPlaneUnavailable({
         isConnected: false,
@@ -724,8 +742,10 @@ describe("resolveLiveSourceLifecycle", () => {
         hasConnectedOnce: true,
         sourceHandoffPending: false,
         transportPhase: "idle",
+        reconnectAttempts: 1,
+        maxReconnectAttempts: 5,
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       isControlPlaneUnavailable({
@@ -734,8 +754,10 @@ describe("resolveLiveSourceLifecycle", () => {
         hasConnectedOnce: true,
         sourceHandoffPending: false,
         transportPhase: "idle",
+        reconnectAttempts: 1,
+        maxReconnectAttempts: 5,
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       resolveLiveSourceLifecycle({
@@ -748,12 +770,41 @@ describe("resolveLiveSourceLifecycle", () => {
         isConnected: false,
         connectionStatus: "reconnecting",
         hasConnectedOnce: true,
+        reconnectAttempts: 1,
+        maxReconnectAttempts: 5,
         handoffPlaceholder,
       }).phase,
-    ).toBe("failed");
+    ).toBe("recovering");
   });
 
-  test("shows Server Down after a socket close invalidates its ready stream", () => {
+  test("shows a reconnecting placeholder during the server reload grace period", () => {
+    const lifecycle = resolveLiveSourceLifecycle({
+      selectedSourceId: "rtl-sdr-1",
+      activeSourceId: "rtl-sdr-1",
+      transportSourceId: null,
+      transportPhase: "idle",
+      hasValidFrame: false,
+      deviceStatus: "disconnected",
+      isConnected: false,
+      connectionStatus: "disconnected",
+      hasConnectedOnce: true,
+      reconnectAttempts: 0,
+      maxReconnectAttempts: 5,
+      isDevelopment: true,
+      handoffPlaceholder,
+    });
+
+    expect(lifecycle).toMatchObject({
+      phase: "recovering",
+      placeholder: {
+        kind: "loading",
+        sourceLabel: "rtl-sdr-1",
+        message: "Hot reload in progress… reconnecting to the device stream.",
+      },
+    });
+  });
+
+  test("shows reconnecting after a socket close invalidates its ready stream", () => {
     const connected = websocketReducer(undefined, setConnected());
     const withReadyStream = websocketReducer(
       connected,
@@ -782,8 +833,8 @@ describe("resolveLiveSourceLifecycle", () => {
     });
 
     expect(lifecycle).toMatchObject({
-      phase: "failed",
-      placeholder: { kind: "error", reason: "Server down" },
+      phase: "recovering",
+      placeholder: { kind: "loading", paneLabel: "server" },
     });
   });
 
@@ -798,6 +849,8 @@ describe("resolveLiveSourceLifecycle", () => {
       isConnected: false,
       connectionStatus: "disconnected",
       hasConnectedOnce: true,
+      reconnectAttempts: 5,
+      maxReconnectAttempts: 5,
       handoffPlaceholder,
     });
 
@@ -876,7 +929,7 @@ describe("resolveLiveSourceLifecycle", () => {
     });
   });
 
-  test("lets a valid current-source frame override lagging recovery status", () => {
+  test("keeps stale recovery visible while an earlier frame remains buffered", () => {
     expect(
       resolveLiveSourceLifecycle({
         selectedSourceId: "rtl-sdr-v4",
@@ -887,7 +940,10 @@ describe("resolveLiveSourceLifecycle", () => {
         deviceStatus: "stale",
         handoffPlaceholder,
       }),
-    ).toMatchObject({ phase: "ready", placeholder: null });
+    ).toMatchObject({
+      phase: "recovering",
+      placeholder: { title: "Device Stale — Reconnecting" },
+    });
   });
 
   test("loading wins over a stale renderable frame so a loading HackRF never shows a blank canvas", () => {

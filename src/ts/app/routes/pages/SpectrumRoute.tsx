@@ -569,6 +569,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const hasConnectedOnce = useAppSelector(
     (state) => state.websocket.hasConnectedOnce,
   );
+  const reconnectAttempts = useAppSelector(
+    (state) => state.websocket.reconnectAttempts,
+  );
+  const maxReconnectAttempts = useAppSelector(
+    (state) => state.websocket.maxReconnectAttempts,
+  );
   const txViewerSampleRateHz = useAppSelector(
     (state) => state.spectrum.txViewerSampleRateHz,
   );
@@ -908,6 +914,9 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     isConnected,
     connectionStatus,
     hasConnectedOnce,
+    reconnectAttempts,
+    maxReconnectAttempts,
+    isDevelopment: import.meta.env.DEV,
     sourceHandoffPending: liveSourceHandoffPending,
     selectedSourceId: selectedSourceId || null,
     activeSourceId: activeSourceId || null,
