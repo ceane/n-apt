@@ -11,6 +11,13 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
 
 ## Working Rules
 
+- When work is performed on a remote machine (including Codex remote/cloud
+  worktrees), do not leave completed work only on that machine: create a
+  descriptive commit and sync the branch and commit to GitHub before finishing.
+  Use the GitHub integration for branch and commit operations when remote Git
+  credentials are unavailable; do not depend on credentials being installed on
+  the remote machine. If the integration cannot sync the work, report the
+  blocker and preserve the changes for recovery.
 - The user normally has the dev server running. Do not start or restart it for
   ordinary changes; Vite and Rust hot reload are enabled.
 - Keep changes scoped, avoid scratch files, and keep the workspace clean.
@@ -102,8 +109,8 @@ For CLI behavior, V6 capture artifacts, retunes, or settings patches, also read
   does not hide already tracked files; inspect staged paths and history so
   consumer branches and remotes receive encrypted bundles, not plaintext. Do not
   force-add protected files to a consumer branch.
-- In other branches, `tmp/` contains generated extraction/build input and can be
-  overwritten when a bundle is decrypted or regenerated; do not hand-edit it.
+- In other branches, `tmp/` contains generated extraction/build input and can
+  be overwritten when a bundle is decrypted or regenerated; do not hand-edit it.
   The ordinary decrypt command skips the protected branch, but direct
   extraction helpers can bypass that guard: never target its source tree with
   them or clean it as a generated cache.
@@ -176,7 +183,7 @@ build merely to validate a local edit.
 - Keep hook dependency arrays correct and use `useCallback` when passing stable
   callbacks to children.
 - Use styled-components; do not use `React.CSSProperties` or the `style` prop.
-- Use scoped imports such as `@n-apt/...` and keep Jest module mappings aligned
+- Use scoped imports such as `@n-apt/*` and keep Jest module mappings aligned
   with Vite aliases.
 
 ### Rust
