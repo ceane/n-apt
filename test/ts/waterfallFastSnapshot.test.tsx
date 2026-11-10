@@ -44,8 +44,8 @@ describe("standalone waterfall fast snapshot", () => {
     const spectrumGpu = document.createElement("canvas");
     const snapshotData = {
       frequencyRange: { min: 18_000, max: 3_218_000 },
-      dbMin: -60,
-      dbMax: 0,
+      dbMin: -57,
+      dbMax: -52,
       powerScale: "dBm" as const,
       vizZoom: 1,
       vizPanOffset: 0,
@@ -75,8 +75,8 @@ describe("standalone waterfall fast snapshot", () => {
     const labels = (global as any).__CANVAS_CALLS__
       .filter((call: any) => call.name === "fillText")
       .map((call: any) => call.args[0]);
-    expect(labels).toContain("0dBm");
-    expect(labels).toContain("-10");
+    expect(labels).toContain("-52dBm");
+    expect(labels).toContain("-57");
 
     const calls = (global as any).__CANVAS_CALLS__ as Array<{
       name: string;
@@ -107,10 +107,10 @@ describe("standalone waterfall fast snapshot", () => {
     ]);
 
     const dbMaxLabel = calls.find(
-      (call) => call.name === "fillText" && call.args[0] === "0dBm",
+      (call) => call.name === "fillText" && call.args[0] === "-52dBm",
     );
     const dbMinLabel = calls.find(
-      (call) => call.name === "fillText" && call.args[0] === "-60",
+      (call) => call.name === "fillText" && call.args[0] === "-57",
     );
     const sourceWaterfallCanvas = plotCopy?.args[0] as HTMLCanvasElement;
     const fullWidthHeaderCopy = calls.find(
@@ -223,8 +223,8 @@ describe("standalone waterfall fast snapshot", () => {
     const waterfallData = {
       frequencyRange: { min: 18_000, max: 3_218_000 },
       waveform: new Float32Array([-45, -30, -38, -24]),
-      dbMin: -60,
-      dbMax: 0,
+      dbMin: -57,
+      dbMax: -52,
       powerScale: "dBm" as const,
       vizZoom: 1,
       vizPanOffset: 0,
@@ -294,8 +294,8 @@ describe("standalone waterfall fast snapshot", () => {
       const labels = (global as any).__CANVAS_CALLS__
         .filter((call: any) => call.name === "fillText")
         .map((call: any) => call.args[0]);
-      expect(labels).toContain("0dBm");
-      expect(labels).toContain("-10");
+      expect(labels).toContain("-52dBm");
+      expect(labels).toContain("-57");
       const calls = (global as any).__CANVAS_CALLS__ as Array<{
         name: string;
         args: any[];

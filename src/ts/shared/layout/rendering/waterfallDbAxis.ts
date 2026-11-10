@@ -47,6 +47,12 @@ function getDbMarkers(dbMin: number, dbMax: number): number[] {
     if (Math.abs(marker - dbMax) >= 0.1) markers.push(marker);
   }
 
+  // The floor may fall between the ten-decibel grid marks, including when
+  // the entire displayed range is narrower than one grid interval.
+  if (!markers.some((marker) => Math.abs(marker - dbMin) < 0.1)) {
+    markers.push(dbMin);
+  }
+
   return markers.filter((marker) => marker >= dbMin && marker <= dbMax);
 }
 
