@@ -105,22 +105,30 @@ describe("waterfall dB axis composition", () => {
       456,
       380,
     );
-    expect(labels.map(({ text }) => text)).toEqual([
-      "0dBm",
-      "-10",
-      "-20",
-      "-30",
-      "-40",
-      "-50",
-      "-60",
-    ]);
+    expect(labels.map(({ text }) => text)).toEqual(["0dBm", "-60"]);
     expect(labels[0]).toEqual({ text: "0dBm", x: 84, y: 100 });
-    expect(labels[3]?.y).toBe(240);
     expect(labels[labels.length - 1]?.y).toBe(380);
     expect(context.font).toBe("20px 'JetBrains Mono', monospace");
     expect(fills[0]).toEqual({ color: "#101010", args: [0, 0, 640, 396] });
     expect(context.moveTo).toHaveBeenNthCalledWith(1, 96, 100);
     expect(context.lineTo).toHaveBeenNthCalledWith(1, 104, 100);
+
+    labels.length = 0;
+    const decimalComposed = composeWaterfallCanvasWithDbAxis({
+      waterfallCanvas: waterfall,
+      dbMin: -55.75,
+      dbMax: -44.25,
+      unit: "dBm",
+      devicePixelRatio: 2,
+      plotInsets: { left: 80, right: 80, top: 100 },
+      referencePlotWidth: 456,
+      referencePlotHeight: 280,
+      theme: { background: "#101010", grid: "#303030", text: "#b0b0b0" },
+    });
+    expect(labels.map(({ text }) => text)).toEqual(["-44.25dBm", "-55.75"]);
+    expect(labels[1]?.y).toBe(380);
+    expect(decimalComposed.width).toBe(682);
+    expect(decimalComposed.height - labels[1]!.y).toBeGreaterThanOrEqual(10);
   });
 
   it("keeps explicit zero-inset waterfall data intact before blank gutters", () => {

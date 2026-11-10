@@ -29,31 +29,9 @@ const BOTTOM_PADDING_PX = 40;
 const BOTTOM_GUTTER_PX = 8;
 const LABEL_FONT_SIZE_PX = 10;
 const LABEL_INSET_PX = 10;
-const DB_MARKER_STEP = 10;
 
 function clampInset(inset: number, size: number): number {
   return Number.isFinite(inset) ? Math.max(0, Math.min(size, inset)) : 0;
-}
-
-function getDbMarkers(dbMin: number, dbMax: number): number[] {
-  const markers = [dbMax];
-  const firstStep = Math.floor(dbMax / DB_MARKER_STEP) * DB_MARKER_STEP;
-
-  for (
-    let marker = firstStep;
-    marker >= dbMin - 1;
-    marker -= DB_MARKER_STEP
-  ) {
-    if (Math.abs(marker - dbMax) >= 0.1) markers.push(marker);
-  }
-
-  // The floor may fall between the ten-decibel grid marks, including when
-  // the entire displayed range is narrower than one grid interval.
-  if (!markers.some((marker) => Math.abs(marker - dbMin) < 0.1)) {
-    markers.push(dbMin);
-  }
-
-  return markers.filter((marker) => marker >= dbMin && marker <= dbMax);
 }
 
 export function composeWaterfallCanvasWithDbAxis({
@@ -91,7 +69,10 @@ export function composeWaterfallCanvasWithDbAxis({
   const plotWidth = waterfallCanvas.width - leftCrop - rightCrop;
   if (plotWidth <= 0) return waterfallCanvas;
 
-  const gutterWidth = Math.round(AXIS_GUTTER_WIDTH_PX * dpr);
+  const labels = [`${dbMax}${unit}`, `${dbMin}`];
+  // Reserve enough room for fractional values without clipping the left edge.
+  const labelWidth = Math.max(...labels.map((label) => label.length)) * LABEL_FONT_SIZE_PX * 0.7;
+  const gutterWidth = Math.ceil(Math.max(AXIS_GUTTER_WIDTH_PX, labelWidth + LABEL_INSET_PX) * dpr);
   const rightPadding = Math.round(RIGHT_PADDING_PX * dpr);
   const targetPlotWidth =
     typeof referencePlotWidth === "number" &&
@@ -186,14 +167,13 @@ export function composeWaterfallCanvasWithDbAxis({
   context.lineWidth = Math.max(1, dpr);
   context.beginPath();
 
-  const markers = getDbMarkers(dbMin, dbMax);
+  const markers = [dbMax, dbMin];
   markers.forEach((db, index) => {
     const y = markerY(db);
     context.moveTo(gutterWidth - 4 * dpr, y);
     context.lineTo(gutterWidth, y);
 
-    const label = `${Math.round(db)}${index === 0 ? unit : ""}`;
-    context.fillText(label, gutterWidth - markerInset, y);
+    context.fillText(labels[index], gutterWidth - markerInset, y);
   });
 
   context.stroke();
