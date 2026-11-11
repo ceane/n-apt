@@ -6,6 +6,7 @@
  */
 
 import { type GeolocationData } from "@n-apt/types/geolocation";
+import type { IqSampleEncoding } from "@n-apt/math/iqSamples";
 export { type GeolocationData };
 
 export type DeviceState =
@@ -196,7 +197,11 @@ export type IqRawFramePayload = {
   timestamp?: number;
   data_type: "iq_raw";
   sample_rate?: number;
+  /** U8 display samples; file playback may retain source precision separately. */
   iq_data: Uint8Array;
+  /** Original file IQ bytes used by demodulators when the source is not U8. */
+  demod_iq_data?: Uint8Array;
+  iq_sample_encoding?: IqSampleEncoding;
 };
 
 /** Live I/Q frame with source identity and lifecycle ordering metadata. */

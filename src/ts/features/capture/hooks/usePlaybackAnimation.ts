@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
-import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
+import { getIqComponentStorageBytes } from "@n-apt/math/iqSamples";
 
 interface UsePlaybackAnimationProps {
   hasStitchedData: boolean;
@@ -24,11 +24,11 @@ type PlaybackFrameUpdate = {
 
 export function getIqFrameTimestampAtOffset(
   updates: PlaybackFrameUpdate[],
-  byteOffset: number,
+  sampleOffset: number,
 ): number | null {
   let timestamp: number | null = null;
   for (const update of updates) {
-    if (update.sample_offset > byteOffset) break;
+    if (update.sample_offset > sampleOffset) break;
     if (update.kind === "Frame" && Number.isFinite(update.timestamp_us)) {
       timestamp = update.timestamp_us! / 1000;
     }
@@ -38,23 +38,25 @@ export function getIqFrameTimestampAtOffset(
 
 export function getIqFrameAtOffset(
   iq: Uint8Array,
-  byteOffset: number,
+  sampleOffset: number,
   initialFftSize: number,
   updates: PlaybackFrameUpdate[],
+  bytesPerComplexSample = 2,
 ): { data: Uint8Array; nextOffset: number; fftSize: number } | null {
   let fftSize = initialFftSize;
   for (const update of updates) {
-    if (Number(update.sample_offset) > byteOffset) break;
+    if (Number(update.sample_offset) > sampleOffset) break;
     const patchedSize = Number(update.patch?.fft_size);
     if (Number.isInteger(patchedSize) && patchedSize > 0) fftSize = patchedSize;
   }
-  const byteLength = fftSize * BYTES_PER_IQ_SAMPLE.u8;
+  const byteLength = fftSize * bytesPerComplexSample;
+  const byteOffset = sampleOffset * bytesPerComplexSample;
   if (!Number.isSafeInteger(byteLength) || byteLength <= 0 || byteOffset + byteLength > iq.length) {
     return null;
   }
   return {
     data: iq.subarray(byteOffset, byteOffset + byteLength),
-    nextOffset: byteOffset + byteLength,
+    nextOffset: sampleOffset + fftSize,
     fftSize,
   };
 }
@@ -80,6 +82,7 @@ export const usePlaybackAnimation = ({
 
   // Cached per-channel derived values — avoids recomputing on every rAF tick
   const cachedIqRef = useRef<Uint8Array | null>(null);
+  const cachedDemodIqRef = useRef<Uint8Array | null>(null);
   const cachedChannelIdRef = useRef<any>(null); // identity check for channel object
   const playbackMetadataRef = useRef<Record<string, unknown> | null>(null);
   const frameUpdateIndexRef = useRef(0);
@@ -89,6 +92,7 @@ export const usePlaybackAnimation = ({
       iqFrameOffsetRef.current = 0;
       lastFrameTimeRef.current = null;
       cachedIqRef.current = null;
+      cachedDemodIqRef.current = null;
       cachedChannelIdRef.current = null;
       playbackMetadataRef.current = null;
       frameUpdateIndexRef.current = 0;
@@ -102,7 +106,14 @@ export const usePlaybackAnimation = ({
       const channelData = allChannelsRef.current[activeChannel];
       if (!channelData) return;
 
-      const frameRate = channelData.frame_rate || 30;
+      const inferredIqFrameRate =
+        Number(channelData.sample_rate_hz) > 0 &&
+        Number(channelData.bins_per_frame || fftSize) > 0
+          ? Number(channelData.sample_rate_hz) /
+            Number(channelData.bins_per_frame || fftSize)
+          : 0;
+      const frameRate =
+        channelData.frame_rate || inferredIqFrameRate || 30;
       const frameInterval = 1000 / frameRate;
 
       // Reset timer if we just started or resumed from pause
@@ -126,9 +137,15 @@ export const usePlaybackAnimation = ({
           frameUpdateIndexRef.current = 0;
           const iqData = channelData.iq_data || channelData.iq;
           if (iqData && iqData.length > 0) {
-            // Zero-copy when already Uint8Array (our worker now always provides this)
-            cachedIqRef.current =
+            const rawIq =
               iqData instanceof Uint8Array ? iqData : new Uint8Array(iqData);
+            const displayIq = channelData.display_iq_data;
+            cachedIqRef.current =
+              displayIq instanceof Uint8Array ? displayIq : rawIq;
+            cachedDemodIqRef.current =
+              displayIq instanceof Uint8Array && displayIq !== rawIq
+                ? rawIq
+                : null;
             const frameFftSize = channelData.bins_per_frame || fftSize || 2048;
             currentFftSizeRef.current = frameFftSize;
             iqFrameOffsetRef.current = 0;
@@ -136,11 +153,17 @@ export const usePlaybackAnimation = ({
             // Start each channel at the first complete captured frame.
           } else {
             cachedIqRef.current = null;
+            cachedDemodIqRef.current = null;
           }
         }
 
         const fullIq = cachedIqRef.current;
         if (fullIq) {
+          const sampleEncoding = channelData.sample_encoding;
+          const rawIq = cachedDemodIqRef.current;
+          const bytesPerDemodComplexSample = rawIq
+            ? getIqComponentStorageBytes(sampleEncoding) * 2
+            : 2;
           const updates = (channelData.frame_updates || []) as PlaybackFrameUpdate[];
           while (
             frameUpdateIndexRef.current < updates.length &&
@@ -187,6 +210,16 @@ export const usePlaybackAnimation = ({
             frame = getIqFrameAtOffset(fullIq, 0, currentFftSizeRef.current, updates);
           }
 
+          const demodFrame = rawIq && frame
+            ? getIqFrameAtOffset(
+                rawIq,
+                frame.nextOffset - frame.fftSize,
+                frame.fftSize,
+                updates,
+                bytesPerDemodComplexSample,
+              )
+            : null;
+
           const chunk = frame?.data;
           if (frame) {
             currentFftSizeRef.current = frame.fftSize;
@@ -197,7 +230,7 @@ export const usePlaybackAnimation = ({
             const playbackMetadata = playbackMetadataRef.current || {};
             const capturedTimestamp = getIqFrameTimestampAtOffset(
               updates,
-              iqFrameOffsetRef.current - chunk.byteLength,
+              iqFrameOffsetRef.current - (frame?.fftSize ?? chunk.byteLength / 2),
             );
             fftCanvasDataRef.current = {
               type: "spectrum",
@@ -210,6 +243,12 @@ export const usePlaybackAnimation = ({
               timestamp: capturedTimestamp ?? timestamp,
               data_type: "iq_raw",
               iq_data: chunk,
+              ...(demodFrame
+                ? {
+                    demod_iq_data: demodFrame.data,
+                    iq_sample_encoding: sampleEncoding,
+                  }
+                : {}),
             };
             onFrameEmitted?.();
           }

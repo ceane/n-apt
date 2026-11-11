@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { createDemodProcessor } from "@n-apt/demodulation/utils/demodProcessors";
+import type { IqSampleEncoding } from "@n-apt/math/iqSamples";
 import {
   applyComplexLowPass,
   shiftIqToBaseband,
@@ -17,6 +18,7 @@ export interface APTImageDemodHandle {
     iqData: Uint8Array,
     sampleRate: number,
     frameCenterFrequencyHz?: number | null,
+    encoding?: IqSampleEncoding,
   ) => void;
   playAudio: () => void;
   stopAudio: () => void;
@@ -173,10 +175,11 @@ export function useAPTImageDemod(
       iqData: Uint8Array,
       inputSampleRate: number,
       frameCenterFrequencyHz?: number | null,
+      encoding?: IqSampleEncoding,
     ) => {
       if (!iqData || iqData.length === 0) return;
 
-      processedAudioBufferRef.current = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
+      processedAudioBufferRef.current = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz, encoding);
     },
     [sharedProcessor],
   );

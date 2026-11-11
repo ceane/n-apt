@@ -1,3 +1,9 @@
+import {
+  getIqComponentStorageBytes,
+  readNormalizedIqComponent,
+  type IqSampleEncoding,
+} from "@n-apt/math/iqSamples";
+
 /** Mutable oscillator phase carried between streaming I/Q frames. */
 export interface ShiftState {
   phase: number;
@@ -18,8 +24,10 @@ export const shiftIqToBaseband = (
   sampleRateHz: number,
   frequencyOffsetHz: number,
   state: ShiftState = { phase: 0 },
+  encoding?: IqSampleEncoding,
 ): Float32Array => {
-  const samples = Math.floor(iqData.length / 2);
+  const componentBytes = getIqComponentStorageBytes(encoding);
+  const samples = Math.floor(iqData.length / (2 * componentBytes));
   const shifted = new Float32Array(samples * 2);
 
   if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) {
@@ -31,8 +39,8 @@ export const shiftIqToBaseband = (
   for (let j = 0; j < samples; j++) {
     const cos = Math.cos(state.phase);
     const sin = Math.sin(state.phase);
-    const i = (iqData[j * 2] - 128) / 128;
-    const q = (iqData[j * 2 + 1] - 128) / 128;
+    const i = readNormalizedIqComponent(iqData, j * 2, encoding);
+    const q = readNormalizedIqComponent(iqData, j * 2 + 1, encoding);
 
     shifted[j * 2] = i * cos - q * sin;
     shifted[j * 2 + 1] = i * sin + q * cos;

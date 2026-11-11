@@ -22,6 +22,22 @@ compatibility heuristic; it does not prove the source file was originally V3.
 V1–V2 captures need format-specific inspection before conversion. Do not infer
 their versions from the file extension alone.
 
+## Script: `convert_wav_iq.mjs`
+
+Converts stereo PCM I/Q WAV into the application's plaintext `NAPT-IQ3`
+`.iq` playback format. PCM8 and PCM16 containers with 10, 12, or 16 valid bits
+are supported. It copies the WAV sample bytes directly and records signedness,
+container width, valid bit depth, and bit alignment in the IQ metadata; it does
+not quantize samples. Since WAV commonly has no RF tune metadata, center
+frequency defaults to `0` (unknown) and can be supplied explicitly.
+
+```sh
+node scripts/convert_wav_iq.mjs capture.wav --center-frequency-hz 137912500
+```
+
+The command writes `capture.iq` beside the input and refuses to overwrite an
+existing output. Use `--output path.iq` to choose another destination.
+
 ## Script: `encrypt_iq_capture.mjs`
 
 [`encrypt_iq_capture.mjs`](encrypt_iq_capture.mjs) encrypts a plaintext

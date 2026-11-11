@@ -157,6 +157,13 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
   const { setDemodQualityStatus } = useDemod();
   const spectrumTransport = useSpectrumTransport();
   const spectrum = useAppSelector((state) => state.spectrum);
+  const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activePlaybackMetadata = useAppSelector(
+    (state) => state.waterfall.activePlaybackMetadata,
+  );
+  const loadedFileMetadata = useAppSelector(
+    (state) => state.waterfall.loadedFileMetadata,
+  );
   const roleSource = useAppSelector((state) => {
     const sourceId =
       data.sourceRole && data.sourceBindingGroup
@@ -208,7 +215,6 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     appliedStreamOptions?.options.mode === "rx"
       ? appliedStreamOptions.options
       : null;
-  const sourceMode = "live" as const;
   const sourceReceiving =
     sourceStatus === "receiving" || sourceStatus === "streaming";
   const sourcePaused = Boolean(
@@ -262,11 +268,22 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     sourceSampleRateHz: roleSource?.sdr.settings?.sample_rate,
     fallbackSampleRateHz: spectrum.sampleRateHz,
   });
-  const sourceSampleRateValue = sourceSampleRate ?? 3_200_000;
+  const fileSampleRateHz =
+    activePlaybackMetadata?.capture_sample_rate_hz ??
+    loadedFileMetadata?.capture_sample_rate_hz ??
+    loadedFileMetadata?.sample_rate_hz;
+  const sourceSampleRateValue =
+    sourceMode === "file" && Number.isFinite(fileSampleRateHz) && fileSampleRateHz! > 0
+      ? fileSampleRateHz!
+      : sourceSampleRate ?? 3_200_000;
   const sourceMaxSampleRate =
-    roleSource?.sdr.max_sample_rate ?? reduxSampleRateHz ?? 3_200_000;
+    sourceMode === "file"
+      ? sourceSampleRateValue
+      : roleSource?.sdr.max_sample_rate ?? reduxSampleRateHz ?? 3_200_000;
   const sourceSampleRateOptions =
-    roleSource?.sdr.sample_rate_options ?? sampleRateOptions;
+    sourceMode === "file"
+      ? [sourceSampleRateValue]
+      : roleSource?.sdr.sample_rate_options ?? sampleRateOptions;
   const wholeChannelSampleRate = resolveWholeChannelSampleRate({
     source: roleSource,
     activeSignalArea,
@@ -293,12 +310,16 @@ export const SignalConfigNode: React.FC<SignalConfigNodeProps> = ({ data }) => {
     maxSampleRate: sourceMaxSampleRate,
     currentSampleRateHz: sourceSampleRateValue,
     minReceiveSampleRate:
-      sourceSdrSettings?.min_receive_sample_rate ?? undefined,
+      sourceMode === "file"
+        ? undefined
+        : sourceSdrSettings?.min_receive_sample_rate ?? undefined,
     sampleRateOptions: sourceSampleRateOptions,
     sdrSettings: sourceSdrSettings,
     deviceType: roleSource?.kind ?? deviceProfile?.kind,
     onSettingsChange:
-      data.sourceRole === "tx" ? undefined : wsConnection.sendSettings,
+      data.sourceRole === "tx" || sourceMode === "file"
+        ? undefined
+        : wsConnection.sendSettings,
   });
   const minimumDemodFftSize =
     DEMODULATION_QUALITY_PROFILE.minimumConfiguredFftSize ?? 0;

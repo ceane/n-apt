@@ -366,6 +366,12 @@ const DemodRouteSectionInner: React.FC = () => {
     setViewport,
   } = useReactFlow();
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
+  const activePlaybackMetadata = useAppSelector(
+    (state) => state.waterfall.activePlaybackMetadata,
+  );
+  const loadedFileMetadata = useAppSelector(
+    (state) => state.waterfall.loadedFileMetadata,
+  );
   const activeSignalArea = useAppSelector(
     (state) => state.spectrum.activeSignalArea,
   );
@@ -376,6 +382,14 @@ const DemodRouteSectionInner: React.FC = () => {
     (state) => state.spectrum.lastKnownRanges,
   );
   const sampleRateHz = useAppSelector((state) => state.spectrum.sampleRateHz);
+  const fileSampleRateHz =
+    activePlaybackMetadata?.capture_sample_rate_hz ??
+    loadedFileMetadata?.capture_sample_rate_hz ??
+    loadedFileMetadata?.sample_rate_hz;
+  const viewSampleRateHz =
+    sourceMode === "file" && Number.isFinite(fileSampleRateHz) && fileSampleRateHz! > 0
+      ? fileSampleRateHz!
+      : sampleRateHz;
   const vizZoom = useAppSelector((state) => state.spectrum.vizZoom);
   const vizPanOffset = useAppSelector((state) => state.spectrum.vizPanOffset);
   const allowNegativeFrequencies = useAppSelector(
@@ -404,7 +418,7 @@ const DemodRouteSectionInner: React.FC = () => {
         activeSignalArea,
         frequencyRange,
         lastKnownRanges,
-        sampleRateHz,
+        sampleRateHz: viewSampleRateHz,
         vizZoom,
         vizPanOffset,
         allowNegativeFrequencies,
@@ -413,7 +427,7 @@ const DemodRouteSectionInner: React.FC = () => {
       activeSignalArea,
       frequencyRange,
       lastKnownRanges,
-      sampleRateHz,
+      viewSampleRateHz,
       vizZoom,
       vizPanOffset,
       allowNegativeFrequencies,

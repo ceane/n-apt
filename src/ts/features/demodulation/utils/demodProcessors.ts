@@ -4,6 +4,7 @@ import {
   type LowPassState,
   type ShiftState,
 } from "./demodulation";
+import { getIqComponentStorageBytes, type IqSampleEncoding } from "@n-apt/math/iqSamples";
 
 /** Peak deviation of an FM broadcast carrier, used as the full-scale audio reference. */
 const FM_BROADCAST_PEAK_DEVIATION_HZ = 75_000;
@@ -31,6 +32,7 @@ export type DemodProcessor = {
     iqData: Uint8Array,
     sampleRateHz: number,
     frameCenterFrequencyHz?: number | null,
+    encoding?: IqSampleEncoding,
   ): Float32Array;
   reset: () => void;
 };
@@ -147,17 +149,20 @@ function fmProcessor(options: DemodProcessorOptions): DemodProcessor {
   };
   return {
     reset,
-    process(iqData, inputRate, frameCenterFrequencyHz) {
-      const samples = Math.floor(iqData.length / 2);
+    process(iqData, inputRate, frameCenterFrequencyHz, encoding) {
+      const samples = Math.floor(iqData.length / (2 * getIqComponentStorageBytes(encoding)));
       if (!samples) return new Float32Array();
       const offsetHz =
-        (options.centerFrequency ?? 0) -
-        (frameCenterFrequencyHz ?? options.centerFrequency ?? 0);
+        options.centerFrequency === undefined || options.centerFrequency === 0
+          ? 0
+          : options.centerFrequency -
+            (frameCenterFrequencyHz ?? options.centerFrequency);
       const shifted = shiftIqToBaseband(
         iqData,
         inputRate,
         offsetHz,
         shiftState,
+        encoding,
       );
       const filtered = applyComplexLowPass(
         shifted,
@@ -231,17 +236,20 @@ function fmDiscriminatorProcessor(options: DemodProcessorOptions): DemodProcesso
 
   return {
     reset,
-    process(iqData, inputRate, frameCenterFrequencyHz) {
-      const samples = Math.floor(iqData.length / 2);
+    process(iqData, inputRate, frameCenterFrequencyHz, encoding) {
+      const samples = Math.floor(iqData.length / (2 * getIqComponentStorageBytes(encoding)));
       if (!samples) return new Float32Array();
       const offsetHz =
-        (options.centerFrequency ?? 0) -
-        (frameCenterFrequencyHz ?? options.centerFrequency ?? 0);
+        options.centerFrequency === undefined || options.centerFrequency === 0
+          ? 0
+          : options.centerFrequency -
+            (frameCenterFrequencyHz ?? options.centerFrequency);
       const shifted = shiftIqToBaseband(
         iqData,
         inputRate,
         offsetHz,
         shiftState,
+        encoding,
       );
       const filtered = applyComplexLowPass(
         shifted,
@@ -297,19 +305,22 @@ function amProcessor(options: DemodProcessorOptions): DemodProcessor {
 
   return {
     reset,
-    process(iqData, inputRate, frameCenterFrequencyHz) {
-      const samples = Math.floor(iqData.length / 2);
+    process(iqData, inputRate, frameCenterFrequencyHz, encoding) {
+      const samples = Math.floor(iqData.length / (2 * getIqComponentStorageBytes(encoding)));
       if (!samples || !Number.isFinite(inputRate) || inputRate <= 0) {
         return new Float32Array();
       }
       const offsetHz =
-        (options.centerFrequency ?? 0) -
-        (frameCenterFrequencyHz ?? options.centerFrequency ?? 0);
+        options.centerFrequency === undefined || options.centerFrequency === 0
+          ? 0
+          : options.centerFrequency -
+            (frameCenterFrequencyHz ?? options.centerFrequency);
       const shifted = shiftIqToBaseband(
         iqData,
         inputRate,
         offsetHz,
         shiftState,
+        encoding,
       );
       const filtered = applyComplexLowPass(
         shifted,
@@ -378,8 +389,8 @@ function imageProcessor(options: DemodProcessorOptions): DemodProcessor {
 
   return {
     reset,
-    process(iqData, inputRate, frameCenterFrequencyHz) {
-      const samples = Math.floor(iqData.length / 2);
+    process(iqData, inputRate, frameCenterFrequencyHz, encoding) {
+      const samples = Math.floor(iqData.length / (2 * getIqComponentStorageBytes(encoding)));
       if (!samples || !Number.isFinite(inputRate) || inputRate <= 0) {
         return new Float32Array();
       }
@@ -401,6 +412,7 @@ function imageProcessor(options: DemodProcessorOptions): DemodProcessor {
         inputRate,
         selectedFrequencyHz - frameCenterHz,
         shiftState,
+        encoding,
       );
       const rfBandwidthHz = Math.max(
         2_000,

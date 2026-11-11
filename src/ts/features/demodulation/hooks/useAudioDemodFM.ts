@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { createDemodProcessor } from "@n-apt/demodulation/utils/demodProcessors";
+import type { IqSampleEncoding } from "@n-apt/math/iqSamples";
 
 export interface AudioDemodFMOptions {
   targetSampleRate: number; // Output audio sample rate for playback (typically 48000)
@@ -15,6 +16,7 @@ export interface AudioDemodFMHandle {
     iqData: Uint8Array,
     sampleRateHz: number,
     frameCenterFrequencyHz?: number | null,
+    encoding?: IqSampleEncoding,
   ) => Float32Array | null;
   playChunk: (audioData: Float32Array) => void;
   playAudio: (audioData: Float32Array) => void;
@@ -81,6 +83,7 @@ export function useAudioDemodFM(
       iqData: Uint8Array,
       inputSampleRate: number,
       frameCenterFrequencyHz?: number | null,
+      encoding?: IqSampleEncoding,
     ): Float32Array | null => {
       if (!iqData || iqData.length === 0) return null;
 
@@ -88,6 +91,7 @@ export function useAudioDemodFM(
         iqData,
         inputSampleRate,
         frameCenterFrequencyHz,
+        encoding,
       );
     },
     [sharedProcessor],

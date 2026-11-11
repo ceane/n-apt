@@ -78,6 +78,7 @@ import {
 } from "@n-apt/redux/slices/waterfallSlice";
 import {
   demodFrameRuntime,
+  fileFrameRuntime,
   subscribeFrameRuntime,
   getLiveFrameRefForSource,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
@@ -390,6 +391,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [selectedAlgorithm, setSelectedAlgorithm] =
     useState<DemodAlgorithm>("fm");
   const initialDemodTuneAppliedRef = useRef(false);
+  const lastFileDemodFrameRef = useRef<unknown>(null);
   const initialDemodTuneTargetRef = useRef<{
     channelLabel: string;
     range: { min: number; max: number };
@@ -1711,7 +1713,10 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       };
     }
 
-    if (!demodState.isListening || !demodState.centerFreqHz) {
+    if (
+      !demodState.isListening ||
+      (state.sourceMode !== "file" && !demodState.centerFreqHz)
+    ) {
       demodFrameRuntime.clear();
       liveNeuralDemodulator?.reset();
       liveOnnxNeuralDemodulator?.reset();
@@ -1768,11 +1773,18 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     const id = setInterval(() => {
-      const queue = demodFrameRuntime
-        .drain()
-        .filter(
-          (frame) => !activeSourceId || frame.source_id === activeSourceId,
-        );
+      const queue = state.sourceMode === "file"
+        ? (() => {
+            const frame = fileFrameRuntime.read();
+            if (!frame || frame === lastFileDemodFrameRef.current) return [];
+            lastFileDemodFrameRef.current = frame;
+            return [frame];
+          })()
+        : demodFrameRuntime
+            .drain()
+            .filter(
+              (frame) => !activeSourceId || frame.source_id === activeSourceId,
+            );
       if (queue.length === 0) return;
 
       const batch = queue;
@@ -1780,7 +1792,13 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       for (const current of batch) {
         if (!current || !current.iq_data) continue;
 
-        const iqData = current.iq_data as Uint8Array;
+        const encoding = current.iq_sample_encoding;
+        const displayIqData = current.iq_data as Uint8Array;
+        const demodIqData = current.demod_iq_data as Uint8Array | undefined;
+        const iqData =
+          state.sourceMode === "file" && demodIqData
+            ? demodIqData
+            : displayIqData;
         const sampleRate = current.sample_rate || 3200000;
         const frameCenterFrequencyHz = current.center_frequency_hz ?? null;
 
@@ -1805,7 +1823,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
           audioSurveyNeuralFrameIdentityRef.current = identity;
           if (audioSurveyNeuralBackend === "onnx") {
             const inference = liveOnnxNeuralDemodulator?.process(
-              iqData,
+              displayIqData,
               sampleRate,
               frameCenterFrequencyHz,
             );
@@ -1823,7 +1841,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
               });
           } else {
             const audioData = liveNeuralDemodulator?.process(
-              iqData,
+              displayIqData,
               sampleRate,
               frameCenterFrequencyHz,
             );
@@ -1838,15 +1856,26 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
             iqData,
             sampleRate,
             frameCenterFrequencyHz,
+            state.sourceMode === "file" ? encoding : undefined,
           );
           if (audioData) {
             playFmAudio(audioData);
           }
         } else if (demodState.algorithm === "aptImage") {
-          processAptImageIQData(iqData, sampleRate, frameCenterFrequencyHz);
+          processAptImageIQData(
+            iqData,
+            sampleRate,
+            frameCenterFrequencyHz,
+            state.sourceMode === "file" ? encoding : undefined,
+          );
           playAptImageAudio();
         } else if (demodState.algorithm === "aptAudio") {
-          processAptAudioIQData(iqData, sampleRate, frameCenterFrequencyHz);
+          processAptAudioIQData(
+            iqData,
+            sampleRate,
+            frameCenterFrequencyHz,
+            state.sourceMode === "file" ? encoding : undefined,
+          );
           playAptAudio();
         } else {
           const _exhaustive: never = demodState.algorithm;
@@ -1859,6 +1888,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       active = false;
       clearInterval(id);
       demodFrameRuntime.clear();
+      lastFileDemodFrameRef.current = null;
       stopFmAudio();
       stopAptImageAudio();
       stopAptAudio();
@@ -1874,6 +1904,7 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
     audioSurveyOnnxModelAvailable,
     activeSourceId,
     isPaused,
+    state.sourceMode,
     processFmIQData,
     playFmAudio,
     stopFmAudio,

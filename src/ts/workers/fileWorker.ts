@@ -11,6 +11,10 @@ import { parseFrequency } from "@n-apt/math/frequency";
 import { base64ToBytes } from "@n-apt/crypto/webcrypto";
 import { BYTES_PER_IQ_SAMPLE } from "@n-apt/math/signalData";
 import {
+  makeIqU8DisplayView,
+  type IqSampleEncoding,
+} from "@n-apt/math/iqSamples";
+import {
   verifyStampedIntegrity,
   captureAdditionalData,
 } from "@n-apt/webusb/iqIntegrity";
@@ -58,13 +62,7 @@ type FileMetadata = {
   };
   trailer?: Record<string, unknown> | null;
   interleaving?: string;
-  sample_encoding?: {
-    element_type: string;
-    bits_per_element: number;
-    signed: boolean;
-    byte_order: string;
-    normalization: string;
-  };
+  sample_encoding?: IqSampleEncoding;
   device_profile?: {
     kind?: string;
     model?: string;
@@ -155,6 +153,8 @@ type WavLoadResult = {
   metadata: FileMetadata | null;
   channels?: {
     iq_data: Uint8Array;
+    display_iq_data?: Uint8Array;
+    sample_encoding?: IqSampleEncoding;
     center_freq_hz: number;
     sample_rate_hz: number;
     frequency_range?: [number, number];
@@ -434,6 +434,15 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
   let dataStart = 0;
   let dataSize = 0;
   let metadata: FileMetadata | null = null;
+  let wavFormat: {
+    encoding: number;
+    channels: number;
+    sampleRateHz: number;
+    blockAlign: number;
+    bitsPerSample: number;
+    validBitsPerSample: number;
+    bitAlignment: "left" | "right";
+  } | null = null;
 
   // Storage for additional channels
   const extraIqChunks: Map<number, Uint8Array> = new Map();
@@ -449,6 +458,29 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
     if (chunkId === "data") {
       dataStart = chunkDataStart;
       dataSize = safeSize;
+    } else if (chunkId === "fmt " && safeSize >= 16) {
+      const formatCode = view.getUint16(chunkDataStart, true);
+      const channelsCount = view.getUint16(chunkDataStart + 2, true);
+      const bitsPerSample = view.getUint16(chunkDataStart + 14, true);
+      let encoding = formatCode;
+      let validBitsPerSample = bitsPerSample;
+      let bitAlignment: "left" | "right" = "right";
+      // WAVE_FORMAT_EXTENSIBLE stores the PCM subtype as a GUID whose first
+      // DWORD is 1. Its valid bits are left-aligned in the container.
+      if (formatCode === 0xfffe && safeSize >= 40) {
+        validBitsPerSample = view.getUint16(chunkDataStart + 18, true);
+        encoding = view.getUint32(chunkDataStart + 24, true);
+        bitAlignment = "left";
+      }
+      wavFormat = {
+        encoding,
+        channels: channelsCount,
+        sampleRateHz: view.getUint32(chunkDataStart + 4, true),
+        blockAlign: view.getUint16(chunkDataStart + 12, true),
+        bitsPerSample,
+        validBitsPerSample,
+        bitAlignment,
+      };
     } else if (chunkId.startsWith("nIQ")) {
       const idx = parseInt(chunkId.substring(3));
       if (!isNaN(idx)) {
@@ -487,6 +519,40 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
 
   // Construct channels array
   const channels: WavLoadResult["channels"] = [];
+  const wavEncoding: IqSampleEncoding | null =
+    wavFormat?.encoding === 1 &&
+    wavFormat.channels === 2 &&
+    wavFormat.sampleRateHz > 0 &&
+    wavFormat.blockAlign ===
+      wavFormat.channels * (wavFormat.bitsPerSample / 8) &&
+    wavFormat.bitsPerSample === 8 &&
+    wavFormat.validBitsPerSample === 8
+      ? {
+          element_type: "integer",
+          bits_per_element: 8,
+          storage_bits_per_element: 8,
+          signed: false,
+          byte_order: "little",
+          bit_alignment: "right",
+          normalization: "(value - 128) / 128",
+        }
+      : wavFormat?.encoding === 1 &&
+          wavFormat.channels === 2 &&
+          wavFormat.sampleRateHz > 0 &&
+          wavFormat.blockAlign ===
+            wavFormat.channels * (wavFormat.bitsPerSample / 8) &&
+          wavFormat.bitsPerSample === 16 &&
+          [10, 12, 16].includes(wavFormat.validBitsPerSample)
+        ? {
+            element_type: "integer",
+            bits_per_element: wavFormat.validBitsPerSample as 10 | 12 | 16,
+            storage_bits_per_element: 16,
+            signed: true,
+            byte_order: "little",
+            bit_alignment: wavFormat.bitAlignment,
+            normalization: `value / ${2 ** (wavFormat.validBitsPerSample - 1)}`,
+          }
+        : null;
   if (metadata?.channels && metadata.channels.length > 0) {
     for (let i = 0; i < metadata.channels.length; i++) {
       const chMeta = metadata.channels[i];
@@ -501,11 +567,34 @@ function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
 
       channels.push({
         iq_data: iq,
+        display_iq_data: makeIqU8DisplayView(
+          iq,
+          metadata.sample_encoding ?? wavEncoding,
+        ),
+        sample_encoding: metadata.sample_encoding ?? wavEncoding ?? undefined,
         center_freq_hz: chMeta.center_freq_hz,
         sample_rate_hz: chMeta.sample_rate_hz,
         bins_per_frame: chMeta.bins_per_frame,
       });
     }
+  } else if (wavEncoding && wavFormat) {
+    channels.push({
+      iq_data: raw,
+      display_iq_data: makeIqU8DisplayView(raw, wavEncoding),
+      sample_encoding: wavEncoding,
+      center_freq_hz: metadata?.center_frequency_hz ?? 0,
+      sample_rate_hz: wavFormat.sampleRateHz,
+      bins_per_frame: metadata?.fft_size,
+      frame_rate: metadata?.frame_rate,
+    });
+    metadata = {
+      ...(metadata ?? {}),
+      sample_encoding: wavEncoding,
+      center_frequency_hz: metadata?.center_frequency_hz ?? 0,
+      capture_sample_rate_hz: wavFormat.sampleRateHz,
+      sample_rate_hz: wavFormat.sampleRateHz,
+      duration_s: dataSize / wavFormat.blockAlign / wavFormat.sampleRateHz,
+    };
   }
 
   return { raw, metadata, channels };
@@ -739,6 +828,13 @@ function stitchAdjacentChannels(
 
     return {
       iq_data: group[0].iq_data || group[0].iq,
+      display_iq_data:
+        group[0].display_iq_data ||
+        makeIqU8DisplayView(
+          group[0].iq_data || group[0].iq,
+          group[0].sample_encoding,
+        ),
+      sample_encoding: group[0].sample_encoding,
       center_freq_hz: newCenter,
       sample_rate_hz: totalSpan,
       bins_per_frame: group[0].bins_per_frame || _defaultFftSize,
@@ -929,11 +1025,16 @@ self.onmessage = async function (e) {
 
             if (lower.endsWith(".iq")) {
               const res = await loadIqFile(fileData, aesKey, fidoVaultKey);
-              rawData = res.raw;
+              rawData = makeIqU8DisplayView(
+                res.raw,
+                res.metadata?.sample_encoding,
+              );
               metadata = res.metadata;
               (metadata as any).channels_data = [
                 {
-                  iq_data: rawData,
+                  iq_data: res.raw,
+                  display_iq_data: rawData,
+                  sample_encoding: metadata?.sample_encoding,
                   center_freq_hz: metadata?.center_frequency_hz || 0,
                   sample_rate_hz: metadata?.capture_sample_rate_hz || 0,
                   bins_per_frame: metadata?.fft_size,
@@ -951,6 +1052,7 @@ self.onmessage = async function (e) {
               metadata = wavMeta as FileMetadata;
 
               if (channels && channels.length > 0) {
+                rawData = channels[0].display_iq_data ?? raw;
                 (metadata as any).channels_data = stitchAdjacentChannels(
                   channels,
                   metadata?.fft_size || 8192,

@@ -1,5 +1,10 @@
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { createDemodProcessor } from "@n-apt/demodulation/utils/demodProcessors";
+import type { IqSampleEncoding } from "@n-apt/math/iqSamples";
+import {
+  getIqComponentStorageBytes,
+  type IqSampleEncoding,
+} from "@n-apt/math/iqSamples";
 import {
   applyComplexLowPass,
   shiftIqToBaseband,
@@ -21,6 +26,7 @@ export interface APTAudioDemodHandle {
     iqData: Uint8Array,
     sampleRate: number,
     frameCenterFrequencyHz?: number | null,
+    encoding?: IqSampleEncoding,
   ) => void;
   playAudio: () => void;
   stopAudio: () => void;
@@ -81,10 +87,13 @@ export function useAPTAudioDemod(
       iqData: Uint8Array,
       sampleRate: number,
       _frameCenterFrequencyHz?: number | null,
+      encoding?: IqSampleEncoding,
     ): Float32Array => {
-      const samples = iqData.length / 2;
+      const samples = Math.floor(
+        iqData.length / (2 * getIqComponentStorageBytes(encoding)),
+      );
       const audioBuffer = new Float32Array(samples);
-      const shiftedIq = shiftIqToBaseband(iqData, sampleRate, 0);
+      const shiftedIq = shiftIqToBaseband(iqData, sampleRate, 0, undefined, encoding);
       const filteredIq = applyComplexLowPass(shiftedIq, sampleRate, 200_000);
       const i = new Float32Array(samples);
       const q = new Float32Array(samples);
@@ -203,13 +212,19 @@ export function useAPTAudioDemod(
       iqData: Uint8Array,
       inputSampleRate: number,
       frameCenterFrequencyHz?: number | null,
+      encoding?: IqSampleEncoding,
     ) => {
       if (!iqData || iqData.length === 0) return;
-      const baseband = demodulateAPTAudioBaseband(iqData, inputSampleRate, frameCenterFrequencyHz);
+      const baseband = demodulateAPTAudioBaseband(
+        iqData,
+        inputSampleRate,
+        frameCenterFrequencyHz,
+        encoding,
+      );
       const imageEnvelope = envelopeDetectAPTAudio(baseband, inputSampleRate);
       const detection = detectNaptSpikeCandidates(imageEnvelope);
       setDetectionResult(detection);
-      let finalAudio = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz);
+      let finalAudio = sharedProcessor.process(iqData, inputSampleRate, frameCenterFrequencyHz, encoding);
       // Keep the full APT amplitude stream. The spike detector remains a
       // diagnostic and must not crop, normalize, or otherwise reshape payload.
       if (finalAudio.length === 0) {
