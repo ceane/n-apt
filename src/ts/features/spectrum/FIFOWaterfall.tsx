@@ -390,7 +390,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
 
       const context = canvas.getContext("2d");
       if (!context) return;
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      context.setTransform(renderWidth / cssWidth, 0, 0, renderHeight / cssHeight, 0, 0);
       context.clearRect(0, 0, cssWidth, cssHeight);
 
       if (nonHardwareSourcePattern && !placeholderState) {
@@ -523,7 +523,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         if (!hasWebGPU) {
           const ctx = getCanvas2DContext(canvas);
           if (ctx) {
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.setTransform(renderWidth / cssWidth, 0, 0, renderHeight / cssHeight, 0, 0);
             ctx.fillStyle = waterfallBackground;
             ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
@@ -633,8 +633,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             buffer,
             0,
             0,
-            waterfallHistoryFill === "immutable" ? historyZoom : 1,
-            waterfallHistoryFill === "immutable" ? historyPan : 0,
+            effectiveHistoryFill === "immutable" ? historyZoom : 1,
+            effectiveHistoryFill === "immutable" ? historyPan : 0,
           );
         }
       };
