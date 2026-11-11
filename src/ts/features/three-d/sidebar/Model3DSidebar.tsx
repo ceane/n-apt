@@ -11,7 +11,7 @@ import {
   Brain,
   Network,
 } from "lucide-react";
-import { BodyAreasSection, AnatomyCardsSection } from "@n-apt/learn";
+import { BodyAreasSection, AnatomyCardsSection, TopicCards } from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
 import { Collapsible } from "@n-apt/ui";
@@ -199,19 +199,22 @@ export const Model3DSidebar: React.FC = () => {
           </SectionDescription>
           <div style={{ gridColumn: "1 / -1" }}>
             <BodyAreasSection searchTerm={searchTerm} />
+            <TopicCards section="physiology" searchTerm={searchTerm} />
           </div>
         </Collapsible>
 
         <Collapsible
           icon={<Blend size={16} />}
           label="Psychology /"
+          open={searchTerm.trim() ? true : undefined}
           onOpenChange={(isOpen) => {
             setModelVariant(isOpen ? "brain" : "human");
           }}
         >
           <SectionDescription>
-            Psychology-related data and mappings.
+            Emotional experience and related brain networks.
           </SectionDescription>
+          <TopicCards section="psychology" searchTerm={searchTerm} />
         </Collapsible>
 
         <Collapsible icon={<Bone size={16} />} label="Anatomy /" defaultOpen>
@@ -238,8 +241,9 @@ export const Model3DSidebar: React.FC = () => {
           </AnatomySections>
         </Collapsible>
 
-        <Collapsible icon={<NotebookPen size={16} />} label="Effects /">
-          <SectionDescription>Visual effects and overlays.</SectionDescription>
+        <Collapsible icon={<NotebookPen size={16} />} label="Effects (First Person) /" open={searchTerm.trim() ? true : undefined}>
+          <SectionDescription>Health and lived-experience topics. These tiles describe possible effects and do not diagnose an individual or establish a cause.</SectionDescription>
+          <TopicCards section="effects" searchTerm={searchTerm} />
         </Collapsible>
 
         <Collapsible

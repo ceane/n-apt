@@ -1,6 +1,7 @@
 export { default as NoteCards } from "@n-apt/learn/NoteCards";
 export { default as SignalComposition } from "@n-apt/learn/SignalComposition";
 export { BodyAreasSection, PHYSIOLOGY_AREAS } from "@n-apt/learn/sidebar/BodyAreasSection";
+export { TopicCards } from "@n-apt/learn/sidebar/TopicCards";
 export { AnatomyCardsSection, BRAIN_ANATOMY_CARDS, NERVOUS_SYSTEM_CARDS } from "@n-apt/learn/sidebar/AnatomyCardsSection";
 export { CoronaScene } from "@n-apt/learn/canvas/Corona";
 export { SimplePretextDemo } from "@n-apt/learn/pretext/SimplePretextDemo";

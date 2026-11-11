@@ -113,6 +113,7 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Parasympathetic division", "Autonomic pathways", "Craniosacral outflow, including the vagus nerve and pelvic splanchnic nerves.", "Supports digestion, glandular secretion, and restorative functions while continually balancing other autonomic input.", [0, 1.28, .12]),
   nerve("Enteric nervous system", "Autonomic pathways", "Neural circuits embedded in the gastrointestinal tract wall.", "Coordinates gut movement, secretion, and local blood flow; it communicates with both autonomic divisions.", [0, 1.25, .35]),
   nerve("Spinal cord", "Spinal cord", "Neural tissue in the vertebral canal, continuing from the medulla; adult cord usually ends near L1–L2.", "Carries ascending sensory and descending motor pathways and coordinates segmental reflexes.", [0, 1.3, -.12]),
+  nerve("Corticospinal tract", "Spinal cord", "A major descending motor pathway from cerebral cortex through the brainstem and spinal cord.", "Contributes to voluntary movement, especially precise control of distal limbs. Damage can cause weakness or loss of movement, depending on location and extent.", [0, 1.35, -.1], ["pyramidal tract", "upper motor neuron pathway", "voluntary motor control", "movement impairment"]),
   nerve("Cervical spinal cord (C1–C8)", "Spinal cord", "Upper eight spinal nerve levels, within the neck region.", "Conveys sensation and movement for neck, diaphragm-related pathways, shoulders, arms, and hands.", [0, 1.72, -.08]),
   nerve("Thoracic spinal cord (T1–T12)", "Spinal cord", "Twelve spinal nerve levels associated with the trunk.", "Serves chest and abdominal wall and supplies much of the sympathetic outflow.", [0, 1.42, -.08]),
   nerve("Lumbar spinal cord (L1–L5)", "Spinal cord", "Five lumbar spinal nerve levels; lower roots travel below the cord as cauda equina.", "Contributes to sensation and movement of the lower trunk and front/inner leg.", [0, .98, -.08]),
@@ -220,7 +221,7 @@ const CardName = styled.strong`font-size: 12px;`;
 const CardText = styled.span`font-size: 11px; line-height: 1.45; color: ${(p) => p.theme.textSecondary};`;
 const Empty = styled.div`padding: 12px; color: ${(p) => p.theme.textSecondary}; font-size: 12px;`;
 
-function toModelArea(card: AnatomyCardData): Area {
+export function toModelArea(card: AnatomyCardData): Area {
   if (card.model === "human") {
     const target: [number, number, number] = [card.offset[0], 1.7 + card.offset[1] * .5, card.offset[2]];
     return { name: card.name, position: [target[0], target[1] + .12, target[2] + .6], target, meshName: "o_ADBody" };
