@@ -136,6 +136,12 @@ const AreaList = styled.div`
   box-sizing: border-box;
 `;
 
+const EmptyState = styled.div`
+  padding: 12px;
+  font-size: 12px;
+  color: ${(props) => props.theme.textSecondary};
+`;
+
 const BaseButton = styled.button`
   max-width: 100%;
   display: grid;
@@ -225,10 +231,10 @@ const ChevronIndicator = styled.span<{ $isSelected: boolean }>`
 `;
 
 interface BodyAreasSectionProps {
-  // No props needed, uses context instead
+  searchTerm?: string;
 }
 
-export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
+export const BodyAreasSection: React.FC<BodyAreasSectionProps> = ({ searchTerm = "" }) => {
   const { selectedArea, setSelectedArea, controlsRef } = useModel3D();
   const { setSidebarTab } = useHotspotEditor();
 
@@ -237,7 +243,7 @@ export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
   }, [setSidebarTab]);
 
   useEffect(() => {
-    if (selectedArea && controlsRef?.current) {
+    if (selectedArea && selectedArea.meshName !== "brain" && controlsRef?.current) {
       gsap.to(controlsRef.current.object.position, {
         x: selectedArea.position[0],
         y: selectedArea.position[1],
@@ -254,9 +260,18 @@ export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
     }
   }, [selectedArea, controlsRef]);
 
+  const searchAliases: Record<string, string> = {
+    "Vocal Cords": "larynx voice speech phonation sound vocal folds",
+    Throat: "larynx voice swallowing",
+    "Ears (Left)": "hearing audio sound",
+    "Ears (Right)": "hearing audio sound",
+    Head: "brain skull nervous system",
+  };
+  const matchingAreas = PHYSIOLOGY_AREAS.filter((area) => `${area.name} ${searchAliases[area.name] ?? ""}`.toLowerCase().includes(searchTerm.trim().toLowerCase()));
+
   return (
     <AreaList>
-      {PHYSIOLOGY_AREAS.map((area) => {
+      {matchingAreas.map((area) => {
         const isSelected = selectedArea?.name === area.name;
 
         return (
@@ -277,6 +292,9 @@ export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
           </SelectableButton>
         );
       })}
+      {!matchingAreas.length && (
+        <EmptyState role="status">No physiology areas match “{searchTerm}”.</EmptyState>
+      )}
     </AreaList>
   );
 };

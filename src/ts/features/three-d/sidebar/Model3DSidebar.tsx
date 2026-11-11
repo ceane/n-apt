@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import styled from "styled-components";
 import { gsap } from "gsap";
 import {
@@ -7,8 +7,11 @@ import {
   Bone,
   NotebookPen,
   DraftingCompass,
+  Search,
+  Brain,
+  Network,
 } from "lucide-react";
-import { BodyAreasSection } from "@n-apt/learn";
+import { BodyAreasSection, AnatomyCardsSection } from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
 import { Collapsible } from "@n-apt/ui";
@@ -24,6 +27,12 @@ const Section = styled.div`
   gap: inherit;
 `;
 
+const AnatomySections = styled.div`
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+`;
+
 const RouteContent = styled.div`
   padding: 4cqh 3cqw;
   display: grid;
@@ -37,6 +46,31 @@ const SectionDescription = styled.div`
   color: ${(props) => props.theme.textSecondary};
   margin-bottom: 16px;
   grid-column: 1 / -1;
+`;
+
+const SearchWrap = styled.label`
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 8px;
+  color: ${(props) => props.theme.textSecondary};
+  background: ${(props) => props.theme.surface};
+  &:focus-within { border-color: ${(props) => props.theme.primary}; }
+`;
+
+const SearchInput = styled.input`
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: ${(props) => props.theme.textPrimary};
+  font: inherit;
+  font-size: 12px;
+  &::placeholder { color: ${(props) => props.theme.textMuted}; }
 `;
 
 const InfoBox = styled.div`
@@ -98,6 +132,7 @@ const ResetButton = styled.button`
 
 export const Model3DSidebar: React.FC = () => {
   const { controlsRef, setSelectedArea, setModelVariant } = useModel3D();
+  const [searchTerm, setSearchTerm] = useState("");
 
   const handleResetCamera = () => {
     if (controlsRef?.current) {
@@ -139,6 +174,17 @@ export const Model3DSidebar: React.FC = () => {
 
       <ResetButton onClick={handleResetCamera}>Reset Camera</ResetButton>
 
+      <SearchWrap>
+        <Search size={16} aria-hidden="true" />
+        <SearchInput
+          type="search"
+          aria-label="Search anatomy, physiology, psychology, and effects"
+          placeholder="Search anatomy, physiology, psychology, effects…"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+        />
+      </SearchWrap>
+
       <Section>
         <Collapsible
           icon={<PersonStanding size={16} />}
@@ -152,7 +198,7 @@ export const Model3DSidebar: React.FC = () => {
             Click an area to focus the camera
           </SectionDescription>
           <div style={{ gridColumn: "1 / -1" }}>
-            <BodyAreasSection />
+            <BodyAreasSection searchTerm={searchTerm} />
           </div>
         </Collapsible>
 
@@ -168,10 +214,28 @@ export const Model3DSidebar: React.FC = () => {
           </SectionDescription>
         </Collapsible>
 
-        <Collapsible icon={<Bone size={16} />} label="Anatomy /">
+        <Collapsible icon={<Bone size={16} />} label="Anatomy /" defaultOpen>
           <SectionDescription>
-            Anatomical structures and bone mapping.
+            Brain regions and the nervous system, with functions and model focus.
           </SectionDescription>
+          <AnatomySections>
+            <Collapsible
+              icon={<Brain size={15} />}
+              label="Brain"
+              open={searchTerm.trim() ? true : undefined}
+              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("brain"); }}
+            >
+              <AnatomyCardsSection kind="brain" searchTerm={searchTerm} />
+            </Collapsible>
+            <Collapsible
+              icon={<Network size={15} />}
+              label="Nervous System"
+              open={searchTerm.trim() ? true : undefined}
+              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("human"); }}
+            >
+              <AnatomyCardsSection kind="nervous" searchTerm={searchTerm} />
+            </Collapsible>
+          </AnatomySections>
         </Collapsible>
 
         <Collapsible icon={<NotebookPen size={16} />} label="Effects /">

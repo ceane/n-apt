@@ -1,10 +1,12 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 import styled from "styled-components";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import Brain from "@n-apt/three-d/Brain";
 import { CoronaScene } from "@n-apt/learn";
+import { toBrainViewerPoint } from "@n-apt/learn/sidebar/AnatomyCardsSection";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
+import { gsap } from "gsap";
 import {
   MODEL_AMBIENT_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_INTENSITY,
@@ -57,7 +59,14 @@ const ToneCanvasWrap = styled.div`
 `;
 
 export const Model3DBrain: React.FC = () => {
-  const { controlsRef } = useModel3D();
+  const { controlsRef, selectedArea } = useModel3D();
+  const brainTarget = selectedArea?.meshName === "brain" ? toBrainViewerPoint(selectedArea.target) : null;
+
+  useEffect(() => {
+    if (!brainTarget || !controlsRef.current) return;
+    gsap.to(controlsRef.current.target, { x: brainTarget[0], y: brainTarget[1], z: brainTarget[2], duration: .7, onUpdate: () => controlsRef.current?.update() });
+    gsap.to(controlsRef.current.object.position, { x: brainTarget[0], y: brainTarget[1], z: brainTarget[2] + 1.35, duration: .7, onUpdate: () => controlsRef.current?.update() });
+  }, [brainTarget, controlsRef]);
 
   return (
     <BrainLayout>
@@ -98,6 +107,18 @@ export const Model3DBrain: React.FC = () => {
               rotation={[0, 0, 0]}
               scale={[0.34, 0.34, 0.34]}
             />
+            {brainTarget && (
+              <group position={brainTarget}>
+                <mesh>
+                  <sphereGeometry args={[0.045, 24, 24]} />
+                  <meshStandardMaterial color="#48d8ff" emissive="#48d8ff" emissiveIntensity={1.3} transparent opacity={0.8} />
+                </mesh>
+                <mesh>
+                  <sphereGeometry args={[0.095, 24, 24]} />
+                  <meshBasicMaterial color="#48d8ff" transparent opacity={0.16} depthWrite={false} />
+                </mesh>
+              </group>
+            )}
             <OrbitControls
               ref={controlsRef}
               makeDefault
