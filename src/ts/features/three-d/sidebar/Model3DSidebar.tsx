@@ -10,6 +10,7 @@ import {
   Search,
   Brain,
   Network,
+  Activity,
 } from "lucide-react";
 import { BodyAreasSection, AnatomyCardsSection, TopicCards } from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
@@ -215,6 +216,11 @@ export const Model3DSidebar: React.FC = () => {
             Emotional experience and related brain networks.
           </SectionDescription>
           <TopicCards section="psychology" searchTerm={searchTerm} />
+        </Collapsible>
+
+        <Collapsible icon={<Activity size={16} />} label="Behavior /" open={searchTerm.trim() ? true : undefined}>
+          <SectionDescription>Actions, habits, and responses shaped by interacting brain, body, learning, and context.</SectionDescription>
+          <TopicCards section="behavior" searchTerm={searchTerm} />
         </Collapsible>
 
         <Collapsible icon={<Bone size={16} />} label="Anatomy /" defaultOpen>
