@@ -2945,6 +2945,9 @@ const FFTCanvas = memo(
       clampedVizRangeRef.current = currentVisualRange;
     }, [currentVisualRange]);
 
+    const waterfallHistoryFill = useAppSelector(
+      (reduxState) => reduxState.settings.waterfallHistoryFill,
+    );
     const smootherWaterfall = useAppSelector(
       (reduxState) => reduxState.settings.smootherWaterfall,
     );
@@ -5466,10 +5469,9 @@ const FFTCanvas = memo(
                 coversDisplay: preparedSpectrum.coversDisplay,
               });
 
-              // Waterfall texture strategy: Always resample to constant 4096 bins.
-              // This 'bakes' the zoom into each row permanently, avoiding WebGPU
-              // texture resets when zoom changes. The shader handles the final
-              // mapping from 4096 bins to display pixels.
+              // Accretive stores the current viewport in each row. Immutable
+              // stores the complete acquisition axis, leaving zoom and pan to
+              // the shader so previously captured rows remain navigable.
               // Ensure we have a persistent buffer for the fixed-width data
               if (
                 !waterfallCappedBufferRef.current ||
@@ -5482,13 +5484,25 @@ const FFTCanvas = memo(
               const processed = waterfallCappedBufferRef.current;
               let waterfallBins: Float32Array = processed;
 
-              // Bake the displayed axis (including |f| below 0 Hz) into each
-              // new row so the waterfall follows the FFT past DC both ways.
+              const immutableHistory = waterfallHistoryFill === "immutable";
+              const historyRange = immutableHistory
+                ? sourceFrequencyRange
+                : displayVisualRange;
+              const historySpan = historyRange.max - historyRange.min;
+              const visibleSpan = displayVisualRange.max - displayVisualRange.min;
+              const historyZoom = immutableHistory && visibleSpan > 0
+                ? Math.max(1, historySpan / visibleSpan)
+                : 1;
+              const historyPan = immutableHistory && historySpan > 0
+                ? ((displayVisualRange.min + displayVisualRange.max) -
+                    (historyRange.min + historyRange.max)) / (2 * historySpan)
+                : 0;
+              // Bake only the selected history axis into new rows.
               if (hasNewData) {
                 waterfallBins = resolveWaterfallDisplayRow({
                   sourceWaveform: currentWaveform,
                   sourceRange: sourceFrequencyRange,
-                  displayRange: displayVisualRange,
+                  displayRange: historyRange,
                   target: processed,
                   floorDb: activeScaleDbMinRef.current,
                 });
@@ -5501,7 +5515,7 @@ const FFTCanvas = memo(
                 waterfallBins = resolveWaterfallDisplayRow({
                   sourceWaveform: currentWaveform,
                   sourceRange: sourceFrequencyRange,
-                  displayRange: displayVisualRange,
+                  displayRange: historyRange,
                   target: processed,
                   floorDb: activeScaleDbMinRef.current,
                 });
@@ -5683,6 +5697,8 @@ const FFTCanvas = memo(
                 freeze: !shouldUpdateWaterfallRow,
                 restoreTexture,
                 wfSmooth: wfSmoothEnabledRef.current,
+                historyZoom,
+                historyPan,
                 colormap: colormapRef.current,
                 colormapName: waterfallThemeRef.current,
                 backgroundColor: waterfallBackgroundColorRef.current,
@@ -5738,6 +5754,7 @@ const FFTCanvas = memo(
       [
         drawSpectrum,
         drawWebGPUFIFOWaterfall,
+        waterfallHistoryFill,
         isPaused,
         retainsFramePresentation,
         invertSpectrum,
