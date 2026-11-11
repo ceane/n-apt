@@ -207,6 +207,21 @@ const availableNodes: DemodNodeLibraryItem[] = [
     },
   },
   {
+    id: "iq-plane",
+    type: "custom",
+    label: "I/Q Plane",
+    description:
+      "Plot several coarse frequency-bin I/Q traces on the complex plane.",
+    icon: <Activity size={16} />,
+    position: { x: 700, y: 850 },
+    data: {
+      label: "I/Q Plane",
+      description:
+        "Plot several coarse frequency-bin I/Q traces on the complex plane.",
+      iqPlaneOptions: true,
+    },
+  },
+  {
     id: "bitstream",
     type: "custom",
     label: "Bitstream (0s/1s)",
