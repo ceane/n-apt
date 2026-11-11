@@ -122,6 +122,11 @@ const LazyIQCaptureNode = React.lazy(() =>
     default: m.IQCaptureNode as DemodNodeComponent,
   })),
 );
+const LazyIQPlaneNode = React.lazy(() =>
+  import("@n-apt/demodulation/react-flow/nodes/IQPlaneNode").then((m) => ({
+    default: m.IQPlaneNode as DemodNodeComponent,
+  })),
+);
 const LazyTxNode = React.lazy(() =>
   import("@n-apt/demodulation/react-flow/nodes/TxNode").then((m) => ({
     default: m.TxNode as DemodNodeComponent,
@@ -173,6 +178,7 @@ export const DEMOD_NODE_REGISTRY: DemodNodeRegistryEntry[] = [
   { flag: "fmOptions", Component: LazyFmNode },
   { flag: "fileOptions", Component: LazyFileOptionsNode },
   { flag: "iqCaptureNode", Component: LazyIQCaptureNode },
+  { flag: "iqPlaneOptions", Component: LazyIQPlaneNode },
   { flag: "txOptions", Component: LazyTxNode },
   { flag: "experimentControlOptions", Component: ExperimentControlNode },
   { flag: "experimentObservationOptions", Component: ExperimentObservationNode },
