@@ -25,6 +25,8 @@ import {
   setRtlAGC,
   setMaxVizZoom,
   setMirrorIqBasebandBelowZero,
+  setSmootherWaterfall,
+  setWaterfallHistoryFill,
   sendSettings,
   selectActiveSourceDerivedState,
 } from "@n-apt/redux";
@@ -1165,6 +1167,49 @@ const FOOTER_LINK_CARDS: LinkCardItem[] = [
   LOG_OUT_LINK_CARD,
 ];
 
+const WaterfallSettingsSection: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const smoother = useAppSelector((s) => s.settings.smootherWaterfall);
+  const historyFill = useAppSelector((s) => s.settings.waterfallHistoryFill);
+
+  return (
+    <SettingsSectionBlock data-settings-section="waterfall">
+      <SectionTitle>Waterfall</SectionTitle>
+      <SectionGrid>
+        <div>
+          <SettingsRow label={<SettingLabel>Smoother waterfall</SettingLabel>}>
+            <Toggle
+              aria-label="Smoother waterfall"
+              $active={smoother}
+              onClick={() => dispatch(setSmootherWaterfall(!smoother))}
+            />
+          </SettingsRow>
+          <p role="status" style={{
+            margin: "4px 10px 12px",
+            fontSize: 12,
+            color: smoother ? "#d99727" : "#888888",
+          }}>
+            Reduces the quality of the waterfall
+          </p>
+        </div>
+        <SettingsRow label={<SettingLabel>Waterfall Drawing and Zoom Style</SettingLabel>}>
+          <SettingSelect
+            aria-label="Waterfall Drawing and Zoom Style"
+            value={historyFill}
+            title="Accretive: draws the current cropped buffer; zooming chops historical context. Immutable: retains full-width history for later pan and zoom."
+            onChange={(e) =>
+              dispatch(setWaterfallHistoryFill(e.target.value as "accretive" | "immutable"))
+            }
+          >
+            <option value="accretive" title="Draws current cropped data; zooming chops historical context.">Accretive</option>
+            <option value="immutable" title="Preserves full-frame history for subsequent zoom and pan.">Immutable</option>
+          </SettingSelect>
+        </SettingsRow>
+      </SectionGrid>
+    </SettingsSectionBlock>
+  );
+};
+
 const PreferencesExtrasSection: React.FC = () => {
   return (
     <PreferencesExtrasRoot>
@@ -1271,6 +1316,7 @@ const PreferencesContent: React.FC<{
       <LoginSettingsSection />
       <IqCaptureSettingsSection />
       <SnapshotSettingsSection />
+      <WaterfallSettingsSection />
       <PreferencesExtrasSection />
     </PageInner>
   </PageContent>
