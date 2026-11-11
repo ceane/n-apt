@@ -6,5 +6,6 @@ export const PREFERENCES_SECTIONS: PreferencesSidebarSection[] = [
   { id: "login", label: "Login" },
   { id: "iq-capture", label: "I/Q Capture Settings" },
   { id: "snapshot", label: "Snapshot & Fast Snapshot" },
+  { id: "waterfall", label: "Waterfall" },
   { id: "extras", label: "Extras" },
 ];
