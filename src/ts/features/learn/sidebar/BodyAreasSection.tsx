@@ -261,11 +261,22 @@ export const BodyAreasSection: React.FC<BodyAreasSectionProps> = ({ searchTerm =
   }, [selectedArea, controlsRef]);
 
   const searchAliases: Record<string, string> = {
-    "Vocal Cords": "larynx voice speech phonation sound vocal folds",
-    Throat: "larynx voice swallowing",
-    "Ears (Left)": "hearing audio sound",
-    "Ears (Right)": "hearing audio sound",
-    Head: "brain skull nervous system",
+    "Vocal Cords": "larynx voice speech phonation sound vocal folds singing talking",
+    Throat: "larynx voice swallowing speaking singing breathing",
+    "Ears (Left)": "hearing audio sound listening music auditory",
+    "Ears (Right)": "hearing audio sound listening music auditory",
+    Head: "brain skull nervous system emotion facial expression feelings",
+    Face: "smile smiling grin grinning laugh laughing laughter frown frowning smirk facial expression eyebrows cheeks lips eyes happiness happy joy sadness sad anger angry surprise emotion feelings",
+    "Arms (Left)": "biceps triceps lifting curl curling elbow bend shoulder reach reaching push pull throw forearm flexion extension supination",
+    "Arms (Right)": "biceps triceps lifting curl curling elbow bend shoulder reach reaching push pull throw forearm flexion extension supination",
+    "Hands (Left)": "grab grabbing grasp grasping grip gripping hold holding pinch fingers thumb tactile touch texture sensation feel feeling pick up manipulate dexterity typing",
+    "Hands (Right)": "grab grabbing grasp grasping grip gripping hold holding pinch fingers thumb tactile touch texture sensation feel feeling pick up manipulate dexterity typing",
+    "Legs (Left)": "walk walking run running squat stand standing stairs climb kick thigh knee hip hamstring quadriceps movement",
+    "Legs (Right)": "walk walking run running squat stand standing stairs climb kick thigh knee hip hamstring quadriceps movement",
+    "Feet (Left)": "toe toes balance walking walk run running step stepping tactile touch pressure sole plantar flexion dorsiflexion",
+    "Feet (Right)": "toe toes balance walking walk run running step stepping tactile touch pressure sole plantar flexion dorsiflexion",
+    Torso: "trunk core posture breathing diaphragm chest abdominal muscles lift rotate bend",
+    Heart: "heartbeat pulse emotion stress autonomic response anxiety excitement",
   };
   const matchingAreas = PHYSIOLOGY_AREAS.filter((area) => `${area.name} ${searchAliases[area.name] ?? ""}`.toLowerCase().includes(searchTerm.trim().toLowerCase()));
 
