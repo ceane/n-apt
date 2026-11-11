@@ -2945,6 +2945,9 @@ const FFTCanvas = memo(
       clampedVizRangeRef.current = currentVisualRange;
     }, [currentVisualRange]);
 
+    const smootherWaterfall = useAppSelector(
+      (reduxState) => reduxState.settings.smootherWaterfall,
+    );
     const wfSmoothEnabled = useAppSelector(
       (reduxState) => reduxState.spectrum.wfSmoothEnabled,
     );
@@ -6298,22 +6301,25 @@ const FFTCanvas = memo(
 
         if (waterfallRect && waterfallGpuCanvasRef.current) {
           const canvas = waterfallGpuCanvasRef.current;
-          const targetW = Math.max(1, Math.round(waterfallRect.width * dpr));
-          const targetH = Math.max(1, Math.round(waterfallRect.height * dpr));
+          const waterfallDpr = smootherWaterfall
+            ? Math.min(dpr, 2048 / waterfallRect.width)
+            : dpr;
+          const targetW = Math.max(1, Math.round(waterfallRect.width * waterfallDpr));
+          const targetH = Math.max(1, Math.round(waterfallRect.height * waterfallDpr));
           if (resizeCanvasBackingStore(canvas, targetW, targetH)) {
             canvas.style.width = `${waterfallRect.width}px`;
             canvas.style.height = `${waterfallRect.height}px`;
           }
 
-          const marginX = Math.round(40 * dpr);
-          const marginY = Math.round(8 * dpr);
+          const marginX = Math.round(40 * waterfallDpr);
+          const marginY = Math.round(8 * waterfallDpr);
           const displayWidth = Math.max(
             1,
-            Math.round(waterfallRect.width * dpr - marginX * 2),
+            Math.round(waterfallRect.width * waterfallDpr - marginX * 2),
           );
           const displayHeight = Math.max(
             1,
-            Math.round(waterfallRect.height * dpr - marginY * 2),
+            Math.round(waterfallRect.height * waterfallDpr - marginY * 2),
           );
           if (waterfallDataWidthRef.current !== displayWidth) {
             waterfallDataWidthRef.current = displayWidth;
@@ -6362,6 +6368,7 @@ const FFTCanvas = memo(
       waterfallGpuCanvasNode,
       waterfallOverlayCanvasNode,
       canvasResolutionScale,
+      smootherWaterfall,
     ]);
 
     // Effect: Periodic memory cleanup (every 30s). Returns oversized buffers to pool
