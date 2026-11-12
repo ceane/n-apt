@@ -247,7 +247,7 @@ const FIRST_MODEL_INDEX = MODELS.findIndex(
 // ─── GLB-backed scene components ─────────────────────────────────────────────
 
 const NEUTRAL_GLB_URL = new URL(
-  "../../../../../public/glb_models/human_model_neutral.glb",
+  "../../../../../public/glb_models/human_ghost_expressive_underwear.glb",
   import.meta.url,
 ).href;
 

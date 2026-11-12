@@ -10,12 +10,11 @@ import {
   Search,
   Brain,
   Network,
-  Activity,
 } from "lucide-react";
 import { BodyAreasSection, AnatomyCardsSection, TopicCards } from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
-import { Collapsible } from "@n-apt/ui";
+import { Collapsible, SidebarSubsectionList } from "@n-apt/ui";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
@@ -26,12 +25,6 @@ const Section = styled.div`
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
-`;
-
-const AnatomySections = styled.div`
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 12px;
 `;
 
 const RouteContent = styled.div`
@@ -205,7 +198,6 @@ export const Model3DSidebar: React.FC = () => {
           </SectionDescription>
           <div style={{ gridColumn: "1 / -1" }}>
             <BodyAreasSection searchTerm={searchTerm} />
-            <TopicCards section="physiology" searchTerm={searchTerm} />
           </div>
         </Collapsible>
 
@@ -213,31 +205,36 @@ export const Model3DSidebar: React.FC = () => {
           icon={<Blend size={16} />}
           label="Psychology /"
           open={searchTerm.trim() ? true : undefined}
+        >
+          <SectionDescription>
+            Emotional experience and related first-person topics are grouped in Effects (First Person).
+          </SectionDescription>
+        </Collapsible>
+
+        <Collapsible
+          icon={<Bone size={16} />}
+          label="Anatomy /"
           onOpenChange={(isOpen) => {
-            setModelVariant(isOpen ? "brain" : "human");
+            if (!isOpen) {
+              setModelVariant("human");
+              return;
+            }
+            setModelVariant("anatomy");
+            setSelectedArea(null);
           }}
         >
           <SectionDescription>
-            Emotional experience and related brain networks.
-          </SectionDescription>
-          <TopicCards section="psychology" searchTerm={searchTerm} />
-        </Collapsible>
-
-        <Collapsible icon={<Activity size={16} />} label="Behavior /" open={searchTerm.trim() ? true : undefined}>
-          <SectionDescription>Actions, habits, and responses shaped by interacting brain, body, learning, and context.</SectionDescription>
-          <TopicCards section="behavior" searchTerm={searchTerm} />
-        </Collapsible>
-
-        <Collapsible icon={<Bone size={16} />} label="Anatomy /" defaultOpen>
-          <SectionDescription>
             Brain regions and the nervous system, with functions and model focus.
           </SectionDescription>
-          <AnatomySections>
+          <SidebarSubsectionList aria-label="Anatomy subsections">
             <Collapsible
               icon={<Brain size={15} />}
               label="Brain"
               open={searchTerm.trim() ? true : undefined}
-              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("brain"); }}
+              onOpenChange={(isOpen) => {
+                setModelVariant(isOpen ? "brain" : "anatomy");
+                if (!isOpen) setSelectedArea(null);
+              }}
             >
               <AnatomyCardsSection kind="brain" searchTerm={searchTerm} />
             </Collapsible>
@@ -245,16 +242,19 @@ export const Model3DSidebar: React.FC = () => {
               icon={<Network size={15} />}
               label="Nervous System"
               open={searchTerm.trim() ? true : undefined}
-              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("human"); }}
+              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("anatomy"); }}
             >
               <AnatomyCardsSection kind="nervous" searchTerm={searchTerm} />
             </Collapsible>
-          </AnatomySections>
+          </SidebarSubsectionList>
         </Collapsible>
 
         <Collapsible icon={<NotebookPen size={16} />} label="Effects (First Person) /" open={searchTerm.trim() ? true : undefined}>
           <SectionDescription>Health and lived-experience topics. These tiles describe possible effects and do not diagnose an individual or establish a cause.</SectionDescription>
           <TopicCards section="effects" searchTerm={searchTerm} />
+          <TopicCards section="psychology" searchTerm={searchTerm} />
+          <TopicCards section="behavior" searchTerm={searchTerm} />
+          <TopicCards section="physiology" searchTerm={searchTerm} />
         </Collapsible>
 
         <Collapsible

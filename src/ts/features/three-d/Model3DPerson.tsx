@@ -2,13 +2,20 @@ import React, { Suspense, useRef, useCallback, useEffect, useMemo } from "react"
 import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Clone, OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
-import { CatmullRomCurve3, SphereGeometry, TubeGeometry, Vector3 } from "three";
+import { Box3, CatmullRomCurve3, SphereGeometry, TubeGeometry, Vector3 } from "three";
 import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
+import Brain from "@n-apt/three-d/Brain";
+import { resolveModelAnchor } from "@n-apt/three-d/modelAnchors";
+import {
+  createAnatomyFigureScene,
+  disposeAnatomyFigureScene,
+} from "@n-apt/three-d/anatomyScene";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/three-d";
 import { useHotspotEditor } from "@n-apt/three-d/hooks/useHotspotEditor";
 import { useModel3D, type Area } from "@n-apt/three-d/hooks/useModel3D";
 import { attachModelWheelRotation } from "@n-apt/three-d/modelWheelRotation";
 import {
+  ANATOMY_BRAIN_SCALE,
   MODEL_AMBIENT_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_POSITION,
@@ -217,6 +224,7 @@ function PersonModel({
   modelUrl,
   modelOffset,
   showSelectionHalo,
+  showAnatomyBrain,
   visibleAreas,
   onAreaSelect,
   children,
@@ -227,11 +235,32 @@ function PersonModel({
   modelUrl: string;
   modelOffset: [number, number, number];
   showSelectionHalo: boolean;
+  showAnatomyBrain: boolean;
   visibleAreas?: Area[];
   onAreaSelect?: (area: Area) => void;
   children?: React.ReactNode;
 }) {
   const { scene } = useGLTF(modelUrl);
+  const figureTransform = useMemo(() => {
+    scene.updateWorldMatrix(true, true);
+    const bounds = new Box3().setFromObject(scene);
+    const size = bounds.getSize(new Vector3());
+    const center = bounds.getCenter(new Vector3());
+    const scale = size.y > 0 ? 1.9 / size.y : 1;
+    const brainPosition = resolveModelAnchor(scene, "brain") ?? [center.x, bounds.max.y - size.y * 0.15, center.z];
+    return {
+      position: [-center.x * scale, -center.y * scale, -center.z * scale] as [number, number, number],
+      scale,
+      brainPosition: brainPosition as [number, number, number],
+    };
+  }, [scene]);
+  const anatomyScene = useMemo(
+    () => showAnatomyBrain ? createAnatomyFigureScene(scene) : null,
+    [scene, showAnatomyBrain],
+  );
+  useEffect(() => () => {
+    if (anatomyScene) disposeAnatomyFigureScene(anatomyScene);
+  }, [anatomyScene]);
   const groupRef = useRef<any>(null);
 
   const onPointerDown = useCallback(
@@ -249,7 +278,16 @@ function PersonModel({
   return (
     <group ref={groupRef} position={MODEL_ROOT_POSITION}>
       {/* useGLTF caches scenes by URL; Clone gives each canvas its own Object3D tree. */}
-      <Clone object={scene} position={modelOffset} onPointerDown={onPointerDown} />
+      <group position={figureTransform.position} scale={figureTransform.scale}>
+        <Clone object={showAnatomyBrain && anatomyScene ? anatomyScene : scene} position={modelOffset} onPointerDown={onPointerDown} />
+        {showAnatomyBrain && (
+          <Brain
+            centerAt={figureTransform.brainPosition}
+            scale={ANATOMY_BRAIN_SCALE}
+            opacity={0.8}
+          />
+        )}
+      </group>
       {showSelectionHalo && selectedArea && <AreaMarker selectedArea={selectedArea} />}
       {!showSelectionHalo && visibleAreas?.map((area) => <AreaMarker key={area.name} selectedArea={area} onSelect={onAreaSelect} />)}
       {children}
@@ -291,6 +329,7 @@ export const Model3DPerson: React.FC<{
   visibleAreaNames?: string[];
   activeAreaName?: string;
   showSelectionHalo?: boolean;
+  anatomyView?: boolean;
   showTransformControls?: boolean;
   scrollRotate?: boolean;
   initialCameraPosition?: [number, number, number];
@@ -302,6 +341,7 @@ export const Model3DPerson: React.FC<{
   areas = [],
   visibleAreaNames,
   showSelectionHalo = true,
+  anatomyView = false,
   showTransformControls = true,
   scrollRotate = false,
   initialCameraPosition = DEFAULT_MODEL_CAMERA_POSITION,
@@ -327,6 +367,7 @@ export const Model3DPerson: React.FC<{
       modelUrl={modelUrl}
       modelOffset={modelOffset}
       showSelectionHalo={showSelectionHalo}
+      showAnatomyBrain={anatomyView}
       visibleAreas={visibleAreas}
       onAreaSelect={onAreaSelect}
     >
