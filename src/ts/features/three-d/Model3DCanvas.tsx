@@ -328,12 +328,43 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
   } = useHotspotEditor();
 
   const isEditMode = sidebarTab === "make-hotspots";
+  const modelContent = (
+    <Model
+      selectedArea={selectedArea}
+      isEditMode={isEditMode}
+      onAddHotspot={handleAddHotspot}
+      modelVariant={modelVariant}
+    >
+      {isEditMode && <HorizonFocusGlobe active />}
+
+      {!isEditMode &&
+        PHYSIOLOGY_AREAS.map((area) => (
+          <PhysiologyOrb
+            key={area.name}
+            area={area}
+            isSelected={selectedArea?.name === area.name}
+          />
+        ))}
+
+      {hotspots.map((hotspot) => (
+        <HotspotMarker
+          key={hotspot.id}
+          hotspot={hotspot}
+          onClick={() => handleHotspotClick(hotspot.id)}
+          isSelected={selectedHotspot === hotspot.id}
+          isMultiSelected={multiSelectedHotspots.includes(hotspot.id)}
+        />
+      ))}
+    </Model>
+  );
 
   return (
     <CanvasContainer style={{ width, height }}>
       <Canvas
         style={{ width: "100%", height: "100%" }}
         camera={{ position: MODEL_CAMERA_POSITION, fov: MODEL_FOV }}
+        dpr={[1, 1.5]}
+        frameloop="demand"
       >
         <RendererSizeSync />
         <Suspense fallback={null}>
@@ -386,40 +417,17 @@ export const Model3DCanvas: React.FC<Model3DCanvasProps> = ({
             <gridHelper args={[10, 10, "#333", "#222"]} position={[0, 0, 0]} />
           )}
 
-          <TransformControls mode="translate">
-            <Model
-              selectedArea={selectedArea}
-              isEditMode={isEditMode}
-              onAddHotspot={handleAddHotspot}
-              modelVariant={modelVariant}
-            >
-              <HorizonFocusGlobe active={isEditMode} />
-
-              {!isEditMode &&
-                PHYSIOLOGY_AREAS.map((area) => (
-                  <PhysiologyOrb
-                    key={area.name}
-                    area={area}
-                    isSelected={selectedArea?.name === area.name}
-                  />
-                ))}
-
-              {hotspots.map((hotspot) => (
-                <HotspotMarker
-                  key={hotspot.id}
-                  hotspot={hotspot}
-                  onClick={() => handleHotspotClick(hotspot.id)}
-                  isSelected={selectedHotspot === hotspot.id}
-                  isMultiSelected={multiSelectedHotspots.includes(hotspot.id)}
-                />
-              ))}
-            </Model>
-          </TransformControls>
+          {isEditMode ? (
+            <TransformControls mode="translate">{modelContent}</TransformControls>
+          ) : modelContent}
 
           <OrbitControls
             ref={controlsRef}
             makeDefault
             enableDamping
+            dampingFactor={0.12}
+            rotateSpeed={0.9}
+            zoomSpeed={1.15}
             target={MODEL_CAMERA_TARGET}
           />
         </Suspense>

@@ -1,14 +1,31 @@
 import { Object3D, Vector3 } from "three";
+import { MODEL_ROOT_POSITION } from "@n-apt/consts";
+
+// Bounds from human_ghost_expressive_underwear.glb. Model3DPerson normalizes
+// this asset to 1.9 units high and centers those bounds at MODEL_ROOT_POSITION.
+const MODEL_SOURCE_CENTER: [number, number, number] = [0, 1.023072, 0.0397485];
+const MODEL_SOURCE_HEIGHT = 2.057744;
+const MODEL_DISPLAY_SCALE = 1.9 / MODEL_SOURCE_HEIGHT;
+
+export function modelSourcePointToWorld(
+  point: [number, number, number],
+): [number, number, number] {
+  return [
+    MODEL_ROOT_POSITION[0] + (point[0] - MODEL_SOURCE_CENTER[0]) * MODEL_DISPLAY_SCALE,
+    MODEL_ROOT_POSITION[1] + (point[1] - MODEL_SOURCE_CENTER[1]) * MODEL_DISPLAY_SCALE,
+    MODEL_ROOT_POSITION[2] + (point[2] - MODEL_SOURCE_CENTER[2]) * MODEL_DISPLAY_SCALE,
+  ];
+}
 
 /** Rig anchors in the loaded asset's coordinate space, before viewer normalization.
- * Offsets are metres: +X right, +Y up, +Z forward. Apply the same parent
+ * Offsets are metres: +X toward the subject's left, +Y up, +Z toward the face.
+ * Apply the same parent
  * transform to the figure and its anchored objects. Center attached assets
  * before scaling them; never subtract an unscaled asset center from a target.
  */
 export const MODEL_ANCHORS = {
-  // The head joint starts near the base of the skull. The brain center sits
-  // higher in the cranial cavity, slightly forward of that joint.
-  brain: { bone: "head", offset: [0, 0.16, 0.025] },
+  // The brain center sits above the head joint and behind the facial plane.
+  brain: { bone: "head", offset: [0, 0.18, -0.085] },
   head: { bone: "head", offset: [0, 0, 0] },
   pelvis: { bone: "pelvis", offset: [0, 0, 0] },
   neck: { bone: "neck", offset: [0, 0, 0] },
