@@ -57,12 +57,14 @@ function Brain({
   return centerAt ? (
     <group position={centerAt} rotation={rotation} scale={scale}>
       <group position={[-sceneCenter.x, -sceneCenter.y, -sceneCenter.z]}>
-        <primitive object={displayScene}>{children}</primitive>
+        <primitive object={displayScene} />
+        <group position={sceneCenter}>{children}</group>
       </group>
     </group>
   ) : (
     <group position={position} rotation={rotation} scale={scale}>
-      <primitive object={displayScene}>{children}</primitive>
+      <primitive object={displayScene} />
+      {children}
     </group>
   );
 }

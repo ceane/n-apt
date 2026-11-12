@@ -13,8 +13,10 @@ type Area = {
   target: [number, number, number];
   markerPosition?: [number, number, number];
   markerPositions?: [number, number, number][];
+  markerPaths?: [number, number, number][][];
   markerRadius?: number;
   markerStyle?: "rotation";
+  surfaceNormal?: [number, number, number];
   highlightType?: "nerve" | "region";
   meshName: string;
 };

@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import styled from "styled-components";
-import { gsap } from "gsap";
+import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
 import { useModel3D } from "@n-apt/three-d/public/useModel3D";
 import { useHotspotEditor } from "@n-apt/three-d/public/useHotspotEditor";
 
@@ -11,17 +11,17 @@ type Area = {
   meshName: string;
 };
 
-export const PHYSIOLOGY_AREAS: Area[] = [
+const RAW_PHYSIOLOGY_AREAS: Area[] = [
   {
     name: "Head",
-    position: [0.0, 1.92, 0.48],
-    target: [0.0, 1.905, 0.0],
+    position: [0.0, 1.98, 0.48],
+    target: [0.0, 1.9, 0.05],
     meshName: "o_ADBody",
   },
   {
     name: "Face",
-    position: [0.0, 1.74, 0.56],
-    target: [0.0, 1.735, 0.12],
+    position: [0.0, 1.9, 0.56],
+    target: [0.0, 1.86, 0.12],
     meshName: "o_ADBody",
   },
   {
@@ -32,8 +32,8 @@ export const PHYSIOLOGY_AREAS: Area[] = [
   },
   {
     name: "Vocal Cords",
-    position: [0.0, 1.79, 0.32],
-    target: [0.0, 1.81, 0.06],
+    position: [0.0, 1.62, 0.32],
+    target: [0.0, 1.56, 0.06],
     meshName: "o_ADBody",
   },
   {
@@ -127,6 +127,12 @@ export const PHYSIOLOGY_AREAS: Area[] = [
     meshName: "o_ADBody",
   },
 ];
+
+export const PHYSIOLOGY_AREAS: Area[] = RAW_PHYSIOLOGY_AREAS.map((area) => ({
+  ...area,
+  position: modelSourcePointToWorld(area.position),
+  target: modelSourcePointToWorld(area.target),
+}));
 
 const AreaList = styled.div`
   display: grid;
@@ -235,30 +241,12 @@ interface BodyAreasSectionProps {
 }
 
 export const BodyAreasSection: React.FC<BodyAreasSectionProps> = ({ searchTerm = "" }) => {
-  const { selectedArea, setSelectedArea, controlsRef } = useModel3D();
+  const { selectedArea, setSelectedArea } = useModel3D();
   const { setSidebarTab } = useHotspotEditor();
 
   useEffect(() => {
     setSidebarTab("select-areas");
   }, [setSidebarTab]);
-
-  useEffect(() => {
-    if (selectedArea && selectedArea.meshName !== "brain" && controlsRef?.current) {
-      gsap.to(controlsRef.current.object.position, {
-        x: selectedArea.position[0],
-        y: selectedArea.position[1],
-        z: selectedArea.position[2],
-        duration: 1,
-      });
-      gsap.to(controlsRef.current.target, {
-        x: selectedArea.target[0],
-        y: selectedArea.target[1],
-        z: selectedArea.target[2],
-        duration: 1,
-        onUpdate: () => controlsRef.current.update(),
-      });
-    }
-  }, [selectedArea, controlsRef]);
 
   const searchAliases: Record<string, string> = {
     "Vocal Cords": "larynx voice speech phonation sound vocal folds singing talking",

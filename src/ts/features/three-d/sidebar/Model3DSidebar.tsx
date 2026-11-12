@@ -135,22 +135,24 @@ export const Model3DSidebar: React.FC = () => {
 
   const handleResetCamera = () => {
     if (controlsRef?.current) {
-      // Reset camera position and target with smooth animation
-      gsap.to(controlsRef.current.object.position, {
+      const controls = controlsRef.current;
+      gsap.killTweensOf(controls.object.position);
+      gsap.killTweensOf(controls.target);
+      gsap.to(controls.object.position, {
         x: MODEL_CAMERA_POSITION[0],
         y: MODEL_CAMERA_POSITION[1],
         z: MODEL_CAMERA_POSITION[2],
-        duration: 1,
+        duration: .42,
         ease: "power2.inOut",
       });
 
-      gsap.to(controlsRef.current.target, {
+      gsap.to(controls.target, {
         x: MODEL_CAMERA_TARGET[0],
         y: MODEL_CAMERA_TARGET[1],
         z: MODEL_CAMERA_TARGET[2],
-        duration: 1,
+        duration: .42,
         ease: "power2.inOut",
-        onUpdate: () => controlsRef.current.update(),
+        onUpdate: () => controls.update(),
       });
 
       // Also reset the selected area to null

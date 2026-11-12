@@ -1,7 +1,7 @@
-import React, { useEffect } from "react";
+import React, { useCallback, useMemo } from "react";
 import styled from "styled-components";
-import { gsap } from "gsap";
 import { BRAIN_POSITION, BRAIN_SCALE, MODEL_ROOT_POSITION } from "@n-apt/consts";
+import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
 import { useModel3D, type Area } from "@n-apt/three-d/public/useModel3D";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn/sidebar/BodyAreasSection";
 
@@ -23,9 +23,9 @@ const BRAIN_GLB_NODE_TRANSLATION = [-0.31977856, 1.750008, -0.5486296] as const;
 // These are educational regions, not one-to-one anatomical boundaries. Many
 // functional networks cross the named structures shown here.
 export const BRAIN_ANATOMY_CARDS: AnatomyCardData[] = [
-  brain("Frontal lobe", "Cerebral lobes", "Anterior cerebral cortex, in front of the central sulcus.", "Planning, voluntary movement, decision-making, working memory, and aspects of behavior and speech.", [0, .09, .12]),
-  brain("Prefrontal cortex", "Cerebral lobes", "The association cortex at the front of the frontal lobes.", "Executive control, planning, attention, working memory, behavioral regulation, and flexible decision-making.", [0, .13, .16]),
-  brain("Dorsolateral prefrontal cortex", "Cerebral lobes", "Lateral portions of the middle and inferior frontal gyri.", "Maintains and manipulates information, supports goal-directed attention, and helps organize multi-step actions.", [.11, .12, .08]),
+  brain("Frontal lobe", "Cerebral lobes", "Anterior cerebral cortex, in front of the central sulcus.", "Planning, voluntary movement, decision-making, working memory, and aspects of behavior and speech.", [0, .06, .16]),
+  brain("Prefrontal cortex", "Cerebral lobes", "The association cortex at the front of the frontal lobes.", "Executive control, planning, attention, working memory, behavioral regulation, and flexible decision-making.", [0, .075, .16]),
+  brain("Dorsolateral prefrontal cortex", "Cerebral lobes", "Lateral portions of the middle and inferior frontal gyri.", "Maintains and manipulates information, supports goal-directed attention, and helps organize multi-step actions.", [.11, .065, .08]),
   brain("Ventromedial prefrontal cortex", "Cerebral lobes", "Medial and lower prefrontal cortex, including parts of orbitofrontal cortex.", "Integrates value, emotion, and context during decisions; contributes to social judgment and regulation.", [0, .03, .16]),
   brain("Orbitofrontal cortex", "Cerebral lobes", "Cortex on the underside of the frontal lobes above the eye sockets.", "Evaluates reward, risk, and changing outcomes; helps adjust behavior when choices stop working.", [0, -.02, .17]),
   brain("Primary motor cortex", "Cerebral lobes", "Precentral gyrus, immediately in front of the central sulcus.", "Sends commands for voluntary movement. The body is represented in an approximate motor map, with extensive overlap.", [.13, .08, 0]),
@@ -123,7 +123,7 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Lumbosacral enlargement", "Spinal cord", "Widened cord region supporting lower-limb pathways.", "Connects leg and foot sensory and motor pathways through lumbar and sacral roots.", [0, 1.12, -.08]),
   nerve("Dorsal root and sensory ganglion", "Spinal cord", "Sensory nerve fibers enter the spinal cord through dorsal roots; cell bodies sit in dorsal root ganglia.", "Carries touch, pain, temperature, and body-position signals toward spinal and brain circuits.", [0, 1.35, -.2]),
   nerve("Ventral root", "Spinal cord", "Motor axons leave the spinal cord through ventral roots.", "Carries commands to skeletal muscle and preganglionic autonomic pathways.", [0, 1.35, -.2]),
-  nerve("Neuromuscular junction", "Muscle activation", "The synapse where a motor neuron communicates with a skeletal muscle fiber.", "Motor-neuron acetylcholine activates receptors on the muscle membrane, initiating the electrical signal that leads to contraction.", [.48, -.1, .35], ["NMJ", "motor end plate", "acetylcholine", "ACh", "muscle activation", "muscle contraction", "motor neuron", "skeletal muscle"]),
+  nerve("Neuromuscular junction", "Muscle activation", "The synapse where a motor neuron communicates with a skeletal muscle fiber.", "Motor-neuron acetylcholine activates receptors on the muscle membrane, initiating the electrical signal that leads to contraction.", [.3, -.16, .015], ["NMJ", "motor end plate", "acetylcholine", "ACh", "muscle activation", "muscle contraction", "motor neuron", "skeletal muscle"]),
   ...[
     ["I Olfactory", "Smell", "Carries odor information from the nasal lining to olfactory brain circuits."],
     ["II Optic", "Vision", "Carries retinal visual information; it is a central nervous system tract rather than a typical peripheral nerve."],
@@ -137,10 +137,10 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
     ["X Vagus", "Visceral and throat pathways", "Carries sensory and motor fibers for the throat, voice, and many chest and abdominal organs."],
     ["XI Accessory", "Neck and shoulder movement", "Supplies sternocleidomastoid and trapezius muscles for head turning and shoulder elevation."],
     ["XII Hypoglossal", "Tongue movement", "Controls most tongue muscles used for speech, chewing, and swallowing."],
-  ].map(([name, functionText], index) => nerve(`Cranial nerve ${name}`, "Cranial nerves", `Cranial nerve ${index + 1}; paired nerve emerging from the brain or brainstem.`, String(functionText), [0, 1.8 - index * .025, .4]) as AnatomyCardData),
+  ].map(([name, functionText], index) => nerve(`Cranial nerve ${name}`, "Cranial nerves", `Cranial nerve ${index + 1}; paired nerve emerging from the brain or brainstem.`, String(functionText), [0, index < 8 ? 1.78 : 1.66, .1]) as AnatomyCardData),
   nerve("Brachial plexus", "Nerve plexuses", "Network formed mainly by C5–T1 spinal nerve roots.", "Distributes motor and sensory fibers to the shoulder, arm, forearm, and hand.", [.2, 1.6, .2]),
   nerve("Cervical plexus", "Nerve plexuses", "Network formed mainly by C1–C4 ventral rami in the neck.", "Supplies parts of the neck and contributes the phrenic nerve to the diaphragm.", [0, 1.72, .1]),
-  nerve("Lumbar plexus", "Nerve plexuses", "Network formed mainly by L1–L4 ventral rami.", "Supplies the lower abdominal wall and much of the anterior and medial thigh.", [.1, 1.08, .15]),
+  nerve("Lumbar plexus", "Nerve plexuses", "Network formed mainly by L1–L4 ventral rami.", "Supplies the lower abdominal wall and much of the anterior and medial thigh.", [0, 1.08, .05]),
   nerve("Sacral plexus", "Nerve plexuses", "Network formed mainly by L4–S4 ventral rami.", "Supplies much of the pelvis, posterior thigh, lower leg, and foot.", [0, .8, -.15]),
   nerve("Phrenic nerve", "Major peripheral nerves", "Arises mainly from C3–C5 cervical roots and descends to each hemidiaphragm.", "Provides the primary motor supply for diaphragm contraction and carries sensory fibers from nearby membranes.", [0, 1.45, .25]),
   nerve("Radial nerve", "Major peripheral nerves", "Major branch of the brachial plexus running along the posterior arm and forearm.", "Supplies many arm and wrist extensor muscles and sensation over parts of the posterior limb and hand.", [.25, 1.3, .12]),
@@ -170,13 +170,13 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Depressor labii inferioris", "Facial expression muscles", "Muscle below the lower lip that draws it downward and outward.", "Helps move the lower lip during speech and facial expression.", [0, .1, .55], ["lower lip", "lip movement", "frown", "facial expression"]),
   nerve("Mentalis", "Facial expression muscles", "Paired chin muscles that raise and protrude the lower lip.", "Moves the lower lip and wrinkles the chin during pouting and other expressions.", [0, .06, .56], ["pout", "pouting", "protrude lower lip", "chin wrinkle", "facial expression"]),
   nerve("Masseter", "Facial and jaw muscles", "Powerful muscle over the side of the jaw, from the cheekbone to the mandible.", "Elevates the jaw to bite and chew; it also participates in clenching. It is not an emotion marker.", [0, .04, .43], ["chew", "chewing", "bite", "clench jaw", "jaw closing", "mastication", "grinding teeth"]),
-  nerve("Biceps brachii", "Muscles and movement", "Front of upper arm, crossing the shoulder and elbow.", "Bends the elbow and turns the palm upward. It contributes to a curl or lifting a light object with the elbow bent; other muscles share the work.", [.48, -.1, .35], ["curl", "curling", "bicep curl", "elbow flexion", "bend elbow", "lift", "lifting", "supination", "turn palm up", "bring cup to mouth"]),
-  nerve("Triceps brachii", "Muscles and movement", "Back of upper arm, with three heads spanning the shoulder or elbow.", "Straightens the elbow and assists some shoulder movements, such as pushing or extending the arm.", [.49, -.1, -.25], ["elbow extension", "straighten elbow", "push", "pushing", "press", "throw", "arm extension"]),
-  nerve("Deltoid", "Muscles and movement", "Large shoulder muscle with front, middle, and rear portions.", "Raises the arm away from the body and assists forward or backward arm movement depending on the portion recruited.", [.24, -.1, .25], ["raise arm", "lifting arm", "lift overhead", "shoulder abduction", "reach", "reaching", "arm raise"]),
-  nerve("Forearm flexor group", "Muscles and movement", "Forearm muscles on the palm side that move the wrist and fingers.", "Bends the wrist and fingers and helps close the hand for gripping, grasping, holding, and curling the fingers.", [.68, -.25, .18], ["grip", "gripping", "grab", "grabbing", "grasp", "grasping", "hold", "holding", "finger flexion", "wrist flexion", "make a fist"]),
-  nerve("Forearm extensor group", "Muscles and movement", "Forearm muscles on the back-of-hand side that extend the wrist and fingers.", "Straightens the wrist and fingers and helps release or open the hand after grasping.", [.68, -.25, -.15], ["open hand", "release grip", "let go", "finger extension", "wrist extension", "extend fingers"]),
-  nerve("Thenar muscles", "Muscles and movement", "Muscle group at the base of the thumb.", "Positions and moves the thumb, especially opposition used in pinching, picking up small objects, and tool use.", [.8, -.18, .42], ["thumb movement", "thumb opposition", "pinch", "pinching", "precision grip", "pick up", "manipulation"]),
-  nerve("Intrinsic hand muscles", "Muscles and movement", "Small muscles within the hand, including interossei and lumbricals.", "Fine-tune finger spacing, bending, and straightening for coordinated grasp, release, typing, and delicate manipulation.", [.8, -.18, .4], ["grabbing", "grasping", "finger control", "fine motor", "typing", "tactile exploration", "hand dexterity", "precision movement"]),
+  nerve("Biceps brachii", "Muscles and movement", "Front of upper arm, crossing the shoulder and elbow.", "Bends the elbow and turns the palm upward. It contributes to a curl or lifting a light object with the elbow bent; other muscles share the work.", [.34, -.1, .08], ["curl", "curling", "bicep curl", "elbow flexion", "bend elbow", "lift", "lifting", "supination", "turn palm up", "bring cup to mouth"]),
+  nerve("Triceps brachii", "Muscles and movement", "Back of upper arm, with three heads spanning the shoulder or elbow.", "Straightens the elbow and assists some shoulder movements, such as pushing or extending the arm.", [.34, -.1, -.08], ["elbow extension", "straighten elbow", "push", "pushing", "press", "throw", "arm extension"]),
+  nerve("Deltoid", "Muscles and movement", "Large shoulder muscle with front, middle, and rear portions.", "Raises the arm away from the body and assists forward or backward arm movement depending on the portion recruited.", [.22, -.16, .08], ["raise arm", "lifting arm", "lift overhead", "shoulder abduction", "reach", "reaching", "arm raise"]),
+  nerve("Forearm flexor group", "Muscles and movement", "Forearm muscles on the palm side that move the wrist and fingers.", "Bends the wrist and fingers and helps close the hand for gripping, grasping, holding, and curling the fingers.", [.68, -.25, .05], ["grip", "gripping", "grab", "grabbing", "grasp", "grasping", "hold", "holding", "finger flexion", "wrist flexion", "make a fist"]),
+  nerve("Forearm extensor group", "Muscles and movement", "Forearm muscles on the back-of-hand side that extend the wrist and fingers.", "Straightens the wrist and fingers and helps release or open the hand after grasping.", [.68, -.25, -.08], ["open hand", "release grip", "let go", "finger extension", "wrist extension", "extend fingers"]),
+  nerve("Thenar muscles", "Muscles and movement", "Muscle group at the base of the thumb.", "Positions and moves the thumb, especially opposition used in pinching, picking up small objects, and tool use.", [.84, -.14, .02], ["thumb movement", "thumb opposition", "pinch", "pinching", "precision grip", "pick up", "manipulation"]),
+  nerve("Intrinsic hand muscles", "Muscles and movement", "Small muscles within the hand, including interossei and lumbricals.", "Fine-tune finger spacing, bending, and straightening for coordinated grasp, release, typing, and delicate manipulation.", [.85, -.14, -.025], ["grabbing", "grasping", "finger control", "fine motor", "typing", "tactile exploration", "hand dexterity", "precision movement"]),
   nerve("Gluteus maximus", "Gluteal and deep hip muscles", "Large superficial muscle forming most of the buttock.", "Powerfully extends and rotates the hip, especially when standing from a chair, climbing stairs, running, or rising from a squat.", [0, -1.15, -.3], ["ass", "ass muscles", "butt", "buttock", "buttocks", "glutes", "stand up", "standing", "climb stairs", "hip extension", "squat", "rise", "walking uphill"]),
   nerve("Quadriceps group", "Muscles and movement", "Four muscles across the front of the thigh.", "Straightens the knee for standing, walking, climbing, kicking, and rising from a chair.", [0, -1.5, .25], ["knee extension", "straighten knee", "stand", "walking", "climbing stairs", "kick", "squat", "rise from chair"]),
   nerve("Rectus femoris", "Hip and thigh muscles", "Superficial quadriceps muscle that crosses both the hip and knee.", "Straightens the knee and assists hip flexion, such as lifting the thigh or kicking forward.", [0, -1.42, .25], ["kick", "straighten knee", "hip flexion", "lift thigh", "stairs", "quadriceps"]),
@@ -203,7 +203,7 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Quadratus femoris", "Gluteal and deep hip muscles", "Short, flat deep buttock muscle running from the ischium to the upper femur.", "Externally rotates the hip and assists adduction while stabilizing the hip joint.", [.04, -1.26, -.18], ["ass muscles", "buttock", "glutes", "deep buttock", "external rotation", "hip adduction", "turn thigh outward", "hip stability"]),
   nerve("Adductor longus", "Hip and thigh muscles", "A superficial muscle on the inner thigh running from the pubis toward the femur.", "Brings the thigh toward the body's midline and assists hip flexion.", [.08, -1.3, .18], ["adduction", "squeeze thighs", "cross legs", "bring leg inward", "hip flexion"]),
   nerve("Sartorius", "Hip and thigh muscles", "Long strap-like muscle that crosses diagonally from the outer hip to the inner knee.", "Assists hip flexion, abduction, and external rotation, and knee flexion; it contributes to the cross-legged sitting position.", [.13, -1.45, .25], ["cross legs", "sit cross-legged", "hip flexion", "knee bend", "leg movement"]),
-  nerve("Brachialis", "Arm and forearm muscles", "Deep muscle on the front of the upper arm, attaching the humerus to the ulna.", "A strong elbow flexor that bends the forearm regardless of whether the palm faces up or down.", [.48, -.08, .25], ["bend elbow", "elbow flexion", "curl", "lift", "bring hand toward shoulder"]),
+  nerve("Brachialis", "Arm and forearm muscles", "Deep muscle on the front of the upper arm, attaching the humerus to the ulna.", "A strong elbow flexor that bends the forearm regardless of whether the palm faces up or down.", [.36, -.08, .07], ["bend elbow", "elbow flexion", "curl", "lift", "bring hand toward shoulder"]),
   nerve("Trapezius", "Shoulder and back muscles", "Broad superficial muscle spanning the neck, upper back, and shoulder girdle.", "Its upper, middle, and lower fibers elevate, retract, depress, and rotate the scapula; it also assists neck extension.", [.25, .15, -.25], ["shrug", "shoulder elevation", "pull shoulders back", "scapular rotation", "neck extension", "posture"]),
   nerve("Pectoralis major", "Shoulder and back muscles", "Large fan-shaped chest muscle attaching the clavicle, sternum, and ribs to the upper arm.", "Brings the arm across the chest and assists shoulder flexion and inward rotation, as in pushing, hugging, or pressing.", [.28, -.1, .38], ["push", "push-up", "bench press", "hug", "arm across chest", "shoulder adduction", "internal rotation"]),
   nerve("Latissimus dorsi", "Shoulder and back muscles", "Broad lower-back muscle that attaches to the upper arm near the shoulder.", "Draws the arm down and back and rotates it inward, as in pulling, climbing, rowing, or swimming.", [.34, -.4, -.25], ["pull", "pull-up", "rowing", "climbing", "swimming", "shoulder extension", "arm down and back"]),
@@ -309,12 +309,74 @@ const CardName = styled.strong`font-size: 12px;`;
 const CardText = styled.span`font-size: 11px; line-height: 1.45; color: ${(p) => p.theme.textSecondary};`;
 const Empty = styled.div`padding: 12px; color: ${(p) => p.theme.textSecondary}; font-size: 12px;`;
 
+type AnatomyCardRowProps = {
+  card: AnatomyCardData;
+  area: Area;
+  isSelected: boolean;
+  setSelectedArea: (area: Area) => void;
+  setModelVariant: (variant: "human" | "brain" | "anatomy") => void;
+  selectRelatedArea: (name: string) => void;
+};
+
+const AnatomyCardRow = React.memo(function AnatomyCardRow({
+  card,
+  area,
+  isSelected,
+  setSelectedArea,
+  setModelVariant,
+  selectRelatedArea,
+}: AnatomyCardRowProps) {
+  return (
+    <CardItem>
+      <Card $selected={isSelected} aria-pressed={isSelected} onClick={() => {
+        setSelectedArea(area);
+        setModelVariant(card.model === "brain" ? "brain" : "anatomy");
+      }}>
+        <CardName>{card.name}</CardName>
+        <CardText>{card.description}</CardText>
+        <CardText><b>Function:</b> {card.function}</CardText>
+      </Card>
+      {card.relatedAreas?.length ? (
+        <RelatedSection>
+          <RelatedHeading>Related areas</RelatedHeading>
+          {card.relatedAreas.map((related) => (
+            <RelatedLink
+              key={`${card.name}-${related.name}`}
+              type="button"
+              onClick={() => selectRelatedArea(related.name)}
+              aria-label={`Focus ${related.name}, related by ${related.relation}`}
+            >
+              <RelatedName>{related.name}</RelatedName>
+              <RelatedReason>{related.relation}</RelatedReason>
+            </RelatedLink>
+          ))}
+        </RelatedSection>
+      ) : null}
+    </CardItem>
+  );
+});
+
 export function toModelArea(card: AnatomyCardData): Area {
   if (card.model === "human") {
-    const target: [number, number, number] = [card.offset[0], 1.7 + card.offset[1] * .5, card.offset[2]];
+    // Muscle and facial-card coordinates are offsets from the head/torso
+    // reference. Nervous-system cards store absolute model heights instead.
+    const localMuscleCoordinates = /muscle|movement|gluteal|thigh|lower leg|arm and forearm|shoulder and back|rotator cuff|forearm and hand|intrinsic hand|eye and eyelid|extraocular|throat|tongue/i.test(card.group);
+    const cranialNerve = card.group === "Cranial nerves";
+    const targetY = cranialNerve
+      ? 1.78
+      : localMuscleCoordinates
+        ? 1.7 + card.offset[1] * .5
+        : card.offset[1] >= 0
+          ? card.offset[1]
+          : 1.7 + card.offset[1] * .5;
+    const target = modelSourcePointToWorld([
+      card.offset[0],
+      targetY,
+      cranialNerve ? -0.04 : card.offset[2],
+    ]);
     const nerveLike = /cranial nerves|nerve plexuses|peripheral nerves|spinal cord|autonomic pathways|sensory pathways|skin sensation maps/i.test(card.group)
       || /nervous system|cranial nerve|nerve|plexus|dermatome|cutaneous|ganglion|tract|pathway/i.test(card.name);
-    return { name: card.name, position: [target[0], target[1] + .12, target[2] + .6], target, meshName: "o_ADBody", highlightType: nerveLike ? "nerve" : "region" };
+    return { name: card.name, position: [target[0], target[1] + .12, target[2] + 2.6], target, meshName: "o_ADBody", highlightType: nerveLike ? "nerve" : "region" };
   }
   const center: [number, number, number] = [
     MODEL_ROOT_POSITION[0] + BRAIN_POSITION[0] + BRAIN_GLB_NODE_TRANSLATION[0] * BRAIN_SCALE[0],
@@ -322,7 +384,7 @@ export function toModelArea(card: AnatomyCardData): Area {
     MODEL_ROOT_POSITION[2] + BRAIN_POSITION[2] + BRAIN_GLB_NODE_TRANSLATION[2] * BRAIN_SCALE[2],
   ];
   const target: [number, number, number] = [center[0] + card.offset[0] * BRAIN_SCALE[0], center[1] + card.offset[1] * BRAIN_SCALE[1], center[2] + card.offset[2] * BRAIN_SCALE[2]];
-  return { name: card.name, position: [target[0], target[1], target[2] + .45], target, meshName: "brain" };
+  return { name: card.name, position: [target[0], target[1], target[2] + .45], target, markerPosition: [...card.offset], meshName: "brain" };
 }
 
 export function toBrainViewerPoint(target: [number, number, number]): [number, number, number] {
@@ -520,56 +582,86 @@ const RELATED_AREAS_BY_CARD: Record<string, { name: string; relation: string }[]
 };
 
 export const AnatomyCardsSection: React.FC<{ kind: "brain" | "nervous"; searchTerm: string }> = ({ kind, searchTerm }) => {
-  const { selectedArea, setSelectedArea, setModelVariant, controlsRef, modelVariant } = useModel3D();
-  const allCards = [...BRAIN_ANATOMY_CARDS, ...NERVOUS_SYSTEM_CARDS];
-  const source = (kind === "brain" ? BRAIN_ANATOMY_CARDS : NERVOUS_SYSTEM_CARDS).map((card) => {
+  const { selectedArea, setSelectedArea, setModelVariant } = useModel3D();
+  const allCardsByName = useMemo(() => new Map<string, AnatomyCardData>(
+    [...BRAIN_ANATOMY_CARDS, ...NERVOUS_SYSTEM_CARDS].map((card) => [card.name, card] as [string, AnatomyCardData]),
+  ), []);
+  const source = useMemo(() => (kind === "brain" ? BRAIN_ANATOMY_CARDS : NERVOUS_SYSTEM_CARDS).map((card) => {
     const semanticTags = SEMANTIC_TAGS_BY_CARD[card.name];
     return {
       ...card,
       tags: [...card.tags, ...(semanticTags ?? [])],
       relatedAreas: [...(card.relatedAreas ?? []), ...(RELATED_AREAS_BY_CARD[card.name] ?? [])],
     };
-  });
-  const aliases = (card: AnatomyCardData) => {
+  }), [kind]);
+  const aliases = useCallback((card: AnatomyCardData) => {
     const name = card.name.toLowerCase();
     if (name.includes("auditory") || name.includes("hearing") || name.includes("vestibulocochlear") || name.includes("brodmann area 41") || name.includes("brodmann area 42")) return "audio sound hearing listening ear";
     if (name.includes("laryngeal") || name.includes("vocal")) return "larynx voice speech phonation vocal folds sound";
     return "";
-  };
-  const searchableText = (card: AnatomyCardData) => {
+  }, []);
+  const searchableText = useMemo(() => {
+    const textByName = new Map<string, string>();
+    const describe = (card: AnatomyCardData) => {
     const relatedContext = (card.relatedAreas ?? []).map((related) => {
-      const target = allCards.find((candidate) => candidate.name === related.name);
+      const target = allCardsByName.get(related.name);
       return `${related.name} ${related.relation} ${target?.description ?? ""} ${target?.function ?? ""} ${target?.tags.join(" ") ?? ""} ${SEMANTIC_TAGS_BY_CARD[related.name]?.join(" ") ?? ""}`;
     }).join(" ");
     return `${card.name} ${card.group} ${card.description} ${card.function} ${card.tags.join(" ")} ${aliases(card)} ${relatedContext}`.toLowerCase();
-  };
-  const filtered = source.filter((card) => searchableText(card).includes(searchTerm.trim().toLowerCase()));
-  const groups = [...new Set(filtered.map((card) => card.group))];
+    };
+    source.forEach((card) => textByName.set(card.name, describe(card)));
+    return textByName;
+  }, [allCardsByName, aliases, source]);
+  const filtered = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return source.filter((card) => searchableText.get(card.name)?.includes(query));
+  }, [searchTerm, searchableText, source]);
+  const groupedCards = useMemo(() => {
+    const grouped = new Map<string, AnatomyCardData[]>();
+    filtered.forEach((card) => {
+      const group = grouped.get(card.group) ?? [];
+      group.push(card);
+      grouped.set(card.group, group);
+    });
+    return [...grouped.entries()];
+  }, [filtered]);
+  const areasByName = useMemo(() => new Map<string, Area>(
+    source.map((card) => [card.name, toModelArea(card)] as [string, Area]),
+  ), [source]);
 
-  const selectRelatedArea = (name: string) => {
-    const linkedCard = allCards.find((card) => card.name === name);
+  const selectRelatedArea = useCallback((name: string) => {
+    const linkedCard = allCardsByName.get(name);
     if (linkedCard) {
       setSelectedArea(toModelArea(linkedCard));
-      setModelVariant(linkedCard.model);
+      setModelVariant(linkedCard.model === "brain" ? "brain" : "anatomy");
       return;
     }
     const bodyArea = PHYSIOLOGY_AREAS.find((area) => area.name === name);
     if (bodyArea) {
       setSelectedArea(bodyArea);
-      setModelVariant("human");
+      setModelVariant("anatomy");
     }
-  };
-
-  useEffect(() => {
-    if (!selectedArea || selectedArea.meshName === "brain" || !controlsRef.current) return;
-    gsap.to(controlsRef.current.target, { x: selectedArea.target[0], y: selectedArea.target[1], z: selectedArea.target[2], duration: .7, onUpdate: () => controlsRef.current?.update() });
-    gsap.to(controlsRef.current.object.position, { x: selectedArea.position[0], y: selectedArea.position[1], z: selectedArea.position[2], duration: .7, onUpdate: () => controlsRef.current?.update() });
-  }, [controlsRef, modelVariant, selectedArea]);
+  }, [allCardsByName, setModelVariant, setSelectedArea]);
 
   if (!filtered.length) return <Empty>No {kind === "brain" ? "brain" : "nervous system"} cards match “{searchTerm}”.</Empty>;
-  return <SectionList>{groups.map((group) => <Group key={group}><GroupTitle>{group}</GroupTitle>{filtered.filter((card) => card.group === group).map((card) => {
-    const area = toModelArea(card);
-    const isSelected = selectedArea?.name === card.name;
-    return <CardItem key={card.name}><Card $selected={isSelected} aria-pressed={isSelected} onClick={() => { setSelectedArea(area); setModelVariant(card.model); }}><CardName>{card.name}</CardName><CardText>{card.description}</CardText><CardText><b>Function:</b> {card.function}</CardText></Card>{card.relatedAreas?.length ? <RelatedSection><RelatedHeading>Related areas</RelatedHeading>{card.relatedAreas.map((related) => <RelatedLink key={`${card.name}-${related.name}`} type="button" onClick={() => selectRelatedArea(related.name)} aria-label={`Focus ${related.name}, related by ${related.relation}`}><RelatedName>{related.name}</RelatedName><RelatedReason>{related.relation}</RelatedReason></RelatedLink>)}</RelatedSection> : null}</CardItem>;
-  })}</Group>)}</SectionList>;
+  return (
+    <SectionList>
+      {groupedCards.map(([group, cards]) => (
+        <Group key={group}>
+          <GroupTitle>{group}</GroupTitle>
+          {cards.map((card) => (
+            <AnatomyCardRow
+              key={card.name}
+              card={card}
+              area={areasByName.get(card.name)!}
+              isSelected={selectedArea?.name === card.name}
+              setSelectedArea={setSelectedArea}
+              setModelVariant={setModelVariant}
+              selectRelatedArea={selectRelatedArea}
+            />
+          ))}
+        </Group>
+      ))}
+    </SectionList>
+  );
 };
