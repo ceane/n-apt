@@ -50,16 +50,21 @@ const SectionDescription = styled.div`
 `;
 
 const SearchWrap = styled.label`
+  position: sticky;
+  top: 10px;
+  z-index: 20;
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
+  margin: 2px 0 8px;
   border: 1px solid ${(props) => props.theme.border};
   border-radius: 8px;
   color: ${(props) => props.theme.textSecondary};
   background: ${(props) => props.theme.surface};
+  box-shadow: 0 4px 12px rgba(12, 18, 28, 0.08);
   &:focus-within { border-color: ${(props) => props.theme.primary}; }
 `;
 

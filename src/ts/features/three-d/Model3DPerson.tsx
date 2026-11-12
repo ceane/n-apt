@@ -1,15 +1,13 @@
-import React, { Suspense, useRef, useCallback, useEffect } from "react";
+import React, { Suspense, useRef, useCallback, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Clone, OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
-import { Vector3 } from "three";
+import { CatmullRomCurve3, SphereGeometry, TubeGeometry, Vector3 } from "three";
 import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/three-d";
 import { useHotspotEditor } from "@n-apt/three-d/hooks/useHotspotEditor";
 import { useModel3D, type Area } from "@n-apt/three-d/hooks/useModel3D";
 import { attachModelWheelRotation } from "@n-apt/three-d/modelWheelRotation";
-import { rotationMarkerArrowHead, rotationMarkerOrbits } from "@n-apt/three-d/rotationMarkerGeometry";
-import { PHYSIOLOGY_AREAS } from "@n-apt/learn";
 import {
   MODEL_AMBIENT_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_INTENSITY,
@@ -22,9 +20,6 @@ import {
   MODEL_KEY_LIGHT_INTENSITY,
   MODEL_KEY_LIGHT_POSITION,
   MODEL_ROOT_POSITION,
-  SPHERE_GEOMETRY_SEGMENTS,
-  SPHERE_MARKER_BASE_INTENSITY,
-  SPHERE_MARKER_COLOR,
 } from "@n-apt/consts";
 import { useTheme } from "styled-components";
 
@@ -93,156 +88,80 @@ function ModelScrollRotation({ enabled }: { enabled: boolean }) {
   return null;
 }
 
-function PhysiologyOrb({
-  area,
-  isActive,
-  onSelect,
-}: {
-  area: Area;
-  isActive: boolean;
-  onSelect?: (area: Area) => void;
-}) {
-  const markerPositions = area.markerPositions ?? [area.markerPosition ?? area.target];
-  const compactRadiusByArea: Record<string, number> = {
-    Head: 0.015,
-    Face: 0.017,
-    "Ears (Left)": 0.014,
-    "Ears (Right)": 0.014,
-    Throat: 0.003,
-  };
-  const normalRadius = 0.032;
-  const baseRadius =
-    (area.markerRadius ?? compactRadiusByArea[area.name] ?? normalRadius) * (isActive ? 1.55 : 1);
-  const color = isActive ? "#2563eb" : "#9ca3af";
-  const baseOpacity = isActive ? 0.95 : 0.68;
-
-  if (area.markerStyle === "rotation") {
-    const position = area.markerPosition ?? area.target;
-    const arrowRadius = area.markerRadius ?? 0.035;
-    const [frontOrbit, sideOrbit] = rotationMarkerOrbits(arrowRadius);
-    const arrowHead = rotationMarkerArrowHead(frontOrbit.radius, frontOrbit.arc);
-    const sideArrowHead = rotationMarkerArrowHead(sideOrbit.radius, sideOrbit.arc);
-    const arrowMaterial = {
-      color,
-      emissive: color,
-      emissiveIntensity: isActive ? 1.1 : 0.35,
-      transparent: true,
-      opacity: isActive ? 0.96 : 0.72,
-    } as const;
-    return (
-      <group
-        position={worldToModelLocal(position)}
-        onClick={onSelect ? (event) => {
-          event.stopPropagation();
-          onSelect(area);
-        } : undefined}
-      >
-        <mesh>
-          <sphereGeometry args={[arrowRadius * 1.85, 20, 20]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={isActive ? 0.45 : 0.12} transparent opacity={isActive ? 0.13 : 0.07} depthWrite={false} />
-        </mesh>
-        <group position={frontOrbit.offset} rotation={frontOrbit.rotation} scale={frontOrbit.scale}>
-          <mesh>
-            <torusGeometry args={[frontOrbit.radius, frontOrbit.tubeRadius, 10, 64, frontOrbit.arc]} />
-            <meshStandardMaterial {...arrowMaterial} />
-          </mesh>
-          <mesh position={arrowHead.position} rotation={[0, 0, arrowHead.rotationZ]}>
-            <coneGeometry args={[arrowHead.radius, arrowHead.height, 24]} />
-            <meshStandardMaterial {...arrowMaterial} />
-          </mesh>
-        </group>
-        <group position={sideOrbit.offset} rotation={sideOrbit.rotation} scale={sideOrbit.scale}>
-          <mesh>
-            <torusGeometry args={[sideOrbit.radius, sideOrbit.tubeRadius, 10, 64, sideOrbit.arc]} />
-            <meshStandardMaterial {...arrowMaterial} />
-          </mesh>
-          <mesh position={sideArrowHead.position} rotation={[0, 0, sideArrowHead.rotationZ]}>
-            <coneGeometry args={[sideArrowHead.radius, sideArrowHead.height, 24]} />
-            <meshStandardMaterial {...arrowMaterial} />
-          </mesh>
-        </group>
-      </group>
-    );
+function createOrganicGeometry() {
+  const geometry = new SphereGeometry(1, 40, 28);
+  const positions = geometry.attributes.position;
+  const vertex = new Vector3();
+  for (let i = 0; i < positions.count; i += 1) {
+    vertex.fromBufferAttribute(positions, i).normalize();
+    const wobble = 1 + 0.075 * Math.sin(vertex.x * 7 + vertex.y * 3) * Math.cos(vertex.z * 5 - vertex.y * 4);
+    positions.setXYZ(i, vertex.x * wobble, vertex.y * wobble, vertex.z * wobble);
   }
-
-  return (
-    <>{markerPositions.map((position, index) => <group
-      key={index}
-      position={worldToModelLocal(position)}
-      onClick={onSelect ? (event) => {
-        event.stopPropagation();
-        onSelect(area);
-      } : undefined}
-    >
-      <mesh>
-        <sphereGeometry args={[baseRadius, 16, 16]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={isActive ? 1.5 : 0.35}
-          transparent
-          opacity={baseOpacity}
-        />
-      </mesh>
-      <mesh>
-        <sphereGeometry args={[baseRadius * 1.8, 16, 16]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={isActive ? 0.6 : 0.12}
-          transparent
-          opacity={isActive ? 0.2 : 0.08}
-        />
-      </mesh>
-    </group>)}</>
-  );
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
-function AreaMarker({ selectedArea }: { selectedArea: Area }) {
-  const markerPosition = worldToModelLocal(selectedArea.markerPosition ?? selectedArea.target);
+function regionScale(name: string): [number, number, number] {
+  const lower = name.toLowerCase();
+  if (/face|head|ear|eye|mouth|jaw|brow|eyelid/.test(lower)) return [0.052, 0.07, 0.014];
+  if (/arm|forearm|biceps|triceps|hand|finger|wrist|palm/.test(lower)) return [0.05, 0.10, 0.014];
+  if (/leg|thigh|calf|knee|foot|ankle|toe|glute|buttock/.test(lower)) return [0.055, 0.11, 0.016];
+  if (/torso|chest|back|abdomen|stomach|heart|diaphragm/.test(lower)) return [0.085, 0.095, 0.017];
+  if (/throat|larynx|tongue|vocal/.test(lower)) return [0.035, 0.05, 0.012];
+  return [0.05, 0.07, 0.014];
+}
 
-  if (selectedArea.name === "Head" || selectedArea.markerPositions) return null;
-
+function RegionHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Area) => void }) {
+  const geometry = useMemo(createOrganicGeometry, []);
+  const center = worldToModelLocal(area.markerPosition ?? area.target);
+  const scale = regionScale(area.name);
+  useEffect(() => () => geometry.dispose(), [geometry]);
   return (
-    <group position={markerPosition}>
-      <mesh>
-        <sphereGeometry
-          args={[0.04, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-        />
-        <meshStandardMaterial
-          color={SPHERE_MARKER_COLOR}
-          emissive={SPHERE_MARKER_COLOR}
-          emissiveIntensity={SPHERE_MARKER_BASE_INTENSITY}
-          transparent
-          opacity={0.5}
-        />
+    <group position={center} scale={scale} onClick={onSelect ? (event) => { event.stopPropagation(); onSelect(area); } : undefined}>
+      <mesh geometry={geometry}>
+        <meshBasicMaterial color="#3bdcff" transparent opacity={0.24} depthWrite={false} toneMapped={false} />
       </mesh>
-      <mesh>
-        <sphereGeometry
-          args={[0.08, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-        />
-        <meshStandardMaterial
-          color={SPHERE_MARKER_COLOR}
-          emissive={SPHERE_MARKER_COLOR}
-          emissiveIntensity={0.3}
-          transparent
-          opacity={0.12}
-        />
-      </mesh>
-      <mesh>
-        <sphereGeometry
-          args={[0.12, SPHERE_GEOMETRY_SEGMENTS, SPHERE_GEOMETRY_SEGMENTS]}
-        />
-        <meshStandardMaterial
-          color={SPHERE_MARKER_COLOR}
-          emissive={SPHERE_MARKER_COLOR}
-          emissiveIntensity={0.15}
-          transparent
-          opacity={0.06}
-        />
+      <mesh geometry={geometry} scale={1.2}>
+        <meshBasicMaterial color="#22cfff" transparent opacity={0.09} depthWrite={false} side={2} toneMapped={false} />
       </mesh>
     </group>
   );
+}
+
+function NerveHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Area) => void }) {
+  const center = worldToModelLocal(area.markerPosition ?? area.target);
+  const paths = useMemo(() => {
+    const lowerLimb = /sciatic|femoral|tibial|fibular|sural|saphenous|sacral|lumbar|leg|foot/i.test(area.name);
+    const upperLimb = /brachial|radial|ulnar|median|musculocutaneous|hand|arm/i.test(area.name);
+    const length = lowerLimb ? 0.42 : upperLimb ? 0.34 : 0.24;
+    const branch = lowerLimb ? 0.11 : upperLimb ? 0.09 : 0.075;
+    const yDir = lowerLimb ? -1 : 1;
+    const definitions: [number, number, number][][] = [
+      [[0, length * yDir, 0], [0.015, length * 0.48 * yDir, 0.005], [0, 0, 0.012], [-0.012, -length * 0.48 * yDir, 0.006], [0, -length * yDir, 0]],
+      [[0, 0, 0.012], [branch, length * 0.15 * yDir, 0.01], [branch * 1.45, length * 0.34 * yDir, 0.006]],
+      [[0, -length * 0.12 * yDir, 0.014], [-branch, -length * 0.26 * yDir, 0.009], [-branch * 1.35, -length * 0.43 * yDir, 0.004]],
+    ];
+    return definitions.map((points, index) => new TubeGeometry(
+      new CatmullRomCurve3(points.map(([x, y, z]) => new Vector3(x, y, z))),
+      24,
+      index === 0 ? 0.009 : 0.005,
+      8,
+      false,
+    ));
+  }, [area.name]);
+  useEffect(() => () => paths.forEach((path) => path.dispose()), [paths]);
+  return (
+    <group position={[center[0], center[1], center[2] + 0.018]} onClick={onSelect ? (event) => { event.stopPropagation(); onSelect(area); } : undefined}>
+      {paths.map((geometry, index) => <mesh key={index} geometry={geometry}>
+        <meshBasicMaterial color="#43e5ff" transparent opacity={index === 0 ? 0.94 : 0.76} toneMapped={false} />
+      </mesh>)}
+    </group>
+  );
+}
+
+function AreaMarker({ selectedArea, onSelect }: { selectedArea: Area; onSelect?: (area: Area) => void }) {
+  if (selectedArea.highlightType === "nerve") return <NerveHighlight area={selectedArea} onSelect={onSelect} />;
+  return <RegionHighlight area={selectedArea} onSelect={onSelect} />;
 }
 
 function HotspotMarker({
@@ -298,6 +217,8 @@ function PersonModel({
   modelUrl,
   modelOffset,
   showSelectionHalo,
+  visibleAreas,
+  onAreaSelect,
   children,
 }: {
   selectedArea: Area | null;
@@ -306,6 +227,8 @@ function PersonModel({
   modelUrl: string;
   modelOffset: [number, number, number];
   showSelectionHalo: boolean;
+  visibleAreas?: Area[];
+  onAreaSelect?: (area: Area) => void;
   children?: React.ReactNode;
 }) {
   const { scene } = useGLTF(modelUrl);
@@ -328,6 +251,7 @@ function PersonModel({
       {/* useGLTF caches scenes by URL; Clone gives each canvas its own Object3D tree. */}
       <Clone object={scene} position={modelOffset} onPointerDown={onPointerDown} />
       {showSelectionHalo && selectedArea && <AreaMarker selectedArea={selectedArea} />}
+      {!showSelectionHalo && visibleAreas?.map((area) => <AreaMarker key={area.name} selectedArea={area} onSelect={onAreaSelect} />)}
       {children}
     </group>
   );
@@ -375,16 +299,15 @@ export const Model3DPerson: React.FC<{
   onAreaSelect,
   modelUrl = HUMAN_MODEL_AFRO_MALE_GLB_URL,
   modelOffset = [0, 0, 0],
-  areas = PHYSIOLOGY_AREAS,
+  areas = [],
   visibleAreaNames,
-  activeAreaName,
   showSelectionHalo = true,
   showTransformControls = true,
   scrollRotate = false,
   initialCameraPosition = DEFAULT_MODEL_CAMERA_POSITION,
   initialCameraTarget = DEFAULT_MODEL_CAMERA_TARGET,
 }) => {
-  const { selectedArea, controlsRef, setSelectedArea } = useModel3D();
+  const { selectedArea, controlsRef } = useModel3D();
   const {
     hotspots,
     selectedHotspot,
@@ -395,14 +318,7 @@ export const Model3DPerson: React.FC<{
     multiSelectedHotspots,
   } = useHotspotEditor();
   const isEditMode = sidebarTab === "make-hotspots";
-  const handleAreaSelect = useCallback((area: Area) => {
-    setSelectedArea(area);
-    onAreaSelect?.(area);
-  }, [onAreaSelect, setSelectedArea]);
-  const visibleAreas = visibleAreaNames
-    ? areas.filter((area) => visibleAreaNames.includes(area.name))
-    : areas;
-  const currentActiveAreaName = activeAreaName ?? selectedArea?.name;
+  const visibleAreas = visibleAreaNames ? areas.filter((area) => visibleAreaNames.includes(area.name)) : [];
   const personModel = (
     <PersonModel
       selectedArea={selectedArea}
@@ -411,17 +327,10 @@ export const Model3DPerson: React.FC<{
       modelUrl={modelUrl}
       modelOffset={modelOffset}
       showSelectionHalo={showSelectionHalo}
+      visibleAreas={visibleAreas}
+      onAreaSelect={onAreaSelect}
     >
       <HorizonFocusGlobe active={isEditMode} />
-      {!isEditMode &&
-        visibleAreas.map((area) => (
-          <PhysiologyOrb
-            key={area.name}
-            area={area}
-            isActive={currentActiveAreaName === area.name}
-            onSelect={handleAreaSelect}
-          />
-        ))}
       {hotspots.map((hotspot) => (
         <HotspotMarker
           key={hotspot.id}
