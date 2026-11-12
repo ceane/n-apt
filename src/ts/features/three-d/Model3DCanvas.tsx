@@ -1,15 +1,21 @@
-import React, { Suspense, useRef, useCallback, useEffect } from "react";
+import React, { Suspense, useRef, useCallback, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, TransformControls } from "@react-three/drei";
 import { Vector3 } from "three";
 import Brain from "@n-apt/three-d/Brain";
 import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
+import {
+  createAnatomyFigureScene,
+  disposeAnatomyFigureScene,
+} from "@n-apt/three-d/anatomyScene";
 import { HUMAN_MODEL_AFRO_MALE_GLB_URL } from "@n-apt/three-d";
 import { useModel3D, type Area } from "@n-apt/three-d/hooks/useModel3D";
 import { useHotspotEditor } from "@n-apt/three-d/hooks/useHotspotEditor";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn";
 import {
+  ANATOMY_BRAIN_POSITION,
+  ANATOMY_BRAIN_SCALE,
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
   MODEL_FOV,
@@ -224,10 +230,17 @@ function Model({
   selectedArea: Area | null;
   isEditMode: boolean;
   onAddHotspot: (point: Vector3) => void;
-  modelVariant: "human" | "brain";
+  modelVariant: "human" | "brain" | "anatomy";
   children?: React.ReactNode;
 }) {
   const { scene } = useGLTF(HUMAN_MODEL_AFRO_MALE_GLB_URL);
+  const anatomyScene = useMemo(
+    () => modelVariant === "anatomy" ? createAnatomyFigureScene(scene) : null,
+    [scene, modelVariant],
+  );
+  useEffect(() => () => {
+    if (anatomyScene) disposeAnatomyFigureScene(anatomyScene);
+  }, [anatomyScene]);
   const groupRef = useRef<any>(null);
 
   const onPointerDown = useCallback(
@@ -247,7 +260,19 @@ function Model({
       {modelVariant === "brain" ? (
         <Brain />
       ) : (
-        <primitive object={scene} onPointerDown={onPointerDown} />
+        <>
+          <primitive
+            object={modelVariant === "anatomy" && anatomyScene ? anatomyScene : scene}
+            onPointerDown={onPointerDown}
+          />
+          {modelVariant === "anatomy" && (
+            <Brain
+              position={ANATOMY_BRAIN_POSITION}
+              scale={ANATOMY_BRAIN_SCALE}
+              opacity={0.8}
+            />
+          )}
+        </>
       )}
       {selectedArea && <AreaMarker selectedArea={selectedArea} />}
       {children}

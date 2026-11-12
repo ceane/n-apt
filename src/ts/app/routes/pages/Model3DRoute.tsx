@@ -9,7 +9,11 @@ export const Model3DRoute: React.FC = () => {
 
   return (
     <MainContent data-testid="model3d-route">
-      {modelVariant === "brain" ? <Model3DBrain /> : <Model3DPerson />}
+      {modelVariant === "brain" ? (
+        <Model3DBrain />
+      ) : (
+        <Model3DPerson anatomyView={modelVariant === "anatomy"} />
+      )}
     </MainContent>
   );
 };

@@ -14,7 +14,7 @@ import {
 import { BodyAreasSection, AnatomyCardsSection } from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
-import { Collapsible } from "@n-apt/ui";
+import { Collapsible, SidebarSubsectionList } from "@n-apt/ui";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
@@ -25,12 +25,6 @@ const Section = styled.div`
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   gap: inherit;
-`;
-
-const AnatomySections = styled.div`
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 12px;
 `;
 
 const RouteContent = styled.div`
@@ -211,7 +205,11 @@ export const Model3DSidebar: React.FC = () => {
           icon={<Blend size={16} />}
           label="Psychology /"
           onOpenChange={(isOpen) => {
-            setModelVariant(isOpen ? "brain" : "human");
+            if (!isOpen) {
+              setModelVariant("human");
+            } else {
+              setModelVariant("brain");
+            }
           }}
         >
           <SectionDescription>
@@ -219,16 +217,30 @@ export const Model3DSidebar: React.FC = () => {
           </SectionDescription>
         </Collapsible>
 
-        <Collapsible icon={<Bone size={16} />} label="Anatomy /" defaultOpen>
+        <Collapsible
+          icon={<Bone size={16} />}
+          label="Anatomy /"
+          onOpenChange={(isOpen) => {
+            if (!isOpen) {
+              setModelVariant("human");
+              return;
+            }
+            setModelVariant("anatomy");
+            setSelectedArea(null);
+          }}
+        >
           <SectionDescription>
             Brain regions and the nervous system, with functions and model focus.
           </SectionDescription>
-          <AnatomySections>
+          <SidebarSubsectionList aria-label="Anatomy subsections">
             <Collapsible
               icon={<Brain size={15} />}
               label="Brain"
               open={searchTerm.trim() ? true : undefined}
-              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("brain"); }}
+              onOpenChange={(isOpen) => {
+                setModelVariant(isOpen ? "brain" : "anatomy");
+                if (!isOpen) setSelectedArea(null);
+              }}
             >
               <AnatomyCardsSection kind="brain" searchTerm={searchTerm} />
             </Collapsible>
@@ -236,11 +248,11 @@ export const Model3DSidebar: React.FC = () => {
               icon={<Network size={15} />}
               label="Nervous System"
               open={searchTerm.trim() ? true : undefined}
-              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("human"); }}
+              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("anatomy"); }}
             >
               <AnatomyCardsSection kind="nervous" searchTerm={searchTerm} />
             </Collapsible>
-          </AnatomySections>
+          </SidebarSubsectionList>
         </Collapsible>
 
         <Collapsible icon={<NotebookPen size={16} />} label="Effects /">
