@@ -15,6 +15,7 @@ type Area = {
   markerPositions?: [number, number, number][];
   markerRadius?: number;
   markerStyle?: "rotation";
+  highlightType?: "nerve" | "region";
   meshName: string;
 };
 

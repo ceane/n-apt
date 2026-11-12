@@ -20,8 +20,8 @@ export const PHYSIOLOGY_AREAS: Area[] = [
   },
   {
     name: "Face",
-    position: [0.0, 1.84, 0.56],
-    target: [0.0, 1.835, 0.12],
+    position: [0.0, 1.74, 0.56],
+    target: [0.0, 1.735, 0.12],
     meshName: "o_ADBody",
   },
   {
@@ -130,7 +130,7 @@ export const PHYSIOLOGY_AREAS: Area[] = [
 
 const AreaList = styled.div`
   display: grid;
-  gap: 6px;
+  gap: 8px;
   overflow-y: auto;
   padding-right: 4px;
   box-sizing: border-box;

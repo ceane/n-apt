@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect } from "react";
+import React, { Suspense, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
@@ -7,6 +7,7 @@ import { CoronaScene } from "@n-apt/learn";
 import { toBrainViewerPoint } from "@n-apt/learn/sidebar/AnatomyCardsSection";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
 import { gsap } from "gsap";
+import { SphereGeometry, Vector3 } from "three";
 import {
   MODEL_AMBIENT_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_INTENSITY,
@@ -61,6 +62,20 @@ const ToneCanvasWrap = styled.div`
 export const Model3DBrain: React.FC = () => {
   const { controlsRef, selectedArea } = useModel3D();
   const brainTarget = selectedArea?.meshName === "brain" ? toBrainViewerPoint(selectedArea.target) : null;
+  const regionGeometry = useMemo(() => {
+    const geometry = new SphereGeometry(1, 40, 28);
+    const vertices = geometry.attributes.position;
+    const vertex = new Vector3();
+    for (let i = 0; i < vertices.count; i += 1) {
+      vertex.fromBufferAttribute(vertices, i).normalize();
+      const wobble = 1 + 0.09 * Math.sin(vertex.x * 6 + vertex.y * 3) * Math.cos(vertex.z * 5 - vertex.y * 2);
+      vertices.setXYZ(i, vertex.x * wobble, vertex.y * wobble, vertex.z * wobble);
+    }
+    geometry.computeVertexNormals();
+    return geometry;
+  }, []);
+  useEffect(() => () => regionGeometry.dispose(), [regionGeometry]);
+  const cortical = selectedArea?.name ? /lobe|cortex|brodmann|auditory|visual|motor|somatosensory|broca|wernicke|insula|cingulate/i.test(selectedArea.name) : false;
 
   useEffect(() => {
     if (!brainTarget || !controlsRef.current) return;
@@ -108,14 +123,12 @@ export const Model3DBrain: React.FC = () => {
               scale={[0.34, 0.34, 0.34]}
             />
             {brainTarget && (
-              <group position={brainTarget}>
-                <mesh>
-                  <sphereGeometry args={[0.045, 24, 24]} />
-                  <meshStandardMaterial color="#48d8ff" emissive="#48d8ff" emissiveIntensity={1.3} transparent opacity={0.8} />
+              <group position={brainTarget} scale={cortical ? [0.13, 0.095, 0.035] : [0.075, 0.075, 0.055]}>
+                <mesh geometry={regionGeometry}>
+                <meshBasicMaterial color="#43ddff" transparent opacity={0.48} depthWrite={false} toneMapped={false} />
                 </mesh>
-                <mesh>
-                  <sphereGeometry args={[0.095, 24, 24]} />
-                  <meshBasicMaterial color="#48d8ff" transparent opacity={0.16} depthWrite={false} />
+                <mesh geometry={regionGeometry} scale={1.22}>
+                  <meshBasicMaterial color="#22cfff" transparent opacity={0.11} depthWrite={false} toneMapped={false} />
                 </mesh>
               </group>
             )}
