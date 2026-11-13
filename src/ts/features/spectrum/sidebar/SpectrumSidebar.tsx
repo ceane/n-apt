@@ -707,6 +707,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     hackrfAmpEnabled,
     hackrfBasebandBandwidth: _hackrfBasebandBandwidth,
     ppm,
+    useAppPpmCorrection,
     tunerAGC,
     rtlAGC,
     displayTemporalResolution,
@@ -1248,6 +1249,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     setHackrfAmpEnabled,
     setHackrfBasebandBandwidth,
     setPpm,
+    setUseAppPpmCorrection,
     setTunerAGC,
     setRtlAGC,
     scheduleCoupledAdjustment,
@@ -3569,6 +3571,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               frequencyRange?.min ?? activeSignalAreaBounds?.min
             }
             ppm={ppm}
+            useAppPpmCorrection={isRtlSdr ? useAppPpmCorrection : true}
             tunerAGC={tunerAGC}
             rtlAGC={rtlAGC}
             isConnected={isServerConnected}
@@ -3579,6 +3582,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onHackrfAmpEnabledChange={setHackrfAmpEnabled}
             onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
             onPpmChange={setPpm}
+            onUseAppPpmCorrectionChange={setUseAppPpmCorrection}
             onTunerAGCChange={setTunerAGC}
             onRtlAGCChange={setRtlAGC}
             onStitchSourceSettingsChange={(settings) =>

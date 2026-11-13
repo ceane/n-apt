@@ -222,6 +222,7 @@ const createLocalStorageMiddleware =
         fftMinDb: spectrumState.fftMinDb,
         fftMaxDb: spectrumState.fftMaxDb,
         lastKnownRanges: spectrumState.lastKnownRanges,
+        useAppPpmCorrection: spectrumState.useAppPpmCorrection,
         displayTemporalResolution: spectrumState.displayTemporalResolution,
         txSampleRateHz: spectrumState.txSampleRateHz,
         txIfftSize: spectrumState.txIfftSize,
@@ -452,6 +453,12 @@ export const loadPersistedSdrSettings = () => {
     // Boolean fields. Strict literal checks: NaN/[]/"false" must not pass.
     if (parsed.txSafetyEnabled !== true && parsed.txSafetyEnabled !== false) {
       parsed.txSafetyEnabled = initialState.txSafetyEnabled;
+    }
+    if (
+      parsed.useAppPpmCorrection !== true &&
+      parsed.useAppPpmCorrection !== false
+    ) {
+      parsed.useAppPpmCorrection = initialState.useAppPpmCorrection;
     }
 
     if (typeof parsed.txSafetyLimit !== "string") {

@@ -6,6 +6,7 @@ import {
   useAppSelector,
   setSdrSettingsBundle,
   setFftFrameRate as setFftFrameRateAction,
+  setUseAppPpmCorrection as setUseAppPpmCorrectionAction,
 } from "@n-apt/redux";
 import {
   clampFrameRateToLogicalMax,
@@ -48,6 +49,7 @@ interface UseSdrSettingsReturn {
   hackrfAmpEnabled: boolean;
   hackrfBasebandBandwidth: number | null;
   ppm: number;
+  useAppPpmCorrection: boolean;
   tunerAGC: boolean;
   rtlAGC: boolean;
   fftSizeOptions: number[];
@@ -63,6 +65,7 @@ interface UseSdrSettingsReturn {
   setHackrfAmpEnabled: (enabled: boolean) => void;
   setHackrfBasebandBandwidth: (bandwidth: number | null) => void;
   setPpm: (ppm: number) => void;
+  setUseAppPpmCorrection: (enabled: boolean) => void;
   setTunerAGC: (enabled: boolean) => void;
   setRtlAGC: (enabled: boolean) => void;
   sendCurrentSettings: (overrides?: Partial<SDRSettings>) => void;
@@ -381,9 +384,32 @@ export const useSdrSettings = ({
   const setPpm = useCallback(
     (ppm: number) => {
       dispatch(setSdrSettingsBundle({ ppm }));
-      sendCurrentSettings({ ppm });
+      const normalizedDeviceType = (deviceType ?? "")
+        .toLowerCase()
+        .replace(/_/g, "-");
+      const hasHardwarePpm =
+        normalizedDeviceType.includes("rtl-sdr") ||
+        normalizedDeviceType.includes("rtlsdr");
+      sendCurrentSettings({
+        ppm: hasHardwarePpm && !state.useAppPpmCorrection ? ppm : 0,
+      });
     },
-    [dispatch, sendCurrentSettings],
+    [deviceType, dispatch, sendCurrentSettings, state.useAppPpmCorrection],
+  );
+  const setUseAppPpmCorrection = useCallback(
+    (enabled: boolean) => {
+      dispatch(setUseAppPpmCorrectionAction(enabled));
+      const normalizedDeviceType = (deviceType ?? "")
+        .toLowerCase()
+        .replace(/_/g, "-");
+      const hasHardwarePpm =
+        normalizedDeviceType.includes("rtl-sdr") ||
+        normalizedDeviceType.includes("rtlsdr");
+      sendCurrentSettings({
+        ppm: hasHardwarePpm && !enabled ? state.ppm : 0,
+      });
+    },
+    [deviceType, dispatch, sendCurrentSettings, state.ppm],
   );
 
   const clampGain = useCallback(
@@ -582,6 +608,7 @@ export const useSdrSettings = ({
     setHackrfVgaGain,
     setHackrfBasebandBandwidth,
     setPpm,
+    setUseAppPpmCorrection,
     setRtlAGC,
     setTunerAGC,
     currentSampleRateHz,
@@ -665,6 +692,7 @@ export const useSdrSettings = ({
     setHackrfAmpEnabled,
     setHackrfBasebandBandwidth,
     setPpm,
+    setUseAppPpmCorrection,
     setTunerAGC,
     setRtlAGC,
     sendCurrentSettings,

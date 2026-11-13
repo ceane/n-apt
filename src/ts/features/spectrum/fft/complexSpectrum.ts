@@ -123,6 +123,12 @@ export const computeComplexIqSpectrum = (
   input: Uint8Array,
   fftSize: number,
   windowType?: string,
+  frequencyCorrection?: {
+    ppm?: number;
+    enabled?: boolean;
+    centerFrequencyHz?: number;
+    sampleRateHz?: number;
+  },
 ): ComplexIqSpectrum => {
   const numSamples = Math.max(
     1,
@@ -133,14 +139,31 @@ export const computeComplexIqSpectrum = (
   const scratch = getSpectrumScratch(fftLen);
   const { paddedReal, paddedImag, bitReverse } = scratch;
   let windowEnergy = 0;
+  const correctionHz =
+    frequencyCorrection?.enabled &&
+    Number.isFinite(frequencyCorrection.ppm) &&
+    Number.isFinite(frequencyCorrection.centerFrequencyHz) &&
+    Number.isFinite(frequencyCorrection.sampleRateHz) &&
+    (frequencyCorrection.sampleRateHz ?? 0) > 0
+      ? ((frequencyCorrection.centerFrequencyHz ?? 0) *
+          (frequencyCorrection.ppm ?? 0)) /
+        1_000_000
+      : 0;
+  const phaseStep =
+    (2 * Math.PI * correctionHz) / (frequencyCorrection?.sampleRateHz ?? 1);
 
   paddedReal.fill(0);
   paddedImag.fill(0);
   for (let i = 0; i < numSamples; i++) {
     const windowVal = windowCoefficients[i];
     const inputIndex = i * 2;
-    paddedReal[i] = ((input[inputIndex] - 128) / 128) * windowVal;
-    paddedImag[i] = ((input[inputIndex + 1] - 128) / 128) * windowVal;
+    const real = (input[inputIndex] - 128) / 128;
+    const imag = (input[inputIndex + 1] - 128) / 128;
+    const phase = phaseStep * i;
+    const cosine = Math.cos(phase);
+    const sine = Math.sin(phase);
+    paddedReal[i] = (real * cosine + imag * sine) * windowVal;
+    paddedImag[i] = (imag * cosine - real * sine) * windowVal;
     windowEnergy += windowVal * windowVal;
   }
 

@@ -97,42 +97,6 @@ fn take_freshest_rx_block(
   (first, drained)
 }
 
-fn apply_ppm_correction(freq_hz: u32, ppm: u32) -> u32 {
-  if freq_hz == 0 || ppm == 0 {
-    return freq_hz;
-  }
-
-  let numerator = i128::from(freq_hz) * 1_000_000i128;
-  let denominator = 1_000_000i128 - i128::from(ppm);
-  if denominator <= 0 {
-    return freq_hz;
-  }
-
-  let corrected = (numerator + (denominator / 2)) / denominator;
-  corrected.clamp(0, u32::MAX as i128) as u32
-}
-
-fn apply_hackrf_frequency_tune(
-  frequency_hz: u32,
-  ppm: u32,
-  requested_frequency: &mut u32,
-  effective_frequency: &mut u32,
-  write_frequency: impl FnOnce(u64) -> i32,
-) -> Result<()> {
-  let corrected_frequency = apply_ppm_correction(frequency_hz, ppm);
-  let result = write_frequency(u64::from(corrected_frequency));
-  if result != 0 {
-    return Err(anyhow!(
-      "Failed to set HackRF One center frequency to {} (corrected {})",
-      frequency_hz,
-      corrected_frequency
-    ));
-  }
-  *requested_frequency = frequency_hz;
-  *effective_frequency = frequency_hz;
-  Ok(())
-}
-
 pub struct HackRfDevice {
   dev: *mut ffi::HackRfDeviceHandle,
   rx_queue: Receiver<Vec<u8>>,
@@ -143,7 +107,6 @@ pub struct HackRfDevice {
   sample_rate: u32,
   center_frequency: u32,
   requested_center_frequency: u32,
-  ppm: u32,
   iq_buffer: Vec<u8>,
   /// Contiguous IQ retained for streaming consumers such as audio.
   audio_tap: AudioIqTap,
@@ -306,7 +269,6 @@ impl HackRfDevice {
         sample_rate: HACKRF_MIN_SAMPLE_RATE,
         center_frequency: 0,
         requested_center_frequency: 0,
-        ppm: 0,
         iq_buffer: Vec::with_capacity(HACKRF_BLOCK_SIZE * 2),
         audio_tap: AudioIqTap::new(),
         streaming_started: false,
@@ -595,15 +557,13 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_center_frequency(&mut self, freq: u32) -> Result<()> {
-    apply_hackrf_frequency_tune(
-      freq,
-      self.ppm,
-      &mut self.requested_center_frequency,
-      &mut self.center_frequency,
-      |corrected_freq| unsafe {
-        ffi::hackrf_set_freq(self.dev, corrected_freq as u64)
-      },
-    )
+    let result = unsafe { ffi::hackrf_set_freq(self.dev, freq as u64) };
+    if result != 0 {
+      return Err(anyhow!("Failed to set HackRF One center frequency to {freq}"));
+    }
+    self.requested_center_frequency = freq;
+    self.center_frequency = freq;
+    Ok(())
   }
 
   fn set_center_frequency_live(&mut self, freq: u32) -> Result<()> {
@@ -648,7 +608,9 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn set_ppm(&mut self, ppm: u32) -> Result<()> {
-    self.ppm = ppm;
+    // HackRF has no hardware PPM API. Frequency compensation is applied to IQ
+    // samples in the WebGPU spectrum pipeline; never retune the LO here.
+    let _ = ppm;
     Ok(())
   }
 
@@ -792,12 +754,6 @@ mod tests {
     assert!(HACKRF_RX_TIMEOUT <= Duration::from_millis(500));
   }
 
-  #[test]
-  fn applies_ppm_correction_by_adjusting_tune_frequency() {
-    assert_eq!(apply_ppm_correction(100_000_000, 0), 100_000_000);
-    assert_eq!(apply_ppm_correction(100_000_000, 10), 100_001_000);
-  }
-
   fn retry_value_then_succeed<T, F>(attempts: usize, mut f: F) -> T
   where
     F: FnMut(usize) -> Option<T>,
@@ -835,7 +791,6 @@ mod tests {
       sample_rate: HACKRF_MIN_SAMPLE_RATE,
       center_frequency: 0,
       requested_center_frequency: 0,
-      ppm: 0,
       iq_buffer: Vec::new(),
       audio_tap: AudioIqTap::new(),
       tx_context: None,
@@ -865,7 +820,6 @@ mod tests {
       sample_rate: HACKRF_MIN_SAMPLE_RATE,
       center_frequency: 0,
       requested_center_frequency: 0,
-      ppm: 0,
       iq_buffer: Vec::new(),
       audio_tap: AudioIqTap::new(),
       tx_context: None,
@@ -948,40 +902,6 @@ mod tests {
     assert_eq!(latest, vec![2]);
     assert_eq!(drained, 1);
     assert_eq!(rx.try_iter().count(), 2);
-  }
-
-  #[test]
-  fn corrected_frequency_is_written_once_and_only_committed_on_success() {
-    let mut requested = 10_000_000;
-    let mut effective = 10_000_000;
-    let mut writes = Vec::new();
-
-    apply_hackrf_frequency_tune(
-      100_000_000,
-      10,
-      &mut requested,
-      &mut effective,
-      |hz| {
-        writes.push(hz);
-        0
-      },
-    )
-    .unwrap();
-
-    assert_eq!(writes, vec![100_001_000]);
-    assert_eq!(requested, 100_000_000);
-    assert_eq!(effective, 100_000_000);
-
-    let result = apply_hackrf_frequency_tune(
-      200_000_000,
-      10,
-      &mut requested,
-      &mut effective,
-      |_| -1,
-    );
-    assert!(result.is_err());
-    assert_eq!(requested, 100_000_000);
-    assert_eq!(effective, 100_000_000);
   }
 
   #[test]

@@ -156,7 +156,7 @@ test.describe("Mock Tx Rust/WGSL power contract", () => {
           normalization: number,
           calibrationDb: number,
         ) => {
-          const data = new ArrayBuffer(64);
+          const data = new ArrayBuffer(80);
           const view = new DataView(data);
           view.setUint32(0, stage, true);
           view.setInt32(4, 1, true);

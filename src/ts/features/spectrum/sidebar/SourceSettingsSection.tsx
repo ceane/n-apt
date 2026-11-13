@@ -148,6 +148,7 @@ interface SourceSettingsSectionProps {
   deviceType?: string;
   disabled?: boolean;
   ppm: number;
+  useAppPpmCorrection?: boolean;
   gain: number;
   hackrfLnaGain?: number;
   hackrfVgaGain?: number;
@@ -169,6 +170,7 @@ interface SourceSettingsSectionProps {
   /** Minimum frequency of the current spectrum view in Hz, used for gain warnings */
   frequencyRangeMin?: number;
   onPpmChange: (value: number) => void;
+  onUseAppPpmCorrectionChange?: (enabled: boolean) => void;
   onGainChange: (value: number) => void;
   onHackrfLnaGainChange?: (value: number) => void;
   onHackrfVgaGainChange?: (value: number) => void;
@@ -188,6 +190,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   deviceType,
   disabled = false,
   ppm,
+  useAppPpmCorrection = true,
   gain,
   hackrfLnaGain = 0.0,
   hackrfVgaGain = 30,
@@ -206,6 +209,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   gainLimits,
   frequencyRangeMin,
   onPpmChange,
+  onUseAppPpmCorrectionChange,
   onGainChange,
   onHackrfLnaGainChange,
   onHackrfVgaGainChange,
@@ -468,6 +472,28 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           min="0"
         />
       </Row>
+      {sourceMode === "live" && (
+        <Row
+          label="Use app frequency correction"
+          tooltipTitle="WebGPU PPM Correction"
+          tooltip={
+            "When enabled, WebGPU applies the PPM correction to IQ samples before the FFT and sends 0 PPM to the hardware. On RTL-SDR, turn this off to use librtlsdr's hardware frequency-correction API. Devices without hardware PPM support keep app correction enabled."
+          }
+        >
+          <ToggleSwitch $disabled={!isConnected || !isRtlSdrLive}>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={useAppPpmCorrection}
+              onChange={(e) =>
+                onUseAppPpmCorrectionChange?.(e.target.checked)
+              }
+              disabled={!isConnected || !isRtlSdrLive}
+              aria-label="Use app frequency correction"
+            />
+            <ToggleSwitchSlider $disabled={!isConnected || !isRtlSdrLive} />
+          </ToggleSwitch>
+        </Row>
+      )}
       {!isHackrfLive && (
         <Row
           label={<IconLabel $inheritLineHeight icon={ArrowBigUp} text="Gain" />}

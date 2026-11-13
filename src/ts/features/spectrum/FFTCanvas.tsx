@@ -37,6 +37,7 @@ import {
   type CanvasTxSliderState,
 } from "@n-apt/spectrum/hooks/useSpectrumInteraction";
 import { useWebGPULifecycle } from "@n-apt/spectrum/hooks/useWebGPUInit";
+import { useSpectrumWorker } from "@n-apt/spectrum/hooks/useSpectrumWorker";
 import { useSpectrumMath } from "@n-apt/spectrum/hooks/useWasmSimdMath";
 import { useAppDispatch, useAppSelector } from "@n-apt/redux";
 import { VISUALIZER_MAX_ZOOM } from "@n-apt/consts/visualizerControls";
@@ -102,6 +103,7 @@ import {
   shouldClearSpectrumWaveformForRangeChange,
   updateTemporalWaveform,
 } from "@n-apt/spectrum/fft/frameProcessing";
+import { computeIqToDbSpectrumScalar } from "@n-apt/spectrum/fft/iqSpectrum";
 import {
   drawDiagonalStripePatternOnCanvas,
   getSpectrumFillPolygon,
@@ -1711,6 +1713,10 @@ const FFTCanvas = memo(
     );
     const reduxDeviceKind = useAppSelector(
       (reduxState) => reduxState.spectrum.deviceKind,
+    );
+    const reduxPpm = useAppSelector((reduxState) => reduxState.spectrum.ppm);
+    const useAppPpmCorrectionSetting = useAppSelector(
+      (reduxState) => reduxState.spectrum.useAppPpmCorrection,
     );
     const reduxWebsocketSources = useAppSelector(
       (reduxState) => reduxState.websocket.sources,
@@ -3922,6 +3928,32 @@ const FFTCanvas = memo(
       enableSimd: true,
       fallbackToScalar: true,
     });
+    const spectrumWorkerConfig = useMemo(
+      () => ({
+        fftSize: frontendFftSize,
+        offsetDb: effectiveDbmOffsetDb,
+        windowType: fftWindow,
+        ppm: reduxPpm,
+        applyPpmCorrection: useAppPpmCorrectionSetting || !isRtlSdr,
+      }),
+      [
+        effectiveDbmOffsetDb,
+        fftWindow,
+        frontendFftSize,
+        isRtlSdr,
+        reduxPpm,
+        useAppPpmCorrectionSetting,
+      ],
+    );
+    const {
+      readSpectrum: readWorkerSpectrum,
+      fallbackRequired: spectrumWorkerFallbackRequired,
+      backend: spectrumWorkerBackend,
+    } = useSpectrumWorker({
+      frameRef: dataRef,
+      config: spectrumWorkerConfig,
+      onSpectrumReady: () => forceRenderRef.current?.(true),
+    });
 
     // Use the unified spectrum renderer (WebGPU + Canvas2D fallback)
     const { drawSpectrum, cleanup: cleanupSpectrum } = useSpectrumRenderer();
@@ -4075,7 +4107,9 @@ const FFTCanvas = memo(
           (!renderWaveformRef.current || renderWaveformRef.current.length === 0)
         ) {
           hydratePausedSnapshotRef.current();
-          recoverPausedWaveformRef.current();
+          if (spectrumWorkerFallbackRequired) {
+            recoverPausedWaveformRef.current();
+          }
         }
         const hasRetainedPausedPresentation = !!(
           (retainsFramePresentation || resumeRetentionRef.current) &&
@@ -4089,6 +4123,13 @@ const FFTCanvas = memo(
           pauseSnapshotEnabled,
           cachedFrame: lastRenderableFrameRef.current,
         });
+        // Raw IQ is transformed by the dedicated spectrum worker. On WebGPU
+        // capable browsers the worker runs fft_compute.wgsl; its response
+        // identifies WASM/scalar only when the GPU path is unavailable.
+        let workerResult = currentFrame?.iq_data
+          ? readWorkerSpectrum(currentFrame, spectrumWorkerConfig)
+          : null;
+        if (workerResult) currentFrame = workerResult.frame;
         const isTxPreviewFrame =
           (currentFrame as any)?.frame_status === "standby" ||
           (currentFrame as any)?.is_tx_preview === true ||
@@ -4416,17 +4457,26 @@ const FFTCanvas = memo(
           let waveform: Float32Array;
 
           const nativeIqWindow = newestIqWindow(iqBytes, frontendFftSize);
-          const rawSpectrum = resolveSpectrumWaveform({
-            source: { iq_data: nativeIqWindow },
-            processIq: (iqData) =>
-              processIqToDbmSpectrum(
-                iqData,
-                effectiveDbmOffsetDb,
-                frontendFftSize,
-                fftWindow,
-                spectrumOutputBufferRef.current ?? undefined,
-              ),
-          });
+          const rawSpectrum = workerResult?.spectrum ??
+            (spectrumWorkerFallbackRequired
+              ? spectrumWorkerConfig.applyPpmCorrection
+                ? computeIqToDbSpectrumScalar(nativeIqWindow, {
+                    ...spectrumWorkerConfig,
+                    centerFrequencyHz: currentFrame.center_frequency_hz ?? 0,
+                    sampleRateHz: currentFrame.sample_rate ?? 0,
+                  })
+                : resolveSpectrumWaveform({
+                    source: { iq_data: nativeIqWindow },
+                    processIq: (iqData) =>
+                      processIqToDbmSpectrum(
+                        iqData,
+                        effectiveDbmOffsetDb,
+                        frontendFftSize,
+                        fftWindow,
+                        spectrumOutputBufferRef.current ?? undefined,
+                      ),
+                  })
+              : undefined);
           if (!rawSpectrum) return;
           spectrumOutputBufferRef.current = rawSpectrum;
           const nativeTimestamp = currentFrame.timestamp;
@@ -4764,17 +4814,29 @@ const FFTCanvas = memo(
 
           if (currentFrame.iq_data) {
             // Paused: ingest once to avoid blank frames (file mode or first paused frame)
-            processedWaveform = resolveSpectrumWaveform({
-              source: currentFrame,
-              processIq: (iqData) =>
-                processIqToDbmSpectrum(
-                  iqData,
-                  effectiveDbmOffsetDb,
-                  frontendFftSize,
-                  fftWindow,
-                  spectrumOutputBufferRef.current ?? undefined,
-                ),
-            });
+            processedWaveform = workerResult?.spectrum ??
+              (spectrumWorkerFallbackRequired
+                ? spectrumWorkerConfig.applyPpmCorrection
+                  ? computeIqToDbSpectrumScalar(
+                      newestIqWindow(currentFrame.iq_data, frontendFftSize),
+                      {
+                        ...spectrumWorkerConfig,
+                        centerFrequencyHz: currentFrame.center_frequency_hz ?? 0,
+                        sampleRateHz: currentFrame.sample_rate ?? 0,
+                      },
+                    )
+                  : resolveSpectrumWaveform({
+                      source: currentFrame,
+                      processIq: (iqData) =>
+                        processIqToDbmSpectrum(
+                          iqData,
+                          effectiveDbmOffsetDb,
+                          frontendFftSize,
+                          fftWindow,
+                          spectrumOutputBufferRef.current ?? undefined,
+                        ),
+                    })
+                : undefined);
             if (processedWaveform) {
               spectrumOutputBufferRef.current = processedWaveform;
             }
@@ -4875,7 +4937,11 @@ const FFTCanvas = memo(
             const hasCachedWaveform =
               !!renderWaveformRef.current &&
               renderWaveformRef.current.length > 0;
-            if (!hasCachedWaveform && !recoverPausedWaveformRef.current()) {
+            if (
+              !hasCachedWaveform &&
+              (!spectrumWorkerFallbackRequired ||
+                !recoverPausedWaveformRef.current())
+            ) {
               return;
             }
           } else if (!mirrorPanOnlyRedraw && !viewportOnlyRedraw) {
@@ -5762,6 +5828,9 @@ const FFTCanvas = memo(
         isLoadingPlaceholder,
         hasRenderedSpectrumFrame,
         frontendFftSize,
+        readWorkerSpectrum,
+        spectrumWorkerConfig,
+        spectrumWorkerFallbackRequired,
         notifyRenderableFrame,
         dispatch,
         WATERFALL_PLACEHOLDER_FONT,
@@ -6679,6 +6748,10 @@ const FFTCanvas = memo(
                 <CanvasLayer
                   ref={setSpectrumGpuCanvasNode}
                   id="fft-spectrum-canvas-webgpu"
+                  data-spectrum-compute-backend={
+                    spectrumWorkerBackend ??
+                    (spectrumWorkerFallbackRequired ? "cpu-fallback" : "pending")
+                  }
                   data-testid="fft-spectrum-gpu-canvas"
                 />
               )}
@@ -6861,6 +6934,10 @@ const FFTCanvas = memo(
                       <CanvasLayer
                         ref={setSpectrumGpuCanvasNode}
                         id="fft-spectrum-canvas-webgpu"
+                        data-spectrum-compute-backend={
+                          spectrumWorkerBackend ??
+                          (spectrumWorkerFallbackRequired ? "cpu-fallback" : "pending")
+                        }
                         data-testid="fft-spectrum-gpu-canvas"
                       />
                     )}

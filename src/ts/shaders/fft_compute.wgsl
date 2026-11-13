@@ -19,6 +19,9 @@ struct FFTParams {
   calibration_mode: u32,
   gain_correction_db_per_db: f32,
   reserved_1: u32,
+  ppm_correction_hz: f32,
+  ppm_correction_enabled: u32,
+  reserved_2: vec2<u32>,
 };
 
 // Window function types
@@ -324,7 +327,15 @@ fn unpack_raw_iq_sample(idx: u32) -> Complex {
   let i_byte = f32((word >> (byte_offset * 8u)) & 0xffu);
   let q_byte = f32((word >> ((byte_offset + 1u) * 8u)) & 0xffu);
 
-  return Complex((i_byte - 128.0) / 128.0, (q_byte - 128.0) / 128.0);
+  var sample = Complex((i_byte - 128.0) / 128.0, (q_byte - 128.0) / 128.0);
+  if (params.ppm_correction_enabled != 0u && params.ppm_correction_hz != 0.0) {
+    let cycles = fract(
+      f32(idx) * params.ppm_correction_hz / max(params.sample_rate_hz, 1.0)
+    );
+    let phase = 2.0 * 3.14159265359 * cycles;
+    sample = complex_mul(sample, Complex(cos(phase), -sin(phase)));
+  }
+  return sample;
 }
 
 fn rtl_sdr_complex_power(sample: Complex) -> f32 {
