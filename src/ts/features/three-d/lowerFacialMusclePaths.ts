@@ -38,8 +38,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.052, 1.85, 0.12],
       [0.038, 1.84, 0.14], // modiolus / mouth corner
     ],
-    0.014,
-    0.004,
+    0.011,
+    0.0028,
   ),
 
   "Zygomaticus minor": bilateralStrip(
@@ -49,8 +49,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.036, 1.865, 0.132],
       [0.024, 1.85, 0.14], // upper lip
     ],
-    0.009,
-    0.003,
+    0.008,
+    0.0022,
   ),
 
   "Risorius": bilateralStrip(
@@ -60,8 +60,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.063, 1.845, 0.121],
       [0.041, 1.85, 0.14], // mouth corner
     ],
-    0.008,
-    0.0025,
+    0.006,
+    0.0018,
   ),
 
   "Orbicularis oris": [
@@ -80,8 +80,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
         [-0.0163, 1.827, 0.14],
         [-0.026, 1.831, 0.14],
       ],
-      width: 0.006,
-      thickness: 0.003,
+      width: 0.005,
+      thickness: 0.002,
       closed: true,
     },
   ],
@@ -93,8 +93,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.07, 1.835, 0.119],
       [0.047, 1.84, 0.14], // modiolus
     ],
-    0.02,
-    0.004,
+    0.013,
+    0.003,
   ),
 
   "Depressor anguli oris": bilateralStrip(
@@ -104,8 +104,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.073, 1.74, 0.103],
       [0.09, 1.67, 0.085], // mandibular border
     ],
-    0.014,
-    0.004,
+    0.011,
+    0.0028,
   ),
 
   "Levator labii superioris": bilateralStrip(
@@ -115,8 +115,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.028, 1.865, 0.135],
       [0.019, 1.85, 0.14], // upper lip
     ],
-    0.01,
-    0.003,
+    0.008,
+    0.0022,
   ),
 
   "Depressor labii inferioris": bilateralStrip(
@@ -126,8 +126,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.054, 1.72, 0.11],
       [0.065, 1.67, 0.09], // chin
     ],
-    0.01,
-    0.003,
+    0.008,
+    0.0022,
   ),
 
   "Mentalis": bilateralStrip(
@@ -136,8 +136,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.023, 1.78, 0.13],
       [0.027, 1.72, 0.113], // chin prominence
     ],
-    0.009,
-    0.003,
+    0.007,
+    0.002,
   ),
 
   "Levator anguli oris": bilateralStrip(
@@ -146,8 +146,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.046, 1.87, 0.127],
       [0.043, 1.85, 0.14], // mouth corner
     ],
-    0.009,
-    0.003,
+    0.007,
+    0.002,
   ),
 
   "Nasalis": bilateralStrip(
@@ -157,8 +157,8 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.041, 1.885, 0.128], // alar cartilage
       [0.046, 1.87, 0.14], // nostril rim
     ],
-    0.008,
-    0.0025,
+    0.006,
+    0.0018,
   ),
 
   "Platysma": bilateralStrip(
@@ -168,7 +168,7 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
       [0.083, 1.76, 0.115],
       [0.06, 1.79, 0.135], // lower jaw
     ],
-    0.018,
-    0.003,
+    0.013,
+    0.0024,
   ),
 };

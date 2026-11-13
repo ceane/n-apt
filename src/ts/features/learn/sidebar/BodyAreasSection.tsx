@@ -3,6 +3,8 @@ import styled from "styled-components";
 import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
 import { useModel3D } from "@n-apt/three-d/public/useModel3D";
 import { useHotspotEditor } from "@n-apt/three-d/public/useHotspotEditor";
+import { CopyDeepLinkButton } from "@n-apt/ui/CopyDeepLinkButton";
+import { physiologyCardRoute, sidebarRouteTargetId } from "@n-apt/three-d/sidebar/sidebarDeepLinks";
 
 type Area = {
   name: string;
@@ -150,6 +152,7 @@ const EmptyState = styled.div`
 
 const BaseButton = styled.button`
   max-width: 100%;
+  scroll-margin-top: 170px;
   display: grid;
   grid-template-columns: 1fr max-content;
   align-items: center;
@@ -209,6 +212,8 @@ const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
         : `0 0 0 3px ${props.theme.primaryAlpha}, 0 0 0 1px ${props.theme.primaryAlpha} inset`};
   }
 `;
+
+const AreaRow = styled.div`display: flex; align-items: center; gap: 2px; &:hover .sidebar-copy-deep-link, &:focus-within .sidebar-copy-deep-link { opacity: 0.65; } ${SelectableButton} { flex: 1; }`;
 
 const ButtonContent = styled.span`
   display: grid;
@@ -274,21 +279,24 @@ export const BodyAreasSection: React.FC<BodyAreasSectionProps> = ({ searchTerm =
         const isSelected = selectedArea?.name === area.name;
 
         return (
-          <SelectableButton
-            key={area.name}
-            $isSelected={isSelected}
-            onClick={() => setSelectedArea(area)}
-            aria-pressed={isSelected}
-          >
-            <ButtonContent>
-              <SelectionIndicator aria-hidden $isSelected={isSelected} />
-              <span>{area.name}</span>
-            </ButtonContent>
+          <AreaRow key={area.name}>
+            <SelectableButton
+              id={sidebarRouteTargetId(physiologyCardRoute(area.name))}
+              $isSelected={isSelected}
+              onClick={() => setSelectedArea(area)}
+              aria-pressed={isSelected}
+            >
+              <ButtonContent>
+                <SelectionIndicator aria-hidden $isSelected={isSelected} />
+                <span>{area.name}</span>
+              </ButtonContent>
 
-            <ChevronIndicator aria-hidden $isSelected={isSelected}>
-              ›
-            </ChevronIndicator>
-          </SelectableButton>
+              <ChevronIndicator aria-hidden $isSelected={isSelected}>
+                ›
+              </ChevronIndicator>
+            </SelectableButton>
+            <CopyDeepLinkButton title={area.name} targetPath={physiologyCardRoute(area.name)} />
+          </AreaRow>
         );
       })}
       {!matchingAreas.length && (

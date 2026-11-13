@@ -2,12 +2,20 @@ import React, { Suspense, useRef, useCallback, useEffect, useMemo } from "react"
 import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Clone, OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
-import { Box3, BufferGeometry, CatmullRomCurve3, DoubleSide, Float32BufferAttribute, Matrix3, Object3D, PerspectiveCamera, Quaternion, Raycaster, ShapeUtils, SphereGeometry, TubeGeometry, Vector2, Vector3 } from "three";
+import { Box3, BufferGeometry, CatmullRomCurve3, DoubleSide, Float32BufferAttribute, Matrix3, Mesh, Object3D, PerspectiveCamera, Quaternion, Raycaster, ShapeUtils, SphereGeometry, TubeGeometry, Vector2, Vector3 } from "three";
 import { gsap } from "gsap";
 import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
 import Brain from "@n-apt/three-d/Brain";
 import { FACIAL_MUSCLE_SHAPES } from "@n-apt/three-d/facialMusclePaths";
 import { LOWER_FACIAL_MUSCLE_PATHS } from "@n-apt/three-d/lowerFacialMusclePaths";
+import { CRANIAL_NERVE_PATHS } from "@n-apt/three-d/cranialNervePaths";
+import { COMMON_FIBULAR_NERVE_PATHS } from "@n-apt/three-d/commonFibularNervePaths";
+import { HIP_THIGH_MUSCLE_PATHS } from "@n-apt/three-d/hipThighMusclePaths";
+import { LOWER_LEG_FOOT_MUSCLE_PATHS, type LowerLegMuscleSurface } from "@n-apt/three-d/lowerLegFootMusclePaths";
+import { NEUROMUSCULAR_JUNCTION_PATHS } from "@n-apt/three-d/neuromuscularJunctionPaths";
+import { insetNervePathPoint } from "@n-apt/three-d/nervePathDepth";
+import { SPINAL_CORD_PATHS } from "@n-apt/three-d/spinalCordPaths";
+import { getUpperLimbNerveCameraFocus } from "@n-apt/three-d/upperLimbNerveCameraFocus";
 import { resolveModelAnchor, type ModelAnchorName } from "@n-apt/three-d/modelAnchors";
 import {
   createAnatomyFigureScene,
@@ -94,6 +102,129 @@ function modelPointToWorld(
     MODEL_ROOT_POSITION[1] + figurePosition[1] + (point[1] + modelOffset[1]) * figureScale,
     MODEL_ROOT_POSITION[2] + figurePosition[2] + (point[2] + modelOffset[2]) * figureScale,
   ];
+}
+
+const surfaceAnchoredPathCache = new WeakMap<Object3D, Map<string, ModelOffset[][]>>();
+
+function sourceSurfaceDirection(
+  point: Vector3,
+  surface: LowerLegMuscleSurface | "anterolateral",
+): Vector3 {
+  const side = point.x < 0 ? -1 : 1;
+  if (surface === "anterior" || surface === "dorsal") return new Vector3(0, 0, 1);
+  if (surface === "posterior") return new Vector3(0, 0, -1);
+  if (surface === "lateral") return new Vector3(side, 0, 0);
+  if (surface === "medial") return new Vector3(-side, 0, 0);
+  if (surface === "plantar") return new Vector3(0, -1, 0);
+  return new Vector3(side * Math.max(Math.abs(point.x) - 0.08, 0.025), 0, point.z).normalize();
+}
+
+function projectSourcePathToBodySurface(
+  scene: Object3D,
+  sourcePoints: ModelOffset[],
+  surface: LowerLegMuscleSurface | "anterolateral" = "anterolateral",
+): ModelOffset[] {
+  const bodySurface = scene.getObjectByName("GhostBody") ?? scene;
+  const curve = new CatmullRomCurve3(sourcePoints.map((point) => new Vector3(...point)), false, "centripetal");
+  const raycaster = new Raycaster();
+  raycaster.near = 0;
+  raycaster.far = 0.7;
+  // Keep the tube centerline almost on the mesh: the rendered glow already
+  // has a small radius, so a larger offset makes it visibly float at grazing
+  // camera angles.
+  const surfaceLift = surface === "anterolateral" ? 0.0012 : 0.0035;
+  const samples = Math.max(24, (sourcePoints.length - 1) * 6);
+
+  const projectedPoints = Array.from({ length: samples + 1 }, (_, index): ModelOffset | null => {
+    const sourcePoint = curve.getPoint(index / samples);
+    const side = sourcePoint.x < 0 ? -1 : 1;
+    const primaryDirection = sourceSurfaceDirection(sourcePoint, surface);
+
+    const sourceWorld = scene.localToWorld(sourcePoint.clone());
+    const lateral = new Vector3(side, 0, 0);
+    // The fibular nerve uses a radial anterolateral ray. Muscle paths use the
+    // anatomical surface they occupy so a tendon cannot snap to the opposite
+    // side of the leg or foot.
+    const directions = surface === "anterolateral"
+      ? [
+          primaryDirection,
+          lateral,
+          lateral.clone().add(new Vector3(0, 0, 0.65)).normalize(),
+          lateral.clone().add(new Vector3(0, 0, -0.65)).normalize(),
+          new Vector3(0, 0, 1),
+          new Vector3(0, 0, -1),
+        ]
+      : [primaryDirection];
+
+    for (const direction of directions) {
+      const directionWorld = direction.clone().transformDirection(scene.matrixWorld);
+      const rayOrigin = sourceWorld.clone().addScaledVector(directionWorld, 0.35);
+      raycaster.set(rayOrigin, directionWorld.clone().negate());
+      const hit = raycaster.intersectObject(bodySurface, true).find((candidate) => {
+        const localHit = scene.worldToLocal(candidate.point.clone());
+        return candidate.point.distanceTo(sourceWorld) <= 0.16
+          && Math.abs(localHit.y - sourcePoint.y) <= 0.025
+          && localHit.x * side >= -0.005;
+      });
+      if (!hit) continue;
+
+      const normalMatrix = new Matrix3().getNormalMatrix(hit.object.matrixWorld);
+      const normal = hit.normal?.clone().applyMatrix3(normalMatrix)
+        ?? hit.face?.normal.clone().applyMatrix3(normalMatrix)
+        ?? directionWorld.clone().negate();
+      const liftedHit = hit.point.clone().addScaledVector(normal.normalize(), surfaceLift);
+      const localHit = scene.worldToLocal(liftedHit);
+      return [localHit.x, localHit.y, localHit.z];
+    }
+
+    return null;
+  });
+
+  // If a few samples miss a joint or mesh seam, interpolate between adjacent
+  // surface hits. Never fall back to the guessed source point, which can leave
+  // a visible strand floating outside the model.
+  const firstHit = projectedPoints.findIndex((point) => point !== null);
+  if (firstHit < 0) return [];
+  for (let index = 0; index < firstHit; index += 1) projectedPoints[index] = projectedPoints[firstHit];
+  let previousHit = firstHit;
+  for (let index = firstHit + 1; index < projectedPoints.length; index += 1) {
+    if (projectedPoints[index]) {
+      const nextHit = index;
+      const start = projectedPoints[previousHit]!;
+      const end = projectedPoints[nextHit]!;
+      for (let gap = previousHit + 1; gap < nextHit; gap += 1) {
+        const t = (gap - previousHit) / (nextHit - previousHit);
+        projectedPoints[gap] = [
+          start[0] + (end[0] - start[0]) * t,
+          start[1] + (end[1] - start[1]) * t,
+          start[2] + (end[2] - start[2]) * t,
+        ];
+      }
+      previousHit = nextHit;
+    }
+  }
+  for (let index = previousHit + 1; index < projectedPoints.length; index += 1) projectedPoints[index] = projectedPoints[previousHit];
+  return projectedPoints.filter((point): point is ModelOffset => point !== null);
+}
+
+function getSurfaceAnchoredPaths(
+  scene: Object3D,
+  name: string,
+  sourcePaths: ModelOffset[][],
+  surface: LowerLegMuscleSurface | "anterolateral" = "anterolateral",
+): ModelOffset[][] {
+  let sceneCache = surfaceAnchoredPathCache.get(scene);
+  if (!sceneCache) {
+    sceneCache = new Map();
+    surfaceAnchoredPathCache.set(scene, sceneCache);
+  }
+  const cacheKey = `${name}:${surface}`;
+  const cachedPaths = sceneCache.get(cacheKey);
+  if (cachedPaths) return cachedPaths;
+  scene.updateWorldMatrix(true, true);
+  const anchoredPaths = sourcePaths.map((path) => projectSourcePathToBodySurface(scene, path, surface));
+  sceneCache.set(cacheKey, anchoredPaths);
+  return anchoredPaths;
 }
 
 const DEFAULT_MODEL_CAMERA_POSITION: [number, number, number] = [
@@ -279,6 +410,18 @@ const CUSTOM_NERVE_PATHS: Record<string, ModelOffset[][]> = {
   ),
 };
 
+const ANATOMY_NERVE_PATHS: Record<string, ModelOffset[][]> = {
+  ...CUSTOM_NERVE_PATHS,
+  ...SPINAL_CORD_PATHS,
+  ...CRANIAL_NERVE_PATHS,
+  ...NEUROMUSCULAR_JUNCTION_PATHS,
+  "Common fibular nerve": COMMON_FIBULAR_NERVE_PATHS,
+  // Preserve the already surface-mapped facial branches, which were recently
+  // corrected and visually approved; the new cranial map supplies the other
+  // cranial routes, including the vagus course into the chest.
+  "Cranial nerve VII Facial": CUSTOM_NERVE_PATHS["Cranial nerve VII Facial"],
+};
+
 const surfaceAnchorCache = new Map<
   string,
   { position: [number, number, number]; normal: [number, number, number] } | null
@@ -340,15 +483,31 @@ function CameraFocusController({
   const { camera, invalidate } = useThree();
   const { controlsRef, selectedArea } = useModel3D();
   const areaTarget = selectedArea && selectedArea.meshName !== "brain" ? selectedArea.target : null;
+  const upperLimbNerveCameraFocus = selectedArea?.highlightType === "nerve" && areaTarget
+    ? getUpperLimbNerveCameraFocus(selectedArea.name, areaTarget)
+    : null;
   const facialMuscleFocused = selectedArea !== null && (
     selectedArea.name in FACIAL_MUSCLE_SHAPES
     || selectedArea.name in LOWER_FACIAL_MUSCLE_PATHS
   );
+  const hipThighOverlay = selectedArea ? HIP_THIGH_MUSCLE_PATHS[selectedArea.name] : undefined;
+  const hipThighMuscleFocused = Boolean(hipThighOverlay);
+  const lowerLegFootOverlay = selectedArea ? LOWER_LEG_FOOT_MUSCLE_PATHS[selectedArea.name] : undefined;
+  const lowerLegFootMuscleFocused = Boolean(lowerLegFootOverlay);
+  const neuromuscularJunctionFocused = selectedArea?.name === "Neuromuscular junction";
   const facialNerveFocused = selectedArea?.highlightType === "nerve"
-    && /cranial nerve (?:III|IV|V|VI|VII)\b/i.test(selectedArea.name);
+    && /cranial nerve (?:III|IV|V|VI|VII|XII)\b/i.test(selectedArea.name);
+  const cranialTrunkFocused = selectedArea?.highlightType === "nerve"
+    && /cranial nerve (?:IX|X|XI)\b/i.test(selectedArea.name);
+  const posteriorCranialTrunkFocused = cranialTrunkFocused
+    && /cranial nerve XI\b/i.test(selectedArea?.name ?? "");
   const faceFocused = facialMuscleFocused || facialNerveFocused;
   const posteriorNerveFocused = selectedArea?.highlightType === "nerve"
-    && /sciatic|gluteal|tibial|sacral plexus|spinal cord|dorsal root/i.test(selectedArea.name);
+    && /sciatic|gluteal|tibial|sacral plexus|spinal cord|corticospinal|central nervous system|dorsal root/i.test(selectedArea.name);
+  const regionalNerveFocused = selectedArea?.highlightType === "nerve"
+    && /common fibular nerve|spinal cord|corticospinal tract|central nervous system/i.test(selectedArea.name);
+  const posteriorMuscleFocused = hipThighOverlay?.surface === "posterior"
+    || lowerLegFootOverlay?.cameraSurface === "posterior";
 
   useEffect(() => {
     const controls = controlsRef.current;
@@ -356,19 +515,32 @@ function CameraFocusController({
 
     const target = brainFocused
       ? BRAIN_CAMERA_TARGET
+      : upperLimbNerveCameraFocus
+        ? upperLimbNerveCameraFocus.target
       : areaTarget
-        ? [areaTarget[0], areaTarget[1] + (facialNerveFocused ? .1 : 0), areaTarget[2]]
+        ? [areaTarget[0], areaTarget[1] + (facialNerveFocused ? .1 : cranialTrunkFocused || regionalNerveFocused ? .02 : lowerLegFootMuscleFocused ? .015 : 0), areaTarget[2]]
         : initialCameraTarget;
     const position: [number, number, number] = brainFocused
       ? BRAIN_CAMERA_POSITION
+      : upperLimbNerveCameraFocus
+        ? upperLimbNerveCameraFocus.position
       : areaTarget
         ? [
-            areaTarget[0],
-            areaTarget[1] + (faceFocused ? facialNerveFocused ? .12 : .02 : .12),
-            areaTarget[2] + (facialMuscleFocused ? .82 : facialNerveFocused ? 1.2 : posteriorNerveFocused ? -2.6 : 2.6),
+            areaTarget[0] + (lowerLegFootOverlay?.cameraSurface === "lateral" ? .72 : 0),
+            areaTarget[1] + (lowerLegFootOverlay?.cameraSurface === "plantar" ? -1.05 : faceFocused ? facialNerveFocused ? .12 : .02 : neuromuscularJunctionFocused ? .02 : hipThighMuscleFocused ? .035 : lowerLegFootMuscleFocused ? .02 : .12),
+            areaTarget[2] + (lowerLegFootMuscleFocused
+              ? lowerLegFootOverlay?.cameraSurface === "posterior" ? -1.05 : lowerLegFootOverlay?.cameraSurface === "lateral" ? .42 : lowerLegFootOverlay?.cameraSurface === "plantar" ? .18 : .68
+              : facialMuscleFocused ? .82
+              : facialNerveFocused ? 1.2
+                : neuromuscularJunctionFocused ? .95
+                : hipThighMuscleFocused ? posteriorMuscleFocused ? -1.55 : 1.55
+                  : cranialTrunkFocused ? posteriorCranialTrunkFocused ? -1.9 : 1.9
+                    : regionalNerveFocused ? posteriorNerveFocused ? -2.05 : 1.55
+                      : posteriorNerveFocused ? -2.6 : 2.6),
           ]
         : initialCameraPosition;
-    const targetFov = brainFocused ? 32 : faceFocused ? 30 : MODEL_FOV;
+    const targetFov = brainFocused ? 32 : upperLimbNerveCameraFocus ? upperLimbNerveCameraFocus.fov : faceFocused ? 30 : lowerLegFootOverlay?.cameraSurface === "plantar" ? 34 : neuromuscularJunctionFocused ? 38
+      : hipThighMuscleFocused || lowerLegFootMuscleFocused || cranialTrunkFocused || regionalNerveFocused ? 38 : MODEL_FOV;
     const previouslyEnabled = controls.enabled;
     controls.enabled = false;
     gsap.killTweensOf(controls.target);
@@ -408,6 +580,9 @@ function CameraFocusController({
     };
   }, [
     areaTarget?.[0], areaTarget?.[1], areaTarget?.[2], faceFocused, posteriorNerveFocused,
+    hipThighMuscleFocused, neuromuscularJunctionFocused, posteriorMuscleFocused, cranialTrunkFocused, posteriorCranialTrunkFocused,
+    regionalNerveFocused, lowerLegFootMuscleFocused, lowerLegFootOverlay?.cameraSurface,
+    upperLimbNerveCameraFocus?.fov,
     brainFocused, camera, controlsRef, initialCameraPosition, initialCameraTarget, invalidate,
   ]);
 
@@ -431,6 +606,7 @@ function createMuscleRibbonGeometry(
   sourcePoints: [number, number, number][],
   halfWidth: number,
   closed = false,
+  surfaceNormal = new Vector3(0, 0, 1),
 ): BufferGeometry {
   const points = closed && sourcePoints.length > 2
     && new Vector3(...sourcePoints[0]).distanceTo(new Vector3(...sourcePoints[sourcePoints.length - 1])) < 0.0001
@@ -446,7 +622,7 @@ function createMuscleRibbonGeometry(
     const t = index / segments;
     const center = curve.getPointAt(t);
     const tangent = curve.getTangentAt(t).normalize();
-    const across = new Vector3(-tangent.y, tangent.x, 0);
+    const across = surfaceNormal.clone().cross(tangent);
     if (across.lengthSq() < 1e-8) across.set(1, 0, 0);
     const taper = closed ? 1 : Math.max(0.06, Math.sin(Math.PI * t) ** 0.65);
     across.normalize().multiplyScalar(halfWidth * taper);
@@ -484,11 +660,12 @@ function createMusclePatchGeometry(sourcePoints: [number, number, number][]): Bu
 }
 
 function FacialMuscleHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Area) => void }) {
-  const ribbons = useMemo(() => (area.muscleRibbons ?? []).map(({ points, halfWidth, closed }) => {
+  const ribbons = useMemo(() => (area.muscleRibbons ?? []).map(({ points, halfWidth, closed, surfaceNormal }) => {
     const localPoints = points.map(worldToModelLocal);
+    const normal = new Vector3(...(surfaceNormal ?? [0, 0, 1]));
     return {
-      glow: createMuscleRibbonGeometry(localPoints, halfWidth * 1.55, closed),
-      fill: createMuscleRibbonGeometry(localPoints, halfWidth, closed),
+      glow: createMuscleRibbonGeometry(localPoints, halfWidth * 1.55, closed, normal),
+      fill: createMuscleRibbonGeometry(localPoints, halfWidth, closed, normal),
     };
   }), [area.muscleRibbons]);
   const patches = useMemo(() => (area.musclePatches ?? []).map((points) =>
@@ -502,14 +679,14 @@ function FacialMuscleHighlight({ area, onSelect }: { area: Area; onSelect?: (are
   return (
     <group onClick={onSelect ? (event) => { event.stopPropagation(); onSelect(area); } : undefined}>
       {patches.map((patch, index) => <mesh key={`patch-${index}`} geometry={patch} renderOrder={20}>
-        <meshBasicMaterial color="#35d9ff" transparent opacity={0.06} depthTest={false} depthWrite={false} side={DoubleSide} toneMapped={false} />
+        <meshBasicMaterial color="#35d9ff" transparent opacity={0.06} depthTest={Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
       </mesh>)}
       {ribbons.map(({ glow, fill }, index) => <group key={index}>
         <mesh geometry={glow} renderOrder={20}>
-          <meshBasicMaterial color="#28cfff" transparent opacity={0.08} depthTest={false} depthWrite={false} side={DoubleSide} toneMapped={false} />
+          <meshBasicMaterial color="#28cfff" transparent opacity={0.08} depthTest={Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
         </mesh>
         <mesh geometry={fill} renderOrder={21}>
-          <meshBasicMaterial color="#35d9ff" transparent opacity={0.25} depthTest={false} depthWrite={false} side={DoubleSide} toneMapped={false} />
+          <meshBasicMaterial color="#35d9ff" transparent opacity={0.25} depthTest={Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
         </mesh>
       </group>)}
     </group>
@@ -548,13 +725,15 @@ function RegionHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Are
 function NerveHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Area) => void }) {
   const riggedPath = Boolean(area.markerPaths?.length || (area.markerPositions?.length ?? 0) > 1);
   const center = riggedPath ? [0, 0, 0] as [number, number, number] : worldToModelLocal(area.markerPosition ?? area.target);
-  const surfaceAnchoredFacialNerve = area.name === "Cranial nerve VII Facial";
+  const surfaceAnchoredNerve = area.name === "Cranial nerve VII Facial"
+    || area.name === "Common fibular nerve";
   const paths = useMemo(() => {
     const riggedPaths = area.markerPaths ?? (area.markerPositions && area.markerPositions.length > 1 ? [area.markerPositions] : null);
     if (riggedPaths) {
       const cranialNerve = area.name.startsWith("Cranial nerve");
-      const glowRadius = cranialNerve ? 0.0012 : 0.0028;
-      const coreRadius = cranialNerve ? 0.0005 : 0.001;
+      const commonFibularNerve = area.name === "Common fibular nerve";
+      const glowRadius = cranialNerve ? 0.0012 : commonFibularNerve ? 0.0018 : 0.0028;
+      const coreRadius = cranialNerve ? 0.0005 : commonFibularNerve ? 0.0008 : 0.001;
       return riggedPaths.map((points) => {
         const curve = new CatmullRomCurve3(points.map((point) => new Vector3(...worldToModelLocal(point))));
         return {
@@ -603,10 +782,10 @@ function NerveHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Area
     <group position={center} quaternion={orientation} onClick={onSelect ? (event) => { event.stopPropagation(); onSelect(area); } : undefined}>
       {paths.map(({ glow, core }, index) => <group key={index}>
         <mesh geometry={glow} renderOrder={20}>
-          <meshBasicMaterial color="#28cfff" transparent opacity={index === 0 ? 0.22 : 0.16} depthTest={surfaceAnchoredFacialNerve} depthWrite={false} toneMapped={false} />
+          <meshBasicMaterial color="#28cfff" transparent opacity={index === 0 ? 0.22 : 0.16} depthTest={surfaceAnchoredNerve} depthWrite={false} toneMapped={false} />
         </mesh>
         <mesh geometry={core} renderOrder={21}>
-          <meshBasicMaterial color="#a8f4ff" transparent opacity={index === 0 ? 1 : 0.9} depthTest={surfaceAnchoredFacialNerve} depthWrite={false} toneMapped={false} />
+          <meshBasicMaterial color="#a8f4ff" transparent opacity={index === 0 ? 1 : 0.9} depthTest={surfaceAnchoredNerve} depthWrite={false} toneMapped={false} />
         </mesh>
       </group>)}
     </group>
@@ -740,6 +919,22 @@ function PersonModel({
     () => showAnatomyBrain ? createAnatomyFigureScene(scene) : null,
     [scene, showAnatomyBrain],
   );
+  useEffect(() => {
+    if (!anatomyScene) return;
+    const bodySurface = anatomyScene.getObjectByName("GhostBody");
+    if (!bodySurface) return;
+    const writeDepth = selectedArea?.name === "Common fibular nerve"
+      || Boolean(selectedArea && LOWER_LEG_FOOT_MUSCLE_PATHS[selectedArea.name]);
+    bodySurface.traverse((object) => {
+      const mesh = object as Mesh;
+      if (!mesh.isMesh) return;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      materials.forEach((material) => {
+        material.depthWrite = writeDepth;
+        material.needsUpdate = true;
+      });
+    });
+  }, [anatomyScene, selectedArea?.name]);
   useEffect(() => () => {
     if (anatomyScene) disposeAnatomyFigureScene(anatomyScene);
   }, [anatomyScene]);
@@ -748,18 +943,48 @@ function PersonModel({
     if (!selectedArea || selectedArea.meshName === "brain") return selectedArea;
     const upperFaceShape = FACIAL_MUSCLE_SHAPES[selectedArea.name];
     const lowerFaceShapes = LOWER_FACIAL_MUSCLE_PATHS[selectedArea.name];
-    if (upperFaceShape || lowerFaceShapes) {
-      const sourceRibbons = upperFaceShape
+    const hipThighOverlay = HIP_THIGH_MUSCLE_PATHS[selectedArea.name];
+    const lowerLegFootOverlay = LOWER_LEG_FOOT_MUSCLE_PATHS[selectedArea.name];
+    if (upperFaceShape || lowerFaceShapes || hipThighOverlay || lowerLegFootOverlay) {
+      const sourceRibbons: {
+        points: ModelOffset[];
+        halfWidth: number;
+        closed?: boolean;
+        surfaceNormal?: ModelOffset;
+      }[] = upperFaceShape
         ? upperFaceShape.paths.map((points) => ({
             points,
             halfWidth: upperFaceShape.halfWidth,
             closed: upperFaceShape.kind === "ring",
           }))
-        : (lowerFaceShapes ?? []).map(({ centerline, width, thickness, closed }) => ({
+        : lowerFaceShapes
+          ? lowerFaceShapes.map(({ centerline, width, thickness, closed }) => ({
             points: centerline,
             halfWidth: Math.max(width / 2, thickness),
             closed,
-          }));
+          }))
+          : lowerLegFootOverlay
+            ? lowerLegFootOverlay.paths.flatMap(({ points, surface, halfWidth }, index) => {
+              const surfacePoints = getSurfaceAnchoredPaths(
+                scene,
+                `${selectedArea.name}:${index}`,
+                [points],
+                surface,
+              )[0];
+              if (!surfacePoints || surfacePoints.length < 2) return [];
+              const normal = sourceSurfaceDirection(new Vector3(...points[0]), surface);
+              return [{
+                points: surfacePoints,
+                halfWidth: halfWidth ?? lowerLegFootOverlay.halfWidth,
+                closed: false,
+                surfaceNormal: [normal.x, normal.y, normal.z] as ModelOffset,
+              }];
+            })
+            : (hipThighOverlay?.paths ?? []).map((points) => ({
+              points,
+              halfWidth: hipThighOverlay?.halfWidth ?? 0.01,
+              closed: false,
+            }));
       const sourcePatches = upperFaceShape?.outline ? [upperFaceShape.outline] : [];
       return {
         ...selectedArea,
@@ -769,7 +994,7 @@ function PersonModel({
           figureTransform.scale,
           modelOffset,
         ))),
-        muscleRibbons: sourceRibbons.map(({ points, halfWidth, closed }) => ({
+        muscleRibbons: sourceRibbons.map(({ points, halfWidth, closed, surfaceNormal }) => ({
           points: points.map((point) => modelPointToWorld(
             point,
             figureTransform.position,
@@ -778,15 +1003,24 @@ function PersonModel({
           )),
           halfWidth: halfWidth * figureTransform.scale,
           closed,
+          surfaceNormal,
         })),
+        surfaceAnchored: Boolean(lowerLegFootOverlay),
       };
     }
-    const customPaths = CUSTOM_NERVE_PATHS[selectedArea.name];
+    const customPaths = ANATOMY_NERVE_PATHS[selectedArea.name];
     const anchorPathNames = NERVE_RIG_PATHS[selectedArea.name];
     if (customPaths) {
-      const markerPaths = customPaths.map((path) => path.map((point) =>
+      const sourcePaths = selectedArea.name === "Common fibular nerve"
+        ? getSurfaceAnchoredPaths(scene, selectedArea.name, customPaths)
+        : customPaths;
+      const markerPaths = sourcePaths.map((path) => path.map((point) =>
         modelPointToWorld(
-          point,
+          selectedArea.name === "Cranial nerve VII Facial"
+            || selectedArea.name === "Common fibular nerve"
+            || selectedArea.name === "Neuromuscular junction"
+            ? point
+            : insetNervePathPoint(point),
           figureTransform.position,
           figureTransform.scale,
           modelOffset,
@@ -798,7 +1032,12 @@ function PersonModel({
       const markerPaths = anchorPathNames.map((path) => path.map((name) => {
         const anchorPoint = name === "brain" ? figureTransform.brainPosition : resolveModelAnchor(scene, name);
         if (!anchorPoint) return null;
-        return modelPointToWorld(anchorPoint, figureTransform.position, figureTransform.scale, modelOffset);
+        return modelPointToWorld(
+          insetNervePathPoint(anchorPoint),
+          figureTransform.position,
+          figureTransform.scale,
+          modelOffset,
+        );
       }).filter((point): point is [number, number, number] => point !== null)).filter((path) => path.length > 1);
       if (markerPaths.length) return { ...selectedArea, markerPaths };
     }
