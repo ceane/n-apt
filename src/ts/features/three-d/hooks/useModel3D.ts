@@ -14,6 +14,8 @@ type Area = {
   markerPosition?: [number, number, number];
   markerPositions?: [number, number, number][];
   markerPaths?: [number, number, number][][];
+  muscleRibbons?: { points: [number, number, number][]; halfWidth: number; closed?: boolean }[];
+  musclePatches?: [number, number, number][][];
   markerRadius?: number;
   markerStyle?: "rotation";
   surfaceNormal?: [number, number, number];

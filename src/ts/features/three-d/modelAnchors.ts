@@ -17,34 +17,37 @@ export function modelSourcePointToWorld(
   ];
 }
 
-/** Rig anchors in the loaded asset's coordinate space, before viewer normalization.
+/**
+ * Rig anchors in the loaded asset's coordinate space, before viewer normalization.
+ * These match the GhostBody runtime skeleton names: GLTFLoader removes the
+ * punctuation in names such as `spine.01` and `thigh.L`.
  * Offsets are metres: +X toward the subject's left, +Y up, +Z toward the face.
  * Apply the same parent
  * transform to the figure and its anchored objects. Center attached assets
  * before scaling them; never subtract an unscaled asset center from a target.
  */
 export const MODEL_ANCHORS = {
-  // The brain center sits above the head joint and behind the facial plane.
-  brain: { bone: "head", offset: [0, 0.18, -0.085] },
+  // Center the brain inside the cranial vault, just above the head joint.
+  brain: { bone: "head", offset: [0, 0.15, 0.015] },
   head: { bone: "head", offset: [0, 0, 0] },
   pelvis: { bone: "pelvis", offset: [0, 0, 0] },
   neck: { bone: "neck", offset: [0, 0, 0] },
   chest: { bone: "chest", offset: [0, 0, 0] },
-  abdomen: { bone: "spine.01", offset: [0, 0, 0] },
-  leftShoulder: { bone: "upper_arm.L", offset: [0, 0, 0] },
-  rightShoulder: { bone: "upper_arm.R", offset: [0, 0, 0] },
-  leftElbow: { bone: "forearm.L", offset: [0, 0, 0] },
-  rightElbow: { bone: "forearm.R", offset: [0, 0, 0] },
-  leftHand: { bone: "hand.L", offset: [0, 0, 0] },
-  rightHand: { bone: "hand.R", offset: [0, 0, 0] },
-  leftHip: { bone: "thigh.L", offset: [0, 0, 0] },
-  rightHip: { bone: "thigh.R", offset: [0, 0, 0] },
-  leftKnee: { bone: "shin.L", offset: [0, 0, 0] },
-  rightKnee: { bone: "shin.R", offset: [0, 0, 0] },
-  leftAnkle: { bone: "foot.L", offset: [0, 0, 0] },
-  rightAnkle: { bone: "foot.R", offset: [0, 0, 0] },
-  leftToes: { bone: "toes.L", offset: [0, 0, 0] },
-  rightToes: { bone: "toes.R", offset: [0, 0, 0] },
+  abdomen: { bone: "spine01", offset: [0, 0, 0] },
+  leftShoulder: { bone: "upper_armL", offset: [0, 0, 0] },
+  rightShoulder: { bone: "upper_armR", offset: [0, 0, 0] },
+  leftElbow: { bone: "forearmL", offset: [0, 0, 0] },
+  rightElbow: { bone: "forearmR", offset: [0, 0, 0] },
+  leftHand: { bone: "handL", offset: [0, 0, 0] },
+  rightHand: { bone: "handR", offset: [0, 0, 0] },
+  leftHip: { bone: "thighL", offset: [0, 0, 0] },
+  rightHip: { bone: "thighR", offset: [0, 0, 0] },
+  leftKnee: { bone: "shinL", offset: [0, 0, 0] },
+  rightKnee: { bone: "shinR", offset: [0, 0, 0] },
+  leftAnkle: { bone: "footL", offset: [0, 0, 0] },
+  rightAnkle: { bone: "footR", offset: [0, 0, 0] },
+  leftToes: { bone: "toesL", offset: [0, 0, 0] },
+  rightToes: { bone: "toesR", offset: [0, 0, 0] },
 } as const;
 
 export type ModelAnchorName = keyof typeof MODEL_ANCHORS;
