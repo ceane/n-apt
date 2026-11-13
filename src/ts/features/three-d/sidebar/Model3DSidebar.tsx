@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import styled from "styled-components";
 import { gsap } from "gsap";
 import {
@@ -12,6 +12,12 @@ import {
   Network,
 } from "lucide-react";
 import { BodyAreasSection, AnatomyCardsSection, TopicCards } from "@n-apt/learn";
+import {
+  BRAIN_ANATOMY_CARDS,
+  NERVOUS_SYSTEM_CARDS,
+  getAnatomyGroupId,
+  normalizeAnatomySearchText,
+} from "@n-apt/learn/sidebar/AnatomyCardsSection";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
 import { Collapsible, SidebarSubsectionList } from "@n-apt/ui";
@@ -19,6 +25,44 @@ import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
 } from "@n-apt/consts/components";
+
+const SECTION_STICKY_TOP = 50;
+const SUBSECTION_STICKY_TOP = 92;
+
+type AnatomySubsectionJump = {
+  id: string;
+  label: string;
+  kind: "brain" | "nervous";
+  parent?: string;
+};
+
+const ANATOMY_SUBSECTION_JUMPS: AnatomySubsectionJump[] = (() => {
+  const targets: AnatomySubsectionJump[] = [
+    { id: "anatomy-brain", label: "Brain", kind: "brain" },
+    { id: "anatomy-nervous-system", label: "Nervous System", kind: "nervous" },
+  ];
+  const groupTargets = new Set<string>();
+  const groupedCards = [
+    { kind: "brain" as const, parent: "Brain", cards: BRAIN_ANATOMY_CARDS },
+    { kind: "nervous" as const, parent: "Nervous System", cards: NERVOUS_SYSTEM_CARDS },
+  ];
+
+  groupedCards.forEach(({ kind, parent, cards }) => {
+    cards.forEach((card) => {
+      const key = `${kind}:${card.group}`;
+      if (groupTargets.has(key)) return;
+      groupTargets.add(key);
+      targets.push({
+        id: getAnatomyGroupId(kind, card.group),
+        label: card.group,
+        kind,
+        parent,
+      });
+    });
+  });
+
+  return targets;
+})();
 
 const Section = styled.div`
   display: grid;
@@ -70,6 +114,45 @@ const SearchInput = styled.input`
   font: inherit;
   font-size: 12px;
   &::placeholder { color: ${(props) => props.theme.textMuted}; }
+`;
+
+const SubsectionJumpResults = styled.div`
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  grid-column: 1 / -1;
+  margin: -4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid ${(props) => props.theme.primaryAlpha};
+  border-radius: 8px;
+  background: ${(props) => props.theme.primaryAnchor};
+`;
+
+const SubsectionJumpLabel = styled.span`
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+`;
+
+const SubsectionJumpButton = styled.button`
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+
+  &:hover, &:focus-visible {
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
+    outline: none;
+  }
 `;
 
 const InfoBox = styled.div`
@@ -132,6 +215,31 @@ const ResetButton = styled.button`
 export const Model3DSidebar: React.FC = () => {
   const { controlsRef, setSelectedArea, setModelVariant } = useModel3D();
   const [searchTerm, setSearchTerm] = useState("");
+  const normalizedSearchTerm = normalizeAnatomySearchText(searchTerm);
+  const matchingSubsections = useMemo(() => {
+    if (normalizedSearchTerm.length < 3) return [];
+
+    return ANATOMY_SUBSECTION_JUMPS
+      .filter((target) => {
+        const label = normalizeAnatomySearchText(target.label);
+        return label.includes(normalizedSearchTerm) || normalizedSearchTerm.includes(label);
+      })
+      .sort((a, b) => {
+        const aLabel = normalizeAnatomySearchText(a.label);
+        const bLabel = normalizeAnatomySearchText(b.label);
+        const rank = (label: string) => label === normalizedSearchTerm ? 0 : label.startsWith(normalizedSearchTerm) ? 1 : 2;
+        return rank(aLabel) - rank(bLabel) || a.label.localeCompare(b.label);
+      })
+      .slice(0, 6);
+  }, [normalizedSearchTerm]);
+
+  const jumpToSubsection = (target: AnatomySubsectionJump) => {
+    setModelVariant(target.kind === "brain" ? "brain" : "anatomy");
+    const element = target.parent
+      ? document.getElementById(target.id)
+      : document.querySelector(`[data-sidebar-section="${target.id}"]`);
+    element?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const handleResetCamera = () => {
     if (controlsRef?.current) {
@@ -185,12 +293,30 @@ export const Model3DSidebar: React.FC = () => {
           onChange={(event) => setSearchTerm(event.target.value)}
         />
       </SearchWrap>
+      {matchingSubsections.length > 0 && (
+        <SubsectionJumpResults role="group" aria-label="Matching subsections">
+          <SubsectionJumpLabel>Jump to</SubsectionJumpLabel>
+          {matchingSubsections.map((target) => (
+            <SubsectionJumpButton
+              key={target.id}
+              type="button"
+              aria-label={`Jump to ${target.label}${target.parent ? ` in ${target.parent}` : ""}`}
+              onClick={() => jumpToSubsection(target)}
+            >
+              {target.label}{target.parent ? ` · ${target.parent}` : ""}
+            </SubsectionJumpButton>
+          ))}
+        </SubsectionJumpResults>
+      )}
 
       <Section>
         <Collapsible
           icon={<PersonStanding size={16} />}
           label="Physiology /"
           defaultOpen
+          sticky
+          stickyTop={SECTION_STICKY_TOP}
+          stickyZIndex={18}
           onOpenChange={(isOpen) => {
             if (isOpen) setModelVariant("human");
           }}
@@ -207,6 +333,9 @@ export const Model3DSidebar: React.FC = () => {
           icon={<Blend size={16} />}
           label="Psychology /"
           open={searchTerm.trim() ? true : undefined}
+          sticky
+          stickyTop={SECTION_STICKY_TOP}
+          stickyZIndex={18}
         >
           <SectionDescription>
             Emotional experience and related first-person topics are grouped in Effects (First Person).
@@ -216,6 +345,10 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<Bone size={16} />}
           label="Anatomy /"
+          open={searchTerm.trim() ? true : undefined}
+          sticky
+          stickyTop={SECTION_STICKY_TOP}
+          stickyZIndex={18}
           onOpenChange={(isOpen) => {
             if (!isOpen) {
               setModelVariant("human");
@@ -232,7 +365,11 @@ export const Model3DSidebar: React.FC = () => {
             <Collapsible
               icon={<Brain size={15} />}
               label="Brain"
+              sectionId="anatomy-brain"
               open={searchTerm.trim() ? true : undefined}
+              sticky
+              stickyTop={SUBSECTION_STICKY_TOP}
+              stickyZIndex={19}
               onOpenChange={(isOpen) => {
                 setModelVariant(isOpen ? "brain" : "anatomy");
                 if (!isOpen) setSelectedArea(null);
@@ -243,7 +380,11 @@ export const Model3DSidebar: React.FC = () => {
             <Collapsible
               icon={<Network size={15} />}
               label="Nervous System"
+              sectionId="anatomy-nervous-system"
               open={searchTerm.trim() ? true : undefined}
+              sticky
+              stickyTop={SUBSECTION_STICKY_TOP}
+              stickyZIndex={19}
               onOpenChange={(isOpen) => { if (isOpen) setModelVariant("anatomy"); }}
             >
               <AnatomyCardsSection kind="nervous" searchTerm={searchTerm} />
@@ -251,7 +392,7 @@ export const Model3DSidebar: React.FC = () => {
           </SidebarSubsectionList>
         </Collapsible>
 
-        <Collapsible icon={<NotebookPen size={16} />} label="Effects (First Person) /" open={searchTerm.trim() ? true : undefined}>
+        <Collapsible icon={<NotebookPen size={16} />} label="Effects (First Person) /" open={searchTerm.trim() ? true : undefined} sticky stickyTop={SECTION_STICKY_TOP} stickyZIndex={18}>
           <SectionDescription>Health and lived-experience topics. These tiles describe possible effects and do not diagnose an individual or establish a cause.</SectionDescription>
           <TopicCards section="effects" searchTerm={searchTerm} />
           <TopicCards section="psychology" searchTerm={searchTerm} />
@@ -262,6 +403,9 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<DraftingCompass size={16} />}
           label="Make Hotspots /"
+          sticky
+          stickyTop={SECTION_STICKY_TOP}
+          stickyZIndex={18}
         >
           <div style={{ gridColumn: "1 / -1" }}>
             <HotspotEditorSection />

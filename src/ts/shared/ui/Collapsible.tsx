@@ -1,18 +1,48 @@
 import React from "react";
 import styled from "styled-components";
 
-export const CollapsibleTitleContainer = styled.button`
+export const CollapsibleTitleContainer = styled.button<{
+  $sticky?: boolean;
+  $isOpen?: boolean;
+  $stickyTop?: number;
+  $stickyZIndex?: number;
+}>`
   display: flex;
   justify-content: space-between;
   align-items: center;
   width: 100%;
   grid-column: 1 / -1;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  margin: 1.5rem 0 0.5rem 0;
+  position: ${(props) => (props.$sticky && props.$isOpen ? "sticky" : "relative")};
+  top: ${(props) => (props.$sticky && props.$isOpen ? `${props.$stickyTop ?? 0}px` : "auto")};
+  z-index: ${(props) =>
+    props.$sticky && props.$isOpen ? props.$stickyZIndex ?? 1 : "auto"};
+  background: ${(props) => (props.$sticky ? props.theme.surface : "transparent")};
+  border: ${(props) =>
+    props.$sticky ? `1px solid ${props.theme.border}` : "0"};
+  padding: ${(props) => (props.$sticky ? "8px 10px" : "0")};
+  margin: ${(props) => (props.$sticky ? "0.35rem 0" : "1.5rem 0 0.5rem 0")};
+  border-radius: ${(props) => (props.$sticky ? "7px" : "0")};
+  box-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  &::after {
+    content: ${(props) =>
+      props.$sticky && props.$isOpen ? '""' : "none"};
+    position: absolute;
+    inset: 100% -1px auto;
+    height: 12px;
+    background: ${(props) => props.theme.surface};
+    pointer-events: none;
+  }
   cursor: pointer;
   text-align: left;
+`;
+
+const StickyCollapsibleRoot = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-column: 1 / -1;
+  gap: inherit;
+  min-width: 0;
 `;
 
 const fallbackMono =
@@ -144,6 +174,9 @@ export interface CollapsibleProps {
   titlePulseToken?: number;
   endAdornment?: React.ReactNode;
   hideHeader?: boolean;
+  sticky?: boolean;
+  stickyTop?: number;
+  stickyZIndex?: number;
 }
 
 export const Collapsible: React.FC<CollapsibleProps> = ({
@@ -158,6 +191,9 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
   titlePulseToken,
   endAdornment,
   hideHeader = false,
+  sticky = false,
+  stickyTop = 0,
+  stickyZIndex = 1,
 }) => {
   const [isOpen, setIsOpen] = React.useState(defaultOpen);
 
@@ -179,13 +215,17 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
     return <>{children}</>;
   }
 
-  return (
+  const collapsibleContent = (
     <>
       <CollapsibleTitleContainer
         type="button"
         onClick={handleToggle}
         aria-expanded={isOpen}
         data-sidebar-section={sectionId}
+        $sticky={sticky}
+        $isOpen={isOpen}
+        $stickyTop={stickyTop}
+        $stickyZIndex={stickyZIndex}
       >
         {title ? (
           <CollapsibleTitleContent
@@ -212,6 +252,12 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
       {isOpen && <CollapsibleBody>{children}</CollapsibleBody>}
     </>
   );
+
+  return sticky ? (
+    <StickyCollapsibleRoot data-collapsible-sticky-root>
+      {collapsibleContent}
+    </StickyCollapsibleRoot>
+  ) : collapsibleContent;
 };
 
 // Keep the old components for backward compatibility but mark as deprecated

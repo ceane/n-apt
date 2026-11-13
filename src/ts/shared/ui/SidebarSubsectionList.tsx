@@ -11,36 +11,42 @@ const SubsectionListRoot = styled.div`
   padding: 0 0 2px 14px;
   border-left: 2px solid ${(props) => props.theme.primaryAlpha};
 
-  > button[aria-expanded] {
+  > button[aria-expanded],
+  > [data-collapsible-sticky-root] > button[aria-expanded] {
     min-width: 0;
     margin: 4px 0 2px;
     padding: 8px 10px;
     border-left: 3px solid ${(props) => props.theme.primaryAlpha};
     border-bottom: 2px solid ${(props) => props.theme.primaryAlpha};
     border-radius: 6px 6px 3px 3px;
-    background: ${(props) => props.theme.primaryAnchor};
+    background: ${(props) => props.theme.surface};
     transition: background-color 0.15s ease;
   }
 
-  > button[aria-expanded]:hover {
-    background: ${(props) => props.theme.activeBackground};
+  > button[aria-expanded]:hover,
+  > [data-collapsible-sticky-root] > button[aria-expanded]:hover {
+    background: ${(props) => props.theme.surfaceHover};
   }
 
-  > button[aria-expanded]:first-child {
+  > button[aria-expanded]:first-child,
+  > [data-collapsible-sticky-root]:first-child > button[aria-expanded] {
     margin-top: 2px;
   }
 
-  > button[aria-expanded] span {
-    font-size: 10px;
+  > button[aria-expanded] span,
+  > [data-collapsible-sticky-root] > button[aria-expanded] span {
+    font-size: 11px;
     letter-spacing: 0.9px;
   }
 
-  > button[aria-expanded] svg {
+  > button[aria-expanded] svg,
+  > [data-collapsible-sticky-root] > button[aria-expanded] svg {
     width: 14px;
     height: 14px;
   }
 
-  > div {
+  > div:not([data-collapsible-sticky-root]),
+  > [data-collapsible-sticky-root] > div {
     min-width: 0;
     margin: 2px 0 6px;
     padding-left: 8px;

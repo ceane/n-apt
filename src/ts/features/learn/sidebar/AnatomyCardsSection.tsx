@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo } from "react";
 import styled from "styled-components";
 import { BRAIN_POSITION, BRAIN_SCALE, MODEL_ROOT_POSITION } from "@n-apt/consts";
+import { FACIAL_MUSCLE_SHAPES } from "@n-apt/three-d/facialMusclePaths";
+import { LOWER_FACIAL_MUSCLE_PATHS } from "@n-apt/three-d/lowerFacialMusclePaths";
 import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
 import { useModel3D, type Area } from "@n-apt/three-d/public/useModel3D";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn/sidebar/BodyAreasSection";
@@ -15,6 +17,21 @@ type AnatomyCardData = {
   tags: string[];
   relatedAreas?: { name: string; relation: string }[];
 };
+
+export function normalizeAnatomySearchText(value: string): string {
+  return value.toLowerCase()
+    .replace(/\bexpressions\b/g, "expression")
+    .replace(/\bmuscles\b/g, "muscle")
+    .replace(/\bnerves\b/g, "nerve")
+    .replace(/\bsystems\b/g, "system")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function getAnatomyGroupId(kind: "brain" | "nervous", group: string): string {
+  const slug = group.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `anatomy-group-${kind}-${slug}`;
+}
 
 const brain = (name: string, group: string, description: string, fn: string, offset: [number, number, number], tags: string[] = []): AnatomyCardData => ({ name, group, description, function: fn, model: "brain", offset, tags });
 const nerve = (name: string, group: string, description: string, fn: string, offset: [number, number, number] = [0, 0, 0], tags: string[] = []): AnatomyCardData => ({ name, group, description, function: fn, model: "human", offset, tags });
@@ -287,7 +304,7 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
 ];
 
 const SectionList = styled.div`display: grid; gap: 14px;`;
-const Group = styled.section`display: grid; gap: 8px;`;
+const Group = styled.section`display: grid; gap: 8px; scroll-margin-top: 170px;`;
 const GroupTitle = styled.h3`margin: 8px 2px 3px; font-size: 11px; letter-spacing: .06em; color: ${(p) => p.theme.textSecondary}; text-transform: uppercase;`;
 const Card = styled.button<{ $selected: boolean }>`
   display: grid; gap: 6px; text-align: left; width: 100%; padding: 11px 12px;
@@ -369,10 +386,21 @@ export function toModelArea(card: AnatomyCardData): Area {
         : card.offset[1] >= 0
           ? card.offset[1]
           : 1.7 + card.offset[1] * .5;
+    const upperFaceShape = FACIAL_MUSCLE_SHAPES[card.name];
+    const lowerFaceShapes = LOWER_FACIAL_MUSCLE_PATHS[card.name];
+    const facialPoints = upperFaceShape
+      ? upperFaceShape.paths.reduce((points, path) => points.concat(path), [] as [number, number, number][])
+      : lowerFaceShapes?.reduce((points, { centerline }) => points.concat(centerline), [] as [number, number, number][]);
+    const facialCenter = facialPoints?.length
+      ? facialPoints.reduce(
+          (center, point) => [center[0] + point[0], center[1] + point[1], center[2] + point[2]] as [number, number, number],
+          [0, 0, 0] as [number, number, number],
+        ).map((coordinate) => coordinate / facialPoints.length) as [number, number, number]
+      : null;
     const target = modelSourcePointToWorld([
-      card.offset[0],
-      targetY,
-      cranialNerve ? -0.04 : card.offset[2],
+      facialCenter?.[0] ?? card.offset[0],
+      facialCenter?.[1] ?? targetY,
+      cranialNerve ? -0.04 : facialCenter?.[2] ?? card.offset[2],
     ]);
     const nerveLike = /cranial nerves|nerve plexuses|peripheral nerves|spinal cord|autonomic pathways|sensory pathways|skin sensation maps/i.test(card.group)
       || /nervous system|cranial nerve|nerve|plexus|dermatome|cutaneous|ganglion|tract|pathway/i.test(card.name);
@@ -609,11 +637,11 @@ export const AnatomyCardsSection: React.FC<{ kind: "brain" | "nervous"; searchTe
     }).join(" ");
     return `${card.name} ${card.group} ${card.description} ${card.function} ${card.tags.join(" ")} ${aliases(card)} ${relatedContext}`.toLowerCase();
     };
-    source.forEach((card) => textByName.set(card.name, describe(card)));
+    source.forEach((card) => textByName.set(card.name, normalizeAnatomySearchText(describe(card))));
     return textByName;
   }, [allCardsByName, aliases, source]);
   const filtered = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
+    const query = normalizeAnatomySearchText(searchTerm);
     return source.filter((card) => searchableText.get(card.name)?.includes(query));
   }, [searchTerm, searchableText, source]);
   const groupedCards = useMemo(() => {
@@ -647,7 +675,7 @@ export const AnatomyCardsSection: React.FC<{ kind: "brain" | "nervous"; searchTe
   return (
     <SectionList>
       {groupedCards.map(([group, cards]) => (
-        <Group key={group}>
+        <Group key={group} id={getAnatomyGroupId(kind, group)}>
           <GroupTitle>{group}</GroupTitle>
           {cards.map((card) => (
             <AnatomyCardRow
