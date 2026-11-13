@@ -3,9 +3,17 @@ import styled from "styled-components";
 import { BRAIN_POSITION, BRAIN_SCALE, MODEL_ROOT_POSITION } from "@n-apt/consts";
 import { FACIAL_MUSCLE_SHAPES } from "@n-apt/three-d/facialMusclePaths";
 import { LOWER_FACIAL_MUSCLE_PATHS } from "@n-apt/three-d/lowerFacialMusclePaths";
+import { CRANIAL_NERVE_PATHS } from "@n-apt/three-d/cranialNervePaths";
+import { COMMON_FIBULAR_NERVE_PATHS } from "@n-apt/three-d/commonFibularNervePaths";
+import { HIP_THIGH_MUSCLE_PATHS } from "@n-apt/three-d/hipThighMusclePaths";
+import { LOWER_LEG_FOOT_MUSCLE_PATHS } from "@n-apt/three-d/lowerLegFootMusclePaths";
+import { NEUROMUSCULAR_JUNCTION_PATHS } from "@n-apt/three-d/neuromuscularJunctionPaths";
+import { SPINAL_CORD_PATHS } from "@n-apt/three-d/spinalCordPaths";
 import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
 import { useModel3D, type Area } from "@n-apt/three-d/public/useModel3D";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn/sidebar/BodyAreasSection";
+import { CopyDeepLinkButton } from "@n-apt/ui/CopyDeepLinkButton";
+import { anatomyCardRoute, anatomyGroupRoute, sidebarRouteTargetId } from "@n-apt/three-d/sidebar/sidebarDeepLinks";
 
 type AnatomyCardData = {
   name: string;
@@ -305,14 +313,15 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
 
 const SectionList = styled.div`display: grid; gap: 14px;`;
 const Group = styled.section`display: grid; gap: 8px; scroll-margin-top: 170px;`;
-const GroupTitle = styled.h3`margin: 8px 2px 3px; font-size: 11px; letter-spacing: .06em; color: ${(p) => p.theme.textSecondary}; text-transform: uppercase;`;
+const GroupTitle = styled.h3`display: flex; align-items: center; gap: 4px; margin: 8px 2px 3px; font-size: 11px; letter-spacing: .06em; color: ${(p) => p.theme.textSecondary}; text-transform: uppercase; &:hover .sidebar-copy-deep-link { opacity: 0.65; }`;
 const Card = styled.button<{ $selected: boolean }>`
   display: grid; gap: 6px; text-align: left; width: 100%; padding: 11px 12px;
+  scroll-margin-top: 170px;
   border-radius: 8px; border: 1px solid ${(p) => p.$selected ? p.theme.primary : p.theme.border};
   background: ${(p) => p.$selected ? p.theme.primaryAnchor : p.theme.surface}; color: ${(p) => p.theme.textPrimary}; cursor: pointer;
   &:hover { background: ${(p) => p.theme.surfaceHover}; border-color: ${(p) => p.theme.primary}; }
 `;
-const CardItem = styled.div`display: grid; gap: 4px;`;
+const CardItem = styled.div`display: grid; gap: 4px; position: relative; &:hover .sidebar-copy-deep-link, &:focus-within .sidebar-copy-deep-link { opacity: 0.65; } & > .sidebar-copy-deep-link { position: absolute; top: 2px; right: 3px; z-index: 1; }`;
 const RelatedSection = styled.div`display: grid; gap: 3px; padding: 2px 12px 5px;`;
 const RelatedHeading = styled.strong`font-size: 9px; line-height: 1.3; color: ${(p) => p.theme.textMuted}; text-transform: uppercase; letter-spacing: .04em;`;
 const RelatedLink = styled.button`
@@ -345,7 +354,8 @@ const AnatomyCardRow = React.memo(function AnatomyCardRow({
 }: AnatomyCardRowProps) {
   return (
     <CardItem>
-      <Card $selected={isSelected} aria-pressed={isSelected} onClick={() => {
+      <CopyDeepLinkButton title={card.name} targetPath={anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name)} />
+      <Card id={sidebarRouteTargetId(anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name))} $selected={isSelected} aria-pressed={isSelected} onClick={() => {
         setSelectedArea(area);
         setModelVariant(card.model === "brain" ? "brain" : "anatomy");
       }}>
@@ -388,21 +398,35 @@ export function toModelArea(card: AnatomyCardData): Area {
           : 1.7 + card.offset[1] * .5;
     const upperFaceShape = FACIAL_MUSCLE_SHAPES[card.name];
     const lowerFaceShapes = LOWER_FACIAL_MUSCLE_PATHS[card.name];
+    const hipThighOverlay = HIP_THIGH_MUSCLE_PATHS[card.name];
+    const lowerLegFootOverlay = LOWER_LEG_FOOT_MUSCLE_PATHS[card.name];
+    const neuromuscularJunctionPaths = NEUROMUSCULAR_JUNCTION_PATHS[card.name];
+    const nervePaths = card.name === "Cranial nerve VII Facial"
+      ? undefined
+      : CRANIAL_NERVE_PATHS[card.name]
+        ?? SPINAL_CORD_PATHS[card.name]
+        ?? (card.name === "Common fibular nerve" ? COMMON_FIBULAR_NERVE_PATHS : undefined);
     const facialPoints = upperFaceShape
       ? upperFaceShape.paths.reduce((points, path) => points.concat(path), [] as [number, number, number][])
       : lowerFaceShapes?.reduce((points, { centerline }) => points.concat(centerline), [] as [number, number, number][]);
-    const facialCenter = facialPoints?.length
-      ? facialPoints.reduce(
+    const overlayPoints = hipThighOverlay?.paths.flat()
+      ?? lowerLegFootOverlay?.paths.flatMap(({ points }) => points)
+      ?? facialPoints
+      ?? neuromuscularJunctionPaths?.flat()
+      ?? nervePaths?.flat();
+    const overlayCenter = overlayPoints?.length
+      ? overlayPoints.reduce(
           (center, point) => [center[0] + point[0], center[1] + point[1], center[2] + point[2]] as [number, number, number],
           [0, 0, 0] as [number, number, number],
-        ).map((coordinate) => coordinate / facialPoints.length) as [number, number, number]
+        ).map((coordinate) => coordinate / overlayPoints.length) as [number, number, number]
       : null;
     const target = modelSourcePointToWorld([
-      facialCenter?.[0] ?? card.offset[0],
-      facialCenter?.[1] ?? targetY,
-      cranialNerve ? -0.04 : facialCenter?.[2] ?? card.offset[2],
+      overlayCenter?.[0] ?? card.offset[0],
+      overlayCenter?.[1] ?? targetY,
+      overlayCenter?.[2] ?? (cranialNerve ? -0.04 : card.offset[2]),
     ]);
-    const nerveLike = /cranial nerves|nerve plexuses|peripheral nerves|spinal cord|autonomic pathways|sensory pathways|skin sensation maps/i.test(card.group)
+    const nerveLike = card.name === "Neuromuscular junction"
+      || /cranial nerves|nerve plexuses|peripheral nerves|spinal cord|autonomic pathways|sensory pathways|skin sensation maps/i.test(card.group)
       || /nervous system|cranial nerve|nerve|plexus|dermatome|cutaneous|ganglion|tract|pathway/i.test(card.name);
     return { name: card.name, position: [target[0], target[1] + .12, target[2] + 2.6], target, meshName: "o_ADBody", highlightType: nerveLike ? "nerve" : "region" };
   }
@@ -675,8 +699,8 @@ export const AnatomyCardsSection: React.FC<{ kind: "brain" | "nervous"; searchTe
   return (
     <SectionList>
       {groupedCards.map(([group, cards]) => (
-        <Group key={group} id={getAnatomyGroupId(kind, group)}>
-          <GroupTitle>{group}</GroupTitle>
+        <Group key={group} id={sidebarRouteTargetId(anatomyGroupRoute(kind, group))}>
+          <GroupTitle>{group}<CopyDeepLinkButton title={group} targetPath={anatomyGroupRoute(kind, group)} /></GroupTitle>
           {cards.map((card) => (
             <AnatomyCardRow
               key={card.name}

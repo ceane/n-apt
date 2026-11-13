@@ -10,7 +10,7 @@ export type RouteProviderGroup =
 
 export const getRouteProviderGroup = (pathname: string): RouteProviderGroup => {
   if (pathname === "/demod" || pathname === "/demodulate") return "demod";
-  if (pathname === "/3d-model" || pathname === "/3d-model-gallery") {
+  if (pathname === "/3d-model" || pathname.startsWith("/3d-model/") || pathname === "/3d-model-gallery") {
     return "model";
   }
   if (pathname === "/map-endpoints") return "map";

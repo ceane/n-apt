@@ -184,7 +184,7 @@ const AppShellLayout: React.FC = () => {
 
   const isSpectrum = ["/", "/auth", "/visualizer"].includes(path);
   const isDemod = path === "/demodulate" || path === "/demod";
-  const is3DModel = path === "/3d-model";
+  const is3DModel = path === "/3d-model" || path.startsWith("/3d-model/");
   const isMap = path === "/map-endpoints";
   const isAntiAliasing = path === "/diagnostics/anti-aliasing";
   const isDrawSignal = path === "/draw-signal";
@@ -297,7 +297,7 @@ const AppShellLayout: React.FC = () => {
             path="/experiments/web-usb"
             element={<WebUsbExperimentRoute />}
           />
-          <Route path="/3d-model" element={<Model3DRoute />} />
+          <Route path="/3d-model/*" element={<Model3DRoute />} />
           <Route path="/map-endpoints" element={<MapEndpointsRoute />} />
           <Route
             path="/diagnostics/anti-aliasing"

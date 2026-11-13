@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import styled from "styled-components";
 import { gsap } from "gsap";
 import {
@@ -15,7 +16,6 @@ import { BodyAreasSection, AnatomyCardsSection, TopicCards } from "@n-apt/learn"
 import {
   BRAIN_ANATOMY_CARDS,
   NERVOUS_SYSTEM_CARDS,
-  getAnatomyGroupId,
   normalizeAnatomySearchText,
 } from "@n-apt/learn/sidebar/AnatomyCardsSection";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
@@ -25,12 +25,14 @@ import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
 } from "@n-apt/consts/components";
+import { anatomyGroupRoute, normalizeSidebarRoute, SIDEBAR_ROUTES, sidebarRouteTargetId } from "@n-apt/three-d/sidebar/sidebarDeepLinks";
 
 const SECTION_STICKY_TOP = 50;
 const SUBSECTION_STICKY_TOP = 92;
 
 type AnatomySubsectionJump = {
   id: string;
+  route: string;
   label: string;
   kind: "brain" | "nervous";
   parent?: string;
@@ -38,8 +40,8 @@ type AnatomySubsectionJump = {
 
 const ANATOMY_SUBSECTION_JUMPS: AnatomySubsectionJump[] = (() => {
   const targets: AnatomySubsectionJump[] = [
-    { id: "anatomy-brain", label: "Brain", kind: "brain" },
-    { id: "anatomy-nervous-system", label: "Nervous System", kind: "nervous" },
+    { id: sidebarRouteTargetId(SIDEBAR_ROUTES.brain), route: SIDEBAR_ROUTES.brain, label: "Brain", kind: "brain" },
+    { id: sidebarRouteTargetId(SIDEBAR_ROUTES.nervous), route: SIDEBAR_ROUTES.nervous, label: "Nervous System", kind: "nervous" },
   ];
   const groupTargets = new Set<string>();
   const groupedCards = [
@@ -53,7 +55,8 @@ const ANATOMY_SUBSECTION_JUMPS: AnatomySubsectionJump[] = (() => {
       if (groupTargets.has(key)) return;
       groupTargets.add(key);
       targets.push({
-        id: getAnatomyGroupId(kind, card.group),
+        id: sidebarRouteTargetId(anatomyGroupRoute(kind, card.group)),
+        route: anatomyGroupRoute(kind, card.group),
         label: card.group,
         kind,
         parent,
@@ -214,7 +217,25 @@ const ResetButton = styled.button`
 
 export const Model3DSidebar: React.FC = () => {
   const { controlsRef, setSelectedArea, setModelVariant } = useModel3D();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const deepLinkTarget = normalizeSidebarRoute(location.pathname);
   const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      document.getElementById(sidebarRouteTargetId(deepLinkTarget))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [deepLinkTarget]);
+  const anatomyTarget = deepLinkTarget === SIDEBAR_ROUTES.anatomy || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.anatomy}/`);
+  const brainTarget = deepLinkTarget === SIDEBAR_ROUTES.brain || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.brain}/`);
+  const nervousTarget = deepLinkTarget === SIDEBAR_ROUTES.nervous || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.nervous}/`);
+  const effectsTarget = deepLinkTarget === SIDEBAR_ROUTES.effects || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.effects}/`);
+  useEffect(() => {
+    if (brainTarget) setModelVariant("brain");
+    else if (anatomyTarget) setModelVariant("anatomy");
+    else if (deepLinkTarget === SIDEBAR_ROUTES.physiology) setModelVariant("human");
+  }, [anatomyTarget, brainTarget, deepLinkTarget, setModelVariant]);
   const normalizedSearchTerm = normalizeAnatomySearchText(searchTerm);
   const matchingSubsections = useMemo(() => {
     if (normalizedSearchTerm.length < 3) return [];
@@ -235,9 +256,8 @@ export const Model3DSidebar: React.FC = () => {
 
   const jumpToSubsection = (target: AnatomySubsectionJump) => {
     setModelVariant(target.kind === "brain" ? "brain" : "anatomy");
-    const element = target.parent
-      ? document.getElementById(target.id)
-      : document.querySelector(`[data-sidebar-section="${target.id}"]`);
+    navigate(target.route);
+    const element = document.getElementById(target.id);
     element?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -313,6 +333,9 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<PersonStanding size={16} />}
           label="Physiology /"
+          sectionId="sidebar-physiology"
+          routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.physiology)}
+          linkPath={SIDEBAR_ROUTES.physiology}
           defaultOpen
           sticky
           stickyTop={SECTION_STICKY_TOP}
@@ -332,7 +355,10 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<Blend size={16} />}
           label="Psychology /"
-          open={searchTerm.trim() ? true : undefined}
+          sectionId="sidebar-psychology"
+          routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.psychology)}
+          linkPath={SIDEBAR_ROUTES.psychology}
+          temporaryOpen={Boolean(searchTerm.trim()) || deepLinkTarget === SIDEBAR_ROUTES.psychology}
           sticky
           stickyTop={SECTION_STICKY_TOP}
           stickyZIndex={18}
@@ -345,7 +371,10 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<Bone size={16} />}
           label="Anatomy /"
-          open={searchTerm.trim() ? true : undefined}
+          sectionId="sidebar-anatomy"
+          routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.anatomy)}
+          linkPath={SIDEBAR_ROUTES.anatomy}
+          temporaryOpen={Boolean(searchTerm.trim()) || anatomyTarget}
           sticky
           stickyTop={SECTION_STICKY_TOP}
           stickyZIndex={18}
@@ -366,7 +395,9 @@ export const Model3DSidebar: React.FC = () => {
               icon={<Brain size={15} />}
               label="Brain"
               sectionId="anatomy-brain"
-              open={searchTerm.trim() ? true : undefined}
+              routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.brain)}
+              linkPath={SIDEBAR_ROUTES.brain}
+              temporaryOpen={Boolean(searchTerm.trim()) || brainTarget}
               sticky
               stickyTop={SUBSECTION_STICKY_TOP}
               stickyZIndex={19}
@@ -381,7 +412,9 @@ export const Model3DSidebar: React.FC = () => {
               icon={<Network size={15} />}
               label="Nervous System"
               sectionId="anatomy-nervous-system"
-              open={searchTerm.trim() ? true : undefined}
+              routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.nervous)}
+              linkPath={SIDEBAR_ROUTES.nervous}
+              temporaryOpen={Boolean(searchTerm.trim()) || nervousTarget}
               sticky
               stickyTop={SUBSECTION_STICKY_TOP}
               stickyZIndex={19}
@@ -392,7 +425,7 @@ export const Model3DSidebar: React.FC = () => {
           </SidebarSubsectionList>
         </Collapsible>
 
-        <Collapsible icon={<NotebookPen size={16} />} label="Effects (First Person) /" open={searchTerm.trim() ? true : undefined} sticky stickyTop={SECTION_STICKY_TOP} stickyZIndex={18}>
+        <Collapsible icon={<NotebookPen size={16} />} label="Effects (First Person) /" sectionId="sidebar-effects" routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.effects)} linkPath={SIDEBAR_ROUTES.effects} temporaryOpen={Boolean(searchTerm.trim()) || effectsTarget} sticky stickyTop={SECTION_STICKY_TOP} stickyZIndex={18}>
           <SectionDescription>Health and lived-experience topics. These tiles describe possible effects and do not diagnose an individual or establish a cause.</SectionDescription>
           <TopicCards section="effects" searchTerm={searchTerm} />
           <TopicCards section="psychology" searchTerm={searchTerm} />
@@ -403,6 +436,10 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<DraftingCompass size={16} />}
           label="Make Hotspots /"
+          sectionId="sidebar-hotspots"
+          routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.hotspots)}
+          linkPath={SIDEBAR_ROUTES.hotspots}
+          temporaryOpen={deepLinkTarget === SIDEBAR_ROUTES.hotspots}
           sticky
           stickyTop={SECTION_STICKY_TOP}
           stickyZIndex={18}

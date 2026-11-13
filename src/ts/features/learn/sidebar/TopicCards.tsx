@@ -3,6 +3,8 @@ import styled from "styled-components";
 import { useModel3D } from "@n-apt/three-d/public/useModel3D";
 import { BRAIN_ANATOMY_CARDS, NERVOUS_SYSTEM_CARDS, toModelArea } from "@n-apt/learn/sidebar/AnatomyCardsSection";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn/sidebar/BodyAreasSection";
+import { CopyDeepLinkButton } from "@n-apt/ui/CopyDeepLinkButton";
+import { sidebarRouteTargetId, topicCardRoute } from "@n-apt/three-d/sidebar/sidebarDeepLinks";
 
 type TopicSection = "physiology" | "psychology" | "behavior" | "effects";
 type TopicCardData = { title: string; summary: string; detail: string; tags: string[]; related: string[] };
@@ -29,7 +31,8 @@ const TOPICS: Record<TopicSection, TopicCardData[]> = {
 };
 
 const CardList = styled.div`display: grid; grid-column: 1 / -1; gap: 8px;`;
-const TopicTile = styled.article`display: grid; gap: 5px; padding: 10px 12px; border: 1px solid ${(p) => p.theme.border}; border-radius: 8px; background: ${(p) => p.theme.surface};`;
+const TopicTile = styled.article`display: grid; gap: 5px; padding: 10px 12px; border: 1px solid ${(p) => p.theme.border}; border-radius: 8px; background: ${(p) => p.theme.surface}; scroll-margin-top: 170px; &:hover .sidebar-copy-deep-link, &:focus-within .sidebar-copy-deep-link { opacity: 0.65; }`;
+const TitleRow = styled.div`display: flex; align-items: center; gap: 4px;`;
 const Title = styled.strong`font-size: 11px; color: ${(p) => p.theme.textPrimary};`;
 const Summary = styled.span`font-size: 10px; color: ${(p) => p.theme.textSecondary};`;
 const Detail = styled.p`margin: 0; font-size: 10px; line-height: 1.45; color: ${(p) => p.theme.textSecondary};`;
@@ -57,5 +60,5 @@ export const TopicCards: React.FC<{ section: TopicSection; searchTerm: string }>
   };
 
   if (!cards.length) return query ? <Empty>No {section} topic tiles match “{searchTerm}”.</Empty> : null;
-  return <CardList>{cards.map((card) => <TopicTile key={card.title}><Title>{card.title}</Title><Summary>{card.summary}</Summary><Detail>{card.detail}</Detail><Related><RelatedTitle>Related areas</RelatedTitle>{card.related.map((name) => <AreaButton key={name} type="button" onClick={() => focusArea(name)}>{name}</AreaButton>)}</Related></TopicTile>)}</CardList>;
+  return <CardList>{cards.map((card) => { const targetPath = topicCardRoute(section, card.title); return <TopicTile key={card.title} id={sidebarRouteTargetId(targetPath)}><TitleRow><Title>{card.title}</Title><CopyDeepLinkButton title={card.title} targetPath={targetPath} /></TitleRow><Summary>{card.summary}</Summary><Detail>{card.detail}</Detail><Related><RelatedTitle>Related areas</RelatedTitle>{card.related.map((name) => <AreaButton key={name} type="button" onClick={() => focusArea(name)}>{name}</AreaButton>)}</Related></TopicTile>; })}</CardList>;
 };
