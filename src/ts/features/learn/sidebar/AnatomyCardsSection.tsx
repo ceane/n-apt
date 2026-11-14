@@ -1,25 +1,29 @@
 import React, { useCallback, useMemo } from "react";
 import styled from "styled-components";
 import { BRAIN_POSITION, BRAIN_SCALE, MODEL_ROOT_POSITION } from "@n-apt/consts";
-import { FACIAL_MUSCLE_SHAPES } from "@n-apt/three-d/facialMusclePaths";
-import { LOWER_FACIAL_MUSCLE_PATHS } from "@n-apt/three-d/lowerFacialMusclePaths";
-import { CRANIAL_NERVE_PATHS } from "@n-apt/three-d/cranialNervePaths";
-import { COMMON_FIBULAR_NERVE_PATHS } from "@n-apt/three-d/commonFibularNervePaths";
-import { HIP_THIGH_MUSCLE_PATHS } from "@n-apt/three-d/hipThighMusclePaths";
-import { LOWER_LEG_FOOT_MUSCLE_PATHS } from "@n-apt/three-d/lowerLegFootMusclePaths";
-import { UPPER_LIMB_MUSCLE_PATHS } from "@n-apt/three-d/upperLimbMusclePaths";
-import { LARYNGEAL_MUSCLE_PATHS } from "@n-apt/three-d/laryngealMusclePaths";
-import { THROAT_SWALLOWING_MUSCLE_PATHS } from "@n-apt/three-d/throatSwallowingMusclePaths";
-import { TONGUE_MUSCLE_PATHS } from "@n-apt/three-d/tongueMusclePaths";
-import { SKIN_SENSATION_PATHS } from "@n-apt/three-d/skinSensationPaths";
-import { NEUROMUSCULAR_JUNCTION_PATHS } from "@n-apt/three-d/neuromuscularJunctionPaths";
-import { SPINAL_CORD_PATHS } from "@n-apt/three-d/spinalCordPaths";
-import { AUTONOMIC_PATHWAYS } from "@n-apt/three-d/autonomicPathways";
-import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
+import {
+  AUTONOMIC_PATHWAYS,
+  COMMON_FIBULAR_NERVE_PATHS,
+  CRANIAL_NERVE_PATHS,
+  FACIAL_MUSCLE_SHAPES,
+  HIP_THIGH_MUSCLE_PATHS,
+  LARYNGEAL_MUSCLE_PATHS,
+  LOWER_FACIAL_MUSCLE_PATHS,
+  LOWER_LEG_FOOT_MUSCLE_PATHS,
+  modelSourcePointToWorld,
+  NEUROMUSCULAR_JUNCTION_PATHS,
+  anatomyCardRoute,
+  anatomyGroupRoute,
+  sidebarRouteTargetId,
+  SKIN_SENSATION_PATHS,
+  SPINAL_CORD_PATHS,
+  THROAT_SWALLOWING_MUSCLE_PATHS,
+  TONGUE_MUSCLE_PATHS,
+  UPPER_LIMB_MUSCLE_PATHS,
+} from "@n-apt/three-d/public/anatomyVisualizations";
 import { useModel3D, type Area } from "@n-apt/three-d/public/useModel3D";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn/sidebar/BodyAreasSection";
 import { CopyDeepLinkButton } from "@n-apt/ui/CopyDeepLinkButton";
-import { anatomyCardRoute, anatomyGroupRoute, sidebarRouteTargetId } from "@n-apt/three-d/sidebar/sidebarDeepLinks";
 
 type AnatomyCardData = {
   name: string;

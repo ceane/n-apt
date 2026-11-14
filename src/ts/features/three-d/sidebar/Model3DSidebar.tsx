@@ -12,12 +12,13 @@ import {
   Brain,
   Network,
 } from "lucide-react";
-import { BodyAreasSection, AnatomyCardsSection } from "@n-apt/learn";
 import {
+  AnatomyCardsSection,
   BRAIN_ANATOMY_CARDS,
+  BodyAreasSection,
   NERVOUS_SYSTEM_CARDS,
   normalizeAnatomySearchText,
-} from "@n-apt/learn/sidebar/AnatomyCardsSection";
+} from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
 import { Collapsible, SidebarSubsectionList } from "@n-apt/ui";

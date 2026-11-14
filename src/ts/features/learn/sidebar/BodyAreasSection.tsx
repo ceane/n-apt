@@ -1,10 +1,9 @@
 import React, { useEffect } from "react";
 import styled from "styled-components";
-import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
+import { modelSourcePointToWorld, physiologyCardRoute, sidebarRouteTargetId } from "@n-apt/three-d/public/anatomyVisualizations";
 import { useModel3D } from "@n-apt/three-d/public/useModel3D";
 import { useHotspotEditor } from "@n-apt/three-d/public/useHotspotEditor";
 import { CopyDeepLinkButton } from "@n-apt/ui/CopyDeepLinkButton";
-import { physiologyCardRoute, sidebarRouteTargetId } from "@n-apt/three-d/sidebar/sidebarDeepLinks";
 
 type Area = {
   name: string;
