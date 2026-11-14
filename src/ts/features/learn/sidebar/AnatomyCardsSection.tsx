@@ -7,8 +7,14 @@ import { CRANIAL_NERVE_PATHS } from "@n-apt/three-d/cranialNervePaths";
 import { COMMON_FIBULAR_NERVE_PATHS } from "@n-apt/three-d/commonFibularNervePaths";
 import { HIP_THIGH_MUSCLE_PATHS } from "@n-apt/three-d/hipThighMusclePaths";
 import { LOWER_LEG_FOOT_MUSCLE_PATHS } from "@n-apt/three-d/lowerLegFootMusclePaths";
+import { UPPER_LIMB_MUSCLE_PATHS } from "@n-apt/three-d/upperLimbMusclePaths";
+import { LARYNGEAL_MUSCLE_PATHS } from "@n-apt/three-d/laryngealMusclePaths";
+import { THROAT_SWALLOWING_MUSCLE_PATHS } from "@n-apt/three-d/throatSwallowingMusclePaths";
+import { TONGUE_MUSCLE_PATHS } from "@n-apt/three-d/tongueMusclePaths";
+import { SKIN_SENSATION_PATHS } from "@n-apt/three-d/skinSensationPaths";
 import { NEUROMUSCULAR_JUNCTION_PATHS } from "@n-apt/three-d/neuromuscularJunctionPaths";
 import { SPINAL_CORD_PATHS } from "@n-apt/three-d/spinalCordPaths";
+import { AUTONOMIC_PATHWAYS } from "@n-apt/three-d/autonomicPathways";
 import { modelSourcePointToWorld } from "@n-apt/three-d/modelAnchors";
 import { useModel3D, type Area } from "@n-apt/three-d/public/useModel3D";
 import { PHYSIOLOGY_AREAS } from "@n-apt/learn/sidebar/BodyAreasSection";
@@ -22,6 +28,7 @@ type AnatomyCardData = {
   function: string;
   model: "brain" | "human";
   offset: [number, number, number];
+  markerOffsets?: [number, number, number][];
   tags: string[];
   relatedAreas?: { name: string; relation: string }[];
 };
@@ -42,58 +49,66 @@ export function getAnatomyGroupId(kind: "brain" | "nervous", group: string): str
 }
 
 const brain = (name: string, group: string, description: string, fn: string, offset: [number, number, number], tags: string[] = []): AnatomyCardData => ({ name, group, description, function: fn, model: "brain", offset, tags });
+const bilateralBrain = (name: string, group: string, description: string, fn: string, offset: [number, number, number], tags: string[] = []): AnatomyCardData => {
+  const separation = Math.abs(offset[0]);
+  const center: [number, number, number] = [0, offset[1], offset[2]];
+  return {
+    ...brain(name, group, description, fn, center, tags),
+    markerOffsets: [[separation, offset[1], offset[2]], [-separation, offset[1], offset[2]]],
+  };
+};
 const nerve = (name: string, group: string, description: string, fn: string, offset: [number, number, number] = [0, 0, 0], tags: string[] = []): AnatomyCardData => ({ name, group, description, function: fn, model: "human", offset, tags });
 const BRAIN_GLB_NODE_TRANSLATION = [-0.31977856, 1.750008, -0.5486296] as const;
 
 // These are educational regions, not one-to-one anatomical boundaries. Many
 // functional networks cross the named structures shown here.
 export const BRAIN_ANATOMY_CARDS: AnatomyCardData[] = [
-  brain("Frontal lobe", "Cerebral lobes", "Anterior cerebral cortex, in front of the central sulcus.", "Planning, voluntary movement, decision-making, working memory, and aspects of behavior and speech.", [0, .06, .16]),
-  brain("Prefrontal cortex", "Cerebral lobes", "The association cortex at the front of the frontal lobes.", "Executive control, planning, attention, working memory, behavioral regulation, and flexible decision-making.", [0, .075, .16]),
-  brain("Dorsolateral prefrontal cortex", "Cerebral lobes", "Lateral portions of the middle and inferior frontal gyri.", "Maintains and manipulates information, supports goal-directed attention, and helps organize multi-step actions.", [.11, .065, .08]),
-  brain("Ventromedial prefrontal cortex", "Cerebral lobes", "Medial and lower prefrontal cortex, including parts of orbitofrontal cortex.", "Integrates value, emotion, and context during decisions; contributes to social judgment and regulation.", [0, .03, .16]),
-  brain("Orbitofrontal cortex", "Cerebral lobes", "Cortex on the underside of the frontal lobes above the eye sockets.", "Evaluates reward, risk, and changing outcomes; helps adjust behavior when choices stop working.", [0, -.02, .17]),
-  brain("Primary motor cortex", "Cerebral lobes", "Precentral gyrus, immediately in front of the central sulcus.", "Sends commands for voluntary movement. The body is represented in an approximate motor map, with extensive overlap.", [.13, .08, 0]),
-  brain("Premotor cortex", "Cerebral lobes", "Lateral frontal cortex just anterior to primary motor cortex.", "Selects and prepares movements, especially movements guided by external cues.", [.12, .1, .04]),
-  brain("Supplementary motor area", "Cerebral lobes", "Medial superior frontal cortex in front of primary motor cortex.", "Helps plan internally generated movement sequences and coordinate both sides of the body.", [0, .13, -.01]),
+  bilateralBrain("Frontal lobe", "Cerebral lobes", "Anterior cerebral cortex, in front of the central sulcus.", "Planning, voluntary movement, decision-making, working memory, and aspects of behavior and speech.", [.09, .06, .16]),
+  bilateralBrain("Prefrontal cortex", "Cerebral lobes", "The association cortex at the front of the frontal lobes.", "Executive control, planning, attention, working memory, behavioral regulation, and flexible decision-making.", [.08, .075, .16]),
+  bilateralBrain("Dorsolateral prefrontal cortex", "Cerebral lobes", "Lateral portions of the middle and inferior frontal gyri.", "Maintains and manipulates information, supports goal-directed attention, and helps organize multi-step actions.", [.11, .065, .08]),
+  bilateralBrain("Ventromedial prefrontal cortex", "Cerebral lobes", "Medial and lower prefrontal cortex, including parts of orbitofrontal cortex.", "Integrates value, emotion, and context during decisions; contributes to social judgment and regulation.", [.035, .03, .16]),
+  bilateralBrain("Orbitofrontal cortex", "Cerebral lobes", "Cortex on the underside of the frontal lobes above the eye sockets.", "Evaluates reward, risk, and changing outcomes; helps adjust behavior when choices stop working.", [.055, -.02, .17]),
+  bilateralBrain("Primary motor cortex", "Cerebral lobes", "Precentral gyrus, immediately in front of the central sulcus.", "Sends commands for voluntary movement. The body is represented in an approximate motor map, with extensive overlap.", [.13, .08, 0]),
+  bilateralBrain("Premotor cortex", "Cerebral lobes", "Lateral frontal cortex just anterior to primary motor cortex.", "Selects and prepares movements, especially movements guided by external cues.", [.12, .1, .04]),
+  bilateralBrain("Supplementary motor area", "Cerebral lobes", "Medial superior frontal cortex in front of primary motor cortex.", "Helps plan internally generated movement sequences and coordinate both sides of the body.", [.035, .13, -.01]),
   brain("Broca region", "Cerebral lobes", "Usually in the left inferior frontal gyrus; language is distributed across a wider network.", "Contributes to speech production, language sequencing, and aspects of grammatical processing.", [.12, .035, .12]),
-  brain("Parietal lobe", "Cerebral lobes", "Cortex behind the central sulcus and above the lateral sulcus.", "Combines touch and body-position signals with spatial attention and action planning.", [0, .09, -.08]),
-  brain("Primary somatosensory cortex", "Cerebral lobes", "Postcentral gyrus, just behind the central sulcus.", "Receives and maps touch, vibration, pain, temperature, and body-position information from the opposite side.", [.13, .07, -.035]),
-  brain("Somatosensory association cortex", "Cerebral lobes", "Posterior parietal cortex behind primary somatosensory areas.", "Interprets combined sensory input for object recognition, body awareness, and guided movement.", [.12, .1, -.12]),
-  brain("Posterior parietal cortex", "Cerebral lobes", "Upper and lower parietal association regions.", "Supports spatial attention, reaching, eye-hand coordination, and integration of sensory information.", [.12, .12, -.1]),
-  brain("Temporal lobe", "Cerebral lobes", "Lateral cortex below the lateral sulcus.", "Important for hearing, language comprehension, memory, object recognition, and emotional associations.", [.12, -.01, -.1]),
-  brain("Primary auditory cortex", "Cerebral lobes", "Heschl gyri on the upper surface of the temporal lobe.", "Processes basic features of sound; inputs and higher auditory functions are distributed across both hemispheres.", [.13, .01, -.04]),
+  bilateralBrain("Parietal lobe", "Cerebral lobes", "Cortex behind the central sulcus and above the lateral sulcus.", "Combines touch and body-position signals with spatial attention and action planning.", [.1, .09, -.08]),
+  bilateralBrain("Primary somatosensory cortex", "Cerebral lobes", "Postcentral gyrus, just behind the central sulcus.", "Receives and maps touch, vibration, pain, temperature, and body-position information from the opposite side.", [.13, .07, -.035]),
+  bilateralBrain("Somatosensory association cortex", "Cerebral lobes", "Posterior parietal cortex behind primary somatosensory areas.", "Interprets combined sensory input for object recognition, body awareness, and guided movement.", [.12, .1, -.12]),
+  bilateralBrain("Posterior parietal cortex", "Cerebral lobes", "Upper and lower parietal association regions.", "Supports spatial attention, reaching, eye-hand coordination, and integration of sensory information.", [.12, .12, -.1]),
+  bilateralBrain("Temporal lobe", "Cerebral lobes", "Lateral cortex below the lateral sulcus.", "Important for hearing, language comprehension, memory, object recognition, and emotional associations.", [.12, -.01, -.1]),
+  bilateralBrain("Primary auditory cortex", "Cerebral lobes", "Heschl gyri on the upper surface of the temporal lobe.", "Processes basic features of sound; inputs and higher auditory functions are distributed across both hemispheres.", [.13, .01, -.04]),
   brain("Wernicke region", "Cerebral lobes", "A traditional label near posterior superior temporal cortex, usually left-sided.", "Supports language comprehension as part of a broader temporal, parietal, and frontal language network.", [.13, .04, -.12]),
-  brain("Medial temporal lobe", "Cerebral lobes", "Inner temporal structures including hippocampal and parahippocampal regions.", "Supports formation and retrieval of episodic memories and navigation-related representations.", [.04, -.04, -.11]),
-  brain("Occipital lobe", "Cerebral lobes", "Posterior cerebral cortex, at the back of the brain.", "Processes visual information through multiple areas for edges, color, motion, and visual form.", [0, .02, -.19]),
-  brain("Primary visual cortex", "Cerebral lobes", "Calcarine cortex in the medial occipital lobe.", "Receives early visual input and represents visual-field location; further interpretation uses connected regions.", [0, .01, -.18]),
-  brain("Visual association cortex", "Cerebral lobes", "Occipital and neighboring temporal and parietal visual areas.", "Combines visual features to support recognition, motion perception, and spatial interpretation.", [.08, .03, -.17]),
-  brain("Insula", "Cerebral lobes", "Cortex folded deep within the lateral sulcus.", "Integrates internal-body signals with taste, pain, emotion, and salience processing.", [.15, -.015, .005]),
-  brain("Cingulate cortex", "Cerebral lobes", "Medial cortex arching above the corpus callosum.", "Participates in attention, motivation, emotion, pain processing, and monitoring actions and outcomes.", [0, .11, -.045]),
+  bilateralBrain("Medial temporal lobe", "Cerebral lobes", "Inner temporal structures including hippocampal and parahippocampal regions.", "Supports formation and retrieval of episodic memories and navigation-related representations.", [.055, -.04, -.11]),
+  bilateralBrain("Occipital lobe", "Cerebral lobes", "Posterior cerebral cortex, at the back of the brain.", "Processes visual information through multiple areas for edges, color, motion, and visual form.", [.08, .02, -.19]),
+  bilateralBrain("Primary visual cortex", "Cerebral lobes", "Calcarine cortex in the medial occipital lobe.", "Receives early visual input and represents visual-field location; further interpretation uses connected regions.", [.045, .01, -.18]),
+  bilateralBrain("Visual association cortex", "Cerebral lobes", "Occipital and neighboring temporal and parietal visual areas.", "Combines visual features to support recognition, motion perception, and spatial interpretation.", [.08, .03, -.17]),
+  bilateralBrain("Insula", "Cerebral lobes", "Cortex folded deep within the lateral sulcus.", "Integrates internal-body signals with taste, pain, emotion, and salience processing.", [.15, -.015, .005]),
+  bilateralBrain("Cingulate cortex", "Cerebral lobes", "Medial cortex arching above the corpus callosum.", "Participates in attention, motivation, emotion, pain processing, and monitoring actions and outcomes.", [.025, .11, -.045]),
   brain("Corpus callosum", "Deep brain structures", "The largest bundle of fibers connecting the cerebral hemispheres.", "Allows information to pass between hemispheres; it is white matter, not a single functional center.", [0, .02, 0]),
-  brain("Thalamus", "Deep brain structures", "Paired deep gray-matter structures above the brainstem.", "Relays and coordinates most sensory and motor information with the cortex and supports alertness.", [0, -.04, .005]),
+  bilateralBrain("Thalamus", "Deep brain structures", "Paired deep gray-matter structures above the brainstem.", "Relays and coordinates most sensory and motor information with the cortex and supports alertness.", [.04, -.04, .005]),
   brain("Hypothalamus", "Deep brain structures", "Small region beneath the thalamus, connected to the pituitary.", "Regulates temperature, hunger, thirst, circadian timing, hormonal control, and autonomic responses.", [0, -.09, .035]),
-  brain("Hippocampus", "Deep brain structures", "Curved medial temporal structure on each side.", "Helps form new episodic and spatial memories; it is not a storage location for every memory.", [.04, -.055, -.1]),
-  brain("Amygdala", "Deep brain structures", "Nuclei in the medial temporal lobe, near the hippocampus.", "Helps learn and evaluate emotional significance, especially threat and reward, with broad network connections.", [.065, -.035, -.085]),
-  brain("Basal ganglia", "Deep brain structures", "A group of deep nuclei including the caudate, putamen, and globus pallidus.", "Helps select and scale actions, learn habits, and support movement and cognitive loops.", [.07, -.025, .01]),
-  brain("Caudate nucleus", "Deep brain structures", "C-shaped basal ganglia structure alongside the lateral ventricle.", "Contributes to action selection, learning, and cognitive control loops.", [.07, .005, .055]),
-  brain("Putamen", "Deep brain structures", "Lateral part of the striatum, beside the globus pallidus.", "Participates in movement selection, motor learning, and habit-related circuits.", [.09, -.035, .005]),
-  brain("Substantia nigra", "Deep brain structures", "Dopamine-producing and output nuclei in the midbrain.", "Modulates basal ganglia circuits involved in movement, motivation, and reinforcement learning.", [.025, -.12, .035]),
-  brain("Cerebellum", "Cerebellum and brainstem", "Highly folded structure behind the brainstem and below the occipital lobes.", "Refines coordination, balance, timing, motor learning, and some cognitive processes.", [0, -.13, -.13]),
+  bilateralBrain("Hippocampus", "Deep brain structures", "Curved medial temporal structure on each side.", "Helps form new episodic and spatial memories; it is not a storage location for every memory.", [.055, -.055, -.1]),
+  bilateralBrain("Amygdala", "Deep brain structures", "Nuclei in the medial temporal lobe, near the hippocampus.", "Helps learn and evaluate emotional significance, especially threat and reward, with broad network connections.", [.065, -.035, -.085]),
+  bilateralBrain("Basal ganglia", "Deep brain structures", "A group of deep nuclei including the caudate, putamen, and globus pallidus.", "Helps select and scale actions, learn habits, and support movement and cognitive loops.", [.07, -.025, .01]),
+  bilateralBrain("Caudate nucleus", "Deep brain structures", "C-shaped basal ganglia structure alongside the lateral ventricle.", "Contributes to action selection, learning, and cognitive control loops.", [.07, .005, .055]),
+  bilateralBrain("Putamen", "Deep brain structures", "Lateral part of the striatum, beside the globus pallidus.", "Participates in movement selection, motor learning, and habit-related circuits.", [.09, -.035, .005]),
+  bilateralBrain("Substantia nigra", "Deep brain structures", "Dopamine-producing and output nuclei in the midbrain.", "Modulates basal ganglia circuits involved in movement, motivation, and reinforcement learning.", [.035, -.12, .035]),
+  bilateralBrain("Cerebellum", "Cerebellum and brainstem", "Highly folded structure behind the brainstem and below the occipital lobes.", "Refines coordination, balance, timing, motor learning, and some cognitive processes.", [.075, -.13, -.13]),
   brain("Vermis", "Cerebellum and brainstem", "Midline portion of the cerebellum.", "Contributes to posture, gait, balance, and coordination of trunk and eye movements.", [0, -.15, -.12]),
   brain("Brainstem", "Cerebellum and brainstem", "Midbrain, pons, and medulla between the cerebrum and spinal cord.", "Carries major pathways and supports arousal, breathing, cardiovascular control, and cranial nerve functions.", [0, -.14, .025]),
   brain("Midbrain", "Cerebellum and brainstem", "Upper brainstem between the diencephalon and pons.", "Supports eye movements, orienting to sound and sight, motor pathways, and arousal circuits.", [0, -.11, .04]),
   brain("Pons", "Cerebellum and brainstem", "Bulging middle part of the brainstem, in front of the cerebellum.", "Relays information to the cerebellum and participates in sleep, breathing, facial sensation, and movement.", [0, -.16, .04]),
   brain("Medulla oblongata", "Cerebellum and brainstem", "Lowest brainstem region, continuous with the spinal cord.", "Contains circuits essential for breathing, blood pressure, heart-rate regulation, swallowing, and protective reflexes.", [0, -.2, .035]),
   brain("Reticular formation", "Cerebellum and brainstem", "Distributed network through the brainstem.", "Helps regulate wakefulness, attention, sleep-wake transitions, and basic motor and autonomic functions.", [0, -.13, .045]),
-  brain("Emotion and affective networks", "Functional networks", "Emotion is produced by interacting brain networks, body signals, learning, and context; it is not located in one single structure.", "Different networks contribute to recognizing significance, experiencing bodily feelings, regulating responses, and interpreting social context. This marker is a general focus point, not an emotion center.", [0, -.01, .02], ["emotion", "emotional processing", "feelings", "mood", "happiness", "happy", "joy", "sadness", "sad", "anger", "angry", "irritability", "fear", "disgust", "surprise", "affect"]),
-  brain("Ventral tegmental area", "Deep brain structures", "Dopamine-producing cell groups in the midbrain, with projections to limbic and frontal circuits.", "Participates in motivation, reinforcement learning, and other functions through diverse cell types and projection pathways.", [0, -.105, .025], ["VTA", "dopamine pathway", "motivation", "reinforcement learning", "reward learning"]),
+  bilateralBrain("Emotion and affective networks", "Functional networks", "Emotion is produced by interacting brain networks, body signals, learning, and context; it is not located in one single structure.", "Different networks contribute to recognizing significance, experiencing bodily feelings, regulating responses, and interpreting social context. These paired markers show a distributed network, not an emotion center.", [.09, -.01, .02], ["emotion", "emotional processing", "feelings", "mood", "happiness", "happy", "joy", "sadness", "sad", "anger", "angry", "irritability", "fear", "disgust", "surprise", "affect"]),
+  bilateralBrain("Ventral tegmental area", "Deep brain structures", "Dopamine-producing cell groups in the midbrain, with projections to limbic and frontal circuits.", "Participates in motivation, reinforcement learning, and other functions through diverse cell types and projection pathways.", [.025, -.105, .025], ["VTA", "dopamine pathway", "motivation", "reinforcement learning", "reward learning"]),
   brain("Raphe nuclei", "Cerebellum and brainstem", "A group of midline brainstem nuclei containing most of the brain's serotonin-producing neurons.", "Sends widespread serotonin projections that modulate sleep-wake activity, mood, appetite, pain, and other functions.", [0, -.16, .025], ["serotonin source", "5-HT", "5-hydroxytryptamine", "raphe system"]),
-  brain("Locus coeruleus", "Cerebellum and brainstem", "Small nucleus in the pons and a major source of norepinephrine projections in the brain.", "Modulates arousal, vigilance, attention, and responses to changing demands through widespread projections.", [0, -.16, .045], ["norepinephrine source", "noradrenaline", "alertness", "arousal"]),
-  brain("Nucleus accumbens", "Deep brain structures", "Ventral striatal region connected with dopamine, limbic, and frontal circuits.", "Participates in motivation, learning, and translating valued outcomes into actions; it is part of a broader network.", [.06, -.06, .015], ["ventral striatum", "motivation", "reward learning", "reinforcement", "approach behavior"]),
+  bilateralBrain("Locus coeruleus", "Cerebellum and brainstem", "Small nucleus in the pons and a major source of norepinephrine projections in the brain.", "Modulates arousal, vigilance, attention, and responses to changing demands through widespread projections.", [.025, -.16, .045], ["norepinephrine source", "noradrenaline", "alertness", "arousal"]),
+  bilateralBrain("Nucleus accumbens", "Deep brain structures", "Ventral striatal region connected with dopamine, limbic, and frontal circuits.", "Participates in motivation, learning, and translating valued outcomes into actions; it is part of a broader network.", [.06, -.06, .015], ["ventral striatum", "motivation", "reward learning", "reinforcement", "approach behavior"]),
   brain("Dopamine", "Brain chemistry", "A neurotransmitter and neuromodulator made by neurons in several brain systems. This molecule is not itself a brain region; the marker points to representative source and target circuits.", "Modulates movement, action selection, motivation, and learning from outcomes. Dopamine is not simply a pleasure or happiness chemical.", [.02, -.12, .03], ["DA", "dopaminergic", "substantia nigra pathway", "nigrostriatal", "mesolimbic", "mesocortical", "movement", "motivation", "reinforcement learning", "reward prediction"]),
   brain("Serotonin", "Brain chemistry", "A neurotransmitter and neuromodulator also called 5-hydroxytryptamine (5-HT). Most brain serotonin-producing cell bodies are in raphe nuclei; serotonin also has important functions elsewhere in the body.", "Widespread serotonin systems modulate mood, sleep, appetite, memory, pain, and other functions. It is not a simple measure of happiness.", [0, -.16, .025], ["5-HT", "5-hydroxytryptamine", "serotonergic", "mood", "sleep", "appetite", "pain modulation", "raphe nuclei"]),
-  brain("Norepinephrine", "Brain chemistry", "A neurotransmitter and neuromodulator also called noradrenaline; many brain projections arise from the locus coeruleus.", "Helps tune alertness, attention, arousal, and responses to changing demands. It also acts in the peripheral nervous system.", [0, -.16, .045], ["noradrenaline", "noradrenergic", "alertness", "arousal", "attention", "locus coeruleus"]),
+  bilateralBrain("Norepinephrine", "Brain chemistry", "A neurotransmitter and neuromodulator also called noradrenaline; many brain projections arise from the locus coeruleus.", "Helps tune alertness, attention, arousal, and responses to changing demands. It also acts in the peripheral nervous system.", [.025, -.16, .045], ["noradrenaline", "noradrenergic", "alertness", "arousal", "attention", "locus coeruleus"]),
   brain("Acetylcholine", "Brain chemistry", "A neurotransmitter used by circuits in the brain and by motor neurons at skeletal-muscle junctions.", "Supports attention, learning, and other brain functions; at the neuromuscular junction it triggers skeletal-muscle contraction.", [0, -.05, .02], ["ACh", "cholinergic", "neuromuscular junction", "muscle contraction", "attention", "learning"]),
   brain("Glutamate", "Brain chemistry", "The main fast excitatory neurotransmitter at many synapses in the central nervous system.", "Carries excitatory signals and contributes to synaptic plasticity and learning; its effects depend on receptor type and circuit.", [0, .08, .02], ["glutamatergic", "excitatory neurotransmitter", "synaptic plasticity", "learning", "NMDA", "AMPA"]),
   brain("GABA", "Brain chemistry", "Gamma-aminobutyric acid, the main fast inhibitory neurotransmitter in much of the adult brain.", "Reduces or shapes activity in many circuits and helps coordinate timing; its effect depends on cell type, receptor, and developmental context.", [0, .02, .03], ["gamma-aminobutyric acid", "GABAergic", "inhibitory neurotransmitter", "inhibition", "circuit balance"]),
@@ -127,7 +142,15 @@ export const BRAIN_ANATOMY_CARDS: AnatomyCardData[] = [
     [45,"Pars triangularis", "Part of the left-dominant language network."],
     [46,"Dorsolateral prefrontal cortex", "Working memory and executive control."],
     [47,"Inferior frontal cortex", "Language, semantic selection, and cognitive control."],
-  ].map(([number, area, fn]) => brain(`Brodmann area ${number}`, "Brodmann areas", `${area} is the traditional cytoarchitectonic label for this cortical region. Borders and functions do not map perfectly one-to-one.`, String(fn), [0, .08, number === 17 || number === 18 || number === 19 ? -.16 : .09]) as AnatomyCardData),
+  ].map(([number, area, fn]) => {
+    const z = number === 17 || number === 18 || number === 19 ? -.16 : number === 1 || number === 2 || number === 3 ? -.035 : .09;
+    const lateral = number === 44 || number === 45 ? .12 : number === 1 || number === 2 || number === 3 || number === 4 || number === 41 || number === 42 ? .13 : .11;
+    const description = `${area} is the traditional cytoarchitectonic label for this cortical region. Borders and functions do not map perfectly one-to-one.`;
+    const name = `Brodmann area ${number}`;
+    return number === 44 || number === 45
+      ? brain(name, "Brodmann areas", description, String(fn), [lateral, .08, z])
+      : bilateralBrain(name, "Brodmann areas", description, String(fn), [lateral, .08, z]);
+  }),
 ];
 
 export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
@@ -135,6 +158,7 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Peripheral nervous system", "Organization", "Nerves and ganglia outside the brain and spinal cord.", "Connects the central nervous system with skin, muscles, joints, organs, and glands.", [0, 1.55, .4]),
   nerve("Somatic nervous system", "Organization", "Sensory pathways from skin and joints and motor pathways to skeletal muscle.", "Carries conscious sensation and supports voluntary movement as well as spinal reflexes.", [0, 1.6, .35]),
   nerve("Autonomic nervous system", "Organization", "Sympathetic, parasympathetic, and enteric pathways regulating internal organs.", "Adjusts organ activity, glands, smooth muscle, and cardiac muscle to changing conditions.", [0, 1.4, .2]),
+  nerve("Autonomic pathways", "Autonomic pathways", "Overview of the sympathetic, parasympathetic, and enteric routes between the central nervous system and viscera.", "Shows paired sympathetic chains with splanchnic branches, cranial and pelvic parasympathetic outflow, and enteric plexuses in the gut wall.", [0, 1.3, -.05], ["autonomic nervous system", "visceral motor", "visceral efferent", "sympathetic", "parasympathetic", "enteric"]),
   nerve("Sympathetic division", "Autonomic pathways", "Thoracolumbar autonomic outflow, with ganglia near the spine and major vessels.", "Mobilizes energy and adjusts heart, airway, pupil, sweat, and digestive activity; it is active beyond emergencies.", [0, 1.35, -.03]),
   nerve("Parasympathetic division", "Autonomic pathways", "Craniosacral outflow, including the vagus nerve and pelvic splanchnic nerves.", "Supports digestion, glandular secretion, and restorative functions while continually balancing other autonomic input.", [0, 1.28, .12]),
   nerve("Enteric nervous system", "Autonomic pathways", "Neural circuits embedded in the gastrointestinal tract wall.", "Coordinates gut movement, secretion, and local blood flow; it communicates with both autonomic divisions.", [0, 1.25, .35]),
@@ -399,17 +423,28 @@ export function toModelArea(card: AnatomyCardData): Area {
     const lowerFaceShapes = LOWER_FACIAL_MUSCLE_PATHS[card.name];
     const hipThighOverlay = HIP_THIGH_MUSCLE_PATHS[card.name];
     const lowerLegFootOverlay = LOWER_LEG_FOOT_MUSCLE_PATHS[card.name];
+    const upperLimbOverlay = UPPER_LIMB_MUSCLE_PATHS[card.name];
+    const laryngealOverlay = LARYNGEAL_MUSCLE_PATHS[card.name];
+    const throatSwallowingOverlay = THROAT_SWALLOWING_MUSCLE_PATHS[card.name];
+    const tongueMuscleOverlay = TONGUE_MUSCLE_PATHS[card.name];
+    const skinSensationOverlay = SKIN_SENSATION_PATHS[card.name];
     const neuromuscularJunctionPaths = NEUROMUSCULAR_JUNCTION_PATHS[card.name];
     const nervePaths = card.name === "Cranial nerve VII Facial"
       ? undefined
       : CRANIAL_NERVE_PATHS[card.name]
         ?? SPINAL_CORD_PATHS[card.name]
+        ?? AUTONOMIC_PATHWAYS[card.name]
         ?? (card.name === "Common fibular nerve" ? COMMON_FIBULAR_NERVE_PATHS : undefined);
     const facialPoints = upperFaceShape
       ? upperFaceShape.paths.reduce((points, path) => points.concat(path), [] as [number, number, number][])
       : lowerFaceShapes?.reduce((points, { centerline }) => points.concat(centerline), [] as [number, number, number][]);
-    const overlayPoints = hipThighOverlay?.paths.flat()
+    const overlayPoints = tongueMuscleOverlay?.paths.flatMap(({ points }) => points)
+      ?? skinSensationOverlay?.paths.flatMap(({ points }) => points)
+      ?? upperLimbOverlay?.paths.flatMap(({ points }) => points)
+      ?? hipThighOverlay?.paths.flat()
       ?? lowerLegFootOverlay?.paths.flatMap(({ points }) => points)
+      ?? throatSwallowingOverlay?.paths.flatMap(({ points }) => points)
+      ?? laryngealOverlay?.paths.flatMap(({ points }) => points)
       ?? facialPoints
       ?? neuromuscularJunctionPaths?.flat()
       ?? nervePaths?.flat();
@@ -435,7 +470,14 @@ export function toModelArea(card: AnatomyCardData): Area {
     MODEL_ROOT_POSITION[2] + BRAIN_POSITION[2] + BRAIN_GLB_NODE_TRANSLATION[2] * BRAIN_SCALE[2],
   ];
   const target: [number, number, number] = [center[0] + card.offset[0] * BRAIN_SCALE[0], center[1] + card.offset[1] * BRAIN_SCALE[1], center[2] + card.offset[2] * BRAIN_SCALE[2]];
-  return { name: card.name, position: [target[0], target[1], target[2] + .45], target, markerPosition: [...card.offset], meshName: "brain" };
+  return {
+    name: card.name,
+    position: [target[0], target[1], target[2] + .45],
+    target,
+    markerPosition: [...card.offset],
+    ...(card.markerOffsets ? { markerPositions: card.markerOffsets.map((offset) => [...offset] as [number, number, number]) } : {}),
+    meshName: "brain",
+  };
 }
 
 export function toBrainViewerPoint(target: [number, number, number]): [number, number, number] {
@@ -445,6 +487,15 @@ export function toBrainViewerPoint(target: [number, number, number]): [number, n
     MODEL_ROOT_POSITION[2] + BRAIN_POSITION[2] + BRAIN_GLB_NODE_TRANSLATION[2] * BRAIN_SCALE[2],
   ];
   const local = target.map((value, index) => BRAIN_GLB_NODE_TRANSLATION[index] + (value - center[index]) / BRAIN_SCALE[index]);
+  return [0.1 + local[0] * .34, -.6 + local[1] * .34, local[2] * .34];
+}
+
+export function toBrainViewerPointFromOffset(offset: [number, number, number]): [number, number, number] {
+  const local: [number, number, number] = [
+    BRAIN_GLB_NODE_TRANSLATION[0] + offset[0],
+    BRAIN_GLB_NODE_TRANSLATION[1] + offset[1],
+    BRAIN_GLB_NODE_TRANSLATION[2] + offset[2],
+  ];
   return [0.1 + local[0] * .34, -.6 + local[1] * .34, local[2] * .34];
 }
 

@@ -27,6 +27,12 @@ const RAW_PHYSIOLOGY_AREAS: Area[] = [
     meshName: "o_ADBody",
   },
   {
+    name: "Eyes",
+    position: [0.0, 1.92, 0.105],
+    target: [0.0, 1.92, 0.015],
+    meshName: "o_ADBody",
+  },
+  {
     name: "Throat",
     position: [0.007886413129995381, 1.5673426681304798, 0.4609346531290654],
     target: [0.007886413129995381, 1.5673426681304798, 0.2109346531290654],

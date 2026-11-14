@@ -11,17 +11,20 @@ export type FaceMuscleStrip = {
   width: number;
   thickness: number;
   closed?: boolean;
+  surface?: "anterolateral";
 };
 
 function bilateralStrip(
   centerline: FaceMuscleCenterline,
   width: number,
   thickness: number,
+  surface?: FaceMuscleStrip["surface"],
 ): FaceMuscleStrip[] {
   return [1, -1].map((side) => ({
     centerline: centerline.map(([x, y, z]): FaceMusclePoint => [side * x, y, z]),
     width,
     thickness,
+    ...(surface ? { surface } : {}),
   }));
 }
 
@@ -40,6 +43,7 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
     ],
     0.011,
     0.0028,
+    "anterolateral",
   ),
 
   "Zygomaticus minor": bilateralStrip(
@@ -62,6 +66,7 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
     ],
     0.006,
     0.0018,
+    "anterolateral",
   ),
 
   "Orbicularis oris": [
@@ -95,17 +100,19 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
     ],
     0.013,
     0.003,
+    "anterolateral",
   ),
 
   "Depressor anguli oris": bilateralStrip(
     [
       [0.046, 1.85, 0.14], // mouth corner
-      [0.058, 1.81, 0.122],
-      [0.073, 1.74, 0.103],
-      [0.09, 1.67, 0.085], // mandibular border
+      [0.054, 1.82, 0.13],
+      [0.064, 1.785, 0.115],
+      [0.077, 1.75, 0.098], // mandibular border
     ],
     0.011,
     0.0028,
+    "anterolateral",
   ),
 
   "Levator labii superioris": bilateralStrip(
@@ -117,27 +124,30 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
     ],
     0.008,
     0.0022,
+    "anterolateral",
   ),
 
   "Depressor labii inferioris": bilateralStrip(
     [
       [0.031, 1.84, 0.14], // lower lip
-      [0.042, 1.78, 0.128],
-      [0.054, 1.72, 0.11],
-      [0.065, 1.67, 0.09], // chin
+      [0.037, 1.81, 0.13],
+      [0.044, 1.78, 0.118],
+      [0.052, 1.75, 0.105], // chin
     ],
     0.008,
     0.0022,
+    "anterolateral",
   ),
 
   "Mentalis": bilateralStrip(
     [
       [0.018, 1.84, 0.14], // lower lip
-      [0.023, 1.78, 0.13],
-      [0.027, 1.72, 0.113], // chin prominence
+      [0.021, 1.815, 0.134],
+      [0.024, 1.79, 0.126], // chin prominence
     ],
     0.007,
     0.002,
+    "anterolateral",
   ),
 
   "Levator anguli oris": bilateralStrip(
@@ -148,6 +158,7 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
     ],
     0.007,
     0.002,
+    "anterolateral",
   ),
 
   "Nasalis": bilateralStrip(
@@ -170,5 +181,6 @@ export const LOWER_FACIAL_MUSCLE_PATHS: Record<string, FaceMuscleStrip[]> = {
     ],
     0.013,
     0.0024,
+    "anterolateral",
   ),
 };

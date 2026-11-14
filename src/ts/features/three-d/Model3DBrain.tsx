@@ -4,10 +4,11 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import Brain from "@n-apt/three-d/Brain";
 import { CoronaScene } from "@n-apt/learn";
-import { toBrainViewerPoint } from "@n-apt/learn/sidebar/AnatomyCardsSection";
+import { toBrainViewerPoint, toBrainViewerPointFromOffset } from "@n-apt/learn/sidebar/AnatomyCardsSection";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
+import { createBrainRegionBlobGeometry } from "@n-apt/three-d/brainRegionBlob";
 import { gsap } from "gsap";
-import { SphereGeometry, Vector3 } from "three";
+import { Vector3 } from "three";
 import {
   MODEL_AMBIENT_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_INTENSITY,
@@ -61,21 +62,28 @@ const ToneCanvasWrap = styled.div`
 
 export const Model3DBrain: React.FC = () => {
   const { controlsRef, selectedArea } = useModel3D();
-  const brainTarget = selectedArea?.meshName === "brain" ? toBrainViewerPoint(selectedArea.target) : null;
-  const regionGeometry = useMemo(() => {
-    const geometry = new SphereGeometry(1, 40, 28);
-    const vertices = geometry.attributes.position;
-    const vertex = new Vector3();
-    for (let i = 0; i < vertices.count; i += 1) {
-      vertex.fromBufferAttribute(vertices, i).normalize();
-      const wobble = 1 + 0.09 * Math.sin(vertex.x * 6 + vertex.y * 3) * Math.cos(vertex.z * 5 - vertex.y * 2);
-      vertices.setXYZ(i, vertex.x * wobble, vertex.y * wobble, vertex.z * wobble);
-    }
-    geometry.computeVertexNormals();
-    return geometry;
-  }, []);
+  const brainSelection = useMemo(() => {
+    if (selectedArea?.meshName !== "brain") return null;
+    const markerTargets = selectedArea.markerPositions?.map(toBrainViewerPointFromOffset)
+      ?? [toBrainViewerPoint(selectedArea.target)];
+    const center = markerTargets.reduce(
+      (sum, point) => [sum[0] + point[0], sum[1] + point[1], sum[2] + point[2]] as [number, number, number],
+      [0, 0, 0] as [number, number, number],
+    ).map((coordinate) => coordinate / markerTargets.length) as [number, number, number];
+    return { markerTargets, center };
+  }, [selectedArea]);
+  const brainTarget = brainSelection?.center ?? null;
+  const regionGeometry = useMemo(createBrainRegionBlobGeometry, []);
   useEffect(() => () => regionGeometry.dispose(), [regionGeometry]);
   const cortical = selectedArea?.name ? /lobe|cortex|brodmann|auditory|visual|motor|somatosensory|broca|wernicke|insula|cingulate/i.test(selectedArea.name) : false;
+  const bilateralMarkerScale: [number, number, number] = useMemo(() => {
+    const markerTargets = brainSelection?.markerTargets;
+    if (!markerTargets || markerTargets.length < 2) return cortical ? [0.13, 0.095, 0.035] : [0.075, 0.075, 0.055];
+    const lateralSpacing = Math.abs(markerTargets[0][0] - markerTargets[1][0]);
+    return cortical
+      ? [Math.max(0.006, Math.min(0.055, lateralSpacing * 0.32)), 0.07, 0.025]
+      : [Math.max(0.006, Math.min(0.045, lateralSpacing * 0.32)), 0.04, 0.035];
+  }, [brainSelection, cortical]);
 
   useEffect(() => {
     if (!brainTarget || !controlsRef.current) return;
@@ -122,16 +130,16 @@ export const Model3DBrain: React.FC = () => {
               rotation={[0, 0, 0]}
               scale={[0.34, 0.34, 0.34]}
             />
-            {brainTarget && (
-              <group position={brainTarget} scale={cortical ? [0.13, 0.095, 0.035] : [0.075, 0.075, 0.055]}>
+            {brainSelection?.markerTargets.map((position, index) => (
+              <group key={`${selectedArea?.name}:${index}`} position={position} scale={bilateralMarkerScale}>
                 <mesh geometry={regionGeometry}>
-                <meshBasicMaterial color="#43ddff" transparent opacity={0.48} depthWrite={false} toneMapped={false} />
+                  <meshBasicMaterial color="#00dfff" transparent opacity={0.72} depthWrite={false} toneMapped={false} />
                 </mesh>
                 <mesh geometry={regionGeometry} scale={1.22}>
-                  <meshBasicMaterial color="#22cfff" transparent opacity={0.11} depthWrite={false} toneMapped={false} />
+                  <meshBasicMaterial color="#00bfff" transparent opacity={0.18} depthWrite={false} toneMapped={false} />
                 </mesh>
               </group>
-            )}
+            ))}
             <OrbitControls
               ref={controlsRef}
               makeDefault

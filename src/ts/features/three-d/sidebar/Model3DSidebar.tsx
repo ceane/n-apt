@@ -216,7 +216,7 @@ const ResetButton = styled.button`
 `;
 
 export const Model3DSidebar: React.FC = () => {
-  const { controlsRef, setSelectedArea, setModelVariant } = useModel3D();
+  const { controlsRef, setSelectedArea, setModelVariant, setPhysiologyOpen } = useModel3D();
   const location = useLocation();
   const navigate = useNavigate();
   const deepLinkTarget = normalizeSidebarRoute(location.pathname);
@@ -341,11 +341,12 @@ export const Model3DSidebar: React.FC = () => {
           stickyTop={SECTION_STICKY_TOP}
           stickyZIndex={18}
           onOpenChange={(isOpen) => {
+            setPhysiologyOpen(isOpen);
             if (isOpen) setModelVariant("human");
           }}
         >
           <SectionDescription>
-            Click an area to focus the camera
+            Click the body or an area to focus the camera
           </SectionDescription>
           <div style={{ gridColumn: "1 / -1" }}>
             <BodyAreasSection searchTerm={searchTerm} />

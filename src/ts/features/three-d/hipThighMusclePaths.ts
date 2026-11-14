@@ -7,6 +7,8 @@ export type HipMuscleOverlay = {
   halfWidth: number;
   /** Posterior paths are viewed from behind when focused. */
   surface: "anterior" | "posterior";
+  surfaceAnchored?: boolean;
+  cameraDistance?: number;
 };
 
 function bilateral(path: HipMusclePoint[]): HipMusclePoint[][] {
@@ -15,6 +17,16 @@ function bilateral(path: HipMusclePoint[]): HipMusclePoint[][] {
 
 function combine(...pathSets: HipMusclePoint[][][]): HipMusclePoint[][] {
   return pathSets.flat();
+}
+
+function deepPosteriorHipMuscle(path: HipMusclePoint[], halfWidth: number): HipMuscleOverlay {
+  return {
+    paths: bilateral(path),
+    halfWidth,
+    surface: "posterior",
+    surfaceAnchored: true,
+    cameraDistance: 0.98,
+  };
 }
 
 const rectusFemoris = bilateral([
@@ -69,6 +81,18 @@ const tensorFasciaeLatae = bilateral([
 const piriformis = bilateral([
   [0.025, 0.98, -0.085], [0.06, 0.96, -0.115], [0.1, 0.93, -0.13],
 ]);
+const obturatorInternus = [
+  [0.025, 0.99, -0.09], [0.055, 0.975, -0.12], [0.105, 0.945, -0.14], [0.16, 0.91, -0.12],
+] as HipMusclePoint[];
+const superiorGemellus = [
+  [0.025, 1.0, -0.1], [0.05, 0.99, -0.12], [0.09, 0.975, -0.135], [0.125, 0.96, -0.135],
+] as HipMusclePoint[];
+const inferiorGemellus = [
+  [0.025, 0.93, -0.1], [0.055, 0.925, -0.12], [0.1, 0.915, -0.14], [0.145, 0.9, -0.13],
+] as HipMusclePoint[];
+const quadratusFemoris = [
+  [0.025, 0.875, -0.1], [0.07, 0.875, -0.13], [0.12, 0.88, -0.145], [0.18, 0.89, -0.13],
+] as HipMusclePoint[];
 
 /**
  * Compact bilateral surface guides for the hip and thigh cards. These are
@@ -102,4 +126,8 @@ export const HIP_THIGH_MUSCLE_PATHS: Record<string, HipMuscleOverlay> = {
   "Gluteus minimus": { paths: gluteusMinimus, halfWidth: 0.016, surface: "posterior" },
   "Tensor fasciae latae": { paths: tensorFasciaeLatae, halfWidth: 0.012, surface: "anterior" },
   Piriformis: { paths: piriformis, halfWidth: 0.012, surface: "posterior" },
+  "Obturator internus": deepPosteriorHipMuscle(obturatorInternus, 0.016),
+  "Superior gemellus": deepPosteriorHipMuscle(superiorGemellus, 0.01),
+  "Inferior gemellus": deepPosteriorHipMuscle(inferiorGemellus, 0.01),
+  "Quadratus femoris": deepPosteriorHipMuscle(quadratusFemoris, 0.018),
 };
