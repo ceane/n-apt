@@ -5,7 +5,7 @@ import { MainLayout } from "@n-apt/app/MainLayout";
 import { PreferencesSidebar } from "@n-apt/settings/sidebar/SettingsSidebar";
 import { PREFERENCES_SECTIONS } from "@n-apt/settings/settingsSections";
 import { ThemeSection } from "@n-apt/settings/sidebar/ThemeSection";
-import { Row, Toggle } from "@n-apt/ui";
+import { Row, Toggle, Tooltip } from "@n-apt/ui";
 import { RowLabel, RowControl, RowContainer } from "@n-apt/ui/Row";
 import { SettingSelect } from "@n-apt/ui/SidebarPrimitives";
 import { useSettingsSectionScrollSpy } from "@n-apt/settings/hooks/useSettingsSectionScrollSpy";
@@ -380,6 +380,10 @@ const ThemeSettingsSection: React.FC = () => {
       <SectionTitle>
         <Monitor size={16} aria-hidden="true" />
         Theme
+        <Tooltip
+          title="Theme"
+          content="Choose the app appearance and colors used for the spectrum and waterfall."
+        />
       </SectionTitle>
       <p
         style={{
@@ -1174,7 +1178,13 @@ const WaterfallSettingsSection: React.FC = () => {
 
   return (
     <SettingsSectionBlock data-settings-section="waterfall">
-      <SectionTitle>Waterfall</SectionTitle>
+      <SectionTitle>
+        Waterfall
+        <Tooltip
+          title="Waterfall"
+          content="Smoother waterfall trades rendering quality for performance. Accretive draws the cropped buffer, while Immutable preserves full-width history for later pan and zoom."
+        />
+      </SectionTitle>
       <SectionGrid>
         <div>
           <SettingsRow label={<SettingLabel>Smoother waterfall</SettingLabel>}>
@@ -1312,11 +1322,11 @@ const PreferencesContent: React.FC<{
         the visualizer page.
       </PageSubtitle>
       <ThemeSettingsSection />
+      <WaterfallSettingsSection />
       <SdrSettingsSection />
       <LoginSettingsSection />
       <IqCaptureSettingsSection />
       <SnapshotSettingsSection />
-      <WaterfallSettingsSection />
       <PreferencesExtrasSection />
     </PageInner>
   </PageContent>
