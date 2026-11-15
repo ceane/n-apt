@@ -10,6 +10,10 @@ export { Toggle } from "./Toggle";
 export { Button } from "./Button";
 export { Checkbox } from "./Checkbox";
 export { Row } from "./Row";
+export {
+  SidebarSubsectionList,
+  type SidebarSubsectionListProps,
+} from "./SidebarSubsectionList";
 export { Tabs } from "./Tabs";
 export {
   Collapsible,

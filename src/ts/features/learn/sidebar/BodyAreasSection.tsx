@@ -1,8 +1,9 @@
 import React, { useEffect } from "react";
 import styled from "styled-components";
-import { gsap } from "gsap";
+import { modelSourcePointToWorld, physiologyCardRoute, sidebarRouteTargetId } from "@n-apt/three-d/public/anatomyVisualizations";
 import { useModel3D } from "@n-apt/three-d/public/useModel3D";
 import { useHotspotEditor } from "@n-apt/three-d/public/useHotspotEditor";
+import { CopyDeepLinkButton } from "@n-apt/ui/CopyDeepLinkButton";
 
 type Area = {
   name: string;
@@ -11,17 +12,23 @@ type Area = {
   meshName: string;
 };
 
-export const PHYSIOLOGY_AREAS: Area[] = [
+const RAW_PHYSIOLOGY_AREAS: Area[] = [
   {
     name: "Head",
-    position: [0.0, 1.92, 0.48],
-    target: [0.0, 1.905, 0.0],
+    position: [0.0, 1.98, 0.48],
+    target: [0.0, 1.9, 0.05],
     meshName: "o_ADBody",
   },
   {
     name: "Face",
-    position: [0.0, 1.84, 0.56],
-    target: [0.0, 1.835, 0.12],
+    position: [0.0, 1.9, 0.56],
+    target: [0.0, 1.86, 0.12],
+    meshName: "o_ADBody",
+  },
+  {
+    name: "Eyes",
+    position: [0.0, 1.92, 0.105],
+    target: [0.0, 1.92, 0.015],
     meshName: "o_ADBody",
   },
   {
@@ -32,8 +39,8 @@ export const PHYSIOLOGY_AREAS: Area[] = [
   },
   {
     name: "Vocal Cords",
-    position: [0.0, 1.79, 0.32],
-    target: [0.0, 1.81, 0.06],
+    position: [0.0, 1.62, 0.32],
+    target: [0.0, 1.56, 0.06],
     meshName: "o_ADBody",
   },
   {
@@ -128,16 +135,29 @@ export const PHYSIOLOGY_AREAS: Area[] = [
   },
 ];
 
+export const PHYSIOLOGY_AREAS: Area[] = RAW_PHYSIOLOGY_AREAS.map((area) => ({
+  ...area,
+  position: modelSourcePointToWorld(area.position),
+  target: modelSourcePointToWorld(area.target),
+}));
+
 const AreaList = styled.div`
   display: grid;
-  gap: 6px;
+  gap: 8px;
   overflow-y: auto;
   padding-right: 4px;
   box-sizing: border-box;
 `;
 
+const EmptyState = styled.div`
+  padding: 12px;
+  font-size: 12px;
+  color: ${(props) => props.theme.textSecondary};
+`;
+
 const BaseButton = styled.button`
   max-width: 100%;
+  scroll-margin-top: 170px;
   display: grid;
   grid-template-columns: 1fr max-content;
   align-items: center;
@@ -198,6 +218,8 @@ const SelectableButton = styled(BaseButton)<{ $isSelected: boolean }>`
   }
 `;
 
+const AreaRow = styled.div`display: flex; align-items: center; gap: 2px; &:hover .sidebar-copy-deep-link, &:focus-within .sidebar-copy-deep-link { opacity: 0.65; } ${SelectableButton} { flex: 1; }`;
+
 const ButtonContent = styled.span`
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -225,58 +247,66 @@ const ChevronIndicator = styled.span<{ $isSelected: boolean }>`
 `;
 
 interface BodyAreasSectionProps {
-  // No props needed, uses context instead
+  searchTerm?: string;
 }
 
-export const BodyAreasSection: React.FC<BodyAreasSectionProps> = () => {
-  const { selectedArea, setSelectedArea, controlsRef } = useModel3D();
+export const BodyAreasSection: React.FC<BodyAreasSectionProps> = ({ searchTerm = "" }) => {
+  const { selectedArea, setSelectedArea } = useModel3D();
   const { setSidebarTab } = useHotspotEditor();
 
   useEffect(() => {
     setSidebarTab("select-areas");
   }, [setSidebarTab]);
 
-  useEffect(() => {
-    if (selectedArea && controlsRef?.current) {
-      gsap.to(controlsRef.current.object.position, {
-        x: selectedArea.position[0],
-        y: selectedArea.position[1],
-        z: selectedArea.position[2],
-        duration: 1,
-      });
-      gsap.to(controlsRef.current.target, {
-        x: selectedArea.target[0],
-        y: selectedArea.target[1],
-        z: selectedArea.target[2],
-        duration: 1,
-        onUpdate: () => controlsRef.current.update(),
-      });
-    }
-  }, [selectedArea, controlsRef]);
+  const searchAliases: Record<string, string> = {
+    "Vocal Cords": "larynx voice speech phonation sound vocal folds singing talking",
+    Throat: "larynx voice swallowing speaking singing breathing",
+    "Ears (Left)": "hearing audio sound listening music auditory",
+    "Ears (Right)": "hearing audio sound listening music auditory",
+    Head: "brain skull nervous system emotion facial expression feelings",
+    Face: "smile smiling grin grinning laugh laughing laughter frown frowning smirk facial expression eyebrows cheeks lips eyes happiness happy joy sadness sad anger angry surprise emotion feelings",
+    "Arms (Left)": "biceps triceps lifting curl curling elbow bend shoulder reach reaching push pull throw forearm flexion extension supination",
+    "Arms (Right)": "biceps triceps lifting curl curling elbow bend shoulder reach reaching push pull throw forearm flexion extension supination",
+    "Hands (Left)": "grab grabbing grasp grasping grip gripping hold holding pinch fingers thumb tactile touch texture sensation feel feeling pick up manipulate dexterity typing",
+    "Hands (Right)": "grab grabbing grasp grasping grip gripping hold holding pinch fingers thumb tactile touch texture sensation feel feeling pick up manipulate dexterity typing",
+    "Legs (Left)": "walk walking run running squat stand standing stairs climb kick thigh knee hip hamstring quadriceps movement",
+    "Legs (Right)": "walk walking run running squat stand standing stairs climb kick thigh knee hip hamstring quadriceps movement",
+    "Feet (Left)": "toe toes balance walking walk run running step stepping tactile touch pressure sole plantar flexion dorsiflexion",
+    "Feet (Right)": "toe toes balance walking walk run running step stepping tactile touch pressure sole plantar flexion dorsiflexion",
+    Torso: "trunk core posture breathing diaphragm chest abdominal muscles lift rotate bend",
+    Heart: "heartbeat pulse emotion stress autonomic response anxiety excitement",
+  };
+  const matchingAreas = PHYSIOLOGY_AREAS.filter((area) => `${area.name} ${searchAliases[area.name] ?? ""}`.toLowerCase().includes(searchTerm.trim().toLowerCase()));
 
   return (
     <AreaList>
-      {PHYSIOLOGY_AREAS.map((area) => {
+      {matchingAreas.map((area) => {
         const isSelected = selectedArea?.name === area.name;
 
         return (
-          <SelectableButton
-            key={area.name}
-            $isSelected={isSelected}
-            onClick={() => setSelectedArea(area)}
-            aria-pressed={isSelected}
-          >
-            <ButtonContent>
-              <SelectionIndicator aria-hidden $isSelected={isSelected} />
-              <span>{area.name}</span>
-            </ButtonContent>
+          <AreaRow key={area.name}>
+            <SelectableButton
+              id={sidebarRouteTargetId(physiologyCardRoute(area.name))}
+              $isSelected={isSelected}
+              onClick={() => setSelectedArea(area)}
+              aria-pressed={isSelected}
+            >
+              <ButtonContent>
+                <SelectionIndicator aria-hidden $isSelected={isSelected} />
+                <span>{area.name}</span>
+              </ButtonContent>
 
-            <ChevronIndicator aria-hidden $isSelected={isSelected}>
-              ›
-            </ChevronIndicator>
-          </SelectableButton>
+              <ChevronIndicator aria-hidden $isSelected={isSelected}>
+                ›
+              </ChevronIndicator>
+            </SelectableButton>
+            <CopyDeepLinkButton title={area.name} targetPath={physiologyCardRoute(area.name)} />
+          </AreaRow>
         );
       })}
+      {!matchingAreas.length && (
+        <EmptyState role="status">No physiology areas match “{searchTerm}”.</EmptyState>
+      )}
     </AreaList>
   );
 };

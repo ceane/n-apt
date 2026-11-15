@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import styled from "styled-components";
 import { gsap } from "gsap";
 import {
@@ -7,15 +8,65 @@ import {
   Bone,
   NotebookPen,
   DraftingCompass,
+  Search,
+  Brain,
+  Network,
 } from "lucide-react";
-import { BodyAreasSection } from "@n-apt/learn";
+import {
+  AnatomyCardsSection,
+  BRAIN_ANATOMY_CARDS,
+  BodyAreasSection,
+  NERVOUS_SYSTEM_CARDS,
+  normalizeAnatomySearchText,
+} from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
-import { Collapsible } from "@n-apt/ui";
+import { Collapsible, SidebarSubsectionList } from "@n-apt/ui";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
 } from "@n-apt/consts/components";
+import { anatomyGroupRoute, normalizeSidebarRoute, SIDEBAR_ROUTES, sidebarRouteTargetId } from "@n-apt/three-d/sidebar/sidebarDeepLinks";
+
+const SECTION_STICKY_TOP = 50;
+const SUBSECTION_STICKY_TOP = 92;
+
+type AnatomySubsectionJump = {
+  id: string;
+  route: string;
+  label: string;
+  kind: "brain" | "nervous";
+  parent?: string;
+};
+
+const ANATOMY_SUBSECTION_JUMPS: AnatomySubsectionJump[] = (() => {
+  const targets: AnatomySubsectionJump[] = [
+    { id: sidebarRouteTargetId(SIDEBAR_ROUTES.brain), route: SIDEBAR_ROUTES.brain, label: "Brain", kind: "brain" },
+    { id: sidebarRouteTargetId(SIDEBAR_ROUTES.nervous), route: SIDEBAR_ROUTES.nervous, label: "Nervous System", kind: "nervous" },
+  ];
+  const groupTargets = new Set<string>();
+  const groupedCards = [
+    { kind: "brain" as const, parent: "Brain", cards: BRAIN_ANATOMY_CARDS },
+    { kind: "nervous" as const, parent: "Nervous System", cards: NERVOUS_SYSTEM_CARDS },
+  ];
+
+  groupedCards.forEach(({ kind, parent, cards }) => {
+    cards.forEach((card) => {
+      const key = `${kind}:${card.group}`;
+      if (groupTargets.has(key)) return;
+      groupTargets.add(key);
+      targets.push({
+        id: sidebarRouteTargetId(anatomyGroupRoute(kind, card.group)),
+        route: anatomyGroupRoute(kind, card.group),
+        label: card.group,
+        kind,
+        parent,
+      });
+    });
+  });
+
+  return targets;
+})();
 
 const Section = styled.div`
   display: grid;
@@ -37,6 +88,75 @@ const SectionDescription = styled.div`
   color: ${(props) => props.theme.textSecondary};
   margin-bottom: 16px;
   grid-column: 1 / -1;
+`;
+
+const SearchWrap = styled.label`
+  position: sticky;
+  top: 10px;
+  z-index: 20;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 2px 0 8px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 8px;
+  color: ${(props) => props.theme.textSecondary};
+  background: ${(props) => props.theme.surface};
+  box-shadow: 0 4px 12px rgba(12, 18, 28, 0.08);
+  &:focus-within { border-color: ${(props) => props.theme.primary}; }
+`;
+
+const SearchInput = styled.input`
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: ${(props) => props.theme.textPrimary};
+  font: inherit;
+  font-size: 12px;
+  &::placeholder { color: ${(props) => props.theme.textMuted}; }
+`;
+
+const SubsectionJumpResults = styled.div`
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  grid-column: 1 / -1;
+  margin: -4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid ${(props) => props.theme.primaryAlpha};
+  border-radius: 8px;
+  background: ${(props) => props.theme.primaryAnchor};
+`;
+
+const SubsectionJumpLabel = styled.span`
+  color: ${(props) => props.theme.textSecondary};
+  font-family: ${(props) => props.theme.typography.mono};
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+`;
+
+const SubsectionJumpButton = styled.button`
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+
+  &:hover, &:focus-visible {
+    border-color: ${(props) => props.theme.primary};
+    color: ${(props) => props.theme.primary};
+    outline: none;
+  }
 `;
 
 const InfoBox = styled.div`
@@ -97,26 +217,71 @@ const ResetButton = styled.button`
 `;
 
 export const Model3DSidebar: React.FC = () => {
-  const { controlsRef, setSelectedArea, setModelVariant } = useModel3D();
+  const { controlsRef, setSelectedArea, setModelVariant, setPhysiologyOpen } = useModel3D();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const deepLinkTarget = normalizeSidebarRoute(location.pathname);
+  const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      document.getElementById(sidebarRouteTargetId(deepLinkTarget))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [deepLinkTarget]);
+  const anatomyTarget = deepLinkTarget === SIDEBAR_ROUTES.anatomy || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.anatomy}/`);
+  const brainTarget = deepLinkTarget === SIDEBAR_ROUTES.brain || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.brain}/`);
+  const nervousTarget = deepLinkTarget === SIDEBAR_ROUTES.nervous || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.nervous}/`);
+  const physiologyTarget = deepLinkTarget === SIDEBAR_ROUTES.physiology || deepLinkTarget.startsWith(`${SIDEBAR_ROUTES.physiology}/`);
+  useEffect(() => {
+    if (brainTarget) setModelVariant("brain");
+    else if (anatomyTarget) setModelVariant("anatomy");
+    else if (physiologyTarget) setModelVariant("human");
+  }, [anatomyTarget, brainTarget, deepLinkTarget, setModelVariant]);
+  const normalizedSearchTerm = normalizeAnatomySearchText(searchTerm);
+  const matchingSubsections = useMemo(() => {
+    if (normalizedSearchTerm.length < 3) return [];
+
+    return ANATOMY_SUBSECTION_JUMPS
+      .filter((target) => {
+        const label = normalizeAnatomySearchText(target.label);
+        return label.includes(normalizedSearchTerm) || normalizedSearchTerm.includes(label);
+      })
+      .sort((a, b) => {
+        const aLabel = normalizeAnatomySearchText(a.label);
+        const bLabel = normalizeAnatomySearchText(b.label);
+        const rank = (label: string) => label === normalizedSearchTerm ? 0 : label.startsWith(normalizedSearchTerm) ? 1 : 2;
+        return rank(aLabel) - rank(bLabel) || a.label.localeCompare(b.label);
+      })
+      .slice(0, 6);
+  }, [normalizedSearchTerm]);
+
+  const jumpToSubsection = (target: AnatomySubsectionJump) => {
+    setModelVariant(target.kind === "brain" ? "brain" : "anatomy");
+    navigate(target.route);
+    const element = document.getElementById(target.id);
+    element?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const handleResetCamera = () => {
     if (controlsRef?.current) {
-      // Reset camera position and target with smooth animation
-      gsap.to(controlsRef.current.object.position, {
+      const controls = controlsRef.current;
+      gsap.killTweensOf(controls.object.position);
+      gsap.killTweensOf(controls.target);
+      gsap.to(controls.object.position, {
         x: MODEL_CAMERA_POSITION[0],
         y: MODEL_CAMERA_POSITION[1],
         z: MODEL_CAMERA_POSITION[2],
-        duration: 1,
+        duration: .42,
         ease: "power2.inOut",
       });
 
-      gsap.to(controlsRef.current.target, {
+      gsap.to(controls.target, {
         x: MODEL_CAMERA_TARGET[0],
         y: MODEL_CAMERA_TARGET[1],
         z: MODEL_CAMERA_TARGET[2],
-        duration: 1,
+        duration: .42,
         ease: "power2.inOut",
-        onUpdate: () => controlsRef.current.update(),
+        onUpdate: () => controls.update(),
       });
 
       // Also reset the selected area to null
@@ -139,20 +304,53 @@ export const Model3DSidebar: React.FC = () => {
 
       <ResetButton onClick={handleResetCamera}>Reset Camera</ResetButton>
 
+      <SearchWrap>
+        <Search size={16} aria-hidden="true" />
+        <SearchInput
+          type="search"
+          aria-label="Search anatomy, physiology, psychology, and effects"
+          placeholder="Search anatomy, physiology, psychology, effects…"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+        />
+      </SearchWrap>
+      {matchingSubsections.length > 0 && (
+        <SubsectionJumpResults role="group" aria-label="Matching subsections">
+          <SubsectionJumpLabel>Jump to</SubsectionJumpLabel>
+          {matchingSubsections.map((target) => (
+            <SubsectionJumpButton
+              key={target.id}
+              type="button"
+              aria-label={`Jump to ${target.label}${target.parent ? ` in ${target.parent}` : ""}`}
+              onClick={() => jumpToSubsection(target)}
+            >
+              {target.label}{target.parent ? ` · ${target.parent}` : ""}
+            </SubsectionJumpButton>
+          ))}
+        </SubsectionJumpResults>
+      )}
+
       <Section>
         <Collapsible
           icon={<PersonStanding size={16} />}
           label="Physiology /"
+          sectionId="sidebar-physiology"
+          routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.physiology)}
+          linkPath={SIDEBAR_ROUTES.physiology}
           defaultOpen
+          sticky
+          stickyTop={SECTION_STICKY_TOP}
+          stickyZIndex={18}
           onOpenChange={(isOpen) => {
+            setPhysiologyOpen(isOpen);
             if (isOpen) setModelVariant("human");
           }}
         >
           <SectionDescription>
-            Click an area to focus the camera
+            Click the body or an area to focus the camera
           </SectionDescription>
           <div style={{ gridColumn: "1 / -1" }}>
-            <BodyAreasSection />
+            <BodyAreasSection searchTerm={searchTerm} />
           </div>
         </Collapsible>
 
@@ -160,7 +358,11 @@ export const Model3DSidebar: React.FC = () => {
           icon={<Blend size={16} />}
           label="Psychology /"
           onOpenChange={(isOpen) => {
-            setModelVariant(isOpen ? "brain" : "human");
+            if (!isOpen) {
+              setModelVariant("human");
+            } else {
+              setModelVariant("brain");
+            }
           }}
         >
           <SectionDescription>
@@ -168,10 +370,61 @@ export const Model3DSidebar: React.FC = () => {
           </SectionDescription>
         </Collapsible>
 
-        <Collapsible icon={<Bone size={16} />} label="Anatomy /">
+        <Collapsible
+          icon={<Bone size={16} />}
+          label="Anatomy /"
+          sectionId="sidebar-anatomy"
+          routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.anatomy)}
+          linkPath={SIDEBAR_ROUTES.anatomy}
+          temporaryOpen={Boolean(searchTerm.trim()) || anatomyTarget}
+          sticky
+          stickyTop={SECTION_STICKY_TOP}
+          stickyZIndex={18}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) {
+              setModelVariant("human");
+              return;
+            }
+            setModelVariant("anatomy");
+            setSelectedArea(null);
+          }}
+        >
           <SectionDescription>
-            Anatomical structures and bone mapping.
+            Brain regions and the nervous system, with functions and model focus.
           </SectionDescription>
+          <SidebarSubsectionList aria-label="Anatomy subsections">
+            <Collapsible
+              icon={<Brain size={15} />}
+              label="Brain"
+              sectionId="anatomy-brain"
+              routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.brain)}
+              linkPath={SIDEBAR_ROUTES.brain}
+              temporaryOpen={Boolean(searchTerm.trim()) || brainTarget}
+              sticky
+              stickyTop={SUBSECTION_STICKY_TOP}
+              stickyZIndex={19}
+              onOpenChange={(isOpen) => {
+                setModelVariant(isOpen ? "brain" : "anatomy");
+                if (!isOpen) setSelectedArea(null);
+              }}
+            >
+              <AnatomyCardsSection kind="brain" searchTerm={searchTerm} />
+            </Collapsible>
+            <Collapsible
+              icon={<Network size={15} />}
+              label="Nervous System"
+              sectionId="anatomy-nervous-system"
+              routeTargetId={sidebarRouteTargetId(SIDEBAR_ROUTES.nervous)}
+              linkPath={SIDEBAR_ROUTES.nervous}
+              temporaryOpen={Boolean(searchTerm.trim()) || nervousTarget}
+              sticky
+              stickyTop={SUBSECTION_STICKY_TOP}
+              stickyZIndex={19}
+              onOpenChange={(isOpen) => { if (isOpen) setModelVariant("anatomy"); }}
+            >
+              <AnatomyCardsSection kind="nervous" searchTerm={searchTerm} />
+            </Collapsible>
+          </SidebarSubsectionList>
         </Collapsible>
 
         <Collapsible icon={<NotebookPen size={16} />} label="Effects /">
@@ -181,6 +434,9 @@ export const Model3DSidebar: React.FC = () => {
         <Collapsible
           icon={<DraftingCompass size={16} />}
           label="Make Hotspots /"
+          sticky
+          stickyTop={SECTION_STICKY_TOP}
+          stickyZIndex={18}
         >
           <div style={{ gridColumn: "1 / -1" }}>
             <HotspotEditorSection />
