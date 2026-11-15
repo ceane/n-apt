@@ -380,6 +380,8 @@ export const themeActions = {
 
 export {
   setMirrorIqBasebandBelowZero,
+  setSmootherWaterfall,
+  setWaterfallHistoryFill,
   setDeviceInfo,
   resetSettings,
 } from "./slices/settingsSlice";
