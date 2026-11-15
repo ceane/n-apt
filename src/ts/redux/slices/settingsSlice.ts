@@ -3,6 +3,8 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 export interface SettingsState {
   // App preferences
   mirrorIqBasebandBelowZero: boolean;
+  smootherWaterfall: boolean;
+  waterfallHistoryFill: "accretive" | "immutable";
 
   // Device info (cached from WebSocket)
   deviceName: string | null;
@@ -11,6 +13,8 @@ export interface SettingsState {
 
 const initialState: SettingsState = {
   mirrorIqBasebandBelowZero: false,
+  smootherWaterfall: false,
+  waterfallHistoryFill: "accretive",
 
   deviceName: null,
   deviceProfile: null,
@@ -22,6 +26,16 @@ const settingsSlice = createSlice({
   reducers: {
     setMirrorIqBasebandBelowZero: (state, action: PayloadAction<boolean>) => {
       state.mirrorIqBasebandBelowZero = action.payload;
+    },
+
+    setSmootherWaterfall: (state, action: PayloadAction<boolean>) => {
+      state.smootherWaterfall = action.payload;
+    },
+    setWaterfallHistoryFill: (
+      state,
+      action: PayloadAction<"accretive" | "immutable">,
+    ) => {
+      state.waterfallHistoryFill = action.payload;
     },
 
     setDeviceInfo: (
@@ -43,6 +57,8 @@ const settingsSlice = createSlice({
 
 export const {
   setMirrorIqBasebandBelowZero,
+  setSmootherWaterfall,
+  setWaterfallHistoryFill,
   setDeviceInfo,
   resetSettings,
 } = settingsSlice.actions;
