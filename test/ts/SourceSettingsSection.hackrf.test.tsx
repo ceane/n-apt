@@ -49,7 +49,7 @@ describe("SourceSettingsSection HackRF controls", () => {
     const ppmGroup = screen.getByRole("group", {
       name: "PPM correction settings",
     });
-    expect(ppmGroup).toHaveStyle({ marginLeft: "12px" });
+    expect(ppmGroup).toHaveStyle({ marginLeft: "24px" });
     const ppmInputRow = within(ppmGroup).getByTestId("ppm-value-row");
     const appCorrectionRow = within(ppmGroup).getByTestId("ppm-mode-row");
     const ppmInput = within(ppmInputRow).getByRole("spinbutton");

@@ -81,8 +81,8 @@ const InputGroup = styled.div`
 const PpmSettingsGroup = styled.div`
   display: grid;
   grid-column: 1 / -1;
-  width: calc(100% - 12px);
-  margin-left: 12px;
+  width: calc(100% - 24px);
+  margin-left: 24px;
   overflow: hidden;
   border-radius: 6px;
   border: 1px solid
