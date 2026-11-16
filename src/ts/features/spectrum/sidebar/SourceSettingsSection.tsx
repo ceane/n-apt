@@ -81,8 +81,7 @@ const InputGroup = styled.div`
 const PpmSettingsGroup = styled.div`
   display: grid;
   grid-column: 1 / -1;
-  width: calc(100% - 24px);
-  margin-left: 24px;
+  width: 100%;
   overflow: hidden;
   border-radius: 6px;
   border: 1px solid
@@ -112,6 +111,11 @@ const PpmSettingRow = styled.div`
           ? props.theme.borderHover
           : props.theme.border};
   }
+`;
+
+const AppPpmSettingRow = styled(PpmSettingRow)`
+  padding-right: 34px;
+  padding-left: 34px;
 `;
 
 const PpmSettingLabel = styled.div`
@@ -542,7 +546,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
           </PpmSettingControl>
         </PpmSettingRow>
         {sourceMode === "live" && (
-          <PpmSettingRow data-testid="ppm-mode-row">
+          <AppPpmSettingRow data-testid="ppm-mode-row">
             <PpmSettingLabel>
               App frequency correction
               <Tooltip
@@ -571,7 +575,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
                 />
               </ToggleSwitch>
             </PpmSettingControl>
-          </PpmSettingRow>
+          </AppPpmSettingRow>
         )}
       </PpmSettingsGroup>
       {!isHackrfLive && (
