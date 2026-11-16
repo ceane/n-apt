@@ -102,6 +102,8 @@ impl MockSignalGenerator {
     Ok(RawSamples {
       data: frame,
       sample_rate,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     })
   }
 

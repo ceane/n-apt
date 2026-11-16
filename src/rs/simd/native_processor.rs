@@ -244,6 +244,8 @@ mod tests {
     let samples = RawSamples {
       data: vec![100u8; 256],
       sample_rate: 32000,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
 
     let mut output1 = vec![0.0f32; 128];

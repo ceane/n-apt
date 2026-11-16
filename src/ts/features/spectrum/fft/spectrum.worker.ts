@@ -27,6 +27,9 @@ self.onmessage = async ({ data }: MessageEvent<SpectrumWorkerRequest>) => {
           sampleRateHz: data.sampleRateHz,
           ppm: data.ppm,
           applyPpmCorrection: data.applyPpmCorrection,
+          ppmCorrectionHz: data.ppmCorrectionHz,
+          ppmInputPerOutput: data.ppmInputPerOutput,
+          ppmSourceOffset: data.ppmSourceOffset,
         } satisfies WebGpuIqSpectrumOptions);
         backend = "webgpu";
       } catch {

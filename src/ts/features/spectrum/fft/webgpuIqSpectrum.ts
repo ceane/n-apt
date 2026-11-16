@@ -8,6 +8,14 @@ export type WebGpuIqSpectrumOptions = {
   sampleRateHz: number;
   ppm: number;
   applyPpmCorrection: boolean;
+  /** Exact backend-model shift, when supplied for an RTL-SDR spectrum frame. */
+  ppmCorrectionHz?: number;
+  /** Number of raw input samples consumed for each FFT output sample. */
+  ppmInputPerOutput?: number;
+  /** Fractional source position at the start of this FFT window. */
+  ppmSourceOffset?: number;
+  /** Internal host value written to the uniform buffer. */
+  rawSampleCount?: number;
 };
 
 const WINDOW_TYPE: Record<string, number> = {
@@ -39,6 +47,7 @@ const windowValue = (index: number, size: number, kind: number): number => {
 
 type Buffers = {
   byteLength: number;
+  rawByteLength: number;
   raw: GPUBuffer;
   input: GPUBuffer;
   output: GPUBuffer;
@@ -114,20 +123,27 @@ export class WebGpuIqSpectrumProcessor {
     }
   }
 
-  private ensureBuffers(fftSize: number, windowKind: number): Buffers {
+  private ensureBuffers(
+    fftSize: number,
+    windowKind: number,
+    rawByteLength: number,
+  ): Buffers {
     if (
       this.buffers?.fftSize === fftSize &&
-      this.buffers.windowKind === windowKind
+      this.buffers.windowKind === windowKind &&
+      this.buffers.rawByteLength >= rawByteLength
     ) {
       return this.buffers;
     }
 
     destroyBuffers(this.buffers);
     const byteLength = fftSize * 8;
+    const allocatedRawByteLength =
+      Math.ceil(Math.max(fftSize * 2, rawByteLength) / 4) * 4;
     const storageUsage =
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
     const raw = this.device.createBuffer({
-      size: fftSize * 2,
+      size: allocatedRawByteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     const input = this.device.createBuffer({ size: byteLength, usage: storageUsage });
@@ -180,6 +196,7 @@ export class WebGpuIqSpectrumProcessor {
 
     this.buffers = {
       byteLength,
+      rawByteLength: allocatedRawByteLength,
       raw,
       input,
       output,
@@ -217,14 +234,37 @@ export class WebGpuIqSpectrumProcessor {
     view.setFloat32(48, 0, true);
     view.setUint32(52, 0, true);
     view.setFloat32(56, 0, true);
-    view.setUint32(60, 0, true);
+    view.setUint32(60, options.rawSampleCount ?? options.fftSize, true);
+    const explicitCorrectionHz = options.ppmCorrectionHz;
     const correctionHz = options.applyPpmCorrection
-      ? (options.centerFrequencyHz * options.ppm) / 1_000_000
+      ? Number.isFinite(explicitCorrectionHz)
+        ? explicitCorrectionHz!
+        : (options.centerFrequencyHz * options.ppm) / 1_000_000
       : 0;
+    const inputPerOutput =
+      options.applyPpmCorrection &&
+      Number.isFinite(options.ppmInputPerOutput) &&
+      (options.ppmInputPerOutput ?? 0) > 0
+        ? options.ppmInputPerOutput!
+        : 1;
+    const sourceOffset =
+      options.applyPpmCorrection &&
+      Number.isFinite(options.ppmSourceOffset) &&
+      (options.ppmSourceOffset ?? -1) >= 0 &&
+      (options.ppmSourceOffset ?? 1) < 1
+        ? options.ppmSourceOffset!
+        : 0;
     view.setFloat32(64, correctionHz, true);
-    view.setUint32(68, options.applyPpmCorrection && correctionHz !== 0 ? 1 : 0, true);
-    view.setUint32(72, 0, true);
-    view.setUint32(76, 0, true);
+    view.setUint32(
+      68,
+      options.applyPpmCorrection &&
+        (correctionHz !== 0 || inputPerOutput !== 1 || sourceOffset !== 0)
+        ? 1
+        : 0,
+      true,
+    );
+    view.setFloat32(72, inputPerOutput, true);
+    view.setFloat32(76, sourceOffset, true);
     this.device.queue.writeBuffer(buffer, 0, params);
   }
 
@@ -245,11 +285,29 @@ export class WebGpuIqSpectrumProcessor {
     }
 
     const windowKind = WINDOW_TYPE[(options.windowType ?? "hanning").toLowerCase()] ?? 1;
-    const buffers = this.ensureBuffers(fftSize, windowKind);
-    const rawIq = iq.byteLength === fftSize * 2
-      ? iq
-      : iq.subarray(iq.byteLength - fftSize * 2);
-    this.device.queue.writeBuffer(buffers.raw, 0, rawIq);
+    const inputPerOutput = options.applyPpmCorrection
+      ? options.ppmInputPerOutput ?? 1
+      : 1;
+    const sourceOffset = options.applyPpmCorrection
+      ? options.ppmSourceOffset ?? 0
+      : 0;
+    const lastSourcePosition =
+      sourceOffset + (fftSize - 1) * inputPerOutput;
+    const requiredSamples = Math.floor(lastSourcePosition) + 1;
+    if (
+      !Number.isFinite(inputPerOutput) ||
+      inputPerOutput <= 0 ||
+      !Number.isFinite(sourceOffset) ||
+      sourceOffset < 0 ||
+      sourceOffset >= 1 ||
+      iq.byteLength < requiredSamples * 2
+    ) {
+      throw new RangeError("IQ data is too short for the PPM resampling window");
+    }
+
+    const buffers = this.ensureBuffers(fftSize, windowKind, iq.byteLength);
+    this.device.queue.writeBuffer(buffers.raw, 0, iq);
+    const gpuOptions = { ...options, rawSampleCount: iq.byteLength / 2 };
 
     let windowEnergy = 0;
     for (let index = 0; index < fftSize; index++) {
@@ -258,12 +316,12 @@ export class WebGpuIqSpectrumProcessor {
     }
     const normalization = fftSize * windowEnergy;
     const stageCount = Math.log2(fftSize);
-    this.writeParams(buffers.uniforms[0], options, windowKind, normalization, 0);
-    this.writeParams(buffers.uniforms[1], options, windowKind, normalization, stageCount);
+    this.writeParams(buffers.uniforms[0], gpuOptions, windowKind, normalization, 0);
+    this.writeParams(buffers.uniforms[1], gpuOptions, windowKind, normalization, stageCount);
     for (let stage = 0; stage < stageCount; stage++) {
       this.writeParams(
         buffers.uniforms[stage + 2],
-        options,
+        gpuOptions,
         windowKind,
         normalization,
         stage,
@@ -271,7 +329,7 @@ export class WebGpuIqSpectrumProcessor {
     }
     this.writeParams(
       buffers.uniforms[stageCount + 2],
-      options,
+      gpuOptions,
       windowKind,
       normalization,
       0,

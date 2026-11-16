@@ -175,7 +175,12 @@ export const deriveStateFromConfig = (
     derived.rtlAGC = gainConfig.rtl_agc;
   }
   derived.ppm =
-    typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 1;
+    typeof sdrSettings?.app_ppm === "number" &&
+    sdrSettings?.use_app_ppm_correction === true
+      ? sdrSettings.app_ppm
+      : typeof sdrSettings?.ppm === "number"
+        ? sdrSettings.ppm
+        : 1;
   return derived;
 };
 
@@ -394,6 +399,9 @@ export const useSdrSettings = ({
       });
       sendCurrentSettings({
         ppm: hasHardwarePpm && !state.useAppPpmCorrection ? ppm : 0,
+        ...(hasHardwarePpm
+          ? { appPpm: ppm, useAppPpmCorrection: state.useAppPpmCorrection }
+          : {}),
       });
     },
     [deviceType, dispatch, sendCurrentSettings, state.useAppPpmCorrection],
@@ -408,6 +416,9 @@ export const useSdrSettings = ({
       });
       sendCurrentSettings({
         ppm: hasHardwarePpm && !enabled ? state.ppm : 0,
+        ...(hasHardwarePpm
+          ? { appPpm: state.ppm, useAppPpmCorrection: enabled }
+          : {}),
       });
     },
     [deviceType, dispatch, sendCurrentSettings, state.ppm],
@@ -536,6 +547,9 @@ export const useSdrSettings = ({
       hackrfAmpEnabled: sdrSettings?.gain?.hackrf_amp_enable ?? null,
       hackrfBasebandBandwidth: sdrSettings?.gain?.tuner_bandwidth ?? null,
       ppm: sdrSettings?.ppm ?? null,
+      appPpm: sdrSettings?.app_ppm ?? null,
+      useAppPpmCorrection:
+        sdrSettings?.use_app_ppm_correction ?? null,
       rtlAgc: sdrSettings?.gain?.rtl_agc ?? null,
       tunerAgc: sdrSettings?.gain?.tuner_agc ?? null,
     });
@@ -593,11 +607,13 @@ export const useSdrSettings = ({
     }
     // With app correction enabled, zero is the hardware setting. Preserve the
     // user's separate app calibration instead of hydrating it from that zero.
-    if (
-      sdrSettings?.ppm !== undefined &&
-      !(state.useAppPpmCorrection && sdrSettings.ppm === 0)
-    ) {
-      setPpm(sdrSettings.ppm);
+    const configuredPpm =
+      state.useAppPpmCorrection &&
+      typeof sdrSettings?.app_ppm === "number"
+        ? sdrSettings.app_ppm
+        : sdrSettings?.ppm;
+    if (configuredPpm !== undefined) {
+      setPpm(configuredPpm);
     }
     if (sdrSettings?.gain?.rtl_agc !== undefined) {
       setRtlAGC(sdrSettings.gain.rtl_agc);

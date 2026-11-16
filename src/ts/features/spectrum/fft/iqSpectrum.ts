@@ -10,6 +10,9 @@ export function computeIqToDbSpectrumScalar(
     applyPpmCorrection?: boolean;
     centerFrequencyHz?: number;
     sampleRateHz?: number;
+    ppmCorrectionHz?: number;
+    ppmInputPerOutput?: number;
+    ppmSourceOffset?: number;
   },
   output?: Float32Array,
 ): Float32Array {
@@ -23,6 +26,9 @@ export function computeIqToDbSpectrumScalar(
       enabled: options.applyPpmCorrection,
       centerFrequencyHz: options.centerFrequencyHz,
       sampleRateHz: options.sampleRateHz,
+    correctionHz: options.ppmCorrectionHz,
+    inputPerOutput: options.ppmInputPerOutput,
+    sourceOffset: options.ppmSourceOffset,
     },
   );
   const result =

@@ -89,11 +89,15 @@ import { useCanvasNodes } from "@n-apt/spectrum/hooks/useCanvasState";
 import { useWaterfallBuffers } from "@n-apt/spectrum/hooks/useWaterfallBufferPool";
 import { getTemporalResolutionWindow } from "@n-apt/math/temporalResolution";
 import { presentSpikeAnalysis } from "@n-apt/spectrum/fft/spikeAnalysisPresentation";
+import { shouldApplyFrontendSpectrumPpmCorrection } from "@n-apt/spectrum/fft/ppmCorrectionPolicy";
+import {
+  prepareSpectrumIqWindow,
+  withSpectrumPpmCorrection,
+} from "@n-apt/spectrum/fft/spectrumPpmInput";
 import type { SpikeAnalysis } from "@n-apt/spectrum/hooks/useDrawWebGPUFFTSignal";
 import type { PausedFrameSnapshot } from "@n-apt/spectrum/types/PausedFrameSnapshot";
 import {
   accumulateFullChannelWaveform,
-  newestIqWindow,
   prepareSpectrumRenderData,
   resolveLiveSpectrumPaintContract,
   getSpectrumHistoryKey,
@@ -1715,9 +1719,6 @@ const FFTCanvas = memo(
       (reduxState) => reduxState.spectrum.deviceKind,
     );
     const reduxPpm = useAppSelector((reduxState) => reduxState.spectrum.ppm);
-    const useAppPpmCorrectionSetting = useAppSelector(
-      (reduxState) => reduxState.spectrum.useAppPpmCorrection,
-    );
     const reduxWebsocketSources = useAppSelector(
       (reduxState) => reduxState.websocket.sources,
     );
@@ -3934,7 +3935,8 @@ const FFTCanvas = memo(
         offsetDb: effectiveDbmOffsetDb,
         windowType: fftWindow,
         ppm: reduxPpm,
-        applyPpmCorrection: useAppPpmCorrectionSetting || !isRtlSdr,
+        applyPpmCorrection:
+          shouldApplyFrontendSpectrumPpmCorrection(isRtlSdr),
       }),
       [
         effectiveDbmOffsetDb,
@@ -3942,7 +3944,6 @@ const FFTCanvas = memo(
         frontendFftSize,
         isRtlSdr,
         reduxPpm,
-        useAppPpmCorrectionSetting,
       ],
     );
     const {
@@ -4456,14 +4457,24 @@ const FFTCanvas = memo(
 
           let waveform: Float32Array;
 
-          const nativeIqWindow = newestIqWindow(iqBytes, frontendFftSize);
+          const preparedSpectrumInput = prepareSpectrumIqWindow(
+            currentFrame,
+            frontendFftSize,
+          );
+          const nativeIqWindow = preparedSpectrumInput.iq;
+          const scalarSpectrumOptions = withSpectrumPpmCorrection(
+            {
+              ...spectrumWorkerConfig,
+              centerFrequencyHz: currentFrame.center_frequency_hz ?? 0,
+              sampleRateHz: currentFrame.sample_rate ?? 0,
+            },
+            preparedSpectrumInput.correction,
+          );
           const rawSpectrum = workerResult?.spectrum ??
             (spectrumWorkerFallbackRequired
-              ? spectrumWorkerConfig.applyPpmCorrection
+              ? scalarSpectrumOptions.applyPpmCorrection
                 ? computeIqToDbSpectrumScalar(nativeIqWindow, {
-                    ...spectrumWorkerConfig,
-                    centerFrequencyHz: currentFrame.center_frequency_hz ?? 0,
-                    sampleRateHz: currentFrame.sample_rate ?? 0,
+                    ...scalarSpectrumOptions,
                   })
                 : resolveSpectrumWaveform({
                     source: { iq_data: nativeIqWindow },
@@ -4814,16 +4825,24 @@ const FFTCanvas = memo(
 
           if (currentFrame.iq_data) {
             // Paused: ingest once to avoid blank frames (file mode or first paused frame)
+            const preparedSpectrumInput = prepareSpectrumIqWindow(
+              currentFrame,
+              frontendFftSize,
+            );
+            const scalarSpectrumOptions = withSpectrumPpmCorrection(
+              {
+                ...spectrumWorkerConfig,
+                centerFrequencyHz: currentFrame.center_frequency_hz ?? 0,
+                sampleRateHz: currentFrame.sample_rate ?? 0,
+              },
+              preparedSpectrumInput.correction,
+            );
             processedWaveform = workerResult?.spectrum ??
               (spectrumWorkerFallbackRequired
-                ? spectrumWorkerConfig.applyPpmCorrection
+                ? scalarSpectrumOptions.applyPpmCorrection
                   ? computeIqToDbSpectrumScalar(
-                      newestIqWindow(currentFrame.iq_data, frontendFftSize),
-                      {
-                        ...spectrumWorkerConfig,
-                        centerFrequencyHz: currentFrame.center_frequency_hz ?? 0,
-                        sampleRateHz: currentFrame.sample_rate ?? 0,
-                      },
+                      preparedSpectrumInput.iq,
+                      scalarSpectrumOptions,
                     )
                   : resolveSpectrumWaveform({
                       source: currentFrame,

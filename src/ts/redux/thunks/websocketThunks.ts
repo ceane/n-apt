@@ -109,7 +109,11 @@ const buildManagedRxSettingsOptions = (
   const gain = number(settings.gain);
   if (gain !== null && gain >= 0 && gain <= 100) options.gain = gain;
   const ppm = number(settings.ppm);
-  if (ppm !== null && ppm >= 0 && ppm <= 200) options.ppm = Math.round(ppm);
+  if (ppm !== null && ppm >= -200 && ppm <= 200) options.ppm = Math.round(ppm);
+  const appPpm = number(settings.appPpm);
+  if (appPpm !== null && appPpm >= -200 && appPpm <= 200) {
+    options.appPpm = Math.round(appPpm);
+  }
   const lnaGain = number(settings.hackrfLnaGain);
   if (lnaGain !== null && lnaGain >= 0 && lnaGain <= 49.6) {
     options.hackrfLnaGain = lnaGain;
@@ -124,6 +128,7 @@ const buildManagedRxSettingsOptions = (
   }
   for (const [key, value] of [
     ["hackrfAmpEnable", settings.hackrfAmpEnabled],
+    ["useAppPpmCorrection", settings.useAppPpmCorrection],
     ["tunerAgc", settings.tunerAGC],
     ["rtlAgc", settings.rtlAGC],
     ["offsetTuning", settings.offsetTuning],

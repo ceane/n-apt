@@ -1,4 +1,8 @@
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
+import {
+  prepareSpectrumIqWindow,
+  withSpectrumPpmCorrection,
+} from "./spectrumPpmInput";
 
 export type SpectrumWorkerConfig = {
   fftSize: number;
@@ -6,6 +10,9 @@ export type SpectrumWorkerConfig = {
   windowType?: string;
   ppm: number;
   applyPpmCorrection: boolean;
+  ppmCorrectionHz?: number;
+  ppmInputPerOutput?: number;
+  ppmSourceOffset?: number;
 };
 export type SpectrumWorkerRequest = SpectrumWorkerConfig & {
   id: number;
@@ -34,6 +41,24 @@ type Job = {
   signature: string;
   config: SpectrumWorkerConfig;
 };
+
+const scopeFor = (
+  frame: LiveFrameData,
+  config: SpectrumWorkerConfig,
+): string =>
+  JSON.stringify([
+    frame.source_id,
+    frame.stream_epoch,
+    frame.options_revision,
+    frame.center_frequency_hz,
+    frame.sample_rate,
+    frame.spectrum_ppm_correction,
+    config.fftSize,
+    config.offsetDb,
+    config.windowType,
+    config.ppm,
+    config.applyPpmCorrection,
+  ]);
 
 /** One FFT in flight and one replaceable pending frame. The original IQ stays
  * with its owner; only a copy of the selected FFT window crosses the worker. */
@@ -107,11 +132,20 @@ export class SpectrumWorkerClient {
 
   private start(job: Job) {
     this.inFlight = job;
-    const bytes = job.frame.iq_data;
-    const iq = bytes.slice(Math.max(0, bytes.length - job.config.fftSize * 2));
+    const prepared = prepareSpectrumIqWindow(job.frame, job.config.fftSize);
+    const options = withSpectrumPpmCorrection(job.config, prepared.correction);
+    // The worker owns a transferable copy; frame IQ remains available to
+    // demodulation and capture consumers on the main thread.
+    let iq = prepared.iq.slice();
+    if (iq.byteLength % 4 !== 0 && iq.byteLength >= 2) {
+      const aligned = new Uint8Array(iq.byteLength + 2);
+      aligned.set(iq);
+      aligned.set(iq.subarray(iq.byteLength - 2), iq.byteLength);
+      iq = aligned;
+    }
     try {
       this.worker.postMessage({
-        ...job.config,
+        ...options,
         id: job.id,
         iq,
         centerFrequencyHz: job.frame.center_frequency_hz ?? 0,
@@ -123,11 +157,12 @@ export class SpectrumWorkerClient {
   /** Submit on frame arrival; a newer pending frame replaces the older one. */
   submit(frame: LiveFrameData, config: SpectrumWorkerConfig): void {
     if (this.failed || this.disposed) return;
-    const scope = JSON.stringify([frame.source_id, frame.stream_epoch, frame.options_revision,
-      frame.center_frequency_hz, frame.sample_rate, config.fftSize, config.offsetDb,
-      config.windowType, config.ppm, config.applyPpmCorrection]);
+    const scope = scopeFor(frame, config);
     const signature = `${scope}:${frame.sequence}:${frame.timestamp}`;
-    const matches = (job: Job | null) => job?.signature === signature && job.frame.iq_data === frame.iq_data;
+    const matches = (job: Job | null) =>
+      job?.signature === signature &&
+      job.frame.iq_data === frame.iq_data &&
+      job.frame.spectrum_iq_data === frame.spectrum_iq_data;
     if (matches(this.inFlight) || matches(this.pending) || matches(this.completed)) return;
     const job = {
       id: ++this.sequence,
@@ -146,9 +181,7 @@ export class SpectrumWorkerClient {
   /** undefined selects the caller's synchronous fallback after a worker failure. */
   read(frame: LiveFrameData, config: SpectrumWorkerConfig): SpectrumWorkerResult | null | undefined {
     if (this.failed || this.disposed) return undefined;
-    const scope = JSON.stringify([frame.source_id, frame.stream_epoch, frame.options_revision,
-      frame.center_frequency_hz, frame.sample_rate, config.fftSize, config.offsetDb,
-      config.windowType, config.ppm, config.applyPpmCorrection]);
+    const scope = scopeFor(frame, config);
     // The canvas should show the newest completed result from this source and
     // configuration while newer FFT work is pending. The result carries its
     // own frame so frequency axes remain aligned to the processed IQ data.

@@ -204,7 +204,11 @@ describe("useSdrSettings", () => {
     });
 
     expect(store.getState().spectrum.ppm).toBe(1);
-    expect(mockOnSettingsChange).toHaveBeenCalledWith({ ppm: 0 });
+    expect(mockOnSettingsChange).toHaveBeenCalledWith({
+      ppm: 0,
+      appPpm: 1,
+      useAppPpmCorrection: true,
+    });
   });
 
   it("clears hardware PPM when app correction is enabled without clearing calibration", () => {
@@ -231,7 +235,11 @@ describe("useSdrSettings", () => {
 
     expect(store.getState().spectrum.ppm).toBe(7);
     expect(store.getState().spectrum.useAppPpmCorrection).toBe(true);
-    expect(mockOnSettingsChange).toHaveBeenCalledWith({ ppm: 0 });
+    expect(mockOnSettingsChange).toHaveBeenCalledWith({
+      ppm: 0,
+      appPpm: 7,
+      useAppPpmCorrection: true,
+    });
   });
 
   it("prefers backend sample rate options when provided", () => {

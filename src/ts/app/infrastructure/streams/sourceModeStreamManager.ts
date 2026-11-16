@@ -35,6 +35,9 @@ export type RxStreamOptions = {
   hackrfLnaGain?: number;
   hackrfVgaGain?: number;
   hackrfAmpEnable?: boolean;
+  /** App-side PPM calibration; hardware PPM remains zero in app mode. */
+  appPpm?: number;
+  useAppPpmCorrection?: boolean;
   ppm?: number;
   tunerAgc?: boolean;
   rtlAgc?: boolean;
@@ -70,6 +73,12 @@ export type StreamFrame = {
   centerFrequencyHz?: number;
   sampleRateHz: number;
   iqData: Uint8Array;
+  spectrumIqData?: Uint8Array;
+  spectrumPpmCorrection?: {
+    correctionHz: number;
+    inputPerOutput: number;
+    sourceOffset: number;
+  };
   /** Set only for the subscriber that armed a one-shot frame request. */
   oneShot?: boolean;
   frame: IqRawFrameV2;

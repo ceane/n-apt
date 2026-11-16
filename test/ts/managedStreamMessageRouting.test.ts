@@ -41,13 +41,15 @@ describe("managed stream message routing", () => {
         sampleRateHz: 3_200_000,
         fftSize: 1024,
         ppm: 0,
+        appPpm: 12,
+        useAppPpmCorrection: true,
       },
       rootState: {
         spectrum: { ppm: 12, useAppPpmCorrection: true },
         websocket: { sources: [{ id: "rtl-sdr-0", kind: "rtl_sdr", sdr: { settings: {} } }] },
       },
     });
-    expect(updates.spectrum).not.toHaveProperty("ppm");
+    expect(updates.spectrum.ppm).toBe(12);
   });
 
   it("still hydrates non-RTL source PPM while app correction is enabled", () => {
@@ -220,6 +222,8 @@ describe("managed stream message routing", () => {
         sampleRateHz: 3_200_000,
         fftSize: 1024,
         fftFrameRate: 30,
+        ppm: 1,
+        useAppPpmCorrection: true,
         activeSignalArea: "A",
         vizZoom: 1,
         vizPanOffset: 0,
@@ -244,6 +248,9 @@ describe("managed stream message routing", () => {
           centerFrequencyHz: 1_618_000,
           sampleRateHz: 3_200_000,
           fftSize: 1024,
+          ppm: 0,
+          appPpm: 1,
+          useAppPpmCorrection: true,
         }),
       );
     }

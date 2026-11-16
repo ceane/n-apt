@@ -25,6 +25,45 @@ describe("multiplexed stream transport", () => {
     expect(event.frame).toMatchObject({ options_revision: 7, stream_epoch: 9, sequence: 0 });
   });
 
+  it("decrypts the raw spectrum sibling and maps its correction model", async () => {
+    const correctedIq = Uint8Array.from([1, 2, 3, 4]);
+    const rawSpectrumIq = Uint8Array.from([5, 6, 7, 8, 9, 10]);
+    (decryptPayloadBytes as jest.Mock)
+      .mockResolvedValueOnce(correctedIq)
+      .mockResolvedValueOnce(rawSpectrumIq);
+
+    const event = await makeFrame(
+      {
+        sourceId: "rtl-sdr-v4",
+        mode: "rx",
+        streamEpoch: 3,
+        sequence: 4,
+        optionsRevision: 5,
+        timestamp: 6,
+        centerFrequencyHz: 1_618_000,
+        sampleRateHz: 3_200_000,
+        iqData: "corrected",
+        spectrumIqData: "raw-spectrum",
+        spectrumPpmCorrection: {
+          correctionHz: 41.2,
+          inputPerOutput: 1.000_001,
+          sourceOffset: 0.25,
+        },
+      },
+      {} as CryptoKey,
+    );
+
+    expect(event.type).toBe("stream_frame");
+    if (event.type !== "stream_frame") throw new Error("expected frame");
+    expect(event.frame.iq_data).toBe(correctedIq);
+    expect(event.frame.spectrum_iq_data).toBe(rawSpectrumIq);
+    expect(event.frame.spectrum_ppm_correction).toEqual({
+      correction_hz: 41.2,
+      input_per_output: 1.000_001,
+      source_offset: 0.25,
+    });
+  });
+
   it.each([
     ["source identity", { sourceId: "" }],
     ["stream epoch", { streamEpoch: undefined }],

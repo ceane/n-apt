@@ -136,7 +136,16 @@ pub trait SdrDevice: Send {
   }
 
   /// Set frequency correction in PPM
-  fn set_ppm(&mut self, ppm: u32) -> Result<()>;
+  fn set_ppm(&mut self, ppm: i32) -> Result<()>;
+
+  /// Enable the software correction stage for devices whose continuous IQ
+  /// reader owns an ingress processor (currently RTL-SDR only).
+  fn set_software_ppm_correction(&mut self, _ppm: Option<i32>) -> Result<()> {
+    Ok(())
+  }
+
+  /// Reset phase/resampler state after a receive discontinuity.
+  fn reset_ppm_correction(&mut self) {}
 
   /// Enable/disable tuner AGC
   fn set_tuner_agc(&mut self, enabled: bool) -> Result<()>;

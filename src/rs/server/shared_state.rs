@@ -988,6 +988,12 @@ fn merge_pending_fast_settings(
   if next.ppm.is_some() {
     current.ppm = next.ppm;
   }
+  if next.app_ppm.is_some() {
+    current.app_ppm = next.app_ppm;
+  }
+  if next.use_app_ppm_correction.is_some() {
+    current.use_app_ppm_correction = next.use_app_ppm_correction;
+  }
   if next.tuner_agc.is_some() {
     current.tuner_agc = next.tuner_agc;
   }

@@ -57,7 +57,12 @@ pub struct RxStreamOptions {
   #[serde(default)]
   pub hackrf_amp_enable: Option<bool>,
   #[serde(default)]
-  pub ppm: Option<u32>,
+  /// Hardware PPM. Zero while app correction is enabled.
+  pub ppm: Option<i32>,
+  #[serde(default)]
+  pub app_ppm: Option<i32>,
+  #[serde(default)]
+  pub use_app_ppm_correction: Option<bool>,
   #[serde(default)]
   pub tuner_agc: Option<bool>,
   #[serde(default)]
@@ -114,6 +119,10 @@ pub struct StreamFrame {
   pub center_frequency_hz: Option<u64>,
   pub sample_rate_hz: u32,
   pub iq_data: Arc<Vec<u8>>,
+  /// Untouched RTL-SDR source bytes paired with a frontend GPU correction.
+  pub spectrum_iq_data: Option<Arc<Vec<u8>>>,
+  pub spectrum_ppm_correction:
+    Option<crate::signal_port::fft::types::PpmSpectrumCorrection>,
   pub is_tx_preview: bool,
 }
 
@@ -529,6 +538,33 @@ impl StreamingSourceModeManager {
       center_frequency_hz,
       sample_rate_hz,
       iq_data,
+      None,
+      None,
+      is_tx_preview,
+      true,
+    )
+  }
+
+  pub fn publish_iq_frame_with_spectrum_correction(
+    &self,
+    key: &StreamKey,
+    timestamp: i64,
+    center_frequency_hz: Option<u64>,
+    sample_rate_hz: u32,
+    iq_data: Arc<Vec<u8>>,
+    spectrum_iq_data: Option<Arc<Vec<u8>>>,
+    spectrum_ppm_correction:
+      Option<crate::signal_port::fft::types::PpmSpectrumCorrection>,
+    is_tx_preview: bool,
+  ) -> Result<StreamFrame, StreamError> {
+    self.publish_iq_frame_with_metadata_inner(
+      key,
+      timestamp,
+      center_frequency_hz,
+      sample_rate_hz,
+      iq_data,
+      spectrum_iq_data,
+      spectrum_ppm_correction,
       is_tx_preview,
       true,
     )
@@ -554,6 +590,8 @@ impl StreamingSourceModeManager {
       center_frequency_hz,
       sample_rate_hz,
       iq_data,
+      None,
+      None,
       is_tx_preview,
       false,
     )
@@ -586,6 +624,9 @@ impl StreamingSourceModeManager {
     center_frequency_hz: Option<u64>,
     sample_rate_hz: u32,
     iq_data: Arc<Vec<u8>>,
+    spectrum_iq_data: Option<Arc<Vec<u8>>>,
+    spectrum_ppm_correction:
+      Option<crate::signal_port::fft::types::PpmSpectrumCorrection>,
     is_tx_preview: bool,
     emit_to_tx_bus: bool,
   ) -> Result<StreamFrame, StreamError> {
@@ -602,6 +643,8 @@ impl StreamingSourceModeManager {
       center_frequency_hz,
       sample_rate_hz,
       iq_data,
+      spectrum_iq_data,
+      spectrum_ppm_correction,
       is_tx_preview,
     };
     let _ = entry.sender.send(StreamEvent::Frame(frame.clone()));

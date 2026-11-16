@@ -1226,6 +1226,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       hackrfAmpEnabled?: boolean;
       tunerBandwidth?: number;
       ppm?: number;
+      appPpm?: number;
+      useAppPpmCorrection?: boolean;
       tunerAGC?: boolean;
       rtlAGC?: boolean;
     }) => {

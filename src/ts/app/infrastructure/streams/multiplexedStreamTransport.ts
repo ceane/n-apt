@@ -116,6 +116,31 @@ export const makeFrame = async (
     aesKey,
     String(message.iqData ?? ""),
   );
+  const spectrumIqData =
+    typeof message.spectrumIqData === "string"
+      ? await decryptPayloadBytes(aesKey, message.spectrumIqData)
+      : undefined;
+  const correctionValue = message.spectrumPpmCorrection;
+  const correctionRecord =
+    correctionValue && typeof correctionValue === "object"
+      ? (correctionValue as Record<string, unknown>)
+      : undefined;
+  const correctionHz = Number(correctionRecord?.correctionHz);
+  const inputPerOutput = Number(correctionRecord?.inputPerOutput);
+  const sourceOffset = Number(correctionRecord?.sourceOffset);
+  const spectrumPpmCorrection =
+    Number.isFinite(correctionHz) &&
+    Number.isFinite(inputPerOutput) &&
+    inputPerOutput > 0 &&
+    Number.isFinite(sourceOffset) &&
+    sourceOffset >= 0 &&
+    sourceOffset < 1
+      ? {
+          correction_hz: correctionHz,
+          input_per_output: inputPerOutput,
+          source_offset: sourceOffset,
+        }
+      : undefined;
   const centerFrequencyHz =
     typeof message.centerFrequencyHz === "number" &&
     Number.isFinite(message.centerFrequencyHz)
@@ -146,6 +171,8 @@ export const makeFrame = async (
     is_fresh: message.isFresh !== false,
     is_tx_preview: message.isTxPreview === true ? true : undefined,
     iq_data: iqData,
+    spectrum_iq_data: spectrumIqData,
+    spectrum_ppm_correction: spectrumPpmCorrection,
   };
   return {
     type: "stream_frame",
@@ -158,6 +185,14 @@ export const makeFrame = async (
     centerFrequencyHz,
     sampleRateHz: sampleRateHz ?? 0,
     iqData,
+    spectrumIqData,
+    spectrumPpmCorrection: spectrumPpmCorrection
+      ? {
+          correctionHz: spectrumPpmCorrection.correction_hz,
+          inputPerOutput: spectrumPpmCorrection.input_per_output,
+          sourceOffset: spectrumPpmCorrection.source_offset,
+        }
+      : undefined,
     frame,
   };
 };

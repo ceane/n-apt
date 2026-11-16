@@ -283,15 +283,7 @@ impl SourceRuntimeManager {
         .map_err(|error| SourceRuntimeError::Startup(error.to_string()))?;
       apply_rx_options(
         &mut processor,
-        initial_options.center_frequency_hz,
-        SdrProcessorSettings {
-          sample_rate: Some(initial_options.sample_rate_hz),
-          fft_size: Some(initial_options.fft_size),
-          fft_window: initial_options.fft_window,
-          frame_rate: initial_options.frame_rate,
-          gain: initial_options.gain,
-          ..Default::default()
-        },
+        &initial_options,
       )
       .map_err(|error| SourceRuntimeError::Startup(error.to_string()))?;
       Ok::<_, SourceRuntimeError>(Arc::new(Mutex::new(processor)))
@@ -495,12 +487,11 @@ impl SourceRuntimeManager {
 
 fn apply_rx_options(
   processor: &mut SdrProcessor,
-  center_frequency_hz: u64,
-  settings: SdrProcessorSettings,
+  options: &RxStreamOptions,
 ) -> anyhow::Result<()> {
-  let center_frequency_hz = u32::try_from(center_frequency_hz)
+  let center_frequency_hz = u32::try_from(options.center_frequency_hz)
     .map_err(|_| anyhow::anyhow!("center frequency exceeds u32"))?;
-  processor.apply_settings(settings)?;
+  processor.apply_settings(rx_processor_settings(options))?;
   processor.set_center_frequency(center_frequency_hz)?;
   Ok(())
 }
@@ -533,6 +524,13 @@ pub(crate) fn rx_settings_delta(
       .then_some(next.hackrf_amp_enable)
       .flatten(),
     ppm: (current.ppm != next.ppm).then_some(next.ppm).flatten(),
+    app_ppm: (current.app_ppm != next.app_ppm)
+      .then_some(next.app_ppm)
+      .flatten(),
+    use_app_ppm_correction:
+      (current.use_app_ppm_correction != next.use_app_ppm_correction)
+        .then_some(next.use_app_ppm_correction)
+        .flatten(),
     tuner_agc: (current.tuner_agc != next.tuner_agc)
       .then_some(next.tuner_agc)
       .flatten(),
@@ -566,6 +564,8 @@ pub(crate) fn rx_processor_settings(
     hackrf_vga_gain: options.hackrf_vga_gain,
     hackrf_amp_enable: options.hackrf_amp_enable,
     ppm: options.ppm,
+    app_ppm: options.app_ppm,
+    use_app_ppm_correction: options.use_app_ppm_correction,
     tuner_agc: options.tuner_agc,
     rtl_agc: options.rtl_agc,
     offset_tuning: options.offset_tuning,
@@ -586,6 +586,8 @@ fn has_rx_settings_delta(settings: &SdrProcessorSettings) -> bool {
     || settings.hackrf_vga_gain.is_some()
     || settings.hackrf_amp_enable.is_some()
     || settings.ppm.is_some()
+    || settings.app_ppm.is_some()
+    || settings.use_app_ppm_correction.is_some()
     || settings.tuner_agc.is_some()
     || settings.rtl_agc.is_some()
     || settings.offset_tuning.is_some()
@@ -736,15 +738,28 @@ async fn run_runtime(
             processor.get_center_frequency(),
             processor.get_sample_rate(),
             Arc::new(processor.frame.last_frame_raw_iq.clone()),
+            (!processor.frame.last_frame_spectrum_iq.is_empty()).then(|| {
+              Arc::new(processor.frame.last_frame_spectrum_iq.clone())
+            }),
+            processor.frame.last_frame_spectrum_ppm_correction,
           ))
         }).await.ok().flatten();
-        if let Some((center_frequency, sample_rate, iq_data)) = frame {
-          let published = stream_manager.publish_iq_frame_with_metadata(
+        if let Some((
+          center_frequency,
+          sample_rate,
+          iq_data,
+          spectrum_iq_data,
+          spectrum_ppm_correction,
+        )) = frame
+        {
+          let published = stream_manager.publish_iq_frame_with_spectrum_correction(
             &key,
             chrono::Utc::now().timestamp_millis(),
             Some(center_frequency.into()),
             sample_rate,
             iq_data,
+            spectrum_iq_data,
+            spectrum_ppm_correction,
             false,
           ).is_ok();
           if published {
@@ -775,6 +790,46 @@ mod tests {
     StreamingSourceModeManager,
   };
   use std::time::Duration;
+
+  #[test]
+  fn initial_rx_settings_preserve_app_ppm_mode_and_calibration() {
+    let options = RxStreamOptions {
+      center_frequency_hz: 1_618_000,
+      sample_rate_hz: 3_200_000,
+      fft_size: 4096,
+      ppm: Some(0),
+      app_ppm: Some(-7),
+      use_app_ppm_correction: Some(true),
+      ..Default::default()
+    };
+
+    let settings = rx_processor_settings(&options);
+
+    assert_eq!(settings.ppm, Some(0));
+    assert_eq!(settings.app_ppm, Some(-7));
+    assert_eq!(settings.use_app_ppm_correction, Some(true));
+  }
+
+  #[test]
+  fn startup_rx_options_apply_app_ppm_to_the_processor() {
+    let mut processor = SdrProcessor::new_mock_apt().expect("mock processor");
+    let options = RxStreamOptions {
+      center_frequency_hz: 1_618_000,
+      sample_rate_hz: 3_200_000,
+      fft_size: 4096,
+      ppm: Some(0),
+      app_ppm: Some(-7),
+      use_app_ppm_correction: Some(true),
+      ..Default::default()
+    };
+
+    apply_rx_options(&mut processor, &options)
+      .expect("startup options should apply");
+
+    assert_eq!(processor.current_ppm, 0);
+    assert_eq!(processor.current_app_ppm, -7);
+    assert!(processor.use_app_ppm_correction);
+  }
 
   async fn receive_frame(subscription: &mut StreamSubscription) -> StreamFrame {
     loop {

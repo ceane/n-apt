@@ -59,7 +59,8 @@ fn harden_websocket(ws: WebSocketUpgrade) -> WebSocketUpgrade {
 }
 
 /// Cache kind for `ENCODED_FRAME_CACHE` entries: 1..=4 are v2 binary wire
-/// payloads by `IqFrameStatus`, and 5 is base64 ciphertext for managed JSON.
+/// payloads by `IqFrameStatus`, 5 is managed JSON IQ, and 6 is its raw GPU
+/// spectrum sibling.
 type EncodedFrameCacheKey = (u8, String, u64, u64, u64);
 
 /// Every subscriber of the same frame shares one encryption result.
@@ -78,6 +79,7 @@ const ENCODED_FRAME_CACHE_MAX_ENTRIES: usize = 256;
 const ENCODED_FRAME_CACHE_TTL: std::time::Duration =
   std::time::Duration::from_secs(2);
 const ENCODED_FRAME_KIND_JSON: u8 = 5;
+const ENCODED_FRAME_KIND_SPECTRUM_JSON: u8 = 6;
 
 fn cached_encoded_frame(
   key: EncodedFrameCacheKey,
@@ -600,7 +602,9 @@ fn stream_rx_processor_settings(
       return None;
     }
   }
-  if options.ppm.is_some_and(|ppm| ppm > 200) {
+  if options.ppm.is_some_and(|ppm| !(-200..=200).contains(&ppm))
+    || options.app_ppm.is_some_and(|ppm| !(-200..=200).contains(&ppm))
+  {
     return None;
   }
   if options
@@ -642,6 +646,8 @@ fn stream_rx_processor_settings(
       hackrf_vga_gain: options.hackrf_vga_gain,
       hackrf_amp_enable: options.hackrf_amp_enable,
       ppm: options.ppm,
+      app_ppm: options.app_ppm,
+      use_app_ppm_correction: options.use_app_ppm_correction,
       tuner_agc: options.tuner_agc,
       rtl_agc: options.rtl_agc,
       offset_tuning: options.offset_tuning,
@@ -701,7 +707,25 @@ fn resolve_authoritative_subscribe_options(
       requested.hackrf_lna_gain = settings.gain.hackrf_lna_gain;
       requested.hackrf_vga_gain = settings.gain.hackrf_vga_gain;
       requested.hackrf_amp_enable = settings.gain.hackrf_amp_enable;
-      requested.ppm = Some(settings.ppm.round().clamp(0.0, 200.0) as u32);
+      let app_ppm = requested.app_ppm.unwrap_or_else(|| {
+        settings
+          .app_ppm
+          .unwrap_or(settings.ppm)
+          .round()
+          .clamp(-200.0, 200.0) as i32
+      });
+      let use_app_ppm_correction = requested
+        .use_app_ppm_correction
+        .unwrap_or(settings.use_app_ppm_correction);
+      requested.app_ppm = Some(app_ppm);
+      requested.use_app_ppm_correction = Some(use_app_ppm_correction);
+      requested.ppm = Some(if use_app_ppm_correction {
+        0
+      } else {
+        requested.ppm.unwrap_or_else(|| {
+          settings.ppm.round().clamp(-200.0, 200.0) as i32
+        })
+      });
       requested.tuner_agc = Some(settings.gain.tuner_agc);
       requested.rtl_agc = Some(settings.gain.rtl_agc);
       requested.tuner_bandwidth = settings.gain.tuner_bandwidth;
@@ -770,6 +794,12 @@ fn request_active_rx_stream_options(
   }
   if let Some(ppm) = options.ppm {
     current.ppm = ppm as f64;
+  }
+  if let Some(ppm) = options.app_ppm {
+    current.app_ppm = Some(ppm as f64);
+  }
+  if let Some(enabled) = options.use_app_ppm_correction {
+    current.use_app_ppm_correction = enabled;
   }
   if let Some(enabled) = options.tuner_agc {
     current.gain.tuner_agc = enabled;
@@ -901,6 +931,32 @@ pub fn stream_event_json(
         )
       })
       .map_err(|_| "I/Q data encryption failed".to_string())?;
+      let encoded_spectrum_iq = frame
+        .spectrum_iq_data
+        .as_ref()
+        .map(|spectrum_iq| {
+          let spectrum_cache_key: EncodedFrameCacheKey = (
+            ENCODED_FRAME_KIND_SPECTRUM_JSON,
+            frame.key.source_id.clone(),
+            frame.stream_epoch,
+            frame.sequence,
+            frame.timestamp as u64,
+          );
+          cached_encoded_frame(spectrum_cache_key, || {
+            let encrypted = crate::crypto::encrypt_payload_binary(
+              enc_key,
+              spectrum_iq,
+            )
+            .map_err(|_| ())?;
+            Ok(
+              base64::engine::general_purpose::STANDARD
+                .encode(encrypted)
+                .into_bytes(),
+            )
+          })
+        })
+        .transpose()
+        .map_err(|_| "Raw spectrum IQ data encryption failed".to_string())?;
       let mut value =
         base(&frame.key, frame.stream_epoch, frame.options_revision);
       value["type"] = serde_json::json!("stream_frame");
@@ -914,6 +970,18 @@ pub fn stream_event_json(
       value["iqData"] = serde_json::Value::String(
         String::from_utf8_lossy(&encoded_iq).into_owned(),
       );
+      if let Some(encoded_spectrum_iq) = encoded_spectrum_iq {
+        value["spectrumIqData"] = serde_json::Value::String(
+          String::from_utf8_lossy(&encoded_spectrum_iq).into_owned(),
+        );
+      }
+      if let Some(correction) = frame.spectrum_ppm_correction {
+        value["spectrumPpmCorrection"] = serde_json::json!({
+          "correctionHz": correction.correction_hz,
+          "inputPerOutput": correction.input_per_output,
+          "sourceOffset": correction.source_offset,
+        });
+      }
       Ok(value)
     }
     StreamEvent::State {
@@ -1191,9 +1259,11 @@ async fn handle_stream_connection(
             };
             if source_is_active && stream.mode == StreamMode::Rx {
               if let StreamOptions::Rx(options) = &effective_subscribe_options {
-                shared.seed_active_rx_options(
+                request_active_rx_stream_options(
+                  &shared,
                   &stream.source_id,
                   options.clone(),
+                  None,
                 );
               }
             }
@@ -2646,7 +2716,7 @@ fn handle_message_for_session(
         amp_enabled: sdr_settings.gain.hackrf_amp_enable,
         tuner_agc: Some(sdr_settings.gain.tuner_agc),
         rtl_agc: Some(sdr_settings.gain.rtl_agc),
-        ppm: Some(sdr_settings.ppm as u32),
+        ppm: Some(sdr_settings.ppm.round().clamp(-200.0, 200.0) as i32),
       });
 
       if tx_status_changed {
@@ -2921,6 +2991,7 @@ mod tests {
     DeviceProfile, SdrCommand, SpectrumData, WebSocketMessage,
   };
   use crate::server::websocket_server::active_source_id;
+  use base64::Engine;
   use serial_test::serial;
   use std::collections::HashMap;
   use std::sync::atomic::Ordering;
@@ -3151,6 +3222,8 @@ mod tests {
           center_frequency_hz: Some(137_500_000),
           sample_rate_hz: 3_200_000,
           iq_data: Arc::new(vec![0; 16]),
+          spectrum_iq_data: None,
+          spectrum_ppm_correction: None,
           is_tx_preview: false,
         }))
         .await
@@ -4534,6 +4607,14 @@ mod tests {
         center_frequency_hz: Some(1_600_000),
         sample_rate_hz: 3_200_000,
         iq_data: Arc::new(vec![128; 262_144 * 2]),
+        spectrum_iq_data: Some(Arc::new(vec![127; 262_144 * 2 + 2])),
+        spectrum_ppm_correction: Some(
+          crate::signal_port::fft::types::PpmSpectrumCorrection {
+            correction_hz: 41.2,
+            input_per_output: 1.000_001,
+            source_offset: 0.25,
+          },
+        ),
         is_tx_preview: false,
       });
 
@@ -4545,6 +4626,54 @@ mod tests {
       "encoded stream frame is {} bytes but websocket write budget is {}",
       encoded_bytes.len(),
       super::WS_MAX_WRITE_BUFFER_BYTES,
+    );
+  }
+
+  #[test]
+  fn managed_stream_serializes_encrypted_raw_spectrum_iq_and_correction_model() {
+    let raw_spectrum_iq = vec![10, 11, 12, 13, 14, 15];
+    let event = StreamEvent::Frame(
+      crate::server::stream_manager::StreamFrame {
+        key: StreamKey::new("rtl-sdr-v4", StreamMode::Rx),
+        stream_epoch: 2,
+        options_revision: 3,
+        sequence: 4,
+        timestamp: 5,
+        center_frequency_hz: Some(1_618_000),
+        sample_rate_hz: 3_200_000,
+        iq_data: Arc::new(vec![20, 21, 22, 23]),
+        spectrum_iq_data: Some(Arc::new(raw_spectrum_iq.clone())),
+        spectrum_ppm_correction: Some(
+          crate::signal_port::fft::types::PpmSpectrumCorrection {
+            correction_hz: 41.2,
+            input_per_output: 1.000_001,
+            source_offset: 0.25,
+          },
+        ),
+        is_tx_preview: false,
+      },
+    );
+
+    let encoded = super::stream_event_json(&event, &[9u8; 32])
+      .expect("spectrum frame should encode");
+    let encrypted = encoded["spectrumIqData"].as_str().unwrap();
+    let ciphertext = base64::engine::general_purpose::STANDARD
+      .decode(encrypted)
+      .unwrap();
+    let decrypted = crate::crypto::decrypt_payload_binary(&[9u8; 32], &ciphertext)
+      .expect("spectrum sibling payload should decrypt");
+    assert_eq!(decrypted, raw_spectrum_iq);
+    assert_eq!(
+      encoded["spectrumPpmCorrection"]["correctionHz"],
+      serde_json::json!(41.2)
+    );
+    assert_eq!(
+      encoded["spectrumPpmCorrection"]["inputPerOutput"],
+      serde_json::json!(1.000_001)
+    );
+    assert_eq!(
+      encoded["spectrumPpmCorrection"]["sourceOffset"],
+      serde_json::json!(0.25)
     );
   }
 

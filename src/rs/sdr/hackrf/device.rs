@@ -520,6 +520,8 @@ impl SdrDevice for HackRfDevice {
     Ok(crate::signal_port::fft::types::RawSamples {
       data: std::mem::take(&mut self.iq_buffer),
       sample_rate: self.sample_rate,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     })
   }
 
@@ -607,7 +609,7 @@ impl SdrDevice for HackRfDevice {
     Ok(())
   }
 
-  fn set_ppm(&mut self, ppm: u32) -> Result<()> {
+  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
     // HackRF has no hardware PPM API. Frequency compensation is applied to IQ
     // samples in the WebGPU spectrum pipeline; never retune the LO here.
     let _ = ppm;

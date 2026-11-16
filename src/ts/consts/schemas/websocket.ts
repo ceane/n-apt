@@ -41,6 +41,8 @@ export type SDRSettings = {
   hackrfAmpEnabled?: boolean;
   tunerBandwidth?: number;
   ppm?: number;
+  appPpm?: number;
+  useAppPpmCorrection?: boolean;
   tunerAGC?: boolean;
   rtlAGC?: boolean;
   mirrorSpectrumBelowZero?: boolean;
@@ -62,6 +64,8 @@ export type SdrSettingsConfig = {
     tuner_bandwidth?: number | null;
   };
   ppm?: number;
+  app_ppm?: number | null;
+  use_app_ppm_correction?: boolean;
   fft?: {
     default_size: number;
     default_frame_rate: number;
@@ -197,6 +201,14 @@ export type IqRawFramePayload = {
   data_type: "iq_raw";
   sample_rate?: number;
   iq_data: Uint8Array;
+  /** Optional uncorrected sibling used only by the WebGPU spectrum path. */
+  spectrum_iq_data?: Uint8Array;
+  /** Per-frame tuner/sample-clock model for the uncorrected spectrum payload. */
+  spectrum_ppm_correction?: {
+    correction_hz: number;
+    input_per_output: number;
+    source_offset: number;
+  };
 };
 
 /** Live I/Q frame with source identity and lifecycle ordering metadata. */
@@ -407,6 +419,8 @@ export type SourceSdrSettings = {
   hackrf_vga_gain?: number | null;
   hackrf_amp_enable?: boolean | null;
   ppm?: number;
+  app_ppm?: number | null;
+  use_app_ppm_correction?: boolean;
   tuner_agc?: boolean;
   rtl_agc?: boolean;
   offset_tuning?: boolean;

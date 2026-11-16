@@ -1609,6 +1609,8 @@ impl WebSocketServer {
           power_scale,
           sample_rate,
           raw_iq,
+          spectrum_iq_data,
+          spectrum_ppm_correction,
           target_fps: fps,
           capture_events,
         }) => {
@@ -1718,12 +1720,14 @@ impl WebSocketServer {
             },
           );
           let stream_published = stream_manager
-            .publish_iq_frame_with_metadata(
+            .publish_iq_frame_with_spectrum_correction(
               &publish_key,
               timestamp,
               Some(center_frequency as u64),
               sample_rate,
               Arc::new(spectrum_message.iq_data.clone()),
+              spectrum_iq_data.map(Arc::new),
+              spectrum_ppm_correction,
               false,
             )
             .is_ok();
