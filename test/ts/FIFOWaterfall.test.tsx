@@ -22,12 +22,14 @@ const render = (ui: ReactNode) => {
 
 jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall", () => {
   const drawWebGPUFIFOWaterfall = jest.fn(() => false);
+  const cleanup = jest.fn();
+  const getLastError = () => "mock WebGPU failure";
   return {
     __mockDrawWebGPUFIFOWaterfall: drawWebGPUFIFOWaterfall,
     useDrawWebGPUFIFOWaterfall: () => ({
       drawWebGPUFIFOWaterfall,
-      cleanup: jest.fn(),
-      getLastError: () => "mock WebGPU failure",
+      cleanup,
+      getLastError,
     }),
   };
 });
@@ -331,6 +333,83 @@ describe("FIFOWaterfall", () => {
     expect(resampler.mock.calls[resampler.mock.calls.length - 1]?.[0]).toBe(
       liveFrame,
     );
+  });
+
+  it.each(["immutable", "accretive"] as const)(
+    "continues appending %s frames while the frequency view moves",
+    (waterfallHistoryFill) => {
+      let deliver: ((row: Float32Array) => void) | undefined;
+      const feed = {
+        getCurrent: () => null,
+        subscribe: (listener: (row: Float32Array) => void) => {
+          deliver = listener;
+          return () => {
+            deliver = undefined;
+          };
+        },
+      };
+      const resampler = jest.fn((data: ArrayLike<number>, width: number) =>
+        new Float32Array(width).fill(Number(data[0])),
+      );
+      const view = (offset: number) => (
+        <ThemeProvider theme={mockTheme}>
+          <FIFOWaterfall
+            width={320}
+            height={180}
+            waveform={null}
+            waveformFeed={feed}
+            frequencyRange={{ min: offset, max: offset + 100 }}
+            historyPan={offset / 1000}
+            historyZoom={2}
+            waterfallHistoryFill={waterfallHistoryFill}
+            retuneSmear={0}
+            isPaused={false}
+            isVisible
+            forceCanvas2D
+            performScalarResampling={resampler}
+          />
+        </ThemeProvider>
+      );
+      const { rerender } = render(view(0));
+      for (let offset = 1; offset <= 3; offset++) {
+        rerender(view(offset));
+        act(() => deliver?.(new Float32Array([-80 + offset])));
+      }
+      expect(resampler).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it("does not redraw the live history for frequency-only React updates", () => {
+    const putImageData = jest.fn();
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
+      return {
+        canvas: this,
+        createImageData: (width: number, height: number) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+        putImageData,
+        fillRect: jest.fn(),
+        setTransform: jest.fn(),
+      } as unknown as CanvasRenderingContext2D;
+    } as unknown as typeof HTMLCanvasElement.prototype.getContext);
+    let deliver: ((row: Float32Array) => void) | undefined;
+    const feed = {
+      getCurrent: () => new Float32Array([-80]),
+      subscribe: (listener: (row: Float32Array) => void) => { deliver = listener; return () => { deliver = undefined; }; },
+    };
+    const resample = (data: ArrayLike<number>, width: number) => new Float32Array(width).fill(Number(data[0]));
+    const view = (offset: number) => (
+      <ThemeProvider theme={mockTheme}>
+        <FIFOWaterfall width={320} height={180} waveform={new Float32Array([-80])} waveformFeed={feed} frequencyRange={{min:offset,max:offset+100}} retuneSmear={0} isPaused={false} isVisible forceCanvas2D performScalarResampling={resample} />
+      </ThemeProvider>
+    );
+    const { rerender, unmount } = render(view(0));
+    putImageData.mockClear();
+    rerender(view(1));
+    rerender(view(2));
+    expect(putImageData).not.toHaveBeenCalled();
+    act(() => deliver?.(new Float32Array([-60])));
+    expect(putImageData).toHaveBeenCalledTimes(1);
+    unmount();
+    contextSpy.mockRestore();
   });
 
   it("provides reusable typed output storage to optimized resamplers", async () => {

@@ -8,7 +8,7 @@ export type WaterfallDbAxisOptions = {
   waterfallCanvas: HTMLCanvasElement;
   dbMin: number;
   dbMax: number;
-  unit: "dB" | "dBm";
+  unit: string;
   theme: WaterfallDbAxisTheme;
   devicePixelRatio?: number;
   /** Destination plot dimensions matching the FFT snapshot grid. */
@@ -69,7 +69,7 @@ export function composeWaterfallCanvasWithDbAxis({
   const plotWidth = waterfallCanvas.width - leftCrop - rightCrop;
   if (plotWidth <= 0) return waterfallCanvas;
 
-  const labels = [`${dbMax}${unit}`, `${dbMin}`];
+  const labels = [`${dbMax}${unit}`, `${dbMin}${unit}`];
   // Reserve enough room for fractional values without clipping the left edge.
   const labelWidth = Math.max(...labels.map((label) => label.length)) * LABEL_FONT_SIZE_PX * 0.7;
   const gutterWidth = Math.ceil(Math.max(AXIS_GUTTER_WIDTH_PX, labelWidth + LABEL_INSET_PX) * dpr);

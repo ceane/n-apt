@@ -33,9 +33,14 @@ interface FIFOWaterfallProps {
   waveformFeed?: {
     getCurrent: () => Float32Array | null;
     subscribe: (listener: (waveform: Float32Array) => void) => () => void;
+    /** The feed replays its retained source rows when a renderer subscribes. */
+    replayHistory?: boolean;
   };
   frequencyRange: FrequencyRange;
   onWaterfallBufferChange?: (buffer: Uint8ClampedArray) => void;
+  /** Optional access to the rendered canvases for node-level snapshots. */
+  onWaterfallCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
+  onPatternOverlayCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
   retuneSmear: number;
   isPaused: boolean;
   isVisible: boolean;
@@ -219,7 +224,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     height,
     waveform,
     waveformFeed,
-    frequencyRange,
+    onWaterfallCanvasReady,
+    onPatternOverlayCanvasReady,
     onWaterfallBufferChange,
     retuneSmear,
     isPaused,
@@ -250,12 +256,31 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG;
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const patternOverlayRef = useRef<HTMLCanvasElement>(null);
+    const setWaterfallCanvasRef = useCallback(
+      (canvas: HTMLCanvasElement | null) => {
+        canvasRef.current = canvas;
+        onWaterfallCanvasReady?.(canvas);
+      },
+      [onWaterfallCanvasReady],
+    );
+    const setPatternOverlayCanvasRef = useCallback(
+      (canvas: HTMLCanvasElement | null) => {
+        patternOverlayRef.current = canvas;
+        onPatternOverlayCanvasReady?.(canvas);
+      },
+      [onPatternOverlayCanvasReady],
+    );
     const viewportRef = useRef<HTMLDivElement>(null);
     const localBufferRef = useRef<Uint8ClampedArray | null>(null);
     const bufferDimsRef = useRef<{ width: number; height: number } | null>(
       null,
     );
     const lastWaveformRef = useRef<Float32Array | null>(null);
+    const waveformRef = useRef(waveform);
+    waveformRef.current = waveform;
+    // A live feed owns frame delivery; its changing snapshot prop is not a
+    // reason to redraw the entire canvas during every VFO update.
+    const standaloneWaveform = waveformFeed ? null : waveform;
     const lastAppendedWaveformRef = useRef<Float32Array | null>(null);
     const lastAppendedWaveformSnapshotRef = useRef<Float32Array | null>(null);
     const hasDrawnWaveformRef = useRef(false);
@@ -513,7 +538,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         canvas.style.height = `${cssHeight}px`;
       }
 
-      const initialWaveform = waveformFeed?.getCurrent() ?? waveform;
+      const initialWaveform = waveformFeed?.getCurrent() ?? waveformRef.current;
       const showPlaceholder =
         !!placeholderErrorReason ||
         !initialWaveform ||
@@ -668,9 +693,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     }, [
       viewportSize.width,
       viewportSize.height,
-      waveform,
+      standaloneWaveform,
       waveformFeed,
-      frequencyRange,
       isPaused,
       isVisible,
       retuneSmear,
@@ -697,12 +721,14 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     ]);
 
     useEffect(() => {
-      if (!waveformFeed) return;
-      const current = waveformFeed.getCurrent();
-      if (current?.length) {
-        hasFeedFrameRef.current = true;
-        setHasFeedFrame(true);
-        liveDrawRef.current?.(current, true);
+      if (!waveformFeed || rendererMode === "initializing") return;
+      if (!waveformFeed.replayHistory) {
+        const current = waveformFeed.getCurrent();
+        if (current?.length) {
+          hasFeedFrameRef.current = true;
+          setHasFeedFrame(true);
+          liveDrawRef.current?.(current, true);
+        }
       }
       return waveformFeed.subscribe((nextWaveform) => {
         if (!nextWaveform.length) return;
@@ -713,7 +739,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         lastWaveformRef.current = nextWaveform;
         liveDrawRef.current?.(nextWaveform, true);
       });
-    }, [waveformFeed]);
+    }, [waveformFeed, rendererMode]);
 
     useEffect(
       () => () => cleanupWebGPUFIFOWaterfall(),
@@ -724,7 +750,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       <WaterfallViewport ref={viewportRef}>
         <WaterfallCanvas
           key={rendererMode}
-          ref={canvasRef}
+          ref={setWaterfallCanvasRef}
           data-renderer-mode={rendererMode}
           data-renderer-error={rendererError ?? undefined}
           data-waveform-length={
@@ -733,7 +759,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         />
         {nonHardwareSourcePattern && !placeholderState && (
           <WaterfallPatternOverlay
-            ref={patternOverlayRef}
+            ref={setPatternOverlayCanvasRef}
             data-testid="fifo-waterfall-pattern-overlay"
           />
         )}

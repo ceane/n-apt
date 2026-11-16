@@ -13,6 +13,7 @@ import {
   isValidSampleRateHz,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { INITIAL_SPECTRUM_FREQUENCY_RANGE } from "@n-apt/webusb/initialSpectrumFrequencyRange";
+import { setConsolidatedDemodSpan } from "@n-apt/redux/actions/demodSpan";
 
 const DEFAULT_DB_LIMITS = getVisualizerDefaultDbLimits("dB");
 
@@ -1101,6 +1102,13 @@ const spectrumSlice = createSlice({
         txViewerFftFrameRate: LIVE_CONTROL_DEFAULTS.txViewerFftFrameRate,
       };
     },
+  },
+  extraReducers: (builder) => {
+    builder.addCase(setConsolidatedDemodSpan, (state, { payload }) => {
+      if (!payload.updatePreview) return;
+      state.previewRange = { min: payload.start, max: payload.start + payload.bandwidth };
+      state.previewAlignment = payload.alignment;
+    });
   },
 });
 

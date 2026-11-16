@@ -103,6 +103,7 @@ export interface SnapshotMetadata {
   ppm?: number;
   gain_label?: string;
   mode_label?: string;
+  spectrogram_type?: string;
   whole?: boolean;
   show_geolocation?: boolean;
   geolocation?: Partial<CaptureGeolocationMetadata>;

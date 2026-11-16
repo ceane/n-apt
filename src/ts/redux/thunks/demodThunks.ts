@@ -7,18 +7,15 @@ import {
   setCenterFreq,
   setBandwidthCenterFreq,
   setBandwidth,
-  setHardwareSpanHz,
   setBandwidthHz,
   setBandwidthStartHz,
   clearFmTuneIntent,
-  setAlignment,
   setSourceContext,
 } from "../slices/demodSlice";
 import {
   setFrequencyRange,
-  setPreviewRange,
-  setPreviewAlignment,
 } from "../slices/spectrumSlice";
+import { setConsolidatedDemodSpan } from "@n-apt/redux/actions/demodSpan";
 import { sendFrequencyRange } from "./websocketThunks";
 import { normalizePositiveHardwareRange } from "@n-apt/math/basebandMirror";
 
@@ -452,19 +449,7 @@ const dispatchSpanState = (
     | "preview_sync"
     | "file_sync",
 ) => {
-  dispatch(setCenterFreq(next.center));
-  dispatch(setBandwidthCenterFreq(next.start + next.bandwidth / 2));
-  dispatch(setBandwidthHz(next.bandwidth));
-  dispatch(setBandwidth(next.bandwidth / 1000));
-  dispatch(setBandwidthStartHz(next.start));
-  dispatch(setHardwareSpanHz(next.span));
-  dispatch(setAlignment(alignment));
-  if (updatePreview) {
-    dispatch(
-      setPreviewRange({ min: next.start, max: next.start + next.bandwidth }),
-    );
-    dispatch(setPreviewAlignment(alignment));
-  }
+  dispatch(setConsolidatedDemodSpan({ ...next, alignment, updatePreview }));
 };
 
 export function getConsolidatedSpanState(

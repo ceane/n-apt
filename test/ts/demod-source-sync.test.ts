@@ -181,6 +181,24 @@ describe("resolveDemodSourceRange", () => {
 });
 
 describe("syncDemodSpanFromSourceContext", () => {
+  it("publishes each new source span atomically without intermediate demod geometry", async () => {
+    const store = configureStore({ reducer: { demod: demodReducer, spectrum: spectrumReducer } });
+    const snapshots: Array<{ center: number | null; selection: number | null; start: number; bandwidth: number }> = [];
+    const unsubscribe = store.subscribe(() => {
+      const demod = store.getState().demod;
+      snapshots.push({ center: demod.centerFreqHz, selection: demod.bandwidthCenterFreqHz, start: demod.bandwidthStartHz, bandwidth: demod.bandwidthHz });
+    });
+    await store.dispatch(syncDemodSpanFromSourceContext({
+      sourceMode: "live",
+      sampleRateHz: 3_200_000,
+      liveFrequencyRange: { min: 1_000_000, max: 4_200_000 },
+    }) as any);
+    unsubscribe();
+    expect(snapshots.every((s) => s.selection === null || s.selection === s.start + s.bandwidth / 2)).toBe(true);
+    expect(snapshots.length).toBeLessThanOrEqual(4);
+    expect(store.getState().demod.centerFreqHz).toBe(2_600_000);
+  });
+
   it("uses file metadata for capture span without replacing overlay bandwidth with sample rate", async () => {
     const store = configureStore({
       reducer: {

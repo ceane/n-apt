@@ -222,6 +222,21 @@ const availableNodes: DemodNodeLibraryItem[] = [
     },
   },
   {
+    id: "amplitude-waterfall",
+    type: "custom",
+    label: "Amplitude Waterfall",
+    description:
+      "Shows signal strength at each frequency over time; amplitude changes brighten and dim the carrier and sidebands.",
+    icon: <AudioWaveform size={16} />,
+    position: { x: 800, y: 850 },
+    data: {
+      label: "Amplitude Waterfall",
+      description:
+        "Shows signal strength at each frequency over time; amplitude changes brighten and dim the carrier and sidebands.",
+      amplitudeOptions: true,
+    },
+  },
+  {
     id: "bitstream",
     type: "custom",
     label: "Bitstream (0s/1s)",

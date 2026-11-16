@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
@@ -7,10 +7,9 @@ import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameR
 import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import {
   FIFOWaterfall,
-  newestIqWindow,
+  VisualizerSliders,
 } from "@n-apt/spectrum/public/FIFOWaterfall";
 import {
-  computeIqToPhaseSpectrum,
   MAX_PHASE_DEG,
   MIN_PHASE_DEG,
 } from "@n-apt/spectrum/public/phaseSpectrum";
@@ -20,6 +19,17 @@ import { Vfo } from "@n-apt/layout/vfo/Vfo";
 import { EditableCenterFrequency } from "@n-apt/ui/EditableCenterFrequency";
 import { Lock, Unlock } from "lucide-react";
 import { useVfoTuner } from "@n-apt/demodulation/react-flow/nodes/useVfoTuner";
+import type { VfoTunerPersistedView } from "@n-apt/demodulation/react-flow/nodes/useVfoTuner";
+import { useNodeFastSnapshot } from "@n-apt/demodulation/react-flow/nodes/useNodeFastSnapshot";
+import { usePersistDemodNodeData } from "@n-apt/demodulation/react-flow/nodes/usePersistDemodNodeData";
+import { createWaterfallSourceFeed } from "@n-apt/demodulation/react-flow/nodes/waterfallSourceBuffer";
+import {
+  formatWaterfallSpan,
+  WATERFALL_CONTROL_RAIL_WIDTH,
+  WATERFALL_NODE_HEIGHT,
+  WATERFALL_NODE_WIDTH,
+  WATERFALL_SOURCE_FFT_SIZE,
+} from "@n-apt/demodulation/react-flow/nodes/waterfallLayout";
 
 interface FrequencyRange {
   min: number;
@@ -27,14 +37,24 @@ interface FrequencyRange {
 }
 
 interface PhaseWaterfallNodeProps {
-  data?: { label?: React.ReactNode };
+  id?: string;
+  data?: {
+    label?: React.ReactNode;
+    fastSnapshotShowStats?: boolean;
+    phaseDbMin?: number;
+    phaseDbMax?: number;
+    vfoZoom?: number;
+    vfoPanHz?: number;
+    vfoFrequencyHz?: number;
+    vfoIsLocked?: boolean;
+  };
   frequencyRange?: FrequencyRange | null;
 }
 
 /** Node box. FIFOWaterfall measures its own canvas from this box, so its size
  * props only matter before the first measurement — they mirror it. */
-const NODE_WIDTH = 880;
-const NODE_HEIGHT = 540;
+const NODE_WIDTH = WATERFALL_NODE_WIDTH;
+const NODE_HEIGHT = WATERFALL_NODE_HEIGHT;
 const PHASE_COLORMAP_NAME = "phase";
 const LUT_SIZE = 256;
 
@@ -60,6 +80,7 @@ const PHASE_COLORMAP: ColormapData = Array.from({ length: LUT_SIZE }, (_, i) =>
 );
 
 const OuterContainer = styled.div`
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   width: ${NODE_WIDTH}px;
@@ -75,19 +96,36 @@ const OuterContainer = styled.div`
 `;
 
 const Header = styled.div`
+  box-sizing: border-box;
+  flex: 0 0 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  background: ${({ theme }) => theme.colors.surface};
+  padding: 6px 12px;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+`;
+
+const HeaderTop = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  background: ${({ theme }) => theme.colors.surface};
-  padding: 6px 12px;
-  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  min-width: 0;
 `;
 
 const HeaderMeta = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
+`;
+
+const SnapshotActions = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 0;
 `;
 
 const HeaderLeft = styled.div`
@@ -114,6 +152,18 @@ const MetaText = styled.div`
   letter-spacing: 0.05em;
   text-transform: uppercase;
   font-weight: 600;
+  white-space: nowrap;
+`;
+
+const ZoomReadout = styled.div`
+  padding: 3px 6px;
+  border: 1px solid ${({ theme }) => theme.colors.primary}55;
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.activeBackground};
+  color: ${({ theme }) => theme.colors.primary};
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 `;
 
@@ -178,17 +228,52 @@ const Viewport = styled.div`
   overflow: hidden;
 `;
 
-/** Inset the axis so its edge tick labels clear the node border. */
 const VfoRow = styled.div`
   flex: 0 0 56px;
   display: flex;
-  padding: 0 16px;
+  min-width: 0;
+  background: ${({ theme }) => theme.colors.surface};
+`;
+
+const VfoPlot = styled.div`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+
+  > [data-testid="phase-waterfall-vfo"] {
+    height: 56px;
+    flex: 1;
+    min-width: 0;
+  }
+`;
+
+const VfoControlSpacer = styled.div`
+  flex: 0 0 ${WATERFALL_CONTROL_RAIL_WIDTH}px;
+  width: ${WATERFALL_CONTROL_RAIL_WIDTH}px;
 `;
 
 const CanvasRow = styled.div`
   flex: 1;
   min-height: 0;
   display: flex;
+`;
+
+const WaterfallPlot = styled.div`
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+`;
+
+const ControlRail = styled.aside`
+  box-sizing: border-box;
+  width: ${WATERFALL_CONTROL_RAIL_WIDTH}px;
+  flex: 0 0 ${WATERFALL_CONTROL_RAIL_WIDTH}px;
+  min-height: 0;
+  display: flex;
+  padding: 8px 4px;
+  border-left: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.surface};
 `;
 
 const HeaderIconButton = styled.button<{ $active?: boolean }>`
@@ -213,12 +298,13 @@ const HeaderIconButton = styled.button<{ $active?: boolean }>`
  * a new frame appends a history row without re-rendering the node.
  */
 export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
+  id,
   data,
   frequencyRange,
 }) => {
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const activeLiveFrameRef = useActivePresentationFrameRef();
-  const fftSize = useAppSelector((state) => state.spectrum.fftSize);
+  const fftSize = WATERFALL_SOURCE_FFT_SIZE;
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
   const patternOverNonHardwareSources = useAppSelector(
     (state) => state.theme.patternOverNonHardwareSources,
@@ -239,6 +325,64 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
   );
   const spectrumFrequencyRange = useAppSelector(
     (state) => state.spectrum.frequencyRange,
+  );
+  const { persistedNodeData, persistNodeData, persistNodeDataDebounced } =
+    usePersistDemodNodeData(id, "phase-waterfall", {
+      fastSnapshotShowStats: data?.fastSnapshotShowStats,
+      phaseDbMin: data?.phaseDbMin,
+      phaseDbMax: data?.phaseDbMax,
+      vfoZoom: data?.vfoZoom,
+      vfoPanHz: data?.vfoPanHz,
+      vfoFrequencyHz: data?.vfoFrequencyHz,
+      vfoIsLocked: data?.vfoIsLocked,
+    });
+  const [phaseDbMin, setPhaseDbMin] = useState(() =>
+    typeof persistedNodeData.phaseDbMin === "number"
+      ? persistedNodeData.phaseDbMin
+      : MIN_PHASE_DEG,
+  );
+  const [phaseDbMax, setPhaseDbMax] = useState(() =>
+    typeof persistedNodeData.phaseDbMax === "number"
+      ? persistedNodeData.phaseDbMax
+      : MAX_PHASE_DEG,
+  );
+  const waterfallCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waterfallOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const setWaterfallCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    waterfallCanvasRef.current = canvas;
+  }, []);
+  const setWaterfallOverlayCanvas = useCallback(
+    (canvas: HTMLCanvasElement | null) => {
+      waterfallOverlayCanvasRef.current = canvas;
+    },
+    [],
+  );
+  const handleVfoViewChange = useCallback(
+    (view: VfoTunerPersistedView) => {
+      persistNodeDataDebounced({
+        vfoZoom: view.zoom,
+        vfoPanHz: view.panHz,
+        vfoFrequencyHz: view.vfoFrequencyHz,
+        vfoIsLocked: view.isLocked,
+      });
+    },
+    [persistNodeDataDebounced],
+  );
+  const handleDbMinChange = useCallback(
+    (value: number) => {
+      const nextValue = Math.min(value, phaseDbMax - 5);
+      setPhaseDbMin(nextValue);
+      persistNodeDataDebounced({ phaseDbMin: nextValue });
+    },
+    [persistNodeDataDebounced, phaseDbMax],
+  );
+  const handleDbMaxChange = useCallback(
+    (value: number) => {
+      const nextValue = Math.max(value, phaseDbMin + 5);
+      setPhaseDbMax(nextValue);
+      persistNodeDataDebounced({ phaseDbMax: nextValue });
+    },
+    [persistNodeDataDebounced, phaseDbMin],
   );
 
   const resolvedRange = useMemo<FrequencyRange>(() => {
@@ -263,99 +407,108 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
     // the band to move at all.
     retuneWhenUnzoomed: true,
     sessionKey: `${sourceMode}:${activeSourceId ?? "none"}`,
+    viewSyncKey: `${sourceMode}:${activeSourceId ?? "none"}`,
     vfoTestId: "phase-waterfall-vfo",
+    initialView: {
+      zoom: persistedNodeData.vfoZoom as number | undefined,
+      panHz: persistedNodeData.vfoPanHz as number | undefined,
+      vfoFrequencyHz: persistedNodeData.vfoFrequencyHz as number | undefined,
+      isLocked: persistedNodeData.vfoIsLocked as boolean | undefined,
+    },
+    onViewChange: handleVfoViewChange,
   });
+  const { snapshotControl } = useNodeFastSnapshot({
+    frequencyRange: vfo.visibleRange,
+    dbMin: phaseDbMin,
+    dbMax: phaseDbMax,
+    waterfallScaleUnit: "°",
+    spectrogramType: "Phase",
+    filenamePrefix: "phase-waterfall",
+    sourceName: deviceName,
+    fftSize,
+    isDeviceConnected: activeSourceDerived.deviceState === "connected",
+    fastSnapshotShowStats: persistedNodeData.fastSnapshotShowStats as
+      | boolean
+      | undefined,
+    persistNodeData,
+    waterfallCanvasRef,
+    waterfallOverlayCanvasRef,
+  });
+  const stopNodeDrag = useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  }, []);
 
   const rangeSpan = Math.max(
     1,
     vfo.vfoFrequencyRange.max - vfo.vfoFrequencyRange.min,
   );
 
-  const phaseFeed = useMemo(() => {
-    const sourceRef =
-      sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
-    let lastFrame: unknown = null;
-    let lastPhase: Float32Array | null = null;
-
-    // Returns a row only when a new frame landed; the buffer is reused, which
-    // the feed contract explicitly supports.
-    const computeLatestPhase = (): Float32Array | null => {
-      const current =
-        sourceMode === "file" && Array.isArray(sourceRef.current)
-          ? (sourceRef.current[sourceRef.current.length - 1] ?? null)
-          : sourceRef.current;
-      if (!current || current === lastFrame) return null;
-
-      const iq = (current as { iq_data?: Uint8Array })?.iq_data;
-      if (!iq?.length) return null;
-
-      lastFrame = current;
-      lastPhase = computeIqToPhaseSpectrum(
-        newestIqWindow(iq, fftSize),
-        { fftSize },
-        lastPhase ?? undefined,
-      );
-      return lastPhase;
-    };
-
-    return {
-      getCurrent: () => lastPhase,
-      subscribe: (listener: (waveform: Float32Array) => void) => {
-        let frameHandle: number | null = null;
-        let disposed = false;
-
-        const tick = () => {
-          if (disposed) return;
-          const phase = computeLatestPhase();
-          if (phase) listener(phase);
-          frameHandle = window.requestAnimationFrame(tick);
-        };
-
-        frameHandle = window.requestAnimationFrame(tick);
-
-        return () => {
-          disposed = true;
-          if (frameHandle !== null) window.cancelAnimationFrame(frameHandle);
-        };
-      },
-    };
-  }, [activeLiveFrameRef, sourceMode, fftSize]);
+  const phaseSourceRef = useMemo(
+    () => (sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef),
+    [activeLiveFrameRef, sourceMode],
+  );
+  const phaseFeed = useMemo(
+    () =>
+      createWaterfallSourceFeed(
+        `${sourceMode}:${activeSourceId ?? "none"}:active`,
+        phaseSourceRef,
+        "phase",
+      ),
+    [activeSourceId, phaseSourceRef, sourceMode],
+  );
 
   const performScalarResampling = useMemo(
     () =>
       (input: ArrayLike<number>, targetLength: number, output?: Float32Array) =>
-        // Neutral phase, not a dB floor, for any bins the resampler cannot fill.
-        resampleNearestInto(input, targetLength, 0, output),
-    [],
+        resampleNearestInto(input, targetLength, phaseDbMin, output),
+    [phaseDbMin],
   );
-
   return (
     <OuterContainer data-testid="phase-waterfall-node">
       <Header>
-        <HeaderLeft>
-          <Title>{data?.label ?? "Phase"}</Title>
-          <DeviceTitle>{deviceName}</DeviceTitle>
-        </HeaderLeft>
-        <HeaderMeta>
-          <MetaText>
-            <MetaInfoLabel>FFT SIZE:</MetaInfoLabel> {fftSize}
-          </MetaText>
-          <Legend>
-            <span>{MIN_PHASE_DEG}°</span>
-            <LegendGradient />
-            <span>{MAX_PHASE_DEG}°</span>
-          </Legend>
-          <Badge>Phase</Badge>
-          <HeaderIconButton
-            type="button"
-            aria-label={vfo.isLocked ? "Unlock VFO" : "Lock VFO"}
-            aria-pressed={vfo.isLocked}
-            $active={vfo.isLocked}
-            onClick={() => vfo.setIsLocked((locked) => !locked)}
-          >
-            {vfo.isLocked ? <Lock size={14} /> : <Unlock size={14} />}
-          </HeaderIconButton>
-        </HeaderMeta>
+        <HeaderTop>
+          <HeaderLeft>
+            <Title>{data?.label ?? "Phase"}</Title>
+            <DeviceTitle>{deviceName}</DeviceTitle>
+          </HeaderLeft>
+          <HeaderMeta>
+            <ZoomReadout
+              data-testid="phase-waterfall-zoom"
+              aria-label={`Zoom ${vfo.zoom.toFixed(1)} times`}
+            >
+              ZOOM {vfo.zoom.toFixed(1)}x
+            </ZoomReadout>
+            <MetaText>
+              SPAN:{" "}
+              {formatWaterfallSpan(vfo.visibleRange.max - vfo.visibleRange.min)}
+            </MetaText>
+            <MetaText>
+              <MetaInfoLabel>FFT SIZE:</MetaInfoLabel> {fftSize}
+            </MetaText>
+            <Legend>
+              <span>{phaseDbMin}°</span>
+              <LegendGradient />
+              <span>{phaseDbMax}°</span>
+            </Legend>
+            <Badge>Phase</Badge>
+            <HeaderIconButton
+              type="button"
+              aria-label={vfo.isLocked ? "Unlock VFO" : "Lock VFO"}
+              aria-pressed={vfo.isLocked}
+              $active={vfo.isLocked}
+              onClick={() => vfo.setIsLocked((locked) => !locked)}
+            >
+              {vfo.isLocked ? <Lock size={14} /> : <Unlock size={14} />}
+            </HeaderIconButton>
+          </HeaderMeta>
+        </HeaderTop>
+        <SnapshotActions
+          className="nodrag nopan"
+          onMouseDown={stopNodeDrag}
+          onPointerDown={stopNodeDrag}
+        >
+          {snapshotControl}
+        </SnapshotActions>
       </Header>
       <Viewport
         ref={vfo.viewportRef}
@@ -365,53 +518,79 @@ export const PhaseWaterfallNode: React.FC<PhaseWaterfallNodeProps> = ({
       >
         {/* Inside the gesture area so a wheel over the axis zooms/pans/tunes. */}
         <VfoRow>
-          <Vfo
-            visualState="compact"
-            drawingType="dom"
-            orientation="top"
-            cursorMotion
-            cursorOffsetPx={vfo.cursorOffsetPx}
-            frequencyRange={vfo.visibleRange}
-            centerFrequencyHz={vfo.displayCenterFrequencyHz}
-            style={{ height: 56, flex: 1, minWidth: 0 }}
-            className="nodrag nopan"
-            data-testid="phase-waterfall-vfo"
-            {...vfo.vfoHandlers}
-          />
+          <VfoPlot>
+            <Vfo
+              visualState="compact"
+              drawingType="dom"
+              orientation="top"
+              cursorMotion
+              cursorOffsetPx={vfo.cursorOffsetPx}
+              frequencyRange={vfo.visibleRange}
+              centerFrequencyHz={vfo.displayCenterFrequencyHz}
+              className="nodrag nopan"
+              data-testid="phase-waterfall-vfo"
+              {...vfo.vfoHandlers}
+            />
+          </VfoPlot>
+          <VfoControlSpacer aria-hidden="true" />
         </VfoRow>
         <CanvasRow>
-          <FIFOWaterfall
-            width={NODE_WIDTH}
-            height={NODE_HEIGHT}
-            waveform={null}
-            waveformFeed={phaseFeed}
-            frequencyRange={vfo.visibleRange}
-            fftMin={MIN_PHASE_DEG}
-            fftMax={MAX_PHASE_DEG}
-            retuneSmear={1}
-            isPaused={false}
-            isVisible
-            waterfallHistoryFill="immutable"
-            historyZoom={vfo.zoom}
-            historyPan={vfo.panHz / rangeSpan}
-            performScalarResampling={performScalarResampling}
-            colormap={PHASE_COLORMAP}
-            colormapName={PHASE_COLORMAP_NAME}
-            nonHardwareSourcePattern={nonHardwareSourcePattern}
-            placeholderSourceLabel={
-              typeof data?.label === "string" ? data.label : "Phase"
-            }
-          />
+          <WaterfallPlot>
+            <FIFOWaterfall
+              key={`${sourceMode}:${activeSourceId ?? "none"}:${fftSize}:${phaseDbMin}:${phaseDbMax}`}
+              width={NODE_WIDTH - WATERFALL_CONTROL_RAIL_WIDTH}
+              height={NODE_HEIGHT}
+              waveform={phaseFeed.getCurrent()}
+              waveformFeed={phaseFeed}
+              onWaterfallCanvasReady={setWaterfallCanvas}
+              onPatternOverlayCanvasReady={setWaterfallOverlayCanvas}
+              frequencyRange={vfo.visibleRange}
+              fftMin={phaseDbMin}
+              fftMax={phaseDbMax}
+              retuneSmear={1}
+              isPaused={false}
+              isVisible
+              waterfallHistoryFill="immutable"
+              historyZoom={vfo.zoom}
+              historyPan={vfo.panHz / rangeSpan}
+              performScalarResampling={performScalarResampling}
+              colormap={PHASE_COLORMAP}
+              colormapName={PHASE_COLORMAP_NAME}
+              nonHardwareSourcePattern={nonHardwareSourcePattern}
+              placeholderSourceLabel={
+                typeof data?.label === "string" ? data.label : "Phase"
+              }
+            />
+          </WaterfallPlot>
+          <ControlRail
+            className="nodrag nopan"
+            data-testid="phase-waterfall-controls"
+            onMouseDown={stopNodeDrag}
+            onPointerDown={stopNodeDrag}
+          >
+            <VisualizerSliders
+              compact
+              showZoom={false}
+              zoom={vfo.zoom}
+              dbMin={phaseDbMin}
+              dbMax={phaseDbMax}
+              dbUnitLabel="°"
+              dbMinRange={{ min: MIN_PHASE_DEG, max: MAX_PHASE_DEG - 5 }}
+              dbMaxRange={{ min: MIN_PHASE_DEG + 5, max: MAX_PHASE_DEG }}
+              onZoomChange={vfo.setZoom}
+              onDbMinChange={handleDbMinChange}
+              onDbMaxChange={handleDbMaxChange}
+            />
+          </ControlRail>
         </CanvasRow>
       </Viewport>
       {vfo.isEditorOpen && !vfo.isLocked && (
         <EditableCenterFrequency
-          centerFrequencyHz={vfo.vfoFrequency}
-          onCenterFrequencyChange={vfo.tuneVfo}
+          centerFrequencyHz={vfo.displayCenterFrequencyHz}
+          onCenterFrequencyChange={vfo.tuneCenterFrequency}
           onClose={vfo.closeEditor}
           placement="top"
           allowNegativeFrequencies={allowNegativeFrequencies}
-          windowSpanHz={vfo.vfoFrequencyRange.max - vfo.vfoFrequencyRange.min}
         />
       )}
     </OuterContainer>

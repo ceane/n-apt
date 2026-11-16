@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import type { DemodSelection } from "@n-apt/demodulation/utils/demodProcessors";
+import { setConsolidatedDemodSpan } from "@n-apt/redux/actions/demodSpan";
 
 export interface DemodState {
   sourceMode: "live" | "file";
@@ -113,6 +114,17 @@ const demodSlice = createSlice({
     clearFmTuneIntent: (state) => {
       state.fmTuneIntentHz = null;
     },
+  },
+  extraReducers: (builder) => {
+    builder.addCase(setConsolidatedDemodSpan, (state, { payload }) => {
+      state.centerFreqHz = payload.center;
+      state.bandwidthCenterFreqHz = payload.start + payload.bandwidth / 2;
+      state.bandwidthHz = payload.bandwidth;
+      state.bandwidthKhz = payload.bandwidth / 1000;
+      state.bandwidthStartHz = payload.start;
+      state.hardwareSpanHz = payload.span;
+      state.alignment = payload.alignment;
+    });
   },
 });
 

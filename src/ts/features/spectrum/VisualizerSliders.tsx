@@ -31,11 +31,14 @@ const SlidersGrid = styled.div`
   user-select: none;
 `;
 
-const CompactSlidersGrid = styled(SlidersGrid)<{ $compact?: boolean }>`
-  ${({ $compact }) =>
+const CompactSlidersGrid = styled(SlidersGrid)<{
+  $compact?: boolean;
+  $showZoom?: boolean;
+}>`
+  ${({ $compact, $showZoom }) =>
     $compact
       ? `
-    grid-template-rows: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(${$showZoom === false ? 2 : 3}, minmax(0, 1fr));
     row-gap: 22px;
     column-gap: 4px;
     height: 100%;
@@ -210,6 +213,11 @@ export interface VisualizerSlidersProps {
   dbMin: number;
   /** Power scale: "dB" or "dBm" */
   powerScale?: "dB" | "dBm";
+  /** Override the default value ranges for analysis scales such as variance. */
+  dbMinRange?: { min: number; max: number };
+  dbMaxRange?: { min: number; max: number };
+  /** Override the unit suffix shown beside dB values. */
+  dbUnitLabel?: string;
   onZoomChange: (zoom: number) => void;
   onDbMaxChange: (dbMax: number) => void;
   onDbMinChange: (dbMin: number) => void;
@@ -232,6 +240,8 @@ export interface VisualizerSlidersProps {
   disabled?: boolean;
   /** Render only the shared zoom and dB sliders for compact node layouts. */
   compact?: boolean;
+  /** Hide the zoom slider when the host already provides a zoom gesture. */
+  showZoom?: boolean;
   /** Toggle visibility of the TX slider overlay */
   showTxSlider?: boolean;
   /** Whether the active source can expose TX controls */
@@ -251,6 +261,9 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
     dbMax,
     dbMin,
     powerScale = "dB",
+    dbMinRange: dbMinRangeOverride,
+    dbMaxRange: dbMaxRangeOverride,
+    dbUnitLabel,
     onZoomChange,
     onDbMaxChange,
     onDbMinChange,
@@ -268,16 +281,18 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
     onRefocusZoomFloor,
     disabled = false,
     compact = false,
+    showZoom = true,
     showTxSlider = true,
     canShowTxSlider = true,
     onShowTxSliderChange,
   }) => {
     // Calculate appropriate ranges based on power scale
     const isDbm = powerScale === "dBm";
-    const { max: maxDbRange, min: minDbRange } = getVisualizerDbRanges(
-      powerScale,
-    );
-    const dbUnit = isDbm ? "dBm" : "dB";
+    const { max: defaultMaxDbRange, min: defaultMinDbRange } =
+      getVisualizerDbRanges(powerScale);
+    const maxDbRange = dbMaxRangeOverride ?? defaultMaxDbRange;
+    const minDbRange = dbMinRangeOverride ?? defaultMinDbRange;
+    const dbUnit = dbUnitLabel ?? (isDbm ? "dBm" : "dB");
     const formatDb = React.useMemo(() => formatDbValue(dbUnit), [dbUnit]);
     const isZoomedIn = zoom > 1.0001;
     const hasZoomFloor = zoomFloor > 1.0001;
@@ -308,7 +323,7 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
     );
 
     return (
-      <CompactSlidersGrid $compact={compact}>
+      <CompactSlidersGrid $compact={compact} $showZoom={showZoom}>
         {!compact && <ActionButtonsContainer>
           <ResetButton
             $outlined={hasZoomFloor}
@@ -398,19 +413,21 @@ export const VisualizerSliders: React.FC<VisualizerSlidersProps> = React.memo(
           )}
         </ActionButtonsContainer>}
 
-        <Slider
-          label="Zoom"
-          value={zoom}
-          min={1}
-          max={maxZoom}
-          step={0.1}
-          disabled={disabled}
-          onChange={onZoomChange}
-          formatValue={formatZoom}
-          orientation="vertical"
-          labelPlacement={compact ? "top" : "bottom"}
-          className="compact-visualizer-slider"
-        />
+        {showZoom && (
+          <Slider
+            label="Zoom"
+            value={zoom}
+            min={1}
+            max={maxZoom}
+            step={0.1}
+            disabled={disabled}
+            onChange={onZoomChange}
+            formatValue={formatZoom}
+            orientation="vertical"
+            labelPlacement={compact ? "top" : "bottom"}
+            className="compact-visualizer-slider"
+          />
+        )}
         <Slider
           label="Max"
           value={dbMax}
