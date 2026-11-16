@@ -1318,7 +1318,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           ...(settings.tunerBandwidth !== undefined
             ? { hackrfBasebandBandwidth: settings.tunerBandwidth }
             : {}),
-          ...(settings.ppm !== undefined ? { ppm: settings.ppm } : {}),
           ...(settings.tunerAGC !== undefined
             ? { tunerAGC: settings.tunerAGC }
             : {}),
@@ -1448,7 +1447,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const derived = deriveStateFromConfig(maxSampleRate, liveSdrSettingsToUse);
     const nextSettings = {
       ...(typeof derived.gain === "number" ? { gain: derived.gain } : {}),
-      ...(typeof derived.ppm === "number" &&
+      ...(!liveState.useAppPpmCorrection &&
+      typeof derived.ppm === "number" &&
       (typeof liveState.ppm !== "number" ||
         liveState.ppm === 0 ||
         liveState.ppm === LIVE_CONTROL_DEFAULTS.ppm)
@@ -1491,6 +1491,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveState.fftFrameRate,
     liveState.fftWindow,
     liveState.hackrfBasebandBandwidth,
+    liveState.useAppPpmCorrection,
   ]);
 
   // Capture UI state

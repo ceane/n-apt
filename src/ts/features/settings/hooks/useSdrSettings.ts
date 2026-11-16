@@ -12,7 +12,10 @@ import {
   clampFrameRateToLogicalMax,
   getLogicalMaxFrameRate,
 } from "@n-apt/math/signals";
-import { assertValidSampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import {
+  assertValidSampleRateHz,
+  isRtlSdrDevice,
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
@@ -384,12 +387,11 @@ export const useSdrSettings = ({
   const setPpm = useCallback(
     (ppm: number) => {
       dispatch(setSdrSettingsBundle({ ppm }));
-      const normalizedDeviceType = (deviceType ?? "")
-        .toLowerCase()
-        .replace(/_/g, "-");
-      const hasHardwarePpm =
-        normalizedDeviceType.includes("rtl-sdr") ||
-        normalizedDeviceType.includes("rtlsdr");
+      const hasHardwarePpm = isRtlSdrDevice({
+        deviceKind: deviceType,
+        backend: deviceType,
+        deviceName: deviceType,
+      });
       sendCurrentSettings({
         ppm: hasHardwarePpm && !state.useAppPpmCorrection ? ppm : 0,
       });
@@ -399,12 +401,11 @@ export const useSdrSettings = ({
   const setUseAppPpmCorrection = useCallback(
     (enabled: boolean) => {
       dispatch(setUseAppPpmCorrectionAction(enabled));
-      const normalizedDeviceType = (deviceType ?? "")
-        .toLowerCase()
-        .replace(/_/g, "-");
-      const hasHardwarePpm =
-        normalizedDeviceType.includes("rtl-sdr") ||
-        normalizedDeviceType.includes("rtlsdr");
+      const hasHardwarePpm = isRtlSdrDevice({
+        deviceKind: deviceType,
+        backend: deviceType,
+        deviceName: deviceType,
+      });
       sendCurrentSettings({
         ppm: hasHardwarePpm && !enabled ? state.ppm : 0,
       });
@@ -590,7 +591,12 @@ export const useSdrSettings = ({
     ) {
       setHackrfBasebandBandwidth(sdrSettings.gain.tuner_bandwidth);
     }
-    if (sdrSettings?.ppm !== undefined) {
+    // With app correction enabled, zero is the hardware setting. Preserve the
+    // user's separate app calibration instead of hydrating it from that zero.
+    if (
+      sdrSettings?.ppm !== undefined &&
+      !(state.useAppPpmCorrection && sdrSettings.ppm === 0)
+    ) {
       setPpm(sdrSettings.ppm);
     }
     if (sdrSettings?.gain?.rtl_agc !== undefined) {
@@ -613,6 +619,7 @@ export const useSdrSettings = ({
     setTunerAGC,
     currentSampleRateHz,
     state.hackrfBasebandBandwidth,
+    state.useAppPpmCorrection,
     dispatch,
     maxSampleRate,
     sendCurrentSettings,

@@ -21,6 +21,48 @@ jest.mock("@n-apt/ui/Tooltip", () => ({
 }));
 
 describe("SourceSettingsSection HackRF controls", () => {
+  it("groups the PPM value and app correction toggle on separate lines", () => {
+    const onPpmChange = jest.fn();
+    render(
+      <TestWrapper>
+        <SourceSettingsSection
+          sourceMode="live"
+          deviceType="rtl-sdr"
+          ppm={0}
+          useAppPpmCorrection
+          gain={0}
+          tunerAGC={false}
+          rtlAGC={false}
+          stitchSourceSettings={{ gain: 0, ppm: 0 }}
+          isConnected
+          onPpmChange={onPpmChange}
+          onUseAppPpmCorrectionChange={jest.fn()}
+          onGainChange={jest.fn()}
+          onTunerAGCChange={jest.fn()}
+          onRtlAGCChange={jest.fn()}
+          onStitchSourceSettingsChange={jest.fn()}
+          onAgcModeChange={jest.fn()}
+        />
+      </TestWrapper>,
+    );
+
+    const ppmGroup = screen.getByRole("group", {
+      name: "PPM correction settings",
+    });
+    expect(ppmGroup).toHaveStyle({ marginLeft: "12px" });
+    const ppmInputRow = within(ppmGroup).getByTestId("ppm-value-row");
+    const appCorrectionRow = within(ppmGroup).getByTestId("ppm-mode-row");
+    const ppmInput = within(ppmInputRow).getByRole("spinbutton");
+    expect(ppmInput).toHaveValue(0);
+    expect(
+      within(appCorrectionRow).getByRole("checkbox", {
+        name: "Use app frequency correction",
+      }),
+    ).toBeChecked();
+    fireEvent.keyDown(ppmInput, { key: "ArrowUp" });
+    expect(onPpmChange).toHaveBeenCalledWith(1);
+  });
+
   it("shows HackRF-specific gain rows and AMP toggle", () => {
     const onHackrfLnaGainChange = jest.fn();
     const onHackrfVgaGainChange = jest.fn();
