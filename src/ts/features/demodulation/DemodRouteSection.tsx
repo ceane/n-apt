@@ -30,6 +30,7 @@ import { useAppSelector } from "@n-apt/redux";
 import {
   DefaultDemodNodeContent,
   DemodNodeSuspense,
+  LazyAmplitudeWaterfallNode,
   LazyBitstreamViewer,
   LazyPhaseWaterfallNode,
   LazySymbolsTable,
@@ -74,6 +75,13 @@ const ContextMenuPanel = styled.div`
   gap: 2px;
   min-width: 140px;
   font-family: ${({ theme }) => theme.typography.sans};
+`;
+
+const DemodFlowHandle = styled(Handle)`
+  background: #666;
+  border: 1px solid #999;
+  width: 8px;
+  height: 8px;
 `;
 
 const ContextMenuItem = styled.button`
@@ -268,6 +276,7 @@ const FrequencyAwareNode = React.memo(
           />
           <DemodNodeSuspense label={data.label}>
             <LazyPhaseWaterfallNode
+              id={id}
               data={data}
               frequencyRange={frequencyRange}
             />
@@ -282,6 +291,22 @@ const FrequencyAwareNode = React.memo(
               height: "8px",
             }}
           />
+        </NodeContainer>
+      );
+    }
+
+    if (data.amplitudeOptions) {
+      return (
+        <NodeContainer data-nodeid={id}>
+          <DemodFlowHandle type="target" position={Position.Top} />
+          <DemodNodeSuspense label={data.label}>
+            <LazyAmplitudeWaterfallNode
+              id={id}
+              data={data}
+              frequencyRange={frequencyRange}
+            />
+          </DemodNodeSuspense>
+          <DemodFlowHandle type="source" position={Position.Bottom} />
         </NodeContainer>
       );
     }
@@ -321,7 +346,8 @@ const NODE_TYPES = {
     if (
       nodeProps.data?.symbolOptions ||
       nodeProps.data?.bitstreamOptions ||
-      nodeProps.data?.phaseOptions
+      nodeProps.data?.phaseOptions ||
+      nodeProps.data?.amplitudeOptions
     ) {
       return <FrequencyAwareNode {...nodeProps} />;
     }

@@ -6,6 +6,7 @@ import { sendFrequencyRange } from "@n-apt/redux/thunks/websocketThunks";
 import { clampCenteredFrequencyRange } from "@n-apt/math/frequency";
 import { mapDisplayFrequencyToSource } from "@n-apt/math/basebandMirror";
 import type { FrequencyRange } from "@n-apt/consts/types";
+import { getZoomedViewForCenterFrequency } from "@n-apt/spectrum/public/visualizationZoom";
 import {
   createDeviceOptionScheduler,
   type DeviceOptionScheduler,
@@ -28,6 +29,8 @@ export interface VfoTunerOptions {
   zoomPanEnabled: boolean;
   /** Changing this clears user tuning, so the VFO re-centers on the range. */
   sessionKey: string | number;
+  /** Share the absolute center and frequency span with views of this source. */
+  viewSyncKey?: string | number;
   /** testid of the VFO axis, used to decide whether a wheel intends to tune. */
   vfoTestId: string;
   /** Called when a two-pointer pinch begins, so the host can clear its gestures. */
@@ -41,7 +44,81 @@ export interface VfoTunerOptions {
    * feed keeps flowing smoothly.
    */
   retuneWhenUnzoomed?: boolean;
+  /** View state saved with the React Flow node so it survives remounts/HMR. */
+  initialView?: Partial<VfoTunerPersistedView>;
+  onViewChange?: (view: VfoTunerPersistedView) => void;
 }
+
+export interface VfoTunerPersistedView {
+  zoom: number;
+  panHz: number;
+  vfoFrequencyHz: number;
+  isLocked: boolean;
+}
+
+interface SharedVfoView {
+  centerFrequencyHz: number;
+  spanHz: number;
+}
+
+const sharedVfoViews = new Map<string | number, SharedVfoView>();
+const sharedVfoSubscribers = new Map<
+  string | number,
+  Set<(view: SharedVfoView) => void>
+>();
+
+const frequencyValuesEqual = (left: number, right: number): boolean => {
+  const toleranceHz = Math.max(
+    0.01,
+    Math.max(Math.abs(left), Math.abs(right)) * 1e-12,
+  );
+  return Math.abs(left - right) <= toleranceHz;
+};
+
+const sharedVfoViewsEqual = (
+  left: SharedVfoView,
+  right: SharedVfoView,
+): boolean => {
+  return frequencyValuesEqual(left.centerFrequencyHz, right.centerFrequencyHz);
+};
+
+const getSharedViewFromState = ({
+  frequencyRange,
+  allowNegativeFrequencies,
+  zoom,
+  panHz,
+  vfoFrequency,
+}: {
+  frequencyRange: FrequencyRange;
+  allowNegativeFrequencies: boolean;
+  zoom: number;
+  panHz: number;
+  vfoFrequency: number;
+}): SharedVfoView => {
+  const fullSpan = Math.max(1, frequencyRange.max - frequencyRange.min);
+  const baseRange =
+    Number.isFinite(vfoFrequency) && vfoFrequency !== 0
+      ? clampCenteredFrequencyRange(
+          mapDisplayFrequencyToSource(vfoFrequency),
+          fullSpan,
+          0,
+        )
+      : frequencyRange;
+  const baseCenter = (baseRange.min + baseRange.max) / 2;
+  const viewSpan = fullSpan / Math.max(1, zoom);
+  const halfViewSpan = viewSpan / 2;
+  const minPan = allowNegativeFrequencies
+    ? Number.NEGATIVE_INFINITY
+    : baseRange.min + halfViewSpan - baseCenter;
+  const maxPan = allowNegativeFrequencies
+    ? Number.POSITIVE_INFINITY
+    : baseRange.max - halfViewSpan - baseCenter;
+  const clampedPan = Math.max(minPan, Math.min(maxPan, panHz));
+  return {
+    centerFrequencyHz: baseCenter + clampedPan,
+    spanHz: viewSpan,
+  };
+};
 
 export interface VfoTuner {
   zoom: number;
@@ -72,6 +149,8 @@ export interface VfoTuner {
    * clamped window is unchanged, in which case it also just pans.
    */
   tuneVfo: (frequency: number, forceHardwareTune?: boolean) => void;
+  /** Explicit editor entry: center the requested frequency and zoom as needed. */
+  tuneCenterFrequency: (frequency: number) => void;
   /**
    * Attach to the element that owns the tuning surface. Wheel is bound natively
    * here (React's `onWheel` is passive, which makes `preventDefault` a no-op).
@@ -103,22 +182,71 @@ export const useVfoTuner = ({
   allowNegativeFrequencies,
   zoomPanEnabled,
   sessionKey,
+  viewSyncKey,
   vfoTestId,
   onPinchStart,
   tuneHardware,
   retuneWhenUnzoomed = false,
+  initialView,
+  onViewChange,
 }: VfoTunerOptions): VfoTuner => {
   const dispatch = useAppDispatch();
 
-  const [zoom, setZoom] = useState(1);
-  const [panHz, setPanHz] = useState(0);
-  const [vfoFrequency, setVfoFrequency] = useState(0);
+  const [zoom, setZoom] = useState(() =>
+    Number.isFinite(initialView?.zoom) ? Math.max(1, initialView!.zoom!) : 1,
+  );
+  const [panHz, setPanHz] = useState(() =>
+    Number.isFinite(initialView?.panHz) ? initialView!.panHz! : 0,
+  );
+  const [vfoFrequency, setVfoFrequency] = useState(() =>
+    Number.isFinite(initialView?.vfoFrequencyHz)
+      ? initialView!.vfoFrequencyHz!
+      : 0,
+  );
   const [cursorOffsetPx, setCursorOffsetPx] = useState(0);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
+  const [isLocked, setIsLocked] = useState(
+    () => initialView?.isLocked ?? false,
+  );
+  const frequencyRangeRef = useRef(frequencyRange);
+  frequencyRangeRef.current = frequencyRange;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const previousRangeCenterRef = useRef(
+    (frequencyRange.min + frequencyRange.max) / 2,
+  );
+  const allowNegativeFrequenciesRef = useRef(allowNegativeFrequencies);
+  allowNegativeFrequenciesRef.current = allowNegativeFrequencies;
+  const currentViewRef = useRef<SharedVfoView>(
+    getSharedViewFromState({
+      frequencyRange,
+      allowNegativeFrequencies,
+      zoom,
+      panHz,
+      vfoFrequency,
+    }),
+  );
+  currentViewRef.current = getSharedViewFromState({
+    frequencyRange,
+    allowNegativeFrequencies,
+    zoom,
+    panHz,
+    vfoFrequency,
+  });
+  const localSharedViewListenerRef = useRef<
+    ((view: SharedVfoView) => void) | null
+  >(null);
+  const skipSharedViewPublishRef = useRef(false);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const userTunedRef = useRef(false);
+  const userTunedRef = useRef(
+    Number.isFinite(initialView?.vfoFrequencyHz) &&
+      initialView?.vfoFrequencyHz !== 0,
+  );
+  const previousSessionKeyRef = useRef(sessionKey);
+  const onViewChangeRef = useRef(onViewChange);
+  onViewChangeRef.current = onViewChange;
+  const hasPublishedViewRef = useRef(false);
   const dragStartFrequencyRef = useRef<number | null>(null);
   const dragStartXRef = useRef(0);
   const dragStartPanRef = useRef(0);
@@ -132,6 +260,84 @@ export const useVfoTuner = ({
   } | null>(null);
   const onPinchStartRef = useRef(onPinchStart);
   onPinchStartRef.current = onPinchStart;
+
+  useEffect(() => {
+    if (viewSyncKey === undefined) return;
+    skipSharedViewPublishRef.current = false;
+    let subscribers = sharedVfoSubscribers.get(viewSyncKey);
+    if (!subscribers) {
+      subscribers = new Set();
+      sharedVfoSubscribers.set(viewSyncKey, subscribers);
+    }
+    const listener = (view: SharedVfoView) => {
+      const range = frequencyRangeRef.current;
+      const fullSpan = Math.max(1, range.max - range.min);
+      const boundedViewSpan = fullSpan / Math.max(1, zoomRef.current);
+      const targetRange = clampCenteredFrequencyRange(
+        mapDisplayFrequencyToSource(view.centerFrequencyHz),
+        fullSpan,
+        0,
+      );
+      const targetRangeCenter = (targetRange.min + targetRange.max) / 2;
+      const halfViewSpan = boundedViewSpan / 2;
+      const minPan = allowNegativeFrequenciesRef.current
+        ? Number.NEGATIVE_INFINITY
+        : targetRange.min + halfViewSpan - targetRangeCenter;
+      const maxPan = allowNegativeFrequenciesRef.current
+        ? Number.POSITIVE_INFINITY
+        : targetRange.max - halfViewSpan - targetRangeCenter;
+      const nextPanHz = Math.max(
+        minPan,
+        Math.min(maxPan, view.centerFrequencyHz - targetRangeCenter),
+      );
+      setPanHz(nextPanHz);
+      setVfoFrequency(view.centerFrequencyHz);
+      userTunedRef.current =
+        Number.isFinite(view.centerFrequencyHz) && view.centerFrequencyHz !== 0;
+    };
+    localSharedViewListenerRef.current = listener;
+    subscribers.add(listener);
+    const sharedView = sharedVfoViews.get(viewSyncKey);
+    if (sharedView) {
+      skipSharedViewPublishRef.current = true;
+      listener(sharedView);
+    } else {
+      sharedVfoViews.set(viewSyncKey, currentViewRef.current);
+    }
+    return () => {
+      subscribers?.delete(listener);
+      if (subscribers?.size === 0) sharedVfoSubscribers.delete(viewSyncKey);
+      if (localSharedViewListenerRef.current === listener) {
+        localSharedViewListenerRef.current = null;
+      }
+    };
+  }, [viewSyncKey]);
+
+  useEffect(() => {
+    if (viewSyncKey === undefined) return;
+    if (skipSharedViewPublishRef.current) {
+      skipSharedViewPublishRef.current = false;
+      return;
+    }
+    const view = currentViewRef.current;
+    const lastSharedView = sharedVfoViews.get(viewSyncKey);
+    // Receivers can reconstruct the same absolute view with tiny floating-point
+    // differences. Treat those as the same view so nodes do not echo a shared
+    // VFO update back and forth indefinitely.
+    if (lastSharedView && sharedVfoViewsEqual(lastSharedView, view)) return;
+    sharedVfoViews.set(viewSyncKey, view);
+    for (const listener of sharedVfoSubscribers.get(viewSyncKey) ?? []) {
+      if (listener !== localSharedViewListenerRef.current) listener(view);
+    }
+  }, [
+    allowNegativeFrequencies,
+    frequencyRange.max,
+    frequencyRange.min,
+    panHz,
+    vfoFrequency,
+    viewSyncKey,
+    zoom,
+  ]);
 
   // A scroll or drag burst emits far more events than the receiver can usefully
   // retune on. Publish the first value immediately (so a gesture stays
@@ -152,6 +358,8 @@ export const useVfoTuner = ({
     rangePublisherRef.current = createDeviceOptionScheduler<FrequencyRange>({
       publish: (range) => publishRangeRef.current(range),
       equals: (left, right) => left.min === right.min && left.max === right.max,
+      intervalMs: 150,
+      idleFlushMs: 180,
     });
   }
   useEffect(
@@ -163,10 +371,39 @@ export const useVfoTuner = ({
 
   // A new session drops any tuning the user did in the previous one.
   useEffect(() => {
+    if (previousSessionKeyRef.current === sessionKey) return;
+    previousSessionKeyRef.current = sessionKey;
     userTunedRef.current = false;
   }, [sessionKey]);
 
+  useEffect(() => {
+    if (!hasPublishedViewRef.current) {
+      hasPublishedViewRef.current = true;
+      return;
+    }
+    onViewChangeRef.current?.({
+      zoom,
+      panHz,
+      vfoFrequencyHz: vfoFrequency,
+      isLocked,
+    });
+  }, [isLocked, panHz, vfoFrequency, zoom]);
+
   // Track the range center without letting a re-render clobber user tuning.
+  useEffect(() => {
+    const nextRangeCenter = (frequencyRange.min + frequencyRange.max) / 2;
+    const previousRangeCenter = previousRangeCenterRef.current;
+    previousRangeCenterRef.current = nextRangeCenter;
+    if (frequencyValuesEqual(previousRangeCenter, nextRangeCenter)) return;
+
+    // A changed acquisition center means the radio (or source) actually
+    // retuned. Follow it while retaining each node's zoom. Pan-only gestures
+    // leave the acquisition center unchanged and remain view-local/shared.
+    setVfoFrequency(nextRangeCenter);
+    setPanHz(0);
+    userTunedRef.current = true;
+  }, [frequencyRange.max, frequencyRange.min]);
+
   useEffect(() => {
     if (!userTunedRef.current) {
       setVfoFrequency((frequencyRange.min + frequencyRange.max) / 2);
@@ -243,6 +480,65 @@ export const useVfoTuner = ({
       0,
     );
   }, [frequencyRange, rangeMax, rangeMin, vfoFrequency]);
+
+  const tuneCenterFrequency = useCallback(
+    (frequency: number) => {
+      if (isLocked || !Number.isFinite(frequency)) return;
+
+      // Negative display frequencies use the mirrored pan path already owned
+      // by tuneVfo. Positive typed centers should use the live route's
+      // corrective zoom so a center near either edge remains visible.
+      if (!zoomPanEnabled || (allowNegativeFrequencies && frequency < 0)) {
+        tuneVfo(frequency, !zoomPanEnabled);
+        return;
+      }
+
+      const sourceFrequency = mapDisplayFrequencyToSource(frequency);
+      const currentRange = vfoFrequencyRange;
+      const isInsideCurrentRange =
+        sourceFrequency >= currentRange.min &&
+        sourceFrequency <= currentRange.max;
+      const span = rangeMax - rangeMin;
+      const targetRange = isInsideCurrentRange
+        ? currentRange
+        : clampCenteredFrequencyRange(sourceFrequency, span, 0);
+      const view = getZoomedViewForCenterFrequency({
+        hardwareRange: targetRange,
+        currentZoom: zoom,
+        currentPan: isInsideCurrentRange ? panHz : 0,
+        requestedCenterHz: sourceFrequency,
+      });
+
+      const requestedRange = clampCenteredFrequencyRange(
+        sourceFrequency,
+        span,
+        0,
+      );
+      if (requestedRange.min !== rangeMin || requestedRange.max !== rangeMax) {
+        // Move the acquisition window when the requested center changes.
+        tuneVfo(frequency, true);
+        setPanHz(0);
+        return;
+      } else {
+        // The acquisition already contains the requested frequency, so keep
+        // its origin fixed and make the correction local to this node.
+        userTunedRef.current = true;
+      }
+      setZoom(view.zoom);
+      setPanHz(view.pan);
+    },
+    [
+      allowNegativeFrequencies,
+      isLocked,
+      panHz,
+      rangeMax,
+      rangeMin,
+      tuneVfo,
+      vfoFrequencyRange,
+      zoom,
+      zoomPanEnabled,
+    ],
+  );
 
   const visibleRange = useMemo(() => {
     if (!zoomPanEnabled || zoom <= 1) return vfoFrequencyRange;
@@ -468,6 +764,7 @@ export const useVfoTuner = ({
   );
 
   const endVfoDrag = useCallback(() => {
+    rangePublisherRef.current?.flush();
     setCursorOffsetPx(0);
     dragStartFrequencyRef.current = null;
     dragDistancePxRef.current = 0;
@@ -534,6 +831,7 @@ export const useVfoTuner = ({
     resetUserTuning,
     cursorOffsetPx,
     tuneVfo,
+    tuneCenterFrequency,
     viewportRef,
     viewportHandlers,
     vfoHandlers,

@@ -9,13 +9,11 @@ import styled from "styled-components";
 import {
   fileFrameRuntime,
   getLiveFrameRefForSource,
-  subscribeFrameArrivals,
 } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import {
   FIFOWaterfall,
   VisualizerSliders,
-  newestIqWindow,
 } from "@n-apt/spectrum/public/FIFOWaterfall";
 import {
   setAutoZoomStability,
@@ -37,7 +35,6 @@ import {
 } from "lucide-react";
 import { EditableCenterFrequency } from "@n-apt/ui/EditableCenterFrequency";
 import { Popover } from "@n-apt/ui/Popover";
-import { useWasmSimdMath } from "@n-apt/spectrum/public/useWasmSimdMath";
 import {
   clampCenteredFrequencyRange,
   getFrequencyRangeCenterHz,
@@ -52,7 +49,6 @@ import { Vfo } from "@n-apt/layout/vfo/Vfo";
 import { selectArrayOrEmpty } from "@n-apt/redux/selectors/stableSelectorDefaults";
 import type { LiveFrameData } from "@n-apt/consts/schemas/websocket";
 import type { FrequencyRange } from "@n-apt/consts/types";
-import { sourceSpectrumRuntime } from "@n-apt/app/infrastructure/visualization/sourceVisualizationRuntime";
 import { isTxStandbyPreviewSource } from "@n-apt/spectrum/public/liveSourceLifecycle";
 import {
   DEFAULT_WATERFALL_BIN_SUBSET,
@@ -69,8 +65,27 @@ import {
 } from "@n-apt/demodulation/react-flow/nodes/waterfallView";
 import { useVfoTuner } from "@n-apt/demodulation/react-flow/nodes/useVfoTuner";
 import { shouldApplyNonHardwareSourcePattern } from "@n-apt/layout/rendering/nonHardwarePattern";
+import {
+  createAccretiveWaterfallFeed,
+  createWaterfallSourceFeed,
+  cropAccretiveWaterfallRow,
+  type WaterfallSourceFrame,
+} from "@n-apt/demodulation/react-flow/nodes/waterfallSourceBuffer";
+import {
+  formatWaterfallSpan,
+  WATERFALL_ANALYSIS_COLUMN_GAP,
+  WATERFALL_ANALYSIS_CONTROL_RAIL_WIDTH,
+  WATERFALL_ANALYSIS_NODE_WIDTH,
+  WATERFALL_CONTROL_RAIL_WIDTH,
+  WATERFALL_NODE_HEIGHT,
+  WATERFALL_NODE_WIDTH,
+  WATERFALL_SOURCE_FFT_SIZE,
+} from "@n-apt/demodulation/react-flow/nodes/waterfallLayout";
+import { useNodeFastSnapshot } from "@n-apt/demodulation/react-flow/nodes/useNodeFastSnapshot";
+import { usePersistDemodNodeData } from "@n-apt/demodulation/react-flow/nodes/usePersistDemodNodeData";
 
 interface WaterfallNodeProps {
+  id?: string;
   data: {
     waterfallOptions: boolean;
     label: string;
@@ -79,15 +94,11 @@ interface WaterfallNodeProps {
     sourceRole?: "rx" | "tx";
     sourceBindingGroup?: string;
     analysisOptions?: boolean;
+    fastSnapshotShowStats?: boolean;
   };
 }
 
-const FLOW_WATERFALL_FFT_SIZE = 4096;
-// Waterfalls are pixel-width displays. Running a 65k-point FFT for every
-// scrolling row wastes work when the node is only a few hundred pixels wide.
-// Keep the full configured FFT for FFTNode and use this visual-resolution cap
-// for the waterfall path.
-const MAX_WATERFALL_FFT_SIZE = FLOW_WATERFALL_FFT_SIZE;
+const FLOW_WATERFALL_FFT_SIZE = WATERFALL_SOURCE_FFT_SIZE;
 
 export const getWaterfallNodeFrequencyRange = ({
   sourceRole,
@@ -185,11 +196,17 @@ const NodeWrapper = styled.div<{ $analysis?: boolean }>`
   flex-direction: column;
   border-radius: 12px;
   padding: 0;
-  width: 100%;
-  min-width: 525px;
-  height: ${({ $analysis }) => ($analysis ? "500px" : "400px")};
-  max-height: ${({ $analysis }) => ($analysis ? "500px" : "400px")};
-  min-height: ${({ $analysis }) => ($analysis ? "500px" : "400px")};
+  width: ${({ $analysis }) =>
+    $analysis
+      ? `${WATERFALL_ANALYSIS_NODE_WIDTH}px`
+      : `${WATERFALL_NODE_WIDTH}px`};
+  min-width: ${({ $analysis }) =>
+    $analysis
+      ? `${WATERFALL_ANALYSIS_NODE_WIDTH}px`
+      : `${WATERFALL_NODE_WIDTH}px`};
+  height: ${WATERFALL_NODE_HEIGHT}px;
+  max-height: ${WATERFALL_NODE_HEIGHT}px;
+  min-height: ${WATERFALL_NODE_HEIGHT}px;
   align-self: stretch;
   cursor: grab;
   overflow: hidden;
@@ -206,19 +223,9 @@ const NodeTitle = styled.div<{ $analysis?: boolean }>`
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 12px 0;
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
+  padding: 0;
   width: max-content;
   pointer-events: auto;
-  ${({ $analysis }) =>
-    $analysis
-      ? `
-    padding: 4px 8px 0;
-  `
-      : `padding: 10px 12px 0;`}
 
   &::before {
     content: "";
@@ -237,7 +244,7 @@ const CanvasContainer = styled.div<{ $analysis?: boolean }>`
   flex-direction: column;
   min-height: 0;
   align-self: stretch;
-  padding: ${({ $analysis }) => ($analysis ? "0" : "8px 10px 10px")};
+  padding: 0;
   overflow: hidden;
   position: relative;
 `;
@@ -251,10 +258,16 @@ const _DbControls = styled.div`
   pointer-events: auto;
 `;
 
-const AnalysisLayout = styled.div`
+const AnalysisLayout = styled.div<{ $analysis?: boolean }>`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
-  gap: 16px;
+  grid-template-columns:
+    minmax(0, 1fr)
+    ${({ $analysis }) =>
+      $analysis
+        ? `${WATERFALL_ANALYSIS_CONTROL_RAIL_WIDTH}px`
+        : `${WATERFALL_CONTROL_RAIL_WIDTH}px`};
+  gap: ${({ $analysis }) =>
+    $analysis ? `${WATERFALL_ANALYSIS_COLUMN_GAP}px` : "0"};
   min-height: 0;
   flex: 1;
   height: 100%;
@@ -265,6 +278,26 @@ const AnalysisLayout = styled.div`
     min-height: 0;
     overflow: hidden;
   }
+`;
+
+const StandaloneBottomVfoRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) ${WATERFALL_CONTROL_RAIL_WIDTH}px;
+  gap: 0;
+  flex: 0 0 56px;
+  min-width: 0;
+  background: ${({ theme }) => theme.colors?.surface || "#212121"};
+
+  > [data-testid="waterfall-node-mini-vfo"] {
+    width: 100%;
+    min-width: 0;
+  }
+`;
+
+const StandaloneHiddenVfoSpacer = styled.div`
+  flex: 0 0 56px;
+  width: 100%;
+  background: ${({ theme }) => theme.colors?.surface || "#212121"};
 `;
 
 const AnalysisTools = styled.aside<{ $analysis?: boolean }>`
@@ -304,7 +337,7 @@ const AnalysisTools = styled.aside<{ $analysis?: boolean }>`
 `;
 
 const AnalysisThemeSelect = styled.select`
-  width: 100%;
+  width: 132px;
   min-width: 0;
   padding: 6px 4px;
   border: 1px solid ${({ theme }) => theme.colors?.border || "#475569"};
@@ -319,11 +352,59 @@ const AnalysisThemeRow = styled.div`
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
-  width: 100%;
-  padding: 12px 8px 6px;
-  border-top: 0;
-  background: ${({ theme }) => theme.colors?.surface || "#212121"};
+  width: auto;
+  padding: 0;
+  background: transparent;
   pointer-events: auto;
+`;
+
+const WaterfallHud = styled.header`
+  box-sizing: border-box;
+  flex: 0 0 72px;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 12px;
+  background: ${({ theme }) => theme.colors?.surface || "#212121"};
+  border-bottom: 1px solid ${({ theme }) => theme.colors?.border || "#475569"};
+`;
+
+const WaterfallHudTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+`;
+
+const WaterfallHudMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: ${({ theme }) => theme.colors?.textSecondary || "#94a3b8"};
+  font: 9px ${({ theme }) => theme.typography?.mono || "monospace"};
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+`;
+
+const WaterfallHudType = styled.span`
+  color: ${({ theme }) => theme.colors?.textPrimary || "#e2e8f0"};
+  white-space: nowrap;
+`;
+
+const WaterfallHudFft = styled.span`
+  white-space: nowrap;
+`;
+
+const WaterfallHudSnapshot = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 1px 0;
 `;
 
 const AnalysisThemeLabel = styled.span`
@@ -422,7 +503,8 @@ const AnalysisViewport = styled.div<{ $analysis?: boolean }>`
   min-height: 0;
   overflow: hidden;
   touch-action: none;
-  padding-top: ${({ $analysis }) => ($analysis ? "32px" : "24px")};
+  background: ${({ theme }) => theme.colors?.surface || "#212121"};
+  padding-top: 0;
 `;
 
 type BrushLine = {
@@ -500,12 +582,12 @@ export const normalizeSpectrumToBrushLine = (
 
 const BrushOverlay = styled.svg<{ $active: boolean }>`
   position: absolute;
-  /* The analysis title consumes 32px and the VFO is a fixed 56px row. Anchor
+  /* The HUD is outside the viewport and the VFO is a fixed 56px row. Anchor
    * the brush to the remaining
    * waterfall viewport with both top and bottom edges instead of combining a
    * top inset with a calculated height; the latter can be distorted by the
    * React Flow node's flex/grid sizing and makes the zoombox look squashed. */
-  inset: 88px 0 0;
+  inset: 56px 0 0;
   width: 100%;
   height: auto;
   z-index: 3;
@@ -527,8 +609,24 @@ const getIqMutationMarker = (iq: Uint8Array | null | undefined): string => {
   return `${iq.length}:${iq[0] ?? 0}:${middle}:${iq[iq.length - 1] ?? 0}`;
 };
 
-const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
+const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ id, data }) => {
   const dispatch = useAppDispatch();
+  const { persistedNodeData, persistNodeData } = usePersistDemodNodeData(
+    id,
+    "waterfall",
+    { fastSnapshotShowStats: data.fastSnapshotShowStats },
+  );
+  const waterfallCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waterfallOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const setWaterfallCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    waterfallCanvasRef.current = canvas;
+  }, []);
+  const setWaterfallOverlayCanvas = useCallback(
+    (canvas: HTMLCanvasElement | null) => {
+      waterfallOverlayCanvasRef.current = canvas;
+    },
+    [],
+  );
   const activeSourceId = useAppSelector(
     (state) => state.websocket.activeSourceId,
   );
@@ -546,11 +644,7 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   );
   const waterfallColormap =
     WATERFALL_COLORMAPS[waterfallTheme] ?? WATERFALL_COLORMAPS.classic;
-  const waterfallFftSize = useAppSelector((state) =>
-    data.sourceRole === "tx"
-      ? Math.min(state.spectrum.txViewerFftSize, MAX_WATERFALL_FFT_SIZE)
-      : FLOW_WATERFALL_FFT_SIZE,
-  );
+  const waterfallFftSize = FLOW_WATERFALL_FFT_SIZE;
   const roleSourceId = useAppSelector((state) => {
     const assignedSourceId =
       data.sourceRole && data.sourceBindingGroup
@@ -646,11 +740,20 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     (value: number) => formatDb(value, waterfallDbUnit),
     [waterfallDbUnit],
   );
-  const { processIqToDbmSpectrum } = useWasmSimdMath({
-    fftSize: waterfallFftSize,
-    enableSimd: true,
-    fallbackToScalar: true,
-  });
+  const waterfallSourceRef = useMemo(
+    () => (sourceMode === "file" ? fileFrameRuntime.ref : roleLiveFrameRef),
+    [roleLiveFrameRef, sourceMode],
+  );
+  const sharedWaterfallFeed = useMemo(
+    () =>
+      createWaterfallSourceFeed(
+        `${sourceMode}:${roleSourceId ?? "none"}:${data.sourceRole === "tx" ? "tx" : "active"}`,
+        waterfallSourceRef,
+        "level",
+        powerScale === "dBm" ? 30 : 0,
+      ),
+    [data.sourceRole, powerScale, roleSourceId, sourceMode, waterfallSourceRef],
+  );
 
   useEffect(() => {
     if (!data.analysisOptions) return;
@@ -661,7 +764,8 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     dispatch(setVizZoomFloorPan(0));
   }, [data.analysisOptions, dispatch]);
 
-  // Throttled data polling — waterfall scrolls visually so 8fps is smooth enough.
+  // Throttled data polling — frequency metadata and file-waveform playback use
+  // React state; the shared source buffer handles I/Q spectrum rows separately.
   const getCurrentFrame = useCallback(() => {
     const sourceRef =
       sourceMode === "file" ? fileFrameRuntime.ref : roleLiveFrameRef;
@@ -698,13 +802,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
         lastIqMutationMarkerRef.current = nextIqMutationMarker;
         lastTimestampRef.current = (next as any)?.timestamp;
         setLiveFrame(next);
-        // The stream may reuse and mutate its frame object. A revision update
-        // guarantees a render even when React sees the same object identity.
         setFrameRevision((revision) => revision + 1);
       }
-    }, 125); // 8fps — smooth waterfall scrolling
+    }, 125);
     return () => clearInterval(id);
-  }, [data.sourceRole, getCurrentFrame, sourceMode]);
+  }, [data.sourceRole, getCurrentFrame, roleSourceId, sourceMode]);
 
   useEffect(() => {
     const next = getCurrentFrame();
@@ -725,118 +827,28 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   }, [activeSourceId, roleSourceId, txViewerSampleRateHz, getCurrentFrame]);
 
   const waveform = useMemo(() => {
-    const fileWaveform =
-      sourceMode === "file" ? (liveFrame as any)?.waveform : null;
-    if (fileWaveform && fileWaveform.length > 0) return fileWaveform;
-
-    if (sourceMode === "live" && roleSourceId && data.sourceRole) {
-      const shared = sourceSpectrumRuntime.getSourceRef(roleSourceId).current;
-      if (shared?.spectrum?.length) return shared.spectrum;
-      // Role-bound live FFT nodes own the transform. Waiting for their first
-      // shared result is cheaper and safer than starting a second FFT here.
-      if (data.sourceRole) return null;
-    }
-    if (sourceMode === "live" && roleSourceId && !data.sourceRole) {
-      // The direct live feed below owns this transform and pushes rows without
-      // routing every frame through React.
-      return null;
-    }
-
-    const iq = (liveFrame as any)?.iq_data;
-    if (!iq || iq.length === 0) return null;
-    const spectrum = processIqToDbmSpectrum(
-      newestIqWindow(iq, waterfallFftSize),
-      0,
-      waterfallFftSize,
-    );
-    return spectrum;
-  }, [
-    frameRevision,
-    (liveFrame as any)?.iq_data,
-    (liveFrame as any)?.waveform,
-    processIqToDbmSpectrum,
-    sourceMode,
-    roleSourceId,
-    data.sourceRole,
-    waterfallFftSize,
-    txViewerSampleRateHz,
-  ]);
-  const displayWaveform = useMemo(() => {
-    return waveform;
-  }, [waveform]);
-  const liveWaveformFeed = useMemo(() => {
-    if (sourceMode !== "live" || !roleSourceId) {
-      return undefined;
-    }
-    if (!data.sourceRole) {
-      let cachedFrame: LiveFrameData | null = null;
-      let cachedIq: Uint8Array | null = null;
-      let cachedRevision = "";
-      let cachedSpectrum: Float32Array | null = null;
-      const readSpectrum = () => {
-        const frame = activeLiveFrameRef.current;
-        const iq = frame?.iq_data;
-        if (!frame || !iq?.length) return null;
-        const revision = `${frame.stream_epoch}:${frame.sequence}:${frame.timestamp ?? ""}:${getIqMutationMarker(iq)}`;
-        if (
-          frame === cachedFrame &&
-          iq === cachedIq &&
-          revision === cachedRevision
-        ) {
-          return cachedSpectrum;
-        }
-        const spectrum = processIqToDbmSpectrum(iq, 0, waterfallFftSize);
-        cachedFrame = frame;
-        cachedIq = iq;
-        cachedRevision = revision;
-        cachedSpectrum = spectrum;
-        return cachedSpectrum;
-      };
-      return {
-        getCurrent: readSpectrum,
-        subscribe: (listener: (waveform: Float32Array) => void) => {
-          let lastDeliveredSpectrum: Float32Array | null = null;
-          const emitLatest = () => {
-            const spectrum = readSpectrum();
-            if (spectrum?.length && spectrum !== lastDeliveredSpectrum) {
-              lastDeliveredSpectrum = spectrum;
-              listener(spectrum);
-            }
-          };
-          const unsubscribe = subscribeFrameArrivals(emitLatest);
-          return () => {
-            unsubscribe();
-          };
-        },
-      };
-    }
-    return {
-      getCurrent: () =>
-        sourceSpectrumRuntime.getSourceRef(roleSourceId).current?.spectrum ??
-        null,
-      subscribe: (listener: (waveform: Float32Array) => void) =>
-        sourceSpectrumRuntime.subscribe(roleSourceId, () => {
-          const spectrum =
-            sourceSpectrumRuntime.getSourceRef(roleSourceId).current?.spectrum;
-          if (spectrum?.length) listener(spectrum);
-        }),
-    };
-  }, [
-    data.sourceRole,
-    activeLiveFrameRef,
-    getCurrentFrame,
-    processIqToDbmSpectrum,
-    roleSourceId,
-    sourceMode,
-    waterfallFftSize,
-  ]);
+    const frame = liveFrame as
+      | (LiveFrameData & { waveform?: Float32Array | null })
+      | null;
+    if (frame?.iq_data?.length) return null;
+    const fileWaveform = sourceMode === "file" ? frame?.waveform : null;
+    return fileWaveform?.length ? fileWaveform : null;
+  }, [frameRevision, liveFrame, sourceMode]);
+  const displayWaveform = waveform;
+  const liveWaveformFeed =
+    sourceMode === "file" &&
+    !(liveFrame as LiveFrameData | null)?.iq_data?.length
+      ? undefined
+      : sharedWaterfallFeed;
 
   const filePlaceholderState = getFilePlaceholderState({
     sourceMode,
     selectedFilesCount: selectedFiles.length,
     stitchStatus,
     stitchState,
-    hasRenderableFrame: Boolean(waveform?.length),
+    hasRenderableFrame: Boolean(
+      waveform?.length || liveWaveformFeed?.getCurrent()?.length,
+    ),
   });
   const isPaused =
     isTxStandbyPreview ||
@@ -912,22 +924,25 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     vfoFrequency,
     setVfoFrequency,
     vfoFrequencyRange,
+    displayCenterFrequencyHz: vfoDisplayCenterFrequencyHz,
     visibleRange: zoomedFrequencyRange,
     isLocked: isVfoLocked,
     setIsLocked: setIsVfoLocked,
     isEditorOpen: showVfoEditor,
     setIsEditorOpen: setShowVfoEditor,
     cursorOffsetPx: vfoDragOffsetPx,
-    tuneVfo,
     viewportRef: vfoViewportRef,
     viewportHandlers: vfoViewportHandlers,
     vfoHandlers,
     resetUserTuning: resetVfoUserTuning,
+    tuneCenterFrequency,
   } = useVfoTuner({
     frequencyRange,
     allowNegativeFrequencies,
-    zoomPanEnabled: Boolean(data.analysisOptions),
+    zoomPanEnabled: true,
+    retuneWhenUnzoomed: true,
     sessionKey: waterfallSessionKey,
+    viewSyncKey: `${sourceMode}:${roleSourceId ?? "none"}${data.sourceRole === "tx" ? ":tx" : ""}`,
     vfoTestId: "waterfall-analysis-vfo",
     // A pinch over the viewport supersedes any in-flight brush stroke.
     onPinchStart: () => {
@@ -953,8 +968,6 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
   const brushDragRef = useRef<"draw" | "left" | "center" | "right" | null>(
     null,
   );
-  const brushLineRef = useRef<BrushLine | null>(null);
-  const normalizationEnabledRef = useRef(false);
   const brushOverlayRef = useRef<SVGSVGElement | null>(null);
   const [brushAspectRatio, setBrushAspectRatio] = useState(1);
   useEffect(() => {
@@ -1066,6 +1079,26 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     },
     [waterfallDbMin],
   );
+  const { snapshotControl } = useNodeFastSnapshot({
+    frequencyRange: data.analysisOptions
+      ? zoomedFrequencyRange
+      : frequencyRange,
+    dbMin: waterfallDbMin,
+    dbMax: waterfallDbMax,
+    powerScale,
+    waterfallScaleUnit: waterfallDbUnit,
+    spectrogramType: `Power / ${powerScale}`,
+    filenamePrefix: "waterfall",
+    sourceName: roleSourceDerived.deviceName || "SDR Device",
+    fftSize: waterfallFftSize,
+    isDeviceConnected: roleSourceDerived.deviceState === "connected",
+    fastSnapshotShowStats: persistedNodeData.fastSnapshotShowStats as
+      | boolean
+      | undefined,
+    persistNodeData,
+    waterfallCanvasRef,
+    waterfallOverlayCanvasRef,
+  });
   const stopNodeDrag = useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
@@ -1199,46 +1232,76 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
     setBrushFreehandPoints([]);
     setBrushLine(null);
   }, [isVfoLocked]);
-  useEffect(() => {
-    brushLineRef.current = brushLine;
-    normalizationEnabledRef.current = isNormalizationEnabled;
-  }, [brushLine, isNormalizationEnabled]);
   const transformWaveform = useCallback(
     (nextWaveform: Float32Array) => {
       // Spectrum FFT owns the |f| fold on the GPU. Never CPU-extend here —
       // the live waveform subscribe path was allocating a full mirrored row
       // every frame with the option on.
-      if (!brushLineRef.current || !normalizationEnabledRef.current) {
+      if (!brushLine || !isNormalizationEnabled) {
         return nextWaveform;
       }
       return normalizeSpectrumToBrushLine(
         nextWaveform,
-        brushLineRef.current,
+        brushLine,
         fftMinDb,
         fftMaxDb,
       );
     },
-    [fftMaxDb, fftMinDb],
+    [brushLine, fftMaxDb, fftMinDb, isNormalizationEnabled],
   );
-  const transformedDisplayWaveform = useMemo(
+  const accretiveTransformRef = useRef<
+    (row: Float32Array, frame?: WaterfallSourceFrame) => Float32Array
+  >((row) => row);
+  accretiveTransformRef.current = (row, frame) => {
+    const frameSpan =
+      frame?.sampleRateHz ?? vfoFrequencyRange.max - vfoFrequencyRange.min;
+    const frameCenter =
+      frame?.centerFrequencyHz ??
+      (vfoFrequencyRange.min + vfoFrequencyRange.max) / 2;
+    const viewSpan = zoomedFrequencyRange.max - zoomedFrequencyRange.min;
+    const viewCenter =
+      (zoomedFrequencyRange.min + zoomedFrequencyRange.max) / 2;
+    return cropAccretiveWaterfallRow(
+      transformWaveform(row),
+      frameSpan / Math.max(1, viewSpan),
+      viewCenter - frameCenter,
+      frameSpan,
+    );
+  };
+  const transformedDisplayWaveform = displayWaveform
+    ? data.analysisOptions
+      ? transformWaveform(displayWaveform)
+      : accretiveTransformRef.current(displayWaveform)
+    : displayWaveform;
+  const accretiveFeed = useMemo(
     () =>
-      displayWaveform ? transformWaveform(displayWaveform) : displayWaveform,
-    [displayWaveform, transformWaveform],
+      liveWaveformFeed
+        ? createAccretiveWaterfallFeed(liveWaveformFeed, (row, frame) =>
+            accretiveTransformRef.current(row, frame),
+          )
+        : undefined,
+    [liveWaveformFeed],
   );
   const transformedWaveformFeed = useMemo(() => {
+    if (!data.analysisOptions) return accretiveFeed;
     if (!liveWaveformFeed) return liveWaveformFeed;
     return {
+      replayHistory: liveWaveformFeed.replayHistory,
       getCurrent: () => {
         const current = liveWaveformFeed.getCurrent();
-        return current ? transformWaveform(current) : new Float32Array(0);
+        return current ? transformWaveform(current) : null;
       },
       subscribe: (listener: (nextWaveform: Float32Array) => void) =>
         liveWaveformFeed.subscribe((nextWaveform: Float32Array) =>
           listener(transformWaveform(nextWaveform)),
         ),
     };
-  }, [liveWaveformFeed, transformWaveform]);
-  const displayFrequencyRange = useMemo(() => frequencyRange, [frequencyRange]);
+  }, [
+    accretiveFeed,
+    data.analysisOptions,
+    liveWaveformFeed,
+    transformWaveform,
+  ]);
   const displayZoomedFrequencyRange = useMemo(
     () => zoomedFrequencyRange,
     [zoomedFrequencyRange],
@@ -1251,14 +1314,66 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
       data-iq-length={liveFrame?.iq_data?.length ?? 0}
       data-waveform-length={waveform?.length ?? 0}
     >
-      <NodeTitle
-        $analysis={data.analysisOptions}
-        className={data.analysisOptions ? "drag-handle" : undefined}
-      >
-        {data.label}
-      </NodeTitle>
       <CanvasContainer $analysis={data.analysisOptions}>
-        <AnalysisLayout>
+        <WaterfallHud data-testid="waterfall-node-hud">
+          <WaterfallHudTop>
+            <NodeTitle
+              $analysis={data.analysisOptions}
+              className={data.analysisOptions ? "drag-handle" : undefined}
+            >
+              {data.label}
+            </NodeTitle>
+            <WaterfallHudMeta>
+              <WaterfallHudType>
+                Spectrogram Type: Power / {powerScale}
+              </WaterfallHudType>
+              <WaterfallHudFft>FFT SIZE: {waterfallFftSize}</WaterfallHudFft>
+              {!data.analysisOptions && (
+                <WaterfallHudFft>
+                  ZOOM: {waterfallZoom.toFixed(1)}x
+                </WaterfallHudFft>
+              )}
+              <WaterfallHudFft>
+                SPAN:{" "}
+                {formatWaterfallSpan(
+                  zoomedFrequencyRange.max - zoomedFrequencyRange.min,
+                )}
+              </WaterfallHudFft>
+            </WaterfallHudMeta>
+            {data.analysisOptions && (
+              <AnalysisThemeRow
+                className="nodrag nopan"
+                data-testid="waterfall-analysis-theme-row"
+                onMouseDown={stopNodeDrag}
+                onPointerDown={stopNodeDrag}
+              >
+                <AnalysisThemeLabel>Theme</AnalysisThemeLabel>
+                <AnalysisThemeSelect
+                  aria-label="Waterfall theme"
+                  value={waterfallTheme}
+                  onChange={(event) =>
+                    dispatch(setWaterfallTheme(event.target.value))
+                  }
+                >
+                  {Object.keys(WATERFALL_COLORMAPS).map((themeId) => (
+                    <option key={themeId} value={themeId}>
+                      {themeId.charAt(0).toUpperCase() +
+                        themeId.slice(1).replace("_", " ")}
+                    </option>
+                  ))}
+                </AnalysisThemeSelect>
+              </AnalysisThemeRow>
+            )}
+          </WaterfallHudTop>
+          <WaterfallHudSnapshot
+            className="nodrag nopan"
+            onMouseDown={stopNodeDrag}
+            onPointerDown={stopNodeDrag}
+          >
+            {snapshotControl}
+          </WaterfallHudSnapshot>
+        </WaterfallHud>
+        <AnalysisLayout $analysis={data.analysisOptions}>
           <AnalysisViewport
             ref={vfoViewportRef}
             $analysis={data.analysisOptions}
@@ -1273,15 +1388,19 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
                   visualState="compact"
                   drawingType="dom"
                   orientation="top"
-                  frequencyRange={displayFrequencyRange}
-                  centerFrequencyHz={
-                    (frequencyRange.min + frequencyRange.max) / 2
-                  }
+                  frequencyRange={displayZoomedFrequencyRange}
+                  centerFrequencyHz={getWaterfallVfoDisplayFrequency({
+                    hardwareCenterHz: vfoFrequency,
+                    visibleRange: zoomedFrequencyRange,
+                  })}
                   style={{ height: 56, flex: "0 0 56px" }}
                   data-testid="waterfall-node-mini-vfo"
                   data-position="top"
                 />
               )}
+            {!data.analysisOptions && !(data.showMiniVfo ?? true) && (
+              <StandaloneHiddenVfoSpacer aria-hidden="true" />
+            )}
             {data.analysisOptions && (
               <Vfo
                 visualState="compact"
@@ -1311,11 +1430,16 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
               />
             )}
             <FIFOWaterfall
-              key={waterfallSessionKey}
-              width={640}
-              height={220}
-              waveform={transformedDisplayWaveform}
+              key={`${waterfallSessionKey}:${waterfallDbMin}:${waterfallDbMax}:${waterfallTheme}:${binSubset.mode}:${binSubset.parity}`}
+              width={WATERFALL_NODE_WIDTH - WATERFALL_CONTROL_RAIL_WIDTH}
+              height={WATERFALL_NODE_HEIGHT}
+              waveform={
+                transformedWaveformFeed?.getCurrent() ??
+                transformedDisplayWaveform
+              }
               waveformFeed={transformedWaveformFeed}
+              onWaterfallCanvasReady={setWaterfallCanvas}
+              onPatternOverlayCanvasReady={setWaterfallOverlayCanvas}
               frequencyRange={zoomedFrequencyRange}
               fftMin={waterfallDbMin}
               fftMax={waterfallDbMax}
@@ -1474,12 +1598,11 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
             )}
             {data.analysisOptions && showVfoEditor && !isVfoLocked && (
               <EditableCenterFrequency
-                centerFrequencyHz={vfoFrequency}
-                onCenterFrequencyChange={tuneVfo}
+                centerFrequencyHz={vfoDisplayCenterFrequencyHz}
+                onCenterFrequencyChange={tuneCenterFrequency}
                 onClose={() => setShowVfoEditor(false)}
                 placement="top"
                 allowNegativeFrequencies={allowNegativeFrequencies}
-                windowSpanHz={frequencyRange.max - frequencyRange.min}
               />
             )}
           </AnalysisViewport>
@@ -1653,42 +1776,26 @@ const WaterfallNodeComponent: React.FC<WaterfallNodeProps> = ({ data }) => {
             )}
           </AnalysisTools>
         </AnalysisLayout>
-        {data.showMiniVfo && data.miniVfoPosition === "bottom" && (
-          <Vfo
-            visualState="compact"
-            drawingType="dom"
-            orientation="bottom"
-            frequencyRange={displayFrequencyRange}
-            centerFrequencyHz={(frequencyRange.min + frequencyRange.max) / 2}
-            style={{ height: 56, flex: "0 0 56px" }}
-            data-testid="waterfall-node-mini-vfo"
-            data-position="bottom"
-          />
-        )}
-        {data.analysisOptions && (
-          <AnalysisThemeRow
-            className="nodrag nopan"
-            data-testid="waterfall-analysis-theme-row"
-            onMouseDown={stopNodeDrag}
-            onPointerDown={stopNodeDrag}
-          >
-            <AnalysisThemeLabel>Waterfall</AnalysisThemeLabel>
-            <AnalysisThemeSelect
-              aria-label="Waterfall theme"
-              value={waterfallTheme}
-              onChange={(event) =>
-                dispatch(setWaterfallTheme(event.target.value))
-              }
-            >
-              {Object.keys(WATERFALL_COLORMAPS).map((themeId) => (
-                <option key={themeId} value={themeId}>
-                  {themeId.charAt(0).toUpperCase() +
-                    themeId.slice(1).replace("_", " ")}
-                </option>
-              ))}
-            </AnalysisThemeSelect>
-          </AnalysisThemeRow>
-        )}
+        {!data.analysisOptions &&
+          data.showMiniVfo &&
+          data.miniVfoPosition === "bottom" && (
+            <StandaloneBottomVfoRow>
+              <Vfo
+                visualState="compact"
+                drawingType="dom"
+                orientation="bottom"
+                frequencyRange={displayZoomedFrequencyRange}
+                centerFrequencyHz={getWaterfallVfoDisplayFrequency({
+                  hardwareCenterHz: vfoFrequency,
+                  visibleRange: zoomedFrequencyRange,
+                })}
+                style={{ height: 56, flex: "0 0 56px" }}
+                data-testid="waterfall-node-mini-vfo"
+                data-position="bottom"
+              />
+              <div aria-hidden="true" />
+            </StandaloneBottomVfoRow>
+          )}
       </CanvasContainer>
     </NodeWrapper>
   );

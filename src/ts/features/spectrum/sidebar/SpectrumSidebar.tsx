@@ -2330,7 +2330,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           label: isTxPreviewing ? "standby" : (source.status ?? undefined),
           paused: isPaused,
           loading:
-            source.status === "loading" || source.status === "initializing",
+            isLoading,
           loadingLabel:
             source.status === "initializing"
               ? `Initializing ${source.name}…`

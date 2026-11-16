@@ -86,7 +86,7 @@ import {
   resolveDemodSourceRange,
   syncDemodSpanFromSourceContext,
 } from "@n-apt/redux/thunks/demodThunks";
-import { resolveDemodChannelSelectionAndRange } from "@n-apt/demodulation/channelPrerequisites";
+import { useInitialDemodTune } from "@n-apt/demodulation/context/useInitialDemodTune";
 import {
   Node,
   Edge,
@@ -389,11 +389,6 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
   const [visionPreset, setVisionPreset] = useState<VisionPreset>("Red");
   const [selectedAlgorithm, setSelectedAlgorithm] =
     useState<DemodAlgorithm>("fm");
-  const initialDemodTuneAppliedRef = useRef(false);
-  const initialDemodTuneTargetRef = useRef<{
-    channelLabel: string;
-    range: { min: number; max: number };
-  } | null>(null);
   const { state, wsConnection, effectiveFrames, effectiveSdrSettings } =
     useSpectrumStore();
   const { sendCaptureCommand } = wsConnection;
@@ -458,86 +453,34 @@ export const DemodProvider: React.FC<{ children: React.ReactNode }> = ({
       });
   }, [effectiveFrames]);
 
-  // The reference-capture route starts at Channel A's lower edge. Keep the
-  // displayed range and the receiver's acquisition window in sync; a persisted
-  // channel highlight can otherwise survive while the hardware remains at 0 Hz.
-  useEffect(() => {
-    if (
-      !isConnected ||
-      !activeSourceId ||
-      state.sourceMode !== "live" ||
-      demodRouteChannels.length === 0
-    ) {
-      return;
-    }
-    const sampleRateHz = Math.min(
+  const applyInitialDemodTune = useCallback(
+    ({
+      channelLabel,
+      range,
+    }: {
+      channelLabel: string;
+      range: { min: number; max: number };
+    }) => {
+      reduxDispatch(setSignalAreaAndRange({ area: channelLabel, range }));
+      wsConnection.sendFrequencyRange(range);
+    },
+    [reduxDispatch, wsConnection.sendFrequencyRange],
+  );
+  useInitialDemodTune({
+    isConnected,
+    activeSourceId,
+    sourceMode: state.sourceMode,
+    channels: demodRouteChannels,
+    sampleRateHz: Math.min(
       AUDIO_SURVEY_SAMPLE_RATE_HZ,
       Number.isFinite(state.sampleRateHz) && state.sampleRateHz > 0
         ? state.sampleRateHz
         : AUDIO_SURVEY_SAMPLE_RATE_HZ,
-    );
-    let resolved = initialDemodTuneTargetRef.current;
-    if (!initialDemodTuneAppliedRef.current && !resolved) {
-      resolved = resolveDemodChannelSelectionAndRange(
-        "A",
-        null,
-        demodRouteChannels,
-        sampleRateHz,
-      );
-      if (!resolved) return;
-      initialDemodTuneTargetRef.current = resolved;
-    }
-    if (!resolved) {
-      resolved = resolveDemodChannelSelectionAndRange(
-        activeSignalArea,
-        reduxFrequencyRange,
-        demodRouteChannels,
-        sampleRateHz,
-      );
-    }
-    if (!resolved) return;
-    const routeIsAtResolvedRange =
-      activeSignalArea?.trim().toUpperCase() === resolved.channelLabel &&
-      resolved.range.min === reduxFrequencyRange?.min &&
-      resolved.range.max === reduxFrequencyRange?.max;
-    if (initialDemodTuneTargetRef.current && !initialDemodTuneAppliedRef.current) {
-      if (!routeIsAtResolvedRange) {
-        reduxDispatch(
-          setSignalAreaAndRange({
-            area: resolved.channelLabel,
-            range: resolved.range,
-          }),
-        );
-        wsConnection.sendFrequencyRange(resolved.range);
-        return;
-      }
-      initialDemodTuneAppliedRef.current = true;
-      initialDemodTuneTargetRef.current = null;
-      return;
-    }
-    if (
-      routeIsAtResolvedRange
-    ) {
-      return;
-    }
-    reduxDispatch(
-      setSignalAreaAndRange({
-        area: resolved.channelLabel,
-        range: resolved.range,
-      }),
-    );
-    wsConnection.sendFrequencyRange(resolved.range);
-  }, [
+    ),
     activeSignalArea,
-    activeSourceId,
-    isConnected,
-    reduxDispatch,
-    reduxFrequencyRange,
-    state.sampleRateHz,
-    state.sourceMode,
-    demodRouteChannels,
-    wsConnection.sendFrequencyRange,
-  ]);
+    frequencyRange: reduxFrequencyRange,
+    onTune: applyInitialDemodTune,
+  });
   const [audioSurveyJob, setAudioSurveyJob] = useState<SurveyJobState | null>(
     null,
   );

@@ -760,6 +760,7 @@ export function buildSnapshotStatsLines(metadata: SnapshotMetadata): string[] {
   const ppm = metadata.ppm;
   const gainLabel = metadata.gain_label;
   const modeLabel = metadata.mode_label;
+  const spectrogramType = metadata.spectrogram_type;
   const activeSignalAreaBounds = metadata.active_signal_area_bounds;
   const signalAreaBounds = metadata.signal_area_bounds as SignalAreaBounds | null | undefined;
   const hardwareSampleRateHz = metadata.hardware_sample_rate_hz;
@@ -850,6 +851,10 @@ export function buildSnapshotStatsLines(metadata: SnapshotMetadata): string[] {
 
   if (showGeolocation && geolocation) {
     lines.push(formatSnapshotLocationLine(geolocation, locationLabel));
+  }
+
+  if (spectrogramType) {
+    lines.push(`Spectrogram Type: ${spectrogramType}`);
   }
 
   return lines;
@@ -3005,6 +3010,9 @@ export function buildFastWaterfallCanvas(
     gain?: number;
     ppm?: number;
     fftSize?: number | string;
+    spectrogramType?: string;
+    preserveWaterfallEdges?: boolean;
+    waterfallPlotInsets?: { left?: number; right?: number };
     aspectRatio?: SnapshotAspectRatio;
     scratch?: FastFrameScratch | null;
   },
@@ -3053,6 +3061,7 @@ export function buildFastWaterfallCanvas(
           gain: options?.gain,
           ppm: options?.ppm,
           gain_label: options?.sdrSettingsLabel,
+          spectrogram_type: options?.spectrogramType,
           show_geolocation: options?.showGeolocation ?? false,
           geolocation: options?.geolocation
             ? {
@@ -3069,6 +3078,7 @@ export function buildFastWaterfallCanvas(
     height,
     canvases,
     pool,
+    options?.preserveWaterfallEdges,
   );
 
   const composed = composeFrequencyAxis(
@@ -3076,6 +3086,7 @@ export function buildFastWaterfallCanvas(
     effectiveRange ?? { min: 0, max: 1 },
     fallbackAxisTheme,
     scratch,
+    options?.waterfallPlotInsets,
   );
 
   const statsRow = options?.showStats
@@ -3155,6 +3166,7 @@ function renderFastWaterfallBase(
     | null
     | undefined,
   pool: ScratchCanvasPool | null,
+  preserveWaterfallEdges = false,
 ): HTMLCanvasElement | null {
   const liveGpu = canvases?.waterfallGpu;
   const hasCapturedTexture = hasCapturedWaterfallData(snapshotData);
@@ -3181,11 +3193,13 @@ function renderFastWaterfallBase(
         ctx.drawImage(canvases.waterfallOverlay, 0, 0);
         ctx.restore();
       }
-      return cropCanvasVerticalInset(
-        liveCanvas,
-        Math.round(8 * (window.devicePixelRatio || 1)),
-        pool,
-      );
+      return preserveWaterfallEdges
+        ? liveCanvas
+        : cropCanvasVerticalInset(
+            liveCanvas,
+            Math.round(8 * (window.devicePixelRatio || 1)),
+            pool,
+          );
     }
   }
 
@@ -3210,13 +3224,18 @@ function composeFrequencyAxis(
   frequencyRange: { min: number; max: number },
   axisTheme: FrequencyAxisTheme,
   scratch: FastFrameScratch | null,
+  plotInsets: { left?: number; right?: number } = { left: 40, right: 40 },
 ): HTMLCanvasElement {
   const centerFrequencyHz = calculateCenterFrequency(frequencyRange);
+  const resolvedPlotInsets = {
+    left: plotInsets.left ?? 40,
+    right: plotInsets.right ?? 40,
+  };
   const axisOptions = {
     frequencyRange,
     centerFrequencyHz,
     detail: "dense" as const,
-    plotInsets: { left: 40, right: 40 },
+    plotInsets: resolvedPlotInsets,
     showBorder: false,
     tickDirection: "down" as const,
     theme: axisTheme,
@@ -3235,6 +3254,8 @@ function composeFrequencyAxis(
     frequencyRange.min,
     frequencyRange.max,
     centerFrequencyHz ?? "",
+    resolvedPlotInsets.left,
+    resolvedPlotInsets.right,
     axisTheme.background,
     axisTheme.center,
     axisTheme.label,
@@ -3399,6 +3420,12 @@ type FastRecordingOptions = {
   gain?: number;
   ppm?: number;
   fftSize?: number | string;
+  spectrogramType?: string;
+  waterfallScaleUnit?: string;
+  preserveWaterfallEdges?: boolean;
+  waterfallPlotInsets?: { left?: number; right?: number };
+  getSpectrogramType?: () => string | undefined;
+  getWaterfallScaleUnit?: () => string | undefined;
   getSdrSettingsLabel?: () => string | undefined;
   getSourceName?: () => string | undefined;
 };
@@ -3427,10 +3454,15 @@ export function pinFastRecordingOptions(
     sdrSettingsLabel:
       options.getSdrSettingsLabel?.() ?? options.sdrSettingsLabel,
     sourceName: options.getSourceName?.() ?? options.sourceName,
+    spectrogramType: options.getSpectrogramType?.() ?? options.spectrogramType,
+    waterfallScaleUnit:
+      options.getWaterfallScaleUnit?.() ?? options.waterfallScaleUnit,
     getActiveSignalArea: undefined,
     getActiveSignalAreaBounds: undefined,
     getSdrSettingsLabel: undefined,
     getSourceName: undefined,
+    getSpectrogramType: undefined,
+    getWaterfallScaleUnit: undefined,
   };
 }
 
@@ -3447,6 +3479,9 @@ function composeFastWaterfallWithDbAxis(
   requestedHeight: number,
   canvases: FastCanvases | null | undefined,
   theme: { background: string; grid: string; text: string },
+  scaleUnit?: string,
+  preserveWaterfallEdges = false,
+  plotInsets: { left?: number; right?: number } = { left: 40, right: 40 },
 ): HTMLCanvasElement {
   const dpr = window.devicePixelRatio || 1;
   const hasCapturedWaterfall = hasCapturedWaterfallData(snapshotData);
@@ -3456,15 +3491,16 @@ function composeFastWaterfallWithDbAxis(
     | undefined;
   const liveWaterfallSource =
     liveWaterfallCanvas?._lastFrameCanvas ?? liveWaterfallCanvas;
-  const liveInset = liveWaterfallSource
-    ? Math.max(
-        0,
-        Math.min(
-          Math.round(8 * dpr),
-          Math.floor(liveWaterfallSource.height / 2),
-        ),
-      )
-    : 0;
+  const liveInset =
+    liveWaterfallSource && !preserveWaterfallEdges
+      ? Math.max(
+          0,
+          Math.min(
+            Math.round(8 * dpr),
+            Math.floor(liveWaterfallSource.height / 2),
+          ),
+        )
+      : 0;
   const baseHeightBeforeCrop = liveWaterfallSource?.height ?? requestedHeight;
   const baseWaterfallHeight =
     liveWaterfallSource &&
@@ -3494,11 +3530,11 @@ function composeFastWaterfallWithDbAxis(
     waterfallCanvas,
     dbMin: snapshotData.dbMin,
     dbMax: snapshotData.dbMax,
-    unit: snapshotData.powerScale ?? "dB",
+    unit: scaleUnit ?? snapshotData.powerScale ?? "dB",
     devicePixelRatio: dpr,
     plotInsets: {
-      left: Math.round(40 * dpr),
-      right: Math.round(40 * dpr),
+      left: Math.round((plotInsets.left ?? 0) * dpr),
+      right: Math.round((plotInsets.right ?? 0) * dpr),
       top: statsRowHeight + waterfallAxisHeight,
     },
     uncroppedHeaderHeight: statsRowHeight,
@@ -3619,6 +3655,10 @@ export function useSnapshot(
         gain?: number;
         ppm?: number;
         fftSize?: number | string;
+        spectrogramType?: string;
+        waterfallScaleUnit?: string;
+        preserveWaterfallEdges?: boolean;
+        waterfallPlotInsets?: { left?: number; right?: number };
         aspectRatio?: SnapshotAspectRatio;
         scratch?: FastFrameScratch | null;
       },
@@ -3670,6 +3710,9 @@ export function useSnapshot(
           grid: staticThemeColors.waterfallGrid,
           text: staticThemeColors.waterfallText,
         },
+        options?.waterfallScaleUnit,
+        options?.preserveWaterfallEdges,
+        options?.waterfallPlotInsets,
       );
     },
     [frequencyRange, staticThemeColors],
@@ -4365,7 +4408,7 @@ export function useSnapshot(
                 options.activeSignalAreaBounds ?? null,
                 options.activeSignalArea,
               );
-              // Inline the spectrum parts so the composed root has a single
+                  // Inline the spectrum parts so the composed root has a single
               // <svg> element; sections after a nested </svg> are dropped
               // by sanitization.
               spectrumSvg =
@@ -4591,7 +4634,7 @@ export function useSnapshot(
                     options.activeSignalAreaBounds ?? null,
                     options.activeSignalArea,
                   );
-                  // Inline the spectrum parts so the composed root has a single
+              // Inline the spectrum parts so the composed root has a single
               // <svg> element; sections after a nested </svg> are dropped
               // by sanitization.
               spectrumSvg =
@@ -5075,6 +5118,10 @@ export function useSnapshot(
           gain: pinnedOptions.gain,
           ppm: pinnedOptions.ppm,
           fftSize: minFftSize || undefined,
+          spectrogramType: pinnedOptions.spectrogramType,
+          waterfallScaleUnit: pinnedOptions.waterfallScaleUnit,
+          preserveWaterfallEdges: pinnedOptions.preserveWaterfallEdges,
+          waterfallPlotInsets: pinnedOptions.waterfallPlotInsets,
           scratch,
         },
       );
@@ -5219,6 +5266,10 @@ export function useSnapshot(
                 gain: pinnedOptions.gain,
                 ppm: pinnedOptions.ppm,
                 fftSize: fftSizeToReport,
+                spectrogramType: pinnedOptions.spectrogramType,
+                waterfallScaleUnit: pinnedOptions.waterfallScaleUnit,
+                preserveWaterfallEdges: pinnedOptions.preserveWaterfallEdges,
+                waterfallPlotInsets: pinnedOptions.waterfallPlotInsets,
                 scratch,
               },
             ),
@@ -5341,6 +5392,11 @@ export function useSnapshot(
         gain?: number;
         ppm?: number;
         fftSize?: number | string;
+        spectrogramType?: string;
+        waterfallScaleUnit?: string;
+        preserveWaterfallEdges?: boolean;
+        waterfallPlotInsets?: { left?: number; right?: number };
+        filenamePrefix?: string;
         aspectRatio?: SnapshotAspectRatio;
       },
     ) => {
@@ -5394,11 +5450,17 @@ export function useSnapshot(
             grid: staticThemeColors.waterfallGrid,
             text: staticThemeColors.waterfallText,
           },
+          options?.waterfallScaleUnit,
+          options?.preserveWaterfallEdges,
+          options?.waterfallPlotInsets,
         );
       };
 
       const filenamePrefix =
-        target === "spectrum" ? "fast-fft-snapshot" : "fast-waterfall-snapshot";
+        options?.filenamePrefix ??
+        (target === "spectrum"
+          ? "fast-fft-snapshot"
+          : "fast-waterfall-snapshot");
 
       await handleSnapshot({
         whole: false,

@@ -148,6 +148,11 @@ export const LazyPhaseWaterfallNode = React.lazy(() =>
     (m) => ({ default: m.PhaseWaterfallNode }),
   ),
 );
+export const LazyAmplitudeWaterfallNode = React.lazy(() =>
+  import("@n-apt/demodulation/react-flow/nodes/AmplitudeWaterfallNode").then(
+    (m) => ({ default: m.AmplitudeWaterfallNode }),
+  ),
+);
 
 interface DemodNodeRegistryEntry {
   flag: string;
