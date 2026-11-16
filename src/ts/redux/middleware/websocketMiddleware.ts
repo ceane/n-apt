@@ -83,7 +83,10 @@ import {
   notifyRawIqFrameArrival,
 } from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
 import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
-import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import {
+  isRtlSdrDevice,
+  MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { CLIENT_ORIGIN_ID } from "../clientOrigin";
 import { resolveMockTxTransmitViewCenterHz } from "@n-apt/transmit/public/txSliderPlacement";
 
@@ -204,6 +207,13 @@ export const resolveManagedRxDeviceOptionUpdates = ({
   const websocketState = rootState.websocket ?? rootState;
   const spectrumState = rootState.spectrum ?? websocketState.spectrum ?? {};
   const currentSources: SourceInfo[] = websocketState.sources ?? [];
+  const sourceForPpm = currentSources.find((source) => source.id === sourceId);
+  const keepAppPpm =
+    spectrumState.useAppPpmCorrection === true &&
+    isRtlSdrDevice({
+      deviceKind: sourceForPpm?.kind,
+      deviceName: sourceForPpm?.name,
+    });
   const nextSources = currentSources.map((source) =>
     source.id === sourceId
       ? {
@@ -335,7 +345,10 @@ export const resolveManagedRxDeviceOptionUpdates = ({
       ...(typeof options.hackrfAmpEnable === "boolean"
         ? { hackrfAmpEnabled: options.hackrfAmpEnable }
         : {}),
-      ...(typeof options.ppm === "number" ? { ppm: options.ppm } : {}),
+      ...(typeof options.ppm === "number" &&
+      !keepAppPpm
+        ? { ppm: options.ppm }
+        : {}),
       ...(typeof options.tunerAgc === "boolean"
         ? { tunerAGC: options.tunerAgc }
         : {}),
