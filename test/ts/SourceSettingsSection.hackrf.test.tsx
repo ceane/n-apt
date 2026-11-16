@@ -53,7 +53,10 @@ describe("SourceSettingsSection HackRF controls", () => {
     const appCorrectionRow = within(ppmGroup).getByTestId("ppm-mode-row");
     expect(ppmGroup).toHaveStyle({ width: "100%" });
     expect(ppmInputRow).toHaveStyle({ paddingLeft: "10px" });
-    expect(appCorrectionRow).toHaveStyle({ paddingLeft: "34px" });
+    expect(appCorrectionRow).toHaveStyle({
+      paddingLeft: "34px",
+      paddingRight: "10px",
+    });
     const ppmInput = within(ppmInputRow).getByRole("spinbutton");
     expect(ppmInput).toHaveValue(0);
     expect(

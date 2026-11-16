@@ -114,8 +114,20 @@ const PpmSettingRow = styled.div`
 `;
 
 const AppPpmSettingRow = styled(PpmSettingRow)`
-  padding-right: 34px;
+  position: relative;
   padding-left: 34px;
+  padding-right: 10px;
+
+  &::before {
+    position: absolute;
+    top: 7px;
+    bottom: 7px;
+    left: 18px;
+    width: 2px;
+    border-radius: 1px;
+    background-color: ${(props) => props.theme.borderHover};
+    content: "";
+  }
 `;
 
 const PpmSettingLabel = styled.div`
