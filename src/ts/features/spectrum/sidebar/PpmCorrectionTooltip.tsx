@@ -221,6 +221,20 @@ function drawDiagram(canvas: HTMLCanvasElement, time: number) {
     ctx.fillStyle = peak > 0.45 ? green : accent;
     ctx.fillRect(x, baseY - barHeight, barW, barHeight);
   }
+
+  // A schematic marker identifies the corrected-frequency location.
+  const correctedX = plotX + 5 + bins * 0.61 * (barW + barGap);
+  ctx.strokeStyle = "#ffc857";
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([1, 2]);
+  ctx.beginPath();
+  ctx.moveTo(correctedX, fftY + 3);
+  ctx.lineTo(correctedX, baseY + 1);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#ffc857";
+  ctx.font = "6px system-ui, sans-serif";
+  ctx.fillText("corrected · 1 ppm @ 40.2 MHz = +40.2 Hz", plotX, panelY + panelH - 4);
 }
 
 export const PpmCorrectionTooltipContent: React.FC = () => {
@@ -250,7 +264,7 @@ export const PpmCorrectionTooltipContent: React.FC = () => {
       <Diagram
         ref={canvasRef}
         role="img"
-        aria-label="Looping two-column illustration: A shows RF passing through the RTL-SDR tuner and RTL2832U hardware PPM correction; B shows an imaginary Q trace followed by magnitude FFT computed from I and Q"
+        aria-label="Looping two-column illustration: A shows RF passing through the RTL-SDR tuner and RTL2832U hardware PPM correction; B shows an imaginary Q trace and magnitude FFT from I and Q with a dotted corrected-frequency marker. Example: 1 ppm at 40.2 MHz equals 40.2 Hz."
       />
       <Status>Signal analysis not decrypted.</Status>
       <Placeholder>
