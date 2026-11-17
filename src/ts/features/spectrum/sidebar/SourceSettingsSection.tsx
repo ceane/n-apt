@@ -3,9 +3,9 @@ import styled from "styled-components";
 import { Row } from "@n-apt/ui";
 import { FrequencyInput } from "@n-apt/ui/FrequencyInput";
 import { Tooltip } from "@n-apt/ui/Tooltip";
+import { PpmCorrectionTooltipContent } from "./PpmCorrectionTooltip";
 import {
   ArrowBigUp,
-  Info,
   Pipette,
   SlidersVertical,
   TriangleAlert,
@@ -17,7 +17,6 @@ import {
   CheckboxSwitchSlider as ToggleSwitchSlider,
   IconLabel,
 } from "@n-apt/ui/SidebarPrimitives";
-import { isRtlSdrDevice } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 const SectionTitle = styled.div`
   font-size: 11px;
@@ -76,75 +75,6 @@ const InputGroup = styled.div`
   grid-auto-flow: column;
   align-items: center;
   gap: 4px;
-`;
-
-const PpmSettingsGroup = styled.div`
-  display: grid;
-  grid-column: 1 / -1;
-  width: 100%;
-  overflow: hidden;
-  border-radius: 6px;
-  border: 1px solid
-    ${(props) =>
-      props.theme.mode === "light"
-        ? props.theme.borderHover
-        : props.theme.border};
-  background-color: ${(props) =>
-    props.theme.mode === "light"
-      ? props.theme.primaryAnchor
-      : props.theme.surface};
-`;
-
-const PpmSettingRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 37px;
-  padding: 7px 10px;
-  box-sizing: border-box;
-
-  &:not(:last-child) {
-    border-bottom: 1px solid
-      ${(props) =>
-        props.theme.mode === "light"
-          ? props.theme.borderHover
-          : props.theme.border};
-  }
-`;
-
-const AppPpmSettingRow = styled(PpmSettingRow)`
-  position: relative;
-  padding-left: 34px;
-  padding-right: 10px;
-
-  &::before {
-    position: absolute;
-    top: 7px;
-    bottom: 7px;
-    left: 18px;
-    width: 2px;
-    border-radius: 1px;
-    background-color: ${(props) => props.theme.borderHover};
-    content: "";
-  }
-`;
-
-const PpmSettingLabel = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: ${(props) => props.theme.textSecondary};
-  font-size: 11px;
-  line-height: 1.2;
-`;
-
-const PpmSettingControl = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
 `;
 
 const UnitLabel = styled.span`
@@ -334,11 +264,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   const showAmpWarning = gainOverLimit && hackrfAmpEnabled;
   const isRtlSdrLive =
     sourceMode === "live" &&
-    isRtlSdrDevice({
-      deviceKind: deviceType,
-      backend: deviceType,
-      deviceName: deviceType,
-    });
+    (deviceType === "rtl-sdr" || deviceType === "rtl_sdr");
   const basebandBandwidthVal = hackrfBasebandBandwidth ?? 0;
   const isHackrfBasebandEnabled = basebandBandwidthVal > 0;
   const autoBasebandBandwidth = Math.max(
@@ -533,63 +459,42 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
         <SlidersVertical size={14} />
         <SectionText>Source Settings</SectionText>
       </SectionTitle>
-      <PpmSettingsGroup role="group" aria-label="PPM correction settings">
-        <PpmSettingRow data-testid="ppm-value-row">
-          <PpmSettingLabel>
-            <Tooltip
-              title="PPM Correction"
-              content="Frequency alignment. Parts per million correction for precise tuning to signal frequencies."
-              trigger={
-                <IconLabel $inheritLineHeight icon={Pipette} text="PPM" />
+      <Row
+        label={<IconLabel $inheritLineHeight icon={Pipette} text="PPM" />}
+        tooltipTitle="PPM Correction"
+        tooltip={<PpmCorrectionTooltipContent />}
+      >
+        <NarrowSettingInput
+          type="number"
+          value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
+          onChange={(e) => handlePpmChange(e.target.value)}
+          onKeyDown={handlePpmKeyDown}
+          step="1"
+          min="0"
+        />
+      </Row>
+      {sourceMode === "live" && (
+        <Row
+          label="Use app frequency correction"
+          tooltipTitle="WebGPU PPM Correction"
+          tooltip={
+            "When enabled, WebGPU applies the PPM correction to IQ samples before the FFT and sends 0 PPM to the hardware. On RTL-SDR, turn this off to use librtlsdr's hardware frequency-correction API. Devices without hardware PPM support keep app correction enabled."
+          }
+        >
+          <ToggleSwitch $disabled={!isConnected || !isRtlSdrLive}>
+            <ToggleSwitchInput
+              type="checkbox"
+              checked={useAppPpmCorrection}
+              onChange={(e) =>
+                onUseAppPpmCorrectionChange?.(e.target.checked)
               }
+              disabled={!isConnected || !isRtlSdrLive}
+              aria-label="Use app frequency correction"
             />
-          </PpmSettingLabel>
-          <PpmSettingControl>
-            <NarrowSettingInput
-              type="number"
-              value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
-              onChange={(e) => handlePpmChange(e.target.value)}
-              onKeyDown={handlePpmKeyDown}
-              step="1"
-              min="0"
-              aria-label="PPM correction"
-            />
-            <UnitLabel>ppm</UnitLabel>
-          </PpmSettingControl>
-        </PpmSettingRow>
-        {sourceMode === "live" && (
-          <AppPpmSettingRow data-testid="ppm-mode-row">
-            <PpmSettingLabel>
-              App frequency correction
-              <Tooltip
-                title="App PPM Correction"
-                content={
-                  "When enabled, the app applies PPM correction to I/Q samples before the FFT and sends 0 PPM to the hardware. On RTL-SDR, turn this off to use librtlsdr's hardware frequency-correction API. Devices without hardware PPM support keep app correction enabled."
-                }
-                trigger={
-                  <Info aria-label="App PPM correction details" size={13} />
-                }
-              />
-            </PpmSettingLabel>
-            <PpmSettingControl>
-              <ToggleSwitch $disabled={!isConnected || !isRtlSdrLive}>
-                <ToggleSwitchInput
-                  type="checkbox"
-                  checked={useAppPpmCorrection}
-                  onChange={(e) =>
-                    onUseAppPpmCorrectionChange?.(e.target.checked)
-                  }
-                  disabled={!isConnected || !isRtlSdrLive}
-                  aria-label="Use app frequency correction"
-                />
-                <ToggleSwitchSlider
-                  $disabled={!isConnected || !isRtlSdrLive}
-                />
-              </ToggleSwitch>
-            </PpmSettingControl>
-          </AppPpmSettingRow>
-        )}
-      </PpmSettingsGroup>
+            <ToggleSwitchSlider $disabled={!isConnected || !isRtlSdrLive} />
+          </ToggleSwitch>
+        </Row>
+      )}
       {!isHackrfLive && (
         <Row
           label={<IconLabel $inheritLineHeight icon={ArrowBigUp} text="Gain" />}

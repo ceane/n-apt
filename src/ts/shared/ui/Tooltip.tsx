@@ -216,7 +216,7 @@ const PopoverText = styled.div`
 
 export interface TooltipProps {
   title?: string;
-  content: string;
+  content: React.ReactNode;
   /** Optional custom trigger element. Defaults to the InfoIcon ("i") button. */
   trigger?: React.ReactNode;
 }
@@ -367,12 +367,14 @@ export const Tooltip = ({
         >
           <PopoverTitle>{title}</PopoverTitle>
           <PopoverText>
-            {content.split(/<br\s*\/?>/gi).map((part, index) => (
-              <React.Fragment key={`${index}-${part}`}>
-                {index > 0 && <br />}
-                <span>{part}</span>
-              </React.Fragment>
-            ))}
+            {typeof content === "string"
+              ? content.split(/<br\s*\/?>/gi).map((part, index) => (
+                  <React.Fragment key={`${index}-${part}`}>
+                    {index > 0 && <br />}
+                    <span>{part}</span>
+                  </React.Fragment>
+                ))
+              : content}
           </PopoverText>
         </PopoverContent>,
         document.body,
