@@ -96,7 +96,7 @@ Run capture snapshot --help or capture iq --help for command-specific options.`,
 Options:
   --device auto|<device-id>      Select a source (default: auto)
   --interactive                  Prompt when multiple physical SDRs are connected
-  --frequency <Hz>               Tune the receiver before taking the snapshot
+  --frequency <Hz|+/-Hz>         Tune absolutely, or offset the current center
   --sample-rate <Hz>             Set receive sample rate (minimum 3200000 Hz)
   --waterfall                    Include waterfall history
   --dark                         Use dark mode (default: light)
@@ -132,7 +132,7 @@ Options:
   --allow-mutations              Required acknowledgement before capture starts
   --device auto|<device-id>      Select a source (default: auto)
   --interactive                  Prompt when multiple physical SDRs are connected
-  --center-frequency <Hz>        Target center; capture may retune the radio
+  --center-frequency <Hz|+/-Hz>  Target center; signed values offset current tuning
   --sample-rate <Hz>             Concrete sample rate applied and acknowledged
   --duration-mode timed|manual   Acquisition duration mode (default: timed)
   --duration <seconds>           Timed duration (default: 1)
