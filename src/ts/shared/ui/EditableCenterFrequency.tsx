@@ -173,6 +173,7 @@ export const EditableCenterFrequency: React.FC<
           <CenterFrequencyField
             valueHz={centerFrequencyHz}
             onChangeHz={commitCenterFrequency}
+            relativeToValueHz={centerFrequencyHz}
             minHz={minHz}
             maxHz={MAX_CENTER_FREQUENCY_HZ}
             placeholder="x.xxx.xxx"
