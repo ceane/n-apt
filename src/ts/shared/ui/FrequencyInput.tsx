@@ -210,7 +210,7 @@ export const isValidFrequencyDraftText = (text: string): boolean => {
   if (!spaceless) return true;
   const { head, suffix } = splitFrequencyDraft(spaceless);
   if (suffix && !resolveFrequencySuffixUnit(suffix)) return false;
-  if (head && !/^-?[\d.]*$/.test(head)) return false;
+  if (head && !/^[+-]?[\d.]*$/.test(head)) return false;
   return true;
 };
 
@@ -263,6 +263,8 @@ interface FrequencyInputProps {
   disabled?: boolean;
   className?: string;
   onMenuOpenChange?: (isOpen: boolean) => void;
+  /** Treat an explicitly signed draft as an offset from this value. */
+  relativeToValueHz?: number;
 }
 
 export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
@@ -283,6 +285,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     disabled,
     className,
     onMenuOpenChange,
+    relativeToValueHz,
   }) => {
     // Derive the initial display from the first rendered value.
     const initialScale = useMemo(
@@ -568,8 +571,16 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     };
 
     const resolveDraftHz = (): number | null => {
-      const parsed = parseFrequencyDraftHz(displayValue, displayUnit);
+      const isRelativeDraft = /^[+-]/.test(displayValue.trim());
+      const { suffix } = splitFrequencyDraft(displayValue);
+      const parsed = parseFrequencyDraftHz(
+        displayValue,
+        isRelativeDraft && !suffix ? "Hz" : displayUnit,
+      );
       if (!Number.isFinite(parsed)) return null;
+      if (typeof relativeToValueHz === "number" && isRelativeDraft) {
+        return relativeToValueHz + parsed;
+      }
       return parsed;
     };
 
