@@ -31,6 +31,37 @@ export interface NaptReceiveDefaults {
 export const CLI_CAPTURE_DEFAULT_FFT_SIZE = 65_536;
 
 /**
+ * Resolves a CLI center-frequency value. An explicit leading sign means an
+ * offset from the source's current center; an unsigned value is absolute Hz.
+ */
+export function resolveCliCenterFrequencyArgument(
+  rawValue: string | undefined,
+  currentCenterFrequencyHz: number | undefined,
+): number | undefined {
+  if (rawValue === undefined) return undefined;
+  const normalized = rawValue.trim().replace(/(?<=\d)_(?=\d)/g, "");
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) {
+    throw new Error("Center frequency must be a finite number in Hz");
+  }
+
+  const valueHz = Number(normalized);
+  const isOffset = /^[+-]/.test(normalized);
+  if (isOffset && !Number.isFinite(currentCenterFrequencyHz)) {
+    throw new Error(
+      "Current center frequency is unavailable for a signed offset",
+    );
+  }
+  const centerFrequencyHz = isOffset
+    ? (currentCenterFrequencyHz as number) + valueHz
+    : valueHz;
+  if (!Number.isFinite(centerFrequencyHz) || centerFrequencyHz <= 0) {
+    throw new Error("Resolved center frequency must be greater than zero Hz");
+  }
+  return centerFrequencyHz;
+}
+
+
+/**
  * Resolves the FFT size shared by snapshot and I/Q CLI captures. Keeping this
  * outside the CLI entry point prevents the two workflows from drifting apart.
  */
@@ -65,7 +96,7 @@ export function resolveCliCaptureFrequencySpan(
   const readNumber = (name: string): number | undefined => {
     const index = args.indexOf(name);
     if (index < 0) return undefined;
-    const value = Number(args[index + 1]);
+    const value = Number(args[index + 1]?.replace(/(?<=\d)_(?=\d)/g, ""));
     if (!Number.isFinite(value) || value <= 0) {
       throw new Error(`${name} must be a positive finite frequency`);
     }
@@ -76,8 +107,12 @@ export function resolveCliCaptureFrequencySpan(
     source.sdr.settings.sample_rate ??
     source.sdr.sample_rate_options.find((value) => value > 0) ??
     source.sdr.max_sample_rate;
+  const centerFrequencyIndex = args.indexOf("--center-frequency");
   const centerFrequencyHz =
-    readNumber("--center-frequency") ?? source.sdr.settings.center_frequency;
+    resolveCliCenterFrequencyArgument(
+      centerFrequencyIndex < 0 ? undefined : args[centerFrequencyIndex + 1],
+      source.sdr.settings.center_frequency,
+    ) ?? source.sdr.settings.center_frequency;
   if (
     typeof centerFrequencyHz !== "number" ||
     !Number.isFinite(centerFrequencyHz) ||
