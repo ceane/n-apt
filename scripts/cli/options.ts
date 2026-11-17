@@ -42,6 +42,7 @@ const positiveInteger: OptionSpec = {
   positive: true,
 };
 const positiveNumber: OptionSpec = { kind: "number", positive: true };
+const signedFrequency: OptionSpec = { kind: "number" };
 
 const signalInputOptions: Record<string, OptionSpec> = {
   "--input": stringOption,
@@ -64,8 +65,8 @@ const demodOptions: Record<string, OptionSpec> = {
 const snapshotOptions: Record<string, OptionSpec> = {
   "--device": stringOption,
   "--interactive": booleanOption,
-  "--frequency": positiveNumber,
-  "--center-frequency": positiveNumber,
+  "--frequency": signedFrequency,
+  "--center-frequency": signedFrequency,
   "--sample-rate": { kind: "number", positive: true, minimum: 3_200_000 },
   "--waterfall": booleanOption,
   "--dark": booleanOption,
@@ -105,7 +106,7 @@ const iqCaptureOptions: Record<string, OptionSpec> = {
   "--allow-mutations": booleanOption,
   "--device": stringOption,
   "--interactive": booleanOption,
-  "--center-frequency": positiveNumber,
+  "--center-frequency": signedFrequency,
   "--sample-rate": positiveInteger,
   "--duration-mode": {
     kind: "string",
@@ -256,7 +257,7 @@ function validateOptionValue(
     if (validationError) throw new CliUsageError(validationError);
   }
   if (spec.kind !== "number") return;
-  const value = Number(rawValue);
+  const value = Number(rawValue.replace(/(?<=\d)_(?=\d)/g, ""));
   if (!Number.isFinite(value)) {
     throw new CliUsageError(`Option ${name} must be a finite number`);
   }
