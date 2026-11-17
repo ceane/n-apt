@@ -3,7 +3,10 @@ import styled from "styled-components";
 import { Row } from "@n-apt/ui";
 import { FrequencyInput } from "@n-apt/ui/FrequencyInput";
 import { Tooltip } from "@n-apt/ui/Tooltip";
-import { PpmCorrectionTooltipContent } from "./PpmCorrectionTooltip";
+import {
+  GainTooltipContent,
+  PpmCorrectionTooltipContent,
+} from "./PpmCorrectionTooltip";
 import {
   ArrowBigUp,
   Pipette,
@@ -499,7 +502,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
         <Row
           label={<IconLabel $inheritLineHeight icon={ArrowBigUp} text="Gain" />}
           tooltipTitle="Gain Setting"
-          tooltip="Signal amplification. Increases sensitivity to weak transmissions but may introduce interference from other signals."
+          tooltip={<GainTooltipContent />}
         >
           <InputGroup>
             <NarrowSettingInput
