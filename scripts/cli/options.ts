@@ -4,6 +4,7 @@ import {
   validateCliFrequencyRangeArg,
   validateCliGeolocationArg,
 } from "@n-apt/cli/snapshotPolicy";
+import { parseFrequencyInputHz } from "@n-apt/math/frequency";
 
 type OptionKind = "boolean" | "string" | "number";
 
@@ -42,7 +43,13 @@ const positiveInteger: OptionSpec = {
   positive: true,
 };
 const positiveNumber: OptionSpec = { kind: "number", positive: true };
-const signedFrequency: OptionSpec = { kind: "number" };
+const signedFrequency: OptionSpec = {
+  kind: "string",
+  validate: (value) =>
+    parseFrequencyInputHz(value, "Hz")
+      ? null
+      : "Center frequency must be a number in Hz, kHz, MHz, or GHz",
+};
 
 const signalInputOptions: Record<string, OptionSpec> = {
   "--input": stringOption,
