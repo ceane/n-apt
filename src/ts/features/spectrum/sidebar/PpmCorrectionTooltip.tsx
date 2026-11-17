@@ -10,7 +10,7 @@ const TooltipBody = styled.div`
 const Diagram = styled.canvas`
   display: block;
   width: 100%;
-  height: 142px;
+  height: 176px;
   border: 1px solid ${(props) => props.theme.border};
   border-radius: 6px;
   background: ${(props) => props.theme.surface};
@@ -64,133 +64,163 @@ function drawDiagram(canvas: HTMLCanvasElement, time: number) {
   const accent = "#40c9ff";
   const green = "#8be28b";
   const border = "rgba(139, 153, 173, 0.38)";
-  const gap = 10;
-  const left = 8;
-  const right = w - 8;
-  const usable = right - left;
-  const hardwareW = usable * 0.25;
-  const graphW = (usable - hardwareW - gap * 2) / 2;
-  const boxY = 26;
-  const boxH = h - 37;
-  const hardwareX = left;
-  const imaginaryX = hardwareX + hardwareW + gap;
-  const fftX = imaginaryX + graphW + gap;
+  const margin = 8;
+  const gap = 9;
+  const panelY = 24;
+  const panelH = h - panelY - 7;
+  const usableW = w - margin * 2;
+  const hardwareX = margin;
+  const hardwareW = usableW * 0.39;
+  const analysisX = hardwareX + hardwareW + gap;
+  const analysisW = w - margin - analysisX;
 
   ctx.font = "600 9px system-ui, sans-serif";
-  ctx.fillStyle = muted;
-  ctx.fillText("TUNER + ADC", hardwareX, 15);
-  ctx.fillText("Q (IMAGINARY)", imaginaryX, 15);
-  ctx.fillText("MAGNITUDE FFT", fftX, 15);
-
+  ctx.fillStyle = ink;
+  ctx.fillText("A · HARDWARE", hardwareX, 15);
+  ctx.fillText("B · SIGNAL ANALYSIS", analysisX, 15);
   ctx.lineWidth = 1;
   ctx.strokeStyle = border;
-  for (const [x, boxW] of [[hardwareX, hardwareW], [imaginaryX, graphW], [fftX, graphW]]) {
-    ctx.beginPath();
-    ctx.roundRect(x, boxY, boxW, boxH, 5);
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  ctx.roundRect(hardwareX, panelY, hardwareW, panelH, 5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.roundRect(analysisX, panelY, analysisW, panelH, 5);
+  ctx.stroke();
 
-  // Hardware block: represent the crystal reference correction and incoming samples.
-  ctx.fillStyle = "rgba(64, 201, 255, 0.12)";
+  // The RF path passes through the tuner and RTL2832U before IQ reaches USB.
+  const centerX = hardwareX + hardwareW / 2;
+  const tunerY = panelY + 26;
+  const tunerH = 35;
+  const demodY = panelY + 82;
+  const demodH = 38;
+  const deviceX = hardwareX + 8;
+  const deviceW = hardwareW - 16;
+  ctx.fillStyle = "rgba(64, 201, 255, 0.1)";
   ctx.beginPath();
-  ctx.roundRect(hardwareX + 8, boxY + 10, hardwareW - 16, 29, 4);
+  ctx.roundRect(deviceX, tunerY, deviceW, tunerH, 4);
   ctx.fill();
-  ctx.fillStyle = ink;
-  ctx.font = "600 9px system-ui, sans-serif";
-  ctx.fillText("RTL-SDR", hardwareX + 14, boxY + 22);
-  ctx.fillStyle = muted;
-  ctx.font = "8px system-ui, sans-serif";
-  ctx.fillText("crystal offset", hardwareX + 14, boxY + 33);
-  const dialX = hardwareX + hardwareW / 2;
-  const dialY = boxY + 61;
   ctx.strokeStyle = border;
-  ctx.beginPath();
-  ctx.arc(dialX, dialY, 11, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 2;
+  ctx.fillStyle = ink;
+  ctx.textAlign = "center";
+  ctx.font = "600 8px system-ui, sans-serif";
+  ctx.fillText("R820T / R828D", centerX, tunerY + 14);
+  ctx.fillStyle = muted;
+  ctx.font = "7px system-ui, sans-serif";
+  ctx.fillText("tuner PLL · RF / LO", centerX, tunerY + 26);
+
+  ctx.fillStyle = "rgba(139, 226, 139, 0.1)";
   ctx.beginPath();
-  ctx.moveTo(dialX, dialY);
-  ctx.lineTo(dialX + Math.cos(-Math.PI / 2 + Math.sin(time * 1.4) * 0.5) * 8,
-    dialY + Math.sin(-Math.PI / 2 + Math.sin(time * 1.4) * 0.5) * 8);
+  ctx.roundRect(deviceX, demodY, deviceW, demodH, 4);
+  ctx.fill();
+  ctx.strokeStyle = border;
+  ctx.stroke();
+  ctx.fillStyle = ink;
+  ctx.font = "600 8px system-ui, sans-serif";
+  ctx.fillText("RTL2832U", centerX, demodY + 13);
+  ctx.fillStyle = muted;
+  ctx.font = "7px system-ui, sans-serif";
+  ctx.fillText("ADC + digital correction", centerX, demodY + 25);
+
+  // PPM configures tuner reference and RTL2832U sample-frequency correction.
+  ctx.fillStyle = green;
+  ctx.font = "600 7px system-ui, sans-serif";
+  ctx.fillText("PPM: PLL ref + sample correction", centerX, panelY + 12);
+  ctx.textAlign = "left";
+
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(hardwareX + 4, tunerY + tunerH / 2);
+  ctx.lineTo(deviceX, tunerY + tunerH / 2);
   ctx.stroke();
   ctx.fillStyle = muted;
-  ctx.font = "8px system-ui, sans-serif";
+  ctx.font = "7px system-ui, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("PPM", dialX, boxY + 82);
-  ctx.fillText("corrects tuning", dialX, boxY + 94);
+  ctx.fillText("RF in", hardwareX + 14, tunerY + tunerH / 2 - 5);
   ctx.textAlign = "left";
-  for (let i = 0; i < 5; i += 1) {
-    const dotX = hardwareX + 12 + ((time * 24 + i * 13) % Math.max(20, hardwareW - 27));
-    ctx.fillStyle = i % 2 ? green : accent;
+
+  // Animated dots show new signal data moving through hardware, not old IQ replay.
+  for (let i = 0; i < 4; i += 1) {
+    const t = (time * 0.8 + i / 4) % 1;
+    let x = centerX;
+    let y = tunerY + tunerH + t * (demodY - tunerY - tunerH);
+    if (t > 0.88) {
+      x = centerX + ((t - 0.88) / 0.12) * (hardwareW / 2 - 5);
+      y = demodY + demodH / 2;
+    }
+    ctx.fillStyle = t > 0.88 ? green : accent;
     ctx.beginPath();
-    ctx.arc(dotX, boxY + boxH - 9, 1.7, 0, Math.PI * 2);
+    ctx.arc(x, y, 2, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.fillStyle = muted;
+  ctx.font = "7px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("USB · live I/Q", centerX, panelY + panelH - 8);
+  ctx.textAlign = "left";
 
-  // Flow arrows between acquisition and the two views.
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 1.4;
-  for (const x of [hardwareX + hardwareW + 2, imaginaryX + graphW + 2]) {
-    const y = boxY + boxH / 2;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + 6, y);
-    ctx.lineTo(x + 3, y - 2.5);
-    ctx.moveTo(x + 6, y);
-    ctx.lineTo(x + 3, y + 2.5);
-    ctx.stroke();
-  }
-
-  // Q is the imaginary component of each complex I/Q sample.
-  const plotY = boxY + 47;
-  const plotH = boxH - 60;
-  const midY = plotY + plotH / 2;
+  // B shows the Q trace and then the spectrum computed from complex I/Q.
+  const plotX = analysisX + 7;
+  const plotW = analysisW - 14;
+  const qY = panelY + 20;
+  const qH = 39;
+  const fftY = panelY + 91;
+  const fftH = 42;
+  ctx.fillStyle = muted;
+  ctx.font = "7px system-ui, sans-serif";
+  ctx.fillText("Q · imaginary component", plotX, panelY + 12);
   ctx.strokeStyle = border;
   ctx.beginPath();
-  ctx.moveTo(imaginaryX + 7, midY);
-  ctx.lineTo(imaginaryX + graphW - 7, midY);
+  ctx.roundRect(plotX, qY, plotW, qH, 3);
+  ctx.stroke();
+  const qMid = qY + qH / 2;
+  ctx.beginPath();
+  ctx.moveTo(plotX + 4, qMid);
+  ctx.lineTo(plotX + plotW - 4, qMid);
   ctx.stroke();
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 1.7;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  for (let i = 0; i <= graphW - 16; i += 1) {
-    const x = imaginaryX + 8 + i;
-    const y = midY - Math.sin(i * 0.12 - time * 4) * (plotH * 0.34);
-    if (i === 0) ctx.moveTo(x, y);
+  for (let px = 0; px <= plotW - 10; px += 1) {
+    const x = plotX + 5 + px;
+    const y = qMid - Math.sin(px * 0.13 - time * 3) * 13;
+    if (px === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
 
-  // Magnitude FFT: animated bins form a peak whose apparent position is corrected.
-  const fftPlotX = fftX + 8;
-  const fftPlotW = graphW - 16;
-  const fftBaseY = boxY + boxH - 15;
-  const peak = fftPlotW * (0.5 + Math.sin(time * 0.55) * 0.11);
-  const shift = Math.sin(time * 0.55 + 0.8) * fftPlotW * 0.09;
-  const barGap = 2;
-  const bars = Math.max(9, Math.floor(fftPlotW / 5));
-  const barW = Math.max(1, (fftPlotW - (bars - 1) * barGap) / bars);
-  for (let i = 0; i < bars; i += 1) {
-    const x = fftPlotX + i * (barW + barGap);
-    const dx = i * (barW + barGap) - peak - shift;
-    const envelope = Math.exp(-(dx * dx) / Math.max(100, fftPlotW * fftPlotW * 0.018));
-    const ripple = 0.18 + 0.18 * (0.5 + 0.5 * Math.sin(i * 1.7 + time * 3));
-    const barH = 5 + envelope * (plotH * (0.55 + ripple));
-    ctx.fillStyle = envelope > 0.5 ? green : accent;
-    ctx.fillRect(x, fftBaseY - barH, barW, barH);
-  }
-  const markerX = fftPlotX + Math.max(1, Math.min(fftPlotW - 1, peak + shift));
-  ctx.strokeStyle = green;
-  ctx.setLineDash([2, 2]);
+  // Arrow is a visual sequence; the FFT uses both I and Q, not Q alone.
+  const arrowX = analysisX + analysisW / 2;
+  ctx.strokeStyle = muted;
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(markerX, plotY + 1);
-  ctx.lineTo(markerX, fftBaseY + 1);
+  ctx.moveTo(arrowX, qY + qH + 2);
+  ctx.lineTo(arrowX, fftY - 10);
+  ctx.lineTo(arrowX - 3, fftY - 14);
+  ctx.moveTo(arrowX, fftY - 10);
+  ctx.lineTo(arrowX + 3, fftY - 14);
   ctx.stroke();
-  ctx.setLineDash([]);
+
   ctx.fillStyle = muted;
-  ctx.font = "8px system-ui, sans-serif";
-  ctx.fillText("frequency bins", fftX + 8, boxY + boxH - 4);
+  ctx.font = "7px system-ui, sans-serif";
+  ctx.fillText("|FFT(I + jQ)|", plotX, fftY - 3);
+  ctx.strokeStyle = border;
+  ctx.beginPath();
+  ctx.roundRect(plotX, fftY, plotW, fftH, 3);
+  ctx.stroke();
+  const baseY = fftY + fftH - 6;
+  const bins = Math.max(8, Math.floor(plotW / 5));
+  const barGap = 2;
+  const barW = Math.max(1, (plotW - 10 - (bins - 1) * barGap) / bins);
+  for (let i = 0; i < bins; i += 1) {
+    const x = plotX + 5 + i * (barW + barGap);
+    const distance = i - bins * 0.61;
+    const peak = Math.exp(-(distance * distance) / 7.5);
+    const barHeight = 3 + peak * (fftH - 15);
+    ctx.fillStyle = peak > 0.45 ? green : accent;
+    ctx.fillRect(x, baseY - barHeight, barW, barHeight);
+  }
 }
 
 export const PpmCorrectionTooltipContent: React.FC = () => {
@@ -220,7 +250,7 @@ export const PpmCorrectionTooltipContent: React.FC = () => {
       <Diagram
         ref={canvasRef}
         role="img"
-        aria-label="Looping illustration of RTL-SDR hardware applying PPM correction, producing imaginary Q samples, and forming a magnitude FFT plot"
+        aria-label="Looping two-column illustration: A shows RF passing through the RTL-SDR tuner and RTL2832U hardware PPM correction; B shows an imaginary Q trace followed by magnitude FFT computed from I and Q"
       />
       <Status>Signal analysis not decrypted.</Status>
       <Placeholder>
