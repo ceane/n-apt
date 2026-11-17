@@ -14,6 +14,11 @@ import {
   formatFrequencyHz,
   formatFrequencyValue,
   trimNumericString,
+  isValidFrequencyDraftText,
+  parseFrequencyDraftHz,
+  resolveFrequencyInputHz,
+  resolveFrequencySuffixUnit,
+  splitFrequencyDraft,
   type FrequencyUnit,
 } from "@n-apt/math/frequency";
 
@@ -159,84 +164,6 @@ export const getAdaptiveFrequencyStep = (frequencyHz: number, direction: -1 | 1)
     return ADAPTIVE_FREQUENCY_STEPS_HZ.find((step) => step > frequencyHz) ?? ADAPTIVE_FREQUENCY_STEPS_HZ[ADAPTIVE_FREQUENCY_STEPS_HZ.length - 1];
   }
   return [...ADAPTIVE_FREQUENCY_STEPS_HZ].reverse().find((step) => step < frequencyHz) ?? ADAPTIVE_FREQUENCY_STEPS_HZ[0];
-};
-
-/** Complete denomination words a typed suffix may spell. */
-const FREQUENCY_WORDS = ["hz", "khz", "mhz", "ghz"] as const;
-
-const FREQUENCY_WORD_UNITS: Record<string, FrequencyUnit> = {
-  hz: "Hz",
-  khz: "kHz",
-  mhz: "MHz",
-  ghz: "GHz",
-};
-
-/**
- * Resolves a (possibly partial) typed suffix to its denomination. Every
- * valid prefix is unambiguous: k/kh/khz -> kHz, m/mh/mhz -> MHz,
- * g/gh/ghz -> GHz, h/hz -> Hz. Returns undefined for an empty suffix or one
- * that cannot start/continue a denomination word.
- */
-export const resolveFrequencySuffixUnit = (
-  suffix: string,
-): FrequencyUnit | undefined => {
-  if (!suffix) return undefined;
-  const word = FREQUENCY_WORDS.find((candidate) =>
-    candidate.startsWith(suffix.toLowerCase()),
-  );
-  return word ? FREQUENCY_WORD_UNITS[word] : undefined;
-};
-
-/** Splits a draft into its numeric head and trailing unit letters. */
-export const splitFrequencyDraft = (draft: string): {
-  head: string;
-  suffix: string;
-} => {
-  const spaceless =
-    typeof draft === "string" ? draft.replace(/[\s_,]+/g, "") : "";
-  const match = spaceless.match(/^(.*?)([a-zA-Z]*)$/);
-  if (!match) return { head: spaceless, suffix: "" };
-  return { head: match[1], suffix: match[2].toLowerCase() };
-};
-
-/**
- * Whether raw box text is typeable: digits (with sign/decimal) optionally
- * followed by a letter run that starts or continues a denomination word.
- * Anything else ("x", "k5", "kHzx") must be rejected, never adopted.
- */
-export const isValidFrequencyDraftText = (text: string): boolean => {
-  if (typeof text !== "string") return false;
-  const spaceless = text.replace(/[\s_,]+/g, "");
-  if (!spaceless) return true;
-  const { head, suffix } = splitFrequencyDraft(spaceless);
-  if (suffix && !resolveFrequencySuffixUnit(suffix)) return false;
-  if (head && !/^[+-]?[\d.]*$/.test(head)) return false;
-  return true;
-};
-
-/**
- * Parses a typed draft that may embed its own unit ("360k", "360 kHz",
- * "2.4M", "-1.2 MHz", including half-typed "360kh"). Falls back to
- * `fallbackUnit` when the draft carries a bare number. Returns NaN when
- * unparseable.
- */
-export const parseFrequencyDraftHz = (
-  draft: string,
-  fallbackUnit: string,
-): number => {
-  if (typeof draft !== "string") return NaN;
-  // Strip separators/whitespace first so "2 5" types as 25 and "360 kHz"
-  // still resolves its suffix.
-  const { head, suffix } = splitFrequencyDraft(draft);
-  if (!head) return NaN;
-  const value = parseFloat(head);
-  if (!Number.isFinite(value)) return NaN;
-  if (!suffix) {
-    return value * getFrequencyUnitScale((fallbackUnit as any) ?? "Hz");
-  }
-  const unit = resolveFrequencySuffixUnit(suffix);
-  if (!unit) return NaN;
-  return value * getFrequencyUnitScale(unit);
 };
 
 interface FrequencyInputProps {
@@ -571,17 +498,14 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     };
 
     const resolveDraftHz = (): number | null => {
-      const isRelativeDraft = /^[+-]/.test(displayValue.trim());
-      const { suffix } = splitFrequencyDraft(displayValue);
-      const parsed = parseFrequencyDraftHz(
+      const parsed = resolveFrequencyInputHz(
         displayValue,
-        isRelativeDraft && !suffix ? "Hz" : displayUnit,
+        relativeToValueHz,
+        displayUnit as FrequencyUnit,
       );
-      if (!Number.isFinite(parsed)) return null;
-      if (typeof relativeToValueHz === "number" && isRelativeDraft) {
-        return relativeToValueHz + parsed;
-      }
-      return parsed;
+      return typeof parsed === "number" && Number.isFinite(parsed)
+        ? parsed
+        : null;
     };
 
     const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>): void => {
