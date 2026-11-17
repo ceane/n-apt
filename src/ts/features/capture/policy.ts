@@ -1,4 +1,8 @@
 import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
+import {
+  parseFrequencyInputHz,
+  resolveFrequencyInputHz,
+} from "@n-apt/math/frequency";
 
 export type CaptureSource = Pick<
   SourceInfo,
@@ -39,22 +43,25 @@ export function resolveCliCenterFrequencyArgument(
   currentCenterFrequencyHz: number | undefined,
 ): number | undefined {
   if (rawValue === undefined) return undefined;
-  const normalized = rawValue.trim().replace(/(?<=\d)_(?=\d)/g, "");
-  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) {
-    throw new Error("Center frequency must be a finite number in Hz");
+  const parsed = parseFrequencyInputHz(rawValue, "Hz");
+  if (!parsed) {
+    throw new Error("Center frequency must be a number in Hz, kHz, MHz, or GHz");
   }
-
-  const valueHz = Number(normalized);
-  const isOffset = /^[+-]/.test(normalized);
-  if (isOffset && !Number.isFinite(currentCenterFrequencyHz)) {
+  if (parsed.isOffset && !Number.isFinite(currentCenterFrequencyHz)) {
     throw new Error(
       "Current center frequency is unavailable for a signed offset",
     );
   }
-  const centerFrequencyHz = isOffset
-    ? (currentCenterFrequencyHz as number) + valueHz
-    : valueHz;
-  if (!Number.isFinite(centerFrequencyHz) || centerFrequencyHz <= 0) {
+  const centerFrequencyHz = resolveFrequencyInputHz(
+    rawValue,
+    currentCenterFrequencyHz,
+    "Hz",
+  );
+  if (
+    typeof centerFrequencyHz !== "number" ||
+    !Number.isFinite(centerFrequencyHz) ||
+    centerFrequencyHz <= 0
+  ) {
     throw new Error("Resolved center frequency must be greater than zero Hz");
   }
   return centerFrequencyHz;
