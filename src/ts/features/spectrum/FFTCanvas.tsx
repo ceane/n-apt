@@ -1719,6 +1719,9 @@ const FFTCanvas = memo(
       (reduxState) => reduxState.spectrum.deviceKind,
     );
     const reduxPpm = useAppSelector((reduxState) => reduxState.spectrum.ppm);
+    const reduxUseAppPpmCorrection = useAppSelector(
+      (reduxState) => reduxState.spectrum.useAppPpmCorrection,
+    );
     const reduxWebsocketSources = useAppSelector(
       (reduxState) => reduxState.websocket.sources,
     );
@@ -3942,7 +3945,10 @@ const FFTCanvas = memo(
         windowType: fftWindow,
         ppm: reduxPpm,
         applyPpmCorrection:
-          shouldApplyFrontendSpectrumPpmCorrection(isRtlSdr),
+          shouldApplyFrontendSpectrumPpmCorrection(
+            isRtlSdr,
+            reduxUseAppPpmCorrection,
+          ),
       }),
       [
         effectiveDbmOffsetDb,
@@ -3950,6 +3956,7 @@ const FFTCanvas = memo(
         frontendFftSize,
         isRtlSdr,
         reduxPpm,
+        reduxUseAppPpmCorrection,
       ],
     );
     const {
