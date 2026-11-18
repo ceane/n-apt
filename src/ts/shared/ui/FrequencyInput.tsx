@@ -177,6 +177,8 @@ interface FrequencyInputProps {
   label?: string;
   id?: string;
   placeholder?: string;
+  pattern?: string;
+  allowArithmetic?: boolean;
   autoFocus?: boolean;
   commitOnBlur?: boolean;
   /**
@@ -205,6 +207,8 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     label,
     id,
     placeholder,
+    pattern,
+    allowArithmetic = false,
     autoFocus,
     commitOnBlur,
     onBlur,
@@ -369,24 +373,23 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
         !e.altKey &&
         (e.nativeEvent as unknown as { isComposing?: boolean } | null)
           ?.isComposing !== true &&
-        e.key.length === 1 &&
-        /[a-zA-Z]/.test(e.key)
+        e.key.length === 1
       ) {
-        // Reject a letter keystroke that could never spell a denomination:
-        // the first letter must be h/k/m/g and the rest must continue that
-        // word (hz/khz/mhz/ghz). Preventing it here keeps the caret where it
-        // is; the change handler reverts anything that slips through (paste,
-        // drop, IME commit).
+        // Enforce the same partial-draft grammar for every printable key.
+        // This allows a sign at the start or between operands while rejecting
+        // misplaced operators and invalid denomination characters. The change
+        // handler also checks pasted, dropped, and IME-committed text.
         const input = e.currentTarget;
         const value = input.value ?? "";
         const start = input.selectionStart ?? value.length;
         const end = input.selectionEnd ?? value.length;
+
         const predicted = (
           value.slice(0, start) +
           e.key +
           value.slice(end)
         ).replace(/\s+/g, "");
-        if (!isValidFrequencyDraftText(predicted)) {
+        if (!isValidFrequencyDraftText(predicted, allowArithmetic)) {
           e.preventDefault();
           return;
         }
@@ -425,16 +428,14 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       const rawStr = e.target.value;
       const valStr = rawStr.replace(/\s+/g, "");
 
-      // Reject letters that cannot start or continue a denomination word
-      // (first letter must be h/k/m/g, then only that word's letters): revert
-      // the change instead of adopting text that could never parse. Paste,
-      // drop and IME paths all funnel through here; the keyDown filter below
-      // stops single bad keystrokes even earlier. Never interfere with an
-      // in-progress IME composition.
+      // Reject drafts outside the frequency grammar, including misplaced
+      // signs. Paste, drop, and IME paths all funnel through here; the keyDown
+      // filter below stops invalid single-character keystrokes earlier.
+      // Never interfere with an in-progress IME composition.
       const isComposing =
         (e.nativeEvent as unknown as { isComposing?: boolean } | null)
           ?.isComposing === true;
-      if (!isComposing && !isValidFrequencyDraftText(valStr)) {
+      if (!isComposing && !isValidFrequencyDraftText(valStr, allowArithmetic)) {
         e.target.value = displayValue;
         return;
       }
@@ -445,9 +446,14 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
       // is updated here; the text (and its digits) is never reformatted
       // mid-typing, and an unrecognized trailing run ("mh" halfway through
       // "mhz") leaves the current denomination alone.
-      const { suffix } = splitFrequencyDraft(valStr);
+      const { head, suffix } = splitFrequencyDraft(valStr);
       const typedUnit = resolveFrequencySuffixUnit(suffix);
-      if (typedUnit && typedUnit !== displayUnit) {
+      const hasArithmeticOperator = /[+-]/.test(head.slice(1));
+      if (
+        typedUnit &&
+        typedUnit !== displayUnit &&
+        !(allowArithmetic && hasArithmeticOperator)
+      ) {
         setDisplayUnit(typedUnit);
       }
 
@@ -498,6 +504,23 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
     };
 
     const resolveDraftHz = (): number | null => {
+      const { head, suffix } = splitFrequencyDraft(displayValue);
+      const hasArithmeticOperator = /[+-]/.test(head.slice(1));
+      const isLeadingOffset =
+        head.startsWith("+") || (head.startsWith("-") && minHz >= 0);
+
+      if (allowArithmetic && !hasArithmeticOperator && !isLeadingOffset) {
+        const unit = suffix
+          ? resolveFrequencySuffixUnit(suffix)
+          : /[,_]/.test(displayValue)
+            ? "Hz"
+          : (displayUnit as FrequencyUnit);
+        const value = Number(head);
+        return unit && Number.isFinite(value)
+          ? value * getFrequencyUnitScale(unit)
+          : null;
+      }
+
       const parsed = resolveFrequencyInputHz(
         displayValue,
         relativeToValueHz,
@@ -588,6 +611,7 @@ export const FrequencyInput: React.FC<FrequencyInputProps> = React.memo(
             autoComplete="off"
             spellCheck={false}
             placeholder={placeholder}
+            pattern={pattern}
             autoFocus={autoFocus}
             disabled={disabled}
           />

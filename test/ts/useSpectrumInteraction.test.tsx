@@ -152,6 +152,7 @@ describe("useSpectrumInteraction Hook", () => {
     clientX: number,
     clientY: number,
     pointerId = 1,
+    target?: EventTarget,
   ) => {
     const calls =
       spectrumContainerRef.current.addEventListener.mock.calls.filter(
@@ -159,7 +160,18 @@ describe("useSpectrumInteraction Hook", () => {
       );
     const handler = calls[calls.length - 1][1];
     act(() => {
-      handler({ clientX, clientY, pointerId } as any);
+      handler({ clientX, clientY, pointerId, target } as any);
+    });
+  };
+
+  const triggerVfoPointerDown = (
+    clientX: number,
+    clientY: number,
+    pointerId = 1,
+  ) => {
+    triggerPointerDown(clientX, clientY, pointerId);
+    act(() => {
+      jest.advanceTimersByTime(120);
     });
   };
 
@@ -231,7 +243,7 @@ describe("useSpectrumInteraction Hook", () => {
     renderHook(() => useSpectrumInteraction(defaultOptions));
 
     // Pointer down at y=550 (bottom area)
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
 
     // Drag right by 100px. Spectrum width 1000, range 10MHz. 100px = 1MHz.
     // Dragging right = frequency decreases.
@@ -245,6 +257,34 @@ describe("useSpectrumInteraction Hook", () => {
       ][0];
     expect(lastCall.min).toBeCloseTo(99, 1);
     expect(lastCall.max).toBeCloseTo(109, 1);
+  });
+
+  it("ignores brief VFO pointer movement before the drag activation delay", () => {
+    renderHook(() => useSpectrumInteraction(defaultOptions));
+
+    triggerPointerDown(500, 550);
+    triggerPointerMove(600, 550);
+    triggerPointerUp(600, 550);
+
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+    expect(frequencyRangeRef.current).toEqual({ min: 100, max: 110 });
+  });
+
+  it("does not start VFO interaction for marked overlay content", () => {
+    renderHook(() => useSpectrumInteraction(defaultOptions));
+    const overlayTarget = document.createElement("input");
+    overlayTarget.setAttribute("data-spectrum-interaction-ignore", "");
+
+    triggerPointerDown(500, 550, 1, overlayTarget);
+    act(() => {
+      jest.advanceTimersByTime(120);
+    });
+    triggerPointerMove(600, 550);
+
+    expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
+    expect(mockOnVizPanChange).not.toHaveBeenCalled();
+    expect(spectrumContainerRef.current.focus).not.toHaveBeenCalled();
   });
 
   it("keeps a zoomed positive VFO pan independent of channel bounds", () => {
@@ -261,7 +301,7 @@ describe("useSpectrumInteraction Hook", () => {
     // At zoom 2 the viewport is 5 Hz wide inside [100, 110]. A covered VFO
     // drag stays subscriber-local and must ignore unrelated channel bounds
     // that would trap the visual center.
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     triggerPointerMove(700, 550);
 
     expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
@@ -282,7 +322,7 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     triggerPointerMove(600, 550);
 
     expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
@@ -361,7 +401,7 @@ describe("useSpectrumInteraction Hook", () => {
     );
 
     rerender({ mirrorEnabled: true });
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     triggerPointerMove(900, 550);
 
     expect(mockOnFrequencyRangeChange).not.toHaveBeenCalled();
@@ -376,7 +416,7 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     triggerPointerMove(600, 550);
     flushHardwareRetune();
 
@@ -396,7 +436,7 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     // 1200px right = 12 Hz toward negative. Display [-12, -2] is past |f|.
     triggerPointerMove(1700, 550);
     flushHardwareRetune();
@@ -1033,7 +1073,7 @@ describe("useSpectrumInteraction Hook", () => {
     renderHook(() => useSpectrumInteraction(boundsOptions));
 
     // current is already at 100-110
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
 
     // Drag left by 100px (clientX decreases) -> freq increases.
     // Result should be clamped because max is 110.
@@ -1314,7 +1354,7 @@ describe("useSpectrumInteraction Hook", () => {
     };
     renderHook(() => useSpectrumInteraction(channelOptions));
 
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     triggerPointerMove(400, 550);
     flushHardwareRetune();
 
@@ -1408,7 +1448,7 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
-    triggerPointerDown(500, 590);
+    triggerVfoPointerDown(500, 590);
     triggerPointerMove(600, 590);
 
     expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
@@ -1597,7 +1637,7 @@ describe("useSpectrumInteraction Hook", () => {
       }),
     );
 
-    triggerPointerDown(500, 590);
+    triggerVfoPointerDown(500, 590);
     triggerPointerMove(600, 590);
 
     expect(mockOnFrequencyRangeChange).toHaveBeenLastCalledWith({
@@ -1763,7 +1803,7 @@ describe("useSpectrumInteraction Hook", () => {
 
     // Drag right from center by 500px on a 1000px canvas ⇒ 1.6M Hz toward
     // negative frequencies.
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     triggerPointerMove(1000, 550);
 
     const lastPan =
@@ -1803,7 +1843,7 @@ describe("useSpectrumInteraction Hook", () => {
         mockOnFrequencyRangeChange.mock.calls.length - 1
       ]?.[0] ?? frequencyRangeRef.current;
 
-    triggerPointerDown(500, 550);
+    triggerVfoPointerDown(500, 550);
     // Drag right across DC into the mirror zone (0.2 Hz per 20px on 1000px).
     for (const x of [520, 540, 560, 580, 600, 620, 640, 660, 680, 700]) {
       triggerPointerMove(x, 550);

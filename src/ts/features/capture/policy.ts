@@ -44,19 +44,21 @@ export function resolveCliCenterFrequencyArgument(
 ): number | undefined {
   if (rawValue === undefined) return undefined;
   const parsed = parseFrequencyInputHz(rawValue, "Hz");
-  if (!parsed) {
-    throw new Error("Center frequency must be a number in Hz, kHz, MHz, or GHz");
-  }
-  if (parsed.isOffset && !Number.isFinite(currentCenterFrequencyHz)) {
-    throw new Error(
-      "Current center frequency is unavailable for a signed offset",
-    );
-  }
   const centerFrequencyHz = resolveFrequencyInputHz(
     rawValue,
     currentCenterFrequencyHz,
     "Hz",
   );
+  if (!parsed && centerFrequencyHz === null) {
+    throw new Error(
+      "Center frequency must be a number in Hz, kHz, MHz, or GHz",
+    );
+  }
+  if (parsed?.isOffset && !Number.isFinite(currentCenterFrequencyHz)) {
+    throw new Error(
+      "Current center frequency is unavailable for a signed offset",
+    );
+  }
   if (
     typeof centerFrequencyHz !== "number" ||
     !Number.isFinite(centerFrequencyHz) ||
@@ -66,7 +68,6 @@ export function resolveCliCenterFrequencyArgument(
   }
   return centerFrequencyHz;
 }
-
 
 /**
  * Resolves the FFT size shared by snapshot and I/Q CLI captures. Keeping this

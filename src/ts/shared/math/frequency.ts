@@ -71,13 +71,21 @@ export const splitFrequencyDraft = (draft: string): {
   return { head: match[1], suffix: match[2].toLowerCase() };
 };
 
-export const isValidFrequencyDraftText = (text: string): boolean => {
+export const isValidFrequencyDraftText = (
+  text: string,
+  allowArithmetic = false,
+): boolean => {
   if (typeof text !== "string") return false;
   const spaceless = text.replace(/[\s_,]+/g, "");
   if (!spaceless) return true;
   const { head, suffix } = splitFrequencyDraft(spaceless);
   if (suffix && !resolveFrequencySuffixUnit(suffix)) return false;
-  return !head || /^[+-]?[\d.]*$/.test(head);
+  return (
+    !head ||
+    (allowArithmetic
+      ? /^[+-]?[\d.]*(?:[+-][\d.]*)?$/.test(head)
+      : /^[+-]?[\d.]*$/.test(head))
+  );
 };
 
 export interface ParsedFrequencyInput {
@@ -120,6 +128,28 @@ export const resolveFrequencyInputHz = (
   currentCenterHz?: number,
   fallbackUnit: FrequencyUnit = "Hz",
 ): number | null => {
+  if (typeof input === "string") {
+    const { head, suffix } = splitFrequencyDraft(input);
+    if (suffix && !resolveFrequencySuffixUnit(suffix)) return null;
+    const expression = head.match(
+      /^([+-]?)(\d+(?:\.\d*)?|\.\d+)([+-])(\d+(?:\.\d*)?|\.\d+)$/,
+    );
+
+    if (expression) {
+      const [, firstSign, firstText, operator, secondText] = expression;
+      const explicitUnit = suffix
+        ? resolveFrequencySuffixUnit(suffix)
+        : undefined;
+      const selectedScale = getFrequencyUnitScale(fallbackUnit);
+      const firstValue = Number(`${firstSign}${firstText}`);
+      const secondValue = Number(`${operator}${secondText}`);
+      const secondScale = explicitUnit
+        ? getFrequencyUnitScale(explicitUnit)
+        : selectedScale;
+      return firstValue * selectedScale + secondValue * secondScale;
+    }
+  }
+
   const parsed = parseFrequencyInputHz(input, fallbackUnit);
   if (!parsed) return null;
   if (parsed.isOffset && Number.isFinite(currentCenterHz)) {

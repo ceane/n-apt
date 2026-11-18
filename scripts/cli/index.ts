@@ -22,7 +22,11 @@ import {
   printAgentCapabilities,
 } from "./agent";
 import { cliVersion, renderCliHelp, resolveCliHelpTopic } from "./help";
-import { CliUsageError, validateCliArguments } from "./options";
+import {
+  CliUsageError,
+  parseCliFrequencyArgumentHz,
+  validateCliArguments,
+} from "./options";
 import { verifyCaptureArtifact } from "./artifact";
 import {
   assertAspectMountAvailable,
@@ -63,9 +67,16 @@ async function demod(args: string[]) {
   const input = flag(args, "--input", "");
   if (!input) throw new Error("demod requires --input <raw-IQ-file>");
   const output = flag(args, "--output", "demodulated.iq");
-  const centerFrequencyHz = Number(flag(args, "--center-frequency", "0"));
-  const minHz = Number(flag(args, "--min-frequency", String(centerFrequencyHz)));
-  const maxHz = Number(flag(args, "--max-frequency", String(centerFrequencyHz + 1)));
+  const parseFrequencyFlag = (name: string, fallbackHz: number): number => {
+    const rawValue = flag(args, name, "");
+    if (!rawValue) return fallbackHz;
+    const valueHz = parseCliFrequencyArgumentHz(rawValue);
+    if (valueHz === null) throw new Error(`Invalid frequency for ${name}`);
+    return valueHz;
+  };
+  const centerFrequencyHz = parseFrequencyFlag("--center-frequency", 0);
+  const minHz = parseFrequencyFlag("--min-frequency", centerFrequencyHz);
+  const maxHz = parseFrequencyFlag("--max-frequency", centerFrequencyHz + 1);
   const sampleRateHz = Number(flag(args, "--sample-rate", "2400000"));
   const algorithm = flag(args, "--algorithm", "fm") as DemodAlgorithm;
   const plan = prepareDemodulation({ centerFrequencyHz, frequencyRangeHz: [minHz, maxHz], sampleRateHz, algorithm });
