@@ -1205,8 +1205,12 @@ impl WebSocketServer {
     let sdr_processor = self.device_supervisor.processor_handle();
     let shared_state = self.shared_state.clone();
     let _broadcast_tx = self.broadcast_tx.clone();
-    let acquisition_worker =
-      AcquisitionWorker::new(sdr_processor.clone(), shared_state.clone());
+    let stream_manager = self.stream_manager.clone();
+    let acquisition_worker = AcquisitionWorker::new(
+      sdr_processor.clone(),
+      shared_state.clone(),
+      stream_manager.clone(),
+    );
     let capture_worker = CaptureWorker::new(
       sdr_processor.clone(),
       shared_state.clone(),
@@ -1214,7 +1218,6 @@ impl WebSocketServer {
     );
     let device_health_worker = DeviceHealthWorker::new(sdr_processor.clone());
     let spectrum_tx = self.spectrum_tx.clone();
-    let stream_manager = self.stream_manager.clone();
     let tx_worker = TxWorker::new(
       sdr_processor.clone(),
       shared_state.clone(),
