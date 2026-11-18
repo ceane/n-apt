@@ -61,7 +61,7 @@ describe("standalone WebUSB SDR transport", () => {
     expect(normalizeFftSize(20_000)).toBe(16_384);
     expect(normalizeFftSize(524_288)).toBe(524_288);
     expect(normalizeGainDb(99)).toBe(49.6);
-    expect(normalizePpm(-4)).toBe(0);
+    expect(normalizePpm(-4)).toBe(-4);
     expect(normalizeSampleRateHz(9_999_999)).toBe(MAX_SAMPLE_RATE_HZ);
   });
 
