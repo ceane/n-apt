@@ -250,6 +250,8 @@ export const SourceSdrSettingsSchema = z.object({
   hackrf_vga_gain: z.number().nullable().optional(),
   hackrf_amp_enable: z.boolean().nullable().optional(),
   ppm: z.number().optional(),
+  app_ppm: z.number().nullable().optional(),
+  use_app_ppm_correction: z.boolean().optional(),
   tuner_agc: z.boolean().optional(),
   rtl_agc: z.boolean().optional(),
   offset_tuning: z.boolean().optional(),

@@ -5,6 +5,7 @@ import websocketMiddleware, {
   buildManagedRxOptions,
   getManagedStreamDebugSnapshot,
   resetWebSocketMiddlewareState,
+  resolveManagedRxDeviceOptionUpdates,
   shouldResetManagedRxStartupFrameRequest,
 } from "@n-apt/redux/middleware/websocketMiddleware";
 import { waitFor } from "@testing-library/react";
@@ -31,6 +32,38 @@ const makeSocket = (): TestSocket => ({
 });
 
 describe("managed stream message routing", () => {
+  it("preserves app calibration when a stream reports zero hardware PPM", () => {
+    const updates = resolveManagedRxDeviceOptionUpdates({
+      sourceId: "rtl-sdr-0",
+      options: {
+        mode: "rx",
+        centerFrequencyHz: 100_000_000,
+        sampleRateHz: 3_200_000,
+        fftSize: 1024,
+        ppm: 0,
+        appPpm: 12,
+        useAppPpmCorrection: true,
+      },
+      rootState: {
+        spectrum: { ppm: 12, useAppPpmCorrection: true },
+        websocket: { sources: [{ id: "rtl-sdr-0", kind: "rtl_sdr", sdr: { settings: {} } }] },
+      },
+    });
+    expect(updates.spectrum.ppm).toBe(12);
+  });
+
+  it("still hydrates non-RTL source PPM while app correction is enabled", () => {
+    const updates = resolveManagedRxDeviceOptionUpdates({
+      sourceId: "mock-apt",
+      options: { mode: "rx", centerFrequencyHz: 100_000_000, sampleRateHz: 3_200_000, fftSize: 1024, ppm: 4 },
+      rootState: {
+        spectrum: { ppm: 12, useAppPpmCorrection: true },
+        websocket: { sources: [{ id: "mock-apt", kind: "mock_apt", sdr: { settings: {} } }] },
+      },
+    });
+    expect(updates.spectrum.ppm).toBe(4);
+  });
+
   it("validates center frequency as a safe, nonnegative whole number of hertz", () => {
     expect(CenterFrequencyHzSchema.safeParse(1_618_001).success).toBe(true);
     expect(CenterFrequencyHzSchema.safeParse(1_618_000.5).success).toBe(false);
@@ -189,6 +222,8 @@ describe("managed stream message routing", () => {
         sampleRateHz: 3_200_000,
         fftSize: 1024,
         fftFrameRate: 30,
+        ppm: 1,
+        useAppPpmCorrection: true,
         activeSignalArea: "A",
         vizZoom: 1,
         vizPanOffset: 0,
@@ -213,6 +248,9 @@ describe("managed stream message routing", () => {
           centerFrequencyHz: 1_618_000,
           sampleRateHz: 3_200_000,
           fftSize: 1024,
+          ppm: 0,
+          appPpm: 1,
+          useAppPpmCorrection: true,
         }),
       );
     }

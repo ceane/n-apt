@@ -547,6 +547,16 @@ export default defineConfig(({ mode }) => {
       compress: false,
     })
   ],
+  // Worker bundles are compiled through a separate Vite pipeline. Keep WGSL
+  // imports (including #include expansion) active for the spectrum worker.
+  worker: {
+    plugins: () => [
+      glsl({
+        defaultExtension: 'wgsl',
+        compress: false,
+      }),
+    ],
+  },
   optimizeDeps: {
     // Every bare import in the app graph belongs here. A dependency Vite meets
     // for the first time mid-session (on navigating to a lazy route) makes it

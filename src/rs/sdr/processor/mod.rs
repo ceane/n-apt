@@ -78,6 +78,10 @@ pub struct SdrFrameState {
   pub last_stable_center_frequency: u32,
   pub published_held_spectrum: bool,
   pub last_frame_raw_iq: Vec<u8>,
+  /// Raw sibling used by the frontend WebGPU spectrum when app PPM is active.
+  pub last_frame_spectrum_iq: Vec<u8>,
+  pub last_frame_spectrum_ppm_correction:
+    Option<crate::signal_port::fft::types::PpmSpectrumCorrection>,
   pub raw_iq_history: VecDeque<Vec<u8>>,
   pub raw_iq_history_capacity: usize,
   pub spectrum_buffer: Vec<f32>,
@@ -191,6 +195,8 @@ impl SdrFrameState {
       last_stable_center_frequency: 0,
       published_held_spectrum: false,
       last_frame_raw_iq: Vec::with_capacity(reserve),
+      last_frame_spectrum_iq: Vec::with_capacity(reserve + 8),
+      last_frame_spectrum_ppm_correction: None,
       raw_iq_history: VecDeque::with_capacity(raw_iq_history_capacity),
       raw_iq_history_capacity,
       spectrum_buffer: Vec::with_capacity(max_fft_size),
@@ -261,7 +267,10 @@ pub struct CaptureResult {
   pub actual_frame_count: u32,
   pub fft_window: String,
   pub gain: f64,
-  pub ppm: u32,
+  pub ppm: i32,
+  pub app_ppm: i32,
+  pub use_app_ppm_correction: bool,
+  pub correction_applied: bool,
   pub tuner_agc: bool,
   pub rtl_agc: bool,
   pub source_device: String,
@@ -297,7 +306,10 @@ pub(crate) struct CaptureOptionsSnapshot {
   fft_size: usize,
   fft_window: String,
   gain_db: f64,
-  ppm: u32,
+  ppm: i32,
+  app_ppm: i32,
+  use_app_ppm_correction: bool,
+  correction_applied: bool,
   frame_rate_hz: u32,
 }
 
@@ -324,6 +336,21 @@ fn changed_capture_options_patch(
   if before.ppm != after.ppm {
     patch.insert("ppm".into(), serde_json::json!(after.ppm));
   }
+  if before.app_ppm != after.app_ppm {
+    patch.insert("app_ppm".into(), serde_json::json!(after.app_ppm));
+  }
+  if before.use_app_ppm_correction != after.use_app_ppm_correction {
+    patch.insert(
+      "use_app_ppm_correction".into(),
+      serde_json::json!(after.use_app_ppm_correction),
+    );
+  }
+  if before.correction_applied != after.correction_applied {
+    patch.insert(
+      "correction_applied".into(),
+      serde_json::json!(after.correction_applied),
+    );
+  }
   if before.frame_rate_hz != after.frame_rate_hz {
     patch.insert("frame_rate_hz".into(), serde_json::json!(after.frame_rate_hz));
   }
@@ -342,7 +369,17 @@ impl SdrProcessor {
       } else {
         self.capture_gain
       },
-      ppm: if self.current_ppm == u32::MAX { self.capture_ppm } else { self.current_ppm },
+      ppm: if self.use_app_ppm_correction {
+        self.current_app_ppm
+      } else if self.current_ppm == i32::MIN {
+        self.capture_ppm
+      } else {
+        self.current_ppm
+      },
+      app_ppm: self.current_app_ppm,
+      use_app_ppm_correction: self.use_app_ppm_correction,
+      correction_applied: device_type_is_rtl_sdr(self.device.device_type())
+        && (self.use_app_ppm_correction || self.current_ppm != 0),
       frame_rate_hz: self.display_frame_rate,
     }
   }
@@ -452,7 +489,10 @@ pub struct SdrProcessor {
   /// Snapshot of gain at capture start
   pub capture_gain: f64,
   /// Snapshot of PPM at capture start
-  pub capture_ppm: u32,
+  pub capture_ppm: i32,
+  pub capture_app_ppm: i32,
+  pub capture_use_app_ppm_correction: bool,
+  pub capture_correction_applied: bool,
   /// Snapshot of FFT size at capture start
   pub capture_fft_size: usize,
   /// Snapshot of tuner AGC at capture start
@@ -480,7 +520,13 @@ pub struct SdrProcessor {
   /// Last read gain (dB)
   pub current_gain_db: f64,
   /// Last read PPM
-  pub current_ppm: u32,
+  pub current_ppm: i32,
+  /// App calibration currently sent to the software ingress corrector.
+  pub current_app_ppm: i32,
+  /// Whether RTL-SDR ingress uses software PPM correction.
+  pub use_app_ppm_correction: bool,
+  /// False during or after an unconfirmed correction transition.
+  pub ppm_correction_ready: bool,
   /// Last applied Tuner AGC
   pub current_tuner_agc: bool,
   /// Last applied RTL AGC
@@ -505,6 +551,10 @@ pub struct SdrProcessor {
   pub(crate) capture_last_frame_signature: Option<CaptureOptionsSnapshot>,
   /// Source bound to this capture; populated from the authoritative active source at start.
   pub capture_source_id: Option<String>,
+}
+
+fn device_type_is_rtl_sdr(device_type: &str) -> bool {
+  device_type == "RTL-SDR"
 }
 
 impl SdrProcessor {
@@ -533,6 +583,8 @@ impl SdrProcessor {
     // Load settings from config, resolving with the correct hardware kind
     let kind = if device.device_type().to_ascii_lowercase().contains("hackrf") {
       "hackrf_one"
+    } else if device.device_type() == "RTL-SDR" {
+      "rtl_sdr"
     } else {
       "mock_apt"
     };
@@ -604,6 +656,9 @@ impl SdrProcessor {
       capture_actual_frames: 0,
       capture_gain: 0.0,
       capture_ppm: 0,
+      capture_app_ppm: 0,
+      capture_use_app_ppm_correction: false,
+      capture_correction_applied: false,
       capture_fft_size: fft_size,
       capture_tuner_agc: false,
       capture_rtl_agc: false,
@@ -617,7 +672,10 @@ impl SdrProcessor {
       capture_is_ephemeral: false,
       available_spectrum,
       current_gain_db: -999.0, // Force first update
-      current_ppm: u32::MAX,   // Force first update
+      current_ppm: i32::MIN,   // Force first update
+      current_app_ppm: 0,
+      use_app_ppm_correction: false,
+      ppm_correction_ready: false,
       current_tuner_agc: false,
       current_rtl_agc: false,
       device_generation: 1,
@@ -648,7 +706,23 @@ impl SdrProcessor {
       hackrf_lna_gain: sdr_settings.gain.hackrf_lna_gain,
       hackrf_vga_gain: sdr_settings.gain.hackrf_vga_gain,
       hackrf_amp_enable: sdr_settings.gain.hackrf_amp_enable,
-      ppm: Some(sdr_settings.ppm as u32),
+      ppm: Some(
+        if device_type_is_rtl_sdr(processor.device.device_type())
+          && sdr_settings.use_app_ppm_correction
+        {
+          0
+        } else {
+          sdr_settings.ppm.round().clamp(-200.0, 200.0) as i32
+        },
+      ),
+      app_ppm: Some(
+        sdr_settings
+          .app_ppm
+          .unwrap_or(sdr_settings.ppm)
+          .round()
+          .clamp(-200.0, 200.0) as i32,
+      ),
+      use_app_ppm_correction: Some(sdr_settings.use_app_ppm_correction),
       tuner_agc: Some(sdr_settings.gain.tuner_agc),
       rtl_agc: Some(sdr_settings.gain.rtl_agc),
       tuner_bandwidth: sdr_settings.gain.tuner_bandwidth,
@@ -721,12 +795,16 @@ impl SdrProcessor {
     self.detached = false;
     let previous_gain_db = self.current_gain_db;
     let previous_ppm = self.current_ppm;
+    let previous_app_ppm = self.current_app_ppm;
+    let previous_app_mode = self.use_app_ppm_correction;
+    let previous_ppm_ready = self.ppm_correction_ready;
     let previous_tuner_agc = self.current_tuner_agc;
     let previous_rtl_agc = self.current_rtl_agc;
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
-    self.current_ppm = u32::MAX;
+    self.current_ppm = i32::MIN;
+    self.ppm_correction_ready = false;
 
     // Push current config to the new hardware
     let settings = crate::server::utils::load_sdr_settings();
@@ -736,7 +814,12 @@ impl SdrProcessor {
           requested_sample_rate.unwrap_or(settings.sample_rate),
         ),
         gain: Some(settings.gain.tuner_gain),
-        ppm: Some(settings.ppm as u32),
+        ppm: Some(settings.ppm.round().clamp(-200.0, 200.0) as i32),
+        app_ppm: Some(
+          settings.app_ppm.unwrap_or(settings.ppm).round().clamp(-200.0, 200.0)
+            as i32,
+        ),
+        use_app_ppm_correction: Some(settings.use_app_ppm_correction),
         tuner_agc: Some(settings.gain.tuner_agc),
         rtl_agc: Some(settings.gain.rtl_agc),
         tuner_bandwidth: settings.gain.tuner_bandwidth,
@@ -780,6 +863,9 @@ impl SdrProcessor {
       }
       self.current_gain_db = previous_gain_db;
       self.current_ppm = previous_ppm;
+      self.current_app_ppm = previous_app_ppm;
+      self.use_app_ppm_correction = previous_app_mode;
+      self.ppm_correction_ready = previous_ppm_ready;
       self.current_tuner_agc = previous_tuner_agc;
       self.current_rtl_agc = previous_rtl_agc;
       return Err(error);
@@ -839,7 +925,8 @@ impl SdrProcessor {
 
     // Reset tracked state to force re-application to new hardware
     self.current_gain_db = -1.0;
-    self.current_ppm = u32::MAX;
+    self.current_ppm = i32::MIN;
+    self.ppm_correction_ready = false;
 
     // USB SDRs own live libusb transfers until their RX paths have returned.
     // Retire them synchronously so a fast unplug/replug cannot open the
@@ -917,7 +1004,8 @@ impl SdrProcessor {
 
     // Reset tracked state to force re-application to the new hardware
     self.current_gain_db = -1.0;
-    self.current_ppm = u32::MAX;
+    self.current_ppm = i32::MIN;
+    self.ppm_correction_ready = false;
 
     match self.apply_runtime_config(runtime_sample_rate) {
       Ok(()) => DeviceAttachOutcome::Installed,
@@ -940,7 +1028,12 @@ impl SdrProcessor {
         settings.sample_rate
       }),
       gain: Some(settings.gain.tuner_gain),
-      ppm: Some(settings.ppm as u32),
+      ppm: Some(settings.ppm.round().clamp(-200.0, 200.0) as i32),
+      app_ppm: Some(
+        settings.app_ppm.unwrap_or(settings.ppm).round().clamp(-200.0, 200.0)
+          as i32,
+      ),
+      use_app_ppm_correction: Some(settings.use_app_ppm_correction),
       tuner_agc: Some(settings.gain.tuner_agc),
       rtl_agc: Some(settings.gain.rtl_agc),
       tuner_bandwidth: settings.gain.tuner_bandwidth,
@@ -1021,6 +1114,8 @@ impl SdrProcessor {
   /// Check if the device is ready for reading
   pub fn is_ready(&self) -> bool {
     self.device.is_ready()
+      && (!device_type_is_rtl_sdr(self.device.device_type())
+        || self.ppm_correction_ready)
   }
 
   /// Whether the underlying device currently has an active Rx reader.
@@ -1063,6 +1158,8 @@ impl SdrProcessor {
       let noise =
         Self::synthesize_noise_frame(fft_size, self.frame.frame_counter);
       self.frame.last_frame_raw_iq.clear();
+      self.frame.last_frame_spectrum_iq.clear();
+      self.frame.last_frame_spectrum_ppm_correction = None;
       self.frame.last_stable_spectrum = Some(noise.clone());
       return Ok(noise);
     }
@@ -1083,6 +1180,8 @@ impl SdrProcessor {
         let noise =
           Self::synthesize_noise_frame(fft_size, self.frame.frame_counter);
         self.frame.last_frame_raw_iq.clear();
+        self.frame.last_frame_spectrum_iq.clear();
+        self.frame.last_frame_spectrum_ppm_correction = None;
         self.frame.last_stable_spectrum = Some(noise.clone());
         return Ok(noise);
       }
@@ -1158,9 +1257,13 @@ impl SdrProcessor {
       samples = next_samples;
     }
 
+    let spectrum_iq_data = samples.spectrum_iq_data;
+    let spectrum_ppm_correction = samples.spectrum_ppm_correction;
     let display_samples = crate::signal_port::fft::types::RawSamples {
       data: samples.data,
       sample_rate,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
 
     // Process the samples through FFT, keeping the hot live path allocation-free.
@@ -1291,6 +1394,13 @@ impl SdrProcessor {
       display_samples.data,
     );
     self.device.recycle_read_buffer(previous_iq_buffer);
+    self.frame.last_frame_spectrum_iq = spectrum_iq_data.unwrap_or_default();
+    self.frame.last_frame_spectrum_ppm_correction =
+      if self.frame.last_frame_spectrum_iq.is_empty() {
+        None
+      } else {
+        spectrum_ppm_correction
+      };
     self.frame.last_stable_spectrum = Some(final_spectrum.clone());
     self.frame.last_stable_center_frequency = self.get_center_frequency();
     self.frame.published_held_spectrum = false;
@@ -1356,9 +1466,12 @@ impl SdrProcessor {
     let hackrf_vga_gain = settings.hackrf_vga_gain;
     let hackrf_amp_enable = settings.hackrf_amp_enable;
     let ppm = settings.ppm;
+    let app_ppm = settings.app_ppm;
+    let use_app_ppm_correction = settings.use_app_ppm_correction;
     let tuner_agc = settings.tuner_agc;
     let rtl_agc = settings.rtl_agc;
     let is_hackrf = self.device.device_type() == "hackrf_one";
+    let is_rtl_sdr = device_type_is_rtl_sdr(self.device.device_type());
 
     // Always ensure the FFT processor sample rate matches the device
     let mut device_sample_rate = self.device.get_sample_rate();
@@ -1533,18 +1646,72 @@ impl SdrProcessor {
       }
     }
 
-    if let Some(p) = ppm {
-      if self.current_ppm != p {
-        if let Err(e) = self.device.set_ppm(p) {
-          warn!("Failed to set hardware PPM: {}", e);
-        }
-        self.current_ppm = p;
+    let next_app_ppm = app_ppm.unwrap_or(self.current_app_ppm).clamp(-200, 200);
+    let next_use_app_ppm_correction =
+      use_app_ppm_correction.unwrap_or(self.use_app_ppm_correction);
+    let requested_hardware_ppm = ppm.unwrap_or_else(|| {
+      if self.current_ppm == i32::MIN {
+        0
+      } else {
+        self.current_ppm
       }
+    });
+    let effective_hardware_ppm = if is_rtl_sdr && next_use_app_ppm_correction {
+      0
+    } else {
+      requested_hardware_ppm.clamp(-200, 200)
+    };
+    let ppm_transition = self.current_ppm != effective_hardware_ppm
+      || self.current_app_ppm != next_app_ppm
+      || self.use_app_ppm_correction != next_use_app_ppm_correction
+      || (is_rtl_sdr && !self.ppm_correction_ready);
 
-      let config_ppm = if self.is_mock() { p as f32 } else { 0.0 };
-      if config.ppm != config_ppm {
-        config.ppm = config_ppm;
+    if is_rtl_sdr && ppm_transition {
+      // A failed hardware/software transition must stop readiness until a
+      // later retry confirms the complete effective mode.
+      self.ppm_correction_ready = false;
+    }
+
+    if self.current_ppm != effective_hardware_ppm {
+      self.device.set_ppm(effective_hardware_ppm)?;
+      self.current_ppm = effective_hardware_ppm;
+    }
+
+    if is_rtl_sdr {
+      if ppm_transition {
+        self.device.set_software_ppm_correction(
+          next_use_app_ppm_correction.then_some(next_app_ppm),
+        )?;
+        self.frame.last_frame_raw_iq.clear();
+        self.frame.last_frame_spectrum_iq.clear();
+        self.frame.last_frame_spectrum_ppm_correction = None;
+      }
+      self.current_app_ppm = next_app_ppm;
+      self.use_app_ppm_correction = next_use_app_ppm_correction;
+      self.ppm_correction_ready = true;
+
+      // Native ingress supplies corrected data to backend FFT/audio/capture
+      // consumers. The browser gets a raw spectrum sibling plus model values
+      // for its WGSL pre-FFT correction. Keep the backend FFT PPM at zero so
+      // its already-corrected samples are not shifted a second time.
+      if config.ppm != 0.0 {
+        config.ppm = 0.0;
         config_changed = true;
+      }
+    } else {
+      self.current_app_ppm = next_app_ppm;
+      self.use_app_ppm_correction = next_use_app_ppm_correction;
+      self.ppm_correction_ready = true;
+      if ppm.is_some() {
+        let config_ppm = if self.is_mock() {
+          effective_hardware_ppm as f32
+        } else {
+          0.0
+        };
+        if config.ppm != config_ppm {
+          config.ppm = config_ppm;
+          config_changed = true;
+        }
       }
     }
 
@@ -1937,8 +2104,12 @@ impl SdrProcessor {
   /// Reset device buffers
   pub fn reset_buffer(&mut self) -> Result<()> {
     self.device.reset_buffer()?;
+    self.device.reset_ppm_correction();
     self.frame.iq_accumulator.clear();
     self.frame.iq_offset = 0;
+    self.frame.last_frame_raw_iq.clear();
+    self.frame.last_frame_spectrum_iq.clear();
+    self.frame.last_frame_spectrum_ppm_correction = None;
     self.frame.avg_spectrum = None;
     self.frame.raw_iq_history.clear();
     Ok(())
@@ -1958,6 +2129,11 @@ impl SdrProcessor {
   ) -> Result<()> {
     if self.capture_active {
       return Err(anyhow::anyhow!("Capture already active"));
+    }
+    if !self.is_ready() {
+      return Err(anyhow::anyhow!(
+        "Capture is unavailable until frequency correction is confirmed"
+      ));
     }
 
     let hw_sample_rate = self.get_sample_rate() as f64;
@@ -2077,6 +2253,19 @@ impl SdrProcessor {
     self.capture_fido_vault = request.fido_vault;
     self.capture_fft_size = request.fft_size;
     self.capture_fft_window = request.fft_window;
+    let effective_ppm = if self.use_app_ppm_correction {
+      self.current_app_ppm
+    } else {
+      self.current_ppm
+    };
+    self.capture_ppm = effective_ppm;
+    self.capture_app_ppm = self.current_app_ppm;
+    self.capture_use_app_ppm_correction = self.use_app_ppm_correction;
+    self.capture_correction_applied = device_type_is_rtl_sdr(self.device.device_type())
+      && (self.use_app_ppm_correction || self.current_ppm != 0);
+    self.capture_gain = self.current_gain_db;
+    self.capture_tuner_agc = self.current_tuner_agc;
+    self.capture_rtl_agc = self.current_rtl_agc;
     self.capture_geolocation = request.geolocation;
     self.capture_fragments = all_hops;
     self.capture_channels = capture_channels;
@@ -2251,6 +2440,9 @@ impl SdrProcessor {
       fft_window: self.capture_fft_window.clone(),
       gain: self.capture_gain,
       ppm: self.capture_ppm,
+      app_ppm: self.capture_app_ppm,
+      use_app_ppm_correction: self.capture_use_app_ppm_correction,
+      correction_applied: self.capture_correction_applied,
       tuner_agc: self.capture_tuner_agc,
       rtl_agc: self.capture_rtl_agc,
       source_device: self.device_type().to_string(),
@@ -2302,6 +2494,9 @@ mod hackrf_settings_tests {
       fft_window: "Hanning".into(),
       gain_db: 12.0,
       ppm: 1,
+      app_ppm: 1,
+      use_app_ppm_correction: false,
+      correction_applied: true,
       frame_rate_hz: 20,
     };
     let after = CaptureOptionsSnapshot {
@@ -2311,6 +2506,9 @@ mod hackrf_settings_tests {
       fft_window: "Blackman".into(),
       gain_db: 15.0,
       ppm: 2,
+      app_ppm: 2,
+      use_app_ppm_correction: false,
+      correction_applied: true,
       frame_rate_hz: 10,
     };
 
@@ -2527,6 +2725,7 @@ mod hackrf_settings_tests {
     standby_sleep: Option<std::time::Duration>,
     rx_active: bool,
     initialize_error: bool,
+    ppm_error: Arc<std::sync::atomic::AtomicBool>,
   }
 
   impl RecordingDevice {
@@ -2573,6 +2772,8 @@ mod hackrf_settings_tests {
       Ok(RawSamples {
         data: vec![0; fft_size.saturating_mul(2)],
         sample_rate: self.sample_rate,
+        spectrum_iq_data: None,
+        spectrum_ppm_correction: None,
       })
     }
 
@@ -2593,8 +2794,11 @@ mod hackrf_settings_tests {
       Ok(())
     }
 
-    fn set_ppm(&mut self, ppm: u32) -> Result<()> {
+    fn set_ppm(&mut self, ppm: i32) -> Result<()> {
       self.record(format!("ppm:{ppm}"));
+      if self.ppm_error.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err(anyhow::anyhow!("hardware PPM failed"));
+      }
       Ok(())
     }
 
@@ -2672,6 +2876,21 @@ mod hackrf_settings_tests {
       self.record(format!("amp:{enabled}"));
       Ok(())
     }
+  }
+
+  #[test]
+  fn failed_ppm_write_does_not_advance_effective_settings() {
+    let device = RecordingDevice::default();
+    let fail = device.ppm_error.clone();
+    let mut processor = SdrProcessor::with_device(Box::new(device)).unwrap();
+    let before = processor.current_ppm;
+    fail.store(true, std::sync::atomic::Ordering::Relaxed);
+    let result = processor.apply_settings(SdrProcessorSettings {
+      ppm: Some(before.saturating_add(1)),
+      ..Default::default()
+    });
+    assert!(result.is_err());
+    assert_eq!(processor.current_ppm, before);
   }
 
   #[test]
@@ -3197,6 +3416,8 @@ mod hackrf_settings_tests {
         Ok(RawSamples {
           data: vec![0; fft_size * 2],
           sample_rate: 1_000_000,
+          spectrum_iq_data: None,
+          spectrum_ppm_correction: None,
         })
       }
       fn set_sample_rate(&mut self, _rate: u32) -> Result<()> {
@@ -3208,7 +3429,7 @@ mod hackrf_settings_tests {
       fn set_gain(&mut self, _gain: f64) -> Result<()> {
         Ok(())
       }
-      fn set_ppm(&mut self, _ppm: u32) -> Result<()> {
+      fn set_ppm(&mut self, _ppm: i32) -> Result<()> {
         Ok(())
       }
       fn set_tuner_agc(&mut self, _enabled: bool) -> Result<()> {

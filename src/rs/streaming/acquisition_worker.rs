@@ -7,6 +7,9 @@ use tokio::sync::Mutex;
 use crate::sdr::audio_iq_tap::AudioIqBlock;
 use crate::sdr::processor::SdrProcessor;
 use crate::server::shared_state::SharedState;
+use crate::server::stream_manager::{
+  StreamKey, StreamMode, StreamOptions, StreamingSourceModeManager,
+};
 use crate::server::types::PowerScale;
 
 /// A contiguous IQ block tagged with the source epoch that produced it.
@@ -34,6 +37,10 @@ pub struct ProcessedFrame {
   pub power_scale: PowerScale,
   pub sample_rate: u32,
   pub raw_iq: Vec<u8>,
+  /// Untouched RTL-SDR samples reserved for the frontend's WGSL FFT stage.
+  pub spectrum_iq_data: Option<Vec<u8>>,
+  pub spectrum_ppm_correction:
+    Option<crate::signal_port::fft::types::PpmSpectrumCorrection>,
   pub target_fps: u32,
   pub capture_events: Vec<crate::server::iq_format::FrameUpdate>,
 }
@@ -67,20 +74,45 @@ pub(crate) fn resolve_monitor_frame_sample_rate(
   }
 }
 
+fn has_active_rx_settings_delta(
+  settings: &crate::server::types::SdrProcessorSettings,
+) -> bool {
+  settings.sample_rate.is_some()
+    || settings.fft_size.is_some()
+    || settings.fft_window.is_some()
+    || settings.frame_rate.is_some()
+    || settings.max_frame_rate.is_some()
+    || settings.gain.is_some()
+    || settings.hackrf_lna_gain.is_some()
+    || settings.hackrf_vga_gain.is_some()
+    || settings.hackrf_amp_enable.is_some()
+    || settings.ppm.is_some()
+    || settings.app_ppm.is_some()
+    || settings.use_app_ppm_correction.is_some()
+    || settings.tuner_agc.is_some()
+    || settings.rtl_agc.is_some()
+    || settings.offset_tuning.is_some()
+    || settings.direct_sampling.is_some()
+    || settings.tuner_bandwidth.is_some()
+}
+
 #[derive(Clone)]
 pub struct AcquisitionWorker {
   processor: Arc<Mutex<SdrProcessor>>,
   shared_state: Arc<SharedState>,
+  stream_manager: StreamingSourceModeManager,
 }
 
 impl AcquisitionWorker {
   pub fn new(
     processor: Arc<Mutex<SdrProcessor>>,
     shared_state: Arc<SharedState>,
+    stream_manager: StreamingSourceModeManager,
   ) -> Self {
     Self {
       processor,
       shared_state,
+      stream_manager,
     }
   }
 
@@ -94,6 +126,7 @@ impl AcquisitionWorker {
   ) -> Result<ProcessedFrame> {
     let processor = self.processor.clone();
     let shared_state = self.shared_state.clone();
+    let stream_manager = self.stream_manager.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<ProcessedFrame> {
       let metrics = crate::performance::pipeline_metrics();
@@ -121,37 +154,24 @@ impl AcquisitionWorker {
               &update.options,
             )
           });
-        let has_settings_delta = settings.sample_rate.is_some()
-          || settings.fft_size.is_some()
-          || settings.fft_window.is_some()
-          || settings.frame_rate.is_some()
-          || settings.max_frame_rate.is_some()
-          || settings.gain.is_some()
-          || settings.hackrf_lna_gain.is_some()
-          || settings.hackrf_vga_gain.is_some()
-          || settings.hackrf_amp_enable.is_some()
-          || settings.ppm.is_some()
-          || settings.tuner_agc.is_some()
-          || settings.rtl_agc.is_some()
-          || settings.offset_tuning.is_some()
-          || settings.direct_sampling.is_some()
-          || settings.tuner_bandwidth.is_some();
+        let has_settings_delta = has_active_rx_settings_delta(&settings);
         let center_frequency = u32::try_from(update.options.center_frequency_hz)
           .map_err(|_| anyhow::anyhow!("center frequency exceeds u32"))?;
         let mut succeeded = true;
+        let mut apply_error = None;
 
         if center_frequency != processor.get_center_frequency() {
           crate::performance::pipeline_metrics().record_latency(
             crate::performance::Stage::CommandToRetune,
             update.requested_at.elapsed(),
           );
-          if processor
-            .set_center_frequency_live(center_frequency)
-            .is_ok()
+          if let Err(error) =
+            processor.set_center_frequency_live(center_frequency)
           {
-            shared_state.mark_live_retune_started();
-          } else {
             succeeded = false;
+            apply_error = Some(error.to_string());
+          } else {
+            shared_state.mark_live_retune_started();
           }
         }
 
@@ -170,17 +190,47 @@ impl AcquisitionWorker {
                 supported_device_present,
               )
             {
+              let key = StreamKey::new(
+                update.source_id.clone(),
+                StreamMode::Rx,
+              );
+              let _ = stream_manager.publish_error(
+                &key,
+                "options_apply",
+                error.to_string(),
+              );
               return Err(error);
             }
             succeeded = false;
+            apply_error = Some(error.to_string());
           }
         }
 
         if succeeded {
+          let key =
+            StreamKey::new(update.source_id.clone(), StreamMode::Rx);
+          let options = update.options.clone();
           shared_state.mark_active_rx_options_applied(
             &update.source_id,
             update.revision,
-            update.options,
+            options.clone(),
+          );
+          if let Err(error) = stream_manager.confirm_options_applied(
+            &key,
+            StreamOptions::Rx(options),
+          ) {
+            let _ = stream_manager.publish_error(
+              &key,
+              "options_apply",
+              error.to_string(),
+            );
+          }
+        } else if let Some(message) = apply_error {
+          let key = StreamKey::new(update.source_id, StreamMode::Rx);
+          let _ = stream_manager.publish_error(
+            &key,
+            "options_apply",
+            message,
           );
         }
       }
@@ -284,7 +334,8 @@ impl AcquisitionWorker {
 
       let mut center_frequency = processor.get_center_frequency();
       let mut frame_sample_rate = sample_rate;
-      let (waveform, raw_iq) = if streaming_mock_tx_monitor {
+      let (waveform, raw_iq, spectrum_iq_data, spectrum_ppm_correction) =
+        if streaming_mock_tx_monitor {
         let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
         let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
         let tx_center_hz =
@@ -334,7 +385,7 @@ impl AcquisitionWorker {
           &tx_iq_power_model,
           &shared_state.mock_tx_phase_accumulator,
         );
-        (Vec::new(), raw_iq)
+        (Vec::new(), raw_iq, None, None)
       } else {
         let force_noise = shared_state
           .force_noise
@@ -346,7 +397,13 @@ impl AcquisitionWorker {
         // bounded queue even when no audio consumer was running, which made
         // physical devices slower than Mock sources with identical FFT work.
         let contiguous_iq = resolve_display_iq(None, &processor.frame.last_frame_raw_iq);
-        (waveform, contiguous_iq)
+        let spectrum_iq_data =
+          (!processor.frame.last_frame_spectrum_iq.is_empty())
+            .then(|| processor.frame.last_frame_spectrum_iq.clone());
+        let spectrum_ppm_correction = spectrum_iq_data
+          .as_ref()
+          .and(processor.frame.last_frame_spectrum_ppm_correction);
+        (waveform, contiguous_iq, spectrum_iq_data, spectrum_ppm_correction)
       };
 
       metrics.increment(crate::performance::CounterKind::FramesProduced, 1);
@@ -368,6 +425,8 @@ impl AcquisitionWorker {
         power_scale,
         sample_rate: frame_sample_rate,
         raw_iq,
+        spectrum_iq_data,
+        spectrum_ppm_correction,
         target_fps: processor.display_frame_rate,
         capture_events: processor.capture_frame_updates[capture_event_start..].to_vec(),
       })
@@ -423,10 +482,24 @@ impl FramePublicationGate {
 #[cfg(test)]
 mod tests {
   use super::{
-    resolve_display_iq, resolve_monitor_frame_sample_rate, AcquisitionFrame,
-    FramePublicationGate, ProcessedFrame,
+    has_active_rx_settings_delta, resolve_display_iq,
+    resolve_monitor_frame_sample_rate, AcquisitionFrame, FramePublicationGate,
+    ProcessedFrame,
   };
   use crate::server::types::PowerScale;
+  use crate::server::types::SdrProcessorSettings;
+
+  #[test]
+  fn app_ppm_only_updates_are_applied_at_the_active_stream_boundary() {
+    assert!(has_active_rx_settings_delta(&SdrProcessorSettings {
+      app_ppm: Some(1),
+      ..Default::default()
+    }));
+    assert!(has_active_rx_settings_delta(&SdrProcessorSettings {
+      use_app_ppm_correction: Some(true),
+      ..Default::default()
+    }));
+  }
 
   #[test]
   fn display_iq_uses_the_frame_buffer_when_no_audio_consumer_is_present() {
@@ -472,6 +545,8 @@ mod tests {
       power_scale: PowerScale::DBm,
       sample_rate: 2_400_000,
       raw_iq: vec![128, 128, 129, 127],
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
       target_fps: 30,
       capture_events: Vec::new(),
     };

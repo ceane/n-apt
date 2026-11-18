@@ -6,12 +6,16 @@ import {
   useAppSelector,
   setSdrSettingsBundle,
   setFftFrameRate as setFftFrameRateAction,
+  setUseAppPpmCorrection as setUseAppPpmCorrectionAction,
 } from "@n-apt/redux";
 import {
   clampFrameRateToLogicalMax,
   getLogicalMaxFrameRate,
 } from "@n-apt/math/signals";
-import { assertValidSampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import {
+  assertValidSampleRateHz,
+  isRtlSdrDevice,
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 
 interface UseSdrSettingsProps {
   maxSampleRate: number;
@@ -48,6 +52,7 @@ interface UseSdrSettingsReturn {
   hackrfAmpEnabled: boolean;
   hackrfBasebandBandwidth: number | null;
   ppm: number;
+  useAppPpmCorrection: boolean;
   tunerAGC: boolean;
   rtlAGC: boolean;
   fftSizeOptions: number[];
@@ -63,6 +68,7 @@ interface UseSdrSettingsReturn {
   setHackrfAmpEnabled: (enabled: boolean) => void;
   setHackrfBasebandBandwidth: (bandwidth: number | null) => void;
   setPpm: (ppm: number) => void;
+  setUseAppPpmCorrection: (enabled: boolean) => void;
   setTunerAGC: (enabled: boolean) => void;
   setRtlAGC: (enabled: boolean) => void;
   sendCurrentSettings: (overrides?: Partial<SDRSettings>) => void;
@@ -169,7 +175,12 @@ export const deriveStateFromConfig = (
     derived.rtlAGC = gainConfig.rtl_agc;
   }
   derived.ppm =
-    typeof sdrSettings?.ppm === "number" ? sdrSettings.ppm : 1;
+    typeof sdrSettings?.app_ppm === "number" &&
+    sdrSettings?.use_app_ppm_correction === true
+      ? sdrSettings.app_ppm
+      : typeof sdrSettings?.ppm === "number"
+        ? sdrSettings.ppm
+        : 1;
   return derived;
 };
 
@@ -381,9 +392,36 @@ export const useSdrSettings = ({
   const setPpm = useCallback(
     (ppm: number) => {
       dispatch(setSdrSettingsBundle({ ppm }));
-      sendCurrentSettings({ ppm });
+      const hasHardwarePpm = isRtlSdrDevice({
+        deviceKind: deviceType,
+        backend: deviceType,
+        deviceName: deviceType,
+      });
+      sendCurrentSettings({
+        ppm: hasHardwarePpm && !state.useAppPpmCorrection ? ppm : 0,
+        ...(hasHardwarePpm
+          ? { appPpm: ppm, useAppPpmCorrection: state.useAppPpmCorrection }
+          : {}),
+      });
     },
-    [dispatch, sendCurrentSettings],
+    [deviceType, dispatch, sendCurrentSettings, state.useAppPpmCorrection],
+  );
+  const setUseAppPpmCorrection = useCallback(
+    (enabled: boolean) => {
+      dispatch(setUseAppPpmCorrectionAction(enabled));
+      const hasHardwarePpm = isRtlSdrDevice({
+        deviceKind: deviceType,
+        backend: deviceType,
+        deviceName: deviceType,
+      });
+      sendCurrentSettings({
+        ppm: hasHardwarePpm && !enabled ? state.ppm : 0,
+        ...(hasHardwarePpm
+          ? { appPpm: state.ppm, useAppPpmCorrection: enabled }
+          : {}),
+      });
+    },
+    [deviceType, dispatch, sendCurrentSettings, state.ppm],
   );
 
   const clampGain = useCallback(
@@ -509,6 +547,9 @@ export const useSdrSettings = ({
       hackrfAmpEnabled: sdrSettings?.gain?.hackrf_amp_enable ?? null,
       hackrfBasebandBandwidth: sdrSettings?.gain?.tuner_bandwidth ?? null,
       ppm: sdrSettings?.ppm ?? null,
+      appPpm: sdrSettings?.app_ppm ?? null,
+      useAppPpmCorrection:
+        sdrSettings?.use_app_ppm_correction ?? null,
       rtlAgc: sdrSettings?.gain?.rtl_agc ?? null,
       tunerAgc: sdrSettings?.gain?.tuner_agc ?? null,
     });
@@ -564,8 +605,15 @@ export const useSdrSettings = ({
     ) {
       setHackrfBasebandBandwidth(sdrSettings.gain.tuner_bandwidth);
     }
-    if (sdrSettings?.ppm !== undefined) {
-      setPpm(sdrSettings.ppm);
+    // With app correction enabled, zero is the hardware setting. Preserve the
+    // user's separate app calibration instead of hydrating it from that zero.
+    const configuredPpm =
+      state.useAppPpmCorrection &&
+      typeof sdrSettings?.app_ppm === "number"
+        ? sdrSettings.app_ppm
+        : sdrSettings?.ppm;
+    if (configuredPpm !== undefined) {
+      setPpm(configuredPpm);
     }
     if (sdrSettings?.gain?.rtl_agc !== undefined) {
       setRtlAGC(sdrSettings.gain.rtl_agc);
@@ -582,10 +630,12 @@ export const useSdrSettings = ({
     setHackrfVgaGain,
     setHackrfBasebandBandwidth,
     setPpm,
+    setUseAppPpmCorrection,
     setRtlAGC,
     setTunerAGC,
     currentSampleRateHz,
     state.hackrfBasebandBandwidth,
+    state.useAppPpmCorrection,
     dispatch,
     maxSampleRate,
     sendCurrentSettings,
@@ -665,6 +715,7 @@ export const useSdrSettings = ({
     setHackrfAmpEnabled,
     setHackrfBasebandBandwidth,
     setPpm,
+    setUseAppPpmCorrection,
     setTunerAGC,
     setRtlAGC,
     sendCurrentSettings,

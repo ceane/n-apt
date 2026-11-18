@@ -123,6 +123,8 @@ export interface DeviceScopedSpectrumState {
   hackrfAmpEnabled: boolean;
   hackrfBasebandBandwidth: number | null;
   ppm: number;
+  /** Apply ppm correction to IQ in the app's WebGPU spectrum pipeline. */
+  useAppPpmCorrection: boolean;
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
@@ -346,6 +348,7 @@ const initialState: SpectrumState = {
   hackrfBasebandBandwidth: 3_200_000,
   basebandFilterPinned: false,
   ppm: 1,
+  useAppPpmCorrection: true,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
@@ -828,6 +831,10 @@ const spectrumSlice = createSlice({
       state.ppm = action.payload;
     },
 
+    setUseAppPpmCorrection: (state, action: PayloadAction<boolean>) => {
+      state.useAppPpmCorrection = action.payload;
+    },
+
     setTunerAGC: (state, action: PayloadAction<boolean>) => {
       state.tunerAGC = action.payload;
     },
@@ -1152,6 +1159,7 @@ export const {
   setHackrfVgaGain,
   setHackrfAmpEnabled,
   setPpm,
+  setUseAppPpmCorrection,
   setTunerAGC,
   setRtlAGC,
   setSampleRate,

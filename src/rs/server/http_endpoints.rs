@@ -3309,10 +3309,14 @@ async fn handle_set_ppm(
   state: &Arc<super::AppState>,
   params: &serde_json::Value,
 ) -> WebMCPToolResponse {
-  if let Some(ppm) = params.get("ppm").and_then(|p| p.as_i64()) {
+  if let Some(ppm) = params
+    .get("ppm")
+    .and_then(|p| p.as_i64())
+    .filter(|ppm| (-200..=200).contains(ppm))
+  {
     if let Err(e) = state
       .cmd_tx
-      .send(super::types::SdrCommand::SetPpm(ppm.max(0) as u32))
+      .send(super::types::SdrCommand::SetPpm(ppm as i32))
     {
       WebMCPToolResponse {
         success: false,

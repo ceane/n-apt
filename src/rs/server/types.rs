@@ -63,7 +63,7 @@ pub enum PowerScale {
 pub enum SdrCommand {
   SetFrequency(u32),
   SetGain(f64),
-  SetPpm(u32),
+  SetPpm(i32),
   SetTunerAGC(bool),
   SetRtlAGC(bool),
   SetOffsetTuning(bool),
@@ -127,7 +127,7 @@ pub enum SdrCommand {
     amp_enabled: Option<bool>,
     tuner_agc: Option<bool>,
     rtl_agc: Option<bool>,
-    ppm: Option<u32>,
+    ppm: Option<i32>,
   },
 }
 
@@ -143,7 +143,9 @@ pub struct SdrProcessorSettings {
   pub hackrf_lna_gain: Option<f64>,
   pub hackrf_vga_gain: Option<f64>,
   pub hackrf_amp_enable: Option<bool>,
-  pub ppm: Option<u32>,
+  pub ppm: Option<i32>,
+  pub app_ppm: Option<i32>,
+  pub use_app_ppm_correction: Option<bool>,
   pub tuner_agc: Option<bool>,
   pub rtl_agc: Option<bool>,
   pub offset_tuning: Option<bool>,
@@ -265,8 +267,8 @@ pub struct WebSocketMessage {
   )]
   pub hackrf_amp_enable: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
-  #[validate(range(min = 0, max = 1000))]
-  pub ppm: Option<u32>,
+  #[validate(range(min = -200, max = 200))]
+  pub ppm: Option<i32>,
   #[serde(
     skip_serializing_if = "Option::is_none",
     alias = "tunerAGC",
@@ -591,12 +593,20 @@ pub struct SdrConfig {
   pub gain: SdrGainConfig,
   pub ppm: f64,
   #[serde(default)]
+  pub app_ppm: Option<f64>,
+  #[serde(default = "default_app_ppm_correction")]
+  pub use_app_ppm_correction: bool,
+  #[serde(default)]
   pub fft: SdrFftConfig,
   pub display: SdrDisplayConfig,
   #[serde(default)]
   pub devices: IndexMap<String, SdrDeviceConfig>,
   #[serde(default)]
   pub fft_sizes: Option<Vec<FftSizesOptionYaml>>,
+}
+
+fn default_app_ppm_correction() -> bool {
+  true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

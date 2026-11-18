@@ -83,7 +83,10 @@ import {
   notifyRawIqFrameArrival,
 } from "@n-apt/app/infrastructure/visualization/frameArrivalRuntime";
 import { resolveMirroredDevicePanOffset } from "@n-apt/math/basebandMirror";
-import { MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import {
+  isRtlSdrDevice,
+  MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { CLIENT_ORIGIN_ID } from "../clientOrigin";
 import { resolveMockTxTransmitViewCenterHz } from "@n-apt/transmit/public/txSliderPlacement";
 
@@ -163,6 +166,8 @@ const deriveLegacyStateFromSource = (source: SourceInfo) => {
       hackrfVgaGain: source.sdr.settings.hackrf_vga_gain,
       hackrfAmpEnabled: source.sdr.settings.hackrf_amp_enable,
       ppm: source.sdr.settings.ppm,
+      appPpm: source.sdr.settings.app_ppm,
+      useAppPpmCorrection: source.sdr.settings.use_app_ppm_correction,
       tunerAGC: source.sdr.settings.tuner_agc,
       rtlAGC: source.sdr.settings.rtl_agc,
     },
@@ -204,6 +209,13 @@ export const resolveManagedRxDeviceOptionUpdates = ({
   const websocketState = rootState.websocket ?? rootState;
   const spectrumState = rootState.spectrum ?? websocketState.spectrum ?? {};
   const currentSources: SourceInfo[] = websocketState.sources ?? [];
+  const sourceForPpm = currentSources.find((source) => source.id === sourceId);
+  const keepAppPpm =
+    options.useAppPpmCorrection === true &&
+    isRtlSdrDevice({
+      deviceKind: sourceForPpm?.kind,
+      deviceName: sourceForPpm?.name,
+    });
   const nextSources = currentSources.map((source) =>
     source.id === sourceId
       ? {
@@ -237,6 +249,12 @@ export const resolveManagedRxDeviceOptionUpdates = ({
                 ? { hackrf_amp_enable: options.hackrfAmpEnable }
                 : {}),
               ...(typeof options.ppm === "number" ? { ppm: options.ppm } : {}),
+              ...(typeof options.appPpm === "number"
+                ? { app_ppm: options.appPpm }
+                : {}),
+              ...(typeof options.useAppPpmCorrection === "boolean"
+                ? { use_app_ppm_correction: options.useAppPpmCorrection }
+                : {}),
               ...(typeof options.tunerAgc === "boolean"
                 ? { tuner_agc: options.tunerAgc }
                 : {}),
@@ -335,7 +353,16 @@ export const resolveManagedRxDeviceOptionUpdates = ({
       ...(typeof options.hackrfAmpEnable === "boolean"
         ? { hackrfAmpEnabled: options.hackrfAmpEnable }
         : {}),
-      ...(typeof options.ppm === "number" ? { ppm: options.ppm } : {}),
+      ...(typeof options.ppm === "number"
+        ? { ppm: keepAppPpm ? options.appPpm ?? spectrumState.ppm : options.ppm }
+        : {}),
+      ...(typeof options.useAppPpmCorrection === "boolean" &&
+      isRtlSdrDevice({
+        deviceKind: sourceForPpm?.kind,
+        deviceName: sourceForPpm?.name,
+      })
+        ? { useAppPpmCorrection: options.useAppPpmCorrection }
+        : {}),
       ...(typeof options.tunerAgc === "boolean"
         ? { tunerAGC: options.tunerAgc }
         : {}),
@@ -1386,7 +1413,28 @@ export const buildManagedRxOptions = (
       overrides.hackrfVgaGain ?? settings.hackrf_vga_gain ?? undefined,
     hackrfAmpEnable:
       overrides.hackrfAmpEnable ?? settings.hackrf_amp_enable ?? undefined,
-    ppm: overrides.ppm ?? settings.ppm,
+    ppm:
+      isRtlSdrDevice({ deviceKind: source.kind, deviceName: source.name }) &&
+      (overrides.useAppPpmCorrection ??
+        state.spectrum?.useAppPpmCorrection ??
+        settings.use_app_ppm_correction ??
+        true)
+        ? 0
+        : overrides.ppm ?? settings.ppm,
+    ...(isRtlSdrDevice({ deviceKind: source.kind, deviceName: source.name })
+      ? {
+          appPpm:
+            overrides.appPpm ??
+            state.spectrum?.ppm ??
+            settings.app_ppm ??
+            settings.ppm,
+          useAppPpmCorrection:
+            overrides.useAppPpmCorrection ??
+            state.spectrum?.useAppPpmCorrection ??
+            settings.use_app_ppm_correction ??
+            true,
+        }
+      : {}),
     tunerAgc: overrides.tunerAgc ?? settings.tuner_agc,
     rtlAgc: overrides.rtlAgc ?? settings.rtl_agc,
     offsetTuning: overrides.offsetTuning ?? settings.offset_tuning,

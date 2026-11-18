@@ -18,7 +18,14 @@ struct FFTParams {
   chain_loss_db: f32,
   calibration_mode: u32,
   gain_correction_db_per_db: f32,
-  reserved_1: u32,
+  raw_sample_count: u32,
+  // Nominal software LO shift supplied by the backend model, in Hz.
+  ppm_correction_hz: f32,
+  // Set when either the mixer or the sample-clock resampler is active.
+  ppm_correction_enabled: u32,
+  // Raw input samples consumed per output FFT sample and fractional start.
+  ppm_input_per_output: f32,
+  ppm_source_offset: f32,
 };
 
 // Window function types
@@ -315,8 +322,9 @@ fn rtl_sdr_windowed_complex_iq(idx: u32, sample: Complex) -> Complex {
   return Complex(sample.real * window_val, sample.imag * window_val);
 }
 
-fn unpack_raw_iq_sample(idx: u32) -> Complex {
-  let byte_index = idx * 2u;
+fn unpack_raw_iq_at(idx: u32) -> Complex {
+  let sample_index = min(idx, max(params.raw_sample_count, 1u) - 1u);
+  let byte_index = sample_index * 2u;
   let word_index = byte_index / 4u;
   let byte_offset = byte_index % 4u;
   let word = raw_iq_buffer[word_index];
@@ -325,6 +333,56 @@ fn unpack_raw_iq_sample(idx: u32) -> Complex {
   let q_byte = f32((word >> ((byte_offset + 1u) * 8u)) & 0xffu);
 
   return Complex((i_byte - 128.0) / 128.0, (q_byte - 128.0) / 128.0);
+}
+
+fn unpack_raw_iq_sample(idx: u32) -> Complex {
+  let source_position = params.ppm_source_offset +
+    f32(idx) * params.ppm_input_per_output;
+  let source_index = u32(floor(source_position));
+  let fraction = source_position - f32(source_index);
+  let first = unpack_raw_iq_at(source_index);
+  let second = unpack_raw_iq_at(source_index + 1u);
+  var sample = Complex(
+    first.real * (1.0 - fraction) + second.real * fraction,
+    first.imag * (1.0 - fraction) + second.imag * fraction,
+  );
+
+  if (params.ppm_correction_enabled != 0u && params.ppm_correction_hz != 0.0) {
+    // Correction data flow:
+    //
+    // Hardware PPM mode calls librtlsdr's rtlsdr_set_freq_correction(). The
+    // driver writes the RTL2832U sample-clock correction registers, scales
+    // its tuner-reference estimate, then retunes. For R820T/R820T2/R828D,
+    // that reference changes the r82xx_set_pll() divider and LO. The Blog V4
+    // path also tunes through its 28.8 MHz HF upconverter. The driver does not
+    // physically trim the crystal or call an independent firmware PPM API;
+    // the RTL2832U and tuner are configured over USB. The driver setter does
+    // not reprogram the IF oscillator during that PPM transition. Returned
+    // I/Q already has the hardware's changed LO and sample timebase, so this
+    // GPU correction is disabled for hardware mode.
+    //
+    // App PPM mode first confirms hardware PPM is zero. Native Rust applies
+    // the continuous modeled correction to the I/Q used by backend FFT,
+    // audio, capture, and demodulation. In parallel it keeps the corresponding
+    // uncorrected source samples and the R82xx model's nominal LO delta and
+    // sample-clock ratio for the browser spectrum. This GPU stage interpolates
+    // that raw span at `ppm_input_per_output`, then mixes by the modeled LO
+    // shift before the display FFT. `ppm_source_offset` carries the fractional
+    // input position between frames. The mixer phase restarts per FFT; that
+    // does not change a power spectrum, while phase-sensitive consumers use
+    // the continuous native stream.
+    //
+    // The PLL model uses quantized divider settings, including the Blog V4
+    // upconverter and selected tuner IF. It does not model VCO calibration,
+    // lock transients, analog phase noise, or hardware-only spurs. Do not
+    // synthesize physical spikes from this nominal software correction.
+    let cycles = fract(
+      f32(idx) * params.ppm_correction_hz / max(params.sample_rate_hz, 1.0)
+    );
+    let phase = 2.0 * 3.14159265359 * cycles;
+    sample = complex_mul(sample, Complex(cos(phase), sin(phase)));
+  }
+  return sample;
 }
 
 fn rtl_sdr_complex_power(sample: Complex) -> f32 {

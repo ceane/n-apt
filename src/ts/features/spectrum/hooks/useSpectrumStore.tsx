@@ -990,6 +990,7 @@ export const LIVE_CONTROL_DEFAULTS = {
   hackrfAmpEnabled: false,
   hackrfBasebandBandwidth: 3_200_000,
   ppm: 1,
+  useAppPpmCorrection: true,
   tunerAGC: false,
   rtlAGC: false,
 };
@@ -1051,6 +1052,7 @@ export type SpectrumState = {
   hackrfAmpEnabled: boolean;
   hackrfBasebandBandwidth: number | null;
   ppm: number;
+  useAppPpmCorrection: boolean;
   tunerAGC: boolean;
   rtlAGC: boolean;
   sampleRateHz: number;
@@ -1317,6 +1319,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   hackrfAmpEnabled: true,
   hackrfBasebandBandwidth: null,
   ppm: 0,
+  useAppPpmCorrection: true,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,

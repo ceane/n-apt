@@ -155,8 +155,17 @@ test.describe("Mock Tx Rust/WGSL power contract", () => {
           windowType: number,
           normalization: number,
           calibrationDb: number,
+          ppm: {
+            rawSampleCount?: number;
+            correctionHz?: number;
+            correctionEnabled?: boolean;
+            inputPerOutput?: number;
+            sourceOffset?: number;
+            centerFrequencyHz?: number;
+            sampleRateHz?: number;
+          } = {},
         ) => {
-          const data = new ArrayBuffer(64);
+          const data = new ArrayBuffer(80);
           const view = new DataView(data);
           view.setUint32(0, stage, true);
           view.setInt32(4, 1, true);
@@ -166,14 +175,18 @@ test.describe("Mock Tx Rust/WGSL power contract", () => {
           view.setFloat32(20, -120, true);
           view.setFloat32(24, 0, true);
           view.setUint32(28, size, true);
-          view.setFloat32(32, 137_100_000, true);
-          view.setFloat32(36, 6_270_000, true);
+          view.setFloat32(32, ppm.centerFrequencyHz ?? 137_100_000, true);
+          view.setFloat32(36, ppm.sampleRateHz ?? 6_270_000, true);
           view.setFloat32(40, 0, true);
           view.setFloat32(44, calibrationDb, true);
           view.setFloat32(48, 0, true);
           view.setUint32(52, 0, true);
           view.setUint32(56, 0, true);
-          view.setUint32(60, 0, true);
+          view.setUint32(60, ppm.rawSampleCount ?? size, true);
+          view.setFloat32(64, ppm.correctionHz ?? 0, true);
+          view.setUint32(68, ppm.correctionEnabled ? 1 : 0, true);
+          view.setFloat32(72, ppm.inputPerOutput ?? 1, true);
+          view.setFloat32(76, ppm.sourceOffset ?? 0, true);
           return new Uint8Array(data);
         };
 
@@ -226,7 +239,7 @@ test.describe("Mock Tx Rust/WGSL power contract", () => {
             rawWords,
           );
           const paramsBuffer = storage(
-            64,
+            80,
             GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
           );
           const readbackBuffer = device.createBuffer({
@@ -405,7 +418,130 @@ test.describe("Mock Tx Rust/WGSL power contract", () => {
 
         const outputs = [];
         for (const powerCase of powerCases) outputs.push(await run(powerCase));
-        return { available: true as const, outputs };
+
+        const runPpmSpectrum = async () => {
+          const size = 1_024;
+          const rawSampleCount = 1_280;
+          const sampleRateHz = 1_024_000;
+          const correctionHz = sampleRateHz / size;
+          const rawIq = new Uint8Array(rawSampleCount * 2);
+          for (let index = 0; index < rawSampleCount; index++) {
+            const phase = 2 * Math.PI * 5 * index / rawSampleCount;
+            rawIq[index * 2] = Math.round(128 + 100 * Math.cos(phase));
+            rawIq[index * 2 + 1] = Math.round(128 + 100 * Math.sin(phase));
+          }
+
+          const byteLength = size * 8;
+          const input = device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+          });
+          const output = device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+          });
+          const temp = device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+          });
+          const raw = device.createBuffer({
+            size: rawIq.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+          device.queue.writeBuffer(raw, 0, rawIq);
+          const params = device.createBuffer({
+            size: 80,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          });
+          const readback = device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+          });
+          const bind = (
+            pipeline: GPUComputePipeline,
+            entries: Array<{ binding: number; resource: { buffer: GPUBuffer } }>,
+          ) => device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries,
+          });
+          const groups = {
+            window: bind(pipelines.window, [
+              { binding: 1, resource: { buffer: output } },
+              { binding: 3, resource: { buffer: params } },
+              { binding: 4, resource: { buffer: raw } },
+            ]),
+            bitReverse: bind(pipelines.bitReverse, [
+              { binding: 1, resource: { buffer: output } },
+              { binding: 2, resource: { buffer: temp } },
+              { binding: 3, resource: { buffer: params } },
+            ]),
+            fft: bind(pipelines.fft, [
+              { binding: 1, resource: { buffer: output } },
+              { binding: 2, resource: { buffer: temp } },
+              { binding: 3, resource: { buffer: params } },
+            ]),
+            power: bind(pipelines.power, [
+              { binding: 0, resource: { buffer: input } },
+              { binding: 1, resource: { buffer: output } },
+              { binding: 3, resource: { buffer: params } },
+            ]),
+          };
+          const writeParams = (stage: number) => device.queue.writeBuffer(
+            params,
+            0,
+            makeParams(size, stage, 0, size * size, 0, {
+              rawSampleCount,
+              correctionHz,
+              correctionEnabled: true,
+              inputPerOutput: 1.25,
+              centerFrequencyHz: 0,
+              sampleRateHz,
+            }),
+          );
+          const dispatch = async (
+            pipeline: GPUComputePipeline,
+            group: GPUBindGroup,
+            stage: number,
+            workgroups: number,
+            copyToTemp = true,
+          ) => {
+            writeParams(stage);
+            const encoder = device.createCommandEncoder();
+            const pass = encoder.beginComputePass();
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(0, group);
+            pass.dispatchWorkgroups(workgroups);
+            pass.end();
+            if (copyToTemp) {
+              encoder.copyBufferToBuffer(output, 0, temp, 0, byteLength);
+            }
+            device.queue.submit([encoder.finish()]);
+            await device.queue.onSubmittedWorkDone();
+          };
+          const stages = Math.log2(size);
+          await dispatch(pipelines.window, groups.window, 0, Math.ceil(size / 256));
+          await dispatch(pipelines.bitReverse, groups.bitReverse, stages, Math.ceil(size / 256));
+          for (let stage = 0; stage < stages; stage++) {
+            await dispatch(pipelines.fft, groups.fft, stage, Math.ceil(size / 2 / 256));
+          }
+          const copyFft = device.createCommandEncoder();
+          copyFft.copyBufferToBuffer(output, 0, input, 0, byteLength);
+          device.queue.submit([copyFft.finish()]);
+          await device.queue.onSubmittedWorkDone();
+          await dispatch(pipelines.power, groups.power, 0, Math.ceil(size / 256));
+          await readback.mapAsync(GPUMapMode.READ);
+          const powerBins = new Float32Array(readback.getMappedRange().slice(0));
+          const spectrumBins = powerBins.filter((_, index) => index % 2 === 0);
+          const peakIndex = spectrumBins.reduce(
+            (peak, value, index) => value > spectrumBins[peak] ? index : peak,
+            0,
+          );
+          readback.unmap();
+          return peakIndex;
+        };
+
+        const ppmPeakIndex = await runPpmSpectrum();
+        return { available: true as const, outputs, ppmPeakIndex };
       },
       { shaderCode: FFT_COMPUTE_WGSL, powerCases: POWER_CASES },
     );
@@ -413,6 +549,7 @@ test.describe("Mock Tx Rust/WGSL power contract", () => {
     test.skip(!result.available, "Chromium WebGPU adapter unavailable");
     expect(result.available).toBe(true);
     if (!result.available) return;
+    expect(result.ppmPeakIndex).toBe(1_024 / 2 + 6);
     for (const output of result.outputs) {
       expect(
         output.maxMeaningfulBinError,

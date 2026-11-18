@@ -113,6 +113,14 @@ pub enum StitchingRecommendation {
   UseAlternativeMethod(CorrelationMethod),
 }
 
+/// Nominal correction used only when the frontend spectrum consumes raw IQ.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PpmSpectrumCorrection {
+  pub correction_hz: f32,
+  pub input_per_output: f32,
+  pub source_offset: f32,
+}
+
 /// Sample data from RTL-SDR device
 #[derive(Debug)]
 pub struct RawSamples {
@@ -120,6 +128,10 @@ pub struct RawSamples {
   pub data: Vec<u8>,
   /// Sample rate used for capture
   pub sample_rate: u32,
+  /// Optional untouched input span for a separate GPU spectrum correction.
+  pub spectrum_iq_data: Option<Vec<u8>>,
+  /// Correction model paired with `spectrum_iq_data`.
+  pub spectrum_ppm_correction: Option<PpmSpectrumCorrection>,
 }
 
 /// FFT processing configuration

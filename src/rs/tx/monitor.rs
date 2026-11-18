@@ -31,7 +31,7 @@ pub struct TxStatusRequest {
   pub amp_enabled: Option<bool>,
   pub tuner_agc: Option<bool>,
   pub rtl_agc: Option<bool>,
-  pub ppm: Option<u32>,
+  pub ppm: Option<i32>,
 }
 
 /// Outcome of a request-only standby preview attempt.

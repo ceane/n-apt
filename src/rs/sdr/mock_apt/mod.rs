@@ -107,7 +107,7 @@ pub struct MockAptDevice {
   center_freq: u32,
   sample_rate: u32,
   gain: f64,
-  ppm: u32,
+  ppm: i32,
   tuner_agc: bool,
   rtl_agc: bool,
   offset_tuning: bool,
@@ -803,7 +803,7 @@ impl SdrDevice for MockAptDevice {
     Ok(())
   }
 
-  fn set_ppm(&mut self, ppm: u32) -> Result<()> {
+  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
     self.ppm = ppm;
     log::debug!("Mock device PPM set to {}", ppm);
     Ok(())
@@ -1652,6 +1652,8 @@ impl MockAptDevice {
           return Ok(RawSamples {
             data,
             sample_rate: self.sample_rate,
+            spectrum_iq_data: None,
+            spectrum_ppm_correction: None,
           });
         }
         Err(error) => {
@@ -1716,6 +1718,8 @@ impl MockAptDevice {
     Ok(RawSamples {
       data,
       sample_rate: self.sample_rate,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     })
   }
 
@@ -1779,6 +1783,8 @@ impl MockAptDevice {
     Ok(RawSamples {
       data,
       sample_rate: self.sample_rate,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     })
   }
 

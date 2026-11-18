@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use super::ffi;
 use crate::sdr::audio_iq_tap::{AudioIqBlock, AudioIqTap};
 use crate::sdr::SdrDevice;
+use crate::signal_port::ppm_correction::PpmCorrectionProcessor;
 
 pub struct RtlSdrDevice {
   dev: *mut ffi::RtlSdrDev,
@@ -32,6 +33,9 @@ pub struct RtlSdrDevice {
   /// `usb_claim_interface error -3`.
   reader_stop_pending: Option<Arc<AtomicBool>>,
   iq_overflow: Vec<u8>,
+  /// Original input bytes retained only for the browser's GPU spectrum path.
+  raw_iq_overflow: Vec<u8>,
+  spectrum_source_cursor: f64,
   /// Contiguous IQ retained for streaming consumers, independent of the
   /// display path's freshest-frame policy.
   audio_tap: AudioIqTap,
@@ -40,11 +44,20 @@ pub struct RtlSdrDevice {
   usb_serial: String,
   usb_manufacturer: String,
   usb_product: String,
+  software_ppm: Option<i32>,
+  correction_bandwidth_hz: u32,
+  correction_direct_sampling: bool,
+  ppm_processor: Option<PpmCorrectionProcessor>,
+  spectrum_ppm_correction:
+    Option<crate::signal_port::fft::types::PpmSpectrumCorrection>,
+  ppm_write_uncertain: AtomicBool,
+  discontinuity: Arc<AtomicBool>,
 }
 
 struct AsyncContext {
   tx: Sender<Vec<u8>>,
   rx: Receiver<Vec<u8>>,
+  discontinuity: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -64,6 +77,68 @@ fn center_frequency_retune_plan(
     requested_frequency,
     reader_is_active,
   )
+}
+
+fn spectrum_iq_window_required_samples(
+  source_cursor: f64,
+  output_samples: usize,
+  input_per_output: f64,
+) -> usize {
+  if output_samples == 0 || !input_per_output.is_finite() || input_per_output <= 0.0 {
+    return 0;
+  }
+  let last_position =
+    source_cursor + (output_samples.saturating_sub(1) as f64) * input_per_output;
+  last_position.floor().max(0.0) as usize + 2
+}
+
+fn advance_spectrum_iq_cursor(
+  raw_iq: &mut Vec<u8>,
+  source_cursor: &mut f64,
+  output_samples: usize,
+  input_per_output: f64,
+) {
+  *source_cursor += output_samples as f64 * input_per_output;
+  let consumed_samples = source_cursor.floor().max(0.0) as usize;
+  let available_samples = raw_iq.len() / 2;
+  let consumed_samples = consumed_samples.min(available_samples);
+  if consumed_samples > 0 {
+    raw_iq.drain(..consumed_samples * 2);
+    *source_cursor -= consumed_samples as f64;
+  }
+}
+
+fn take_spectrum_iq_window(
+  raw_iq: &mut Vec<u8>,
+  source_cursor: &mut f64,
+  output_samples: usize,
+  input_per_output: f64,
+) -> Option<(Vec<u8>, f32)> {
+  if !source_cursor.is_finite()
+    || *source_cursor < 0.0
+    || *source_cursor >= 1.0
+    || output_samples == 0
+  {
+    return None;
+  }
+  let offset = *source_cursor as f32;
+  let required_samples = spectrum_iq_window_required_samples(
+    *source_cursor,
+    output_samples,
+    input_per_output,
+  );
+  let required_bytes = required_samples.checked_mul(2)?;
+  if raw_iq.len() < required_bytes {
+    return None;
+  }
+  let window = raw_iq[..required_bytes].to_vec();
+  advance_spectrum_iq_cursor(
+    raw_iq,
+    source_cursor,
+    output_samples,
+    input_per_output,
+  );
+  Some((window, offset))
 }
 
 fn hardware_control_plan(
@@ -96,14 +171,17 @@ extern "C" fn c_read_async_cb(
   // Copy out from C buffer immediately
   let chunk = data_slice.to_vec();
 
-  // If the queue is full, we MUST drop the oldest frame, NOT the newest frame!
-  // Dropping the newest frame creates a phase discontinuity hole right in the
-  // middle of our constructed FFT window. By popping the oldest frame, we just
-  // slide the continuous time-window forward.
-  while let Err(crossbeam_channel::TrySendError::Full(_)) =
-    context.tx.try_send(chunk.clone())
-  {
-    let _ = context.rx.try_recv(); // Pop oldest
+  // If the queue is full, drop the oldest frame to stay current. PPM's NCO
+  // and fractional resampler must reset when that creates a sample gap.
+  loop {
+    match context.tx.try_send(chunk.clone()) {
+      Ok(()) | Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
+      Err(crossbeam_channel::TrySendError::Full(_)) => {
+        if context.rx.try_recv().is_ok() {
+          context.discontinuity.store(true, Ordering::Release);
+        }
+      }
+    }
   }
 }
 
@@ -184,10 +262,17 @@ impl RtlSdrDevice {
     let rx_for_device = rx.clone();
     self.rx_queue = Some(rx_for_device);
     self.iq_overflow.clear();
+    self.raw_iq_overflow.clear();
+    self.spectrum_source_cursor = 0.0;
     self.audio_tap.clear();
 
     let dev_ptr_val = self.dev as usize;
-    let context = Box::new(AsyncContext { tx, rx });
+    self.discontinuity.store(false, Ordering::Release);
+    let context = Box::new(AsyncContext {
+      tx,
+      rx,
+      discontinuity: Arc::clone(&self.discontinuity),
+    });
     let ctx_ptr_val = Box::into_raw(context) as usize;
 
     let handle = thread::spawn(move || -> c_int {
@@ -329,12 +414,21 @@ impl RtlSdrDevice {
       async_thread: None,
       reader_stop_pending: None,
       iq_overflow: Vec::new(),
+      raw_iq_overflow: Vec::new(),
+      spectrum_source_cursor: 0.0,
       audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial,
       usb_manufacturer,
       usb_product,
+      software_ppm: None,
+      correction_bandwidth_hz: 0,
+      correction_direct_sampling: false,
+      ppm_processor: None,
+      spectrum_ppm_correction: None,
+      ppm_write_uncertain: AtomicBool::new(false),
+      discontinuity: Arc::new(AtomicBool::new(false)),
     };
 
     // Set mandatory default sample rate so get_device_info doesn't return 0Hz
@@ -622,17 +716,157 @@ impl RtlSdrDevice {
 
   /// Set frequency correction in PPM
   pub fn set_freq_correction(&self, ppm: i32) -> Result<()> {
+    if !(-200..=200).contains(&ppm) {
+      return Err(anyhow!("PPM correction {} is outside -200..=200", ppm));
+    }
+
+    let uncertain = self.ppm_write_uncertain.load(Ordering::Acquire);
     let ret =
       unsafe { ffi::rtlsdr_set_freq_correction(self.dev, ppm as c_int) };
-    if ret != 0 {
-      return Err(anyhow!("Failed to set PPM correction to {}", ppm));
+    if ret == 0 {
+      self.ppm_write_uncertain.store(false, Ordering::Release);
+      return Ok(());
     }
-    Ok(())
+
+    // librtlsdr returns -2 when the requested correction equals its cached
+    // value. That is safe to accept only if no prior partial write left the
+    // physical tuner/sample clock uncertain.
+    if ret == -2 && !uncertain && self.get_freq_correction() == ppm {
+      return Ok(());
+    }
+
+    if ret == -2 && uncertain {
+      // librtlsdr stores dev->corr before all tuner and demod writes finish.
+      // Force a different cached value so retrying the target actually
+      // reprograms both paths instead of receiving another -2 no-op.
+      let intermediate = if ppm == 0 { 1 } else { 0 };
+      let intermediate_ret = unsafe {
+        ffi::rtlsdr_set_freq_correction(self.dev, intermediate as c_int)
+      };
+      if intermediate_ret == 0 {
+        let retry_ret =
+          unsafe { ffi::rtlsdr_set_freq_correction(self.dev, ppm as c_int) };
+        if retry_ret == 0 {
+          self.ppm_write_uncertain.store(false, Ordering::Release);
+          return Ok(());
+        }
+        self.ppm_write_uncertain.store(true, Ordering::Release);
+        return Err(anyhow!(
+          "Failed to apply PPM correction {} after retry (code {})",
+          ppm,
+          retry_ret
+        ));
+      }
+    }
+
+    self.ppm_write_uncertain.store(true, Ordering::Release);
+    Err(anyhow!(
+      "Failed to set PPM correction to {} (librtlsdr code {})",
+      ppm,
+      ret
+    ))
   }
 
   /// Get current frequency correction in PPM
   pub fn get_freq_correction(&self) -> i32 {
+    // This is librtlsdr's cached dev->corr value, not a register readback.
     unsafe { ffi::rtlsdr_get_freq_correction(self.dev) as i32 }
+  }
+
+  fn correction_tuned_frequency_hz(&self) -> f64 {
+    let center_hz = self.get_center_freq();
+    if self.usb_product.to_ascii_lowercase().contains("blog v4")
+      && center_hz < 28_800_000
+    {
+      (center_hz + 28_800_000) as f64
+    } else {
+      center_hz as f64
+    }
+  }
+
+  fn sync_ppm_processor(&mut self) -> Result<()> {
+    if let Some(ppm) = self.software_ppm {
+      let center_hz = self.correction_tuned_frequency_hz();
+      let sample_rate_hz = self.get_sample_rate() as f64;
+      let tuner_type = unsafe { ffi::rtlsdr_get_tuner_type(self.dev) };
+      let rf_hz = self.get_center_freq();
+      let blog_v4 = self.usb_manufacturer == "RTLSDRBlog"
+        && matches!(self.usb_product.as_str(), "Blog V4" | "Blog V4L");
+      let processor = self.ppm_processor.get_or_insert_with(|| {
+        PpmCorrectionProcessor::new(0, 0.0, sample_rate_hz)
+      });
+      let mut spectrum_correction = None;
+      // Ordinary R828D boards can use a 16 MHz reference; do not apply
+      // the 28.8 MHz model to those unverified hardware profiles.
+      if (tuner_type == 5 || (tuner_type == 6 && blog_v4))
+        && !self.correction_direct_sampling
+        && rf_hz > 0
+      {
+        let if_hz = crate::signal_port::r82xx_ppm::intermediate_frequency(
+          self.correction_bandwidth_hz,
+          sample_rate_hz as u32,
+        );
+        let model = crate::signal_port::r82xx_ppm::correction(
+          ppm, rf_hz, if_hz, blog_v4,
+        )
+        .map_err(|message| anyhow!(message))?;
+        processor
+          .set_r82xx_correction(ppm, rf_hz, if_hz, blog_v4, sample_rate_hz)
+          .map_err(|message| anyhow!(message))?;
+        if ppm != 0 {
+          spectrum_correction = Some(
+            crate::signal_port::fft::types::PpmSpectrumCorrection {
+              correction_hz: model.shift_hz as f32,
+              input_per_output: model.input_per_output as f32,
+              source_offset: 0.0,
+            },
+          );
+        }
+      } else {
+        processor.set_correction(ppm, center_hz, sample_rate_hz);
+        if ppm != 0 {
+          spectrum_correction = Some(
+            crate::signal_port::fft::types::PpmSpectrumCorrection {
+              correction_hz: (center_hz * ppm as f64 / 1_000_000.0) as f32,
+              input_per_output: (1.0 + ppm as f64 / 1_000_000.0) as f32,
+              source_offset: 0.0,
+            },
+          );
+        }
+      }
+      self.spectrum_ppm_correction = spectrum_correction;
+    } else {
+      self.ppm_processor = None;
+      self.spectrum_ppm_correction = None;
+    }
+    self.raw_iq_overflow.clear();
+    self.spectrum_source_cursor = 0.0;
+    Ok(())
+  }
+
+  fn reset_receive_correction_state(&mut self) {
+    self.iq_overflow.clear();
+    self.raw_iq_overflow.clear();
+    self.spectrum_source_cursor = 0.0;
+    self.audio_tap.clear();
+    self.discontinuity.store(false, Ordering::Release);
+    if let Some(processor) = self.ppm_processor.as_mut() {
+      processor.reset();
+    }
+  }
+
+  fn ingest_async_chunk(&mut self, chunk: &[u8]) {
+    if self.spectrum_ppm_correction.is_some() {
+      let even_length = chunk.len() & !1;
+      self.raw_iq_overflow.extend_from_slice(&chunk[..even_length]);
+    }
+    let corrected = self
+      .ppm_processor
+      .as_mut()
+      .map(|processor| processor.process_u8_iq(chunk))
+      .unwrap_or_else(|| chunk.to_vec());
+    self.audio_tap.push(&corrected);
+    self.iq_overflow.extend_from_slice(&corrected);
   }
 
   /// Get the maximum supported sample rate for this device
@@ -835,18 +1069,30 @@ impl SdrDevice for RtlSdrDevice {
   ) -> Result<crate::signal_port::fft::types::RawSamples> {
     let bytes_needed = fft_size * 2;
 
-    if let Some(rx) = &self.rx_queue {
+    if let Some(rx) = self.rx_queue.clone() {
       // First, aggressively drain any queued backlog to stay real-time!
-      // Every chunk is also teed into the audio tap, because the freshest-frame
-      // policy below deliberately discards whatever arrived while the previous
-      // frame was being processed and audio needs those samples.
+      // Each chunk is corrected before it reaches either the FFT accumulator
+      // or the contiguous audio tap.
       while let Ok(chunk) = rx.try_recv() {
-        self.audio_tap.push(&chunk);
-        self.iq_overflow.extend_from_slice(&chunk);
+        if self.discontinuity.swap(false, Ordering::AcqRel) {
+          self.reset_receive_correction_state();
+        }
+        self.ingest_async_chunk(&chunk);
       }
 
       // If we don't have enough to satisfy one valid, contiguous FFT frame, wait.
-      while self.iq_overflow.len() < bytes_needed {
+      let raw_window_ready = |device: &RtlSdrDevice| {
+        let Some(model) = device.spectrum_ppm_correction else {
+          return true;
+        };
+        device.raw_iq_overflow.len() / 2
+          >= spectrum_iq_window_required_samples(
+            device.spectrum_source_cursor,
+            fft_size,
+            model.input_per_output as f64,
+          )
+      };
+      while self.iq_overflow.len() < bytes_needed || !raw_window_ready(self) {
         // If the async thread died (often due to sudden unplug), stop waiting immediately.
         if let Some(handle) = &self.async_thread {
           if handle.is_finished() {
@@ -860,8 +1106,10 @@ impl SdrDevice for RtlSdrDevice {
         // Increased timeout to reduce spurious timeouts during high load or busy USB conditions.
         match rx.recv_timeout(std::time::Duration::from_millis(1000)) {
           Ok(chunk) => {
-            self.audio_tap.push(&chunk);
-            self.iq_overflow.extend_from_slice(&chunk);
+            if self.discontinuity.swap(false, Ordering::AcqRel) {
+              self.reset_receive_correction_state();
+            }
+            self.ingest_async_chunk(&chunk);
           }
           Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
             // Check health again on timeout to avoid hanging if the thread is stuck
@@ -896,6 +1144,14 @@ impl SdrDevice for RtlSdrDevice {
         // the I and Q interleaving, which would flip the FFT spectrum.
         let discard = excess & !1;
         self.iq_overflow.drain(0..discard);
+        if let Some(model) = self.spectrum_ppm_correction {
+          advance_spectrum_iq_cursor(
+            &mut self.raw_iq_overflow,
+            &mut self.spectrum_source_cursor,
+            discard / 2,
+            model.input_per_output as f64,
+          );
+        }
       }
     } else {
       return Err(anyhow::anyhow!("Device not initialized for async reading"));
@@ -903,10 +1159,29 @@ impl SdrDevice for RtlSdrDevice {
 
     let bytes_to_take = bytes_needed; // Guaranteed by the while condition
     let data = self.iq_overflow.drain(..bytes_to_take).collect::<Vec<u8>>();
+    let (spectrum_iq_data, spectrum_ppm_correction) =
+      if let Some(model) = self.spectrum_ppm_correction {
+        let (spectrum_iq_data, source_offset) = take_spectrum_iq_window(
+          &mut self.raw_iq_overflow,
+          &mut self.spectrum_source_cursor,
+          fft_size,
+          model.input_per_output as f64,
+        )
+        .ok_or_else(|| {
+          anyhow!("Raw spectrum IQ is not aligned with corrected RTL-SDR data")
+        })?;
+        let mut correction = model;
+        correction.source_offset = source_offset;
+        (Some(spectrum_iq_data), Some(correction))
+      } else {
+        (None, None)
+      };
 
     Ok(crate::signal_port::fft::types::RawSamples {
       data,
       sample_rate: self.get_sample_rate(),
+      spectrum_iq_data,
+      spectrum_ppm_correction,
     })
   }
 
@@ -936,6 +1211,8 @@ impl SdrDevice for RtlSdrDevice {
 
   fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
     RtlSdrDevice::set_sample_rate(self, rate)?;
+    self.sync_ppm_processor()?;
+    self.flush_read_queue();
     // The latency budget is expressed in seconds, so it has to follow the rate.
     // Retained samples belong to the old rate and cannot be resampled.
     self.audio_tap.set_capacity_for_sample_rate(rate);
@@ -949,23 +1226,44 @@ impl SdrDevice for RtlSdrDevice {
       freq,
       self.is_rx_active(),
     ) {
-      CenterFrequencyRetunePlan::Noop => Ok(()),
-      CenterFrequencyRetunePlan::ApplyWhileIdle => self.set_center_freq(freq),
+      CenterFrequencyRetunePlan::Noop => return Ok(()),
+      CenterFrequencyRetunePlan::ApplyWhileIdle => {
+        self.set_center_freq(freq)?
+      }
       // librtlsdr's control thread is designed to retune while the async
       // reader is active. Stopping/restarting the reader here inserted a
       // visible gap for every VFO gesture and made hardware appear to freeze.
       CenterFrequencyRetunePlan::ApplyWhileStreaming => {
-        self.set_center_freq(freq)
+        self.set_center_freq(freq)?
       }
     }
+    self.sync_ppm_processor()?;
+    self.flush_read_queue();
+    Ok(())
   }
 
   fn set_gain(&mut self, gain: f64) -> Result<()> {
     self.set_tuner_gain((gain * 10.0) as i32)
   }
 
-  fn set_ppm(&mut self, ppm: u32) -> Result<()> {
-    self.set_freq_correction(ppm as i32)
+  fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+    self.set_freq_correction(ppm)
+  }
+
+  fn set_software_ppm_correction(&mut self, ppm: Option<i32>) -> Result<()> {
+    if let Some(ppm) = ppm {
+      if !(-200..=200).contains(&ppm) {
+        return Err(anyhow!("App PPM {} is outside -200..=200", ppm));
+      }
+    }
+    self.software_ppm = ppm;
+    self.sync_ppm_processor()?;
+    self.flush_read_queue();
+    Ok(())
+  }
+
+  fn reset_ppm_correction(&mut self) {
+    self.reset_receive_correction_state();
   }
 
   fn set_tuner_agc(&mut self, enabled: bool) -> Result<()> {
@@ -990,6 +1288,9 @@ impl SdrDevice for RtlSdrDevice {
     if ret != 0 {
       return Err(anyhow!("Failed to set tuner bandwidth (code {})", ret));
     }
+    self.correction_bandwidth_hz = bw;
+    self.sync_ppm_processor()?;
+    self.flush_read_queue();
     Ok(())
   }
 
@@ -998,6 +1299,9 @@ impl SdrDevice for RtlSdrDevice {
     if ret != 0 {
       return Err(anyhow!("Failed to set direct sampling (code {})", ret));
     }
+    self.correction_direct_sampling = mode != 0;
+    self.sync_ppm_processor()?;
+    self.flush_read_queue();
     Ok(())
   }
 
@@ -1007,7 +1311,7 @@ impl SdrDevice for RtlSdrDevice {
       while rx.try_recv().is_ok() {}
     }
     // Clear the software overflow accumulator
-    self.iq_overflow.clear();
+    self.reset_receive_correction_state();
     // A flush is an intentional discontinuity (retune, seek), so retained audio
     // would splice unrelated spectrum into the stream.
     self.audio_tap.clear();
@@ -1032,6 +1336,8 @@ impl SdrDevice for RtlSdrDevice {
   fn cleanup(&mut self) -> Result<()> {
     if self.stop_async_reader_and_wait(Duration::from_secs(2)) {
       self.iq_overflow.clear();
+      self.raw_iq_overflow.clear();
+      self.spectrum_source_cursor = 0.0;
       self.audio_tap.clear();
       Ok(())
     } else {
@@ -1143,6 +1449,40 @@ mod tests {
   }
 
   #[test]
+  fn spectrum_raw_window_carries_fractional_source_position_across_frames() {
+    let mut raw_iq: Vec<u8> = (0..40).collect();
+    let mut source_cursor = 0.25;
+
+    let (first, first_offset) =
+      take_spectrum_iq_window(&mut raw_iq, &mut source_cursor, 2, 1.5)
+        .unwrap();
+    let (second, second_offset) =
+      take_spectrum_iq_window(&mut raw_iq, &mut source_cursor, 2, 1.5)
+        .unwrap();
+
+    assert_eq!(first, (0..6).collect::<Vec<u8>>());
+    assert_eq!(first_offset, 0.25);
+    assert_eq!(second, (6..12).collect::<Vec<u8>>());
+    assert_eq!(second_offset, 0.25);
+  }
+
+  #[test]
+  fn spectrum_raw_window_does_not_advance_when_input_is_short() {
+    let mut raw_iq = vec![10, 11, 12, 13];
+    let mut source_cursor = 0.5;
+
+    assert!(take_spectrum_iq_window(
+      &mut raw_iq,
+      &mut source_cursor,
+      4,
+      1.25,
+    )
+    .is_none());
+    assert_eq!(raw_iq, vec![10, 11, 12, 13]);
+    assert_eq!(source_cursor, 0.5);
+  }
+
+  #[test]
   fn ready_requires_a_running_async_thread() {
     let handle = thread::spawn(|| 0);
     while !handle.is_finished() {
@@ -1156,12 +1496,21 @@ mod tests {
       async_thread: Some(handle),
       reader_stop_pending: None,
       iq_overflow: Vec::new(),
+      raw_iq_overflow: Vec::new(),
+      spectrum_source_cursor: 0.0,
       audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial: String::new(),
       usb_manufacturer: String::new(),
       usb_product: String::new(),
+      software_ppm: None,
+      correction_bandwidth_hz: 0,
+      correction_direct_sampling: false,
+      ppm_processor: None,
+      spectrum_ppm_correction: None,
+      ppm_write_uncertain: AtomicBool::new(false),
+      discontinuity: Arc::new(AtomicBool::new(false)),
     });
 
     assert!(!SdrDevice::is_ready(&*device));
@@ -1181,12 +1530,21 @@ mod tests {
       async_thread: Some(handle),
       reader_stop_pending: None,
       iq_overflow: Vec::new(),
+      raw_iq_overflow: Vec::new(),
+      spectrum_source_cursor: 0.0,
       audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial: String::new(),
       usb_manufacturer: String::new(),
       usb_product: String::new(),
+      software_ppm: None,
+      correction_bandwidth_hz: 0,
+      correction_direct_sampling: false,
+      ppm_processor: None,
+      spectrum_ppm_correction: None,
+      ppm_write_uncertain: AtomicBool::new(false),
+      discontinuity: Arc::new(AtomicBool::new(false)),
     });
 
     let start = std::time::Instant::now();
@@ -1229,12 +1587,21 @@ mod tests {
       async_thread: Some(handle),
       reader_stop_pending: None,
       iq_overflow: vec![1, 2],
+      raw_iq_overflow: vec![3, 4],
+      spectrum_source_cursor: 0.5,
       audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial: String::new(),
       usb_manufacturer: String::new(),
       usb_product: String::new(),
+      software_ppm: None,
+      correction_bandwidth_hz: 0,
+      correction_direct_sampling: false,
+      ppm_processor: None,
+      spectrum_ppm_correction: None,
+      ppm_write_uncertain: AtomicBool::new(false),
+      discontinuity: Arc::new(AtomicBool::new(false)),
     });
 
     assert!(SdrDevice::cleanup(&mut *device).is_ok());
@@ -1251,12 +1618,21 @@ mod tests {
       async_thread: None,
       reader_stop_pending: None,
       iq_overflow: Vec::new(),
+      raw_iq_overflow: Vec::new(),
+      spectrum_source_cursor: 0.0,
       audio_tap: AudioIqTap::new(),
       max_sample_rate_cache: None,
       last_error: None,
       usb_serial: String::new(),
       usb_manufacturer: String::new(),
       usb_product: String::new(),
+      software_ppm: None,
+      correction_bandwidth_hz: 0,
+      correction_direct_sampling: false,
+      ppm_processor: None,
+      spectrum_ppm_correction: None,
+      ppm_write_uncertain: AtomicBool::new(false),
+      discontinuity: Arc::new(AtomicBool::new(false)),
     });
 
     let error = SdrDevice::enter_standby(&mut *device)

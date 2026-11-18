@@ -36,7 +36,10 @@ import {
   getVisualizerDefaultDbLimits,
 } from "@n-apt/consts/visualizerControls";
 import { formatFrequency } from "@n-apt/consts/sdr";
-import { assertValidSampleRateHz } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
+import {
+  assertValidSampleRateHz,
+  isRtlSdrDevice,
+} from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import type { TemporalResolution } from "@n-apt/math/temporalResolution";
 import type { PowerScale } from "@n-apt/redux/slices/spectrumSlice";
 import type { CaptureFileType } from "@n-apt/consts/schemas/websocket";
@@ -408,6 +411,15 @@ const SdrSettingsSection: React.FC = () => {
   );
   const signalsDefaults = useAppSelector((s) => s.websocket.signalsDefaults);
   const activeSourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const backendPpm =
+    isRtlSdrDevice({
+      deviceKind: activeSourceDerived.deviceProfile?.kind,
+      backend: activeSourceDerived.backend,
+      deviceName: activeSourceDerived.deviceName,
+      isRtlSdr: activeSourceDerived.deviceProfile?.is_rtl_sdr,
+    }) && !state.useAppPpmCorrection
+      ? state.ppm
+      : 0;
   const [frameRateInput, setFrameRateInput] = useState(
     String(state.fftFrameRate),
   );
@@ -530,7 +542,7 @@ const SdrSettingsSection: React.FC = () => {
         frameRate,
         sampleRate: state.sampleRateHz,
         gain: state.gain,
-        ppm: state.ppm,
+        ppm: backendPpm,
         tunerAGC: state.tunerAGC,
         rtlAGC: state.rtlAGC,
       }),
@@ -557,7 +569,7 @@ const SdrSettingsSection: React.FC = () => {
         frameRate,
         sampleRate: state.sampleRateHz,
         gain: state.gain,
-        ppm: state.ppm,
+        ppm: backendPpm,
         tunerAGC: state.tunerAGC,
         rtlAGC: state.rtlAGC,
       }),
@@ -592,7 +604,7 @@ const SdrSettingsSection: React.FC = () => {
                   frameRate: state.fftFrameRate,
                   sampleRate: value,
                   gain: state.gain,
-                  ppm: state.ppm,
+                  ppm: backendPpm,
                   tunerAGC: state.tunerAGC,
                   rtlAGC: state.rtlAGC,
                 }),

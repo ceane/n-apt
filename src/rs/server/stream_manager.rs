@@ -57,7 +57,12 @@ pub struct RxStreamOptions {
   #[serde(default)]
   pub hackrf_amp_enable: Option<bool>,
   #[serde(default)]
-  pub ppm: Option<u32>,
+  /// Hardware PPM. Zero while app correction is enabled.
+  pub ppm: Option<i32>,
+  #[serde(default)]
+  pub app_ppm: Option<i32>,
+  #[serde(default)]
+  pub use_app_ppm_correction: Option<bool>,
   #[serde(default)]
   pub tuner_agc: Option<bool>,
   #[serde(default)]
@@ -114,6 +119,10 @@ pub struct StreamFrame {
   pub center_frequency_hz: Option<u64>,
   pub sample_rate_hz: u32,
   pub iq_data: Arc<Vec<u8>>,
+  /// Untouched RTL-SDR source bytes paired with a frontend GPU correction.
+  pub spectrum_iq_data: Option<Arc<Vec<u8>>>,
+  pub spectrum_ppm_correction:
+    Option<crate::signal_port::fft::types::PpmSpectrumCorrection>,
   pub is_tx_preview: bool,
 }
 
@@ -196,6 +205,7 @@ pub enum StreamError {
   Capability(String),
   Arbitration(String),
   MissingStream,
+  OptionsPending,
 }
 
 impl StreamError {
@@ -205,6 +215,7 @@ impl StreamError {
       Self::Capability(_) => "capability",
       Self::Arbitration(_) => "arbitration",
       Self::MissingStream => "missing_stream",
+      Self::OptionsPending => "options_pending",
     }
   }
 }
@@ -219,6 +230,9 @@ impl Display for StreamError {
         formatter.write_str(message)
       }
       Self::MissingStream => formatter.write_str("stream is not active"),
+      Self::OptionsPending => {
+        formatter.write_str("stream options have not been applied")
+      }
     }
   }
 }
@@ -229,6 +243,7 @@ struct StreamEntry {
   options: StreamOptions,
   stream_epoch: u64,
   options_revision: u64,
+  options_pending: bool,
   sequence: u64,
   accepted_frames: u64,
   subscribers: HashMap<u64, SubscriberContract>,
@@ -331,6 +346,28 @@ impl StreamingSourceModeManager {
     options: StreamOptions,
     delivery_policy: StreamDeliveryPolicy,
   ) -> Result<StreamSubscription, StreamError> {
+    self.subscribe_with_policy_inner(key, options, delivery_policy, false)
+  }
+
+  /// Subscribe with an initial RX configuration that must be applied before
+  /// any frame is delivered. The WebSocket handler uses this while it applies
+  /// the source-owned settings on the acquisition path.
+  pub fn subscribe_with_pending_options(
+    &self,
+    key: StreamKey,
+    options: StreamOptions,
+    delivery_policy: StreamDeliveryPolicy,
+  ) -> Result<StreamSubscription, StreamError> {
+    self.subscribe_with_policy_inner(key, options, delivery_policy, true)
+  }
+
+  fn subscribe_with_policy_inner(
+    &self,
+    key: StreamKey,
+    options: StreamOptions,
+    delivery_policy: StreamDeliveryPolicy,
+    options_pending_on_new_stream: bool,
+  ) -> Result<StreamSubscription, StreamError> {
     if key.source_id.trim().is_empty() || options.mode() != key.mode {
       return Err(StreamError::InvalidOptions);
     }
@@ -398,6 +435,7 @@ impl StreamingSourceModeManager {
         options,
         stream_epoch,
         options_revision,
+        options_pending: options_pending_on_new_stream,
         sequence: 0,
         accepted_frames: 0,
         subscribers,
@@ -529,6 +567,34 @@ impl StreamingSourceModeManager {
       center_frequency_hz,
       sample_rate_hz,
       iq_data,
+      None,
+      None,
+      is_tx_preview,
+      true,
+    )
+  }
+
+  pub fn publish_iq_frame_with_spectrum_correction(
+    &self,
+    key: &StreamKey,
+    timestamp: i64,
+    center_frequency_hz: Option<u64>,
+    sample_rate_hz: u32,
+    iq_data: Arc<Vec<u8>>,
+    spectrum_iq_data: Option<Arc<Vec<u8>>>,
+    spectrum_ppm_correction: Option<
+      crate::signal_port::fft::types::PpmSpectrumCorrection,
+    >,
+    is_tx_preview: bool,
+  ) -> Result<StreamFrame, StreamError> {
+    self.publish_iq_frame_with_metadata_inner(
+      key,
+      timestamp,
+      center_frequency_hz,
+      sample_rate_hz,
+      iq_data,
+      spectrum_iq_data,
+      spectrum_ppm_correction,
       is_tx_preview,
       true,
     )
@@ -554,6 +620,8 @@ impl StreamingSourceModeManager {
       center_frequency_hz,
       sample_rate_hz,
       iq_data,
+      None,
+      None,
       is_tx_preview,
       false,
     )
@@ -586,11 +654,18 @@ impl StreamingSourceModeManager {
     center_frequency_hz: Option<u64>,
     sample_rate_hz: u32,
     iq_data: Arc<Vec<u8>>,
+    spectrum_iq_data: Option<Arc<Vec<u8>>>,
+    spectrum_ppm_correction: Option<
+      crate::signal_port::fft::types::PpmSpectrumCorrection,
+    >,
     is_tx_preview: bool,
     emit_to_tx_bus: bool,
   ) -> Result<StreamFrame, StreamError> {
     let mut streams = self.inner.streams.lock().unwrap();
     let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
+    if entry.options_pending {
+      return Err(StreamError::OptionsPending);
+    }
     entry.sequence += 1;
     entry.accepted_frames += 1;
     let frame = StreamFrame {
@@ -602,6 +677,8 @@ impl StreamingSourceModeManager {
       center_frequency_hz,
       sample_rate_hz,
       iq_data,
+      spectrum_iq_data,
+      spectrum_ppm_correction,
       is_tx_preview,
     };
     let _ = entry.sender.send(StreamEvent::Frame(frame.clone()));
@@ -844,6 +921,7 @@ impl StreamingSourceModeManager {
     entry.options_revision += 1;
     entry.stream_epoch = self.next_epoch();
     entry.sequence = 0;
+    entry.options_pending = false;
     let epoch = entry.stream_epoch;
     let revision = entry.options_revision;
     let _ = entry.sender.send(StreamEvent::OptionsApplied {
@@ -853,6 +931,57 @@ impl StreamingSourceModeManager {
       options,
     });
     Ok((epoch, revision, true))
+  }
+
+  /// Record a requested RX configuration and block frame publication until
+  /// the owning acquisition path confirms it has applied that configuration.
+  pub fn update_options_pending(
+    &self,
+    key: &StreamKey,
+    options: StreamOptions,
+  ) -> Result<(u64, u64, bool), StreamError> {
+    if options.mode() != key.mode {
+      return Err(StreamError::InvalidOptions);
+    }
+    self.validate_capability(key)?;
+    let mut streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
+    if entry.options == options {
+      entry.options_pending = true;
+      return Ok((entry.stream_epoch, entry.options_revision, false));
+    }
+    entry.options = options;
+    entry.options_revision += 1;
+    entry.stream_epoch = self.next_epoch();
+    entry.sequence = 0;
+    entry.options_pending = true;
+    Ok((entry.stream_epoch, entry.options_revision, true))
+  }
+
+  /// Acknowledge the latest matching configuration after the source has
+  /// successfully applied it. Superseded attempts cannot acknowledge newer
+  /// options by accident.
+  pub fn confirm_options_applied(
+    &self,
+    key: &StreamKey,
+    options: StreamOptions,
+  ) -> Result<bool, StreamError> {
+    if options.mode() != key.mode {
+      return Err(StreamError::InvalidOptions);
+    }
+    let mut streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
+    if entry.options != options {
+      return Ok(false);
+    }
+    entry.options_pending = false;
+    let _ = entry.sender.send(StreamEvent::OptionsApplied {
+      key: key.clone(),
+      stream_epoch: entry.stream_epoch,
+      options_revision: entry.options_revision,
+      options,
+    });
+    Ok(true)
   }
 
   pub fn unsubscribe(

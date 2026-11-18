@@ -707,6 +707,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     hackrfAmpEnabled,
     hackrfBasebandBandwidth: _hackrfBasebandBandwidth,
     ppm,
+    useAppPpmCorrection,
     tunerAGC,
     rtlAGC,
     displayTemporalResolution,
@@ -1225,6 +1226,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       hackrfAmpEnabled?: boolean;
       tunerBandwidth?: number;
       ppm?: number;
+      appPpm?: number;
+      useAppPpmCorrection?: boolean;
       tunerAGC?: boolean;
       rtlAGC?: boolean;
     }) => {
@@ -1248,6 +1251,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     setHackrfAmpEnabled,
     setHackrfBasebandBandwidth,
     setPpm,
+    setUseAppPpmCorrection,
     setTunerAGC,
     setRtlAGC,
     scheduleCoupledAdjustment,
@@ -1316,7 +1320,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           ...(settings.tunerBandwidth !== undefined
             ? { hackrfBasebandBandwidth: settings.tunerBandwidth }
             : {}),
-          ...(settings.ppm !== undefined ? { ppm: settings.ppm } : {}),
           ...(settings.tunerAGC !== undefined
             ? { tunerAGC: settings.tunerAGC }
             : {}),
@@ -1446,7 +1449,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     const derived = deriveStateFromConfig(maxSampleRate, liveSdrSettingsToUse);
     const nextSettings = {
       ...(typeof derived.gain === "number" ? { gain: derived.gain } : {}),
-      ...(typeof derived.ppm === "number" &&
+      ...(!liveState.useAppPpmCorrection &&
+      typeof derived.ppm === "number" &&
       (typeof liveState.ppm !== "number" ||
         liveState.ppm === 0 ||
         liveState.ppm === LIVE_CONTROL_DEFAULTS.ppm)
@@ -1489,6 +1493,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     liveState.fftFrameRate,
     liveState.fftWindow,
     liveState.hackrfBasebandBandwidth,
+    liveState.useAppPpmCorrection,
   ]);
 
   // Capture UI state
@@ -3569,6 +3574,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               frequencyRange?.min ?? activeSignalAreaBounds?.min
             }
             ppm={ppm}
+            useAppPpmCorrection={isRtlSdr ? useAppPpmCorrection : true}
             tunerAGC={tunerAGC}
             rtlAGC={rtlAGC}
             isConnected={isServerConnected}
@@ -3579,6 +3585,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
             onHackrfAmpEnabledChange={setHackrfAmpEnabled}
             onHackrfBasebandBandwidthChange={setHackrfBasebandBandwidth}
             onPpmChange={setPpm}
+            onUseAppPpmCorrectionChange={setUseAppPpmCorrection}
             onTunerAGCChange={setTunerAGC}
             onRtlAGCChange={setRtlAGC}
             onStitchSourceSettingsChange={(settings) =>

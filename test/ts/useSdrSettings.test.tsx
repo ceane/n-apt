@@ -184,6 +184,64 @@ describe("useSdrSettings", () => {
     );
   });
 
+  it("keeps app PPM calibration when the hardware PPM setting is zero", () => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    const store = configureStore({ reducer: { spectrum: spectrumSlice } });
+    store.dispatch(setSdrSettingsBundle({ ppm: 1, useAppPpmCorrection: true }));
+
+    render(
+      <Provider store={store}>
+        <CouplingHarness
+          sdrSettings={{ ...mockSdrSettings, ppm: 0 }}
+          deviceType="rtl_sdr"
+        />
+      </Provider>,
+    );
+
+    act(() => {
+      hookApi!.setPpm(1);
+    });
+
+    expect(store.getState().spectrum.ppm).toBe(1);
+    expect(mockOnSettingsChange).toHaveBeenCalledWith({
+      ppm: 0,
+      appPpm: 1,
+      useAppPpmCorrection: true,
+    });
+  });
+
+  it("clears hardware PPM when app correction is enabled without clearing calibration", () => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    const store = configureStore({ reducer: { spectrum: spectrumSlice } });
+    store.dispatch(
+      setSdrSettingsBundle({ ppm: 7, useAppPpmCorrection: false }),
+    );
+
+    render(
+      <Provider store={store}>
+        <CouplingHarness
+          sdrSettings={{ ...mockSdrSettings, ppm: 7 }}
+          deviceType="rtl_sdr"
+        />
+      </Provider>,
+    );
+    mockOnSettingsChange.mockClear();
+
+    act(() => {
+      hookApi!.setUseAppPpmCorrection(true);
+    });
+
+    expect(store.getState().spectrum.ppm).toBe(7);
+    expect(store.getState().spectrum.useAppPpmCorrection).toBe(true);
+    expect(mockOnSettingsChange).toHaveBeenCalledWith({
+      ppm: 0,
+      appPpm: 7,
+      useAppPpmCorrection: true,
+    });
+  });
+
   it("prefers backend sample rate options when provided", () => {
     const backendSampleRates = [
       9_125_000, 10_000_000, 12_800_000, 16_000_000, 20_000_000,

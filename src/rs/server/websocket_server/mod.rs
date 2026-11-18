@@ -1205,8 +1205,12 @@ impl WebSocketServer {
     let sdr_processor = self.device_supervisor.processor_handle();
     let shared_state = self.shared_state.clone();
     let _broadcast_tx = self.broadcast_tx.clone();
-    let acquisition_worker =
-      AcquisitionWorker::new(sdr_processor.clone(), shared_state.clone());
+    let stream_manager = self.stream_manager.clone();
+    let acquisition_worker = AcquisitionWorker::new(
+      sdr_processor.clone(),
+      shared_state.clone(),
+      stream_manager.clone(),
+    );
     let capture_worker = CaptureWorker::new(
       sdr_processor.clone(),
       shared_state.clone(),
@@ -1214,7 +1218,6 @@ impl WebSocketServer {
     );
     let device_health_worker = DeviceHealthWorker::new(sdr_processor.clone());
     let spectrum_tx = self.spectrum_tx.clone();
-    let stream_manager = self.stream_manager.clone();
     let tx_worker = TxWorker::new(
       sdr_processor.clone(),
       shared_state.clone(),
@@ -1609,6 +1612,8 @@ impl WebSocketServer {
           power_scale,
           sample_rate,
           raw_iq,
+          spectrum_iq_data,
+          spectrum_ppm_correction,
           target_fps: fps,
           capture_events,
         }) => {
@@ -1718,12 +1723,14 @@ impl WebSocketServer {
             },
           );
           let stream_published = stream_manager
-            .publish_iq_frame_with_metadata(
+            .publish_iq_frame_with_spectrum_correction(
               &publish_key,
               timestamp,
               Some(center_frequency as u64),
               sample_rate,
               Arc::new(spectrum_message.iq_data.clone()),
+              spectrum_iq_data.map(Arc::new),
+              spectrum_ppm_correction,
               false,
             )
             .is_ok();

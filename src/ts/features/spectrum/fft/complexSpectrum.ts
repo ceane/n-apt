@@ -123,24 +123,80 @@ export const computeComplexIqSpectrum = (
   input: Uint8Array,
   fftSize: number,
   windowType?: string,
+  frequencyCorrection?: {
+    ppm?: number;
+    enabled?: boolean;
+    centerFrequencyHz?: number;
+    sampleRateHz?: number;
+    correctionHz?: number;
+    inputPerOutput?: number;
+    sourceOffset?: number;
+  },
 ): ComplexIqSpectrum => {
-  const numSamples = Math.max(
-    1,
-    Math.min(fftSize, Math.floor(input.length / 2)),
+  const requestedRatio = frequencyCorrection?.inputPerOutput;
+  const inputPerOutput =
+    frequencyCorrection?.enabled &&
+    Number.isFinite(requestedRatio) &&
+    (requestedRatio ?? 0) > 0
+      ? requestedRatio!
+      : 1;
+  const requestedOffset = frequencyCorrection?.sourceOffset;
+  const sourceOffset =
+    frequencyCorrection?.enabled &&
+    Number.isFinite(requestedOffset) &&
+    (requestedOffset ?? -1) >= 0 &&
+    (requestedOffset ?? 1) < 1
+      ? requestedOffset!
+      : 0;
+  const availableInputSamples = Math.floor(input.length / 2);
+  const maxOutputSamples = Math.max(
+    0,
+    Math.floor((availableInputSamples - 1 - sourceOffset) / inputPerOutput) + 1,
   );
+  const numSamples = Math.max(1, Math.min(fftSize, maxOutputSamples));
   const windowCoefficients = getWindowCoefficients(numSamples, windowType);
   const fftLen = Math.pow(2, Math.ceil(Math.log2(numSamples)));
   const scratch = getSpectrumScratch(fftLen);
   const { paddedReal, paddedImag, bitReverse } = scratch;
   let windowEnergy = 0;
+  const explicitCorrectionHz = frequencyCorrection?.correctionHz;
+  const correctionHz =
+    frequencyCorrection?.enabled && Number.isFinite(explicitCorrectionHz)
+      ? explicitCorrectionHz!
+      : frequencyCorrection?.enabled &&
+          Number.isFinite(frequencyCorrection.ppm) &&
+          Number.isFinite(frequencyCorrection.centerFrequencyHz) &&
+          Number.isFinite(frequencyCorrection.sampleRateHz) &&
+          (frequencyCorrection.sampleRateHz ?? 0) > 0
+        ? ((frequencyCorrection.centerFrequencyHz ?? 0) *
+            (frequencyCorrection.ppm ?? 0)) /
+          1_000_000
+        : 0;
+  const phaseStep =
+    (2 * Math.PI * correctionHz) / (frequencyCorrection?.sampleRateHz ?? 1);
 
   paddedReal.fill(0);
   paddedImag.fill(0);
   for (let i = 0; i < numSamples; i++) {
     const windowVal = windowCoefficients[i];
-    const inputIndex = i * 2;
-    paddedReal[i] = ((input[inputIndex] - 128) / 128) * windowVal;
-    paddedImag[i] = ((input[inputIndex + 1] - 128) / 128) * windowVal;
+    const sourcePosition = sourceOffset + i * inputPerOutput;
+    const sourceIndex = Math.floor(sourcePosition);
+    const fraction = sourcePosition - sourceIndex;
+    const firstIndex = sourceIndex * 2;
+    const secondIndex = Math.min(sourceIndex + 1, availableInputSamples - 1) * 2;
+    const real =
+      ((input[firstIndex] - 128) * (1 - fraction) +
+        (input[secondIndex] - 128) * fraction) /
+      128;
+    const imag =
+      ((input[firstIndex + 1] - 128) * (1 - fraction) +
+        (input[secondIndex + 1] - 128) * fraction) /
+      128;
+    const phase = phaseStep * i;
+    const cosine = Math.cos(phase);
+    const sine = Math.sin(phase);
+    paddedReal[i] = (real * cosine - imag * sine) * windowVal;
+    paddedImag[i] = (imag * cosine + real * sine) * windowVal;
     windowEnergy += windowVal * windowVal;
   }
 
