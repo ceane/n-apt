@@ -26,20 +26,20 @@ describe("PreferencesRoute", () => {
     expect(
       screen.getByRole("heading", { name: "Preferences & Extras" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Theme" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "SDR Settings" }),
+      screen.getByRole("button", { name: "SDR Settings" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "I/Q Capture Settings" }),
+      screen.getByRole("button", { name: "I/Q Capture Settings" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", {
+      screen.getByRole("button", {
         name: "Snapshot & Fast Snapshot",
       }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Extras" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Extras" })).toBeInTheDocument();
   });
 
   it("renders the section nav in the sidebar", () => {

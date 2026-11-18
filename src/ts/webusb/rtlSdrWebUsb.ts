@@ -144,7 +144,10 @@ export const normalizeGainDb = (value: number): number => {
 };
 
 export const normalizePpm = (value: number): number =>
-  Math.max(0, Math.round(Number.isFinite(value) ? value : DEFAULT_PPM));
+  Math.max(
+    -200,
+    Math.min(200, Math.round(Number.isFinite(value) ? value : DEFAULT_PPM)),
+  );
 
 type RegisterWrite = {
   block: number;

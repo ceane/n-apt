@@ -19,9 +19,12 @@ export type RtlSdrOptionInput = {
   fftSizeText: string;
   gainText: string;
   ppmText: string;
+  useAppPpmCorrection?: boolean;
 };
 
-export type RtlSdrOptionState = Required<RtlSdrSessionOptions>;
+export type RtlSdrOptionState = Required<RtlSdrSessionOptions> & {
+  useAppPpmCorrection: boolean;
+};
 
 const parseFiniteInput = (value: string): number | null => {
   const trimmed = value.trim();
@@ -65,11 +68,12 @@ export const getRtlSdrOptionState = (
     fftSize: normalizeFftSize(fftSize),
     gainDb: normalizeGainDb(gainDb),
     ppm: normalizePpm(ppm),
+    useAppPpmCorrection: input.useAppPpmCorrection ?? false,
   };
 };
 
 export const haveRtlSdrOptionsChanged = (
-  current: RtlSdrOptionState | null,
+  current: Required<RtlSdrSessionOptions> | RtlSdrOptionState | null,
   next: RtlSdrOptionState | null,
 ): boolean => {
   if (!current || !next) return true;
@@ -78,6 +82,10 @@ export const haveRtlSdrOptionsChanged = (
     current.sampleRateHz !== next.sampleRateHz ||
     current.fftSize !== next.fftSize ||
     current.gainDb !== next.gainDb ||
-    current.ppm !== next.ppm
+    current.ppm !== next.ppm ||
+    (("useAppPpmCorrection" in current
+      ? current.useAppPpmCorrection
+      : false) !==
+      next.useAppPpmCorrection)
   );
 };

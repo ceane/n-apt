@@ -7,6 +7,7 @@ describe("WebUSB PPM settings", () => {
   it("accepts signed calibration values in the shared range", () => {
     expect(normalizePpm(-200)).toBe(-200);
     expect(normalizePpm(-1)).toBe(-1);
+    expect(normalizePpm(-201)).toBe(-200);
     expect(normalizePpm(201)).toBe(200);
   });
 

@@ -489,6 +489,8 @@ export const loadPersistedSdrSettings = () => {
 
 export const loadPersistedSettings = (): Partial<{
   mirrorIqBasebandBelowZero: boolean;
+  smootherWaterfall: boolean;
+  waterfallHistoryFill: "immutable" | "accretive";
 }> => {
   const stored = safeGetItem(STORAGE_KEYS.SETTINGS);
   if (!stored) return {};
