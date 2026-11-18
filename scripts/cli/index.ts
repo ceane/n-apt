@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import {
   hasNaptReceiveDefaults,
   resolveCliCaptureFftSize,
+  resolveCliCenterFrequencyArgument,
   resolveCliCaptureFrequencySpan,
   resolveNaptReceiveDefaults,
   resolveRequestedDevice,
@@ -21,7 +22,11 @@ import {
   printAgentCapabilities,
 } from "./agent";
 import { cliVersion, renderCliHelp, resolveCliHelpTopic } from "./help";
-import { CliUsageError, validateCliArguments } from "./options";
+import {
+  CliUsageError,
+  parseCliFrequencyArgumentHz,
+  validateCliArguments,
+} from "./options";
 import { verifyCaptureArtifact } from "./artifact";
 import {
   assertAspectMountAvailable,
@@ -62,9 +67,16 @@ async function demod(args: string[]) {
   const input = flag(args, "--input", "");
   if (!input) throw new Error("demod requires --input <raw-IQ-file>");
   const output = flag(args, "--output", "demodulated.iq");
-  const centerFrequencyHz = Number(flag(args, "--center-frequency", "0"));
-  const minHz = Number(flag(args, "--min-frequency", String(centerFrequencyHz)));
-  const maxHz = Number(flag(args, "--max-frequency", String(centerFrequencyHz + 1)));
+  const parseFrequencyFlag = (name: string, fallbackHz: number): number => {
+    const rawValue = flag(args, name, "");
+    if (!rawValue) return fallbackHz;
+    const valueHz = parseCliFrequencyArgumentHz(rawValue);
+    if (valueHz === null) throw new Error(`Invalid frequency for ${name}`);
+    return valueHz;
+  };
+  const centerFrequencyHz = parseFrequencyFlag("--center-frequency", 0);
+  const minHz = parseFrequencyFlag("--min-frequency", centerFrequencyHz);
+  const maxHz = parseFrequencyFlag("--max-frequency", centerFrequencyHz + 1);
   const sampleRateHz = Number(flag(args, "--sample-rate", "2400000"));
   const algorithm = flag(args, "--algorithm", "fm") as DemodAlgorithm;
   const plan = prepareDemodulation({ centerFrequencyHz, frequencyRangeHz: [minHz, maxHz], sampleRateHz, algorithm });
@@ -414,9 +426,8 @@ async function snapshot(args: string[], selected: any) {
     format,
   });
   const frequencyArg = flag(args, "--frequency", flag(args, "--center-frequency", ""));
-  const requestedFrequencyHz = frequencyArg ? Number(frequencyArg) : null;
   const requestedSampleRateArg = flag(args, "--sample-rate", "");
-  if (requestedFrequencyHz !== null || requestedSampleRateArg) {
+  if (frequencyArg || requestedSampleRateArg) {
     const initialFrame = (await fetchSnapshotFrames(token, fftSize, 1))[0];
     if (!initialFrame) throw new Error("Rust returned no frame for snapshot tuning");
     const sampleRateHz = Math.max(
@@ -425,7 +436,10 @@ async function snapshot(args: string[], selected: any) {
         : initialFrame.sample_rate ?? 3_200_000,
       3_200_000,
     );
-    const centerFrequencyHz = requestedFrequencyHz ?? initialFrame.center_frequency_hz;
+    const centerFrequencyHz = resolveCliCenterFrequencyArgument(
+      frequencyArg || undefined,
+      initialFrame.center_frequency_hz,
+    ) ?? initialFrame.center_frequency_hz;
     if (!centerFrequencyHz || !Number.isFinite(centerFrequencyHz)) {
       throw new Error("Snapshot center frequency is unavailable; pass --frequency <Hz>");
     }

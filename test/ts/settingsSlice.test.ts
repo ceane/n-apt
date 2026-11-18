@@ -23,6 +23,8 @@ describe("settings slice diagnostic-state ownership", () => {
       "deviceName",
       "deviceProfile",
       "mirrorIqBasebandBelowZero",
+      "smootherWaterfall",
+      "waterfallHistoryFill",
     ]);
     for (const type of [
       "spectrum/setDiagnosticStatus",
@@ -62,6 +64,8 @@ describe("settings slice VFO clamp preference", () => {
     );
     expect(loadPersistedSettings()).toEqual({
       mirrorIqBasebandBelowZero: true,
+      smootherWaterfall: false,
+      waterfallHistoryFill: "accretive",
     });
   });
 });

@@ -339,6 +339,8 @@ mod tests {
     let samples = RawSamples {
       data: vec![128u8; 2048],
       sample_rate: 32000,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
 
     let result = processor.process_samples(&samples).unwrap();
@@ -379,6 +381,8 @@ mod tests {
     let samples = RawSamples {
       data,
       sample_rate: 32000,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
     let result = processor.process_samples(&samples).unwrap();
 
@@ -409,6 +413,8 @@ mod tests {
     let samples = RawSamples {
       data: vec![128u8; 2048],
       sample_rate: 32000,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
 
     let result = processor.process_samples(&samples).unwrap();
@@ -444,6 +450,8 @@ mod tests {
       let samples = RawSamples {
         data: vec![128u8; 512],
         sample_rate: 32000,
+        spectrum_iq_data: None,
+        spectrum_ppm_correction: None,
       };
 
       let result = processor.process_samples(&samples);
@@ -481,6 +489,8 @@ mod tests {
     let samples = RawSamples {
       data,
       sample_rate: 32000,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
 
     let mut proc_low = FFTProcessor::with_config(make_config(0.5));
@@ -549,6 +559,8 @@ mod tests {
     let samples = RawSamples {
       data: vec![128u8; 1024],
       sample_rate: 32000,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
     let result = processor.process_samples(&samples).unwrap();
     assert_eq!(result.power_spectrum.len(), 512);
@@ -582,6 +594,8 @@ mod tests {
     let samples = RawSamples {
       data: vec![128u8; 1024],
       sample_rate: 32000,
+      spectrum_iq_data: None,
+      spectrum_ppm_correction: None,
     };
     let mut output = vec![0.0f32; 512];
 

@@ -42,6 +42,133 @@ export const getFrequencyUnitScale = (unit: FrequencyUnit): number => {
   return getSiUnitScale(unit, FREQUENCY_UNITS);
 };
 
+const FREQUENCY_WORDS = ["hz", "khz", "mhz", "ghz"] as const;
+const FREQUENCY_WORD_UNITS: Record<string, FrequencyUnit> = {
+  hz: "Hz",
+  khz: "kHz",
+  mhz: "MHz",
+  ghz: "GHz",
+};
+
+export const resolveFrequencySuffixUnit = (
+  suffix: string,
+): FrequencyUnit | undefined => {
+  if (!suffix) return undefined;
+  const word = FREQUENCY_WORDS.find((candidate) =>
+    candidate.startsWith(suffix.toLowerCase()),
+  );
+  return word ? FREQUENCY_WORD_UNITS[word] : undefined;
+};
+
+export const splitFrequencyDraft = (draft: string): {
+  head: string;
+  suffix: string;
+} => {
+  const spaceless =
+    typeof draft === "string" ? draft.replace(/[\s_,]+/g, "") : "";
+  const match = spaceless.match(/^(.*?)([a-zA-Z]*)$/);
+  if (!match) return { head: spaceless, suffix: "" };
+  return { head: match[1], suffix: match[2].toLowerCase() };
+};
+
+export const isValidFrequencyDraftText = (
+  text: string,
+  allowArithmetic = false,
+): boolean => {
+  if (typeof text !== "string") return false;
+  const spaceless = text.replace(/[\s_,]+/g, "");
+  if (!spaceless) return true;
+  const { head, suffix } = splitFrequencyDraft(spaceless);
+  if (suffix && !resolveFrequencySuffixUnit(suffix)) return false;
+  return (
+    !head ||
+    (allowArithmetic
+      ? /^[+-]?[\d.]*(?:[+-][\d.]*)?$/.test(head)
+      : /^[+-]?[\d.]*$/.test(head))
+  );
+};
+
+export interface ParsedFrequencyInput {
+  valueHz: number;
+  /** A leading + or - means this value is an offset from the current center. */
+  isOffset: boolean;
+}
+
+/** Parses a number or editable frequency string into Hz without applying an offset. */
+export const parseFrequencyInputHz = (
+  input: number | string,
+  fallbackUnit: FrequencyUnit = "Hz",
+): ParsedFrequencyInput | null => {
+  if (typeof input === "number") {
+    return Number.isFinite(input) ? { valueHz: input, isOffset: false } : null;
+  }
+  if (typeof input !== "string") return null;
+
+  const { head, suffix } = splitFrequencyDraft(input);
+  const match = head.match(/^([+-]?)(?:(\d+(?:\.\d*)?|\.\d+))$/);
+  if (!match) return null;
+  const value = Number(`${match[1]}${match[2]}`);
+  if (!Number.isFinite(value)) return null;
+
+  const unit = suffix
+    ? resolveFrequencySuffixUnit(suffix)
+    : match[1]
+      ? "Hz"
+      : fallbackUnit;
+  if (!unit) return null;
+  return {
+    valueHz: value * getFrequencyUnitScale(unit),
+    isOffset: Boolean(match[1]),
+  };
+};
+
+/** Parses a frequency input and applies its explicit sign as an offset when a center is supplied. */
+export const resolveFrequencyInputHz = (
+  input: number | string,
+  currentCenterHz?: number,
+  fallbackUnit: FrequencyUnit = "Hz",
+): number | null => {
+  if (typeof input === "string") {
+    const { head, suffix } = splitFrequencyDraft(input);
+    if (suffix && !resolveFrequencySuffixUnit(suffix)) return null;
+    const expression = head.match(
+      /^([+-]?)(\d+(?:\.\d*)?|\.\d+)([+-])(\d+(?:\.\d*)?|\.\d+)$/,
+    );
+
+    if (expression) {
+      const [, firstSign, firstText, operator, secondText] = expression;
+      const explicitUnit = suffix
+        ? resolveFrequencySuffixUnit(suffix)
+        : undefined;
+      const selectedScale = getFrequencyUnitScale(fallbackUnit);
+      const firstValue = Number(`${firstSign}${firstText}`);
+      const secondValue = Number(`${operator}${secondText}`);
+      const secondScale = explicitUnit
+        ? getFrequencyUnitScale(explicitUnit)
+        : selectedScale;
+      return firstValue * selectedScale + secondValue * secondScale;
+    }
+  }
+
+  const parsed = parseFrequencyInputHz(input, fallbackUnit);
+  if (!parsed) return null;
+  if (parsed.isOffset && Number.isFinite(currentCenterHz)) {
+    return (currentCenterHz as number) + parsed.valueHz;
+  }
+  return parsed.valueHz;
+};
+
+export const parseFrequencyDraftHz = (
+  draft: string,
+  fallbackUnit: string,
+): number => {
+  const validUnit: FrequencyUnit =
+    fallbackUnit === "kHz" || fallbackUnit === "MHz" || fallbackUnit === "GHz"
+      ? fallbackUnit
+      : "Hz";
+  return parseFrequencyInputHz(draft, validUnit)?.valueHz ?? NaN;
+};
+
 export const getOptimalFrequencyScale = (hz: number): FrequencyScale => {
   return getOptimalSiScale(hz, FREQUENCY_UNITS) as FrequencyScale;
 };

@@ -31,7 +31,7 @@ import {
 } from "@n-apt/spectrum/FFTCanvas";
 import { SpectrumProvider } from "@n-apt/spectrum/hooks/useSpectrumStore";
 import { MemoryRouter } from "react-router";
-import { TestWrapper } from "./testUtils";
+import { createTestStore, TestWrapper as BaseTestWrapper } from "./testUtils";
 import { ThemeProvider } from "styled-components";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { createFFTVisualizerMachine } from "@n-apt/app/infrastructure/visualization/fftVisualizerMachine";
@@ -41,6 +41,29 @@ import { NATIVE_CLASSIFIER_DOWNLOADS_STORAGE_KEY } from "@n-apt/classification/n
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
 const drawSpectrumMock = jest.fn(() => true);
+
+const canvasDefaultState = createTestStore().getState();
+const canvasTestState = {
+  ...canvasDefaultState,
+  spectrum: {
+    ...canvasDefaultState.spectrum,
+    useAppPpmCorrection: false,
+  },
+};
+const TestWrapper = ({ children }: { children: React.ReactNode }) => (
+  <BaseTestWrapper preloadedState={canvasTestState}>{children}</BaseTestWrapper>
+);
+
+// FFTCanvas component tests exercise the synchronous CPU path. The shared
+// Worker mock in setup.ts does not execute workers, so report that the worker
+// is unavailable and let the component use its production fallback.
+jest.mock("@n-apt/spectrum/hooks/useSpectrumWorker", () => ({
+  useSpectrumWorker: () => ({
+    readSpectrum: () => undefined,
+    fallbackRequired: true,
+    backend: null,
+  }),
+}));
 
 it("keeps the mirrored pan publisher usable after lifecycle cleanup", () => {
   jest.useFakeTimers();
@@ -1819,7 +1842,7 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
     const calls = processIqToDbmSpectrumMock.mock.calls as unknown as any[][];
     const lastCall = calls[calls.length - 1];
     const firstArg = lastCall?.[0] as Uint8Array | undefined;
-    expect(firstArg).toBe(iqData);
+    expect(firstArg).toEqual(iqData);
     expect(Array.from(firstArg ?? []).some((byte) => byte !== 128)).toBe(true);
   });
 

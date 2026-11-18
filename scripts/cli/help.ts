@@ -96,7 +96,7 @@ Run capture snapshot --help or capture iq --help for command-specific options.`,
 Options:
   --device auto|<device-id>      Select a source (default: auto)
   --interactive                  Prompt when multiple physical SDRs are connected
-  --frequency <Hz>               Tune the receiver before taking the snapshot
+  --frequency <expression>       Hz by default; supports separators, units, math, and +/- offsets
   --sample-rate <Hz>             Set receive sample rate (minimum 3200000 Hz)
   --waterfall                    Include waterfall history
   --dark                         Use dark mode (default: light)
@@ -132,7 +132,7 @@ Options:
   --allow-mutations              Required acknowledgement before capture starts
   --device auto|<device-id>      Select a source (default: auto)
   --interactive                  Prompt when multiple physical SDRs are connected
-  --center-frequency <Hz>        Target center; capture may retune the radio
+  --center-frequency <expression> Target in Hz; supports units, separators, math, and +/- offsets
   --sample-rate <Hz>             Concrete sample rate applied and acknowledged
   --duration-mode timed|manual   Acquisition duration mode (default: timed)
   --duration <seconds>           Timed duration (default: 1)
@@ -205,9 +205,9 @@ Options:
 Options:
   --input <path>                 Raw I/Q input file
   --output <path>                Output path (default: demodulated.iq)
-  --center-frequency <Hz>        Center frequency (default: 0)
-  --min-frequency <Hz>           Minimum frequency
-  --max-frequency <Hz>           Maximum frequency
+  --center-frequency <expression> Center frequency in Hz; supports units, separators, and math
+  --min-frequency <expression>   Minimum frequency in Hz; supports units, separators, and math
+  --max-frequency <expression>   Maximum frequency in Hz; supports units, separators, and math
   --sample-rate <Hz>             Input sample rate (default: 2400000)
   --algorithm <name>             fm, fmDiscriminator, aptAudio, or aptImage
   -h, --help                     Show this help without reading a file`,
@@ -265,9 +265,9 @@ This command requires only the Rust backend. A backend response with
 Options:
   --input <path>                 Raw I/Q input file
   --output <path>                Output path (default: demodulated.iq)
-  --center-frequency <Hz>        Center frequency (default: 0)
-  --min-frequency <Hz>           Minimum frequency
-  --max-frequency <Hz>           Maximum frequency
+  --center-frequency <expression> Center frequency in Hz; supports units, separators, and math
+  --min-frequency <expression>   Minimum frequency in Hz; supports units, separators, and math
+  --max-frequency <expression>   Maximum frequency in Hz; supports units, separators, and math
   --sample-rate <Hz>             Input sample rate (default: 2400000)
   --algorithm <name>             fm, fmDiscriminator, aptAudio, or aptImage
   -h, --help                     Show this help without reading a file`,

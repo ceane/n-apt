@@ -4,6 +4,8 @@ import { FrequencyInput } from "./FrequencyInput";
 import { resolveEdgeClampedCenterHz } from "@n-apt/math/frequency";
 
 const MAX_CENTER_FREQUENCY_HZ = 30_000_000_000;
+const FREQUENCY_DRAFT_PATTERN =
+  "[+-]?[0-9.,_\\s]*(?:[+-][0-9.,_\\s]*)?([hH][zZ]?|[kK](?:[hH](?:[zZ])?)?|[mM](?:[hH](?:[zZ])?)?|[gG](?:[hH](?:[zZ])?)?)?";
 
 interface EditableCenterFrequencyProps {
   centerFrequencyHz: number;
@@ -167,15 +169,18 @@ export const EditableCenterFrequency: React.FC<
 
   return (
     <Shell ref={shellRef} className={className} $placement={placement}>
-      <Card>
+      <Card data-spectrum-interaction-ignore="">
         <EditorTitle>Center Frequency / Onscreen Canvas</EditorTitle>
         <Bar>
           <CenterFrequencyField
             valueHz={centerFrequencyHz}
             onChangeHz={commitCenterFrequency}
+            relativeToValueHz={centerFrequencyHz}
             minHz={minHz}
             maxHz={MAX_CENTER_FREQUENCY_HZ}
             placeholder="x.xxx.xxx"
+            pattern={FREQUENCY_DRAFT_PATTERN}
+            allowArithmetic
             autoFocus
             commitOnBlur
             onKeyDown={(event) => {
