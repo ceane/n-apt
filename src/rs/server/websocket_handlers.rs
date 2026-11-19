@@ -603,7 +603,9 @@ fn stream_rx_processor_settings(
     }
   }
   if options.ppm.is_some_and(|ppm| !(-200..=200).contains(&ppm))
-    || options.app_ppm.is_some_and(|ppm| !(-200..=200).contains(&ppm))
+    || options
+      .app_ppm
+      .is_some_and(|ppm| !(-200..=200).contains(&ppm))
   {
     return None;
   }
@@ -722,9 +724,9 @@ fn resolve_authoritative_subscribe_options(
       requested.ppm = Some(if use_app_ppm_correction {
         0
       } else {
-        requested.ppm.unwrap_or_else(|| {
-          settings.ppm.round().clamp(-200.0, 200.0) as i32
-        })
+        requested
+          .ppm
+          .unwrap_or_else(|| settings.ppm.round().clamp(-200.0, 200.0) as i32)
       });
       requested.tuner_agc = Some(settings.gain.tuner_agc);
       requested.rtl_agc = Some(settings.gain.rtl_agc);
@@ -943,11 +945,9 @@ pub fn stream_event_json(
             frame.timestamp as u64,
           );
           cached_encoded_frame(spectrum_cache_key, || {
-            let encrypted = crate::crypto::encrypt_payload_binary(
-              enc_key,
-              spectrum_iq,
-            )
-            .map_err(|_| ())?;
+            let encrypted =
+              crate::crypto::encrypt_payload_binary(enc_key, spectrum_iq)
+                .map_err(|_| ())?;
             Ok(
               base64::engine::general_purpose::STANDARD
                 .encode(encrypted)
@@ -1245,33 +1245,6 @@ async fn handle_stream_connection(
               "loading" | "initializing" => "opening",
               _ => "unavailable",
             };
-            let subscription = match manager.subscribe_with_policy(
-              stream.clone(),
-              effective_subscribe_options.clone(),
-              delivery_policy,
-            ) {
-              Ok(subscription) => subscription,
-              Err(error) => {
-                let response = stream_error_json(&subscription_id, &stream, error.code(), &error.to_string());
-                let _ = sender.send(Message::Text(response.to_string().into())).await;
-                continue;
-              }
-            };
-            if source_is_active && stream.mode == StreamMode::Rx {
-              if let StreamOptions::Rx(options) = &effective_subscribe_options {
-                request_active_rx_stream_options(
-                  &shared,
-                  &stream.source_id,
-                  options.clone(),
-                  None,
-                );
-              }
-            }
-            if stream.source_id == MOCK_TX_SOURCE_ID {
-              if let StreamOptions::Tx(tx_options) = &effective_subscribe_options {
-              apply_tx_stream_options(tx_options, true);
-              }
-            }
             let stream_identity =
               SourceStreamIdentity::from_session_token(&session_token, &stream.source_id, stream.mode);
             if expected_stream_id
@@ -1286,6 +1259,55 @@ async fn handle_stream_connection(
               );
               let _ = sender.send(Message::Text(response.to_string().into())).await;
               continue;
+            }
+            let subscription_result = if stream.mode == StreamMode::Rx {
+              manager.subscribe_with_pending_options(
+                stream.clone(),
+                effective_subscribe_options.clone(),
+                delivery_policy,
+              )
+            } else {
+              manager.subscribe_with_policy(
+                stream.clone(),
+                effective_subscribe_options.clone(),
+                delivery_policy,
+              )
+            };
+            let subscription = match subscription_result {
+              Ok(subscription) => subscription,
+              Err(error) => {
+                let response = stream_error_json(&subscription_id, &stream, error.code(), &error.to_string());
+                let _ = sender.send(Message::Text(response.to_string().into())).await;
+                continue;
+              }
+            };
+            if source_is_active && stream.mode == StreamMode::Rx {
+              if let StreamOptions::Rx(options) = &effective_subscribe_options {
+                if let Err(error) = manager.update_options_pending(
+                  &stream,
+                  StreamOptions::Rx(options.clone()),
+                ) {
+                  let response = stream_error_json(
+                    &subscription_id,
+                    &stream,
+                    error.code(),
+                    &error.to_string(),
+                  );
+                  let _ = sender.send(Message::Text(response.to_string().into())).await;
+                  continue;
+                }
+                request_active_rx_stream_options(
+                  &shared,
+                  &stream.source_id,
+                  options.clone(),
+                  None,
+                );
+              }
+            }
+            if stream.source_id == MOCK_TX_SOURCE_ID {
+              if let StreamOptions::Tx(tx_options) = &effective_subscribe_options {
+              apply_tx_stream_options(tx_options, true);
+              }
             }
             let mut stream_state = stream_state;
             if !source_is_active && stream.mode == StreamMode::Rx {
@@ -1450,19 +1472,21 @@ async fn handle_stream_connection(
             } else {
               None
             };
-            match manager.update_options(&stream, options) {
+            let options_update = if rx_device_options.is_some() {
+              manager.update_options_pending(&stream, options)
+            } else {
+              manager.update_options(&stream, options)
+            };
+            match options_update {
               Err(error) => {
                 let response = stream_error_json(&subscription_id, &stream, error.code(), &error.to_string());
                 let _ = sender.send(Message::Text(response.to_string().into())).await;
               }
-              Ok((_, _, true)) => {
-                if let Some(tx_options) = mock_tx_options.as_ref() {
-              apply_tx_stream_options(tx_options, true);
-                }
+              Ok((_, _, changed)) => {
                 if let Some(rx_options) = rx_device_options.as_ref() {
                   // Managed RX options are device-scoped, not presentation-only.
-                  // Apply them through the source-owned acquisition path so accepted stream revisions
-                  // cannot keep publishing frames from the previous channel.
+                  // Frames are held until the source-owned acquisition path
+                  // confirms this complete option set has reached the device.
                   if stream.mode == StreamMode::Rx
                     && active_source_id(&shared) != stream.source_id
                   {
@@ -1482,6 +1506,8 @@ async fn handle_stream_connection(
                       rx_options.clone(),
                       previous_rx_options.clone(),
                     );
+                  }
+                  if changed {
                     if (rx_options.min_frequency_hz.is_some()
                       || rx_options.max_frequency_hz.is_some()
                       || rx_options.mirror_spectrum_below_zero.is_some())
@@ -1504,26 +1530,9 @@ async fn handle_stream_connection(
                       );
                     }
                   }
-                }
-              }
-              Ok((_, _, false)) => {
-                // A duplicate write is already represented by the authoritative
-                // stream revision. Retry only when the active device has not
-                // successfully applied that complete option set yet.
-                if let Some(rx_options) = rx_device_options.as_ref() {
-                  if stream.mode == StreamMode::Rx
-                    && active_source_id(&shared) == stream.source_id
-                    && shared.active_rx_options_need_application(
-                      &stream.source_id,
-                      rx_options,
-                    )
-                  {
-                    request_active_rx_stream_options(
-                      &shared,
-                      &stream.source_id,
-                      rx_options.clone(),
-                      previous_rx_options.clone(),
-                    );
+                } else if changed {
+                  if let Some(tx_options) = mock_tx_options.as_ref() {
+                    apply_tx_stream_options(tx_options, true);
                   }
                 }
               }
@@ -4630,10 +4639,11 @@ mod tests {
   }
 
   #[test]
-  fn managed_stream_serializes_encrypted_raw_spectrum_iq_and_correction_model() {
+  fn managed_stream_serializes_encrypted_raw_spectrum_iq_and_correction_model()
+  {
     let raw_spectrum_iq = vec![10, 11, 12, 13, 14, 15];
-    let event = StreamEvent::Frame(
-      crate::server::stream_manager::StreamFrame {
+    let event =
+      StreamEvent::Frame(crate::server::stream_manager::StreamFrame {
         key: StreamKey::new("rtl-sdr-v4", StreamMode::Rx),
         stream_epoch: 2,
         options_revision: 3,
@@ -4651,8 +4661,7 @@ mod tests {
           },
         ),
         is_tx_preview: false,
-      },
-    );
+      });
 
     let encoded = super::stream_event_json(&event, &[9u8; 32])
       .expect("spectrum frame should encode");
@@ -4660,8 +4669,9 @@ mod tests {
     let ciphertext = base64::engine::general_purpose::STANDARD
       .decode(encrypted)
       .unwrap();
-    let decrypted = crate::crypto::decrypt_payload_binary(&[9u8; 32], &ciphertext)
-      .expect("spectrum sibling payload should decrypt");
+    let decrypted =
+      crate::crypto::decrypt_payload_binary(&[9u8; 32], &ciphertext)
+        .expect("spectrum sibling payload should decrypt");
     assert_eq!(decrypted, raw_spectrum_iq);
     assert_eq!(
       encoded["spectrumPpmCorrection"]["correctionHz"],

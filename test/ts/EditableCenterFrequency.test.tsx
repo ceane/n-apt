@@ -90,6 +90,111 @@ describe("EditableCenterFrequency", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("keeps the selected unit for the base when an arithmetic offset has a suffix", () => {
+    const onChange = jest.fn();
+    render(
+      <Wrapper>
+        <EditableCenterFrequency
+          centerFrequencyHz={1_600_000}
+          onCenterFrequencyChange={onChange}
+          onClose={jest.fn()}
+        />
+      </Wrapper>,
+    );
+
+    const input = screen.getByRole("textbox");
+    const unitButton = screen.getByRole("button", { name: "Frequency unit" });
+    fireEvent.change(input, { target: { value: "1.6+300k" } });
+
+    expect(unitButton).toHaveTextContent("MHz");
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(1_900_000);
+  });
+
+  it("uses a typed unit suffix for a standalone frequency value", () => {
+    const onChange = jest.fn();
+    render(
+      <Wrapper>
+        <EditableCenterFrequency
+          centerFrequencyHz={1_600_000}
+          onCenterFrequencyChange={onChange}
+          onClose={jest.fn()}
+        />
+      </Wrapper>,
+    );
+
+    const input = screen.getByRole("textbox");
+    const unitButton = screen.getByRole("button", { name: "Frequency unit" });
+    fireEvent.change(input, { target: { value: "300k" } });
+
+    expect(unitButton).toHaveTextContent("kHz");
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(300_000);
+  });
+
+  it("treats a separated standalone number as an absolute Hz value", () => {
+    const onChange = jest.fn();
+    render(
+      <Wrapper>
+        <EditableCenterFrequency
+          centerFrequencyHz={2_000_000_000}
+          onCenterFrequencyChange={onChange}
+          onClose={jest.fn()}
+        />
+      </Wrapper>,
+    );
+
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "300_000" } });
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(300_000);
+  });
+
+  it("treats a leading plus suffix as an offset from the current frequency", () => {
+    const onChange = jest.fn();
+    render(
+      <Wrapper>
+        <EditableCenterFrequency
+          centerFrequencyHz={1_600_000}
+          onCenterFrequencyChange={onChange}
+          onClose={jest.fn()}
+        />
+      </Wrapper>,
+    );
+
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "+300k" } });
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(1_900_000);
+  });
+
+  it.each([
+    ["1.9-1", 900_000],
+    ["1.9+1", 2_900_000],
+    ["30+1.6", 31_600_000],
+  ])("evaluates %s in the selected MHz unit", (expression, expectedHz) => {
+    const onChange = jest.fn();
+    render(
+      <Wrapper>
+        <EditableCenterFrequency
+          centerFrequencyHz={1_900_000}
+          onCenterFrequencyChange={onChange}
+          onClose={jest.fn()}
+        />
+      </Wrapper>,
+    );
+
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: expression } });
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(expectedHz);
+  });
+
   it("closes without committing when clicking outside", () => {
     const onChange = jest.fn();
     const onClose = jest.fn();

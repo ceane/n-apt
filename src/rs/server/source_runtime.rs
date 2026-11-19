@@ -281,11 +281,8 @@ impl SourceRuntimeManager {
       processor
         .initialize()
         .map_err(|error| SourceRuntimeError::Startup(error.to_string()))?;
-      apply_rx_options(
-        &mut processor,
-        &initial_options,
-      )
-      .map_err(|error| SourceRuntimeError::Startup(error.to_string()))?;
+      apply_rx_options(&mut processor, &initial_options)
+        .map_err(|error| SourceRuntimeError::Startup(error.to_string()))?;
       Ok::<_, SourceRuntimeError>(Arc::new(Mutex::new(processor)))
     })
     .await
@@ -319,6 +316,63 @@ impl SourceRuntimeManager {
         .insert(key.clone(), RuntimeHandle { stop, options });
     }
 
+    // Register the runtime before confirming startup settings so concurrent
+    // option writes can update its watch channel instead of being lost while
+    // the source is opening.
+    let mut applied_options_for_runtime = initial_options_for_runtime.clone();
+    if let Some(StreamOptions::Rx(current_options)) =
+      stream_manager.options(&key)
+    {
+      if current_options != applied_options_for_runtime {
+        let processor_for_apply = Arc::clone(&processor);
+        let options_for_apply = current_options.clone();
+        let apply_result = tokio::task::spawn_blocking(move || {
+          let mut processor = processor_for_apply.lock().map_err(|_| {
+            anyhow::anyhow!("source processor lock was poisoned")
+          })?;
+          apply_rx_options(&mut processor, &options_for_apply)
+        })
+        .await;
+        match apply_result {
+          Ok(Ok(())) => applied_options_for_runtime = current_options,
+          Ok(Err(error)) => {
+            self
+              .inner
+              .lock()
+              .expect("source runtime registry lock poisoned")
+              .handles
+              .remove(&key);
+            self.release_reservation(&key);
+            return Err(SourceRuntimeError::Startup(error.to_string()));
+          }
+          Err(error) => {
+            self
+              .inner
+              .lock()
+              .expect("source runtime registry lock poisoned")
+              .handles
+              .remove(&key);
+            self.release_reservation(&key);
+            return Err(SourceRuntimeError::Startup(error.to_string()));
+          }
+        }
+      }
+    }
+
+    if let Err(error) = stream_manager.confirm_options_applied(
+      &key,
+      StreamOptions::Rx(applied_options_for_runtime.clone()),
+    ) {
+      self
+        .inner
+        .lock()
+        .expect("source runtime registry lock poisoned")
+        .handles
+        .remove(&key);
+      self.release_reservation(&key);
+      return Err(SourceRuntimeError::Startup(error.to_string()));
+    }
+
     let inner = Arc::clone(&self.inner);
     tokio::spawn(run_runtime(
       key,
@@ -326,7 +380,7 @@ impl SourceRuntimeManager {
       stream_manager,
       stop_rx,
       options_rx,
-      initial_options_for_runtime,
+      applied_options_for_runtime,
       inner,
     ));
     Ok(())
@@ -527,10 +581,10 @@ pub(crate) fn rx_settings_delta(
     app_ppm: (current.app_ppm != next.app_ppm)
       .then_some(next.app_ppm)
       .flatten(),
-    use_app_ppm_correction:
-      (current.use_app_ppm_correction != next.use_app_ppm_correction)
-        .then_some(next.use_app_ppm_correction)
-        .flatten(),
+    use_app_ppm_correction: (current.use_app_ppm_correction
+      != next.use_app_ppm_correction)
+      .then_some(next.use_app_ppm_correction)
+      .flatten(),
     tuner_agc: (current.tuner_agc != next.tuner_agc)
       .then_some(next.tuner_agc)
       .flatten(),
@@ -652,7 +706,15 @@ async fn apply_runtime_options_update(
 
   match apply_result {
     Ok(Ok(retune_started_at)) => {
+      let applied_options_for_ack = update.options.clone();
       *applied_options = update.options;
+      if let Err(error) = stream_manager.confirm_options_applied(
+        key,
+        StreamOptions::Rx(applied_options_for_ack),
+      ) {
+        let _ =
+          stream_manager.publish_error(key, "options_apply", error.to_string());
+      }
       if retune_started_at.is_some() {
         *pending_retune_started_at = retune_started_at;
       }

@@ -40,11 +40,13 @@ export function prepareSpectrumIqWindow(
     !rawIq ||
     !model ||
     !Number.isFinite(model.correction_hz) ||
+    typeof inputPerOutput !== "number" ||
     !Number.isFinite(inputPerOutput) ||
-    (inputPerOutput ?? 0) <= 0 ||
+    inputPerOutput <= 0 ||
+    typeof sourceOffset !== "number" ||
     !Number.isFinite(sourceOffset) ||
-    (sourceOffset ?? -1) < 0 ||
-    (sourceOffset ?? 1) >= 1
+    sourceOffset < 0 ||
+    sourceOffset >= 1
   ) {
     return { iq: newestWindow(correctedIq, fftSize) };
   }

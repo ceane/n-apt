@@ -23,6 +23,7 @@ import {
 } from "@n-apt/math/basebandMirror";
 
 const LIVE_STATUS_ROW_HEIGHT = 56;
+const VFO_DRAG_ACTIVATION_DELAY_MS = 120;
 const MIRRORED_SPECTRUM_MAX_HZ = 30_000_000_000;
 
 /** Convert native wheel units to the pixel-equivalent plot-space step. */
@@ -256,6 +257,13 @@ export function useSpectrumInteraction({
   const dragStartFreqRef = useRef(0);
   const dragStartPanRef = useRef(0);
   const dragStartRangeRef = useRef<FrequencyRange>({ min: 0, max: 0 });
+  const pendingVfoPointerRef = useRef<{
+    pointerId: number;
+    clientX: number;
+  } | null>(null);
+  const vfoDragActivationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const dragStartSelectionRef = useRef<FrequencyRange>({ min: 0, max: 0 });
   const isSelectionDraggingRef = useRef(false);
   const boxStartRef = useRef({ x: 0, y: 0 });
@@ -1436,6 +1444,12 @@ export function useSpectrumInteraction({
         });
       }
 
+      const pendingVfoPointer = pendingVfoPointerRef.current;
+      if (pendingVfoPointer?.pointerId === e.pointerId) {
+        pendingVfoPointer.clientX = e.clientX;
+        return;
+      }
+
       if (
         isPowerDraggingRef.current &&
         onPowerLineDbChange &&
@@ -1935,6 +1949,13 @@ export function useSpectrumInteraction({
     };
 
     const handlePointerDown = (e: PointerEvent) => {
+      if (
+        e.target instanceof Element &&
+        e.target.closest("[data-spectrum-interaction-ignore]")
+      ) {
+        return;
+      }
+
       // Allow buttons to handle their own clicks natively
       if (e.target instanceof Element && e.target.closest("button")) {
         return;
@@ -1957,6 +1978,11 @@ export function useSpectrumInteraction({
       });
 
       if (activePointersRef.current.size === 2) {
+        if (vfoDragActivationTimerRef.current !== null) {
+          clearTimeout(vfoDragActivationTimerRef.current);
+          vfoDragActivationTimerRef.current = null;
+        }
+        pendingVfoPointerRef.current = null;
         // Start multi-touch pinch
         const pointers = Array.from(activePointersRef.current.values());
         const p1 = pointers[0];
@@ -2251,15 +2277,26 @@ export function useSpectrumInteraction({
 
       // Bottom area is the VFO area
       if (y >= height - vfoThreshold) {
-        isDraggingRef.current = true;
-        isVfoDraggingRef.current = true;
-        dragStartXRef.current = e.clientX;
-        dragStartFreqRef.current = frequencyRangeRef.current.min;
-        dragStartPanRef.current = vizPanOffsetRef?.current || 0;
-        dragStartRangeRef.current = { ...frequencyRangeRef.current };
-        addClassIfAvailable(container, "cursor-grabbing");
-        removeClassIfAvailable(container, "cursor-grab");
+        pendingVfoPointerRef.current = {
+          pointerId: e.pointerId,
+          clientX: e.clientX,
+        };
         setPointerCaptureIfAvailable(container, e.pointerId);
+        vfoDragActivationTimerRef.current = setTimeout(() => {
+          const pending = pendingVfoPointerRef.current;
+          if (!pending || pending.pointerId !== e.pointerId) return;
+
+          pendingVfoPointerRef.current = null;
+          vfoDragActivationTimerRef.current = null;
+          isDraggingRef.current = true;
+          isVfoDraggingRef.current = true;
+          dragStartXRef.current = pending.clientX;
+          dragStartFreqRef.current = frequencyRangeRef.current.min;
+          dragStartPanRef.current = vizPanOffsetRef?.current || 0;
+          dragStartRangeRef.current = { ...frequencyRangeRef.current };
+          addClassIfAvailable(container, "cursor-grabbing");
+          removeClassIfAvailable(container, "cursor-grab");
+        }, VFO_DRAG_ACTIVATION_DELAY_MS);
       } else {
         isVfoDraggingRef.current = false;
         // Upper area is for box zooming
@@ -2279,6 +2316,17 @@ export function useSpectrumInteraction({
     const handlePointerUp = (e: PointerEvent) => {
       const container = getContainer();
       stopSelectionEdgePan();
+
+      if (pendingVfoPointerRef.current?.pointerId === e.pointerId) {
+        if (vfoDragActivationTimerRef.current !== null) {
+          clearTimeout(vfoDragActivationTimerRef.current);
+          vfoDragActivationTimerRef.current = null;
+        }
+        pendingVfoPointerRef.current = null;
+        activePointersRef.current.delete(e.pointerId);
+        if (container) releasePointerCaptureIfAvailable(container, e.pointerId);
+        return;
+      }
 
       if (isTxSliderDraggingRef.current) {
         publishPendingTxGeometry(false);
@@ -2571,6 +2619,29 @@ export function useSpectrumInteraction({
       selectionDragModeRef.current = null;
       selectionDragOriginFreqRef.current = null;
       selectionDraftRangeRef.current = null;
+    };
+
+    const handlePointerCancel = (e: PointerEvent) => {
+      if (pendingVfoPointerRef.current?.pointerId === e.pointerId) {
+        if (vfoDragActivationTimerRef.current !== null) {
+          clearTimeout(vfoDragActivationTimerRef.current);
+          vfoDragActivationTimerRef.current = null;
+        }
+        pendingVfoPointerRef.current = null;
+        activePointersRef.current.delete(e.pointerId);
+      }
+      stopSelectionEdgePan();
+    };
+
+    const handleInteractionBlur = () => {
+      const pending = pendingVfoPointerRef.current;
+      if (vfoDragActivationTimerRef.current !== null) {
+        clearTimeout(vfoDragActivationTimerRef.current);
+        vfoDragActivationTimerRef.current = null;
+      }
+      pendingVfoPointerRef.current = null;
+      if (pending) activePointersRef.current.delete(pending.pointerId);
+      stopSelectionEdgePan();
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3092,13 +3163,18 @@ export function useSpectrumInteraction({
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", stopSelectionEdgePan);
-    window.addEventListener("blur", stopSelectionEdgePan);
-    document.addEventListener("visibilitychange", stopSelectionEdgePan);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    window.addEventListener("blur", handleInteractionBlur);
+    document.addEventListener("visibilitychange", handleInteractionBlur);
     window.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
       stopSelectionEdgePan();
+      if (vfoDragActivationTimerRef.current !== null) {
+        clearTimeout(vfoDragActivationTimerRef.current);
+        vfoDragActivationTimerRef.current = null;
+      }
+      pendingVfoPointerRef.current = null;
       if (dispatchTimeoutRef.current) {
         clearTimeout(dispatchTimeoutRef.current);
         dispatchTimeoutRef.current = null;
@@ -3119,9 +3195,9 @@ export function useSpectrumInteraction({
       }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", stopSelectionEdgePan);
-      window.removeEventListener("blur", stopSelectionEdgePan);
-      document.removeEventListener("visibilitychange", stopSelectionEdgePan);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+      window.removeEventListener("blur", handleInteractionBlur);
+      document.removeEventListener("visibilitychange", handleInteractionBlur);
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [

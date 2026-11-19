@@ -1,8 +1,24 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  render as renderWithoutStore,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { ReactNode } from "react";
 import "@testing-library/jest-dom";
 import { ThemeProvider } from "styled-components";
+import { Provider } from "react-redux";
 import { THEME_TOKENS } from "@n-apt/consts/theme";
 import { FIFOWaterfall } from "@n-apt/spectrum/FIFOWaterfall";
+import { createTestStore } from "./testUtils";
+
+const render = (ui: ReactNode) => {
+  const store = createTestStore();
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <Provider store={store}>{children}</Provider>
+  );
+  return renderWithoutStore(ui, { wrapper });
+};
 
 jest.mock("@n-apt/spectrum/hooks/useDrawWebGPUFIFOWaterfall", () => {
   const drawWebGPUFIFOWaterfall = jest.fn(() => false);

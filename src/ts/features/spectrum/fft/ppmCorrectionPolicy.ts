@@ -5,6 +5,7 @@
  */
 export function shouldApplyFrontendSpectrumPpmCorrection(
   isRtlSdr: boolean,
+  useAppPpmCorrection = true,
 ): boolean {
-  return !isRtlSdr;
+  return !isRtlSdr && useAppPpmCorrection;
 }

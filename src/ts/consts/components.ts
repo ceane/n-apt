@@ -15,6 +15,10 @@ export const MODEL_ROOT_POSITION = [0, 0.95, 0] as const;
 export const BRAIN_POSITION = [0.07, 0.38, 0.14] as const;
 export const BRAIN_SCALE = [0.22, 0.22, 0.22] as const;
 
+// Composite placement in the human model root coordinate system.
+export const ANATOMY_BRAIN_POSITION = [0.1151, 0.2459, 0.1768] as const;
+export const ANATOMY_BRAIN_SCALE = [0.36, 0.36, 0.36] as const;
+
 // DrawMockNAPT constants
 export const DEFAULT_SPIKE_COUNT = 150;
 export const DEFAULT_SPIKE_WIDTH = 0.1;

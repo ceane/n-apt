@@ -7,6 +7,9 @@ use tokio::sync::Mutex;
 use crate::sdr::audio_iq_tap::AudioIqBlock;
 use crate::sdr::processor::SdrProcessor;
 use crate::server::shared_state::SharedState;
+use crate::server::stream_manager::{
+  StreamKey, StreamMode, StreamOptions, StreamingSourceModeManager,
+};
 use crate::server::types::PowerScale;
 
 /// A contiguous IQ block tagged with the source epoch that produced it.
@@ -97,16 +100,19 @@ fn has_active_rx_settings_delta(
 pub struct AcquisitionWorker {
   processor: Arc<Mutex<SdrProcessor>>,
   shared_state: Arc<SharedState>,
+  stream_manager: StreamingSourceModeManager,
 }
 
 impl AcquisitionWorker {
   pub fn new(
     processor: Arc<Mutex<SdrProcessor>>,
     shared_state: Arc<SharedState>,
+    stream_manager: StreamingSourceModeManager,
   ) -> Self {
     Self {
       processor,
       shared_state,
+      stream_manager,
     }
   }
 
@@ -120,6 +126,7 @@ impl AcquisitionWorker {
   ) -> Result<ProcessedFrame> {
     let processor = self.processor.clone();
     let shared_state = self.shared_state.clone();
+    let stream_manager = self.stream_manager.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<ProcessedFrame> {
       let metrics = crate::performance::pipeline_metrics();
@@ -151,19 +158,20 @@ impl AcquisitionWorker {
         let center_frequency = u32::try_from(update.options.center_frequency_hz)
           .map_err(|_| anyhow::anyhow!("center frequency exceeds u32"))?;
         let mut succeeded = true;
+        let mut apply_error = None;
 
         if center_frequency != processor.get_center_frequency() {
           crate::performance::pipeline_metrics().record_latency(
             crate::performance::Stage::CommandToRetune,
             update.requested_at.elapsed(),
           );
-          if processor
-            .set_center_frequency_live(center_frequency)
-            .is_ok()
+          if let Err(error) =
+            processor.set_center_frequency_live(center_frequency)
           {
-            shared_state.mark_live_retune_started();
-          } else {
             succeeded = false;
+            apply_error = Some(error.to_string());
+          } else {
+            shared_state.mark_live_retune_started();
           }
         }
 
@@ -182,17 +190,47 @@ impl AcquisitionWorker {
                 supported_device_present,
               )
             {
+              let key = StreamKey::new(
+                update.source_id.clone(),
+                StreamMode::Rx,
+              );
+              let _ = stream_manager.publish_error(
+                &key,
+                "options_apply",
+                error.to_string(),
+              );
               return Err(error);
             }
             succeeded = false;
+            apply_error = Some(error.to_string());
           }
         }
 
         if succeeded {
+          let key =
+            StreamKey::new(update.source_id.clone(), StreamMode::Rx);
+          let options = update.options.clone();
           shared_state.mark_active_rx_options_applied(
             &update.source_id,
             update.revision,
-            update.options,
+            options.clone(),
+          );
+          if let Err(error) = stream_manager.confirm_options_applied(
+            &key,
+            StreamOptions::Rx(options),
+          ) {
+            let _ = stream_manager.publish_error(
+              &key,
+              "options_apply",
+              error.to_string(),
+            );
+          }
+        } else if let Some(message) = apply_error {
+          let key = StreamKey::new(update.source_id, StreamMode::Rx);
+          let _ = stream_manager.publish_error(
+            &key,
+            "options_apply",
+            message,
           );
         }
       }
@@ -448,8 +486,8 @@ mod tests {
     resolve_monitor_frame_sample_rate, AcquisitionFrame, FramePublicationGate,
     ProcessedFrame,
   };
-  use crate::server::types::SdrProcessorSettings;
   use crate::server::types::PowerScale;
+  use crate::server::types::SdrProcessorSettings;
 
   #[test]
   fn app_ppm_only_updates_are_applied_at_the_active_stream_boundary() {

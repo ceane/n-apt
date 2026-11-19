@@ -1,10 +1,13 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect, useMemo } from "react";
 import styled from "styled-components";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import Brain from "@n-apt/three-d/Brain";
-import { CoronaScene } from "@n-apt/learn";
+import { CoronaScene, toBrainViewerPoint, toBrainViewerPointFromOffset } from "@n-apt/learn";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
+import { createBrainRegionBlobGeometry } from "@n-apt/three-d/brainRegionBlob";
+import { gsap } from "gsap";
+import { Vector3 } from "three";
 import {
   MODEL_AMBIENT_LIGHT_INTENSITY,
   MODEL_BACK_LIGHT_INTENSITY,
@@ -57,7 +60,35 @@ const ToneCanvasWrap = styled.div`
 `;
 
 export const Model3DBrain: React.FC = () => {
-  const { controlsRef } = useModel3D();
+  const { controlsRef, selectedArea } = useModel3D();
+  const brainSelection = useMemo(() => {
+    if (selectedArea?.meshName !== "brain") return null;
+    const markerTargets = selectedArea.markerPositions?.map(toBrainViewerPointFromOffset)
+      ?? [toBrainViewerPoint(selectedArea.target)];
+    const center = markerTargets.reduce(
+      (sum, point) => [sum[0] + point[0], sum[1] + point[1], sum[2] + point[2]] as [number, number, number],
+      [0, 0, 0] as [number, number, number],
+    ).map((coordinate) => coordinate / markerTargets.length) as [number, number, number];
+    return { markerTargets, center };
+  }, [selectedArea]);
+  const brainTarget = brainSelection?.center ?? null;
+  const regionGeometry = useMemo(createBrainRegionBlobGeometry, []);
+  useEffect(() => () => regionGeometry.dispose(), [regionGeometry]);
+  const cortical = selectedArea?.name ? /lobe|cortex|brodmann|auditory|visual|motor|somatosensory|broca|wernicke|insula|cingulate/i.test(selectedArea.name) : false;
+  const bilateralMarkerScale: [number, number, number] = useMemo(() => {
+    const markerTargets = brainSelection?.markerTargets;
+    if (!markerTargets || markerTargets.length < 2) return cortical ? [0.13, 0.095, 0.035] : [0.075, 0.075, 0.055];
+    const lateralSpacing = Math.abs(markerTargets[0][0] - markerTargets[1][0]);
+    return cortical
+      ? [Math.max(0.006, Math.min(0.055, lateralSpacing * 0.32)), 0.07, 0.025]
+      : [Math.max(0.006, Math.min(0.045, lateralSpacing * 0.32)), 0.04, 0.035];
+  }, [brainSelection, cortical]);
+
+  useEffect(() => {
+    if (!brainTarget || !controlsRef.current) return;
+    gsap.to(controlsRef.current.target, { x: brainTarget[0], y: brainTarget[1], z: brainTarget[2], duration: .7, onUpdate: () => controlsRef.current?.update() });
+    gsap.to(controlsRef.current.object.position, { x: brainTarget[0], y: brainTarget[1], z: brainTarget[2] + 1.35, duration: .7, onUpdate: () => controlsRef.current?.update() });
+  }, [brainTarget, controlsRef]);
 
   return (
     <BrainLayout>
@@ -98,6 +129,16 @@ export const Model3DBrain: React.FC = () => {
               rotation={[0, 0, 0]}
               scale={[0.34, 0.34, 0.34]}
             />
+            {brainSelection?.markerTargets.map((position, index) => (
+              <group key={`${selectedArea?.name}:${index}`} position={position} scale={bilateralMarkerScale}>
+                <mesh geometry={regionGeometry}>
+                  <meshBasicMaterial color="#00dfff" transparent opacity={0.72} depthWrite={false} toneMapped={false} />
+                </mesh>
+                <mesh geometry={regionGeometry} scale={1.22}>
+                  <meshBasicMaterial color="#00bfff" transparent opacity={0.18} depthWrite={false} toneMapped={false} />
+                </mesh>
+              </group>
+            ))}
             <OrbitControls
               ref={controlsRef}
               makeDefault

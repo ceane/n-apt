@@ -1,5 +1,6 @@
 import { memo, useRef, useEffect, useState, useMemo, useCallback } from "react";
 import styled, { useTheme } from "styled-components";
+import { useAppSelector } from "@n-apt/redux";
 import { WATERFALL_CANVAS_BG, FFT_MIN_DB, FFT_MAX_DB } from "@n-apt/consts";
 import CanvasPlaceholder, {
   type CanvasPlaceholderState,
@@ -233,7 +234,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     placeholderErrorReason = null,
     placeholderState: explicitPlaceholderState = null,
     forceCanvas2D = false,
-    waterfallHistoryFill = "accretive",
+    waterfallHistoryFill,
     historyZoom = 1,
     historyPan = 0,
     colormap,
@@ -242,6 +243,9 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
     nonHardwareSourcePattern = false,
   }) => {
     const theme = useTheme();
+    const smootherWaterfall = useAppSelector((s) => s.settings.smootherWaterfall);
+    const preferredHistoryFill = useAppSelector((s) => s.settings.waterfallHistoryFill);
+    const effectiveHistoryFill = waterfallHistoryFill ?? preferredHistoryFill;
     const waterfallBackground =
       theme.colors?.waterfallBackground ?? WATERFALL_CANVAS_BG;
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -379,14 +383,14 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const dpr =
         typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
       const { width: cssWidth, height: cssHeight } = viewportSize;
-      const renderWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const renderWidth = Math.max(1, Math.round(cssWidth * (smootherWaterfall ? Math.min(dpr, 2048 / cssWidth) : dpr)));
       const renderHeight = Math.max(1, Math.round(cssHeight * dpr));
       if (canvas.width !== renderWidth) canvas.width = renderWidth;
       if (canvas.height !== renderHeight) canvas.height = renderHeight;
 
       const context = canvas.getContext("2d");
       if (!context) return;
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      context.setTransform(renderWidth / cssWidth, 0, 0, renderHeight / cssHeight, 0, 0);
       context.clearRect(0, 0, cssWidth, cssHeight);
 
       if (nonHardwareSourcePattern && !placeholderState) {
@@ -402,6 +406,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       placeholderState,
       viewportSize.width,
       viewportSize.height,
+      smootherWaterfall,
     ]);
 
     const resolveCssSize = () => viewportSize;
@@ -451,7 +456,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const dpr =
         typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
       const { width, height } = resolveCssSize();
-      const renderWidth = Math.max(1, Math.round(width * dpr));
+      const renderWidth = Math.max(1, Math.round(width * (smootherWaterfall ? Math.min(dpr, 2048 / width) : dpr)));
       const renderHeight = Math.max(1, Math.round(height * dpr));
       const expectedLen = renderWidth * renderHeight * 4;
       const previousDims = bufferDimsRef.current;
@@ -471,7 +476,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         hasDrawnWaveformRef.current = false;
         onWaterfallBufferChange?.(localBufferRef.current);
       }
-    }, [viewportSize.width, viewportSize.height, onWaterfallBufferChange]);
+    }, [viewportSize.width, viewportSize.height, onWaterfallBufferChange, smootherWaterfall]);
 
     // Render waterfall
     useEffect(() => {
@@ -491,7 +496,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       const dpr =
         typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
       const { width: cssWidth, height: cssHeight } = resolveCssSize();
-      const renderWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const renderWidth = Math.max(1, Math.round(cssWidth * (smootherWaterfall ? Math.min(dpr, 2048 / cssWidth) : dpr)));
       const renderHeight = Math.max(1, Math.round(cssHeight * dpr));
 
       // Update canvas dimensions only if they changed to avoid clearing the drawing buffer unnecessarily
@@ -518,7 +523,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
         if (!hasWebGPU) {
           const ctx = getCanvas2DContext(canvas);
           if (ctx) {
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.setTransform(renderWidth / cssWidth, 0, 0, renderHeight / cssHeight, 0, 0);
             ctx.fillStyle = waterfallBackground;
             ctx.fillRect(0, 0, cssWidth, cssHeight);
           }
@@ -554,8 +559,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             colormapName,
             plotMargin: ZERO_PLOT_MARGIN,
             backgroundColor: waterfallBackground,
-            historyZoom: waterfallHistoryFill === "immutable" ? historyZoom : 1,
-            historyPan: waterfallHistoryFill === "immutable" ? historyPan : 0,
+            historyZoom: effectiveHistoryFill === "immutable" ? historyZoom : 1,
+            historyPan: effectiveHistoryFill === "immutable" ? historyPan : 0,
             binSubset,
           });
           if (!rendered) {
@@ -628,8 +633,8 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
             buffer,
             0,
             0,
-            waterfallHistoryFill === "immutable" ? historyZoom : 1,
-            waterfallHistoryFill === "immutable" ? historyPan : 0,
+            effectiveHistoryFill === "immutable" ? historyZoom : 1,
+            effectiveHistoryFill === "immutable" ? historyPan : 0,
           );
         }
       };
@@ -677,7 +682,7 @@ export const FIFOWaterfall = memo<FIFOWaterfallProps>(
       drawWebGPUFIFOWaterfall,
       cleanupWebGPUFIFOWaterfall,
       getLastError,
-      waterfallHistoryFill,
+      effectiveHistoryFill,
       historyZoom,
       historyPan,
     ]);

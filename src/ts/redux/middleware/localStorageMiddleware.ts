@@ -256,6 +256,8 @@ const createLocalStorageMiddleware =
         JSON.stringify({
           mirrorIqBasebandBelowZero:
             state.settings.mirrorIqBasebandBelowZero === true,
+          smootherWaterfall: state.settings.smootherWaterfall === true,
+          waterfallHistoryFill: state.settings.waterfallHistoryFill,
         }),
       );
     }
@@ -487,6 +489,8 @@ export const loadPersistedSdrSettings = () => {
 
 export const loadPersistedSettings = (): Partial<{
   mirrorIqBasebandBelowZero: boolean;
+  smootherWaterfall: boolean;
+  waterfallHistoryFill: "immutable" | "accretive";
 }> => {
   const stored = safeGetItem(STORAGE_KEYS.SETTINGS);
   if (!stored) return {};
@@ -495,6 +499,9 @@ export const loadPersistedSettings = (): Partial<{
     return {
       mirrorIqBasebandBelowZero:
         parsed?.mirrorIqBasebandBelowZero === true,
+      smootherWaterfall: parsed?.smootherWaterfall === true,
+      waterfallHistoryFill:
+        parsed?.waterfallHistoryFill === "immutable" ? "immutable" : "accretive",
     };
   } catch {
     safeRemoveItem(STORAGE_KEYS.SETTINGS);

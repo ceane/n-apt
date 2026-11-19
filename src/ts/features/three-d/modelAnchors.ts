@@ -1,0 +1,67 @@
+import { Object3D, Vector3 } from "three";
+import { MODEL_ROOT_POSITION } from "@n-apt/consts";
+
+// Bounds from human_ghost_expressive_underwear.glb. Model3DPerson normalizes
+// this asset to 1.9 units high and centers those bounds at MODEL_ROOT_POSITION.
+const MODEL_SOURCE_CENTER: [number, number, number] = [0, 1.023072, 0.0397485];
+const MODEL_SOURCE_HEIGHT = 2.057744;
+const MODEL_DISPLAY_SCALE = 1.9 / MODEL_SOURCE_HEIGHT;
+
+export function modelSourcePointToWorld(
+  point: [number, number, number],
+): [number, number, number] {
+  return [
+    MODEL_ROOT_POSITION[0] + (point[0] - MODEL_SOURCE_CENTER[0]) * MODEL_DISPLAY_SCALE,
+    MODEL_ROOT_POSITION[1] + (point[1] - MODEL_SOURCE_CENTER[1]) * MODEL_DISPLAY_SCALE,
+    MODEL_ROOT_POSITION[2] + (point[2] - MODEL_SOURCE_CENTER[2]) * MODEL_DISPLAY_SCALE,
+  ];
+}
+
+/**
+ * Rig anchors in the loaded asset's coordinate space, before viewer normalization.
+ * These match the GhostBody runtime skeleton names: GLTFLoader removes the
+ * punctuation in names such as `spine.01` and `thigh.L`.
+ * Offsets are metres: +X toward the subject's left, +Y up, +Z toward the face.
+ * Apply the same parent
+ * transform to the figure and its anchored objects. Center attached assets
+ * before scaling them; never subtract an unscaled asset center from a target.
+ */
+export const MODEL_ANCHORS = {
+  // Center the brain inside the cranial vault, just above the head joint.
+  brain: { bone: "head", offset: [0, 0.15, 0.015] },
+  head: { bone: "head", offset: [0, 0, 0] },
+  pelvis: { bone: "pelvis", offset: [0, 0, 0] },
+  neck: { bone: "neck", offset: [0, 0, 0] },
+  chest: { bone: "chest", offset: [0, 0, 0] },
+  abdomen: { bone: "spine01", offset: [0, 0, 0] },
+  leftShoulder: { bone: "upper_armL", offset: [0, 0, 0] },
+  rightShoulder: { bone: "upper_armR", offset: [0, 0, 0] },
+  leftElbow: { bone: "forearmL", offset: [0, 0, 0] },
+  rightElbow: { bone: "forearmR", offset: [0, 0, 0] },
+  leftHand: { bone: "handL", offset: [0, 0, 0] },
+  rightHand: { bone: "handR", offset: [0, 0, 0] },
+  leftHip: { bone: "thighL", offset: [0, 0, 0] },
+  rightHip: { bone: "thighR", offset: [0, 0, 0] },
+  leftKnee: { bone: "shinL", offset: [0, 0, 0] },
+  rightKnee: { bone: "shinR", offset: [0, 0, 0] },
+  leftAnkle: { bone: "footL", offset: [0, 0, 0] },
+  rightAnkle: { bone: "footR", offset: [0, 0, 0] },
+  leftToes: { bone: "toesL", offset: [0, 0, 0] },
+  rightToes: { bone: "toesR", offset: [0, 0, 0] },
+} as const;
+
+export type ModelAnchorName = keyof typeof MODEL_ANCHORS;
+
+export function resolveModelAnchor(
+  scene: Object3D,
+  name: ModelAnchorName,
+): [number, number, number] | null {
+  const anchor = MODEL_ANCHORS[name];
+  scene.updateWorldMatrix(true, true);
+  const bone = scene.getObjectByName(anchor.bone);
+  if (!bone) return null;
+  const point = bone.getWorldPosition(new Vector3());
+  if (scene.parent) scene.parent.worldToLocal(point);
+  point.add(new Vector3(...anchor.offset));
+  return [point.x, point.y, point.z];
+}

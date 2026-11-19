@@ -1,18 +1,66 @@
 import React from "react";
 import styled from "styled-components";
+import { CopyDeepLinkButton } from "@n-apt/ui/CopyDeepLinkButton";
 
-export const CollapsibleTitleContainer = styled.button`
+export const CollapsibleTitleContainer = styled.div<{
+  $sticky?: boolean;
+  $isOpen?: boolean;
+  $stickyTop?: number;
+  $stickyZIndex?: number;
+}>`
   display: flex;
   justify-content: space-between;
   align-items: center;
   width: 100%;
   grid-column: 1 / -1;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  margin: 1.5rem 0 0.5rem 0;
+  position: ${(props) => (props.$sticky && props.$isOpen ? "sticky" : "relative")};
+  top: ${(props) => (props.$sticky && props.$isOpen ? `${props.$stickyTop ?? 0}px` : "auto")};
+  z-index: ${(props) =>
+    props.$sticky && props.$isOpen ? props.$stickyZIndex ?? 1 : "auto"};
+  background: ${(props) => (props.$sticky ? props.theme.surface : "transparent")};
+  border: ${(props) =>
+    props.$sticky ? `1px solid ${props.theme.border}` : "0"};
+  padding: ${(props) => (props.$sticky ? "8px 10px" : "0")};
+  margin: ${(props) => (props.$sticky ? "0.35rem 0" : "1.5rem 0 0.5rem 0")};
+  border-radius: ${(props) => (props.$sticky ? "7px" : "0")};
+  box-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  &::after {
+    content: ${(props) =>
+      props.$sticky && props.$isOpen ? '""' : "none"};
+    position: absolute;
+    inset: 100% -1px auto;
+    height: 12px;
+    background: ${(props) => props.theme.surface};
+    pointer-events: none;
+  }
   cursor: pointer;
   text-align: left;
+  &:hover .sidebar-copy-deep-link { opacity: 0.65; }
+  & > .sidebar-copy-deep-link { margin-left: 8px; }
+`;
+
+const CollapsibleHeaderToggle = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+`;
+
+const StickyCollapsibleRoot = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-column: 1 / -1;
+  gap: inherit;
+  min-width: 0;
 `;
 
 const fallbackMono =
@@ -116,6 +164,13 @@ export const CollapsibleTitleToggle = styled.span`
   font-weight: 600;
 `;
 
+const CollapsibleTitleEndAdornment = styled.span`
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 8px;
+`;
+
 export const CollapsibleBody = styled.div`
   display: grid;
   grid-column: 1 / -1;
@@ -132,10 +187,17 @@ export interface CollapsibleProps {
   children: React.ReactNode;
   defaultOpen?: boolean;
   open?: boolean;
+  temporaryOpen?: boolean;
   sectionId?: string;
+  linkPath?: string;
+  routeTargetId?: string;
   onOpenChange?: (isOpen: boolean) => void;
   titlePulseToken?: number;
+  endAdornment?: React.ReactNode;
   hideHeader?: boolean;
+  sticky?: boolean;
+  stickyTop?: number;
+  stickyZIndex?: number;
 }
 
 export const Collapsible: React.FC<CollapsibleProps> = ({
@@ -145,66 +207,82 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
   children,
   defaultOpen = false,
   open,
+  temporaryOpen = false,
   sectionId,
+  linkPath,
+  routeTargetId,
   onOpenChange,
   titlePulseToken,
+  endAdornment,
   hideHeader = false,
+  sticky = false,
+  stickyTop = 0,
+  stickyZIndex = 1,
 }) => {
-  const [isOpen, setIsOpen] = React.useState(defaultOpen);
+  const [storedIsOpen, setStoredIsOpen] = React.useState(defaultOpen);
 
   React.useEffect(() => {
     if (open !== undefined) {
-      setIsOpen(open);
+      setStoredIsOpen(open);
     }
   }, [open]);
 
+  const isOpen = open ?? (temporaryOpen || storedIsOpen);
+
   const handleToggle = React.useCallback(() => {
-    setIsOpen((prev) => {
+    if (temporaryOpen) return;
+    setStoredIsOpen((prev) => {
       const next = !prev;
       onOpenChange?.(next);
       return next;
     });
-  }, [onOpenChange]);
+  }, [onOpenChange, temporaryOpen]);
 
   if (hideHeader) {
     return <>{children}</>;
   }
 
-  return (
+  const collapsibleContent = (
     <>
       <CollapsibleTitleContainer
-        type="button"
-        onClick={handleToggle}
-        aria-expanded={isOpen}
         data-sidebar-section={sectionId}
+        id={routeTargetId ?? sectionId}
+        $sticky={sticky}
+        $isOpen={isOpen}
+        $stickyTop={stickyTop}
+        $stickyZIndex={stickyZIndex}
       >
-        {title ? (
-          <CollapsibleTitleContent
-            $pulseToken={titlePulseToken}
-            data-pulse-token={titlePulseToken}
-          >
-            {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
-            <CollapsibleTitleLabel>{title}</CollapsibleTitleLabel>
-          </CollapsibleTitleContent>
-        ) : (
-          <CollapsibleTitleContent
-            $pulseToken={titlePulseToken}
-            data-pulse-token={titlePulseToken}
-          >
-            {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
-            <CollapsibleTitleLabel>{label}</CollapsibleTitleLabel>
-          </CollapsibleTitleContent>
-        )}
-        <CollapsibleTitleToggle>{isOpen ? "-" : "+"}</CollapsibleTitleToggle>
+        <CollapsibleHeaderToggle type="button" onClick={handleToggle} aria-expanded={isOpen}>
+          {title ? (
+            <CollapsibleTitleContent $pulseToken={titlePulseToken} data-pulse-token={titlePulseToken}>
+              {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
+              <CollapsibleTitleLabel>{title}</CollapsibleTitleLabel>
+            </CollapsibleTitleContent>
+          ) : (
+            <CollapsibleTitleContent $pulseToken={titlePulseToken} data-pulse-token={titlePulseToken}>
+              {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
+              <CollapsibleTitleLabel>{label}</CollapsibleTitleLabel>
+            </CollapsibleTitleContent>
+          )}
+          <CollapsibleTitleToggle>{isOpen ? "-" : "+"}</CollapsibleTitleToggle>
+          {endAdornment && <CollapsibleTitleEndAdornment>{endAdornment}</CollapsibleTitleEndAdornment>}
+        </CollapsibleHeaderToggle>
+        {linkPath && <CopyDeepLinkButton title={String(title ?? label ?? "Section")} targetPath={linkPath} />}
       </CollapsibleTitleContainer>
       {isOpen && <CollapsibleBody>{children}</CollapsibleBody>}
     </>
   );
+
+  return sticky ? (
+    <StickyCollapsibleRoot data-collapsible-sticky-root>
+      {collapsibleContent}
+    </StickyCollapsibleRoot>
+  ) : collapsibleContent;
 };
 
 // Keep the old components for backward compatibility but mark as deprecated
 export interface CollapsibleTitleProps extends Omit<
-  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  React.HTMLAttributes<HTMLDivElement>,
   "title"
 > {
   label?: React.ReactNode;
@@ -223,7 +301,8 @@ export const CollapsibleTitle: React.FC<CollapsibleTitleProps> = ({
   onToggle,
   ...props
 }) => (
-  <CollapsibleTitleContainer type="button" onClick={onToggle} {...props}>
+  <CollapsibleTitleContainer {...props}>
+    <CollapsibleHeaderToggle type="button" onClick={onToggle}>
     {title ? (
       <CollapsibleTitleContent>
         {icon && <CollapsibleTitleIcon>{icon}</CollapsibleTitleIcon>}
@@ -236,5 +315,6 @@ export const CollapsibleTitle: React.FC<CollapsibleTitleProps> = ({
       </CollapsibleTitleContent>
     )}
     <CollapsibleTitleToggle>{isOpen ? "-" : "+"}</CollapsibleTitleToggle>
+    </CollapsibleHeaderToggle>
   </CollapsibleTitleContainer>
 );

@@ -329,9 +329,12 @@ export function useDrawWebGPUFIFOWaterfall() {
 
       try {
         // Canvas dimensions are already DPR-scaled by FFTCanvas resize handler
-        const dpr = window.devicePixelRatio || 1;
-        const marginX = Math.round(plotMargin.x * dpr);
-        const marginY = Math.round(plotMargin.y * dpr);
+        // Match the actual backing-store scale, which may be capped by the
+        // smoother-waterfall preference instead of using the device DPR.
+        const scaleX = canvas.width / Math.max(1, canvas.clientWidth || canvas.width);
+        const scaleY = canvas.height / Math.max(1, canvas.clientHeight || canvas.height);
+        const marginX = Math.round(plotMargin.x * scaleX);
+        const marginY = Math.round(plotMargin.y * scaleY);
         const plotH = Math.max(1, canvas.height - marginY * 2);
 
         // ALWAYS use 4096 bins internal width to avoid resets during zoom

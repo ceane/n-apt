@@ -1,4 +1,8 @@
 import type { SourceInfo } from "@n-apt/consts/schemas/websocket";
+import {
+  parseFrequencyInputHz,
+  resolveFrequencyInputHz,
+} from "@n-apt/math/frequency";
 
 export type CaptureSource = Pick<
   SourceInfo,
@@ -29,6 +33,41 @@ export interface NaptReceiveDefaults {
 
 /** Default FFT size for every headless CLI capture workflow. */
 export const CLI_CAPTURE_DEFAULT_FFT_SIZE = 65_536;
+
+/**
+ * Resolves a CLI center-frequency value. An explicit leading sign means an
+ * offset from the source's current center; an unsigned value is absolute Hz.
+ */
+export function resolveCliCenterFrequencyArgument(
+  rawValue: string | undefined,
+  currentCenterFrequencyHz: number | undefined,
+): number | undefined {
+  if (rawValue === undefined) return undefined;
+  const parsed = parseFrequencyInputHz(rawValue, "Hz");
+  const centerFrequencyHz = resolveFrequencyInputHz(
+    rawValue,
+    currentCenterFrequencyHz,
+    "Hz",
+  );
+  if (!parsed && centerFrequencyHz === null) {
+    throw new Error(
+      "Center frequency must be a number in Hz, kHz, MHz, or GHz",
+    );
+  }
+  if (parsed?.isOffset && !Number.isFinite(currentCenterFrequencyHz)) {
+    throw new Error(
+      "Current center frequency is unavailable for a signed offset",
+    );
+  }
+  if (
+    typeof centerFrequencyHz !== "number" ||
+    !Number.isFinite(centerFrequencyHz) ||
+    centerFrequencyHz <= 0
+  ) {
+    throw new Error("Resolved center frequency must be greater than zero Hz");
+  }
+  return centerFrequencyHz;
+}
 
 /**
  * Resolves the FFT size shared by snapshot and I/Q CLI captures. Keeping this
@@ -65,7 +104,7 @@ export function resolveCliCaptureFrequencySpan(
   const readNumber = (name: string): number | undefined => {
     const index = args.indexOf(name);
     if (index < 0) return undefined;
-    const value = Number(args[index + 1]);
+    const value = Number(args[index + 1]?.replace(/(?<=\d)_(?=\d)/g, ""));
     if (!Number.isFinite(value) || value <= 0) {
       throw new Error(`${name} must be a positive finite frequency`);
     }
@@ -76,8 +115,12 @@ export function resolveCliCaptureFrequencySpan(
     source.sdr.settings.sample_rate ??
     source.sdr.sample_rate_options.find((value) => value > 0) ??
     source.sdr.max_sample_rate;
+  const centerFrequencyIndex = args.indexOf("--center-frequency");
   const centerFrequencyHz =
-    readNumber("--center-frequency") ?? source.sdr.settings.center_frequency;
+    resolveCliCenterFrequencyArgument(
+      centerFrequencyIndex < 0 ? undefined : args[centerFrequencyIndex + 1],
+      source.sdr.settings.center_frequency,
+    ) ?? source.sdr.settings.center_frequency;
   if (
     typeof centerFrequencyHz !== "number" ||
     !Number.isFinite(centerFrequencyHz) ||

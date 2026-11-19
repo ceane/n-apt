@@ -4,6 +4,7 @@ import {
   validateCliFrequencyRangeArg,
   validateCliGeolocationArg,
 } from "@n-apt/cli/snapshotPolicy";
+import { resolveFrequencyInputHz } from "@n-apt/math/frequency";
 
 type OptionKind = "boolean" | "string" | "number";
 
@@ -42,6 +43,23 @@ const positiveInteger: OptionSpec = {
   positive: true,
 };
 const positiveNumber: OptionSpec = { kind: "number", positive: true };
+export const parseCliFrequencyArgumentHz = (value: string): number | null =>
+  resolveFrequencyInputHz(value, 0, "Hz");
+
+const signedFrequency: OptionSpec = {
+  kind: "string",
+  validate: (value) =>
+    parseCliFrequencyArgumentHz(value) !== null
+      ? null
+      : "Center frequency must be a number in Hz, kHz, MHz, or GHz",
+};
+const demodFrequency: OptionSpec = {
+  kind: "string",
+  validate: (value) =>
+    parseCliFrequencyArgumentHz(value) !== null
+      ? null
+      : "Frequency must be a number or expression in Hz, kHz, MHz, or GHz",
+};
 
 const signalInputOptions: Record<string, OptionSpec> = {
   "--input": stringOption,
@@ -51,9 +69,9 @@ const signalInputOptions: Record<string, OptionSpec> = {
 const demodOptions: Record<string, OptionSpec> = {
   ...signalInputOptions,
   "--output": stringOption,
-  "--center-frequency": finiteNumber,
-  "--min-frequency": finiteNumber,
-  "--max-frequency": finiteNumber,
+  "--center-frequency": demodFrequency,
+  "--min-frequency": demodFrequency,
+  "--max-frequency": demodFrequency,
   "--sample-rate": positiveNumber,
   "--algorithm": {
     kind: "string",
@@ -64,8 +82,8 @@ const demodOptions: Record<string, OptionSpec> = {
 const snapshotOptions: Record<string, OptionSpec> = {
   "--device": stringOption,
   "--interactive": booleanOption,
-  "--frequency": positiveNumber,
-  "--center-frequency": positiveNumber,
+  "--frequency": signedFrequency,
+  "--center-frequency": signedFrequency,
   "--sample-rate": { kind: "number", positive: true, minimum: 3_200_000 },
   "--waterfall": booleanOption,
   "--dark": booleanOption,
@@ -105,7 +123,7 @@ const iqCaptureOptions: Record<string, OptionSpec> = {
   "--allow-mutations": booleanOption,
   "--device": stringOption,
   "--interactive": booleanOption,
-  "--center-frequency": positiveNumber,
+  "--center-frequency": signedFrequency,
   "--sample-rate": positiveInteger,
   "--duration-mode": {
     kind: "string",
@@ -256,7 +274,7 @@ function validateOptionValue(
     if (validationError) throw new CliUsageError(validationError);
   }
   if (spec.kind !== "number") return;
-  const value = Number(rawValue);
+  const value = Number(rawValue.replace(/(?<=\d)_(?=\d)/g, ""));
   if (!Number.isFinite(value)) {
     throw new CliUsageError(`Option ${name} must be a finite number`);
   }
@@ -347,7 +365,9 @@ export function validateCliArguments(args: readonly string[]): string[] {
     normalizedOptions.includes("--stats") &&
     normalizedOptions.includes("--no-stats")
   ) {
-    throw new CliUsageError("Options --stats and --no-stats cannot be combined");
+    throw new CliUsageError(
+      "Options --stats and --no-stats cannot be combined",
+    );
   }
   if (
     spec.options === snapshotOptions &&
@@ -360,13 +380,18 @@ export function validateCliArguments(args: readonly string[]): string[] {
     const minIndex = normalizedOptions.indexOf("--power-min");
     const maxIndex = normalizedOptions.indexOf("--power-max");
     const scaleIndex = normalizedOptions.indexOf("--power-scale");
-    const powerScale = scaleIndex < 0 ? "dB" : normalizedOptions[scaleIndex + 1];
+    const powerScale =
+      scaleIndex < 0 ? "dB" : normalizedOptions[scaleIndex + 1];
     const defaultMin = powerScale === "dBm" ? -100 : -120;
     const defaultMax = powerScale === "dBm" ? 30 : 0;
-    const min = minIndex < 0 ? defaultMin : Number(normalizedOptions[minIndex + 1]);
-    const max = maxIndex < 0 ? defaultMax : Number(normalizedOptions[maxIndex + 1]);
+    const min =
+      minIndex < 0 ? defaultMin : Number(normalizedOptions[minIndex + 1]);
+    const max =
+      maxIndex < 0 ? defaultMax : Number(normalizedOptions[maxIndex + 1]);
     if (min >= max) {
-      throw new CliUsageError("Option --power-min must be less than --power-max");
+      throw new CliUsageError(
+        "Option --power-min must be less than --power-max",
+      );
     }
   }
 
