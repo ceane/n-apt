@@ -279,6 +279,7 @@
     "fast-check": "4.10.2",
     "fkill-cli": "^9.0.0",
     "fs-extra": "^11.2.0",
+    "helmet": "8.3.0",
     "jest": "^30.3.0",
     "jest-canvas-mock": "^2.5.2",
     "jest-environment-jsdom": "^30.2.0",
@@ -291,7 +292,7 @@
     "ts-jest": "29.4.15",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
-    "vite": "8.3.5",
+    "vite": "8.3.8",
     "vite-plugin-glsl": "^1.5.6",
     "vitest": "5.1.0",
     "wgsl-test": "0.2.35"

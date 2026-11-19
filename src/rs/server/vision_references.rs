@@ -215,6 +215,15 @@ pub async fn save_reference(
       "Reference does not match a completed capture",
     );
   };
+  let verified_artifacts = match crate::capture::storage::recover_artifact_paths(
+    std::slice::from_ref(artifact),
+  ) {
+    Ok(artifacts) => artifacts,
+    Err(_) => return error(StatusCode::CONFLICT, "Capture file unavailable"),
+  };
+  let Some(artifact) = verified_artifacts.first() else {
+    return error(StatusCode::CONFLICT, "Capture file unavailable");
+  };
   let mut file = match tokio::fs::File::open(&artifact.path).await {
     Ok(file) => file,
     Err(_) => return error(StatusCode::CONFLICT, "Capture file unavailable"),
