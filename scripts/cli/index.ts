@@ -91,7 +91,11 @@ async function demod(args: string[]) {
   metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;
   metadataBytes = Buffer.from(JSON.stringify(metadata)); metadata.sections.binary.offset_bytes = 40 + metadataBytes.length + frames.length; metadata.sections.trailer.offset_bytes = metadata.sections.binary.offset_bytes + chunk.length;
   const header = Buffer.alloc(40); Buffer.from("NAPT-IQ3").copy(header); header.writeBigUInt64LE(BigInt(metadataBytes.length), 8); header.writeBigUInt64LE(BigInt(frames.length), 16); header.writeBigUInt64LE(BigInt(chunk.length), 24);
-  await writeFile(output, Buffer.concat([header, metadataBytes, frames, chunk, marker, trailer]));
+  await writeFile(
+    output,
+    Buffer.concat([header, metadataBytes, frames, chunk, marker, trailer]),
+    { flag: "wx", mode: 0o600 },
+  );
   console.log(JSON.stringify({ output, algorithm, fftSize: plan.fftSize, bytes: processed.length }));
 }
 
@@ -518,7 +522,10 @@ async function snapshot(args: string[], selected: any) {
     const extension = format === "animated-svg" ? "svg" : format;
     const output = flag(args, "--output", join(process.env.HOME ?? ".", "Downloads", `n-apt_snapshot_${Date.now()}.${extension}`));
     await mkdir(dirname(output), { recursive: true });
-    await writeFile(output, decodeSnapshotPayload(dataUrl));
+    await writeFile(output, decodeSnapshotPayload(dataUrl), {
+      flag: "wx",
+      mode: 0o600,
+    });
     console.log(`Saved snapshot: ${output}`);
   } finally {
     await browser.close();
