@@ -21,7 +21,7 @@ jest.mock("@n-apt/ui/Tooltip", () => ({
 }));
 
 describe("SourceSettingsSection HackRF controls", () => {
-  it("groups the PPM value and app correction toggle on separate lines", () => {
+  it("keeps the PPM value and app correction toggle on separate accessible rows", () => {
     const onPpmChange = jest.fn();
     render(
       <TestWrapper>
@@ -46,24 +46,15 @@ describe("SourceSettingsSection HackRF controls", () => {
       </TestWrapper>,
     );
 
-    const ppmGroup = screen.getByRole("group", {
-      name: "PPM correction settings",
-    });
-    const ppmInputRow = within(ppmGroup).getByTestId("ppm-value-row");
-    const appCorrectionRow = within(ppmGroup).getByTestId("ppm-mode-row");
-    expect(ppmGroup).toHaveStyle({ width: "100%" });
-    expect(ppmInputRow).toHaveStyle({ paddingLeft: "10px" });
-    expect(appCorrectionRow).toHaveStyle({
-      paddingLeft: "34px",
-      paddingRight: "10px",
-    });
-    const ppmInput = within(ppmInputRow).getByRole("spinbutton");
+    const ppmInput = screen.getByRole("spinbutton", { name: "PPM correction" });
     expect(ppmInput).toHaveValue(0);
-    expect(
-      within(appCorrectionRow).getByRole("checkbox", {
-        name: "Use app frequency correction",
-      }),
-    ).toBeChecked();
+    const appCorrectionToggle = screen.getByRole("checkbox", {
+      name: "Use app frequency correction",
+    });
+    expect(appCorrectionToggle).toBeChecked();
+    expect(ppmInput.parentElement?.parentElement).not.toContainElement(
+      appCorrectionToggle,
+    );
     fireEvent.keyDown(ppmInput, { key: "ArrowUp" });
     expect(onPpmChange).toHaveBeenCalledWith(1);
   });

@@ -469,6 +469,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
       >
         <NarrowSettingInput
           type="number"
+          aria-label="PPM correction"
           value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
           onChange={(e) => handlePpmChange(e.target.value)}
           onKeyDown={handlePpmKeyDown}
