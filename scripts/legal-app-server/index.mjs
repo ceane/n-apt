@@ -6,6 +6,7 @@ import { Worker } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import fileUpload from 'express-fileupload';
 import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +17,7 @@ const exportedDir = path.join(rootDir, 'exported-archives');
 
 const app = express();
 const port = process.env.PORT || 3000;
+app.use(helmet());
 
 function byteLimit(name, fallback, ceiling) {
   const value = Number(process.env[name] ?? fallback);

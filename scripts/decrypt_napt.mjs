@@ -130,7 +130,7 @@ async function decryptFile(filePath) {
   }
 
   const outPath = filePath + '.decrypted.bin';
-  fs.writeFileSync(outPath, decrypted);
+  fs.writeFileSync(outPath, decrypted, { flag: 'wx', mode: 0o600 });
   console.log(`Saved decrypted payload to: ${outPath}`);
 }
 
