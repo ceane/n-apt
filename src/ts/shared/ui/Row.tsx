@@ -51,7 +51,7 @@ export const RowControl = styled.div`
 
 export interface RowProps {
   label: React.ReactNode;
-  tooltip?: string;
+  tooltip?: React.ReactNode;
   tooltipTitle?: string;
   children: React.ReactNode;
   className?: string;
