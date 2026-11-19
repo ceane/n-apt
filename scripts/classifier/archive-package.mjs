@@ -196,7 +196,7 @@ async function writeRegistry(registry) {
   const csv = csvDocument(registry.columns, registry.rows);
   const temporaryRegistry = `${registry.registryPath}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporaryRegistry, csv, { flag: "wx", mode: 0o644 });
+    await writeFile(temporaryRegistry, csv, { flag: "wx", mode: 0o600 });
     await rename(temporaryRegistry, registry.registryPath);
   } finally {
     await rm(temporaryRegistry, { force: true });

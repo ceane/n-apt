@@ -99,7 +99,7 @@ export async function writeCaptureArtifact(
   } else {
     await mkdir(dirname(outputPath), { recursive: true });
   }
-  await writeFile(outputPath, bytes);
+  await writeFile(outputPath, bytes, { flag: "wx", mode: 0o600 });
 }
 
 export async function assertHuggingFaceRepoAvailable(
