@@ -444,7 +444,6 @@ export const Model3DSidebar: React.FC = () => {
               "Override of Voluntary Control",
               "Override of Psychology",
               "SA",
-              "Essay",
             ].map((label) => (
               <Collapsible
                 key={label}
