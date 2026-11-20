@@ -434,6 +434,7 @@ export const Model3DSidebar: React.FC = () => {
               "State of Mind",
               "Perception and Vision",
               "Spatial Disruption & AR",
+              "Emotions",
               "Vocals",
               "Speech",
               "Discomfort and Nausea",
