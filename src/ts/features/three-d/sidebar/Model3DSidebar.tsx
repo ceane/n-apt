@@ -445,7 +445,7 @@ export const Model3DSidebar: React.FC = () => {
               <Collapsible
                 key={label}
                 label={label}
-                sectionId={`effects-${label.toLowerCase().replace(/\\s+/g, "-")}`}
+                sectionId={`effects-${label.toLowerCase().replace(/\s+/g, "-")}`}
               >
                 <SectionDescription>Content will be added here.</SectionDescription>
                 {label === "Essay" && (
