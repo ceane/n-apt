@@ -41,6 +41,23 @@ interface AuthenticationRouteProps {
 
 type AuthThemeMode = AppMode;
 
+const PUBLIC_ROUTE_EXACT_PATHS = new Set([
+  "/terms",
+  "/privacy",
+  "/license",
+  "/responsible-use",
+  "/3d-model-gallery",
+  "/game",
+]);
+
+const PUBLIC_ROUTE_PREFIXES = ["/learn", "/questionnaire", "/3d-model"] as const;
+
+const isPublicRoutePath = (pathname: string): boolean =>
+  PUBLIC_ROUTE_EXACT_PATHS.has(pathname) ||
+  PUBLIC_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+
 const AUTH_THEME_KEY = "n-apt-auth-theme-mode";
 
 const getInitialAuthThemeMode = (): AuthThemeMode => {
@@ -1892,12 +1909,7 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     handleRegisterPasskey,
     handleRegisterFidoKey,
   } = useAuthentication();
-  const isPublicRoute =
-    location.pathname === "/terms" ||
-    location.pathname === "/privacy" ||
-    location.pathname === "/license" ||
-    location.pathname === "/responsible-use" ||
-    location.pathname.startsWith("/learn");
+  const isPublicRoute = isPublicRoutePath(location.pathname);
 
   if (isPublicRoute) {
     return <>{children}</>;
