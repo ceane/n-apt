@@ -90,6 +90,27 @@ const SectionDescription = styled.div`
   grid-column: 1 / -1;
 `;
 
+const EffectCard = styled.div`
+  display: grid;
+  gap: 6px;
+  grid-column: 1 / -1;
+  padding: 11px 12px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 8px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+`;
+
+const EffectCardTitle = styled.strong`
+  font-size: 12px;
+`;
+
+const EffectCardText = styled.span`
+  font-size: 11px;
+  line-height: 1.45;
+  color: ${(props) => props.theme.textSecondary};
+`;
+
 const SearchWrap = styled.label`
   position: sticky;
   top: 10px;
@@ -452,7 +473,14 @@ export const Model3DSidebar: React.FC = () => {
                 label={label}
                 sectionId={`effects-${label.toLowerCase().replace(/\s+/g, "-")}`}
               >
-                <SectionDescription>Content will be added here.</SectionDescription>
+                {(label === "Override of Voluntary Control" || label === "Override of Psychology") ? (
+                  <EffectCard>
+                    <EffectCardTitle>Misfire</EffectCardTitle>
+                    <EffectCardText>Lorem ipsum dolor sit amet.</EffectCardText>
+                  </EffectCard>
+                ) : (
+                  <SectionDescription>Content will be added here.</SectionDescription>
+                )}
                 {label === "SA" && (
                   <SectionDescription>
                     <Tooltip title="SA" content="Sexual assault" />
