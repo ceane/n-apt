@@ -442,7 +442,7 @@ export const Model3DSidebar: React.FC = () => {
               "Paralysis",
               "Breathing",
               "Mouth and Throat",
-              "Haptics",
+              "Haptics & Violence",
               "Override of Voluntary Control",
               "Override of Psychology",
               "SA",
@@ -457,13 +457,6 @@ export const Model3DSidebar: React.FC = () => {
                   <SectionDescription>
                     <Tooltip title="SA" content="Sexual assault" />
                   </SectionDescription>
-                )}
-                {label === "Haptics" && (
-                  <SidebarSubsectionList aria-label="Haptics subsections">
-                    <Collapsible label="Violent Haptics" sectionId="effects-violent-haptics">
-                      <SectionDescription>Content will be added here.</SectionDescription>
-                    </Collapsible>
-                  </SidebarSubsectionList>
                 )}
               </Collapsible>
             ))}
