@@ -431,6 +431,9 @@ export const Model3DSidebar: React.FC = () => {
           <SectionDescription>Visual effects and overlays.</SectionDescription>
           <SidebarSubsectionList aria-label="Effects subsections">
             {[
+              "State of Mind",
+              "Perception and Vision",
+              "Spatial Disruption & AR",
               "Vocals",
               "Speech",
               "Discomfort and Nausea",
@@ -440,6 +443,7 @@ export const Model3DSidebar: React.FC = () => {
               "Haptics",
               "Override of Voluntary Control",
               "Override of Psychology",
+              "SA",
               "Essay",
             ].map((label) => (
               <Collapsible
@@ -448,9 +452,9 @@ export const Model3DSidebar: React.FC = () => {
                 sectionId={`effects-${label.toLowerCase().replace(/\s+/g, "-")}`}
               >
                 <SectionDescription>Content will be added here.</SectionDescription>
-                {label === "Essay" && (
+                {label === "SA" && (
                   <SectionDescription>
-                    <Tooltip title="Essay" content="Sexual assault" />
+                    <Tooltip title="SA" content="Sexual assault" />
                   </SectionDescription>
                 )}
                 {label === "Haptics" && (
