@@ -33,6 +33,37 @@ function map(
   return { paths, cameraSurface, cameraDistance, cameraFov: 42, cameraTargetOffsetX };
 }
 
+const intercostalNerveLevels = [1.5, 1.46, 1.42, 1.38, 1.3, 1.22, 1.17, 1.11, 1.05, 0.99, 0.93];
+const intercostalNervePaths: SkinSensationPath[] = intercostalNerveLevels.flatMap((y) =>
+  ([1, -1] as const).flatMap((side) => [
+    {
+      points: [
+        [side * 0.015, y, -0.1],
+        [side * 0.08, y - 0.006, -0.105],
+        [side * 0.16, y - 0.012, -0.09],
+      ] as ModelOffset[],
+      surface: "posterior" as const,
+    },
+    {
+      points: [
+        [side * 0.16, y - 0.012, -0.09],
+        [side * 0.22, y - 0.018, -0.065],
+        [side * 0.27, y - 0.024, -0.02],
+      ] as ModelOffset[],
+      surface: "lateral" as const,
+    },
+    {
+      points: [
+        [side * 0.27, y - 0.024, -0.02],
+        [side * 0.245, y - 0.024, 0.045],
+        [side * 0.18, y - 0.02, 0.09],
+        [side * 0.07, y - 0.016, 0.115],
+      ] as ModelOffset[],
+      surface: "anterior" as const,
+    },
+  ]),
+);
+
 export const SKIN_SENSATION_PATHS: Record<string, SkinSensationOverlay> = {
   "Dermatome C2": map(bilateral([[0.015, 1.94, -0.045], [0.055, 1.91, -0.075], [0.085, 1.87, -0.055]], "posterior"), "posterior", 0.58),
   "Dermatome C3": map(bilateral([[0.075, 1.82, -0.02], [0.085, 1.79, -0.015], [0.09, 1.76, 0]], "lateral"), "anterior", 0.9),
@@ -67,10 +98,7 @@ export const SKIN_SENSATION_PATHS: Record<string, SkinSensationOverlay> = {
     bilateral([[0.095, 1.715, -0.005], [0.12, 1.66, 0.02], [0.14, 1.62, 0.055]], "anterior"),
     bilateral([[0.085, 1.71, 0.005], [0.16, 1.68, 0.005], [0.22, 1.65, 0.015]], "lateral"),
   ), "anterior", 0.72),
-  "Intercostal nerves": map(combine(
-    bilateral([[0.015, 1.36, -0.1], [0.1, 1.36, -0.105], [0.2, 1.36, -0.085], [0.28, 1.36, -0.05]], "posterior"),
-    bilateral([[0.015, 1.3, -0.1], [0.1, 1.3, -0.105], [0.2, 1.3, -0.085], [0.28, 1.3, -0.05]], "posterior"),
-  ), "posterior", 1.0),
+  "Intercostal nerves": map(intercostalNervePaths, "anterior", 1.0),
   "Lateral femoral cutaneous nerve": map(bilateral([[0.13, 0.9, 0.045], [0.18, 0.81, 0.065], [0.22, 0.7, 0.06], [0.23, 0.59, 0.045], [0.21, 0.5, 0.02]], "lateral"), "anterior", 1.05),
   "Saphenous nerve": map(bilateral([[0.075, 0.51, 0.005], [0.065, 0.39, 0.015], [0.055, 0.26, 0.025], [0.045, 0.13, 0.035], [0.04, 0.075, 0.06]], "medial"), "anterior", 0.78),
   "Sural nerve": map(combine(

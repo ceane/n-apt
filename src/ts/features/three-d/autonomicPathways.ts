@@ -153,6 +153,16 @@ const parasympatheticDivision = [
   ...pelvicParasympatheticRoutes,
 ];
 
+const pulmonaryAutonomicPlexus = bilateralPaths(
+  // Vagal parasympathetic branches reach the pulmonary root from the thorax.
+  [[0.05, 1.5, -0.035], [0.075, 1.48, -0.005], [0.105, 1.445, 0.005], [0.13, 1.42, 0.015]],
+  // Sympathetic cardiopulmonary fibers pass from the upper thoracic chain.
+  [[0.074, 1.43, -0.098], [0.105, 1.43, -0.06], [0.13, 1.42, -0.015]],
+  // Branches form a small schematic network around the lung root and bronchi.
+  [[0.13, 1.42, 0.015], [0.16, 1.445, 0.03], [0.19, 1.43, 0.04], [0.17, 1.4, 0.045], [0.13, 1.42, 0.015]],
+  [[0.13, 1.42, 0.015], [0.17, 1.4, 0.025], [0.205, 1.375, 0.04]],
+);
+
 // Enteric plexuses are drawn within the abdominal cavity. The larger outer
 // contour follows the colon; the inner closed loops show interconnected
 // myenteric and submucosal circuits around the small bowel.
@@ -172,6 +182,7 @@ export const AUTONOMIC_PATHWAYS: Record<string, AutonomicPath[]> = {
   'Sympathetic division': sympatheticDivision,
   'Parasympathetic division': parasympatheticDivision,
   'Enteric nervous system': entericNetworks,
+  'Pulmonary autonomic plexus': pulmonaryAutonomicPlexus,
 };
 
 type AutonomicPathwayView = {
@@ -187,4 +198,5 @@ export const AUTONOMIC_PATHWAY_VIEWS: Record<string, AutonomicPathwayView> = {
   'Sympathetic division': { cameraSurface: 'posterior', cameraDistance: 1.8, cameraFov: 40 },
   'Parasympathetic division': { cameraSurface: 'anterior', cameraDistance: 1.95, cameraFov: 40 },
   'Enteric nervous system': { cameraSurface: 'anterior', cameraDistance: 1.45, cameraFov: 42 },
+  'Pulmonary autonomic plexus': { cameraSurface: 'anterior', cameraDistance: 1.05, cameraFov: 42 },
 };

@@ -327,7 +327,6 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Bronchial smooth muscle", "Respiratory muscles", "Smooth muscle in the walls of the bronchi and smaller bronchioles; it is part of the airway, not a muscle covering the lungs.", "Contracts or relaxes to narrow or widen airways. Autonomic input and local signals modulate its tone.", [0, -.45, .34], ["lungs", "lung muscle", "airway muscle", "bronchi", "bronchioles", "smooth muscle", "breathing"]),
   nerve("Intercostal muscles", "Respiratory muscles", "Muscle layers between the ribs, including external and internal intercostals.", "External intercostals help elevate the ribs during inspiration; internal portions assist forced expiration. They move the chest wall rather than the lung tissue itself.", [0, -.45, .42], ["lungs", "lung muscles", "rib muscles", "breathing", "inhalation", "exhalation", "chest expansion"]),
   nerve("Pulmonary autonomic plexus", "Major peripheral nerves", "Nerve networks around the roots of the lungs, formed chiefly by vagal parasympathetic fibers and sympathetic fibers from the thoracic sympathetic trunks.", "Modulates airway smooth-muscle tone, gland secretion, and pulmonary reflex signals. The effects are distributed and do not amount to a single on/off control of breathing.", [0, 1.38, .08], ["lungs", "lung nerves", "pulmonary nerves", "vagus", "sympathetic", "parasympathetic", "bronchi"]),
-  nerve("Intercostal nerves", "Major peripheral nerves", "Thoracic spinal nerve branches that run beneath the ribs.", "Carry sensation from much of the chest wall and supply the intercostal muscles; lower branches also contribute to abdominal-wall movement.", [0, 1.36, .22], ["lungs", "lung nerves", "rib nerves", "chest wall", "breathing", "intercostal muscle"]),
   ...[
     ["C2", "Back of head and upper neck"], ["C3", "Side of neck"], ["C4", "Shoulder cape"], ["C5", "Outer upper arm"],
     ["C6", "Thumb side of forearm and hand"], ["C7", "Middle finger region"], ["C8", "Little-finger side of hand"],
@@ -340,7 +339,20 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
     ["Lateral femoral cutaneous nerve", "Skin over the outer thigh"], ["Saphenous nerve", "Skin along the medial leg and foot"],
     ["Sural nerve", "Skin over the posterolateral lower leg and outer foot"], ["Superficial fibular nerve", "Most skin on the dorsum of the foot"],
     ["Ilioinguinal nerve", "Skin of the upper medial thigh and external genital region"], ["Posterior femoral cutaneous nerve", "Skin of the posterior thigh"],
-  ].map(([name, area]) => nerve(name, "Skin sensation maps", `Named cutaneous peripheral nerve supplying a variable skin territory: ${area.toLowerCase()}.`, "Carries sensory information from its skin territory toward the spinal cord. Cutaneous nerve territories overlap and do not match dermatomes exactly.", [0, 1.1, .15]) as AnatomyCardData),
+  ].map(([name, area]) => nerve(
+    name,
+    "Skin sensation maps",
+    name === "Intercostal nerves"
+      ? "Thoracic spinal nerve branches that run in the spaces between the ribs. The paired paths show their route from the back, around the side of the chest, and toward the front."
+      : `Named cutaneous peripheral nerve supplying a variable skin territory: ${area.toLowerCase()}.`,
+    name === "Intercostal nerves"
+      ? "Carry sensation from much of the chest wall and motor fibers to intercostal muscles; lower branches continue into the abdominal wall."
+      : "Carries sensory information from its skin territory toward the spinal cord. Cutaneous nerve territories overlap and do not match dermatomes exactly.",
+    [0, name === "Intercostal nerves" ? 1.25 : 1.1, .15],
+    name === "Intercostal nerves"
+      ? ["lungs", "lung nerves", "rib nerves", "chest wall", "breathing", "intercostal muscle", "thoracic spinal nerves", "T1-T11"]
+      : [],
+  ) as AnatomyCardData),
   nerve("Cutaneous receptors", "Skin sensation maps", "Free nerve endings and specialized endings in skin detect different kinds of stimuli.", "Encode touch, vibration, skin stretch, temperature, itch, and tissue-damaging stimuli for spinal and brain pathways.", [0, 1.45, .45]),
   nerve("Dorsal column–medial lemniscus pathway", "Sensory pathways", "Ascending spinal and brainstem pathway for discriminative touch and conscious proprioception.", "Carries vibration, fine touch, and position signals to the thalamus and sensory cortex, largely crossing in the medulla.", [0, 1.4, -.15]),
   nerve("Spinothalamic pathway", "Sensory pathways", "Anterolateral ascending pathway with early crossing in the spinal cord.", "Carries much of pain, temperature, itch, and crude touch information toward thalamic and cortical networks.", [0, 1.35, -.15]),

@@ -19,6 +19,18 @@ export const CRANIAL_NERVE_PATHS: Record<string, CranialNervePath[]> = {
     // cribriform region to the olfactory bulb at the frontal base.
     [[0.012, 1.79, 0.045], [0.018, 1.83, 0.025], [0.024, 1.87, -0.005], [0.03, 1.9, -0.025]],
   ),
+  "Nasal sensory nerves (V1/V2)": bilateralPaths(
+    // V1's anterior ethmoidal branch reaches the anterosuperior nasal cavity
+    // and then the external nose.
+    [[0.074, 1.69, 0.005], [0.065, 1.735, 0.04], [0.044, 1.775, 0.075], [0.026, 1.805, 0.098], [0.014, 1.79, 0.125], [0.014, 1.75, 0.145]],
+    // V2 reaches the pterygopalatine ganglion; posterior nasal branches pass
+    // through the sphenopalatine foramen to the nasal cavity.
+    [[0.074, 1.69, 0.005], [0.087, 1.7, -0.018], [0.068, 1.72, 0.02], [0.048, 1.74, 0.055], [0.022, 1.75, 0.08]],
+    // Nasopalatine fibers descend along the septum toward the incisive canal.
+    [[0.048, 1.74, 0.055], [0.024, 1.73, 0.078], [0.01, 1.7, 0.1], [0.01, 1.67, 0.11]],
+    // Posterior lateral nasal branches distribute toward the conchae.
+    [[0.048, 1.74, 0.055], [0.066, 1.72, 0.075], [0.07, 1.69, 0.09]],
+  ),
   "Cranial nerve II Optic": bilateralPaths(
     // Posterior orbit -> optic canal -> midline optic chiasm.
     [[0.068, 1.78, 0.045], [0.045, 1.79, 0.005], [0.022, 1.8, -0.035], [0, 1.805, -0.05]],

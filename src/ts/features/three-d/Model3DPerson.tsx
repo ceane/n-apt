@@ -538,7 +538,8 @@ function CameraFocusController({
   const upperLimbFocus = selectedArea ? getUpperLimbMuscleCameraFocus(selectedArea.name, size.width / size.height) : null;
   const neuromuscularJunctionFocused = selectedArea?.name === "Neuromuscular junction";
   const facialNerveFocused = selectedArea?.highlightType === "nerve"
-    && /cranial nerve (?:III|IV|V|VI|VII|XII)\b/i.test(selectedArea.name);
+    && (/cranial nerve (?:III|IV|V|VI|VII|XII)\b/i.test(selectedArea.name)
+      || selectedArea.name === "Nasal sensory nerves (V1/V2)");
   const cranialTrunkFocused = selectedArea?.highlightType === "nerve"
     && /cranial nerve (?:IX|X|XI)\b/i.test(selectedArea.name);
   const posteriorCranialTrunkFocused = cranialTrunkFocused
