@@ -21,7 +21,7 @@ import {
 } from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
-import { Collapsible, SidebarSubsectionList } from "@n-apt/ui";
+import { Collapsible, SidebarSubsectionList, Tooltip } from "@n-apt/ui";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
@@ -429,6 +429,40 @@ export const Model3DSidebar: React.FC = () => {
 
         <Collapsible icon={<NotebookPen size={16} />} label="Effects /">
           <SectionDescription>Visual effects and overlays.</SectionDescription>
+          <SidebarSubsectionList aria-label="Effects subsections">
+            {[
+              "Vocals",
+              "Speech",
+              "Discomfort and Nausea",
+              "Paralysis",
+              "Breathing",
+              "Mouth and Throat",
+              "Haptics",
+              "Override of Voluntary Control",
+              "Override of Psychology",
+              "Essay",
+            ].map((label) => (
+              <Collapsible
+                key={label}
+                label={label}
+                sectionId={`effects-${label.toLowerCase().replace(/\\s+/g, "-")}`}
+              >
+                <SectionDescription>Content will be added here.</SectionDescription>
+                {label === "Essay" && (
+                  <SectionDescription>
+                    <Tooltip title="Essay" content="Sexual assault" />
+                  </SectionDescription>
+                )}
+                {label === "Haptics" && (
+                  <SidebarSubsectionList aria-label="Haptics subsections">
+                    <Collapsible label="Violent Haptics" sectionId="effects-violent-haptics">
+                      <SectionDescription>Content will be added here.</SectionDescription>
+                    </Collapsible>
+                  </SidebarSubsectionList>
+                )}
+              </Collapsible>
+            ))}
+          </SidebarSubsectionList>
         </Collapsible>
 
         <Collapsible
