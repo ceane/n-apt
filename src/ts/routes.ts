@@ -64,12 +64,6 @@ export default [
         id: "anti-aliasing",
       },
     ),
-    route("pretext-demo", "./app/routes/FullApplicationRoute.tsx", {
-      id: "pretext-demo",
-    }),
-    route("vfo-grid-demo", "./app/routes/FullApplicationRoute.tsx", {
-      id: "vfo-grid-demo",
-    }),
     route("transformers", "./app/routes/FullApplicationRoute.tsx", {
       id: "transformers",
     }),
