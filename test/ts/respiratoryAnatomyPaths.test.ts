@@ -1,6 +1,7 @@
 import { NERVOUS_SYSTEM_CARDS } from '@n-apt/learn/sidebar/AnatomyCardsSection';
 import { AUTONOMIC_PATHWAYS, AUTONOMIC_PATHWAY_VIEWS } from '@n-apt/three-d/autonomicPathways';
 import { CRANIAL_NERVE_PATHS } from '@n-apt/three-d/cranialNervePaths';
+import { RESPIRATORY_MUSCLE_PATHS } from '@n-apt/three-d/respiratoryMusclePaths';
 import { SKIN_SENSATION_PATHS } from '@n-apt/three-d/skinSensationPaths';
 
 describe('nasal and respiratory anatomy routes', () => {
@@ -41,5 +42,15 @@ describe('nasal and respiratory anatomy routes', () => {
 
     expect(paths).toHaveLength(66);
     expect(surfaces).toEqual(new Set(['anterior', 'lateral', 'posterior']));
+  });
+
+  test('provides filled intercostal muscle bands and airway muscle rings', () => {
+    const intercostal = RESPIRATORY_MUSCLE_PATHS['Intercostal muscles'].paths;
+    const bronchial = RESPIRATORY_MUSCLE_PATHS['Bronchial smooth muscle'].paths;
+
+    expect(intercostal).toHaveLength(24);
+    expect(intercostal.every((path) => path.halfWidth >= 0.008 && path.surface)).toBe(true);
+    expect(bronchial.length).toBeGreaterThanOrEqual(24);
+    expect(bronchial.every((path) => path.closed && path.points.length >= 16)).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import {
   LOWER_LEG_FOOT_MUSCLE_PATHS,
   modelSourcePointToWorld,
   NEUROMUSCULAR_JUNCTION_PATHS,
+  RESPIRATORY_MUSCLE_PATHS,
   anatomyCardRoute,
   anatomyGroupRoute,
   sidebarRouteTargetId,
@@ -453,6 +454,7 @@ export function toModelArea(card: AnatomyCardData): Area {
     const throatSwallowingOverlay = THROAT_SWALLOWING_MUSCLE_PATHS[card.name];
     const tongueMuscleOverlay = TONGUE_MUSCLE_PATHS[card.name];
     const skinSensationOverlay = SKIN_SENSATION_PATHS[card.name];
+    const respiratoryMuscleOverlay = RESPIRATORY_MUSCLE_PATHS[card.name];
     const neuromuscularJunctionPaths = NEUROMUSCULAR_JUNCTION_PATHS[card.name];
     const nervePaths = card.name === "Cranial nerve VII Facial"
       ? undefined
@@ -463,7 +465,8 @@ export function toModelArea(card: AnatomyCardData): Area {
     const facialPoints = upperFaceShape
       ? upperFaceShape.paths.reduce((points, path) => points.concat(path), [] as [number, number, number][])
       : lowerFaceShapes?.reduce((points, { centerline }) => points.concat(centerline), [] as [number, number, number][]);
-    const overlayPoints = tongueMuscleOverlay?.paths.flatMap(({ points }) => points)
+    const overlayPoints = respiratoryMuscleOverlay?.paths.flatMap(({ points }) => points)
+      ?? tongueMuscleOverlay?.paths.flatMap(({ points }) => points)
       ?? skinSensationOverlay?.paths.flatMap(({ points }) => points)
       ?? upperLimbOverlay?.paths.flatMap(({ points }) => points)
       ?? hipThighOverlay?.paths.flat()
