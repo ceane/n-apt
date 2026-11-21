@@ -44,7 +44,7 @@ describe("AppBackButton", () => {
 
     expect(
       screen.getByRole("link", { name: /Back to Sign In/i }),
-    ).toHaveAttribute("href", "/auth");
+    ).toHaveAttribute("href", "/");
   });
 
   it("links to the start page when the user is authenticated", () => {

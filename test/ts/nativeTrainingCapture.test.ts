@@ -1,6 +1,6 @@
 import * as NativeClassifier from '@n-apt/classification';
 import { decodeIqCaptureHeader } from '@n-apt/webusb/iqCaptureFormat';
-import { verifyStampedIntegrity } from '@n-apt/webusb/iqIntegrity';
+import { NAPT_FORMAT_VERSION, verifyStampedIntegrity } from '@n-apt/webusb/iqIntegrity';
 import { notifyRawIqFrameArrival } from '@n-apt/app/infrastructure/visualization/frameArrivalRuntime';
 
 const config: NativeClassifier.NativeTrainingCaptureConfig = {
@@ -128,7 +128,7 @@ it('uses the verified V6 digest as capture identity and filename plus UTC captur
     .toBe(`${fileName}@2026-09-26T15:44:00.000Z`);
 });
 
-it('exports a V6 IQ file and detached annotations bound to that file trailer digest', async () => {
+it('exports a current-format IQ file and detached annotations bound to that file trailer digest', async () => {
   const session = new NativeClassifier.NativeTrainingCaptureSession();
   expect(session.start(config, 0, 900, { label: 'matching', channel: 'A', features: ['bridge'], tags: ['live'] })).toBe(true);
   session.append(frame(), 100, 1000);
@@ -140,7 +140,7 @@ it('exports a V6 IQ file and detached annotations bound to that file trailer dig
   const identity = artifact.annotations.captureIdentity;
   expect(artifact.captureFileName).toMatch(/\.iq$/);
   expect(artifact.annotationFileName).toMatch(/\.json$/);
-  expect(decoded.metadata).toMatchObject({ format: 'iq', format_version: 6, sample_rate_hz: 3_200_000, fft_size: 2048, fft_window: 'rectangular' });
+  expect(decoded.metadata).toMatchObject({ format: 'iq', format_version: NAPT_FORMAT_VERSION, sample_rate_hz: 3_200_000, fft_size: 2048, fft_window: 'rectangular' });
   expect(decoded.metadata).not.toHaveProperty('annotations');
   expect(await verifyStampedIntegrity(artifact.captureBytes, identity.kind === 'v6-trailer-sha256' ? identity.digestHex : '')).toBe(true);
   expect(artifact.annotations).toMatchObject({ format: 'n-apt-native-annotations-v2', annotations: { label: 'matching', channel: 'A', features: ['bridge'], tags: ['live'] }, captureIdentity: identity });

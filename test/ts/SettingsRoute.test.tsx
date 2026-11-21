@@ -4,15 +4,18 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import "@testing-library/jest-dom";
 import { PreferencesRoute } from "@n-apt/app/routes/pages/SettingsRoute";
+import { AuthProvider } from "@n-apt/app/hooks/useAuthentication";
 import { TestWrapper } from "./testUtils";
 
 const renderRoute = (preloadedState?: unknown) =>
   render(
-    <MemoryRouter>
-      <TestWrapper preloadedState={preloadedState}>
-        <PreferencesRoute />
-      </TestWrapper>
-    </MemoryRouter>,
+    <AuthProvider skipBackendBootstrap>
+      <MemoryRouter>
+        <TestWrapper preloadedState={preloadedState}>
+          <PreferencesRoute />
+        </TestWrapper>
+      </MemoryRouter>
+    </AuthProvider>,
   );
 
 describe("PreferencesRoute", () => {

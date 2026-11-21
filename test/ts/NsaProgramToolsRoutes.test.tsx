@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { MemoryRouter } from "react-router";
 import { AppRoutes } from "@n-apt/app/routes/pages/Routes";
+import { AuthProvider } from "@n-apt/app/hooks/useAuthentication";
 
 jest.mock("@n-apt/app-legal/routes/QuestionnaireRoute", () => ({
   __esModule: true,
@@ -70,9 +71,11 @@ describe("NSA program tool routes", () => {
     ["/x-archive-formatter", "X Archive Formatter"],
   ])("renders %s directly with the program-tools sidebar", async (path, heading) => {
     render(
-      <MemoryRouter initialEntries={[path]}>
-        <AppRoutes />
-      </MemoryRouter>,
+      <AuthProvider skipBackendBootstrap>
+        <MemoryRouter initialEntries={[path]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </AuthProvider>,
     );
 
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();

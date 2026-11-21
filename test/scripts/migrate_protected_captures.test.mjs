@@ -115,7 +115,7 @@ test("rejects a Redis salt that does not match the legacy embedded salt", () => 
   );
 });
 
-test("rejects non-V6 IQ captures", () => {
+test("rejects IQ captures outside the V6 and V7 formats", () => {
   const vaultKey = Buffer.alloc(32, 11);
   const salt = Buffer.alloc(32, 19);
   const nonV6 = v6Iq();
@@ -128,7 +128,7 @@ test("rejects non-V6 IQ captures", () => {
   const validNonV6 = restampV6(Buffer.concat([header, updated, nonV6.subarray(40 + metadataLength)]));
   assert.throws(
     () => migrateProtectedIqCaptureBytes(legacyEnvelope(validNonV6, vaultKey, salt), vaultKey, salt),
-    /V6 IQ/i,
+    /V6 or V7 IQ/i,
   );
 });
 
