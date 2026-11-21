@@ -26,6 +26,7 @@ type StreamConnection = {
   subscriptionId: string;
   options: StreamOptions;
   paused: boolean;
+  pendingFrameRequest: boolean;
   deliveryPolicy: StreamDeliveryPolicy;
   inboundQueue: StreamInboundItem[];
   inboundItemInFlight: boolean;
@@ -377,6 +378,15 @@ export const createMultiplexedStreamTransport = ({
           paused: true,
         });
       }
+      if (connection.pendingFrameRequest) {
+        connection.pendingFrameRequest = false;
+        send({
+          type: "stream_request_frame",
+          scope: "subscriber",
+          subscriptionId: connection.subscriptionId,
+          stream: connection.key,
+        });
+      }
     }
   };
 
@@ -515,6 +525,7 @@ export const createMultiplexedStreamTransport = ({
       subscriptionId: `transport-${keyFor(key)}`,
       options: { mode: key.mode } as StreamOptions,
       paused: false,
+      pendingFrameRequest: false,
       deliveryPolicy: "lossless",
       inboundQueue: [],
       inboundItemInFlight: false,
@@ -537,6 +548,16 @@ export const createMultiplexedStreamTransport = ({
           entry.paused = message.paused;
         } else if (message.type === "stream_set_delivery") {
           entry.deliveryPolicy = message.deliveryPolicy;
+        }
+        if (message.type === "stream_unsubscribe") {
+          entry.pendingFrameRequest = false;
+        }
+        if (
+          message.type === "stream_request_frame" &&
+          socket?.readyState !== WebSocket.OPEN
+        ) {
+          entry.pendingFrameRequest = true;
+          return;
         }
         send(message);
       },
