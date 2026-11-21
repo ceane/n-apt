@@ -27,7 +27,7 @@ export interface IqCaptureFrameOptions {
   ppm: number;
 }
 
-/** Build the frame timestamp and any options patch at one V6 frame boundary. */
+/** Build the frame timestamp and any options patch at one V6/V7 frame boundary. */
 export const buildIqCaptureFrameUpdates = ({
   sampleOffset,
   timestampUs,
@@ -209,9 +209,10 @@ const encodeIqPayload = (
 
 /**
  * I/Q format history: v1-v2 are legacy/undated; v3 (2026-07-18),
- * v4 (2026-08-05), v5 (2026-09-14), and v6 (2026-09-23, still WIP).
+ * v4 (2026-08-05), v5 (2026-09-14), v6 (2026-09-23), and v7 (guest-mode
+ * local file playback).
  * `format_version` names the current schema; `originalVersion` is only set
- * when an older capture is upgraded into v6.
+ * when an older capture is upgraded into v7.
  */
 export const encodeIqCaptureV4 = async ({
   metadata,
@@ -221,7 +222,7 @@ export const encodeIqCaptureV4 = async ({
   privateMetadata,
 }: {
   metadata: CaptureMetadata;
-  /** Source format version when this V6 container was produced by an upgrade. */
+  /** Source format version when this V7 container was produced by an upgrade. */
   originalVersion?: number;
   frameUpdates: IqCaptureFrameUpdate[];
   chunks: IqCaptureChunk[];
@@ -340,14 +341,17 @@ export const decodeIqCaptureHeader = (
   };
 };
 
-/** Read the declared SHA-256 identity from a validated-shape V6 IQ trailer. */
+/** Read the declared SHA-256 identity from a validated V6 or V7 IQ trailer. */
 export const readIqCaptureTrailerDigest = (bytes: Uint8Array): string => {
   const { metadata } = decodeIqCaptureHeader(bytes);
+  const version = metadata.format_version;
   if (
     metadata.format !== "iq" ||
-    metadata.format_version !== NAPT_FORMAT_VERSION
+    typeof version !== "number" ||
+    version < 6 ||
+    version > NAPT_FORMAT_VERSION
   ) {
-    throw new Error("Capture is not a supported V6 IQ file");
+    throw new Error("Capture is not a supported V6 or V7 IQ file");
   }
   const sections = metadata.sections as
     | {
@@ -367,7 +371,7 @@ export const readIqCaptureTrailerDigest = (bytes: Uint8Array): string => {
     (length as number) < TRAILER_HEADER_SIZE ||
     (offset as number) + (length as number) !== bytes.byteLength
   ) {
-    throw new Error("V6 IQ capture has an invalid integrity trailer range");
+    throw new Error("V6/V7 IQ capture has an invalid integrity trailer range");
   }
   const trailerOffset = offset as number;
   const trailerLength = length as number;
@@ -378,7 +382,7 @@ export const readIqCaptureTrailerDigest = (bytes: Uint8Array): string => {
     sections?.trailer?.version !== NAPT_TRAILER_VERSION ||
     readU64(trailer, 16) + TRAILER_HEADER_SIZE !== trailerLength
   ) {
-    throw new Error("V6 IQ capture has an invalid integrity trailer");
+    throw new Error("V6/V7 IQ capture has an invalid integrity trailer");
   }
   const parsed = JSON.parse(
     new TextDecoder().decode(trailer.subarray(TRAILER_HEADER_SIZE)),
@@ -392,7 +396,7 @@ export const readIqCaptureTrailerDigest = (bytes: Uint8Array): string => {
     typeof integrity.digest !== "string" ||
     !/^[\da-f]{64}$/i.test(integrity.digest)
   ) {
-    throw new Error("V6 IQ capture has incomplete trailer integrity metadata");
+    throw new Error("V6/V7 IQ capture has incomplete trailer integrity metadata");
   }
   return integrity.digest.toLowerCase();
 };

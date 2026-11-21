@@ -2049,10 +2049,17 @@ pub fn save_capture_file_multi(
   });
   if result.fido_vault {
     meta_obj["encryption"] = serde_json::json!("AES-256-GCM-FIDO-VAULT-V1");
-    let recovery = result.vault_key_recovery.as_ref().ok_or_else(|| {
+    let wrappers = result.vault_key_recovery.as_ref().ok_or_else(|| {
       "FIDO vault capture is missing its recovery wrapper".to_string()
     })?;
+    let recovery = wrappers.get("recovery").unwrap_or(wrappers);
     meta_obj["vault_key_recovery"] = recovery.clone();
+    if let Some(fido_wrapper) = wrappers.get("fido") {
+      meta_obj["fido_vault_wrapper"] = fido_wrapper.clone();
+    }
+    if let Some(credential_id) = wrappers.get("credential_id") {
+      meta_obj["fido_vault_credential_id"] = credential_id.clone();
+    }
   }
 
   if let Some(baseline) = &result.ref_based_demod_baseline {
@@ -3094,7 +3101,7 @@ mod dynamic_header_tests {
       .expect("header newline");
     let header: serde_json::Value =
       serde_json::from_slice(&file[..newline]).expect("parse header json");
-    assert_eq!(header["metadata"]["format_version"], 6);
+    assert_eq!(header["metadata"]["format_version"], 7);
 
     // Header size is a 1024-multiple >= 4096 that covers the JSON + newline.
     let binary_offset = header["metadata"]["sections"]["binary"]["offset_bytes"]

@@ -62,7 +62,7 @@ describe("standalone IQ capture containers", () => {
     expect(advanceIqCaptureSampleOffset(2, Uint8Array.of(1, 2, 3, 4))).toBe(4);
   });
 
-  it("writes an app-compatible NAPT-IQ3 v6 container with chunk offsets and matching trailer version", async () => {
+  it("writes an app-compatible NAPT-IQ3 v7 container with chunk offsets and matching trailer version", async () => {
     const bytes = await encodeIqCaptureV4({
       metadata: { ...metadata, format_version: 5, encrypted: true },
       originalVersion: 5,
@@ -86,7 +86,7 @@ describe("standalone IQ capture containers", () => {
     const decoded = decodeIqCaptureHeader(bytes);
     expect(decoded.metadata).toMatchObject({
       format: "iq",
-      format_version: 6,
+      format_version: 7,
       originalVersion: 5,
       encrypted: false,
       interleaving: "IQ",
@@ -124,7 +124,7 @@ describe("standalone IQ capture containers", () => {
     expect(decoded.payload.slice(44)).toEqual(Uint8Array.of(130, 125));
   });
 
-  it("writes an encrypted v6 NAPT container with indexed binary data and matching trailer version", async () => {
+  it("writes an encrypted v7 NAPT container with indexed binary data and matching trailer version", async () => {
     const frameUpdates = [
       {
         sample_offset: 0,
@@ -155,7 +155,7 @@ describe("standalone IQ capture containers", () => {
     };
     expect(root.metadata).toMatchObject({
       format: "napt",
-      format_version: 6,
+      format_version: 7,
       encrypted: true,
       data_format: "iq_u8",
       channels: [{ offset_iq: 0, iq_length: 4, label: null }],

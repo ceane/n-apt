@@ -120,11 +120,13 @@ impl CaptureWorker {
         shared_state.fido_vault_keys.lock().unwrap().key(token.as_str())
       });
       let recovery = shared_state.fido_vault_recovery_wrapper.lock().unwrap().clone();
-      match (key, recovery) {
-        (Some(key), Some(recovery))
+      let fido_wrapper = shared_state.fido_vault_wrapper.lock().unwrap().clone();
+      let credential_id = shared_state.fido_vault_credential_id.lock().unwrap().clone();
+      match (key, recovery, fido_wrapper, credential_id) {
+        (Some(key), Some(recovery), Some(fido_wrapper), Some(credential_id))
           if encrypted && (file_type == ".iq" || file_type == ".napt") =>
         {
-          Some((key, recovery))
+          Some((key, recovery, Some(fido_wrapper), Some(credential_id)))
         }
         _ => {
           reject_capture_start(
@@ -133,7 +135,7 @@ impl CaptureWorker {
             &job_id,
             source_id.as_deref(),
             "fido_vault_locked",
-            "Unlock the FIDO capture vault and choose encrypted .iq or .napt capture before recording",
+            "Unlock the FIDO capture vault and choose encrypted .iq or .napt capture; offline V7 playback metadata is required",
           );
           return;
         }
@@ -328,8 +330,21 @@ impl CaptureWorker {
     processor.capture_current_fragment = 0;
     processor.capture_encrypted = encrypted;
     processor.capture_fido_vault = fido_vault;
-    processor.capture_vault_key = fido_key.as_ref().map(|(key, _)| *key);
-    processor.capture_vault_recovery_wrapper = fido_key.map(|(_, wrapper)| wrapper);
+    processor.capture_vault_key = fido_key
+      .as_ref()
+      .map(|(key, _, _, _)| *key);
+    processor.capture_vault_recovery_wrapper = fido_key.map(
+      |(_, recovery, fido_wrapper, credential_id)| {
+        match (fido_wrapper, credential_id) {
+          (Some(fido), Some(credential_id)) => serde_json::json!({
+            "recovery": recovery,
+            "fido": fido,
+            "credential_id": credential_id,
+          }),
+          _ => recovery,
+        }
+      },
+    );
     processor.capture_actual_frames = 0;
     processor.capture_fft_size = effective_fft_size;
     processor.capture_fft_window = effective_window_name;

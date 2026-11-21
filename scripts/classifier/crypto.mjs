@@ -67,7 +67,7 @@ async function connectRedis({
 function validateCaptureId(captureId) {
   if (typeof captureId !== "string" || !/^[a-f0-9]{64}$/i.test(captureId)) {
     throw new Error(
-      "Capture protection requires a 64-character V6 capture checksum",
+      "Capture protection requires a 64-character V6/V7 capture checksum",
     );
   }
 }
@@ -311,7 +311,7 @@ export async function decryptArchivedIqPayload({
   }
 }
 
-/** Opens an encrypted V6 .napt payload whose wrapped DEK is protected by the FIDO vault key. */
+/** Opens an encrypted V6/V7 .napt payload whose wrapped DEK is protected by the FIDO vault key. */
 export async function decryptFidoVaultNaptPayload({
   captureBytes,
   metadata,

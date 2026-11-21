@@ -530,7 +530,17 @@ impl websocket_server::WebSocketServer {
     });
     if let Ok(Some(wrappers)) = state.credential_store.get_fido_vault().await {
       *state.shared.fido_vault_recovery_wrapper.lock().unwrap() =
-        serde_json::to_value(wrappers.recovery).ok();
+        serde_json::to_value(&wrappers.recovery).ok();
+      *state.shared.fido_vault_wrapper.lock().unwrap() =
+        serde_json::to_value(&wrappers.fido).ok();
+    }
+    let fido_credentials = state
+      .credential_store
+      .get_fido_security_key_passkeys()
+      .await;
+    if let Some(credential) = fido_credentials.first() {
+      *state.shared.fido_vault_credential_id.lock().unwrap() =
+        Some(crate::authentication::credential_id_string(credential));
     }
 
     let app = Self::create_app(state);

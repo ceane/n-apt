@@ -116,6 +116,11 @@ export class FileWorkerManager {
             transferables.push(fileItem.fileData);
           }
         }
+        for (const name of ["aesKey", "fidoVaultKey", "captureSalt"]) {
+          if (data[name] instanceof ArrayBuffer) {
+            transferables.push(data[name]);
+          }
+        }
       }
 
       try {
@@ -143,6 +148,7 @@ export class FileWorkerManager {
     },
     allowIntegrityFailure = false,
     fidoVaultKey?: Uint8Array | null,
+    captureSalt?: Uint8Array | null,
   ): Promise<any> {
     const filesData = [];
 
@@ -166,6 +172,7 @@ export class FileWorkerManager {
         fftSize,
         aesKey: aesKey ? await crypto.subtle.exportKey("raw", aesKey) : null,
         fidoVaultKey: fidoVaultKey?.slice().buffer ?? null,
+        captureSalt: captureSalt?.slice().buffer ?? null,
         allowIntegrityFailure,
         sampleRateOptions, // Pass current sample rate options dynamically
       },

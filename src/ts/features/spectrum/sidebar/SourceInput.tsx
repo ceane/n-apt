@@ -351,6 +351,7 @@ interface SourceInputProps {
   livePreviewStage?: number;
   fileActionLabel?: string;
   fileActionTitle?: string;
+  hideVaultStatus?: boolean;
   selectedFilesCount?: number;
   autoBrowseRequested?: boolean;
   onAutoBrowseHandled?: () => void;
@@ -404,6 +405,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   livePreviewStage = 0,
   fileActionLabel,
   fileActionTitle,
+  hideVaultStatus = false,
   selectedFilesCount = 0,
   autoBrowseRequested = false,
   onAutoBrowseHandled,
@@ -1039,7 +1041,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                     >
                       Browse...
                     </FileBrowseLink>
-                    {!isFileLoading && <VaultStatus compact />}
+                    {!hideVaultStatus && !isFileLoading && <VaultStatus compact />}
                   </FilePillSecondaryRow>
                 ) : (
                   <FilePillMeta>Playback I/Q captures</FilePillMeta>

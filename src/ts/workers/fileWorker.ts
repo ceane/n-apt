@@ -2,8 +2,9 @@
  * File Processing Worker - Handles file I/O and stitching operations
  *
  * I/Q format history: v1-v2 are legacy/undated; v3 (2026-07-18),
- * v4 (2026-08-05), v5 (2026-09-14), and v6 (2026-09-23, still WIP).
- * `format_version` identifies the current schema; upgraded v6 files may also
+ * v4 (2026-08-05), v5 (2026-09-14), v6 (2026-09-23), and v7 (guest-mode
+ * local file playback).
+ * `format_version` identifies the current schema; upgraded v7 files may also
  * include `originalVersion` with the detected source schema version.
  */
 
@@ -113,14 +114,6 @@ type FileMetadata = {
 };
 
 type IntegrityStatus = "verified" | "failed" | "unavailable";
-
-function rejectLocalProtectedCapture(fileName: string): void {
-  if (fileName.toLowerCase().endsWith(".enc")) {
-    throw new Error(
-      "Increased Protection .enc files cannot be played in this browser yet. Playback needs a server feature that is not available yet.",
-    );
-  }
-}
 
 const verifyFileIntegrity = async (
   fileData: ArrayBuffer,
@@ -413,6 +406,96 @@ async function loadIqFile(
   if (privateMetadata)
     metadata.device_profile = privateMetadata as FileMetadata["device_profile"];
   return { raw: total, metadata };
+}
+
+async function decryptCaptureProtectionEnvelope(
+  fileData: ArrayBuffer,
+  rawVaultKey: ArrayBuffer | null,
+  rawCaptureSalt: ArrayBuffer | null,
+): Promise<ArrayBuffer> {
+  if (!rawVaultKey) {
+    throw new Error("Increased Protection captures require the capture password.");
+  }
+  if (!rawCaptureSalt || rawCaptureSalt.byteLength !== 32) {
+    throw new Error("Enter the 32-byte capture salt to decrypt this .enc file.");
+  }
+
+  const bytes = new Uint8Array(fileData);
+  const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+  const magicV1 = "NAPTENC1";
+  const magicV2 = "NAPTENC2";
+  if (magic !== magicV1 && magic !== magicV2) {
+    throw new Error("Invalid Increased Protection capture envelope.");
+  }
+
+  let payloadOffset = 8;
+  const captureSalt = new Uint8Array(rawCaptureSalt);
+  if (magic === magicV1) {
+    if (bytes.byteLength < 8 + 32 + 12 + 16) {
+      throw new Error("Invalid legacy capture envelope length.");
+    }
+    const embeddedSalt = bytes.subarray(8, 40);
+    if (embeddedSalt.some((byte, index) => byte !== captureSalt[index])) {
+      throw new Error("The entered capture salt does not match this file.");
+    }
+    payloadOffset += 32;
+  }
+  const encrypted = bytes.subarray(payloadOffset);
+  if (encrypted.byteLength < 12 + 16) {
+    throw new Error("Capture envelope is too short to decrypt.");
+  }
+
+  const vaultKey = new Uint8Array(rawVaultKey);
+  let prk: Uint8Array | null = null;
+  let captureKeyBytes: Uint8Array | null = null;
+  try {
+    const extractKey = await crypto.subtle.importKey(
+      "raw",
+      captureSalt,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    prk = new Uint8Array(
+      await crypto.subtle.sign("HMAC", extractKey, vaultKey),
+    );
+    const expandKey = await crypto.subtle.importKey(
+      "raw",
+      prk,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const label = new TextEncoder().encode("n-apt/capture-protection/v1");
+    const info = new Uint8Array(label.byteLength + 1);
+    info.set(label);
+    info[info.byteLength - 1] = 1;
+    captureKeyBytes = new Uint8Array(
+      await crypto.subtle.sign("HMAC", expandKey, info),
+    );
+    const captureKey = await crypto.subtle.importKey(
+      "raw",
+      captureKeyBytes,
+      { name: "AES-GCM" },
+      false,
+      ["decrypt"],
+    );
+    return await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: encrypted.subarray(0, 12),
+      },
+      captureKey,
+      encrypted.subarray(12),
+    );
+  } catch {
+    throw new Error("Capture decryption failed. Check the password and salt.");
+  } finally {
+    vaultKey.fill(0);
+    captureSalt.fill(0);
+    prk?.fill(0);
+    captureKeyBytes?.fill(0);
+  }
 }
 
 function loadWavFile(fileData: ArrayBuffer): WavLoadResult {
@@ -867,6 +950,7 @@ self.onmessage = async function (e) {
           fftSize,
           aesKey: rawAesKey,
           fidoVaultKey: rawFidoVaultKey,
+          captureSalt: rawCaptureSalt,
           sampleRateOptions,
           allowIntegrityFailure,
         } = data;
@@ -922,13 +1006,24 @@ self.onmessage = async function (e) {
           try {
             const fileName = file.fileName as string;
             const fileData = file.fileData as ArrayBuffer;
-            rejectLocalProtectedCapture(fileName);
             const lower = fileName.toLowerCase();
+            let playbackFileData = fileData;
+            if (lower.endsWith(".enc")) {
+              playbackFileData = await decryptCaptureProtectionEnvelope(
+                fileData,
+                rawAesKey,
+                rawCaptureSalt,
+              );
+            }
             let rawData: Uint8Array = new Uint8Array(0);
             let metadata: FileMetadata | null = null;
 
-            if (lower.endsWith(".iq")) {
-              const res = await loadIqFile(fileData, aesKey, fidoVaultKey);
+            if (lower.endsWith(".iq") || lower.endsWith(".enc")) {
+              const res = await loadIqFile(
+                playbackFileData,
+                aesKey,
+                fidoVaultKey,
+              );
               rawData = res.raw;
               metadata = res.metadata;
               (metadata as any).channels_data = [
@@ -1151,6 +1246,16 @@ self.onmessage = async function (e) {
             ) {
               decryptionErrorCount++;
             }
+          }
+        }
+
+        for (const secretBuffer of [
+          rawAesKey,
+          rawFidoVaultKey,
+          rawCaptureSalt,
+        ]) {
+          if (secretBuffer instanceof ArrayBuffer) {
+            new Uint8Array(secretBuffer).fill(0);
           }
         }
 

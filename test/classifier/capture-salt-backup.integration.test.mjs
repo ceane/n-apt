@@ -22,7 +22,7 @@ import {
 
 const REDIS_SERVER_START_TIMEOUT_MS = 5_000;
 
-function makeV6Capture() {
+function makeV7Capture() {
   return encodeIqCaptureV4({
     metadata: {
       center_frequency_hz: 1_618_000,
@@ -144,7 +144,7 @@ async function withRedisClient(server, callback, asOperator = false) {
   }
 }
 
-test("Redis backup restores a missing per-capture salt and decrypts the V6 capture", async (t) => {
+test("Redis backup restores a missing per-capture salt and decrypts the V7 capture", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "napt-capture-salt-backup-"));
   const active = await startRedis(directory, "active").catch((error) => {
     if (error.code !== "REDIS_SERVER_MISSING") throw error;
@@ -168,9 +168,9 @@ test("Redis backup restores a missing per-capture salt and decrypts the V6 captu
 
     const vaultKey = Buffer.alloc(32, 0x52);
     const captureKey = deriveCaptureProtectionKey(vaultKey, salt);
-    const plaintextCapture = await makeV6Capture();
+    const plaintextCapture = await makeV7Capture();
     const plain = inspectIqCapture(plaintextCapture);
-    assert.equal(plain.formatVersion, 6, "fixture exercises the current V6 I/Q container");
+    assert.equal(plain.formatVersion, 7, "fixture exercises the current V7 I/Q container");
     const encryptedCapture = encryptIqCaptureBytes(plaintextCapture, captureKey);
     const encrypted = inspectIqCapture(encryptedCapture, { allowEncrypted: true });
     const sourceFrameSection = plain.frames;
