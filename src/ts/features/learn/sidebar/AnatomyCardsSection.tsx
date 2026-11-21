@@ -403,7 +403,7 @@ const AnatomyCardRow = React.memo(function AnatomyCardRow({
   return (
     <CardItem>
       <CopyDeepLinkButton title={card.name} targetPath={anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name)} />
-      <Card id={sidebarRouteTargetId(anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name))} $selected={isSelected} aria-pressed={isSelected} onClick={() => {
+      <Card type="button" id={sidebarRouteTargetId(anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name))} $selected={isSelected} aria-pressed={isSelected} onClick={() => {
         setSelectedArea(area);
         setModelVariant(card.model === "brain" ? "brain" : "anatomy");
       }}>

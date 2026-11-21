@@ -507,7 +507,7 @@ function CameraFocusController({
   initialCameraTarget: [number, number, number];
 }) {
   const { camera, invalidate, size } = useThree();
-  const { controlsRef, selectedArea } = useModel3D();
+  const { controlsRef, selectedArea, selectionRequest } = useModel3D();
   const areaTarget = selectedArea && selectedArea.meshName !== "brain" ? selectedArea.target : null;
   const upperLimbNerveCameraFocus = selectedArea?.highlightType === "nerve" && areaTarget
     ? getUpperLimbNerveCameraFocus(selectedArea.name, areaTarget)
@@ -549,6 +549,9 @@ function CameraFocusController({
     && /sciatic|gluteal|tibial|sacral plexus|spinal cord|corticospinal|central nervous system|dorsal root/i.test(selectedArea.name);
   const regionalNerveFocused = selectedArea?.highlightType === "nerve"
     && /common fibular nerve|spinal cord|corticospinal tract|central nervous system/i.test(selectedArea.name);
+  const anatomyNerveFocused = selectedArea?.highlightType === "nerve";
+  const respiratoryAreaFocused = selectedArea?.name === "Bronchial smooth muscle"
+    || selectedArea?.name === "Intercostal muscles";
   const posteriorMuscleFocused = hipThighOverlay?.surface === "posterior"
     || lowerLegFootOverlay?.cameraSurface === "posterior";
 
@@ -574,6 +577,8 @@ function CameraFocusController({
         ? [areaTarget[0], areaTarget[1] + (sensoryPathwayView.cameraTargetOffsetY ?? 0), areaTarget[2]]
       : autonomicPathwayView && areaTarget
         ? [areaTarget[0], areaTarget[1] + (autonomicPathwayView.cameraTargetOffsetY ?? 0), areaTarget[2]]
+      : respiratoryAreaFocused && areaTarget
+        ? [areaTarget[0], areaTarget[1] + .02, areaTarget[2]]
       : areaTarget
         ? [areaTarget[0], areaTarget[1] + (facialNerveFocused ? .1 : cranialTrunkFocused || regionalNerveFocused ? .02 : lowerLegFootMuscleFocused ? .015 : 0), areaTarget[2]]
         : initialCameraTarget;
@@ -615,6 +620,8 @@ function CameraFocusController({
             areaTarget[1] + (autonomicPathwayView.cameraTargetOffsetY ?? 0),
             areaTarget[2] + (autonomicPathwayView.cameraSurface === "posterior" ? -autonomicPathwayView.cameraDistance : autonomicPathwayView.cameraDistance),
           ]
+      : respiratoryAreaFocused && areaTarget
+        ? [areaTarget[0], areaTarget[1] + .02, areaTarget[2] + 1.35]
       : areaTarget
         ? [
             areaTarget[0] + (lowerLegFootOverlay?.cameraSurface === "lateral" ? .72 : 0),
@@ -627,11 +634,11 @@ function CameraFocusController({
                 : hipThighMuscleFocused ? posteriorMuscleFocused ? -(hipThighOverlay?.cameraDistance ?? 1.55) : (hipThighOverlay?.cameraDistance ?? 1.55)
                   : cranialTrunkFocused ? posteriorCranialTrunkFocused ? -1.9 : 1.9
                     : regionalNerveFocused ? posteriorNerveFocused ? -2.05 : 1.55
-                      : posteriorNerveFocused ? -2.6 : 2.6),
+                      : posteriorNerveFocused ? -2.6 : anatomyNerveFocused ? 1.55 : 2.6),
           ]
         : initialCameraPosition;
-    const targetFov = brainFocused ? 32 : upperLimbNerveCameraFocus ? upperLimbNerveCameraFocus.fov : upperLimbFocus ? upperLimbFocus.fov : laryngealMuscleFocused ? 32 : throatSwallowingMuscleFocused ? (throatSwallowingOverlay?.cameraFov ?? 38) : tongueMuscleOverlay ? tongueMuscleOverlay.cameraFov : skinSensationOverlay ? skinSensationOverlay.cameraFov : sensoryPathwayView ? sensoryPathwayView.cameraFov : autonomicPathwayView ? autonomicPathwayView.cameraFov : faceFocused ? 30 : lowerLegFootOverlay?.cameraSurface === "plantar" ? 34 : neuromuscularJunctionFocused ? 38
-      : hipThighMuscleFocused || lowerLegFootMuscleFocused || cranialTrunkFocused || regionalNerveFocused ? 38 : MODEL_FOV;
+    const targetFov = brainFocused ? 32 : upperLimbNerveCameraFocus ? upperLimbNerveCameraFocus.fov : upperLimbFocus ? upperLimbFocus.fov : laryngealMuscleFocused ? 32 : throatSwallowingMuscleFocused ? (throatSwallowingOverlay?.cameraFov ?? 38) : tongueMuscleOverlay ? tongueMuscleOverlay.cameraFov : skinSensationOverlay ? skinSensationOverlay.cameraFov : sensoryPathwayView ? sensoryPathwayView.cameraFov : autonomicPathwayView ? autonomicPathwayView.cameraFov : faceFocused ? 30 : lowerLegFootOverlay?.cameraSurface === "plantar" ? 34 : neuromuscularJunctionFocused ? 38 : respiratoryAreaFocused ? 32
+      : hipThighMuscleFocused || lowerLegFootMuscleFocused || cranialTrunkFocused || regionalNerveFocused ? 38 : anatomyNerveFocused ? 34 : MODEL_FOV;
     const previouslyEnabled = controls.enabled;
     controls.enabled = false;
     gsap.killTweensOf(controls.target);
@@ -672,8 +679,8 @@ function CameraFocusController({
   }, [
     areaTarget?.[0], areaTarget?.[1], areaTarget?.[2], faceFocused, posteriorNerveFocused, sensoryPathwayFocused,
     hipThighMuscleFocused, hipThighOverlay?.cameraDistance, laryngealMuscleFocused, laryngealOverlay?.cameraSurface, laryngealOverlay?.cameraDistance, throatSwallowingMuscleFocused, throatSwallowingOverlay?.cameraDistance, throatSwallowingOverlay?.cameraFov, throatSwallowingOverlay?.cameraVerticalOffset, tongueMuscleOverlay?.cameraDistance, tongueMuscleOverlay?.cameraFov, skinSensationOverlay?.cameraSurface, skinSensationOverlay?.cameraDistance, skinSensationOverlay?.cameraFov, skinSensationOverlay?.cameraTargetOffsetX, neuromuscularJunctionFocused, posteriorMuscleFocused, cranialTrunkFocused, posteriorCranialTrunkFocused,
-    regionalNerveFocused, lowerLegFootMuscleFocused, lowerLegFootOverlay?.cameraSurface,
-    upperLimbMuscleFocused, upperLimbMuscleOverlay?.cameraSurface, sensoryPathwayView?.cameraSurface, sensoryPathwayView?.cameraDistance, sensoryPathwayView?.cameraFov, sensoryPathwayView?.cameraTargetOffsetY, autonomicPathwayView?.cameraSurface, autonomicPathwayView?.cameraDistance, autonomicPathwayView?.cameraFov, autonomicPathwayView?.cameraTargetOffsetY, selectedArea?.name, size.width, size.height,
+    regionalNerveFocused, respiratoryAreaFocused, lowerLegFootMuscleFocused, lowerLegFootOverlay?.cameraSurface,
+    upperLimbMuscleFocused, upperLimbMuscleOverlay?.cameraSurface, sensoryPathwayView?.cameraSurface, sensoryPathwayView?.cameraDistance, sensoryPathwayView?.cameraFov, sensoryPathwayView?.cameraTargetOffsetY, autonomicPathwayView?.cameraSurface, autonomicPathwayView?.cameraDistance, autonomicPathwayView?.cameraFov, autonomicPathwayView?.cameraTargetOffsetY, selectedArea?.name, selectionRequest, size.width, size.height,
     upperLimbNerveCameraFocus?.fov,
     brainFocused, camera, controlsRef, initialCameraPosition, initialCameraTarget, invalidate,
   ]);
