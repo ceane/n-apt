@@ -1559,6 +1559,22 @@ export const normalizeManagedStreamFrame = ({
   sourceStatus: SourceInfo["status"];
 }): IqRawFrameV2 => {
   if (mode !== "tx") return frame;
+  // The managed frame channel and source-status channel are separate
+  // WebSockets. A request-driven preview can therefore arrive while Redux
+  // still says transmitting; preserve its explicit standby metadata instead
+  // of relabeling it as another live Tx frame.
+  if (
+    frame.frame_status === "standby" ||
+    frame.is_tx_preview === true ||
+    frame.is_mock_tx_preview === true
+  ) {
+    return {
+      ...frame,
+      frame_status: "standby",
+      is_tx_preview: true,
+      is_mock_tx_preview: true,
+    };
+  }
   if (
     sourceStatus === "transmitting" ||
     (sourceStatus == null && frame.frame_status === "transmitting")

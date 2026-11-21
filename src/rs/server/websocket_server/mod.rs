@@ -1288,7 +1288,8 @@ impl WebSocketServer {
                 allow_next_paused_frame = false;
               }
               crate::tx::monitor::StandbyPreviewOutcome::NoRequest => {
-                allow_next_paused_frame = true;
+                allow_next_paused_frame =
+                  shared_state.paused_frame_request_owner().is_none();
               }
             }
           }
@@ -1464,7 +1465,7 @@ impl WebSocketServer {
             ppm,
             ..
           } => {
-            if let Err(error) = tx_worker
+            match tx_worker
               .apply_status(TxStatusRequest {
                 enabled,
                 device,
@@ -1483,20 +1484,44 @@ impl WebSocketServer {
               })
               .await
             {
-              // A device-level TX failure must not unwind the websocket/SDR
-              // loop and take unrelated source runtimes down with it. The
-              // worker leaves the confirmed TX flag conservative; publish a
-              // source recovery state so the UI can offer Restart.
-              log::error!("TX transition failed: {}", error);
-              shared_state.set_device_backend_error(Some(error.to_string()));
-              shared_state.set_device_state("stale", Some("restart"));
-              broadcast_device_status(&shared_state, &_broadcast_tx);
+              Ok(crate::tx::monitor::StandbyPreviewOutcome::Published) => {
+                allow_next_paused_frame = false;
+              }
+              Ok(crate::tx::monitor::StandbyPreviewOutcome::NoRequest) => {
+                if shared_state.paused_frame_request_owner().is_some() {
+                  allow_next_paused_frame = false;
+                }
+              }
+              Err(error) => {
+                // A device-level TX failure must not unwind the websocket/SDR
+                // loop and take unrelated source runtimes down with it. The
+                // worker leaves the confirmed TX flag conservative; publish a
+                // source recovery state so the UI can offer Restart.
+                log::error!("TX transition failed: {}", error);
+                shared_state
+                  .set_device_backend_error(Some(error.to_string()));
+                shared_state.set_device_state("stale", Some("restart"));
+                broadcast_device_status(&shared_state, &_broadcast_tx);
+              }
             }
           }
           _ => {
             warn!("Unhandled command: {:?}", cmd);
           }
         }
+      }
+
+      // A managed preview can be queued while Tx stream options are being
+      // applied. Retry it on the next loop once the source acknowledges those
+      // options; failed attempts leave the request token armed.
+      if !crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed)
+        && shared_state.paused_frame_request_owner().is_some()
+        && matches!(
+          tx_worker.try_publish_standby_preview(),
+          crate::tx::monitor::StandbyPreviewOutcome::Published
+        )
+      {
+        allow_next_paused_frame = false;
       }
 
       // 1b. Monitor device health and handle hot-plugging. The supervisor

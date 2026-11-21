@@ -1,6 +1,7 @@
 import {
   buildManagedTxOptions,
   managedTxFrameMatchesOptions,
+  normalizeManagedStreamFrame,
   resolveManagedTxOptionsAfterSubscribe,
   resolveMockTxTransmitViewCenterHz,
   resolveManagedTxSubscriberPause,
@@ -21,6 +22,26 @@ describe("managed Tx subscription pause state", () => {
     center_frequency_hz: centerFrequencyHz,
     sample_rate: sampleRate,
     iq_data: new Uint8Array([128, 129]),
+  });
+
+  it("preserves an explicit standby preview when source status is stale", () => {
+    const previewFrame = {
+      ...txFrame(137_100_000, 3_200_000),
+      frame_status: "standby" as const,
+      is_tx_preview: true,
+    };
+
+    expect(
+      normalizeManagedStreamFrame({
+        frame: previewFrame,
+        mode: "tx",
+        sourceStatus: "transmitting",
+      }),
+    ).toMatchObject({
+      frame_status: "standby",
+      is_tx_preview: true,
+      is_mock_tx_preview: true,
+    });
   });
 
   it("keeps the Tx carrier separate from the monitor viewport", () => {
