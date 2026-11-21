@@ -155,12 +155,12 @@ const parasympatheticDivision = [
 
 const pulmonaryAutonomicPlexus = bilateralPaths(
   // Vagal parasympathetic branches reach the pulmonary root from the thorax.
-  [[0.05, 1.5, -0.035], [0.075, 1.48, -0.005], [0.105, 1.445, 0.005], [0.13, 1.42, 0.015]],
+  [[0.05, 1.5, -0.035], [0.075, 1.48, -0.022], [0.1, 1.445, -0.012], [0.12, 1.42, -0.006]],
   // Sympathetic cardiopulmonary fibers pass from the upper thoracic chain.
-  [[0.074, 1.43, -0.098], [0.105, 1.43, -0.06], [0.13, 1.42, -0.015]],
+  [[0.074, 1.43, -0.078], [0.1, 1.43, -0.052], [0.12, 1.42, -0.028]],
   // Branches form a small schematic network around the lung root and bronchi.
-  [[0.13, 1.42, 0.015], [0.16, 1.445, 0.03], [0.19, 1.43, 0.04], [0.17, 1.4, 0.045], [0.13, 1.42, 0.015]],
-  [[0.13, 1.42, 0.015], [0.17, 1.4, 0.025], [0.205, 1.375, 0.04]],
+  [[0.12, 1.42, -0.006], [0.135, 1.445, -0.002], [0.14, 1.43, 0], [0.14, 1.4, 0.002], [0.12, 1.42, -0.006]],
+  [[0.12, 1.42, -0.006], [0.14, 1.4, 0], [0.145, 1.375, 0]],
 );
 
 // Enteric plexuses are drawn within the abdominal cavity. The larger outer

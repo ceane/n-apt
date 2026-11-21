@@ -2,13 +2,14 @@ import React, { Suspense, useRef, useCallback, useEffect, useMemo } from "react"
 import styled from "styled-components";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Clone, OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
-import { Box3, BufferGeometry, CatmullRomCurve3, DoubleSide, Float32BufferAttribute, Matrix3, Mesh, Object3D, PerspectiveCamera, Quaternion, Raycaster, ShapeUtils, TubeGeometry, Vector2, Vector3 } from "three";
+import { Box3, BufferGeometry, CatmullRomCurve3, DoubleSide, Float32BufferAttribute, Matrix3, Mesh, Object3D, PerspectiveCamera, Quaternion, Raycaster, ShapeUtils, SphereGeometry, TubeGeometry, Vector2, Vector3 } from "three";
 import { gsap } from "gsap";
 import { HorizonFocusGlobe } from "@n-apt/three-d/HorizonFocusGlobe";
 import Brain from "@n-apt/three-d/Brain";
 import { FACIAL_MUSCLE_SHAPES } from "@n-apt/three-d/facialMusclePaths";
 import { LOWER_FACIAL_MUSCLE_PATHS } from "@n-apt/three-d/lowerFacialMusclePaths";
 import { CRANIAL_NERVE_PATHS } from "@n-apt/three-d/cranialNervePaths";
+import { NASAL_ANATOMY_OVERLAYS } from "@n-apt/three-d/nasalAnatomyPaths";
 import { COMMON_FIBULAR_NERVE_PATHS } from "@n-apt/three-d/commonFibularNervePaths";
 import { HIP_THIGH_MUSCLE_PATHS } from "@n-apt/three-d/hipThighMusclePaths";
 import { LOWER_LEG_FOOT_MUSCLE_PATHS } from "@n-apt/three-d/lowerLegFootMusclePaths";
@@ -16,7 +17,7 @@ import { LARYNGEAL_MUSCLE_PATHS } from "@n-apt/three-d/laryngealMusclePaths";
 import { THROAT_SWALLOWING_MUSCLE_PATHS } from "@n-apt/three-d/throatSwallowingMusclePaths";
 import { TONGUE_MUSCLE_PATHS } from "@n-apt/three-d/tongueMusclePaths";
 import { SKIN_SENSATION_PATHS } from "@n-apt/three-d/skinSensationPaths";
-import { RESPIRATORY_MUSCLE_PATHS } from "@n-apt/three-d/respiratoryMusclePaths";
+import { RESPIRATORY_MUSCLE_PATHS, RESPIRATORY_ORGAN_PATHS } from "@n-apt/three-d/respiratoryMusclePaths";
 import { UPPER_LIMB_MUSCLE_PATHS, getUpperLimbMuscleCameraFocus } from "@n-apt/three-d/upperLimbMusclePaths";
 import { createBrainRegionBlobGeometry } from "@n-apt/three-d/brainRegionBlob";
 import { NEUROMUSCULAR_JUNCTION_PATHS } from "@n-apt/three-d/neuromuscularJunctionPaths";
@@ -546,13 +547,15 @@ function CameraFocusController({
   const posteriorCranialTrunkFocused = cranialTrunkFocused
     && /cranial nerve XI\b/i.test(selectedArea?.name ?? "");
   const faceFocused = facialMuscleFocused || facialNerveFocused;
+  const nasalAnatomyFocused = Boolean(selectedArea && /nasal|olfactory/i.test(selectedArea.name));
   const posteriorNerveFocused = selectedArea?.highlightType === "nerve"
     && /sciatic|gluteal|tibial|sacral plexus|spinal cord|corticospinal|central nervous system|dorsal root/i.test(selectedArea.name);
   const regionalNerveFocused = selectedArea?.highlightType === "nerve"
     && /common fibular nerve|spinal cord|corticospinal tract|central nervous system/i.test(selectedArea.name);
   const anatomyNerveFocused = selectedArea?.highlightType === "nerve";
   const respiratoryAreaFocused = selectedArea?.name === "Bronchial smooth muscle"
-    || selectedArea?.name === "Intercostal muscles";
+    || selectedArea?.name === "Intercostal muscles"
+    || selectedArea?.name === "Lungs";
   const posteriorMuscleFocused = hipThighOverlay?.surface === "posterior"
     || lowerLegFootOverlay?.cameraSurface === "posterior";
 
@@ -562,6 +565,8 @@ function CameraFocusController({
 
     const target = brainFocused
       ? BRAIN_CAMERA_TARGET
+      : nasalAnatomyFocused && areaTarget
+        ? [areaTarget[0], areaTarget[1], areaTarget[2]]
       : upperLimbNerveCameraFocus
         ? upperLimbNerveCameraFocus.target
       : upperLimbFocus
@@ -585,6 +590,8 @@ function CameraFocusController({
         : initialCameraTarget;
     const position: [number, number, number] = brainFocused
       ? BRAIN_CAMERA_POSITION
+      : nasalAnatomyFocused && areaTarget
+        ? [areaTarget[0], areaTarget[1] + 0.015, areaTarget[2] + 0.62]
       : upperLimbNerveCameraFocus
         ? upperLimbNerveCameraFocus.position
       : upperLimbFocus
@@ -638,7 +645,7 @@ function CameraFocusController({
                       : posteriorNerveFocused ? -2.6 : anatomyNerveFocused ? 1.55 : 2.6),
           ]
         : initialCameraPosition;
-    const targetFov = brainFocused ? 32 : upperLimbNerveCameraFocus ? upperLimbNerveCameraFocus.fov : upperLimbFocus ? upperLimbFocus.fov : laryngealMuscleFocused ? 32 : throatSwallowingMuscleFocused ? (throatSwallowingOverlay?.cameraFov ?? 38) : tongueMuscleOverlay ? tongueMuscleOverlay.cameraFov : skinSensationOverlay ? skinSensationOverlay.cameraFov : sensoryPathwayView ? sensoryPathwayView.cameraFov : autonomicPathwayView ? autonomicPathwayView.cameraFov : faceFocused ? 30 : lowerLegFootOverlay?.cameraSurface === "plantar" ? 34 : neuromuscularJunctionFocused ? 38 : respiratoryAreaFocused ? 32
+    const targetFov = nasalAnatomyFocused ? 22 : brainFocused ? 32 : upperLimbNerveCameraFocus ? upperLimbNerveCameraFocus.fov : upperLimbFocus ? upperLimbFocus.fov : laryngealMuscleFocused ? 32 : throatSwallowingMuscleFocused ? (throatSwallowingOverlay?.cameraFov ?? 38) : tongueMuscleOverlay ? tongueMuscleOverlay.cameraFov : skinSensationOverlay ? skinSensationOverlay.cameraFov : sensoryPathwayView ? sensoryPathwayView.cameraFov : autonomicPathwayView ? autonomicPathwayView.cameraFov : faceFocused ? 30 : lowerLegFootOverlay?.cameraSurface === "plantar" ? 34 : neuromuscularJunctionFocused ? 38 : respiratoryAreaFocused ? 32
       : hipThighMuscleFocused || lowerLegFootMuscleFocused || cranialTrunkFocused || regionalNerveFocused ? 38 : anatomyNerveFocused ? 34 : MODEL_FOV;
     const previouslyEnabled = controls.enabled;
     controls.enabled = false;
@@ -678,7 +685,7 @@ function CameraFocusController({
       controls.enabled = previouslyEnabled;
     };
   }, [
-    areaTarget?.[0], areaTarget?.[1], areaTarget?.[2], faceFocused, posteriorNerveFocused, sensoryPathwayFocused,
+    areaTarget?.[0], areaTarget?.[1], areaTarget?.[2], faceFocused, nasalAnatomyFocused, posteriorNerveFocused, sensoryPathwayFocused,
     hipThighMuscleFocused, hipThighOverlay?.cameraDistance, laryngealMuscleFocused, laryngealOverlay?.cameraSurface, laryngealOverlay?.cameraDistance, throatSwallowingMuscleFocused, throatSwallowingOverlay?.cameraDistance, throatSwallowingOverlay?.cameraFov, throatSwallowingOverlay?.cameraVerticalOffset, tongueMuscleOverlay?.cameraDistance, tongueMuscleOverlay?.cameraFov, skinSensationOverlay?.cameraSurface, skinSensationOverlay?.cameraDistance, skinSensationOverlay?.cameraFov, skinSensationOverlay?.cameraTargetOffsetX, neuromuscularJunctionFocused, posteriorMuscleFocused, cranialTrunkFocused, posteriorCranialTrunkFocused,
     regionalNerveFocused, respiratoryAreaFocused, lowerLegFootMuscleFocused, lowerLegFootOverlay?.cameraSurface,
     upperLimbMuscleFocused, upperLimbMuscleOverlay?.cameraSurface, sensoryPathwayView?.cameraSurface, sensoryPathwayView?.cameraDistance, sensoryPathwayView?.cameraFov, sensoryPathwayView?.cameraTargetOffsetY, autonomicPathwayView?.cameraSurface, autonomicPathwayView?.cameraDistance, autonomicPathwayView?.cameraFov, autonomicPathwayView?.cameraTargetOffsetY, selectedArea?.name, selectionRequest, size.width, size.height,
@@ -790,11 +797,58 @@ function createMusclePatchGeometry(sourcePoints: [number, number, number][]): Bu
   return geometry;
 }
 
+function createLungGeometry(seed: number, anatomicalSide: 1 | -1): BufferGeometry {
+  const geometry = new SphereGeometry(1, 64, 48);
+  const positions = geometry.getAttribute("position");
+  const colors = new Float32Array(positions.count * 3);
+  for (let index = 0; index < positions.count; index += 1) {
+    const x = positions.getX(index);
+    const y = positions.getY(index);
+    const z = positions.getZ(index);
+    const verticalRoundness = Math.sqrt(Math.max(0, 1 - y * y * 0.78));
+    const apexTaper = 1 - 0.27 * Math.max(0, (y - 0.68) / 0.32);
+    const baseTaper = 1 - 0.13 * Math.max(0, (-y - 0.72) / 0.28);
+    const width = (0.65 + verticalRoundness * 0.35) * apexTaper * baseTaper;
+    const cardiacNotch = anatomicalSide === -1
+      ? 0.34 * Math.exp(-Math.pow((y + 0.18) / 0.27, 2)) * Math.pow(Math.max(0, -anatomicalSide * x), 4)
+      : 0;
+    const gaussian = (value: number, center: number, spread: number) => Math.exp(-Math.pow((value - center) / spread, 2));
+    const lobeProfile = anatomicalSide === 1
+      ? 1
+        + 0.035 * gaussian(y, 0.52, 0.3)
+        + 0.04 * gaussian(y, -0.02, 0.22)
+        + 0.05 * gaussian(y, -0.58, 0.3)
+        - 0.045 * gaussian(y, 0.19, 0.055)
+        - 0.04 * gaussian(y, -0.4 + 0.32 * x, 0.065)
+      : 1
+        + 0.045 * gaussian(y, 0.42, 0.3)
+        + 0.055 * gaussian(y, -0.4, 0.32)
+        - 0.05 * gaussian(y, -0.03 + 0.28 * x, 0.07);
+    const contourNoise = 1
+      + 0.02 * Math.sin(x * 13 + seed) * Math.cos(y * 15 - seed * 0.6)
+      + 0.012 * Math.sin((x + z) * 23 + seed * 1.4);
+    const localX = x * width * (1 - cardiacNotch) * contourNoise * lobeProfile;
+    const localY = y + 0.035 * x;
+    const localZ = z * (0.86 + width * 0.14) * contourNoise * lobeProfile;
+    positions.setXYZ(index, localX, localY, localZ);
+    const mottling = 0.84
+      + 0.17 * (0.5 + 0.5 * Math.sin(x * 18 + y * 21 + z * 15 + seed))
+      + 0.035 * Math.sin(x * 7 - y * 9 + seed * 0.5);
+    const perfusion = 0.95 + 0.05 * ((y + 1) / 2);
+    colors.set([mottling * perfusion, mottling * 0.9 * perfusion, mottling * 0.88 * perfusion], index * 3);
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 function FacialMuscleHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Area) => void }) {
   const respiratoryMuscle = area.name in RESPIRATORY_MUSCLE_PATHS;
-  const glowColor = respiratoryMuscle ? "#ff875e" : "#28cfff";
-  const fillColor = respiratoryMuscle ? "#ffbd91" : "#35d9ff";
-  const ribbons = useMemo(() => (area.muscleRibbons ?? []).map(({ points, halfWidth, closed, surfaceNormal, surfaceEdges, glowSurfaceEdges }) => {
+  const respiratoryOrgan = area.name in RESPIRATORY_ORGAN_PATHS;
+  const nasalAnatomy = area.name in NASAL_ANATOMY_OVERLAYS;
+  const glowColor = respiratoryMuscle ? "#ff875e" : respiratoryOrgan ? "#743741" : nasalAnatomy ? "#f17e88" : "#28cfff";
+  const fillColor = respiratoryMuscle ? "#ffbd91" : respiratoryOrgan ? "#a65a63" : nasalAnatomy ? "#e79099" : "#35d9ff";
+  const ribbons = useMemo(() => (area.muscleRibbons ?? []).map(({ points, halfWidth, closed, surfaceNormal, surfaceEdges, glowSurfaceEdges, surfaceAnchored }) => {
     const localPoints = points.map(worldToModelLocal);
     const normal = new Vector3(...(surfaceNormal ?? [0, 0, 1]));
     return {
@@ -810,27 +864,74 @@ function FacialMuscleHighlight({ area, onSelect }: { area: Area; onSelect?: (are
           right: surfaceEdges.right.map(worldToModelLocal),
         })
         : createMuscleRibbonGeometry(localPoints, halfWidth, closed, normal),
+      surfaceAnchored,
     };
   }), [area.muscleRibbons]);
   const patches = useMemo(() => (area.musclePatches ?? []).map((points) =>
     createMusclePatchGeometry(points.map(worldToModelLocal)),
   ), [area.musclePatches]);
+  const lungLobes = useMemo(() => respiratoryOrgan
+    ? (area.muscleVolumes ?? []).map((_, index) => createLungGeometry(index * 1.7 + 0.4, index === 0 ? 1 : -1))
+    : [], [area.muscleVolumes, respiratoryOrgan]);
+  const anatomyTubes = useMemo(() => (area.anatomyTubes ?? []).map(({ points, radius, closed }) => {
+    const localPoints = points.map(worldToModelLocal);
+    const curve = new CatmullRomCurve3(localPoints.map((point) => new Vector3(...point)), Boolean(closed), "centripetal");
+    const segments = closed ? 36 : Math.max(20, (localPoints.length - 1) * 12);
+    return new TubeGeometry(curve, segments, radius, 8, Boolean(closed));
+  }), [area.anatomyTubes]);
   useEffect(() => () => {
     ribbons.forEach(({ glow, fill }) => { glow.dispose(); fill.dispose(); });
     patches.forEach((patch) => patch.dispose());
-  }, [patches, ribbons]);
+    lungLobes.forEach((geometry) => geometry.dispose());
+    anatomyTubes.forEach((geometry) => geometry.dispose());
+  }, [anatomyTubes, lungLobes, patches, ribbons]);
 
   return (
     <group onClick={onSelect ? (event) => { event.stopPropagation(); onSelect(area); } : undefined}>
       {patches.map((patch, index) => <mesh key={`patch-${index}`} geometry={patch} renderOrder={20}>
-        <meshBasicMaterial color={fillColor} transparent opacity={0.18} depthTest={Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
+        <meshBasicMaterial color={fillColor} transparent opacity={nasalAnatomy ? 0.42 : 0.18} depthTest={Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
       </mesh>)}
-      {ribbons.map(({ glow, fill }, index) => <group key={index}>
+      {respiratoryOrgan && (area.muscleVolumes ?? []).map(({ position, scale, color }, index) => (
+        <mesh
+          key={`volume-${index}`}
+          geometry={lungLobes[index]}
+          position={worldToModelLocal(position)}
+          scale={scale}
+          renderOrder={20}
+        >
+          <meshStandardMaterial
+            color={color ?? "#bd7477"}
+            vertexColors
+            emissive="#4c1520"
+            emissiveIntensity={0.08}
+            roughness={0.88}
+            metalness={0}
+            transparent
+            opacity={0.92}
+            depthWrite={false}
+            depthTest={false}
+          />
+        </mesh>
+      ))}
+      {anatomyTubes.map((geometry, index) => (
+        <mesh key={`airway-${index}`} geometry={geometry} renderOrder={22}>
+          <meshStandardMaterial
+            color={area.anatomyTubes?.[index]?.color ?? (respiratoryOrgan ? "#783740" : fillColor)}
+            roughness={0.5}
+            metalness={0}
+            transparent={(area.anatomyTubes?.[index]?.opacity ?? 1) < 1}
+            opacity={area.anatomyTubes?.[index]?.opacity ?? 1}
+            depthWrite={false}
+            depthTest={false}
+          />
+        </mesh>
+      ))}
+      {ribbons.map(({ glow, fill, surfaceAnchored }, index) => <group key={index}>
         <mesh geometry={glow} renderOrder={20}>
-          <meshBasicMaterial color={glowColor} transparent opacity={0.18} depthTest={Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
+          <meshBasicMaterial color={glowColor} transparent opacity={nasalAnatomy ? 0.1 : 0.18} depthTest={surfaceAnchored ?? Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
         </mesh>
         <mesh geometry={fill} renderOrder={21}>
-          <meshBasicMaterial color={fillColor} transparent opacity={0.48} depthTest={Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
+          <meshBasicMaterial color={fillColor} transparent opacity={nasalAnatomy ? 0.4 : 0.48} depthTest={surfaceAnchored ?? Boolean(area.surfaceAnchored)} depthWrite={false} side={DoubleSide} toneMapped={false} />
         </mesh>
       </group>)}
     </group>
@@ -894,8 +995,8 @@ function NerveHighlight({ area, onSelect }: { area: Area; onSelect?: (area: Area
       const cutaneousReceptors = area.name === "Cutaneous receptors";
       const nasalNerve = area.name === "Nasal sensory nerves (V1/V2)";
       const pulmonaryNerve = area.name === "Pulmonary autonomic plexus";
-      const glowRadius = pulmonaryNerve ? 0.008 : nasalNerve ? 0.0055 : cranialNerve ? 0.0045 : commonFibularNerve ? 0.005 : cutaneousReceptors ? 0.006 : skinSensationNerve ? 0.0055 : 0.005;
-      const coreRadius = pulmonaryNerve ? 0.0035 : nasalNerve ? 0.0022 : cranialNerve ? 0.0018 : commonFibularNerve ? 0.002 : cutaneousReceptors ? 0.0022 : skinSensationNerve ? 0.002 : 0.002;
+      const glowRadius = pulmonaryNerve ? 0.0038 : nasalNerve ? 0.0055 : cranialNerve ? 0.0045 : commonFibularNerve ? 0.005 : cutaneousReceptors ? 0.006 : skinSensationNerve ? 0.0055 : 0.005;
+      const coreRadius = pulmonaryNerve ? 0.0015 : nasalNerve ? 0.0022 : cranialNerve ? 0.0018 : commonFibularNerve ? 0.002 : cutaneousReceptors ? 0.0022 : skinSensationNerve ? 0.002 : 0.002;
       return riggedPaths.map((points) => {
         const curve = new CatmullRomCurve3(points.map((point) => new Vector3(...worldToModelLocal(point))));
         return {
@@ -992,7 +1093,15 @@ function BrainRegionHighlight({ area }: { area: Area }) {
 
 function AreaMarker({ selectedArea, onSelect }: { selectedArea: Area; onSelect?: (area: Area) => void }) {
   if (selectedArea.meshName === "brain") return <BrainRegionHighlight area={selectedArea} />;
-  if (selectedArea.muscleRibbons?.length) return <FacialMuscleHighlight area={selectedArea} onSelect={onSelect} />;
+  if (selectedArea.highlightType === "nerve" && selectedArea.name in NASAL_ANATOMY_OVERLAYS && selectedArea.markerPaths?.length) {
+    return <>
+      <FacialMuscleHighlight area={selectedArea} onSelect={onSelect} />
+      <NerveHighlight area={selectedArea} onSelect={onSelect} />
+    </>;
+  }
+  if (selectedArea.muscleRibbons?.length || selectedArea.muscleVolumes?.length || selectedArea.anatomyTubes?.length) {
+    return <FacialMuscleHighlight area={selectedArea} onSelect={onSelect} />;
+  }
   if (selectedArea.highlightType === "nerve") return <NerveHighlight area={selectedArea} onSelect={onSelect} />;
   return <RegionHighlight area={selectedArea} onSelect={onSelect} />;
 }
@@ -1134,9 +1243,10 @@ function PersonModel({
     const laryngealOverlay = LARYNGEAL_MUSCLE_PATHS[selectedArea.name];
     const throatSwallowingOverlay = THROAT_SWALLOWING_MUSCLE_PATHS[selectedArea.name];
     const tongueMuscleOverlay = TONGUE_MUSCLE_PATHS[selectedArea.name];
-    const respiratoryMuscleOverlay = RESPIRATORY_MUSCLE_PATHS[selectedArea.name];
+    const respiratoryOverlay = RESPIRATORY_ORGAN_PATHS[selectedArea.name] ?? RESPIRATORY_MUSCLE_PATHS[selectedArea.name];
+    const nasalAnatomyOverlay = NASAL_ANATOMY_OVERLAYS[selectedArea.name];
     const skinSensationOverlay = SKIN_SENSATION_PATHS[selectedArea.name];
-    if (upperFaceShape || lowerFaceShapes || hipThighOverlay || lowerLegFootOverlay || upperLimbOverlay || laryngealOverlay || throatSwallowingOverlay || tongueMuscleOverlay || respiratoryMuscleOverlay) {
+    if (upperFaceShape || lowerFaceShapes || hipThighOverlay || lowerLegFootOverlay || upperLimbOverlay || laryngealOverlay || throatSwallowingOverlay || tongueMuscleOverlay || respiratoryOverlay || nasalAnatomyOverlay) {
       const anchoredUpperFacePaths = upperFaceShape?.surface
         ? getSurfaceAnchoredPaths(
           scene,
@@ -1152,6 +1262,8 @@ function PersonModel({
         surfaceNormal?: ModelOffset;
         surface?: MuscleSurface;
         surfaceDraped?: boolean;
+        surfaceLift?: number;
+        surfaceAnchored?: boolean;
       }[] = upperFaceShape
         ? upperFaceShape.paths.flatMap((sourcePoints, index) => {
             const points = anchoredUpperFacePaths?.[index] ?? sourcePoints;
@@ -1267,8 +1379,34 @@ function PersonModel({
               halfWidth,
               closed: false,
             }))
-          : respiratoryMuscleOverlay
-            ? respiratoryMuscleOverlay.paths.flatMap(({ points, halfWidth, closed, surface, surfaceNormal }, index) => {
+          : nasalAnatomyOverlay
+            ? nasalAnatomyOverlay.paths.flatMap(({ points, halfWidth, closed, surface, surfaceDraped, surfaceLift }, index) => {
+              const surfacePoints = surface
+                ? getSurfaceAnchoredPaths(
+                  scene,
+                  `${selectedArea.name}:nasal:${index}`,
+                  [points],
+                  surface,
+                  0.16,
+                  surfaceLift,
+                )[0]
+                : points;
+              if (surface && (!surfacePoints || surfacePoints.length < 2)) return [];
+              const normal = surface
+                ? sourceSurfaceDirection(new Vector3(...points[0]), surface)
+                : null;
+              return [{
+                points: surfacePoints ?? points,
+                halfWidth,
+                closed: Boolean(closed),
+                ...(normal ? { surfaceNormal: [normal.x, normal.y, normal.z] as ModelOffset } : {}),
+                ...(surface ? { surface, surfaceDraped: Boolean(surfaceDraped) } : {}),
+                ...(surfaceLift !== undefined ? { surfaceLift } : {}),
+                surfaceAnchored: Boolean(surface),
+              }];
+            })
+          : respiratoryOverlay
+            ? respiratoryOverlay.paths.flatMap(({ points, halfWidth, closed, surface, surfaceNormal }, index) => {
               const surfacePoints = surface
                 ? getSurfaceAnchoredPaths(
                   scene,
@@ -1286,7 +1424,7 @@ function PersonModel({
                 halfWidth,
                 closed: Boolean(closed),
                 ...(normal ? { surfaceNormal: [normal.x, normal.y, normal.z] as ModelOffset } : {}),
-                ...(surface ? { surface, surfaceDraped: respiratoryMuscleOverlay.surfaceDraped } : {}),
+                ...(surface ? { surface, surfaceDraped: respiratoryOverlay.surfaceDraped } : {}),
               }];
             })
             : (hipThighOverlay?.paths ?? []).flatMap((sourcePoints, index) => {
@@ -1309,25 +1447,50 @@ function PersonModel({
                 ...(normal ? { surfaceNormal: [normal.x, normal.y, normal.z] as ModelOffset } : {}),
               }];
             });
-      const sourcePatches = upperFaceShape?.outline ? [upperFaceShape.outline] : [];
+      const sourcePatches = [
+        ...(upperFaceShape?.outline ? [upperFaceShape.outline] : []),
+        ...(respiratoryOverlay?.patches ?? []),
+      ];
+      const nasalNerveSourcePaths = selectedArea.highlightType === "nerve"
+        ? ANATOMY_NERVE_PATHS[selectedArea.name]
+        : undefined;
+      const nasalNerveMarkerPaths = nasalNerveSourcePaths?.map((path) => path.map((point) => modelPointToWorld(
+        insetNervePathPoint(point),
+        figureTransform.position,
+        figureTransform.scale,
+        modelOffset,
+      )));
       return {
         ...selectedArea,
+        ...(nasalNerveMarkerPaths?.length ? { markerPaths: nasalNerveMarkerPaths } : {}),
         musclePatches: sourcePatches.map((points) => points.map((point) => modelPointToWorld(
           point,
           figureTransform.position,
           figureTransform.scale,
           modelOffset,
         ))),
-        muscleRibbons: sourceRibbons.map(({ points, halfWidth, closed, surfaceNormal, surface, surfaceDraped }, index) => {
+        muscleVolumes: (respiratoryOverlay?.volumes ?? []).map(({ position, scale, color }) => ({
+          position: modelPointToWorld(position, figureTransform.position, figureTransform.scale, modelOffset),
+          scale: scale.map((axis) => axis * figureTransform.scale) as ModelOffset,
+          color,
+        })),
+        anatomyTubes: (respiratoryOverlay?.tubes ?? []).map(({ points, radius, closed, color, opacity }) => ({
+          points: points.map((point) => modelPointToWorld(point, figureTransform.position, figureTransform.scale, modelOffset)),
+          radius: radius * figureTransform.scale,
+          closed,
+          color,
+          opacity,
+        })),
+        muscleRibbons: sourceRibbons.map(({ points, halfWidth, closed, surfaceNormal, surface, surfaceDraped, surfaceLift, surfaceAnchored }, index) => {
           const toWorldEdges = (edges: ReturnType<typeof getSurfaceAnchoredRibbonEdges>) => edges ? {
             left: edges.left.map((point) => modelPointToWorld(point, figureTransform.position, figureTransform.scale, modelOffset)),
             right: edges.right.map((point) => modelPointToWorld(point, figureTransform.position, figureTransform.scale, modelOffset)),
           } : undefined;
           const fillEdges = surfaceDraped && surface
-            ? getSurfaceAnchoredRibbonEdges(scene, `${selectedArea.name}:${index}:fill`, points, surface, halfWidth)
+            ? getSurfaceAnchoredRibbonEdges(scene, `${selectedArea.name}:${index}:fill`, points, surface, halfWidth, surfaceLift)
             : null;
           const glowEdges = surfaceDraped && surface
-            ? getSurfaceAnchoredRibbonEdges(scene, `${selectedArea.name}:${index}:glow`, points, surface, halfWidth * 1.55)
+            ? getSurfaceAnchoredRibbonEdges(scene, `${selectedArea.name}:${index}:glow`, points, surface, halfWidth * 1.55, surfaceLift)
             : null;
           const surfaceEdges = toWorldEdges(fillEdges);
           const glowSurfaceEdges = toWorldEdges(glowEdges);
@@ -1341,6 +1504,9 @@ function PersonModel({
             halfWidth: halfWidth * figureTransform.scale,
             closed,
             surfaceNormal,
+            ...(surfaceAnchored !== undefined
+              ? { surfaceAnchored }
+              : surface ? { surfaceAnchored: true } : {}),
             ...(surfaceEdges ? { surfaceEdges } : {}),
             ...(glowSurfaceEdges ? { glowSurfaceEdges } : {}),
           };
@@ -1351,7 +1517,8 @@ function PersonModel({
           || upperLimbOverlay
           || laryngealOverlay
           || throatSwallowingOverlay
-          || respiratoryMuscleOverlay?.paths.some(({ surface }) => Boolean(surface))
+          || respiratoryOverlay?.paths.some(({ surface }) => Boolean(surface))
+          || nasalAnatomyOverlay?.paths.some(({ surface }) => Boolean(surface))
           || upperFaceShape?.surface
           || lowerFaceShapes?.some(({ surface }) => Boolean(surface)),
         ),
@@ -1386,6 +1553,10 @@ function PersonModel({
           selectedArea.name === "Cranial nerve VII Facial"
             || selectedArea.name === "Common fibular nerve"
             || selectedArea.name === "Neuromuscular junction"
+            // Pulmonary plexus coordinates already sit inside the lung roots;
+            // shifting them toward the model's center brings anterior branches
+            // too close to the chest wall.
+            || selectedArea.name === "Pulmonary autonomic plexus"
             ? point
             : insetNervePathPoint(point),
           figureTransform.position,
@@ -1446,7 +1617,7 @@ function PersonModel({
     if (anchor) return { ...regionArea, markerPosition: anchor.position, surfaceNormal: anchor.normal };
     if (regionPatches?.length || regionPatch.length) return regionArea;
     return selectedArea;
-  }, [figureTransform, modelOffset, modelUrl, scene, selectedArea, FACIAL_MUSCLE_SHAPES[selectedArea?.name ?? ""], LARYNGEAL_MUSCLE_PATHS[selectedArea?.name ?? ""], THROAT_SWALLOWING_MUSCLE_PATHS[selectedArea?.name ?? ""], RESPIRATORY_MUSCLE_PATHS[selectedArea?.name ?? ""]]);
+  }, [figureTransform, modelOffset, modelUrl, scene, selectedArea, FACIAL_MUSCLE_SHAPES[selectedArea?.name ?? ""], LARYNGEAL_MUSCLE_PATHS[selectedArea?.name ?? ""], THROAT_SWALLOWING_MUSCLE_PATHS[selectedArea?.name ?? ""], RESPIRATORY_MUSCLE_PATHS[selectedArea?.name ?? ""], RESPIRATORY_ORGAN_PATHS[selectedArea?.name ?? ""], NASAL_ANATOMY_OVERLAYS[selectedArea?.name ?? ""]]);
 
   const onPointerDown = useCallback(
     (e: any) => {

@@ -20,10 +20,13 @@ type Area = {
     halfWidth: number;
     closed?: boolean;
     surfaceNormal?: [number, number, number];
+    surfaceAnchored?: boolean;
     surfaceEdges?: { left: [number, number, number][]; right: [number, number, number][] };
     glowSurfaceEdges?: { left: [number, number, number][]; right: [number, number, number][] };
   }[];
   musclePatches?: [number, number, number][][];
+  muscleVolumes?: { position: [number, number, number]; scale: [number, number, number]; color?: string }[];
+  anatomyTubes?: { points: [number, number, number][]; radius: number; closed?: boolean; color?: string; opacity?: number }[];
   regionPatch?: [number, number, number][];
   regionPatches?: [number, number, number][][];
   surfaceAnchored?: boolean;

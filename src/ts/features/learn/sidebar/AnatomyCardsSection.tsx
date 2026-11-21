@@ -12,6 +12,8 @@ import {
   LOWER_LEG_FOOT_MUSCLE_PATHS,
   modelSourcePointToWorld,
   NEUROMUSCULAR_JUNCTION_PATHS,
+  NASAL_ANATOMY_OVERLAYS,
+  RESPIRATORY_ORGAN_PATHS,
   RESPIRATORY_MUSCLE_PATHS,
   anatomyCardRoute,
   anatomyGroupRoute,
@@ -210,10 +212,10 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Vagus nerve pathway", "Major peripheral nerves", "Long cranial nerve extending from brainstem through the neck into the chest and abdomen.", "Provides extensive parasympathetic output and visceral sensory feedback; it does not control every organ function alone.", [0, 1.3, .2]),
   nerve("Superior laryngeal nerve", "Major peripheral nerves", "Branch of the vagus nerve that supplies sensation above the vocal folds and motor fibers to the cricothyroid muscle.", "Contributes to pitch control, voice sensation, and protective laryngeal reflexes.", [0, 1.73, .24]),
   nerve("Recurrent laryngeal nerve", "Major peripheral nerves", "Vagus nerve branch that loops in the chest and ascends to the larynx; the right and left courses differ.", "Supplies most intrinsic laryngeal muscles for vocal-fold movement and carries sensation below the vocal folds.", [0, 1.78, .22]),
-  nerve("Nasal alae (nostril wings)", "Nasal anatomy", "The paired soft-tissue wings at the sides of the nostrils, supported by alar cartilage; these are the flexible rims people may mean by nasal or nostril flaps.", "Help shape and support the external nasal openings. The nasalis muscle can narrow or flare the nostrils, while the alae themselves are not a separate muscle.", [0, 1.79, .17], ["nose", "nostril", "nostril flaps", "nasal flaps", "alar cartilage", "nose wings"]),
-  nerve("Nasal vestibule and nares", "Nasal anatomy", "The nasal vestibule is the entrance just inside each nostril; the nares are the external openings.", "Conduct incoming air into the nasal cavity, where it is filtered, warmed, and humidified.", [0, 1.77, .17], ["nose", "nostril", "nostrils", "nasal opening", "breathing", "airway"]),
-  nerve("Nasal septum and conchae", "Nasal anatomy", "The septum divides the nasal cavity; the curved conchae (turbinates) increase surface area along the air passages.", "Guide airflow and support warming, humidifying, and filtering inspired air; the mucosa also contains odor-sensing tissue high in the cavity.", [0, 1.76, .11], ["nose", "nasal cavity", "turbinates", "nasal flaps", "airflow", "smell"]),
-  nerve("Nasal sensory nerves (V1/V2)", "Major peripheral nerves", "Sensory branches of the trigeminal nerve supply the nasal cavity: anterior ethmoidal branches of V1 and nasal branches of V2, including the nasopalatine nerve.", "Carry touch, temperature, and irritation signals from nasal tissues. Smell itself is carried by cranial nerve I (the olfactory nerve).", [0, 1.78, .2], ["nose", "nasal", "nostril", "nasal sensation", "trigeminal", "V1", "V2", "anterior ethmoidal", "nasopalatine"]),
+  nerve("Nasal alae (nostril wings)", "Nasal anatomy", "The paired soft-tissue wings at the sides of the nostrils, supported by alar cartilage; these are the flexible rims people may mean by nasal or nostril flaps.", "Help shape and support the external nasal openings. The nasalis muscle can narrow or flare the nostrils, while the alae themselves are not a separate muscle.", [0, 1.885, .145], ["nose", "nostril", "nostril flaps", "nasal flaps", "alar cartilage", "nose wings"]),
+  nerve("Nasal vestibule and nares", "Nasal anatomy", "The nasal vestibule is the entrance just inside each nostril; the nares are the external openings.", "Conduct incoming air into the nasal cavity, where it is filtered, warmed, and humidified.", [0, 1.87, .15], ["nose", "nostril", "nostrils", "nasal opening", "breathing", "airway"]),
+  nerve("Nasal septum and conchae", "Nasal anatomy", "The septum divides the nasal cavity; the curved conchae (turbinates) increase surface area along the air passages.", "Guide airflow and support warming, humidifying, and filtering inspired air; the mucosa also contains odor-sensing tissue high in the cavity.", [0, 1.9, .08], ["nose", "nasal cavity", "turbinates", "nasal flaps", "airflow", "smell"]),
+  nerve("Nasal sensory nerves (V1/V2)", "Nasal anatomy", "Sensory branches of the trigeminal nerve supply the nasal cavity: anterior ethmoidal branches of V1 and nasal branches of V2, including the nasopalatine nerve.", "Carry touch, temperature, and irritation signals from nasal tissues. Smell itself is carried by cranial nerve I (the olfactory nerve).", [0, 1.91, .12], ["nose", "nasal", "nostril", "nasal sensation", "trigeminal", "V1", "V2", "anterior ethmoidal", "nasopalatine"]),
   nerve("Frontalis", "Facial expression muscles", "Broad forehead muscle that raises the eyebrows and wrinkles the forehead.", "Helps lift the brows and forehead skin. Facial expressions are produced by coordinated muscles and context; this muscle alone does not identify a feeling.", [0, .52, .43], ["forehead", "raise eyebrows", "eyebrow raise", "brow lift", "wrinkle forehead", "facial expression"]),
   nerve("Corrugator supercilii", "Facial expression muscles", "Small muscle near the inner eyebrow that draws the brows inward and downward.", "Contributes to brow furrowing during concentration and some frowning expressions; the movement does not prove anger or sadness.", [0, .42, .46], ["furrow brow", "frown", "draw eyebrows together", "glabellar lines", "facial expression"]),
   nerve("Orbicularis oculi", "Facial expression muscles", "Ring-shaped muscle around each eye.", "Closes the eyelids for blinking, tight squinting, and eye protection. Its eye-corner contraction is one component of some smiles.", [0, .38, .48], ["blink", "blinking", "close eyes", "squint", "wink", "eye closure", "Duchenne smile"]),
@@ -455,6 +457,8 @@ export function toModelArea(card: AnatomyCardData): Area {
     const tongueMuscleOverlay = TONGUE_MUSCLE_PATHS[card.name];
     const skinSensationOverlay = SKIN_SENSATION_PATHS[card.name];
     const respiratoryMuscleOverlay = RESPIRATORY_MUSCLE_PATHS[card.name];
+    const respiratoryOrganOverlay = RESPIRATORY_ORGAN_PATHS[card.name];
+    const nasalAnatomyOverlay = NASAL_ANATOMY_OVERLAYS[card.name];
     const neuromuscularJunctionPaths = NEUROMUSCULAR_JUNCTION_PATHS[card.name];
     const nervePaths = card.name === "Cranial nerve VII Facial"
       ? undefined
@@ -465,7 +469,10 @@ export function toModelArea(card: AnatomyCardData): Area {
     const facialPoints = upperFaceShape
       ? upperFaceShape.paths.reduce((points, path) => points.concat(path), [] as [number, number, number][])
       : lowerFaceShapes?.reduce((points, { centerline }) => points.concat(centerline), [] as [number, number, number][]);
-    const overlayPoints = respiratoryMuscleOverlay?.paths.flatMap(({ points }) => points)
+    const overlayPoints = nasalAnatomyOverlay?.paths.flatMap(({ points }) => points)
+      ?? respiratoryOrganOverlay?.paths.flatMap(({ points }) => points)
+      ?? respiratoryOrganOverlay?.patches?.flat()
+      ?? respiratoryMuscleOverlay?.paths.flatMap(({ points }) => points)
       ?? tongueMuscleOverlay?.paths.flatMap(({ points }) => points)
       ?? skinSensationOverlay?.paths.flatMap(({ points }) => points)
       ?? upperLimbOverlay?.paths.flatMap(({ points }) => points)
