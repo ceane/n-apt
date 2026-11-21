@@ -258,7 +258,7 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
       ".napt" => {
         let header = napt_header(&bytes);
         assert_eq!(header["metadata"]["format"], "napt");
-        assert_eq!(header["metadata"]["format_version"], 6);
+        assert_eq!(header["metadata"]["format_version"], 7);
         assert_eq!(
           header["metadata"]["frame_updates"],
           serde_json::json!(input.frame_updates)
@@ -271,7 +271,7 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
         assert_eq!(bytes[32] != 0, encrypted);
         let decoded = iq_format::decode(&bytes, encrypted.then_some(&key))
           .expect("written IQ should decode with matching key policy");
-        assert_eq!(decoded.metadata.format_version, 6);
+        assert_eq!(decoded.metadata.format_version, 7);
         assert_eq!(decoded.chunks[0].data, input.channels[0].iq_data);
         assert_eq!(decoded.frames, input.frame_updates);
       }
@@ -313,7 +313,7 @@ fn backend_capture_writer_format_and_encryption_matrix_is_explicit() {
 }
 
 #[test]
-fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
+fn backend_iq_v7_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
 ) {
   let mut input = capture(".iq", false, "multi_channel_offsets");
   input.channels.push(CaptureChannel {
@@ -344,10 +344,10 @@ fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
   ];
 
   let artifact =
-    save_capture_file_multi(&input, &key()).expect("write multichannel V6 IQ");
-  let bytes = fs::read(&artifact.path).expect("read multichannel V6 IQ");
+    save_capture_file_multi(&input, &key()).expect("write multichannel V7 IQ");
+  let bytes = fs::read(&artifact.path).expect("read multichannel V7 IQ");
   let decoded =
-    iq_format::decode(&bytes, None).expect("decode multichannel V6 IQ");
+    iq_format::decode(&bytes, None).expect("decode multichannel V7 IQ");
 
   assert_eq!(
     decoded
@@ -371,7 +371,7 @@ fn backend_iq_v6_keeps_chunk_sample_offsets_per_channel_and_rebases_patch_bytes(
 }
 
 #[test]
-fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
+fn backend_iq_v7_writes_shared_cross_language_playback_fixture() {
   let fixture: Value = serde_json::from_str(include_str!(
     "../fixtures/iq-capture-v6-playback.json"
   ))
@@ -426,10 +426,10 @@ fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
     .collect();
 
   let artifact =
-    save_capture_file_multi(&input, &key()).expect("write backend V6 IQ");
-  let bytes = fs::read(&artifact.path).expect("read backend V6 IQ");
-  let decoded = iq_format::decode(&bytes, None).expect("decode backend V6 IQ");
-  assert_eq!(decoded.metadata.format_version, 6);
+    save_capture_file_multi(&input, &key()).expect("write backend V7 IQ");
+  let bytes = fs::read(&artifact.path).expect("read backend V7 IQ");
+  let decoded = iq_format::decode(&bytes, None).expect("decode backend V7 IQ");
+  assert_eq!(decoded.metadata.format_version, 7);
   assert_eq!(decoded.chunks.len(), 1);
   assert_eq!(decoded.chunks[0].sample_offset, 0);
   assert_eq!(decoded.chunks[0].data, input.channels[0].iq_data);
@@ -442,7 +442,7 @@ fn backend_iq_v6_writes_shared_cross_language_playback_fixture() {
         .expect("create cross-language fixture directory");
     }
     fs::copy(&artifact.path, path)
-      .expect("export backend V6 IQ for frontend test");
+      .expect("export backend V7 IQ for frontend test");
   }
   fs::remove_file(artifact.path).expect("remove backend writer artifact");
 }

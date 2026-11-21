@@ -114,7 +114,7 @@ export async function wrapVaultMasterKey(
 export async function unwrapVaultMasterKey(
   wrapper: VaultKeyWrapper,
   wrappingKey: CryptoKey,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   if (wrapper.format !== "n-apt-vault-key-wrapper-v1") {
     throw new Error("Unsupported vault key wrapper format.");
   }

@@ -1,7 +1,9 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { fileWorkerManager } from "@n-apt/workers/fileWorkerManager";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
+import { useOfflinePlayback } from "@n-apt/app/hooks/OfflinePlaybackContext";
 import {
+  clearStitchSession,
   createStitchSessionKey,
   getStitchSession,
   setStitchSession,
@@ -52,15 +54,26 @@ export const useStitchingLogic = ({
   sampleRateOptions,
 }: UseStitchingLogicProps): StitchingResult => {
   const { aesKey, fidoVaultKey } = useAuthentication();
-  const aesKeyRef = useRef(aesKey);
+  const offlinePlayback = useOfflinePlayback();
+  const offlineFileOnly = offlinePlayback.enabled;
+  const aesKeyRef = useRef(
+    offlinePlayback.mode === "password" ? offlinePlayback.key : aesKey,
+  );
   const fidoVaultKeyRef = useRef(fidoVaultKey);
+  const offlineKeyRef = useRef(offlinePlayback.key);
+  const offlineModeRef = useRef(offlinePlayback.mode);
+  const offlineCaptureSaltRef = useRef(offlinePlayback.captureSalt);
+  const offlineEnabledRef = useRef(offlinePlayback.enabled);
+  const offlineCredentialVersionRef = useRef(0);
+  const previousOfflineKeyRef = useRef(Boolean(offlinePlayback.key));
   const previousFidoKeyAvailableRef = useRef(Boolean(fidoVaultKey));
   const onStitchStatusRef = useRef(onStitchStatus);
   const restoredSessionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    aesKeyRef.current = aesKey;
-  }, [aesKey]);
+    aesKeyRef.current =
+      offlinePlayback.mode === "password" ? offlinePlayback.key : aesKey;
+  }, [aesKey, offlinePlayback.key, offlinePlayback.mode]);
 
   useEffect(() => {
     fidoVaultKeyRef.current = fidoVaultKey;
@@ -77,7 +90,7 @@ export const useStitchingLogic = ({
     selectedFilesRef.current = selectedFiles;
     stitchSourceSettingsRef.current = stitchSourceSettings;
   }, [selectedFiles, stitchSourceSettings]);
-  const lastTriggerRef = useRef(stitchTrigger);
+  const lastTriggerRef = useRef<number | null>(stitchTrigger);
   const selectedFileNamesKey = useMemo(
     () =>
       selectedFiles
@@ -114,7 +127,7 @@ export const useStitchingLogic = ({
   const [mountSeed] = useState(() => ({
     key: stitchSessionKey,
     identityKey: selectedFileIdentityKey,
-    session: getStitchSession(stitchSessionKey),
+    session: offlinePlayback.enabled ? null : getStitchSession(stitchSessionKey),
   }));
   const cachedOnMount = mountSeed.session;
   const workerFileDataCache = useRef<[string, Uint8Array | number[]][]>(
@@ -144,6 +157,44 @@ export const useStitchingLogic = ({
   useLayoutEffect(() => {
     frequencyRangeRef.current = frequencyRange;
   }, [frequencyRange]);
+
+  useEffect(() => {
+    const credentialsChanged =
+      offlineKeyRef.current !== offlinePlayback.key ||
+      offlineModeRef.current !== offlinePlayback.mode ||
+      offlineCaptureSaltRef.current !== offlinePlayback.captureSalt ||
+      offlineEnabledRef.current !== offlinePlayback.enabled;
+    if (credentialsChanged) offlineCredentialVersionRef.current += 1;
+    offlineKeyRef.current = offlinePlayback.key;
+    offlineModeRef.current = offlinePlayback.mode;
+    offlineCaptureSaltRef.current = offlinePlayback.captureSalt;
+    offlineEnabledRef.current = offlinePlayback.enabled;
+
+    const hadKey = previousOfflineKeyRef.current;
+    previousOfflineKeyRef.current = Boolean(offlinePlayback.key);
+    if (hadKey && !offlinePlayback.key) {
+      clearStitchSession(stitchSessionKey);
+      setHasStitchedData(false);
+      workerFileDataCache.current = [];
+      workerFreqMap.current = [];
+      workerMetadataMap.current = [];
+      precomputedFrames.current = [];
+      maxFrames.current = 0;
+      allChannelsRef.current = [];
+      setChannelCount(0);
+      onChannelsChange?.([]);
+      onProcessedDataChange?.(false);
+    }
+  }, [
+    offlinePlayback.key,
+    offlinePlayback.mode,
+    offlinePlayback.captureSalt,
+    offlinePlayback.enabled,
+    stitchSessionKey,
+    onChannelsChange,
+    onProcessedDataChange,
+    setChannelCount,
+  ]);
 
 
   const setStitchStatus = useCallback((status: string, state: StitchState) => {
@@ -203,7 +254,8 @@ export const useStitchingLogic = ({
       .map((file) => `${file.id}:${file.name}`)
       .sort()
       .join("|");
-    const inFlightKey = `${requestIdentityKey}:${allowIntegrityFailure}`;
+    const requestCredentialVersion = offlineCredentialVersionRef.current;
+    const inFlightKey = `${requestIdentityKey}:${allowIntegrityFailure}:${requestCredentialVersion}`;
     if (inFlightStitchKeysRef.current.has(inFlightKey)) return;
     inFlightStitchKeysRef.current.add(inFlightKey);
 
@@ -229,22 +281,48 @@ export const useStitchingLogic = ({
     try {
       restoredSessionKeyRef.current = null;
       // Use file worker for stitching
-      const result = await fileWorkerManager.stitchFiles(
-        currentFiles,
-        stitchSourceSettingsRef.current,
-        fftSize,
-        (progress: any) => {
-          setStitchStatus(
-            progress.status ||
-              `Loading ${progress.current}/${progress.total} files...`,
-            "loading",
-          );
-        },
-        aesKeyRef.current,
-        sampleRateOptions, // Pass dynamic sample rate options
-        allowIntegrityFailure,
-        fidoVaultKeyRef.current,
-      );
+      const offlineKey = offlineKeyRef.current;
+      const offlineMode = offlineModeRef.current;
+      const effectiveAesKey =
+        offlineMode === "password" ? offlineKey : aesKeyRef.current;
+      let effectiveFidoVaultKey = fidoVaultKeyRef.current;
+      let offlineFidoVaultKeyBytes: Uint8Array | null = null;
+      if (offlineMode === "fido" && offlineKey) {
+        offlineFidoVaultKeyBytes = new Uint8Array(
+          await crypto.subtle.exportKey("raw", offlineKey),
+        );
+        effectiveFidoVaultKey = offlineFidoVaultKeyBytes;
+      }
+      let result: any;
+      try {
+        result = await fileWorkerManager.stitchFiles(
+          currentFiles,
+          stitchSourceSettingsRef.current,
+          fftSize,
+          (progress: any) => {
+            const latestIdentityKey = selectedFilesRef.current
+              .map((file) => `${file.id}:${file.name}`)
+              .sort()
+              .join("|");
+            if (
+              latestIdentityKey !== requestIdentityKey ||
+              requestCredentialVersion !== offlineCredentialVersionRef.current
+            ) return;
+            setStitchStatus(
+              progress.status ||
+                `Loading ${progress.current}/${progress.total} files...`,
+              "loading",
+            );
+          },
+          effectiveAesKey,
+          sampleRateOptions, // Pass dynamic sample rate options
+          allowIntegrityFailure,
+          effectiveFidoVaultKey,
+          offlineCaptureSaltRef.current,
+        );
+      } finally {
+        offlineFidoVaultKeyBytes?.fill(0);
+      }
 
       // A newer selection may have started processing while this worker
       // request was running. Do not let an older result replace it.
@@ -252,7 +330,10 @@ export const useStitchingLogic = ({
         .map((file) => `${file.id}:${file.name}`)
         .sort()
         .join("|");
-      if (currentIdentityKey !== requestIdentityKey) return;
+      if (
+        currentIdentityKey !== requestIdentityKey ||
+        requestCredentialVersion !== offlineCredentialVersionRef.current
+      ) return;
 
       if (!result.stitchedData) {
         throw new Error("Failed to process file segments");
@@ -315,6 +396,7 @@ export const useStitchingLogic = ({
       }
 
       setHasStitchedData(true);
+      if (offlineEnabledRef.current) offlinePlayback.markDecrypted();
       const nextStitchStatus =
         currentFiles.length > 1
           ? "Stitched Successfully"
@@ -322,26 +404,37 @@ export const useStitchingLogic = ({
       setStitchStatus(nextStitchStatus, "ready");
       onChannelsChange?.(channels);
       onProcessedDataChange?.(true);
-      setStitchSession(stitchSessionKey, {
-        hasStitchedData: true,
-        frequencyRange: firstChannelRange
-          ? { min: firstChannelRange[0], max: firstChannelRange[1] }
-          : (result.range ?? frequencyRangeRef.current),
-        channelCount: channels.length,
-        activeChannel: 0,
-        hardwareSampleRateHz: hwHz,
-        workerFileDataCache: result.fileDataCache,
-        workerFreqMap: result.freqMap,
-        workerMetadataMap: result.metadataMap || [],
-        precomputedFrames: result.precomputedFrames,
-        maxFrames: result.maxFrames,
-        allChannels: channels,
-        stitchStatus: nextStitchStatus,
-      });
+      if (!offlineEnabledRef.current) {
+        setStitchSession(stitchSessionKey, {
+          hasStitchedData: true,
+          frequencyRange: firstChannelRange
+            ? { min: firstChannelRange[0], max: firstChannelRange[1] }
+            : (result.range ?? frequencyRangeRef.current),
+          channelCount: channels.length,
+          activeChannel: 0,
+          hardwareSampleRateHz: hwHz,
+          workerFileDataCache: result.fileDataCache,
+          workerFreqMap: result.freqMap,
+          workerMetadataMap: result.metadataMap || [],
+          precomputedFrames: result.precomputedFrames,
+          maxFrames: result.maxFrames,
+          allChannels: channels,
+          stitchStatus: nextStitchStatus,
+        });
+      }
     } catch (error: any) {
+      const currentIdentityKey = selectedFilesRef.current
+        .map((file) => `${file.id}:${file.name}`)
+        .sort()
+        .join("|");
+      if (
+        currentIdentityKey !== requestIdentityKey ||
+        requestCredentialVersion !== offlineCredentialVersionRef.current
+      ) return;
       console.error("Stitch error:", error);
       const msg = error.message || String(error);
       const normalizedMessage = msg.toLowerCase();
+      if (offlineEnabledRef.current) offlinePlayback.setError(msg);
       if (normalizedMessage.includes("integrity_failed")) {
         setStitchStatus(
           "File integrity failed: file appears corrupted or modified",
@@ -375,7 +468,19 @@ export const useStitchingLogic = ({
     onStitchStatus,
     onChannelsChange,
     onProcessedDataChange,
+    offlinePlayback.markDecrypted,
+    offlinePlayback.setError,
   ]);
+
+  const stitchFilesRef = useRef(stitchFiles);
+  useLayoutEffect(() => {
+    stitchFilesRef.current = stitchFiles;
+  }, [stitchFiles]);
+
+  useEffect(() => {
+    if (!offlinePlayback.enabled || !offlinePlayback.key) return;
+    void stitchFilesRef.current();
+  }, [offlinePlayback.enabled, offlinePlayback.key]);
 
   const playIntegrityFailedFile = useCallback(
     () => stitchFiles(true),
@@ -384,27 +489,32 @@ export const useStitchingLogic = ({
 
   // Trigger: respond to parent's stitch button click
   useEffect(() => {
+    if (stitchTrigger === null) return;
     if (lastTriggerRef.current === null) {
       lastTriggerRef.current = stitchTrigger;
-      if (selectedFilesRef.current.length > 0) {
-        void stitchFiles();
-      }
       return;
     }
-    if (stitchTrigger !== null && stitchTrigger !== lastTriggerRef.current) {
+    if (stitchTrigger !== lastTriggerRef.current) {
       lastTriggerRef.current = stitchTrigger;
-      stitchFiles();
+      if (!offlineFileOnly || offlinePlayback.key) {
+        void stitchFiles();
+      }
     }
-  }, [stitchTrigger, stitchFiles]);
+  }, [offlineFileOnly, offlinePlayback.key, stitchTrigger, stitchFiles]);
 
   useEffect(() => {
     const wasAvailable = previousFidoKeyAvailableRef.current;
     const isAvailable = Boolean(fidoVaultKey);
     previousFidoKeyAvailableRef.current = isAvailable;
-    if (!wasAvailable && isAvailable && selectedFileIdentityKey) {
+    if (
+      !offlineFileOnly &&
+      !wasAvailable &&
+      isAvailable &&
+      selectedFileIdentityKey
+    ) {
       void stitchFiles();
     }
-  }, [fidoVaultKey, selectedFileIdentityKey, stitchFiles]);
+  }, [fidoVaultKey, offlineFileOnly, selectedFileIdentityKey, stitchFiles]);
 
   useEffect(() => {
     if (!selectedFileIdentityKey) return;
@@ -417,8 +527,9 @@ export const useStitchingLogic = ({
       return;
     }
     lastAutoStitchKeyRef.current = selectedFileIdentityKey;
+    if (offlineFileOnly) return;
     void stitchFiles();
-  }, [selectedFileIdentityKey, stitchFiles]);
+  }, [offlineFileOnly, selectedFileIdentityKey, stitchFiles]);
 
   return {
     hasStitchedData,

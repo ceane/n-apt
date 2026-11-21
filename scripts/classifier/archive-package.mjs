@@ -232,12 +232,16 @@ export async function archiveCapturePackage({
 } = {}) {
   if (!packagePath || !split) throw new Error("archive requires --package and --split");
   const capture = await readCapturePackage(packagePath, { envFile });
-  if (!["iq", "napt"].includes(capture.format) || capture.metadata?.format_version !== 6) {
-    throw new Error("Only verified V6 .iq or .napt Data Packages can be archived for classification");
+  const formatVersion = capture.metadata?.format_version;
+  if (
+    !["iq", "napt"].includes(capture.format) ||
+    ![6, 7].includes(formatVersion)
+  ) {
+    throw new Error("Only verified V6 or V7 .iq or .napt Data Packages can be archived for classification");
   }
   const encrypted = capture.metadata.encrypted === true || capture.metadata.encrypted === "true" || capture.metadata.sections?.binary?.encrypted === true;
   if (capture.format === "napt" && !encrypted) {
-    throw new Error("Plaintext V6 .napt cannot be archived; encrypt it with the existing capture migration workflow first");
+    throw new Error("Plaintext V6/V7 .napt cannot be archived; encrypt it with the existing capture migration workflow first");
   }
   const label = validateSplitAndLabel(split, capture.labels);
   const sourceCaptureId = capture.captureId;
@@ -351,7 +355,7 @@ export async function archiveCapturePackage({
     const trailer = JSON.parse(archivedBytes.subarray(trailerOffset + 24, trailerOffset + 24 + trailerJsonLength).toString("utf8"));
     const id = trailer?.integrity?.digest;
     if (typeof id !== "string" || !/^[a-f0-9]{64}$/i.test(id)) {
-      throw new Error("Encrypted capture has no valid V6 trailer checksum");
+      throw new Error("Encrypted capture has no valid V6/V7 trailer checksum");
     }
     return id.toLowerCase();
   })();

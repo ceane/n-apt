@@ -262,6 +262,10 @@ pub struct SharedState {
   pub fido_vault_keys: Mutex<crate::authentication::fido_vault::VaultSessions>,
   /// Password-wrapped vault-key recovery record copied into FIDO captures.
   pub fido_vault_recovery_wrapper: Mutex<Option<serde_json::Value>>,
+  /// FIDO-wrapped vault key copied into V7 captures for offline guest playback.
+  pub fido_vault_wrapper: Mutex<Option<serde_json::Value>>,
+  /// Public WebAuthn credential ID paired with the FIDO vault wrapper.
+  pub fido_vault_credential_id: Mutex<Option<String>>,
   /// Channels configuration loaded from signals.yaml
   pub channels: Mutex<Vec<SpectrumFrameMessage>>,
   /// Device-scoped channel selected by the control plane. This is kept apart
@@ -419,6 +423,8 @@ impl SharedState {
       authentication_key,
       fido_vault_keys: Mutex::new(Default::default()),
       fido_vault_recovery_wrapper: Mutex::new(None),
+      fido_vault_wrapper: Mutex::new(None),
+      fido_vault_credential_id: Mutex::new(None),
       channels: Mutex::new(channels),
       active_signal_area: Mutex::new(initial_signal_area),
       active_frequency_range: Mutex::new(None),

@@ -1950,8 +1950,12 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     location.pathname,
     location.search,
   );
+  const isOfflineFilePlayback =
+    location.pathname === "/visualizer" &&
+    !isAuthenticated &&
+    authState === "server_down";
 
-  if (isPublicRoute) {
+  if (isPublicRoute || isOfflineFilePlayback) {
     return <>{children}</>;
   }
 

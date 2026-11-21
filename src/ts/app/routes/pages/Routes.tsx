@@ -3,6 +3,8 @@ import { useCallback, useRef } from "react";
 import styled from "styled-components";
 import { Navigate, Routes, Route, useLocation } from "react-router";
 import { MainLayout } from "@n-apt/app/MainLayout";
+import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
+import { OfflinePlaybackProvider } from "@n-apt/app/hooks/OfflinePlaybackContext";
 import { LogoutRoute } from "@n-apt/app/routes/pages/LogoutRoute";
 import { SpectrumSidebar } from "@n-apt/spectrum/sidebar/SpectrumSidebar";
 import type { FFTCanvasHandle } from "@n-apt/spectrum";
@@ -45,11 +47,6 @@ const AntiAliasingDiagnostics = lazy(() =>
 const WebUsbExperimentRoute = lazy(() =>
   import("@n-apt/app/routes/pages/WebUsbExperimentRoute").then((m) => ({
     default: m.WebUsbExperimentRoute,
-  })),
-);
-const TransformersRoute = lazy(() =>
-  import("@n-apt/app/routes/pages/TransformersRoute").then((m) => ({
-    default: m.TransformersRoute,
   })),
 );
 const Model3DGalleryRoute = lazy(() =>
@@ -162,6 +159,14 @@ const AppShellLayout: React.FC = () => {
   const [visualizerLoading, setVisualizerLoading] = useState(false);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const path = location.pathname;
+  const { authState, isAuthenticated } = useAuthentication();
+  const fileSelectionRoute =
+    (path === "/" || path === "/visualizer") &&
+    new URLSearchParams(location.search).get("source") === "fileSelection";
+  const isOfflineFilePlayback =
+    !isAuthenticated &&
+    (fileSelectionRoute ||
+      (path === "/visualizer" && authState === "server_down"));
   const isPreferences = path === "/prefs";
   const requestedPreferencesSectionId = isPreferences
     ? new URLSearchParams(location.search).get("section")
@@ -294,7 +299,6 @@ const AppShellLayout: React.FC = () => {
             element={<AntiAliasingDiagnostics />}
           />
           <Route path="/3d-model-gallery" element={<Model3DGalleryRoute />} />
-          <Route path="/transformers" element={<TransformersRoute />} />
           <Route path="/terms" element={<LegalDocumentRoute />} />
           <Route path="/privacy" element={<LegalDocumentRoute />} />
           <Route path="/license" element={<LegalDocumentRoute />} />
@@ -321,9 +325,14 @@ const AppShellLayout: React.FC = () => {
   }
 
   return (
-    <MainLayout sidebar={sidebar} showRouteNavigation={!is3DModel}>
-      {content}
-    </MainLayout>
+    <OfflinePlaybackProvider enabled={isOfflineFilePlayback}>
+      <MainLayout
+        sidebar={sidebar}
+        showRouteNavigation={!is3DModel && !isOfflineFilePlayback}
+      >
+        {content}
+      </MainLayout>
+    </OfflinePlaybackProvider>
   );
 };
 

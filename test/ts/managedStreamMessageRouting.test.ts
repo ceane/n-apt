@@ -189,6 +189,43 @@ describe("managed stream message routing", () => {
     return streamSocket;
   };
 
+  const openManagedTxStream = async (): Promise<TestSocket> => {
+    await waitFor(() => expect(sockets.length).toBeGreaterThanOrEqual(2));
+    const streamSocket = sockets[sockets.length - 1]!;
+    streamSocket.readyState = WebSocket.OPEN;
+    streamSocket.onopen?.();
+    let subscribe: any;
+    await waitFor(() => {
+      const serialized = streamSocket.send.mock.calls
+        .map(([message]) => message as string)
+        .find((message) => message.includes('"type":"stream_subscribe"'));
+      expect(serialized).toBeDefined();
+      subscribe = JSON.parse(serialized!);
+      expect(subscribe.stream.mode).toBe("tx");
+    });
+    streamSocket.onmessage?.({
+      data: JSON.stringify({
+        type: "stream_subscribed",
+        subscriptionId: subscribe.subscriptionId,
+        sourceId: "mock-tx",
+        mode: "tx",
+        streamEpoch: 1,
+        optionsRevision: 1,
+        state: "ready",
+        deliveryPolicy: "latest",
+        streamId: "session-test--mock-tx--tx",
+        streamPath: "/ws/streams/session-test--mock-tx--tx",
+        streamUrl: "/ws/streams/session-test--mock-tx--tx",
+        effectiveOptions: subscribe.options,
+      }),
+    } as MessageEvent);
+    await waitFor(() =>
+      expect(getManagedStreamDebugSnapshot().tx.streamEpoch).toBe(1),
+    );
+    streamSocket.send.mockClear();
+    return streamSocket;
+  };
+
 
   it("builds initial RTL-SDR options at Channel A's displayed center", () => {
     const rtlSource = {
@@ -346,6 +383,62 @@ describe("managed stream message routing", () => {
     expect(sockets[0].send).not.toHaveBeenCalledWith(
       expect.stringContaining('"type":"request_next_frame"'),
     );
+  });
+
+  it("queues a Tx preview request immediately after its option update", async () => {
+    store.dispatch(
+      updateDeviceState({
+        activeSourceId: "mock-tx",
+        sources: [
+          {
+            id: "mock-tx",
+            name: "Mock Tx SDR",
+            kind: "mock_tx",
+            capability: "tx",
+            status: "standby",
+            iq_format: {
+              element_type: "u8",
+              layout: "interleaved_iq",
+              typed_array: "Uint8Array",
+            },
+          },
+        ],
+        sourceStatuses: { "mock-tx": "standby" },
+      } as any),
+    );
+    const streamSocket = await openManagedTxStream();
+
+    store.dispatch({
+      type: "websocket/requestManagedStreamFrame",
+      payload: {
+        sourceId: "mock-tx",
+        mode: "tx",
+        options: {
+          centerFrequencyHz: 138_000_000,
+          sampleRateHz: 2_400_000,
+          bandwidthHz: 2_400_000,
+          viewCenterHz: 138_000_000,
+          viewSampleRateHz: 3_200_000,
+          signal: "wifi",
+          powerDbm: -18,
+          ifftSize: 1024,
+        },
+      },
+    });
+
+    await waitFor(() => {
+      const messages = streamSocket.send.mock.calls.map(
+        ([message]) => message as string,
+      );
+      const updateIndex = messages.findIndex((message) =>
+        message.includes('"type":"stream_update_options"'),
+      );
+      const requestIndex = messages.findIndex((message) =>
+        message.includes('"type":"stream_request_frame"'),
+      );
+      expect(updateIndex).toBeGreaterThanOrEqual(0);
+      expect(requestIndex).toBeGreaterThan(updateIndex);
+    });
   });
 
   it("waits for settled viewport options before requesting the paused frame", async () => {

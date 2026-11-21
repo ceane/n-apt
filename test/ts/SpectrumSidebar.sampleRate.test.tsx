@@ -76,12 +76,14 @@ let mockSetVisualizerPause: jest.Mock;
 let mockManualVisualizerPaused: boolean | null;
 let mockShowPrompt: jest.Mock;
 let mockEffectiveSampleRateHz: number | null;
+const mockAuthenticationState = { current: true };
 
 const TRANSMIT_WARNING_ACK_KEY = "napt.transmitWarningAccepted";
 
 jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({
-    isAuthenticated: true,
+    authState: mockAuthenticationState.current ? "authenticated" : "server_down",
+    isAuthenticated: mockAuthenticationState.current,
     sessionToken: "mock-token",
     aesKey: new Uint8Array(32),
   }),
@@ -298,6 +300,7 @@ const createStore = () =>
   });
 
 const initMockState = () => {
+  mockAuthenticationState.current = true;
   mockEffectiveSampleRateHz = null;
   mockLiveState = {
     activeSignalArea: "C",
@@ -499,9 +502,11 @@ describe("SpectrumSidebar sample rate behavior", () => {
     expect(screen.queryByTestId("native-classifier-sidebar-slot")).not.toBeInTheDocument();
   });
 
-  it("renders the Settings navigation cards at the bottom in order", () => {
+  it("renders the Start Page card for an authenticated connected session", () => {
+    const store = createStore();
+    store.dispatch(setConnected());
     render(
-      <Provider store={createStore()}>
+      <Provider store={store}>
         <ThemeProvider theme={theme}>
           <MemoryRouter>
             <SpectrumSidebar />
@@ -526,6 +531,26 @@ describe("SpectrumSidebar sample rate behavior", () => {
     expect(startCard).toHaveStyle({ width: "56%" });
     expect(startCard).toHaveStyle({ justifySelf: "start" });
     expect(startCard?.parentElement).toHaveStyle({ marginTop: "24px" });
+  });
+
+  it("hides the Start Page card during guest file playback", () => {
+    mockAuthenticationState.current = false;
+    render(
+      <Provider store={createStore()}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <SpectrumSidebar />
+          </MemoryRouter>
+        </ThemeProvider>
+      </Provider>,
+    );
+
+    expect(
+      document.querySelector("[data-offline-file-playback]"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Start Page/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("scrolls playback to the selected file section", () => {

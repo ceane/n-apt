@@ -1,6 +1,6 @@
 # N-APT CLI and I/Q Capture Contract
 
-Use this guide when changing `scripts/cli/index.ts`, capture settings, V6
+Use this guide when changing `scripts/cli/index.ts`, capture settings, V6/V7
 artifacts, source retuning, or CLI/backend protocol behavior.
 
 ## Runtime Rules
@@ -124,11 +124,11 @@ center, source identity, settings revision, and complete acquisition plan.
 
 ### Current limitations
 
-- Rust backend and WebUSB `.iq`/`.napt` artifacts now declare V6 with
-  trailer version 2.
+- Rust backend and WebUSB `.iq`/`.napt` artifacts now declare V7 with
+  trailer version 2; V6 remains readable.
 - Backend `.iq` and `.napt` both retain frame-update patch history.
 - The CLI verifies downloaded size, completed-job SHA-256, embedded integrity,
-  V6 metadata, and initial byte-zero patch history before writing the artifact.
+  V7 metadata, and initial byte-zero patch history before writing the artifact.
 - Custom CLI gain/PPM fields are sent but are not currently applied as capture
   settings.
 - The acknowledgement is an activation-time snapshot, not a guarantee that other
@@ -136,25 +136,26 @@ center, source identity, settings revision, and complete acquisition plan.
 - Retunes can discard physical-device warm-up frames. Do not call a retuned
   recording lossless without persisted continuity/discard evidence.
 
-## What V6 Means Today
+## What V7 Means Today
 
-V6 is currently a producer/container contract, not a complete backend capture
+V7 is the current producer/container contract, not a complete backend capture
 protocol.
 
-- WebUSB and Rust `.iq`/`.napt` writers use metadata format version 6.
-- V6 supports indexed binary data, integrity metadata, and patch/frame-update
-  metadata in both producer paths.
+- WebUSB and Rust `.iq`/`.napt` writers use metadata format version 7.
+- V7 retains V6 indexed binary data, integrity metadata, and patch/frame-update
+  layout, and adds guest-mode offline FIDO wrapper metadata.
+- V6 captures remain readable.
 - `sample_offset` is a byte offset in both current producers.
 - Backend and WebUSB timestamps do not yet share one explicit clock contract.
 - Managed-stream `optionsRevision` is a logical stream generation. It is not an
   effective-hardware acknowledgement and is not compare-and-swap concurrency
   control.
 
-CLI downloads may be identified as V6 after completed-job checksum, embedded
+CLI downloads may be identified as V7 after completed-job checksum, embedded
 integrity, metadata version, and patch-history verification. They are not yet a
 source/epoch-safe or fully continuous-lossless protocol.
 
-## Target V6-Aligned CLI Contract
+## Target V7-Aligned CLI Contract
 
 Use one typed settings patch rather than independent per-field restrictions.
 CLI flags are ergonomic sugar that produce this patch:
@@ -175,7 +176,7 @@ CLI flags are ergonomic sugar that produce this patch:
     "tunerAgc": false,
     "rtlAgc": false
   },
-  "formatVersion": 6
+  "formatVersion": 7
 }
 ```
 
@@ -223,7 +224,7 @@ acceptance from a generic `started` message.
 - A retune patch must include requested/effective center, segment ID, elapsed
   time, and discarded complex-sample count when known.
 - A multi-channel patch must identify its channel.
-- `sample_offset` must have one unit across every producer; V6 playback expects
+- `sample_offset` must have one unit across every producer; V6/V7 playback expects
   a byte offset.
 - For a strict continuous-lossless contract, stop at an unprovable patch boundary
   and persist a discontinuity marker.
@@ -242,8 +243,8 @@ acceptance from a generic `started` message.
   provided its acknowledgement is strict and the device is leased.
 - Validate output/encryption combinations before activation; the writer must not
   be the first place an invalid `.napt`/WAV combination is discovered.
-- Persist V6 frame updates in both `.napt` metadata and `.iq` frame sections;
+- Persist V7 frame updates in both `.napt` metadata and `.iq` frame sections;
   require an initial byte-zero update for every capture.
 - Add a `capture stop` command before recommending manual-duration captures.
-- Keep the WebUSB V6 golden fixtures and add a cross-language Rust/WebUSB V6
-  fixture with identical patch-offset semantics.
+- Keep the V6 compatibility fixtures and add V7 WebUSB and cross-language
+  Rust/WebUSB fixtures with identical patch-offset semantics.

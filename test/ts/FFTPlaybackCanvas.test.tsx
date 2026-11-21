@@ -113,7 +113,7 @@ describe("FFTPlaybackCanvas", () => {
     expect(screen.getByText("No files selected")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Drop .napt, .iq, or .wav files here. Increased Protection .enc files cannot be played here yet.",
+        "Drop .napt, .iq, .wav, or .enc files here. Increased Protection .enc files need the password and capture salt.",
       ),
     ).toBeInTheDocument();
   });

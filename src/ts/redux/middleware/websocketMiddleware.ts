@@ -4195,19 +4195,29 @@ const createWebSocketMiddleware =
           pendingManagedTxFrameRequestSourceId = sourceId;
           const subscription = managedTxSubscription;
           if (subscription && managedTxSourceId === sourceId) {
-            void subscription
-              .updateOptions(previewOptions)
-              .then(() => {
+            const optionsUpdate = subscription.updateOptions(previewOptions);
+            // Both controls use the same ordered stream socket. Send the
+            // one-shot after the option update so the backend applies the new
+            // geometry first, without making frame delivery depend on the
+            // separate options acknowledgement arriving.
+            pendingManagedTxOptions = null;
+            pendingManagedTxFrameRequestSourceId = null;
+            void optionsUpdate
+              .catch((error: unknown) => {
                 if (
                   managedTxSubscription === subscription &&
-                  managedTxSourceId === sourceId
+                  managedTxSourceId === sourceId &&
+                  pendingManagedTxPreviewOptions === previewOptions
                 ) {
-                  pendingManagedTxOptions = null;
-                  pendingManagedTxFrameRequestSourceId = null;
-                  subscription.requestNextFrame();
+                  pendingManagedTxPreviewOptions = null;
+                  dispatch(
+                    setOperationalError(
+                      error instanceof Error ? error.message : String(error),
+                    ),
+                  );
                 }
-              })
-              .catch(() => undefined);
+              });
+            subscription.requestNextFrame();
           } else {
             syncManagedStreamSubscriptions(dispatch, getState);
           }

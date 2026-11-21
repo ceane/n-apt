@@ -505,7 +505,7 @@ describe("NAPT decoding", () => {
 });
 
 describe("IQ trailer compatibility", () => {
-  it("keeps originalVersion metadata visible to playback for upgraded V6 captures", async () => {
+  it("keeps originalVersion metadata visible to playback for upgraded V7 captures", async () => {
     const encoded = await encodeIqCaptureV4({
       metadata: {},
       originalVersion: 3,
@@ -517,7 +517,7 @@ describe("IQ trailer compatibility", () => {
     });
     expect(result.type).toBe("result");
     expect(result.data.metadataMap[0][1]).toMatchObject({
-      format_version: 6,
+      format_version: 7,
       originalVersion: 3,
     });
   });
@@ -568,7 +568,7 @@ describe("IQ trailer compatibility", () => {
 });
 
 describe("protected capture playback", () => {
-  it("explains that Increased Protection files need server playback", async () => {
+  it("decrypts Increased Protection .enc files locally with their password and salt", async () => {
     const capture = await encodeIqCaptureV4({
       metadata: {
         center_frequency_hz: 137_500_000,
@@ -581,12 +581,10 @@ describe("protected capture playback", () => {
     const file = protectedCapture.slice().buffer;
     const result = await run(file, {
       files: [{ fileData: file, fileName: "capture.iq.enc" }],
+      captureSalt: new Uint8Array(32).fill(19),
     });
 
-    expect(result.type).toBe("error");
-    expect(result.error).toContain(
-      "Increased Protection .enc files cannot be played in this browser yet",
-    );
+    expect(rawResult(result)).toEqual(samples);
   });
 });
 

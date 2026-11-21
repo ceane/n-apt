@@ -686,6 +686,23 @@ export const createLiveReduxStreamHarness = async (
             : state.sourceStatuses[sourceId] === "standby" ||
               state.sourceStatuses[sourceId] === "receiving",
       );
+      if (!enabled) {
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline) {
+          const response = await requestJson(`${backendUrl}/status`);
+          const source = response.json?.status?.sources?.find(
+            (candidate: SourceInfo) => candidate.id === sourceId,
+          );
+          if (
+            response.status === 200 &&
+            (source?.status === "standby" || source?.status === "connected")
+          ) {
+            return;
+          }
+          await sleep(50);
+        }
+        throw new Error(`Backend did not confirm Tx stopped for ${sourceId}`);
+      }
     },
 
     async simulateHardwarePresence(present) {

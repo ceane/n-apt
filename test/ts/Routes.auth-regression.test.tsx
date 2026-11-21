@@ -7,6 +7,16 @@ import { MemoryRouter } from "react-router";
 import { AppRoutes } from "@n-apt/app/routes/pages/Routes";
 import { TestWrapper } from "./testUtils";
 
+const mockAuthState: {
+  current: { authState: string; isAuthenticated: boolean };
+} = {
+  current: { authState: "authenticated", isAuthenticated: true },
+};
+
+jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
+  useAuthentication: () => mockAuthState.current,
+}));
+
 jest.mock("@n-apt/spectrum/sidebar/SpectrumSidebar", () => ({
   SpectrumSidebar: () => (
     <div data-testid="spectrum-sidebar">Spectrum Sidebar</div>
@@ -17,11 +27,13 @@ jest.mock("@n-apt/app/MainLayout", () => ({
   MainLayout: ({
     children,
     sidebar,
+    showRouteNavigation,
   }: {
     children: React.ReactNode;
     sidebar: React.ReactNode;
+    showRouteNavigation: boolean;
   }) => (
-    <div>
+    <div data-route-navigation={showRouteNavigation ? "shown" : "hidden"}>
       <div data-testid="main-layout-sidebar">{sidebar}</div>
       <div data-testid="main-layout-content">{children}</div>
     </div>
@@ -137,19 +149,19 @@ jest.mock("@n-apt/app/routes/pages/VFOGridDemoRoute", () => ({
   VFOGridDemoRoute: () => <div data-testid="vfo-route">VFO Route</div>,
 }));
 
-jest.mock("@n-apt/app/routes/pages/TransformersRoute", () => ({
-  __esModule: true,
-  TransformersRoute: () => (
-    <div data-testid="transformers-route">Transformers Route</div>
-  ),
-}));
-
 jest.mock("@n-apt/app/routes/pages/LogoutRoute", () => ({
   __esModule: true,
   LogoutRoute: () => <div data-testid="logout-route">Logout Route</div>,
 }));
 
 describe("AppRoutes auth regression", () => {
+  beforeEach(() => {
+    mockAuthState.current = {
+      authState: "authenticated",
+      isAuthenticated: true,
+    };
+  });
+
   it("renders the main app view at /auth after login", async () => {
     render(
       <TestWrapper>
@@ -175,6 +187,23 @@ describe("AppRoutes auth regression", () => {
     expect(await screen.findByTestId("logout-route")).toBeInTheDocument();
   });
 
+  it("keeps file-selection playback available without authentication", async () => {
+    mockAuthState.current = { authState: "server_down", isAuthenticated: false };
+
+    render(
+      <TestWrapper>
+        <MemoryRouter initialEntries={["/visualizer?source=fileSelection"]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    expect(await screen.findByTestId("spectrum-route")).toBeInTheDocument();
+    expect(screen.getByText("Spectrum Sidebar")).toBeInTheDocument();
+    expect(document.querySelector("[data-route-navigation]"))
+      .toHaveAttribute("data-route-navigation", "hidden");
+  });
+
   it("does not register the removed /lite route", () => {
     const routesSource = fs.readFileSync(
       path.resolve(
@@ -185,5 +214,26 @@ describe("AppRoutes auth regression", () => {
     );
 
     expect(routesSource).not.toContain('path="/lite"');
+  });
+
+  it("does not register the removed Transformers demo or dependency", () => {
+    const routesSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "src/ts/app/routes/pages/Routes.tsx",
+      ),
+      "utf8",
+    );
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
+    ) as { dependencies: Record<string, string> };
+
+    expect(routesSource).not.toContain('path="/transformers"');
+    expect(packageJson.dependencies).not.toHaveProperty(
+      "@huggingface/transformers",
+    );
+    expect(
+      fs.existsSync(path.resolve(process.cwd(), "public/transformers-test.html")),
+    ).toBe(false);
   });
 });

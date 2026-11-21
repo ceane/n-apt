@@ -4,6 +4,7 @@ import {
   encodeNaptCaptureV4,
   type IqCaptureFrameUpdate,
 } from "@n-apt/webusb/iqCaptureFormat";
+import { NAPT_FORMAT_VERSION } from "@n-apt/webusb/iqIntegrity";
 import { verifyCaptureArtifact } from "../../scripts/cli/artifact";
 
 const metadata = {
@@ -41,7 +42,7 @@ async function iqCapture(updates = [frameUpdates[0]]) {
 }
 
 describe("downloaded capture artifact verification", () => {
-  it("accepts a V6 IQ artifact with matching external and internal integrity", async () => {
+  it("accepts a current-format IQ artifact with matching external and internal integrity", async () => {
     const bytes = await iqCapture();
 
     await expect(
@@ -52,12 +53,12 @@ describe("downloaded capture artifact verification", () => {
       }),
     ).resolves.toMatchObject({
       format: "iq",
-      formatVersion: 6,
+      formatVersion: NAPT_FORMAT_VERSION,
       frameUpdateCount: 1,
     });
   });
 
-  it("accepts a V6 NAPT artifact with retained patch history", async () => {
+  it("accepts a current-format NAPT artifact with retained patch history", async () => {
     const bytes = await encodeNaptCaptureV4({
       metadata,
       frameUpdates,
@@ -80,7 +81,7 @@ describe("downloaded capture artifact verification", () => {
       }),
     ).resolves.toMatchObject({
       format: "napt",
-      formatVersion: 6,
+      formatVersion: NAPT_FORMAT_VERSION,
       frameUpdateCount: 1,
     });
   });

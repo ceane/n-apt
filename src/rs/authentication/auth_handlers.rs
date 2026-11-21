@@ -593,12 +593,17 @@ pub async fn passkey_register_finish_handler(
           );
         }
         let recovery = serde_json::to_value(&wrappers.recovery).ok();
+        let fido_wrapper = serde_json::to_value(&wrappers.fido).ok();
+        let credential_id = super::credential_id_string(&passkey);
         let result = state
           .credential_store
           .enroll_fido_vault(passkey, wrappers)
           .await;
         if result.is_ok() {
           *state.shared.fido_vault_recovery_wrapper.lock().unwrap() = recovery;
+          *state.shared.fido_vault_wrapper.lock().unwrap() = fido_wrapper;
+          *state.shared.fido_vault_credential_id.lock().unwrap() =
+            Some(credential_id);
         }
         result
       } else {

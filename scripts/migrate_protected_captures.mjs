@@ -37,8 +37,12 @@ function deriveCaptureKey(vaultKey, salt) {
 
 function assertV6IqCapture(bytes) {
   const parsed = inspectIqCapture(bytes, { allowEncrypted: true });
-  if (parsed.metadata.format !== "iq" || parsed.formatVersion !== 6) {
-    throw new Error("This migration only accepts V6 IQ captures");
+  if (
+    parsed.metadata.format !== "iq" ||
+    parsed.formatVersion < 6 ||
+    parsed.formatVersion > 7
+  ) {
+    throw new Error("This migration only accepts V6 or V7 IQ captures");
   }
 }
 
@@ -50,7 +54,7 @@ function legacyEmbeddedSalt(input) {
   return Buffer.from(bytes.subarray(8, 8 + SALT_LENGTH));
 }
 
-/** Rewraps an NAPTENC1 V6 IQ file after proving Redis holds its matching salt. */
+/** Rewraps an NAPTENC1 V6/V7 IQ file after proving Redis holds its matching salt. */
 export function migrateProtectedIqCaptureBytes(input, vaultKey, redisSalt) {
   const legacy = Buffer.from(input);
   const key = Buffer.from(vaultKey);

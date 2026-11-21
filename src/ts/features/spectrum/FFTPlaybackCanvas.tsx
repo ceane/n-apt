@@ -41,6 +41,7 @@ import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import type { StitchState } from "@n-apt/redux/slices/waterfallSlice";
 import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
+import { useOfflinePlayback } from "@n-apt/app/hooks/OfflinePlaybackContext";
 import type { AppStyledTheme } from "@n-apt/ui/Theme";
 import { composeWaterfallCanvasWithDbAxis } from "@n-apt/layout/rendering/waterfallDbAxis";
 
@@ -229,7 +230,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
           colors?: Partial<AppStyledTheme["colors"]>;
         })
       | undefined;
-    const { fidoVaultKey, handleFidoKeyAuth } = useAuthentication();
+    const { isAuthenticated, fidoVaultKey, handleFidoKeyAuth } =
+      useAuthentication();
+    const { enabled: offlineFileOnly } = useOfflinePlayback();
     const [fidoUnlockPending, setFidoUnlockPending] = useState(false);
     const [fidoUnlockError, setFidoUnlockError] = useState<string | null>(null);
 
@@ -238,7 +241,7 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
         event.preventDefault();
         event.stopPropagation();
         const files = Array.from(event.dataTransfer.files).filter((file) =>
-          [".napt", ".iq", ".wav"].some((extension) =>
+          [".napt", ".iq", ".wav", ".enc"].some((extension) =>
             file.name.toLowerCase().endsWith(extension),
           ),
         );
@@ -877,17 +880,24 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
                 </Button>
               </div>
             ) : stitchStatus.toLowerCase().includes("decryption") ? (
-              <div style={{ maxWidth: "400px", margin: "0 auto" }}>
-                <DecryptionFallback
-                  moduleName="File Processing"
-                  errorType="vault"
-                />
-              </div>
+              offlineFileOnly ? (
+                <HelpText>
+                  Enter the password and any capture salt in the sidebar, or use
+                  Unlock with FIDO for an eligible capture.
+                </HelpText>
+              ) : (
+                <div style={{ maxWidth: "400px", margin: "0 auto" }}>
+                  <DecryptionFallback
+                    moduleName="File Processing"
+                    errorType="vault"
+                  />
+                </div>
+              )
             ) : (
               <HelpText>
                 {selectedFiles.length > 0
                   ? "Click Stitch/Process to visualize"
-                  : "Drop .napt, .iq, or .wav files here. Increased Protection .enc files cannot be played here yet."}
+                  : "Drop .napt, .iq, .wav, or .enc files here. Increased Protection .enc files need the password and capture salt."}
               </HelpText>
             )}
           </EmptyContainer>
