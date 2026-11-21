@@ -256,6 +256,7 @@ struct StreamEntry {
 /// to idle acquisition, but it must not turn one subscriber's pause into a
 /// global pause visible to the other subscribers.
 struct SubscriberContract {
+  mock_tx_preview_pending: bool,
   paused: Arc<AtomicBool>,
   next_frame_requested: Arc<AtomicBool>,
   delivery_policy: Arc<AtomicU8>,
@@ -397,6 +398,7 @@ impl StreamingSourceModeManager {
       entry.subscribers.insert(
         subscription_id,
         SubscriberContract {
+          mock_tx_preview_pending: false,
           paused: paused.clone(),
           next_frame_requested: next_frame_requested.clone(),
           delivery_policy: delivery_policy.clone(),
@@ -424,6 +426,7 @@ impl StreamingSourceModeManager {
     subscribers.insert(
       subscription_id,
       SubscriberContract {
+        mock_tx_preview_pending: false,
         paused: paused.clone(),
         next_frame_requested: next_frame_requested.clone(),
         delivery_policy: delivery_policy.clone(),
@@ -681,6 +684,14 @@ impl StreamingSourceModeManager {
       spectrum_ppm_correction,
       is_tx_preview,
     };
+    if is_tx_preview {
+      for subscriber in entry.subscribers.values_mut() {
+        if subscriber.mock_tx_preview_pending {
+          subscriber.mock_tx_preview_pending = false;
+          subscriber.next_frame_requested.store(true, Ordering::Release);
+        }
+      }
+    }
     let _ = entry.sender.send(StreamEvent::Frame(frame.clone()));
     if emit_to_tx_bus && key.mode == StreamMode::Tx {
       let _ = self.inner.tx_frames.send(frame.clone());
@@ -768,20 +779,33 @@ impl StreamingSourceModeManager {
   /// Allow exactly one newly published frame through a paused subscriber.
   /// Device tuning remains shared, but this delivery exception remains local
   /// to the subscriber that requested the retuned preview.
+  pub(crate) fn has_ready_mock_tx_preview(&self, key: &StreamKey) -> bool {
+    let streams = self.inner.streams.lock().unwrap();
+    streams.get(key).is_some_and(|entry| {
+      !entry.options_pending
+        && entry
+          .subscribers
+          .values()
+          .any(|subscriber| subscriber.mock_tx_preview_pending)
+    })
+  }
+
   pub fn request_next_frame(
     &self,
     key: &StreamKey,
     subscription_id: u64,
   ) -> Result<(), StreamError> {
-    let streams = self.inner.streams.lock().unwrap();
-    let entry = streams.get(key).ok_or(StreamError::MissingStream)?;
+    let mut streams = self.inner.streams.lock().unwrap();
+    let entry = streams.get_mut(key).ok_or(StreamError::MissingStream)?;
     let subscriber = entry
       .subscribers
-      .get(&subscription_id)
+      .get_mut(&subscription_id)
       .ok_or(StreamError::MissingStream)?;
     subscriber
       .next_frame_requested
       .store(true, Ordering::Release);
+    subscriber.mock_tx_preview_pending =
+      key.mode == StreamMode::Tx && key.source_id == "mock-tx";
     Ok(())
   }
 

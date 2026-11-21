@@ -238,21 +238,20 @@ impl TxWorker {
     if tx_is_active {
       return StandbyPreviewOutcome::NoRequest;
     }
-    let Some(request_owner) = self.shared_state.paused_frame_request_owner()
-    else {
-      return StandbyPreviewOutcome::NoRequest;
-    };
+    let legacy_owner = self.shared_state.paused_frame_request_owner();
+    let tx_key = StreamKey::new(
+      crate::server::websocket_server::MOCK_TX_SOURCE_ID,
+      StreamMode::Tx,
+    );
 
-    // Mock Tx path — synthesize the preview exactly as the monitor worker does.
-    if request_owner == crate::server::websocket_server::MOCK_TX_SOURCE_ID {
+    // Managed subscribers own their preview demand across active-source changes.
+    if self.stream_manager.has_ready_mock_tx_preview(&tx_key)
+      || legacy_owner.as_deref() == Some(tx_key.source_id.as_str())
+    {
       let frame =
         crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
           &self.shared_state,
         );
-      let tx_key = StreamKey::new(
-        crate::server::websocket_server::MOCK_TX_SOURCE_ID.to_string(),
-        StreamMode::Tx,
-      );
       let publish_result = self.stream_manager.publish_monitor_iq_frame_with_metadata(
         &tx_key,
         frame.timestamp,
@@ -263,7 +262,9 @@ impl TxWorker {
       );
       return match publish_result {
         Ok(_) => {
-          self.shared_state.clear_paused_frame_request();
+          if legacy_owner.as_deref() == Some(tx_key.source_id.as_str()) {
+            self.shared_state.clear_paused_frame_request();
+          }
           StandbyPreviewOutcome::Published
         }
         // Keep the request armed. The websocket loop retries after the stream
@@ -271,11 +272,17 @@ impl TxWorker {
         Err(StreamError::OptionsPending) => StandbyPreviewOutcome::NoRequest,
         Err(error) => {
           log::warn!("Unable to publish Mock Tx standby preview: {error}");
-          self.shared_state.clear_paused_frame_request();
+          if legacy_owner.as_deref() == Some(tx_key.source_id.as_str()) {
+            self.shared_state.clear_paused_frame_request();
+          }
           StandbyPreviewOutcome::NoRequest
         }
       };
     }
+
+    let Some(request_owner) = legacy_owner else {
+      return StandbyPreviewOutcome::NoRequest;
+    };
 
     // Half-duplex hardware path — publish a standby preview so the requested
     // source gets its frame even though the general SDR loop is reading a
@@ -607,7 +614,7 @@ impl TxWorker {
     // separate managed-stream WebSocket. Keep that request armed while TX is
     // active, then fulfill it as soon as the stop is applied.
     let standby_preview =
-      if !enabled && self.shared_state.paused_frame_request_owner().is_some() {
+      if !enabled {
         self.try_publish_standby_preview()
       } else {
         StandbyPreviewOutcome::NoRequest
@@ -713,6 +720,9 @@ mod tests {
       "the request must remain armed so it can be retried after option acknowledgement"
     );
 
+    // The active-source handoff resets the legacy acquisition request.
+    shared.sync_active_source_pause_state("mock-tx");
+
     stream_manager
       .confirm_options_applied(&key, options)
       .expect("pending Mock Tx stream options should apply");
@@ -732,6 +742,11 @@ mod tests {
         break;
       }
     }
+    assert_eq!(
+      worker.try_publish_standby_preview(),
+      StandbyPreviewOutcome::NoRequest,
+      "one request should publish only one preview"
+    );
   }
 
   #[tokio::test]
