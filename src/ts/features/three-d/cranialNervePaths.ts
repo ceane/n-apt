@@ -17,7 +17,21 @@ export const CRANIAL_NERVE_PATHS: Record<string, CranialNervePath[]> = {
   "Cranial nerve I Olfactory": bilateralPaths(
     // Olfactory fila pass from the superior nasal cavity through the
     // cribriform region to the olfactory bulb at the frontal base.
-    [[0.012, 1.79, 0.045], [0.018, 1.83, 0.025], [0.024, 1.87, -0.005], [0.03, 1.9, -0.025]],
+    [[0.016, 1.955, -0.035], [0.014, 1.945, -0.005], [0.011, 1.93, 0.035], [0.008, 1.91, 0.078]],
+  ),
+  "Nasal sensory nerves (V1/V2)": bilateralPaths(
+    // V1's anterior ethmoidal branch reaches the anterosuperior nasal cavity
+    // then descends along the bridge and gives an external nasal branch.
+    [[0.052, 1.94, 0.07], [0.036, 1.93, 0.095], [0.022, 1.915, 0.118], [0.014, 1.895, 0.132], [0.021, 1.88, 0.145]],
+    // V2 reaches the pterygopalatine fossa behind the maxilla; its posterior
+    // nasal branches enter the back of the nasal cavity through the
+    // sphenopalatine foramen.
+    [[0.078, 1.9, -0.018], [0.07, 1.9, 0.018], [0.058, 1.91, 0.05], [0.045, 1.91, 0.08], [0.039, 1.9, 0.103]],
+    // The nasopalatine nerve crosses the posterior septum and descends toward
+    // the incisive canal, staying inside the nose rather than below the face.
+    [[0.078, 1.9, -0.018], [0.06, 1.89, 0.025], [0.044, 1.895, 0.07], [0.022, 1.89, 0.09], [0.008, 1.87, 0.09], [0.008, 1.845, 0.08]],
+    // Posterior superior lateral nasal branches fan toward the conchae.
+    [[0.045, 1.91, 0.08], [0.06, 1.89, 0.098], [0.066, 1.87, 0.1]],
   ),
   "Cranial nerve II Optic": bilateralPaths(
     // Posterior orbit -> optic canal -> midline optic chiasm.

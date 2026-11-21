@@ -4,6 +4,7 @@ import React, {
   useState,
   useRef,
   useMemo,
+  useCallback,
   ReactNode,
 } from "react";
 
@@ -19,10 +20,13 @@ type Area = {
     halfWidth: number;
     closed?: boolean;
     surfaceNormal?: [number, number, number];
+    surfaceAnchored?: boolean;
     surfaceEdges?: { left: [number, number, number][]; right: [number, number, number][] };
     glowSurfaceEdges?: { left: [number, number, number][]; right: [number, number, number][] };
   }[];
   musclePatches?: [number, number, number][][];
+  muscleVolumes?: { position: [number, number, number]; scale: [number, number, number]; color?: string }[];
+  anatomyTubes?: { points: [number, number, number][]; radius: number; closed?: boolean; color?: string; opacity?: number }[];
   regionPatch?: [number, number, number][];
   regionPatches?: [number, number, number][][];
   surfaceAnchored?: boolean;
@@ -36,6 +40,7 @@ type Area = {
 interface Model3DContextType {
   selectedArea: Area | null;
   setSelectedArea: (area: Area | null) => void;
+  selectionRequest: number;
   controlsRef: React.RefObject<any>;
   modelVariant: "human" | "brain" | "anatomy";
   setModelVariant: (variant: "human" | "brain" | "anatomy") => void;
@@ -52,22 +57,28 @@ interface Model3DProviderProps {
 export const Model3DProvider: React.FC<Model3DProviderProps> = ({
   children,
 }) => {
-  const [selectedArea, setSelectedArea] = useState<Area | null>(null);
+  const [selectedArea, setSelectedAreaState] = useState<Area | null>(null);
+  const [selectionRequest, setSelectionRequest] = useState(0);
   const [modelVariant, setModelVariant] = useState<"human" | "brain" | "anatomy">("human");
   const [physiologyOpen, setPhysiologyOpen] = useState(true);
   const controlsRef = useRef<any>(null);
+  const setSelectedArea = useCallback((area: Area | null) => {
+    setSelectedAreaState(area);
+    setSelectionRequest((request) => request + 1);
+  }, []);
 
   const contextValue = useMemo<Model3DContextType>(
     () => ({
       selectedArea,
       setSelectedArea,
+      selectionRequest,
       controlsRef,
       modelVariant,
       setModelVariant,
       physiologyOpen,
       setPhysiologyOpen,
     }),
-    [selectedArea, modelVariant, physiologyOpen],
+    [selectedArea, selectionRequest, modelVariant, physiologyOpen, setSelectedArea],
   );
 
   return React.createElement(

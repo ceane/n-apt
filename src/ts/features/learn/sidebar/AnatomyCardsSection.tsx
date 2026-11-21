@@ -12,6 +12,9 @@ import {
   LOWER_LEG_FOOT_MUSCLE_PATHS,
   modelSourcePointToWorld,
   NEUROMUSCULAR_JUNCTION_PATHS,
+  NASAL_ANATOMY_OVERLAYS,
+  RESPIRATORY_ORGAN_PATHS,
+  RESPIRATORY_MUSCLE_PATHS,
   anatomyCardRoute,
   anatomyGroupRoute,
   sidebarRouteTargetId,
@@ -209,6 +212,10 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Vagus nerve pathway", "Major peripheral nerves", "Long cranial nerve extending from brainstem through the neck into the chest and abdomen.", "Provides extensive parasympathetic output and visceral sensory feedback; it does not control every organ function alone.", [0, 1.3, .2]),
   nerve("Superior laryngeal nerve", "Major peripheral nerves", "Branch of the vagus nerve that supplies sensation above the vocal folds and motor fibers to the cricothyroid muscle.", "Contributes to pitch control, voice sensation, and protective laryngeal reflexes.", [0, 1.73, .24]),
   nerve("Recurrent laryngeal nerve", "Major peripheral nerves", "Vagus nerve branch that loops in the chest and ascends to the larynx; the right and left courses differ.", "Supplies most intrinsic laryngeal muscles for vocal-fold movement and carries sensation below the vocal folds.", [0, 1.78, .22]),
+  nerve("Nasal alae (nostril wings)", "Nasal anatomy", "The paired soft-tissue wings at the sides of the nostrils, supported by alar cartilage; these are the flexible rims people may mean by nasal or nostril flaps.", "Help shape and support the external nasal openings. The nasalis muscle can narrow or flare the nostrils, while the alae themselves are not a separate muscle.", [0, 1.885, .145], ["nose", "nostril", "nostril flaps", "nasal flaps", "alar cartilage", "nose wings"]),
+  nerve("Nasal vestibule and nares", "Nasal anatomy", "The nasal vestibule is the entrance just inside each nostril; the nares are the external openings.", "Conduct incoming air into the nasal cavity, where it is filtered, warmed, and humidified.", [0, 1.87, .15], ["nose", "nostril", "nostrils", "nasal opening", "breathing", "airway"]),
+  nerve("Nasal septum and conchae", "Nasal anatomy", "The septum divides the nasal cavity; the curved conchae (turbinates) increase surface area along the air passages.", "Guide airflow and support warming, humidifying, and filtering inspired air; the mucosa also contains odor-sensing tissue high in the cavity.", [0, 1.9, .08], ["nose", "nasal cavity", "turbinates", "nasal flaps", "airflow", "smell"]),
+  nerve("Nasal sensory nerves (V1/V2)", "Nasal anatomy", "Sensory branches of the trigeminal nerve supply the nasal cavity: anterior ethmoidal branches of V1 and nasal branches of V2, including the nasopalatine nerve.", "Carry touch, temperature, and irritation signals from nasal tissues. Smell itself is carried by cranial nerve I (the olfactory nerve).", [0, 1.91, .12], ["nose", "nasal", "nostril", "nasal sensation", "trigeminal", "V1", "V2", "anterior ethmoidal", "nasopalatine"]),
   nerve("Frontalis", "Facial expression muscles", "Broad forehead muscle that raises the eyebrows and wrinkles the forehead.", "Helps lift the brows and forehead skin. Facial expressions are produced by coordinated muscles and context; this muscle alone does not identify a feeling.", [0, .52, .43], ["forehead", "raise eyebrows", "eyebrow raise", "brow lift", "wrinkle forehead", "facial expression"]),
   nerve("Corrugator supercilii", "Facial expression muscles", "Small muscle near the inner eyebrow that draws the brows inward and downward.", "Contributes to brow furrowing during concentration and some frowning expressions; the movement does not prove anger or sadness.", [0, .42, .46], ["furrow brow", "frown", "draw eyebrows together", "glabellar lines", "facial expression"]),
   nerve("Orbicularis oculi", "Facial expression muscles", "Ring-shaped muscle around each eye.", "Closes the eyelids for blinking, tight squinting, and eye protection. Its eye-corner contraction is one component of some smiles.", [0, .38, .48], ["blink", "blinking", "close eyes", "squint", "wink", "eye closure", "Duchenne smile"]),
@@ -319,6 +326,10 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
   nerve("Flexor hallucis longus", "Lower leg and foot muscles", "Deep posterior lower-leg muscle with a tendon running to the tip of the big toe.", "Flexes the big toe and contributes to push-off and balance while walking, running, and jumping.", [.08, -2.62, -.18], ["curl big toe", "big toe flexion", "push off", "balance", "walking", "running"]),
   nerve("Intrinsic foot muscles", "Lower leg and foot muscles", "Small muscles located entirely within the foot, arranged in layers on the sole and dorsum.", "Move and stabilize the toes and support the arches during standing, balance, and propulsion; includes muscles such as the lumbricals and interossei.", [0, -2.85, .15], ["toe control", "spread toes", "curl toes", "foot arch", "balance", "walking", "intrinsic foot"]),
   nerve("Diaphragm", "Muscles and movement", "Dome-shaped muscle separating the chest and abdominal cavities.", "Contracts during inhalation and works with other respiratory muscles; it also contributes to coughing, speaking, and pressure control.", [0, -.3, .4], ["breathe", "breathing", "inhalation", "inhale", "respiration", "cough", "speech breath"]),
+  nerve("Lungs", "Respiratory organs", "Paired spongy organs in the chest containing branching airways and alveoli, where oxygen and carbon dioxide are exchanged.", "Expand with the chest wall and diaphragm during breathing. Lung tissue itself has no skeletal muscle; smooth muscle in airway walls changes airway diameter.", [0, 1.36, .12], ["lung", "lungs", "breathing", "respiration", "alveoli", "chest"]),
+  nerve("Bronchial smooth muscle", "Respiratory muscles", "Smooth muscle in the walls of the bronchi and smaller bronchioles; it is part of the airway, not a muscle covering the lungs.", "Contracts or relaxes to narrow or widen airways. Autonomic input and local signals modulate its tone.", [0, -.45, .34], ["lungs", "lung muscle", "airway muscle", "bronchi", "bronchioles", "smooth muscle", "breathing"]),
+  nerve("Intercostal muscles", "Respiratory muscles", "Muscle layers between the ribs, including external and internal intercostals.", "External intercostals help elevate the ribs during inspiration; internal portions assist forced expiration. They move the chest wall rather than the lung tissue itself.", [0, -.45, .42], ["lungs", "lung muscles", "rib muscles", "breathing", "inhalation", "exhalation", "chest expansion"]),
+  nerve("Pulmonary autonomic plexus", "Major peripheral nerves", "Nerve networks around the roots of the lungs, formed chiefly by vagal parasympathetic fibers and sympathetic fibers from the thoracic sympathetic trunks.", "Modulates airway smooth-muscle tone, gland secretion, and pulmonary reflex signals. The effects are distributed and do not amount to a single on/off control of breathing.", [0, 1.38, .08], ["lungs", "lung nerves", "pulmonary nerves", "vagus", "sympathetic", "parasympathetic", "bronchi"]),
   ...[
     ["C2", "Back of head and upper neck"], ["C3", "Side of neck"], ["C4", "Shoulder cape"], ["C5", "Outer upper arm"],
     ["C6", "Thumb side of forearm and hand"], ["C7", "Middle finger region"], ["C8", "Little-finger side of hand"],
@@ -331,7 +342,20 @@ export const NERVOUS_SYSTEM_CARDS: AnatomyCardData[] = [
     ["Lateral femoral cutaneous nerve", "Skin over the outer thigh"], ["Saphenous nerve", "Skin along the medial leg and foot"],
     ["Sural nerve", "Skin over the posterolateral lower leg and outer foot"], ["Superficial fibular nerve", "Most skin on the dorsum of the foot"],
     ["Ilioinguinal nerve", "Skin of the upper medial thigh and external genital region"], ["Posterior femoral cutaneous nerve", "Skin of the posterior thigh"],
-  ].map(([name, area]) => nerve(name, "Skin sensation maps", `Named cutaneous peripheral nerve supplying a variable skin territory: ${area.toLowerCase()}.`, "Carries sensory information from its skin territory toward the spinal cord. Cutaneous nerve territories overlap and do not match dermatomes exactly.", [0, 1.1, .15]) as AnatomyCardData),
+  ].map(([name, area]) => nerve(
+    name,
+    "Skin sensation maps",
+    name === "Intercostal nerves"
+      ? "Thoracic spinal nerve branches that run in the spaces between the ribs. The paired paths show their route from the back, around the side of the chest, and toward the front."
+      : `Named cutaneous peripheral nerve supplying a variable skin territory: ${area.toLowerCase()}.`,
+    name === "Intercostal nerves"
+      ? "Carry sensation from much of the chest wall and motor fibers to intercostal muscles; lower branches continue into the abdominal wall."
+      : "Carries sensory information from its skin territory toward the spinal cord. Cutaneous nerve territories overlap and do not match dermatomes exactly.",
+    [0, name === "Intercostal nerves" ? 1.25 : 1.1, .15],
+    name === "Intercostal nerves"
+      ? ["lungs", "lung nerves", "rib nerves", "chest wall", "breathing", "intercostal muscle", "thoracic spinal nerves", "T1-T11"]
+      : [],
+  ) as AnatomyCardData),
   nerve("Cutaneous receptors", "Skin sensation maps", "Free nerve endings and specialized endings in skin detect different kinds of stimuli.", "Encode touch, vibration, skin stretch, temperature, itch, and tissue-damaging stimuli for spinal and brain pathways.", [0, 1.45, .45]),
   nerve("Dorsal column–medial lemniscus pathway", "Sensory pathways", "Ascending spinal and brainstem pathway for discriminative touch and conscious proprioception.", "Carries vibration, fine touch, and position signals to the thalamus and sensory cortex, largely crossing in the medulla.", [0, 1.4, -.15]),
   nerve("Spinothalamic pathway", "Sensory pathways", "Anterolateral ascending pathway with early crossing in the spinal cord.", "Carries much of pain, temperature, itch, and crude touch information toward thalamic and cortical networks.", [0, 1.35, -.15]),
@@ -382,7 +406,7 @@ const AnatomyCardRow = React.memo(function AnatomyCardRow({
   return (
     <CardItem>
       <CopyDeepLinkButton title={card.name} targetPath={anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name)} />
-      <Card id={sidebarRouteTargetId(anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name))} $selected={isSelected} aria-pressed={isSelected} onClick={() => {
+      <Card type="button" id={sidebarRouteTargetId(anatomyCardRoute(card.model === "brain" ? "brain" : "nervous", card.name))} $selected={isSelected} aria-pressed={isSelected} onClick={() => {
         setSelectedArea(area);
         setModelVariant(card.model === "brain" ? "brain" : "anatomy");
       }}>
@@ -432,6 +456,9 @@ export function toModelArea(card: AnatomyCardData): Area {
     const throatSwallowingOverlay = THROAT_SWALLOWING_MUSCLE_PATHS[card.name];
     const tongueMuscleOverlay = TONGUE_MUSCLE_PATHS[card.name];
     const skinSensationOverlay = SKIN_SENSATION_PATHS[card.name];
+    const respiratoryMuscleOverlay = RESPIRATORY_MUSCLE_PATHS[card.name];
+    const respiratoryOrganOverlay = RESPIRATORY_ORGAN_PATHS[card.name];
+    const nasalAnatomyOverlay = NASAL_ANATOMY_OVERLAYS[card.name];
     const neuromuscularJunctionPaths = NEUROMUSCULAR_JUNCTION_PATHS[card.name];
     const nervePaths = card.name === "Cranial nerve VII Facial"
       ? undefined
@@ -442,7 +469,11 @@ export function toModelArea(card: AnatomyCardData): Area {
     const facialPoints = upperFaceShape
       ? upperFaceShape.paths.reduce((points, path) => points.concat(path), [] as [number, number, number][])
       : lowerFaceShapes?.reduce((points, { centerline }) => points.concat(centerline), [] as [number, number, number][]);
-    const overlayPoints = tongueMuscleOverlay?.paths.flatMap(({ points }) => points)
+    const overlayPoints = nasalAnatomyOverlay?.paths.flatMap(({ points }) => points)
+      ?? respiratoryOrganOverlay?.paths.flatMap(({ points }) => points)
+      ?? respiratoryOrganOverlay?.patches?.flat()
+      ?? respiratoryMuscleOverlay?.paths.flatMap(({ points }) => points)
+      ?? tongueMuscleOverlay?.paths.flatMap(({ points }) => points)
       ?? skinSensationOverlay?.paths.flatMap(({ points }) => points)
       ?? upperLimbOverlay?.paths.flatMap(({ points }) => points)
       ?? hipThighOverlay?.paths.flat()
@@ -522,6 +553,15 @@ const SEMANTIC_TAGS_BY_CARD: Record<string, string[]> = {
 };
 
 const RELATED_AREAS_BY_CARD: Record<string, { name: string; relation: string }[]> = {
+  "Nasal alae (nostril wings)": [{ name: "Nasalis", relation: "changes nostril shape by compressing or flaring the alae" }, { name: "Nasal sensory nerves (V1/V2)", relation: "carry sensation from nasal tissues" }],
+  "Nasal vestibule and nares": [{ name: "Nasal alae (nostril wings)", relation: "soft-tissue rims border the external openings" }, { name: "Nasal sensory nerves (V1/V2)", relation: "carry sensation from the nasal entrance and cavity" }],
+  "Nasal septum and conchae": [{ name: "Nasal sensory nerves (V1/V2)", relation: "carry general sensation from nasal mucosa" }, { name: "Cranial nerve I Olfactory", relation: "carries odor information from the nasal lining" }],
+  "Nasal sensory nerves (V1/V2)": [{ name: "Cranial nerve I Olfactory", relation: "general nasal sensation is distinct from smell" }, { name: "Nasal septum and conchae", relation: "sensory branches supply nasal mucosa" }],
+  "Lungs": [{ name: "Pulmonary autonomic plexus", relation: "autonomic fibers modulate airway and lung reflexes" }, { name: "Bronchial smooth muscle", relation: "changes the diameter of the conducting airways" }, { name: "Diaphragm", relation: "primary muscle driving quiet inspiration" }],
+  "Bronchial smooth muscle": [{ name: "Pulmonary autonomic plexus", relation: "autonomic fibers modulate airway smooth-muscle tone" }, { name: "Lungs", relation: "airway walls lie within the lungs" }],
+  "Intercostal muscles": [{ name: "Intercostal nerves", relation: "motor supply to the intercostal muscle layers" }, { name: "Diaphragm", relation: "works with the rib cage during breathing" }],
+  "Pulmonary autonomic plexus": [{ name: "Vagus nerve pathway", relation: "carries parasympathetic and visceral sensory fibers" }, { name: "Bronchial smooth muscle", relation: "autonomic input modulates airway tone" }, { name: "Lungs", relation: "plexus surrounds the lung roots" }],
+  "Intercostal nerves": [{ name: "Intercostal muscles", relation: "motor supply and chest-wall sensory pathways" }, { name: "Lungs", relation: "run along the rib cage surrounding the lungs" }],
   "Emotion and affective networks": [
     { name: "Amygdala", relation: "salience and emotional learning" },
     { name: "Insula", relation: "body-state and feeling integration" },

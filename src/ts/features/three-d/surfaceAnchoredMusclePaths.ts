@@ -56,6 +56,7 @@ function projectSourcePathToBodySurface(
   sourcePoints: ModelOffset[],
   surface: MuscleSurface = "anterolateral",
   maxProjectionDistance = 0.16,
+  surfaceLiftOverride?: number,
 ): ModelOffset[] {
   const bodySurface = prepareMuscleProjection(scene);
   const curve = new CatmullRomCurve3(sourcePoints.map((point) => new Vector3(...point)), false, "centripetal");
@@ -64,7 +65,7 @@ function projectSourcePathToBodySurface(
   raycaster.far = 0.7;
   // Keep the ribbon centerline nearly flush with the mesh. The glow already
   // adds a small visible radius, so a larger lift looks detached at grazing angles.
-  const surfaceLift = surface === "anterolateral" ? 0.0012 : 0.0035;
+  const surfaceLift = surfaceLiftOverride ?? (surface === "anterolateral" ? 0.0012 : 0.0035);
   const samples = Math.max(24, (sourcePoints.length - 1) * 6);
 
   const projectedPoints = Array.from({ length: samples + 1 }, (_, index): ModelOffset | null => {
@@ -144,13 +145,14 @@ export function getSurfaceAnchoredPaths(
   sourcePaths: ModelOffset[][],
   surface: MuscleSurface = "anterolateral",
   maxProjectionDistance = 0.16,
+  surfaceLiftOverride?: number,
 ): ModelOffset[][] {
   let sceneCache = surfaceAnchoredPathCache.get(scene);
   if (!sceneCache) {
     sceneCache = new Map();
     surfaceAnchoredPathCache.set(scene, sceneCache);
   }
-  const cacheKey = `${name}:${surface}:${maxProjectionDistance}`;
+  const cacheKey = `${name}:${surface}:${maxProjectionDistance}:${surfaceLiftOverride ?? "default"}`;
   const sourceFingerprint = sourcePaths
     .map((path) => path.map((point) => point.join(",")).join(";"))
     .join("|");
@@ -158,7 +160,7 @@ export function getSurfaceAnchoredPaths(
   const cachedPaths = sceneCache.get(fingerprintedCacheKey);
   if (cachedPaths) return cachedPaths;
   scene.updateWorldMatrix(true, true);
-  const anchoredPaths = sourcePaths.map((path) => projectSourcePathToBodySurface(scene, path, surface, maxProjectionDistance));
+  const anchoredPaths = sourcePaths.map((path) => projectSourcePathToBodySurface(scene, path, surface, maxProjectionDistance, surfaceLiftOverride));
   sceneCache.set(fingerprintedCacheKey, anchoredPaths);
   return anchoredPaths;
 }
@@ -175,6 +177,7 @@ export function getSurfaceAnchoredRibbonEdges(
   centerline: ModelOffset[],
   surface: MuscleSurface,
   halfWidth: number,
+  surfaceLiftOverride?: number,
 ): SurfaceRibbonEdges | null {
   if (centerline.length < 2) return null;
   const curve = new CatmullRomCurve3(centerline.map((point) => new Vector3(...point)), false, "centripetal");
@@ -195,8 +198,8 @@ export function getSurfaceAnchoredRibbonEdges(
     rightControls.push([right.x, right.y, right.z]);
   }
   const maxProjectionDistance = Math.max(halfWidth * 2.5, 0.035);
-  const left = getSurfaceAnchoredPaths(scene, `${name}:left:${halfWidth}`, [leftControls], surface, maxProjectionDistance)[0];
-  const right = getSurfaceAnchoredPaths(scene, `${name}:right:${halfWidth}`, [rightControls], surface, maxProjectionDistance)[0];
+  const left = getSurfaceAnchoredPaths(scene, `${name}:left:${halfWidth}`, [leftControls], surface, maxProjectionDistance, surfaceLiftOverride)[0];
+  const right = getSurfaceAnchoredPaths(scene, `${name}:right:${halfWidth}`, [rightControls], surface, maxProjectionDistance, surfaceLiftOverride)[0];
   if (left.length < 2 || right.length !== left.length) return null;
   return { left, right };
 }
