@@ -31,7 +31,9 @@ export const PostAuthLandingRedirect: React.FC<PostAuthLandingRedirectProps> = (
   const [pendingRedirect, setPendingRedirect] = useState<string | null>(null);
 
   const isProtectedEntry =
-    location.pathname === "/auth" || location.pathname === "/";
+    location.pathname === "/auth" ||
+    (location.pathname === "/" &&
+      new URLSearchParams(location.search).get("source") !== "fileSelection");
 
   // Auth check finished while still unauthenticated on a protected entry:
   // the login UI was shown to the user.

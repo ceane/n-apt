@@ -48,12 +48,22 @@ const PUBLIC_ROUTE_EXACT_PATHS = new Set([
   "/responsible-use",
   "/3d-model-gallery",
   "/game",
+  "/x-archive-formatter",
 ]);
 
 const PUBLIC_ROUTE_PREFIXES = ["/learn", "/questionnaire", "/3d-model"] as const;
 
-const isPublicRoutePath = (pathname: string): boolean =>
-  PUBLIC_ROUTE_EXACT_PATHS.has(pathname) ||
+export const isBackendIndependentRoute = (
+  pathname: string,
+  search = "",
+): boolean =>
+  pathname === "/file-playback" ||
+  ((pathname === "/" || pathname === "/visualizer") &&
+    new URLSearchParams(search).get("source") === "fileSelection") ||
+  PUBLIC_ROUTE_EXACT_PATHS.has(pathname);
+
+const isPublicRoutePath = (pathname: string, search = ""): boolean =>
+  isBackendIndependentRoute(pathname, search) ||
   PUBLIC_ROUTE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
@@ -952,6 +962,26 @@ const LoginCardActions = styled.div`
   width: 100%;
 `;
 
+const LoginCardLegalLinks = styled.nav`
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 18px;
+  margin-top: 18px;
+  padding-bottom: 8px;
+  font-size: 12px;
+
+  a {
+    color: ${(props) => props.theme.textSecondary};
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  a:hover {
+    color: ${(props) => props.theme.primary};
+  }
+`;
+
 const CardCopy = styled.span`
   display: flex;
   align-items: center;
@@ -1794,6 +1824,13 @@ export const AuthenticationUI = ({
                     )}
                   </>
                 )}
+                {authState === "server_down" && (
+                  <LoginCardLegalLinks aria-label="Legal information">
+                    <Link to="/terms">Terms of Use</Link>
+                    <Link to="/privacy">Privacy Policy</Link>
+                    <Link to="/license">License</Link>
+                  </LoginCardLegalLinks>
+                )}
               </LoginCardActions>
               </LoginCard>
             </LoginShowcase>
@@ -1909,7 +1946,10 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     handleRegisterPasskey,
     handleRegisterFidoKey,
   } = useAuthentication();
-  const isPublicRoute = isPublicRoutePath(location.pathname);
+  const isPublicRoute = isPublicRoutePath(
+    location.pathname,
+    location.search,
+  );
 
   if (isPublicRoute) {
     return <>{children}</>;

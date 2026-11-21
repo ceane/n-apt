@@ -54,7 +54,7 @@ export const AppBackButton: React.FC<AppBackButtonProps> = ({
   className,
 }) => {
   const { isAuthenticated } = useAuthentication();
-  const to = isAuthenticated ? "/get-started" : "/auth";
+  const to = isAuthenticated ? "/get-started" : "/";
   const label = isAuthenticated ? "Back to Start Page" : "Back to Sign In";
   const LinkComponent = variant === "bar" ? BarBackLink : SidebarBackLink;
 

@@ -7,6 +7,7 @@ import { CollapsedToggleButton } from "@n-apt/spectrum";
 import { ContentArea } from "@n-apt/app/Layout";
 import { useLocation } from "react-router";
 import { useSidebarNavigationScroll } from "@n-apt/app/hooks/useSidebarNavigationScroll";
+import { AuthenticatedOnly } from "@n-apt/app/auth/AuthenticatedOnly";
 
 const NavigationContainer = memo(styled.nav`
   display: flex;
@@ -93,7 +94,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               toggleRef={sidebarToggleRef}
             />
             {showRouteNavigation ? (
-              <SidebarRoutesNav pathname={path} onRouteClick={handleTabClick} />
+              <AuthenticatedOnly>
+                <SidebarRoutesNav pathname={path} onRouteClick={handleTabClick} />
+              </AuthenticatedOnly>
             ) : null}
             <SidebarContent>{sidebar}</SidebarContent>
           </NavigationContainer>

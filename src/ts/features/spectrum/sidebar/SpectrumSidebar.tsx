@@ -90,6 +90,7 @@ import {
 } from "@n-apt/settings/public/useSdrSettings";
 import { useLiveSampleRateControl } from "@n-apt/spectrum/hooks/useLiveSampleRateControl";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
+import { AuthenticatedOnly } from "@n-apt/app/auth/AuthenticatedOnly";
 import { useGeolocation } from "@n-apt/maps/public/useGeolocation";
 import { reverseGeocodeSnapshotLocation } from "@n-apt/capture";
 import { useSpectrumStore } from "@n-apt/spectrum/hooks/useSpectrumStore";
@@ -186,11 +187,6 @@ const SidebarNavigationLinkCards = memo(styled.div`
     justify-self: start;
   }
 `);
-
-const SPECTRUM_NAVIGATION_LINK_CARDS = [
-  START_PAGE_LINK_CARD,
-  LINGO_AND_LEARN_LINK_CARD,
-];
 
 const Section = memo(styled.div<{ $marginBottom?: string }>`
   display: grid;
@@ -3664,9 +3660,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       )}
 
       <SidebarNavigationLinkCards aria-label="More from N-APT">
-        {SPECTRUM_NAVIGATION_LINK_CARDS.map((card) => (
-          <LinkCardItemView key={card.title} {...card} />
-        ))}
+        <AuthenticatedOnly>
+          <LinkCardItemView {...START_PAGE_LINK_CARD} />
+        </AuthenticatedOnly>
+        <LinkCardItemView {...LINGO_AND_LEARN_LINK_CARD} />
       </SidebarNavigationLinkCards>
     </SidebarContent>
   );

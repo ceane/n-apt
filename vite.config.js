@@ -680,6 +680,17 @@ export default defineConfig(({ mode }) => {
     // endpoint breaks `vite --port <other-port>` and leaves the Router SPA
     // hydration fallback stuck on Loading N-APT.
     hmr: true,
+    watch: {
+      ignored: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/target/**",
+        "**/test/**",
+        "**/tests/**",
+        "**/dist/**",
+        "**/.redis_data/**",
+      ],
+    },
     fs: {
       allow: fsAllow,
     },

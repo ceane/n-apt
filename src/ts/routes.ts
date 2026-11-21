@@ -27,6 +27,7 @@ export default [
   layout("./app/routes/AuthenticatedRouteLayout.tsx", [
     route("auth", "./app/routes/FullApplicationRoute.tsx", { id: "auth" }),
     route("get-started", "./app/routes/GetStartedRoute.tsx"),
+    route("file-playback", "./app/routes/FilePlaybackRoute.tsx"),
     index("./app/routes/FullApplicationRoute.tsx", { id: "index" }),
     route("visualizer", "./app/routes/FullApplicationRoute.tsx", {
       id: "visualizer",
