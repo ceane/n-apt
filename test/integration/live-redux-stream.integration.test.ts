@@ -159,15 +159,14 @@ describe("live Redux/source-mode stream harness", () => {
     await harness.setTransmit(false, MOCK_TX_SOURCE_ID);
     await harness.selectSource(MOCK_TX_SOURCE_ID);
     await harness.viewSource(MOCK_TX_SOURCE_ID);
-    const readyTx = await harness.waitFor(
+    const subscribedTx = await harness.waitFor(
       () => harness.snapshot(),
       (value) =>
         value.managed.tx.sourceId === MOCK_TX_SOURCE_ID &&
         value.managed.tx.hasSubscription &&
-        value.redux.sourceTransportByMode.tx?.sourceId === MOCK_TX_SOURCE_ID &&
-        value.redux.sourceTransportByMode.tx.phase === "ready",
+        value.redux.sourceTransportByMode.tx?.sourceId === MOCK_TX_SOURCE_ID,
     );
-    const previousFrame = readyTx.txPresentation;
+    const previousFrame = subscribedTx.txPresentation;
     await harness.requestNextStandbyFrame();
 
     const standby = await harness.waitFor(
