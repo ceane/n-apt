@@ -29,7 +29,7 @@ V7 adds offline FIDO unlock metadata to FIDO-vault captures:
 
 The file contains no raw vault key, PRF output, or entered password. The wrapper and credential ID let a guest browser derive the key locally with the enrolled security key. Password recovery uses the recovery password used when the FIDO vault was enrolled. Regular password-encrypted files use the app's existing PBKDF2-derived key.
 
-A protected `.enc` copy adds an outer AES-GCM envelope. Guest playback needs the capture password and the 32-byte per-capture salt for that envelope. Decryption and IQ decoding run in the browser; playback does not call the app server or require a logged-in session. FIDO unlock requires a secure browser context and a security key that supports the WebAuthn PRF extension.
+An Increased Protection `.iq.enc` copy adds an outer AES-GCM envelope. Guest playback needs the capture password and the 32-byte per-capture salt for that envelope. Decryption and IQ decoding run in the browser; playback does not call the app server or require a logged-in session. FIDO unlock requires a secure browser context, the WebAuthn relying-party ID used at enrollment, and a security key that supports the PRF extension.
 
 V6 remains readable. The V6 sections below describe the shared binary layout; their version-specific fields apply to V6 files unless stated otherwise.
 

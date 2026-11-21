@@ -284,28 +284,35 @@ export const useStitchingLogic = ({
       const effectiveAesKey =
         offlineMode === "password" ? offlineKey : aesKeyRef.current;
       let effectiveFidoVaultKey = fidoVaultKeyRef.current;
+      let offlineFidoVaultKeyBytes: Uint8Array | null = null;
       if (offlineMode === "fido" && offlineKey) {
-        effectiveFidoVaultKey = new Uint8Array(
+        offlineFidoVaultKeyBytes = new Uint8Array(
           await crypto.subtle.exportKey("raw", offlineKey),
         );
+        effectiveFidoVaultKey = offlineFidoVaultKeyBytes;
       }
-      const result = await fileWorkerManager.stitchFiles(
-        currentFiles,
-        stitchSourceSettingsRef.current,
-        fftSize,
-        (progress: any) => {
-          setStitchStatus(
-            progress.status ||
-              `Loading ${progress.current}/${progress.total} files...`,
-            "loading",
-          );
-        },
-        effectiveAesKey,
-        sampleRateOptions, // Pass dynamic sample rate options
-        allowIntegrityFailure,
-        effectiveFidoVaultKey,
-        offlineCaptureSaltRef.current,
-      );
+      let result: any;
+      try {
+        result = await fileWorkerManager.stitchFiles(
+          currentFiles,
+          stitchSourceSettingsRef.current,
+          fftSize,
+          (progress: any) => {
+            setStitchStatus(
+              progress.status ||
+                `Loading ${progress.current}/${progress.total} files...`,
+              "loading",
+            );
+          },
+          effectiveAesKey,
+          sampleRateOptions, // Pass dynamic sample rate options
+          allowIntegrityFailure,
+          effectiveFidoVaultKey,
+          offlineCaptureSaltRef.current,
+        );
+      } finally {
+        offlineFidoVaultKeyBytes?.fill(0);
+      }
 
       // A newer selection may have started processing while this worker
       // request was running. Do not let an older result replace it.
