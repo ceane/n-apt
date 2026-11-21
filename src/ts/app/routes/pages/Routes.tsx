@@ -49,11 +49,6 @@ const WebUsbExperimentRoute = lazy(() =>
     default: m.WebUsbExperimentRoute,
   })),
 );
-const TransformersRoute = lazy(() =>
-  import("@n-apt/app/routes/pages/TransformersRoute").then((m) => ({
-    default: m.TransformersRoute,
-  })),
-);
 const Model3DGalleryRoute = lazy(() =>
   import("@n-apt/app/routes/pages/Model3DGalleryRoute").then((m) => ({
     default: m.Model3DGalleryRoute,
@@ -304,7 +299,6 @@ const AppShellLayout: React.FC = () => {
             element={<AntiAliasingDiagnostics />}
           />
           <Route path="/3d-model-gallery" element={<Model3DGalleryRoute />} />
-          <Route path="/transformers" element={<TransformersRoute />} />
           <Route path="/terms" element={<LegalDocumentRoute />} />
           <Route path="/privacy" element={<LegalDocumentRoute />} />
           <Route path="/license" element={<LegalDocumentRoute />} />

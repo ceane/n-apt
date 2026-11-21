@@ -149,13 +149,6 @@ jest.mock("@n-apt/app/routes/pages/VFOGridDemoRoute", () => ({
   VFOGridDemoRoute: () => <div data-testid="vfo-route">VFO Route</div>,
 }));
 
-jest.mock("@n-apt/app/routes/pages/TransformersRoute", () => ({
-  __esModule: true,
-  TransformersRoute: () => (
-    <div data-testid="transformers-route">Transformers Route</div>
-  ),
-}));
-
 jest.mock("@n-apt/app/routes/pages/LogoutRoute", () => ({
   __esModule: true,
   LogoutRoute: () => <div data-testid="logout-route">Logout Route</div>,
@@ -221,5 +214,26 @@ describe("AppRoutes auth regression", () => {
     );
 
     expect(routesSource).not.toContain('path="/lite"');
+  });
+
+  it("does not register the removed Transformers demo or dependency", () => {
+    const routesSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "src/ts/app/routes/pages/Routes.tsx",
+      ),
+      "utf8",
+    );
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
+    ) as { dependencies: Record<string, string> };
+
+    expect(routesSource).not.toContain('path="/transformers"');
+    expect(packageJson.dependencies).not.toHaveProperty(
+      "@huggingface/transformers",
+    );
+    expect(
+      fs.existsSync(path.resolve(process.cwd(), "public/transformers-test.html")),
+    ).toBe(false);
   });
 });
