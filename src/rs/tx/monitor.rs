@@ -8,7 +8,8 @@ use tokio::sync::{broadcast, Mutex};
 use crate::sdr::processor::SdrProcessor;
 use crate::server::shared_state::SharedState;
 use crate::server::stream_manager::{
-  StreamKey, StreamMode, StreamOptions, StreamingSourceModeManager,
+  StreamError, StreamKey, StreamMode, StreamOptions,
+  StreamingSourceModeManager,
 };
 use crate::server::websocket_server::complex_baseband;
 use crate::server::websocket_server::{
@@ -39,8 +40,8 @@ pub struct TxStatusRequest {
 pub enum StandbyPreviewOutcome {
   /// A standby preview frame was published for the requesting source.
   Published,
-  /// No standby request is armed at all; the general paused-frame path may
-  /// wake normally.
+  /// No preview frame was published. The request may be absent, Tx may still
+  /// be active, or the stream may be waiting for its options to apply.
   NoRequest,
 }
 
@@ -252,7 +253,7 @@ impl TxWorker {
         crate::server::websocket_server::MOCK_TX_SOURCE_ID.to_string(),
         StreamMode::Tx,
       );
-      let _ = self.stream_manager.publish_monitor_iq_frame_with_metadata(
+      let publish_result = self.stream_manager.publish_monitor_iq_frame_with_metadata(
         &tx_key,
         frame.timestamp,
         frame.center_frequency_hz.map(|frequency| frequency as u64),
@@ -260,8 +261,20 @@ impl TxWorker {
         Arc::new(frame.iq_data.clone()),
         true,
       );
-      self.shared_state.clear_paused_frame_request();
-      return StandbyPreviewOutcome::Published;
+      return match publish_result {
+        Ok(_) => {
+          self.shared_state.clear_paused_frame_request();
+          StandbyPreviewOutcome::Published
+        }
+        // Keep the request armed. The websocket loop retries after the stream
+        // options acknowledgement clears this temporary publication gate.
+        Err(StreamError::OptionsPending) => StandbyPreviewOutcome::NoRequest,
+        Err(error) => {
+          log::warn!("Unable to publish Mock Tx standby preview: {error}");
+          self.shared_state.clear_paused_frame_request();
+          StandbyPreviewOutcome::NoRequest
+        }
+      };
     }
 
     // Half-duplex hardware path — publish a standby preview so the requested
@@ -303,7 +316,7 @@ impl TxWorker {
         let published_iq = Arc::new(frame.iq_data.clone());
         (frame, published_iq)
       };
-    let _ = self.stream_manager.publish_monitor_iq_frame_with_metadata(
+    let publish_result = self.stream_manager.publish_monitor_iq_frame_with_metadata(
       &hardware_tx_key,
       frame.timestamp,
       frame.center_frequency_hz.map(|frequency| frequency as u64),
@@ -311,14 +324,29 @@ impl TxWorker {
       published_iq,
       true,
     );
-    self.shared_state.clear_paused_frame_request();
-    StandbyPreviewOutcome::Published
+    match publish_result {
+      Ok(_) => {
+        self.shared_state.clear_paused_frame_request();
+        StandbyPreviewOutcome::Published
+      }
+      // Keep the request armed. The websocket loop retries after the stream
+      // options acknowledgement clears this temporary publication gate.
+      Err(StreamError::OptionsPending) => StandbyPreviewOutcome::NoRequest,
+      Err(error) => {
+        log::warn!(
+          "Unable to publish {} standby preview: {error}",
+          request_owner
+        );
+        self.shared_state.clear_paused_frame_request();
+        StandbyPreviewOutcome::NoRequest
+      }
+    }
   }
 
   pub async fn apply_status(
     &self,
     request: TxStatusRequest,
-  ) -> anyhow::Result<()> {
+  ) -> anyhow::Result<StandbyPreviewOutcome> {
     let TxStatusRequest {
       enabled,
       device,
@@ -575,7 +603,17 @@ impl TxWorker {
       broadcast_device_status(&self.shared_state, &self.broadcast_tx);
     }
 
-    Ok(())
+    // Stop Tx can race a subscriber's standby-preview request over the
+    // separate managed-stream WebSocket. Keep that request armed while TX is
+    // active, then fulfill it as soon as the stop is applied.
+    let standby_preview =
+      if !enabled && self.shared_state.paused_frame_request_owner().is_some() {
+        self.try_publish_standby_preview()
+      } else {
+        StandbyPreviewOutcome::NoRequest
+      };
+
+    Ok(standby_preview)
   }
 }
 
@@ -583,7 +621,7 @@ pub use crate::tx::ifft::synthesize_mock_tx_monitor_iq;
 
 #[cfg(test)]
 mod tests {
-  use super::{StandbyPreviewOutcome, TxWorker};
+  use super::{StandbyPreviewOutcome, TxStatusRequest, TxWorker};
   use crate::sdr::processor::SdrProcessor;
   use crate::server::shared_state::SharedState;
   use crate::server::stream_manager::{
@@ -595,6 +633,106 @@ mod tests {
   use std::sync::Arc;
   use std::time::Duration;
   use tokio::sync::{broadcast, Mutex};
+
+  #[tokio::test]
+  #[serial]
+  async fn standby_preview_stays_queued_until_stream_options_apply() {
+    std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
+    crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
+
+    let shared = SharedState::new(crate::infrastructure::redis::test_redis_url());
+    *shared.device_profile.lock().unwrap() =
+      crate::server::websocket_server::sources::build_device_profile(
+        "mock_tx",
+      );
+    shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
+    let stream_manager = StreamingSourceModeManager::new(Duration::from_millis(20));
+    let key = StreamKey::new("mock-tx", StreamMode::Tx);
+    let tx_options = TxStreamOptions {
+      center_frequency_hz: 137_100_000,
+      sample_rate_hz: 2_400_000,
+      bandwidth_hz: 2_400_000,
+      view_center_hz: Some(137_100_000),
+      view_sample_rate_hz: Some(3_200_000),
+      signal: "wifi".to_string(),
+      power_dbm: -18.0,
+      ifft_size: 1024,
+    };
+    crate::server::websocket_handlers::apply_tx_stream_options(
+      &tx_options,
+      true,
+    );
+    let options = StreamOptions::Tx(tx_options);
+    let mut subscription = stream_manager
+      .subscribe(key.clone(), options.clone())
+      .expect("Mock Tx stream should subscribe");
+    stream_manager
+      .request_next_frame(&key, subscription.subscription_id())
+      .expect("Mock Tx preview should be armed for its subscriber");
+    stream_manager
+      .update_options_pending(&key, options.clone())
+      .expect("Mock Tx stream options should become pending");
+    shared.mark_paused_frame_requested("mock-tx");
+
+    let (broadcast_tx, _) = broadcast::channel(8);
+    let worker = TxWorker::new(
+      Arc::new(Mutex::new(
+        SdrProcessor::new_mock_apt().expect("mock processor"),
+      )),
+      shared.clone(),
+      broadcast_tx,
+      stream_manager.clone(),
+    );
+
+    assert_eq!(
+      worker
+        .apply_status(TxStatusRequest {
+          enabled: false,
+          device: "Mock Tx".to_string(),
+          tx_signal: None,
+          center_frequency_hz: None,
+          sample_rate_hz: None,
+          bandwidth_hz: None,
+          tx_ifft_size: None,
+          power_dbm: None,
+          lna_gain_db: None,
+          vga_gain_db: None,
+          amp_enabled: None,
+          tuner_agc: None,
+          rtl_agc: None,
+          ppm: None,
+        })
+        .await
+        .expect("Mock Tx should stop cleanly"),
+      StandbyPreviewOutcome::NoRequest,
+      "a preview is not published while the subscriber's stream options are pending"
+    );
+    assert_eq!(
+      shared.paused_frame_request_owner().as_deref(),
+      Some("mock-tx"),
+      "the request must remain armed so it can be retried after option acknowledgement"
+    );
+
+    stream_manager
+      .confirm_options_applied(&key, options)
+      .expect("pending Mock Tx stream options should apply");
+    assert_eq!(
+      worker.try_publish_standby_preview(),
+      StandbyPreviewOutcome::Published
+    );
+
+    loop {
+      let event = tokio::time::timeout(Duration::from_millis(100), subscription.recv())
+        .await
+        .expect("the queued preview should arrive after options apply")
+        .expect("Mock Tx stream should remain open");
+      if let StreamEvent::Frame(frame) = event {
+        assert!(frame.is_tx_preview);
+        assert_eq!(frame.key, key);
+        break;
+      }
+    }
+  }
 
   #[tokio::test]
   #[serial]
