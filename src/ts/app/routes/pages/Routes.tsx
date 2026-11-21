@@ -42,19 +42,9 @@ const AntiAliasingDiagnostics = lazy(() =>
     default: m.AntiAliasingDiagnostics,
   })),
 );
-const PretextDemoRoute = lazy(() =>
-  import("@n-apt/app/routes/pages/PretextDemoRoute").then((m) => ({
-    default: m.PretextDemoRoute,
-  })),
-);
 const WebUsbExperimentRoute = lazy(() =>
   import("@n-apt/app/routes/pages/WebUsbExperimentRoute").then((m) => ({
     default: m.WebUsbExperimentRoute,
-  })),
-);
-const VFOGridDemoRoute = lazy(() =>
-  import("@n-apt/app/routes/pages/VFOGridDemoRoute").then((m) => ({
-    default: m.VFOGridDemoRoute,
   })),
 );
 const TransformersRoute = lazy(() =>
@@ -304,8 +294,6 @@ const AppShellLayout: React.FC = () => {
             element={<AntiAliasingDiagnostics />}
           />
           <Route path="/3d-model-gallery" element={<Model3DGalleryRoute />} />
-          <Route path="/pretext-demo" element={<PretextDemoRoute />} />
-          <Route path="/vfo-grid-demo" element={<VFOGridDemoRoute />} />
           <Route path="/transformers" element={<TransformersRoute />} />
           <Route path="/terms" element={<LegalDocumentRoute />} />
           <Route path="/privacy" element={<LegalDocumentRoute />} />

@@ -27,6 +27,7 @@ export default [
   layout("./app/routes/AuthenticatedRouteLayout.tsx", [
     route("auth", "./app/routes/FullApplicationRoute.tsx", { id: "auth" }),
     route("get-started", "./app/routes/GetStartedRoute.tsx"),
+    route("file-playback", "./app/routes/FilePlaybackRoute.tsx"),
     index("./app/routes/FullApplicationRoute.tsx", { id: "index" }),
     route("visualizer", "./app/routes/FullApplicationRoute.tsx", {
       id: "visualizer",
@@ -64,12 +65,6 @@ export default [
         id: "anti-aliasing",
       },
     ),
-    route("pretext-demo", "./app/routes/FullApplicationRoute.tsx", {
-      id: "pretext-demo",
-    }),
-    route("vfo-grid-demo", "./app/routes/FullApplicationRoute.tsx", {
-      id: "vfo-grid-demo",
-    }),
     route("transformers", "./app/routes/FullApplicationRoute.tsx", {
       id: "transformers",
     }),

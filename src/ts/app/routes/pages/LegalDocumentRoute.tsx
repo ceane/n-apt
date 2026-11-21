@@ -10,7 +10,7 @@ import {
   PublicSectionLink,
   PublicShell,
 } from "@n-apt/layout/AppPublicPageLayout";
-import licenseText from "../../../../../LICENSE?raw";
+import licenseText from "../../../../../LICENSE.md?raw";
 import responsibleUseText from "../../../../../RESPONSIBLE_USE.md?raw";
 
 const Body = styled.article`
