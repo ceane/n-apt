@@ -196,26 +196,36 @@ export async function verifyCaptureArtifact(
   const extension = expected.filename.toLowerCase().split(".").pop();
   if (extension === "iq") {
     const { metadata, frameUpdates } = parseIqArtifact(bytes);
-    if (metadata.format !== "iq" || metadata.format_version !== 6) {
-      throw new Error("Downloaded IQ artifact is not V6");
+    if (
+      metadata.format !== "iq" ||
+      typeof metadata.format_version !== "number" ||
+      metadata.format_version < 6 ||
+      metadata.format_version > 7
+    ) {
+      throw new Error("Downloaded IQ artifact is not V6 or V7");
     }
     await verifyEmbeddedIntegrity(bytes, metadata);
     return {
       format: "iq",
-      formatVersion: 6,
+      formatVersion: metadata.format_version,
       frameUpdateCount: verifyFrameUpdates(frameUpdates),
       checksum,
     };
   }
   if (extension === "napt") {
     const { metadata, frameUpdates } = parseNaptArtifact(bytes);
-    if (metadata.format !== "napt" || metadata.format_version !== 6) {
-      throw new Error("Downloaded NAPT artifact is not V6");
+    if (
+      metadata.format !== "napt" ||
+      typeof metadata.format_version !== "number" ||
+      metadata.format_version < 6 ||
+      metadata.format_version > 7
+    ) {
+      throw new Error("Downloaded NAPT artifact is not V6 or V7");
     }
     await verifyEmbeddedIntegrity(bytes, metadata);
     return {
       format: "napt",
-      formatVersion: 6,
+      formatVersion: metadata.format_version,
       frameUpdateCount: verifyFrameUpdates(frameUpdates),
       checksum,
     };

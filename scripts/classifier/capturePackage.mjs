@@ -78,7 +78,7 @@ function trailerIntegrity(bytes, metadata) {
     length < 24 ||
     offset + length > bytes.byteLength
   ) {
-    throw new Error("V6 capture has an invalid integrity trailer range");
+    throw new Error("V6/V7 capture has an invalid integrity trailer range");
   }
   const trailer = bytes.subarray(offset, offset + length);
   if (
@@ -86,7 +86,7 @@ function trailerIntegrity(bytes, metadata) {
     trailer[8] !== 2 ||
     readU64(trailer, 16) + 24 !== trailer.byteLength
   ) {
-    throw new Error("V6 capture has an invalid integrity trailer");
+    throw new Error("V6/V7 capture has an invalid integrity trailer");
   }
   const parsed = JSON.parse(Buffer.from(trailer.subarray(24)).toString("utf8"));
   if (
@@ -94,7 +94,7 @@ function trailerIntegrity(bytes, metadata) {
     parsed.integrity.scope !== INTEGRITY_SCOPE ||
     !/^[\da-f]{64}$/i.test(parsed.integrity.digest)
   ) {
-    throw new Error("V6 capture has incomplete trailer integrity metadata");
+    throw new Error("V6/V7 capture has incomplete trailer integrity metadata");
   }
   return parsed.integrity;
 }
@@ -103,14 +103,14 @@ export function decodeV6IqContainer(bytes, metadata, decryptedPayload = null) {
   if (
     Buffer.from(bytes.subarray(0, 8)).toString("ascii") !== "NAPT-IQ3" ||
     metadata?.format !== "iq" ||
-    metadata?.format_version !== 6 ||
+    ![6, 7].includes(metadata?.format_version) ||
     metadata?.interleaving !== "IQ" ||
     metadata?.sample_encoding?.element_type !== "integer" ||
     metadata?.sample_encoding?.bits_per_element !== 8 ||
     metadata?.sample_encoding?.signed !== false
   ) {
     throw new Error(
-      "Only V6 unsigned 8-bit interleaved IQ containers are supported",
+      "Only V6/V7 unsigned 8-bit interleaved IQ containers are supported",
     );
   }
   const metadataLength = readU64(bytes, 8);
@@ -422,7 +422,7 @@ function existingIdentity(
         labels.captureId !== verifiedDigest)
     ) {
       throw new Error(
-        "Bound label sidecar checksum does not match the verified V6 capture",
+        "Bound label sidecar checksum does not match the verified V6/V7 capture",
       );
     }
     if (
@@ -498,8 +498,12 @@ async function readCaptureIdentity(
       checksum: rawFileHash,
     });
     const metadata = metadataForV6(bytes, extension);
-    if (verified.formatVersion !== 6 || metadata.format_version !== 6)
-      throw new Error("Only verified V6 IQ/NAPT captures are packageable");
+    if (
+      verified.formatVersion < 6 ||
+      verified.formatVersion > 7 ||
+      metadata.format_version !== verified.formatVersion
+    )
+      throw new Error("Only verified V6 or V7 IQ/NAPT captures are packageable");
     const integrity = trailerIntegrity(bytes, metadata);
     const identity = {
       kind: "v6-trailer-sha256",

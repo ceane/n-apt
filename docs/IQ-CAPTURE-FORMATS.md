@@ -17,6 +17,22 @@ There is no industry standard IQ capture format, so the app writes its own three
 - **`.iq`:** Uses the app's canonical binary container. The payload can be encrypted or plaintext.
 - **`.wav`:** Uses RIFF/WAVE with custom N-APT metadata and channel chunks. Encryption is not supported.
 
+## V7 guest playback
+
+V7 keeps the V6 binary layout, channel and frame offsets, version-2 trailer, and SHA-256 integrity record. New `.iq` and `.napt` captures use `format_version: 7`.
+
+V7 adds offline FIDO unlock metadata to FIDO-vault captures:
+
+- `fido_vault_wrapper` holds the existing authenticated, encrypted wrapper for the vault master key.
+- `fido_vault_credential_id` is the public WebAuthn credential ID needed to ask the enrolled security key for its PRF result.
+- `vault_key_recovery` remains the password-recovery wrapper.
+
+The file contains no raw vault key, PRF output, or entered password. The wrapper and credential ID let a guest browser derive the key locally with the enrolled security key. Password recovery uses the recovery password used when the FIDO vault was enrolled. Regular password-encrypted files use the app's existing PBKDF2-derived key.
+
+A protected `.enc` copy adds an outer AES-GCM envelope. Guest playback needs the capture password and the 32-byte per-capture salt for that envelope. Decryption and IQ decoding run in the browser; playback does not call the app server or require a logged-in session. FIDO unlock requires a secure browser context and a security key that supports the WebAuthn PRF extension.
+
+V6 remains readable. The V6 sections below describe the shared binary layout; their version-specific fields apply to V6 files unless stated otherwise.
+
 ## What the files contain
 
 All formats store the raw samples as:
@@ -32,7 +48,7 @@ I0, Q0, I1, Q1, I2, Q2, ...
 
 ### Offset units
 
-V6 has two offset units. Keep them distinct:
+V6 and V7 have two offset units. Keep them distinct:
 
 - **Chunk `sample_offset`:** complex samples, within a channel. One step is one I/Q pair, or two bytes.
 - **Frame-update `sample_offset`:** bytes, within that channel's raw I/Q stream. It points to the first byte of the frame associated with the update.
@@ -57,7 +73,7 @@ The header starts with the eight-byte magic `NAPT-IQ3`. It then stores four litt
 
 Metadata includes:
 
-- `format: "iq"`, `format_version: 6`, and `interleaving: "IQ"`
+- `format: "iq"`, `format_version: 6` for V6 or `7` for V7, and `interleaving: "IQ"`
 - `sample_encoding`
 - center, capture, and hardware sample rates
 - FFT size and window, duration, frame rate, gain, and PPM
@@ -206,22 +222,22 @@ When the backend writes an extra protected copy for destinations such as Aspect 
 
 4. It stores the salt only in Redis database 1 under `capture-protection:<jobId>` as a raw 64-character hexadecimal string.
 
-The salt is deliberately absent from NAPTENC2. The backend must retrieve it from Redis to derive the capture key. Current Rust and offline tools use the same raw-hex Redis value; readers also accept the JSON-quoted string written by earlier Rust builds. The outer wrapper does not change the inner `.napt`, `.iq`, or `.wav` file, including V6 metadata and checksums.
+The salt is deliberately absent from NAPTENC2. The backend must retrieve it from Redis to derive the capture key. Current Rust and offline tools use the same raw-hex Redis value; readers also accept the JSON-quoted string written by earlier Rust builds. The outer wrapper does not change the inner `.napt`, `.iq`, or `.wav` file, including V6 or V7 metadata and checksums.
 
 NAPTENC1 is the legacy envelope and includes its salt in the file. It does not provide the Redis-only protection described here. New Increased protection writes use NAPTENC2.
 
-To migrate a legacy protected V6 `.iq.enc` file, run the script with its capture job ID and Redis connection:
+To migrate a legacy protected V6/V7 `.iq.enc` file, run the script with its capture job ID and Redis connection:
 
 ```sh
 REDIS_URL=redis://localhost:6379 node scripts/migrate_protected_captures.mjs \
   --input capture.iq.enc --job-id <job-id> --restore-missing-redis-record --dry-run
 ```
 
-For a missing Redis record, `--restore-missing-redis-record` asks the script to authenticate the legacy file with its embedded salt and verify the inner V6 checksum before writing that salt with Redis `SET NX`. A dry run performs all validation but does not write Redis. Remove `--dry-run` to restore the missing record and write a separate `<input>.v2.enc` file. Add `--restore-redis-only` if you only want to restore Redis and do not want the script to create a converted file. The script does not replace or delete the source. It refuses conflicting Redis values and existing output paths, verifies the new encrypted bytes, and leaves the original recoverable if the output step fails. Only publish the converted file after reviewing it.
+For a missing Redis record, `--restore-missing-redis-record` asks the script to authenticate the legacy file with its embedded salt and verify the inner V6/V7 integrity stamp before writing that salt with Redis `SET NX`. A dry run performs all validation but does not write Redis. Remove `--dry-run` to restore the missing record and write a separate `<input>.v2.enc` file. Add `--restore-redis-only` if you only want to restore Redis and do not want the script to create a converted file. The script does not replace or delete the source. It refuses conflicting Redis values and existing output paths, verifies the new encrypted bytes, and leaves the original recoverable if the output step fails. Only publish the converted file after reviewing it.
 
 ### Classifier archives
 
-The offline classifier archive writer also encrypts V6 `.iq` payloads with a per-capture key derived from the vault key and a random 32-byte salt. It stores that salt in Redis DB 1 under `capture-protection:<source-capture-checksum>`; the package descriptor stores only that Redis key name. The classifier reader looks up the salt in Redis when preparing the archived capture. It does not create a replacement salt when a record is missing. Legacy globally keyed V6 `.iq` captures are rewrapped during archive, with their frame section and offsets retained and the V6 checksum recalculated and verified.
+The offline classifier archive writer also encrypts V6/V7 `.iq` payloads with a per-capture key derived from the vault key and a random 32-byte salt. It stores that salt in Redis DB 1 under `capture-protection:<source-capture-checksum>`; the package descriptor stores only that Redis key name. The classifier reader looks up the salt in Redis when preparing the archived capture. It does not create a replacement salt when a record is missing. Legacy globally keyed V6 or V7 `.iq` captures are rewrapped during archive, with their frame section and offsets retained and the V6/V7 integrity stamp recalculated and verified.
 
 Run `node --import tsx --test test/classifier/capture-salt-backup.integration.test.mjs` for the Redis backup proof. It launches isolated disposable Redis instances over private Unix sockets, creates a real RDB backup, restores it into a fresh instance, and verifies that the restored salt decrypts a generated V6 capture byte-for-byte. It does not connect to the configured Redis server or read `.env.local`.
 
@@ -244,7 +260,7 @@ For a local Redis installation, keep `.env.local` and Redis persistence files su
 
 ## Related implementation
 
-- Backend writer and V6 IQ codec: `src/rs/server/utils.rs`, `src/rs/server/iq_format.rs`
+- Backend writer and V7 IQ codec: `src/rs/server/utils.rs`, `src/rs/server/iq_format.rs`
 - WebUSB writers and encoders: `src/ts/webusb/iqCapture.worker.ts`, `src/ts/webusb/iqCaptureFormat.ts`
 - Frontend file reader: `src/ts/workers/fileWorker.ts`
 - Backend cryptography and online-copy envelope: `src/rs/crypto/mod.rs`, `src/rs/server/http_endpoints.rs`

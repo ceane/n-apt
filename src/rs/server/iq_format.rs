@@ -9,10 +9,11 @@ const INTEGRITY_PLACEHOLDER: &str =
   "0000000000000000000000000000000000000000000000000000000000000000";
 
 // I/Q format milestones from repository history: v1-v2 are legacy/undated;
-// v3 (2026-07-18), v4 (2026-08-05), v5 (2026-09-14), v6 (2026-09-23, WIP).
+// v3 (2026-07-18), v4 (2026-08-05), v5 (2026-09-14), v6 (2026-09-23),
+// and v7 (guest-mode local file playback).
 // Keep format_version as the latest schema; upgraded files may additionally
 // carry originalVersion to record the source version.
-pub const IQ_FORMAT_VERSION: u16 = 6;
+pub const IQ_FORMAT_VERSION: u16 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IqMetadata {
@@ -466,7 +467,7 @@ mod tests {
   }
 
   #[test]
-  fn v6_round_trips_section_index_and_readable_trailer() {
+  fn v7_round_trips_section_index_and_readable_trailer() {
     let mut metadata = IqMetadata::default();
     metadata
       .fields
@@ -488,7 +489,7 @@ mod tests {
 
     let encoded = encode(&file, None).expect("encode v4 IQ");
     let decoded = decode(&encoded, None).expect("decode v4 IQ");
-    assert_eq!(decoded.metadata.format_version, 6);
+    assert_eq!(decoded.metadata.format_version, 7);
     assert_eq!(
       decoded.metadata.fields["originalVersion"],
       serde_json::json!(5)
@@ -522,7 +523,7 @@ mod tests {
   }
 
   #[test]
-  fn v6_preserves_channel_identity_for_frame_updates() {
+  fn v7_preserves_channel_identity_for_frame_updates() {
     let frame: FrameUpdate = serde_json::from_value(serde_json::json!({
       "sample_offset": 4,
       "timestamp_us": 25,
@@ -542,8 +543,8 @@ mod tests {
       trailer: None,
     };
 
-    let decoded = decode(&encode(&file, None).expect("encode V6"), None)
-      .expect("decode V6");
+    let decoded = decode(&encode(&file, None).expect("encode V7"), None)
+      .expect("decode V7");
     let decoded_frame = serde_json::to_value(&decoded.frames[0])
       .expect("serialize decoded frame update");
     assert_eq!(decoded_frame["channel"], 1);

@@ -98,7 +98,7 @@ function inspectIq(bytes) {
   if (bytes[32] !== 1)
     return { encrypted: false, reason: "NAPT-IQ3 payload flag is plaintext" };
   const version = metadata.format_version ?? 3;
-  if (!Number.isInteger(version) || version < 3 || version > 6) {
+  if (!Number.isInteger(version) || version < 3 || version > 7) {
     return {
       encrypted: false,
       reason: `unsupported IQ version ${String(version)}`,

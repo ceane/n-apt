@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Encrypts NAPT-IQ3 v3-v6 captures in place of a separate output file.
+// Encrypts NAPT-IQ3 v3-v7 captures in place of a separate output file.
 // Usage: node scripts/encrypt_iq_capture.mjs input.iq [output.iq]
 // Passphrase: UNSAFE_LOCAL_USER_PASSWORD or N_APT_PASSKEY from the shell env.
 
@@ -169,7 +169,7 @@ export function inspectIqCapture(input, { allowEncrypted = false } = {}) {
   if (
     !Number.isInteger(formatVersion) ||
     formatVersion < 3 ||
-    formatVersion > 6
+    formatVersion > 7
   ) {
     throw new Error(`Unsupported I/Q format version: ${String(formatVersion)}`);
   }

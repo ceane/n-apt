@@ -105,6 +105,7 @@ import { IQCaptureControlsSection } from "@n-apt/capture";
 import { SnapshotControlsSection } from "@n-apt/capture";
 import { SourceSettingsSection } from "@n-apt/spectrum";
 import { FileSelectionSidebar } from "@n-apt/capture";
+import { OfflineCaptureUnlock } from "@n-apt/capture/sidebar/OfflineCaptureUnlock";
 import { TxSettingsSection } from "@n-apt/transmit";
 import { Button } from "@n-apt/ui/Button";
 import { ThemeSection } from "@n-apt/settings";
@@ -895,7 +896,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     (s) => s.websocket.restartPendingSourceIds,
   );
 
-  const { isAuthenticated, sessionToken, aesKey } = useAuthentication();
+  const { authState, isAuthenticated, sessionToken, aesKey } = useAuthentication();
+  const offlineFileOnly = !isAuthenticated && authState === "server_down";
+  useEffect(() => {
+    if (!offlineFileOnly) return;
+    if (sourceMode !== "file") dispatch(setSourceMode("file"));
+    dispatch(setStitchPaused(true));
+  }, [dispatch, offlineFileOnly, sourceMode]);
   const { getLocation } = useGeolocation();
   const liveIsConnected = wsConnection.isConnected ?? isConnected;
   const sourcesToUse = useMemo(() => {
@@ -3061,6 +3068,58 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       window.removeEventListener("resize", updateStickyState);
     };
   }, [isSticky]);
+
+  if (offlineFileOnly) {
+    return (
+      <SidebarContent data-offline-file-playback>
+        <StickyHeaderWrapper
+          ref={stickyWrapperRef}
+          $isSticky={false}
+          data-sidebar-sticky-header
+        >
+          <SourceHeaderRow>
+            <SectionTitle $fileMode $nested>
+              <SectionIcon>
+                <Unplug size={14} />
+              </SectionIcon>
+              <SectionText>Source</SectionText>
+            </SectionTitle>
+          </SourceHeaderRow>
+          <SourceInput
+            sourceMode="file"
+            fileModeColor="var(--color-file-mode)"
+            livePreviewStage={3}
+            fileActionLabel={fileActionLabel}
+            fileActionTitle={fileActionTitle}
+            selectedFilesCount={selectedFiles.length}
+            onFileAction={handleFileAction}
+            onFilesSelected={handleSourceFilesSelected}
+            devices={[]}
+            hideVaultStatus
+            onSourceModeChange={() => dispatch(setSourceMode("file"))}
+          />
+        </StickyHeaderWrapper>
+
+        <FileSelectionSidebar
+          selectedFiles={selectedFiles}
+          onSelectedFilesChange={(files) => dispatch(setSelectedFiles(files))}
+          stitchStatus={stitchStatus}
+          isStitchPaused={isStitchPaused}
+          onClear={() => {
+            selectedFiles.forEach((file) => fileRegistry.remove(file.id));
+            dispatch(setSelectedFiles([]));
+          }}
+          selectedPrimaryFile={selectedPrimaryFile}
+          naptMetadata={naptMetadata}
+          naptMetadataError={naptMetadataError}
+          sessionToken={sessionToken}
+          showMetadata={false}
+        />
+
+        <OfflineCaptureUnlock selectedFiles={selectedFiles} />
+      </SidebarContent>
+    );
+  }
 
   return (
     <SidebarContent>

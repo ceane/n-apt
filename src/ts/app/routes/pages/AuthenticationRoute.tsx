@@ -1910,8 +1910,12 @@ export const AuthenticationRoute: React.FC<AuthenticationRouteProps> = ({
     handleRegisterFidoKey,
   } = useAuthentication();
   const isPublicRoute = isPublicRoutePath(location.pathname);
+  const isOfflineFilePlayback =
+    location.pathname === "/visualizer" &&
+    !isAuthenticated &&
+    authState === "server_down";
 
-  if (isPublicRoute) {
+  if (isPublicRoute || isOfflineFilePlayback) {
     return <>{children}</>;
   }
 
